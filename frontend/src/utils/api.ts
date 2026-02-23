@@ -19,6 +19,9 @@ export const getTeams = (competition?: string) =>
 export const createTeam = (team: any) =>
   API.post<ApiResponse<any>>('/teams', team).then(r => r.data);
 
+export const getPlayersByTeam = (teamId: string) =>
+  API.get<ApiResponse<any[]>>(`/players/${teamId}`).then(r => r.data);
+
 // Matches
 export const getMatches = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
   API.get<ApiResponse<any[]>>('/matches', { params: filters }).then(r => r.data);
