@@ -5,3 +5,5 @@ frontend/build/
 backend/data/
 *.db-wal
 *.db-shm
+*.db-shm
+*.db-wal
