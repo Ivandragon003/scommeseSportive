@@ -238,10 +238,27 @@ export class DatabaseService {
     let q = 'SELECT * FROM matches WHERE 1=1';
     const p: Record<string, string> = {};
     if (filters?.competition) { q += ' AND competition = @competition'; p.competition = filters.competition; }
-    if (filters?.season) { q += ' AND season = @season'; p.season = filters.season; }
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(new Set([
+          rawSeason,
+          rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+          rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+        ]));
+        if (seasonVariants.length === 1) {
+          q += ' AND season = @season0';
+          p.season0 = seasonVariants[0];
+        } else {
+          const placeholders = seasonVariants.map((_, idx) => `@season${idx}`);
+          q += ` AND season IN (${placeholders.join(', ')})`;
+          seasonVariants.forEach((value, idx) => { p[`season${idx}`] = value; });
+        }
+      }
+    }
     if (filters?.fromDate) { q += ' AND date >= @fromDate'; p.fromDate = filters.fromDate; }
     if (filters?.toDate) { q += ' AND date <= @toDate'; p.toDate = filters.toDate; }
-    q += ' ORDER BY date ASC';
+    q += ' ORDER BY datetime(date) DESC';
     return this.db.prepare(q).all(p);
   }
 

@@ -13,6 +13,8 @@ const DataManager: React.FC = () => {
   const [importJson, setImportJson] = useState('');
   const [importResult, setImportResult] = useState<any>(null);
   const [competitionFilter, setCompetitionFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
   const [fitForm, setFitForm] = useState({ competition: 'Serie A', season: '' });
 
   useEffect(() => { loadData(); }, []);
@@ -22,7 +24,9 @@ const DataManager: React.FC = () => {
     try {
       const [teamsRes, matchesRes] = await Promise.all([getTeams(), getMatches()]);
       setTeams(teamsRes.data ?? []);
-      setMatches((matchesRes.data ?? []).slice(0, 200));
+      const orderedMatches = [...(matchesRes.data ?? [])]
+        .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setMatches(orderedMatches.slice(0, 500));
     } catch {}
     setLoading(false);
   };
@@ -58,7 +62,30 @@ const DataManager: React.FC = () => {
   };
 
   const competitions = Array.from(new Set(teams.map((t: any) => t.competition).filter(Boolean)));
-  const filteredMatches = competitionFilter ? matches.filter(m => m.competition === competitionFilter) : matches;
+  const seasons = Array.from(
+    new Set(
+      matches
+        .map((m: any) => String(m.season ?? '').trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+  const years = Array.from(
+    new Set(
+      matches
+        .map((m: any) => new Date(m.date).getFullYear())
+        .filter((y: number) => Number.isFinite(y))
+        .map((y: number) => String(y))
+    )
+  ).sort((a, b) => Number(b) - Number(a));
+  const filteredMatches = matches.filter((m: any) => {
+    if (competitionFilter && m.competition !== competitionFilter) return false;
+    if (seasonFilter && String(m.season ?? '') !== seasonFilter) return false;
+    if (yearFilter) {
+      const matchYear = new Date(m.date).getFullYear();
+      if (!Number.isFinite(matchYear) || String(matchYear) !== yearFilter) return false;
+    }
+    return true;
+  });
   const filteredTeams = competitionFilter ? teams.filter(t => t.competition === competitionFilter) : teams;
   const isEmpty = matches.length === 0 && teams.length === 0 && !loading;
 
@@ -199,6 +226,36 @@ const DataManager: React.FC = () => {
               ))}
             </div>
           )}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div>
+              <label className="form-label" style={{ marginBottom: 4, fontSize: 11 }}>Stagione</label>
+              <select
+                className="form-select"
+                value={seasonFilter}
+                onChange={e => setSeasonFilter(e.target.value)}
+                style={{ minWidth: 160 }}
+              >
+                <option value="">Tutte</option>
+                {seasons.map((s: string) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="form-label" style={{ marginBottom: 4, fontSize: 11 }}>Anno</label>
+              <select
+                className="form-select"
+                value={yearFilter}
+                onChange={e => setYearFilter(e.target.value)}
+                style={{ minWidth: 120 }}
+              >
+                <option value="">Tutti</option>
+                {years.map((y: string) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           {filteredMatches.length === 0 ? (
             <div className="alert alert-info">
               Nessuna partita nel database. Vai su <strong>Dati Automatici</strong> per scaricarle automaticamente da FotMob.
