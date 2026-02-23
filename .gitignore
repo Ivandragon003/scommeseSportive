@@ -1,2 +1,7 @@
 node_modules/
 .env
+backend/dist/
+frontend/build/
+backend/data/
+*.db-wal
+*.db-shm

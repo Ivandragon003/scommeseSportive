@@ -100,6 +100,10 @@ Apri http://localhost:3000
 
 ### Opzione 2: Sviluppo Locale
 
+Prerequisito locale (importante):
+- `Node.js >= 20` (consigliato tramite `.nvmrc`)
+- Con `better-sqlite3@12.6.2` il backend e testato anche su Node 24 (Windows)
+
 **Backend:**
 ```bash
 cd backend

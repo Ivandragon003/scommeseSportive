@@ -245,11 +245,53 @@ export class DatabaseService {
     return this.db.prepare(q).all(p);
   }
 
-  getUpcomingMatches(competition?: string): any[] {
-    const q = competition
-      ? `SELECT * FROM matches WHERE date > datetime('now') AND competition = ? AND home_goals IS NULL ORDER BY date ASC LIMIT 50`
-      : `SELECT * FROM matches WHERE date > datetime('now') AND home_goals IS NULL ORDER BY date ASC LIMIT 50`;
-    return this.db.prepare(q).all(competition ? [competition] : []);
+  getMatchById(matchId: string): any {
+    return this.db.prepare('SELECT match_id FROM matches WHERE match_id = ?').get(matchId);
+  }
+
+  getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): any[] {
+    let q = `
+      SELECT *
+      FROM matches
+      WHERE datetime(date) >= datetime('now')
+    `;
+
+    const params: Record<string, string | number> = {};
+
+    if (filters?.competition) {
+      q += ' AND competition = @competition';
+      params.competition = filters.competition;
+    }
+
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(new Set([
+          rawSeason,
+          rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+          rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+        ]));
+
+        if (seasonVariants.length === 1) {
+          q += ' AND season = @season0';
+          params.season0 = seasonVariants[0];
+        } else {
+          const placeholders = seasonVariants.map((_, idx) => `@season${idx}`);
+          q += ` AND season IN (${placeholders.join(', ')})`;
+          seasonVariants.forEach((value, idx) => { params[`season${idx}`] = value; });
+        }
+      }
+    }
+
+    const requestedLimit = Number(filters?.limit ?? 380);
+    const safeLimit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
+      : 380;
+
+    q += ' ORDER BY datetime(date) ASC LIMIT @limit';
+    params.limit = safeLimit;
+
+    return this.db.prepare(q).all(params);
   }
 getLastMatchDate(competition: string, season: string): string | null {
     const row = this.db.prepare(`

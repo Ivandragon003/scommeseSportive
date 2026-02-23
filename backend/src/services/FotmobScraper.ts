@@ -63,7 +63,7 @@ export class FotmobScraper {
   private readonly BASE_URL = 'https://www.fotmob.com';
   private readonly REQUEST_DELAY_MS = 220;
   private readonly DETAILS_MAX_RETRIES = 3;
-  private readonly DETAILS_RETRY_WAIT_MS = 15000;
+  private readonly DETAILS_RETRY_WAIT_MS = 5000;
   private readonly FETCH_TIMEOUT_MS = 45000;
   private browser: Browser | null = null;
   private page: Page | null = null;
@@ -111,6 +111,15 @@ export class FotmobScraper {
     if (value === null || value === undefined || value === '') return null;
     const parsed = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private isLikelyFinished(summary: any): boolean {
+    const finishedFlag = String(summary?.status?.finished ?? '').toLowerCase();
+    if (finishedFlag === 'true') return true;
+
+    const reason = String(summary?.status?.reason?.short ?? summary?.status?.reason?.long ?? '').toLowerCase();
+    if (!reason) return false;
+    return reason.includes('ft') || reason.includes('aet') || reason.includes('pen');
   }
 
   private extractGoalsFromSummary(summary: any): { home: number | null; away: number | null } {
@@ -278,9 +287,6 @@ export class FotmobScraper {
   private parseMatch(leagueName: string, season: string, summary: any, details: any | null): FotmobMatch | null {
     const sourceMatchId = this.toNumber(summary?.id ?? summary?.matchId);
     if (sourceMatchId === null) return null;
-    const status = String(summary?.status?.finished ?? summary?.status?.reason?.short ?? '').toLowerCase();
-    if (!status.includes('true') && status && !status.includes('ft')) return null;
-
     const rawDate = summary?.utcTime ?? summary?.time?.utcTime ?? summary?.status?.utcTime;
     if (!rawDate) return null;
     const date = new Date(rawDate);
@@ -291,8 +297,9 @@ export class FotmobScraper {
     if (!homeTeamName || !awayTeamName) return null;
 
     const goals = this.extractGoalsFromSummary(summary);
-    const homeGoals = goals.home;
-    const awayGoals = goals.away;
+    const finished = this.isLikelyFinished(summary);
+    const homeGoals = finished ? goals.home : null;
+    const awayGoals = finished ? goals.away : null;
 
     const homeTeamId = this.normalizeTeamName(homeTeamName);
     const awayTeamId = this.normalizeTeamName(awayTeamName);
@@ -363,7 +370,11 @@ export class FotmobScraper {
     };
   }
 
-  async scrapeSeason(competition: string, season: string): Promise<FotmobMatch[]> {
+  async scrapeSeason(
+    competition: string,
+    season: string,
+    options?: { includeDetails?: boolean }
+  ): Promise<FotmobMatch[]> {
     const cfg = COMPETITIONS[competition];
     if (!cfg) throw new Error(`Competizione non supportata: ${competition}`);
 
@@ -393,28 +404,34 @@ export class FotmobScraper {
 
     const results: FotmobMatch[] = [];
 
+    const includeDetails = options?.includeDetails !== false;
+
     for (const summary of allMatches) {
       const sourceMatchId = this.toNumber(summary?.id ?? summary?.matchId);
       if (sourceMatchId === null) continue;
 
       let details: any | null = null;
-      for (let attempt = 1; attempt <= this.DETAILS_MAX_RETRIES; attempt++) {
-        try {
-          details = await this.fetchJson<any>(`/api/matchDetails?matchId=${Math.trunc(sourceMatchId)}`);
-          break;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const isRateLimited = message.includes('returned 403') || message.includes('returned 429');
-          const canRetry = isRateLimited && attempt < this.DETAILS_MAX_RETRIES;
+      // Per partite future/non concluse non servono dettagli avanzati:
+      // evita molte richieste 403 e riduce drasticamente la durata dell'import.
+      if (includeDetails && this.isLikelyFinished(summary)) {
+        for (let attempt = 1; attempt <= this.DETAILS_MAX_RETRIES; attempt++) {
+          try {
+            details = await this.fetchJson<any>(`/api/matchDetails?matchId=${Math.trunc(sourceMatchId)}`);
+            break;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const isTooManyRequests = message.includes('returned 429');
+            const canRetry = isTooManyRequests && attempt < this.DETAILS_MAX_RETRIES;
 
-          if (canRetry) {
-            console.warn(`[FotmobScraper] ${message} su match ${sourceMatchId}, retry ${attempt}/${this.DETAILS_MAX_RETRIES} tra ${this.DETAILS_RETRY_WAIT_MS / 1000}s...`);
-            await this.sleep(this.DETAILS_RETRY_WAIT_MS);
-            continue;
+            if (canRetry) {
+              console.warn(`[FotmobScraper] ${message} su match ${sourceMatchId}, retry ${attempt}/${this.DETAILS_MAX_RETRIES} tra ${this.DETAILS_RETRY_WAIT_MS / 1000}s...`);
+              await this.sleep(this.DETAILS_RETRY_WAIT_MS);
+              continue;
+            }
+
+            console.warn(`[FotmobScraper] Fallback su match ${sourceMatchId}: ${message}`);
+            break;
           }
-
-          console.warn(`[FotmobScraper] Fallback su match ${sourceMatchId}: ${message}`);
-          break;
         }
       }
 
@@ -429,10 +446,14 @@ export class FotmobScraper {
     return results;
   }
 
-  async scrapeMultipleSeasons(competition: string, seasons: string[]): Promise<FotmobMatch[]> {
+  async scrapeMultipleSeasons(
+    competition: string,
+    seasons: string[],
+    options?: { includeDetails?: boolean }
+  ): Promise<FotmobMatch[]> {
     const out: FotmobMatch[] = [];
     for (const season of seasons) {
-      const matches = await this.scrapeSeason(competition, season);
+      const matches = await this.scrapeSeason(competition, season, options);
       out.push(...matches);
       await this.sleep(1000);
     }

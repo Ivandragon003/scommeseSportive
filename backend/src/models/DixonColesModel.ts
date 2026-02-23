@@ -159,6 +159,9 @@ export class DixonColesModel {
   private params: ModelParams;
   private readonly MAX_GOALS = 10;
   private specialized: SpecializedModels;
+  private readonly PARAM_BOUND = 3.5;
+  private readonly LAMBDA_MIN = 0.05;
+  private readonly LAMBDA_MAX = 6.0;
 
   constructor(params?: Partial<ModelParams>) {
     this.params = {
@@ -170,6 +173,20 @@ export class DixonColesModel {
       ...params
     };
     this.specialized = new SpecializedModels();
+  }
+
+  private clamp(v: number, min: number, max: number): number {
+    if (!isFinite(v)) return min;
+    return Math.min(max, Math.max(min, v));
+  }
+
+  private safeExp(x: number): number {
+    return Math.exp(this.clamp(x, -10, 10));
+  }
+
+  private safeProb(p: number): number {
+    if (!isFinite(p) || p < 0) return 0;
+    return p;
   }
 
   private poissonPMF(k: number, lambda: number): number {
@@ -194,12 +211,17 @@ export class DixonColesModel {
     homeId: string, awayId: string,
     homeXG?: number, awayXG?: number
   ): { lambdaHome: number; lambdaAway: number } {
-    const aH = Math.exp(this.params.attackParams[homeId] ?? 0);
-    const dA = Math.exp(-(this.params.defenceParams[awayId] ?? 0));
-    const aA = Math.exp(this.params.attackParams[awayId] ?? 0);
-    const dH = Math.exp(-(this.params.defenceParams[homeId] ?? 0));
+    const aHome = this.clamp(this.params.attackParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
+    const dAway = this.clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
+    const aAway = this.clamp(this.params.attackParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
+    const dHome = this.clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
 
-    let lH = aH * dA * Math.exp(this.params.homeAdvantage);
+    const aH = this.safeExp(aHome);
+    const dA = this.safeExp(-dAway);
+    const aA = this.safeExp(aAway);
+    const dH = this.safeExp(-dHome);
+
+    let lH = aH * dA * this.safeExp(this.params.homeAdvantage);
     let lA = aA * dH;
 
     if (homeXG !== undefined && awayXG !== undefined && homeXG > 0 && awayXG > 0) {
@@ -207,7 +229,13 @@ export class DixonColesModel {
       lA = 0.6 * lA + 0.4 * awayXG;
     }
 
-    return { lambdaHome: Math.max(0.1, lH), lambdaAway: Math.max(0.1, lA) };
+    if (!isFinite(lH) || lH <= 0) lH = 1.35;
+    if (!isFinite(lA) || lA <= 0) lA = 1.05;
+
+    return {
+      lambdaHome: this.clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX),
+      lambdaAway: this.clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX),
+    };
   }
 
   buildScoreMatrix(homeId: string, awayId: string, homeXG?: number, awayXG?: number): ScoreMatrix {
@@ -220,7 +248,7 @@ export class DixonColesModel {
     for (let h = 0; h <= N; h++) {
       probs[h] = [];
       for (let a = 0; a <= N; a++) {
-        const p = Math.max(0,
+        const p = this.safeProb(
           this.poissonPMF(h, lambdaHome) *
           this.poissonPMF(a, lambdaAway) *
           this.tauCorrection(h, a, lambdaHome, lambdaAway, rho)
@@ -228,6 +256,14 @@ export class DixonColesModel {
         probs[h][a] = p;
         total += p;
       }
+    }
+
+    if (!isFinite(total) || total <= 0) {
+      for (let h = 0; h <= N; h++) {
+        for (let a = 0; a <= N; a++) probs[h][a] = 0;
+      }
+      probs[0][0] = 1;
+      total = 1;
     }
 
     for (let h = 0; h <= N; h++)
@@ -395,7 +431,7 @@ export class DixonColesModel {
   /**
    * Stima parametri via gradient ascent sulla log-verosimiglianza ponderata.
    */
-  fitModel(matches: MatchData[], teams: string[], maxIter = 400, lr = 0.008): ModelParams {
+  fitModel(matches: MatchData[], teams: string[], maxIter = 280, lr = 0.04): ModelParams {
     for (const t of teams) {
       if (this.params.attackParams[t] === undefined) this.params.attackParams[t] = 0.0;
       if (this.params.defenceParams[t] === undefined) this.params.defenceParams[t] = 0.0;
@@ -403,6 +439,7 @@ export class DixonColesModel {
 
     const now = new Date();
     const validMatches = matches.filter(m => m.homeGoals !== undefined && m.awayGoals !== undefined);
+    if (validMatches.length === 0 || teams.length === 0) return this.params;
 
     const logLikelihood = (): number => {
       let ll = 0;
@@ -421,52 +458,93 @@ export class DixonColesModel {
         const y = m.awayGoals!;
 
         const pBase = this.poissonPMF(x, lH) * this.poissonPMF(y, lA);
-        const tau = this.tauCorrection(x, y, lH, lA, this.params.rho);
+        const tau = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
 
-        if (pBase > 0 && tau > 0) ll += w * Math.log(pBase * tau);
+        if (pBase > 0) ll += w * Math.log(Math.max(1e-12, pBase * tau));
       }
       return ll;
     };
 
-    const h = 1e-5;
-    let prevLL = logLikelihood();
-    let currentLR = lr;
+    const reg = 0.003;
+    let prevLL = -Infinity;
+    let flatIters = 0;
 
-    for (let iter = 0; iter < maxIter; iter++) {
-      let improved = false;
+    for (let iter = 1; iter <= maxIter; iter++) {
+      const gAttack: Record<string, number> = {};
+      const gDefence: Record<string, number> = {};
+      for (const t of teams) { gAttack[t] = 0; gDefence[t] = 0; }
+      let gHomeAdv = 0;
+      let gRho = 0;
 
-      for (const team of teams) {
-        this.params.attackParams[team] += h;
-        const llA = logLikelihood();
-        this.params.attackParams[team] -= h;
-        this.params.attackParams[team] += currentLR * (llA - prevLL) / h;
+      for (const m of validMatches) {
+        const age = (now.getTime() - m.date.getTime()) / (1000 * 60 * 60 * 24 * 7);
+        const w = Math.exp(-this.params.tau * age);
 
-        this.params.defenceParams[team] += h;
-        const llD = logLikelihood();
-        this.params.defenceParams[team] -= h;
-        this.params.defenceParams[team] += currentLR * (llD - prevLL) / h;
+        const aHome = this.params.attackParams[m.homeTeamId] ?? 0;
+        const dAway = this.params.defenceParams[m.awayTeamId] ?? 0;
+        const aAway = this.params.attackParams[m.awayTeamId] ?? 0;
+        const dHome = this.params.defenceParams[m.homeTeamId] ?? 0;
+
+        const lH = this.safeExp(aHome - dAway + this.params.homeAdvantage);
+        const lA = this.safeExp(aAway - dHome);
+        const x = m.homeGoals!;
+        const y = m.awayGoals!;
+
+        const errH = x - lH;
+        const errA = y - lA;
+
+        gAttack[m.homeTeamId] += w * errH;
+        gDefence[m.awayTeamId] += w * (-errH);
+        gAttack[m.awayTeamId] += w * errA;
+        gDefence[m.homeTeamId] += w * (-errA);
+        gHomeAdv += w * errH;
+
+        const tauCorr = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
+        const dTauDrho = this.tauDerivative(x, y, lH, lA);
+        if (isFinite(dTauDrho)) {
+          gRho += w * (dTauDrho / tauCorr);
+        }
       }
 
-      this.params.homeAdvantage += h;
-      const llHA = logLikelihood();
-      this.params.homeAdvantage -= h;
-      this.params.homeAdvantage += currentLR * (llHA - prevLL) / h;
-      this.params.homeAdvantage = Math.max(-0.3, Math.min(1.2, this.params.homeAdvantage));
+      const invN = 1 / validMatches.length;
+      const step = lr / Math.sqrt(iter);
 
-      this.params.rho += h;
-      const llR = logLikelihood();
-      this.params.rho -= h;
-      this.params.rho += currentLR * (llR - prevLL) / h;
-      this.params.rho = Math.max(-0.5, Math.min(0.0, this.params.rho));
+      for (const t of teams) {
+        const aGrad = this.clamp(gAttack[t] * invN - reg * (this.params.attackParams[t] ?? 0), -4, 4);
+        const dGrad = this.clamp(gDefence[t] * invN - reg * (this.params.defenceParams[t] ?? 0), -4, 4);
 
-      const newLL = logLikelihood();
-      if (newLL < prevLL - 1e-8) {
-        currentLR *= 0.7;
-      } else {
-        improved = true;
-        prevLL = newLL;
+        this.params.attackParams[t] = this.clamp(
+          (this.params.attackParams[t] ?? 0) + step * aGrad,
+          -this.PARAM_BOUND,
+          this.PARAM_BOUND
+        );
+        this.params.defenceParams[t] = this.clamp(
+          (this.params.defenceParams[t] ?? 0) + step * dGrad,
+          -this.PARAM_BOUND,
+          this.PARAM_BOUND
+        );
       }
-      if (iter > 50 && !improved) break;
+
+      this.params.homeAdvantage = this.clamp(
+        this.params.homeAdvantage + step * this.clamp(gHomeAdv * invN - reg * this.params.homeAdvantage, -2, 2),
+        -0.8,
+        1.2
+      );
+
+      this.params.rho = this.clamp(
+        this.params.rho + step * this.clamp(gRho * invN - 0.02 * (this.params.rho + 0.13), -1, 1),
+        -0.5,
+        0.0
+      );
+
+      const ll = logLikelihood();
+      if (!isFinite(ll)) break;
+
+      if (Math.abs(ll - prevLL) < 1e-6) flatIters++;
+      else flatIters = 0;
+
+      prevLL = ll;
+      if (iter > 60 && flatIters >= 12) break;
     }
 
     // Normalizzazione (identifiability constraint)
@@ -479,6 +557,14 @@ export class DixonColesModel {
     }
 
     return this.params;
+  }
+
+  private tauDerivative(x: number, y: number, lH: number, lA: number): number {
+    if (x === 0 && y === 0) return -lH * lA;
+    if (x === 1 && y === 0) return lA;
+    if (x === 0 && y === 1) return lH;
+    if (x === 1 && y === 1) return -1;
+    return 0;
   }
 
   getParams(): ModelParams { return this.params; }

@@ -12,6 +12,8 @@ export interface PredictionRequest {
   competition?: string;
   referee?: string;
   competitiveness?: number;
+  isDerby?: boolean;
+  isHighStakes?: boolean;
   bookmakerOdds?: Record<string, number>;
 }
 
@@ -37,12 +39,71 @@ export class PredictionService {
     this.backtester = new BacktestingEngine();
   }
 
+  private clamp(v: number, min: number, max: number): number {
+    if (!isFinite(v)) return min;
+    return Math.max(min, Math.min(max, v));
+  }
+
+  private sanitizeModelParams(raw: any) {
+    const attackParams: Record<string, number> = {};
+    const defenceParams: Record<string, number> = {};
+
+    for (const [team, value] of Object.entries(raw?.attackParams ?? {})) {
+      const n = Number(value);
+      attackParams[team] = isFinite(n) ? this.clamp(n, -3.5, 3.5) : 0;
+    }
+
+    for (const [team, value] of Object.entries(raw?.defenceParams ?? {})) {
+      const n = Number(value);
+      defenceParams[team] = isFinite(n) ? this.clamp(n, -3.5, 3.5) : 0;
+    }
+
+    return {
+      attackParams,
+      defenceParams,
+      homeAdvantage: this.clamp(Number(raw?.homeAdvantage ?? 0.25), -0.8, 1.2),
+      rho: this.clamp(Number(raw?.rho ?? -0.13), -0.5, 0.0),
+      tau: this.clamp(Number(raw?.tau ?? 0.0065), 0.0001, 0.05),
+    };
+  }
+
+  private normalizeBookmakerOdds(input?: Record<string, number>): Record<string, number> {
+    if (!input) return {};
+
+    const out: Record<string, number> = {};
+    const aliasMap: Record<string, string> = {
+      cards_over35: 'yellow_over_3.5',
+      cards_over45: 'yellow_over_4.5',
+      cards_over55: 'yellow_over_5.5',
+      cards_under35: 'yellow_under_3.5',
+      cards_under45: 'yellow_under_4.5',
+      fouls_over205: 'fouls_over_20.5',
+      fouls_over235: 'fouls_over_23.5',
+      fouls_over265: 'fouls_over_26.5',
+      fouls_under235: 'fouls_under_23.5',
+      shots_over225: 'shots_total_over_23.5',
+      shots_over255: 'shots_total_over_25.5',
+      shots_under225: 'shots_total_under_23.5',
+      sot_over75: 'sot_total_over_7.5',
+      sot_over95: 'sot_total_over_9.5',
+    };
+
+    for (const [k, rawV] of Object.entries(input)) {
+      const v = Number(rawV);
+      if (!isFinite(v) || v <= 1) continue;
+      out[k] = v;
+      if (aliasMap[k]) out[aliasMap[k]] = v;
+    }
+
+    return out;
+  }
+
   private getModel(competition: string = 'default'): DixonColesModel {
     if (!this.models.has(competition)) {
       const saved = this.db.getLatestModelParams(competition);
       if (saved) {
         const model = new DixonColesModel();
-        model.setParams(saved.params);
+        model.setParams(this.sanitizeModelParams(saved.params));
         this.models.set(competition, model);
       } else {
         this.models.set(competition, new DixonColesModel());
@@ -110,7 +171,7 @@ export class PredictionService {
       const hg = Math.min(m.homeGoals, matrix.maxGoals);
       const ag = Math.min(m.awayGoals, matrix.maxGoals);
       const p = matrix.probabilities[hg][ag];
-      if (p > 0) ll += Math.log(p);
+      ll += Math.log(Math.max(1e-12, p));
     }
     return ll;
   }
@@ -131,6 +192,11 @@ export class PredictionService {
       gamesPlayed: p.games_played, shotShareOfTeam: p.shot_share_of_team,
       isStarter: true, positionCode: p.position_code,
     });
+
+    const competitiveness =
+      request.competitiveness !== undefined
+        ? this.clamp(request.competitiveness, 0, 1)
+        : this.clamp(0.30 + (request.isDerby ? 0.35 : 0) + (request.isHighStakes ? 0.20 : 0), 0, 1);
 
     const supp: SupplementaryData = {
       homeTeamStats: homeTeam ? {
@@ -156,7 +222,7 @@ export class PredictionService {
       } : undefined,
       homePlayers: homePlayers.map(toPlayerData),
       awayPlayers: awayPlayers.map(toPlayerData),
-      competitiveness: request.competitiveness ?? 0.3,
+      competitiveness,
     };
 
     const probs = model.computeFullProbabilities(
@@ -166,10 +232,11 @@ export class PredictionService {
 
     // Value bets
     let valueOpportunities: BetOpportunity[] = [];
-    if (request.bookmakerOdds && Object.keys(request.bookmakerOdds).length > 0) {
+    const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds);
+    if (Object.keys(normalizedOdds).length > 0) {
       const flatProbs = this.flattenProbabilities(probs);
       const marketNames = this.buildMarketNames();
-      valueOpportunities = this.engine.analyzeMarkets(flatProbs, request.bookmakerOdds, marketNames);
+      valueOpportunities = this.engine.analyzeMarkets(flatProbs, normalizedOdds, marketNames);
     }
 
     const matchCount = this.db.getMatches({ competition: request.competition }).length;
@@ -187,6 +254,17 @@ export class PredictionService {
   }
 
   private flattenProbabilities(probs: FullMatchProbabilities): Record<string, number> {
+    const poisOver = (line: number, lambda: number) => {
+      const maxK = Math.max(14, Math.ceil(lambda + 8 * Math.sqrt(Math.max(0.1, lambda))));
+      let cdf = 0;
+      for (let k = 0; k <= Math.floor(line) && k <= maxK; k++) {
+        let p = Math.exp(-lambda);
+        for (let i = 1; i <= k; i++) p *= lambda / i;
+        cdf += p;
+      }
+      return Math.max(0, Math.min(1, 1 - cdf));
+    };
+
     const flat: Record<string, number> = {
       homeWin: probs.homeWin, draw: probs.draw, awayWin: probs.awayWin,
       btts: probs.btts, bttsNo: 1 - probs.btts,
@@ -220,25 +298,62 @@ export class PredictionService {
       flat[`cards_total_over_${k}`] = (v as any).over;
       flat[`cards_total_under_${k}`] = (v as any).under;
     }
+    flat.cards_over35 = probs.cards.overUnderYellow['3.5']?.over ?? 0;
+    flat.cards_over45 = probs.cards.overUnderYellow['4.5']?.over ?? 0;
+    flat.cards_over55 = probs.cards.overUnderYellow['5.5']?.over ?? 0;
+    flat.cards_under35 = probs.cards.overUnderYellow['3.5']?.under ?? 0;
+    flat.cards_under45 = probs.cards.overUnderYellow['4.5']?.under ?? 0;
 
     // Falli
     for (const [k, v] of Object.entries(probs.fouls.overUnder)) {
       flat[`fouls_over_${k}`] = (v as any).over;
       flat[`fouls_under_${k}`] = (v as any).under;
     }
+    flat.fouls_over205 = probs.fouls.overUnder['20.5']?.over ?? 0;
+    flat.fouls_over235 = probs.fouls.overUnder['23.5']?.over ?? 0;
+    flat.fouls_over265 = probs.fouls.overUnder['26.5']?.over ?? 0;
+    flat.fouls_under235 = probs.fouls.overUnder['23.5']?.under ?? 0;
+
+    // Alias legacy usati dal frontend
+    flat.shots_over225 = probs.shotsTotal['23.5']?.over ?? 0;
+    flat.shots_over255 = probs.shotsTotal['25.5']?.over ?? 0;
+    flat.shots_under225 = probs.shotsTotal['23.5']?.under ?? 0;
+    const lambdaSOT = Math.max(0.1, probs.shotsOnTargetHome.expected + probs.shotsOnTargetAway.expected);
+    flat.sot_over75 = poisOver(7.5, lambdaSOT);
+    flat.sot_over95 = poisOver(9.5, lambdaSOT);
+    flat['sot_total_over_7.5'] = flat.sot_over75;
+    flat['sot_total_over_9.5'] = flat.sot_over95;
 
     return flat;
   }
 
   private buildMarketNames(): Record<string, string> {
     return {
-      homeWin: '1X2 - Vittoria Casa', draw: '1X2 - Pareggio', awayWin: '1X2 - Vittoria Ospite',
-      btts: 'Goal/Goal - Sì', bttsNo: 'Goal/Goal - No',
-      over25: 'Over 2.5 Goal', under25: 'Under 2.5 Goal',
-      over15: 'Over 1.5 Goal', over35: 'Over 3.5 Goal',
+      homeWin: '1X2 - Vittoria Casa',
+      draw: '1X2 - Pareggio',
+      awayWin: '1X2 - Vittoria Ospite',
+      btts: 'Goal/Goal - Si',
+      bttsNo: 'Goal/Goal - No',
+      over25: 'Over 2.5 Goal',
+      under25: 'Under 2.5 Goal',
+      over15: 'Over 1.5 Goal',
+      over35: 'Over 3.5 Goal',
+      cards_over35: 'Cartellini Over 3.5',
+      cards_over45: 'Cartellini Over 4.5',
+      cards_over55: 'Cartellini Over 5.5',
+      cards_under35: 'Cartellini Under 3.5',
+      cards_under45: 'Cartellini Under 4.5',
+      fouls_over205: 'Falli Over 20.5',
+      fouls_over235: 'Falli Over 23.5',
+      fouls_over265: 'Falli Over 26.5',
+      fouls_under235: 'Falli Under 23.5',
+      shots_over225: 'Tiri Totali Over 22.5',
+      shots_over255: 'Tiri Totali Over 25.5',
+      shots_under225: 'Tiri Totali Under 22.5',
+      sot_over75: 'Tiri in Porta Over 7.5',
+      sot_over95: 'Tiri in Porta Over 9.5',
     };
   }
-
   // ==================== BUDGET ====================
 
   getBudget(userId: string) { return this.db.getBudget(userId); }
@@ -328,3 +443,4 @@ export class PredictionService {
     return result;
   }
 }
+

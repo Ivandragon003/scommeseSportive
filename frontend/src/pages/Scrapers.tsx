@@ -22,6 +22,7 @@ export default function Scrapers() {
   // fotmob
   const [fotmobComp, setFotmobComp] = useState('Serie A');
   const [fotmobYears, setFotmobYears] = useState(2);
+  const [fotmobImportPlayers, setFotmobImportPlayers] = useState(false);
   const [fotmobLoading, setFotmobLoading] = useState(false);
   const [fotmobResult, setFotmobResult] = useState<any>(null);
   const [fotmobError, setFotmobError] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export default function Scrapers() {
         mode,
         competition: fotmobComp,
         yearsBack: fotmobYears,
-        importPlayers: true,
+        importPlayers: fotmobImportPlayers,
       });
       setFotmobResult(res.data.data);
     } catch (e: any) { setFotmobError(e.response?.data?.error ?? e.message); }
@@ -169,6 +170,17 @@ export default function Scrapers() {
               </div>
             </div>
 
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={fotmobImportPlayers}
+                  onChange={e => setFotmobImportPlayers(e.target.checked)}
+                />
+                Aggiorna anche statistiche giocatori (piu lento, possibili 403 FotMob)
+              </label>
+            </div>
+
             <div style={{ display: 'grid', gap: 10 }}>
               <button className="sc-big-btn" onClick={() => handleFotmob('single')} disabled={fotmobLoading}>
                 {fotmobLoading
@@ -204,6 +216,8 @@ export default function Scrapers() {
                   ['Campionati', fotmobResult.competitions?.join(', ')],
                   ['Stagioni', fotmobResult.seasons?.join(', ')],
                   ['Nuove partite importate', fotmobResult.newMatchesImported ?? fotmobResult.imported],
+                  ['Partite future importate', fotmobResult.upcomingMatchesImported ?? 0],
+                  ['Partite gia presenti aggiornate', fotmobResult.existingMatchesUpdated ?? 0],
                   ['Squadre create', fotmobResult.teamsCreated],
                   ['Giocatori aggiornati', fotmobResult.playersUpdated],
                   ['Squadre con medie ricalcolate', fotmobResult.teamsRecomputed],

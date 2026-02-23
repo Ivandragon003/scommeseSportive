@@ -1,12 +1,81 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { getTeams, getBudget, placeBet } from '../utils/api';
+import { getTeams, getBudget, getMatches, getUpcomingMatches, getEurobetOddsForMatch, placeBet } from '../utils/api';
 import axios from 'axios';
 
 interface PredictionsProps { activeUser: string; }
 
 const fmtPct = (n: number) => (n * 100).toFixed(2) + '%';
 const fmtN = (n: number, d = 2) => n.toFixed(d);
+
+const currentSeason = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const start = month >= 7 ? year : year - 1;
+  return `${start}/${start + 1}`;
+};
+
+const formatKickoff = (dateIso?: string) => {
+  if (!dateIso) return '-';
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return String(dateIso);
+  return new Intl.DateTimeFormat('it-IT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+};
+
+const normalizeCompetitionName = (value?: string) =>
+  String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const isSerieACompetition = (value?: string) => normalizeCompetitionName(value) === 'serie a';
+
+const dateToDayKey = (dateIso?: string) => {
+  if (!dateIso) return 'unknown';
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return 'unknown';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDayLabel = (dayKey: string) => {
+  if (dayKey === 'unknown') return 'Data non disponibile';
+  const d = new Date(`${dayKey}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dayKey;
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(d);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+const buildSerieAMatchdayMap = (matches: any[]): Record<string, number> => {
+  const ordered = [...(matches ?? [])]
+    .filter((m: any) => isSerieACompetition(m.competition))
+    .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const out: Record<string, number> = {};
+  const MATCHES_PER_ROUND = 10;
+  ordered.forEach((m: any, idx: number) => {
+    const id = String(m.match_id ?? '');
+    if (!id) return;
+    out[id] = Math.floor(idx / MATCHES_PER_ROUND) + 1;
+  });
+  return out;
+};
 
 const ODDS_GROUPS = [
   { title: 'Goal', keys: ['homeWin', 'draw', 'awayWin', 'btts', 'bttsNo', 'over25', 'under25', 'over15', 'over35', 'over45'] },
@@ -17,7 +86,7 @@ const ODDS_GROUPS = [
 
 const MARKET_LABELS: Record<string, string> = {
   homeWin: 'Casa (1)', draw: 'Pareggio (X)', awayWin: 'Ospite (2)',
-  btts: 'Goal/Goal Sì', bttsNo: 'Goal/Goal No',
+  btts: 'Goal/Goal Si', bttsNo: 'Goal/Goal No',
   over15: 'Over 1.5', over25: 'Over 2.5', over35: 'Over 3.5', over45: 'Over 4.5',
   under25: 'Under 2.5', under35: 'Under 3.5',
   cards_over35: 'Cartellini O3.5', cards_over45: 'Cartellini O4.5',
@@ -51,7 +120,7 @@ const DistChart: React.FC<{ dist: Record<string, number>; expected: number; titl
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
-        <span style={{ fontSize: 12, color: '#5f6368' }}>μ = <strong>{fmtN(expected)}</strong></span>
+        <span style={{ fontSize: 12, color: '#5f6368' }}>Atteso = <strong>{fmtN(expected)}</strong></span>
       </div>
       <ResponsiveContainer width="100%" height={130}>
         <BarChart data={data} margin={{ top: 2, right: 4, bottom: 2, left: 0 }}>
@@ -69,36 +138,184 @@ const DistChart: React.FC<{ dist: Record<string, number>; expected: number; titl
 
 const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
   const [teams, setTeams] = useState<any[]>([]);
-  const [homeTeam, setHomeTeam] = useState('');
-  const [awayTeam, setAwayTeam] = useState('');
-  const [competition, setCompetition] = useState('');
+  const [competition, setCompetition] = useState('Serie A');
+  const [season, setSeason] = useState(currentSeason());
   const [isDerby, setIsDerby] = useState(false);
   const [isHighStakes, setIsHighStakes] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [upcomingLoading, setUpcomingLoading] = useState(false);
+  const [upcomingMatches, setUpcomingMatches] = useState<any[]>([]);
+  const [serieAMatchdayMap, setSerieAMatchdayMap] = useState<Record<string, number>>({});
   const [pred, setPred] = useState<any>(null);
   const [tab, setTab] = useState('1x2');
   const [budget, setBudget] = useState<any>(null);
   const [stakes, setStakes] = useState<Record<string, string>>({});
   const [betDone, setBetDone] = useState<Record<string, boolean>>({});
   const [odds, setOdds] = useState<Record<string, string>>({});
+  const [oddsStatus, setOddsStatus] = useState('');
+  const [oddsStatusTone, setOddsStatusTone] = useState<'info' | 'success' | 'warning' | 'danger'>('info');
+  const [oddsPanelOpen, setOddsPanelOpen] = useState(false);
 
   useEffect(() => {
     getTeams().then(r => setTeams(r.data ?? []));
     getBudget(activeUser).then(r => setBudget(r.data));
   }, [activeUser]);
 
-  const comps = Array.from(new Set(teams.map((t: any) => t.competition).filter(Boolean)));
-  const filteredTeams = competition ? teams.filter(t => t.competition === competition) : teams;
+  const loadUpcomingMatches = async () => {
+    setUpcomingLoading(true);
+    try {
+      const res = await getUpcomingMatches({
+        competition: competition || undefined,
+        season: season || undefined,
+        limit: 380,
+      });
+      setUpcomingMatches(res.data ?? []);
+    } catch (e) {
+      console.error('Errore caricamento partite future:', e);
+      setUpcomingMatches([]);
+    } finally {
+      setUpcomingLoading(false);
+    }
+  };
 
-  const handlePredict = async () => {
-    if (!homeTeam || !awayTeam) return;
+  const loadSerieAMatchdays = async () => {
+    if (!season || season.trim() === '') {
+      setSerieAMatchdayMap({});
+      return;
+    }
+    try {
+      const res = await getMatches({
+        competition: 'Serie A',
+        season: season.trim(),
+      });
+      setSerieAMatchdayMap(buildSerieAMatchdayMap(res.data ?? []));
+    } catch (e) {
+      console.error('Errore calcolo giornate Serie A:', e);
+      setSerieAMatchdayMap({});
+    }
+  };
+
+  useEffect(() => {
+    loadUpcomingMatches();
+  }, [competition, season]);
+
+  useEffect(() => {
+    loadSerieAMatchdays();
+  }, [season]);
+
+  const comps = Array.from(new Set(teams.map((t: any) => t.competition).filter(Boolean)));
+  const competitionOptions = Array.from(new Set(['Serie A', ...comps]));
+  const groupedUpcomingMatches = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    for (const m of upcomingMatches) {
+      const key = dateToDayKey(m.date);
+      const bucket = groups.get(key) ?? [];
+      bucket.push(m);
+      groups.set(key, bucket);
+    }
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => {
+        if (a === 'unknown') return 1;
+        if (b === 'unknown') return -1;
+        return a.localeCompare(b);
+      })
+      .map(([dayKey, matches]) => ({
+        dayKey,
+        dayLabel: formatDayLabel(dayKey),
+        matches: [...matches].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+      }));
+  }, [upcomingMatches]);
+
+  const parseOddsFromForm = () => {
+    const parsed: Record<string, number> = {};
+    Object.entries(odds).forEach(([k, v]) => {
+      const n = parseFloat(v);
+      if (!Number.isNaN(n) && n > 1) parsed[k] = n;
+    });
+    return parsed;
+  };
+
+  const applyOddsToForm = (incoming: Record<string, number>) => {
+    const asStrings: Record<string, string> = {};
+    for (const [k, v] of Object.entries(incoming ?? {})) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 1) asStrings[k] = v.toFixed(2);
+    }
+    if (Object.keys(asStrings).length > 0) {
+      setOdds(prev => ({ ...prev, ...asStrings }));
+      setOddsPanelOpen(true);
+    }
+  };
+
+  const resolveTeamName = (teamId: string, fallback?: string) => {
+    if (fallback && fallback.trim()) return fallback.trim();
+    const found = teams.find((t: any) => t.team_id === teamId);
+    return found?.name ?? teamId;
+  };
+
+  const loadEurobetOdds = async (match: any, comp: string) => {
+    const apiKey = localStorage.getItem('oddsApiKey')?.trim();
+    try {
+      setOddsStatus(
+        apiKey ? 'Recupero quote Eurobet in corso...'
+          : 'Nessuna API key configurata: recupero quote stimate dal modello interno...'
+      );
+      setOddsStatusTone(apiKey ? 'info' : 'warning');
+
+      const homeName = resolveTeamName(String(match.home_team_id ?? ''), match.home_team_name);
+      const awayName = resolveTeamName(String(match.away_team_id ?? ''), match.away_team_name);
+
+      const res = await getEurobetOddsForMatch({
+        apiKey: apiKey || undefined,
+        competition: comp || 'Serie A',
+        homeTeam: homeName,
+        awayTeam: awayName,
+        commenceTime: String(match.date ?? ''),
+      });
+
+      const payload = res.data ?? {};
+      const selectedOdds = payload.selectedOdds ?? {};
+      if (!payload.found || Object.keys(selectedOdds).length === 0) {
+        setOddsStatus(payload.message ?? 'Quote non disponibili per questa partita al momento.');
+        setOddsStatusTone('warning');
+        setOddsPanelOpen(true);
+        alert(payload.message ?? 'Quote non disponibili per questa partita al momento.');
+        return undefined;
+      }
+
+      applyOddsToForm(selectedOdds);
+      if (payload.usedSyntheticOdds) {
+        setOddsStatus('API esterna non usata/disponibile: caricate quote stimate dal modello interno.');
+        setOddsStatusTone('warning');
+      } else if (payload.usedFallbackBookmaker) {
+        setOddsStatus('Eurobet non disponibile ora: caricate quote del miglior bookmaker disponibile.');
+        setOddsStatusTone('warning');
+      } else {
+        setOddsStatus('Quote Eurobet caricate automaticamente.');
+        setOddsStatusTone('success');
+      }
+      return selectedOdds as Record<string, number>;
+    } catch (e: any) {
+      setOddsStatus(`Errore nel recupero quote automatiche: ${e.response?.data?.error ?? e.message}`);
+      setOddsStatusTone('danger');
+      setOddsPanelOpen(true);
+      alert(`Errore quote automatiche: ${e.response?.data?.error ?? e.message}`);
+      return undefined;
+    }
+  };
+
+  const runPrediction = async (
+    homeTeamId: string,
+    awayTeamId: string,
+    competitionOverride?: string,
+    oddsOverride?: Record<string, number>
+  ) => {
     setLoading(true); setPred(null);
-    const bookmakerOdds: Record<string, number> = {};
-    Object.entries(odds).forEach(([k, v]) => { const n = parseFloat(v); if (!isNaN(n) && n > 1) bookmakerOdds[k] = n; });
+    const bookmakerOdds = oddsOverride ?? parseOddsFromForm();
     try {
       const res = await axios.post('/api/predict', {
-        homeTeamId: homeTeam, awayTeamId: awayTeam,
-        competition: competition || undefined,
+        homeTeamId, awayTeamId,
+        competition: (competitionOverride ?? competition) || undefined,
         bookmakerOdds: Object.keys(bookmakerOdds).length > 0 ? bookmakerOdds : undefined,
         isDerby, isHighStakes,
       });
@@ -113,6 +330,22 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
       }
     } catch (e: any) { alert(e.response?.data?.error ?? e.message); }
     setLoading(false);
+  };
+
+  const handleAnalyzeUpcoming = async (match: any) => {
+    const nextHome = String(match.home_team_id ?? '');
+    const nextAway = String(match.away_team_id ?? '');
+    const nextCompetition = String(match.competition ?? competition);
+    const nextSeason = String(match.season ?? season);
+    if (!nextHome || !nextAway) return;
+
+    setOddsStatus('');
+    setOddsStatusTone('info');
+    if (nextCompetition && nextCompetition !== competition) setCompetition(nextCompetition);
+    if (nextSeason && nextSeason !== season) setSeason(nextSeason);
+    setTab('1x2');
+    const autoOdds = await loadEurobetOdds(match, nextCompetition || competition);
+    await runPrediction(nextHome, nextAway, nextCompetition || undefined, autoOdds);
   };
 
   const handleBet = async (opp: any) => {
@@ -140,61 +373,61 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
     { id: '1x2', label: '1X2 & Goal' },
     { id: 'handicap', label: 'Handicap' },
     { id: 'scores', label: 'Risultati Esatti' },
-    { id: 'cards', label: '🟨 Cartellini' },
-    { id: 'fouls', label: '⚠️ Falli' },
-    { id: 'shots', label: '🎯 Tiri Squadra' },
-    { id: 'players', label: `👤 Tiri Giocatori${pp.length ? ` (${pp.length})` : ''}` },
-    { id: 'value', label: `💰 Value (${vb.length})` },
+    { id: 'cards', label: 'Cartellini' },
+    { id: 'fouls', label: 'Falli' },
+    { id: 'shots', label: 'Tiri Squadra' },
+    { id: 'players', label: `Tiri Giocatori${pp.length ? ` (${pp.length})` : ''}` },
+    { id: 'value', label: `Value (${vb.length})` },
   ];
 
   return (
     <div>
-      <h1 className="page-title">🔮 Analisi Partita</h1>
+      <h1 className="page-title">Analisi Partita</h1>
       <p className="page-subtitle">
-        Goal: Dixon-Coles (Poisson+τ) &nbsp;·&nbsp; Cartellini/Falli: Binomiale Negativa &nbsp;·&nbsp; Tiri giocatori: ZIP
+        Goal: Dixon-Coles (Poisson+t) - Cartellini/Falli: Binomiale Negativa - Tiri giocatori: ZIP
       </p>
 
       <div className="card">
-        <div className="card-header"><h2 className="card-title">Configura Partita</h2></div>
+        <div className="card-header"><h2 className="card-title">Configura Filtri e Quote</h2></div>
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Competizione</label>
             <select className="form-select" value={competition} onChange={e => setCompetition(e.target.value)}>
               <option value="">Tutte</option>
-              {comps.map(c => <option key={c} value={c}>{c}</option>)}
+              {competitionOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-end', paddingBottom: 14 }}>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={isDerby} onChange={e => setIsDerby(e.target.checked)} />
-              Derby <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+22% gialli)</span>
-            </label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={isHighStakes} onChange={e => setIsHighStakes(e.target.checked)} />
-              Alta posta <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+12% gialli)</span>
-            </label>
+          <div className="form-group">
+            <label className="form-label">Stagione</label>
+            <input
+              className="form-input"
+              value={season}
+              onChange={e => setSeason(e.target.value)}
+              placeholder="es. 2025/2026"
+            />
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+              Default automatico: {currentSeason()}
+            </div>
           </div>
         </div>
-        <div className="form-row">
-          <div className="form-group">
-            <label className="form-label">Squadra Casa</label>
-            <select className="form-select" value={homeTeam} onChange={e => setHomeTeam(e.target.value)}>
-              <option value="">-- Seleziona --</option>
-              {filteredTeams.map(t => <option key={t.team_id} value={t.team_id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Squadra Ospite</label>
-            <select className="form-select" value={awayTeam} onChange={e => setAwayTeam(e.target.value)}>
-              <option value="">-- Seleziona --</option>
-              {filteredTeams.filter(t => t.team_id !== homeTeam).map(t => <option key={t.team_id} value={t.team_id}>{t.name}</option>)}
-            </select>
-          </div>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center', paddingBottom: 14 }}>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={isDerby} onChange={e => setIsDerby(e.target.checked)} />
+            Derby <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+22% gialli)</span>
+          </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={isHighStakes} onChange={e => setIsHighStakes(e.target.checked)} />
+            Alta posta <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+12% gialli)</span>
+          </label>
         </div>
 
-        <details style={{ marginBottom: 14 }}>
+        <details
+          open={oddsPanelOpen}
+          onToggle={(e) => setOddsPanelOpen((e.target as HTMLDetailsElement).open)}
+          style={{ marginBottom: 14 }}
+        >
           <summary style={{ cursor: 'pointer', fontWeight: 600, padding: '8px 0', fontSize: 14 }}>
-            💱 Quote Bookmaker — clicca per inserire (calcola EV e Kelly)
+            Quote Bookmaker - clicca per inserire (calcola EV e Kelly)
           </summary>
           <div style={{ paddingTop: 12 }}>
             {ODDS_GROUPS.map(g => (
@@ -216,9 +449,87 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
           </div>
         </details>
 
-        <button className="btn btn-primary btn-lg" onClick={handlePredict} disabled={loading || !homeTeam || !awayTeam}>
-          {loading ? '⏳ Calcolo in corso...' : '🔮 Analizza Partita'}
-        </button>
+        {oddsStatus && (
+          <div className={`alert alert-${oddsStatusTone}`} style={{ marginBottom: 14 }}>
+            {oddsStatus}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h2 className="card-title">Partite da Giocare</h2>
+            <div className="card-subtitle">
+              {competition || 'Tutte le competizioni'} {season ? `- Stagione ${season}` : ''}
+            </div>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={loadUpcomingMatches} disabled={upcomingLoading}>
+            {upcomingLoading ? 'Aggiornamento...' : 'Aggiorna'}
+          </button>
+        </div>
+
+        {upcomingLoading ? (
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <div>Caricamento partite future...</div>
+          </div>
+        ) : groupedUpcomingMatches.length === 0 ? (
+          <div className="alert alert-info">
+            Nessuna partita futura trovata con questi filtri. Se hai appena importato i dati, premi "Aggiorna".
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Data/Ora</th>
+                  <th>Casa</th>
+                  <th>Ospite</th>
+                  <th>Competizione</th>
+                  <th>Stagione</th>
+                  <th style={{ width: 120 }}>Azione</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedUpcomingMatches.map(group => (
+                  <React.Fragment key={group.dayKey}>
+                    <tr>
+                      <td colSpan={6} style={{ background: 'var(--bg)', fontWeight: 700, fontSize: 13 }}>
+                        {group.dayLabel} - {group.matches.length} partite
+                      </td>
+                    </tr>
+                    {group.matches.map((m: any) => {
+                      const matchday = serieAMatchdayMap[String(m.match_id ?? '')];
+                      const showMatchday = isSerieACompetition(m.competition ?? competition);
+                      return (
+                        <tr key={m.match_id}>
+                          <td>
+                            <div>{formatKickoff(m.date)}</div>
+                            {showMatchday && (
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                {matchday ? `Giornata ${matchday}` : 'Giornata -'}
+                              </div>
+                            )}
+                          </td>
+                          <td>{m.home_team_name ?? m.home_team_id}</td>
+                          <td>{m.away_team_name ?? m.away_team_id}</td>
+                          <td>{m.competition ?? '-'}</td>
+                          <td>{m.season ?? '-'}</td>
+                          <td>
+                            <button className="btn btn-primary btn-sm" onClick={() => handleAnalyzeUpcoming(m)} disabled={loading}>
+                              Analizza
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {pred && (
@@ -227,7 +538,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
             <div style={{ textAlign: 'right', flex: 1 }}>
               <div className="team-name">{pred.homeTeam}</div>
               <div className="expected-goals" style={{ justifyContent: 'flex-end' }}>
-                <span className="xg-chip">λ = {pred.lambdaHome}</span>
+                <span className="xg-chip">lambda = {pred.lambdaHome}</span>
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
@@ -237,7 +548,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
             <div style={{ textAlign: 'left', flex: 1 }}>
               <div className="team-name">{pred.awayTeam}</div>
               <div className="expected-goals">
-                <span className="xg-chip">λ = {pred.lambdaAway}</span>
+                <span className="xg-chip">lambda = {pred.lambdaAway}</span>
               </div>
             </div>
           </div>
@@ -326,21 +637,21 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
           {tab === 'cards' && cp && (
             <div>
               <div className="alert alert-info">
-                <strong>Binomiale Negativa</strong> — La varianza dei cartellini ({fmtN(cp.totalYellow.variance)}) &gt; media ({fmtN(cp.totalYellow.expected)}):
-                overdispersion che la Poisson non può modellare. Parametro r calibrato su dati storici.
-                {cp.confidenceLevel < 0.7 && <span style={{ color: 'var(--warning)' }}> · ⚠️ Dati limitati (confidenza {(cp.confidenceLevel*100).toFixed(0)}%)</span>}
+                <strong>Binomiale Negativa</strong> - La varianza dei cartellini ({fmtN(cp.totalYellow.variance)}) &gt; media ({fmtN(cp.totalYellow.expected)}):
+                overdispersion che la Poisson non puo modellare. Parametro r calibrato su dati storici.
+                {cp.confidenceLevel < 0.7 && <span style={{ color: 'var(--warning)' }}> Dati limitati (confidenza {(cp.confidenceLevel*100).toFixed(0)}%)</span>}
               </div>
               <div className="grid-2">
                 <div className="card">
                   <div className="card-header">
                     <h2 className="card-title">Gialli Totali</h2>
                     <div>
-                      <span className="badge badge-blue">μ = {fmtN(cp.totalYellow.expected)}</span>
-                      {' '}<span className="badge badge-gray">σ² = {fmtN(cp.totalYellow.variance)}</span>
+                      <span className="badge badge-blue">Media = {fmtN(cp.totalYellow.expected)}</span>
+                      {' '}<span className="badge badge-gray">Var = {fmtN(cp.totalYellow.variance)}</span>
                     </div>
                   </div>
                   <DistChart dist={cp.totalYellow.distribution} expected={cp.totalYellow.expected}
-                    title="P(gialli = k) — NegBin" color="#fbbc04" />
+                    title="P(gialli = k) - NegBin" color="#fbbc04" />
                   {['over15','over25','over35','over45','over55','over65'].map(k => (
                     <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)/,'$1.$2')}`}
                       value={(cp.overUnder as any)[k]} color="var(--warning)" />
@@ -361,12 +672,12 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                     <ProbBar label="Over 3.5" value={cp.awayYellow.over35} color="var(--danger)" />
                   </div>
                   <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 6, fontSize: 13 }}>
-                    <strong>🔴 Rossi</strong> — media attesa: {fmtN(cp.totalRed.expected, 3)} &nbsp;·&nbsp;
-                    P(≥1 rosso): <strong>{(cp.totalRed.probAtLeastOne * 100).toFixed(1)}%</strong>
+                    <strong>Rossi</strong> - media attesa: {fmtN(cp.totalRed.expected, 3)} &nbsp;&nbsp;
+                    P(almeno 1 rosso): <strong>{(cp.totalRed.probAtLeastOne * 100).toFixed(1)}%</strong>
                   </div>
                   <div style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 6 }}>
                     <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Cartellini Pesati (1G=1, 1R=2)</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>μ = {fmtN(cp.totalCardsWeighted.expected)}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>Media = {fmtN(cp.totalCardsWeighted.expected)}</div>
                     <ProbBar label="Over 3.5" value={cp.totalCardsWeighted.over35} color="var(--danger)" />
                     <ProbBar label="Over 4.5" value={cp.totalCardsWeighted.over45} color="var(--danger)" />
                     <ProbBar label="Over 5.5" value={cp.totalCardsWeighted.over55} color="var(--danger)" />
@@ -379,18 +690,18 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
           {tab === 'fouls' && fp && (
             <div className="card">
               <div className="card-header">
-                <h2 className="card-title">Falli — Binomiale Negativa</h2>
+                <h2 className="card-title">Falli - Binomiale Negativa</h2>
                 <div>
-                  <span className="badge badge-blue">μ = {fmtN(fp.totalFouls.expected)}</span>
-                  {' '}<span className="badge badge-gray">σ² = {fmtN(fp.totalFouls.variance)}</span>
+                  <span className="badge badge-blue">Media = {fmtN(fp.totalFouls.expected)}</span>
+                  {' '}<span className="badge badge-gray">Var = {fmtN(fp.totalFouls.variance)}</span>
                 </div>
               </div>
               <div className="alert alert-info" style={{ marginBottom: 14 }}>
-                Casa: {fmtN(fp.homeFouls.expected)} falli attesi &nbsp;·&nbsp; Ospite: {fmtN(fp.awayFouls.expected)} falli attesi
-                &nbsp;·&nbsp; Rapporto σ²/μ = {fmtN(fp.totalFouls.variance / fp.totalFouls.expected, 2)}x (overdispersion)
+                Casa: {fmtN(fp.homeFouls.expected)} falli attesi - Ospite: {fmtN(fp.awayFouls.expected)} falli attesi
+                - Rapporto var/media = {fmtN(fp.totalFouls.variance / fp.totalFouls.expected, 2)}x (overdispersion)
               </div>
               <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected}
-                title="P(falli totali = k) — Binomiale Negativa" color="#5f6368" />
+                title="P(falli totali = k) - Binomiale Negativa" color="#5f6368" />
               <div className="grid-2">
                 {Object.entries(fp.overUnder).filter(([k]) => k.startsWith('over')).map(([k, v]) => (
                   <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)(\d)/,'$1$2.$3')}`}
@@ -406,7 +717,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                 <div className="card">
                   <div className="card-header">
                     <h2 className="card-title">{pred.homeTeam}</h2>
-                    <span className="badge badge-blue">μ tiri = {fmtN(sp.home.totalShots.expected)}</span>
+                    <span className="badge badge-blue">Media tiri = {fmtN(sp.home.totalShots.expected)}</span>
                   </div>
                   <DistChart dist={sp.home.totalShots.distribution} expected={sp.home.totalShots.expected}
                     title="Tiri totali" color="var(--primary)" />
@@ -416,7 +727,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                 <div className="card">
                   <div className="card-header">
                     <h2 className="card-title">{pred.awayTeam}</h2>
-                    <span className="badge badge-red">μ tiri = {fmtN(sp.away.totalShots.expected)}</span>
+                    <span className="badge badge-red">Media tiri = {fmtN(sp.away.totalShots.expected)}</span>
                   </div>
                   <DistChart dist={sp.away.totalShots.distribution} expected={sp.away.totalShots.expected}
                     title="Tiri totali" color="var(--danger)" />
@@ -428,7 +739,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                 <div className="card-header">
                   <h2 className="card-title">Totali Combinati</h2>
                   <span className="badge badge-blue">
-                    Tiri: {fmtN(sp.combined.totalShots.expected)} &nbsp;·&nbsp; In porta: {fmtN(sp.combined.totalOnTarget.expected)}
+                    Tiri: {fmtN(sp.combined.totalShots.expected)} - In porta: {fmtN(sp.combined.totalOnTarget.expected)}
                   </span>
                 </div>
                 <div className="grid-2">
@@ -454,10 +765,10 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
               {pp.length === 0 ? (
                 <div className="alert alert-info">
                   <strong>Modello ZIP (Zero-Inflated Poisson)</strong><br /><br />
-                  P(X=0) = π + (1-π)e^(-λ) &nbsp;·&nbsp; E(X) = (1-π)λ &nbsp;·&nbsp; Var(X) = (1-π)λ(1+πλ)<br /><br />
-                  Il parametro π cattura la probabilità strutturale di zero tiri (giocatore fuori, neutralizzato, non in forma).
+                  P(X=0) = pi + (1-pi)e^(-lambda) - E(X) = (1-pi)lambda - Var(X) = (1-pi)lambda(1+pi*lambda)<br /><br />
+                  Il parametro pi cattura la probabilita strutturale di zero tiri (giocatore fuori, neutralizzato, non in forma).
                   Questo distingue il "vero" zero da chi semplicemente non ha tirato per caso.<br /><br />
-                  I parametri π e λ vengono stimati con algoritmo EM (Expectation-Maximization) su dati storici per giocatore.<br /><br />
+                  I parametri pi e lambda vengono stimati con algoritmo EM (Expectation-Maximization) su dati storici per giocatore.<br /><br />
                   Per usare questo modello, passa i profili giocatori nell'API o caricali dalla sezione Gestione Dati.
                 </div>
               ) : pp.map((p: any) => (
@@ -466,7 +777,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                     <div>
                       <h2 className="card-title">{p.playerName}</h2>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {p.position} · Confidenza: {(p.confidenceLevel * 100).toFixed(0)}% ({p.sampleSize} partite)
+                        {p.position} - Confidenza: {(p.confidenceLevel * 100).toFixed(0)}% ({p.sampleSize} partite)
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -479,13 +790,13 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                     <DistChart dist={p.shotDistribution} expected={p.expectedShots}
                       title="Distribuzione tiri (ZIP)" color="var(--primary)" />
                     <div>
-                      <ProbBar label="≥1 tiro (Over 0.5)" value={p.markets.over05shots} color="var(--primary)" />
-                      <ProbBar label="≥2 tiri (Over 1.5)" value={p.markets.over15shots} color="var(--primary)" />
-                      <ProbBar label="≥3 tiri (Over 2.5)" value={p.markets.over25shots} color="var(--warning)" />
+                      <ProbBar label=">=1 tiro (Over 0.5)" value={p.markets.over05shots} color="var(--primary)" />
+                      <ProbBar label=">=2 tiri (Over 1.5)" value={p.markets.over15shots} color="var(--primary)" />
+                      <ProbBar label=">=3 tiri (Over 2.5)" value={p.markets.over25shots} color="var(--warning)" />
                       <ProbBar label="0 tiri" value={p.markets.zeroShots} color="var(--neutral)" />
                       <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8 }}>
-                        <ProbBar label="≥1 in porta" value={p.markets.over05onTarget} color="var(--secondary)" />
-                        <ProbBar label="≥2 in porta" value={p.markets.over15onTarget} color="var(--secondary)" />
+                        <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--secondary)" />
+                        <ProbBar label=">=2 in porta" value={p.markets.over15onTarget} color="var(--secondary)" />
                       </div>
                     </div>
                   </div>
@@ -501,7 +812,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
               ) : (
                 <>
                   <div className="alert alert-success">
-                    ✅ {vb.length} scommesse a EV positivo (soglia EV &gt; 2%). Le probabilità usano il modello specifico per ogni mercato.
+                    {vb.length} scommesse a EV positivo (soglia EV &gt; 2%). Le probabilita usano il modello specifico per ogni mercato.
                   </div>
                   {vb.map((o: any) => (
                     <div key={o.selection} className={`value-bet-card ${o.confidence === 'MEDIUM' ? 'medium' : o.confidence === 'LOW' ? 'low' : ''}`}>
@@ -519,18 +830,18 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                       ))}
                       <div className="vb-footer">
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 13 }}>Puntata (€):</span>
+                          <span style={{ fontSize: 13 }}>Puntata (EUR):</span>
                           <input className="form-input" type="number" style={{ width: 90 }}
                             value={stakes[o.selection] ?? ''} placeholder={`${o.suggestedStakePercent}%`}
                             onChange={e => setStakes(p => ({ ...p, [o.selection]: e.target.value }))} />
                           {budget && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                            suggerito: €{((o.suggestedStakePercent / 100) * (budget.available_budget ?? 0)).toFixed(2)}
+                            suggerito: EUR {((o.suggestedStakePercent / 100) * (budget.available_budget ?? 0)).toFixed(2)}
                           </span>}
                         </div>
                         {betDone[o.selection] ? (
-                          <span className="badge badge-green">✅ Registrata</span>
+                          <span className="badge badge-green">OK Registrata</span>
                         ) : (
-                          <button className="btn btn-success btn-sm" onClick={() => handleBet(o)}>💰 Registra</button>
+                          <button className="btn btn-success btn-sm" onClick={() => handleBet(o)}>Registra</button>
                         )}
                       </div>
                     </div>

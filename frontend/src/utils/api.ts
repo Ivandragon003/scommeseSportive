@@ -23,8 +23,21 @@ export const createTeam = (team: any) =>
 export const getMatches = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
   API.get<ApiResponse<any[]>>('/matches', { params: filters }).then(r => r.data);
 
-export const getUpcomingMatches = (competition?: string) =>
-  API.get<ApiResponse<any[]>>('/matches/upcoming', { params: { competition } }).then(r => r.data);
+export const getUpcomingMatches = (
+  filters?: { competition?: string; season?: string; limit?: number } | string
+) => {
+  const params = typeof filters === 'string' ? { competition: filters } : (filters ?? {});
+  return API.get<ApiResponse<any[]>>('/matches/upcoming', { params }).then(r => r.data);
+};
+
+export const getEurobetOddsForMatch = (params: {
+  apiKey?: string;
+  competition: string;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime?: string;
+}) =>
+  API.post<ApiResponse<any>>('/scraper/odds/match', params).then(r => r.data);
 
 export const createMatch = (match: any) =>
   API.post<ApiResponse<any>>('/matches', match).then(r => r.data);
