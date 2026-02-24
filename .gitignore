@@ -3,6 +3,9 @@ node_modules/
 backend/dist/
 frontend/build/
 backend/data/
+data/
+*.db
+*.db-*
 *.db-wal
 *.db-shm
 *.db-shm

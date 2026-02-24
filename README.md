@@ -221,7 +221,19 @@ football-predictor/
 2. **Il backtesting usa 70% dati training, 30% test** (divisione cronologica)
 3. **Le scommesse con EV > 2% sono considerate value bets** - non garantisce profitto
 4. **Usa sempre Kelly Frazionale** (1/4 o 1/2 Kelly) per limitare la varianza
-5. **I dati sono salvati localmente** in SQLite (`backend/data/football_predictor.db`)
+5. **I dati sono salvati localmente** in SQLite (`data/football_predictor.db`)
+
+### Migrazione SQLite -> Turso
+
+Per spostare il database locale su Turso:
+
+```bash
+cd backend
+npm install
+TURSO_DATABASE_URL="libsql://<your-db>.turso.io" TURSO_AUTH_TOKEN="<token>" npm run db:migrate:turso
+```
+
+Opzionale: puoi specificare un path SQLite custom con `SQLITE_DB_PATH`.
 
 ---
 
