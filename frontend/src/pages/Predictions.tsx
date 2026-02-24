@@ -78,10 +78,10 @@ const buildSerieAMatchdayMap = (matches: any[]): Record<string, number> => {
 };
 
 const ODDS_GROUPS = [
-  { title: 'Goal', keys: ['homeWin', 'draw', 'awayWin', 'btts', 'bttsNo', 'over25', 'under25', 'over15', 'over35', 'over45'] },
-  { title: 'Cartellini', keys: ['cards_over35', 'cards_over45', 'cards_over55', 'cards_under35', 'cards_under45'] },
-  { title: 'Falli', keys: ['fouls_over235', 'fouls_under235', 'fouls_over205', 'fouls_over265'] },
-  { title: 'Tiri', keys: ['shots_over225', 'shots_over255', 'shots_under225', 'sot_over75', 'sot_over95'] },
+  { title: 'Goal', keys: ['homeWin', 'draw', 'awayWin', 'btts', 'bttsNo', 'over15', 'over25', 'over35', 'over45', 'under25', 'under35'] },
+  { title: 'Cartellini', keys: ['yellow_over_3.5', 'yellow_over_4.5', 'yellow_over_5.5', 'yellow_under_3.5', 'yellow_under_4.5'] },
+  { title: 'Falli', keys: ['fouls_over_20.5', 'fouls_over_23.5', 'fouls_over_26.5', 'fouls_under_23.5'] },
+  { title: 'Tiri', keys: ['shots_total_over_23.5', 'shots_total_over_25.5', 'shots_total_under_23.5', 'sot_total_over_7.5', 'sot_total_over_9.5'] },
 ];
 
 const MARKET_LABELS: Record<string, string> = {
@@ -96,6 +96,70 @@ const MARKET_LABELS: Record<string, string> = {
   fouls_under235: 'Falli U23.5', shots_over225: 'Tiri O22.5',
   shots_over255: 'Tiri O25.5', shots_under225: 'Tiri U22.5',
   sot_over75: 'Tiri Porta O7.5', sot_over95: 'Tiri Porta O9.5',
+  'yellow_over_3.5': 'Gialli O3.5', 'yellow_over_4.5': 'Gialli O4.5', 'yellow_over_5.5': 'Gialli O5.5',
+  'yellow_under_3.5': 'Gialli U3.5', 'yellow_under_4.5': 'Gialli U4.5',
+  'fouls_over_20.5': 'Falli O20.5', 'fouls_over_23.5': 'Falli O23.5', 'fouls_over_26.5': 'Falli O26.5', 'fouls_under_23.5': 'Falli U23.5',
+  'shots_total_over_23.5': 'Tiri Totali O23.5', 'shots_total_over_25.5': 'Tiri Totali O25.5', 'shots_total_under_23.5': 'Tiri Totali U23.5',
+  'sot_total_over_7.5': 'Tiri Porta Totali O7.5', 'sot_total_over_9.5': 'Tiri Porta Totali O9.5',
+};
+
+const formatLineFromToken = (raw: string) => {
+  const cleaned = String(raw ?? '').trim().replace(',', '.');
+  if (/^\d+\.\d+$/.test(cleaned)) return cleaned;
+  if (/^\d+$/.test(cleaned) && cleaned.length >= 2) return `${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`;
+  return cleaned;
+};
+
+const inferDynamicMarketLabel = (key: string): string | null => {
+  const m = key.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+  if (m) {
+    const domainLabel: Record<string, string> = {
+      shots_total: 'Tiri Totali',
+      shots_home: 'Tiri Casa',
+      shots_away: 'Tiri Ospite',
+      fouls: 'Falli Totali',
+      yellow: 'Gialli Totali',
+      cards_total: 'Cartellini Pesati',
+      sot_total: 'Tiri in Porta Totali',
+    };
+    const side = m[2].toLowerCase() === 'over' ? 'Over' : 'Under';
+    return `${domainLabel[m[1].toLowerCase()] ?? m[1]} ${side} ${formatLineFromToken(m[3])}`;
+  }
+  return null;
+};
+
+const marketLabel = (key: string): string => MARKET_LABELS[key] ?? inferDynamicMarketLabel(key) ?? key;
+
+const collectOddsKeysFromPrediction = (prediction: any): string[] => {
+  const probs = prediction?.probabilities ?? {};
+  const keys = new Set<string>([
+    'homeWin', 'draw', 'awayWin', 'btts', 'bttsNo',
+    'over05', 'over15', 'over25', 'over35', 'over45',
+    'under15', 'under25', 'under35', 'under45',
+  ]);
+
+  const addOuPairs = (obj: any, prefix: string) => {
+    for (const line of Object.keys(obj ?? {})) {
+      keys.add(`${prefix}_over_${line}`);
+      keys.add(`${prefix}_under_${line}`);
+    }
+  };
+
+  addOuPairs(probs.shotsTotal, 'shots_total');
+  addOuPairs(probs.shotsHome?.overUnder, 'shots_home');
+  addOuPairs(probs.shotsAway?.overUnder, 'shots_away');
+  addOuPairs(probs.cards?.overUnderYellow, 'yellow');
+  addOuPairs(probs.cards?.overUnderTotal, 'cards_total');
+  addOuPairs(probs.fouls?.overUnder, 'fouls');
+
+  // Tiri in porta combinati (linee generate nel backend)
+  for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
+    const token = line.toFixed(1);
+    keys.add(`sot_total_over_${token}`);
+    keys.add(`sot_total_under_${token}`);
+  }
+
+  return Array.from(keys);
 };
 
 const ProbBar: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color = '#1a73e8' }) => (
@@ -327,6 +391,9 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
             st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
         }
         setStakes(st);
+        if ((res.data.data.valueOpportunities ?? []).length > 0) {
+          setTab('value');
+        }
       }
     } catch (e: any) { alert(e.response?.data?.error ?? e.message); }
     setLoading(false);
@@ -349,17 +416,25 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
   };
 
   const handleBet = async (opp: any) => {
+    if (!budget) {
+      alert('Inizializza prima il bankroll nella sezione Budget.');
+      return;
+    }
     const stake = parseFloat(stakes[opp.selection] ?? '0');
     if (!stake) { alert('Inserisci importo'); return; }
-    await placeBet({
-      userId: activeUser, matchId: pred.matchId,
-      marketName: opp.marketName, selection: opp.selection,
-      odds: opp.bookmakerOdds, stake,
-      ourProbability: opp.ourProbability / 100,
-      expectedValue: opp.expectedValue / 100,
-    });
-    setBetDone(p => ({ ...p, [opp.selection]: true }));
-    getBudget(activeUser).then(r => setBudget(r.data));
+    try {
+      await placeBet({
+        userId: activeUser, matchId: pred.matchId,
+        marketName: opp.marketName, selection: opp.selection,
+        odds: opp.bookmakerOdds, stake,
+        ourProbability: opp.ourProbability / 100,
+        expectedValue: opp.expectedValue / 100,
+      });
+      setBetDone(p => ({ ...p, [opp.selection]: true }));
+      getBudget(activeUser).then(r => setBudget(r.data));
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? e?.message ?? 'Errore nel piazzamento scommessa.');
+    }
   };
 
   const gp = pred?.goalProbabilities;
@@ -368,6 +443,12 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
   const sp = pred?.shotsPrediction;
   const pp: any[] = pred?.playerShotsPredictions ?? [];
   const vb: any[] = pred?.valueOpportunities ?? [];
+  const staticOddsKeys = useMemo(() => new Set(ODDS_GROUPS.flatMap(g => g.keys)), []);
+  const dynamicOddsKeys = useMemo(() => {
+    const keys = new Set<string>([...Object.keys(odds), ...collectOddsKeysFromPrediction(pred)]);
+    for (const k of staticOddsKeys) keys.delete(k);
+    return Array.from(keys).sort((a, b) => a.localeCompare(b, 'it'));
+  }, [odds, pred, staticOddsKeys]);
 
   const TABS = [
     { id: '1x2', label: '1X2 & Goal' },
@@ -377,7 +458,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
     { id: 'fouls', label: 'Falli' },
     { id: 'shots', label: 'Tiri Squadra' },
     { id: 'players', label: `Tiri Giocatori${pp.length ? ` (${pp.length})` : ''}` },
-    { id: 'value', label: `Value (${vb.length})` },
+    { id: 'value', label: `Scommesse (${vb.length})` },
   ];
 
   return (
@@ -438,7 +519,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
                   {g.keys.map(k => (
                     <div className="form-group" key={k} style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: 11 }}>{MARKET_LABELS[k] ?? k}</label>
+                      <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
                       <input className="form-input" type="number" placeholder="1.85" step="0.01" min="1.01"
                         value={odds[k] ?? ''} onChange={e => setOdds(p => ({ ...p, [k]: e.target.value }))} />
                     </div>
@@ -446,6 +527,30 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                 </div>
               </div>
             ))}
+
+            {dynamicOddsKeys.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Mercati Extra (dinamici)
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                  {dynamicOddsKeys.map(k => (
+                    <div className="form-group" key={k} style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        placeholder="1.85"
+                        step="0.01"
+                        min="1.01"
+                        value={odds[k] ?? ''}
+                        onChange={e => setOdds(p => ({ ...p, [k]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </details>
 
@@ -807,12 +912,17 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
 
           {tab === 'value' && (
             <div>
+              {!budget && (
+                <div className="alert alert-warning" style={{ marginBottom: 12 }}>
+                  Per piazzare scommesse inizializza prima il bankroll nella sezione Budget Manager.
+                </div>
+              )}
               {vb.length === 0 ? (
-                <div className="alert alert-info">Inserisci le quote del bookmaker per calcolare il valore atteso.</div>
+                <div className="alert alert-info">Inserisci le quote del bookmaker per calcolare EV/Kelly e vedere dove scommettere.</div>
               ) : (
                 <>
                   <div className="alert alert-success">
-                    {vb.length} scommesse a EV positivo (soglia EV &gt; 2%). Le probabilita usano il modello specifico per ogni mercato.
+                    {vb.length} scommesse a EV positivo (soglia EV &gt; 2%). Seleziona importo e premi Scommetti per registrarla nel bankroll.
                   </div>
                   {vb.map((o: any) => (
                     <div key={o.selection} className={`value-bet-card ${o.confidence === 'MEDIUM' ? 'medium' : o.confidence === 'LOW' ? 'low' : ''}`}>
@@ -841,7 +951,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                         {betDone[o.selection] ? (
                           <span className="badge badge-green">OK Registrata</span>
                         ) : (
-                          <button className="btn btn-success btn-sm" onClick={() => handleBet(o)}>Registra</button>
+                          <button className="btn btn-success btn-sm" onClick={() => handleBet(o)} disabled={!budget}>Scommetti</button>
                         )}
                       </div>
                     </div>

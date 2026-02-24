@@ -16,6 +16,7 @@ const seasonKey = (s?: string) => {
 };
 
 const n = (v: any, d = 2) => {
+  if (v === null || v === undefined || v === '') return '-';
   const x = Number(v);
   return Number.isFinite(x) ? x.toFixed(d) : '-';
 };
@@ -150,30 +151,53 @@ const DataManager: React.FC = () => {
   }, [teamAllMatches, currentTeamSeason, scope]);
 
   const stats = useMemo(() => {
-    const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, poss: 0, possN: 0, fotmob: 0 };
+    const s: any = {
+      p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0,
+      xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0,
+      xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0,
+      poss: 0, possN: 0, fotmob: 0
+    };
+
+    const addIfFinite = (sumKey: string, nKey: string, rawValue: any) => {
+      const value = Number(rawValue);
+      if (Number.isFinite(value)) {
+        s[sumKey] += value;
+        s[nKey] += 1;
+      }
+    };
+
     for (const m of scopedMatches) {
       const h = m.home_team_id === selectedTeam?.team_id;
       const gf = Number(h ? m.home_goals : m.away_goals) || 0;
       const ga = Number(h ? m.away_goals : m.home_goals) || 0;
       s.gf += gf; s.ga += ga;
       if (gf > ga) { s.w++; s.pts += 3; } else if (gf === ga) { s.d++; s.pts += 1; } else s.l++;
-      s.xgf += Number(h ? m.home_xg : m.away_xg) || 0;
-      s.xga += Number(h ? m.away_xg : m.home_xg) || 0;
-      s.sf += Number(h ? m.home_shots : m.away_shots) || 0;
-      s.sa += Number(h ? m.away_shots : m.home_shots) || 0;
-      s.sotf += Number(h ? m.home_shots_on_target : m.away_shots_on_target) || 0;
-      s.sota += Number(h ? m.away_shots_on_target : m.home_shots_on_target) || 0;
-      s.fouls += Number(h ? m.home_fouls : m.away_fouls) || 0;
-      s.yc += Number(h ? m.home_yellow_cards : m.away_yellow_cards) || 0;
-      s.rc += Number(h ? m.home_red_cards : m.away_red_cards) || 0;
+
+      addIfFinite('xgf', 'xgfN', h ? m.home_xg : m.away_xg);
+      addIfFinite('xga', 'xgaN', h ? m.away_xg : m.home_xg);
+      addIfFinite('sf', 'sfN', h ? m.home_shots : m.away_shots);
+      addIfFinite('sa', 'saN', h ? m.away_shots : m.home_shots);
+      addIfFinite('sotf', 'sotfN', h ? m.home_shots_on_target : m.away_shots_on_target);
+      addIfFinite('sota', 'sotaN', h ? m.away_shots_on_target : m.home_shots_on_target);
+      addIfFinite('fouls', 'foulsN', h ? m.home_fouls : m.away_fouls);
+      addIfFinite('yc', 'ycN', h ? m.home_yellow_cards : m.away_yellow_cards);
+      addIfFinite('rc', 'rcN', h ? m.home_red_cards : m.away_red_cards);
+
       const poss = Number(h ? m.home_possession : m.away_possession);
       if (Number.isFinite(poss)) { s.poss += poss; s.possN++; }
       if (String(m.source ?? '').toLowerCase() === 'fotmob') s.fotmob++;
     }
     const d = Math.max(1, s.p);
     s.ppg = s.pts / d; s.gd = s.gf - s.ga; s.wr = s.w / d;
-    s.xgfAvg = s.xgf / d; s.xgaAvg = s.xga / d; s.sfAvg = s.sf / d; s.saAvg = s.sa / d;
-    s.sotfAvg = s.sotf / d; s.sotaAvg = s.sota / d; s.foulsAvg = s.fouls / d; s.ycAvg = s.yc / d; s.rcAvg = s.rc / d;
+    s.xgfAvg = s.xgfN > 0 ? s.xgf / s.xgfN : null;
+    s.xgaAvg = s.xgaN > 0 ? s.xga / s.xgaN : null;
+    s.sfAvg = s.sfN > 0 ? s.sf / s.sfN : null;
+    s.saAvg = s.saN > 0 ? s.sa / s.saN : null;
+    s.sotfAvg = s.sotfN > 0 ? s.sotf / s.sotfN : null;
+    s.sotaAvg = s.sotaN > 0 ? s.sota / s.sotaN : null;
+    s.foulsAvg = s.foulsN > 0 ? s.fouls / s.foulsN : null;
+    s.ycAvg = s.ycN > 0 ? s.yc / s.ycN : null;
+    s.rcAvg = s.rcN > 0 ? s.rc / s.rcN : null;
     s.possAvg = s.possN > 0 ? s.poss / s.possN : null;
     return s;
   }, [scopedMatches, selectedTeam]);

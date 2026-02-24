@@ -88,11 +88,43 @@ export class PredictionService {
       sot_over95: 'sot_total_over_9.5',
     };
 
+    const normalizeLine = (raw: string): string => {
+      const cleaned = String(raw ?? '').trim().replace(',', '.');
+      if (/^\d+\.\d+$/.test(cleaned)) return cleaned;
+      if (/^\d+$/.test(cleaned) && cleaned.length >= 2) {
+        return `${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`;
+      }
+      return cleaned;
+    };
+
+    const register = (key: string, odd: number) => {
+      if (!isFinite(odd) || odd <= 1) return;
+      out[key] = odd;
+    };
+
     for (const [k, rawV] of Object.entries(input)) {
       const v = Number(rawV);
       if (!isFinite(v) || v <= 1) continue;
-      out[k] = v;
-      if (aliasMap[k]) out[aliasMap[k]] = v;
+
+      const canonical = aliasMap[k];
+      register(canonical ?? k, v);
+
+      // over25 -> over2.5 / under35 -> under3.5 (goal totals)
+      const compactGoal = k.match(/^(over|under)(\d+)$/i);
+      if (compactGoal && compactGoal[2].length >= 2) {
+        const side = compactGoal[1].toLowerCase();
+        const line = normalizeLine(compactGoal[2]);
+        register(`${side}${line.replace('.', '')}`, v);
+      }
+
+      // Mercati dinamici: shots_total_over_235 -> shots_total_over_23.5
+      const prefixed = k.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      if (prefixed) {
+        const prefix = prefixed[1].toLowerCase();
+        const side = prefixed[2].toLowerCase();
+        const line = normalizeLine(prefixed[3]);
+        register(`${prefix}_${side}_${line}`, v);
+      }
     }
 
     return out;
@@ -235,7 +267,7 @@ export class PredictionService {
     const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds);
     if (Object.keys(normalizedOdds).length > 0) {
       const flatProbs = this.flattenProbabilities(probs);
-      const marketNames = this.buildMarketNames();
+      const marketNames = this.buildMarketNames(Object.keys(flatProbs));
       valueOpportunities = this.engine.analyzeMarkets(flatProbs, normalizedOdds, marketNames);
     }
 
@@ -270,7 +302,7 @@ export class PredictionService {
       btts: probs.btts, bttsNo: 1 - probs.btts,
       over05: probs.over05, over15: probs.over15, over25: probs.over25,
       over35: probs.over35, over45: probs.over45,
-      under15: probs.under15, under25: probs.under25, under35: probs.under35, under45: probs.under45,
+      under05: probs.under05, under15: probs.under15, under25: probs.under25, under35: probs.under35, under45: probs.under45,
     };
 
     for (const [k, v] of Object.entries(probs.exactScore)) flat[`exact_${k}`] = v as number;
@@ -319,16 +351,20 @@ export class PredictionService {
     flat.shots_over255 = probs.shotsTotal['25.5']?.over ?? 0;
     flat.shots_under225 = probs.shotsTotal['23.5']?.under ?? 0;
     const lambdaSOT = Math.max(0.1, probs.shotsOnTargetHome.expected + probs.shotsOnTargetAway.expected);
-    flat.sot_over75 = poisOver(7.5, lambdaSOT);
-    flat.sot_over95 = poisOver(9.5, lambdaSOT);
-    flat['sot_total_over_7.5'] = flat.sot_over75;
-    flat['sot_total_over_9.5'] = flat.sot_over95;
+    for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
+      const over = poisOver(line, lambdaSOT);
+      const key = line.toFixed(1);
+      flat[`sot_total_over_${key}`] = over;
+      flat[`sot_total_under_${key}`] = 1 - over;
+    }
+    flat.sot_over75 = flat['sot_total_over_7.5'];
+    flat.sot_over95 = flat['sot_total_over_9.5'];
 
     return flat;
   }
 
-  private buildMarketNames(): Record<string, string> {
-    return {
+  private buildMarketNames(selections: string[] = []): Record<string, string> {
+    const names: Record<string, string> = {
       homeWin: '1X2 - Vittoria Casa',
       draw: '1X2 - Pareggio',
       awayWin: '1X2 - Vittoria Ospite',
@@ -338,6 +374,7 @@ export class PredictionService {
       under25: 'Under 2.5 Goal',
       over15: 'Over 1.5 Goal',
       over35: 'Over 3.5 Goal',
+      under05: 'Under 0.5 Goal',
       cards_over35: 'Cartellini Over 3.5',
       cards_over45: 'Cartellini Over 4.5',
       cards_over55: 'Cartellini Over 5.5',
@@ -353,6 +390,51 @@ export class PredictionService {
       sot_over75: 'Tiri in Porta Over 7.5',
       sot_over95: 'Tiri in Porta Over 9.5',
     };
+
+    const formatLine = (raw: string): string => {
+      const n = Number(raw);
+      if (!isFinite(n)) return raw;
+      return n.toFixed(1);
+    };
+
+    const dynamicName = (selection: string): string | null => {
+      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+      if (m) {
+        const domainLabels: Record<string, string> = {
+          shots_total: 'Tiri Totali',
+          shots_home: 'Tiri Casa',
+          shots_away: 'Tiri Ospite',
+          fouls: 'Falli Totali',
+          yellow: 'Gialli Totali',
+          cards_total: 'Cartellini Pesati',
+          sot_total: 'Tiri in Porta Totali',
+        };
+        const side = m[2] === 'over' ? 'Over' : 'Under';
+        return `${domainLabels[m[1]] ?? m[1]} ${side} ${formatLine(m[3])}`;
+      }
+
+      const goal = selection.match(/^(over|under)(\d+)$/);
+      if (goal && goal[2].length >= 2) {
+        const side = goal[1] === 'over' ? 'Over' : 'Under';
+        const line = `${goal[2].slice(0, -1)}.${goal[2].slice(-1)}`;
+        return `${side} ${line} Goal`;
+      }
+
+      const exact = selection.match(/^exact_(\d+-\d+)$/);
+      if (exact) return `Risultato Esatto ${exact[1]}`;
+
+      if (selection.startsWith('hcp_')) return `Handicap Europeo ${selection.replace('hcp_', '')}`;
+      if (selection.startsWith('ahcp_')) return `Asian Handicap ${selection.replace('ahcp_', '')}`;
+      return null;
+    };
+
+    for (const key of selections) {
+      if (names[key]) continue;
+      const inferred = dynamicName(key);
+      if (inferred) names[key] = inferred;
+    }
+
+    return names;
   }
   // ==================== BUDGET ====================
 

@@ -22,6 +22,8 @@ export default function Scrapers() {
   // fotmob
   const [fotmobComp, setFotmobComp] = useState('Serie A');
   const [fotmobYears, setFotmobYears] = useState(2);
+  const [fotmobIncludeDetails, setFotmobIncludeDetails] = useState(true);
+  const [fotmobForceRefresh, setFotmobForceRefresh] = useState(false);
   const [fotmobImportPlayers, setFotmobImportPlayers] = useState(false);
   const [fotmobLoading, setFotmobLoading] = useState(false);
   const [fotmobResult, setFotmobResult] = useState<any>(null);
@@ -48,6 +50,8 @@ export default function Scrapers() {
         mode,
         competition: fotmobComp,
         yearsBack: fotmobYears,
+        includeMatchDetails: fotmobIncludeDetails,
+        forceRefresh: fotmobForceRefresh,
         importPlayers: fotmobImportPlayers,
       });
       setFotmobResult(res.data.data);
@@ -171,13 +175,38 @@ export default function Scrapers() {
             </div>
 
             <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13, marginBottom: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={fotmobIncludeDetails}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setFotmobIncludeDetails(checked);
+                    if (!checked) setFotmobImportPlayers(false);
+                  }}
+                />
+                Importa statistiche match avanzate (xG, tiri, possesso, falli, cartellini)
+              </label>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
                 <input
                   type="checkbox"
                   checked={fotmobImportPlayers}
-                  onChange={e => setFotmobImportPlayers(e.target.checked)}
+                  disabled={!fotmobIncludeDetails}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    if (checked) setFotmobIncludeDetails(true);
+                    setFotmobImportPlayers(checked);
+                  }}
                 />
                 Aggiorna anche statistiche giocatori (piu lento, possibili 403 FotMob)
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13, marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={fotmobForceRefresh}
+                  onChange={e => setFotmobForceRefresh(e.target.checked)}
+                />
+                Forza refresh completo (riaggiorna anche partite gia presenti)
               </label>
             </div>
 

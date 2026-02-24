@@ -490,6 +490,7 @@ async function runFotmobImport(req: Request, res: Response) {
       seasons,
       yearsBack = 2,
       importPlayers = true,
+      includeMatchDetails = true,
       forceRefresh = false,
     } = req.body ?? {};
 
@@ -516,7 +517,7 @@ async function runFotmobImport(req: Request, res: Response) {
       for (const season of seasonsToScrape) {
         const lastDateInDb = db.getLastMatchDate(competitionName, season);
         const allMatches = await fotmob.scrapeSeason(competitionName, season, {
-          includeDetails: Boolean(importPlayers),
+          includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
         });
 
         const matchesToImport = allMatches.filter(m => {
@@ -818,6 +819,76 @@ const sanitizeOddsMap = (input: Record<string, number>): Record<string, number> 
   return out;
 };
 
+const collectModelProbabilitiesForOdds = (prediction: any): Record<string, number> => {
+  const probs: any = prediction?.probabilities ?? {};
+  const out: Record<string, number> = {};
+
+  const push = (key: string, value: unknown) => {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0 && n < 1) out[key] = n;
+  };
+
+  // Goal mercati principali
+  push('homeWin', probs.homeWin);
+  push('draw', probs.draw);
+  push('awayWin', probs.awayWin);
+  push('btts', probs.btts);
+  push('bttsNo', 1 - Number(probs.btts ?? 0));
+
+  const goalLines = [0.5, 1.5, 2.5, 3.5, 4.5];
+  for (const line of goalLines) {
+    const k = String(line).replace('.', '');
+    push(`over${k}`, (probs as any)[`over${k}`]);
+    push(`under${k}`, (probs as any)[`under${k}`]);
+  }
+
+  // Tiri totali/squadra
+  for (const [line, pair] of Object.entries(probs.shotsTotal ?? {})) {
+    push(`shots_total_over_${line}`, (pair as any)?.over);
+    push(`shots_total_under_${line}`, (pair as any)?.under);
+  }
+  for (const [line, pair] of Object.entries(probs.shotsHome?.overUnder ?? {})) {
+    push(`shots_home_over_${line}`, (pair as any)?.over);
+    push(`shots_home_under_${line}`, (pair as any)?.under);
+  }
+  for (const [line, pair] of Object.entries(probs.shotsAway?.overUnder ?? {})) {
+    push(`shots_away_over_${line}`, (pair as any)?.over);
+    push(`shots_away_under_${line}`, (pair as any)?.under);
+  }
+
+  // Cartellini e falli
+  for (const [line, pair] of Object.entries(probs.cards?.overUnderYellow ?? {})) {
+    push(`yellow_over_${line}`, (pair as any)?.over);
+    push(`yellow_under_${line}`, (pair as any)?.under);
+  }
+  for (const [line, pair] of Object.entries(probs.cards?.overUnderTotal ?? {})) {
+    push(`cards_total_over_${line}`, (pair as any)?.over);
+    push(`cards_total_under_${line}`, (pair as any)?.under);
+  }
+  for (const [line, pair] of Object.entries(probs.fouls?.overUnder ?? {})) {
+    push(`fouls_over_${line}`, (pair as any)?.over);
+    push(`fouls_under_${line}`, (pair as any)?.under);
+  }
+
+  // Tiri in porta combinati (Poisson sui lambda in porta)
+  const combinedSOTExp = Number(probs.shotsOnTargetHome?.expected ?? 0) + Number(probs.shotsOnTargetAway?.expected ?? 0);
+  for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
+    const key = line.toFixed(1);
+    const over = poissonOver(line, combinedSOTExp);
+    push(`sot_total_over_${key}`, over);
+    push(`sot_total_under_${key}`, 1 - over);
+  }
+
+  return out;
+};
+
+const marketOverround = (selectionKey: string): number => {
+  if (selectionKey === 'homeWin' || selectionKey === 'draw' || selectionKey === 'awayWin') return 0.06;
+  if (selectionKey.startsWith('exact_')) return 0.09;
+  if (selectionKey.startsWith('hcp_') || selectionKey.startsWith('ahcp_') || selectionKey.startsWith('handicap')) return 0.055;
+  return 0.045;
+};
+
 const resolveTeamForModel = (teamName: string, competition?: string): { teamId: string; score: number } | null => {
   const byCompetition = competition ? db.getTeams(competition) : [];
   const allTeams = db.getTeams();
@@ -882,21 +953,12 @@ const buildModelEstimatedOdds = (
     competition,
   });
 
-  const probs: any = pred.probabilities ?? {};
-  const totalsMargin = 0.045;
-  const baseOdds = sanitizeOddsMap({
-    homeWin: probabilityToOdds(Number(probs.homeWin ?? 0), 0.06),
-    draw: probabilityToOdds(Number(probs.draw ?? 0), 0.06),
-    awayWin: probabilityToOdds(Number(probs.awayWin ?? 0), 0.06),
-    btts: probabilityToOdds(Number(probs.btts ?? 0), totalsMargin),
-    bttsNo: probabilityToOdds(1 - Number(probs.btts ?? 0), totalsMargin),
-    over15: probabilityToOdds(Number(probs.over15 ?? 0), totalsMargin),
-    over25: probabilityToOdds(Number(probs.over25 ?? 0), totalsMargin),
-    over35: probabilityToOdds(Number(probs.over35 ?? 0), totalsMargin),
-    under25: probabilityToOdds(Number(probs.under25 ?? 0), totalsMargin),
-    under35: probabilityToOdds(Number(probs.under35 ?? 0), totalsMargin),
-    under45: probabilityToOdds(Number(probs.under45 ?? 0), totalsMargin),
-  });
+  const modelProbs = collectModelProbabilitiesForOdds(pred);
+  const estimatedOdds: Record<string, number> = {};
+  for (const [selection, prob] of Object.entries(modelProbs)) {
+    estimatedOdds[selection] = probabilityToOdds(prob, marketOverround(selection));
+  }
+  const baseOdds = sanitizeOddsMap(estimatedOdds);
 
   if (Object.keys(baseOdds).length === 0) {
     return {
