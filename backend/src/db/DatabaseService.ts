@@ -263,7 +263,7 @@ export class DatabaseService {
   }
 
   getMatchById(matchId: string): any {
-    return this.db.prepare('SELECT match_id FROM matches WHERE match_id = ?').get(matchId);
+    return this.db.prepare('SELECT * FROM matches WHERE match_id = ?').get(matchId);
   }
 
   getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): any[] {

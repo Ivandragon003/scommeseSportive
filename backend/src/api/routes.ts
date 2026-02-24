@@ -504,6 +504,28 @@ async function runFotmobImport(req: Request, res: Response) {
       ? seasons
       : FotmobScraper.generateSeasons(yearsBack);
 
+    const hasMissingAdvancedStats = (matchRow: any): boolean => {
+      if (!matchRow) return true;
+      const fields = [
+        'home_xg', 'away_xg',
+        'home_shots', 'away_shots',
+        'home_shots_on_target', 'away_shots_on_target',
+        'home_possession', 'away_possession',
+        'home_fouls', 'away_fouls',
+        'home_yellow_cards', 'away_yellow_cards',
+        'home_red_cards', 'away_red_cards',
+      ];
+
+      const values = fields.map(k => matchRow[k]);
+      const hasNullish = values.some(v => v === null || v === undefined || v === '');
+      const numericValues = values
+        .map(v => (v === null || v === undefined || v === '' ? null : Number(v)))
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+      const allZeroLike = numericValues.length > 0 && numericValues.every(v => Math.abs(v) < 1e-9);
+
+      return hasNullish || allZeroLike;
+    };
+
     let totalImported = 0;
     let totalUpdatedExisting = 0;
     let totalSkipped = 0;
@@ -522,9 +544,12 @@ async function runFotmobImport(req: Request, res: Response) {
 
         const matchesToImport = allMatches.filter(m => {
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
+          const existing = db.getMatchById(m.matchId);
           if (forceRefresh) return true;
+          if (!existing) return true;
           // Mantieni sempre in DB anche le partite future/non concluse.
           if (!isPlayed) return true;
+          if (includeMatchDetails !== false && hasMissingAdvancedStats(existing)) return true;
           if (lastDateInDb && m.date.substring(0, 10) <= lastDateInDb) return false;
           return true;
         });

@@ -185,6 +185,149 @@ export class FotmobScraper {
     return JSON.parse(fallback.text) as T;
   }
 
+  private detailsApiBlocked(message: string): boolean {
+    const msg = String(message ?? '').toLowerCase();
+    const blockedStatus =
+      msg.includes('returned 403') ||
+      msg.includes('returned 401') ||
+      msg.includes('returned 429');
+    return msg.includes('/api/matchdetails') && blockedStatus;
+  }
+
+  private extractNextDataPageProps(html: string): any | null {
+    const scriptMatch = html.match(
+      /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i
+    );
+    if (!scriptMatch?.[1]) return null;
+    try {
+      const parsed = JSON.parse(scriptMatch[1]);
+      return parsed?.props?.pageProps ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractMatchDetailsFromPageProps(pageProps: any): any | null {
+    if (!pageProps || typeof pageProps !== 'object') return null;
+
+    const direct = [
+      pageProps?.matchDetails,
+      pageProps?.data?.matchDetails,
+      pageProps?.initialMatch?.matchDetails,
+      pageProps?.fallbackData?.matchDetails,
+      pageProps?.match?.matchDetails,
+    ];
+    for (const candidate of direct) {
+      if (candidate && typeof candidate === 'object') return candidate;
+    }
+
+    // FotMob cambia spesso la shape: cerca ricorsivamente un oggetto "simile" a matchDetails.
+    const stack: unknown[] = [pageProps];
+    const seen = new Set<unknown>();
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object' || seen.has(node)) continue;
+      seen.add(node);
+
+      if (!Array.isArray(node)) {
+        const obj = node as Record<string, unknown>;
+        const hasGeneral = Object.prototype.hasOwnProperty.call(obj, 'general');
+        const hasPayload =
+          Object.prototype.hasOwnProperty.call(obj, 'content') ||
+          Object.prototype.hasOwnProperty.call(obj, 'header') ||
+          Object.prototype.hasOwnProperty.call(obj, 'stats');
+        if (hasGeneral && hasPayload) return obj;
+
+        const maybeDetails = obj.matchDetails;
+        if (maybeDetails && typeof maybeDetails === 'object') return maybeDetails;
+
+        for (const value of Object.values(obj)) stack.push(value);
+      } else {
+        for (const value of node) stack.push(value);
+      }
+    }
+
+    return null;
+  }
+
+  private extractDetailsMatchId(details: any): number | null {
+    const candidate = this.toNumber(
+      details?.general?.matchId ??
+      details?.matchId ??
+      details?.header?.matchId ??
+      details?.header?.status?.matchId
+    );
+    return candidate === null ? null : Math.trunc(candidate);
+  }
+
+  private async fetchDetailsFromMatchPage(matchId: number, rawPageUrl?: unknown): Promise<any | null> {
+    const page = await this.ensurePage();
+    const normalizePagePath = (value: unknown): string | null => {
+      const raw = String(value ?? '').trim();
+      if (!raw) return null;
+      try {
+        const candidate = raw.startsWith('http') ? new URL(raw).pathname : raw;
+        if (!candidate.startsWith('/')) return null;
+        const noHash = candidate.split('#')[0];
+        const noQuery = noHash.split('?')[0];
+        return noQuery.length > 1 ? noQuery : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const paths = Array.from(new Set([
+      normalizePagePath(rawPageUrl),
+      `/matches/${matchId}`,
+      `/matches/${matchId}/matchfacts`,
+    ].filter((p): p is string => Boolean(p))));
+
+    for (const path of paths) {
+      const url = `${this.BASE_URL}${path}`;
+
+      try {
+        const response = await page.request.get(url, {
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Referer': this.BASE_URL,
+          },
+          timeout: this.FETCH_TIMEOUT_MS,
+        });
+        if (response.ok()) {
+          const html = await response.text();
+          const pageProps = this.extractNextDataPageProps(html);
+          const details = this.extractMatchDetailsFromPageProps(pageProps);
+          if (details && this.extractDetailsMatchId(details) === Math.trunc(matchId)) return details;
+        }
+      } catch {
+        // prova successiva
+      }
+
+      try {
+        const fallback = await page.evaluate(async (fullUrl: string) => {
+          const r = await fetch(fullUrl, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+          });
+          const text = await r.text();
+          return { ok: r.ok, text };
+        }, url);
+        if (fallback.ok) {
+          const pageProps = this.extractNextDataPageProps(fallback.text);
+          const details = this.extractMatchDetailsFromPageProps(pageProps);
+          if (details && this.extractDetailsMatchId(details) === Math.trunc(matchId)) return details;
+        }
+      } catch {
+        // prova successiva
+      }
+    }
+
+    return null;
+  }
+
   private findStatPair(payload: unknown, searchTerms: string[]): { home: number | null; away: number | null } {
     // confronto fuzzy: lowercase + rimozione separatori/simboli comuni
     const normalize = (s: string) => s.toLowerCase().replace(/[\s_\-()]/g, '');
@@ -287,6 +430,13 @@ export class FotmobScraper {
   private parseMatch(leagueName: string, season: string, summary: any, details: any | null): FotmobMatch | null {
     const sourceMatchId = this.toNumber(summary?.id ?? summary?.matchId);
     if (sourceMatchId === null) return null;
+    const normalizedSourceMatchId = Math.trunc(sourceMatchId);
+    if (details) {
+      const detailsMatchId = this.extractDetailsMatchId(details);
+      if (detailsMatchId !== null && detailsMatchId !== normalizedSourceMatchId) {
+        details = null;
+      }
+    }
     const rawDate = summary?.utcTime ?? summary?.time?.utcTime ?? summary?.status?.utcTime;
     if (!rawDate) return null;
     const date = new Date(rawDate);
@@ -304,27 +454,47 @@ export class FotmobScraper {
     const homeTeamId = this.normalizeTeamName(homeTeamName);
     const awayTeamId = this.normalizeTeamName(awayTeamName);
 
-    const xg = details
+    let xg = details
       ? this.findStatPair(details, ['expected goals', 'expectedgoals', 'xg'])
       : { home: this.toNumber(summary?.home?.xg), away: this.toNumber(summary?.away?.xg) };
-    const shots = details
+    let shots = details
       ? this.findStatPair(details, ['totalshots', 'total shots'])
       : { home: this.toNumber(summary?.home?.shots), away: this.toNumber(summary?.away?.shots) };
-    const sot = details
+    let sot = details
       ? this.findStatPair(details, ['shotsontarget', 'shots on target'])
       : { home: this.toNumber(summary?.home?.shotsOnTarget), away: this.toNumber(summary?.away?.shotsOnTarget) };
-    const poss = details
+    let poss = details
       ? this.findStatPair(details, ['possession', 'ball possession'])
       : { home: this.toNumber(summary?.home?.possession), away: this.toNumber(summary?.away?.possession) };
-    const fouls = details
+    let fouls = details
       ? this.findStatPair(details, ['fouls', 'fouls committed'])
       : { home: null, away: null };
-    const yellow = details
+    let yellow = details
       ? this.findStatPair(details, ['yellow cards', 'yellowcards'])
       : { home: null, away: null };
-    const red = details
+    let red = details
       ? this.findStatPair(details, ['red cards', 'redcards'])
       : { home: null, away: null };
+
+    if (!details) {
+      // Se API dettagli è bloccata, alcuni summary tornano tutti 0: non inquinare le medie.
+      const metricValues = [
+        xg.home, xg.away,
+        shots.home, shots.away,
+        sot.home, sot.away,
+        poss.home, poss.away,
+      ].filter(v => v !== null) as number[];
+      const allZeroLike = metricValues.length > 0 && metricValues.every(v => Math.abs(v) < 1e-9);
+      if (allZeroLike) {
+        xg = { home: null, away: null };
+        shots = { home: null, away: null };
+        sot = { home: null, away: null };
+        poss = { home: null, away: null };
+        fouls = { home: null, away: null };
+        yellow = { home: null, away: null };
+        red = { home: null, away: null };
+      }
+    }
 
     const referee = details
       ? (String(
@@ -340,7 +510,7 @@ export class FotmobScraper {
 
     return {
       matchId,
-      sourceMatchId: Math.trunc(sourceMatchId),
+      sourceMatchId: normalizedSourceMatchId,
       date: date.toISOString(),
       homeTeamId,
       awayTeamId,
@@ -405,6 +575,8 @@ export class FotmobScraper {
     const results: FotmobMatch[] = [];
 
     const includeDetails = options?.includeDetails !== false;
+    let blockedDetailsCount = 0;
+    let blockedDetailsLogged = 0;
 
     for (const summary of allMatches) {
       const sourceMatchId = this.toNumber(summary?.id ?? summary?.matchId);
@@ -423,10 +595,37 @@ export class FotmobScraper {
             const isTooManyRequests = message.includes('returned 429');
             const canRetry = isTooManyRequests && attempt < this.DETAILS_MAX_RETRIES;
 
+            if (this.detailsApiBlocked(message)) {
+              try {
+                const detailsFromPage = await this.fetchDetailsFromMatchPage(
+                  Math.trunc(sourceMatchId),
+                  summary?.pageUrl
+                );
+                if (detailsFromPage) {
+                  details = detailsFromPage;
+                  break;
+                }
+              } catch {
+                // segue log fallback sotto
+              }
+            }
+
             if (canRetry) {
               console.warn(`[FotmobScraper] ${message} su match ${sourceMatchId}, retry ${attempt}/${this.DETAILS_MAX_RETRIES} tra ${this.DETAILS_RETRY_WAIT_MS / 1000}s...`);
               await this.sleep(this.DETAILS_RETRY_WAIT_MS);
               continue;
+            }
+
+            if (this.detailsApiBlocked(message)) {
+              blockedDetailsCount++;
+              if (blockedDetailsLogged < 8) {
+                console.warn(`[FotmobScraper] Fallback su match ${sourceMatchId}: ${message}`);
+                blockedDetailsLogged++;
+              } else if (blockedDetailsLogged === 8) {
+                console.warn('[FotmobScraper] Altri 403 su /api/matchDetails omessi nei log per evitare spam.');
+                blockedDetailsLogged++;
+              }
+              break;
             }
 
             console.warn(`[FotmobScraper] Fallback su match ${sourceMatchId}: ${message}`);
@@ -441,6 +640,12 @@ export class FotmobScraper {
       }
 
       await this.sleep(this.REQUEST_DELAY_MS);
+    }
+
+    if (blockedDetailsCount > 0) {
+      console.warn(
+        `[FotmobScraper] /api/matchDetails bloccata su ${blockedDetailsCount} match in ${cfg.name} ${season}. Statistiche avanzate non disponibili per questi match.`
+      );
     }
 
     return results;
