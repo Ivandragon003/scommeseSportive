@@ -55,13 +55,13 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
   return (
     <div>
       <h1 className="page-title">Dashboard</h1>
-      <p className="page-subtitle">Panoramica del sistema per {activeUser === 'user1' ? 'Giocatore 1' : 'Giocatore 2'}</p>
+      <p className="page-subtitle">Panoramica del sistema</p>
 
       {showInit && (
         <div className="card">
           <div className="card-header"><h2 className="card-title">💰 Inizializza Budget</h2></div>
           <p style={{ marginBottom: 14, color: 'var(--text-secondary)' }}>
-            Nessun budget trovato per questo utente. Imposta il budget iniziale per cominciare.
+            Nessun budget trovato. Imposta il budget iniziale per cominciare.
           </p>
           <div className="form-row" style={{ maxWidth: 400 }}>
             <div className="form-group">

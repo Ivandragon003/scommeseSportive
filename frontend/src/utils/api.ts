@@ -34,7 +34,6 @@ export const getUpcomingMatches = (
 };
 
 export const getEurobetOddsForMatch = (params: {
-  apiKey?: string;
   competition: string;
   homeTeam: string;
   awayTeam: string;

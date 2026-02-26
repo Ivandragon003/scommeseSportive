@@ -60,7 +60,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   return (
     <div>
       <h1 className="page-title">💰 Budget & Scommesse</h1>
-      <p className="page-subtitle">Gestione bankroll e registro scommesse per {activeUser === 'user1' ? 'Giocatore 1' : 'Giocatore 2'}</p>
+      <p className="page-subtitle">Gestione bankroll e registro scommesse</p>
 
       {!budget ? (
         <div className="card">

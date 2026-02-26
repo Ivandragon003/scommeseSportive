@@ -305,10 +305,8 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
     for (const [k, v] of Object.entries(incoming ?? {})) {
       if (typeof v === 'number' && Number.isFinite(v) && v > 1) asStrings[k] = v.toFixed(2);
     }
-    if (Object.keys(asStrings).length > 0) {
-      setOdds(prev => ({ ...prev, ...asStrings }));
-      setOddsPanelOpen(true);
-    }
+    setOdds(asStrings);
+    setOddsPanelOpen(true);
   };
 
   const resolveTeamName = (teamId: string, fallback?: string) => {
@@ -318,19 +316,14 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
   };
 
   const loadEurobetOdds = async (match: any, comp: string) => {
-    const apiKey = localStorage.getItem('oddsApiKey')?.trim();
     try {
-      setOddsStatus(
-        apiKey ? 'Recupero quote Eurobet in corso...'
-          : 'Nessuna API key configurata: recupero quote stimate dal modello interno...'
-      );
-      setOddsStatusTone(apiKey ? 'info' : 'warning');
+      setOddsStatus('Recupero quote live in corso...');
+      setOddsStatusTone('info');
 
       const homeName = resolveTeamName(String(match.home_team_id ?? ''), match.home_team_name);
       const awayName = resolveTeamName(String(match.away_team_id ?? ''), match.away_team_name);
 
       const res = await getEurobetOddsForMatch({
-        apiKey: apiKey || undefined,
         competition: comp || 'Serie A',
         homeTeam: homeName,
         awayTeam: awayName,
@@ -408,6 +401,7 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
 
     setOddsStatus('');
     setOddsStatusTone('info');
+    setOdds({});
     if (nextCompetition && nextCompetition !== competition) setCompetition(nextCompetition);
     if (nextSeason && nextSeason !== season) setSeason(nextSeason);
     setTab('1x2');
@@ -508,9 +502,12 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
           style={{ marginBottom: 14 }}
         >
           <summary style={{ cursor: 'pointer', fontWeight: 600, padding: '8px 0', fontSize: 14 }}>
-            Quote Bookmaker - clicca per inserire (calcola EV e Kelly)
+            Quote Bookmaker (solo import automatico)
           </summary>
           <div style={{ paddingTop: 12 }}>
+            <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+              Le quote vengono caricate automaticamente quando premi <strong>Analizza</strong> su una partita.
+            </div>
             {ODDS_GROUPS.map(g => (
               <div key={g.title} style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
@@ -520,8 +517,9 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                   {g.keys.map(k => (
                     <div className="form-group" key={k} style={{ marginBottom: 0 }}>
                       <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
-                      <input className="form-input" type="number" placeholder="1.85" step="0.01" min="1.01"
-                        value={odds[k] ?? ''} onChange={e => setOdds(p => ({ ...p, [k]: e.target.value }))} />
+                      <div className="form-input" style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
+                        {odds[k] ?? '-'}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -537,15 +535,9 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
                   {dynamicOddsKeys.map(k => (
                     <div className="form-group" key={k} style={{ marginBottom: 0 }}>
                       <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
-                      <input
-                        className="form-input"
-                        type="number"
-                        placeholder="1.85"
-                        step="0.01"
-                        min="1.01"
-                        value={odds[k] ?? ''}
-                        onChange={e => setOdds(p => ({ ...p, [k]: e.target.value }))}
-                      />
+                      <div className="form-input" style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
+                        {odds[k] ?? '-'}
+                      </div>
                     </div>
                   ))}
                 </div>

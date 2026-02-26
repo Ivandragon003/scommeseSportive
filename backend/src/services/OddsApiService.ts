@@ -4,7 +4,7 @@
  * Integrazione con https://the-odds-api.com
  *
  * Piano gratuito: 500 richieste/mese
- * Ogni richiesta = 1 sport × 1 regione × 1 mercato
+ * Ogni richiesta = 1 sport Ã— 1 regione Ã— 1 mercato
  *
  * STIMA CONSUMO per uso personale Serie A:
  * - 1 richiesta/giorno per le quote aggiornate = ~30/mese
@@ -14,10 +14,10 @@
  * Altri disponibili: "bet365", "snai", "sisal", "betfair"
  *
  * MERCATI SUPPORTATI:
- * - h2h → 1X2 (home win / draw / away win)
- * - totals → Over/Under goal
- * - spreads → Handicap
- * (BTTS non disponibile in The Odds API — calcolato dal modello)
+ * - h2h â†’ 1X2 (home win / draw / away win)
+ * - totals â†’ Over/Under goal
+ * - spreads â†’ Handicap
+ * (BTTS non disponibile in The Odds API â€” calcolato dal modello)
  *
  * SPORT KEY per la Serie A: "soccer_italy_serie_a"
  * Altri: "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga"
@@ -50,7 +50,7 @@ export interface OutcomeOdds {
   point?: number;             // linea per totals/spreads (es. 2.5)
 }
 
-// Mappa sport key → nome leggibile
+// Mappa sport key â†’ nome leggibile
 const SPORT_KEYS: Record<string, string> = {
   'Serie A':        'soccer_italy_serie_a',
   'Premier League': 'soccer_epl',
@@ -60,7 +60,7 @@ const SPORT_KEYS: Record<string, string> = {
   'Champions League': 'soccer_uefa_champs_league',
 };
 
-// Bookmaker preferiti in ordine di priorità
+// Bookmaker preferiti in ordine di prioritÃ 
 const PREFERRED_BOOKMAKERS = ['eurobet', 'bet365', 'snai', 'sisal', 'unibet', 'betfair_ex_eu'];
 
 export class OddsApiService {
@@ -75,6 +75,30 @@ export class OddsApiService {
     this.apiKey = apiKey.trim();
   }
 
+  private readHeaderValue(headers: unknown, name: string): string | undefined {
+    if (!headers) return undefined;
+    const key = name.toLowerCase();
+
+    const maybeAxiosHeaders = headers as { get?: (n: string) => unknown; toJSON?: () => Record<string, unknown> };
+    if (typeof maybeAxiosHeaders.get === 'function') {
+      const direct = maybeAxiosHeaders.get(name) ?? maybeAxiosHeaders.get(key);
+      if (direct !== undefined && direct !== null) return Array.isArray(direct) ? String(direct[0]) : String(direct);
+    }
+
+    const record = (
+      typeof maybeAxiosHeaders.toJSON === 'function'
+        ? maybeAxiosHeaders.toJSON()
+        : (headers as Record<string, unknown>)
+    ) ?? {};
+
+    for (const [headerName, value] of Object.entries(record)) {
+      if (headerName.toLowerCase() !== key || value === undefined || value === null) continue;
+      return Array.isArray(value) ? String(value[0]) : String(value);
+    }
+
+    return undefined;
+  }
+
   /**
    * Scarica le quote per una competizione.
    *
@@ -85,34 +109,47 @@ export class OddsApiService {
   async getOdds(
     competition: string,
     markets: string[] = ['h2h', 'totals'],
-    bookmakers: string[] = PREFERRED_BOOKMAKERS
+    bookmakers: string[] = []
   ): Promise<OddsMatch[]> {
     const sportKey = SPORT_KEYS[competition];
     if (!sportKey) {
       throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(SPORT_KEYS).join(', ')}`);
     }
 
-    const params = {
+    const params: Record<string, string> = {
       apiKey: this.apiKey,
       regions: 'eu',               // bookmaker europei (include Eurobet)
       markets: markets.join(','),
       oddsFormat: 'decimal',        // quote decimali (1.85, 3.40, ecc.)
-      bookmakers: bookmakers.join(','),
       dateFormat: 'iso',
     };
+    if (bookmakers.length > 0) params.bookmakers = bookmakers.join(',');
 
-    console.log(`[OddsApi] Scaricando quote ${competition} — mercati: ${markets.join(', ')}`);
+    console.log(
+      `[OddsApi] Scaricando quote ${competition} â€” mercati: ${markets.join(', ')}${
+        bookmakers.length > 0 ? ` â€” bookmakers: ${bookmakers.join(', ')}` : ' â€” bookmakers: all'
+      }`
+    );
 
     const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/odds`, {
       params,
       timeout: 15000,
     });
 
-    // Leggi header con richieste rimanenti
-    const remaining = response.headers['x-requests-remaining'];
-    const used = response.headers['x-requests-used'];
-    if (remaining) this.remainingRequests = parseInt(remaining);
-    console.log(`[OddsApi] Richieste usate: ${used ?? '?'} | Rimanenti: ${remaining ?? '?'}/500`);
+    // Leggi header con richieste rimanenti (robusto su casing/proxy diversi)
+    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
+    const usedRaw = this.readHeaderValue(response.headers, 'x-requests-used');
+    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
+
+    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
+      this.remainingRequests = parsedRemaining;
+    }
+
+    console.log(
+      `[OddsApi] Richieste usate: ${usedRaw ?? '?'} | Rimanenti: ${
+        Number.isFinite(parsedRemaining) ? parsedRemaining : '?'
+      }/500`
+    );
 
     return this.parseOddsResponse(response.data, competition);
   }
@@ -151,42 +188,61 @@ export class OddsApiService {
     const odds: Record<string, number> = {};
 
     // Trova il bookmaker preferito, altrimenti prendi il primo disponibile
-    const bookmaker = match.bookmakers.find(b => b.bookmakerKey === preferredBookmaker)
+    const primary = match.bookmakers.find((b) => b.bookmakerKey === preferredBookmaker)
       ?? match.bookmakers[0];
 
-    if (!bookmaker) return odds;
+    if (!primary) return odds;
 
-    for (const market of bookmaker.markets) {
-      if (market.marketKey === 'h2h') {
-        // 1X2
-        for (const outcome of market.outcomes) {
-          if (outcome.name === match.homeTeam || outcome.name === 'Home') {
-            odds['homeWin'] = outcome.price;
-          } else if (outcome.name === 'Draw') {
-            odds['draw'] = outcome.price;
-          } else if (outcome.name === match.awayTeam || outcome.name === 'Away') {
-            odds['awayWin'] = outcome.price;
+    const orderedBookmakers = [
+      primary.bookmakerKey,
+      ...PREFERRED_BOOKMAKERS,
+      ...match.bookmakers.map((b) => b.bookmakerKey),
+    ].filter(Boolean);
+
+    const seen = new Set<string>();
+    for (const bookmakerKey of orderedBookmakers) {
+      if (seen.has(bookmakerKey)) continue;
+      seen.add(bookmakerKey);
+
+      const bookmaker = match.bookmakers.find((b) => b.bookmakerKey === bookmakerKey);
+      if (!bookmaker) continue;
+
+      for (const market of bookmaker.markets) {
+        if (market.marketKey === 'h2h') {
+          // 1X2
+          for (const outcome of market.outcomes) {
+            if (outcome.name === match.homeTeam || outcome.name === 'Home') {
+              if (odds['homeWin'] === undefined) odds['homeWin'] = outcome.price;
+            } else if (outcome.name === 'Draw') {
+              if (odds['draw'] === undefined) odds['draw'] = outcome.price;
+            } else if (outcome.name === match.awayTeam || outcome.name === 'Away') {
+              if (odds['awayWin'] === undefined) odds['awayWin'] = outcome.price;
+            }
           }
-        }
-      } else if (market.marketKey === 'totals') {
-        // Over/Under goal
-        for (const outcome of market.outcomes) {
-          const line = outcome.point ?? 2.5;
-          const key = `${outcome.name.toLowerCase()}${line}`.replace('.', '');
-          // Normalizza: "over2.5" → "over25"
-          const normalKey = outcome.name === 'Over'
-            ? `over${String(line).replace('.', '')}`
-            : `under${String(line).replace('.', '')}`;
-          odds[normalKey] = outcome.price;
-        }
-      } else if (market.marketKey === 'spreads') {
-        // Handicap
-        for (const outcome of market.outcomes) {
-          const line = outcome.point ?? 0;
-          if (outcome.name === match.homeTeam || outcome.name === 'Home') {
-            odds[`handicapHome${line > 0 ? '+' : ''}${line}`] = outcome.price;
-          } else {
-            odds[`handicapAway${line > 0 ? '+' : ''}${line}`] = outcome.price;
+        } else if (market.marketKey === 'totals') {
+          // Over/Under goal
+          for (const outcome of market.outcomes) {
+            const name = String(outcome.name ?? '').toLowerCase();
+            if (name !== 'over' && name !== 'under') continue;
+            const line = outcome.point ?? 2.5;
+            const normalKey = name === 'over'
+              ? `over${String(line).replace('.', '')}`
+              : `under${String(line).replace('.', '')}`;
+            if (odds[normalKey] === undefined && Number.isFinite(outcome.price) && outcome.price > 1) {
+              odds[normalKey] = outcome.price;
+            }
+          }
+        } else if (market.marketKey === 'spreads') {
+          // Handicap
+          for (const outcome of market.outcomes) {
+            const line = outcome.point ?? 0;
+            if (outcome.name === match.homeTeam || outcome.name === 'Home') {
+              const key = `handicapHome${line > 0 ? '+' : ''}${line}`;
+              if (odds[key] === undefined) odds[key] = outcome.price;
+            } else {
+              const key = `handicapAway${line > 0 ? '+' : ''}${line}`;
+              if (odds[key] === undefined) odds[key] = outcome.price;
+            }
           }
         }
       }
@@ -224,8 +280,8 @@ export class OddsApiService {
 
   /**
    * Calcola il margine (vig/vigorish) implicito del bookmaker.
-   * Margine = somma probabilità implicite - 1
-   * Esempio: 1/1.85 + 1/3.40 + 1/4.20 = 0.541 + 0.294 + 0.238 = 1.073 → margine 7.3%
+   * Margine = somma probabilitÃ  implicite - 1
+   * Esempio: 1/1.85 + 1/3.40 + 1/4.20 = 0.541 + 0.294 + 0.238 = 1.073 â†’ margine 7.3%
    * Media Serie A bookmaker italiani: ~5-8%
    */
   calculateMargin(match: OddsMatch, bookmakerKey: string): number | null {
@@ -241,6 +297,13 @@ export class OddsApiService {
 
   getRemainingRequests(): number {
     return this.remainingRequests;
+  }
+
+  setRemainingRequests(value: number): void {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      this.remainingRequests = Math.trunc(parsed);
+    }
   }
 
   static getSupportedCompetitions(): string[] {

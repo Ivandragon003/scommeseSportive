@@ -782,8 +782,41 @@ type OddsCacheEntry = {
   remainingRequests: number;
 };
 
+type OddsMatchSummary = {
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string;
+};
+
+type OddsRuntimeState = {
+  competition: string;
+  markets: string[];
+  matchesFound: number;
+  matches: OddsMatchSummary[];
+  remainingRequests: number | null;
+  lastUpdatedAt: string | null;
+};
+
 const oddsCache = new Map<string, OddsCacheEntry>();
 const ODDS_CACHE_TTL_MS = 90 * 1000;
+const getConfiguredOddsApiKey = () =>
+  String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? '').trim();
+
+let oddsRuntimeState: OddsRuntimeState = {
+  competition: 'Serie A',
+  markets: ['h2h', 'totals'],
+  matchesFound: 0,
+  matches: [],
+  remainingRequests: null,
+  lastUpdatedAt: null,
+};
+
+const toOddsSummary = (matches: OddsMatch[]): OddsMatchSummary[] =>
+  matches.map((m) => ({
+    homeTeam: m.homeTeam,
+    awayTeam: m.awayTeam,
+    commenceTime: m.commenceTime,
+  }));
 
 const normalizeTeamForOdds = (name: string): string => {
   const aliases: Record<string, string> = {
@@ -968,7 +1001,7 @@ const buildModelEstimatedOdds = async (
   if (!home || !away) {
     return {
       found: false,
-      message: 'Impossibile associare le squadre ai dati interni: quote automatiche non disponibili senza API key per questo match.',
+      message: 'Impossibile associare le squadre ai dati interni: quote automatiche non disponibili per questo match.',
       selectedOdds: {},
       usedFallbackBookmaker: true,
       usedSyntheticOdds: true,
@@ -978,7 +1011,7 @@ const buildModelEstimatedOdds = async (
   if (home.teamId === away.teamId) {
     return {
       found: false,
-      message: 'Associazione squadre ambigua: impossibile stimare quote affidabili senza API key.',
+      message: 'Associazione squadre ambigua: impossibile stimare quote affidabili.',
       selectedOdds: {},
       usedFallbackBookmaker: true,
       usedSyntheticOdds: true,
@@ -1013,7 +1046,7 @@ const buildModelEstimatedOdds = async (
 
   return {
     found: true,
-    message: 'API key assente/non valida: caricate quote stimate dal modello interno (non quote live Eurobet).',
+    message: 'Quote live non disponibili: caricate quote stimate dal modello interno (non quote live Eurobet).',
     selectedOdds: baseOdds,
     usedFallbackBookmaker: true,
     usedSyntheticOdds: true,
@@ -1029,14 +1062,16 @@ const buildModelEstimatedOdds = async (
 const getCompetitionOdds = async (
   apiKey: string,
   competition: string,
-  markets: string[] = ['h2h', 'totals']
-): Promise<{ oddsService: OddsApiService; matches: OddsMatch[] }> => {
+  markets: string[] = ['h2h', 'totals'],
+  useCache = true
+): Promise<{ oddsService: OddsApiService; matches: OddsMatch[]; fromCache: boolean }> => {
   const cacheKey = `${apiKey.trim()}::${competition}::${markets.join(',')}`;
-  const cached = oddsCache.get(cacheKey);
+  const cached = useCache ? oddsCache.get(cacheKey) : undefined;
   const now = Date.now();
   if (cached && now - cached.cachedAt < ODDS_CACHE_TTL_MS) {
     const svc = new OddsApiService(apiKey);
-    return { oddsService: svc, matches: cached.matches };
+    svc.setRemainingRequests(cached.remainingRequests);
+    return { oddsService: svc, matches: cached.matches, fromCache: true };
   }
 
   const oddsService = new OddsApiService(apiKey);
@@ -1046,15 +1081,24 @@ const getCompetitionOdds = async (
     matches,
     remainingRequests: oddsService.getRemainingRequests(),
   });
-  return { oddsService, matches };
+  return { oddsService, matches, fromCache: false };
 };
 
 router.post('/scraper/odds', async (req: Request, res: Response) => {
   try {
-    const { apiKey, competition = 'Serie A', markets = ['h2h', 'totals'] } = req.body;
-    if (!apiKey) return res.status(400).json({ success: false, error: 'apiKey mancante. Registrati su https://the-odds-api.com' });
+    const { competition = 'Serie A', markets = ['h2h', 'totals'] } = req.body;
+    const normalizedMarkets = Array.isArray(markets) && markets.length > 0
+      ? markets.map((m: unknown) => String(m)).filter(Boolean)
+      : ['h2h', 'totals'];
+    const apiKey = getConfiguredOddsApiKey();
+    if (!apiKey) {
+      return res.status(500).json({
+        success: false,
+        error: 'ODDS_API_KEY non configurata sul server.',
+      });
+    }
 
-    const { oddsService, matches } = await getCompetitionOdds(apiKey, competition, markets);
+    const { oddsService, matches } = await getCompetitionOdds(apiKey, competition, normalizedMarkets, false);
 
     const enriched = matches.map(m => ({
       homeTeam: m.homeTeam,
@@ -1071,13 +1115,25 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       remainingRequests: oddsService.getRemainingRequests(),
     }));
 
+    const updatedAt = new Date().toISOString();
+    oddsRuntimeState = {
+      competition: String(competition),
+      markets: normalizedMarkets,
+      matchesFound: matches.length,
+      matches: toOddsSummary(matches),
+      remainingRequests: oddsService.getRemainingRequests(),
+      lastUpdatedAt: updatedAt,
+    };
+
     res.json({
       success: true,
       data: {
         competition,
+        markets: normalizedMarkets,
         matchesFound: matches.length,
         matches: enriched,
         remainingRequests: oddsService.getRemainingRequests(),
+        lastUpdatedAt: updatedAt,
       }
     });
   } catch (e: any) {
@@ -1089,7 +1145,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
 router.post('/scraper/odds/match', async (req: Request, res: Response) => {
   try {
     const {
-      apiKey,
       competition = 'Serie A',
       homeTeam,
       awayTeam,
@@ -1100,7 +1155,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'homeTeam e awayTeam sono obbligatori.' });
     }
 
-    const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+    const trimmedApiKey = getConfiguredOddsApiKey();
     if (!trimmedApiKey) {
       const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
       return res.json({
@@ -1170,12 +1225,19 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       });
     }
 
-    const eurobetAvailable = best.bookmakers.some(b => b.bookmakerKey === 'eurobet');
-    const eurobetOdds = oddsService.extractBestOdds(best, 'eurobet');
-    const fallbackOdds = oddsService.extractBestOdds(best);
+    const eurobetAvailable = best.bookmakers.some((b) => b.bookmakerKey === 'eurobet');
+    const eurobetOnlyMatch: OddsMatch = {
+      ...best,
+      bookmakers: best.bookmakers.filter((b) => b.bookmakerKey === 'eurobet'),
+    };
 
-    const selectedOdds = Object.keys(eurobetOdds).length > 0 ? eurobetOdds : fallbackOdds;
-    const usedFallbackBookmaker = !eurobetAvailable || Object.keys(eurobetOdds).length === 0;
+    // selectedOdds: prova Eurobet, ma completa automaticamente i mercati mancanti con altri bookmaker.
+    const eurobetOdds = oddsService.extractBestOdds(eurobetOnlyMatch, 'eurobet');
+    const selectedOdds = oddsService.extractBestOdds(best, 'eurobet');
+    const fallbackOdds = selectedOdds;
+
+    const usedFallbackBookmaker = !eurobetAvailable
+      || Object.keys(selectedOdds).some((k) => eurobetOdds[k] === undefined);
 
     return res.json({
       success: true,
@@ -1200,6 +1262,13 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
     console.error('[OddsApi/match] Errore:', e.message);
     return res.status(500).json({ success: false, error: e.message });
   }
+});
+
+router.get('/scraper/odds/status', (_req, res) => {
+  res.json({
+    success: true,
+    data: oddsRuntimeState,
+  });
 });
 
 router.get('/scraper/odds/info', (_req, res) => {

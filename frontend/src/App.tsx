@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Predictions from './pages/Predictions';
@@ -9,7 +9,7 @@ import Scrapers from './pages/Scrapers';
 import './App.css';
 
 const App: React.FC = () => {
-  const [activeUser, setActiveUser] = useState<'user1' | 'user2'>('user1');
+  const activeUser = 'user1';
 
   return (
     <Router>
@@ -19,23 +19,6 @@ const App: React.FC = () => {
             <span className="header-icon">⚽</span>
             <span className="header-title">FootPredictor</span>
             <span className="header-subtitle">Sistema di Analisi Statistica</span>
-          </div>
-          <div className="header-user">
-            <span className="user-label">Utente attivo:</span>
-            <div className="user-toggle">
-              <button
-                className={`user-btn ${activeUser === 'user1' ? 'active' : ''}`}
-                onClick={() => setActiveUser('user1')}
-              >
-                Giocatore 1
-              </button>
-              <button
-                className={`user-btn ${activeUser === 'user2' ? 'active' : ''}`}
-                onClick={() => setActiveUser('user2')}
-              >
-                Giocatore 2
-              </button>
-            </div>
           </div>
         </header>
 
