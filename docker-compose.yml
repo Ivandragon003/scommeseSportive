@@ -6,12 +6,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
-    volumes:
-      # Monta una cartella locale per persistere il database SQLite
-      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - TURSO_DATABASE_URL=${TURSO_DATABASE_URL}
+      - TURSO_AUTH_TOKEN=${TURSO_AUTH_TOKEN}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
@@ -30,5 +29,3 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
-
-# La cartella ./data viene creata automaticamente da Docker

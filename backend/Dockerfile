@@ -27,8 +27,6 @@ RUN npx playwright install --with-deps chromium
 
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /app/data
-
 EXPOSE 3001
 
 CMD ["node", "dist/index.js"]

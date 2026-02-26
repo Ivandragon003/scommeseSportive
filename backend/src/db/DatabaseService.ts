@@ -1,25 +1,71 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+﻿import { createClient } from '@libsql/client';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DATA_DIR, 'football_predictor.db');
+type SqlArgs = Record<string, any> | any[];
 
 export class DatabaseService {
-  private db: Database.Database;
+  private db: ReturnType<typeof createClient>;
+  private initPromise: Promise<void>;
 
-  constructor(dbPath: string = DB_PATH) {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.initSchema();
-    this.ensureOptionalColumns();
+  constructor() {
+    const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
+    const authToken = (process.env.TURSO_AUTH_TOKEN ?? '').trim();
+
+    if (!url) {
+      throw new Error('Missing TURSO_DATABASE_URL. Set a Turso/libSQL URL before starting the backend.');
+    }
+    if (!authToken) {
+      throw new Error('Missing TURSO_AUTH_TOKEN. Set a fresh Turso auth token before starting the backend.');
+    }
+
+    this.db = createClient({ url, authToken });
+    this.initPromise = this.initialize();
   }
 
-  private initSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS matches (
+  private normalizeValue(value: unknown): unknown {
+    if (typeof value === 'bigint') return Number(value);
+    return value;
+  }
+
+  private normalizeRow(row: Record<string, unknown> | null | undefined): any {
+    if (!row) return null;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) out[k] = this.normalizeValue(v);
+    return out;
+  }
+
+  private normalizeRows(rows: Array<Record<string, unknown>>): any[] {
+    return rows.map((row) => this.normalizeRow(row));
+  }
+
+  private async execute(sql: string, args?: SqlArgs, skipInit = false): Promise<any> {
+    if (!skipInit) await this.initPromise;
+    if (args === undefined) return this.db.execute(sql);
+    return this.db.execute({ sql, args });
+  }
+
+  private async run(sql: string, args?: SqlArgs): Promise<void> {
+    await this.execute(sql, args);
+  }
+
+  private async all(sql: string, args?: SqlArgs): Promise<any[]> {
+    const result = await this.execute(sql, args);
+    return this.normalizeRows((result.rows ?? []) as Array<Record<string, unknown>>);
+  }
+
+  private async get(sql: string, args?: SqlArgs): Promise<any | null> {
+    const rows = await this.all(sql, args);
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  private async initialize(): Promise<void> {
+    await this.execute('PRAGMA foreign_keys = ON', undefined, true);
+    await this.initSchema();
+    await this.ensureOptionalColumns();
+  }
+
+  private async initSchema(): Promise<void> {
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS matches (
         match_id TEXT PRIMARY KEY,
         home_team_id TEXT NOT NULL,
         away_team_id TEXT NOT NULL,
@@ -49,9 +95,8 @@ export class DatabaseService {
         source_match_id INTEGER,
         raw_json TEXT,
         created_at TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS teams (
+      )`,
+      `CREATE TABLE IF NOT EXISTS teams (
         team_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         short_name TEXT,
@@ -72,9 +117,8 @@ export class DatabaseService {
         source_team_id INTEGER,
         team_stats_json TEXT,
         last_updated TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS players (
+      )`,
+      `CREATE TABLE IF NOT EXISTS players (
         player_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         team_id TEXT NOT NULL REFERENCES teams(team_id),
@@ -92,9 +136,8 @@ export class DatabaseService {
         source_player_id INTEGER,
         stats_json TEXT,
         last_updated TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS referees (
+      )`,
+      `CREATE TABLE IF NOT EXISTS referees (
         referee_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         avg_fouls_per_game REAL DEFAULT 22.4,
@@ -103,9 +146,8 @@ export class DatabaseService {
         total_games INTEGER DEFAULT 0,
         dispersion_yellow REAL DEFAULT 12.4,
         last_updated TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS model_params (
+      )`,
+      `CREATE TABLE IF NOT EXISTS model_params (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         competition TEXT NOT NULL,
         season TEXT NOT NULL,
@@ -113,15 +155,13 @@ export class DatabaseService {
         fitted_at TEXT DEFAULT (datetime('now')),
         training_matches INTEGER,
         log_likelihood REAL
-      );
-
-      CREATE TABLE IF NOT EXISTS users (
+      )`,
+      `CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         created_at TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS budgets (
+      )`,
+      `CREATE TABLE IF NOT EXISTS budgets (
         user_id TEXT PRIMARY KEY REFERENCES users(user_id),
         total_budget REAL NOT NULL DEFAULT 0,
         available_budget REAL NOT NULL DEFAULT 0,
@@ -133,9 +173,8 @@ export class DatabaseService {
         win_rate REAL DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS bets (
+      )`,
+      `CREATE TABLE IF NOT EXISTS bets (
         bet_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(user_id),
         match_id TEXT NOT NULL,
@@ -151,29 +190,30 @@ export class DatabaseService {
         placed_at TEXT NOT NULL,
         settled_at TEXT,
         notes TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS backtest_results (
+      )`,
+      `CREATE TABLE IF NOT EXISTS backtest_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         competition TEXT,
         season_range TEXT,
         result_json TEXT NOT NULL,
         run_at TEXT DEFAULT (datetime('now'))
-      );
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
+      'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
+      'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
+      'CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_bets_status ON bets(status)',
+      "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
+    ];
 
-      CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date);
-      CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition);
-      CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id);
-      CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id);
-      CREATE INDEX IF NOT EXISTS idx_bets_status ON bets(status);
-
-      INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2');
-    `);
+    for (const sql of statements) {
+      await this.execute(sql, undefined, true);
+    }
   }
 
-  private ensureOptionalColumns(): void {
+  private async ensureOptionalColumns(): Promise<void> {
     const columns: Array<{ table: string; column: string; type: string }> = [
-      { table: 'matches', column: 'source', type: `TEXT DEFAULT 'manual'` },
+      { table: 'matches', column: 'source', type: "TEXT DEFAULT 'manual'" },
       { table: 'matches', column: 'source_match_id', type: 'INTEGER' },
       { table: 'matches', column: 'raw_json', type: 'TEXT' },
       { table: 'teams', column: 'source_team_id', type: 'INTEGER' },
@@ -189,17 +229,18 @@ export class DatabaseService {
 
     for (const c of columns) {
       try {
-        this.db.exec(`ALTER TABLE ${c.table} ADD COLUMN ${c.column} ${c.type}`);
+        await this.execute(`ALTER TABLE ${c.table} ADD COLUMN ${c.column} ${c.type}`, undefined, true);
       } catch {
-        // gia presente
+        // Colonna gia presente
       }
     }
   }
 
   // ==================== MATCHES ====================
 
-  upsertMatch(match: any): void {
-    this.db.prepare(`
+  async upsertMatch(match: any): Promise<void> {
+    await this.run(
+      `
       INSERT OR REPLACE INTO matches (
         match_id, home_team_id, away_team_id, home_team_name, away_team_name,
         date, home_goals, away_goals, home_xg, away_xg,
@@ -208,94 +249,120 @@ export class DatabaseService {
         home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards,
         referee, competition, season, source, source_match_id, raw_json
       ) VALUES (
-        @matchId, @homeTeamId, @awayTeamId, @homeTeamName, @awayTeamName,
-        @date, @homeGoals, @awayGoals, @homeXG, @awayXG,
-        @homeShots, @awayShots, @homeShotsOT, @awayShotsOT,
-        @homePoss, @awayPoss, @homeFouls, @awayFouls,
-        @homeYellow, @awayYellow, @homeRed, @awayRed,
-        @referee, @competition, @season, @source, @sourceMatchId, @rawJson
+        :matchId, :homeTeamId, :awayTeamId, :homeTeamName, :awayTeamName,
+        :date, :homeGoals, :awayGoals, :homeXG, :awayXG,
+        :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
+        :homePoss, :awayPoss, :homeFouls, :awayFouls,
+        :homeYellow, :awayYellow, :homeRed, :awayRed,
+        :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
-    `).run({
-      matchId: match.matchId, homeTeamId: match.homeTeamId, awayTeamId: match.awayTeamId,
-      homeTeamName: match.homeTeamName ?? null, awayTeamName: match.awayTeamName ?? null,
-      date: match.date instanceof Date ? match.date.toISOString() : match.date,
-      homeGoals: match.homeGoals ?? null, awayGoals: match.awayGoals ?? null,
-      homeXG: match.homeXG ?? null, awayXG: match.awayXG ?? null,
-      homeShots: match.homeTotalShots ?? null, awayShots: match.awayTotalShots ?? null,
-      homeShotsOT: match.homeShotsOnTarget ?? null, awayShotsOT: match.awayShotsOnTarget ?? null,
-      homePoss: match.homePossession ?? null, awayPoss: match.awayPossession ?? null,
-      homeFouls: match.homeFouls ?? null, awayFouls: match.awayFouls ?? null,
-      homeYellow: match.homeYellowCards ?? null, awayYellow: match.awayYellowCards ?? null,
-      homeRed: match.homeRedCards ?? null, awayRed: match.awayRedCards ?? null,
-      referee: match.referee ?? null, competition: match.competition ?? null, season: match.season ?? null,
-      source: match.source ?? 'manual',
-      sourceMatchId: match.sourceMatchId ?? null,
-      rawJson: match.rawJson ?? null,
-    });
+    `,
+      {
+        matchId: match.matchId,
+        homeTeamId: match.homeTeamId,
+        awayTeamId: match.awayTeamId,
+        homeTeamName: match.homeTeamName ?? null,
+        awayTeamName: match.awayTeamName ?? null,
+        date: match.date instanceof Date ? match.date.toISOString() : match.date,
+        homeGoals: match.homeGoals ?? null,
+        awayGoals: match.awayGoals ?? null,
+        homeXG: match.homeXG ?? null,
+        awayXG: match.awayXG ?? null,
+        homeShots: match.homeTotalShots ?? null,
+        awayShots: match.awayTotalShots ?? null,
+        homeShotsOT: match.homeShotsOnTarget ?? null,
+        awayShotsOT: match.awayShotsOnTarget ?? null,
+        homePoss: match.homePossession ?? null,
+        awayPoss: match.awayPossession ?? null,
+        homeFouls: match.homeFouls ?? null,
+        awayFouls: match.awayFouls ?? null,
+        homeYellow: match.homeYellowCards ?? null,
+        awayYellow: match.awayYellowCards ?? null,
+        homeRed: match.homeRedCards ?? null,
+        awayRed: match.awayRedCards ?? null,
+        referee: match.referee ?? null,
+        competition: match.competition ?? null,
+        season: match.season ?? null,
+        source: match.source ?? 'manual',
+        sourceMatchId: match.sourceMatchId ?? null,
+        rawJson: match.rawJson ?? null,
+      }
+    );
   }
 
-  getMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }): any[] {
+  async getMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }): Promise<any[]> {
     let q = 'SELECT * FROM matches WHERE 1=1';
-    const p: Record<string, string> = {};
-    if (filters?.competition) { q += ' AND competition = @competition'; p.competition = filters.competition; }
+    const p: any[] = [];
+
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      p.push(filters.competition);
+    }
     if (filters?.season) {
       const rawSeason = filters.season.trim();
       if (rawSeason.length > 0) {
-        const seasonVariants = Array.from(new Set([
-          rawSeason,
-          rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
-          rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
-        ]));
+        const seasonVariants = Array.from(
+          new Set([
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+        );
         if (seasonVariants.length === 1) {
-          q += ' AND season = @season0';
-          p.season0 = seasonVariants[0];
+          q += ' AND season = ?';
+          p.push(seasonVariants[0]);
         } else {
-          const placeholders = seasonVariants.map((_, idx) => `@season${idx}`);
-          q += ` AND season IN (${placeholders.join(', ')})`;
-          seasonVariants.forEach((value, idx) => { p[`season${idx}`] = value; });
+          q += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          p.push(...seasonVariants);
         }
       }
     }
-    if (filters?.fromDate) { q += ' AND date >= @fromDate'; p.fromDate = filters.fromDate; }
-    if (filters?.toDate) { q += ' AND date <= @toDate'; p.toDate = filters.toDate; }
+    if (filters?.fromDate) {
+      q += ' AND date >= ?';
+      p.push(filters.fromDate);
+    }
+    if (filters?.toDate) {
+      q += ' AND date <= ?';
+      p.push(filters.toDate);
+    }
     q += ' ORDER BY datetime(date) DESC';
-    return this.db.prepare(q).all(p);
+    return this.all(q, p);
   }
 
-  getMatchById(matchId: string): any {
-    return this.db.prepare('SELECT * FROM matches WHERE match_id = ?').get(matchId);
+  async getMatchById(matchId: string): Promise<any | null> {
+    return this.get('SELECT * FROM matches WHERE match_id = ?', [matchId]);
   }
 
-  getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): any[] {
+  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
     let q = `
       SELECT *
       FROM matches
       WHERE datetime(date) >= datetime('now')
     `;
-
-    const params: Record<string, string | number> = {};
+    const params: any[] = [];
 
     if (filters?.competition) {
-      q += ' AND competition = @competition';
-      params.competition = filters.competition;
+      q += ' AND competition = ?';
+      params.push(filters.competition);
     }
 
     if (filters?.season) {
       const rawSeason = filters.season.trim();
       if (rawSeason.length > 0) {
-        const seasonVariants = Array.from(new Set([
-          rawSeason,
-          rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
-          rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
-        ]));
+        const seasonVariants = Array.from(
+          new Set([
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+        );
 
         if (seasonVariants.length === 1) {
-          q += ' AND season = @season0';
-          params.season0 = seasonVariants[0];
+          q += ' AND season = ?';
+          params.push(seasonVariants[0]);
         } else {
-          const placeholders = seasonVariants.map((_, idx) => `@season${idx}`);
-          q += ` AND season IN (${placeholders.join(', ')})`;
-          seasonVariants.forEach((value, idx) => { params[`season${idx}`] = value; });
+          q += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          params.push(...seasonVariants);
         }
       }
     }
@@ -304,30 +371,33 @@ export class DatabaseService {
     const safeLimit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
       : 380;
+    q += ' ORDER BY datetime(date) ASC LIMIT ?';
+    params.push(safeLimit);
 
-    q += ' ORDER BY datetime(date) ASC LIMIT @limit';
-    params.limit = safeLimit;
-
-    return this.db.prepare(q).all(params);
+    return this.all(q, params);
   }
-getLastMatchDate(competition: string, season: string): string | null {
-    const row = this.db.prepare(`
+
+  async getLastMatchDate(competition: string, season: string): Promise<string | null> {
+    const row = await this.get(
+      `
       SELECT MAX(date) AS last_date
       FROM matches
       WHERE competition = ?
         AND season = ?
         AND home_goals IS NOT NULL
-    `).get(competition, season) as { last_date: string | null } | undefined;
+    `,
+      [competition, season]
+    );
 
     if (!row || !row.last_date) return null;
-
-    // Normalizza a YYYY-MM-DD (il DB salva come ISO string, prendi solo la data)
-    return row.last_date.substring(0, 10);
+    return String(row.last_date).substring(0, 10);
   }
+
   // ==================== TEAMS ====================
 
-  upsertTeam(team: any): void {
-    this.db.prepare(`
+  async upsertTeam(team: any): Promise<void> {
+    await this.run(
+      `
       INSERT OR REPLACE INTO teams (
         team_id, name, short_name, country, competition,
         attack_strength, defence_strength,
@@ -337,60 +407,51 @@ getLastMatchDate(competition: string, season: string): string | null {
         source_team_id, team_stats_json,
         last_updated
       ) VALUES (
-        @teamId, @name, @shortName, @country, @competition,
-        @attack, @defence,
-        @homeShots, @awayShots, @homeShotsOT, @awayShotsOT,
-        @homeXG, @awayXG,
-        @yellowCards, @redCards, @fouls, @shotsSuppression,
-        @sourceTeamId, @teamStatsJson,
+        :teamId, :name, :shortName, :country, :competition,
+        :attack, :defence,
+        :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
+        :homeXG, :awayXG,
+        :yellowCards, :redCards, :fouls, :shotsSuppression,
+        :sourceTeamId, :teamStatsJson,
         datetime('now')
       )
-    `).run({
-      teamId: team.teamId, name: team.name,
-      shortName: team.shortName ?? null, country: team.country ?? null, competition: team.competition ?? null,
-      attack: team.attackStrength ?? 0.0, defence: team.defenceStrength ?? 0.0,
-      homeShots: team.avgHomeShots ?? 12.1, awayShots: team.avgAwayShots ?? 10.4,
-      homeShotsOT: team.avgHomeShotsOT ?? 4.8, awayShotsOT: team.avgAwayShotsOT ?? 3.9,
-      homeXG: team.avgHomeXG ?? null, awayXG: team.avgAwayXG ?? null,
-      yellowCards: team.avgYellowCards ?? 1.9,
-      redCards: team.avgRedCards ?? 0.11,
-      fouls: team.avgFouls ?? 11.2,
-      shotsSuppression: team.shotsSuppression ?? 1.0,
-      sourceTeamId: team.sourceTeamId ?? null,
-      teamStatsJson: team.teamStatsJson ?? null,
-    });
+    `,
+      {
+        teamId: team.teamId,
+        name: team.name,
+        shortName: team.shortName ?? null,
+        country: team.country ?? null,
+        competition: team.competition ?? null,
+        attack: team.attackStrength ?? 0.0,
+        defence: team.defenceStrength ?? 0.0,
+        homeShots: team.avgHomeShots ?? 12.1,
+        awayShots: team.avgAwayShots ?? 10.4,
+        homeShotsOT: team.avgHomeShotsOT ?? 4.8,
+        awayShotsOT: team.avgAwayShotsOT ?? 3.9,
+        homeXG: team.avgHomeXG ?? null,
+        awayXG: team.avgAwayXG ?? null,
+        yellowCards: team.avgYellowCards ?? 1.9,
+        redCards: team.avgRedCards ?? 0.11,
+        fouls: team.avgFouls ?? 11.2,
+        shotsSuppression: team.shotsSuppression ?? 1.0,
+        sourceTeamId: team.sourceTeamId ?? null,
+        teamStatsJson: team.teamStatsJson ?? null,
+      }
+    );
   }
 
-  getTeams(competition?: string): any[] {
-    if (competition) return this.db.prepare('SELECT * FROM teams WHERE competition = ?').all(competition);
-    return this.db.prepare('SELECT * FROM teams').all();
+  async getTeams(competition?: string): Promise<any[]> {
+    if (competition) return this.all('SELECT * FROM teams WHERE competition = ?', [competition]);
+    return this.all('SELECT * FROM teams');
   }
 
-  getTeam(teamId: string): any {
-    return this.db.prepare('SELECT * FROM teams WHERE team_id = ?').get(teamId);
+  async getTeam(teamId: string): Promise<any | null> {
+    return this.get('SELECT * FROM teams WHERE team_id = ?', [teamId]);
   }
 
-  /**
-   * Calcola automaticamente le medie statistiche da partite storiche
-   * e aggiorna il profilo squadra
-   */
-  /**
-   * Ricalcola le medie statistiche da partite storiche, separando
-   * correttamente le statistiche da casa e quelle da trasferta.
-   *
-   * MOTIVO: Il modello dei tiri distingue avg_home_shots (quando la squadra
-   * gioca in casa) da avg_away_shots (quando gioca fuori). Il vantaggio
-   * del campo vale ~+12% sui tiri. Mischiare le due situazioni
-   * sottostima sistematicamente i tiri in casa e sovrastima quelli fuori.
-   *
-   * shots_suppression: rapporto tra tiri subiti dalla squadra e media di lega.
-   * < 1.0 = difesa migliore della media (sopprime i tiri avversari)
-   * > 1.0 = difesa peggiore della media
-   * Media di lega = 12.1 tiri subiti per partita (Serie A, storico 2019-2024)
-   */
-  recomputeTeamAverages(teamId: string): void {
-    // Statistiche partite IN CASA (come squadra di casa)
-    const homeRows = this.db.prepare(`
+  async recomputeTeamAverages(teamId: string): Promise<void> {
+    const homeRows = await this.get(
+      `
       SELECT
         AVG(home_shots)           AS avg_shots,
         AVG(home_shots_on_target) AS avg_shots_ot,
@@ -402,10 +463,12 @@ getLastMatchDate(competition: string, season: string): string | null {
         COUNT(*)                  AS n
       FROM matches
       WHERE home_team_id = ? AND home_goals IS NOT NULL
-    `).get(teamId) as any;
+    `,
+      [teamId]
+    );
 
-    // Statistiche partite IN TRASFERTA (come squadra ospite)
-    const awayRows = this.db.prepare(`
+    const awayRows = await this.get(
+      `
       SELECT
         AVG(away_shots)           AS avg_shots,
         AVG(away_shots_on_target) AS avg_shots_ot,
@@ -417,69 +480,75 @@ getLastMatchDate(competition: string, season: string): string | null {
         COUNT(*)                  AS n
       FROM matches
       WHERE away_team_id = ? AND home_goals IS NOT NULL
-    `).get(teamId) as any;
+    `,
+      [teamId]
+    );
 
     const LEAGUE_AVG_SHOTS_CONCEDED = 12.1;
 
-    const homeN = homeRows?.n ?? 0;
-    const awayN = awayRows?.n ?? 0;
-
-    // Media pesata per numero di partite giocate in casa vs. fuori
+    const homeN = Number(homeRows?.n ?? 0);
+    const awayN = Number(awayRows?.n ?? 0);
     const totalN = homeN + awayN;
     if (totalN === 0) return;
 
-    // shots_suppression: media dei tiri subiti / media di lega
-    // Calcolata su tutte le partite per avere più campione
-    const avgConcededAll = totalN > 0
-      ? ((homeRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * homeN +
-         (awayRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * awayN) / totalN
-      : LEAGUE_AVG_SHOTS_CONCEDED;
+    const avgConcededAll =
+      totalN > 0
+        ? ((Number(homeRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * homeN +
+            Number(awayRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * awayN) /
+            totalN)
+        : LEAGUE_AVG_SHOTS_CONCEDED;
     const shotsSuppression = avgConcededAll / LEAGUE_AVG_SHOTS_CONCEDED;
 
-    // Media cartellini su tutte le partite (non dipende da casa/trasferta in modo significativo)
-    const avgYellow = totalN > 0
-      ? ((homeRows?.avg_yellow ?? 1.9) * homeN + (awayRows?.avg_yellow ?? 1.9) * awayN) / totalN
-      : 1.9;
-    const avgRed = totalN > 0
-      ? ((homeRows?.avg_red ?? 0.11) * homeN + (awayRows?.avg_red ?? 0.11) * awayN) / totalN
-      : 0.11;
-    const avgFouls = totalN > 0
-      ? ((homeRows?.avg_fouls ?? 11.2) * homeN + (awayRows?.avg_fouls ?? 11.2) * awayN) / totalN
-      : 11.2;
+    const avgYellow =
+      totalN > 0
+        ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeN + Number(awayRows?.avg_yellow ?? 1.9) * awayN) / totalN)
+        : 1.9;
+    const avgRed =
+      totalN > 0
+        ? ((Number(homeRows?.avg_red ?? 0.11) * homeN + Number(awayRows?.avg_red ?? 0.11) * awayN) / totalN)
+        : 0.11;
+    const avgFouls =
+      totalN > 0
+        ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeN + Number(awayRows?.avg_fouls ?? 11.2) * awayN) / totalN)
+        : 11.2;
 
-    this.db.prepare(`
+    await this.run(
+      `
       UPDATE teams SET
-        avg_home_shots     = COALESCE(@homeShots,   avg_home_shots),
-        avg_home_shots_ot  = COALESCE(@homeShotsOT, avg_home_shots_ot),
-        avg_home_xg        = COALESCE(@homeXG,      avg_home_xg),
-        avg_away_shots     = COALESCE(@awayShots,   avg_away_shots),
-        avg_away_shots_ot  = COALESCE(@awayShotsOT, avg_away_shots_ot),
-        avg_away_xg        = COALESCE(@awayXG,      avg_away_xg),
-        avg_yellow_cards   = @yellow,
-        avg_red_cards      = @red,
-        avg_fouls          = @fouls,
-        shots_suppression  = @suppression,
+        avg_home_shots     = COALESCE(:homeShots,   avg_home_shots),
+        avg_home_shots_ot  = COALESCE(:homeShotsOT, avg_home_shots_ot),
+        avg_home_xg        = COALESCE(:homeXG,      avg_home_xg),
+        avg_away_shots     = COALESCE(:awayShots,   avg_away_shots),
+        avg_away_shots_ot  = COALESCE(:awayShotsOT, avg_away_shots_ot),
+        avg_away_xg        = COALESCE(:awayXG,      avg_away_xg),
+        avg_yellow_cards   = :yellow,
+        avg_red_cards      = :red,
+        avg_fouls          = :fouls,
+        shots_suppression  = :suppression,
         last_updated       = datetime('now')
-      WHERE team_id = @teamId
-    `).run({
-      teamId,
-      homeShots:   homeN > 0 ? homeRows.avg_shots   : null,
-      homeShotsOT: homeN > 0 ? homeRows.avg_shots_ot : null,
-      homeXG:      homeN > 0 ? homeRows.avg_xg       : null,
-      awayShots:   awayN > 0 ? awayRows.avg_shots   : null,
-      awayShotsOT: awayN > 0 ? awayRows.avg_shots_ot : null,
-      awayXG:      awayN > 0 ? awayRows.avg_xg       : null,
-      yellow: avgYellow,
-      red:    avgRed,
-      fouls:  avgFouls,
-      suppression: shotsSuppression,
-    });
+      WHERE team_id = :teamId
+    `,
+      {
+        teamId,
+        homeShots: homeN > 0 ? Number(homeRows?.avg_shots ?? 0) : null,
+        homeShotsOT: homeN > 0 ? Number(homeRows?.avg_shots_ot ?? 0) : null,
+        homeXG: homeN > 0 ? Number(homeRows?.avg_xg ?? 0) : null,
+        awayShots: awayN > 0 ? Number(awayRows?.avg_shots ?? 0) : null,
+        awayShotsOT: awayN > 0 ? Number(awayRows?.avg_shots_ot ?? 0) : null,
+        awayXG: awayN > 0 ? Number(awayRows?.avg_xg ?? 0) : null,
+        yellow: avgYellow,
+        red: avgRed,
+        fouls: avgFouls,
+        suppression: shotsSuppression,
+      }
+    );
   }
 
   // ==================== PLAYERS ====================
 
-  upsertPlayer(player: any): void {
-    this.db.prepare(`
+  async upsertPlayer(player: any): Promise<void> {
+    await this.run(
+      `
       INSERT OR REPLACE INTO players (
         player_id, name, team_id, position_code,
         avg_shots_per_game, avg_shots_on_target_per_game,
@@ -488,149 +557,217 @@ getLastMatchDate(competition: string, season: string): string | null {
         shot_share_of_team, games_played, is_available,
         source_player_id, stats_json, last_updated
       ) VALUES (
-        @playerId, @name, @teamId, @positionCode,
-        @avgShots, @avgShotsOT,
-        @avgXG, @avgXGOT,
-        @totalGoals, @totalShots, @totalShotsOnTarget,
-        @shotShare, @games, @available,
-        @sourcePlayerId, @statsJson, datetime('now')
+        :playerId, :name, :teamId, :positionCode,
+        :avgShots, :avgShotsOT,
+        :avgXG, :avgXGOT,
+        :totalGoals, :totalShots, :totalShotsOnTarget,
+        :shotShare, :games, :available,
+        :sourcePlayerId, :statsJson, datetime('now')
       )
-    `).run({
-      playerId: player.playerId, name: player.name, teamId: player.teamId,
-      positionCode: player.positionCode ?? 'MF',
-      avgShots: player.avgShotsPerGame ?? 0,
-      avgShotsOT: player.avgShotsOnTargetPerGame ?? 0,
-      avgXG: player.avgXGPerGame ?? 0,
-      avgXGOT: player.avgXGOTPerGame ?? 0,
-      totalGoals: player.totalGoals ?? 0,
-      totalShots: player.totalShots ?? 0,
-      totalShotsOnTarget: player.totalShotsOnTarget ?? 0,
-      shotShare: player.shotShareOfTeam ?? 0,
-      games: player.gamesPlayed ?? 0,
-      available: player.isAvailable !== false ? 1 : 0,
-      sourcePlayerId: player.sourcePlayerId ?? null,
-      statsJson: player.statsJson ?? null,
-    });
+    `,
+      {
+        playerId: player.playerId,
+        name: player.name,
+        teamId: player.teamId,
+        positionCode: player.positionCode ?? 'MF',
+        avgShots: player.avgShotsPerGame ?? 0,
+        avgShotsOT: player.avgShotsOnTargetPerGame ?? 0,
+        avgXG: player.avgXGPerGame ?? 0,
+        avgXGOT: player.avgXGOTPerGame ?? 0,
+        totalGoals: player.totalGoals ?? 0,
+        totalShots: player.totalShots ?? 0,
+        totalShotsOnTarget: player.totalShotsOnTarget ?? 0,
+        shotShare: player.shotShareOfTeam ?? 0,
+        games: player.gamesPlayed ?? 0,
+        available: player.isAvailable !== false ? 1 : 0,
+        sourcePlayerId: player.sourcePlayerId ?? null,
+        statsJson: player.statsJson ?? null,
+      }
+    );
   }
 
-  getPlayersByTeam(teamId: string): any[] {
-    return this.db.prepare(
-      'SELECT * FROM players WHERE team_id = ? AND is_available = 1 ORDER BY avg_shots_per_game DESC'
-    ).all(teamId);
+  async getPlayersByTeam(teamId: string): Promise<any[]> {
+    return this.all(
+      'SELECT * FROM players WHERE team_id = ? AND is_available = 1 ORDER BY avg_shots_per_game DESC',
+      [teamId]
+    );
   }
 
   // ==================== REFEREES ====================
 
-  upsertReferee(ref: any): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO referees (referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game, avg_red_cards_per_game, total_games, last_updated)
-      VALUES (@refId, @name, @fouls, @yellow, @red, @games, datetime('now'))
-    `).run({
-      refId: ref.refId ?? ref.name.toLowerCase().replace(/\s/g, '_'),
-      name: ref.name,
-      fouls: ref.avgFouls ?? 22.4,
-      yellow: ref.avgYellow ?? 3.8,
-      red: ref.avgRed ?? 0.22,
-      games: ref.games ?? 0,
-    });
+  async upsertReferee(ref: any): Promise<void> {
+    await this.run(
+      `
+      INSERT OR REPLACE INTO referees (
+        referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game, avg_red_cards_per_game, total_games, last_updated
+      )
+      VALUES (:refId, :name, :fouls, :yellow, :red, :games, datetime('now'))
+    `,
+      {
+        refId: ref.refId ?? String(ref.name ?? '').toLowerCase().replace(/\s/g, '_'),
+        name: ref.name,
+        fouls: ref.avgFouls ?? 22.4,
+        yellow: ref.avgYellow ?? 3.8,
+        red: ref.avgRed ?? 0.22,
+        games: ref.games ?? 0,
+      }
+    );
   }
 
-  getRefereeByName(name: string): any {
-    return this.db.prepare('SELECT * FROM referees WHERE name LIKE ?').get(`%${name}%`);
+  async getRefereeByName(name: string): Promise<any | null> {
+    return this.get('SELECT * FROM referees WHERE name LIKE ?', [`%${name}%`]);
   }
 
   // ==================== MODEL PARAMS ====================
 
-  saveModelParams(competition: string, season: string, params: object, trainingMatches: number, logLikelihood?: number): void {
-    this.db.prepare(
-      'INSERT INTO model_params (competition, season, params_json, training_matches, log_likelihood) VALUES (?, ?, ?, ?, ?)'
-    ).run(competition, season, JSON.stringify(params), trainingMatches, logLikelihood ?? null);
+  async saveModelParams(
+    competition: string,
+    season: string,
+    params: object,
+    trainingMatches: number,
+    logLikelihood?: number
+  ): Promise<void> {
+    await this.run(
+      'INSERT INTO model_params (competition, season, params_json, training_matches, log_likelihood) VALUES (?, ?, ?, ?, ?)',
+      [competition, season, JSON.stringify(params), trainingMatches, logLikelihood ?? null]
+    );
   }
 
-  getLatestModelParams(competition: string): any {
-    const row = this.db.prepare(
-      'SELECT * FROM model_params WHERE competition = ? ORDER BY fitted_at DESC LIMIT 1'
-    ).get(competition) as any;
-    if (row) return { ...row, params: JSON.parse(row.params_json) };
-    return null;
+  async getLatestModelParams(competition: string): Promise<any | null> {
+    const row = await this.get(
+      'SELECT * FROM model_params WHERE competition = ? ORDER BY fitted_at DESC LIMIT 1',
+      [competition]
+    );
+    if (!row) return null;
+
+    let parsedParams: any = {};
+    try {
+      parsedParams = JSON.parse(String(row.params_json ?? '{}'));
+    } catch {
+      parsedParams = {};
+    }
+
+    return { ...row, params: parsedParams };
   }
 
   // ==================== BUDGET & BETS ====================
 
-  getBudget(userId: string): any {
-    return this.db.prepare('SELECT * FROM budgets WHERE user_id = ?').get(userId);
+  async getBudget(userId: string): Promise<any | null> {
+    return this.get('SELECT * FROM budgets WHERE user_id = ?', [userId]);
   }
 
-  createOrResetBudget(userId: string, amount: number): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO budgets (user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, updated_at)
+  async createOrResetBudget(userId: string, amount: number): Promise<void> {
+    await this.run(
+      `
+      INSERT OR REPLACE INTO budgets (
+        user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, updated_at
+      )
       VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, datetime('now'))
-    `).run(userId, amount, amount);
+    `,
+      [userId, amount, amount]
+    );
   }
 
-  updateBudget(budget: any): void {
-    this.db.prepare(`
+  async updateBudget(budget: any): Promise<void> {
+    await this.run(
+      `
       UPDATE budgets SET
-        total_budget = @totalBudget, available_budget = @availableBudget,
-        total_bets = @totalBets, total_staked = @totalStaked,
-        total_won = @totalWon, total_lost = @totalLost,
-        roi = @roi, win_rate = @winRate, updated_at = datetime('now')
-      WHERE user_id = @userId
-    `).run(budget);
+        total_budget = :totalBudget, available_budget = :availableBudget,
+        total_bets = :totalBets, total_staked = :totalStaked,
+        total_won = :totalWon, total_lost = :totalLost,
+        roi = :roi, win_rate = :winRate, updated_at = datetime('now')
+      WHERE user_id = :userId
+    `,
+      budget
+    );
   }
 
-  saveBet(bet: any): void {
-    this.db.prepare(`
+  async saveBet(bet: any): Promise<void> {
+    await this.run(
+      `
       INSERT OR REPLACE INTO bets (
         bet_id, user_id, match_id, market_name, selection,
         odds, stake, our_probability, expected_value,
         status, return_amount, profit, placed_at, settled_at, notes
       ) VALUES (
-        @betId, @userId, @matchId, @marketName, @selection,
-        @odds, @stake, @ourProbability, @expectedValue,
-        @status, @returnAmount, @profit, @placedAt, @settledAt, @notes
+        :betId, :userId, :matchId, :marketName, :selection,
+        :odds, :stake, :ourProbability, :expectedValue,
+        :status, :returnAmount, :profit, :placedAt, :settledAt, :notes
       )
-    `).run({
-      betId: bet.betId, userId: bet.userId, matchId: bet.matchId,
-      marketName: bet.marketName, selection: bet.selection,
-      odds: bet.odds, stake: bet.stake,
-      ourProbability: bet.ourProbability, expectedValue: bet.expectedValue,
-      status: bet.status, returnAmount: bet.returnAmount ?? null,
-      profit: bet.profit ?? null,
-      placedAt: bet.placedAt instanceof Date ? bet.placedAt.toISOString() : bet.placedAt,
-      settledAt: bet.settledAt ? (bet.settledAt instanceof Date ? bet.settledAt.toISOString() : bet.settledAt) : null,
-      notes: bet.notes ?? null,
-    });
+    `,
+      {
+        betId: bet.betId,
+        userId: bet.userId,
+        matchId: bet.matchId,
+        marketName: bet.marketName,
+        selection: bet.selection,
+        odds: bet.odds,
+        stake: bet.stake,
+        ourProbability: bet.ourProbability,
+        expectedValue: bet.expectedValue,
+        status: bet.status,
+        returnAmount: bet.returnAmount ?? null,
+        profit: bet.profit ?? null,
+        placedAt: bet.placedAt instanceof Date ? bet.placedAt.toISOString() : bet.placedAt,
+        settledAt: bet.settledAt
+          ? bet.settledAt instanceof Date
+            ? bet.settledAt.toISOString()
+            : bet.settledAt
+          : null,
+        notes: bet.notes ?? null,
+      }
+    );
   }
 
-  getBets(userId: string, status?: string): any[] {
-    if (status) return this.db.prepare('SELECT * FROM bets WHERE user_id = ? AND status = ? ORDER BY placed_at DESC').all(userId, status);
-    return this.db.prepare('SELECT * FROM bets WHERE user_id = ? ORDER BY placed_at DESC').all(userId);
+  async getBets(userId: string, status?: string): Promise<any[]> {
+    if (status) {
+      return this.all('SELECT * FROM bets WHERE user_id = ? AND status = ? ORDER BY placed_at DESC', [userId, status]);
+    }
+    return this.all('SELECT * FROM bets WHERE user_id = ? ORDER BY placed_at DESC', [userId]);
   }
 
-  getBet(betId: string): any {
-    return this.db.prepare('SELECT * FROM bets WHERE bet_id = ?').get(betId);
+  async getBet(betId: string): Promise<any | null> {
+    return this.get('SELECT * FROM bets WHERE bet_id = ?', [betId]);
   }
 
   // ==================== BACKTEST ====================
 
-  saveBacktestResult(competition: string, seasonRange: string, result: object): void {
-    this.db.prepare('INSERT INTO backtest_results (competition, season_range, result_json) VALUES (?, ?, ?)')
-      .run(competition, seasonRange, JSON.stringify(result));
+  async saveBacktestResult(competition: string, seasonRange: string, result: object): Promise<void> {
+    await this.run('INSERT INTO backtest_results (competition, season_range, result_json) VALUES (?, ?, ?)', [
+      competition,
+      seasonRange,
+      JSON.stringify(result),
+    ]);
   }
 
-  getBacktestResults(competition?: string): any[] {
-    if (competition) return this.db.prepare('SELECT id, competition, season_range, run_at FROM backtest_results WHERE competition = ? ORDER BY run_at DESC').all(competition);
-    return this.db.prepare('SELECT id, competition, season_range, run_at FROM backtest_results ORDER BY run_at DESC LIMIT 50').all();
+  async getBacktestResults(competition?: string): Promise<any[]> {
+    if (competition) {
+      return this.all(
+        'SELECT id, competition, season_range, run_at FROM backtest_results WHERE competition = ? ORDER BY run_at DESC',
+        [competition]
+      );
+    }
+    return this.all('SELECT id, competition, season_range, run_at FROM backtest_results ORDER BY run_at DESC LIMIT 50');
   }
 
-  getBacktestResult(id: number): any {
-    const row = this.db.prepare('SELECT * FROM backtest_results WHERE id = ?').get(id) as any;
-    if (row) return { ...row, result: JSON.parse(row.result_json) };
-    return null;
+  async getBacktestResult(id: number): Promise<any | null> {
+    const row = await this.get('SELECT * FROM backtest_results WHERE id = ?', [id]);
+    if (!row) return null;
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(String(row.result_json ?? '{}'));
+    } catch {
+      parsed = {};
+    }
+
+    return { ...row, result: parsed };
   }
 
-  close(): void { this.db.close(); }
+  async close(): Promise<void> {
+    await this.initPromise.catch(() => undefined);
+    if (typeof (this.db as any).close === 'function') {
+      await (this.db as any).close();
+    }
+  }
 }
-
-export const db = new DatabaseService();

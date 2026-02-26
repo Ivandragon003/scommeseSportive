@@ -102,7 +102,7 @@ Apri http://localhost:3000
 
 Prerequisito locale (importante):
 - `Node.js >= 20` (consigliato tramite `.nvmrc`)
-- Con `better-sqlite3@12.6.2` il backend e testato anche su Node 24 (Windows)
+- Configura Turso/libSQL tramite variabili ambiente (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`)
 
 **Backend:**
 ```bash
@@ -137,9 +137,8 @@ football-predictor/
 │   │   ├── api/
 │   │   │   └── routes.ts              # Express API
 │   │   ├── db/
-│   │   │   └── DatabaseService.ts     # SQLite persistenza
+│   │   │   └── DatabaseService.ts     # Turso/libSQL persistenza
 │   │   └── index.ts                   # Entry point
-│   └── data/                          # Database SQLite (locale)
 │
 ├── frontend/
 │   └── src/
@@ -221,19 +220,17 @@ football-predictor/
 2. **Il backtesting usa 70% dati training, 30% test** (divisione cronologica)
 3. **Le scommesse con EV > 2% sono considerate value bets** - non garantisce profitto
 4. **Usa sempre Kelly Frazionale** (1/4 o 1/2 Kelly) per limitare la varianza
-5. **I dati sono salvati localmente** in SQLite (`data/football_predictor.db`)
+5. **I dati applicativi sono salvati su Turso/libSQL** (nessun database SQLite locale in runtime)
 
-### Migrazione SQLite -> Turso
-
-Per spostare il database locale su Turso:
+### Configurazione Turso
 
 ```bash
 cd backend
+cp .env.example .env
+# imposta TURSO_DATABASE_URL e TURSO_AUTH_TOKEN (token nuovo)
 npm install
-TURSO_DATABASE_URL="libsql://<your-db>.turso.io" TURSO_AUTH_TOKEN="<token>" npm run db:migrate:turso
+npm run dev
 ```
-
-Opzionale: puoi specificare un path SQLite custom con `SQLITE_DB_PATH`.
 
 ---
 

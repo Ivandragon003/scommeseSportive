@@ -130,9 +130,9 @@ export class PredictionService {
     return out;
   }
 
-  private getModel(competition: string = 'default'): DixonColesModel {
+  private async getModel(competition: string = 'default'): Promise<DixonColesModel> {
     if (!this.models.has(competition)) {
-      const saved = this.db.getLatestModelParams(competition);
+      const saved = await this.db.getLatestModelParams(competition);
       if (saved) {
         const model = new DixonColesModel();
         model.setParams(this.sanitizeModelParams(saved.params));
@@ -145,7 +145,7 @@ export class PredictionService {
   }
 
   async fitModelForCompetition(competition: string, season?: string, fromDate?: string, toDate?: string) {
-    const rawMatches = this.db.getMatches({ competition, season, fromDate, toDate });
+    const rawMatches = await this.db.getMatches({ competition, season, fromDate, toDate });
     const matches: MatchData[] = rawMatches
       .filter((m: any) => m.home_goals !== null && m.away_goals !== null)
       .map((m: any) => ({
@@ -164,20 +164,20 @@ export class PredictionService {
 
     // Aggiorna parametri nel DB e ricalcola medie statistiche
     for (const teamId of teams) {
-      const existing = this.db.getTeam(teamId);
+      const existing = await this.db.getTeam(teamId);
       if (existing) {
-        this.db.upsertTeam({
+        await this.db.upsertTeam({
           ...this.teamRowToObj(existing),
           teamId,
           attackStrength: params.attackParams[teamId] ?? 0,
           defenceStrength: params.defenceParams[teamId] ?? 0,
         });
-        this.db.recomputeTeamAverages(teamId);
+        await this.db.recomputeTeamAverages(teamId);
       }
     }
 
     const logLikelihood = this.computeLL(model, matches);
-    this.db.saveModelParams(competition, season ?? 'all', params, matches.length, logLikelihood);
+    await this.db.saveModelParams(competition, season ?? 'all', params, matches.length, logLikelihood);
     this.models.set(competition, model);
 
     return { matchesUsed: matches.length, logLikelihood, teams: teams.length };
@@ -208,15 +208,15 @@ export class PredictionService {
     return ll;
   }
 
-  predict(request: PredictionRequest): PredictionResponse {
-    const model = this.getModel(request.competition);
-    const homeTeam = this.db.getTeam(request.homeTeamId);
-    const awayTeam = this.db.getTeam(request.awayTeamId);
-    const referee = request.referee ? this.db.getRefereeByName(request.referee) : null;
+  async predict(request: PredictionRequest): Promise<PredictionResponse> {
+    const model = await this.getModel(request.competition);
+    const homeTeam = await this.db.getTeam(request.homeTeamId);
+    const awayTeam = await this.db.getTeam(request.awayTeamId);
+    const referee = request.referee ? await this.db.getRefereeByName(request.referee) : null;
 
     // Carica giocatori per i tiri per giocatore
-    const homePlayers = this.db.getPlayersByTeam(request.homeTeamId);
-    const awayPlayers = this.db.getPlayersByTeam(request.awayTeamId);
+    const homePlayers = await this.db.getPlayersByTeam(request.homeTeamId);
+    const awayPlayers = await this.db.getPlayersByTeam(request.awayTeamId);
 
     const toPlayerData = (p: any): PlayerShotsData => ({
       playerId: p.player_id, playerName: p.name, teamId: p.team_id,
@@ -271,7 +271,7 @@ export class PredictionService {
       valueOpportunities = this.engine.analyzeMarkets(flatProbs, normalizedOdds, marketNames);
     }
 
-    const matchCount = this.db.getMatches({ competition: request.competition }).length;
+    const matchCount = (await this.db.getMatches({ competition: request.competition })).length;
     const modelConfidence = Math.min(0.95, Math.max(0.30, 1 / (1 + Math.exp(-(matchCount - 100) / 40))));
 
     return {
@@ -438,15 +438,15 @@ export class PredictionService {
   }
   // ==================== BUDGET ====================
 
-  getBudget(userId: string) { return this.db.getBudget(userId); }
+  async getBudget(userId: string) { return this.db.getBudget(userId); }
 
-  initBudget(userId: string, amount: number) {
-    this.db.createOrResetBudget(userId, amount);
+  async initBudget(userId: string, amount: number) {
+    await this.db.createOrResetBudget(userId, amount);
     return this.db.getBudget(userId);
   }
 
-  placeBet(userId: string, matchId: string, marketName: string, selection: string, odds: number, stake: number, ourProbability: number, expectedValue: number) {
-    const budget = this.db.getBudget(userId);
+  async placeBet(userId: string, matchId: string, marketName: string, selection: string, odds: number, stake: number, ourProbability: number, expectedValue: number) {
+    const budget = await this.db.getBudget(userId);
     if (!budget) throw new Error('Budget non trovato');
     if (stake > budget.available_budget) throw new Error(`Budget insufficiente: €${budget.available_budget.toFixed(2)} disponibili`);
 
@@ -456,8 +456,8 @@ export class PredictionService {
       status: 'PENDING', placedAt: new Date(),
     };
 
-    this.db.saveBet(bet);
-    this.db.updateBudget({
+    await this.db.saveBet(bet);
+    await this.db.updateBudget({
       userId, totalBudget: budget.total_budget,
       availableBudget: budget.available_budget - stake,
       totalBets: budget.total_bets + 1,
@@ -466,20 +466,20 @@ export class PredictionService {
       roi: budget.roi, winRate: budget.win_rate,
     });
 
-    return { bet, budget: this.db.getBudget(userId) };
+    return { bet, budget: await this.db.getBudget(userId) };
   }
 
-  settleBet(betId: string, won: boolean, returnAmount?: number) {
-    const betRow = this.db.getBet(betId);
+  async settleBet(betId: string, won: boolean, returnAmount?: number) {
+    const betRow = await this.db.getBet(betId);
     if (!betRow) throw new Error('Scommessa non trovata');
 
-    const budget = this.db.getBudget(betRow.user_id);
+    const budget = await this.db.getBudget(betRow.user_id);
     if (!budget) throw new Error('Budget non trovato');
 
     const actualReturn = won ? (returnAmount ?? betRow.stake * betRow.odds) : 0;
     const profit = actualReturn - betRow.stake;
 
-    this.db.saveBet({
+    await this.db.saveBet({
       ...betRow, betId: betRow.bet_id, userId: betRow.user_id, matchId: betRow.match_id,
       marketName: betRow.market_name, ourProbability: betRow.our_probability,
       expectedValue: betRow.expected_value, placedAt: betRow.placed_at,
@@ -492,24 +492,24 @@ export class PredictionService {
     const newWon = budget.total_won + (won ? actualReturn : 0);
     const newLost = budget.total_lost + (won ? 0 : betRow.stake);
 
-    const allBets = this.db.getBets(betRow.user_id);
+    const allBets = await this.db.getBets(betRow.user_id);
     const settled = allBets.filter((b: any) => b.status === 'WON' || b.status === 'LOST');
     const wonCount = settled.filter((b: any) => b.status === 'WON').length;
     const winRate = settled.length > 0 ? (wonCount / settled.length) * 100 : 0;
     const roi = budget.total_staked > 0 ? ((newWon - newLost) / budget.total_staked) * 100 : 0;
 
-    this.db.updateBudget({
+    await this.db.updateBudget({
       userId: betRow.user_id, totalBudget: budget.total_budget,
       availableBudget: newAvail, totalBets: budget.total_bets,
       totalStaked: budget.total_staked, totalWon: newWon, totalLost: newLost,
       roi, winRate,
     });
 
-    return { budget: this.db.getBudget(betRow.user_id) };
+    return { budget: await this.db.getBudget(betRow.user_id) };
   }
 
   async runBacktest(competition: string, season?: string, historicalOdds?: Record<string, Record<string, number>>) {
-    const rawMatches = this.db.getMatches({ competition, season });
+    const rawMatches = await this.db.getMatches({ competition, season });
     const matches: MatchData[] = rawMatches
       .filter((m: any) => m.home_goals !== null && m.away_goals !== null)
       .map((m: any) => ({
@@ -521,7 +521,7 @@ export class PredictionService {
     if (matches.length < 50) throw new Error(`Servono almeno 50 partite. Disponibili: ${matches.length}`);
 
     const result = this.backtester.runBacktest(matches, historicalOdds ?? {});
-    this.db.saveBacktestResult(competition, season ?? 'all', result);
+    await this.db.saveBacktestResult(competition, season ?? 'all', result);
     return result;
   }
 }

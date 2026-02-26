@@ -7,41 +7,41 @@ const db = new DatabaseService();
 const svc = new PredictionService(db);
 
 // ====== TEAMS ======
-router.get('/teams', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: db.getTeams(req.query.competition as string) }); }
+router.get('/teams', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await db.getTeams(req.query.competition as string) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.post('/teams', (req: Request, res: Response) => {
-  try { db.upsertTeam(req.body); res.json({ success: true }); }
+router.post('/teams', async (req: Request, res: Response) => {
+  try { await db.upsertTeam(req.body); res.json({ success: true }); }
   catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
 // ====== PLAYERS ======
-router.get('/players/:teamId', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: db.getPlayersByTeam(req.params.teamId) }); }
+router.get('/players/:teamId', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await db.getPlayersByTeam(req.params.teamId) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.post('/players', (req: Request, res: Response) => {
-  try { db.upsertPlayer(req.body); res.json({ success: true }); }
+router.post('/players', async (req: Request, res: Response) => {
+  try { await db.upsertPlayer(req.body); res.json({ success: true }); }
   catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.post('/players/bulk', (req: Request, res: Response) => {
+router.post('/players/bulk', async (req: Request, res: Response) => {
   try {
     const { players } = req.body;
     if (!Array.isArray(players)) return res.status(400).json({ success: false, error: 'Array richiesto' });
     let ok = 0;
-    for (const p of players) { try { db.upsertPlayer(p); ok++; } catch {} }
+    for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch {} }
     return res.json({ success: true, imported: ok });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
 });
 
 // ====== MATCHES ======
-router.get('/matches', (req: Request, res: Response) => {
+router.get('/matches', async (req: Request, res: Response) => {
   try {
-    const matches = db.getMatches({
+    const matches = await db.getMatches({
       competition: req.query.competition as string,
       season: req.query.season as string,
       fromDate: req.query.fromDate as string,
@@ -51,10 +51,10 @@ router.get('/matches', (req: Request, res: Response) => {
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.get('/matches/upcoming', (req: Request, res: Response) => {
+router.get('/matches/upcoming', async (req: Request, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
-    const matches = db.getUpcomingMatches({
+    const matches = await db.getUpcomingMatches({
       competition: req.query.competition as string | undefined,
       season: req.query.season as string | undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
@@ -63,12 +63,12 @@ router.get('/matches/upcoming', (req: Request, res: Response) => {
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.post('/matches', (req: Request, res: Response) => {
-  try { db.upsertMatch({ ...req.body, date: new Date(req.body.date) }); res.json({ success: true }); }
+router.post('/matches', async (req: Request, res: Response) => {
+  try { await db.upsertMatch({ ...req.body, date: new Date(req.body.date) }); res.json({ success: true }); }
   catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.post('/matches/bulk', (req: Request, res: Response) => {
+router.post('/matches/bulk', async (req: Request, res: Response) => {
   try {
     const { matches } = req.body;
     if (!Array.isArray(matches)) return res.status(400).json({ success: false, error: 'Array richiesto' });
@@ -103,7 +103,7 @@ router.post('/matches/bulk', (req: Request, res: Response) => {
           competition:      m.competition ?? m.league ?? m.Division,
           season:           m.season ?? m.Season,
         };
-        db.upsertMatch(normalized);
+        await db.upsertMatch(normalized);
         imported++;
       } catch (err) {
         errors++;
@@ -114,13 +114,13 @@ router.post('/matches/bulk', (req: Request, res: Response) => {
 });
 
 // ====== REFEREES ======
-router.post('/referees', (req: Request, res: Response) => {
-  try { db.upsertReferee(req.body); res.json({ success: true }); }
+router.post('/referees', async (req: Request, res: Response) => {
+  try { await db.upsertReferee(req.body); res.json({ success: true }); }
   catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.get('/referees/:name', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: db.getRefereeByName(decodeURIComponent(req.params.name)) }); }
+router.get('/referees/:name', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await db.getRefereeByName(decodeURIComponent(req.params.name)) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
@@ -132,13 +132,13 @@ router.post('/model/fit', async (req: Request, res: Response) => {
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.post('/model/recompute-averages', (req: Request, res: Response) => {
+router.post('/model/recompute-averages', async (req: Request, res: Response) => {
   try {
     const { competition } = req.body;
-    const teams = db.getTeams(competition);
+    const teams = await db.getTeams(competition);
     let updated = 0;
     for (const t of teams) {
-      db.recomputeTeamAverages(t.team_id);
+      await db.recomputeTeamAverages(t.team_id);
       updated++;
     }
     res.json({ success: true, teamsUpdated: updated });
@@ -146,9 +146,9 @@ router.post('/model/recompute-averages', (req: Request, res: Response) => {
 });
 
 // ====== PREDICT ======
-router.post('/predict', (req: Request, res: Response) => {
+router.post('/predict', async (req: Request, res: Response) => {
   try {
-    const pred = svc.predict(req.body);
+    const pred = await svc.predict(req.body);
     res.json({ success: true, data: formatPrediction(pred) });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
@@ -418,36 +418,36 @@ function formatPrediction(pred: any): any {
   };
 }
 // ====== BUDGET & BETS ======
-router.get('/budget/:userId', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: svc.getBudget(req.params.userId) }); }
+router.get('/budget/:userId', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await svc.getBudget(req.params.userId) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.post('/budget/:userId/init', (req: Request, res: Response) => {
+router.post('/budget/:userId/init', async (req: Request, res: Response) => {
   try {
     const amount = parseFloat(req.body.amount);
     if (isNaN(amount) || amount <= 0) return res.status(400).json({ success: false, error: 'Importo non valido' });
-    return res.json({ success: true, data: svc.initBudget(req.params.userId, amount) });
+    return res.json({ success: true, data: await svc.initBudget(req.params.userId, amount) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.post('/bets/place', (req: Request, res: Response) => {
+router.post('/bets/place', async (req: Request, res: Response) => {
   try {
     const { userId, matchId, marketName, selection, odds, stake, ourProbability, expectedValue } = req.body;
-    const result = svc.placeBet(userId, matchId, marketName, selection, odds, stake, ourProbability, expectedValue);
+    const result = await svc.placeBet(userId, matchId, marketName, selection, odds, stake, ourProbability, expectedValue);
     res.json({ success: true, data: result });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.post('/bets/:betId/settle', (req: Request, res: Response) => {
+router.post('/bets/:betId/settle', async (req: Request, res: Response) => {
   try {
-    const result = svc.settleBet(req.params.betId, req.body.won, req.body.returnAmount);
+    const result = await svc.settleBet(req.params.betId, req.body.won, req.body.returnAmount);
     res.json({ success: true, data: result });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.get('/bets/:userId', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: db.getBets(req.params.userId, req.query.status as string) }); }
+router.get('/bets/:userId', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await db.getBets(req.params.userId, req.query.status as string) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
@@ -459,14 +459,14 @@ router.post('/backtest', async (req: Request, res: Response) => {
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
-router.get('/backtest/results', (req: Request, res: Response) => {
-  try { res.json({ success: true, data: db.getBacktestResults(req.query.competition as string) }); }
+router.get('/backtest/results', async (req: Request, res: Response) => {
+  try { res.json({ success: true, data: await db.getBacktestResults(req.query.competition as string) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-router.get('/backtest/results/:id', (req: Request, res: Response) => {
+router.get('/backtest/results/:id', async (req: Request, res: Response) => {
   try {
-    const r = db.getBacktestResult(parseInt(req.params.id));
+    const r = await db.getBacktestResult(parseInt(req.params.id));
     if (!r) return res.status(404).json({ success: false, error: 'Non trovato' });
     return res.json({ success: true, data: r });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
@@ -537,22 +537,35 @@ async function runFotmobImport(req: Request, res: Response) {
 
     for (const competitionName of competitionsToRun) {
       for (const season of seasonsToScrape) {
-        const lastDateInDb = db.getLastMatchDate(competitionName, season);
+        const lastDateInDb = await db.getLastMatchDate(competitionName, season);
         const allMatches = await fotmob.scrapeSeason(competitionName, season, {
           includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
         });
 
-        const matchesToImport = allMatches.filter(m => {
+        const matchesToImport: typeof allMatches = [];
+        for (const m of allMatches) {
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
-          const existing = db.getMatchById(m.matchId);
-          if (forceRefresh) return true;
-          if (!existing) return true;
+          const existing = await db.getMatchById(m.matchId);
+          if (forceRefresh) {
+            matchesToImport.push(m);
+            continue;
+          }
+          if (!existing) {
+            matchesToImport.push(m);
+            continue;
+          }
           // Mantieni sempre in DB anche le partite future/non concluse.
-          if (!isPlayed) return true;
-          if (includeMatchDetails !== false && hasMissingAdvancedStats(existing)) return true;
-          if (lastDateInDb && m.date.substring(0, 10) <= lastDateInDb) return false;
-          return true;
-        });
+          if (!isPlayed) {
+            matchesToImport.push(m);
+            continue;
+          }
+          if (includeMatchDetails !== false && hasMissingAdvancedStats(existing)) {
+            matchesToImport.push(m);
+            continue;
+          }
+          if (lastDateInDb && m.date.substring(0, 10) <= lastDateInDb) continue;
+          matchesToImport.push(m);
+        }
 
         const playersAgg = new Map<string, {
           playerId: string;
@@ -580,9 +593,9 @@ async function runFotmobImport(req: Request, res: Response) {
             { teamId: m.homeTeamId, name: m.homeTeamName },
             { teamId: m.awayTeamId, name: m.awayTeamName },
           ]) {
-            const existingTeam = db.getTeam(team.teamId);
+            const existingTeam = await db.getTeam(team.teamId);
             if (!existingTeam) {
-              db.upsertTeam({
+              await db.upsertTeam({
                 teamId: team.teamId,
                 name: team.name,
                 competition: competitionName,
@@ -594,8 +607,8 @@ async function runFotmobImport(req: Request, res: Response) {
           }
 
           try {
-            const existedBefore = Boolean(db.getMatchById(m.matchId));
-            db.upsertMatch(fotmob.toDbFormat(m));
+            const existedBefore = Boolean(await db.getMatchById(m.matchId));
+            await db.upsertMatch(fotmob.toDbFormat(m));
             if (existedBefore) {
               updatedExisting++;
             } else {
@@ -636,7 +649,7 @@ async function runFotmobImport(req: Request, res: Response) {
 
         for (const [, p] of playersAgg) {
           const games = Math.max(1, p.games.size);
-          db.upsertPlayer({
+          await db.upsertPlayer({
             playerId: p.playerId,
             sourcePlayerId: p.sourcePlayerId,
             name: p.name,
@@ -685,17 +698,18 @@ async function runFotmobImport(req: Request, res: Response) {
 
     let teamsRecomputed = 0;
     for (const comp of competitionsToRun) {
-      const teams = db.getTeams(comp);
+      const teams = await db.getTeams(comp);
       for (const t of teams) {
-        db.recomputeTeamAverages(t.team_id);
+        await db.recomputeTeamAverages(t.team_id);
         teamsRecomputed++;
       }
     }
 
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
-    const lastDatesAfter = Object.fromEntries(
-      competitionsToRun.map(comp => [comp, db.getLastMatchDate(comp, lastSeason) ?? 'nessuna'])
-    );
+    const lastDatesAfter: Record<string, string> = {};
+    for (const comp of competitionsToRun) {
+      lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
+    }
 
     res.json({
       success: true,
@@ -734,7 +748,7 @@ router.post('/scraper/fotmob', runFotmobImport);
  * Info sulle competizioni e stagioni disponibili + stato del DB.
  * Utile per il frontend per sapere quando è stato fatto l'ultimo import.
  */
-router.get('/scraper/fotmob/info', (_req, res) => {
+router.get('/scraper/fotmob/info', async (_req, res) => {
   const competitions = FotmobScraper.getSupportedCompetitions();
   const top5 = FotmobScraper.getTop5Competitions();
   const seasons = FotmobScraper.generateSeasons(4);
@@ -743,7 +757,7 @@ router.get('/scraper/fotmob/info', (_req, res) => {
   const dbStatus: Record<string, string> = {};
   for (const comp of competitions) {
     const lastSeason = seasons[seasons.length - 1];
-    const lastDate = db.getLastMatchDate(comp, lastSeason);
+    const lastDate = await db.getLastMatchDate(comp, lastSeason);
     dbStatus[comp] = lastDate ?? 'nessun dato';
   }
 
@@ -914,9 +928,9 @@ const marketOverround = (selectionKey: string): number => {
   return 0.045;
 };
 
-const resolveTeamForModel = (teamName: string, competition?: string): { teamId: string; score: number } | null => {
-  const byCompetition = competition ? db.getTeams(competition) : [];
-  const allTeams = db.getTeams();
+const resolveTeamForModel = async (teamName: string, competition?: string): Promise<{ teamId: string; score: number } | null> => {
+  const byCompetition = competition ? await db.getTeams(competition) : [];
+  const allTeams = await db.getTeams();
   const pool = byCompetition.length > 0 ? byCompetition : allTeams;
 
   let best: any = null;
@@ -934,11 +948,11 @@ const resolveTeamForModel = (teamName: string, competition?: string): { teamId: 
   return { teamId: String(best.team_id), score: Number(bestScore.toFixed(3)) };
 };
 
-const buildModelEstimatedOdds = (
+const buildModelEstimatedOdds = async (
   competition: string,
   homeTeamName: string,
   awayTeamName: string
-): {
+): Promise<{
   found: boolean;
   message: string;
   selectedOdds: Record<string, number>;
@@ -947,9 +961,9 @@ const buildModelEstimatedOdds = (
   source: string;
   confidenceScore?: number;
   match?: { homeTeam: string; awayTeam: string };
-} => {
-  const home = resolveTeamForModel(homeTeamName, competition) ?? resolveTeamForModel(homeTeamName);
-  const away = resolveTeamForModel(awayTeamName, competition) ?? resolveTeamForModel(awayTeamName);
+}> => {
+  const home = (await resolveTeamForModel(homeTeamName, competition)) ?? (await resolveTeamForModel(homeTeamName));
+  const away = (await resolveTeamForModel(awayTeamName, competition)) ?? (await resolveTeamForModel(awayTeamName));
 
   if (!home || !away) {
     return {
@@ -972,7 +986,7 @@ const buildModelEstimatedOdds = (
     };
   }
 
-  const pred = svc.predict({
+  const pred = await svc.predict({
     homeTeamId: home.teamId,
     awayTeamId: away.teamId,
     competition,
@@ -1088,7 +1102,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
 
     const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
     if (!trimmedApiKey) {
-      const estimated = buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+      const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
       return res.json({
         success: true,
         data: {
@@ -1107,7 +1121,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       oddsService = result.oddsService;
       matches = result.matches;
     } catch (apiError: any) {
-      const estimated = buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+      const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
       if (estimated.found) {
         return res.json({
           success: true,
