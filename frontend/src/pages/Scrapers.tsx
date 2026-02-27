@@ -17,21 +17,78 @@ const generateSeasons = (n: number): string[] => {
 const formatDate = (iso: string) => {
   try {
     return new Date(iso).toLocaleString('it-IT', {
-      weekday: 'short',
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
+      weekday: 'short', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
     });
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 };
+
+/* Stili locali minimi — solo ciò che non esiste nel global */
+const localStyles = `
+  /* COMP PILLS */
+  .sc-comp-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sc-comp {
+    padding: 8px 16px; border-radius: var(--radius-pill);
+    border: 1px solid var(--border); background: var(--surface2);
+    cursor: pointer; font-size: 13px; font-weight: 600;
+    color: var(--text-2); transition: all var(--transition);
+    font-family: 'Syne', sans-serif;
+  }
+  .sc-comp:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface3); }
+  .sc-comp.on  { background: var(--blue-dim); color: var(--blue); border-color: var(--blue-border); box-shadow: 0 0 10px rgba(76,201,240,0.12); }
+
+  /* YEAR GRID */
+  .sc-year-grid { display: flex; gap: 12px; }
+  .sc-year {
+    flex: 1; padding: 16px 10px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--surface2);
+    cursor: pointer; text-align: center;
+    transition: all var(--transition);
+  }
+  .sc-year:hover { border-color: var(--border-hover); background: var(--surface3); transform: translateY(-3px); }
+  .sc-year.on  { border-color: var(--blue-border); background: var(--blue-dim); box-shadow: 0 0 14px rgba(76,201,240,0.12); }
+  .sc-year-num { font-size: 26px; font-weight: 800; color: var(--blue); display: block; font-family: 'DM Mono', monospace; }
+  .sc-year-lbl { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-top: 3px; }
+
+  /* BIG BUTTON */
+  .sc-big-btn {
+    width: 100%; padding: 16px; border-radius: var(--radius-sm);
+    border: 1px solid var(--blue-border); background: var(--blue-dim);
+    color: var(--blue); font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all var(--transition);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    font-family: 'Syne', sans-serif;
+  }
+  .sc-big-btn:hover:not(:disabled) {
+    background: var(--blue-hover); border-color: var(--blue);
+    transform: translateY(-2px); box-shadow: var(--shadow-glow-blue);
+  }
+  .sc-big-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* RESULT ROW */
+  .sc-result-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .sc-result-row:last-child { border-bottom: none; }
+
+  /* CHECKBOX */
+  .sc-check {
+    display: flex; gap: 10px; align-items: center;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+    color: var(--text-2); margin-bottom: 10px;
+    transition: color var(--transition);
+  }
+  .sc-check:hover { color: var(--text); }
+  .sc-check input { accent-color: var(--blue); width: 16px; height: 16px; cursor: pointer; }
+  .sc-check input:disabled { opacity: 0.35; }
+`;
 
 export default function Scrapers() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('fotmob');
 
-  // FotMob
+  // FotMob state
   const [fotmobComp, setFotmobComp] = useState('Serie A');
   const [fotmobYears, setFotmobYears] = useState(2);
   const [fotmobIncludeDetails, setFotmobIncludeDetails] = useState(true);
@@ -41,7 +98,7 @@ export default function Scrapers() {
   const [fotmobResult, setFotmobResult] = useState<any>(null);
   const [fotmobError, setFotmobError] = useState<string | null>(null);
 
-  // Odds
+  // Odds state
   const [oddsLoading, setOddsLoading] = useState(false);
   const [oddsError, setOddsError] = useState<string | null>(null);
   const [remainingReq, setRemainingReq] = useState<number | null>(null);
@@ -51,33 +108,22 @@ export default function Scrapers() {
   const applyOddsState = (data: any) => {
     const matches = Array.isArray(data?.matches) ? data.matches : [];
     setOddsMatches(matches);
-
     const nextRemaining = Number(data?.remainingRequests);
     setRemainingReq(Number.isFinite(nextRemaining) && nextRemaining >= 0 ? nextRemaining : null);
-
-    if (typeof data?.lastUpdatedAt === 'string' && data.lastUpdatedAt) {
-      setOddsLastUpdatedAt(data.lastUpdatedAt);
-    }
+    if (typeof data?.lastUpdatedAt === 'string' && data.lastUpdatedAt) setOddsLastUpdatedAt(data.lastUpdatedAt);
   };
 
   useEffect(() => {
     let active = true;
-
     const loadOddsStatus = async () => {
       try {
         const res = await API.get('/scraper/odds/status');
         if (!active) return;
         applyOddsState(res.data?.data);
-      } catch {
-        // Keep UI usable even if status endpoint is temporarily unavailable.
-      }
+      } catch {}
     };
-
     loadOddsStatus();
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const handleFotmob = async (mode: FotmobMode) => {
@@ -86,9 +132,7 @@ export default function Scrapers() {
     setFotmobResult(null);
     try {
       const res = await API.post('/scraper/fotmob', {
-        mode,
-        competition: fotmobComp,
-        yearsBack: fotmobYears,
+        mode, competition: fotmobComp, yearsBack: fotmobYears,
         includeMatchDetails: fotmobIncludeDetails,
         forceRefresh: fotmobForceRefresh,
         importPlayers: fotmobImportPlayers,
@@ -104,10 +148,7 @@ export default function Scrapers() {
     setOddsLoading(true);
     setOddsError(null);
     try {
-      const res = await API.post('/scraper/odds', {
-        competition: 'Serie A',
-        markets: ['h2h', 'totals'],
-      });
+      const res = await API.post('/scraper/odds', { competition: 'Serie A', markets: ['h2h', 'totals'] });
       applyOddsState(res.data?.data);
     } catch (e: any) {
       setOddsError(e.response?.data?.error ?? e.message);
@@ -118,203 +159,201 @@ export default function Scrapers() {
   const seasons = generateSeasons(fotmobYears);
 
   return (
-    <div>
-      <style>{`
-        .sc-tab-bar { display:flex; border-bottom:2px solid var(--border); margin-bottom:20px; }
-        .sc-tab { padding:11px 22px; border:none; background:none; cursor:pointer; font-size:14px; color:var(--text-secondary); border-bottom:2px solid transparent; margin-bottom:-2px; transition:all 0.15s; display:flex; align-items:center; gap:8px; }
-        .sc-tab:hover { color:var(--primary); }
-        .sc-tab.on { color:var(--primary); border-bottom-color:var(--primary); font-weight:600; }
-        .sc-comp-grid { display:flex; flex-wrap:wrap; gap:7px; }
-        .sc-comp { padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:#fff; cursor:pointer; font-size:13px; color:var(--text-secondary); transition:all 0.15s; font-weight:500; }
-        .sc-comp:hover { border-color:var(--primary); color:var(--primary); }
-        .sc-comp.on { background:var(--primary); color:#fff; border-color:var(--primary); }
-        .sc-year-grid { display:flex; gap:10px; }
-        .sc-year { flex:1; padding:14px 8px; border-radius:10px; border:1px solid var(--border); background:#fff; cursor:pointer; text-align:center; transition:all 0.15s; }
-        .sc-year:hover { border-color:var(--primary); }
-        .sc-year.on { border-color:var(--primary); background:var(--primary-light); }
-        .sc-year-num { font-size:22px; font-weight:800; color:var(--primary); display:block; }
-        .sc-year-lbl { font-size:11px; color:var(--text-secondary); }
-        .sc-big-btn { width:100%; padding:15px; border-radius:10px; border:none; background:var(--primary); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:10px; }
-        .sc-big-btn:hover:not(:disabled) { background:var(--primary-dark); transform:translateY(-1px); box-shadow:0 4px 14px rgba(26,115,232,0.3); }
-        .sc-big-btn:disabled { opacity:0.6; cursor:not-allowed; transform:none; box-shadow:none; }
-        .sc-result-row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
-        .sc-result-row:last-child { border-bottom:none; }
-      `}</style>
+    <>
+      <style>{localStyles}</style>
+      <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
 
-      <h1 className="page-title">Dati Automatici</h1>
-      <p className="page-subtitle">Scarica statistiche storiche e quote live in automatico</p>
+        {/* HEADER */}
+        <div style={{ marginBottom: 32 }}>
+          <h1 className="fp-page-title fp-gradient-green">
+            Dati Automatici
+          </h1>
+          <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
+            Scarica statistiche storiche e quote live in automatico
+          </p>
+        </div>
 
-      <div className="sc-tab-bar">
-        <button className={`sc-tab ${activeTab === 'fotmob' ? 'on' : ''}`} onClick={() => setActiveTab('fotmob')}>
-          Statistiche FotMob
-          <span className="badge badge-green" style={{ fontSize: 11 }}>Gratuito</span>
-        </button>
-        <button className={`sc-tab ${activeTab === 'odds' ? 'on' : ''}`} onClick={() => setActiveTab('odds')}>
-          Quote Live (Odds API)
-        </button>
-      </div>
+        {/* TABS */}
+        <div className="fp-tabs" style={{ marginBottom: 24 }}>
+          <button className={`fp-tab${activeTab === 'fotmob' ? ' active' : ''}`} onClick={() => setActiveTab('fotmob')}>
+            📊 Statistiche FotMob
+            <span className="fp-badge fp-badge-green" style={{ fontSize: 10, marginLeft: 6 }}>Gratuito</span>
+          </button>
+          <button className={`fp-tab${activeTab === 'odds' ? ' active' : ''}`} onClick={() => setActiveTab('odds')}>
+            📈 Quote Live (Odds API)
+          </button>
+        </div>
 
-      {activeTab === 'fotmob' && (
-        <div>
-          <div className="card">
-            <div className="card-header">
+        {/* ── FOTMOB ── */}
+        {activeTab === 'fotmob' && (
+          <div className="fp-card">
+            <div className="fp-card-head">
               <div>
-                <div className="card-title">Download da FotMob</div>
-                <div className="card-subtitle">Import incrementale automatico</div>
+                <div className="fp-card-title">📥 Download da FotMob</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Import incrementale automatico</div>
               </div>
             </div>
+            <div className="fp-card-body">
 
-            <div className="form-row" style={{ marginBottom: 20 }}>
-              <div className="form-group">
-                <label className="form-label">Campionato</label>
+              {/* Competizione */}
+              <div style={{ marginBottom: 24 }}>
+                <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Campionato</label>
                 <div className="sc-comp-grid">
-                  {COMPETITIONS.map((c) => (
-                    <button key={c} className={`sc-comp ${fotmobComp === c ? 'on' : ''}`} onClick={() => setFotmobComp(c)}>
+                  {COMPETITIONS.map(c => (
+                    <button key={c} className={`sc-comp${fotmobComp === c ? ' on' : ''}`} onClick={() => setFotmobComp(c)}>
                       {c}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Stagioni da scaricare</label>
+
+              {/* Stagioni */}
+              <div style={{ marginBottom: 24 }}>
+                <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Stagioni da scaricare</label>
                 <div className="sc-year-grid">
-                  {[1, 2, 3].map((n) => (
-                    <button key={n} className={`sc-year ${fotmobYears === n ? 'on' : ''}`} onClick={() => setFotmobYears(n)}>
+                  {[1, 2, 3].map(n => (
+                    <button key={n} className={`sc-year${fotmobYears === n ? ' on' : ''}`} onClick={() => setFotmobYears(n)}>
                       <span className="sc-year-num">{n}</span>
                       <span className="sc-year-lbl">{n === 1 ? 'stagione' : 'stagioni'}</span>
                     </button>
                   ))}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Stagioni: <strong>{seasons.join(' - ')}</strong>
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+                  Stagioni: <strong style={{ color: 'var(--text)' }}>{seasons.join(' · ')}</strong>
                 </div>
               </div>
-            </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13, marginBottom: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={fotmobIncludeDetails}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setFotmobIncludeDetails(checked);
-                    if (!checked) setFotmobImportPlayers(false);
-                  }}
-                />
-                Importa statistiche match avanzate
-              </label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={fotmobImportPlayers}
-                  disabled={!fotmobIncludeDetails}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    if (checked) setFotmobIncludeDetails(true);
-                    setFotmobImportPlayers(checked);
-                  }}
-                />
-                Aggiorna anche statistiche giocatori
-              </label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13, marginTop: 8 }}>
-                <input type="checkbox" checked={fotmobForceRefresh} onChange={(e) => setFotmobForceRefresh(e.target.checked)} />
-                Forza refresh completo
-              </label>
-            </div>
-
-            <div style={{ display: 'grid', gap: 10 }}>
-              <button className="sc-big-btn" onClick={() => handleFotmob('single')} disabled={fotmobLoading}>
-                {fotmobLoading ? 'Download in corso...' : `Scarica solo ${fotmobComp}`}
-              </button>
-              <button className="sc-big-btn" onClick={() => handleFotmob('top5')} disabled={fotmobLoading}>
-                {fotmobLoading ? 'Download in corso...' : 'Scarica Top-5 insieme'}
-              </button>
-            </div>
-
-            {fotmobError && (
-              <div className="alert alert-danger" style={{ marginTop: 14 }}>
-                Errore: {fotmobError}
+              {/* Opzioni */}
+              <div style={{ marginBottom: 24, padding: '16px 20px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <label className="fp-label" style={{ display: 'block', marginBottom: 12 }}>Opzioni import</label>
+                <label className="sc-check">
+                  <input type="checkbox" checked={fotmobIncludeDetails} onChange={e => {
+                    setFotmobIncludeDetails(e.target.checked);
+                    if (!e.target.checked) setFotmobImportPlayers(false);
+                  }} />
+                  Importa statistiche match avanzate
+                </label>
+                <label className="sc-check">
+                  <input type="checkbox" checked={fotmobImportPlayers} disabled={!fotmobIncludeDetails}
+                    onChange={e => {
+                      if (e.target.checked) setFotmobIncludeDetails(true);
+                      setFotmobImportPlayers(e.target.checked);
+                    }} />
+                  Aggiorna anche statistiche giocatori
+                </label>
+                <label className="sc-check" style={{ marginBottom: 0 }}>
+                  <input type="checkbox" checked={fotmobForceRefresh} onChange={e => setFotmobForceRefresh(e.target.checked)} />
+                  Forza refresh completo (ignora cache)
+                </label>
               </div>
-            )}
 
-            {fotmobResult && (
-              <div className={`alert ${fotmobResult.isUpToDate ? 'alert-info' : 'alert-success'}`} style={{ marginTop: 14 }}>
-                <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 15 }}>
-                  {fotmobResult.isUpToDate ? 'Database gia aggiornato' : 'Import completato'}
+              {/* Buttons */}
+              <div style={{ display: 'grid', gap: 10 }}>
+                <button className="sc-big-btn" onClick={() => handleFotmob('single')} disabled={fotmobLoading}>
+                  {fotmobLoading ? '⏳ Download in corso...' : `⬇ Scarica solo ${fotmobComp}`}
+                </button>
+                <button className="sc-big-btn" onClick={() => handleFotmob('top5')} disabled={fotmobLoading}>
+                  {fotmobLoading ? '⏳ Download in corso...' : '⬇ Scarica Top-5 insieme'}
+                </button>
+              </div>
+
+              {fotmobError && (
+                <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>
+                  ⚠ Errore: {fotmobError}
                 </div>
-                {[
-                  ['Modalita', fotmobResult.mode],
-                  ['Campionati', fotmobResult.competitions?.join(', ')],
-                  ['Stagioni', fotmobResult.seasons?.join(', ')],
-                  ['Nuove partite importate', fotmobResult.newMatchesImported ?? fotmobResult.imported],
-                  ['Partite future importate', fotmobResult.upcomingMatchesImported ?? 0],
-                  ['Partite gia presenti aggiornate', fotmobResult.existingMatchesUpdated ?? 0],
-                  ['Squadre create', fotmobResult.teamsCreated],
-                  ['Giocatori aggiornati', fotmobResult.playersUpdated],
-                  ['Squadre con medie ricalcolate', fotmobResult.teamsRecomputed],
-                ].map(([k, v]) => (
-                  <div key={String(k)} className="sc-result-row">
-                    <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
-                    <strong>{String(v ?? '-')}</strong>
+              )}
+
+              {fotmobResult && (
+                <div className={`fp-alert ${fotmobResult.isUpToDate ? 'fp-alert-info' : 'fp-alert-success'}`} style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 800, marginBottom: 12, fontSize: 14 }}>
+                    {fotmobResult.isUpToDate ? '✓ Database già aggiornato' : '✓ Import completato con successo'}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'odds' && (
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Quote Live - The Odds API</div>
-              <div className="card-subtitle">Recupero automatico lato backend</div>
-            </div>
-            <span className="badge badge-gray">
-              {remainingReq !== null ? `${remainingReq}/500 richieste rimanenti` : 'Richieste rimanenti: n/d'}
-            </span>
-          </div>
-
-          <button className="sc-big-btn" onClick={handleOdds} disabled={oddsLoading}>
-            {oddsLoading ? 'Scaricamento quote live...' : 'Scarica quote live'}
-          </button>
-
-          {oddsLastUpdatedAt && (
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
-              Ultimo aggiornamento: <strong>{formatDate(oddsLastUpdatedAt)}</strong>
-            </div>
-          )}
-
-          {oddsError && (
-            <div className="alert alert-danger" style={{ marginTop: 14 }}>
-              {oddsError}
-            </div>
-          )}
-
-          {!oddsError && !oddsLoading && oddsMatches.length > 0 && (
-            <>
-              <div className="alert alert-success" style={{ marginTop: 14 }}>
-                Quote live aggiornate: {oddsMatches.length} partite trovate.
-              </div>
-              <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-                <div style={{ padding: '10px 12px', fontWeight: 700, background: 'var(--bg-subtle, #f8fafc)' }}>
-                  Partite scaricate
-                </div>
-                <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-                  {oddsMatches.map((m: any, i: number) => (
-                    <div key={`${m.homeTeam}-${m.awayTeam}-${m.commenceTime}-${i}`} className="sc-result-row" style={{ padding: '10px 12px' }}>
-                      <strong>{m.homeTeam} - {m.awayTeam}</strong>
-                      <span style={{ color: 'var(--text-secondary)' }}>{formatDate(String(m.commenceTime ?? ''))}</span>
+                  {[
+                    ['Modalità', fotmobResult.mode],
+                    ['Campionati', fotmobResult.competitions?.join(', ')],
+                    ['Stagioni', fotmobResult.seasons?.join(', ')],
+                    ['Nuove partite importate', fotmobResult.newMatchesImported ?? fotmobResult.imported],
+                    ['Partite future importate', fotmobResult.upcomingMatchesImported ?? 0],
+                    ['Partite aggiornate', fotmobResult.existingMatchesUpdated ?? 0],
+                    ['Squadre create', fotmobResult.teamsCreated],
+                    ['Giocatori aggiornati', fotmobResult.playersUpdated],
+                    ['Squadre ricalcolate', fotmobResult.teamsRecomputed],
+                  ].map(([k, v]) => v !== undefined && (
+                    <div key={String(k)} className="sc-result-row">
+                      <span style={{ color: 'inherit', opacity: 0.75 }}>{k}</span>
+                      <strong>{String(v ?? '—')}</strong>
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── ODDS ── */}
+        {activeTab === 'odds' && (
+          <div className="fp-card">
+            <div className="fp-card-head">
+              <div>
+                <div className="fp-card-title">📈 Quote Live — The Odds API</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Recupero automatico lato backend</div>
               </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+              <span className={`fp-badge ${remainingReq !== null && remainingReq > 100 ? 'fp-badge-green' : remainingReq !== null ? 'fp-badge-gold' : 'fp-badge-gray'}`}>
+                {remainingReq !== null ? `${remainingReq}/500 richieste` : 'Richieste: n/d'}
+              </span>
+            </div>
+            <div className="fp-card-body">
+              <button className="sc-big-btn" onClick={handleOdds} disabled={oddsLoading}>
+                {oddsLoading ? '⏳ Scaricamento quote live...' : '⬇ Scarica quote live'}
+              </button>
+
+              {oddsLastUpdatedAt && (
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+                  Ultimo aggiornamento: <strong style={{ color: 'var(--text)' }}>{formatDate(oddsLastUpdatedAt)}</strong>
+                </div>
+              )}
+
+              {oddsError && (
+                <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>
+                  ⚠ {oddsError}
+                </div>
+              )}
+
+              {!oddsError && !oddsLoading && oddsMatches.length > 0 && (
+                <>
+                  <div className="fp-alert fp-alert-success" style={{ marginTop: 16 }}>
+                    ✓ Quote live aggiornate: <strong>{oddsMatches.length}</strong> partite trovate.
+                  </div>
+                  <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                    <div style={{
+                      padding: '12px 16px', fontWeight: 700, fontSize: 11,
+                      textTransform: 'uppercase', letterSpacing: '1.2px',
+                      background: 'var(--surface2)', color: 'var(--text-2)',
+                      borderBottom: '1px solid var(--border)'
+                    }}>
+                      Partite scaricate ({oddsMatches.length})
+                    </div>
+                    <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                      {oddsMatches.map((m: any, i: number) => (
+                        <div
+                          key={`${m.homeTeam}-${m.awayTeam}-${m.commenceTime}-${i}`}
+                          className="sc-result-row"
+                          style={{ padding: '12px 16px', transition: 'background var(--transition)' }}
+                        >
+                          <strong style={{ fontSize: 13 }}>{m.homeTeam} — {m.awayTeam}</strong>
+                          <span style={{ color: 'var(--text-2)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>
+                            {formatDate(String(m.commenceTime ?? ''))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

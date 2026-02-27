@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { getTeams, getBudget, getMatches, getUpcomingMatches, getEurobetOddsForMatch, placeBet } from '../utils/api';
 import axios from 'axios';
@@ -9,426 +9,502 @@ const fmtPct = (n: number) => (n * 100).toFixed(2) + '%';
 const fmtN = (n: number, d = 2) => n.toFixed(d);
 
 const currentSeason = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  const start = month >= 7 ? year : year - 1;
-  return `${start}/${start + 1}`;
+  const now = new Date(); const y = now.getFullYear(); const m = now.getMonth() + 1;
+  const s = m >= 7 ? y : y - 1; return `${s}/${s + 1}`;
 };
-
-const formatKickoff = (dateIso?: string) => {
-  if (!dateIso) return '-';
-  const d = new Date(dateIso);
-  if (Number.isNaN(d.getTime())) return String(dateIso);
-  return new Intl.DateTimeFormat('it-IT', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(d);
+const formatKickoff = (d?: string) => {
+  if (!d) return '-';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  return new Intl.DateTimeFormat('it-IT', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }).format(dt);
 };
-
-const normalizeCompetitionName = (value?: string) =>
-  String(value ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const isSerieACompetition = (value?: string) => normalizeCompetitionName(value) === 'serie a';
-
-const dateToDayKey = (dateIso?: string) => {
-  if (!dateIso) return 'unknown';
-  const d = new Date(dateIso);
-  if (Number.isNaN(d.getTime())) return 'unknown';
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+const normComp = (v?: string) =>
+  String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+const isSerieA = (v?: string) => normComp(v) === 'serie a';
+const dateToDayKey = (d?: string) => {
+  if (!d) return 'unknown'; const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return 'unknown';
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
 };
-
-const formatDayLabel = (dayKey: string) => {
-  if (dayKey === 'unknown') return 'Data non disponibile';
-  const d = new Date(`${dayKey}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return dayKey;
-  const label = new Intl.DateTimeFormat('it-IT', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(d);
-  return label.charAt(0).toUpperCase() + label.slice(1);
+const formatDayLabel = (k: string) => {
+  if (k === 'unknown') return 'Data sconosciuta';
+  const d = new Date(`${k}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return k;
+  const l = new Intl.DateTimeFormat('it-IT', { weekday:'short', day:'2-digit', month:'short' }).format(d);
+  return l.charAt(0).toUpperCase() + l.slice(1);
 };
-
-const buildSerieAMatchdayMap = (matches: any[]): Record<string, number> => {
-  const ordered = [...(matches ?? [])]
-    .filter((m: any) => isSerieACompetition(m.competition))
-    .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  const out: Record<string, number> = {};
-  const MATCHES_PER_ROUND = 10;
-  ordered.forEach((m: any, idx: number) => {
-    const id = String(m.match_id ?? '');
-    if (!id) return;
-    out[id] = Math.floor(idx / MATCHES_PER_ROUND) + 1;
-  });
+const buildMatchdayMap = (matches: any[]): Record<string,number> => {
+  const out: Record<string,number> = {};
+  [...matches].filter((m:any) => isSerieA(m.competition))
+    .sort((a:any,b:any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .forEach((m:any, i:number) => { if (m.match_id) out[String(m.match_id)] = Math.floor(i/10)+1; });
   return out;
 };
 
-const ODDS_GROUPS = [
-  { title: 'Goal', keys: ['homeWin', 'draw', 'awayWin', 'btts', 'bttsNo', 'over15', 'over25', 'over35', 'over45', 'under25', 'under35'] },
-  { title: 'Cartellini', keys: ['yellow_over_3.5', 'yellow_over_4.5', 'yellow_over_5.5', 'yellow_under_3.5', 'yellow_under_4.5'] },
-  { title: 'Falli', keys: ['fouls_over_20.5', 'fouls_over_23.5', 'fouls_over_26.5', 'fouls_under_23.5'] },
-  { title: 'Tiri', keys: ['shots_total_over_23.5', 'shots_total_over_25.5', 'shots_total_under_23.5', 'sot_total_over_7.5', 'sot_total_over_9.5'] },
-];
-
-const MARKET_LABELS: Record<string, string> = {
-  homeWin: 'Casa (1)', draw: 'Pareggio (X)', awayWin: 'Ospite (2)',
-  btts: 'Goal/Goal Si', bttsNo: 'Goal/Goal No',
-  over15: 'Over 1.5', over25: 'Over 2.5', over35: 'Over 3.5', over45: 'Over 4.5',
-  under25: 'Under 2.5', under35: 'Under 3.5',
-  cards_over35: 'Cartellini O3.5', cards_over45: 'Cartellini O4.5',
-  cards_over55: 'Cartellini O5.5', cards_under35: 'Cartellini U3.5',
-  cards_under45: 'Cartellini U4.5', fouls_over205: 'Falli O20.5',
-  fouls_over235: 'Falli O23.5', fouls_over265: 'Falli O26.5',
-  fouls_under235: 'Falli U23.5', shots_over225: 'Tiri O22.5',
-  shots_over255: 'Tiri O25.5', shots_under225: 'Tiri U22.5',
-  sot_over75: 'Tiri Porta O7.5', sot_over95: 'Tiri Porta O9.5',
-  'yellow_over_3.5': 'Gialli O3.5', 'yellow_over_4.5': 'Gialli O4.5', 'yellow_over_5.5': 'Gialli O5.5',
-  'yellow_under_3.5': 'Gialli U3.5', 'yellow_under_4.5': 'Gialli U4.5',
-  'fouls_over_20.5': 'Falli O20.5', 'fouls_over_23.5': 'Falli O23.5', 'fouls_over_26.5': 'Falli O26.5', 'fouls_under_23.5': 'Falli U23.5',
-  'shots_total_over_23.5': 'Tiri Totali O23.5', 'shots_total_over_25.5': 'Tiri Totali O25.5', 'shots_total_under_23.5': 'Tiri Totali U23.5',
-  'sot_total_over_7.5': 'Tiri Porta Totali O7.5', 'sot_total_over_9.5': 'Tiri Porta Totali O9.5',
+const MARKET_LABELS: Record<string,string> = {
+  homeWin:'Casa (1)', draw:'Pareggio (X)', awayWin:'Ospite (2)',
+  btts:'GG Si', bttsNo:'GG No', over15:'O1.5', over25:'O2.5', over35:'O3.5', over45:'O4.5',
+  under25:'U2.5', under35:'U3.5',
+  'yellow_over_3.5':'Gialli O3.5','yellow_over_4.5':'Gialli O4.5','yellow_over_5.5':'Gialli O5.5',
+  'fouls_over_20.5':'Falli O20.5','fouls_over_23.5':'Falli O23.5',
+  'shots_total_over_23.5':'Tiri O23.5','shots_total_over_25.5':'Tiri O25.5',
+  'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5',
 };
+const mktLabel = (k: string) => MARKET_LABELS[k] ?? k.replace(/_/g,' ');
 
-const formatLineFromToken = (raw: string) => {
-  const cleaned = String(raw ?? '').trim().replace(',', '.');
-  if (/^\d+\.\d+$/.test(cleaned)) return cleaned;
-  if (/^\d+$/.test(cleaned) && cleaned.length >= 2) return `${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`;
-  return cleaned;
-};
+/* ───── STYLES ───── */
+const S = `
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
-const inferDynamicMarketLabel = (key: string): string | null => {
-  const m = key.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
-  if (m) {
-    const domainLabel: Record<string, string> = {
-      shots_total: 'Tiri Totali',
-      shots_home: 'Tiri Casa',
-      shots_away: 'Tiri Ospite',
-      fouls: 'Falli Totali',
-      yellow: 'Gialli Totali',
-      cards_total: 'Cartellini Pesati',
-      sot_total: 'Tiri in Porta Totali',
-    };
-    const side = m[2].toLowerCase() === 'over' ? 'Over' : 'Under';
-    return `${domainLabel[m[1].toLowerCase()] ?? m[1]} ${side} ${formatLineFromToken(m[3])}`;
-  }
-  return null;
-};
+.pr { display:flex; height:calc(100vh - 56px); overflow:hidden; font-family:'Syne',sans-serif; background:var(--bg); color:var(--text); }
 
-const marketLabel = (key: string): string => MARKET_LABELS[key] ?? inferDynamicMarketLabel(key) ?? key;
+/* LEFT PANEL — fixed sidebar */
+.pr-left {
+  width:380px; min-width:300px; max-width:420px;
+  border-right:1px solid var(--border);
+  display:flex; flex-direction:column;
+  background:var(--surface); overflow:hidden; flex-shrink:0;
+}
+.pr-left-head {
+  padding:20px 20px 14px; border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.pr-left-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-2); margin-bottom:14px; }
+.pr-season-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.pr-flags { display:flex; gap:6px; flex-wrap:wrap; }
+.pr-flag {
+  display:flex; align-items:center; gap:6px; cursor:pointer;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:20px; padding:5px 12px; font-size:11px; font-weight:600;
+  color:var(--text-2); transition:all var(--transition); user-select:none;
+}
+.pr-flag:hover { border-color:var(--border-hover); color:var(--text); }
+.pr-flag input { accent-color:var(--green); width:12px; height:12px; }
+.pr-flag.on { background:var(--green-dim); border-color:var(--green-border); color:var(--green); }
 
-const collectOddsKeysFromPrediction = (prediction: any): string[] => {
-  const probs = prediction?.probabilities ?? {};
-  const keys = new Set<string>([
-    'homeWin', 'draw', 'awayWin', 'btts', 'bttsNo',
-    'over05', 'over15', 'over25', 'over35', 'over45',
-    'under15', 'under25', 'under35', 'under45',
-  ]);
+/* MATCH LIST */
+.pr-list { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.10) transparent; }
+.pr-list::-webkit-scrollbar { width:3px; }
+.pr-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.10); border-radius:2px; }
+.pr-day-sep {
+  position:sticky; top:0; z-index:2;
+  background:var(--surface3); border-bottom:1px solid var(--border);
+  padding:6px 16px; font-size:10px; font-weight:700;
+  text-transform:uppercase; letter-spacing:1.2px; color:var(--text-3);
+}
+.pr-match-row {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 16px; border-bottom:1px solid rgba(255,255,255,0.04);
+  cursor:pointer; transition:background var(--transition); position:relative;
+}
+.pr-match-row:hover { background:var(--surface2); }
+.pr-match-row.active { background:var(--blue-dim) !important; border-left:2px solid var(--blue); padding-left:14px; }
+.pr-match-row.loading-row { opacity:.5; pointer-events:none; }
+.pr-match-time { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:32px; flex-shrink:0; text-align:center; }
+.pr-match-teams { flex:1; min-width:0; }
+.pr-match-home, .pr-match-away { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
+.pr-match-away { color:var(--text-2); font-weight:600; }
+.pr-match-md { font-family:'DM Mono',monospace; font-size:9px; color:var(--text-3); margin-top:2px; }
+.pr-match-comp { font-size:9px; font-weight:700; color:var(--text-3); text-transform:uppercase; letter-spacing:.8px; flex-shrink:0; max-width:60px; text-align:right; }
+.pr-match-vb {
+  position:absolute; right:12px; top:50%; transform:translateY(-50%);
+  background:var(--green-dim); border:1px solid var(--green-border);
+  border-radius:10px; padding:1px 7px; font-size:9px; font-weight:700; color:var(--green);
+}
 
-  const addOuPairs = (obj: any, prefix: string) => {
-    for (const line of Object.keys(obj ?? {})) {
-      keys.add(`${prefix}_over_${line}`);
-      keys.add(`${prefix}_under_${line}`);
-    }
-  };
+/* RIGHT PANEL — scrollable results */
+.pr-right { flex:1; overflow-y:auto; min-width:0; }
 
-  addOuPairs(probs.shotsTotal, 'shots_total');
-  addOuPairs(probs.shotsHome?.overUnder, 'shots_home');
-  addOuPairs(probs.shotsAway?.overUnder, 'shots_away');
-  addOuPairs(probs.cards?.overUnderYellow, 'yellow');
-  addOuPairs(probs.cards?.overUnderTotal, 'cards_total');
-  addOuPairs(probs.fouls?.overUnder, 'fouls');
+/* EMPTY STATE */
+.pr-empty-state {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  height:100%; color:var(--text-3); text-align:center; padding:40px;
+}
+.pr-empty-icon { font-size:48px; margin-bottom:16px; }
+.pr-empty-msg { font-size:13px; line-height:1.7; }
 
-  // Tiri in porta combinati (linee generate nel backend)
-  for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
-    const token = line.toFixed(1);
-    keys.add(`sot_total_over_${token}`);
-    keys.add(`sot_total_under_${token}`);
-  }
+/* RESULTS HEADER */
+.pr-results-head {
+  position:sticky; top:0; z-index:10;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
+}
+.pr-results-match { font-size:15px; font-weight:800; letter-spacing:-.3px; }
+.pr-results-meta { font-size:11px; color:var(--text-2); font-family:'DM Mono',monospace; margin-top:2px; }
+.pr-odds-status { font-size:11px; padding:4px 12px; border-radius:20px; }
+.pr-odds-status.info    { background:var(--blue-dim);  color:var(--blue);  }
+.pr-odds-status.success { background:var(--green-dim); color:var(--green); }
+.pr-odds-status.warning { background:var(--gold-dim);  color:var(--gold);  }
+.pr-odds-status.danger  { background:var(--red-dim);   color:var(--red);   }
 
-  return Array.from(keys);
-};
+/* MATCH HERO COMPACT */
+.pr-hero {
+  margin:16px 20px; padding:20px 24px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-xl);
+  display:grid; grid-template-columns:1fr 80px 1fr;
+  align-items:center; gap:16px;
+  position:relative; overflow:hidden;
+}
+.pr-hero::before {
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(ellipse at 50% 0%, rgba(76,201,240,0.06) 0%, transparent 65%);
+  pointer-events:none;
+}
+.pr-hero-team { display:flex; flex-direction:column; gap:5px; }
+.pr-hero-team.right { text-align:right; align-items:flex-end; }
+.pr-hero-name { font-size:16px; font-weight:800; letter-spacing:-.3px; }
+.pr-hero-lambda {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:20px; padding:3px 10px;
+  font-family:'DM Mono',monospace; font-size:11px; color:var(--text-2);
+}
+.pr-hero-center { text-align:center; }
+.pr-hero-vs { font-size:11px; font-weight:800; color:var(--text-3); letter-spacing:3px; margin-bottom:6px; }
+.pr-confidence {
+  background:var(--blue-dim); border:1px solid var(--blue-border);
+  border-radius:20px; padding:4px 12px;
+  font-size:11px; color:var(--blue); font-family:'DM Mono',monospace;
+}
 
-const ProbBar: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color = '#1a73e8' }) => (
-  <div className="prob-row">
-    <span className="prob-label">{label}</span>
-    <div className="prob-bar-container">
-      <div className="prob-bar" style={{ width: `${Math.min(100, value * 100)}%`, background: color }}>
-        {(value * 100).toFixed(2)}%
+/* KPI ROW */
+.pr-kpi-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:0 20px 16px; }
+.pr-kpi {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:12px 14px; text-align:center;
+}
+.pr-kpi-val { font-family:'DM Mono',monospace; font-size:20px; font-weight:700; }
+.pr-kpi-lbl { font-size:9px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-2); font-weight:700; margin-top:3px; }
+
+/* TABS */
+.pr-tabs { display:flex; gap:2px; padding:0 20px 12px; overflow-x:auto; scrollbar-width:none; flex-shrink:0; }
+.pr-tabs::-webkit-scrollbar { display:none; }
+.pr-tab {
+  font-family:'Syne',sans-serif; font-size:11px; font-weight:700;
+  white-space:nowrap; padding:7px 14px; border-radius:8px;
+  border:1px solid transparent; background:transparent; color:var(--text-3);
+  cursor:pointer; transition:all var(--transition); flex-shrink:0;
+}
+.pr-tab:hover { color:var(--text); background:var(--surface3); border-color:var(--border); }
+.pr-tab.active { background:var(--surface3); color:var(--text); border-color:var(--border-hover); }
+.pr-tab-pill {
+  display:inline-flex; background:var(--green-dim); color:var(--green);
+  border-radius:10px; padding:1px 6px; font-size:9px; margin-left:4px;
+}
+
+/* CONTENT AREA */
+.pr-content { padding:0 20px 32px; }
+
+/* PROB BARS */
+.pr-prob-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.pr-prob-lbl { font-size:12px; color:var(--text-2); width:100px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pr-prob-track { flex:1; background:rgba(255,255,255,0.05); border-radius:100px; height:24px; overflow:hidden; }
+.pr-prob-fill {
+  height:100%; border-radius:100px;
+  display:flex; align-items:center; justify-content:flex-end;
+  padding-right:8px; font-size:10px; font-family:'DM Mono',monospace;
+  font-weight:500; color:#000; transition:width .5s cubic-bezier(.4,0,.2,1); min-width:40px;
+}
+
+/* SECTION TITLE */
+.pr-sec { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.4px; color:var(--text-3); margin-bottom:10px; }
+
+/* GRID */
+.pr-g2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+
+/* SCORE GRID */
+.pr-score-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px; }
+.pr-score-cell {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:10px; padding:12px 8px; text-align:center;
+  transition:all var(--transition);
+}
+.pr-score-cell:hover { transform:translateY(-2px); border-color:var(--border-hover); }
+.pr-score-cell.hot { border-color:var(--blue-border); background:var(--blue-dim); }
+.pr-score-cell.warm { border-color:var(--green-border); background:var(--green-dim); }
+.pr-score-val { font-size:18px; font-weight:800; font-family:'DM Mono',monospace; }
+.pr-score-pct { font-size:10px; font-family:'DM Mono',monospace; color:var(--blue); margin-top:2px; }
+
+/* CHART */
+.pr-chart-head { display:flex; justify-content:space-between; margin-bottom:6px; font-size:11px; color:var(--text-2); }
+.pr-chart-head strong { color:var(--text); font-family:'DM Mono',monospace; }
+
+/* AH GRID */
+.pr-ah-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px; margin-top:10px; }
+.pr-ah-cell { display:flex; justify-content:space-between; align-items:center; background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:7px 12px; font-size:12px; }
+.pr-ah-cell strong { font-family:'DM Mono',monospace; }
+
+/* VALUE BETS */
+.pr-vb {
+  border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--surface); overflow:hidden; margin-bottom:12px;
+  transition:border-color var(--transition);
+}
+.pr-vb:hover { border-color:var(--green-border); }
+.pr-vb.medium { border-left:3px solid var(--gold); }
+.pr-vb.low    { border-left:3px solid var(--text-3); }
+.pr-vb-top {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  padding:14px 18px; border-bottom:1px solid var(--border);
+}
+.pr-vb-market { font-size:14px; font-weight:800; margin-bottom:6px; }
+.pr-vb-ev-num { font-family:'DM Mono',monospace; font-size:20px; font-weight:700; color:var(--green); }
+.pr-vb-ev-lbl { font-size:9px; color:var(--text-2); letter-spacing:1px; text-align:right; }
+.pr-vb-stats { display:grid; grid-template-columns:repeat(5,1fr); border-bottom:1px solid var(--border); }
+.pr-vb-stat { padding:10px 14px; border-right:1px solid var(--border); }
+.pr-vb-stat:last-child { border-right:none; }
+.pr-vb-stat-lbl { font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--text-3); font-weight:700; margin-bottom:3px; }
+.pr-vb-stat-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:600; }
+.pr-vb-bottom {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:10px 18px; background:var(--surface2); gap:12px;
+}
+.pr-stake-wrap { display:flex; align-items:center; gap:10px; }
+.pr-stake-lbl { font-size:11px; color:var(--text-2); }
+.pr-stake-input {
+  background:var(--surface); border:1px solid var(--border); border-radius:7px;
+  padding:7px 12px; color:var(--text); font-family:'DM Mono',monospace;
+  font-size:13px; width:90px; outline:none; transition:border-color var(--transition);
+}
+.pr-stake-input:focus { border-color:var(--green); }
+.pr-suggest { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
+
+/* BADGES / ALERTS inline */
+.pr-badge {
+  display:inline-flex; align-items:center; font-family:'DM Mono',monospace;
+  font-size:9px; font-weight:600; padding:2px 9px; border-radius:20px; border:1px solid transparent;
+}
+.pr-badge-green  { background:var(--green-dim);  color:var(--green);  border-color:var(--green-border); }
+.pr-badge-blue   { background:var(--blue-dim);   color:var(--blue);   border-color:var(--blue-border);  }
+.pr-badge-gold   { background:var(--gold-dim);   color:var(--gold);   border-color:var(--gold-border);  }
+.pr-badge-gray   { background:rgba(255,255,255,0.06); color:var(--text-2); border-color:var(--border); }
+.pr-badge-purple { background:var(--purple-dim); color:var(--purple); border-color:var(--purple-border); }
+
+.pr-alert { padding:10px 14px; border-radius:10px; font-size:12px; line-height:1.6; margin-bottom:12px; }
+.pr-alert-info    { background:var(--blue-dim);  border:1px solid var(--blue-border);  color:var(--blue);  }
+.pr-alert-success { background:var(--green-dim); border:1px solid var(--green-border); color:var(--green); }
+.pr-alert-warning { background:var(--gold-dim);  border:1px solid var(--gold-border);  color:var(--gold);  }
+.pr-alert-danger  { background:var(--red-dim);   border:1px solid var(--red-border);   color:var(--red);   }
+
+/* CARDS */
+.pr-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:14px; }
+.pr-card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); }
+.pr-card-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.3px; color:var(--text-2); }
+.pr-card-body { padding:18px; }
+
+/* SPINNER */
+.pr-spin { width:24px; height:24px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:pr-s .6s linear infinite; flex-shrink:0; }
+@keyframes pr-s { to { transform:rotate(360deg); } }
+
+/* LOADING overlay on match row */
+.pr-match-spinner { position:absolute; right:12px; top:50%; transform:translateY(-50%); }
+
+/* PLAYER */
+.pr-player-head { display:flex; justify-content:space-between; align-items:flex-start; }
+.pr-player-name { font-size:15px; font-weight:800; margin-bottom:3px; }
+.pr-player-meta { font-size:11px; color:var(--text-2); }
+.pr-player-xg-val { font-size:22px; font-weight:800; font-family:'DM Mono',monospace; color:var(--blue); text-align:right; }
+.pr-player-xg-lbl { font-size:10px; color:var(--text-2); text-align:right; }
+
+/* INFO BOX */
+.pr-info { background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:12px 14px; font-size:12px; color:var(--text-2); line-height:1.65; margin-top:8px; }
+.pr-info strong { color:var(--text); }
+
+/* INPUT/SELECT small */
+.pr-select-sm, .pr-input-sm {
+  background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+  padding:8px 12px; color:var(--text); font-family:'DM Mono',monospace; font-size:12px;
+  width:100%; outline:none; transition:border-color var(--transition);
+}
+.pr-select-sm:focus, .pr-input-sm:focus { border-color:var(--blue); }
+.pr-select-sm { appearance:none; cursor:pointer; }
+
+@media (max-width:900px) {
+  .pr { flex-direction:column; height:auto; overflow:visible; }
+  .pr-left { width:100%; max-width:100%; height:auto; border-right:none; border-bottom:1px solid var(--border); }
+  .pr-list { max-height:320px; }
+  .pr-right { min-height:400px; }
+  .pr-g2 { grid-template-columns:1fr; }
+  .pr-vb-stats { grid-template-columns:repeat(2,1fr); }
+}
+`;
+
+/* ── SUB-COMPONENTS ── */
+const ProbBar: React.FC<{label:string; value:number; color?:string}> = ({label, value, color='var(--blue)'}) => (
+  <div className="pr-prob-row">
+    <span className="pr-prob-lbl" title={label}>{label}</span>
+    <div className="pr-prob-track">
+      <div className="pr-prob-fill" style={{width:`${Math.min(100,value*100)}%`, background:color}}>
+        {(value*100).toFixed(1)}%
       </div>
     </div>
   </div>
 );
 
-const DistChart: React.FC<{ dist: Record<string, number>; expected: number; title: string; color?: string }> = ({
-  dist, expected, title, color = '#1a73e8'
-}) => {
-  const data = Object.entries(dist)
-    .map(([k, v]) => ({ k: parseInt(k), pct: parseFloat((v * 100).toFixed(2)) }))
-    .filter(d => d.pct >= 0.05).sort((a, b) => a.k - b.k);
-
+const DistChart: React.FC<{dist:Record<string,number>; expected:number; title:string; color?:string}> = ({dist, expected, title, color='var(--blue)'}) => {
+  const data = Object.entries(dist).map(([k,v]) => ({k:parseInt(k), pct:parseFloat((v*100).toFixed(2))})).filter(d => d.pct >= 0.05).sort((a,b) => a.k-b.k);
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
-        <span style={{ fontSize: 12, color: '#5f6368' }}>Atteso = <strong>{fmtN(expected)}</strong></span>
-      </div>
-      <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={data} margin={{ top: 2, right: 4, bottom: 2, left: 0 }}>
-          <CartesianGrid strokeDasharray="2 2" stroke="#f0f0f0" />
-          <XAxis dataKey="k" tick={{ fontSize: 10 }} />
-          <YAxis tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} width={32} />
-          <Tooltip formatter={(v: any) => [`${v}%`, 'P']} labelFormatter={(l: any) => `${l} eventi`} />
-          <ReferenceLine x={Math.round(expected)} stroke="#aaa" strokeDasharray="3 3" />
-          <Bar dataKey="pct" fill={color} radius={[2, 2, 0, 0]} />
+    <div style={{marginBottom:14}}>
+      <div className="pr-chart-head"><span>{title}</span><span>Atteso = <strong>{fmtN(expected)}</strong></span></div>
+      <ResponsiveContainer width="100%" height={110}>
+        <BarChart data={data} margin={{top:2,right:2,bottom:2,left:0}}>
+          <CartesianGrid strokeDasharray="2 2" stroke="rgba(255,255,255,0.04)" />
+          <XAxis dataKey="k" tick={{fontSize:9,fill:'var(--text-3)'}} />
+          <YAxis tickFormatter={v=>`${v}%`} tick={{fontSize:9,fill:'var(--text-3)'}} width={28} />
+          <Tooltip contentStyle={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11}}
+            formatter={(v:any) => [`${v}%`,'P']} labelFormatter={(l:any) => `k=${l}`} />
+          <ReferenceLine x={Math.round(expected)} stroke="rgba(255,255,255,0.15)" strokeDasharray="3 3" />
+          <Bar dataKey="pct" fill={color} radius={[3,3,0,0]} opacity={0.85} />
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
 };
 
-const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
+/* ── MAIN ── */
+const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [teams, setTeams] = useState<any[]>([]);
   const [competition, setCompetition] = useState('Serie A');
   const [season, setSeason] = useState(currentSeason());
   const [isDerby, setIsDerby] = useState(false);
   const [isHighStakes, setIsHighStakes] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMatchId, setLoadingMatchId] = useState<string|null>(null);
   const [upcomingLoading, setUpcomingLoading] = useState(false);
-  const [upcomingMatches, setUpcomingMatches] = useState<any[]>([]);
-  const [serieAMatchdayMap, setSerieAMatchdayMap] = useState<Record<string, number>>({});
+  const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [matchdayMap, setMatchdayMap] = useState<Record<string,number>>({});
   const [pred, setPred] = useState<any>(null);
+  const [activeMatchId, setActiveMatchId] = useState<string|null>(null);
   const [tab, setTab] = useState('1x2');
   const [budget, setBudget] = useState<any>(null);
-  const [stakes, setStakes] = useState<Record<string, string>>({});
-  const [betDone, setBetDone] = useState<Record<string, boolean>>({});
-  const [odds, setOdds] = useState<Record<string, string>>({});
-  const [oddsStatus, setOddsStatus] = useState('');
-  const [oddsStatusTone, setOddsStatusTone] = useState<'info' | 'success' | 'warning' | 'danger'>('info');
-  const [oddsPanelOpen, setOddsPanelOpen] = useState(false);
+  const [stakes, setStakes] = useState<Record<string,string>>({});
+  const [betDone, setBetDone] = useState<Record<string,boolean>>({});
+  const [odds, setOdds] = useState<Record<string,string>>({});
+  const [oddsMsg, setOddsMsg] = useState('');
+  const [oddsTone, setOddsTone] = useState<'info'|'success'|'warning'|'danger'>('info');
+  const rightRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     getTeams().then(r => setTeams(r.data ?? []));
     getBudget(activeUser).then(r => setBudget(r.data));
   }, [activeUser]);
 
-  const loadUpcomingMatches = async () => {
+  const loadUpcoming = async () => {
     setUpcomingLoading(true);
     try {
-      const res = await getUpcomingMatches({
-        competition: competition || undefined,
-        season: season || undefined,
-        limit: 380,
-      });
-      setUpcomingMatches(res.data ?? []);
-    } catch (e) {
-      console.error('Errore caricamento partite future:', e);
-      setUpcomingMatches([]);
-    } finally {
-      setUpcomingLoading(false);
-    }
+      const res = await getUpcomingMatches({ competition: competition || undefined, season: season || undefined, limit:380 });
+      setUpcoming(res.data ?? []);
+    } catch { setUpcoming([]); }
+    setUpcomingLoading(false);
   };
-
-  const loadSerieAMatchdays = async () => {
-    if (!season || season.trim() === '') {
-      setSerieAMatchdayMap({});
-      return;
-    }
+  const loadMatchdays = async () => {
+    if (!season?.trim()) { setMatchdayMap({}); return; }
     try {
-      const res = await getMatches({
-        competition: 'Serie A',
-        season: season.trim(),
-      });
-      setSerieAMatchdayMap(buildSerieAMatchdayMap(res.data ?? []));
-    } catch (e) {
-      console.error('Errore calcolo giornate Serie A:', e);
-      setSerieAMatchdayMap({});
+      const res = await getMatches({ competition:'Serie A', season:season.trim() });
+      setMatchdayMap(buildMatchdayMap(res.data ?? []));
+    } catch { setMatchdayMap({}); }
+  };
+
+  useEffect(() => { loadUpcoming(); }, [competition, season]);
+  useEffect(() => { loadMatchdays(); }, [season]);
+
+  const comps = useMemo(() => Array.from(new Set(['Serie A', ...teams.map((t:any) => t.competition).filter(Boolean)])), [teams]);
+
+  const grouped = useMemo(() => {
+    const g = new Map<string,any[]>();
+    for (const m of upcoming) {
+      const k = dateToDayKey(m.date);
+      const b = g.get(k) ?? []; b.push(m); g.set(k, b);
     }
+    return Array.from(g.entries())
+      .sort(([a],[b]) => a==='unknown'?1:b==='unknown'?-1:a.localeCompare(b))
+      .map(([k,ms]) => ({key:k, label:formatDayLabel(k), matches:[...ms].sort((a:any,b:any) => new Date(a.date).getTime()-new Date(b.date).getTime())}));
+  }, [upcoming]);
+
+  const parseOdds = () => {
+    const out: Record<string,number> = {};
+    Object.entries(odds).forEach(([k,v]) => { const n=parseFloat(v); if (!Number.isNaN(n) && n>1) out[k]=n; });
+    return out;
   };
 
-  useEffect(() => {
-    loadUpcomingMatches();
-  }, [competition, season]);
-
-  useEffect(() => {
-    loadSerieAMatchdays();
-  }, [season]);
-
-  const comps = Array.from(new Set(teams.map((t: any) => t.competition).filter(Boolean)));
-  const competitionOptions = Array.from(new Set(['Serie A', ...comps]));
-  const groupedUpcomingMatches = useMemo(() => {
-    const groups = new Map<string, any[]>();
-    for (const m of upcomingMatches) {
-      const key = dateToDayKey(m.date);
-      const bucket = groups.get(key) ?? [];
-      bucket.push(m);
-      groups.set(key, bucket);
-    }
-
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => {
-        if (a === 'unknown') return 1;
-        if (b === 'unknown') return -1;
-        return a.localeCompare(b);
-      })
-      .map(([dayKey, matches]) => ({
-        dayKey,
-        dayLabel: formatDayLabel(dayKey),
-        matches: [...matches].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-      }));
-  }, [upcomingMatches]);
-
-  const parseOddsFromForm = () => {
-    const parsed: Record<string, number> = {};
-    Object.entries(odds).forEach(([k, v]) => {
-      const n = parseFloat(v);
-      if (!Number.isNaN(n) && n > 1) parsed[k] = n;
-    });
-    return parsed;
+  const applyOdds = (incoming: Record<string,number>) => {
+    const s: Record<string,string> = {};
+    for (const [k,v] of Object.entries(incoming)) { if (Number.isFinite(v) && v>1) s[k]=v.toFixed(2); }
+    setOdds(s);
   };
 
-  const applyOddsToForm = (incoming: Record<string, number>) => {
-    const asStrings: Record<string, string> = {};
-    for (const [k, v] of Object.entries(incoming ?? {})) {
-      if (typeof v === 'number' && Number.isFinite(v) && v > 1) asStrings[k] = v.toFixed(2);
-    }
-    setOdds(asStrings);
-    setOddsPanelOpen(true);
+  const resolveTeam = (id:string, name?:string) => {
+    if (name?.trim()) return name.trim();
+    return teams.find((t:any) => t.team_id===id)?.name ?? id;
   };
 
-  const resolveTeamName = (teamId: string, fallback?: string) => {
-    if (fallback && fallback.trim()) return fallback.trim();
-    const found = teams.find((t: any) => t.team_id === teamId);
-    return found?.name ?? teamId;
-  };
+  const handleAnalyze = async (match: any) => {
+    const homeId = String(match.home_team_id ?? '');
+    const awayId = String(match.away_team_id ?? '');
+    const comp = String(match.competition ?? competition);
+    if (!homeId || !awayId) return;
+    setActiveMatchId(String(match.match_id ?? ''));
+    setLoadingMatchId(String(match.match_id ?? ''));
+    setOddsMsg(''); setOdds({});
+    if (comp && comp !== competition) setCompetition(comp);
+    setTab('1x2'); setPred(null);
+    // scroll right to top
+    setTimeout(() => rightRef.current?.scrollTo({top:0, behavior:'smooth'}), 50);
 
-  const loadEurobetOdds = async (match: any, comp: string) => {
     try {
-      setOddsStatus('Recupero quote live in corso...');
-      setOddsStatusTone('info');
+      // load odds first
+      setOddsMsg('Recupero quote live...'); setOddsTone('info');
+      const homeName = resolveTeam(homeId, match.home_team_name);
+      const awayName = resolveTeam(awayId, match.away_team_name);
+      let autoOdds: Record<string,number> = {};
+      try {
+        const oddsRes = await getEurobetOddsForMatch({ competition: comp||'Serie A', homeTeam:homeName, awayTeam:awayName, commenceTime:String(match.date ?? '') });
+        const payload = oddsRes.data ?? {};
+        if (payload.found && Object.keys(payload.selectedOdds ?? {}).length > 0) {
+          autoOdds = payload.selectedOdds;
+          applyOdds(autoOdds);
+          if (payload.usedSyntheticOdds) { setOddsMsg('Quote stimate dal modello interno.'); setOddsTone('warning'); }
+          else if (payload.usedFallbackBookmaker) { setOddsMsg('Eurobet n/d — quote bookmaker alternativo.'); setOddsTone('warning'); }
+          else { setOddsMsg('✓ Quote Eurobet caricate.'); setOddsTone('success'); }
+        } else {
+          setOddsMsg(payload.message ?? 'Quote non disponibili.'); setOddsTone('warning');
+        }
+      } catch { setOddsMsg('Quote non disponibili.'); setOddsTone('warning'); }
 
-      const homeName = resolveTeamName(String(match.home_team_id ?? ''), match.home_team_name);
-      const awayName = resolveTeamName(String(match.away_team_id ?? ''), match.away_team_name);
-
-      const res = await getEurobetOddsForMatch({
-        competition: comp || 'Serie A',
-        homeTeam: homeName,
-        awayTeam: awayName,
-        commenceTime: String(match.date ?? ''),
-      });
-
-      const payload = res.data ?? {};
-      const selectedOdds = payload.selectedOdds ?? {};
-      if (!payload.found || Object.keys(selectedOdds).length === 0) {
-        setOddsStatus(payload.message ?? 'Quote non disponibili per questa partita al momento.');
-        setOddsStatusTone('warning');
-        setOddsPanelOpen(true);
-        alert(payload.message ?? 'Quote non disponibili per questa partita al momento.');
-        return undefined;
-      }
-
-      applyOddsToForm(selectedOdds);
-      if (payload.usedSyntheticOdds) {
-        setOddsStatus('API esterna non usata/disponibile: caricate quote stimate dal modello interno.');
-        setOddsStatusTone('warning');
-      } else if (payload.usedFallbackBookmaker) {
-        setOddsStatus('Eurobet non disponibile ora: caricate quote del miglior bookmaker disponibile.');
-        setOddsStatusTone('warning');
-      } else {
-        setOddsStatus('Quote Eurobet caricate automaticamente.');
-        setOddsStatusTone('success');
-      }
-      return selectedOdds as Record<string, number>;
-    } catch (e: any) {
-      setOddsStatus(`Errore nel recupero quote automatiche: ${e.response?.data?.error ?? e.message}`);
-      setOddsStatusTone('danger');
-      setOddsPanelOpen(true);
-      alert(`Errore quote automatiche: ${e.response?.data?.error ?? e.message}`);
-      return undefined;
-    }
-  };
-
-  const runPrediction = async (
-    homeTeamId: string,
-    awayTeamId: string,
-    competitionOverride?: string,
-    oddsOverride?: Record<string, number>
-  ) => {
-    setLoading(true); setPred(null);
-    const bookmakerOdds = oddsOverride ?? parseOddsFromForm();
-    try {
+      // run prediction
+      setLoading(true);
       const res = await axios.post('/api/predict', {
-        homeTeamId, awayTeamId,
-        competition: (competitionOverride ?? competition) || undefined,
-        bookmakerOdds: Object.keys(bookmakerOdds).length > 0 ? bookmakerOdds : undefined,
-        isDerby, isHighStakes,
+        homeTeamId: homeId, awayTeamId: awayId,
+        competition: comp || undefined,
+        bookmakerOdds: Object.keys(autoOdds).length>0 ? autoOdds : undefined,
+        isDerby, isHighStakes
       });
       if (res.data?.data) {
         setPred(res.data.data);
-        const st: Record<string, string> = {};
+        const st: Record<string,string> = {};
         for (const o of res.data.data.valueOpportunities ?? []) {
-          if (budget?.available_budget)
-            st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+          if (budget?.available_budget) st[o.selection] = ((o.suggestedStakePercent/100)*budget.available_budget).toFixed(2);
         }
         setStakes(st);
-        if ((res.data.data.valueOpportunities ?? []).length > 0) {
-          setTab('value');
-        }
+        if ((res.data.data.valueOpportunities ?? []).length > 0) setTab('value');
       }
-    } catch (e: any) { alert(e.response?.data?.error ?? e.message); }
+    } catch (e:any) {
+      setOddsMsg(e.response?.data?.error ?? e.message); setOddsTone('danger');
+    }
     setLoading(false);
-  };
-
-  const handleAnalyzeUpcoming = async (match: any) => {
-    const nextHome = String(match.home_team_id ?? '');
-    const nextAway = String(match.away_team_id ?? '');
-    const nextCompetition = String(match.competition ?? competition);
-    const nextSeason = String(match.season ?? season);
-    if (!nextHome || !nextAway) return;
-
-    setOddsStatus('');
-    setOddsStatusTone('info');
-    setOdds({});
-    if (nextCompetition && nextCompetition !== competition) setCompetition(nextCompetition);
-    if (nextSeason && nextSeason !== season) setSeason(nextSeason);
-    setTab('1x2');
-    const autoOdds = await loadEurobetOdds(match, nextCompetition || competition);
-    await runPrediction(nextHome, nextAway, nextCompetition || undefined, autoOdds);
+    setLoadingMatchId(null);
   };
 
   const handleBet = async (opp: any) => {
-    if (!budget) {
-      alert('Inizializza prima il bankroll nella sezione Budget.');
-      return;
-    }
+    if (!budget) return alert('Inizializza il bankroll nella sezione Budget.');
     const stake = parseFloat(stakes[opp.selection] ?? '0');
-    if (!stake) { alert('Inserisci importo'); return; }
+    if (!stake) return alert('Inserisci importo');
     try {
-      await placeBet({
-        userId: activeUser, matchId: pred.matchId,
-        marketName: opp.marketName, selection: opp.selection,
-        odds: opp.bookmakerOdds, stake,
-        ourProbability: opp.ourProbability / 100,
-        expectedValue: opp.expectedValue / 100,
-      });
-      setBetDone(p => ({ ...p, [opp.selection]: true }));
+      await placeBet({ userId:activeUser, matchId:pred.matchId, marketName:opp.marketName, selection:opp.selection, odds:opp.bookmakerOdds, stake, ourProbability:opp.ourProbability/100, expectedValue:opp.expectedValue/100 });
+      setBetDone(p => ({...p,[opp.selection]:true}));
       getBudget(activeUser).then(r => setBudget(r.data));
-    } catch (e: any) {
-      alert(e?.response?.data?.error ?? e?.message ?? 'Errore nel piazzamento scommessa.');
-    }
+    } catch (e:any) { alert(e?.response?.data?.error ?? e?.message ?? 'Errore.'); }
   };
 
   const gp = pred?.goalProbabilities;
@@ -437,524 +513,495 @@ const Predictions: React.FC<PredictionsProps> = ({ activeUser }) => {
   const sp = pred?.shotsPrediction;
   const pp: any[] = pred?.playerShotsPredictions ?? [];
   const vb: any[] = pred?.valueOpportunities ?? [];
-  const staticOddsKeys = useMemo(() => new Set(ODDS_GROUPS.flatMap(g => g.keys)), []);
-  const dynamicOddsKeys = useMemo(() => {
-    const keys = new Set<string>([...Object.keys(odds), ...collectOddsKeysFromPrediction(pred)]);
-    for (const k of staticOddsKeys) keys.delete(k);
-    return Array.from(keys).sort((a, b) => a.localeCompare(b, 'it'));
-  }, [odds, pred, staticOddsKeys]);
 
   const TABS = [
-    { id: '1x2', label: '1X2 & Goal' },
-    { id: 'handicap', label: 'Handicap' },
-    { id: 'scores', label: 'Risultati Esatti' },
-    { id: 'cards', label: 'Cartellini' },
-    { id: 'fouls', label: 'Falli' },
-    { id: 'shots', label: 'Tiri Squadra' },
-    { id: 'players', label: `Tiri Giocatori${pp.length ? ` (${pp.length})` : ''}` },
-    { id: 'value', label: `Scommesse (${vb.length})` },
+    {id:'1x2',  label:'1X2 & Goal'},
+    {id:'handicap', label:'Handicap'},
+    {id:'scores', label:'Risultati'},
+    {id:'cards', label:'Cartellini'},
+    {id:'fouls', label:'Falli'},
+    {id:'shots', label:'Tiri'},
+    {id:'players', label:'Giocatori', count:pp.length},
+    {id:'value',   label:'Scommesse',  count:vb.length},
   ];
 
   return (
-    <div>
-      <h1 className="page-title">Analisi Partita</h1>
-      <p className="page-subtitle">
-        Goal: Dixon-Coles (Poisson+t) - Cartellini/Falli: Binomiale Negativa - Tiri giocatori: ZIP
-      </p>
+    <>
+      <style>{S}</style>
+      <div className="pr">
 
-      <div className="card">
-        <div className="card-header"><h2 className="card-title">Configura Filtri e Quote</h2></div>
-        <div className="form-row">
-          <div className="form-group">
-            <label className="form-label">Competizione</label>
-            <select className="form-select" value={competition} onChange={e => setCompetition(e.target.value)}>
-              <option value="">Tutte</option>
-              {competitionOptions.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Stagione</label>
-            <input
-              className="form-input"
-              value={season}
-              onChange={e => setSeason(e.target.value)}
-              placeholder="es. 2025/2026"
-            />
-            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-              Default automatico: {currentSeason()}
+        {/* ════ LEFT PANEL ════ */}
+        <div className="pr-left">
+          <div className="pr-left-head">
+            <div className="pr-left-title">📅 Partite in programma</div>
+
+            {/* Filters */}
+            <div className="pr-season-row">
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                <label className="fp-label">Campionato</label>
+                <select className="pr-select-sm" value={competition} onChange={e => setCompetition(e.target.value)}>
+                  <option value="">Tutti</option>
+                  {comps.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                <label className="fp-label">Stagione</label>
+                <input className="pr-input-sm" value={season} onChange={e => setSeason(e.target.value)} placeholder={currentSeason()} />
+              </div>
+            </div>
+
+            {/* Flags */}
+            <div className="pr-flags">
+              <label className={`pr-flag${isDerby?' on':''}`}>
+                <input type="checkbox" checked={isDerby} onChange={e => setIsDerby(e.target.checked)} />
+                🔥 Derby
+              </label>
+              <label className={`pr-flag${isHighStakes?' on':''}`}>
+                <input type="checkbox" checked={isHighStakes} onChange={e => setIsHighStakes(e.target.checked)} />
+                💎 Alta Posta
+              </label>
             </div>
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'center', paddingBottom: 14 }}>
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
-            <input type="checkbox" checked={isDerby} onChange={e => setIsDerby(e.target.checked)} />
-            Derby <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+22% gialli)</span>
-          </label>
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
-            <input type="checkbox" checked={isHighStakes} onChange={e => setIsHighStakes(e.target.checked)} />
-            Alta posta <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>(+12% gialli)</span>
-          </label>
-        </div>
 
-        <details
-          open={oddsPanelOpen}
-          onToggle={(e) => setOddsPanelOpen((e.target as HTMLDetailsElement).open)}
-          style={{ marginBottom: 14 }}
-        >
-          <summary style={{ cursor: 'pointer', fontWeight: 600, padding: '8px 0', fontSize: 14 }}>
-            Quote Bookmaker (solo import automatico)
-          </summary>
-          <div style={{ paddingTop: 12 }}>
-            <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
-              Le quote vengono caricate automaticamente quando premi <strong>Analizza</strong> su una partita.
-            </div>
-            {ODDS_GROUPS.map(g => (
-              <div key={g.title} style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  {g.title}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
-                  {g.keys.map(k => (
-                    <div className="form-group" key={k} style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
-                      <div className="form-input" style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
-                        {odds[k] ?? '-'}
+          {/* Match list */}
+          <div className="pr-list">
+            {upcomingLoading ? (
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:120,gap:10}}>
+                <div className="pr-spin" /><span style={{fontSize:12,color:'var(--text-2)'}}>Caricamento...</span>
+              </div>
+            ) : grouped.length === 0 ? (
+              <div style={{textAlign:'center',padding:'32px 16px',color:'var(--text-3)',fontSize:12}}>
+                Nessuna partita trovata.
+              </div>
+            ) : grouped.map(({key, label, matches}) => (
+              <div key={key}>
+                <div className="pr-day-sep">{label}</div>
+                {matches.map((m:any) => {
+                  const mid = String(m.match_id ?? '');
+                  const isLoading = loadingMatchId === mid;
+                  const isActive  = activeMatchId === mid;
+                  const hasMD = isSerieA(m.competition ?? competition);
+                  const md = matchdayMap[mid];
+                  const matchVB = isActive && vb.length > 0;
+                  return (
+                    <div
+                      key={mid}
+                      className={`pr-match-row${isActive?' active':''}${isLoading?' loading-row':''}`}
+                      onClick={() => !isLoading && handleAnalyze(m)}
+                    >
+                      <div className="pr-match-time">{formatKickoff(m.date).split(',')[1]?.trim() ?? '—'}</div>
+                      <div className="pr-match-teams">
+                        <div className="pr-match-home">{m.home_team_name ?? m.home_team_id}</div>
+                        <div className="pr-match-away">{m.away_team_name ?? m.away_team_id}</div>
+                        {hasMD && <div className="pr-match-md">{md ? `G${md}` : ''}</div>}
                       </div>
+                      {isLoading
+                        ? <div className="pr-match-spinner"><div className="pr-spin" /></div>
+                        : matchVB
+                          ? <span className="pr-match-vb">{vb.length} VB</span>
+                          : <span className="pr-match-comp" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
+                              {String(m.competition ?? '').replace('Serie A','SA').replace('Premier League','EPL').replace('La Liga','LAL').replace('Bundesliga','BUN').replace('Ligue 1','L1').slice(0,6)}
+                            </span>
+                      }
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             ))}
-
-            {dynamicOddsKeys.length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  Mercati Extra (dinamici)
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
-                  {dynamicOddsKeys.map(k => (
-                    <div className="form-group" key={k} style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: 11 }}>{marketLabel(k)}</label>
-                      <div className="form-input" style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
-                        {odds[k] ?? '-'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
-        </details>
-
-        {oddsStatus && (
-          <div className={`alert alert-${oddsStatusTone}`} style={{ marginBottom: 14 }}>
-            {oddsStatus}
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <h2 className="card-title">Partite da Giocare</h2>
-            <div className="card-subtitle">
-              {competition || 'Tutte le competizioni'} {season ? `- Stagione ${season}` : ''}
-            </div>
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={loadUpcomingMatches} disabled={upcomingLoading}>
-            {upcomingLoading ? 'Aggiornamento...' : 'Aggiorna'}
-          </button>
         </div>
 
-        {upcomingLoading ? (
-          <div className="loading-spinner">
-            <div className="spinner"></div>
-            <div>Caricamento partite future...</div>
-          </div>
-        ) : groupedUpcomingMatches.length === 0 ? (
-          <div className="alert alert-info">
-            Nessuna partita futura trovata con questi filtri. Se hai appena importato i dati, premi "Aggiorna".
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Data/Ora</th>
-                  <th>Casa</th>
-                  <th>Ospite</th>
-                  <th>Competizione</th>
-                  <th>Stagione</th>
-                  <th style={{ width: 120 }}>Azione</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupedUpcomingMatches.map(group => (
-                  <React.Fragment key={group.dayKey}>
-                    <tr>
-                      <td colSpan={6} style={{ background: 'var(--bg)', fontWeight: 700, fontSize: 13 }}>
-                        {group.dayLabel} - {group.matches.length} partite
-                      </td>
-                    </tr>
-                    {group.matches.map((m: any) => {
-                      const matchday = serieAMatchdayMap[String(m.match_id ?? '')];
-                      const showMatchday = isSerieACompetition(m.competition ?? competition);
-                      return (
-                        <tr key={m.match_id}>
-                          <td>
-                            <div>{formatKickoff(m.date)}</div>
-                            {showMatchday && (
-                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                                {matchday ? `Giornata ${matchday}` : 'Giornata -'}
-                              </div>
-                            )}
-                          </td>
-                          <td>{m.home_team_name ?? m.home_team_id}</td>
-                          <td>{m.away_team_name ?? m.away_team_id}</td>
-                          <td>{m.competition ?? '-'}</td>
-                          <td>{m.season ?? '-'}</td>
-                          <td>
-                            <button className="btn btn-primary btn-sm" onClick={() => handleAnalyzeUpcoming(m)} disabled={loading}>
-                              Analizza
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {pred && (
-        <>
-          <div className="match-header">
-            <div style={{ textAlign: 'right', flex: 1 }}>
-              <div className="team-name">{pred.homeTeam}</div>
-              <div className="expected-goals" style={{ justifyContent: 'flex-end' }}>
-                <span className="xg-chip">lambda = {pred.lambdaHome}</span>
+        {/* ════ RIGHT PANEL ════ */}
+        <div className="pr-right" ref={rightRef}>
+          {!pred && !loading ? (
+            <div className="pr-empty-state">
+              <div className="pr-empty-icon">🔮</div>
+              <div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Seleziona una partita</div>
+              <div className="pr-empty-msg">
+                Clicca su una partita nel pannello di sinistra per analizzarla.<br />
+                Le quote vengono caricate automaticamente.
               </div>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div className="vs">VS</div>
-              <div className="match-meta">Confidenza: {(pred.modelConfidence * 100).toFixed(0)}%</div>
+          ) : loading && !pred ? (
+            <div className="pr-empty-state">
+              <div className="pr-spin" style={{width:36,height:36,borderWidth:3}} />
+              <div style={{marginTop:16,fontSize:13,color:'var(--text-2)'}}>Analisi in corso...</div>
+              {oddsMsg && <div className={`pr-odds-status ${oddsTone}`} style={{marginTop:12}}>{oddsMsg}</div>}
             </div>
-            <div style={{ textAlign: 'left', flex: 1 }}>
-              <div className="team-name">{pred.awayTeam}</div>
-              <div className="expected-goals">
-                <span className="xg-chip">lambda = {pred.lambdaAway}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="tabs" style={{ overflowX: 'auto' }}>
-            {TABS.map(t => (
-              <button key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-                onClick={() => setTab(t.id)} style={{ whiteSpace: 'nowrap' }}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {tab === '1x2' && gp && (
-            <div className="grid-2">
-              <div className="card">
-                <div className="card-header"><h2 className="card-title">1X2</h2></div>
-                <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--primary)" />
-                <ProbBar label="Pareggio" value={gp.draw} color="var(--neutral)" />
-                <ProbBar label={pred.awayTeam} value={gp.awayWin} color="var(--danger)" />
-              </div>
-              <div className="card">
-                <div className="card-header"><h2 className="card-title">Mercati Goal</h2></div>
-                <ProbBar label="Goal/Goal" value={gp.btts} color="var(--secondary)" />
-                <ProbBar label="Over 0.5" value={gp.over05} color="var(--primary)" />
-                <ProbBar label="Over 1.5" value={gp.over15} color="var(--primary)" />
-                <ProbBar label="Over 2.5" value={gp.over25} color="var(--primary)" />
-                <ProbBar label="Over 3.5" value={gp.over35} color="var(--warning)" />
-                <ProbBar label="Over 4.5" value={gp.over45} color="var(--danger)" />
-              </div>
-            </div>
-          )}
-
-          {tab === 'handicap' && gp?.handicap && (
-            <div className="card">
-              <div className="card-header"><h2 className="card-title">Handicap Europeo & Asian</h2></div>
-              <div className="grid-2">
+          ) : pred && (
+            <>
+              {/* Sticky header */}
+              <div className="pr-results-head">
                 <div>
-                  {Object.entries(gp.handicap).filter(([k]) => k.startsWith('home')).map(([k, v]) => (
-                    <ProbBar key={k} label={k.replace('home', 'Casa ')} value={v as number} color="var(--primary)" />
-                  ))}
+                  <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
+                  <div className="pr-results-meta">{pred.competition} · λ {pred.lambdaHome} – {pred.lambdaAway}</div>
                 </div>
-                <div>
-                  {Object.entries(gp.handicap).filter(([k]) => k.startsWith('away')).map(([k, v]) => (
-                    <ProbBar key={k} label={k.replace('away', 'Ospite ')} value={v as number} color="var(--danger)" />
-                  ))}
+                {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
+              </div>
+
+              {/* Match hero */}
+              <div className="pr-hero">
+                <div className="pr-hero-team">
+                  <div className="pr-hero-name">{pred.homeTeam}</div>
+                  <div className="pr-hero-lambda">λ = {pred.lambdaHome}</div>
+                </div>
+                <div className="pr-hero-center">
+                  <div className="pr-hero-vs">VS</div>
+                  <div className="pr-confidence">{(pred.modelConfidence*100).toFixed(0)}% conf.</div>
+                </div>
+                <div className="pr-hero-team right">
+                  <div className="pr-hero-name">{pred.awayTeam}</div>
+                  <div className="pr-hero-lambda">λ = {pred.lambdaAway}</div>
                 </div>
               </div>
-              <div style={{ marginTop: 20 }}>
-                <div style={{ fontWeight: 600, marginBottom: 10 }}>Asian Handicap (casa)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
-                  {gp.asianHandicap && Object.entries(gp.asianHandicap).slice(0, 12).map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 13 }}>
-                      <span>AH {k}</span><span style={{ fontWeight: 600 }}>{fmtPct(v as number)}</span>
+
+              {/* Quick KPIs */}
+              {gp && (
+                <div className="pr-kpi-row">
+                  {[
+                    {label:'1 Casa',   val:fmtPct(gp.homeWin), color:'var(--blue)'},
+                    {label:'X Pari',   val:fmtPct(gp.draw),    color:'var(--text-2)'},
+                    {label:'2 Ospite', val:fmtPct(gp.awayWin), color:'var(--red)'},
+                  ].map(({label,val,color}) => (
+                    <div className="pr-kpi" key={label}>
+                      <div className="pr-kpi-val" style={{color}}>{val}</div>
+                      <div className="pr-kpi-lbl">{label}</div>
                     </div>
                   ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === 'scores' && gp?.exactScore && (
-            <div className="card">
-              <div className="card-header"><h2 className="card-title">Risultati Esatti</h2></div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
-                {Object.entries(gp.exactScore)
-                  .sort(([, a], [, b]) => (b as number) - (a as number))
-                  .slice(0, 18)
-                  .map(([score, prob]) => {
-                    const p = (prob as number) * 100;
-                    return (
-                      <div key={score} style={{
-                        padding: '10px', borderRadius: 6, textAlign: 'center',
-                        border: '1px solid var(--border)',
-                        background: p > 10 ? '#e8f0fe' : p > 5 ? '#f0fdf4' : '#fff'
-                      }}>
-                        <div style={{ fontSize: 18, fontWeight: 700 }}>{score}</div>
-                        <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>{p.toFixed(2)}%</div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {tab === 'cards' && cp && (
-            <div>
-              <div className="alert alert-info">
-                <strong>Binomiale Negativa</strong> - La varianza dei cartellini ({fmtN(cp.totalYellow.variance)}) &gt; media ({fmtN(cp.totalYellow.expected)}):
-                overdispersion che la Poisson non puo modellare. Parametro r calibrato su dati storici.
-                {cp.confidenceLevel < 0.7 && <span style={{ color: 'var(--warning)' }}> Dati limitati (confidenza {(cp.confidenceLevel*100).toFixed(0)}%)</span>}
-              </div>
-              <div className="grid-2">
-                <div className="card">
-                  <div className="card-header">
-                    <h2 className="card-title">Gialli Totali</h2>
-                    <div>
-                      <span className="badge badge-blue">Media = {fmtN(cp.totalYellow.expected)}</span>
-                      {' '}<span className="badge badge-gray">Var = {fmtN(cp.totalYellow.variance)}</span>
-                    </div>
-                  </div>
-                  <DistChart dist={cp.totalYellow.distribution} expected={cp.totalYellow.expected}
-                    title="P(gialli = k) - NegBin" color="#fbbc04" />
-                  {['over15','over25','over35','over45','over55','over65'].map(k => (
-                    <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)/,'$1.$2')}`}
-                      value={(cp.overUnder as any)[k]} color="var(--warning)" />
-                  ))}
-                </div>
-                <div className="card">
-                  <div className="card-header"><h2 className="card-title">Per Squadra & Rossi</h2></div>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{pred.homeTeam}</div>
-                    <ProbBar label="Over 1.5" value={cp.homeYellow.over15} color="var(--primary)" />
-                    <ProbBar label="Over 2.5" value={cp.homeYellow.over25} color="var(--primary)" />
-                    <ProbBar label="Over 3.5" value={cp.homeYellow.over35} color="var(--primary)" />
-                  </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{pred.awayTeam}</div>
-                    <ProbBar label="Over 1.5" value={cp.awayYellow.over15} color="var(--danger)" />
-                    <ProbBar label="Over 2.5" value={cp.awayYellow.over25} color="var(--danger)" />
-                    <ProbBar label="Over 3.5" value={cp.awayYellow.over35} color="var(--danger)" />
-                  </div>
-                  <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 6, fontSize: 13 }}>
-                    <strong>Rossi</strong> - media attesa: {fmtN(cp.totalRed.expected, 3)} &nbsp;&nbsp;
-                    P(almeno 1 rosso): <strong>{(cp.totalRed.probAtLeastOne * 100).toFixed(1)}%</strong>
-                  </div>
-                  <div style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 6 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Cartellini Pesati (1G=1, 1R=2)</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>Media = {fmtN(cp.totalCardsWeighted.expected)}</div>
-                    <ProbBar label="Over 3.5" value={cp.totalCardsWeighted.over35} color="var(--danger)" />
-                    <ProbBar label="Over 4.5" value={cp.totalCardsWeighted.over45} color="var(--danger)" />
-                    <ProbBar label="Over 5.5" value={cp.totalCardsWeighted.over55} color="var(--danger)" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === 'fouls' && fp && (
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">Falli - Binomiale Negativa</h2>
-                <div>
-                  <span className="badge badge-blue">Media = {fmtN(fp.totalFouls.expected)}</span>
-                  {' '}<span className="badge badge-gray">Var = {fmtN(fp.totalFouls.variance)}</span>
-                </div>
-              </div>
-              <div className="alert alert-info" style={{ marginBottom: 14 }}>
-                Casa: {fmtN(fp.homeFouls.expected)} falli attesi - Ospite: {fmtN(fp.awayFouls.expected)} falli attesi
-                - Rapporto var/media = {fmtN(fp.totalFouls.variance / fp.totalFouls.expected, 2)}x (overdispersion)
-              </div>
-              <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected}
-                title="P(falli totali = k) - Binomiale Negativa" color="#5f6368" />
-              <div className="grid-2">
-                {Object.entries(fp.overUnder).filter(([k]) => k.startsWith('over')).map(([k, v]) => (
-                  <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)(\d)/,'$1$2.$3')}`}
-                    value={v as number} color="var(--neutral)" />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {tab === 'shots' && sp && (
-            <div>
-              <div className="grid-2">
-                <div className="card">
-                  <div className="card-header">
-                    <h2 className="card-title">{pred.homeTeam}</h2>
-                    <span className="badge badge-blue">Media tiri = {fmtN(sp.home.totalShots.expected)}</span>
-                  </div>
-                  <DistChart dist={sp.home.totalShots.distribution} expected={sp.home.totalShots.expected}
-                    title="Tiri totali" color="var(--primary)" />
-                  <DistChart dist={sp.home.shotsOnTarget.distribution} expected={sp.home.shotsOnTarget.expected}
-                    title="Tiri in porta" color="var(--secondary)" />
-                </div>
-                <div className="card">
-                  <div className="card-header">
-                    <h2 className="card-title">{pred.awayTeam}</h2>
-                    <span className="badge badge-red">Media tiri = {fmtN(sp.away.totalShots.expected)}</span>
-                  </div>
-                  <DistChart dist={sp.away.totalShots.distribution} expected={sp.away.totalShots.expected}
-                    title="Tiri totali" color="var(--danger)" />
-                  <DistChart dist={sp.away.shotsOnTarget.distribution} expected={sp.away.shotsOnTarget.expected}
-                    title="Tiri in porta" color="var(--warning)" />
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Totali Combinati</h2>
-                  <span className="badge badge-blue">
-                    Tiri: {fmtN(sp.combined.totalShots.expected)} - In porta: {fmtN(sp.combined.totalOnTarget.expected)}
-                  </span>
-                </div>
-                <div className="grid-2">
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Tiri Totali</div>
-                    {Object.entries(sp.combined.overUnder).filter(([k]) => k.startsWith('over')).map(([k, v]) => (
-                      <ProbBar key={k} label={`Over ${k.replace('over', '')}`} value={v as number} color="var(--primary)" />
-                    ))}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Tiri in Porta</div>
-                    {Object.entries(sp.combined.onTargetOverUnder).filter(([k]) => k.startsWith('over')).map(([k, v]) => (
-                      <ProbBar key={k} label={`Over ${k.replace('over', '')}`} value={v as number} color="var(--secondary)" />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === 'players' && (
-            <div>
-              {pp.length === 0 ? (
-                <div className="alert alert-info">
-                  <strong>Modello ZIP (Zero-Inflated Poisson)</strong><br /><br />
-                  P(X=0) = pi + (1-pi)e^(-lambda) - E(X) = (1-pi)lambda - Var(X) = (1-pi)lambda(1+pi*lambda)<br /><br />
-                  Il parametro pi cattura la probabilita strutturale di zero tiri (giocatore fuori, neutralizzato, non in forma).
-                  Questo distingue il "vero" zero da chi semplicemente non ha tirato per caso.<br /><br />
-                  I parametri pi e lambda vengono stimati con algoritmo EM (Expectation-Maximization) su dati storici per giocatore.<br /><br />
-                  Per usare questo modello, passa i profili giocatori nell'API o caricali dalla sezione Gestione Dati.
-                </div>
-              ) : pp.map((p: any) => (
-                <div className="card" key={p.playerId}>
-                  <div className="card-header">
-                    <div>
-                      <h2 className="card-title">{p.playerName}</h2>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {p.position} - Confidenza: {(p.confidenceLevel * 100).toFixed(0)}% ({p.sampleSize} partite)
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, fontSize: 18 }}>{fmtN(p.expectedShots)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>tiri attesi</div>
-                      <div style={{ fontSize: 11, color: 'var(--secondary)' }}>{fmtN(p.expectedOnTarget)} in porta</div>
-                    </div>
-                  </div>
-                  <div className="grid-2">
-                    <DistChart dist={p.shotDistribution} expected={p.expectedShots}
-                      title="Distribuzione tiri (ZIP)" color="var(--primary)" />
-                    <div>
-                      <ProbBar label=">=1 tiro (Over 0.5)" value={p.markets.over05shots} color="var(--primary)" />
-                      <ProbBar label=">=2 tiri (Over 1.5)" value={p.markets.over15shots} color="var(--primary)" />
-                      <ProbBar label=">=3 tiri (Over 2.5)" value={p.markets.over25shots} color="var(--warning)" />
-                      <ProbBar label="0 tiri" value={p.markets.zeroShots} color="var(--neutral)" />
-                      <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8 }}>
-                        <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--secondary)" />
-                        <ProbBar label=">=2 in porta" value={p.markets.over15onTarget} color="var(--secondary)" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {tab === 'value' && (
-            <div>
-              {!budget && (
-                <div className="alert alert-warning" style={{ marginBottom: 12 }}>
-                  Per piazzare scommesse inizializza prima il bankroll nella sezione Budget Manager.
                 </div>
               )}
-              {vb.length === 0 ? (
-                <div className="alert alert-info">Inserisci le quote del bookmaker per calcolare EV/Kelly e vedere dove scommettere.</div>
-              ) : (
-                <>
-                  <div className="alert alert-success">
-                    {vb.length} scommesse a EV positivo (soglia EV &gt; 2%). Seleziona importo e premi Scommetti per registrarla nel bankroll.
+
+              {/* Value bet banner */}
+              {vb.length > 0 && (
+                <div style={{margin:'0 20px 12px'}}>
+                  <div className="pr-alert pr-alert-success" style={{cursor:'pointer'}} onClick={() => setTab('value')}>
+                    ✓ <strong>{vb.length} scommesse a valore positivo</strong> trovate — clicca per vederle
                   </div>
-                  {vb.map((o: any) => (
-                    <div key={o.selection} className={`value-bet-card ${o.confidence === 'MEDIUM' ? 'medium' : o.confidence === 'LOW' ? 'low' : ''}`}>
-                      <div className="vb-header">
+                </div>
+              )}
+
+              {/* Tabs */}
+              <div className="pr-tabs">
+                {TABS.map(t => (
+                  <button key={t.id} className={`pr-tab${tab===t.id?' active':''}`} onClick={() => setTab(t.id)}>
+                    {t.label}
+                    {t.count !== undefined && t.count > 0 && <span className="pr-tab-pill">{t.count}</span>}
+                  </button>
+                ))}
+              </div>
+
+              <div className="pr-content">
+
+                {/* 1X2 & GOAL */}
+                {tab==='1x2' && gp && (
+                  <div className="pr-g2">
+                    <div className="pr-card">
+                      <div className="pr-card-head"><div className="pr-card-title">⚽ 1X2 & Double Chance</div></div>
+                      <div className="pr-card-body">
+                        <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--blue)" />
+                        <ProbBar label="Pareggio" value={gp.draw} color="var(--text-2)" />
+                        <ProbBar label={pred.awayTeam} value={gp.awayWin} color="var(--red)" />
+                        <div style={{borderTop:'1px solid var(--border)',marginTop:12,paddingTop:12}}>
+                          <ProbBar label="1X (1 o X)" value={gp.homeWin+gp.draw} color="var(--blue)" />
+                          <ProbBar label="X2 (X o 2)" value={gp.draw+gp.awayWin} color="var(--red)" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pr-card">
+                      <div className="pr-card-head"><div className="pr-card-title">🎯 Goal / Over-Under</div></div>
+                      <div className="pr-card-body">
+                        <ProbBar label="Goal/Goal" value={gp.btts} color="var(--green)" />
+                        <ProbBar label="No GG" value={gp.bttsNo ?? (1-gp.btts)} color="var(--text-3)" />
+                        <div style={{borderTop:'1px solid var(--border)',margin:'10px 0'}} />
+                        {[['Over 0.5',gp.over05,'var(--blue)'],['Over 1.5',gp.over15,'var(--blue)'],['Over 2.5',gp.over25,'var(--blue)'],['Over 3.5',gp.over35,'var(--gold)'],['Over 4.5',gp.over45,'var(--red)']].map(([l,v,c]) => (
+                          <ProbBar key={String(l)} label={String(l)} value={Number(v)} color={String(c)} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* HANDICAP */}
+                {tab==='handicap' && gp?.handicap && (
+                  <div className="pr-card">
+                    <div className="pr-card-head"><div className="pr-card-title">⚖️ Handicap Europeo</div></div>
+                    <div className="pr-card-body">
+                      <div className="pr-g2">
                         <div>
-                          <div className="vb-market">{o.marketName}</div>
-                          <span className={`badge badge-${o.confidence === 'HIGH' ? 'green' : o.confidence === 'MEDIUM' ? 'blue' : 'yellow'}`}>{o.confidence}</span>
+                          <div className="pr-sec">{pred.homeTeam}</div>
+                          {Object.entries(gp.handicap).filter(([k])=>k.startsWith('home')).map(([k,v]) => (
+                            <ProbBar key={k} label={k.replace('home','H ')} value={v as number} color="var(--blue)" />
+                          ))}
                         </div>
-                        <div className="vb-ev">EV: +{o.expectedValue}%</div>
+                        <div>
+                          <div className="pr-sec">{pred.awayTeam}</div>
+                          {Object.entries(gp.handicap).filter(([k])=>k.startsWith('away')).map(([k,v]) => (
+                            <ProbBar key={k} label={k.replace('away','A ')} value={v as number} color="var(--red)" />
+                          ))}
+                        </div>
                       </div>
-                      {[['P. Nostra', o.ourProbability + '%'], ['P. BK implicita', o.impliedProbability + '%'],
-                        ['Edge', '+' + o.edge + '%'], ['Quota', o.bookmakerOdds], ['Kelly 1/4', o.kellyFraction + '%']
-                      ].map(([k, v]) => (
-                        <div className="vb-row" key={k as string}><span className="key">{k}</span><span className="val">{v}</span></div>
-                      ))}
-                      <div className="vb-footer">
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 13 }}>Puntata (EUR):</span>
-                          <input className="form-input" type="number" style={{ width: 90 }}
-                            value={stakes[o.selection] ?? ''} placeholder={`${o.suggestedStakePercent}%`}
-                            onChange={e => setStakes(p => ({ ...p, [o.selection]: e.target.value }))} />
-                          {budget && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                            suggerito: EUR {((o.suggestedStakePercent / 100) * (budget.available_budget ?? 0)).toFixed(2)}
-                          </span>}
-                        </div>
-                        {betDone[o.selection] ? (
-                          <span className="badge badge-green">OK Registrata</span>
-                        ) : (
-                          <button className="btn btn-success btn-sm" onClick={() => handleBet(o)} disabled={!budget}>Scommetti</button>
-                        )}
+                      {gp.asianHandicap && (
+                        <>
+                          <div className="pr-sec" style={{marginTop:18}}>Asian Handicap (casa)</div>
+                          <div className="pr-ah-grid">
+                            {Object.entries(gp.asianHandicap).slice(0,12).map(([k,v]) => (
+                              <div className="pr-ah-cell" key={k}><span>AH {k}</span><strong>{fmtPct(v as number)}</strong></div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SCORES */}
+                {tab==='scores' && gp?.exactScore && (
+                  <div className="pr-card">
+                    <div className="pr-card-head"><div className="pr-card-title">🔢 Risultati Esatti</div></div>
+                    <div className="pr-card-body">
+                      <div className="pr-score-grid">
+                        {Object.entries(gp.exactScore).sort(([,a],[,b])=>(b as number)-(a as number)).slice(0,20).map(([score,prob]) => {
+                          const p = (prob as number)*100;
+                          return (
+                            <div key={score} className={`pr-score-cell${p>10?' hot':p>5?' warm':''}`}>
+                              <div className="pr-score-val">{score}</div>
+                              <div className="pr-score-pct">{p.toFixed(2)}%</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
-                </>
-              )}
-            </div>
+                  </div>
+                )}
+
+                {/* CARDS */}
+                {tab==='cards' && cp && (
+                  <div>
+                    <div className="pr-alert pr-alert-info">
+                      <strong>Binomiale Negativa</strong> — Media {fmtN(cp.totalYellow.expected)} · Var {fmtN(cp.totalYellow.variance)}
+                      {cp.confidenceLevel < 0.7 && <span style={{marginLeft:8,color:'var(--gold)'}}>⚠ Confidenza bassa {(cp.confidenceLevel*100).toFixed(0)}%</span>}
+                    </div>
+                    <div className="pr-g2">
+                      <div className="pr-card">
+                        <div className="pr-card-head">
+                          <div className="pr-card-title">🟨 Gialli Totali</div>
+                          <div style={{display:'flex',gap:4}}>
+                            <span className="pr-badge pr-badge-blue">M {fmtN(cp.totalYellow.expected)}</span>
+                            <span className="pr-badge pr-badge-gray">σ² {fmtN(cp.totalYellow.variance)}</span>
+                          </div>
+                        </div>
+                        <div className="pr-card-body">
+                          <DistChart dist={cp.totalYellow.distribution} expected={cp.totalYellow.expected} title="P(gialli = k)" color="var(--gold)" />
+                          {['over15','over25','over35','over45','over55'].map(k => (
+                            <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)/,'$1.$2')}`} value={(cp.overUnder as any)[k]} color="var(--gold)" />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="pr-card">
+                        <div className="pr-card-head"><div className="pr-card-title">📊 Per Squadra & Rossi</div></div>
+                        <div className="pr-card-body">
+                          <div className="pr-sec" style={{color:'var(--blue)'}}>{pred.homeTeam}</div>
+                          <ProbBar label="O1.5" value={cp.homeYellow.over15} color="var(--blue)" />
+                          <ProbBar label="O2.5" value={cp.homeYellow.over25} color="var(--blue)" />
+                          <div className="pr-sec" style={{color:'var(--red)',marginTop:10}}>{pred.awayTeam}</div>
+                          <ProbBar label="O1.5" value={cp.awayYellow.over15} color="var(--red)" />
+                          <ProbBar label="O2.5" value={cp.awayYellow.over25} color="var(--red)" />
+                          <div className="pr-info">
+                            <strong>Rossi</strong> — Attesi: {fmtN(cp.totalRed.expected,3)} · P(≥1 rosso): <strong>{(cp.totalRed.probAtLeastOne*100).toFixed(1)}%</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* FOULS */}
+                {tab==='fouls' && fp && (
+                  <div className="pr-card">
+                    <div className="pr-card-head">
+                      <div className="pr-card-title">👊 Falli — Binomiale Negativa</div>
+                      <div style={{display:'flex',gap:4}}>
+                        <span className="pr-badge pr-badge-purple">M {fmtN(fp.totalFouls.expected)}</span>
+                        <span className="pr-badge pr-badge-gray">σ² {fmtN(fp.totalFouls.variance)}</span>
+                      </div>
+                    </div>
+                    <div className="pr-card-body">
+                      <div className="pr-info" style={{marginBottom:14}}>
+                        Casa: <strong>{fmtN(fp.homeFouls.expected)}</strong> · Ospite: <strong>{fmtN(fp.awayFouls.expected)}</strong> · Var/media: <strong>{fmtN(fp.totalFouls.variance/fp.totalFouls.expected,2)}x</strong>
+                      </div>
+                      <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--purple)" />
+                      <div className="pr-g2">
+                        {Object.entries(fp.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
+                          <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)(\d)/,'$1$2.$3')}`} value={v as number} color="var(--purple)" />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SHOTS */}
+                {tab==='shots' && sp && (
+                  <div>
+                    <div className="pr-g2">
+                      {[
+                        {team:pred.homeTeam, d:sp.home, c1:'var(--blue)', c2:'var(--green)'},
+                        {team:pred.awayTeam, d:sp.away, c1:'var(--red)',  c2:'var(--gold)'},
+                      ].map(({team,d,c1,c2}) => (
+                        <div className="pr-card" key={team}>
+                          <div className="pr-card-head">
+                            <div className="pr-card-title">{team}</div>
+                            <span className="pr-badge pr-badge-blue">M {fmtN(d.totalShots.expected)}</span>
+                          </div>
+                          <div className="pr-card-body">
+                            <DistChart dist={d.totalShots.distribution} expected={d.totalShots.expected} title="Tiri totali" color={c1} />
+                            <DistChart dist={d.shotsOnTarget.distribution} expected={d.shotsOnTarget.expected} title="Tiri in porta" color={c2} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Totali combinati</div>
+                        <div style={{display:'flex',gap:4}}>
+                          <span className="pr-badge pr-badge-blue">Tiri {fmtN(sp.combined.totalShots.expected)}</span>
+                          <span className="pr-badge pr-badge-green">In porta {fmtN(sp.combined.totalOnTarget.expected)}</span>
+                        </div>
+                      </div>
+                      <div className="pr-card-body">
+                        <div className="pr-g2">
+                          <div>
+                            <div className="pr-sec">Tiri Totali</div>
+                            {Object.entries(sp.combined.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
+                              <ProbBar key={k} label={`O ${k.replace('over','')}`} value={v as number} color="var(--blue)" />
+                            ))}
+                          </div>
+                          <div>
+                            <div className="pr-sec">Tiri in Porta</div>
+                            {Object.entries(sp.combined.onTargetOverUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
+                              <ProbBar key={k} label={`O ${k.replace('over','')}`} value={v as number} color="var(--green)" />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PLAYERS */}
+                {tab==='players' && (
+                  pp.length === 0 ? (
+                    <div className="pr-info" style={{fontSize:12,lineHeight:1.8}}>
+                      <strong>Modello ZIP (Zero-Inflated Poisson)</strong><br /><br />
+                      Per usare questo modello, carica i profili giocatori da <strong>Gestione Dati → Dati Automatici</strong>.
+                    </div>
+                  ) : pp.map((p:any) => (
+                    <div className="pr-card" key={p.playerId}>
+                      <div className="pr-card-head">
+                        <div className="pr-player-head" style={{width:'100%'}}>
+                          <div>
+                            <div className="pr-player-name">{p.playerName}</div>
+                            <div className="pr-player-meta">{p.position} · {p.sampleSize} partite · confidenza {(p.confidenceLevel*100).toFixed(0)}%</div>
+                          </div>
+                          <div>
+                            <div className="pr-player-xg-val">{fmtN(p.expectedShots)}</div>
+                            <div className="pr-player-xg-lbl">tiri attesi</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="pr-card-body">
+                        <div className="pr-g2">
+                          <DistChart dist={p.shotDistribution} expected={p.expectedShots} title="ZIP" color="var(--blue)" />
+                          <div>
+                            <ProbBar label="≥1 tiro" value={p.markets.over05shots} color="var(--blue)" />
+                            <ProbBar label="≥2 tiri" value={p.markets.over15shots} color="var(--blue)" />
+                            <ProbBar label="≥1 in porta" value={p.markets.over05onTarget} color="var(--green)" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {/* VALUE BETS */}
+                {tab==='value' && (
+                  <div>
+                    {!budget && (
+                      <div className="pr-alert pr-alert-warning">⚠ Inizializza il bankroll in Budget Manager.</div>
+                    )}
+                    {vb.length === 0 ? (
+                      <div className="pr-info" style={{textAlign:'center',padding:'32px 0'}}>
+                        Nessuna scommessa con EV positivo trovata.<br />
+                        <span style={{color:'var(--text-3)',fontSize:11}}>Quote non disponibili o edge insufficiente (&gt;2%).</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="pr-alert pr-alert-success">
+                          ✓ <strong>{vb.length}</strong> scommesse EV positivo (soglia &gt;2%)
+                        </div>
+                        {vb.map((o:any) => (
+                          <div key={o.selection} className={`pr-vb${o.confidence==='MEDIUM'?' medium':o.confidence==='LOW'?' low':''}`}>
+                            <div className="pr-vb-top">
+                              <div>
+                                <div className="pr-vb-market">{o.marketName}</div>
+                                <span className={`pr-badge ${o.confidence==='HIGH'?'pr-badge-green':o.confidence==='MEDIUM'?'pr-badge-blue':'pr-badge-gold'}`}>
+                                  {o.confidence}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="pr-vb-ev-num">+{o.expectedValue}%</div>
+                                <div className="pr-vb-ev-lbl">EV</div>
+                              </div>
+                            </div>
+                            <div className="pr-vb-stats">
+                              {[
+                                {l:'P. Nostra',    v:o.ourProbability+'%'},
+                                {l:'P. Implicita', v:o.impliedProbability+'%'},
+                                {l:'Edge',         v:'+'+o.edge+'%'},
+                                {l:'Quota',        v:o.bookmakerOdds},
+                                {l:'Kelly ¼',      v:o.kellyFraction+'%'},
+                              ].map(({l,v}) => (
+                                <div className="pr-vb-stat" key={l}>
+                                  <div className="pr-vb-stat-lbl">{l}</div>
+                                  <div className="pr-vb-stat-val">{v}</div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="pr-vb-bottom">
+                              <div className="pr-stake-wrap">
+                                <span className="pr-stake-lbl">Puntata €</span>
+                                <input
+                                  className="pr-stake-input" type="number"
+                                  value={stakes[o.selection] ?? ''}
+                                  placeholder={`${o.suggestedStakePercent}%`}
+                                  onChange={e => setStakes(p => ({...p,[o.selection]:e.target.value}))}
+                                />
+                                {budget && (
+                                  <span className="pr-suggest">
+                                    sugg. €{((o.suggestedStakePercent/100)*(budget.available_budget??0)).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                              {betDone[o.selection]
+                                ? <span className="pr-badge pr-badge-green">✓ Registrata</span>
+                                : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
+                                    Scommetti →
+                                  </button>
+                              }
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+
+              </div>
+            </>
           )}
-        </>
-      )}
-    </div>
+        </div>
+
+      </div>
+    </>
   );
 };
 
