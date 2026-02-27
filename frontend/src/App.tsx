@@ -6,7 +6,7 @@ import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
-import './App.css';
+import './footpredictor.css';
 
 const App: React.FC = () => {
   const activeUser = 'user1';
