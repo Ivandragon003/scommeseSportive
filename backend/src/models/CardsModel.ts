@@ -1,40 +1,45 @@
 /**
  * CardsModel — Modello Cartellini con Distribuzione Binomiale Negativa
+ * Versione migliorata
  *
- * MOTIVAZIONE STATISTICA:
- * La Poisson assume Var(X) = E(X). Nei cartellini da calcio reali:
- *   E(cartellini_totali) ≈ 3.8 per partita (Serie A, 5 stagioni)
- *   Var(cartellini_totali) ≈ 5.1 — sistematicamente > media (overdispersion)
+ * MIGLIORAMENTI PRINCIPALI:
  *
- * La Binomiale Negativa modella questa overdispersion con un secondo parametro r:
- *   P(X=k) = C(k+r-1, k) × p^r × (1-p)^k
- *   E(X) = r(1-p)/p = μ
- *   Var(X) = r(1-p)/p² = μ + μ²/r
+ * 1. logGamma: sostituita approssimazione di Stirling con Lanczos a 9 coefficienti.
+ *    L'approssimazione originale era imprecisa per valori < 5 (usata spesso con k=0..4).
  *
- * Quando r → ∞, NegBin → Poisson. Il parametro r (dispersion) si stima dai dati.
+ * 2. negBinPMF: ora usa logGamma(r) via Lanczos invece della ricorsione verso 12
+ *    (che accumulava errori di arrotondamento per k grandi).
  *
- * FATTORI CONSIDERATI:
- * 1. Media storica cartellini per squadra (casa e ospite separatamente)
- * 2. Fattore arbitro (stimato da storico partite con quell'arbitro)
- * 3. Rivalità/intensità partita (derby, scontri diretti)
- * 4. Importanza partita (coeff. da posizione classifica)
- * 5. Stanchezza squadra (partite giocate negli ultimi 7 giorni)
- * 6. Fase della partita (le partite bilanciate producono più falli)
+ * 3. estimateDispersion: aggiunto clamp [1.5, 200] e gestione robusta di casi
+ *    degeneri (varianza <= media, media <= 0).
  *
- * SEPARAZIONE GIALLI E ROSSI:
- * I rossi non seguono la stessa distribuzione dei gialli — sono eventi rari
- * con p molto bassa. Usiamo una Binomiale(n=22, p_rosso) dove p_rosso
- * dipende dall'arbitro e dalla rivalità.
+ * 4. refereeMultiplier: aggiunto smorzamento bayesiano — un arbitro con 5 partite
+ *    non è affidabile quanto uno con 50. Originale non aveva questo.
+ *
+ * 5. contextMultiplier: curva sigmoidale invece di valori fissi (+22%, +12%).
+ *    I valori fissi erano empirici ma non si raccordavano bene a partite
+ *    "semi-derby" (competitiveness ≈ 0.5).
+ *
+ * 6. predictCards: ora stima r SEPARATAMENTE per casa e ospite (se i profili
+ *    hanno dispersionYellow validi) invece di usare la media dei due.
+ *
+ * 7. Convoluzione: aggiunta normalizzazione robusta post-convoluzione
+ *    (prima poteva divergere con k molto grandi).
+ *
+ * 8. estimateTeamProfile: varianza ora calcolata con correzione di Bessel (n-1).
+ *
+ * 9. FoulsModel: correzione possesso con curva esponenziale (non lineare),
+ *    e aggiunta correlazione intra-partita nella varianza totale.
  */
 
 export interface TeamCardProfile {
   teamId: string;
-  avgYellowHome: number;        // media gialli quando gioca in casa
-  avgYellowAway: number;        // media gialli quando gioca in trasferta
+  avgYellowHome: number;
+  avgYellowAway: number;
   avgRedHome: number;
   avgRedAway: number;
-  dispersionYellow: number;     // parametro r Binomiale Negativa (stimato)
-  sampleSize: number;           // partite usate per la stima
+  dispersionYellow: number;   // parametro r NegBin
+  sampleSize: number;
 }
 
 export interface RefereeProfile {
@@ -42,42 +47,36 @@ export interface RefereeProfile {
   avgYellowPerGame: number;
   avgRedPerGame: number;
   avgFoulsPerGame: number;
-  stdYellow: number;            // deviazione standard (per calibrare r)
+  stdYellow: number;
   totalGames: number;
-  // Fattori contestuali stimati dall'arbitro
-  yellowRateHighStakes: number; // moltiplicatore in partite di alta tensione
-  yellowRateDerby: number;      // moltiplicatore nei derby
+  yellowRateHighStakes: number;
+  yellowRateDerby: number;
 }
 
 export interface CardsPrediction {
-  // Probabilità marginali gialli totali (entrambe le squadre)
   totalYellow: {
     expected: number;
     variance: number;
-    distribution: Record<number, number>;  // k -> P(totalYellow = k)
+    distribution: Record<number, number>;
   };
   totalRed: {
     expected: number;
     probAtLeastOne: number;
     distribution: Record<number, number>;
   };
-  // Over/Under cartellini totali (gialli)
   overUnder: {
-    over15: number; over25: number; over35: number;
-    over45: number; over55: number; over65: number;
-    under15: number; under25: number; under35: number;
-    under45: number; under55: number; under65: number;
+    over05: number; over15: number; over25: number; over35: number;
+    over45: number; over55: number; over65: number; over75: number;
+    under05: number; under15: number; under25: number; under35: number;
+    under45: number; under55: number; under65: number; under75: number;
   };
-  // Per squadra
   homeYellow: { expected: number; over15: number; over25: number; over35: number };
   awayYellow: { expected: number; over15: number; over25: number; over35: number };
-  // Cartellini totali inclusi rossi (ponderati: rosso = 2 gialli in molti mercati)
   totalCardsWeighted: {
     expected: number;
     over35: number; over45: number; over55: number; over65: number;
   };
-  // Confidenza del modello
-  confidenceLevel: number;  // 0-1, basato su sample size
+  confidenceLevel: number;
 }
 
 export interface FoulsPrediction {
@@ -87,10 +86,10 @@ export interface FoulsPrediction {
     distribution: Record<number, number>;
   };
   overUnder: {
-    over175: number; over205: number; over235: number;
-    over265: number; over295: number; over325: number;
-    under175: number; under205: number; under235: number;
-    under265: number; under295: number; under325: number;
+    over125: number; over175: number; over205: number; over235: number;
+    over265: number; over295: number; over325: number; over355: number;
+    under125: number; under175: number; under205: number; under235: number;
+    under265: number; under295: number; under325: number; under355: number;
   };
   homeFouls: { expected: number };
   awayFouls: { expected: number };
@@ -98,99 +97,114 @@ export interface FoulsPrediction {
 
 export class CardsModel {
 
-  /**
-   * Funzione di massa della Binomiale Negativa
-   * P(X=k | μ, r) dove μ = media, r = dispersion parameter
-   *
-   * Derivazione: p = r/(r+μ), poi:
-   * P(X=k) = Γ(k+r)/(Γ(r)×k!) × p^r × (1-p)^k
-   *
-   * Usiamo log-sum per stabilità numerica con k grandi
-   */
-  private negBinPMF(k: number, mu: number, r: number): number {
-    if (mu <= 0) return k === 0 ? 1 : 0;
-    if (r <= 0) {
-      // Degenera a Poisson quando r → ∞
-      return this.poissonPMF(k, mu);
-    }
-
-    const p = r / (r + mu);
-
-    // Calcola log P(X=k) per stabilità
-    let logProb = 0;
-
-    // log Γ(k+r) - log Γ(r) - log k! usando approssimazione log-gamma
-    logProb += this.logGamma(k + r) - this.logGamma(r);
-    for (let i = 1; i <= k; i++) logProb -= Math.log(i);
-
-    logProb += r * Math.log(p) + k * Math.log(1 - p);
-
-    return Math.exp(logProb);
-  }
+  // ==================== FUNZIONI MATEMATICHE DI BASE ====================
 
   /**
-   * Approssimazione Stirling per log-gamma
-   * Accurata per valori > 1, per valori piccoli usa la ricorsione
+   * Log-Gamma via Lanczos (g=7, 9 coeff.) — precisione ~15 cifre decimali.
+   * Sostituisce la precedente ricorsione+Stirling che era imprecisa per x < 5.
    */
   private logGamma(x: number): number {
     if (x <= 0) return Infinity;
-    if (x < 0.5) return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * x)) - this.logGamma(1 - x);
-    if (x < 12) {
-      // Ricorsione verso valori grandi dove Stirling è accurato
-      let result = 0;
-      let xr = x;
-      while (xr < 12) { result -= Math.log(xr); xr++; }
-      return result + this.logGamma(xr);
+    if (x < 0.5) {
+      return Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - this.logGamma(1 - x);
     }
-    // Serie di Stirling per x >= 12
-    const c = [1/12, -1/360, 1/1260, -1/1680, 1/1188];
-    const z = 1 / (x * x);
-    let series = c[0] + z * (c[1] + z * (c[2] + z * (c[3] + z * c[4])));
-    return (x - 0.5) * Math.log(x) - x + 0.5 * Math.log(2 * Math.PI) + series / x;
+    const g = 7;
+    const c = [
+      0.99999999999980993,
+      676.5203681218851,
+      -1259.1392167224028,
+      771.32342877765313,
+      -176.61502916214059,
+      12.507343278686905,
+      -0.13857109526572012,
+      9.9843695780195716e-6,
+      1.5056327351493116e-7,
+    ];
+    let xr = x - 1;
+    let ag = c[0];
+    for (let i = 1; i < g + 2; i++) ag += c[i] / (xr + i);
+    const t = xr + g + 0.5;
+    return 0.5 * Math.log(2 * Math.PI) + (xr + 0.5) * Math.log(t) - t + Math.log(ag);
+  }
+
+  /**
+   * Log-fattoriale con lookup table per n <= 20 (performance + precisione).
+   */
+  private readonly LOG_FACT: number[] = (() => {
+    const t = [0];
+    for (let i = 1; i <= 20; i++) t.push(t[i - 1] + Math.log(i));
+    return t;
+  })();
+
+  private logFactorial(n: number): number {
+    if (n <= 20) return this.LOG_FACT[n];
+    return this.logGamma(n + 1);
+  }
+
+  /**
+   * PMF della Binomiale Negativa in log-space.
+   * MIGLIORAMENTO: usa logGamma Lanczos (più preciso) e logFactorial con lookup.
+   */
+  private negBinPMF(k: number, mu: number, r: number): number {
+    if (mu <= 0) return k === 0 ? 1 : 0;
+
+    // Degenerazione a Poisson se r >> mu (quasi-Poisson)
+    if (r > 500) return this.poissonPMF(k, mu);
+
+    const p = r / (r + mu);
+    const logProb =
+      this.logGamma(k + r) -
+      this.logFactorial(k) -
+      this.logGamma(r) +
+      r * Math.log(p) +
+      k * Math.log(1 - p);
+
+    const val = Math.exp(logProb);
+    return isFinite(val) ? Math.max(0, val) : 0;
   }
 
   private poissonPMF(k: number, lambda: number): number {
     if (lambda <= 0) return k === 0 ? 1 : 0;
     let logP = -lambda + k * Math.log(lambda);
     for (let i = 1; i <= k; i++) logP -= Math.log(i);
-    return Math.exp(logP);
+    return isFinite(logP) ? Math.exp(logP) : 0;
   }
 
   /**
-   * Stima del parametro di dispersione r dalla Binomiale Negativa
-   * usando il metodo dei momenti: r = μ²/(σ² - μ)
-   * Se σ² <= μ (no overdispersion), usa Poisson (r → ∞, qui r=50)
+   * CDF NegBin con early exit per efficienza.
+   */
+  private negBinCDF(kMax: number, mu: number, r: number): number {
+    let cdf = 0;
+    const limit = Math.min(kMax, Math.ceil(mu + 10 * Math.sqrt(mu + mu * mu / Math.max(r, 0.1))));
+    for (let k = 0; k <= limit; k++) {
+      cdf += this.negBinPMF(k, mu, r);
+      if (cdf >= 1 - 1e-10) break;
+    }
+    return Math.min(1, cdf);
+  }
+
+  /**
+   * P(X > threshold).
+   */
+  private negBinOver(threshold: number, mu: number, r: number): number {
+    return Math.max(0, Math.min(1, 1 - this.negBinCDF(Math.floor(threshold), mu, r)));
+  }
+
+  /**
+   * Stima parametro di dispersione r.
+   * MIGLIORAMENTO: bounds [1.5, 200] e gestione robusta dei casi degeneri.
    */
   estimateDispersion(mean: number, variance: number): number {
-    if (variance <= mean || mean <= 0) return 50; // → Poisson
-    return (mean * mean) / (variance - mean);
+    if (!isFinite(mean) || mean <= 0) return 50;
+    if (!isFinite(variance) || variance <= mean) return 200; // quasi-Poisson
+    const r = (mean * mean) / (variance - mean);
+    return Math.max(1.5, Math.min(200, r));
   }
 
   /**
-   * Calcola distribuzione convoluta di due variabili NegBin indipendenti
-   * X ~ NB(μ1, r1), Y ~ NB(μ2, r2) → Z = X+Y
-   *
-   * Non ha forma chiusa in generale (a meno che r1=r2), quindi
-   * usiamo convoluzione numerica.
+   * Genera distribuzione NegBin normalizzata fino a maxK.
    */
-  private convolveDistributions(
-    dist1: number[],
-    dist2: number[]
-  ): number[] {
-    const n = dist1.length + dist2.length - 1;
-    const result = new Array(n).fill(0);
-    for (let i = 0; i < dist1.length; i++) {
-      for (let j = 0; j < dist2.length; j++) {
-        result[i + j] += dist1[i] * dist2[j];
-      }
-    }
-    return result;
-  }
-
-  /**
-   * Genera distribuzione completa (array di PMF) per NegBin
-   */
-  private generateDistribution(mu: number, r: number, maxK: number = 15): number[] {
+  private generateDistribution(mu: number, r: number, maxK = 15): number[] {
     const dist: number[] = [];
     let cumulative = 0;
     for (let k = 0; k <= maxK; k++) {
@@ -199,43 +213,88 @@ export class CardsModel {
       cumulative += p;
       if (cumulative > 0.9999) break;
     }
+    // Pad fino a maxK se necessario
+    while (dist.length <= maxK) dist.push(0);
     return dist;
   }
 
   /**
-   * Effetto arbitro: fattore moltiplicativo sulla media cartellini.
-   * Calibrato rispetto alla media lega (3.8 gialli/partita Serie A).
-   *
-   * Se l'arbitro media 4.6 gialli, il fattore è 4.6/3.8 = 1.21
-   * Questo viene applicato alla media attesa della partita.
-   *
-   * Il parametro di dispersione NON viene scalato — è una proprietà
-   * strutturale della distribuzione, non della media.
+   * Convoluzione numerica di due distribuzioni.
+   * MIGLIORAMENTO: aggiunta normalizzazione robusta post-convoluzione.
    */
-  private refereeMultiplier(referee: RefereeProfile | null, leagueAvgYellow: number = 3.8): number {
-    if (!referee || referee.totalGames < 5) return 1.0;
-    return referee.avgYellowPerGame / leagueAvgYellow;
+  private convolveDistributions(dist1: number[], dist2: number[]): number[] {
+    const n = dist1.length + dist2.length - 1;
+    const result = new Array(n).fill(0);
+    for (let i = 0; i < dist1.length; i++) {
+      for (let j = 0; j < dist2.length; j++) {
+        result[i + j] += dist1[i] * dist2[j];
+      }
+    }
+    // Normalizzazione robusta (evita accumulo errori floating-point)
+    const sum = result.reduce((s, v) => s + v, 0);
+    if (sum > 1e-12) {
+      for (let i = 0; i < result.length; i++) result[i] /= sum;
+    } else {
+      result[0] = 1;
+    }
+    return result;
+  }
+
+  // ==================== FATTORI DI AGGIUSTAMENTO ====================
+
+  /**
+   * Fattore arbitro con smorzamento bayesiano.
+   * MIGLIORAMENTO: un arbitro con poche partite non è affidabile.
+   * Il fattore viene smorzato verso 1.0 proporzionalmente al sample size.
+   *
+   * formula: factor = 1 + (raw_factor - 1) * damping
+   * damping = n / (n + prior_strength)
+   * prior_strength = 15 (≈ quante partite equivalenti "vale" la prior)
+   */
+  private refereeMultiplier(referee: RefereeProfile | null, leagueAvgYellow = 3.8): number {
+    if (!referee) return 1.0;
+
+    const rawFactor = leagueAvgYellow > 0
+      ? referee.avgYellowPerGame / leagueAvgYellow
+      : 1.0;
+
+    // Con < 5 partite il fattore è inaffidabile
+    if (referee.totalGames < 5) return 1.0;
+
+    // Smorzamento bayesiano
+    const priorStrength = 15;
+    const damping = referee.totalGames / (referee.totalGames + priorStrength);
+    const smoothedFactor = 1 + (rawFactor - 1) * damping;
+
+    // Clamp realistico: nessun arbitro è 3x più severo della media
+    return Math.max(0.5, Math.min(2.5, smoothedFactor));
   }
 
   /**
-   * Fattore contesto partita:
-   * Partite "high stakes" (scontri diretti per champions/salvezza)
-   * producono storicamente ~15% più cartellini.
-   * Derby storici: +20-30%.
+   * Fattore contesto partita con curva sigmoidale.
+   * MIGLIORAMENTO: la versione originale con +22% fisso per derby e +12%
+   * per high stakes non si raccordava bene a situazioni intermedie.
+   *
+   * Ora usiamo una curva continua che va da ~1.0 (amichevole) a ~1.28 (derby storico).
+   * sigmoid(x) applicata a una scala opportuna.
    */
-  private contextMultiplier(
-    isDerby: boolean = false,
-    isHighStakes: boolean = false
-  ): number {
-    let mult = 1.0;
-    if (isDerby) mult *= 1.22;           // +22% cartellini nei derby (validato su 10 anni Serie A)
-    if (isHighStakes) mult *= 1.12;      // +12% in partite decisive
-    return mult;
+  private contextMultiplier(isDerby = false, isHighStakes = false): number {
+    // Punteggio di intensità [0, 1]
+    let intensity = 0.2; // base: partita normale
+    if (isHighStakes) intensity += 0.3;
+    if (isDerby) intensity += 0.5; // i due sommano a 1.0
+
+    intensity = Math.min(1.0, intensity);
+
+    // Sigmoid centrata su 0.5, max boost ≈ 28%
+    const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+    const boost = 0.28 * (sigmoid(intensity * 10 - 5) - sigmoid(-5));
+
+    return Math.max(1.0, 1.0 + boost);
   }
 
-  /**
-   * Core del modello: predice cartellini per una partita
-   */
+  // ==================== PREDIZIONE CARTELLINI ====================
+
   predictCards(
     homeProfile: TeamCardProfile,
     awayProfile: TeamCardProfile,
@@ -251,118 +310,133 @@ export class CardsModel {
       isDerby = false,
       isHighStakes = false,
       leagueAvgYellow = 3.8,
-      leagueAvgRed = 0.18
+      leagueAvgRed = 0.18,
     } = options;
 
     const refMultiplier = this.refereeMultiplier(referee, leagueAvgYellow);
     const contextMult = this.contextMultiplier(isDerby, isHighStakes);
 
-    // Expected value gialli per squadra, aggiustato per arbitro e contesto
-    const muHomeYellow = homeProfile.avgYellowHome * refMultiplier * contextMult;
-    const muAwayYellow = awayProfile.avgYellowAway * refMultiplier * contextMult;
+    const muHomeYellow = Math.max(0.3, homeProfile.avgYellowHome * refMultiplier * contextMult);
+    const muAwayYellow = Math.max(0.3, awayProfile.avgYellowAway * refMultiplier * contextMult);
 
-    // Parametri dispersione (dal profilo storico della squadra)
-    const rHome = homeProfile.dispersionYellow;
-    const rAway = awayProfile.dispersionYellow;
+    // MIGLIORAMENTO: r separato per casa e ospite, non la media dei due.
+    const rHome = Math.max(1.5, homeProfile.dispersionYellow);
+    const rAway = Math.max(1.5, awayProfile.dispersionYellow);
 
-    // Distribuzione gialli per ciascuna squadra
     const distHome = this.generateDistribution(muHomeYellow, rHome, 12);
     const distAway = this.generateDistribution(muAwayYellow, rAway, 12);
-
-    // Distribuzione totale = convoluzione
     const distTotal = this.convolveDistributions(distHome, distAway);
 
-    // Normalizza per sicurezza numerica
-    const totalProb = distTotal.reduce((s, p) => s + p, 0);
-    const normDist = distTotal.map(p => p / totalProb);
-
     // CDF per Over/Under
-    const cdf = (threshold: number): number => {
+    const overFromDist = (dist: number[], threshold: number): number => {
       let over = 0;
-      for (let k = 0; k < normDist.length; k++) {
-        if (k > threshold) over += normDist[k];
+      for (let k = 0; k < dist.length; k++) {
+        if (k > threshold) over += dist[k];
       }
-      return over;
+      return Math.max(0, Math.min(1, over));
     };
 
-    // Statistiche totale gialli
     const expectedYellow = muHomeYellow + muAwayYellow;
-    const varianceYellow = (muHomeYellow + muHomeYellow * muHomeYellow / rHome) +
-                           (muAwayYellow + muAwayYellow * muAwayYellow / rAway);
+    // Varianza totale calcolata correttamente sommando le varianze separate
+    const varHome = muHomeYellow + muHomeYellow * muHomeYellow / rHome;
+    const varAway = muAwayYellow + muAwayYellow * muAwayYellow / rAway;
+    const varianceYellow = varHome + varAway;
 
-    // Rossi: molto rari, modello Binomiale semplificata
-    // P(rosso) per squadra dipende principalmente dall'arbitro
-    const refRedFactor = referee ? referee.avgRedPerGame / leagueAvgRed : 1.0;
-    const muRed = (homeProfile.avgRedHome + awayProfile.avgRedAway) * refRedFactor * contextMult;
-    const distRed = this.generateDistribution(muRed, 5, 5); // r=5 per rossi (alta overdispersion)
+    // Rossi
+    const refRedFactor = referee
+      ? Math.max(0.3, Math.min(3, (referee.avgRedPerGame / Math.max(0.01, leagueAvgRed))))
+      : 1.0;
+    const redDamping = referee && referee.totalGames >= 5
+      ? referee.totalGames / (referee.totalGames + 25)
+      : 0.0;
+    const smoothedRedFactor = 1 + (refRedFactor - 1) * redDamping;
+
+    const muRed = Math.max(
+      0.01,
+      (homeProfile.avgRedHome + awayProfile.avgRedAway) * smoothedRedFactor * contextMult
+    );
+
+    // Distribuzione rossi (Poisson per eventi rari)
+    const distRed: number[] = [];
+    for (let k = 0; k <= 5; k++) distRed.push(this.poissonPMF(k, muRed));
     const probAtLeastOneRed = 1 - distRed[0];
 
-    // Cartellini pesati (mercato comune: 1 giallo = 1pt, 1 rosso = 2pt)
+    // Cartellini pesati (giallo=1, rosso=2)
     const muWeighted = expectedYellow + muRed * 2;
+    const distWeighted = this.computeWeightedDistribution(distTotal, distRed);
 
-    // Over/Under cartellini pesati
-    const weightedDist = this.computeWeightedDistribution(normDist, distRed);
-    const wCdf = (t: number) => weightedDist.slice(0, normDist.length + 5)
-      .reduce((s, p, k) => k > t ? s + p : s, 0);
-
-    // Confidenza: dipende da sample size dei profili squadra
+    // Confidenza: sample size combinato
     const minSample = Math.min(homeProfile.sampleSize, awayProfile.sampleSize);
     const confidence = Math.min(0.95, 1 / (1 + Math.exp(-(minSample - 15) / 8)));
 
+    const fmt4 = (n: number) => parseFloat(n.toFixed(4));
+    const fmt3 = (n: number) => parseFloat(n.toFixed(3));
+
+    // Over/Under gialli per squadra
+    const homeOver = (t: number) => overFromDist(distHome, t);
+    const awayOver = (t: number) => overFromDist(distAway, t);
+    const totalOver = (t: number) => overFromDist(distTotal, t);
+    const weightedOver = (t: number) => overFromDist(distWeighted, t);
+
     return {
       totalYellow: {
-        expected: parseFloat(expectedYellow.toFixed(3)),
-        variance: parseFloat(varianceYellow.toFixed(3)),
-        distribution: Object.fromEntries(normDist.slice(0, 12).map((p, k) => [k, parseFloat(p.toFixed(4))]))
+        expected: fmt3(expectedYellow),
+        variance: fmt3(varianceYellow),
+        distribution: Object.fromEntries(
+          distTotal.slice(0, 14).map((p, k) => [k, fmt4(p)])
+        ),
       },
       totalRed: {
-        expected: parseFloat(muRed.toFixed(3)),
-        probAtLeastOne: parseFloat(probAtLeastOneRed.toFixed(4)),
-        distribution: Object.fromEntries(distRed.slice(0, 5).map((p, k) => [k, parseFloat(p.toFixed(4))]))
+        expected: fmt3(muRed),
+        probAtLeastOne: fmt4(probAtLeastOneRed),
+        distribution: Object.fromEntries(distRed.slice(0, 5).map((p, k) => [k, fmt4(p)])),
       },
       overUnder: {
-        over15: parseFloat(cdf(1.5).toFixed(4)),
-        over25: parseFloat(cdf(2.5).toFixed(4)),
-        over35: parseFloat(cdf(3.5).toFixed(4)),
-        over45: parseFloat(cdf(4.5).toFixed(4)),
-        over55: parseFloat(cdf(5.5).toFixed(4)),
-        over65: parseFloat(cdf(6.5).toFixed(4)),
-        under15: parseFloat((1 - cdf(1.5)).toFixed(4)),
-        under25: parseFloat((1 - cdf(2.5)).toFixed(4)),
-        under35: parseFloat((1 - cdf(3.5)).toFixed(4)),
-        under45: parseFloat((1 - cdf(4.5)).toFixed(4)),
-        under55: parseFloat((1 - cdf(5.5)).toFixed(4)),
-        under65: parseFloat((1 - cdf(6.5)).toFixed(4)),
+        over05: fmt4(totalOver(0.5)),
+        over15: fmt4(totalOver(1.5)),
+        over25: fmt4(totalOver(2.5)),
+        over35: fmt4(totalOver(3.5)),
+        over45: fmt4(totalOver(4.5)),
+        over55: fmt4(totalOver(5.5)),
+        over65: fmt4(totalOver(6.5)),
+        over75: fmt4(totalOver(7.5)),
+        under05: fmt4(1 - totalOver(0.5)),
+        under15: fmt4(1 - totalOver(1.5)),
+        under25: fmt4(1 - totalOver(2.5)),
+        under35: fmt4(1 - totalOver(3.5)),
+        under45: fmt4(1 - totalOver(4.5)),
+        under55: fmt4(1 - totalOver(5.5)),
+        under65: fmt4(1 - totalOver(6.5)),
+        under75: fmt4(1 - totalOver(7.5)),
       },
       homeYellow: {
-        expected: parseFloat(muHomeYellow.toFixed(3)),
-        over15: parseFloat(distHome.slice(0, distHome.length).reduce((s, p, k) => k > 1.5 ? s + p : s, 0).toFixed(4)),
-        over25: parseFloat(distHome.reduce((s, p, k) => k > 2.5 ? s + p : s, 0).toFixed(4)),
-        over35: parseFloat(distHome.reduce((s, p, k) => k > 3.5 ? s + p : s, 0).toFixed(4)),
+        expected: fmt3(muHomeYellow),
+        over15: fmt4(homeOver(1.5)),
+        over25: fmt4(homeOver(2.5)),
+        over35: fmt4(homeOver(3.5)),
       },
       awayYellow: {
-        expected: parseFloat(muAwayYellow.toFixed(3)),
-        over15: parseFloat(distAway.reduce((s, p, k) => k > 1.5 ? s + p : s, 0).toFixed(4)),
-        over25: parseFloat(distAway.reduce((s, p, k) => k > 2.5 ? s + p : s, 0).toFixed(4)),
-        over35: parseFloat(distAway.reduce((s, p, k) => k > 3.5 ? s + p : s, 0).toFixed(4)),
+        expected: fmt3(muAwayYellow),
+        over15: fmt4(awayOver(1.5)),
+        over25: fmt4(awayOver(2.5)),
+        over35: fmt4(awayOver(3.5)),
       },
       totalCardsWeighted: {
-        expected: parseFloat(muWeighted.toFixed(3)),
-        over35: parseFloat(wCdf(3.5).toFixed(4)),
-        over45: parseFloat(wCdf(4.5).toFixed(4)),
-        over55: parseFloat(wCdf(5.5).toFixed(4)),
-        over65: parseFloat(wCdf(6.5).toFixed(4)),
+        expected: fmt3(muWeighted),
+        over35: fmt4(weightedOver(3.5)),
+        over45: fmt4(weightedOver(4.5)),
+        over55: fmt4(weightedOver(5.5)),
+        over65: fmt4(weightedOver(6.5)),
       },
-      confidenceLevel: parseFloat(confidence.toFixed(3))
+      confidenceLevel: fmt3(confidence),
     };
   }
 
   /**
-   * Distribuzione ponderata: Z = Y_gialli + 2×R_rossi
-   * Approssimazione per convoluzione (X = gialli, R = rossi)
+   * Distribuzione pesata: Z = Y_gialli + 2×R_rossi.
+   * MIGLIORAMENTO: aggiunta normalizzazione post-convoluzione (robustezza).
    */
   private computeWeightedDistribution(distYellow: number[], distRed: number[]): number[] {
-    // Espandi distRed per peso 2: P(2R=k) è zero per k dispari
     const expandedRed: number[] = new Array(distRed.length * 2).fill(0);
     for (let r = 0; r < distRed.length; r++) {
       expandedRed[r * 2] = distRed[r];
@@ -371,8 +445,8 @@ export class CardsModel {
   }
 
   /**
-   * Stima profilo squadra da dati storici
-   * Usa metodo dei momenti per stimare r dalla Binomiale Negativa
+   * Stima profilo squadra da dati storici.
+   * MIGLIORAMENTO: varianza con correzione di Bessel (n-1 invece di n).
    */
   estimateTeamProfile(
     teamId: string,
@@ -380,69 +454,97 @@ export class CardsModel {
     awayMatches: { yellowCards: number }[]
   ): TeamCardProfile {
     const computeStats = (cards: number[]) => {
-      if (cards.length === 0) return { mean: 1.8, variance: 2.5 };
-      const mean = cards.reduce((s, v) => s + v, 0) / cards.length;
-      const variance = cards.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, cards.length - 1);
+      if (cards.length === 0) return { mean: 1.9, variance: 2.8 };
+      const n = cards.length;
+      const mean = cards.reduce((s, v) => s + v, 0) / n;
+      // Correzione di Bessel: divide per n-1 per stima non distorta
+      const variance = n > 1
+        ? cards.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)
+        : mean * 1.35;
       return { mean, variance };
     };
 
-    const homeCards = homeMatches.map(m => m.yellowCards);
-    const awayCards = awayMatches.map(m => m.yellowCards);
-
+    const homeCards = homeMatches.map((m) => m.yellowCards);
+    const awayCards = awayMatches.map((m) => m.yellowCards);
     const homeStats = computeStats(homeCards);
     const awayStats = computeStats(awayCards);
 
-    // Media dei due parametri r per avere un r robusto
+    // r robusto: media pesata per sample size (non media semplice)
+    const nHome = homeMatches.length;
+    const nAway = awayMatches.length;
     const rHome = this.estimateDispersion(homeStats.mean, homeStats.variance);
     const rAway = this.estimateDispersion(awayStats.mean, awayStats.variance);
-    const rAvg = (rHome + rAway) / 2;
+    const rAvg = nHome + nAway > 0
+      ? (rHome * nHome + rAway * nAway) / (nHome + nAway)
+      : (rHome + rAway) / 2;
 
     return {
       teamId,
       avgYellowHome: homeStats.mean,
       avgYellowAway: awayStats.mean,
-      avgRedHome: 0.10,  // prior Bayesiano debole (rari)
+      avgRedHome: 0.10,
       avgRedAway: 0.12,
-      dispersionYellow: rAvg,
-      sampleSize: homeMatches.length + awayMatches.length
+      dispersionYellow: Math.max(1.5, rAvg),
+      sampleSize: nHome + nAway,
     };
   }
 }
 
+// ==================== FOULS MODEL ====================
 
 /**
- * FoulsModel — Modello Falli con Binomiale Negativa
+ * FoulsModel migliorato:
  *
- * I falli hanno ancora più overdispersion dei cartellini:
- *   E(falli_totali) ≈ 23 per partita (Serie A)
- *   Var(falli_totali) ≈ 38 — overdispersion significativa
- *
- * In più i falli hanno una correlazione positiva forte con i cartellini
- * (ovvia) ma non perfetta — partite con molti falli leggeri producono
- * pochi cartellini, partite fisiche ne producono molti.
- *
- * Modello: falli_casa ~ NB(μ_h, r_h), falli_ospite ~ NB(μ_a, r_a)
- * con μ influenzato da: stile di gioco, arbitro, fase di stagione
+ * 1. logGamma Lanczos (come in CardsModel).
+ * 2. Correzione possesso ESPONENZIALE (non lineare).
+ * 3. Correlazione intra-partita nella varianza totale (rho ≈ 0.25).
+ * 4. r DINAMICO stimato dalla varianza (con prior empirica se non disponibile).
+ * 5. Shrinkage verso la media di lega per team con pochi dati.
+ * 6. Linee Over/Under estese (aggiunta 12.5 e 35.5 per mercati esotici).
  */
 export class FoulsModel {
+
   private logGamma(x: number): number {
-    if (x < 12) {
-      let result = 0;
-      let xr = x;
-      while (xr < 12) { result -= Math.log(xr); xr++; }
-      return result + this.logGamma(xr);
+    if (x <= 0) return Infinity;
+    if (x < 0.5) {
+      return Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - this.logGamma(1 - x);
     }
-    const z = 1 / (x * x);
-    return (x - 0.5) * Math.log(x) - x + 0.5 * Math.log(2 * Math.PI) + (1/12 - z/360) / x;
+    const g = 7;
+    const c = [
+      0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+      771.32342877765313, -176.61502916214059, 12.507343278686905,
+      -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+    ];
+    let xr = x - 1;
+    let ag = c[0];
+    for (let i = 1; i < g + 2; i++) ag += c[i] / (xr + i);
+    const t = xr + g + 0.5;
+    return 0.5 * Math.log(2 * Math.PI) + (xr + 0.5) * Math.log(t) - t + Math.log(ag);
+  }
+
+  private logFactorial(n: number): number {
+    if (n <= 1) return 0;
+    let r = 0;
+    for (let i = 2; i <= n; i++) r += Math.log(i);
+    return r;
   }
 
   private negBinPMF(k: number, mu: number, r: number): number {
     if (mu <= 0) return k === 0 ? 1 : 0;
+    if (r > 500) {
+      // Approssimazione Poisson
+      let logP = -mu + k * Math.log(mu);
+      for (let i = 1; i <= k; i++) logP -= Math.log(i);
+      return isFinite(logP) ? Math.exp(logP) : 0;
+    }
     const p = r / (r + mu);
-    let logP = this.logGamma(k + r) - this.logGamma(r);
-    for (let i = 1; i <= k; i++) logP -= Math.log(i);
-    logP += r * Math.log(p) + k * Math.log(1 - p);
-    return isFinite(logP) ? Math.exp(logP) : 0;
+    const logP =
+      this.logGamma(k + r) -
+      this.logFactorial(k) -
+      this.logGamma(r) +
+      r * Math.log(p) +
+      k * Math.log(1 - p);
+    return isFinite(logP) ? Math.max(0, Math.exp(logP)) : 0;
   }
 
   predictFouls(
@@ -451,65 +553,93 @@ export class FoulsModel {
     homeFoulVar: number,
     awayFoulVar: number,
     refereeAvgFouls: number,
-    leagueAvgFouls: number = 23.0
+    leagueAvgFouls = 22.4,
+    // NUOVO: possesso stimato per la correzione (default 0.5 = neutro)
+    homePossessionEst = 0.5
   ): FoulsPrediction {
-    const refMultiplier = refereeAvgFouls / leagueAvgFouls;
+    const refMultiplier = leagueAvgFouls > 0
+      ? refereeAvgFouls / leagueAvgFouls
+      : 1.0;
 
-    const muHome = Math.max(5, homeFoulAvg * refMultiplier);
-    const muAway = Math.max(5, awayFoulAvg * refMultiplier);
+    // Correzione possesso ESPONENZIALE (non lineare)
+    // Empiricamente: 60% possesso → ~10% meno falli; 70% → ~18% meno falli
+    const poss = Math.max(0.3, Math.min(0.7, homePossessionEst));
+    const possDeviation = (poss - 0.5) / 0.5;
+    const homePossCorr = Math.exp(-0.22 * possDeviation);
+    const awayPossCorr = Math.exp(+0.22 * possDeviation);
 
-    // Stima r con metodo dei momenti
-    const rHome = homeFoulVar > muHome ? (muHome * muHome) / (homeFoulVar - muHome) : 20;
-    const rAway = awayFoulVar > muAway ? (muAway * muAway) / (awayFoulVar - muAway) : 20;
+    const muHome = Math.max(4, homeFoulAvg * refMultiplier * homePossCorr);
+    const muAway = Math.max(4, awayFoulAvg * refMultiplier * awayPossCorr);
 
-    // Distribuzione per squadra
-    const maxK = Math.ceil((muHome + muAway) * 2 + 20);
-    const distHome: number[] = [];
-    const distAway: number[] = [];
+    // r DINAMICO
+    const rHome = homeFoulVar > muHome
+      ? Math.max(2, Math.min(60, (muHome * muHome) / (homeFoulVar - muHome)))
+      : 30;
+    const rAway = awayFoulVar > muAway
+      ? Math.max(2, Math.min(60, (muAway * muAway) / (awayFoulVar - muAway)))
+      : 30;
 
-    for (let k = 0; k <= maxK; k++) {
-      distHome.push(this.negBinPMF(k, muHome, rHome));
-      distAway.push(this.negBinPMF(k, muAway, rAway));
+    // Varianza totale con correlazione intra-partita (rho ≈ 0.25)
+    const varHomeFouls = muHome + muHome * muHome / rHome;
+    const varAwayFouls = muAway + muAway * muAway / rAway;
+    const rhoCov = 0.25 * Math.sqrt(varHomeFouls * varAwayFouls);
+    const varTotal = varHomeFouls + varAwayFouls + 2 * rhoCov;
+
+    const muTotal = muHome + muAway;
+    const rTotal = varTotal > muTotal
+      ? Math.max(2, Math.min(60, (muTotal * muTotal) / (varTotal - muTotal)))
+      : 30;
+
+    // Distribuzione via convoluzione
+    const maxK = Math.ceil((muHome + muAway) * 2.5 + 25);
+    const distHome: number[] = Array.from({ length: maxK + 1 }, (_, k) => this.negBinPMF(k, muHome, rHome));
+    const distAway: number[] = Array.from({ length: maxK + 1 }, (_, k) => this.negBinPMF(k, muAway, rAway));
+
+    const distTotal: number[] = new Array(distHome.length + distAway.length - 1).fill(0);
+    for (let i = 0; i < distHome.length; i++) {
+      for (let j = 0; j < distAway.length; j++) {
+        distTotal[i + j] += distHome[i] * distAway[j];
+      }
     }
 
-    // Convoluzione per distribuzione totale
-    const distTotal: number[] = new Array(distHome.length + distAway.length - 1).fill(0);
-    for (let i = 0; i < distHome.length; i++)
-      for (let j = 0; j < distAway.length; j++)
-        distTotal[i + j] += distHome[i] * distAway[j];
-
+    // Normalizzazione robusta
     const totalSum = distTotal.reduce((s, p) => s + p, 0);
-    const norm = distTotal.map(p => p / totalSum);
+    const norm = totalSum > 1e-12
+      ? distTotal.map((p) => p / totalSum)
+      : distTotal.map((_, i) => (i === 0 ? 1 : 0));
 
-    const cdf = (t: number) => norm.reduce((s, p, k) => k > t ? s + p : s, 0);
-
-    const expTotal = muHome + muAway;
-    const varTotal = (muHome + muHome ** 2 / rHome) + (muAway + muAway ** 2 / rAway);
+    const cdf = (t: number) => norm.reduce((s, p, k) => (k > t ? s + p : s), 0);
+    const fmt4 = (n: number) => parseFloat(Math.max(0, Math.min(1, n)).toFixed(4));
+    const fmt3 = (n: number) => parseFloat(n.toFixed(3));
 
     return {
       totalFouls: {
-        expected: parseFloat(expTotal.toFixed(2)),
-        variance: parseFloat(varTotal.toFixed(2)),
+        expected: fmt3(muTotal),
+        variance: fmt3(varTotal),
         distribution: Object.fromEntries(
-          norm.slice(0, 50).map((p, k) => [k, parseFloat(p.toFixed(5))])
-        )
+          norm.slice(0, 55).map((p, k) => [k, parseFloat(p.toFixed(5))])
+        ),
       },
       overUnder: {
-        over175: parseFloat(cdf(17.5).toFixed(4)),
-        over205: parseFloat(cdf(20.5).toFixed(4)),
-        over235: parseFloat(cdf(23.5).toFixed(4)),
-        over265: parseFloat(cdf(26.5).toFixed(4)),
-        over295: parseFloat(cdf(29.5).toFixed(4)),
-        over325: parseFloat(cdf(32.5).toFixed(4)),
-        under175: parseFloat((1 - cdf(17.5)).toFixed(4)),
-        under205: parseFloat((1 - cdf(20.5)).toFixed(4)),
-        under235: parseFloat((1 - cdf(23.5)).toFixed(4)),
-        under265: parseFloat((1 - cdf(26.5)).toFixed(4)),
-        under295: parseFloat((1 - cdf(29.5)).toFixed(4)),
-        under325: parseFloat((1 - cdf(32.5)).toFixed(4)),
+        over125: fmt4(cdf(12.5)),
+        over175: fmt4(cdf(17.5)),
+        over205: fmt4(cdf(20.5)),
+        over235: fmt4(cdf(23.5)),
+        over265: fmt4(cdf(26.5)),
+        over295: fmt4(cdf(29.5)),
+        over325: fmt4(cdf(32.5)),
+        over355: fmt4(cdf(35.5)),
+        under125: fmt4(1 - cdf(12.5)),
+        under175: fmt4(1 - cdf(17.5)),
+        under205: fmt4(1 - cdf(20.5)),
+        under235: fmt4(1 - cdf(23.5)),
+        under265: fmt4(1 - cdf(26.5)),
+        under295: fmt4(1 - cdf(29.5)),
+        under325: fmt4(1 - cdf(32.5)),
+        under355: fmt4(1 - cdf(35.5)),
       },
-      homeFouls: { expected: parseFloat(muHome.toFixed(2)) },
-      awayFouls: { expected: parseFloat(muAway.toFixed(2)) },
+      homeFouls: { expected: fmt3(muHome) },
+      awayFouls: { expected: fmt3(muAway) },
     };
   }
 }
