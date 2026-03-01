@@ -222,6 +222,72 @@ football-predictor/
 4. **Usa sempre Kelly Frazionale** (1/4 o 1/2 Kelly) per limitare la varianza
 5. **I dati applicativi sono salvati su Turso/libSQL** (nessun database SQLite locale in runtime)
 
+---
+
+## Best Quote Value Algorithm (Dettaglio Operativo)
+
+### Mercati quote analizzati nella schermata partita
+- L'endpoint `/api/scraper/odds/match` richiede mercati `h2h`, `totals`, `spreads`.
+- Se i mercati completi non sono disponibili, il sistema usa fallback `h2h`, `totals`.
+- Se il provider quote non risponde, il sistema genera quote stimate dal modello (`model_estimated`).
+- La UI mostra:
+  - `selectedOdds`: set quote usato per il calcolo value.
+  - `allBookmakerOdds`: dettaglio quote per bookmaker (quando disponibile).
+
+### Pipeline di scelta "miglior quota valore"
+1. Il modello stima le probabilita reali per ogni selezione (`p_model`).
+2. La quota bookmaker produce probabilita implicita: `p_imp = 1 / quota`.
+3. Calcolo valore base:
+   - `EV = p_model * quota - 1`
+   - `edge = p_model - p_imp`
+4. Filtro opportunita: EV minimo, range quote, stake cap.
+5. Ranking finale con score composito:
+   - `baseModelScore = EV*0.58 + edge*0.24 + kellyFraction*0.12 + confidenceBoost`
+   - `totalScore = baseModelScore + contextualScore`
+6. La selezione con `totalScore` massimo diventa `bestValueOpportunity`.
+
+### Confidence boost usato nello score
+- `HIGH = +3.5`
+- `MEDIUM = +1.8`
+- `LOW = +0.7`
+
+### Fattori contestuali (campo, forma, obiettivi, espulsioni, diffidati)
+Il `contextualScore` usa un vettore fattori:
+- `homeAdvantageIndex`
+- `formDelta`
+- `motivationDelta`
+- `suspensionsDelta` (squalifiche + assenze chiave)
+- `disciplinaryDelta` (espulsioni recenti)
+- `atRiskPlayersDelta` (diffidati)
+- `competitiveness` (derby/alta posta)
+
+Componente direzionale principale:
+`direction * (homeAdvantage*8 + form*6 + motivation*5 + suspensions*4 + disciplinary*3 + diffidati*2)`
+
+Adattamento per tipo mercato:
+- Mercati cartellini/falli: bonus legato a `competitiveness` e `disciplinaryDelta`.
+- Mercati over: boost su forma/motivazione.
+- Mercati under: penalizzazione se forma spinge verso ritmo alto.
+
+### Input opzionali inviabili a `/api/predict`
+Puoi passare esplicitamente fattori context-aware (0-1 o conteggi):
+- `homeFormIndex`, `awayFormIndex`
+- `homeObjectiveIndex`, `awayObjectiveIndex`
+- `homeSuspensions`, `awaySuspensions`
+- `homeRecentRedCards`, `awayRecentRedCards`
+- `homeDiffidati`, `awayDiffidati`
+- `homeKeyAbsences`, `awayKeyAbsences`
+
+Se non forniti, il sistema usa inferenza da parametri squadra e valori neutri.
+
+### Output aggiuntivo disponibile in risposta prediction
+- `bestValueOpportunity`:
+  - selezione, quota, EV, edge, confidence
+  - `factorBreakdown` (`baseModelScore`, `contextualScore`, `totalScore`)
+  - `reasons[]` testuali per spiegare la scelta
+- `analysisFactors`:
+  - valori numerici dei fattori contestuali e note diagnostiche
+
 ### Configurazione Turso
 
 ```bash

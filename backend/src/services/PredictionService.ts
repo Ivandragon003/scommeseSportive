@@ -15,6 +15,45 @@ export interface PredictionRequest {
   isDerby?: boolean;
   isHighStakes?: boolean;
   bookmakerOdds?: Record<string, number>;
+  homeFormIndex?: number;
+  awayFormIndex?: number;
+  homeObjectiveIndex?: number;
+  awayObjectiveIndex?: number;
+  homeSuspensions?: number;
+  awaySuspensions?: number;
+  homeRecentRedCards?: number;
+  awayRecentRedCards?: number;
+  homeDiffidati?: number;
+  awayDiffidati?: number;
+  homeKeyAbsences?: number;
+  awayKeyAbsences?: number;
+}
+
+export interface AnalysisFactors {
+  homeAdvantageIndex: number;
+  formDelta: number;
+  motivationDelta: number;
+  suspensionsDelta: number;
+  disciplinaryDelta: number;
+  atRiskPlayersDelta: number;
+  competitiveness: number;
+  notes: string[];
+}
+
+export interface BestValueOpportunityExplanation {
+  selection: string;
+  marketName: string;
+  bookmakerOdds: number;
+  expectedValue: number;
+  edge: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  score: number;
+  reasons: string[];
+  factorBreakdown: {
+    baseModelScore: number;
+    contextualScore: number;
+    totalScore: number;
+  };
 }
 
 export interface PredictionResponse {
@@ -23,6 +62,8 @@ export interface PredictionResponse {
   awayTeam: string;
   probabilities: FullMatchProbabilities;
   valueOpportunities: BetOpportunity[];
+  bestValueOpportunity?: BestValueOpportunityExplanation | null;
+  analysisFactors?: AnalysisFactors;
   modelConfidence: number;
   computedAt: Date;
 }
@@ -86,6 +127,11 @@ export class PredictionService {
       shots_under225: 'shots_total_under_23.5',
       sot_over75: 'sot_total_over_7.5',
       sot_over95: 'sot_total_over_9.5',
+      dnb_home_win: 'dnb_home',
+      dnb_away_win: 'dnb_away',
+      doublechance_1x: 'double_chance_1x',
+      doublechance_x2: 'double_chance_x2',
+      doublechance_12: 'double_chance_12',
     };
 
     const normalizeLine = (raw: string): string => {
@@ -124,6 +170,15 @@ export class PredictionService {
         const side = prefixed[2].toLowerCase();
         const line = normalizeLine(prefixed[3]);
         register(`${prefix}_${side}_${line}`, v);
+      }
+
+      // team_home_over_15 -> team_home_over_15 / team_home_over_1.5
+      const teamTotals = k.match(/^team_(home|away)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      if (teamTotals) {
+        const sideTeam = teamTotals[1].toLowerCase();
+        const side = teamTotals[2].toLowerCase();
+        const line = normalizeLine(teamTotals[3]).replace('.', '');
+        register(`team_${sideTeam}_${side}_${line}`, v);
       }
     }
 
@@ -271,6 +326,9 @@ export class PredictionService {
       valueOpportunities = this.engine.analyzeMarkets(flatProbs, normalizedOdds, marketNames);
     }
 
+    const analysisFactors = this.buildAnalysisFactors(request, probs, homeTeam, awayTeam, competitiveness);
+    const bestValueOpportunity = this.computeBestValueOpportunity(valueOpportunities, analysisFactors);
+
     const matchCount = (await this.db.getMatches({ competition: request.competition })).length;
     const modelConfidence = Math.min(0.95, Math.max(0.30, 1 / (1 + Math.exp(-(matchCount - 100) / 40))));
 
@@ -280,6 +338,8 @@ export class PredictionService {
       awayTeam: awayTeam?.name ?? request.awayTeamId,
       probabilities: probs,
       valueOpportunities,
+      bestValueOpportunity,
+      analysisFactors,
       modelConfidence,
       computedAt: new Date(),
     };
@@ -305,9 +365,35 @@ export class PredictionService {
       under05: probs.under05, under15: probs.under15, under25: probs.under25, under35: probs.under35, under45: probs.under45,
     };
 
+    // Mercati combo
+    flat.double_chance_1x = Math.max(0, Math.min(1, probs.homeWin + probs.draw));
+    flat.double_chance_x2 = Math.max(0, Math.min(1, probs.draw + probs.awayWin));
+    flat.double_chance_12 = Math.max(0, Math.min(1, probs.homeWin + probs.awayWin));
+
+    const dnbDen = Math.max(1e-6, probs.homeWin + probs.awayWin);
+    flat.dnb_home = Math.max(0, Math.min(1, probs.homeWin / dnbDen));
+    flat.dnb_away = Math.max(0, Math.min(1, probs.awayWin / dnbDen));
+
     for (const [k, v] of Object.entries(probs.exactScore)) flat[`exact_${k}`] = v as number;
     for (const [k, v] of Object.entries(probs.handicap)) flat[`hcp_${k}`] = v as number;
-    for (const [k, v] of Object.entries(probs.asianHandicap)) flat[`ahcp_${k}`] = v as number;
+    for (const [k, v] of Object.entries(probs.asianHandicap)) {
+      const pHome = Number(v as number);
+      flat[`ahcp_${k}`] = pHome;
+      flat[`ahcp_away_${k}`] = Math.max(0, Math.min(1, 1 - pHome));
+    }
+
+    // Team totals (linee principali)
+    const lambdaHomeGoals = Math.max(0.1, Number(probs.lambdaHome ?? 0));
+    const lambdaAwayGoals = Math.max(0.1, Number(probs.lambdaAway ?? 0));
+    for (const line of [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]) {
+      const key = line.toFixed(1).replace('.', '');
+      const overHome = poisOver(line, lambdaHomeGoals);
+      const overAway = poisOver(line, lambdaAwayGoals);
+      flat[`team_home_over_${key}`] = overHome;
+      flat[`team_home_under_${key}`] = 1 - overHome;
+      flat[`team_away_over_${key}`] = overAway;
+      flat[`team_away_under_${key}`] = 1 - overAway;
+    }
 
     // Tiri totali squadra
     for (const [k, v] of Object.entries(probs.shotsTotal)) {
@@ -368,6 +454,11 @@ export class PredictionService {
       homeWin: '1X2 - Vittoria Casa',
       draw: '1X2 - Pareggio',
       awayWin: '1X2 - Vittoria Ospite',
+      double_chance_1x: 'Double Chance 1X',
+      double_chance_x2: 'Double Chance X2',
+      double_chance_12: 'Double Chance 12',
+      dnb_home: 'Draw No Bet - Casa',
+      dnb_away: 'Draw No Bet - Ospite',
       btts: 'Goal/Goal - Si',
       bttsNo: 'Goal/Goal - No',
       over25: 'Over 2.5 Goal',
@@ -413,6 +504,13 @@ export class PredictionService {
         return `${domainLabels[m[1]] ?? m[1]} ${side} ${formatLine(m[3])}`;
       }
 
+      const teamTotal = selection.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+      if (teamTotal) {
+        const sideTeam = teamTotal[1] === 'home' ? 'Casa' : 'Ospite';
+        const side = teamTotal[2] === 'over' ? 'Over' : 'Under';
+        return `Goal ${sideTeam} ${side} ${formatLine(teamTotal[3])}`;
+      }
+
       const goal = selection.match(/^(over|under)(\d+)$/);
       if (goal && goal[2].length >= 2) {
         const side = goal[1] === 'over' ? 'Over' : 'Under';
@@ -424,7 +522,19 @@ export class PredictionService {
       if (exact) return `Risultato Esatto ${exact[1]}`;
 
       if (selection.startsWith('hcp_')) return `Handicap Europeo ${selection.replace('hcp_', '')}`;
-      if (selection.startsWith('ahcp_')) return `Asian Handicap ${selection.replace('ahcp_', '')}`;
+      const ahAway = selection.match(/^ahcp_away_(-?[0-9]+(?:\.[0-9]+)?)$/);
+      if (ahAway) {
+        const line = Number(ahAway[1]);
+        const lineTxt = Number.isFinite(line) ? `${line > 0 ? '+' : ''}${line}` : ahAway[1];
+        return `Asian Handicap Ospite (${lineTxt})`;
+      }
+
+      const ahHome = selection.match(/^ahcp_(-?[0-9]+(?:\.[0-9]+)?)$/);
+      if (ahHome) {
+        const line = Number(ahHome[1]);
+        const lineTxt = Number.isFinite(line) ? `${line > 0 ? '+' : ''}${line}` : ahHome[1];
+        return `Asian Handicap Casa (${lineTxt})`;
+      }
       return null;
     };
 
@@ -435,6 +545,191 @@ export class PredictionService {
     }
 
     return names;
+  }
+
+  private inferSelectionDirection(selection: string): number {
+    const k = String(selection ?? '').toLowerCase();
+    if (k === 'homewin') return 1;
+    if (k === 'awaywin') return -1;
+    if (k === 'dnb_home') return 1;
+    if (k === 'dnb_away') return -1;
+    if (k === 'double_chance_1x') return 1;
+    if (k === 'double_chance_x2') return -1;
+    if (k === 'double_chance_12') return 0;
+    if (k.startsWith('hcp_home')) return 1;
+    if (k.startsWith('hcp_away')) return -1;
+    if (k.startsWith('handicaphome')) return 1;
+    if (k.startsWith('handicapaway')) return -1;
+    if (k.startsWith('team_home_')) return 1;
+    if (k.startsWith('team_away_')) return -1;
+    if (k.startsWith('ahcp_away_')) return -1;
+    if (k.startsWith('ahcp_')) return 1;
+    return 0;
+  }
+
+  private buildAnalysisFactors(
+    request: PredictionRequest,
+    probs: FullMatchProbabilities,
+    homeTeam: any,
+    awayTeam: any,
+    competitiveness: number
+  ): AnalysisFactors {
+    const homeAdvantageIndex = this.clamp((Number(probs.lambdaHome ?? 0) - Number(probs.lambdaAway ?? 0)) / 2, -1, 1);
+
+    const homeStrength = Number(homeTeam?.attack_strength ?? 0) - Number(homeTeam?.defence_strength ?? 0);
+    const awayStrength = Number(awayTeam?.attack_strength ?? 0) - Number(awayTeam?.defence_strength ?? 0);
+    const inferredFormDelta = this.clamp((homeStrength - awayStrength) / 2, -1, 1);
+
+    const hasExplicitForm =
+      request.homeFormIndex !== undefined || request.awayFormIndex !== undefined;
+    const explicitFormDelta = this.clamp(
+      Number(request.homeFormIndex ?? 0.5) - Number(request.awayFormIndex ?? 0.5),
+      -1,
+      1
+    );
+    const formDelta = hasExplicitForm
+      ? this.clamp((explicitFormDelta * 0.7) + (inferredFormDelta * 0.3), -1, 1)
+      : inferredFormDelta;
+
+    const motivationDelta = this.clamp(
+      Number(request.homeObjectiveIndex ?? 0.5) - Number(request.awayObjectiveIndex ?? 0.5),
+      -1,
+      1
+    );
+
+    const homeSuspImpact = Number(request.homeSuspensions ?? 0) + Number(request.homeKeyAbsences ?? 0) * 1.25;
+    const awaySuspImpact = Number(request.awaySuspensions ?? 0) + Number(request.awayKeyAbsences ?? 0) * 1.25;
+    const suspensionsDelta = this.clamp((awaySuspImpact - homeSuspImpact) / 6, -1, 1);
+
+    const homeDisciplineRisk = Number(request.homeRecentRedCards ?? 0);
+    const awayDisciplineRisk = Number(request.awayRecentRedCards ?? 0);
+    const disciplinaryDelta = this.clamp((awayDisciplineRisk - homeDisciplineRisk) / 4, -1, 1);
+
+    const homeAtRisk = Number(request.homeDiffidati ?? 0);
+    const awayAtRisk = Number(request.awayDiffidati ?? 0);
+    const atRiskPlayersDelta = this.clamp((awayAtRisk - homeAtRisk) / 8, -1, 1);
+
+    const notes: string[] = [];
+    if (Math.abs(homeAdvantageIndex) > 0.15) notes.push(`Vantaggio casa stimato: ${homeAdvantageIndex >= 0 ? 'pro casa' : 'pro ospite'}.`);
+    if (Math.abs(formDelta) > 0.15) notes.push(`Forma recente: ${formDelta >= 0 ? 'migliore casa' : 'migliore ospite'}.`);
+    if (Math.abs(motivationDelta) > 0.15) notes.push(`Obiettivi squadra: ${motivationDelta >= 0 ? 'motivazione casa superiore' : 'motivazione ospite superiore'}.`);
+    if (Math.abs(suspensionsDelta) > 0.1) notes.push(`Assenze/squalifiche: ${suspensionsDelta >= 0 ? 'piu penalizzanti per ospite' : 'piu penalizzanti per casa'}.`);
+    if (Math.abs(disciplinaryDelta) > 0.1) notes.push(`Disciplina (espulsioni recenti): ${disciplinaryDelta >= 0 ? 'rischio maggiore ospite' : 'rischio maggiore casa'}.`);
+    if (Math.abs(atRiskPlayersDelta) > 0.1) notes.push(`Diffidati: ${atRiskPlayersDelta >= 0 ? 'piu diffidati ospite' : 'piu diffidati casa'}.`);
+
+    return {
+      homeAdvantageIndex: Number(homeAdvantageIndex.toFixed(3)),
+      formDelta: Number(formDelta.toFixed(3)),
+      motivationDelta: Number(motivationDelta.toFixed(3)),
+      suspensionsDelta: Number(suspensionsDelta.toFixed(3)),
+      disciplinaryDelta: Number(disciplinaryDelta.toFixed(3)),
+      atRiskPlayersDelta: Number(atRiskPlayersDelta.toFixed(3)),
+      competitiveness: Number(competitiveness.toFixed(3)),
+      notes,
+    };
+  }
+
+  private computeBestValueOpportunity(
+    opportunities: BetOpportunity[],
+    factors: AnalysisFactors
+  ): BestValueOpportunityExplanation | null {
+    if (!Array.isArray(opportunities) || opportunities.length === 0) return null;
+
+    const confidenceBoost = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3.0 : c === 'MEDIUM' ? 1.6 : 0.5;
+    const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+    const avgEv = opportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / opportunities.length;
+
+    const scored = opportunities.map((opp) => {
+      const direction = this.inferSelectionDirection(opp.selection);
+      const ev = Number(opp.expectedValue ?? 0);
+      const edge = Number(opp.edge ?? 0);
+      const kelly = Number(opp.kellyFraction ?? 0);
+      const prob = Number(opp.ourProbability ?? 0);
+      const odds = Number(opp.bookmakerOdds ?? 0);
+
+      // Evita che quote estreme (longshot) dominino il ranking solo per EV teorico.
+      const evContribution = clampNum(ev, -25, 65) * 0.40;
+      const edgeContribution = clampNum(edge, -20, 35) * 0.24;
+      const kellyContribution = clampNum(kelly, 0, 5.5) * 0.55;
+      const probabilityContribution = clampNum(prob, 0, 100) * 0.20;
+      const oddsRiskPenalty =
+        odds > 12 ? (odds - 12) * 2.4 + 6.5 :
+        odds > 8 ? (odds - 8) * 1.4 : 0;
+      const lowProbPenalty = prob < 30 ? (30 - prob) * 0.55 : 0;
+
+      const baseModelScore =
+        evContribution +
+        edgeContribution +
+        kellyContribution +
+        probabilityContribution +
+        confidenceBoost(opp.confidence) -
+        oddsRiskPenalty -
+        lowProbPenalty;
+
+      const directionalContext =
+        direction * (
+          factors.homeAdvantageIndex * 8 +
+          factors.formDelta * 6 +
+          factors.motivationDelta * 5 +
+          factors.suspensionsDelta * 4 +
+          factors.disciplinaryDelta * 3 +
+          factors.atRiskPlayersDelta * 2
+        );
+
+      let contextualScore = directionalContext;
+      const sKey = String(opp.selection ?? '').toLowerCase();
+      if (sKey.includes('yellow') || sKey.includes('cards') || sKey.includes('fouls')) {
+        contextualScore += (factors.competitiveness * 2.2) + Math.abs(factors.disciplinaryDelta) * 1.4;
+      } else if (sKey.startsWith('over') || sKey.includes('_over_')) {
+        contextualScore += factors.formDelta * 0.8 + factors.motivationDelta * 0.6;
+      } else if (sKey.startsWith('under') || sKey.includes('_under_')) {
+        contextualScore -= factors.formDelta * 0.6;
+      }
+
+      const totalScore = baseModelScore + contextualScore;
+      return { opp, baseModelScore, contextualScore, totalScore, oddsRiskPenalty, lowProbPenalty, prob, odds };
+    });
+
+    scored.sort((a, b) => b.totalScore - a.totalScore);
+    const best = scored[0];
+    const implied = Number(100 / Math.max(1.01, Number(best.opp.bookmakerOdds ?? 0)));
+
+    const reasons: string[] = [
+      `EV +${Number(best.opp.expectedValue ?? 0).toFixed(2)}% (media opzioni +${avgEv.toFixed(2)}%).`,
+      `Edge +${Number(best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% vs P implicita ${implied.toFixed(2)}%.`,
+      `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
+    ];
+
+    if (best.contextualScore >= 1.5) {
+      reasons.push('I fattori contestuali (campo/forma/obiettivi/assenze/disciplina) rafforzano la scelta.');
+    } else if (best.contextualScore <= -1.5) {
+      reasons.push('La scelta resta +EV ma con contesto meno favorevole: consigliata prudenza sulla stake.');
+    } else {
+      reasons.push('La scelta e guidata principalmente da EV+edge, con contesto neutro.');
+    }
+
+    if (best.oddsRiskPenalty > 0.01) {
+      reasons.push(`Penalizzazione rischio quota alta applicata (${best.odds.toFixed(2)}).`);
+    }
+    if (best.lowProbPenalty > 0.01) {
+      reasons.push(`Penalizzazione probabilita bassa applicata (P modello ${best.prob.toFixed(2)}%).`);
+    }
+
+    return {
+      selection: best.opp.selection,
+      marketName: best.opp.marketName,
+      bookmakerOdds: Number(best.opp.bookmakerOdds ?? 0),
+      expectedValue: Number(best.opp.expectedValue ?? 0),
+      edge: Number(best.opp.edge ?? 0),
+      confidence: best.opp.confidence,
+      score: Number(best.totalScore.toFixed(3)),
+      reasons,
+      factorBreakdown: {
+        baseModelScore: Number(best.baseModelScore.toFixed(3)),
+        contextualScore: Number(best.contextualScore.toFixed(3)),
+        totalScore: Number(best.totalScore.toFixed(3)),
+      },
+    };
   }
   // ==================== BUDGET ====================
 

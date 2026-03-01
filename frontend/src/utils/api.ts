@@ -26,12 +26,18 @@ export const getPlayersByTeam = (teamId: string) =>
 export const getMatches = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
   API.get<ApiResponse<any[]>>('/matches', { params: filters }).then(r => r.data);
 
+export const getMatchesCount = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
+  API.get<ApiResponse<null>>('/matches/count', { params: filters }).then(r => r.data);
+
 export const getUpcomingMatches = (
   filters?: { competition?: string; season?: string; limit?: number } | string
 ) => {
   const params = typeof filters === 'string' ? { competition: filters } : (filters ?? {});
   return API.get<ApiResponse<any[]>>('/matches/upcoming', { params }).then(r => r.data);
 };
+
+export const getMatchdayMap = (params?: { competition?: string; season?: string; matchesPerMatchday?: number }) =>
+  API.get<ApiResponse<Record<string, number>>>('/matches/matchdays', { params }).then(r => r.data);
 
 export const getEurobetOddsForMatch = (params: {
   competition: string;
@@ -99,6 +105,9 @@ export const getBacktestResult = (id: number) =>
 
 export const recomputeAverages = (competition?: string) =>
   API.post<ApiResponse<any>>('/model/recompute-averages', { competition }).then(r => r.data);
+
+export const getStatsOverview = () =>
+  API.get<ApiResponse<any>>('/stats/overview').then(r => r.data);
 
 // Health
 export const healthCheck = () =>
