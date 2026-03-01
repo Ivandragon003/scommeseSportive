@@ -1,4 +1,4 @@
-﻿import { createClient } from '@libsql/client';
+import { createClient } from '@libsql/client';
 
 type SqlArgs = Record<string, any> | any[];
 
@@ -327,6 +327,278 @@ export class DatabaseService {
     }
     q += ' ORDER BY datetime(date) DESC';
     return this.all(q, p);
+  }
+
+  async countMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }): Promise<number> {
+    let q = 'SELECT COUNT(*) AS total FROM matches WHERE 1=1';
+    const p: any[] = [];
+
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      p.push(filters.competition);
+    }
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(
+          new Set([
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+        );
+        if (seasonVariants.length === 1) {
+          q += ' AND season = ?';
+          p.push(seasonVariants[0]);
+        } else {
+          q += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          p.push(...seasonVariants);
+        }
+      }
+    }
+    if (filters?.fromDate) {
+      q += ' AND date >= ?';
+      p.push(filters.fromDate);
+    }
+    if (filters?.toDate) {
+      q += ' AND date <= ?';
+      p.push(filters.toDate);
+    }
+
+    const row = await this.get(q, p);
+    return Number(row?.total ?? 0);
+  }
+
+  async getMatchdayRows(filters?: { competition?: string; season?: string }): Promise<Array<{ match_id: string; date: string }>> {
+    let q = 'SELECT match_id, date FROM matches WHERE 1=1';
+    const p: any[] = [];
+
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      p.push(filters.competition);
+    }
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(
+          new Set([
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+        );
+        if (seasonVariants.length === 1) {
+          q += ' AND season = ?';
+          p.push(seasonVariants[0]);
+        } else {
+          q += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          p.push(...seasonVariants);
+        }
+      }
+    }
+
+    q += ' ORDER BY datetime(date) ASC';
+    return this.all(q, p);
+  }
+
+  async getMatchesCoverageStats(): Promise<{
+    totals: {
+      totalMatches: number;
+      completedMatches: number;
+      upcomingMatches: number;
+    };
+    fields: Record<string, { filled: number; pct: number }>;
+    teams: {
+      totalTeams: number;
+      teamsWithPlayers: number;
+      pctWithPlayers: number;
+    };
+    players: {
+      totalPlayers: number;
+      avgGamesPlayed: number;
+    };
+  }> {
+    const row = await this.get(
+      `
+      SELECT
+        COUNT(*) AS total_matches,
+        SUM(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN 1 ELSE 0 END) AS completed_matches,
+        SUM(CASE WHEN datetime(date) >= datetime('now') THEN 1 ELSE 0 END) AS upcoming_matches,
+        SUM(CASE WHEN home_xg IS NOT NULL AND away_xg IS NOT NULL THEN 1 ELSE 0 END) AS with_xg,
+        SUM(CASE WHEN home_shots IS NOT NULL AND away_shots IS NOT NULL THEN 1 ELSE 0 END) AS with_shots,
+        SUM(CASE WHEN home_shots_on_target IS NOT NULL AND away_shots_on_target IS NOT NULL THEN 1 ELSE 0 END) AS with_shots_ot,
+        SUM(CASE WHEN home_fouls IS NOT NULL AND away_fouls IS NOT NULL THEN 1 ELSE 0 END) AS with_fouls,
+        SUM(CASE WHEN home_yellow_cards IS NOT NULL AND away_yellow_cards IS NOT NULL THEN 1 ELSE 0 END) AS with_yellow,
+        SUM(CASE WHEN home_red_cards IS NOT NULL AND away_red_cards IS NOT NULL THEN 1 ELSE 0 END) AS with_red,
+        SUM(CASE WHEN home_possession IS NOT NULL AND away_possession IS NOT NULL THEN 1 ELSE 0 END) AS with_possession,
+        SUM(CASE WHEN referee IS NOT NULL AND TRIM(referee) <> '' THEN 1 ELSE 0 END) AS with_referee
+      FROM matches
+    `
+    );
+
+    const teamsRow = await this.get('SELECT COUNT(*) AS total_teams FROM teams');
+    const playersRow = await this.get(
+      `
+      SELECT
+        COUNT(*) AS total_players,
+        COUNT(DISTINCT team_id) AS teams_with_players,
+        AVG(games_played) AS avg_games_played
+      FROM players
+      WHERE is_available = 1
+    `
+    );
+
+    const totalMatches = Number(row?.total_matches ?? 0);
+    const pct = (filled: number): number =>
+      totalMatches > 0 ? Number(((filled / totalMatches) * 100).toFixed(2)) : 0;
+    const safeN = (v: unknown): number => Number(v ?? 0);
+
+    const fieldCounts = {
+      xg: safeN(row?.with_xg),
+      shots: safeN(row?.with_shots),
+      shotsOnTarget: safeN(row?.with_shots_ot),
+      fouls: safeN(row?.with_fouls),
+      yellowCards: safeN(row?.with_yellow),
+      redCards: safeN(row?.with_red),
+      possession: safeN(row?.with_possession),
+      referee: safeN(row?.with_referee),
+    };
+
+    const totalTeams = Number(teamsRow?.total_teams ?? 0);
+    const teamsWithPlayers = Number(playersRow?.teams_with_players ?? 0);
+
+    return {
+      totals: {
+        totalMatches,
+        completedMatches: Number(row?.completed_matches ?? 0),
+        upcomingMatches: Number(row?.upcoming_matches ?? 0),
+      },
+      fields: Object.fromEntries(
+        Object.entries(fieldCounts).map(([k, filled]) => [k, { filled, pct: pct(filled) }])
+      ),
+      teams: {
+        totalTeams,
+        teamsWithPlayers,
+        pctWithPlayers: totalTeams > 0 ? Number(((teamsWithPlayers / totalTeams) * 100).toFixed(2)) : 0,
+      },
+      players: {
+        totalPlayers: Number(playersRow?.total_players ?? 0),
+        avgGamesPlayed: Number(Number(playersRow?.avg_games_played ?? 0).toFixed(2)),
+      },
+    };
+  }
+
+  async getLeagueSummaries(leagues: string[]): Promise<Array<{
+    competition: string;
+    matches: number;
+    completedMatches: number;
+    upcomingMatches: number;
+    avgGoals: number;
+    avgTotalShots: number;
+    avgTotalCards: number;
+    avgTotalFouls: number;
+    xgCoveragePct: number;
+    lastMatchDate: string | null;
+  }>> {
+    if (!Array.isArray(leagues) || leagues.length === 0) return [];
+    const placeholders = leagues.map(() => '?').join(', ');
+
+    const rows = await this.all(
+      `
+      SELECT
+        competition,
+        COUNT(*) AS matches,
+        SUM(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN 1 ELSE 0 END) AS completed_matches,
+        SUM(CASE WHEN datetime(date) >= datetime('now') THEN 1 ELSE 0 END) AS upcoming_matches,
+        AVG(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN (home_goals + away_goals) END) AS avg_goals,
+        AVG(CASE WHEN home_shots IS NOT NULL AND away_shots IS NOT NULL THEN (home_shots + away_shots) END) AS avg_total_shots,
+        AVG(CASE WHEN home_yellow_cards IS NOT NULL AND away_yellow_cards IS NOT NULL THEN (home_yellow_cards + away_yellow_cards + 2 * (COALESCE(home_red_cards, 0) + COALESCE(away_red_cards, 0))) END) AS avg_total_cards,
+        AVG(CASE WHEN home_fouls IS NOT NULL AND away_fouls IS NOT NULL THEN (home_fouls + away_fouls) END) AS avg_total_fouls,
+        SUM(CASE WHEN home_xg IS NOT NULL AND away_xg IS NOT NULL THEN 1 ELSE 0 END) AS with_xg,
+        MAX(date) AS last_match_date
+      FROM matches
+      WHERE competition IN (${placeholders})
+      GROUP BY competition
+    `,
+      leagues
+    );
+
+    const byCompetition = new Map<string, any>();
+    rows.forEach((r: any) => byCompetition.set(String(r.competition), r));
+
+    return leagues.map((league) => {
+      const r = byCompetition.get(league);
+      if (!r) {
+        return {
+          competition: league,
+          matches: 0,
+          completedMatches: 0,
+          upcomingMatches: 0,
+          avgGoals: 0,
+          avgTotalShots: 0,
+          avgTotalCards: 0,
+          avgTotalFouls: 0,
+          xgCoveragePct: 0,
+          lastMatchDate: null,
+        };
+      }
+
+      const matches = Number(r.matches ?? 0);
+      const withXg = Number(r.with_xg ?? 0);
+      return {
+        competition: league,
+        matches,
+        completedMatches: Number(r.completed_matches ?? 0),
+        upcomingMatches: Number(r.upcoming_matches ?? 0),
+        avgGoals: Number(Number(r.avg_goals ?? 0).toFixed(2)),
+        avgTotalShots: Number(Number(r.avg_total_shots ?? 0).toFixed(2)),
+        avgTotalCards: Number(Number(r.avg_total_cards ?? 0).toFixed(2)),
+        avgTotalFouls: Number(Number(r.avg_total_fouls ?? 0).toFixed(2)),
+        xgCoveragePct: matches > 0 ? Number(((withXg / matches) * 100).toFixed(2)) : 0,
+        lastMatchDate: r.last_match_date ? String(r.last_match_date) : null,
+      };
+    });
+  }
+
+  async getPlayerCoverageByLeague(leagues: string[]): Promise<Record<string, {
+    players: number;
+    teamsWithPlayers: number;
+    avgGamesPlayed: number;
+  }>> {
+    const out: Record<string, { players: number; teamsWithPlayers: number; avgGamesPlayed: number }> = {};
+    leagues.forEach((league) => {
+      out[league] = { players: 0, teamsWithPlayers: 0, avgGamesPlayed: 0 };
+    });
+    if (!Array.isArray(leagues) || leagues.length === 0) return out;
+
+    const placeholders = leagues.map(() => '?').join(', ');
+    const rows = await this.all(
+      `
+      SELECT
+        t.competition AS competition,
+        COUNT(DISTINCT p.player_id) AS players,
+        COUNT(DISTINCT p.team_id) AS teams_with_players,
+        AVG(p.games_played) AS avg_games_played
+      FROM players p
+      INNER JOIN teams t ON t.team_id = p.team_id
+      WHERE t.competition IN (${placeholders})
+        AND p.is_available = 1
+      GROUP BY t.competition
+    `,
+      leagues
+    );
+
+    for (const row of rows) {
+      const comp = String(row.competition ?? '');
+      if (!out[comp]) continue;
+      out[comp] = {
+        players: Number(row.players ?? 0),
+        teamsWithPlayers: Number(row.teams_with_players ?? 0),
+        avgGamesPlayed: Number(Number(row.avg_games_played ?? 0).toFixed(2)),
+      };
+    }
+
+    return out;
   }
 
   async getMatchById(matchId: string): Promise<any | null> {

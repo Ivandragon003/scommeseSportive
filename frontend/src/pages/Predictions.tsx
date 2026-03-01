@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { getTeams, getBudget, getMatches, getUpcomingMatches, getEurobetOddsForMatch, placeBet } from '../utils/api';
+import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getEurobetOddsForMatch, placeBet } from '../utils/api';
 import axios from 'axios';
 
 interface PredictionsProps { activeUser: string; }
@@ -33,13 +33,6 @@ const formatDayLabel = (k: string) => {
   const l = new Intl.DateTimeFormat('it-IT', { weekday:'short', day:'2-digit', month:'short' }).format(d);
   return l.charAt(0).toUpperCase() + l.slice(1);
 };
-const buildMatchdayMap = (matches: any[]): Record<string,number> => {
-  const out: Record<string,number> = {};
-  [...matches].filter((m:any) => isSerieA(m.competition))
-    .sort((a:any,b:any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .forEach((m:any, i:number) => { if (m.match_id) out[String(m.match_id)] = Math.floor(i/10)+1; });
-  return out;
-};
 
 const MARKET_LABELS: Record<string,string> = {
   homeWin:'Casa (1)', draw:'Pareggio (X)', awayWin:'Ospite (2)',
@@ -51,14 +44,95 @@ const MARKET_LABELS: Record<string,string> = {
   'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5',
 };
 const mktLabel = (k: string) => MARKET_LABELS[k] ?? k.replace(/_/g,' ');
+const confidenceRank = (v?: string): number => v === 'HIGH' ? 3 : v === 'MEDIUM' ? 2 : 1;
+const rankOpportunity = (o: any): number => {
+  const ev = Number(o?.expectedValue ?? 0);
+  const edge = Number(o?.edge ?? 0);
+  const p = Number(o?.ourProbability ?? 0);
+  return (ev * 0.55) + (edge * 0.30) + (p * 0.08) + (confidenceRank(o?.confidence) * 4);
+};
+const fmtSelection = (selection: string): string => {
+  if (!selection) return '-';
+  if (selection === 'homeWin') return '1 - Vittoria Casa';
+  if (selection === 'draw') return 'X - Pareggio';
+  if (selection === 'awayWin') return '2 - Vittoria Ospite';
+  if (selection === 'double_chance_1x') return 'Double Chance 1X';
+  if (selection === 'double_chance_x2') return 'Double Chance X2';
+  if (selection === 'double_chance_12') return 'Double Chance 12';
+  if (selection === 'dnb_home') return 'Draw No Bet Casa';
+  if (selection === 'dnb_away') return 'Draw No Bet Ospite';
+  if (selection.startsWith('hcp_home')) return `Handicap Casa ${selection.replace('hcp_home', '')}`;
+  if (selection.startsWith('hcp_away')) return `Handicap Ospite ${selection.replace('hcp_away', '')}`;
+  if (selection.startsWith('ahcp_away_')) {
+    const raw = selection.replace('ahcp_away_', '');
+    const n = Number(raw);
+    if (Number.isFinite(n)) return `Asian Handicap Ospite ${n > 0 ? '+' : ''}${n}`;
+    return `Asian Handicap Ospite ${raw}`;
+  }
+  if (selection.startsWith('ahcp_')) {
+    const raw = selection.replace('ahcp_', '');
+    const n = Number(raw);
+    if (Number.isFinite(n)) return `Asian Handicap Casa ${n > 0 ? '+' : ''}${n}`;
+    return `Asian Handicap ${raw}`;
+  }
 
-/* ───── STYLES ───── */
+  const compactGoal = selection.match(/^(over|under)(\d+)$/i);
+  if (compactGoal && compactGoal[2].length >= 2) {
+    const side = compactGoal[1].toLowerCase() === 'over' ? 'Over' : 'Under';
+    const line = `${compactGoal[2].slice(0, -1)}.${compactGoal[2].slice(-1)}`;
+    return `${side} ${line} Goal`;
+  }
+
+  const teamTotals = selection.match(/^team_(home|away)_(over|under)_(\d+)$/i);
+  if (teamTotals && teamTotals[3].length >= 2) {
+    const team = teamTotals[1].toLowerCase() === 'home' ? 'Casa' : 'Ospite';
+    const side = teamTotals[2].toLowerCase() === 'over' ? 'Over' : 'Under';
+    const line = `${teamTotals[3].slice(0, -1)}.${teamTotals[3].slice(-1)}`;
+    return `Goal ${team} ${side} ${line}`;
+  }
+
+  return mktLabel(selection);
+};
+
+const fmtMarketKey = (market: string): string => {
+  const k = String(market ?? '').toLowerCase();
+  if (k === 'h2h') return '1X2';
+  if (k === 'h2h_3_way') return '1X2 (3-way)';
+  if (k === 'double_chance') return 'Double Chance';
+  if (k === 'draw_no_bet') return 'Draw No Bet';
+  if (k === 'btts') return 'Goal/No Goal';
+  if (k === 'totals') return 'Totali Goal';
+  if (k === 'team_totals') return 'Team Totals';
+  if (k === 'alternate_totals') return 'Totali Alternativi';
+  if (k === 'spreads') return 'Handicap';
+  if (k === 'alternate_spreads') return 'Handicap Alternativi';
+  if (k === 'alternate_team_totals') return 'Team Totals Alternativi';
+  if (k === 'model_estimated') return 'Quote stimate dal modello';
+  return market;
+};
+
+const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
+  { term: 'Quota', meaning: 'Prezzo bookmaker decimale della selezione (es. 2.10).' },
+  { term: 'P. Nostra', meaning: 'Probabilita stimata dal modello per quella selezione.' },
+  { term: 'P. Implicita', meaning: 'Probabilita del bookmaker: 1 / quota.' },
+  { term: 'EV', meaning: 'Valore atteso: EV = p_model * quota - 1. Se > 0, la quota e teoricamente di valore.' },
+  { term: 'Edge', meaning: 'Vantaggio stimato: p_model - p_implicita.' },
+  { term: 'Kelly 1/4', meaning: 'Percentuale consigliata di stake sul bankroll con Kelly frazionale (25%).' },
+  { term: 'Base modello', meaning: 'Punteggio basato su EV, edge, Kelly e confidenza.' },
+  { term: 'Contesto', meaning: 'Correzione con fattori match: campo, forma, obiettivi, assenze, espulsioni, diffidati.' },
+  { term: 'Score totale', meaning: 'Base modello + Contesto. Il piu alto e la miglior giocata proposta.' },
+  { term: 'Home advantage', meaning: 'Vantaggio campo: >0 favorisce casa, <0 favorisce ospite.' },
+  { term: 'Form delta', meaning: 'Differenza forma recente: >0 casa meglio, <0 ospite meglio.' },
+  { term: 'Motivation delta', meaning: 'Differenza obiettivi/motivazione: >0 casa piu motivata.' },
+];
+
+/*  STYLES  */
 const S = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
 .pr { display:flex; height:calc(100vh - 56px); overflow:hidden; font-family:'Syne',sans-serif; background:var(--bg); color:var(--text); }
 
-/* LEFT PANEL — fixed sidebar */
+/* LEFT PANEL  fixed sidebar */
 .pr-left {
   width:380px; min-width:300px; max-width:420px;
   border-right:1px solid var(--border);
@@ -71,16 +145,6 @@ const S = `
 }
 .pr-left-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-2); margin-bottom:14px; }
 .pr-season-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
-.pr-flags { display:flex; gap:6px; flex-wrap:wrap; }
-.pr-flag {
-  display:flex; align-items:center; gap:6px; cursor:pointer;
-  background:var(--surface2); border:1px solid var(--border);
-  border-radius:20px; padding:5px 12px; font-size:11px; font-weight:600;
-  color:var(--text-2); transition:all var(--transition); user-select:none;
-}
-.pr-flag:hover { border-color:var(--border-hover); color:var(--text); }
-.pr-flag input { accent-color:var(--green); width:12px; height:12px; }
-.pr-flag.on { background:var(--green-dim); border-color:var(--green-border); color:var(--green); }
 
 /* MATCH LIST */
 .pr-list { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.10) transparent; }
@@ -112,7 +176,7 @@ const S = `
   border-radius:10px; padding:1px 7px; font-size:9px; font-weight:700; color:var(--green);
 }
 
-/* RIGHT PANEL — scrollable results */
+/* RIGHT PANEL  scrollable results */
 .pr-right { flex:1; overflow-y:auto; min-width:0; }
 
 /* EMPTY STATE */
@@ -292,6 +356,23 @@ const S = `
 .pr-card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); }
 .pr-card-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.3px; color:var(--text-2); }
 .pr-card-body { padding:18px; }
+.pr-odds-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
+.pr-odds-cell {
+  display:flex; justify-content:space-between; align-items:center;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:9px; padding:8px 10px; gap:10px;
+}
+.pr-odds-cell.best { border-color:var(--green-border); background:var(--green-dim); }
+.pr-odds-name { font-size:12px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pr-odds-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:700; color:var(--text); }
+.pr-legend-grid { display:grid; grid-template-columns:1fr; gap:6px; }
+.pr-legend-row {
+  display:grid; grid-template-columns:170px 1fr; gap:10px;
+  padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface2);
+}
+.pr-legend-term { font-family:'DM Mono',monospace; font-size:11px; color:var(--text); font-weight:700; }
+.pr-legend-meaning { font-size:11px; color:var(--text-2); }
 
 /* SPINNER */
 .pr-spin { width:24px; height:24px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:pr-s .6s linear infinite; flex-shrink:0; }
@@ -330,7 +411,7 @@ const S = `
 }
 `;
 
-/* ── SUB-COMPONENTS ── */
+/*  SUB-COMPONENTS  */
 const ProbBar: React.FC<{label:string; value:number; color?:string}> = ({label, value, color='var(--blue)'}) => (
   <div className="pr-prob-row">
     <span className="pr-prob-lbl" title={label}>{label}</span>
@@ -362,13 +443,11 @@ const DistChart: React.FC<{dist:Record<string,number>; expected:number; title:st
   );
 };
 
-/* ── MAIN ── */
+/*  MAIN  */
 const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [teams, setTeams] = useState<any[]>([]);
   const [competition, setCompetition] = useState('Serie A');
   const [season, setSeason] = useState(currentSeason());
-  const [isDerby, setIsDerby] = useState(false);
-  const [isHighStakes, setIsHighStakes] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMatchId, setLoadingMatchId] = useState<string|null>(null);
   const [upcomingLoading, setUpcomingLoading] = useState(false);
@@ -381,9 +460,19 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [stakes, setStakes] = useState<Record<string,string>>({});
   const [betDone, setBetDone] = useState<Record<string,boolean>>({});
   const [odds, setOdds] = useState<Record<string,string>>({});
+  const [marketsRequested, setMarketsRequested] = useState<string[]>([]);
   const [oddsMsg, setOddsMsg] = useState('');
   const [oddsTone, setOddsTone] = useState<'info'|'success'|'warning'|'danger'>('info');
   const rightRef = useRef<HTMLDivElement>(null);
+  const analyzeReqRef = useRef(0);
+  const analysisCacheRef = useRef<Map<string, {
+    pred: any;
+    odds: Record<string, string>;
+    marketsRequested: string[];
+    oddsMsg: string;
+    oddsTone: 'info'|'success'|'warning'|'danger';
+    cachedAt: number;
+  }>>(new Map());
 
   useEffect(() => {
     getTeams().then(r => setTeams(r.data ?? []));
@@ -393,7 +482,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const loadUpcoming = async () => {
     setUpcomingLoading(true);
     try {
-      const res = await getUpcomingMatches({ competition: competition || undefined, season: season || undefined, limit:380 });
+      const res = await getUpcomingMatches({ competition: competition || undefined, season: season || undefined, limit:160 });
       setUpcoming(res.data ?? []);
     } catch { setUpcoming([]); }
     setUpcomingLoading(false);
@@ -401,8 +490,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const loadMatchdays = async () => {
     if (!season?.trim()) { setMatchdayMap({}); return; }
     try {
-      const res = await getMatches({ competition:'Serie A', season:season.trim() });
-      setMatchdayMap(buildMatchdayMap(res.data ?? []));
+      const res = await getMatchdayMap({ competition: 'Serie A', season: season.trim(), matchesPerMatchday: 10 });
+      setMatchdayMap(res.data ?? {});
     } catch { setMatchdayMap({}); }
   };
 
@@ -443,57 +532,134 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     const homeId = String(match.home_team_id ?? '');
     const awayId = String(match.away_team_id ?? '');
     const comp = String(match.competition ?? competition);
+    const mid = String(match.match_id ?? '');
     if (!homeId || !awayId) return;
-    setActiveMatchId(String(match.match_id ?? ''));
-    setLoadingMatchId(String(match.match_id ?? ''));
+    const cacheKey = `${mid}|${homeId}|${awayId}|${comp}`;
+    const cached = analysisCacheRef.current.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.cachedAt < 120000) {
+      setActiveMatchId(mid);
+      setPred(cached.pred);
+      setOdds(cached.odds);
+      setMarketsRequested(cached.marketsRequested);
+      setOddsMsg(cached.oddsMsg);
+      setOddsTone(cached.oddsTone);
+      const st: Record<string, string> = {};
+      for (const o of cached.pred?.valueOpportunities ?? []) {
+        if (budget?.available_budget) {
+          st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+        }
+      }
+      setStakes(st);
+      setTab('odds');
+      return;
+    }
+
+    const reqId = ++analyzeReqRef.current;
+    setActiveMatchId(mid);
+    setLoadingMatchId(mid);
     setOddsMsg(''); setOdds({});
+    setMarketsRequested([]);
     if (comp && comp !== competition) setCompetition(comp);
-    setTab('1x2'); setPred(null);
-    // scroll right to top
-    setTimeout(() => rightRef.current?.scrollTo({top:0, behavior:'smooth'}), 50);
+    setTab('1x2');
+    rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
 
     try {
-      // load odds first
       setOddsMsg('Recupero quote live...'); setOddsTone('info');
       const homeName = resolveTeam(homeId, match.home_team_name);
       const awayName = resolveTeam(awayId, match.away_team_name);
-      let autoOdds: Record<string,number> = {};
-      try {
-        const oddsRes = await getEurobetOddsForMatch({ competition: comp||'Serie A', homeTeam:homeName, awayTeam:awayName, commenceTime:String(match.date ?? '') });
-        const payload = oddsRes.data ?? {};
-        if (payload.found && Object.keys(payload.selectedOdds ?? {}).length > 0) {
-          autoOdds = payload.selectedOdds;
-          applyOdds(autoOdds);
-          if (payload.usedSyntheticOdds) { setOddsMsg('Quote stimate dal modello interno.'); setOddsTone('warning'); }
-          else if (payload.usedFallbackBookmaker) { setOddsMsg('Eurobet n/d — quote bookmaker alternativo.'); setOddsTone('warning'); }
-          else { setOddsMsg('✓ Quote Eurobet caricate.'); setOddsTone('success'); }
-        } else {
-          setOddsMsg(payload.message ?? 'Quote non disponibili.'); setOddsTone('warning');
-        }
-      } catch { setOddsMsg('Quote non disponibili.'); setOddsTone('warning'); }
-
-      // run prediction
       setLoading(true);
-      const res = await axios.post('/api/predict', {
+
+      // Fase 1: prediction base + recupero quote in parallelo per mostrare la schermata piu velocemente
+      const basePredPromise = axios.post('/api/predict', {
         homeTeamId: homeId, awayTeamId: awayId,
-        competition: comp || undefined,
-        bookmakerOdds: Object.keys(autoOdds).length>0 ? autoOdds : undefined,
-        isDerby, isHighStakes
+        competition: comp || undefined
       });
-      if (res.data?.data) {
-        setPred(res.data.data);
-        const st: Record<string,string> = {};
-        for (const o of res.data.data.valueOpportunities ?? []) {
-          if (budget?.available_budget) st[o.selection] = ((o.suggestedStakePercent/100)*budget.available_budget).toFixed(2);
-        }
-        setStakes(st);
-        if ((res.data.data.valueOpportunities ?? []).length > 0) setTab('value');
+      const oddsPromise = getEurobetOddsForMatch({
+        competition: comp || 'Serie A',
+        homeTeam: homeName,
+        awayTeam: awayName,
+        commenceTime: String(match.date ?? '')
+      }).catch(() => null);
+
+      const baseRes = await basePredPromise;
+      if (reqId !== analyzeReqRef.current) return;
+      if (baseRes.data?.data) {
+        setPred(baseRes.data.data);
+        setLoading(false);
+        setLoadingMatchId(null);
       }
+
+      const oddsRes = await oddsPromise;
+      if (reqId !== analyzeReqRef.current) return;
+      const payload = (oddsRes as any)?.data ?? {};
+      const requestedMarkets = Array.isArray(payload.marketsRequested) ? payload.marketsRequested : [];
+      setMarketsRequested(requestedMarkets);
+
+      let finalPred = baseRes.data?.data ?? null;
+      let finalOddsMsg = '';
+      let finalOddsTone: 'info'|'success'|'warning'|'danger' = 'info';
+      let appliedOdds: Record<string, string> = {};
+
+      const autoOdds: Record<string, number> = payload?.found && payload?.selectedOdds
+        ? (payload.selectedOdds as Record<string, number>)
+        : {};
+
+      if (Object.keys(autoOdds).length > 0) {
+        applyOdds(autoOdds);
+        appliedOdds = Object.entries(autoOdds).reduce((acc, [k, v]) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 1) acc[k] = n.toFixed(2);
+          return acc;
+        }, {} as Record<string, string>);
+
+        if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno.'; finalOddsTone = 'warning'; }
+        else if (payload.usedFallbackBookmaker) { finalOddsMsg = 'Eurobet n/d - quote bookmaker alternativo.'; finalOddsTone = 'warning'; }
+        else { finalOddsMsg = 'Quote Eurobet caricate.'; finalOddsTone = 'success'; }
+
+        // Fase 2: aggiorna value bet con quote live
+        const enrichedRes = await axios.post('/api/predict', {
+          homeTeamId: homeId,
+          awayTeamId: awayId,
+          competition: comp || undefined,
+          bookmakerOdds: autoOdds
+        });
+        if (reqId !== analyzeReqRef.current) return;
+        if (enrichedRes.data?.data) {
+          finalPred = enrichedRes.data.data;
+          setPred(finalPred);
+          setTab('odds');
+        }
+      } else {
+        finalOddsMsg = payload.message ?? 'Quote non disponibili.';
+        finalOddsTone = 'warning';
+      }
+
+      setOddsMsg(finalOddsMsg);
+      setOddsTone(finalOddsTone);
+
+      const st: Record<string,string> = {};
+      for (const o of finalPred?.valueOpportunities ?? []) {
+        if (budget?.available_budget) {
+          st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+        }
+      }
+      setStakes(st);
+
+      analysisCacheRef.current.set(cacheKey, {
+        pred: finalPred,
+        odds: appliedOdds,
+        marketsRequested: requestedMarkets,
+        oddsMsg: finalOddsMsg,
+        oddsTone: finalOddsTone,
+        cachedAt: Date.now(),
+      });
     } catch (e:any) {
+      if (reqId !== analyzeReqRef.current) return;
       setOddsMsg(e.response?.data?.error ?? e.message); setOddsTone('danger');
     }
     setLoading(false);
-    setLoadingMatchId(null);
+    if (reqId === analyzeReqRef.current) setLoadingMatchId(null);
   };
 
   const handleBet = async (opp: any) => {
@@ -513,15 +679,47 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const sp = pred?.shotsPrediction;
   const pp: any[] = pred?.playerShotsPredictions ?? [];
   const vb: any[] = pred?.valueOpportunities ?? [];
+  const bestValueOpp = pred?.bestValueOpportunity ?? null;
+  const analysisFactors = pred?.analysisFactors ?? pred?.methodology?.contextualFactors ?? null;
+  const methodology = pred?.methodology ?? {};
+  const vbRanked = useMemo(() => [...vb].sort((a, b) => rankOpportunity(b) - rankOpportunity(a)), [vb]);
+  const allOddsEntries = useMemo(
+    () => Object.entries(odds)
+      .map(([selection, odd]) => ({ selection, odd: Number(odd) }))
+      .filter((o) => Number.isFinite(o.odd) && o.odd > 1)
+      .sort((a, b) => fmtSelection(a.selection).localeCompare(fmtSelection(b.selection), 'it')),
+    [odds]
+  );
+  const valueSelectionSet = useMemo(
+    () => new Set((vb ?? []).map((o: any) => String(o.selection))),
+    [vb]
+  );
+  const bankroll = Number(budget?.available_budget ?? 0);
+  const maxExposurePct = 8;
+  const maxExposureAmount = bankroll > 0 ? (bankroll * maxExposurePct) / 100 : 0;
+  const strategyTop = vbRanked.slice(0, 3).map((o, idx) => {
+    const stake = bankroll > 0 ? (Number(o.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
+    return {
+      rank: idx + 1,
+      ...o,
+      suggestedStakeAmount: stake,
+      rankScore: rankOpportunity(o),
+    };
+  });
+  const suggestedTotalStake = strategyTop.reduce((s, o) => s + Number(o.suggestedStakeAmount ?? 0), 0);
+  const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
 
   const TABS = [
     {id:'1x2',  label:'1X2 & Goal'},
     {id:'handicap', label:'Handicap'},
+    {id:'odds', label:'Quote Complete', count:allOddsEntries.length},
     {id:'scores', label:'Risultati'},
     {id:'cards', label:'Cartellini'},
     {id:'fouls', label:'Falli'},
     {id:'shots', label:'Tiri'},
     {id:'players', label:'Giocatori', count:pp.length},
+    {id:'strategy',label:'Piano Bet'},
+    {id:'method', label:'Algoritmo'},
     {id:'value',   label:'Scommesse',  count:vb.length},
   ];
 
@@ -530,10 +728,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       <style>{S}</style>
       <div className="pr">
 
-        {/* ════ LEFT PANEL ════ */}
+        {/*  LEFT PANEL  */}
         <div className="pr-left">
           <div className="pr-left-head">
-            <div className="pr-left-title">📅 Partite in programma</div>
+            <div className="pr-left-title">Partite in programma</div>
 
             {/* Filters */}
             <div className="pr-season-row">
@@ -550,17 +748,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               </div>
             </div>
 
-            {/* Flags */}
-            <div className="pr-flags">
-              <label className={`pr-flag${isDerby?' on':''}`}>
-                <input type="checkbox" checked={isDerby} onChange={e => setIsDerby(e.target.checked)} />
-                🔥 Derby
-              </label>
-              <label className={`pr-flag${isHighStakes?' on':''}`}>
-                <input type="checkbox" checked={isHighStakes} onChange={e => setIsHighStakes(e.target.checked)} />
-                💎 Alta Posta
-              </label>
-            </div>
           </div>
 
           {/* Match list */}
@@ -589,7 +776,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                       className={`pr-match-row${isActive?' active':''}${isLoading?' loading-row':''}`}
                       onClick={() => !isLoading && handleAnalyze(m)}
                     >
-                      <div className="pr-match-time">{formatKickoff(m.date).split(',')[1]?.trim() ?? '—'}</div>
+                      <div className="pr-match-time">{formatKickoff(m.date).split(',')[1]?.trim() ?? '--'}</div>
                       <div className="pr-match-teams">
                         <div className="pr-match-home">{m.home_team_name ?? m.home_team_id}</div>
                         <div className="pr-match-away">{m.away_team_name ?? m.away_team_id}</div>
@@ -611,11 +798,11 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
           </div>
         </div>
 
-        {/* ════ RIGHT PANEL ════ */}
+        {/*  RIGHT PANEL  */}
         <div className="pr-right" ref={rightRef}>
           {!pred && !loading ? (
             <div className="pr-empty-state">
-              <div className="pr-empty-icon">🔮</div>
+              <div className="pr-empty-icon">?</div>
               <div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Seleziona una partita</div>
               <div className="pr-empty-msg">
                 Clicca su una partita nel pannello di sinistra per analizzarla.<br />
@@ -634,7 +821,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               <div className="pr-results-head">
                 <div>
                   <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
-                  <div className="pr-results-meta">{pred.competition} · λ {pred.lambdaHome} – {pred.lambdaAway}</div>
+                  <div className="pr-results-meta">{pred.competition} | lambda {pred.lambdaHome} - {pred.lambdaAway}</div>
                 </div>
                 {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
               </div>
@@ -643,7 +830,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               <div className="pr-hero">
                 <div className="pr-hero-team">
                   <div className="pr-hero-name">{pred.homeTeam}</div>
-                  <div className="pr-hero-lambda">λ = {pred.lambdaHome}</div>
+                  <div className="pr-hero-lambda">lambda = {pred.lambdaHome}</div>
                 </div>
                 <div className="pr-hero-center">
                   <div className="pr-hero-vs">VS</div>
@@ -651,7 +838,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 </div>
                 <div className="pr-hero-team right">
                   <div className="pr-hero-name">{pred.awayTeam}</div>
-                  <div className="pr-hero-lambda">λ = {pred.lambdaAway}</div>
+                  <div className="pr-hero-lambda">lambda = {pred.lambdaAway}</div>
                 </div>
               </div>
 
@@ -675,7 +862,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               {vb.length > 0 && (
                 <div style={{margin:'0 20px 12px'}}>
                   <div className="pr-alert pr-alert-success" style={{cursor:'pointer'}} onClick={() => setTab('value')}>
-                    ✓ <strong>{vb.length} scommesse a valore positivo</strong> trovate — clicca per vederle
+                    OK <strong>{vb.length} scommesse a valore positivo</strong> trovate - clicca per vederle
                   </div>
                 </div>
               )}
@@ -696,7 +883,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 {tab==='1x2' && gp && (
                   <div className="pr-g2">
                     <div className="pr-card">
-                      <div className="pr-card-head"><div className="pr-card-title">⚽ 1X2 & Double Chance</div></div>
+                      <div className="pr-card-head"><div className="pr-card-title">1X2 & Double Chance</div></div>
                       <div className="pr-card-body">
                         <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--blue)" />
                         <ProbBar label="Pareggio" value={gp.draw} color="var(--text-2)" />
@@ -708,7 +895,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                       </div>
                     </div>
                     <div className="pr-card">
-                      <div className="pr-card-head"><div className="pr-card-title">🎯 Goal / Over-Under</div></div>
+                      <div className="pr-card-head"><div className="pr-card-title">Goal / Over-Under</div></div>
                       <div className="pr-card-body">
                         <ProbBar label="Goal/Goal" value={gp.btts} color="var(--green)" />
                         <ProbBar label="No GG" value={gp.bttsNo ?? (1-gp.btts)} color="var(--text-3)" />
@@ -724,7 +911,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 {/* HANDICAP */}
                 {tab==='handicap' && gp?.handicap && (
                   <div className="pr-card">
-                    <div className="pr-card-head"><div className="pr-card-title">⚖️ Handicap Europeo</div></div>
+                    <div className="pr-card-head"><div className="pr-card-title">Handicap Europeo</div></div>
                     <div className="pr-card-body">
                       <div className="pr-g2">
                         <div>
@@ -754,10 +941,43 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   </div>
                 )}
 
+                {/* ALL ODDS */}
+                {tab==='odds' && (
+                  <div>
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Quote disponibili per analisi</div>
+                        <span className="pr-badge pr-badge-blue">{allOddsEntries.length} selezioni</span>
+                      </div>
+                      <div className="pr-card-body">
+                        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+                          {(marketsRequested.length > 0 ? marketsRequested : ['n/d']).map((m:string) => (
+                            <span key={m} className="pr-badge pr-badge-gray">{fmtMarketKey(m)}</span>
+                          ))}
+                        </div>
+                        {allOddsEntries.length === 0 ? (
+                          <div className="pr-info">
+                            Nessuna quota disponibile per questa partita.
+                          </div>
+                        ) : (
+                          <div className="pr-odds-grid">
+                            {allOddsEntries.map((o) => (
+                              <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
+                                <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
+                                <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* SCORES */}
                 {tab==='scores' && gp?.exactScore && (
                   <div className="pr-card">
-                    <div className="pr-card-head"><div className="pr-card-title">🔢 Risultati Esatti</div></div>
+                    <div className="pr-card-head"><div className="pr-card-title">Risultati Esatti</div></div>
                     <div className="pr-card-body">
                       <div className="pr-score-grid">
                         {Object.entries(gp.exactScore).sort(([,a],[,b])=>(b as number)-(a as number)).slice(0,20).map(([score,prob]) => {
@@ -778,16 +998,16 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 {tab==='cards' && cp && (
                   <div>
                     <div className="pr-alert pr-alert-info">
-                      <strong>Binomiale Negativa</strong> — Media {fmtN(cp.totalYellow.expected)} · Var {fmtN(cp.totalYellow.variance)}
-                      {cp.confidenceLevel < 0.7 && <span style={{marginLeft:8,color:'var(--gold)'}}>⚠ Confidenza bassa {(cp.confidenceLevel*100).toFixed(0)}%</span>}
+                      <strong>Binomiale Negativa</strong> - Media {fmtN(cp.totalYellow.expected)} | Var {fmtN(cp.totalYellow.variance)}
+                      {cp.confidenceLevel < 0.7 && <span style={{marginLeft:8,color:'var(--gold)'}}>ATTENZIONE: confidenza bassa {(cp.confidenceLevel*100).toFixed(0)}%</span>}
                     </div>
                     <div className="pr-g2">
                       <div className="pr-card">
                         <div className="pr-card-head">
-                          <div className="pr-card-title">🟨 Gialli Totali</div>
+                          <div className="pr-card-title">Gialli Totali</div>
                           <div style={{display:'flex',gap:4}}>
                             <span className="pr-badge pr-badge-blue">M {fmtN(cp.totalYellow.expected)}</span>
-                            <span className="pr-badge pr-badge-gray">σ² {fmtN(cp.totalYellow.variance)}</span>
+                            <span className="pr-badge pr-badge-gray">Var {fmtN(cp.totalYellow.variance)}</span>
                           </div>
                         </div>
                         <div className="pr-card-body">
@@ -798,7 +1018,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         </div>
                       </div>
                       <div className="pr-card">
-                        <div className="pr-card-head"><div className="pr-card-title">📊 Per Squadra & Rossi</div></div>
+                        <div className="pr-card-head"><div className="pr-card-title">Per Squadra & Rossi</div></div>
                         <div className="pr-card-body">
                           <div className="pr-sec" style={{color:'var(--blue)'}}>{pred.homeTeam}</div>
                           <ProbBar label="O1.5" value={cp.homeYellow.over15} color="var(--blue)" />
@@ -807,7 +1027,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                           <ProbBar label="O1.5" value={cp.awayYellow.over15} color="var(--red)" />
                           <ProbBar label="O2.5" value={cp.awayYellow.over25} color="var(--red)" />
                           <div className="pr-info">
-                            <strong>Rossi</strong> — Attesi: {fmtN(cp.totalRed.expected,3)} · P(≥1 rosso): <strong>{(cp.totalRed.probAtLeastOne*100).toFixed(1)}%</strong>
+                            <strong>Rossi</strong> - Attesi: {fmtN(cp.totalRed.expected,3)} | P(&gt;=1 rosso): <strong>{(cp.totalRed.probAtLeastOne*100).toFixed(1)}%</strong>
                           </div>
                         </div>
                       </div>
@@ -819,15 +1039,15 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 {tab==='fouls' && fp && (
                   <div className="pr-card">
                     <div className="pr-card-head">
-                      <div className="pr-card-title">👊 Falli — Binomiale Negativa</div>
+                      <div className="pr-card-title">Falli - Binomiale Negativa</div>
                       <div style={{display:'flex',gap:4}}>
                         <span className="pr-badge pr-badge-purple">M {fmtN(fp.totalFouls.expected)}</span>
-                        <span className="pr-badge pr-badge-gray">σ² {fmtN(fp.totalFouls.variance)}</span>
+                        <span className="pr-badge pr-badge-gray">Var {fmtN(fp.totalFouls.variance)}</span>
                       </div>
                     </div>
                     <div className="pr-card-body">
                       <div className="pr-info" style={{marginBottom:14}}>
-                        Casa: <strong>{fmtN(fp.homeFouls.expected)}</strong> · Ospite: <strong>{fmtN(fp.awayFouls.expected)}</strong> · Var/media: <strong>{fmtN(fp.totalFouls.variance/fp.totalFouls.expected,2)}x</strong>
+                        Casa: <strong>{fmtN(fp.homeFouls.expected)}</strong> | Ospite: <strong>{fmtN(fp.awayFouls.expected)}</strong> | Var/media: <strong>{fmtN(fp.totalFouls.variance/fp.totalFouls.expected,2)}x</strong>
                       </div>
                       <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--purple)" />
                       <div className="pr-g2">
@@ -892,7 +1112,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   pp.length === 0 ? (
                     <div className="pr-info" style={{fontSize:12,lineHeight:1.8}}>
                       <strong>Modello ZIP (Zero-Inflated Poisson)</strong><br /><br />
-                      Per usare questo modello, carica i profili giocatori da <strong>Gestione Dati → Dati Automatici</strong>.
+                      Per usare questo modello, carica i profili giocatori da <strong>Gestione Dati -&gt; Dati Automatici</strong>.
                     </div>
                   ) : pp.map((p:any) => (
                     <div className="pr-card" key={p.playerId}>
@@ -900,7 +1120,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         <div className="pr-player-head" style={{width:'100%'}}>
                           <div>
                             <div className="pr-player-name">{p.playerName}</div>
-                            <div className="pr-player-meta">{p.position} · {p.sampleSize} partite · confidenza {(p.confidenceLevel*100).toFixed(0)}%</div>
+                            <div className="pr-player-meta">{p.position} | {p.sampleSize} partite | confidenza {(p.confidenceLevel*100).toFixed(0)}%</div>
                           </div>
                           <div>
                             <div className="pr-player-xg-val">{fmtN(p.expectedShots)}</div>
@@ -912,9 +1132,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         <div className="pr-g2">
                           <DistChart dist={p.shotDistribution} expected={p.expectedShots} title="ZIP" color="var(--blue)" />
                           <div>
-                            <ProbBar label="≥1 tiro" value={p.markets.over05shots} color="var(--blue)" />
-                            <ProbBar label="≥2 tiri" value={p.markets.over15shots} color="var(--blue)" />
-                            <ProbBar label="≥1 in porta" value={p.markets.over05onTarget} color="var(--green)" />
+                            <ProbBar label=">=1 tiro" value={p.markets.over05shots} color="var(--blue)" />
+                            <ProbBar label=">=2 tiri" value={p.markets.over15shots} color="var(--blue)" />
+                            <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--green)" />
                           </div>
                         </div>
                       </div>
@@ -922,11 +1142,232 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   ))
                 )}
 
+                {/* STRATEGY */}
+                {tab==='strategy' && (
+                  <div>
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Piano Operativo Scommesse</div>
+                      </div>
+                      <div className="pr-card-body">
+                        <div className="pr-info" style={{ marginBottom: 12 }}>
+                          Regole pratiche: gioca solo mercati con EV positivo, priorita ai top 3 per score qualitativo,
+                          esposizione totale consigliata max <strong>{maxExposurePct}%</strong> del bankroll disponibile.
+                        </div>
+                        <div className="pr-g2">
+                          <div>
+                            <div className="pr-sec">Checklist</div>
+                            <table className="fp-table">
+                              <tbody>
+                                {[
+                                  ['EV minimo', '> 2%'],
+                                  ['Quote accettate', '1.30 - 15.00'],
+                                  ['Stake sizing', 'Kelly 1/4 con cap 5%'],
+                                  ['Numero giocate', '1-3 per match'],
+                                  ['Stop se nessun value', 'Nessuna puntata'],
+                                ].map(([k, v]) => (
+                                  <tr key={k}>
+                                    <td style={{ color:'var(--text-2)' }}>{k}</td>
+                                    <td className="fp-mono" style={{ textAlign:'right' }}>{v}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div>
+                            <div className="pr-sec">Rischio Match Corrente</div>
+                            <div className="pr-info" style={{ marginBottom: 10 }}>
+                              Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong><br />
+                              Stake suggerita top picks: <strong>EUR {suggestedTotalStake.toFixed(2)}</strong><br />
+                              Cap esposizione ({maxExposurePct}%): <strong>EUR {maxExposureAmount.toFixed(2)}</strong>
+                            </div>
+                            <div className="pr-prob-track" style={{ height: 12 }}>
+                              <div
+                                className="pr-prob-fill"
+                                style={{
+                                  width: `${Math.min(100, exposureRatio * 100)}%`,
+                                  background: exposureRatio > 1 ? 'var(--red)' : exposureRatio > 0.8 ? 'var(--gold)' : 'var(--green)',
+                                  minWidth: 0,
+                                  justifyContent: 'flex-start',
+                                  paddingRight: 0,
+                                }}
+                              />
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 8 }}>
+                              Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Top 3 Giocate Consigliate</div>
+                        <button className="fp-btn fp-btn-sm fp-btn-solid" onClick={() => setTab('value')}>Apri tab Scommesse</button>
+                      </div>
+                      <div className="pr-card-body">
+                        {strategyTop.length === 0 ? (
+                          <div className="pr-info" style={{ textAlign:'center' }}>
+                            Nessuna giocata consigliata: non sono presenti value bet valide per questa partita.
+                          </div>
+                        ) : (
+                          <div style={{ display:'grid', gap: 10 }}>
+                            {strategyTop.map((o: any) => (
+                              <div key={o.selection} className="pr-ah-cell" style={{ borderRadius: 10, padding: '10px 12px' }}>
+                                <div style={{ display:'flex', flexDirection:'column', gap: 3 }}>
+                                  <strong>#{o.rank} {o.marketName}</strong>
+                                  <span style={{ fontSize: 11, color:'var(--text-2)' }}>
+                                    EV +{o.expectedValue}% | Edge +{o.edge}% | P. nostra {o.ourProbability}% | quota {o.bookmakerOdds}
+                                  </span>
+                                </div>
+                                <div style={{ textAlign:'right' }}>
+                                  <div className={`pr-badge ${o.confidence==='HIGH' ? 'pr-badge-green' : o.confidence==='MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
+                                    {o.confidence}
+                                  </div>
+                                  <div className="fp-mono" style={{ marginTop: 5 }}>EUR {Number(o.suggestedStakeAmount ?? 0).toFixed(2)}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* METHOD */}
+                {tab==='method' && (
+                  <div>
+                    <div className="pr-card">
+                      <div className="pr-card-head"><div className="pr-card-title">Come Calcola l'Algoritmo</div></div>
+                      <div className="pr-card-body">
+                        <div className="pr-g2">
+                          <div className="pr-info">
+                            <strong>Goal model</strong><br />
+                            Dixon-Coles stima lambda casa/ospite e costruisce la matrice punteggi 0..10.<br />
+                            Runtime attuale: lambda casa <strong>{fmtN(Number(methodology?.runtime?.lambdaHome ?? pred?.lambdaHome ?? 0), 3)}</strong>,
+                            lambda ospite <strong>{fmtN(Number(methodology?.runtime?.lambdaAway ?? pred?.lambdaAway ?? 0), 3)}</strong>.
+                          </div>
+                          <div className="pr-info">
+                            <strong>Mercati avanzati</strong><br />
+                            Tiri, cartellini e falli usano Binomiale Negativa con dispersione dedicata.<br />
+                            Attesi correnti: tiri totali <strong>{fmtN(Number(methodology?.runtime?.totalShotsExpected ?? sp?.combined?.totalShots?.expected ?? 0), 2)}</strong>,
+                            gialli <strong>{fmtN(Number(methodology?.runtime?.totalYellowExpected ?? cp?.totalYellow?.expected ?? 0), 2)}</strong>,
+                            falli <strong>{fmtN(Number(methodology?.runtime?.totalFoulsExpected ?? fp?.totalFouls?.expected ?? 0), 2)}</strong>.
+                          </div>
+                        </div>
+                        <div className="pr-g2" style={{ marginTop: 12 }}>
+                          <div className="pr-info">
+                            <strong>Value betting</strong><br />
+                            P_imp = 1/quota, EV = p*quota - 1, edge = p - P_imp.<br />
+                            Stake = Kelly frazionale (1/4) con limiti min/max.
+                          </div>
+                          <div className="pr-info">
+                            <strong>Esempio live</strong><br />
+                            {vbRanked[0]
+                              ? (
+                                <>
+                                  Mercato: <strong>{vbRanked[0].marketName}</strong><br />
+                                  P. nostra {vbRanked[0].ourProbability}% | quota {vbRanked[0].bookmakerOdds} | EV +{vbRanked[0].expectedValue}% | stake {vbRanked[0].suggestedStakePercent}% bankroll
+                                </>
+                              )
+                              : 'Nessuna value bet disponibile su questa partita.'
+                            }
+                          </div>
+                        </div>
+                        <div className="pr-alert pr-alert-info" style={{ marginTop: 12 }}>
+                          Formula sintetica pipeline: dati storici -&gt; stima parametri squadre -&gt; probabilita mercati -&gt; confronto quote bookmaker -&gt; filtro EV -&gt; staking Kelly.
+                        </div>
+                        {analysisFactors && (
+                          <div className="pr-info" style={{ marginTop: 12 }}>
+                            <strong>Fattori contestuali nel ranking value</strong><br />
+                            Home advantage index: <strong>{Number(analysisFactors.homeAdvantageIndex ?? 0).toFixed(3)}</strong> |
+                            Form delta: <strong>{Number(analysisFactors.formDelta ?? 0).toFixed(3)}</strong> |
+                            Motivation delta: <strong>{Number(analysisFactors.motivationDelta ?? 0).toFixed(3)}</strong><br />
+                            Suspensions delta: <strong>{Number(analysisFactors.suspensionsDelta ?? 0).toFixed(3)}</strong> |
+                            Red cards delta: <strong>{Number(analysisFactors.disciplinaryDelta ?? 0).toFixed(3)}</strong> |
+                            Diffidati delta: <strong>{Number(analysisFactors.atRiskPlayersDelta ?? 0).toFixed(3)}</strong>
+                            {(analysisFactors.notes ?? []).length > 0 && (
+                              <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                                {(analysisFactors.notes ?? []).map((n: string, idx: number) => (
+                                  <li key={`analysis_note_${idx}`}>{n}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* VALUE BETS */}
                 {tab==='value' && (
                   <div>
+                    {bestValueOpp && (
+                      <div className="pr-card">
+                        <div className="pr-card-head">
+                          <div className="pr-card-title">Miglior quota valore consigliata</div>
+                          <span className={`pr-badge ${bestValueOpp.confidence === 'HIGH' ? 'pr-badge-green' : bestValueOpp.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
+                            {bestValueOpp.confidence}
+                          </span>
+                        </div>
+                        <div className="pr-card-body">
+                          <div className="pr-g2">
+                            <div className="pr-info">
+                              <strong>{bestValueOpp.marketName}</strong><br />
+                              Selezione: <strong>{fmtSelection(bestValueOpp.selection)}</strong><br />
+                              Quota: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
+                              EV: <strong>+{Number(bestValueOpp.expectedValue ?? 0).toFixed(2)}%</strong> |
+                              Edge: <strong> +{Number(bestValueOpp.edge ?? 0).toFixed(2)}%</strong>
+                            </div>
+                            <div className="pr-info">
+                              <strong>Score combinato</strong><br />
+                              Base modello: <strong>{Number(bestValueOpp.factorBreakdown?.baseModelScore ?? 0).toFixed(3)}</strong><br />
+                              Contesto: <strong>{Number(bestValueOpp.factorBreakdown?.contextualScore ?? 0).toFixed(3)}</strong><br />
+                              Totale: <strong>{Number(bestValueOpp.factorBreakdown?.totalScore ?? bestValueOpp.score ?? 0).toFixed(3)}</strong>
+                            </div>
+                          </div>
+                          <div className="pr-info" style={{ marginTop: 10 }}>
+                            <strong>Perche questa e la giocata migliore</strong>
+                            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                              {(Array.isArray(bestValueOpp.reasons) ? bestValueOpp.reasons : []).map((r: string, idx: number) => (
+                                <li key={`${bestValueOpp.selection}_reason_${idx}`}>{r}</li>
+                              ))}
+                            </ul>
+                          </div>
+                          {analysisFactors && (
+                            <div className="pr-info" style={{ marginTop: 10 }}>
+                              <strong>Fattori contestuali letti dal modello</strong><br />
+                              Home advantage: <strong>{Number(analysisFactors.homeAdvantageIndex ?? 0).toFixed(3)}</strong> |
+                              Forma: <strong>{Number(analysisFactors.formDelta ?? 0).toFixed(3)}</strong> |
+                              Obiettivi: <strong>{Number(analysisFactors.motivationDelta ?? 0).toFixed(3)}</strong><br />
+                              Assenze/squalifiche: <strong>{Number(analysisFactors.suspensionsDelta ?? 0).toFixed(3)}</strong> |
+                              Espulsioni recenti: <strong>{Number(analysisFactors.disciplinaryDelta ?? 0).toFixed(3)}</strong> |
+                              Diffidati: <strong>{Number(analysisFactors.atRiskPlayersDelta ?? 0).toFixed(3)}</strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Legenda Termini Analisi</div>
+                      </div>
+                      <div className="pr-card-body">
+                        <div className="pr-legend-grid">
+                          {VALUE_LEGEND.map((row) => (
+                            <div className="pr-legend-row" key={row.term}>
+                              <div className="pr-legend-term">{row.term}</div>
+                              <div className="pr-legend-meaning">{row.meaning}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                     {!budget && (
-                      <div className="pr-alert pr-alert-warning">⚠ Inizializza il bankroll in Budget Manager.</div>
+                      <div className="pr-alert pr-alert-warning">ATTENZIONE: inizializza il bankroll in Budget Manager.</div>
                     )}
                     {vb.length === 0 ? (
                       <div className="pr-info" style={{textAlign:'center',padding:'32px 0'}}>
@@ -936,9 +1377,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     ) : (
                       <>
                         <div className="pr-alert pr-alert-success">
-                          ✓ <strong>{vb.length}</strong> scommesse EV positivo (soglia &gt;2%)
+                          OK <strong>{vb.length}</strong> scommesse EV positivo (soglia &gt;2%)
                         </div>
-                        {vb.map((o:any) => (
+                        {vbRanked.map((o:any) => (
                           <div key={o.selection} className={`pr-vb${o.confidence==='MEDIUM'?' medium':o.confidence==='LOW'?' low':''}`}>
                             <div className="pr-vb-top">
                               <div>
@@ -958,7 +1399,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                 {l:'P. Implicita', v:o.impliedProbability+'%'},
                                 {l:'Edge',         v:'+'+o.edge+'%'},
                                 {l:'Quota',        v:o.bookmakerOdds},
-                                {l:'Kelly ¼',      v:o.kellyFraction+'%'},
+                                {l:'Kelly 1/4',    v:o.kellyFraction+'%'},
                               ].map(({l,v}) => (
                                 <div className="pr-vb-stat" key={l}>
                                   <div className="pr-vb-stat-lbl">{l}</div>
@@ -968,7 +1409,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                             </div>
                             <div className="pr-vb-bottom">
                               <div className="pr-stake-wrap">
-                                <span className="pr-stake-lbl">Puntata €</span>
+                                <span className="pr-stake-lbl">Puntata EUR</span>
                                 <input
                                   className="pr-stake-input" type="number"
                                   value={stakes[o.selection] ?? ''}
@@ -977,14 +1418,14 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                 />
                                 {budget && (
                                   <span className="pr-suggest">
-                                    sugg. €{((o.suggestedStakePercent/100)*(budget.available_budget??0)).toFixed(2)}
+                                    sugg. EUR {((o.suggestedStakePercent/100)*(budget.available_budget??0)).toFixed(2)}
                                   </span>
                                 )}
                               </div>
                               {betDone[o.selection]
-                                ? <span className="pr-badge pr-badge-green">✓ Registrata</span>
+                                ? <span className="pr-badge pr-badge-green">OK Registrata</span>
                                 : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
-                                    Scommetti →
+                                    Scommetti -&gt;
                                   </button>
                               }
                             </div>
@@ -1006,3 +1447,4 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
 };
 
 export default Predictions;
+

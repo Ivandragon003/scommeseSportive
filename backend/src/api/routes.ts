@@ -51,6 +51,40 @@ router.get('/matches', async (req: Request, res: Response) => {
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+router.get('/matches/count', async (req: Request, res: Response) => {
+  try {
+    const count = await db.countMatches({
+      competition: req.query.competition as string,
+      season: req.query.season as string,
+      fromDate: req.query.fromDate as string,
+      toDate: req.query.toDate as string,
+    });
+    res.json({ success: true, count });
+  } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.get('/matches/matchdays', async (req: Request, res: Response) => {
+  try {
+    const competition = String(req.query.competition ?? 'Serie A');
+    const season = req.query.season ? String(req.query.season) : undefined;
+    const matchesPerMatchdayRaw = parseInt(String(req.query.matchesPerMatchday ?? 10), 10);
+    const matchesPerMatchday = Number.isFinite(matchesPerMatchdayRaw)
+      ? Math.max(1, Math.min(matchesPerMatchdayRaw, 30))
+      : 10;
+
+    const rows = await db.getMatchdayRows({ competition, season });
+    const matchdayMap: Record<string, number> = {};
+
+    rows.forEach((row: any, idx: number) => {
+      const matchId = String(row?.match_id ?? '').trim();
+      if (!matchId) return;
+      matchdayMap[matchId] = Math.floor(idx / matchesPerMatchday) + 1;
+    });
+
+    res.json({ success: true, data: matchdayMap, count: Object.keys(matchdayMap).length });
+  } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 router.get('/matches/upcoming', async (req: Request, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
@@ -303,6 +337,33 @@ function formatPrediction(pred: any): any {
     ...(probs.playerShots?.away ?? []).map((p: any, i: number) => asPlayer(p, 'away', i)),
   ];
 
+  const valueOpportunities = (pred.valueOpportunities ?? [])
+    .filter((o: any) => isFinite(Number(o.bookmakerOdds)) && isFinite(Number(o.ourProbability)))
+    .map((o: any) => ({
+      ...o,
+      ourProbability: roundN(Number(o.ourProbability), 2),
+      impliedProbability: roundN(Number(o.impliedProbability), 2),
+      expectedValue: roundN(Number(o.expectedValue), 2),
+      edge: roundN(Number(o.edge), 2),
+      kellyFraction: roundN(Number(o.kellyFraction), 2),
+      suggestedStakePercent: roundN(Number(o.suggestedStakePercent), 2),
+    }));
+
+  const bestValueOpportunity = pred.bestValueOpportunity
+    ? {
+        ...pred.bestValueOpportunity,
+        expectedValue: roundN(Number(pred.bestValueOpportunity.expectedValue ?? 0), 2),
+        edge: roundN(Number(pred.bestValueOpportunity.edge ?? 0), 2),
+        score: roundN(Number(pred.bestValueOpportunity.score ?? 0), 3),
+        factorBreakdown: {
+          baseModelScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.baseModelScore ?? 0), 3),
+          contextualScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.contextualScore ?? 0), 3),
+          totalScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.totalScore ?? 0), 3),
+        },
+        reasons: Array.isArray(pred.bestValueOpportunity.reasons) ? pred.bestValueOpportunity.reasons : [],
+      }
+    : null;
+
   return {
     matchId: pred.matchId,
     homeTeam: pred.homeTeam,
@@ -401,20 +462,44 @@ function formatPrediction(pred: any): any {
     },
 
     playerShotsPredictions,
-
-    valueOpportunities: (pred.valueOpportunities ?? [])
-      .filter((o: any) => isFinite(Number(o.bookmakerOdds)) && isFinite(Number(o.ourProbability)))
-      .map((o: any) => ({
-        ...o,
-        ourProbability: roundN(Number(o.ourProbability), 2),
-        impliedProbability: roundN(Number(o.impliedProbability), 2),
-        expectedValue: roundN(Number(o.expectedValue), 2),
-        edge: roundN(Number(o.edge), 2),
-        kellyFraction: roundN(Number(o.kellyFraction), 2),
-        suggestedStakePercent: roundN(Number(o.suggestedStakePercent), 2),
-      })),
+    valueOpportunities,
+    bestValueOpportunity,
+    analysisFactors: pred.analysisFactors ?? null,
 
     probabilities: probs,
+    methodology: {
+      models: {
+        goals: 'Dixon-Coles (Poisson bivariata con correzione rho)',
+        shots: 'Binomiale Negativa',
+        cards: 'Binomiale Negativa + fattore arbitro',
+        fouls: 'Binomiale Negativa + correzione possesso',
+        players: 'Gerarchico (quota giocatore su tiri squadra)',
+        valueBetting: 'Expected Value + Kelly frazionale',
+      },
+      formulas: {
+        impliedProbability: 'p_imp = 1 / quota_decimale',
+        expectedValue: 'EV = p_nostra * quota_decimale - 1',
+        edge: 'edge = p_nostra - p_imp',
+        kelly: 'f* = (b*p - q)/b, stake = 0.25 * f* (limiti min/max)',
+      },
+      thresholds: {
+        minEvPercent: 2,
+        minOdds: 1.3,
+        maxOdds: 15,
+        maxStakePercent: 5,
+      },
+      runtime: {
+        lambdaHome: roundN(lambdaHome, 3),
+        lambdaAway: roundN(lambdaAway, 3),
+        totalShotsExpected: roundN(combinedShotsExp, 2),
+        totalOnTargetExpected: roundN(combinedSOTExp, 2),
+        totalYellowExpected: roundN(totalYellowExp, 2),
+        totalFoulsExpected: roundN(totalFoulsExp, 2),
+        cardsDispersionR: roundN(cardsR, 2),
+        foulsDispersionR: roundN(foulsR, 2),
+      },
+      contextualFactors: pred.analysisFactors ?? null,
+    },
   };
 }
 // ====== BUDGET & BETS ======
@@ -470,6 +555,48 @@ router.get('/backtest/results/:id', async (req: Request, res: Response) => {
     if (!r) return res.status(404).json({ success: false, error: 'Non trovato' });
     return res.json({ success: true, data: r });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.get('/stats/overview', async (_req: Request, res: Response) => {
+  try {
+    const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
+    const [coverage, leagues, playersByLeague] = await Promise.all([
+      db.getMatchesCoverageStats(),
+      db.getLeagueSummaries(top5),
+      db.getPlayerCoverageByLeague(top5),
+    ]);
+
+    const leaguesWithPlayers = leagues.map((league) => ({
+      ...league,
+      players: playersByLeague[league.competition] ?? { players: 0, teamsWithPlayers: 0, avgGamesPlayed: 0 },
+    }));
+
+    return res.json({
+      success: true,
+      data: {
+        generatedAt: new Date().toISOString(),
+        checks: {
+          allCoreStatsLoaded:
+            coverage.fields.xg.pct >= 60 &&
+            coverage.fields.shots.pct >= 70 &&
+            coverage.fields.shotsOnTarget.pct >= 70 &&
+            coverage.fields.fouls.pct >= 60 &&
+            coverage.fields.yellowCards.pct >= 60,
+          recommendedThresholds: {
+            xgPct: 60,
+            shotsPct: 70,
+            shotsOnTargetPct: 70,
+            foulsPct: 60,
+            yellowCardsPct: 60,
+          },
+        },
+        coverage,
+        leagues: leaguesWithPlayers,
+      }
+    });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', version: '2.0' }));
@@ -729,7 +856,7 @@ async function runFotmobImport(req: Request, res: Response) {
         isUpToDate: totalNew === 0,
         forceRefresh,
         message: totalNew === 0
-          ? 'DB già aggiornato, nessuna nuova partita trovata.'
+          ? 'DB giÃ  aggiornato, nessuna nuova partita trovata.'
           : `Importate ${totalImported} partite (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       }
@@ -746,7 +873,7 @@ router.post('/scraper/fotmob', runFotmobImport);
 
 /**
  * Info sulle competizioni e stagioni disponibili + stato del DB.
- * Utile per il frontend per sapere quando è stato fatto l'ultimo import.
+ * Utile per il frontend per sapere quando Ã¨ stato fatto l'ultimo import.
  */
 router.get('/scraper/fotmob/info', async (_req, res) => {
   const competitions = FotmobScraper.getSupportedCompetitions();
@@ -906,12 +1033,29 @@ const collectModelProbabilitiesForOdds = (prediction: any): Record<string, numbe
   push('awayWin', probs.awayWin);
   push('btts', probs.btts);
   push('bttsNo', 1 - Number(probs.btts ?? 0));
+  push('double_chance_1x', Number(probs.homeWin ?? 0) + Number(probs.draw ?? 0));
+  push('double_chance_x2', Number(probs.draw ?? 0) + Number(probs.awayWin ?? 0));
+  push('double_chance_12', Number(probs.homeWin ?? 0) + Number(probs.awayWin ?? 0));
+  const dnbDen = Math.max(1e-6, Number(probs.homeWin ?? 0) + Number(probs.awayWin ?? 0));
+  push('dnb_home', Number(probs.homeWin ?? 0) / dnbDen);
+  push('dnb_away', Number(probs.awayWin ?? 0) / dnbDen);
 
   const goalLines = [0.5, 1.5, 2.5, 3.5, 4.5];
   for (const line of goalLines) {
     const k = String(line).replace('.', '');
     push(`over${k}`, (probs as any)[`over${k}`]);
     push(`under${k}`, (probs as any)[`under${k}`]);
+  }
+  const lambdaHomeGoals = Math.max(0.1, Number(probs.lambdaHome ?? 0));
+  const lambdaAwayGoals = Math.max(0.1, Number(probs.lambdaAway ?? 0));
+  for (const line of [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]) {
+    const k = line.toFixed(1).replace('.', '');
+    const overHome = poissonOver(line, lambdaHomeGoals);
+    const overAway = poissonOver(line, lambdaAwayGoals);
+    push(`team_home_over_${k}`, overHome);
+    push(`team_home_under_${k}`, 1 - overHome);
+    push(`team_away_over_${k}`, overAway);
+    push(`team_away_under_${k}`, 1 - overAway);
   }
 
   // Tiri totali/squadra
@@ -1084,6 +1228,70 @@ const getCompetitionOdds = async (
   return { oddsService, matches, fromCache: false };
 };
 
+const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => {
+  const byBookmaker = new Map<string, any>();
+
+  for (const bm of base.bookmakers ?? []) {
+    byBookmaker.set(String(bm.bookmakerKey), {
+      ...bm,
+      markets: [...(bm.markets ?? [])],
+    });
+  }
+
+  for (const bm of extra.bookmakers ?? []) {
+    const key = String(bm.bookmakerKey);
+    const existing = byBookmaker.get(key);
+    if (!existing) {
+      byBookmaker.set(key, {
+        ...bm,
+        markets: [...(bm.markets ?? [])],
+      });
+      continue;
+    }
+
+    const marketMap = new Map<string, any>();
+    for (const m of existing.markets ?? []) {
+      marketMap.set(String(m.marketKey), {
+        ...m,
+        outcomes: [...(m.outcomes ?? [])],
+      });
+    }
+
+    for (const m of bm.markets ?? []) {
+      const mKey = String(m.marketKey);
+      const prev = marketMap.get(mKey);
+      if (!prev) {
+        marketMap.set(mKey, {
+          ...m,
+          outcomes: [...(m.outcomes ?? [])],
+        });
+        continue;
+      }
+
+      const outcomeSet = new Set<string>();
+      for (const o of prev.outcomes ?? []) {
+        outcomeSet.add(`${String(o.name)}|${String(o.point ?? '')}|${String((o as any).description ?? '')}`);
+      }
+      for (const o of m.outcomes ?? []) {
+        const signature = `${String(o.name)}|${String(o.point ?? '')}|${String((o as any).description ?? '')}`;
+        if (!outcomeSet.has(signature)) {
+          prev.outcomes.push(o);
+          outcomeSet.add(signature);
+        }
+      }
+      marketMap.set(mKey, prev);
+    }
+
+    existing.markets = Array.from(marketMap.values());
+    byBookmaker.set(key, existing);
+  }
+
+  return {
+    ...base,
+    bookmakers: Array.from(byBookmaker.values()),
+  };
+};
+
 router.post('/scraper/odds', async (req: Request, res: Response) => {
   try {
     const { competition = 'Serie A', markets = ['h2h', 'totals'] } = req.body;
@@ -1156,6 +1364,18 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
     }
 
     const trimmedApiKey = getConfiguredOddsApiKey();
+    const preferredMarkets = ['h2h', 'totals', 'spreads'];
+    const fallbackMarkets = ['h2h', 'totals'];
+    const eventAdditionalMarkets = [
+      'btts',
+      'draw_no_bet',
+      'h2h_3_way',
+      'double_chance',
+      'team_totals',
+      'alternate_totals',
+      'alternate_spreads',
+      'alternate_team_totals',
+    ];
     if (!trimmedApiKey) {
       const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
       return res.json({
@@ -1164,6 +1384,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           ...estimated,
           eurobetOdds: {},
           fallbackOdds: estimated.selectedOdds,
+          allBookmakerOdds: [],
+          marketsRequested: ['model_estimated'],
           remainingRequests: null,
         }
       });
@@ -1171,25 +1393,75 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
 
     let oddsService: OddsApiService;
     let matches: OddsMatch[];
+    let marketsRequested = [...preferredMarkets];
     try {
-      const result = await getCompetitionOdds(trimmedApiKey, competition, ['h2h', 'totals']);
+      const result = await getCompetitionOdds(trimmedApiKey, competition, preferredMarkets);
       oddsService = result.oddsService;
       matches = result.matches;
     } catch (apiError: any) {
+      try {
+        const fallbackResult = await getCompetitionOdds(trimmedApiKey, competition, fallbackMarkets);
+        oddsService = fallbackResult.oddsService;
+        matches = fallbackResult.matches;
+        marketsRequested = [...fallbackMarkets];
+      } catch {
+        const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+        if (estimated.found) {
+          return res.json({
+            success: true,
+            data: {
+              ...estimated,
+              message: `The Odds API non disponibile (${apiError?.response?.status ?? apiError?.message ?? 'errore'}): caricate quote stimate dal modello.`,
+              eurobetOdds: {},
+              fallbackOdds: estimated.selectedOdds,
+              allBookmakerOdds: [],
+              marketsRequested: ['model_estimated'],
+              remainingRequests: null,
+            }
+          });
+        }
+        throw apiError;
+      }
+
+      if (!matches || !oddsService) {
+        const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+        if (estimated.found) {
+          return res.json({
+            success: true,
+            data: {
+              ...estimated,
+              message: `The Odds API non disponibile (${apiError?.response?.status ?? apiError?.message ?? 'errore'}): caricate quote stimate dal modello.`,
+              eurobetOdds: {},
+              fallbackOdds: estimated.selectedOdds,
+              allBookmakerOdds: [],
+              marketsRequested: ['model_estimated'],
+              remainingRequests: null,
+            }
+          });
+        }
+        throw apiError;
+      }
+
+      // continua con il fallback mercati base se quelli completi non sono disponibili
+    }
+
+    if (!matches || !oddsService) {
       const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
       if (estimated.found) {
         return res.json({
           success: true,
           data: {
             ...estimated,
-            message: `The Odds API non disponibile (${apiError?.response?.status ?? apiError?.message ?? 'errore'}): caricate quote stimate dal modello.`,
+            message: 'The Odds API non disponibile: caricate quote stimate dal modello.',
             eurobetOdds: {},
             fallbackOdds: estimated.selectedOdds,
+            allBookmakerOdds: [],
+            marketsRequested: ['model_estimated'],
             remainingRequests: null,
           }
         });
       }
-      throw apiError;
+      throw new Error('Nessuna fonte quote disponibile');
     }
 
     if (!matches || matches.length === 0) {
@@ -1225,17 +1497,40 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       });
     }
 
-    const eurobetAvailable = best.bookmakers.some((b) => b.bookmakerKey === 'eurobet');
+    const eventId = String(best.matchId ?? '').startsWith('odds_')
+      ? String(best.matchId).replace(/^odds_/, '')
+      : '';
+    let mergedBest = best;
+    let additionalMarketsLoaded: string[] = [];
+    if (eventId) {
+      try {
+        const extraEvent = await oddsService.getEventOdds(String(competition), eventId, eventAdditionalMarkets);
+        if (extraEvent) {
+          mergedBest = mergeOddsMatchMarkets(best, extraEvent);
+          additionalMarketsLoaded = Array.from(
+            new Set(
+              (extraEvent.bookmakers ?? [])
+                .flatMap((bm) => (bm.markets ?? []).map((m) => String(m.marketKey)))
+                .filter(Boolean)
+            )
+          );
+        }
+      } catch (extraErr: any) {
+        console.warn('[OddsApi/match] Mercati evento extra non disponibili:', extraErr?.message ?? extraErr);
+      }
+    }
+    const finalMarketsRequested = Array.from(new Set([...marketsRequested, ...additionalMarketsLoaded]));
+
+    const eurobetAvailable = mergedBest.bookmakers.some((b) => b.bookmakerKey === 'eurobet');
     const eurobetOnlyMatch: OddsMatch = {
-      ...best,
-      bookmakers: best.bookmakers.filter((b) => b.bookmakerKey === 'eurobet'),
+      ...mergedBest,
+      bookmakers: mergedBest.bookmakers.filter((b) => b.bookmakerKey === 'eurobet'),
     };
 
     // selectedOdds: prova Eurobet, ma completa automaticamente i mercati mancanti con altri bookmaker.
     const eurobetOdds = oddsService.extractBestOdds(eurobetOnlyMatch, 'eurobet');
-    const selectedOdds = oddsService.extractBestOdds(best, 'eurobet');
+    const selectedOdds = oddsService.extractBestOdds(mergedBest, 'eurobet');
     const fallbackOdds = selectedOdds;
-
     const usedFallbackBookmaker = !eurobetAvailable
       || Object.keys(selectedOdds).some((k) => eurobetOdds[k] === undefined);
 
@@ -1249,10 +1544,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         selectedOdds,
         eurobetOdds,
         fallbackOdds,
+        allBookmakerOdds: [],
+        marketsRequested: finalMarketsRequested.length > 0 ? finalMarketsRequested : marketsRequested,
         match: {
-          homeTeam: best.homeTeam,
-          awayTeam: best.awayTeam,
-          commenceTime: best.commenceTime,
+          homeTeam: mergedBest.homeTeam,
+          awayTeam: mergedBest.awayTeam,
+          commenceTime: mergedBest.commenceTime,
         },
         confidenceScore: Number(bestScore.toFixed(3)),
         remainingRequests: oddsService.getRemainingRequests(),

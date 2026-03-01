@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   bulkImportMatches, fitModel, getMatches,
-  getPlayersByTeam, getTeams, recomputeAverages,
+  getPlayersByTeam, getStatsOverview, getTeams, recomputeAverages,
 } from '../utils/api';
 
 type TeamScope = 'current' | 'previous' | 'total';
@@ -11,9 +11,9 @@ const seasonKey = (s?: string) => {
   return m ? Number(m[1]) : -1;
 };
 const n = (v: any, d = 2) => {
-  if (v === null || v === undefined || v === '') return '—';
+  if (v === null || v === undefined || v === '') return '-';
   const x = Number(v);
-  return Number.isFinite(x) ? x.toFixed(d) : '—';
+  return Number.isFinite(x) ? x.toFixed(d) : '-';
 };
 
 /* Solo stili specifici di DataManager */
@@ -124,7 +124,7 @@ const localStyles = `
   .dm-model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dm-form-group { display: flex; flex-direction: column; gap: 6px; }
 
-  /* ACTION BUTTONS — grandi, per model tab */
+  /* ACTION BUTTONS - grandi, per model tab */
   .dm-action-btn {
     font-family: 'Syne',sans-serif; font-weight: 700; font-size: 14px;
     border-radius: var(--radius-sm); cursor: pointer; padding: 15px 24px;
@@ -158,16 +158,63 @@ const localStyles = `
     font-family: 'DM Mono',monospace; font-size: 11px; color: var(--blue);
   }
 
+  .dm-overview-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-top: 16px; }
+  .dm-overview-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+  }
+  .dm-overview-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-2);
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .dm-qual-row { display: grid; grid-template-columns: 100px 1fr auto; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .dm-qual-row:last-child { margin-bottom: 0; }
+  .dm-qual-key { color: var(--text-2); font-size: 12px; }
+  .dm-qual-track { height: 7px; border-radius: 20px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .dm-qual-fill { height: 100%; border-radius: 20px; background: var(--blue); }
+  .dm-qual-val { font-family: 'DM Mono',monospace; font-size: 11px; color: var(--text); min-width: 48px; text-align: right; }
+  .dm-top5-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+  .dm-league-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+  }
+  .dm-league-head { font-size: 11px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+  .dm-league-kpi { font-size: 11px; color: var(--text-2); margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
+  .dm-league-kpi strong { color: var(--text); font-family: 'DM Mono',monospace; font-weight: 700; }
+  .dm-check-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 10px;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    font-family: 'DM Mono',monospace;
+    margin-left: 8px;
+  }
+  .dm-check-badge.ok { background: var(--green-dim); color: var(--green); border-color: var(--green-border); }
+  .dm-check-badge.ko { background: var(--red-dim); color: var(--red); border-color: var(--red-border); }
+
   @media (max-width: 900px) {
     .dm-steps      { grid-template-columns: repeat(2,1fr); }
     .dm-model-grid { grid-template-columns: 1fr; }
     .dm-stats-grid { grid-template-columns: 1fr; }
     .dm-team-grid  { grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); }
+    .dm-overview-grid { grid-template-columns: 1fr; }
+    .dm-top5-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   }
   @media (max-width: 600px) {
     .dm-wrap { padding: 16px; }
     .dm-title { font-size: 26px; }
     .dm-steps { grid-template-columns: 1fr; }
+    .dm-top5-grid { grid-template-columns: 1fr; }
   }
 `;
 
@@ -190,18 +237,37 @@ const DataManager: React.FC = () => {
   const [scope, setScope] = useState<TeamScope>('current');
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, any[]>>({});
   const [playersLoading, setPlayersLoading] = useState('');
+  const [statsOverview, setStatsOverview] = useState<any>(null);
+  const [statsOverviewError, setStatsOverviewError] = useState('');
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
-    try {
-      const [teamsRes, matchesRes] = await Promise.all([getTeams(), getMatches()]);
-      const t = teamsRes.data ?? [];
+    const [teamsRes, matchesRes, overviewRes] = await Promise.allSettled([
+      getTeams(),
+      getMatches(),
+      getStatsOverview(),
+    ]);
+
+    if (teamsRes.status === 'fulfilled') {
+      const t = teamsRes.value.data ?? [];
       setTeams(t);
-      setMatches([...(matchesRes.data ?? [])].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       if (!selectedTeamId && t.length > 0) setSelectedTeamId(String(t[0].team_id));
-    } catch {}
+    }
+
+    if (matchesRes.status === 'fulfilled') {
+      setMatches([...(matchesRes.value.data ?? [])].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    }
+
+    if (overviewRes.status === 'fulfilled') {
+      setStatsOverview(overviewRes.value.data ?? null);
+      setStatsOverviewError('');
+    } else {
+      setStatsOverview(null);
+      setStatsOverviewError(overviewRes.reason?.message ?? 'Errore caricamento audit stats');
+    }
+
     setLoading(false);
   };
 
@@ -318,13 +384,28 @@ const DataManager: React.FC = () => {
   }, [scopedMatches, selectedTeam]);
 
   const players = selectedTeam ? (playersByTeam[selectedTeam.team_id] ?? []) : [];
+  const qualityRows = [
+    { key: 'xg', label: 'xG' },
+    { key: 'shots', label: 'Tiri' },
+    { key: 'shotsOnTarget', label: 'Tiri OT' },
+    { key: 'fouls', label: 'Falli' },
+    { key: 'yellowCards', label: 'Gialli' },
+    { key: 'redCards', label: 'Rossi' },
+    { key: 'possession', label: 'Possesso' },
+    { key: 'referee', label: 'Arbitro' },
+  ].map((item) => ({
+    ...item,
+    pct: Number(statsOverview?.coverage?.fields?.[item.key]?.pct ?? 0),
+    filled: Number(statsOverview?.coverage?.fields?.[item.key]?.filled ?? 0),
+  }));
+  const top5Leagues = statsOverview?.leagues ?? [];
 
   const TABS = [
-    { id: 'overview', label: '🗺 Overview' },
-    { id: 'matches',  label: `⚽ Partite${matches.length ? ` (${matches.length})` : ''}` },
-    { id: 'teams',    label: `🏟 Squadre${teams.length ? ` (${teams.length})` : ''}` },
-    { id: 'model',    label: '🤖 Modello AI' },
-    { id: 'import',   label: '📥 Import JSON' },
+    { id: 'overview', label: 'ðŸ—º Overview' },
+    { id: 'matches',  label: `âš½ Partite${matches.length ? ` (${matches.length})` : ''}` },
+    { id: 'teams',    label: `ðŸŸ Squadre${teams.length ? ` (${teams.length})` : ''}` },
+    { id: 'model',    label: 'ðŸ¤– Modello AI' },
+    { id: 'import',   label: 'ðŸ“¥ Import JSON' },
   ];
 
   return (
@@ -334,15 +415,15 @@ const DataManager: React.FC = () => {
 
         {/* HEADER */}
         <div className="dm-title">Gestione Dati</div>
-        <div className="dm-subtitle">Database storico partite · Addestramento Dixon-Coles</div>
+        <div className="dm-subtitle">Database storico partite Â· Addestramento Dixon-Coles</div>
 
-        {/* STAT GRID — usa classi globali */}
+        {/* STAT GRID â€” usa classi globali */}
         <div className="fp-grid-4" style={{ marginBottom: 28 }}>
           {[
-            { icon: '⚽', val: loading ? '…' : matches.length,                          label: 'Partite',       c: 'blue'   },
-            { icon: '🏟', val: loading ? '…' : teams.length,                            label: 'Squadre',       c: 'purple' },
-            { icon: '🏆', val: loading ? '…' : competitions.length,                     label: 'Campionati',    c: 'gold'   },
-            { icon: '🤖', val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
+            { icon: 'âš½', val: loading ? 'â€¦' : matches.length,                          label: 'Partite',       c: 'blue'   },
+            { icon: 'ðŸŸ', val: loading ? 'â€¦' : teams.length,                            label: 'Squadre',       c: 'purple' },
+            { icon: 'ðŸ†', val: loading ? 'â€¦' : competitions.length,                     label: 'Campionati',    c: 'gold'   },
+            { icon: 'ðŸ¤–', val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
           ].map(({ icon, val, label, c }) => (
             <div key={label} className={`fp-stat c-${c}`}>
               <span className="fp-stat-icon">{icon}</span>
@@ -363,35 +444,125 @@ const DataManager: React.FC = () => {
           </div>
         </div>
 
-        {/* ── OVERVIEW ── */}
+        {/* â”€â”€ OVERVIEW â”€â”€ */}
         {activeTab === 'overview' && (
-          <div className="fp-card">
-            <div className="fp-card-head"><div className="fp-card-title">🗺 Flusso Consigliato</div></div>
-            <div className="fp-card-body">
-              <div className="dm-steps">
-                {[
-                  { n: '01', title: 'Importa Dati',     desc: 'Importa i dati FotMob tramite Dati Automatici o manualmente via JSON.' },
-                  { n: '02', title: 'Ricalcola Medie',  desc: 'Aggiorna le medie statistiche per ogni squadra (tiri, xG, cartellini, falli).' },
-                  { n: '03', title: 'Addestra Modello', desc: 'Esegui il fit Dixon-Coles per calibrare attack e defence strength.' },
-                  { n: '04', title: 'Analizza Partite', desc: 'Vai in Previsioni per calcolare probabilità, quote e value bet.' },
-                ].map(({ n: num, title, desc }, i, arr) => (
-                  <div key={num} className="dm-step">
-                    <div className="dm-step-num">Step {num}</div>
-                    <div className="dm-step-title">{title}</div>
-                    <div className="dm-step-desc">{desc}</div>
-                    {i < arr.length - 1 && <div className="dm-step-arrow">›</div>}
-                  </div>
-                ))}
+          <>
+            <div className="fp-card">
+              <div className="fp-card-head"><div className="fp-card-title">Flusso Consigliato</div></div>
+              <div className="fp-card-body">
+                <div className="dm-steps">
+                  {[
+                    { n: '01', title: 'Importa Dati',     desc: 'Importa i dati FotMob tramite Dati Automatici o manualmente via JSON.' },
+                    { n: '02', title: 'Ricalcola Medie',  desc: 'Aggiorna le medie statistiche per ogni squadra (tiri, xG, cartellini, falli).' },
+                    { n: '03', title: 'Addestra Modello', desc: 'Esegui il fit Dixon-Coles per calibrare attack e defence strength.' },
+                    { n: '04', title: 'Analizza Partite', desc: 'Vai in Previsioni per calcolare probabilita, quote e value bet.' },
+                  ].map(({ n: num, title, desc }, i, arr) => (
+                    <div key={num} className="dm-step">
+                      <div className="dm-step-num">Step {num}</div>
+                      <div className="dm-step-title">{title}</div>
+                      <div className="dm-step-desc">{desc}</div>
+                      {i < arr.length - 1 && <div className="dm-step-arrow">›</div>}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+
+            <div className="dm-overview-grid">
+              <div className="dm-overview-card">
+                <div className="dm-overview-title">
+                  Verifica caricamento statistiche
+                  <span className={`dm-check-badge ${statsOverview?.checks?.allCoreStatsLoaded ? 'ok' : 'ko'}`}>
+                    {statsOverview?.checks?.allCoreStatsLoaded ? 'OK' : 'Parziale'}
+                  </span>
+                </div>
+                {statsOverviewError ? (
+                  <div className="fp-alert fp-alert-warning">{statsOverviewError}</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
+                      <span className="fp-badge fp-badge-blue">Match: {statsOverview?.coverage?.totals?.totalMatches ?? 0}</span>
+                      <span className="fp-badge fp-badge-green">Completi: {statsOverview?.coverage?.totals?.completedMatches ?? 0}</span>
+                      <span className="fp-badge fp-badge-gray">Upcoming: {statsOverview?.coverage?.totals?.upcomingMatches ?? 0}</span>
+                    </div>
+                    {qualityRows.map((row) => (
+                      <div key={row.key} className="dm-qual-row">
+                        <div className="dm-qual-key">{row.label}</div>
+                        <div className="dm-qual-track">
+                          <div
+                            className="dm-qual-fill"
+                            style={{
+                              width: `${Math.min(100, row.pct)}%`,
+                              background: row.pct >= 80 ? 'var(--green)' : row.pct >= 60 ? 'var(--gold)' : 'var(--red)'
+                            }}
+                          />
+                        </div>
+                        <div className="dm-qual-val">{n(row.pct, 1)}%</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              <div className="dm-overview-card">
+                <div className="dm-overview-title">Copertura stats giocatori (opzionale)</div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Squadre con profili giocatori</span>
+                    <strong className="fp-mono">{statsOverview?.coverage?.teams?.teamsWithPlayers ?? 0} / {statsOverview?.coverage?.teams?.totalTeams ?? 0}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Copertura squadre</span>
+                    <strong className="fp-mono">{n(statsOverview?.coverage?.teams?.pctWithPlayers ?? 0, 1)}%</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Giocatori disponibili</span>
+                    <strong className="fp-mono">{statsOverview?.coverage?.players?.totalPlayers ?? 0}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Media partite / giocatore</span>
+                    <strong className="fp-mono">{n(statsOverview?.coverage?.players?.avgGamesPlayed ?? 0, 2)}</strong>
+                  </div>
+                </div>
+                <div className="fp-alert fp-alert-info" style={{ marginTop: 12 }}>
+                  Il database giocatori dedicato e gia presente (tabella players) e alimenta il modello player props in Previsioni.
+                </div>
+              </div>
+            </div>
+
+            <div className="fp-card" style={{ marginTop: 16 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">Top 5 campionati europei (3+ metriche)</div>
+                <span className="fp-badge fp-badge-blue">Aggiornato: {statsOverview?.generatedAt ? new Date(statsOverview.generatedAt).toLocaleString('it-IT') : 'n/d'}</span>
+              </div>
+              <div className="fp-card-body">
+                {top5Leagues.length === 0 ? (
+                  <div className="fp-empty"><div className="fp-empty-text">Nessun dato top-5 disponibile.</div></div>
+                ) : (
+                  <div className="dm-top5-grid">
+                    {top5Leagues.map((league: any) => (
+                      <div key={league.competition} className="dm-league-card">
+                        <div className="dm-league-head">{league.competition}</div>
+                        <div className="dm-league-kpi"><span>Partite</span><strong>{league.matches ?? 0}</strong></div>
+                        <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals ?? 0, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards ?? 0, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots ?? 0, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>xG coverage</span><strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong></div>
+                        <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
 
-        {/* ── MATCHES ── */}
+        {/* â”€â”€ MATCHES â”€â”€ */}
         {activeTab === 'matches' && (
           <div className="fp-card">
             <div className="fp-card-head">
-              <div className="fp-card-title">⚽ Partite ({filteredMatches.length})</div>
+              <div className="fp-card-title">âš½ Partite ({filteredMatches.length})</div>
             </div>
             <div className="dm-filters">
               {[
@@ -409,7 +580,7 @@ const DataManager: React.FC = () => {
               ))}
             </div>
             {filteredMatches.length === 0 ? (
-              <div className="fp-empty"><div className="fp-empty-icon">📭</div><div className="fp-empty-text">Nessuna partita trovata.</div></div>
+              <div className="fp-empty"><div className="fp-empty-icon">ðŸ“­</div><div className="fp-empty-text">Nessuna partita trovata.</div></div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
@@ -421,10 +592,10 @@ const DataManager: React.FC = () => {
                       <tr key={m.match_id}>
                         <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{new Date(m.date).toLocaleDateString('it-IT')}</td>
                         <td style={{ fontWeight: 700 }}>{m.home_team_name ?? m.home_team_id}</td>
-                        <td style={{ textAlign: 'center' }}><span className="dm-score">{m.home_goals ?? '—'} – {m.away_goals ?? '—'}</span></td>
+                        <td style={{ textAlign: 'center' }}><span className="dm-score">{m.home_goals ?? 'â€”'} â€“ {m.away_goals ?? 'â€”'}</span></td>
                         <td style={{ fontWeight: 700 }}>{m.away_team_name ?? m.away_team_id}</td>
-                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_xg ? `${n(m.home_xg, 1)} – ${n(m.away_xg, 1)}` : '—'}</td>
-                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_shots ? `${m.home_shots} – ${m.away_shots}` : '—'}</td>
+                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_xg ? `${n(m.home_xg, 1)} â€“ ${n(m.away_xg, 1)}` : 'â€”'}</td>
+                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_shots ? `${m.home_shots} â€“ ${m.away_shots}` : 'â€”'}</td>
                         <td><span className="dm-comp-tag">{m.competition}</span></td>
                       </tr>
                     ))}
@@ -435,11 +606,11 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* ── TEAMS ── */}
+        {/* â”€â”€ TEAMS â”€â”€ */}
         {activeTab === 'teams' && (
           <div className="fp-card">
             <div className="fp-card-head">
-              <div className="fp-card-title">🏟 Squadre ({filteredTeams.length})</div>
+              <div className="fp-card-title">ðŸŸ Squadre ({filteredTeams.length})</div>
               <span className="fp-badge fp-badge-purple">Clicca per stats complete</span>
             </div>
 
@@ -460,7 +631,7 @@ const DataManager: React.FC = () => {
                   onClick={() => { setSelectedTeamId(String(t.team_id)); setScope('current'); }}
                 >
                   <div className="dm-team-name">{t.name}</div>
-                  <div className="dm-team-comp">{t.competition ?? '—'}</div>
+                  <div className="dm-team-comp">{t.competition ?? 'â€”'}</div>
                   <div className="dm-team-badges">
                     <span className="fp-badge fp-badge-blue">ATT {n(t.attack_strength, 2)}</span>
                     <span className="fp-badge fp-badge-red">DIF {n(t.defence_strength, 2)}</span>
@@ -474,7 +645,7 @@ const DataManager: React.FC = () => {
                 <div className="dm-detail-head">
                   <div>
                     <div className="dm-detail-name">{selectedTeam.name}</div>
-                    <div className="dm-detail-comp">{selectedTeam.competition ?? '—'}</div>
+                    <div className="dm-detail-comp">{selectedTeam.competition ?? 'â€”'}</div>
                   </div>
                   <div className="dm-scope-tabs">
                     {([
@@ -496,7 +667,7 @@ const DataManager: React.FC = () => {
 
                 <div className="dm-stats-grid">
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head fotmob">📊 Stats Partite (FotMob)</div>
+                    <div className="dm-stats-head fotmob">ðŸ“Š Stats Partite (FotMob)</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -510,7 +681,7 @@ const DataManager: React.FC = () => {
                           ['Falli / partita', n(stats.foulsAvg, 2)],
                           ['Gialli / partita', n(stats.ycAvg, 2)],
                           ['Rossi / partita', n(stats.rcAvg, 3)],
-                          ['Possesso medio', stats.possAvg !== null ? `${n(stats.possAvg, 1)}%` : '—'],
+                          ['Possesso medio', stats.possAvg !== null ? `${n(stats.possAvg, 1)}%` : 'â€”'],
                           ['Match FotMob', stats.fotmob],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
@@ -518,7 +689,7 @@ const DataManager: React.FC = () => {
                   </div>
 
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head model">🤖 Stats Modello AI</div>
+                    <div className="dm-stats-head model">ðŸ¤– Stats Modello AI</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -542,9 +713,9 @@ const DataManager: React.FC = () => {
 
                 {/* PLAYERS */}
                 <div className="dm-players-head">
-                  <div className="dm-players-title">👤 Giocatori</div>
+                  <div className="dm-players-title">ðŸ‘¤ Giocatori</div>
                   <span className="fp-badge fp-badge-blue">
-                    {playersLoading === selectedTeam.team_id ? 'Caricamento…' : `${players.length} giocatori`}
+                    {playersLoading === selectedTeam.team_id ? 'Caricamentoâ€¦' : `${players.length} giocatori`}
                   </span>
                 </div>
                 {playersLoading === selectedTeam.team_id ? (
@@ -580,11 +751,11 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* ── MODEL ── */}
+        {/* â”€â”€ MODEL â”€â”€ */}
         {activeTab === 'model' && (
           <div>
             <div className="fp-card" style={{ marginBottom: 16 }}>
-              <div className="fp-card-head"><div className="fp-card-title">⚙️ Parametri</div></div>
+              <div className="fp-card-head"><div className="fp-card-title">âš™ï¸ Parametri</div></div>
               <div className="fp-card-body">
                 <div className="dm-model-grid">
                   <div className="dm-form-group">
@@ -602,27 +773,27 @@ const DataManager: React.FC = () => {
             </div>
             <div className="dm-model-grid">
               <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title">📊 Ricalcola Medie</div></div>
+                <div className="fp-card-head"><div className="fp-card-title">ðŸ“Š Ricalcola Medie</div></div>
                 <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Aggiorna le medie statistiche di ogni squadra (tiri, xG, cartellini, falli) dalle partite importate.</p>
                   <button className="dm-action-btn blue" onClick={handleRecompute} disabled={recomputeLoading}>
-                    {recomputeLoading ? '⟳ Ricalcolo in corso…' : '↻ Ricalcola Medie Squadre'}
+                    {recomputeLoading ? 'âŸ³ Ricalcolo in corsoâ€¦' : 'â†» Ricalcola Medie Squadre'}
                   </button>
                   {recomputeResult && (
-                    <div className="dm-result ok">✓ Aggiornate <strong>{recomputeResult.data?.teamsUpdated ?? recomputeResult.teamsUpdated}</strong> squadre.</div>
+                    <div className="dm-result ok">âœ“ Aggiornate <strong>{recomputeResult.data?.teamsUpdated ?? recomputeResult.teamsUpdated}</strong> squadre.</div>
                   )}
                 </div>
               </div>
               <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title">🤖 Addestra Modello</div></div>
+                <div className="fp-card-head"><div className="fp-card-title">ðŸ¤– Addestra Modello</div></div>
                 <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Esegui il fit del modello Dixon-Coles per calibrare attack strength, defence strength e parametri temporali.</p>
                   <button className="dm-action-btn purple" onClick={handleFitModel} disabled={fitLoading}>
-                    {fitLoading ? '⟳ Addestramento in corso…' : '▶ Addestra Modello Dixon-Coles'}
+                    {fitLoading ? 'âŸ³ Addestramento in corsoâ€¦' : 'â–¶ Addestra Modello Dixon-Coles'}
                   </button>
                   {fitResult && (
                     <div className="dm-result ok">
-                      ✓ Modello addestrato &nbsp;·&nbsp; Partite: <strong>{fitResult.matchesUsed}</strong> &nbsp;·&nbsp; Squadre: <strong>{fitResult.teams}</strong> &nbsp;·&nbsp; Log-likelihood: <strong>{fitResult.logLikelihood?.toFixed(2)}</strong>
+                      âœ“ Modello addestrato &nbsp;Â·&nbsp; Partite: <strong>{fitResult.matchesUsed}</strong> &nbsp;Â·&nbsp; Squadre: <strong>{fitResult.teams}</strong> &nbsp;Â·&nbsp; Log-likelihood: <strong>{fitResult.logLikelihood?.toFixed(2)}</strong>
                     </div>
                   )}
                 </div>
@@ -631,10 +802,10 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* ── IMPORT ── */}
+        {/* â”€â”€ IMPORT â”€â”€ */}
         {activeTab === 'import' && (
           <div className="fp-card">
-            <div className="fp-card-head"><div className="fp-card-title">📥 Import Manuale JSON</div></div>
+            <div className="fp-card-head"><div className="fp-card-title">ðŸ“¥ Import Manuale JSON</div></div>
             <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dm-form-group">
                 <label className="fp-label">Array JSON Partite</label>
@@ -645,13 +816,13 @@ const DataManager: React.FC = () => {
                 Accetta un array JSON o un oggetto con chiave <code>matches</code>. Campi obbligatori: <code>home_team</code>, <code>away_team</code>, <code>home_goals</code>, <code>away_goals</code>, <code>date</code>, <code>competition</code>.
               </div>
               <button className="dm-action-btn purple" style={{ maxWidth: 280 }} onClick={handleBulkImport} disabled={!importJson}>
-                📥 Importa Dati
+                ðŸ“¥ Importa Dati
               </button>
               {importResult && (
                 <div className={`dm-result ${importResult.success ? 'ok' : 'err'}`}>
                   {importResult.success
-                    ? `✓ Importate ${importResult.data?.imported ?? importResult.imported} partite con successo!`
-                    : `✗ Errore: ${importResult.error}`}
+                    ? `âœ“ Importate ${importResult.data?.imported ?? importResult.imported} partite con successo!`
+                    : `âœ— Errore: ${importResult.error}`}
                 </div>
               )}
             </div>
@@ -664,3 +835,4 @@ const DataManager: React.FC = () => {
 };
 
 export default DataManager;
+

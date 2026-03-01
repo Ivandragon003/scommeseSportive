@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getBudget, getBets, getMatches, initBudget } from '../utils/api';
+import { getBudget, getBets, getMatchesCount, initBudget } from '../utils/api';
 
 interface DashboardProps {
   activeUser: string;
@@ -9,28 +9,41 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
   const [budget, setBudget] = useState<any>(null);
   const [recentBets, setRecentBets] = useState<any[]>([]);
   const [matchCount, setMatchCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [initAmount, setInitAmount] = useState('1000');
   const [showInit, setShowInit] = useState(false);
 
   useEffect(() => { loadData(); }, [activeUser]);
 
   const loadData = async () => {
-    setLoading(true);
-    try {
-      const [budgetRes, betsRes, matchesRes] = await Promise.all([
-        getBudget(activeUser),
-        getBets(activeUser),
-        getMatches(),
-      ]);
-      if (budgetRes.data) setBudget(budgetRes.data);
-      else setShowInit(true);
-      setRecentBets((betsRes.data ?? []).slice(0, 5));
-      setMatchCount(matchesRes.count ?? 0);
-    } catch {
+    setRefreshing(true);
+    const [budgetRes, betsRes, matchesCountRes] = await Promise.allSettled([
+      getBudget(activeUser),
+      getBets(activeUser),
+      getMatchesCount(),
+    ]);
+
+    if (budgetRes.status === 'fulfilled') {
+      if (budgetRes.value.data) {
+        setBudget(budgetRes.value.data);
+        setShowInit(false);
+      } else {
+        setBudget(null);
+        setShowInit(true);
+      }
+    } else {
       setShowInit(true);
     }
-    setLoading(false);
+
+    if (betsRes.status === 'fulfilled') {
+      setRecentBets((betsRes.value.data ?? []).slice(0, 5));
+    }
+
+    if (matchesCountRes.status === 'fulfilled') {
+      setMatchCount(matchesCountRes.value.count ?? 0);
+    }
+
+    setRefreshing(false);
   };
 
   const handleInitBudget = async () => {
@@ -42,13 +55,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
       setShowInit(false);
     }
   };
-
-  if (loading) return (
-    <div className="fp-spinner-wrap" style={{ minHeight: '60vh' }}>
-      <div className="fp-spinner" />
-      <span className="fp-spinner-text">Caricamento...</span>
-    </div>
-  );
 
   const roi = budget?.roi ?? 0;
   const winRate = budget?.win_rate ?? 0;
@@ -65,6 +71,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
         <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
           Panoramica del sistema · {activeUser}
         </p>
+        {refreshing && (
+          <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '8px 0 0', fontFamily: 'DM Mono, monospace' }}>
+            Aggiornamento dati...
+          </p>
+        )}
       </div>
 
       {/* INIT BUDGET */}

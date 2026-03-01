@@ -48,6 +48,7 @@ export interface OutcomeOdds {
   name: string;               // "Home", "Draw", "Away", "Over", "Under"
   price: number;              // quota decimale
   point?: number;             // linea per totals/spreads (es. 2.5)
+  description?: string;       // contesto outcome (es. nome squadra nei team totals)
 }
 
 // Mappa sport key â†’ nome leggibile
@@ -154,6 +155,42 @@ export class OddsApiService {
     return this.parseOddsResponse(response.data, competition);
   }
 
+  async getEventOdds(
+    competition: string,
+    eventId: string,
+    markets: string[] = [],
+    bookmakers: string[] = []
+  ): Promise<OddsMatch | null> {
+    const sportKey = SPORT_KEYS[competition];
+    if (!sportKey) {
+      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(SPORT_KEYS).join(', ')}`);
+    }
+    if (!eventId || String(eventId).trim() === '') return null;
+    if (!Array.isArray(markets) || markets.length === 0) return null;
+
+    const params: Record<string, string> = {
+      apiKey: this.apiKey,
+      regions: 'eu',
+      markets: markets.join(','),
+      oddsFormat: 'decimal',
+      dateFormat: 'iso',
+    };
+    if (bookmakers.length > 0) params.bookmakers = bookmakers.join(',');
+
+    const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/events/${eventId}/odds`, {
+      params,
+      timeout: 15000,
+    });
+
+    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
+    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
+    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
+      this.remainingRequests = parsedRemaining;
+    }
+
+    return this.parseSingleEventResponse(response.data);
+  }
+
   private parseOddsResponse(data: any[], competition: string): OddsMatch[] {
     if (!Array.isArray(data)) return [];
 
@@ -171,10 +208,140 @@ export class OddsApiService {
             name: o.name,
             price: o.price,
             point: o.point,
+            description: o.description,
           })),
         })),
       })),
     }));
+  }
+
+  private parseSingleEventResponse(event: any): OddsMatch | null {
+    if (!event || typeof event !== 'object') return null;
+    if (!Array.isArray(event.bookmakers)) return null;
+
+    return {
+      matchId: `odds_${event.id}`,
+      homeTeam: event.home_team,
+      awayTeam: event.away_team,
+      commenceTime: event.commence_time,
+      bookmakers: (event.bookmakers ?? []).map((bm: any) => ({
+        bookmakerKey: bm.key,
+        bookmakerName: bm.title,
+        markets: (bm.markets ?? []).map((m: any) => ({
+          marketKey: m.key,
+          outcomes: (m.outcomes ?? []).map((o: any) => ({
+            name: o.name,
+            price: o.price,
+            point: o.point,
+            description: o.description,
+          })),
+        })),
+      })),
+    };
+  }
+
+  private formatLineKey(point: unknown): string {
+    const n = Number(point);
+    if (!Number.isFinite(n)) return '0';
+    return Number.isInteger(n) ? String(n) : String(n);
+  }
+
+  private toSelectionKey(match: OddsMatch, marketKey: string, outcome: OutcomeOdds): string | null {
+    const normalize = (v: string): string =>
+      String(v ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '')
+        .trim();
+
+    const name = String(outcome.name ?? '').trim();
+    const desc = String(outcome.description ?? '').trim();
+    const nameLower = name.toLowerCase();
+    const market = String(marketKey ?? '').toLowerCase();
+
+    const homeNorm = normalize(match.homeTeam);
+    const awayNorm = normalize(match.awayTeam);
+    const nameNorm = normalize(name);
+    const descNorm = normalize(desc);
+    const combinedNorm = `${nameNorm}${descNorm}`;
+
+    const isHome = name === match.homeTeam || nameLower === 'home'
+      || nameNorm === homeNorm
+      || combinedNorm.includes(homeNorm);
+    const isAway = name === match.awayTeam || nameLower === 'away'
+      || nameNorm === awayNorm
+      || combinedNorm.includes(awayNorm);
+
+    const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
+    const compactLine = lineRaw.replace('.', '');
+
+    if (market === 'h2h' || market === 'h2h_3_way') {
+      if (isHome) return 'homeWin';
+      if (isAway) return 'awayWin';
+      if (nameLower === 'draw') return 'draw';
+      return null;
+    }
+
+    if (market === 'btts') {
+      if (nameLower === 'yes' || nameLower === 'si') return 'btts';
+      if (nameLower === 'no') return 'bttsNo';
+      return null;
+    }
+
+    if (market === 'draw_no_bet') {
+      if (isHome) return 'dnb_home';
+      if (isAway) return 'dnb_away';
+      return null;
+    }
+
+    if (market === 'totals' || market === 'alternate_totals') {
+      if (nameLower !== 'over' && nameLower !== 'under') return null;
+      return `${nameLower}${compactLine}`;
+    }
+
+    if (market === 'team_totals' || market === 'alternate_team_totals') {
+      if (nameLower !== 'over' && nameLower !== 'under') return null;
+      if (isHome || descNorm.includes(homeNorm)) return `team_home_${nameLower}_${compactLine}`;
+      if (isAway || descNorm.includes(awayNorm)) return `team_away_${nameLower}_${compactLine}`;
+      return null;
+    }
+
+    if (market === 'spreads' || market === 'alternate_spreads') {
+      const point = Number(outcome.point ?? 0);
+      if (!Number.isFinite(point)) return null;
+
+      const homeLine = isHome ? point : isAway ? -point : NaN;
+      if (!Number.isFinite(homeLine)) return null;
+      const normalizedHomeLine = Object.is(homeLine, -0) ? 0 : homeLine;
+      const line = Number.isInteger(normalizedHomeLine)
+        ? String(normalizedHomeLine)
+        : String(normalizedHomeLine);
+      if (isHome) return `ahcp_${line}`;
+      if (isAway) return `ahcp_away_${line}`;
+      return null;
+    }
+
+    if (market.includes('double_chance')) {
+      const token = normalize(name);
+      if (token.includes('1x') || (token.includes('home') && token.includes('draw'))) return 'double_chance_1x';
+      if (token.includes('x2') || (token.includes('draw') && token.includes('away'))) return 'double_chance_x2';
+      if (token.includes('12') || (token.includes('home') && token.includes('away'))) return 'double_chance_12';
+      return null;
+    }
+
+    if ((market.includes('shots') || market.includes('cards') || market.includes('fouls')) && (nameLower === 'over' || nameLower === 'under')) {
+      const domain = market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
+        ? 'sot_total'
+        : market.includes('shots')
+          ? 'shots_total'
+          : market.includes('cards') || market.includes('yellow')
+            ? 'yellow'
+            : 'fouls';
+      return `${domain}_${nameLower}_${lineRaw}`;
+    }
+
+    return null;
   }
 
   /**
@@ -208,41 +375,11 @@ export class OddsApiService {
       if (!bookmaker) continue;
 
       for (const market of bookmaker.markets) {
-        if (market.marketKey === 'h2h') {
-          // 1X2
-          for (const outcome of market.outcomes) {
-            if (outcome.name === match.homeTeam || outcome.name === 'Home') {
-              if (odds['homeWin'] === undefined) odds['homeWin'] = outcome.price;
-            } else if (outcome.name === 'Draw') {
-              if (odds['draw'] === undefined) odds['draw'] = outcome.price;
-            } else if (outcome.name === match.awayTeam || outcome.name === 'Away') {
-              if (odds['awayWin'] === undefined) odds['awayWin'] = outcome.price;
-            }
-          }
-        } else if (market.marketKey === 'totals') {
-          // Over/Under goal
-          for (const outcome of market.outcomes) {
-            const name = String(outcome.name ?? '').toLowerCase();
-            if (name !== 'over' && name !== 'under') continue;
-            const line = outcome.point ?? 2.5;
-            const normalKey = name === 'over'
-              ? `over${String(line).replace('.', '')}`
-              : `under${String(line).replace('.', '')}`;
-            if (odds[normalKey] === undefined && Number.isFinite(outcome.price) && outcome.price > 1) {
-              odds[normalKey] = outcome.price;
-            }
-          }
-        } else if (market.marketKey === 'spreads') {
-          // Handicap
-          for (const outcome of market.outcomes) {
-            const line = outcome.point ?? 0;
-            if (outcome.name === match.homeTeam || outcome.name === 'Home') {
-              const key = `handicapHome${line > 0 ? '+' : ''}${line}`;
-              if (odds[key] === undefined) odds[key] = outcome.price;
-            } else {
-              const key = `handicapAway${line > 0 ? '+' : ''}${line}`;
-              if (odds[key] === undefined) odds[key] = outcome.price;
-            }
+        for (const outcome of market.outcomes) {
+          const key = this.toSelectionKey(match, market.marketKey, outcome);
+          if (!key) continue;
+          if (odds[key] === undefined && Number.isFinite(outcome.price) && outcome.price > 1) {
+            odds[key] = outcome.price;
           }
         }
       }
