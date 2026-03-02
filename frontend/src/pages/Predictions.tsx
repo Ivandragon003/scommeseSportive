@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getEurobetOddsForMatch, placeBet } from '../utils/api';
+import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getEurobetOddsForMatch, placeBet, getBets } from '../utils/api';
 import axios from 'axios';
 
 interface PredictionsProps { activeUser: string; }
@@ -43,7 +43,30 @@ const MARKET_LABELS: Record<string,string> = {
   'shots_total_over_23.5':'Tiri O23.5','shots_total_over_25.5':'Tiri O25.5',
   'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5',
 };
-const mktLabel = (k: string) => MARKET_LABELS[k] ?? k.replace(/_/g,' ');
+const prettyLine = (raw: string): string => {
+  const cleaned = String(raw ?? '').trim().replace(',', '.');
+  if (/^-?\d+\.\d+$/.test(cleaned)) return cleaned;
+  if (/^-?\d+$/.test(cleaned) && cleaned.length >= 2) return `${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`;
+  return cleaned;
+};
+const mktLabel = (k: string) => {
+  if (MARKET_LABELS[k]) return MARKET_LABELS[k];
+  const stats = k.match(/^(shots_total|shots_home|shots_away|sot_total|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
+  if (stats) {
+    const domainLabel: Record<string, string> = {
+      shots_total: 'Tiri Totali',
+      shots_home: 'Tiri Casa',
+      shots_away: 'Tiri Ospite',
+      sot_total: 'Tiri in Porta Totali',
+      fouls: 'Falli Totali',
+      yellow: 'Gialli Totali',
+      cards_total: 'Cartellini Pesati',
+    };
+    const side = stats[2].toLowerCase() === 'over' ? 'Over' : 'Under';
+    return `${domainLabel[stats[1].toLowerCase()] ?? stats[1]} ${side} ${prettyLine(stats[3])}`;
+  }
+  return k.replace(/_/g, ' ');
+};
 const confidenceRank = (v?: string): number => v === 'HIGH' ? 3 : v === 'MEDIUM' ? 2 : 1;
 const rankOpportunity = (o: any): number => {
   const ev = Number(o?.expectedValue ?? 0);
@@ -83,11 +106,11 @@ const fmtSelection = (selection: string): string => {
     return `${side} ${line} Goal`;
   }
 
-  const teamTotals = selection.match(/^team_(home|away)_(over|under)_(\d+)$/i);
-  if (teamTotals && teamTotals[3].length >= 2) {
+  const teamTotals = selection.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
+  if (teamTotals) {
     const team = teamTotals[1].toLowerCase() === 'home' ? 'Casa' : 'Ospite';
     const side = teamTotals[2].toLowerCase() === 'over' ? 'Over' : 'Under';
-    const line = `${teamTotals[3].slice(0, -1)}.${teamTotals[3].slice(-1)}`;
+    const line = prettyLine(teamTotals[3]);
     return `Goal ${team} ${side} ${line}`;
   }
 
@@ -110,6 +133,16 @@ const fmtMarketKey = (market: string): string => {
   if (k === 'model_estimated') return 'Quote stimate dal modello';
   return market;
 };
+
+const formatCompactOuKey = (k: string): string => {
+  const clean = String(k ?? '').toLowerCase().replace(/^over|^under/, '');
+  if (/^\d+\.\d+$/.test(clean)) return clean;
+  if (/^\d+$/.test(clean) && clean.length >= 2) return `${clean.slice(0, -1)}.${clean.slice(-1)}`;
+  return clean;
+};
+
+const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
+  `${String(matchId ?? '')}::${String(selection ?? '')}::${String(marketName ?? '')}`;
 
 const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
   { term: 'Quota', meaning: 'Prezzo bookmaker decimale della selezione (es. 2.10).' },
@@ -313,6 +346,7 @@ const S = `
   padding:14px 18px; border-bottom:1px solid var(--border);
 }
 .pr-vb-market { font-size:14px; font-weight:800; margin-bottom:6px; }
+.pr-vb-market-sub { font-size:11px; color:var(--text-2); font-family:'DM Mono',monospace; }
 .pr-vb-ev-num { font-family:'DM Mono',monospace; font-size:20px; font-weight:700; color:var(--green); }
 .pr-vb-ev-lbl { font-size:9px; color:var(--text-2); letter-spacing:1px; text-align:right; }
 .pr-vb-stats { display:grid; grid-template-columns:repeat(5,1fr); border-bottom:1px solid var(--border); }
@@ -332,7 +366,7 @@ const S = `
   font-size:13px; width:90px; outline:none; transition:border-color var(--transition);
 }
 .pr-stake-input:focus { border-color:var(--green); }
-.pr-suggest { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
+.pr-suggest { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; display:flex; flex-direction:column; line-height:1.35; }
 
 /* BADGES / ALERTS inline */
 .pr-badge {
@@ -457,8 +491,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [activeMatchId, setActiveMatchId] = useState<string|null>(null);
   const [tab, setTab] = useState('1x2');
   const [budget, setBudget] = useState<any>(null);
+  const [userBets, setUserBets] = useState<any[]>([]);
   const [stakes, setStakes] = useState<Record<string,string>>({});
-  const [betDone, setBetDone] = useState<Record<string,boolean>>({});
   const [odds, setOdds] = useState<Record<string,string>>({});
   const [marketsRequested, setMarketsRequested] = useState<string[]>([]);
   const [oddsMsg, setOddsMsg] = useState('');
@@ -474,9 +508,23 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     cachedAt: number;
   }>>(new Map());
 
+  const loadUserContext = async () => {
+    try {
+      const [budgetRes, betsRes] = await Promise.all([
+        getBudget(activeUser),
+        getBets(activeUser),
+      ]);
+      setBudget(budgetRes.data ?? null);
+      setUserBets(betsRes.data ?? []);
+    } catch {
+      setBudget(null);
+      setUserBets([]);
+    }
+  };
+
   useEffect(() => {
     getTeams().then(r => setTeams(r.data ?? []));
-    getBudget(activeUser).then(r => setBudget(r.data));
+    loadUserContext();
   }, [activeUser]);
 
   const loadUpcoming = async () => {
@@ -510,6 +558,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       .sort(([a],[b]) => a==='unknown'?1:b==='unknown'?-1:a.localeCompare(b))
       .map(([k,ms]) => ({key:k, label:formatDayLabel(k), matches:[...ms].sort((a:any,b:any) => new Date(a.date).getTime()-new Date(b.date).getTime())}));
   }, [upcoming]);
+  const activeMatchRow = useMemo(
+    () => upcoming.find((m: any) => String(m.match_id ?? '') === String(activeMatchId ?? '')),
+    [upcoming, activeMatchId]
+  );
 
   const parseOdds = () => {
     const out: Record<string,number> = {};
@@ -534,11 +586,12 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     const comp = String(match.competition ?? competition);
     const mid = String(match.match_id ?? '');
     if (!homeId || !awayId) return;
-    const cacheKey = `${mid}|${homeId}|${awayId}|${comp}`;
+    const resolvedMatchId = mid || `match_${homeId}_${awayId}_${dateToDayKey(String(match.date ?? ''))}`;
+    const cacheKey = `${resolvedMatchId}|${homeId}|${awayId}|${comp}`;
     const cached = analysisCacheRef.current.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.cachedAt < 120000) {
-      setActiveMatchId(mid);
+      setActiveMatchId(resolvedMatchId);
       setPred(cached.pred);
       setOdds(cached.odds);
       setMarketsRequested(cached.marketsRequested);
@@ -547,7 +600,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       const st: Record<string, string> = {};
       for (const o of cached.pred?.valueOpportunities ?? []) {
         if (budget?.available_budget) {
-          st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+          const k = buildBetKey(String(cached.pred?.matchId ?? resolvedMatchId), String(o.selection), String(o.marketName));
+          st[k] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
         }
       }
       setStakes(st);
@@ -556,8 +610,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     }
 
     const reqId = ++analyzeReqRef.current;
-    setActiveMatchId(mid);
-    setLoadingMatchId(mid);
+    setActiveMatchId(resolvedMatchId);
+    setLoadingMatchId(mid || resolvedMatchId);
     setOddsMsg(''); setOdds({});
     setMarketsRequested([]);
     if (comp && comp !== competition) setCompetition(comp);
@@ -573,6 +627,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       // Fase 1: prediction base + recupero quote in parallelo per mostrare la schermata piu velocemente
       const basePredPromise = axios.post('/api/predict', {
         homeTeamId: homeId, awayTeamId: awayId,
+        matchId: resolvedMatchId,
         competition: comp || undefined
       });
       const oddsPromise = getEurobetOddsForMatch({
@@ -621,6 +676,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         const enrichedRes = await axios.post('/api/predict', {
           homeTeamId: homeId,
           awayTeamId: awayId,
+          matchId: resolvedMatchId,
           competition: comp || undefined,
           bookmakerOdds: autoOdds
         });
@@ -641,7 +697,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       const st: Record<string,string> = {};
       for (const o of finalPred?.valueOpportunities ?? []) {
         if (budget?.available_budget) {
-          st[o.selection] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+          const k = buildBetKey(String(finalPred?.matchId ?? resolvedMatchId), String(o.selection), String(o.marketName));
+          st[k] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
         }
       }
       setStakes(st);
@@ -664,12 +721,31 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
 
   const handleBet = async (opp: any) => {
     if (!budget) return alert('Inizializza il bankroll nella sezione Budget.');
-    const stake = parseFloat(stakes[opp.selection] ?? '0');
-    if (!stake) return alert('Inserisci importo');
+    const oppKey = buildBetKey(String(pred?.matchId ?? activeMatchId ?? ''), String(opp.selection), String(opp.marketName));
+    const manualStake = parseFloat(stakes[oppKey] ?? '0');
+    const suggestedStake = bankroll > 0 ? (Number(opp.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
+    const fallbackStake = Math.max(1, Number(suggestedStake.toFixed(2)));
+    const stake = manualStake > 0 ? manualStake : fallbackStake;
+    if (!manualStake && stake > 0) {
+      setStakes((p) => ({ ...p, [oppKey]: stake.toFixed(2) }));
+    }
+    if (stake < 1) return alert('Puntata minima Eurobet: 1 EUR');
     try {
-      await placeBet({ userId:activeUser, matchId:pred.matchId, marketName:opp.marketName, selection:opp.selection, odds:opp.bookmakerOdds, stake, ourProbability:opp.ourProbability/100, expectedValue:opp.expectedValue/100 });
-      setBetDone(p => ({...p,[opp.selection]:true}));
-      getBudget(activeUser).then(r => setBudget(r.data));
+      await placeBet({
+        userId: activeUser,
+        matchId: String(pred.matchId),
+        marketName: String(opp.marketName),
+        selection: String(opp.selection),
+        odds: Number(opp.bookmakerOdds),
+        stake,
+        ourProbability: Number(opp.ourProbability) / 100,
+        expectedValue: Number(opp.expectedValue) / 100,
+        homeTeamName: String(pred.homeTeam ?? ''),
+        awayTeamName: String(pred.awayTeam ?? ''),
+        competition: String(pred.competition ?? competition ?? ''),
+        matchDate: String(activeMatchRow?.date ?? ''),
+      });
+      await loadUserContext();
     } catch (e:any) { alert(e?.response?.data?.error ?? e?.message ?? 'Errore.'); }
   };
 
@@ -694,6 +770,18 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     () => new Set((vb ?? []).map((o: any) => String(o.selection))),
     [vb]
   );
+  const currentMatchId = String(pred?.matchId ?? activeMatchId ?? '');
+  const placedBetKeySet = useMemo(
+    () =>
+      new Set(
+        (userBets ?? []).map((b: any) =>
+          buildBetKey(String(b.match_id ?? ''), String(b.selection ?? ''), String(b.market_name ?? ''))
+        )
+      ),
+    [userBets]
+  );
+  const oppStakeKey = (o: any) => buildBetKey(currentMatchId, String(o.selection ?? ''), String(o.marketName ?? ''));
+  const oppStakeValue = (o: any) => Number(stakes[oppStakeKey(o)] ?? 0);
   const bankroll = Number(budget?.available_budget ?? 0);
   const maxExposurePct = 8;
   const maxExposureAmount = bankroll > 0 ? (bankroll * maxExposurePct) / 100 : 0;
@@ -1013,7 +1101,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         <div className="pr-card-body">
                           <DistChart dist={cp.totalYellow.distribution} expected={cp.totalYellow.expected} title="P(gialli = k)" color="var(--gold)" />
                           {['over15','over25','over35','over45','over55'].map(k => (
-                            <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)/,'$1.$2')}`} value={(cp.overUnder as any)[k]} color="var(--gold)" />
+                            <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={(cp.overUnder as any)[k]} color="var(--gold)" />
                           ))}
                         </div>
                       </div>
@@ -1052,7 +1140,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                       <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--purple)" />
                       <div className="pr-g2">
                         {Object.entries(fp.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                          <ProbBar key={k} label={`Over ${k.replace('over','').replace(/(\d)(\d)(\d)/,'$1$2.$3')}`} value={v as number} color="var(--purple)" />
+                          <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={v as number} color="var(--purple)" />
                         ))}
                       </div>
                     </div>
@@ -1092,13 +1180,13 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                           <div>
                             <div className="pr-sec">Tiri Totali</div>
                             {Object.entries(sp.combined.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                              <ProbBar key={k} label={`O ${k.replace('over','')}`} value={v as number} color="var(--blue)" />
+                              <ProbBar key={k} label={`Over ${formatCompactOuKey(k)} tiri`} value={v as number} color="var(--blue)" />
                             ))}
                           </div>
                           <div>
                             <div className="pr-sec">Tiri in Porta</div>
                             {Object.entries(sp.combined.onTargetOverUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                              <ProbBar key={k} label={`O ${k.replace('over','')}`} value={v as number} color="var(--green)" />
+                              <ProbBar key={k} label={`Over ${formatCompactOuKey(k)} in porta`} value={v as number} color="var(--green)" />
                             ))}
                           </div>
                         </div>
@@ -1225,7 +1313,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                   <div className={`pr-badge ${o.confidence==='HIGH' ? 'pr-badge-green' : o.confidence==='MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
                                     {o.confidence}
                                   </div>
-                                  <div className="fp-mono" style={{ marginTop: 5 }}>EUR {Number(o.suggestedStakeAmount ?? 0).toFixed(2)}</div>
+                                  <div className="fp-mono" style={{ marginTop: 5 }}>
+                                    EUR {Number(o.suggestedStakeAmount ?? 0).toFixed(2)} ({Number(o.suggestedStakePercent ?? 0).toFixed(2)}% budget)
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -1379,11 +1469,18 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         <div className="pr-alert pr-alert-success">
                           OK <strong>{vb.length}</strong> scommesse EV positivo (soglia &gt;2%)
                         </div>
-                        {vbRanked.map((o:any) => (
-                          <div key={o.selection} className={`pr-vb${o.confidence==='MEDIUM'?' medium':o.confidence==='LOW'?' low':''}`}>
+                        {vbRanked.map((o:any) => {
+                          const stakeKey = oppStakeKey(o);
+                          const currentStake = oppStakeValue(o);
+                          const currentStakePct = bankroll > 0 ? (currentStake / bankroll) * 100 : 0;
+                          const suggestedAmount = bankroll > 0 ? (Number(o.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
+                          const alreadyPlaced = placedBetKeySet.has(stakeKey);
+                          return (
+                          <div key={stakeKey} className={`pr-vb${o.confidence==='MEDIUM'?' medium':o.confidence==='LOW'?' low':''}`}>
                             <div className="pr-vb-top">
                               <div>
                                 <div className="pr-vb-market">{o.marketName}</div>
+                                <div className="pr-vb-market-sub">{fmtSelection(String(o.selection))}</div>
                                 <span className={`pr-badge ${o.confidence==='HIGH'?'pr-badge-green':o.confidence==='MEDIUM'?'pr-badge-blue':'pr-badge-gold'}`}>
                                   {o.confidence}
                                 </span>
@@ -1412,17 +1509,20 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                 <span className="pr-stake-lbl">Puntata EUR</span>
                                 <input
                                   className="pr-stake-input" type="number"
-                                  value={stakes[o.selection] ?? ''}
-                                  placeholder={`${o.suggestedStakePercent}%`}
-                                  onChange={e => setStakes(p => ({...p,[o.selection]:e.target.value}))}
+                                  min={1}
+                                  step={0.1}
+                                  value={stakes[stakeKey] ?? ''}
+                                  placeholder={suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '1.00'}
+                                  onChange={e => setStakes(p => ({...p,[stakeKey]:e.target.value}))}
                                 />
                                 {budget && (
                                   <span className="pr-suggest">
-                                    sugg. EUR {((o.suggestedStakePercent/100)*(budget.available_budget??0)).toFixed(2)}
+                                    <span>{currentStake > 0 ? `attuale ${currentStakePct.toFixed(1)}% budget` : 'attuale 0.0% budget'}</span>
+                                    <span>sugg. EUR {suggestedAmount.toFixed(2)} ({Number(o.suggestedStakePercent ?? 0).toFixed(2)}% budget)</span>
                                   </span>
                                 )}
                               </div>
-                              {betDone[o.selection]
+                              {alreadyPlaced
                                 ? <span className="pr-badge pr-badge-green">OK Registrata</span>
                                 : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
                                     Scommetti -&gt;
@@ -1430,7 +1530,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                               }
                             </div>
                           </div>
-                        ))}
+                        )})}
                       </>
                     )}
                   </div>

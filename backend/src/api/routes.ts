@@ -283,7 +283,7 @@ function formatPrediction(pred: any): any {
   const totalYellowExp = Number(cards.expectedTotalYellow ?? 0);
   const homeYellowExp = Number(cards.expectedHomeYellow ?? 0);
   const awayYellowExp = Number(cards.expectedAwayYellow ?? 0);
-  const redExp = Number(cards.expectedHomeCornered ?? 0) + Number(cards.expectedAwayRed ?? 0);
+  const redExp = Number(cards.expectedHomeRed ?? 0) + Number(cards.expectedAwayRed ?? 0);
 
   const totalFoulsExp = Number(fouls.expectedTotalFouls ?? 0);
   const homeFoulsExp = Number(fouls.expectedHomeFouls ?? 0);
@@ -504,7 +504,10 @@ function formatPrediction(pred: any): any {
 }
 // ====== BUDGET & BETS ======
 router.get('/budget/:userId', async (req: Request, res: Response) => {
-  try { res.json({ success: true, data: await svc.getBudget(req.params.userId) }); }
+  try {
+    await svc.syncPendingBets(req.params.userId);
+    res.json({ success: true, data: await svc.getBudget(req.params.userId) });
+  }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
@@ -518,8 +521,32 @@ router.post('/budget/:userId/init', async (req: Request, res: Response) => {
 
 router.post('/bets/place', async (req: Request, res: Response) => {
   try {
-    const { userId, matchId, marketName, selection, odds, stake, ourProbability, expectedValue } = req.body;
-    const result = await svc.placeBet(userId, matchId, marketName, selection, odds, stake, ourProbability, expectedValue);
+    const {
+      userId,
+      matchId,
+      marketName,
+      selection,
+      odds,
+      stake,
+      ourProbability,
+      expectedValue,
+      homeTeamName,
+      awayTeamName,
+      competition,
+      matchDate,
+    } = req.body;
+
+    const result = await svc.placeBet(
+      userId,
+      matchId,
+      marketName,
+      selection,
+      odds,
+      stake,
+      ourProbability,
+      expectedValue,
+      { homeTeamName, awayTeamName, competition, matchDate }
+    );
     res.json({ success: true, data: result });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
@@ -532,7 +559,10 @@ router.post('/bets/:betId/settle', async (req: Request, res: Response) => {
 });
 
 router.get('/bets/:userId', async (req: Request, res: Response) => {
-  try { res.json({ success: true, data: await db.getBets(req.params.userId, req.query.status as string) }); }
+  try {
+    await svc.syncPendingBets(req.params.userId);
+    res.json({ success: true, data: await svc.getBets(req.params.userId, req.query.status as string) });
+  }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
@@ -856,7 +886,7 @@ async function runFotmobImport(req: Request, res: Response) {
         isUpToDate: totalNew === 0,
         forceRefresh,
         message: totalNew === 0
-          ? 'DB giÃ  aggiornato, nessuna nuova partita trovata.'
+          ? 'DB gia aggiornato, nessuna nuova partita trovata.'
           : `Importate ${totalImported} partite (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       }
@@ -873,7 +903,7 @@ router.post('/scraper/fotmob', runFotmobImport);
 
 /**
  * Info sulle competizioni e stagioni disponibili + stato del DB.
- * Utile per il frontend per sapere quando Ã¨ stato fatto l'ultimo import.
+ * Utile per il frontend per sapere quando e stato fatto l'ultimo import.
  */
 router.get('/scraper/fotmob/info', async (_req, res) => {
   const competitions = FotmobScraper.getSupportedCompetitions();

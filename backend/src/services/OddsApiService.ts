@@ -4,7 +4,7 @@
  * Integrazione con https://the-odds-api.com
  *
  * Piano gratuito: 500 richieste/mese
- * Ogni richiesta = 1 sport Ã— 1 regione Ã— 1 mercato
+ * Ogni richiesta = 1 sport  1 regione  1 mercato
  *
  * STIMA CONSUMO per uso personale Serie A:
  * - 1 richiesta/giorno per le quote aggiornate = ~30/mese
@@ -14,10 +14,10 @@
  * Altri disponibili: "bet365", "snai", "sisal", "betfair"
  *
  * MERCATI SUPPORTATI:
- * - h2h â†’ 1X2 (home win / draw / away win)
- * - totals â†’ Over/Under goal
- * - spreads â†’ Handicap
- * (BTTS non disponibile in The Odds API â€” calcolato dal modello)
+ * - h2h  1X2 (home win / draw / away win)
+ * - totals  Over/Under goal
+ * - spreads  Handicap
+ * (BTTS non disponibile in The Odds API  calcolato dal modello)
  *
  * SPORT KEY per la Serie A: "soccer_italy_serie_a"
  * Altri: "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga"
@@ -51,7 +51,7 @@ export interface OutcomeOdds {
   description?: string;       // contesto outcome (es. nome squadra nei team totals)
 }
 
-// Mappa sport key â†’ nome leggibile
+// Mappa sport key  nome leggibile
 const SPORT_KEYS: Record<string, string> = {
   'Serie A':        'soccer_italy_serie_a',
   'Premier League': 'soccer_epl',
@@ -61,7 +61,7 @@ const SPORT_KEYS: Record<string, string> = {
   'Champions League': 'soccer_uefa_champs_league',
 };
 
-// Bookmaker preferiti in ordine di prioritÃ 
+// Bookmaker preferiti in ordine di priorit
 const PREFERRED_BOOKMAKERS = ['eurobet', 'bet365', 'snai', 'sisal', 'unibet', 'betfair_ex_eu'];
 
 export class OddsApiService {
@@ -127,8 +127,8 @@ export class OddsApiService {
     if (bookmakers.length > 0) params.bookmakers = bookmakers.join(',');
 
     console.log(
-      `[OddsApi] Scaricando quote ${competition} â€” mercati: ${markets.join(', ')}${
-        bookmakers.length > 0 ? ` â€” bookmakers: ${bookmakers.join(', ')}` : ' â€” bookmakers: all'
+      `[OddsApi] Scaricando quote ${competition}  mercati: ${markets.join(', ')}${
+        bookmakers.length > 0 ? `  bookmakers: ${bookmakers.join(', ')}` : '  bookmakers: all'
       }`
     );
 
@@ -276,6 +276,15 @@ export class OddsApiService {
     const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
     const compactLine = lineRaw.replace('.', '');
 
+    const domainFromContext = (): 'shots_total' | 'sot_total' | 'fouls' | 'yellow' | null => {
+      const probe = `${market} ${nameLower} ${desc.toLowerCase()}`.replace(/[^a-z0-9\s]/g, ' ');
+      if (/\bshots?\s+on\s+target\b|\bon\s+target\b|\bsot\b/.test(probe)) return 'sot_total';
+      if (/\bshots?\b/.test(probe)) return 'shots_total';
+      if (/\bfouls?\b/.test(probe)) return 'fouls';
+      if (/\byellow\b|\bcards?\b|\bbookings?\b/.test(probe)) return 'yellow';
+      return null;
+    };
+
     if (market === 'h2h' || market === 'h2h_3_way') {
       if (isHome) return 'homeWin';
       if (isAway) return 'awayWin';
@@ -297,6 +306,8 @@ export class OddsApiService {
 
     if (market === 'totals' || market === 'alternate_totals') {
       if (nameLower !== 'over' && nameLower !== 'under') return null;
+      const contextualDomain = domainFromContext();
+      if (contextualDomain) return `${contextualDomain}_${nameLower}_${lineRaw}`;
       return `${nameLower}${compactLine}`;
     }
 
@@ -331,13 +342,15 @@ export class OddsApiService {
     }
 
     if ((market.includes('shots') || market.includes('cards') || market.includes('fouls')) && (nameLower === 'over' || nameLower === 'under')) {
-      const domain = market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
+      const contextualDomain = domainFromContext();
+      const domain = contextualDomain
+        ?? (market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
         ? 'sot_total'
         : market.includes('shots')
           ? 'shots_total'
           : market.includes('cards') || market.includes('yellow')
             ? 'yellow'
-            : 'fouls';
+            : 'fouls');
       return `${domain}_${nameLower}_${lineRaw}`;
     }
 
@@ -417,8 +430,8 @@ export class OddsApiService {
 
   /**
    * Calcola il margine (vig/vigorish) implicito del bookmaker.
-   * Margine = somma probabilitÃ  implicite - 1
-   * Esempio: 1/1.85 + 1/3.40 + 1/4.20 = 0.541 + 0.294 + 0.238 = 1.073 â†’ margine 7.3%
+   * Margine = somma probabilit implicite - 1
+   * Esempio: 1/1.85 + 1/3.40 + 1/4.20 = 0.541 + 0.294 + 0.238 = 1.073  margine 7.3%
    * Media Serie A bookmaker italiani: ~5-8%
    */
   calculateMargin(match: OddsMatch, bookmakerKey: string): number | null {

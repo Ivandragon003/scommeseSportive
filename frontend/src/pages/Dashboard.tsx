@@ -58,7 +58,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
 
   const roi = budget?.roi ?? 0;
   const winRate = budget?.win_rate ?? 0;
-  const netProfit = (budget?.total_won ?? 0) - (budget?.total_lost ?? 0);
+  const netProfit = ((Number(budget?.total_staked ?? 0) * Number(roi ?? 0)) / 100);
 
   return (
     <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
@@ -69,7 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
           Dashboard
         </h1>
         <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-          Panoramica del sistema · {activeUser}
+          Panoramica del sistema | {activeUser}
         </p>
         {refreshing && (
           <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '8px 0 0', fontFamily: 'DM Mono, monospace' }}>
@@ -82,7 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
       {showInit && (
         <div className="fp-card" style={{ maxWidth: 520, margin: '0 auto 32px' }}>
           <div className="fp-card-head">
-            <div className="fp-card-title">💼 Inizializza Budget</div>
+            <div className="fp-card-title"> Inizializza Budget</div>
           </div>
           <div className="fp-card-body">
             <p style={{ marginBottom: 18, color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6 }}>
@@ -90,7 +90,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
             </p>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', maxWidth: 340 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Budget iniziale (€)</label>
+                <label className="fp-label">Budget iniziale (EUR)</label>
                 <input
                   className="fp-input"
                   type="number"
@@ -101,7 +101,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
                 />
               </div>
               <button className="fp-btn fp-btn-solid" onClick={handleInitBudget}>
-                Inizializza →
+                Inizializza
               </button>
             </div>
           </div>
@@ -114,22 +114,22 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
           <div className="fp-grid-4" style={{ marginBottom: 24 }}>
             {[
               {
-                icon: '💰', label: 'Budget Disponibile',
-                val: `€${budget.available_budget?.toFixed(2)}`,
+                icon: '', label: 'Budget Disponibile',
+                val: `EUR ${budget.available_budget?.toFixed(2)}`,
                 c: 'green',
               },
               {
-                icon: roi >= 0 ? '📈' : '📉', label: 'ROI',
+                icon: roi >= 0 ? '' : '', label: 'ROI',
                 val: `${roi >= 0 ? '+' : ''}${roi?.toFixed(2)}%`,
                 c: roi >= 0 ? 'green' : 'red',
               },
               {
-                icon: '🎯', label: 'Win Rate',
+                icon: '', label: 'Win Rate',
                 val: `${winRate?.toFixed(1)}%`,
                 c: 'gold',
               },
               {
-                icon: '🧾', label: 'Scommesse Totali',
+                icon: '', label: 'Scommesse Totali',
                 val: budget.total_bets ?? 0,
                 c: 'blue',
               },
@@ -148,20 +148,20 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
             {/* Riepilogo finanziario */}
             <div className="fp-card">
               <div className="fp-card-head">
-                <div className="fp-card-title">📊 Riepilogo Finanziario</div>
+                <div className="fp-card-title"> Riepilogo Finanziario</div>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
                   <tbody>
                     {[
-                      { label: 'Budget Totale', val: `€${budget.total_budget?.toFixed(2)}`, style: { fontWeight: 700 } },
-                      { label: 'Budget Disponibile', val: `€${budget.available_budget?.toFixed(2)}`, style: { color: 'var(--blue)', fontWeight: 700 } },
-                      { label: 'Totale Puntato', val: `€${budget.total_staked?.toFixed(2)}`, style: {} },
-                      { label: 'Totale Vinto', val: `€${budget.total_won?.toFixed(2)}`, style: { color: 'var(--green)', fontWeight: 600 } },
-                      { label: 'Totale Perso', val: `€${budget.total_lost?.toFixed(2)}`, style: { color: 'var(--red)', fontWeight: 600 } },
+                      { label: 'Budget Totale', val: `EUR ${budget.total_budget?.toFixed(2)}`, style: { fontWeight: 700 } },
+                      { label: 'Budget Disponibile', val: `EUR ${budget.available_budget?.toFixed(2)}`, style: { color: 'var(--blue)', fontWeight: 700 } },
+                      { label: 'Totale Puntato', val: `EUR ${budget.total_staked?.toFixed(2)}`, style: {} },
+                      { label: 'Totale Vinto', val: `EUR ${budget.total_won?.toFixed(2)}`, style: { color: 'var(--green)', fontWeight: 600 } },
+                      { label: 'Totale Perso', val: `EUR ${budget.total_lost?.toFixed(2)}`, style: { color: 'var(--red)', fontWeight: 600 } },
                       {
                         label: 'Profitto Netto',
-                        val: `${netProfit >= 0 ? '+' : ''}€${netProfit.toFixed(2)}`,
+                        val: `${netProfit >= 0 ? '+' : ''}EUR ${netProfit.toFixed(2)}`,
                         style: { fontWeight: 800, color: netProfit >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 15 }
                       },
                     ].map(({ label, val, style }) => (
@@ -178,7 +178,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
             {/* Dati sistema */}
             <div className="fp-card">
               <div className="fp-card-head">
-                <div className="fp-card-title">🗄️ Dati nel Sistema</div>
+                <div className="fp-card-title"> Dati nel Sistema</div>
               </div>
               <div className="fp-card-body">
                 <div style={{
@@ -193,7 +193,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
                   </span>
                 </div>
                 <div className="fp-alert fp-alert-info">
-                  💡 Importa dati storici dalla sezione <strong>Gestione Dati</strong> per addestrare il modello.
+                   Importa dati storici dalla sezione <strong>Gestione Dati</strong> per addestrare il modello.
                   Poi usa <strong>Previsioni</strong> per analizzare le prossime partite.
                 </div>
               </div>
@@ -206,7 +206,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
       {recentBets.length > 0 && (
         <div className="fp-card">
           <div className="fp-card-head">
-            <div className="fp-card-title">🎯 Ultime Scommesse</div>
+            <div className="fp-card-title"> Ultime Scommesse</div>
             <span className="fp-badge fp-badge-gray">{recentBets.length} recenti</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
@@ -229,21 +229,21 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
                     <td style={{ fontWeight: 600 }}>{bet.market_name}</td>
                     <td style={{ color: 'var(--text-2)' }}>{bet.selection}</td>
                     <td className="fp-mono">{bet.odds?.toFixed(2)}</td>
-                    <td className="fp-mono">€{bet.stake?.toFixed(2)}</td>
+                    <td className="fp-mono">EUR {bet.stake?.toFixed(2)}</td>
                     <td className="fp-mono">{(bet.our_probability * 100)?.toFixed(2)}%</td>
                     <td className="fp-mono" style={{ color: 'var(--green)', fontWeight: 600 }}>
                       +{(bet.expected_value * 100)?.toFixed(2)}%
                     </td>
                     <td>
                       <span className={`fp-badge ${bet.status === 'WON' ? 'fp-badge-green' : bet.status === 'LOST' ? 'fp-badge-red' : bet.status === 'PENDING' ? 'fp-badge-blue' : 'fp-badge-gray'}`}>
-                        {bet.status === 'WON' ? '✓ VINTA' : bet.status === 'LOST' ? '✕ PERSA' : bet.status === 'PENDING' ? '⏳ ATTESA' : bet.status}
+                        {bet.status === 'WON' ? ' VINTA' : bet.status === 'LOST' ? ' PERSA' : bet.status === 'PENDING' ? ' ATTESA' : bet.status}
                       </span>
                     </td>
                     <td className="fp-mono" style={{
                       color: bet.profit > 0 ? 'var(--green)' : bet.profit < 0 ? 'var(--red)' : 'var(--text-2)',
                       fontWeight: 600
                     }}>
-                      {bet.profit !== null ? `${bet.profit > 0 ? '+' : ''}€${bet.profit?.toFixed(2)}` : '—'}
+                      {bet.profit !== null ? `${bet.profit > 0 ? '+' : ''}EUR ${bet.profit?.toFixed(2)}` : '-'}
                     </td>
                   </tr>
                 ))}

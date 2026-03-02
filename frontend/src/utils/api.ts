@@ -84,6 +84,10 @@ export const placeBet = (bet: {
   stake: number;
   ourProbability: number;
   expectedValue: number;
+  homeTeamName?: string;
+  awayTeamName?: string;
+  competition?: string;
+  matchDate?: string;
 }) =>
   API.post<ApiResponse<any>>('/bets/place', bet).then(r => r.data);
 

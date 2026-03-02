@@ -178,6 +178,10 @@ export class DatabaseService {
         bet_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(user_id),
         match_id TEXT NOT NULL,
+        home_team_name TEXT,
+        away_team_name TEXT,
+        competition TEXT,
+        match_date TEXT,
         market_name TEXT NOT NULL,
         selection TEXT NOT NULL,
         odds REAL NOT NULL,
@@ -225,6 +229,10 @@ export class DatabaseService {
       { table: 'players', column: 'total_shots_on_target', type: 'INTEGER DEFAULT 0' },
       { table: 'players', column: 'source_player_id', type: 'INTEGER' },
       { table: 'players', column: 'stats_json', type: 'TEXT' },
+      { table: 'bets', column: 'home_team_name', type: 'TEXT' },
+      { table: 'bets', column: 'away_team_name', type: 'TEXT' },
+      { table: 'bets', column: 'competition', type: 'TEXT' },
+      { table: 'bets', column: 'match_date', type: 'TEXT' },
     ];
 
     for (const c of columns) {
@@ -605,6 +613,41 @@ export class DatabaseService {
     return this.get('SELECT * FROM matches WHERE match_id = ?', [matchId]);
   }
 
+  async findPlayedMatchByTeams(
+    homeTeamName: string,
+    awayTeamName: string,
+    competition?: string,
+    matchDate?: string
+  ): Promise<any | null> {
+    const home = String(homeTeamName ?? '').trim().toLowerCase();
+    const away = String(awayTeamName ?? '').trim().toLowerCase();
+    if (!home || !away) return null;
+
+    let q = `
+      SELECT *
+      FROM matches
+      WHERE lower(trim(home_team_name)) = ?
+        AND lower(trim(away_team_name)) = ?
+        AND home_goals IS NOT NULL
+        AND away_goals IS NOT NULL
+    `;
+    const params: any[] = [home, away];
+
+    if (competition && String(competition).trim()) {
+      q += ' AND competition = ?';
+      params.push(String(competition).trim());
+    }
+
+    if (matchDate) {
+      q += ' ORDER BY ABS(julianday(date) - julianday(?)) ASC, datetime(date) DESC LIMIT 1';
+      params.push(matchDate);
+    } else {
+      q += ' ORDER BY datetime(date) DESC LIMIT 1';
+    }
+
+    return this.get(q, params);
+  }
+
   async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
     let q = `
       SELECT *
@@ -958,11 +1001,11 @@ export class DatabaseService {
     await this.run(
       `
       INSERT OR REPLACE INTO bets (
-        bet_id, user_id, match_id, market_name, selection,
+        bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
         odds, stake, our_probability, expected_value,
         status, return_amount, profit, placed_at, settled_at, notes
       ) VALUES (
-        :betId, :userId, :matchId, :marketName, :selection,
+        :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
         :odds, :stake, :ourProbability, :expectedValue,
         :status, :returnAmount, :profit, :placedAt, :settledAt, :notes
       )
@@ -971,6 +1014,14 @@ export class DatabaseService {
         betId: bet.betId,
         userId: bet.userId,
         matchId: bet.matchId,
+        homeTeamName: bet.homeTeamName ?? null,
+        awayTeamName: bet.awayTeamName ?? null,
+        competition: bet.competition ?? null,
+        matchDate: bet.matchDate
+          ? bet.matchDate instanceof Date
+            ? bet.matchDate.toISOString()
+            : bet.matchDate
+          : null,
         marketName: bet.marketName,
         selection: bet.selection,
         odds: bet.odds,
