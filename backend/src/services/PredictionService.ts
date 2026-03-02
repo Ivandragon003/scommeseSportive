@@ -123,8 +123,10 @@ export class PredictionService {
       fouls_over265: 'fouls_over_26.5',
       fouls_under235: 'fouls_under_23.5',
       shots_over225: 'shots_total_over_23.5',
+      shots_over235: 'shots_total_over_23.5',
       shots_over255: 'shots_total_over_25.5',
       shots_under225: 'shots_total_under_23.5',
+      shots_under235: 'shots_total_under_23.5',
       sot_over75: 'sot_total_over_7.5',
       sot_over95: 'sot_total_over_9.5',
       dnb_home_win: 'dnb_home',
@@ -402,9 +404,11 @@ export class PredictionService {
     }
     for (const [k, v] of Object.entries(probs.shotsHome.overUnder)) {
       flat[`shots_home_over_${k}`] = (v as any).over;
+      flat[`shots_home_under_${k}`] = (v as any).under;
     }
     for (const [k, v] of Object.entries(probs.shotsAway.overUnder)) {
       flat[`shots_away_over_${k}`] = (v as any).over;
+      flat[`shots_away_under_${k}`] = (v as any).under;
     }
 
     // Cartellini
@@ -434,8 +438,10 @@ export class PredictionService {
 
     // Alias legacy usati dal frontend
     flat.shots_over225 = probs.shotsTotal['23.5']?.over ?? 0;
+    flat.shots_over235 = probs.shotsTotal['23.5']?.over ?? 0;
     flat.shots_over255 = probs.shotsTotal['25.5']?.over ?? 0;
     flat.shots_under225 = probs.shotsTotal['23.5']?.under ?? 0;
+    flat.shots_under235 = probs.shotsTotal['23.5']?.under ?? 0;
     const lambdaSOT = Math.max(0.1, probs.shotsOnTargetHome.expected + probs.shotsOnTargetAway.expected);
     for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
       const over = poisOver(line, lambdaSOT);
@@ -475,9 +481,11 @@ export class PredictionService {
       fouls_over235: 'Falli Over 23.5',
       fouls_over265: 'Falli Over 26.5',
       fouls_under235: 'Falli Under 23.5',
-      shots_over225: 'Tiri Totali Over 22.5',
+      shots_over225: 'Tiri Totali Over 23.5',
+      shots_over235: 'Tiri Totali Over 23.5',
       shots_over255: 'Tiri Totali Over 25.5',
-      shots_under225: 'Tiri Totali Under 22.5',
+      shots_under225: 'Tiri Totali Under 23.5',
+      shots_under235: 'Tiri Totali Under 23.5',
       sot_over75: 'Tiri in Porta Over 7.5',
       sot_over95: 'Tiri in Porta Over 9.5',
     };
@@ -733,74 +741,392 @@ export class PredictionService {
   }
   // ==================== BUDGET ====================
 
-  async getBudget(userId: string) { return this.db.getBudget(userId); }
+  async getBudget(userId: string) {
+    return this.db.getBudget(userId);
+  }
 
   async initBudget(userId: string, amount: number) {
     await this.db.createOrResetBudget(userId, amount);
     return this.db.getBudget(userId);
   }
 
-  async placeBet(userId: string, matchId: string, marketName: string, selection: string, odds: number, stake: number, ourProbability: number, expectedValue: number) {
-    const budget = await this.db.getBudget(userId);
-    if (!budget) throw new Error('Budget non trovato');
-    if (stake > budget.available_budget) throw new Error(`Budget insufficiente: €${budget.available_budget.toFixed(2)} disponibili`);
-
-    const bet = {
-      betId: uuidv4(), userId, matchId, marketName, selection,
-      odds, stake, ourProbability, expectedValue,
-      status: 'PENDING', placedAt: new Date(),
-    };
-
-    await this.db.saveBet(bet);
-    await this.db.updateBudget({
-      userId, totalBudget: budget.total_budget,
-      availableBudget: budget.available_budget - stake,
-      totalBets: budget.total_bets + 1,
-      totalStaked: budget.total_staked + stake,
-      totalWon: budget.total_won, totalLost: budget.total_lost,
-      roi: budget.roi, winRate: budget.win_rate,
-    });
-
-    return { bet, budget: await this.db.getBudget(userId) };
+  async getBets(userId: string, status?: string) {
+    return this.db.getBets(userId, status);
   }
 
-  async settleBet(betId: string, won: boolean, returnAmount?: number) {
-    const betRow = await this.db.getBet(betId);
-    if (!betRow) throw new Error('Scommessa non trovata');
+  private parseMarketLine(raw: string): number | null {
+    const cleaned = String(raw ?? '').trim().replace(',', '.');
+    if (!cleaned) return null;
+    if (!/^-?\d+(?:\.\d+)?$/.test(cleaned)) return null;
+    if (cleaned.includes('.')) {
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (cleaned.length >= 2 && cleaned !== '0') {
+      const n = Number(`${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`);
+      return Number.isFinite(n) ? n : null;
+    }
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
 
-    const budget = await this.db.getBudget(betRow.user_id);
-    if (!budget) throw new Error('Budget non trovato');
+  private decideOverUnder(actual: number, side: 'over' | 'under', line: number): 'WON' | 'LOST' | 'VOID' {
+    if (actual > line) return side === 'over' ? 'WON' : 'LOST';
+    if (actual < line) return side === 'under' ? 'WON' : 'LOST';
+    return 'VOID';
+  }
 
-    const actualReturn = won ? (returnAmount ?? betRow.stake * betRow.odds) : 0;
-    const profit = actualReturn - betRow.stake;
+  private evaluateSelectionForMatch(
+    selection: string,
+    matchRow: any
+  ): { status: 'WON' | 'LOST' | 'VOID'; reason: string } | null {
+    const s = String(selection ?? '').trim().toLowerCase();
+    const hg = Number(matchRow?.home_goals);
+    const ag = Number(matchRow?.away_goals);
+    if (!Number.isFinite(hg) || !Number.isFinite(ag)) return null;
 
-    await this.db.saveBet({
-      ...betRow, betId: betRow.bet_id, userId: betRow.user_id, matchId: betRow.match_id,
-      marketName: betRow.market_name, ourProbability: betRow.our_probability,
-      expectedValue: betRow.expected_value, placedAt: betRow.placed_at,
-      status: won ? 'WON' : 'LOST',
-      returnAmount: actualReturn, profit,
-      settledAt: new Date(),
-    });
+    const totalGoals = hg + ag;
+    const homeWins = hg > ag;
+    const awayWins = ag > hg;
+    const draw = hg === ag;
+    const settled = (status: 'WON' | 'LOST' | 'VOID', reason: string) => ({ status, reason });
 
-    const newAvail = budget.available_budget + (won ? actualReturn : 0);
-    const newWon = budget.total_won + (won ? actualReturn : 0);
-    const newLost = budget.total_lost + (won ? 0 : betRow.stake);
+    if (s === 'homewin') return settled(homeWins ? 'WON' : 'LOST', 'Esito 1X2');
+    if (s === 'draw') return settled(draw ? 'WON' : 'LOST', 'Esito 1X2');
+    if (s === 'awaywin') return settled(awayWins ? 'WON' : 'LOST', 'Esito 1X2');
+    if (s === 'btts') return settled(hg > 0 && ag > 0 ? 'WON' : 'LOST', 'Entrambe segnano');
+    if (s === 'bttsno') return settled(hg === 0 || ag === 0 ? 'WON' : 'LOST', 'No goal/goal');
+    if (s === 'double_chance_1x') return settled(homeWins || draw ? 'WON' : 'LOST', 'Double chance 1X');
+    if (s === 'double_chance_x2') return settled(awayWins || draw ? 'WON' : 'LOST', 'Double chance X2');
+    if (s === 'double_chance_12') return settled(!draw ? 'WON' : 'LOST', 'Double chance 12');
 
-    const allBets = await this.db.getBets(betRow.user_id);
+    if (s === 'dnb_home') {
+      if (draw) return settled('VOID', 'Draw no bet (pareggio)');
+      return settled(homeWins ? 'WON' : 'LOST', 'Draw no bet casa');
+    }
+    if (s === 'dnb_away') {
+      if (draw) return settled('VOID', 'Draw no bet (pareggio)');
+      return settled(awayWins ? 'WON' : 'LOST', 'Draw no bet ospite');
+    }
+
+    const exact = s.match(/^exact_(\d+)-(\d+)$/);
+    if (exact) {
+      const exHg = Number(exact[1]);
+      const exAg = Number(exact[2]);
+      return settled(hg === exHg && ag === exAg ? 'WON' : 'LOST', 'Risultato esatto');
+    }
+
+    const goalOu = s.match(/^(over|under)(\d+)$/);
+    if (goalOu) {
+      const line = this.parseMarketLine(goalOu[2]);
+      if (line === null) return null;
+      return settled(this.decideOverUnder(totalGoals, goalOu[1] as 'over' | 'under', line), 'Over/Under goal');
+    }
+
+    const teamTotals = s.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+    if (teamTotals) {
+      const side = teamTotals[1];
+      const actual = side === 'home' ? hg : ag;
+      const line = this.parseMarketLine(teamTotals[3]);
+      if (line === null) return null;
+      return settled(this.decideOverUnder(actual, teamTotals[2] as 'over' | 'under', line), `Team total ${side}`);
+    }
+
+    const ahAway = s.match(/^ahcp_away_(-?[0-9]+(?:\.[0-9]+)?)$/);
+    if (ahAway) {
+      const line = Number(ahAway[1]);
+      if (!Number.isFinite(line)) return null;
+      const adjustedAway = ag + line;
+      if (adjustedAway > hg) return settled('WON', 'Asian handicap ospite');
+      if (adjustedAway < hg) return settled('LOST', 'Asian handicap ospite');
+      return settled('VOID', 'Asian handicap ospite (push)');
+    }
+    const ahHome = s.match(/^ahcp_(-?[0-9]+(?:\.[0-9]+)?)$/);
+    if (ahHome) {
+      const line = Number(ahHome[1]);
+      if (!Number.isFinite(line)) return null;
+      const adjustedHome = hg + line;
+      if (adjustedHome > ag) return settled('WON', 'Asian handicap casa');
+      if (adjustedHome < ag) return settled('LOST', 'Asian handicap casa');
+      return settled('VOID', 'Asian handicap casa (push)');
+    }
+
+    const numOrNull = (v: any): number | null => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const homeShots = numOrNull(matchRow?.home_shots);
+    const awayShots = numOrNull(matchRow?.away_shots);
+    const homeSot = numOrNull(matchRow?.home_shots_on_target);
+    const awaySot = numOrNull(matchRow?.away_shots_on_target);
+    const homeFouls = numOrNull(matchRow?.home_fouls);
+    const awayFouls = numOrNull(matchRow?.away_fouls);
+    const homeYellow = numOrNull(matchRow?.home_yellow_cards);
+    const awayYellow = numOrNull(matchRow?.away_yellow_cards);
+    const homeRed = numOrNull(matchRow?.home_red_cards);
+    const awayRed = numOrNull(matchRow?.away_red_cards);
+
+    const prefixedStats = s.match(/^(shots_total|shots_home|shots_away|sot_total|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+    if (prefixedStats) {
+      const domain = prefixedStats[1];
+      const side = prefixedStats[2] as 'over' | 'under';
+      const line = this.parseMarketLine(prefixedStats[3]);
+      if (line === null) return null;
+
+      let actual: number | null = null;
+      if (domain === 'shots_total') {
+        actual = homeShots !== null && awayShots !== null ? homeShots + awayShots : null;
+      } else if (domain === 'shots_home') {
+        actual = homeShots;
+      } else if (domain === 'shots_away') {
+        actual = awayShots;
+      } else if (domain === 'sot_total') {
+        actual = homeSot !== null && awaySot !== null ? homeSot + awaySot : null;
+      } else if (domain === 'fouls') {
+        actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
+      } else if (domain === 'yellow') {
+        actual = homeYellow !== null && awayYellow !== null ? homeYellow + awayYellow : null;
+      } else if (domain === 'cards_total') {
+        if (homeYellow === null || awayYellow === null) return null;
+        actual = homeYellow + awayYellow + 2 * ((homeRed ?? 0) + (awayRed ?? 0));
+      }
+
+      if (actual === null) return null;
+      return settled(this.decideOverUnder(actual, side, line), `${domain} over/under`);
+    }
+
+    const legacyStats = s.match(/^(shots|sot|fouls|cards)_(over|under)(\d+)$/);
+    if (legacyStats) {
+      const domain = legacyStats[1];
+      const side = legacyStats[2] as 'over' | 'under';
+      const line = this.parseMarketLine(legacyStats[3]);
+      if (line === null) return null;
+
+      let actual: number | null = null;
+      if (domain === 'shots') {
+        actual = homeShots !== null && awayShots !== null ? homeShots + awayShots : null;
+      } else if (domain === 'sot') {
+        actual = homeSot !== null && awaySot !== null ? homeSot + awaySot : null;
+      } else if (domain === 'fouls') {
+        actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
+      } else if (domain === 'cards') {
+        actual = homeYellow !== null && awayYellow !== null ? homeYellow + awayYellow : null;
+      }
+
+      if (actual === null) return null;
+      return settled(this.decideOverUnder(actual, side, line), `${domain} legacy over/under`);
+    }
+
+    return null;
+  }
+
+  private async resolvePlayedMatchForBet(bet: any): Promise<any | null> {
+    const byId = await this.db.getMatchById(String(bet?.match_id ?? ''));
+    if (byId && byId.home_goals !== null && byId.away_goals !== null) return byId;
+
+    const homeTeamName = String(bet?.home_team_name ?? '').trim();
+    const awayTeamName = String(bet?.away_team_name ?? '').trim();
+    if (!homeTeamName || !awayTeamName) return null;
+
+    return this.db.findPlayedMatchByTeams(
+      homeTeamName,
+      awayTeamName,
+      bet?.competition ? String(bet.competition) : undefined,
+      bet?.match_date ? String(bet.match_date) : undefined
+    );
+  }
+
+  private async recomputeBudgetFromBets(userId: string): Promise<any | null> {
+    const budget = await this.db.getBudget(userId);
+    if (!budget) return null;
+
+    const allBets = await this.db.getBets(userId);
+    const totalBets = allBets.length;
+    const totalStaked = allBets.reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
+    const totalWon = allBets
+      .filter((b: any) => b.status === 'WON')
+      .reduce((s: number, b: any) => s + Number(b.return_amount ?? 0), 0);
+    const totalLost = allBets
+      .filter((b: any) => b.status === 'LOST')
+      .reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
+
+    const totalReturned = allBets
+      .filter((b: any) => b.status === 'WON' || b.status === 'VOID')
+      .reduce((s: number, b: any) => s + Number(b.return_amount ?? 0), 0);
+
     const settled = allBets.filter((b: any) => b.status === 'WON' || b.status === 'LOST');
     const wonCount = settled.filter((b: any) => b.status === 'WON').length;
     const winRate = settled.length > 0 ? (wonCount / settled.length) * 100 : 0;
-    const roi = budget.total_staked > 0 ? ((newWon - newLost) / budget.total_staked) * 100 : 0;
+
+    const settledForRoi = allBets.filter((b: any) => b.status === 'WON' || b.status === 'LOST' || b.status === 'VOID');
+    const totalProfit = settledForRoi.reduce((s: number, b: any) => s + Number(b.profit ?? 0), 0);
+    const settledStaked = settledForRoi.reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
+    const roi = settledStaked > 0 ? (totalProfit / settledStaked) * 100 : 0;
+
+    const availableBudget = Number(budget.total_budget ?? 0) - totalStaked + totalReturned;
 
     await this.db.updateBudget({
-      userId: betRow.user_id, totalBudget: budget.total_budget,
-      availableBudget: newAvail, totalBets: budget.total_bets,
-      totalStaked: budget.total_staked, totalWon: newWon, totalLost: newLost,
-      roi, winRate,
+      userId,
+      totalBudget: Number(budget.total_budget ?? 0),
+      availableBudget: Number(availableBudget.toFixed(2)),
+      totalBets,
+      totalStaked: Number(totalStaked.toFixed(2)),
+      totalWon: Number(totalWon.toFixed(2)),
+      totalLost: Number(totalLost.toFixed(2)),
+      roi: Number(roi.toFixed(2)),
+      winRate: Number(winRate.toFixed(2)),
     });
 
-    return { budget: await this.db.getBudget(betRow.user_id) };
+    return this.db.getBudget(userId);
+  }
+
+  private async settleBetInternal(
+    betId: string,
+    status: 'WON' | 'LOST' | 'VOID',
+    returnAmount?: number,
+    notes?: string,
+    recomputeBudget = true
+  ) {
+    const betRow = await this.db.getBet(betId);
+    if (!betRow) throw new Error('Scommessa non trovata');
+    if (betRow.status !== 'PENDING') {
+      return { bet: betRow, budget: await this.db.getBudget(betRow.user_id) };
+    }
+
+    const baseReturn =
+      status === 'WON'
+        ? (returnAmount ?? Number(betRow.stake) * Number(betRow.odds))
+        : status === 'VOID'
+          ? (returnAmount ?? Number(betRow.stake))
+          : 0;
+    const actualReturn = Number.isFinite(baseReturn) ? baseReturn : 0;
+    const profit = actualReturn - Number(betRow.stake ?? 0);
+
+    await this.db.saveBet({
+      ...betRow,
+      betId: betRow.bet_id,
+      userId: betRow.user_id,
+      matchId: betRow.match_id,
+      homeTeamName: betRow.home_team_name ?? null,
+      awayTeamName: betRow.away_team_name ?? null,
+      competition: betRow.competition ?? null,
+      matchDate: betRow.match_date ?? null,
+      marketName: betRow.market_name,
+      selection: betRow.selection,
+      ourProbability: betRow.our_probability,
+      expectedValue: betRow.expected_value,
+      placedAt: betRow.placed_at,
+      status,
+      returnAmount: Number(actualReturn.toFixed(2)),
+      profit: Number(profit.toFixed(2)),
+      settledAt: new Date(),
+      notes: notes ?? betRow.notes ?? null,
+    });
+
+    const updatedBudget = recomputeBudget ? await this.recomputeBudgetFromBets(String(betRow.user_id)) : null;
+    return { bet: await this.db.getBet(betId), budget: updatedBudget };
+  }
+
+  async syncPendingBets(userId: string) {
+    const pendingBets = await this.db.getBets(userId, 'PENDING');
+    let settled = 0;
+    let unresolved = 0;
+
+    for (const bet of pendingBets) {
+      const matchRow = await this.resolvePlayedMatchForBet(bet);
+      if (!matchRow) {
+        unresolved++;
+        continue;
+      }
+
+      const decision = this.evaluateSelectionForMatch(String(bet.selection ?? ''), matchRow);
+      if (!decision) {
+        unresolved++;
+        continue;
+      }
+
+      const returnAmount =
+        decision.status === 'WON'
+          ? Number(bet.stake ?? 0) * Number(bet.odds ?? 0)
+          : decision.status === 'VOID'
+            ? Number(bet.stake ?? 0)
+            : 0;
+
+      await this.settleBetInternal(
+        String(bet.bet_id),
+        decision.status,
+        returnAmount,
+        `Auto-settle (${decision.reason})`,
+        false
+      );
+      settled++;
+    }
+
+    const budget = settled > 0 ? await this.recomputeBudgetFromBets(userId) : await this.db.getBudget(userId);
+    return { settled, unresolved, budget };
+  }
+
+  async placeBet(
+    userId: string,
+    matchId: string,
+    marketName: string,
+    selection: string,
+    odds: number,
+    stake: number,
+    ourProbability: number,
+    expectedValue: number,
+    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date }
+  ) {
+    const normalizedStake = Number(stake);
+    if (!Number.isFinite(normalizedStake) || normalizedStake <= 0) throw new Error('Importo puntata non valido');
+    if (normalizedStake < 1) throw new Error('Puntata minima Eurobet: 1 EUR');
+    if (!Number.isFinite(Number(odds)) || Number(odds) <= 1) throw new Error('Quota non valida');
+
+    await this.syncPendingBets(userId);
+    const budget = await this.db.getBudget(userId);
+    if (!budget) throw new Error('Budget non trovato');
+    if (normalizedStake > Number(budget.available_budget ?? 0)) {
+      throw new Error(`Budget insufficiente: EUR ${Number(budget.available_budget ?? 0).toFixed(2)} disponibili`);
+    }
+
+    const pendingBets = await this.db.getBets(userId, 'PENDING');
+    const duplicate = pendingBets.find(
+      (b: any) =>
+        String(b.match_id) === String(matchId) &&
+        String(b.selection) === String(selection) &&
+        String(b.market_name) === String(marketName)
+    );
+    if (duplicate) {
+      throw new Error('Scommessa gia registrata per questa partita e selezione');
+    }
+
+    const bet = {
+      betId: uuidv4(),
+      userId,
+      matchId,
+      homeTeamName: meta?.homeTeamName ?? null,
+      awayTeamName: meta?.awayTeamName ?? null,
+      competition: meta?.competition ?? null,
+      matchDate: meta?.matchDate ?? null,
+      marketName,
+      selection,
+      odds: Number(odds),
+      stake: Number(normalizedStake.toFixed(2)),
+      ourProbability: Number(ourProbability),
+      expectedValue: Number(expectedValue),
+      status: 'PENDING',
+      placedAt: new Date(),
+    };
+
+    await this.db.saveBet(bet);
+    const newBudget = await this.recomputeBudgetFromBets(userId);
+    return { bet, budget: newBudget };
+  }
+
+  async settleBet(betId: string, won: boolean, returnAmount?: number) {
+    const status: 'WON' | 'LOST' = won ? 'WON' : 'LOST';
+    return this.settleBetInternal(betId, status, returnAmount, 'Settle manuale', true);
   }
 
   async runBacktest(competition: string, season?: string, historicalOdds?: Record<string, Record<string, number>>) {

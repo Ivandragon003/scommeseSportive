@@ -401,11 +401,11 @@ const DataManager: React.FC = () => {
   const top5Leagues = statsOverview?.leagues ?? [];
 
   const TABS = [
-    { id: 'overview', label: 'ðŸ—º Overview' },
-    { id: 'matches',  label: `âš½ Partite${matches.length ? ` (${matches.length})` : ''}` },
-    { id: 'teams',    label: `ðŸŸ Squadre${teams.length ? ` (${teams.length})` : ''}` },
-    { id: 'model',    label: 'ðŸ¤– Modello AI' },
-    { id: 'import',   label: 'ðŸ“¥ Import JSON' },
+    { id: 'overview', label: ' Overview' },
+    { id: 'matches',  label: ` Partite${matches.length ? ` (${matches.length})` : ''}` },
+    { id: 'teams',    label: ` Squadre${teams.length ? ` (${teams.length})` : ''}` },
+    { id: 'model',    label: ' Modello AI' },
+    { id: 'import',   label: ' Import JSON' },
   ];
 
   return (
@@ -415,15 +415,15 @@ const DataManager: React.FC = () => {
 
         {/* HEADER */}
         <div className="dm-title">Gestione Dati</div>
-        <div className="dm-subtitle">Database storico partite Â· Addestramento Dixon-Coles</div>
+        <div className="dm-subtitle">Database storico partite  Addestramento Dixon-Coles</div>
 
-        {/* STAT GRID â€” usa classi globali */}
+        {/* STAT GRID  usa classi globali */}
         <div className="fp-grid-4" style={{ marginBottom: 28 }}>
           {[
-            { icon: 'âš½', val: loading ? 'â€¦' : matches.length,                          label: 'Partite',       c: 'blue'   },
-            { icon: 'ðŸŸ', val: loading ? 'â€¦' : teams.length,                            label: 'Squadre',       c: 'purple' },
-            { icon: 'ðŸ†', val: loading ? 'â€¦' : competitions.length,                     label: 'Campionati',    c: 'gold'   },
-            { icon: 'ðŸ¤–', val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
+            { icon: '', val: loading ? '' : matches.length,                          label: 'Partite',       c: 'blue'   },
+            { icon: '', val: loading ? '' : teams.length,                            label: 'Squadre',       c: 'purple' },
+            { icon: '', val: loading ? '' : competitions.length,                     label: 'Campionati',    c: 'gold'   },
+            { icon: '', val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
           ].map(({ icon, val, label, c }) => (
             <div key={label} className={`fp-stat c-${c}`}>
               <span className="fp-stat-icon">{icon}</span>
@@ -444,7 +444,7 @@ const DataManager: React.FC = () => {
           </div>
         </div>
 
-        {/* â”€â”€ OVERVIEW â”€â”€ */}
+        {/*  OVERVIEW  */}
         {activeTab === 'overview' && (
           <>
             <div className="fp-card">
@@ -461,7 +461,7 @@ const DataManager: React.FC = () => {
                       <div className="dm-step-num">Step {num}</div>
                       <div className="dm-step-title">{title}</div>
                       <div className="dm-step-desc">{desc}</div>
-                      {i < arr.length - 1 && <div className="dm-step-arrow">›</div>}
+                      {i < arr.length - 1 && <div className="dm-step-arrow"></div>}
                     </div>
                   ))}
                 </div>
@@ -558,11 +558,11 @@ const DataManager: React.FC = () => {
           </>
         )}
 
-        {/* â”€â”€ MATCHES â”€â”€ */}
+        {/*  MATCHES  */}
         {activeTab === 'matches' && (
           <div className="fp-card">
             <div className="fp-card-head">
-              <div className="fp-card-title">âš½ Partite ({filteredMatches.length})</div>
+              <div className="fp-card-title"> Partite ({filteredMatches.length})</div>
             </div>
             <div className="dm-filters">
               {[
@@ -580,7 +580,7 @@ const DataManager: React.FC = () => {
               ))}
             </div>
             {filteredMatches.length === 0 ? (
-              <div className="fp-empty"><div className="fp-empty-icon">ðŸ“­</div><div className="fp-empty-text">Nessuna partita trovata.</div></div>
+              <div className="fp-empty"><div className="fp-empty-icon"></div><div className="fp-empty-text">Nessuna partita trovata.</div></div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
@@ -592,10 +592,18 @@ const DataManager: React.FC = () => {
                       <tr key={m.match_id}>
                         <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{new Date(m.date).toLocaleDateString('it-IT')}</td>
                         <td style={{ fontWeight: 700 }}>{m.home_team_name ?? m.home_team_id}</td>
-                        <td style={{ textAlign: 'center' }}><span className="dm-score">{m.home_goals ?? 'â€”'} â€“ {m.away_goals ?? 'â€”'}</span></td>
+                        <td style={{ textAlign: 'center' }}><span className="dm-score">{m.home_goals ?? '-'} - {m.away_goals ?? '-'}</span></td>
                         <td style={{ fontWeight: 700 }}>{m.away_team_name ?? m.away_team_id}</td>
-                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_xg ? `${n(m.home_xg, 1)} â€“ ${n(m.away_xg, 1)}` : 'â€”'}</td>
-                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{m.home_shots ? `${m.home_shots} â€“ ${m.away_shots}` : 'â€”'}</td>
+                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>
+                          {(m.home_xg !== null && m.home_xg !== undefined && m.away_xg !== null && m.away_xg !== undefined)
+                            ? `${n(m.home_xg, 1)} - ${n(m.away_xg, 1)}`
+                            : '-'}
+                        </td>
+                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>
+                          {(m.home_shots !== null && m.home_shots !== undefined && m.away_shots !== null && m.away_shots !== undefined)
+                            ? `${m.home_shots} - ${m.away_shots}`
+                            : '-'}
+                        </td>
                         <td><span className="dm-comp-tag">{m.competition}</span></td>
                       </tr>
                     ))}
@@ -606,11 +614,11 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* â”€â”€ TEAMS â”€â”€ */}
+        {/*  TEAMS  */}
         {activeTab === 'teams' && (
           <div className="fp-card">
             <div className="fp-card-head">
-              <div className="fp-card-title">ðŸŸ Squadre ({filteredTeams.length})</div>
+              <div className="fp-card-title"> Squadre ({filteredTeams.length})</div>
               <span className="fp-badge fp-badge-purple">Clicca per stats complete</span>
             </div>
 
@@ -631,7 +639,7 @@ const DataManager: React.FC = () => {
                   onClick={() => { setSelectedTeamId(String(t.team_id)); setScope('current'); }}
                 >
                   <div className="dm-team-name">{t.name}</div>
-                  <div className="dm-team-comp">{t.competition ?? 'â€”'}</div>
+                  <div className="dm-team-comp">{t.competition ?? ''}</div>
                   <div className="dm-team-badges">
                     <span className="fp-badge fp-badge-blue">ATT {n(t.attack_strength, 2)}</span>
                     <span className="fp-badge fp-badge-red">DIF {n(t.defence_strength, 2)}</span>
@@ -645,7 +653,7 @@ const DataManager: React.FC = () => {
                 <div className="dm-detail-head">
                   <div>
                     <div className="dm-detail-name">{selectedTeam.name}</div>
-                    <div className="dm-detail-comp">{selectedTeam.competition ?? 'â€”'}</div>
+                    <div className="dm-detail-comp">{selectedTeam.competition ?? ''}</div>
                   </div>
                   <div className="dm-scope-tabs">
                     {([
@@ -667,7 +675,7 @@ const DataManager: React.FC = () => {
 
                 <div className="dm-stats-grid">
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head fotmob">ðŸ“Š Stats Partite (FotMob)</div>
+                    <div className="dm-stats-head fotmob"> Stats Partite (FotMob)</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -681,7 +689,7 @@ const DataManager: React.FC = () => {
                           ['Falli / partita', n(stats.foulsAvg, 2)],
                           ['Gialli / partita', n(stats.ycAvg, 2)],
                           ['Rossi / partita', n(stats.rcAvg, 3)],
-                          ['Possesso medio', stats.possAvg !== null ? `${n(stats.possAvg, 1)}%` : 'â€”'],
+                          ['Possesso medio', stats.possAvg !== null ? `${n(stats.possAvg, 1)}%` : ''],
                           ['Match FotMob', stats.fotmob],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
@@ -689,7 +697,7 @@ const DataManager: React.FC = () => {
                   </div>
 
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head model">ðŸ¤– Stats Modello AI</div>
+                    <div className="dm-stats-head model"> Stats Modello AI</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -713,9 +721,9 @@ const DataManager: React.FC = () => {
 
                 {/* PLAYERS */}
                 <div className="dm-players-head">
-                  <div className="dm-players-title">ðŸ‘¤ Giocatori</div>
+                  <div className="dm-players-title"> Giocatori</div>
                   <span className="fp-badge fp-badge-blue">
-                    {playersLoading === selectedTeam.team_id ? 'Caricamentoâ€¦' : `${players.length} giocatori`}
+                    {playersLoading === selectedTeam.team_id ? 'Caricamento' : `${players.length} giocatori`}
                   </span>
                 </div>
                 {playersLoading === selectedTeam.team_id ? (
@@ -751,11 +759,11 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* â”€â”€ MODEL â”€â”€ */}
+        {/*  MODEL  */}
         {activeTab === 'model' && (
           <div>
             <div className="fp-card" style={{ marginBottom: 16 }}>
-              <div className="fp-card-head"><div className="fp-card-title">âš™ï¸ Parametri</div></div>
+              <div className="fp-card-head"><div className="fp-card-title"> Parametri</div></div>
               <div className="fp-card-body">
                 <div className="dm-model-grid">
                   <div className="dm-form-group">
@@ -773,27 +781,27 @@ const DataManager: React.FC = () => {
             </div>
             <div className="dm-model-grid">
               <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title">ðŸ“Š Ricalcola Medie</div></div>
+                <div className="fp-card-head"><div className="fp-card-title"> Ricalcola Medie</div></div>
                 <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Aggiorna le medie statistiche di ogni squadra (tiri, xG, cartellini, falli) dalle partite importate.</p>
                   <button className="dm-action-btn blue" onClick={handleRecompute} disabled={recomputeLoading}>
-                    {recomputeLoading ? 'âŸ³ Ricalcolo in corsoâ€¦' : 'â†» Ricalcola Medie Squadre'}
+                    {recomputeLoading ? ' Ricalcolo in corso' : ' Ricalcola Medie Squadre'}
                   </button>
                   {recomputeResult && (
-                    <div className="dm-result ok">âœ“ Aggiornate <strong>{recomputeResult.data?.teamsUpdated ?? recomputeResult.teamsUpdated}</strong> squadre.</div>
+                    <div className="dm-result ok"> Aggiornate <strong>{recomputeResult.data?.teamsUpdated ?? recomputeResult.teamsUpdated}</strong> squadre.</div>
                   )}
                 </div>
               </div>
               <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title">ðŸ¤– Addestra Modello</div></div>
+                <div className="fp-card-head"><div className="fp-card-title"> Addestra Modello</div></div>
                 <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Esegui il fit del modello Dixon-Coles per calibrare attack strength, defence strength e parametri temporali.</p>
                   <button className="dm-action-btn purple" onClick={handleFitModel} disabled={fitLoading}>
-                    {fitLoading ? 'âŸ³ Addestramento in corsoâ€¦' : 'â–¶ Addestra Modello Dixon-Coles'}
+                    {fitLoading ? ' Addestramento in corso' : ' Addestra Modello Dixon-Coles'}
                   </button>
                   {fitResult && (
                     <div className="dm-result ok">
-                      âœ“ Modello addestrato &nbsp;Â·&nbsp; Partite: <strong>{fitResult.matchesUsed}</strong> &nbsp;Â·&nbsp; Squadre: <strong>{fitResult.teams}</strong> &nbsp;Â·&nbsp; Log-likelihood: <strong>{fitResult.logLikelihood?.toFixed(2)}</strong>
+                       Modello addestrato &nbsp;&nbsp; Partite: <strong>{fitResult.matchesUsed}</strong> &nbsp;&nbsp; Squadre: <strong>{fitResult.teams}</strong> &nbsp;&nbsp; Log-likelihood: <strong>{fitResult.logLikelihood?.toFixed(2)}</strong>
                     </div>
                   )}
                 </div>
@@ -802,10 +810,10 @@ const DataManager: React.FC = () => {
           </div>
         )}
 
-        {/* â”€â”€ IMPORT â”€â”€ */}
+        {/*  IMPORT  */}
         {activeTab === 'import' && (
           <div className="fp-card">
-            <div className="fp-card-head"><div className="fp-card-title">ðŸ“¥ Import Manuale JSON</div></div>
+            <div className="fp-card-head"><div className="fp-card-title"> Import Manuale JSON</div></div>
             <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dm-form-group">
                 <label className="fp-label">Array JSON Partite</label>
@@ -816,13 +824,13 @@ const DataManager: React.FC = () => {
                 Accetta un array JSON o un oggetto con chiave <code>matches</code>. Campi obbligatori: <code>home_team</code>, <code>away_team</code>, <code>home_goals</code>, <code>away_goals</code>, <code>date</code>, <code>competition</code>.
               </div>
               <button className="dm-action-btn purple" style={{ maxWidth: 280 }} onClick={handleBulkImport} disabled={!importJson}>
-                ðŸ“¥ Importa Dati
+                 Importa Dati
               </button>
               {importResult && (
                 <div className={`dm-result ${importResult.success ? 'ok' : 'err'}`}>
                   {importResult.success
-                    ? `âœ“ Importate ${importResult.data?.imported ?? importResult.imported} partite con successo!`
-                    : `âœ— Errore: ${importResult.error}`}
+                    ? ` Importate ${importResult.data?.imported ?? importResult.imported} partite con successo!`
+                    : ` Errore: ${importResult.error}`}
                 </div>
               )}
             </div>
