@@ -101,6 +101,8 @@ const fmtSelection = (selection: string): string => {
 
   const compactGoal = selection.match(/^(over|under)(\d+)$/i);
   if (compactGoal && compactGoal[2].length >= 2) {
+    const lineNum = Number(`${compactGoal[2].slice(0, -1)}.${compactGoal[2].slice(-1)}`);
+    if (Number.isFinite(lineNum) && lineNum > 7.5) return mktLabel(selection);
     const side = compactGoal[1].toLowerCase() === 'over' ? 'Over' : 'Under';
     const line = `${compactGoal[2].slice(0, -1)}.${compactGoal[2].slice(-1)}`;
     return `${side} ${line} Goal`;
@@ -668,7 +670,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
           return acc;
         }, {} as Record<string, string>);
 
-        if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno.'; finalOddsTone = 'warning'; }
+        if (payload.source === 'the_odds_api_plus_model_completion') {
+          finalOddsMsg = 'Quote live integrate con stima modello sui mercati mancanti.';
+          finalOddsTone = 'warning';
+        } else if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno.'; finalOddsTone = 'warning'; }
         else if (payload.usedFallbackBookmaker) { finalOddsMsg = 'Eurobet n/d - quote bookmaker alternativo.'; finalOddsTone = 'warning'; }
         else { finalOddsMsg = 'Quote Eurobet caricate.'; finalOddsTone = 'success'; }
 
@@ -1523,7 +1528,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                 )}
                               </div>
                               {alreadyPlaced
-                                ? <span className="pr-badge pr-badge-green">OK Registrata</span>
+                                ? <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
                                 : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
                                     Scommetti -&gt;
                                   </button>

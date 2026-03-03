@@ -521,6 +521,8 @@ export class PredictionService {
 
       const goal = selection.match(/^(over|under)(\d+)$/);
       if (goal && goal[2].length >= 2) {
+        const numericLine = Number(`${goal[2].slice(0, -1)}.${goal[2].slice(-1)}`);
+        if (Number.isFinite(numericLine) && numericLine > 7.5) return null;
         const side = goal[1] === 'over' ? 'Over' : 'Under';
         const line = `${goal[2].slice(0, -1)}.${goal[2].slice(-1)}`;
         return `${side} ${line} Goal`;
@@ -746,6 +748,7 @@ export class PredictionService {
   }
 
   async initBudget(userId: string, amount: number) {
+    await this.db.deleteBetsByUser(userId);
     await this.db.createOrResetBudget(userId, amount);
     return this.db.getBudget(userId);
   }
@@ -820,6 +823,7 @@ export class PredictionService {
     if (goalOu) {
       const line = this.parseMarketLine(goalOu[2]);
       if (line === null) return null;
+      if (line > 7.5) return null;
       return settled(this.decideOverUnder(totalGoals, goalOu[1] as 'over' | 'under', line), 'Over/Under goal');
     }
 
@@ -924,6 +928,14 @@ export class PredictionService {
   private async resolvePlayedMatchForBet(bet: any): Promise<any | null> {
     const byId = await this.db.getMatchById(String(bet?.match_id ?? ''));
     if (byId && byId.home_goals !== null && byId.away_goals !== null) return byId;
+
+    const rawMatchDate = String(bet?.match_date ?? '').trim();
+    if (rawMatchDate) {
+      const scheduledAt = new Date(rawMatchDate);
+      if (!Number.isNaN(scheduledAt.getTime()) && scheduledAt.getTime() > Date.now()) {
+        return null;
+      }
+    }
 
     const homeTeamName = String(bet?.home_team_name ?? '').trim();
     const awayTeamName = String(bet?.away_team_name ?? '').trim();
@@ -1090,15 +1102,16 @@ export class PredictionService {
       throw new Error(`Budget insufficiente: EUR ${Number(budget.available_budget ?? 0).toFixed(2)} disponibili`);
     }
 
-    const pendingBets = await this.db.getBets(userId, 'PENDING');
-    const duplicate = pendingBets.find(
+    const allBets = await this.db.getBets(userId);
+    const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
+    const duplicate = allBets.find(
       (b: any) =>
-        String(b.match_id) === String(matchId) &&
-        String(b.selection) === String(selection) &&
-        String(b.market_name) === String(marketName)
+        norm(b.match_id) === norm(matchId) &&
+        norm(b.selection) === norm(selection) &&
+        norm(b.market_name) === norm(marketName)
     );
     if (duplicate) {
-      throw new Error('Scommessa gia registrata per questa partita e selezione');
+      throw new Error('Scommessa gia fatta');
     }
 
     const bet = {

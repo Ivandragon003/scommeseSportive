@@ -639,6 +639,9 @@ export class DatabaseService {
     }
 
     if (matchDate) {
+      // Evita abbinamenti a partite di stagioni lontane (stesso pairing squadre).
+      q += ' AND ABS(julianday(date) - julianday(?)) <= 3';
+      params.push(matchDate);
       q += ' ORDER BY ABS(julianday(date) - julianday(?)) ASC, datetime(date) DESC LIMIT 1';
       params.push(matchDate);
     } else {
@@ -981,6 +984,38 @@ export class DatabaseService {
     `,
       [userId, amount, amount]
     );
+  }
+
+  async deleteMatchesByCompetitionAndSeasons(competition: string, seasons: string[]): Promise<number> {
+    const normalizedCompetition = String(competition ?? '').trim();
+    if (!normalizedCompetition) return 0;
+
+    const seasonVariants = Array.from(
+      new Set(
+        (seasons ?? [])
+          .map((s) => String(s ?? '').trim())
+          .filter(Boolean)
+          .flatMap((rawSeason) => [
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+      )
+    );
+
+    const params: any[] = [normalizedCompetition];
+    let sql = 'DELETE FROM matches WHERE competition = ?';
+    if (seasonVariants.length > 0) {
+      sql += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+      params.push(...seasonVariants);
+    }
+
+    const result = await this.execute(sql, params);
+    return Number(result?.rowsAffected ?? 0);
+  }
+
+  async deleteBetsByUser(userId: string): Promise<void> {
+    await this.run('DELETE FROM bets WHERE user_id = ?', [userId]);
   }
 
   async updateBudget(budget: any): Promise<void> {

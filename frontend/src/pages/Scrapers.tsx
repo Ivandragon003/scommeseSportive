@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-const API = axios.create({ baseURL: '/api', timeout: 900000 });
+const API = axios.create({ baseURL: '/api', timeout: 3600000 });
 
 type ActiveTab = 'fotmob' | 'odds';
 type FotmobMode = 'single' | 'top5';
@@ -275,9 +275,23 @@ export default function Scrapers() {
                     ['Nuove partite importate', fotmobResult.newMatchesImported ?? fotmobResult.imported],
                     ['Partite future importate', fotmobResult.upcomingMatchesImported ?? 0],
                     ['Partite aggiornate', fotmobResult.existingMatchesUpdated ?? 0],
+                    ['Partite eliminate pre-refresh', fotmobResult.deletedMatchesByCompetition
+                      ? Object.entries(fotmobResult.deletedMatchesByCompetition)
+                          .map(([comp, v]) => `${comp}: ${String(v)}`)
+                          .join(' | ')
+                      : undefined],
                     ['Squadre create', fotmobResult.teamsCreated],
                     ['Giocatori aggiornati', fotmobResult.playersUpdated],
                     ['Squadre ricalcolate', fotmobResult.teamsRecomputed],
+                    ['Training automatico', fotmobResult.autoModelFit
+                      ? Object.entries(fotmobResult.autoModelFit)
+                          .map(([comp, info]: [string, any]) => (
+                            info?.ok
+                              ? `${comp}: ${info.trainingWindow ?? '-'} (partite correnti ${info.completedCurrentSeasonMatches ?? 0})`
+                              : `${comp}: fit non eseguito`
+                          ))
+                          .join(' | ')
+                      : undefined],
                   ].map(([k, v]) => v !== undefined && (
                     <div key={String(k)} className="sc-result-row">
                       <span style={{ color: 'inherit', opacity: 0.75 }}>{k}</span>

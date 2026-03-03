@@ -637,8 +637,8 @@ const fotmob = new FotmobScraper();
 
 async function runFotmobImport(req: Request, res: Response) {
   try {
-    req.setTimeout(15 * 60 * 1000);
-    res.setTimeout(15 * 60 * 1000);
+    req.setTimeout(60 * 60 * 1000);
+    res.setTimeout(60 * 60 * 1000);
 
     const {
       mode = 'single',
@@ -688,6 +688,14 @@ async function runFotmobImport(req: Request, res: Response) {
     let totalSkipped = 0;
     let totalNew = 0;
     let totalUpcomingImported = 0;
+    const deletedMatchesByCompetition: Record<string, number> = {};
+
+    if (forceRefresh) {
+      for (const comp of competitionsToRun) {
+        const deleted = await db.deleteMatchesByCompetitionAndSeasons(comp, seasonsToScrape);
+        deletedMatchesByCompetition[comp] = deleted;
+      }
+    }
     let teamsCreated = 0;
     let playersUpdated = 0;
     const seasonSummary: Record<string, any> = {};
@@ -861,6 +869,75 @@ async function runFotmobImport(req: Request, res: Response) {
         teamsRecomputed++;
       }
     }
+    const now = new Date();
+    const currentSeasonStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    const currentSeason = `${currentSeasonStartYear}/${currentSeasonStartYear + 1}`;
+    const trainingWindowFor = (completedCurrentSeasonMatches: number): {
+      bucket: '<8' | '8-15' | '>15';
+      fromDate: string;
+      reason: string;
+      label: string;
+    } => {
+      if (completedCurrentSeasonMatches < 8) {
+        return {
+          bucket: '<8',
+          fromDate: `${currentSeasonStartYear - 1}-07-01`,
+          label: 'Stagione corrente + intera stagione precedente',
+          reason: 'Troppo pochi dati, serve stabilita massima',
+        };
+      }
+      if (completedCurrentSeasonMatches <= 15) {
+        return {
+          bucket: '8-15',
+          fromDate: `${currentSeasonStartYear}-01-01`,
+          label: 'Stagione corrente + ultimi 6 mesi stagione precedente',
+          reason: 'Segnale parziale, si bilancia con passato recente',
+        };
+      }
+      return {
+        bucket: '>15',
+        fromDate: `${currentSeasonStartYear}-07-01`,
+        label: 'Solo stagione corrente',
+        reason: 'Massa critica raggiunta, passato e rumore',
+      };
+    };
+
+    const autoModelFit: Record<string, {
+      ok: boolean;
+      thresholdBucket?: '<8' | '8-15' | '>15';
+      completedCurrentSeasonMatches?: number;
+      trainingWindow?: string;
+      reason?: string;
+      fromDate?: string;
+      toDate?: string;
+      matchesUsed?: number;
+      teams?: number;
+      error?: string;
+    }> = {};
+    for (const comp of competitionsToRun) {
+      try {
+        const currentSeasonRows = await db.getMatches({ competition: comp, season: currentSeason });
+        const completedCurrentSeasonMatches = currentSeasonRows.filter(
+          (m: any) => m.home_goals !== null && m.away_goals !== null
+        ).length;
+        const tw = trainingWindowFor(completedCurrentSeasonMatches);
+        const toDate = now.toISOString();
+        const fit = await svc.fitModelForCompetition(comp, undefined, tw.fromDate, toDate);
+        autoModelFit[comp] = {
+          ok: true,
+          thresholdBucket: tw.bucket,
+          completedCurrentSeasonMatches,
+          trainingWindow: tw.label,
+          reason: tw.reason,
+          fromDate: tw.fromDate,
+          toDate,
+          matchesUsed: fit.matchesUsed,
+          teams: fit.teams,
+        };
+      } catch (e: any) {
+        autoModelFit[comp] = { ok: false, error: e?.message ?? 'fit non disponibile' };
+      }
+    }
 
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
     const lastDatesAfter: Record<string, string> = {};
@@ -882,6 +959,8 @@ async function runFotmobImport(req: Request, res: Response) {
         teamsCreated,
         playersUpdated,
         teamsRecomputed,
+        deletedMatchesByCompetition,
+        autoModelFit,
         dbLastDateAfter: lastDatesAfter,
         isUpToDate: totalNew === 0,
         forceRefresh,
@@ -1559,18 +1638,27 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
 
     // selectedOdds: prova Eurobet, ma completa automaticamente i mercati mancanti con altri bookmaker.
     const eurobetOdds = oddsService.extractBestOdds(eurobetOnlyMatch, 'eurobet');
-    const selectedOdds = oddsService.extractBestOdds(mergedBest, 'eurobet');
+    const liveSelectedOdds = oddsService.extractBestOdds(mergedBest, 'eurobet');
+    const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+    const estimatedOdds = estimated.found ? estimated.selectedOdds : {};
+    // Mantieni priorita assoluta alle quote live; completa solo i mercati mancanti col modello.
+    const selectedOdds = sanitizeOddsMap({ ...estimatedOdds, ...liveSelectedOdds });
     const fallbackOdds = selectedOdds;
     const usedFallbackBookmaker = !eurobetAvailable
-      || Object.keys(selectedOdds).some((k) => eurobetOdds[k] === undefined);
+      || Object.keys(liveSelectedOdds).some((k) => eurobetOdds[k] === undefined);
+    const usedSyntheticOdds = Object.keys(estimatedOdds).some((k) => liveSelectedOdds[k] === undefined);
+    const source =
+      usedSyntheticOdds
+        ? 'the_odds_api_plus_model_completion'
+        : (usedFallbackBookmaker ? 'the_odds_api_fallback_bookmaker' : 'the_odds_api_eurobet');
 
     return res.json({
       success: true,
       data: {
         found: Object.keys(selectedOdds).length > 0,
         usedFallbackBookmaker,
-        usedSyntheticOdds: false,
-        source: usedFallbackBookmaker ? 'the_odds_api_fallback_bookmaker' : 'the_odds_api_eurobet',
+        usedSyntheticOdds,
+        source,
         selectedOdds,
         eurobetOdds,
         fallbackOdds,
