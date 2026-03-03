@@ -51,15 +51,15 @@ interface CompetitionConfig {
   id: number;
 }
 
-const COMPETITIONS: Record<string, CompetitionConfig> = {
-  'Serie A': { name: 'Serie A', id: 55 },
-  'Premier League': { name: 'Premier League', id: 47 },
-  'La Liga': { name: 'La Liga', id: 87 },
-  'Bundesliga': { name: 'Bundesliga', id: 54 },
-  'Ligue 1': { name: 'Ligue 1', id: 53 },
-};
-
 export class FotmobScraper {
+  private static readonly COMPETITIONS: Record<string, CompetitionConfig> = {
+    'Serie A': { name: 'Serie A', id: 55 },
+    'Premier League': { name: 'Premier League', id: 47 },
+    'La Liga': { name: 'La Liga', id: 87 },
+    'Bundesliga': { name: 'Bundesliga', id: 54 },
+    'Ligue 1': { name: 'Ligue 1', id: 53 },
+  };
+
   private readonly BASE_URL = 'https://www.fotmob.com';
   private readonly REQUEST_DELAY_MS = 220;
   private readonly DETAILS_MAX_RETRIES = 3;
@@ -69,7 +69,7 @@ export class FotmobScraper {
   private page: Page | null = null;
 
   static getSupportedCompetitions(): string[] {
-    return Object.keys(COMPETITIONS);
+    return Object.keys(FotmobScraper.COMPETITIONS);
   }
 
   static getTop5Competitions(): string[] {
@@ -375,6 +375,58 @@ export class FotmobScraper {
     return walk(payload) ?? { home: null, away: null };
   }
 
+  private sanitizePair(
+    pair: { home: number | null; away: number | null },
+    domain: 'xg' | 'shots' | 'sot' | 'possession' | 'fouls' | 'yellow' | 'red'
+  ): { home: number | null; away: number | null } {
+    const fix = (raw: number | null): number | null => {
+      if (raw === null || !Number.isFinite(raw)) return null;
+      const v = Number(raw);
+      if (domain === 'possession' && v >= 0 && v <= 1) return v * 100;
+      return v;
+    };
+
+    const inRange = (v: number, min: number, max: number) => v >= min && v <= max;
+    const ranges: Record<typeof domain, [number, number]> = {
+      xg: [0, 8],
+      shots: [0, 60],
+      sot: [0, 30],
+      possession: [0, 100],
+      fouls: [0, 60],
+      yellow: [0, 20],
+      red: [0, 6],
+    };
+
+    const [min, max] = ranges[domain];
+    const h = fix(pair.home);
+    const a = fix(pair.away);
+
+    return {
+      home: h !== null && inRange(h, min, max) ? h : null,
+      away: a !== null && inRange(a, min, max) ? a : null,
+    };
+  }
+
+  private extractStatPair(
+    details: any,
+    searchTerms: string[],
+    domain: 'xg' | 'shots' | 'sot' | 'possession' | 'fouls' | 'yellow' | 'red'
+  ): { home: number | null; away: number | null } {
+    const sources: unknown[] = [
+      details?.content?.stats,
+      details?.stats,
+      details?.content,
+      details,
+    ];
+    for (const source of sources) {
+      if (!source) continue;
+      const raw = this.findStatPair(source, searchTerms);
+      const sanitized = this.sanitizePair(raw, domain);
+      if (sanitized.home !== null || sanitized.away !== null) return sanitized;
+    }
+    return { home: null, away: null };
+  }
+
   private parsePlayerStatsFromMatch(matchDetails: any, homeTeamId: string, awayTeamId: string): FotmobPlayerMatchStat[] {
     const byPlayer = new Map<string, FotmobPlayerMatchStat>();
     const shotMap = matchDetails?.content?.shotmap?.shots;
@@ -455,26 +507,34 @@ export class FotmobScraper {
     const awayTeamId = this.normalizeTeamName(awayTeamName);
 
     let xg = details
-      ? this.findStatPair(details, ['expected goals', 'expectedgoals', 'xg'])
+      ? this.extractStatPair(details, ['expected goals', 'expectedgoals', 'xg'], 'xg')
       : { home: this.toNumber(summary?.home?.xg), away: this.toNumber(summary?.away?.xg) };
     let shots = details
-      ? this.findStatPair(details, ['totalshots', 'total shots'])
+      ? this.extractStatPair(details, ['totalshots', 'total shots'], 'shots')
       : { home: this.toNumber(summary?.home?.shots), away: this.toNumber(summary?.away?.shots) };
     let sot = details
-      ? this.findStatPair(details, ['shotsontarget', 'shots on target'])
+      ? this.extractStatPair(details, ['shotsontarget', 'shots on target', 'on target shots'], 'sot')
       : { home: this.toNumber(summary?.home?.shotsOnTarget), away: this.toNumber(summary?.away?.shotsOnTarget) };
     let poss = details
-      ? this.findStatPair(details, ['possession', 'ball possession'])
+      ? this.extractStatPair(details, ['possession', 'ball possession'], 'possession')
       : { home: this.toNumber(summary?.home?.possession), away: this.toNumber(summary?.away?.possession) };
     let fouls = details
-      ? this.findStatPair(details, ['fouls', 'fouls committed'])
+      ? this.extractStatPair(details, ['fouls', 'fouls committed'], 'fouls')
       : { home: null, away: null };
     let yellow = details
-      ? this.findStatPair(details, ['yellow cards', 'yellowcards'])
+      ? this.extractStatPair(details, ['yellow cards', 'yellowcards', 'bookings'], 'yellow')
       : { home: null, away: null };
     let red = details
-      ? this.findStatPair(details, ['red cards', 'redcards'])
+      ? this.extractStatPair(details, ['red cards', 'redcards'], 'red')
       : { home: null, away: null };
+
+    xg = this.sanitizePair(xg, 'xg');
+    shots = this.sanitizePair(shots, 'shots');
+    sot = this.sanitizePair(sot, 'sot');
+    poss = this.sanitizePair(poss, 'possession');
+    fouls = this.sanitizePair(fouls, 'fouls');
+    yellow = this.sanitizePair(yellow, 'yellow');
+    red = this.sanitizePair(red, 'red');
 
     if (!details) {
       // Se API dettagli è bloccata, alcuni summary tornano tutti 0: non inquinare le medie.
@@ -545,7 +605,7 @@ export class FotmobScraper {
     season: string,
     options?: { includeDetails?: boolean }
   ): Promise<FotmobMatch[]> {
-    const cfg = COMPETITIONS[competition];
+    const cfg = FotmobScraper.COMPETITIONS[competition];
     if (!cfg) throw new Error(`Competizione non supportata: ${competition}`);
 
     const trySeasonValues = [season];

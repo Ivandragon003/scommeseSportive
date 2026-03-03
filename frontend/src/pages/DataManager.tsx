@@ -685,7 +685,7 @@ const DataManager: React.FC = () => {
                           ['Gol fatti / subiti', `${stats.gf} / ${stats.ga} (${stats.gd >= 0 ? '+' : ''}${stats.gd})`],
                           ['xG fatto / subito', `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)}`],
                           ['Tiri fatti / subiti', `${n(stats.sfAvg, 2)} / ${n(stats.saAvg, 2)}`],
-                          ['Tiri OT fatti / subiti', `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)}`],
+                          ['Tiri in porta (OT) fatti / subiti', `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)}`],
                           ['Falli / partita', n(stats.foulsAvg, 2)],
                           ['Gialli / partita', n(stats.ycAvg, 2)],
                           ['Rossi / partita', n(stats.rcAvg, 3)],
@@ -705,8 +705,8 @@ const DataManager: React.FC = () => {
                           ['Defence Strength',  n(selectedTeam.defence_strength, 3)],
                           ['Avg Home Shots',    n(selectedTeam.avg_home_shots, 2)],
                           ['Avg Away Shots',    n(selectedTeam.avg_away_shots, 2)],
-                          ['Avg Home Shots OT', n(selectedTeam.avg_home_shots_ot, 2)],
-                          ['Avg Away Shots OT', n(selectedTeam.avg_away_shots_ot, 2)],
+                          ['Avg Home Shots On Target (OT)', n(selectedTeam.avg_home_shots_ot, 2)],
+                          ['Avg Away Shots On Target (OT)', n(selectedTeam.avg_away_shots_ot, 2)],
                           ['Avg Home xG',       n(selectedTeam.avg_home_xg, 2)],
                           ['Avg Away xG',       n(selectedTeam.avg_away_xg, 2)],
                           ['Avg Yellow Cards',  n(selectedTeam.avg_yellow_cards, 2)],
@@ -734,7 +734,7 @@ const DataManager: React.FC = () => {
                   <div style={{ overflowX: 'auto' }}>
                     <table className="fp-table">
                       <thead>
-                        <tr><th>Nome</th><th>Ruolo</th><th>PG</th><th>Tiri/G</th><th>Tiri OT/G</th><th>xG/G</th><th>xGOT/G</th><th>Gol</th><th>Shot share</th></tr>
+                        <tr><th>Nome</th><th>Ruolo</th><th>PG</th><th>Tiri/G</th><th>Tiri in porta (OT)/G</th><th>xG/G</th><th>xGOT/G</th><th>Gol</th><th>Shot share</th></tr>
                       </thead>
                       <tbody>
                         {players.map((p: any) => (
@@ -763,47 +763,29 @@ const DataManager: React.FC = () => {
         {activeTab === 'model' && (
           <div>
             <div className="fp-card" style={{ marginBottom: 16 }}>
-              <div className="fp-card-head"><div className="fp-card-title"> Parametri</div></div>
+              <div className="fp-card-head"><div className="fp-card-title">Pipeline Modello</div></div>
               <div className="fp-card-body">
-                <div className="dm-model-grid">
-                  <div className="dm-form-group">
-                    <label className="fp-label">Competizione *</label>
-                    <select className="fp-select" value={fitForm.competition} onChange={e => setFitForm(p => ({ ...p, competition: e.target.value }))}>
-                      {['Serie A','Premier League','La Liga','Bundesliga','Ligue 1','Champions League'].map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div className="dm-form-group">
-                    <label className="fp-label">Stagione (vuoto = tutte)</label>
-                    <input className="fp-input" value={fitForm.season} onChange={e => setFitForm(p => ({ ...p, season: e.target.value }))} placeholder="es. 2024-2025" />
-                  </div>
+                <div className="fp-alert fp-alert-info">
+                  Dopo ogni import FotMob il sistema esegue automaticamente:
+                  <strong> ricalcolo medie squadre</strong> e <strong>fit del modello Dixon-Coles</strong> per i campionati importati.
                 </div>
-              </div>
-            </div>
-            <div className="dm-model-grid">
-              <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title"> Ricalcola Medie</div></div>
-                <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Aggiorna le medie statistiche di ogni squadra (tiri, xG, cartellini, falli) dalle partite importate.</p>
-                  <button className="dm-action-btn blue" onClick={handleRecompute} disabled={recomputeLoading}>
-                    {recomputeLoading ? ' Ricalcolo in corso' : ' Ricalcola Medie Squadre'}
-                  </button>
-                  {recomputeResult && (
-                    <div className="dm-result ok"> Aggiornate <strong>{recomputeResult.data?.teamsUpdated ?? recomputeResult.teamsUpdated}</strong> squadre.</div>
-                  )}
-                </div>
-              </div>
-              <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title"> Addestra Modello</div></div>
-                <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>Esegui il fit del modello Dixon-Coles per calibrare attack strength, defence strength e parametri temporali.</p>
-                  <button className="dm-action-btn purple" onClick={handleFitModel} disabled={fitLoading}>
-                    {fitLoading ? ' Addestramento in corso' : ' Addestra Modello Dixon-Coles'}
-                  </button>
-                  {fitResult && (
-                    <div className="dm-result ok">
-                       Modello addestrato &nbsp;&nbsp; Partite: <strong>{fitResult.matchesUsed}</strong> &nbsp;&nbsp; Squadre: <strong>{fitResult.teams}</strong> &nbsp;&nbsp; Log-likelihood: <strong>{fitResult.logLikelihood?.toFixed(2)}</strong>
+                <div className="dm-model-grid" style={{ marginTop: 12 }}>
+                  <div className="fp-card">
+                    <div className="fp-card-head"><div className="fp-card-title">Ricalcolo Medie</div></div>
+                    <div className="fp-card-body">
+                      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, margin: 0 }}>
+                        Automatico su import: aggiorna tiri, xG, cartellini, falli e fattore difensivo per squadra.
+                      </p>
                     </div>
-                  )}
+                  </div>
+                  <div className="fp-card">
+                    <div className="fp-card-head"><div className="fp-card-title">Fit Modello</div></div>
+                    <div className="fp-card-body">
+                      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, margin: 0 }}>
+                        Automatico su import: aggiorna parametri attack/defence e salva i parametri modello più recenti.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -51,20 +51,18 @@ export interface OutcomeOdds {
   description?: string;       // contesto outcome (es. nome squadra nei team totals)
 }
 
-// Mappa sport key  nome leggibile
-const SPORT_KEYS: Record<string, string> = {
-  'Serie A':        'soccer_italy_serie_a',
-  'Premier League': 'soccer_epl',
-  'La Liga':        'soccer_spain_la_liga',
-  'Bundesliga':     'soccer_germany_bundesliga',
-  'Ligue 1':        'soccer_france_ligue_1',
-  'Champions League': 'soccer_uefa_champs_league',
-};
-
-// Bookmaker preferiti in ordine di priorit
-const PREFERRED_BOOKMAKERS = ['eurobet', 'bet365', 'snai', 'sisal', 'unibet', 'betfair_ex_eu'];
-
 export class OddsApiService {
+  private static readonly SPORT_KEYS: Record<string, string> = {
+    'Serie A':        'soccer_italy_serie_a',
+    'Premier League': 'soccer_epl',
+    'La Liga':        'soccer_spain_la_liga',
+    'Bundesliga':     'soccer_germany_bundesliga',
+    'Ligue 1':        'soccer_france_ligue_1',
+    'Champions League': 'soccer_uefa_champs_league',
+  };
+
+  private static readonly PREFERRED_BOOKMAKERS = ['eurobet', 'bet365', 'snai', 'sisal', 'unibet', 'betfair_ex_eu'];
+
   private readonly BASE_URL = 'https://api.the-odds-api.com/v4';
   private apiKey: string;
   private remainingRequests: number = 500;
@@ -112,9 +110,9 @@ export class OddsApiService {
     markets: string[] = ['h2h', 'totals'],
     bookmakers: string[] = []
   ): Promise<OddsMatch[]> {
-    const sportKey = SPORT_KEYS[competition];
+    const sportKey = OddsApiService.SPORT_KEYS[competition];
     if (!sportKey) {
-      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(SPORT_KEYS).join(', ')}`);
+      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(OddsApiService.SPORT_KEYS).join(', ')}`);
     }
 
     const params: Record<string, string> = {
@@ -161,9 +159,9 @@ export class OddsApiService {
     markets: string[] = [],
     bookmakers: string[] = []
   ): Promise<OddsMatch | null> {
-    const sportKey = SPORT_KEYS[competition];
+    const sportKey = OddsApiService.SPORT_KEYS[competition];
     if (!sportKey) {
-      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(SPORT_KEYS).join(', ')}`);
+      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(OddsApiService.SPORT_KEYS).join(', ')}`);
     }
     if (!eventId || String(eventId).trim() === '') return null;
     if (!Array.isArray(markets) || markets.length === 0) return null;
@@ -308,6 +306,11 @@ export class OddsApiService {
       if (nameLower !== 'over' && nameLower !== 'under') return null;
       const contextualDomain = domainFromContext();
       if (contextualDomain) return `${contextualDomain}_${nameLower}_${lineRaw}`;
+      const numericLine = Number(outcome.point);
+      // Guardrail: linee alte (es. 27.5) non sono goal totals.
+      if (Number.isFinite(numericLine) && numericLine >= 8) {
+        return `shots_total_${nameLower}_${lineRaw}`;
+      }
       return `${nameLower}${compactLine}`;
     }
 
@@ -375,7 +378,7 @@ export class OddsApiService {
 
     const orderedBookmakers = [
       primary.bookmakerKey,
-      ...PREFERRED_BOOKMAKERS,
+      ...OddsApiService.PREFERRED_BOOKMAKERS,
       ...match.bookmakers.map((b) => b.bookmakerKey),
     ].filter(Boolean);
 
@@ -457,10 +460,10 @@ export class OddsApiService {
   }
 
   static getSupportedCompetitions(): string[] {
-    return Object.keys(SPORT_KEYS);
+    return Object.keys(OddsApiService.SPORT_KEYS);
   }
 
   static getSupportedBookmakers(): string[] {
-    return PREFERRED_BOOKMAKERS;
+    return OddsApiService.PREFERRED_BOOKMAKERS;
   }
 }

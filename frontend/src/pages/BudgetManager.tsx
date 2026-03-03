@@ -185,7 +185,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                         <button className="fp-btn fp-btn-red" onClick={handleReset}>Conferma</button>
                       </div>
                       <div className="fp-alert fp-alert-warning" style={{ marginTop: 10 }}>
-                        Il reset azzera metriche e disponibilita per l'utente selezionato.
+                        Il reset azzera metriche e disponibilita e cancella tutte le scommesse dell'utente selezionato.
                       </div>
                     </div>
                   )}
