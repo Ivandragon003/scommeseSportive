@@ -438,7 +438,7 @@ const DataManager: React.FC = () => {
   const useOfficialSeasonStats = scope === 'current' && Boolean(seasonStats);
 
   const stats = useMemo(() => {
-    const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, fotmob: 0 };
+    const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, cs: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, fotmob: 0 };
     const add = (sk: string, nk: string, rv: any) => { const v = Number(rv); if (Number.isFinite(v)) { s[sk] += v; s[nk]++; } };
     const selectedId = String(selectedTeam?.team_id ?? '').trim();
     const selectedNameKey = normalizeKey(selectedTeam?.name ?? '');
@@ -459,6 +459,7 @@ const DataManager: React.FC = () => {
       const gf = Number(h ? m.home_goals : m.away_goals) || 0;
       const ga = Number(h ? m.away_goals : m.home_goals) || 0;
       s.gf += gf; s.ga += ga;
+      if (ga === 0) s.cs++;
       if (gf > ga) { s.w++; s.pts += 3; } else if (gf === ga) { s.d++; s.pts++; } else s.l++;
       add('xgf','xgfN', h ? m.home_xg : m.away_xg);
       add('xga','xgaN', h ? m.away_xg : m.home_xg);
@@ -806,6 +807,9 @@ const DataManager: React.FC = () => {
                           ['Gol fatti / subiti', useOfficialSeasonStats
                             ? `${seasonStats.goalsFor} / ${seasonStats.goalsAgainst} (${Number(seasonStats.goalDiff) >= 0 ? '+' : ''}${seasonStats.goalDiff})`
                             : `${stats.gf} / ${stats.ga} (${stats.gd >= 0 ? '+' : ''}${stats.gd})`],
+                          ['Reti inviolate', useOfficialSeasonStats
+                            ? `${n(seasonStats.cleanSheetsTotal, 0)}`
+                            : stats.cs],
                           ['xG fatto / subito', useOfficialSeasonStats
                             ? `${n(seasonStats.xgForPerMatch, 2)} / ${n(seasonStats.xgAgainstPerMatch, 2)}`
                             : `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)} (${stats.xgfCov})`],

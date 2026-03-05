@@ -70,6 +70,7 @@ export interface FotmobTeamSeasonStats {
   yellowPerMatch: number | null;
   redPerMatch: number | null;
   shotsOnTargetPerMatch: number | null;
+  cleanSheetsTotal: number | null;
   source: 'fotmob_season_stats';
 }
 
@@ -88,9 +89,12 @@ export class FotmobScraper {
   };
 
   private readonly BASE_URL = 'https://www.fotmob.com';
-  private readonly REQUEST_DELAY_MS = 220;
-  private readonly DETAILS_MAX_RETRIES = 3;
-  private readonly DETAILS_RETRY_WAIT_MS = 5000;
+  private readonly REQUEST_DELAY_MS = 120;
+  private readonly DETAILS_MAX_RETRIES = 2;
+  private readonly DETAILS_RETRY_WAIT_MS = 1500;
+  private readonly DETAILS_PAGE_FALLBACK_MAX_ATTEMPTS = 6;
+  private readonly DETAILS_CIRCUIT_MIN_ATTEMPTS = 12;
+  private readonly DETAILS_CIRCUIT_BLOCK_RATIO = 0.65;
   private readonly FETCH_TIMEOUT_MS = 45000;
   private readonly SEASON_STATS_CACHE_TTL_MS = 10 * 60 * 1000;
   private seasonStatsCache = new Map<string, { at: number; data: Record<string, FotmobTeamSeasonStats> }>();
@@ -255,6 +259,33 @@ export class FotmobScraper {
       msg.includes('returned 401') ||
       msg.includes('returned 429');
     return msg.includes('/api/matchdetails') && blockedStatus;
+  }
+
+  private hasUsableSummaryStats(summary: any): boolean {
+    const toNum = (v: unknown): number | null => this.toNumber(v);
+
+    const xgHome = toNum(summary?.home?.xg);
+    const xgAway = toNum(summary?.away?.xg);
+    const shotsHome = toNum(summary?.home?.shots);
+    const shotsAway = toNum(summary?.away?.shots);
+    const sotHome = toNum(summary?.home?.shotsOnTarget);
+    const sotAway = toNum(summary?.away?.shotsOnTarget);
+    const possRawHome = toNum(summary?.home?.possession);
+    const possRawAway = toNum(summary?.away?.possession);
+    const possHome = possRawHome !== null && possRawHome >= 0 && possRawHome <= 1 ? possRawHome * 100 : possRawHome;
+    const possAway = possRawAway !== null && possRawAway >= 0 && possRawAway <= 1 ? possRawAway * 100 : possRawAway;
+
+    const core = [xgHome, xgAway, shotsHome, shotsAway, sotHome, sotAway, possHome, possAway];
+    if (core.some(v => v === null || !Number.isFinite(v))) return false;
+    const vals = core as number[];
+    const allZeroLike = vals.every(v => Math.abs(v) < 1e-9);
+    if (allZeroLike) return false;
+
+    // Possesso deve essere plausibile.
+    if (possHome === null || possAway === null) return false;
+    if (possHome < 0 || possHome > 100 || possAway < 0 || possAway > 100) return false;
+
+    return true;
   }
 
   private extractNextDataPageProps(html: string): any | null {
@@ -727,6 +758,11 @@ export class FotmobScraper {
     const includeDetails = options?.includeDetails !== false;
     let blockedDetailsCount = 0;
     let blockedDetailsLogged = 0;
+    let detailsAttempts = 0;
+    let detailsBlocked = 0;
+    let detailsDisabled = false;
+    let detailsDisabledReason = '';
+    let pageFallbackAttempts = 0;
 
     for (const summary of allMatches) {
       const sourceMatchId = this.toNumber(summary?.id ?? summary?.matchId);
@@ -735,7 +771,8 @@ export class FotmobScraper {
       let details: any | null = null;
       // Per partite future/non concluse non servono dettagli avanzati:
       // evita molte richieste 403 e riduce drasticamente la durata dell'import.
-      if (includeDetails && this.isLikelyFinished(summary)) {
+      if (includeDetails && this.isLikelyFinished(summary) && !detailsDisabled && !this.hasUsableSummaryStats(summary)) {
+        detailsAttempts++;
         for (let attempt = 1; attempt <= this.DETAILS_MAX_RETRIES; attempt++) {
           try {
             details = await this.fetchJson<any>(`/api/matchDetails?matchId=${Math.trunc(sourceMatchId)}`);
@@ -746,17 +783,22 @@ export class FotmobScraper {
             const canRetry = isTooManyRequests && attempt < this.DETAILS_MAX_RETRIES;
 
             if (this.detailsApiBlocked(message)) {
-              try {
-                const detailsFromPage = await this.fetchDetailsFromMatchPage(
-                  Math.trunc(sourceMatchId),
-                  summary?.pageUrl
-                );
-                if (detailsFromPage) {
-                  details = detailsFromPage;
-                  break;
+              detailsBlocked++;
+              if (pageFallbackAttempts < this.DETAILS_PAGE_FALLBACK_MAX_ATTEMPTS) {
+                try {
+                  const detailsFromPage = await this.fetchDetailsFromMatchPage(
+                    Math.trunc(sourceMatchId),
+                    summary?.pageUrl
+                  );
+                  pageFallbackAttempts++;
+                  if (detailsFromPage) {
+                    details = detailsFromPage;
+                    break;
+                  }
+                } catch {
+                  pageFallbackAttempts++;
+                  // segue log fallback sotto
                 }
-              } catch {
-                // segue log fallback sotto
               }
             }
 
@@ -774,6 +816,14 @@ export class FotmobScraper {
               } else if (blockedDetailsLogged === 8) {
                 console.warn('[FotmobScraper] Altri 403 su /api/matchDetails omessi nei log per evitare spam.');
                 blockedDetailsLogged++;
+              }
+
+              if (
+                detailsAttempts >= this.DETAILS_CIRCUIT_MIN_ATTEMPTS &&
+                detailsBlocked / Math.max(1, detailsAttempts) >= this.DETAILS_CIRCUIT_BLOCK_RATIO
+              ) {
+                detailsDisabled = true;
+                detailsDisabledReason = `circuit-breaker attivo (${detailsBlocked}/${detailsAttempts} richieste bloccate)`;
               }
               break;
             }
@@ -795,6 +845,11 @@ export class FotmobScraper {
     if (blockedDetailsCount > 0) {
       console.warn(
         `[FotmobScraper] /api/matchDetails bloccata su ${blockedDetailsCount} match in ${cfg.name} ${season}. Statistiche avanzate non disponibili per questi match.`
+      );
+    }
+    if (detailsDisabled) {
+      console.warn(
+        `[FotmobScraper] Dettagli disattivati per il resto della stagione ${cfg.name} ${season}: ${detailsDisabledReason}.`
       );
     }
 
@@ -916,6 +971,7 @@ export class FotmobScraper {
         yellowPerMatch: null,
         redPerMatch: null,
         shotsOnTargetPerMatch: null,
+        cleanSheetsTotal: null,
         source: 'fotmob_season_stats',
       });
     }
@@ -928,6 +984,7 @@ export class FotmobScraper {
       'expected_goals_team',
       'expected_goals_conceded_team',
       'ontarget_scoring_att_team',
+      'clean_sheet_team',
     ];
     const teamStatEntries = Array.isArray(payload?.stats?.teams) ? payload.stats.teams : [];
 
@@ -964,6 +1021,7 @@ export class FotmobScraper {
     applyStat('expected_goals_team', (row, value) => { row.xgForTotal = value; });
     applyStat('expected_goals_conceded_team', (row, value) => { row.xgAgainstTotal = value; });
     applyStat('ontarget_scoring_att_team', (row, value) => { row.shotsOnTargetPerMatch = value; });
+    applyStat('clean_sheet_team', (row, value) => { row.cleanSheetsTotal = value; });
 
     const out: Record<string, FotmobTeamSeasonStats> = {};
     for (const [key, row] of baseByTeam.entries()) {
