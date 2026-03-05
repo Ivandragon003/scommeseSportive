@@ -298,8 +298,27 @@ export class DatabaseService {
     );
   }
 
-  async getMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }): Promise<any[]> {
-    let q = 'SELECT * FROM matches WHERE 1=1';
+  async getMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string; includeRawJson?: boolean }): Promise<any[]> {
+    const baseColumns = [
+      'match_id',
+      'home_team_id', 'away_team_id',
+      'home_team_name', 'away_team_name',
+      'date',
+      'home_goals', 'away_goals',
+      'home_xg', 'away_xg',
+      'home_shots', 'away_shots',
+      'home_shots_on_target', 'away_shots_on_target',
+      'home_possession', 'away_possession',
+      'home_fouls', 'away_fouls',
+      'home_yellow_cards', 'away_yellow_cards',
+      'home_red_cards', 'away_red_cards',
+      'referee',
+      'competition', 'season',
+      'source', 'source_match_id',
+      'created_at',
+    ];
+    const columns = filters?.includeRawJson ? [...baseColumns, 'raw_json'] : baseColumns;
+    let q = `SELECT ${columns.join(', ')} FROM matches WHERE 1=1`;
     const p: any[] = [];
 
     if (filters?.competition) {
@@ -909,6 +928,27 @@ export class DatabaseService {
       'SELECT * FROM players WHERE team_id = ? AND is_available = 1 ORDER BY avg_shots_per_game DESC',
       [teamId]
     );
+  }
+
+  async markPlayersUnavailable(competition?: string): Promise<number> {
+    const normalizedCompetition = String(competition ?? '').trim();
+
+    if (!normalizedCompetition) {
+      const result = await this.execute('UPDATE players SET is_available = 0');
+      return Number(result?.rowsAffected ?? 0);
+    }
+
+    const result = await this.execute(
+      `
+      UPDATE players
+      SET is_available = 0
+      WHERE team_id IN (
+        SELECT team_id FROM teams WHERE competition = ?
+      )
+    `,
+      [normalizedCompetition]
+    );
+    return Number(result?.rowsAffected ?? 0);
   }
 
   // ==================== REFEREES ====================

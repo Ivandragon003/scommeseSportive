@@ -168,14 +168,209 @@ router.post('/model/fit', async (req: Request, res: Response) => {
 
 router.post('/model/recompute-averages', async (req: Request, res: Response) => {
   try {
-    const { competition } = req.body;
+    const {
+      competition,
+      season,
+      fromDate,
+      toDate,
+      recomputePlayers = true,
+    } = req.body ?? {};
+
+    const normalizedCompetition = String(competition ?? '').trim();
     const teams = await db.getTeams(competition);
-    let updated = 0;
+    let teamsUpdated = 0;
     for (const t of teams) {
       await db.recomputeTeamAverages(t.team_id);
-      updated++;
+      teamsUpdated++;
     }
-    res.json({ success: true, teamsUpdated: updated });
+
+    let playersMarkedUnavailable = 0;
+    let playersUpdated = 0;
+    let playersDetected = 0;
+    let playedMatchesConsidered = 0;
+    let matchesWithShotmap = 0;
+
+    if (recomputePlayers) {
+      const matches = await db.getMatches({
+        competition: normalizedCompetition || undefined,
+        season: String(season ?? '').trim() || undefined,
+        fromDate: String(fromDate ?? '').trim() || undefined,
+        toDate: String(toDate ?? '').trim() || undefined,
+        includeRawJson: true,
+      });
+
+      const numOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const normalizeTeamId = (name: string): string =>
+        String(name ?? '')
+          .toLowerCase()
+          .trim()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '');
+
+      type PlayerAgg = {
+        playerId: string;
+        sourcePlayerId: number | null;
+        name: string;
+        teamId: string;
+        games: Set<string>;
+        shots: number;
+        shotsOnTarget: number;
+        goals: number;
+        xg: number;
+        xgot: number;
+        rawSamples: Record<string, unknown>[];
+      };
+
+      const teamShotsTotals = new Map<string, number>();
+      const playersAgg = new Map<string, PlayerAgg>();
+
+      const playedMatches = matches.filter(
+        (m: any) => m.home_goals !== null && m.away_goals !== null
+      );
+      playedMatchesConsidered = playedMatches.length;
+
+      playersMarkedUnavailable = await db.markPlayersUnavailable(normalizedCompetition || undefined);
+
+      for (const m of playedMatches) {
+        const homeTeamId = String(m.home_team_id ?? '').trim();
+        const awayTeamId = String(m.away_team_id ?? '').trim();
+        if (!homeTeamId || !awayTeamId) continue;
+
+        const homeShots = numOrNull(m.home_shots);
+        const awayShots = numOrNull(m.away_shots);
+        if (homeShots !== null) {
+          teamShotsTotals.set(homeTeamId, (teamShotsTotals.get(homeTeamId) ?? 0) + homeShots);
+        }
+        if (awayShots !== null) {
+          teamShotsTotals.set(awayTeamId, (teamShotsTotals.get(awayTeamId) ?? 0) + awayShots);
+        }
+
+        let raw: any = null;
+        try {
+          raw = typeof m.raw_json === 'string' && m.raw_json.trim().length > 0
+            ? JSON.parse(m.raw_json)
+            : null;
+        } catch {
+          raw = null;
+        }
+
+        const shotMap = raw?.content?.shotmap?.shots;
+        if (!Array.isArray(shotMap) || shotMap.length === 0) continue;
+        matchesWithShotmap++;
+
+        for (const shot of shotMap) {
+          const playerName = String(shot?.playerName ?? shot?.player ?? '').trim();
+          if (!playerName) continue;
+
+          const rawPlayerId = numOrNull(shot?.playerId);
+          const sourcePlayerId = rawPlayerId === null ? null : Math.trunc(rawPlayerId);
+          const playerId = sourcePlayerId !== null
+            ? `fotmob_player_${sourcePlayerId}`
+            : `fotmob_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
+
+          const teamName = String(shot?.teamName ?? '').trim();
+          const teamIdFromName = teamName ? normalizeTeamId(teamName) : '';
+          const isHome = shot?.isHome === true || String(shot?.isHome ?? '').toLowerCase() === 'true' || String(shot?.isHome ?? '') === '1';
+          let teamId = isHome ? homeTeamId : awayTeamId;
+          if (teamIdFromName === homeTeamId || teamIdFromName === awayTeamId) {
+            teamId = teamIdFromName;
+          }
+
+          const existing = playersAgg.get(playerId) ?? {
+            playerId,
+            sourcePlayerId,
+            name: playerName,
+            teamId,
+            games: new Set<string>(),
+            shots: 0,
+            shotsOnTarget: 0,
+            goals: 0,
+            xg: 0,
+            xgot: 0,
+            rawSamples: [],
+          };
+
+          existing.teamId = teamId;
+          existing.games.add(String(m.match_id));
+          existing.shots += 1;
+
+          const eventType = String(shot?.eventType ?? '').toLowerCase();
+          const isOnTarget = Boolean(shot?.isOnTarget) || eventType.includes('on_target');
+          if (isOnTarget) existing.shotsOnTarget += 1;
+
+          const isGoal = Boolean(shot?.isGoal) || eventType.includes('goal');
+          if (isGoal) existing.goals += 1;
+
+          existing.xg += numOrNull(shot?.expectedGoals) ?? 0;
+          existing.xgot += numOrNull(shot?.expectedGoalsOnTarget) ?? 0;
+          if (existing.rawSamples.length < 8) {
+            existing.rawSamples.push({
+              eventType: shot?.eventType ?? null,
+              bodyPart: shot?.bodyPart ?? null,
+              situation: shot?.situation ?? null,
+            });
+          }
+
+          playersAgg.set(playerId, existing);
+        }
+      }
+
+      playersDetected = playersAgg.size;
+
+      for (const [, p] of playersAgg) {
+        const games = Math.max(1, p.games.size);
+        const teamShotsTotal = Math.max(0, teamShotsTotals.get(p.teamId) ?? 0);
+        const shotShare = teamShotsTotal > 0 ? p.shots / teamShotsTotal : 0;
+
+        await db.upsertPlayer({
+          playerId: p.playerId,
+          sourcePlayerId: p.sourcePlayerId,
+          name: p.name,
+          teamId: p.teamId,
+          positionCode: 'MF',
+          avgShotsPerGame: p.shots / games,
+          avgShotsOnTargetPerGame: p.shotsOnTarget / games,
+          avgXGPerGame: p.xg / games,
+          avgXGOTPerGame: p.xgot / games,
+          totalGoals: p.goals,
+          totalShots: p.shots,
+          totalShotsOnTarget: p.shotsOnTarget,
+          shotShareOfTeam: shotShare,
+          gamesPlayed: games,
+          isAvailable: true,
+          statsJson: JSON.stringify({
+            source: 'recompute_from_matches_raw',
+            filters: {
+              competition: normalizedCompetition || null,
+              season: String(season ?? '').trim() || null,
+              fromDate: String(fromDate ?? '').trim() || null,
+              toDate: String(toDate ?? '').trim() || null,
+            },
+            playedMatchesConsidered,
+            matchesWithShotmap,
+            sampleCount: p.rawSamples.length,
+            rawSamples: p.rawSamples,
+          }),
+        });
+        playersUpdated++;
+      }
+    }
+
+    res.json({
+      success: true,
+      teamsUpdated,
+      playersRecomputeEnabled: Boolean(recomputePlayers),
+      playersMarkedUnavailable,
+      playersDetected,
+      playersUpdated,
+      playedMatchesConsidered,
+      matchesWithShotmap,
+    });
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 
@@ -634,6 +829,33 @@ router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', ver
 // ====== FOTMOB SCRAPER (IMPORT INCREMENTALE) ======
 import { FotmobScraper } from '../services/FotmobScraper';
 const fotmob = new FotmobScraper();
+
+router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
+  try {
+    const competition = String(req.query.competition ?? '').trim();
+    const season = String(req.query.season ?? '').trim();
+    const teamId = String(req.query.teamId ?? '').trim();
+
+    if (!competition || !season || !teamId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Parametri richiesti: competition, season, teamId',
+      });
+    }
+
+    const data = await fotmob.getTeamSeasonStats(competition, season, teamId);
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: `Stats stagionali non trovate per ${teamId} (${competition} ${season})`,
+      });
+    }
+
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
 
 async function runFotmobImport(req: Request, res: Response) {
   try {
