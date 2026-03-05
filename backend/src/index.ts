@@ -11,6 +11,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request logging
 app.use((req, res, next) => {
+  if (req.path === '/api/health') {
+    return next();
+  }
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
