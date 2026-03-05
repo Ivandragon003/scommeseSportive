@@ -24,7 +24,7 @@ export const getPlayersByTeam = (teamId: string) =>
 
 // Matches
 export const getMatches = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
-  API.get<ApiResponse<any[]>>('/matches', { params: filters }).then(r => r.data);
+  API.get<ApiResponse<any[]>>('/matches', { params: filters, timeout: 120000 }).then(r => r.data);
 
 export const getMatchesCount = (filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }) =>
   API.get<ApiResponse<null>>('/matches/count', { params: filters }).then(r => r.data);
@@ -112,6 +112,9 @@ export const recomputeAverages = (competition?: string) =>
 
 export const getStatsOverview = () =>
   API.get<ApiResponse<any>>('/stats/overview').then(r => r.data);
+
+export const getFotmobTeamSeasonStats = (params: { competition: string; season: string; teamId: string }) =>
+  API.get<ApiResponse<any>>('/stats/fotmob/team-season', { params, timeout: 120000 }).then(r => r.data);
 
 // Health
 export const healthCheck = () =>

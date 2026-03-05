@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   bulkImportMatches, fitModel, getMatches,
-  getPlayersByTeam, getStatsOverview, getTeams, recomputeAverages,
+  getFotmobTeamSeasonStats, getPlayersByTeam, getStatsOverview, getTeams, recomputeAverages,
 } from '../utils/api';
 
 type TeamScope = 'current' | 'previous' | 'total';
@@ -15,6 +15,13 @@ const n = (v: any, d = 2) => {
   const x = Number(v);
   return Number.isFinite(x) ? x.toFixed(d) : '-';
 };
+
+const normalizeKey = (v: any) =>
+  String(v ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
 
 /* Solo stili specifici di DataManager */
 const localStyles = `
@@ -239,14 +246,45 @@ const DataManager: React.FC = () => {
   const [playersLoading, setPlayersLoading] = useState('');
   const [statsOverview, setStatsOverview] = useState<any>(null);
   const [statsOverviewError, setStatsOverviewError] = useState('');
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [matchesLoadError, setMatchesLoadError] = useState('');
+  const [matchesCompetition, setMatchesCompetition] = useState('');
+  const [seasonStatsByKey, setSeasonStatsByKey] = useState<Record<string, any>>({});
+  const [seasonStatsLoadingKey, setSeasonStatsLoadingKey] = useState('');
 
   useEffect(() => { loadData(); }, []);
 
+  const loadMatchesForCompetition = async (competition?: string) => {
+    const normalized = String(competition ?? '').trim();
+    if (!normalized) {
+      setMatches([]);
+      setMatchesCompetition('');
+      setMatchesLoading(false);
+      return;
+    }
+
+    // Evita refetch inutili se abbiamo gia i match per questa competizione.
+    if (matchesCompetition === normalized && matches.length > 0) return;
+
+    setMatchesLoading(true);
+    setMatchesLoadError('');
+    try {
+      const matchesRes = await getMatches({ competition: normalized });
+      setMatches([...(matchesRes.data ?? [])].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      setMatchesCompetition(normalized);
+    } catch (e: any) {
+      setMatches([]);
+      setMatchesCompetition(normalized);
+      setMatchesLoadError(e?.message ?? 'Errore caricamento partite');
+    } finally {
+      setMatchesLoading(false);
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
-    const [teamsRes, matchesRes, overviewRes] = await Promise.allSettled([
+    const [teamsRes, overviewRes] = await Promise.allSettled([
       getTeams(),
-      getMatches(),
       getStatsOverview(),
     ]);
 
@@ -254,10 +292,6 @@ const DataManager: React.FC = () => {
       const t = teamsRes.value.data ?? [];
       setTeams(t);
       if (!selectedTeamId && t.length > 0) setSelectedTeamId(String(t[0].team_id));
-    }
-
-    if (matchesRes.status === 'fulfilled') {
-      setMatches([...(matchesRes.value.data ?? [])].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }
 
     if (overviewRes.status === 'fulfilled') {
@@ -270,6 +304,16 @@ const DataManager: React.FC = () => {
 
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (!teams.length) return;
+    const targetCompetition =
+      String(competitionFilter ?? '').trim() ||
+      String(selectedTeam?.competition ?? '').trim() ||
+      String(teams[0]?.competition ?? '').trim();
+    if (!targetCompetition) return;
+    loadMatchesForCompetition(targetCompetition);
+  }, [teams, competitionFilter, selectedTeamId]);
 
   const loadPlayers = async (teamId: string) => {
     if (!teamId || playersByTeam[teamId]) return;
@@ -331,13 +375,54 @@ const DataManager: React.FC = () => {
 
   const teamAllMatches = useMemo(() => {
     if (!selectedTeam) return [];
+    const selectedId = String(selectedTeam.team_id ?? '').trim();
+    const selectedNameKey = normalizeKey(selectedTeam.name ?? '');
+
+    const belongsToSelectedTeam = (m: any) => {
+      const homeId = String(m.home_team_id ?? '').trim();
+      const awayId = String(m.away_team_id ?? '').trim();
+      if (homeId === selectedId || awayId === selectedId) return true;
+
+      const homeNameKey = normalizeKey(m.home_team_name ?? '');
+      const awayNameKey = normalizeKey(m.away_team_name ?? '');
+      if (selectedNameKey && (homeNameKey === selectedNameKey || awayNameKey === selectedNameKey)) return true;
+
+      return false;
+    };
+
     return matches.filter((m: any) => m.home_goals !== null && m.away_goals !== null)
-      .filter((m: any) => m.home_team_id === selectedTeam.team_id || m.away_team_id === selectedTeam.team_id);
+      .filter(belongsToSelectedTeam);
   }, [matches, selectedTeam]);
 
   const teamSeasons = useMemo(() => Array.from(new Set(teamAllMatches.map((m: any) => String(m.season ?? '').trim()).filter(Boolean)))
     .sort((a, b) => seasonKey(b) - seasonKey(a) || b.localeCompare(a)), [teamAllMatches]);
   const currentTeamSeason = teamSeasons[0];
+
+  useEffect(() => {
+    if (!selectedTeam || !currentTeamSeason) return;
+    const competition = String(selectedTeam.competition ?? '').trim();
+    const teamId = String(selectedTeam.team_id ?? '').trim();
+    if (!competition || !teamId) return;
+
+    const key = `${competition}::${currentTeamSeason}::${teamId}`;
+    if (Object.prototype.hasOwnProperty.call(seasonStatsByKey, key)) return;
+    if (seasonStatsLoadingKey === key) return;
+
+    setSeasonStatsLoadingKey(key);
+    getFotmobTeamSeasonStats({ competition, season: currentTeamSeason, teamId })
+      .then((res: any) => {
+        setSeasonStatsByKey((prev) => ({
+          ...prev,
+          [key]: res?.success ? (res.data ?? null) : null,
+        }));
+      })
+      .catch(() => {
+        setSeasonStatsByKey((prev) => ({ ...prev, [key]: null }));
+      })
+      .finally(() => {
+        setSeasonStatsLoadingKey((curr) => (curr === key ? '' : curr));
+      });
+  }, [selectedTeam, currentTeamSeason, seasonStatsByKey, seasonStatsLoadingKey]);
 
   const scopedMatches = useMemo(() => {
     if (scope === 'total') return teamAllMatches;
@@ -346,11 +431,31 @@ const DataManager: React.FC = () => {
     return teamAllMatches.filter((m: any) => String(m.season ?? '').trim() !== currentTeamSeason);
   }, [teamAllMatches, currentTeamSeason, scope]);
 
+  const seasonStatsKey = selectedTeam && currentTeamSeason
+    ? `${String(selectedTeam.competition ?? '').trim()}::${currentTeamSeason}::${String(selectedTeam.team_id ?? '').trim()}`
+    : '';
+  const seasonStats = seasonStatsKey ? seasonStatsByKey[seasonStatsKey] : null;
+  const useOfficialSeasonStats = scope === 'current' && Boolean(seasonStats);
+
   const stats = useMemo(() => {
     const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, fotmob: 0 };
     const add = (sk: string, nk: string, rv: any) => { const v = Number(rv); if (Number.isFinite(v)) { s[sk] += v; s[nk]++; } };
+    const selectedId = String(selectedTeam?.team_id ?? '').trim();
+    const selectedNameKey = normalizeKey(selectedTeam?.name ?? '');
     for (const m of scopedMatches) {
-      const h = m.home_team_id === selectedTeam?.team_id;
+      const homeId = String(m.home_team_id ?? '').trim();
+      const awayId = String(m.away_team_id ?? '').trim();
+      let h = homeId === selectedId;
+      let a = awayId === selectedId;
+
+      if (!h && !a && selectedNameKey) {
+        const homeNameKey = normalizeKey(m.home_team_name ?? '');
+        const awayNameKey = normalizeKey(m.away_team_name ?? '');
+        h = homeNameKey === selectedNameKey;
+        a = awayNameKey === selectedNameKey;
+      }
+      if (!h && !a) continue;
+
       const gf = Number(h ? m.home_goals : m.away_goals) || 0;
       const ga = Number(h ? m.away_goals : m.home_goals) || 0;
       s.gf += gf; s.ga += ga;
@@ -380,6 +485,13 @@ const DataManager: React.FC = () => {
     s.ycAvg   = s.ycN   > 0 ? s.yc   / s.ycN   : null;
     s.rcAvg   = s.rcN   > 0 ? s.rc   / s.rcN   : null;
     s.possAvg = s.possN > 0 ? s.poss / s.possN : null;
+    s.xgfCov = `${s.xgfN}/${s.p}`;
+    s.sfCov = `${s.sfN}/${s.p}`;
+    s.sotfCov = `${s.sotfN}/${s.p}`;
+    s.foulsCov = `${s.foulsN}/${s.p}`;
+    s.ycCov = `${s.ycN}/${s.p}`;
+    s.rcCov = `${s.rcN}/${s.p}`;
+    s.possCov = `${s.possN}/${s.p}`;
     return s;
   }, [scopedMatches, selectedTeam]);
 
@@ -667,6 +779,11 @@ const DataManager: React.FC = () => {
                 </div>
 
                 {/* W/D/L */}
+                {matchesLoadError && (
+                  <div className="fp-alert fp-alert-warning" style={{ marginBottom: 12 }}>
+                    {matchesLoadError}
+                  </div>
+                )}
                 <div className="dm-record">
                   <div className="dm-rec-box w"><div className="dm-rec-val w">{stats.w}</div><div className="dm-rec-lbl" style={{ color: 'var(--green)' }}>Vinte</div></div>
                   <div className="dm-rec-box d"><div className="dm-rec-val d">{stats.d}</div><div className="dm-rec-lbl" style={{ color: 'var(--blue)' }}>Pari</div></div>
@@ -679,18 +796,36 @@ const DataManager: React.FC = () => {
                     <table className="dm-stats-table">
                       <tbody>
                         {[
-                          ['Partite', stats.p],
-                          ['Punti', `${stats.pts} (${n(stats.ppg, 2)} ppg)`],
-                          ['Win Rate', `${n(stats.wr * 100, 1)}%`],
-                          ['Gol fatti / subiti', `${stats.gf} / ${stats.ga} (${stats.gd >= 0 ? '+' : ''}${stats.gd})`],
-                          ['xG fatto / subito', `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)}`],
-                          ['Tiri fatti / subiti', `${n(stats.sfAvg, 2)} / ${n(stats.saAvg, 2)}`],
-                          ['Tiri in porta (OT) fatti / subiti', `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)}`],
-                          ['Falli / partita', n(stats.foulsAvg, 2)],
-                          ['Gialli / partita', n(stats.ycAvg, 2)],
-                          ['Rossi / partita', n(stats.rcAvg, 3)],
-                          ['Possesso medio', stats.possAvg !== null ? `${n(stats.possAvg, 1)}%` : ''],
-                          ['Match FotMob', stats.fotmob],
+                          ['Partite', matchesLoading ? '...' : (useOfficialSeasonStats ? seasonStats.played : stats.p)],
+                          ['Punti', useOfficialSeasonStats
+                            ? `${seasonStats.points} (${n(Number(seasonStats.points ?? 0) / Math.max(1, Number(seasonStats.played ?? 0)), 2)} ppg)`
+                            : `${stats.pts} (${n(stats.ppg, 2)} ppg)`],
+                          ['Win Rate', useOfficialSeasonStats
+                            ? `${n((Number(seasonStats.wins ?? 0) / Math.max(1, Number(seasonStats.played ?? 0))) * 100, 1)}%`
+                            : `${n(stats.wr * 100, 1)}%`],
+                          ['Gol fatti / subiti', useOfficialSeasonStats
+                            ? `${seasonStats.goalsFor} / ${seasonStats.goalsAgainst} (${Number(seasonStats.goalDiff) >= 0 ? '+' : ''}${seasonStats.goalDiff})`
+                            : `${stats.gf} / ${stats.ga} (${stats.gd >= 0 ? '+' : ''}${stats.gd})`],
+                          ['xG fatto / subito', useOfficialSeasonStats
+                            ? `${n(seasonStats.xgForPerMatch, 2)} / ${n(seasonStats.xgAgainstPerMatch, 2)}`
+                            : `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)} (${stats.xgfCov})`],
+                          ['Tiri fatti / subiti', `${n(stats.sfAvg, 2)} / ${n(stats.saAvg, 2)} (${stats.sfCov})`],
+                          ['Tiri in porta (OT) fatti / subiti', useOfficialSeasonStats
+                            ? `${n(seasonStats.shotsOnTargetPerMatch, 2)} / ${n(stats.sotaAvg, 2)}`
+                            : `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)} (${stats.sotfCov})`],
+                          ['Falli / partita', useOfficialSeasonStats
+                            ? n(seasonStats.foulsPerMatch, 2)
+                            : `${n(stats.foulsAvg, 2)} (${stats.foulsCov})`],
+                          ['Gialli / partita', useOfficialSeasonStats
+                            ? n(seasonStats.yellowPerMatch, 2)
+                            : `${n(stats.ycAvg, 2)} (${stats.ycCov})`],
+                          ['Rossi / partita', useOfficialSeasonStats
+                            ? n(seasonStats.redPerMatch, 3)
+                            : `${n(stats.rcAvg, 3)} (${stats.rcCov})`],
+                          ['Possesso medio', useOfficialSeasonStats
+                            ? `${n(seasonStats.possessionAvg, 1)}%`
+                            : (stats.possAvg !== null ? `${n(stats.possAvg, 1)}% (${stats.possCov})` : `- (${stats.possCov})`)],
+                          ['Match FotMob', useOfficialSeasonStats ? seasonStats.played : stats.fotmob],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>

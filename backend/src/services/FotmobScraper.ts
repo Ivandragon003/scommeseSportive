@@ -46,6 +46,33 @@ export interface FotmobPlayerMatchStat {
   raw: Record<string, unknown>;
 }
 
+export interface FotmobTeamSeasonStats {
+  competition: string;
+  season: string;
+  teamId: string;
+  teamName: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDiff: number;
+  xgForTotal: number | null;
+  xgAgainstTotal: number | null;
+  xgForPerMatch: number | null;
+  xgAgainstPerMatch: number | null;
+  possessionAvg: number | null;
+  foulsPerMatch: number | null;
+  yellowTotal: number | null;
+  redTotal: number | null;
+  yellowPerMatch: number | null;
+  redPerMatch: number | null;
+  shotsOnTargetPerMatch: number | null;
+  source: 'fotmob_season_stats';
+}
+
 interface CompetitionConfig {
   name: string;
   id: number;
@@ -65,6 +92,8 @@ export class FotmobScraper {
   private readonly DETAILS_MAX_RETRIES = 3;
   private readonly DETAILS_RETRY_WAIT_MS = 5000;
   private readonly FETCH_TIMEOUT_MS = 45000;
+  private readonly SEASON_STATS_CACHE_TTL_MS = 10 * 60 * 1000;
+  private seasonStatsCache = new Map<string, { at: number; data: Record<string, FotmobTeamSeasonStats> }>();
   private browser: Browser | null = null;
   private page: Page | null = null;
 
@@ -180,6 +209,40 @@ export class FotmobScraper {
 
     if (!fallback.ok) {
       throw new Error(`FotMob API ${apiPath} returned ${fallback.status}`);
+    }
+
+    return JSON.parse(fallback.text) as T;
+  }
+
+  private async fetchAbsoluteJson<T>(url: string): Promise<T> {
+    const page = await this.ensurePage();
+    const response = await page.request.get(url, {
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': this.BASE_URL,
+        'Origin': this.BASE_URL,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      timeout: this.FETCH_TIMEOUT_MS,
+    });
+    if (response.ok()) {
+      return response.json() as Promise<T>;
+    }
+
+    const fallback = await page.evaluate(async (fullUrl: string) => {
+      const r = await fetch(fullUrl, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+        },
+      });
+      const text = await r.text();
+      return { ok: r.ok, status: r.status, text };
+    }, url);
+
+    if (!fallback.ok) {
+      throw new Error(`FotMob API absolute ${url} returned ${fallback.status}`);
     }
 
     return JSON.parse(fallback.text) as T;
@@ -328,7 +391,7 @@ export class FotmobScraper {
     return null;
   }
 
-  private findStatPair(payload: unknown, searchTerms: string[]): { home: number | null; away: number | null } {
+  private findStatPairs(payload: unknown, searchTerms: string[]): Array<{ home: number | null; away: number | null }> {
     // confronto fuzzy: lowercase + rimozione separatori/simboli comuni
     const normalize = (s: string) => s.toLowerCase().replace(/[\s_\-()]/g, '');
     const targets = searchTerms.map(normalize);
@@ -339,14 +402,15 @@ export class FotmobScraper {
       return targets.some(t => label === t || label.includes(t));
     };
 
-    const walk = (node: unknown): { home: number | null; away: number | null } | null => {
-      if (!node || typeof node !== 'object') return null;
+    const out: Array<{ home: number | null; away: number | null }> = [];
+
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) {
         for (const item of node) {
-          const found = walk(item);
-          if (found) return found;
+          walk(item);
         }
-        return null;
+        return;
       }
 
       const obj = node as Record<string, unknown>;
@@ -354,25 +418,24 @@ export class FotmobScraper {
       if (rawKey && isMatch(rawKey)) {
         const stats = obj.stats;
         if (Array.isArray(stats) && stats.length >= 2) {
-          return { home: this.toNumber(stats[0]), away: this.toNumber(stats[1]) };
+          out.push({ home: this.toNumber(stats[0]), away: this.toNumber(stats[1]) });
         }
         const values = obj.value;
         if (Array.isArray(values) && values.length >= 2) {
-          return { home: this.toNumber(values[0]), away: this.toNumber(values[1]) };
+          out.push({ home: this.toNumber(values[0]), away: this.toNumber(values[1]) });
         }
         if (obj.home !== undefined && obj.away !== undefined) {
-          return { home: this.toNumber(obj.home), away: this.toNumber(obj.away) };
+          out.push({ home: this.toNumber(obj.home), away: this.toNumber(obj.away) });
         }
       }
 
       for (const value of Object.values(obj)) {
-        const found = walk(value);
-        if (found) return found;
+        walk(value);
       }
-      return null;
     };
 
-    return walk(payload) ?? { home: null, away: null };
+    walk(payload);
+    return out;
   }
 
   private sanitizePair(
@@ -412,6 +475,20 @@ export class FotmobScraper {
     searchTerms: string[],
     domain: 'xg' | 'shots' | 'sot' | 'possession' | 'fouls' | 'yellow' | 'red'
   ): { home: number | null; away: number | null } {
+    const scorePair = (pair: { home: number | null; away: number | null }): number => {
+      const h = pair.home;
+      const a = pair.away;
+      if (h === null && a === null) return Number.NEGATIVE_INFINITY;
+      // Possesso: scegli la coppia piu plausibile (somma vicina a 100).
+      if (domain === 'possession') {
+        if (h !== null && a !== null) return -Math.abs((h + a) - 100);
+        return Number.NEGATIVE_INFINITY;
+      }
+      // xG/tiri/falli/cartellini: full-match tende ad avere la somma maggiore
+      // rispetto a periodi parziali.
+      return (h ?? 0) + (a ?? 0);
+    };
+
     const sources: unknown[] = [
       details?.content?.stats,
       details?.stats,
@@ -420,9 +497,22 @@ export class FotmobScraper {
     ];
     for (const source of sources) {
       if (!source) continue;
-      const raw = this.findStatPair(source, searchTerms);
-      const sanitized = this.sanitizePair(raw, domain);
-      if (sanitized.home !== null || sanitized.away !== null) return sanitized;
+      const candidates = this.findStatPairs(source, searchTerms)
+        .map(raw => this.sanitizePair(raw, domain))
+        .filter(pair => pair.home !== null || pair.away !== null);
+
+      if (candidates.length === 0) continue;
+
+      let best = candidates[0];
+      let bestScore = scorePair(best);
+      for (let i = 1; i < candidates.length; i++) {
+        const score = scorePair(candidates[i]);
+        if (score > bestScore) {
+          best = candidates[i];
+          bestScore = score;
+        }
+      }
+      if (best.home !== null || best.away !== null) return best;
     }
     return { home: null, away: null };
   }
@@ -723,6 +813,177 @@ export class FotmobScraper {
       await this.sleep(1000);
     }
     return out;
+  }
+
+  private parseTableRows(payload: any): any[] {
+    const candidates = [
+      payload?.table?.[0]?.data?.table?.all,
+      payload?.table?.[0]?.table?.all,
+      payload?.overview?.table?.[0]?.data?.table?.all,
+      payload?.overview?.table?.all,
+    ];
+    for (const c of candidates) {
+      if (Array.isArray(c) && c.length > 0) return c;
+    }
+    return [];
+  }
+
+  private parseScores(scoresStr: unknown): { gf: number; ga: number } {
+    const raw = String(scoresStr ?? '').trim();
+    const m = raw.match(/(\d+)\s*[-:]\s*(\d+)/);
+    if (!m) return { gf: 0, ga: 0 };
+    return {
+      gf: Number(m[1]) || 0,
+      ga: Number(m[2]) || 0,
+    };
+  }
+
+  private parseTeamStatList(statPayload: any): Array<{ teamName: string; value: number | null }> {
+    const list = statPayload?.TopLists?.[0]?.StatList;
+    if (!Array.isArray(list)) return [];
+    return list.map((row: any) => ({
+      teamName: String(row?.ParticipantName ?? '').trim(),
+      value: this.toNumber(row?.StatValue),
+    })).filter((row: { teamName: string; value: number | null }) => Boolean(row.teamName));
+  }
+
+  private async loadSeasonTeamStatsMap(competition: string, season: string): Promise<Record<string, FotmobTeamSeasonStats>> {
+    const cacheKey = `${competition}::${season}`;
+    const cached = this.seasonStatsCache.get(cacheKey);
+    if (cached && Date.now() - cached.at <= this.SEASON_STATS_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    const cfg = FotmobScraper.COMPETITIONS[competition];
+    if (!cfg) throw new Error(`Competizione non supportata: ${competition}`);
+
+    const trySeasonValues = [season];
+    if (season.includes('/')) trySeasonValues.push(season.replace('/', '-'));
+    if (season.includes('-')) trySeasonValues.push(season.replace('-', '/'));
+
+    let payload: any = null;
+    let lastError: Error | null = null;
+    for (const seasonValue of [...new Set(trySeasonValues)]) {
+      try {
+        payload = await this.fetchJson<any>(`/api/leagues?id=${cfg.id}&season=${encodeURIComponent(seasonValue)}`);
+        if (payload) break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    if (!payload) {
+      if (lastError) throw lastError;
+      throw new Error(`Nessun payload leagues per ${competition} ${season}`);
+    }
+
+    const tableRows = this.parseTableRows(payload);
+    const baseByTeam = new Map<string, FotmobTeamSeasonStats>();
+
+    for (const row of tableRows) {
+      const teamName = String(row?.name ?? '').trim();
+      if (!teamName) continue;
+      const teamId = this.normalizeTeamName(teamName);
+      const played = Number(row?.played ?? 0) || 0;
+      const wins = Number(row?.wins ?? 0) || 0;
+      const draws = Number(row?.draws ?? 0) || 0;
+      const losses = Number(row?.losses ?? 0) || 0;
+      const points = Number(row?.pts ?? 0) || 0;
+      const parsedScores = this.parseScores(row?.scoresStr);
+      const goalDiff = Number(row?.goalConDiff ?? parsedScores.gf - parsedScores.ga) || 0;
+
+      baseByTeam.set(teamId, {
+        competition,
+        season,
+        teamId,
+        teamName,
+        played,
+        wins,
+        draws,
+        losses,
+        points,
+        goalsFor: parsedScores.gf,
+        goalsAgainst: parsedScores.ga,
+        goalDiff,
+        xgForTotal: null,
+        xgAgainstTotal: null,
+        xgForPerMatch: null,
+        xgAgainstPerMatch: null,
+        possessionAvg: null,
+        foulsPerMatch: null,
+        yellowTotal: null,
+        redTotal: null,
+        yellowPerMatch: null,
+        redPerMatch: null,
+        shotsOnTargetPerMatch: null,
+        source: 'fotmob_season_stats',
+      });
+    }
+
+    const neededStats = [
+      'possession_percentage_team',
+      'fk_foul_lost_team',
+      'total_yel_card_team',
+      'total_red_card_team',
+      'expected_goals_team',
+      'expected_goals_conceded_team',
+      'ontarget_scoring_att_team',
+    ];
+    const teamStatEntries = Array.isArray(payload?.stats?.teams) ? payload.stats.teams : [];
+
+    const listsByStat = new Map<string, Array<{ teamName: string; value: number | null }>>();
+    await Promise.all(neededStats.map(async (statName) => {
+      const entry = teamStatEntries.find((s: any) => String(s?.name ?? '') === statName);
+      const fetchAllRaw = String(entry?.fetchAllUrl ?? '').trim();
+      if (!fetchAllRaw) return;
+      const fetchAllUrl = fetchAllRaw.startsWith('http') ? fetchAllRaw : `${this.BASE_URL}${fetchAllRaw}`;
+      try {
+        const statPayload = await this.fetchAbsoluteJson<any>(fetchAllUrl);
+        const list = this.parseTeamStatList(statPayload);
+        if (list.length > 0) listsByStat.set(statName, list);
+      } catch {
+        // fallback silenzioso: il caller usera solo i campi disponibili
+      }
+    }));
+
+    const applyStat = (statName: string, assign: (row: FotmobTeamSeasonStats, value: number) => void) => {
+      const list = listsByStat.get(statName) ?? [];
+      for (const item of list) {
+        const key = this.normalizeTeamName(item.teamName);
+        const row = baseByTeam.get(key);
+        if (!row) continue;
+        if (item.value === null || !Number.isFinite(item.value)) continue;
+        assign(row, item.value);
+      }
+    };
+
+    applyStat('possession_percentage_team', (row, value) => { row.possessionAvg = value; });
+    applyStat('fk_foul_lost_team', (row, value) => { row.foulsPerMatch = value; });
+    applyStat('total_yel_card_team', (row, value) => { row.yellowTotal = value; });
+    applyStat('total_red_card_team', (row, value) => { row.redTotal = value; });
+    applyStat('expected_goals_team', (row, value) => { row.xgForTotal = value; });
+    applyStat('expected_goals_conceded_team', (row, value) => { row.xgAgainstTotal = value; });
+    applyStat('ontarget_scoring_att_team', (row, value) => { row.shotsOnTargetPerMatch = value; });
+
+    const out: Record<string, FotmobTeamSeasonStats> = {};
+    for (const [key, row] of baseByTeam.entries()) {
+      const playedSafe = Math.max(1, row.played || 0);
+      row.xgForPerMatch = row.xgForTotal === null ? null : row.xgForTotal / playedSafe;
+      row.xgAgainstPerMatch = row.xgAgainstTotal === null ? null : row.xgAgainstTotal / playedSafe;
+      row.yellowPerMatch = row.yellowTotal === null ? null : row.yellowTotal / playedSafe;
+      row.redPerMatch = row.redTotal === null ? null : row.redTotal / playedSafe;
+      out[key] = row;
+    }
+
+    this.seasonStatsCache.set(cacheKey, { at: Date.now(), data: out });
+    return out;
+  }
+
+  async getTeamSeasonStats(competition: string, season: string, teamIdOrName: string): Promise<FotmobTeamSeasonStats | null> {
+    const normalizedTeam = this.normalizeTeamName(teamIdOrName);
+    if (!normalizedTeam) return null;
+    const map = await this.loadSeasonTeamStatsMap(competition, season);
+    return map[normalizedTeam] ?? null;
   }
 
   toDbFormat(match: FotmobMatch): Record<string, unknown> {
