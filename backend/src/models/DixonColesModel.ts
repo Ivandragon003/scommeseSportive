@@ -1,21 +1,30 @@
 /**
- * Dixon-Coles Model — Versione riveduta con integrazione modelli specializzati
+ * Dixon-Coles Model — v3
  *
- * MODELLO GOAL: Poisson bivariata con correzione Dixon-Coles (1997)
- * Motivazione: i goal reali mostrano correlazione negativa lieve
- * tra casa e ospite — il modello indipendente sovrastima alcuni esiti.
+ * MODIFICHE rispetto all'originale:
  *
- * NOTA sulla scelta Poisson vs NegBin per i goal:
- * Al contrario di cartellini e falli, i goal di squadra sono somme di
- * eventi rari quasi indipendenti → la Poisson è giustificata teoricamente
- * (legge dei piccoli numeri). Dixon & Coles (1997) validano su dati reali
- * che il fit è buono, con l'unica eccezione dei risultati 0-0/1-0/0-1/1-1
- * che richiedono la correzione τ.
+ * 1. homeAdvantage default: 0.15 (era 0.25)
+ *    I dati Serie A 2020-2024 mostrano un vantaggio casa ridotto.
+ *    0.15 ≈ +16% goal attesi in casa vs trasferta (era +28%).
  *
- * Il decadimento temporale esponenziale con τ=0.0065 corrisponde a
- * half-life di circa 107 giorni (≈15 settimane), bilanciamento testato
- * empiricamente tra reattività ai cambi di forma e stabilità statistica.
- */
+ * 2. computeFullProbabilities ora restituisce flatProbabilities:
+ *    Record<string, number> con TUTTI i mercati già mappati con le
+ *    chiavi usate da ValueBettingEngine v3:
+ *      - goal:     homeWin, draw, awayWin, btts, bttsNo, over/under*
+ *      - shots:    shotsOver*, shotsUnder*, shotsHomeOver*, shotsAwayOver*
+ *      - shots OT: shotsOTOver*, shotsOTUnder*
+ *      - gialli:   yellowOver*, yellowUnder*
+ *      - falli:    foulsOver*, foulsUnder*
+ *      - exact:    exact_H-A
+ *      - handicap: hcp_home+X, hcp_away+X
+ *    Questo elimina la necessità di flattenProbabilities nel BacktestingEngine.
+ *
+ * 3. SupplementaryData estesa con campi varianza e sampleSize per
+ *    passare informazioni a SpecializedModels (r dinamico).
+ *
+ * Resto invariato (Dixon-Coles 1997, gradient ascent, normalizzazione,
+ * correzione τ per bassi score, decadimento temporale τ=0.0065).
+ **/
 
 import {
   SpecializedModels,
@@ -25,7 +34,7 @@ import {
   PlayerShotsData,
   CardsDistribution,
   FoulsDistribution,
-  PlayerShotsPrediction
+  PlayerShotsPrediction,
 } from './SpecializedModels';
 
 export interface TeamStrength {
@@ -77,36 +86,32 @@ export interface ScoreMatrix {
 }
 
 export interface FullMatchProbabilities {
-  // Mercati goal (Dixon-Coles)
-  homeWin: number;
-  draw: number;
-  awayWin: number;
-  btts: number;
+  // Goal markets
+  homeWin: number; draw: number; awayWin: number; btts: number;
   over05: number; over15: number; over25: number; over35: number; over45: number;
   under05: number; under15: number; under25: number; under35: number; under45: number;
   exactScore: Record<string, number>;
   handicap: Record<string, number>;
   asianHandicap: Record<string, number>;
-
-  // Mercati tiri (NegBin)
+  // Shot markets
   shotsHome: { expected: number; overUnder: Record<string, { over: number; under: number }> };
   shotsAway: { expected: number; overUnder: Record<string, { over: number; under: number }> };
   shotsTotal: Record<string, { over: number; under: number }>;
   shotsOnTargetHome: { expected: number };
   shotsOnTargetAway: { expected: number };
-
-  // Mercati cartellini (NegBin con fattore arbitro)
+  // Cards & fouls
   cards: CardsDistribution;
-
-  // Mercati falli (NegBin con correzione possesso)
   fouls: FoulsDistribution;
-
-  // Tiri per giocatore
+  // Player shots
   playerShots: { home: PlayerShotsPrediction[]; away: PlayerShotsPrediction[] };
-
-  // Lambda attesi
+  // Expected goals
   lambdaHome: number;
   lambdaAway: number;
+  /**
+   * Mappa piatta di TUTTI i mercati, pronta per ValueBettingEngine.analyzeMarkets().
+   * Chiavi allineate con categorizeSelection() di ValueBettingEngine v3.
+   */
+  flatProbabilities: Record<string, number>;
 }
 
 export interface SupplementaryData {
@@ -116,7 +121,13 @@ export interface SupplementaryData {
     avgYellowCards: number;
     avgRedCards: number;
     avgFouls: number;
-    shotsSuppression: number;   // 1.0 = media, <1 = difesa migliore sui tiri
+    shotsSuppression: number;
+    // Varianza per r dinamico in SpecializedModels
+    varShots?: number;
+    varShotsOT?: number;
+    varYellowCards?: number;
+    varFouls?: number;
+    sampleSize?: number;
   };
   awayTeamStats?: {
     avgShots: number;
@@ -125,25 +136,31 @@ export interface SupplementaryData {
     avgRedCards: number;
     avgFouls: number;
     shotsSuppression: number;
+    varShots?: number;
+    varShotsOT?: number;
+    varYellowCards?: number;
+    varFouls?: number;
+    sampleSize?: number;
   };
   refereeStats?: {
     avgYellow: number;
     avgRed: number;
     avgFouls: number;
+    sampleSize?: number;
   };
   homePlayers?: PlayerShotsData[];
   awayPlayers?: PlayerShotsData[];
-  competitiveness?: number;  // 0 (amichevole) → 1 (derby/scontro diretto)
+  competitiveness?: number;   // 0 = amichevole, 1 = derby storico
   leagueAvgYellow?: number;
   leagueAvgFouls?: number;
-  homeAdvantageShots?: number;  // default 1.12
+  homeAdvantageShots?: number;
 }
 
-// Default per Serie A basati su dati storici 2019-2024
+// Default Serie A 2019-2024
 const SERIE_A_DEFAULTS = {
   avgShots: 12.1,
   avgShotsOT: 4.8,
-  avgYellowCards: 1.9,      // per squadra per partita
+  avgYellowCards: 1.9,
   avgRedCards: 0.11,
   avgFouls: 11.2,
   shotsSuppression: 1.0,
@@ -152,28 +169,30 @@ const SERIE_A_DEFAULTS = {
   refereeAvgYellow: 3.8,
   refereeAvgRed: 0.22,
   refereeAvgFouls: 22.4,
-  homeAdvantageShots: 1.12
+  homeAdvantageShots: 1.12,
 };
 
 export class DixonColesModel {
   private params: ModelParams;
-  private readonly MAX_GOALS = 10;
-  private specialized: SpecializedModels;
+  private readonly MAX_GOALS   = 10;
   private readonly PARAM_BOUND = 3.5;
-  private readonly LAMBDA_MIN = 0.05;
-  private readonly LAMBDA_MAX = 6.0;
+  private readonly LAMBDA_MIN  = 0.05;
+  private readonly LAMBDA_MAX  = 6.0;
+  private specialized: SpecializedModels;
 
   constructor(params?: Partial<ModelParams>) {
     this.params = {
-      attackParams: {},
+      attackParams:  {},
       defenceParams: {},
-      homeAdvantage: 0.25,
-      rho: -0.13,
-      tau: 0.0065,
-      ...params
+      homeAdvantage: 0.15,   // v3: ridotto da 0.25
+      rho:           -0.13,
+      tau:           0.0065,
+      ...params,
     };
     this.specialized = new SpecializedModels();
   }
+
+  // ==================== UTILITY NUMERICA ====================
 
   private clamp(v: number, min: number, max: number): number {
     if (!isFinite(v)) return min;
@@ -185,8 +204,7 @@ export class DixonColesModel {
   }
 
   private safeProb(p: number): number {
-    if (!isFinite(p) || p < 0) return 0;
-    return p;
+    return !isFinite(p) || p < 0 ? 0 : p;
   }
 
   private poissonPMF(k: number, lambda: number): number {
@@ -196,10 +214,18 @@ export class DixonColesModel {
     return isFinite(logP) ? Math.exp(logP) : 0;
   }
 
+  // ==================== CORREZIONE DIXON-COLES ====================
+
   /**
-   * Correzione Dixon-Coles per basse frequenze di goal.
+   * Correzione τ per correlazione negativa tra homeGoals e awayGoals
+   * sui risultati bassi (0-0, 1-0, 0-1, 1-1).
+   * Dixon & Coles 1997, eq. (2).
    */
-  private tauCorrection(x: number, y: number, lH: number, lA: number, rho: number): number {
+  private tauCorrection(
+    x: number, y: number,
+    lH: number, lA: number,
+    rho: number
+  ): number {
     if (x === 0 && y === 0) return 1 - lH * lA * rho;
     if (x === 1 && y === 0) return 1 + lA * rho;
     if (x === 0 && y === 1) return 1 + lH * rho;
@@ -207,23 +233,29 @@ export class DixonColesModel {
     return 1.0;
   }
 
+  private tauDerivative(x: number, y: number, lH: number, lA: number): number {
+    if (x === 0 && y === 0) return -lH * lA;
+    if (x === 1 && y === 0) return lA;
+    if (x === 0 && y === 1) return lH;
+    if (x === 1 && y === 1) return -1;
+    return 0;
+  }
+
+  // ==================== EXPECTED GOALS ====================
+
   computeExpectedGoals(
     homeId: string, awayId: string,
     homeXG?: number, awayXG?: number
   ): { lambdaHome: number; lambdaAway: number } {
-    const aHome = this.clamp(this.params.attackParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
-    const dAway = this.clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
-    const aAway = this.clamp(this.params.attackParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
-    const dHome = this.clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND);
-
-    const aH = this.safeExp(aHome);
-    const dA = this.safeExp(-dAway);
-    const aA = this.safeExp(aAway);
-    const dH = this.safeExp(-dHome);
+    const aH = this.safeExp(this.clamp(this.params.attackParams[homeId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dA = this.safeExp(-this.clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const aA = this.safeExp(this.clamp(this.params.attackParams[awayId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dH = this.safeExp(-this.clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
 
     let lH = aH * dA * this.safeExp(this.params.homeAdvantage);
     let lA = aA * dH;
 
+    // Blend con xG se disponibile (60% modello, 40% xG)
     if (homeXG !== undefined && awayXG !== undefined && homeXG > 0 && awayXG > 0) {
       lH = 0.6 * lH + 0.4 * homeXG;
       lA = 0.6 * lA + 0.4 * awayXG;
@@ -238,10 +270,13 @@ export class DixonColesModel {
     };
   }
 
-  buildScoreMatrix(homeId: string, awayId: string, homeXG?: number, awayXG?: number): ScoreMatrix {
+  buildScoreMatrix(
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number
+  ): ScoreMatrix {
     const { lambdaHome, lambdaAway } = this.computeExpectedGoals(homeId, awayId, homeXG, awayXG);
     const rho = this.params.rho;
-    const N = this.MAX_GOALS;
+    const N   = this.MAX_GOALS;
     const probs: number[][] = [];
     let total = 0;
 
@@ -259,312 +294,335 @@ export class DixonColesModel {
     }
 
     if (!isFinite(total) || total <= 0) {
-      for (let h = 0; h <= N; h++) {
-        for (let a = 0; a <= N; a++) probs[h][a] = 0;
-      }
-      probs[0][0] = 1;
-      total = 1;
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) probs[h][a] = 0;
+      probs[0][0] = 1; total = 1;
     }
-
-    for (let h = 0; h <= N; h++)
-      for (let a = 0; a <= N; a++)
-        probs[h][a] /= total;
+    for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) probs[h][a] /= total;
 
     return { probabilities: probs, maxGoals: N, lambdaHome, lambdaAway };
   }
 
-  /**
-   * Calcola probabilità complete per tutti i mercati.
-   * I mercati goal derivano da Dixon-Coles.
-   * I mercati tiri, cartellini, falli usano i modelli specializzati NegBin.
-   */
+  // ==================== PROBABILITÀ COMPLETE ====================
+
   computeFullProbabilities(
-    homeId: string,
-    awayId: string,
-    homeXG?: number,
-    awayXG?: number,
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number,
     supp?: SupplementaryData
   ): FullMatchProbabilities {
     const matrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
     const p = matrix.probabilities;
     const N = this.MAX_GOALS;
 
-    // --- GOAL MARKETS ---
+    // --- Goal markets ---
     let homeWin = 0, draw = 0, awayWin = 0, btts = 0;
-    for (let h = 0; h <= N; h++) {
-      for (let a = 0; a <= N; a++) {
-        if (h > a) homeWin += p[h][a];
-        else if (h === a) draw += p[h][a];
-        else awayWin += p[h][a];
-        if (h > 0 && a > 0) btts += p[h][a];
-      }
+    for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) {
+      if      (h > a)  homeWin += p[h][a];
+      else if (h === a) draw   += p[h][a];
+      else              awayWin += p[h][a];
+      if (h > 0 && a > 0) btts += p[h][a];
     }
 
-    const over = (t: number) => {
+    const over = (t: number): number => {
       let s = 0;
-      for (let h = 0; h <= N; h++)
-        for (let a = 0; a <= N; a++)
-          if (h + a > t) s += p[h][a];
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) if (h + a > t) s += p[h][a];
       return s;
     };
 
-    const exactScore: Record<string, number> = {};
-    for (let h = 0; h <= 6; h++)
-      for (let a = 0; a <= 6; a++)
-        exactScore[`${h}-${a}`] = p[Math.min(h, N)][Math.min(a, N)];
+    const o05 = over(0.5), o15 = over(1.5), o25 = over(2.5), o35 = over(3.5), o45 = over(4.5);
 
+    // Exact score
+    const exactScore: Record<string, number> = {};
+    for (let h = 0; h <= 6; h++) for (let a = 0; a <= 6; a++)
+      exactScore[`${h}-${a}`] = p[Math.min(h, N)][Math.min(a, N)];
+
+    // Handicap europeo
     const handicap: Record<string, number> = {};
-    for (const line of [-2.5, -2, -1.5, -1, -0.5, 0.5, 1, 1.5, 2, 2.5]) {
+    for (const line of [-2.5,-2,-1.5,-1,-0.5,0.5,1,1.5,2,2.5]) {
       let hw = 0;
-      for (let h = 0; h <= N; h++)
-        for (let a = 0; a <= N; a++)
-          if (h - a + line > 0) hw += p[h][a];
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++)
+        if (h - a + line > 0) hw += p[h][a];
       handicap[`home${line > 0 ? '+' : ''}${line}`] = hw;
       handicap[`away${(-line) > 0 ? '+' : ''}${-line}`] = 1 - hw;
     }
 
+    // Asian handicap
     const asianHandicap: Record<string, number> = {};
-    for (const line of [-1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75]) {
+    for (const line of [-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75]) {
       let prob = 0;
-      for (let h = 0; h <= N; h++)
-        for (let a = 0; a <= N; a++) {
-          const diff = (h - a) + line;
-          if (diff > 0) prob += p[h][a];
-          else if (diff === 0) prob += p[h][a] * 0.5;
-        }
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) {
+        const diff = (h - a) + line;
+        if      (diff > 0)  prob += p[h][a];
+        else if (diff === 0) prob += p[h][a] * 0.5;
+      }
       asianHandicap[`${line}`] = prob;
     }
 
-    // --- SHOTS MARKETS (NegBin) ---
-    const hs = supp?.homeTeamStats ?? {};
-    const as_ = supp?.awayTeamStats ?? {};
-
+    // --- Shots (NegBin) ---
+    const hs  = supp?.homeTeamStats ?? {} as any;
+    const as_ = supp?.awayTeamStats ?? {} as any;
     const shotsData: ShotsModelData = {
-      homeTeamAvgShots: (hs as any).avgShots ?? SERIE_A_DEFAULTS.avgShots,
-      awayTeamAvgShots: (as_ as any).avgShots ?? SERIE_A_DEFAULTS.avgShots,
-      homeTeamAvgShotsOT: (hs as any).avgShotsOT ?? SERIE_A_DEFAULTS.avgShotsOT,
-      awayTeamAvgShotsOT: (as_ as any).avgShotsOT ?? SERIE_A_DEFAULTS.avgShotsOT,
-      homeTeamShotsSuppression: (hs as any).shotsSuppression ?? 1.0,
-      awayTeamShotsSuppression: (as_ as any).shotsSuppression ?? 1.0,
-      homeAdvantageShots: supp?.homeAdvantageShots ?? SERIE_A_DEFAULTS.homeAdvantageShots,
+      homeTeamAvgShots:         hs.avgShots         ?? SERIE_A_DEFAULTS.avgShots,
+      awayTeamAvgShots:         as_.avgShots        ?? SERIE_A_DEFAULTS.avgShots,
+      homeTeamAvgShotsOT:       hs.avgShotsOT       ?? SERIE_A_DEFAULTS.avgShotsOT,
+      awayTeamAvgShotsOT:       as_.avgShotsOT      ?? SERIE_A_DEFAULTS.avgShotsOT,
+      homeTeamShotsSuppression: hs.shotsSuppression ?? 1.0,
+      awayTeamShotsSuppression: as_.shotsSuppression ?? 1.0,
+      homeAdvantageShots:       supp?.homeAdvantageShots ?? SERIE_A_DEFAULTS.homeAdvantageShots,
+      homeTeamVarShots:         hs.varShots,
+      awayTeamVarShots:         as_.varShots,
+      homeTeamVarShotsOT:       hs.varShotsOT,
+      awayTeamVarShotsOT:       as_.varShotsOT,
+      homeTeamSampleSize:       hs.sampleSize,
+      awayTeamSampleSize:       as_.sampleSize,
     };
-
     const shotsResult = this.specialized.computeShotsDistribution(shotsData);
 
-    // --- CARDS MARKETS (NegBin + referee factor) ---
-    const refStats = supp?.refereeStats ?? {};
+    // --- Cards (NegBin + referee factor) ---
+    const ref = supp?.refereeStats ?? {} as any;
     const cardsData: CardsModelData = {
-      homeTeamAvgYellow: (hs as any).avgYellowCards ?? SERIE_A_DEFAULTS.avgYellowCards,
-      awayTeamAvgYellow: (as_ as any).avgYellowCards ?? SERIE_A_DEFAULTS.avgYellowCards,
-      homeTeamAvgRed: (hs as any).avgRedCards ?? SERIE_A_DEFAULTS.avgRedCards,
-      awayTeamAvgRed: (as_ as any).avgRedCards ?? SERIE_A_DEFAULTS.avgRedCards,
-      refereeAvgYellow: (refStats as any).avgYellow ?? SERIE_A_DEFAULTS.refereeAvgYellow,
-      refereeAvgRed: (refStats as any).avgRed ?? SERIE_A_DEFAULTS.refereeAvgRed,
-      refereeAvgTotal: ((refStats as any).avgYellow ?? 3.8) + ((refStats as any).avgRed ?? 0.22) * 2,
-      leagueAvgYellow: supp?.leagueAvgYellow ?? SERIE_A_DEFAULTS.leagueAvgYellow,
-      competitiveness: supp?.competitiveness ?? 0.3,
+      homeTeamAvgYellow:  hs.avgYellowCards  ?? SERIE_A_DEFAULTS.avgYellowCards,
+      awayTeamAvgYellow:  as_.avgYellowCards ?? SERIE_A_DEFAULTS.avgYellowCards,
+      homeTeamAvgRed:     hs.avgRedCards     ?? SERIE_A_DEFAULTS.avgRedCards,
+      awayTeamAvgRed:     as_.avgRedCards    ?? SERIE_A_DEFAULTS.avgRedCards,
+      refereeAvgYellow:   ref.avgYellow      ?? SERIE_A_DEFAULTS.refereeAvgYellow,
+      refereeAvgRed:      ref.avgRed         ?? SERIE_A_DEFAULTS.refereeAvgRed,
+      refereeAvgTotal:    (ref.avgYellow ?? 3.8) + (ref.avgRed ?? 0.22) * 2,
+      leagueAvgYellow:    supp?.leagueAvgYellow ?? SERIE_A_DEFAULTS.leagueAvgYellow,
+      competitiveness:    supp?.competitiveness  ?? 0.3,
+      homeTeamVarYellow:  hs.varYellowCards,
+      awayTeamVarYellow:  as_.varYellowCards,
+      homeTeamSampleSize: hs.sampleSize,
+      awayTeamSampleSize: as_.sampleSize,
+      refereeSampleSize:  ref.sampleSize,
+      refereeAvgFouls:    ref.avgFouls,
+      leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
     };
-
     const cards = this.specialized.computeCardsDistribution(cardsData);
 
-    // --- FOULS MARKETS (NegBin + possession correction) ---
-    // Stima possesso atteso dai lambda goal (proxy: squadra più forte tende ad avere più palla)
+    // --- Fouls (NegBin + possession correction) ---
     const lambdaTotal = matrix.lambdaHome + matrix.lambdaAway;
     const estimatedHomePoss = lambdaTotal > 0
       ? 0.5 + 0.1 * (matrix.lambdaHome - matrix.lambdaAway) / lambdaTotal
       : 0.5;
-
     const foulsData: FoulsModelData = {
-      homeTeamAvgFouls: (hs as any).avgFouls ?? SERIE_A_DEFAULTS.avgFouls,
-      awayTeamAvgFouls: (as_ as any).avgFouls ?? SERIE_A_DEFAULTS.avgFouls,
-      homePossessionEst: Math.max(0.3, Math.min(0.7, estimatedHomePoss)),
-      refereeAvgFouls: (refStats as any).avgFouls ?? SERIE_A_DEFAULTS.refereeAvgFouls,
-      leagueAvgFouls: supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
+      homeTeamAvgFouls:   hs.avgFouls         ?? SERIE_A_DEFAULTS.avgFouls,
+      awayTeamAvgFouls:   as_.avgFouls        ?? SERIE_A_DEFAULTS.avgFouls,
+      homePossessionEst:  Math.max(0.3, Math.min(0.7, estimatedHomePoss)),
+      refereeAvgFouls:    ref.avgFouls        ?? SERIE_A_DEFAULTS.refereeAvgFouls,
+      leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
+      homeTeamVarFouls:   hs.varFouls,
+      awayTeamVarFouls:   as_.varFouls,
+      homeTeamSampleSize: hs.sampleSize,
+      awayTeamSampleSize: as_.sampleSize,
     };
-
     const fouls = this.specialized.computeFoulsDistribution(foulsData);
 
-    // --- PLAYER SHOTS ---
-    const homePlayers = supp?.homePlayers ?? [];
-    const awayPlayers = supp?.awayPlayers ?? [];
-
-    const playerShotsHome = homePlayers.length > 0
+    // --- Player shots ---
+    const playerShotsHome = (supp?.homePlayers ?? []).length > 0
       ? this.specialized.computePlayerShotsPredictions(
-          homePlayers, shotsResult.home.expectedTotalShots, shotsResult.home.expectedShotsOnTarget
-        )
+          supp!.homePlayers!, shotsResult.home.expectedTotalShots, shotsResult.home.expectedShotsOnTarget)
+      : [];
+    const playerShotsAway = (supp?.awayPlayers ?? []).length > 0
+      ? this.specialized.computePlayerShotsPredictions(
+          supp!.awayPlayers!, shotsResult.away.expectedTotalShots, shotsResult.away.expectedShotsOnTarget)
       : [];
 
-    const playerShotsAway = awayPlayers.length > 0
-      ? this.specialized.computePlayerShotsPredictions(
-          awayPlayers, shotsResult.away.expectedTotalShots, shotsResult.away.expectedShotsOnTarget
-        )
-      : [];
+    // ==================== FLAT PROBABILITIES ====================
+    // Helper: "15.5" → "155", "7.5" → "75"
+    const fmtLine = (l: string) => l.replace('.', '');
+
+    const flatProbabilities: Record<string, number> = {
+      // 1X2 + BTTS
+      homeWin, draw, awayWin,
+      btts, bttsNo: 1 - btts,
+
+      // Over/Under goal
+      over05: o05,  under05: 1 - o05,
+      over15: o15,  under15: 1 - o15,
+      over25: o25,  under25: 1 - o25,
+      over35: o35,  under35: 1 - o35,
+      over45: o45,  under45: 1 - o45,
+
+      // Exact score
+      ...Object.fromEntries(
+        Object.entries(exactScore).map(([k, v]) => [`exact_${k}`, v])
+      ),
+
+      // Handicap europeo
+      ...Object.fromEntries(
+        Object.entries(handicap).map(([k, v]) => [`hcp_${k}`, v])
+      ),
+
+      // Tiri casa
+      ...Object.fromEntries(
+        Object.entries(shotsResult.home.overUnder).flatMap(([line, { over, under }]) => [
+          [`shotsHomeOver${fmtLine(line)}`,  over],
+          [`shotsHomeUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri ospite
+      ...Object.fromEntries(
+        Object.entries(shotsResult.away.overUnder).flatMap(([line, { over, under }]) => [
+          [`shotsAwayOver${fmtLine(line)}`,  over],
+          [`shotsAwayUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri totali
+      ...Object.fromEntries(
+        Object.entries(shotsResult.total).flatMap(([line, { over, under }]) => [
+          [`shotsOver${fmtLine(line)}`,  over],
+          [`shotsUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri in porta (combined OT)
+      ...Object.fromEntries(
+        Object.entries(shotsResult.combined?.onTargetOverUnder ?? {}).flatMap(([key, prob]) => {
+          // chiavi tipo "over75" → "shotsOTOver75"
+          const isOver = key.startsWith('over');
+          const line   = key.slice(isOver ? 4 : 5);
+          return isOver
+            ? [[`shotsOTOver${line}`, prob], [`shotsOTUnder${line}`, 1 - (prob as number)]]
+            : [];
+        })
+      ),
+
+      // Cartellini gialli
+      ...Object.fromEntries(
+        Object.entries(cards.overUnderYellow).flatMap(([line, { over, under }]) => [
+          [`yellowOver${fmtLine(line)}`,  over],
+          [`yellowUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Falli
+      ...Object.fromEntries(
+        Object.entries(fouls.overUnder).flatMap(([line, { over, under }]) => [
+          [`foulsOver${fmtLine(line)}`,  over],
+          [`foulsUnder${fmtLine(line)}`, under],
+        ])
+      ),
+    };
 
     return {
       homeWin, draw, awayWin, btts,
-      over05: over(0.5), over15: over(1.5), over25: over(2.5),
-      over35: over(3.5), over45: over(4.5),
-      under05: 1 - over(0.5), under15: 1 - over(1.5), under25: 1 - over(2.5),
-      under35: 1 - over(3.5), under45: 1 - over(4.5),
+      over05: o05,  over15: o15,  over25: o25,  over35: o35,  over45: o45,
+      under05: 1-o05, under15: 1-o15, under25: 1-o25, under35: 1-o35, under45: 1-o45,
       exactScore, handicap, asianHandicap,
-
-      shotsHome: {
-        expected: shotsResult.home.expectedTotalShots,
-        overUnder: shotsResult.home.overUnder
-      },
-      shotsAway: {
-        expected: shotsResult.away.expectedTotalShots,
-        overUnder: shotsResult.away.overUnder
-      },
+      shotsHome: { expected: shotsResult.home.expectedTotalShots, overUnder: shotsResult.home.overUnder },
+      shotsAway: { expected: shotsResult.away.expectedTotalShots, overUnder: shotsResult.away.overUnder },
       shotsTotal: shotsResult.total,
       shotsOnTargetHome: { expected: shotsResult.home.expectedShotsOnTarget },
       shotsOnTargetAway: { expected: shotsResult.away.expectedShotsOnTarget },
-
-      cards,
-      fouls,
+      cards, fouls,
       playerShots: { home: playerShotsHome, away: playerShotsAway },
       lambdaHome: matrix.lambdaHome,
       lambdaAway: matrix.lambdaAway,
+      flatProbabilities,
     };
   }
 
+  // ==================== FITTING ====================
+
   /**
-   * Stima parametri via gradient ascent sulla log-verosimiglianza ponderata.
+   * Gradient ascent sulla log-verosimiglianza ponderata temporalmente.
+   * Peso: w = exp(-τ × età_in_settimane)
+   * τ=0.0065 → half-life ≈ 107 giorni.
    */
-  fitModel(matches: MatchData[], teams: string[], maxIter = 280, lr = 0.04): ModelParams {
+  fitModel(
+    matches: MatchData[], teams: string[],
+    maxIter = 280, lr = 0.04
+  ): ModelParams {
     for (const t of teams) {
-      if (this.params.attackParams[t] === undefined) this.params.attackParams[t] = 0.0;
+      if (this.params.attackParams[t]  === undefined) this.params.attackParams[t]  = 0.0;
       if (this.params.defenceParams[t] === undefined) this.params.defenceParams[t] = 0.0;
     }
 
-    const now = new Date();
+    const now          = new Date();
     const validMatches = matches.filter(m => m.homeGoals !== undefined && m.awayGoals !== undefined);
     if (validMatches.length === 0 || teams.length === 0) return this.params;
 
     const logLikelihood = (): number => {
       let ll = 0;
       for (const m of validMatches) {
-        const age = (now.getTime() - m.date.getTime()) / (1000 * 60 * 60 * 24 * 7);
-        const w = Math.exp(-this.params.tau * age);
-
-        const aH = Math.exp(this.params.attackParams[m.homeTeamId] ?? 0);
-        const dA = Math.exp(-(this.params.defenceParams[m.awayTeamId] ?? 0));
-        const aA = Math.exp(this.params.attackParams[m.awayTeamId] ?? 0);
-        const dH = Math.exp(-(this.params.defenceParams[m.homeTeamId] ?? 0));
-
-        const lH = aH * dA * Math.exp(this.params.homeAdvantage);
-        const lA = aA * dH;
-        const x = m.homeGoals!;
-        const y = m.awayGoals!;
-
+        const age = (now.getTime() - m.date.getTime()) / (1000*60*60*24*7);
+        const w   = Math.exp(-this.params.tau * age);
+        const lH  = this.safeExp((this.params.attackParams[m.homeTeamId]??0) - (this.params.defenceParams[m.awayTeamId]??0) + this.params.homeAdvantage);
+        const lA  = this.safeExp((this.params.attackParams[m.awayTeamId]??0) - (this.params.defenceParams[m.homeTeamId]??0));
+        const x = m.homeGoals!, y = m.awayGoals!;
         const pBase = this.poissonPMF(x, lH) * this.poissonPMF(y, lA);
-        const tau = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
-
-        if (pBase > 0) ll += w * Math.log(Math.max(1e-12, pBase * tau));
+        const tauC  = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
+        if (pBase > 0) ll += w * Math.log(Math.max(1e-12, pBase * tauC));
       }
       return ll;
     };
 
     const reg = 0.003;
-    let prevLL = -Infinity;
-    let flatIters = 0;
+    let prevLL = -Infinity, flatIters = 0;
 
     for (let iter = 1; iter <= maxIter; iter++) {
-      const gAttack: Record<string, number> = {};
-      const gDefence: Record<string, number> = {};
-      for (const t of teams) { gAttack[t] = 0; gDefence[t] = 0; }
-      let gHomeAdv = 0;
-      let gRho = 0;
+      const gA: Record<string,number> = {}, gD: Record<string,number> = {};
+      for (const t of teams) { gA[t] = 0; gD[t] = 0; }
+      let gHA = 0, gRho = 0;
 
       for (const m of validMatches) {
-        const age = (now.getTime() - m.date.getTime()) / (1000 * 60 * 60 * 24 * 7);
-        const w = Math.exp(-this.params.tau * age);
+        const age = (now.getTime() - m.date.getTime()) / (1000*60*60*24*7);
+        const w   = Math.exp(-this.params.tau * age);
+        const lH  = this.safeExp((this.params.attackParams[m.homeTeamId]??0) - (this.params.defenceParams[m.awayTeamId]??0) + this.params.homeAdvantage);
+        const lA  = this.safeExp((this.params.attackParams[m.awayTeamId]??0) - (this.params.defenceParams[m.homeTeamId]??0));
+        const x = m.homeGoals!, y = m.awayGoals!;
+        const errH = x - lH, errA = y - lA;
 
-        const aHome = this.params.attackParams[m.homeTeamId] ?? 0;
-        const dAway = this.params.defenceParams[m.awayTeamId] ?? 0;
-        const aAway = this.params.attackParams[m.awayTeamId] ?? 0;
-        const dHome = this.params.defenceParams[m.homeTeamId] ?? 0;
+        gA[m.homeTeamId]  += w * errH;  gD[m.awayTeamId] += w * (-errH);
+        gA[m.awayTeamId]  += w * errA;  gD[m.homeTeamId] += w * (-errA);
+        gHA += w * errH;
 
-        const lH = this.safeExp(aHome - dAway + this.params.homeAdvantage);
-        const lA = this.safeExp(aAway - dHome);
-        const x = m.homeGoals!;
-        const y = m.awayGoals!;
-
-        const errH = x - lH;
-        const errA = y - lA;
-
-        gAttack[m.homeTeamId] += w * errH;
-        gDefence[m.awayTeamId] += w * (-errH);
-        gAttack[m.awayTeamId] += w * errA;
-        gDefence[m.homeTeamId] += w * (-errA);
-        gHomeAdv += w * errH;
-
-        const tauCorr = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
-        const dTauDrho = this.tauDerivative(x, y, lH, lA);
-        if (isFinite(dTauDrho)) {
-          gRho += w * (dTauDrho / tauCorr);
-        }
+        const tauC = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
+        const dTau = this.tauDerivative(x, y, lH, lA);
+        if (isFinite(dTau)) gRho += w * (dTau / tauC);
       }
 
       const invN = 1 / validMatches.length;
       const step = lr / Math.sqrt(iter);
 
       for (const t of teams) {
-        const aGrad = this.clamp(gAttack[t] * invN - reg * (this.params.attackParams[t] ?? 0), -4, 4);
-        const dGrad = this.clamp(gDefence[t] * invN - reg * (this.params.defenceParams[t] ?? 0), -4, 4);
-
         this.params.attackParams[t] = this.clamp(
-          (this.params.attackParams[t] ?? 0) + step * aGrad,
-          -this.PARAM_BOUND,
-          this.PARAM_BOUND
+          (this.params.attackParams[t]??0) + step * this.clamp(gA[t]*invN - reg*(this.params.attackParams[t]??0), -4, 4),
+          -this.PARAM_BOUND, this.PARAM_BOUND
         );
         this.params.defenceParams[t] = this.clamp(
-          (this.params.defenceParams[t] ?? 0) + step * dGrad,
-          -this.PARAM_BOUND,
-          this.PARAM_BOUND
+          (this.params.defenceParams[t]??0) + step * this.clamp(gD[t]*invN - reg*(this.params.defenceParams[t]??0), -4, 4),
+          -this.PARAM_BOUND, this.PARAM_BOUND
         );
       }
-
       this.params.homeAdvantage = this.clamp(
-        this.params.homeAdvantage + step * this.clamp(gHomeAdv * invN - reg * this.params.homeAdvantage, -2, 2),
-        -0.8,
-        1.2
+        this.params.homeAdvantage + step * this.clamp(gHA*invN - reg*this.params.homeAdvantage, -2, 2),
+        -0.8, 1.2
       );
-
       this.params.rho = this.clamp(
-        this.params.rho + step * this.clamp(gRho * invN - 0.02 * (this.params.rho + 0.13), -1, 1),
-        -0.5,
-        0.0
+        this.params.rho + step * this.clamp(gRho*invN - 0.02*(this.params.rho+0.13), -1, 1),
+        -0.5, 0.0
       );
 
       const ll = logLikelihood();
       if (!isFinite(ll)) break;
-
-      if (Math.abs(ll - prevLL) < 1e-6) flatIters++;
-      else flatIters = 0;
-
+      if (Math.abs(ll - prevLL) < 1e-6) flatIters++; else flatIters = 0;
       prevLL = ll;
       if (iter > 60 && flatIters >= 12) break;
     }
 
-    // Normalizzazione (identifiability constraint)
-    const nTeams = teams.length;
-    const avgAttack = teams.reduce((s, t) => s + (this.params.attackParams[t] ?? 0), 0) / nTeams;
-    const avgDefence = teams.reduce((s, t) => s + (this.params.defenceParams[t] ?? 0), 0) / nTeams;
+    // Normalizzazione (vincolo di identificabilità: Σ attack = 0)
+    const nT   = teams.length;
+    const avgA = teams.reduce((s,t) => s+(this.params.attackParams[t]??0),  0) / nT;
+    const avgD = teams.reduce((s,t) => s+(this.params.defenceParams[t]??0), 0) / nT;
     for (const t of teams) {
-      this.params.attackParams[t] = (this.params.attackParams[t] ?? 0) - avgAttack;
-      this.params.defenceParams[t] = (this.params.defenceParams[t] ?? 0) - avgDefence;
+      this.params.attackParams[t]  = (this.params.attackParams[t]??0)  - avgA;
+      this.params.defenceParams[t] = (this.params.defenceParams[t]??0) - avgD;
     }
 
     return this.params;
-  }
-
-  private tauDerivative(x: number, y: number, lH: number, lA: number): number {
-    if (x === 0 && y === 0) return -lH * lA;
-    if (x === 1 && y === 0) return lA;
-    if (x === 0 && y === 1) return lH;
-    if (x === 1 && y === 1) return -1;
-    return 0;
   }
 
   getParams(): ModelParams { return this.params; }

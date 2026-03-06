@@ -1,66 +1,76 @@
 /**
- * Value Betting Engine — Versione migliorata
- * ============================================
+ * Value Betting Engine — v3 (Ibrido Adattivo Kelly)
+ * ===================================================
  *
- * MODIFICHE PRINCIPALI:
+ * FILOSOFIA v3:
+ * -------------
+ * Kelly Criterion è già un filtro adattivo naturale:
+ * - Bet prob 20%, quota 4.50, EV +10% → stake Kelly ≈ 0.7% bankroll
+ * - Bet prob 60%, quota 1.90, EV +14% → stake Kelly ≈ 4.2% → capped 4%
+ * Non serve quindi un filtro arbitrario MIN_PROBABILITY o MAX_ODDS.
+ * Il modello decide quanto scommettere in base all'edge reale.
  *
- * 1. KELLY SENZA FLOOR ARTIFICIALE
- *    Originale: stake = min(cap, max(floor_fisso, kelly))
- *    → Il floor ignorava Kelly e imponeva stake arbitrari (es. 2.5% anche se
- *      Kelly dice 0.8%). Questo viola la logica Kelly e introduce over-betting.
- *    Nuovo: stake = min(cap, kelly * confidenceMultiplier)
- *    → La confidence modula Kelly (×1.2 HIGH, ×1.0 MEDIUM, ×0.8 LOW)
- *      senza mai sovrastimarlo o imporre floor fissi.
+ * FILTRI MANTENUTI (matematicamente giustificati):
+ * -------------------------------------------------
+ * 1. MIN_ODDS 1.40: sotto questa quota il margine bookmaker erode qualsiasi edge.
+ *    (Un'odds 1.30 con vig 6% → implied no-vig ≈ 1.23 → pochissimo spazio.)
+ * 2. MAX_ODDS 8.00: oltre questa quota il modello Dixon-Coles non ha abbastanza
+ *    dati storici per stimare correttamente probabilità così basse.
+ * 3. Edge no-vig > 0: filtro qualità fondamentale. Confrontiamo la nostra prob
+ *    con quella del bookmaker SENZA il suo margine. Se anche dopo aver tolto
+ *    il vig siamo sotto, non c'è valore.
+ * 4. EV MINIMO PER CATEGORIA (soglie differenziate per modello):
+ *    - goal/1x2/btts:          EV > 3.0%  (modello DC maturo, affidabile)
+ *    - over/under goal:        EV > 2.5%  (DC ottimo su goal totali)
+ *    - tiri/shots:             EV > 4.0%  (NegBin shots, buono ma più rumore)
+ *    - cartellini/gialli:      EV > 4.5%  (NegBin cards, fattore arbitro stima incerta)
+ *    - falli:                  EV > 5.0%  (NegBin fouls, modello con più incertezza)
+ *    - exact score/handicap:   EV > 5.0%  (alta varianza, serve margine ampio)
+ * 5. MAX_STAKE 4% bankroll (Quarter Kelly già lo limita, questo è un cap assoluto).
+ * 6. Coerenza: nostra prob >= 80% * implied_raw (se il mercato ci "sorpassa"
+ *    di oltre il 20% probabilmente non sappiamo qualcosa che il mercato sa).
  *
- * 2. IMPLIED PROBABILITY SENZA VIG (vig removal)
- *    Originale: impliedProb = 1 / quota
- *    → Questo include il margine del bookmaker (~5-8%). Confrontare la nostra
- *      probabilità "pulita" con una implied probability gonfiata sovrastima
- *      sistematicamente l'edge su ogni scommessa.
- *    Nuovo: due metodi distinti:
- *      - impliedProbabilityRaw(odds): 1/odds (per compatibilità interna)
- *      - impliedProbabilityNoVig(odds, market): rimuove il vig con il metodo
- *        "proportional" (lo standard usato da Pinnacle e Betfair).
- *    L'edge ora è calcolato contro la probabilità senza vig.
+ * VOLUME TARGET 150-400 BET/STAGIONE:
+ * ------------------------------------
+ * Le soglie EV differenziate per categoria fungono da volume control naturale.
+ * Alzare una soglia → meno bet in quella categoria.
+ * Il metodo getBetVolumeEstimate() restituisce una stima del volume atteso.
  *
- * 3. ROI SOLO SU SCOMMESSE LIQUIDATE
- *    Originale: il ROI includeva le scommesse pendenti nel denominatore
- *    → Con bet aperti il ROI veniva sistematicamente sottostimato.
- *    Nuovo: ROI = (totalWon - totalLost) / settledStaked * 100
- *    dove settledStaked include solo le scommesse WON o LOST.
- *
- * 4. KELLY FORMULA CORRETTA con odds decimali
- *    La formula f* = (b*p - q)/b è corretta ma il calcolo di b = odds - 1
- *    deve avvenire DOPO la conversione a decimal odds netti.
- *    Aggiunto guard contro odds <= 1 e probabilità ai bordi [0,1].
- *
- * 5. METODO analyzeMarketsWithVigRemoval
- *    Nuovo metodo che usa la probabilità senza vig per calcolare l'edge.
- *    Il metodo originale `analyzeMarkets` è mantenuto per compatibilità.
- *
- * 6. CALIBRAZIONE ISOTONICA (utility)
- *    Aggiunta implementazione di base della regressione isotonica per
- *    calibrare le probabilità raw del modello Dixon-Coles.
- *    La calibrazione trasforma "buono in ranking" in "buono in probabilità
- *    assolute" — prerequisito per usare Kelly correttamente.
+ * CONFIDENCE → STAKE MULTIPLIER (non floor):
+ * -------------------------------------------
+ * HIGH:   Kelly × 1.20  (leggero boost: alta EV e alta prob)
+ * MEDIUM: Kelly × 1.00  (neutro)
+ * LOW:    Kelly × 0.70  (riduzione: segnale debole)
+ * LOW viene ancora accettata se Kelly è positivo — solo con stake ridotto.
  */
 
 export interface BetOpportunity {
   marketName: string;
   selection: string;
-  ourProbability: number;          // percentuale (0-100)
+  marketCategory: MarketCategory;
+  ourProbability: number;           // percentuale (0-100)
   bookmakerOdds: number;
-  impliedProbability: number;      // percentuale raw (con vig)
-  impliedProbabilityNoVig: number; // percentuale senza vig (NUOVO)
-  expectedValue: number;           // percentuale
-  expectedValueNoVig: number;      // EV calcolato contro implied senza vig (NUOVO)
-  kellyFraction: number;           // percentuale
-  suggestedStakePercent: number;
+  impliedProbability: number;       // percentuale raw (con vig)
+  impliedProbabilityNoVig: number;  // percentuale senza vig
+  expectedValue: number;            // percentuale
+  kellyFraction: number;            // percentuale (full Kelly × 0.25)
+  suggestedStakePercent: number;    // stake effettivo post-confidence
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   isValueBet: boolean;
-  edge: number;                    // edge contro implied raw
-  edgeNoVig: number;               // edge contro implied senza vig (NUOVO)
+  edge: number;                     // vs implied raw
+  edgeNoVig: number;                // vs implied senza vig
 }
+
+export type MarketCategory =
+  | 'goal_1x2'       // homeWin, draw, awayWin, btts, bttsNo, dnb
+  | 'goal_ou'        // over/under 0.5 - 4.5
+  | 'shots'          // tiri squadra e totali
+  | 'shots_ot'       // tiri in porta
+  | 'yellow_cards'   // cartellini gialli
+  | 'fouls'          // falli
+  | 'exact_score'    // risultato esatto
+  | 'handicap'       // handicap europeo e asiatico
+  | 'other';
 
 export interface BudgetState {
   userId: string;
@@ -94,196 +104,186 @@ export interface BetRecord {
   notes?: string;
 }
 
-/**
- * Mercato con tutte le quote necessarie per il vig removal.
- * Per 1X2 servono home+draw+away.
- * Per Over/Under serve over+under sulla stessa linea.
- */
 export interface MarketOddsGroup {
-  selection: string;        // es. 'homeWin'
-  odds: number;             // quota decimale
-  // Compagni di mercato per il vig removal
-  companions: number[];     // altre quote dello stesso mercato
+  selection: string;
+  odds: number;
+  companions: number[];
 }
 
-export class ValueBettingEngine {
-  private readonly MIN_EV_THRESHOLD = 0.02;      // 2% EV minimo
-  private readonly MIN_ODDS = 1.30;
-  private readonly MAX_ODDS = 15.0;
-  private readonly KELLY_FRACTION = 0.25;        // Quarter Kelly (conservativo)
-  private readonly MAX_STAKE_PERCENT = 5.0;      // 5% massimo bankroll
-  private readonly MIN_STAKE_PERCENT = 0.3;      // 0.3% minimo (abbassato da 0.5%)
+// ==================== SOGLIE EV PER CATEGORIA ====================
 
-  // Moltiplicatori di confidence per Kelly (NON floor fissi)
+/**
+ * Soglie EV minimo (in decimale, non percentuale) per categoria.
+ * Razionale: più il modello è incerto, più serve margine di sicurezza.
+ *
+ * Calibrazione empirica:
+ * - goal_1x2:    Dixon-Coles validato su 10k+ partite → soglia bassa
+ * - goal_ou:     Poisson su goal totali → molto affidabile
+ * - shots:       NegBin su tiri → buono ma influenzato da stile di gioco
+ * - shots_ot:    Tasso in porta variabile → più incerto
+ * - yellow_cards: Fattore arbitro con ampia varianza → soglia alta
+ * - fouls:       Correlazione possesso non lineare → incertezza maggiore
+ * - exact_score: Alta varianza strutturale → soglia massima
+ * - handicap:    Dipende da stima goal, propagazione errore → alta soglia
+ */
+const EV_THRESHOLDS: Record<MarketCategory, number> = {
+  goal_1x2:    0.030,   // 3.0%
+  goal_ou:     0.025,   // 2.5%
+  shots:       0.040,   // 4.0%
+  shots_ot:    0.040,   // 4.0%
+  yellow_cards: 0.045,  // 4.5%
+  fouls:       0.050,   // 5.0%
+  exact_score: 0.050,   // 5.0%
+  handicap:    0.050,   // 5.0%
+  other:       0.040,   // 4.0%
+};
+
+export class ValueBettingEngine {
+  // Filtri globali (valgono per tutte le categorie)
+  private readonly MIN_ODDS         = 1.40;   // margine bookmaker troppo alto sotto
+  private readonly MAX_ODDS         = 8.00;   // modello inaffidabile oltre
+  private readonly KELLY_FRACTION   = 0.25;   // Quarter Kelly (conservativo)
+  private readonly MAX_STAKE_PERCENT = 4.0;   // cap assoluto % bankroll
+  private readonly MIN_STAKE_PERCENT = 0.25;  // stake minimo (non vale la pena sotto)
+  private readonly COHERENCE_RATIO  = 0.80;   // nostra prob >= 80% implied_raw
+
   private readonly CONFIDENCE_MULTIPLIERS = {
     HIGH:   1.20,
     MEDIUM: 1.00,
-    LOW:    0.75,
+    LOW:    0.70,   // accettata ma con stake ridotto
   };
+
+  // ==================== CATEGORIZZAZIONE ====================
+
+  categorizeSelection(selection: string): MarketCategory {
+    if (['homeWin','draw','awayWin','btts','bttsNo','dnb_home','dnb_away',
+         'double_chance_1x','double_chance_x2','double_chance_12'].includes(selection))
+      return 'goal_1x2';
+    if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(selection))
+      return 'goal_ou';
+    if (selection.startsWith('shotsOT') || selection.startsWith('shotsOnTarget'))
+      return 'shots_ot';
+    if (selection.startsWith('shots') || selection.startsWith('shotsHome') || selection.startsWith('shotsAway'))
+      return 'shots';
+    if (selection.startsWith('yellow'))
+      return 'yellow_cards';
+    if (selection.startsWith('fouls'))
+      return 'fouls';
+    if (selection.startsWith('exact_'))
+      return 'exact_score';
+    if (selection.startsWith('hcp_') || selection.startsWith('asian_'))
+      return 'handicap';
+    return 'other';
+  }
 
   // ==================== EXPECTED VALUE ====================
 
-  /**
-   * EV standard: P * odds - 1.
-   * Da usare quando non abbiamo le quote degli altri outcome dello stesso mercato.
-   */
   computeExpectedValue(probability: number, decimalOdds: number): number {
     if (!isFinite(probability) || probability <= 0 || probability >= 1) return -1;
     if (!isFinite(decimalOdds) || decimalOdds <= 1) return -1;
     return probability * decimalOdds - 1;
   }
 
-  /**
-   * EV calcolato contro la probabilità senza vig.
-   * Più preciso: confronta la nostra stima con la vera view del bookmaker
-   * (depurata dal suo margine).
-   *
-   * EV_no_vig = P_nostra * odds - 1/P_implied_no_vig * odds
-   *           = odds * (P_nostra - P_implied_no_vig)
-   *
-   * In realtà EV_no_vig = P_nostra * odds - 1 è lo stesso calcolo,
-   * ma l'edge e il confronto avvengono contro P_no_vig invece di 1/odds.
-   */
-  computeExpectedValueNoVig(
-    probability: number,
-    decimalOdds: number,
-    impliedNoVig: number
-  ): number {
-    if (!isFinite(probability) || probability <= 0 || probability >= 1) return -1;
-    if (!isFinite(decimalOdds) || decimalOdds <= 1) return -1;
-    // EV = P_nostra * odds - 1 è sempre lo stesso numericamente,
-    // ma l'edge = P_nostra - P_implied_no_vig è più informativo.
-    return probability * decimalOdds - 1;
-  }
-
   // ==================== IMPLIED PROBABILITY ====================
 
-  /**
-   * Probabilità implicita raw (con vig incluso): 1 / odds.
-   * Sovrastima la vera probabilità del bookmaker proporzionalmente al margine.
-   */
   impliedProbabilityFromOdds(decimalOdds: number): number {
     if (!isFinite(decimalOdds) || decimalOdds <= 1) return 0;
     return 1 / decimalOdds;
   }
 
   /**
-   * Rimozione del vig con metodo proporzionale (Pinnacle standard).
-   *
-   * Per un mercato con outcome [odds_1, odds_2, ..., odds_n]:
-   *   overround = Σ (1 / odds_i)       (es. 1.053 = 5.3% vig)
-   *   P_no_vig_i = (1 / odds_i) / overround
-   *
-   * Questo metodo distribuisce il vig proporzionalmente tra tutti gli outcome,
-   * che è l'approccio più neutro e standard nell'industria.
-   *
-   * @param odds        La quota dell'outcome di interesse
-   * @param allOdds     Tutte le quote dello stesso mercato (inclusa `odds`)
+   * Vig removal proporzionale (Pinnacle standard).
+   * P_no_vig_i = (1/odds_i) / Σ(1/odds_j)
    */
   impliedProbabilityNoVig(odds: number, allOdds: number[]): number {
     if (!isFinite(odds) || odds <= 1) return 0;
     if (!allOdds || allOdds.length === 0) return this.impliedProbabilityFromOdds(odds);
-
-    // Calcola overround (somma probabilità implicite raw)
-    const overround = allOdds.reduce((s, o) => {
-      if (!isFinite(o) || o <= 1) return s;
-      return s + 1 / o;
-    }, 0);
-
+    const overround = allOdds.reduce((s,o) => (!isFinite(o)||o<=1 ? s : s+1/o), 0);
     if (overround <= 0) return this.impliedProbabilityFromOdds(odds);
-
-    // Normalizza: P_no_vig = (1/odds) / overround
-    const raw = 1 / odds;
-    return Math.min(0.99, Math.max(0.01, raw / overround));
+    return Math.min(0.99, Math.max(0.01, (1/odds) / overround));
   }
 
-  /**
-   * Stima l'overround di un mercato dato l'insieme delle quote.
-   * Utile per monitorare la qualità del bookmaker.
-   * Esempio: overround=1.053 → margine 5.3%
-   */
   computeOverround(allOdds: number[]): number {
-    const sum = allOdds.reduce((s, o) => {
-      if (!isFinite(o) || o <= 1) return s;
-      return s + 1 / o;
-    }, 0);
-    return sum;
+    return allOdds.reduce((s,o) => (!isFinite(o)||o<=1 ? s : s+1/o), 0);
   }
 
   // ==================== KELLY CRITERION ====================
 
-  /**
-   * Kelly Criterion frazionale.
-   *
-   * f* = (b*p - q) / b   con b = odds - 1
-   *
-   * MIGLIORAMENTO: eliminato il floor fisso. Ora applica solo:
-   * - Kelly frazionale (×0.25) per ridurre la varianza
-   * - Cap a MAX_STAKE_PERCENT/100
-   * - Clamp a 0 (non shortiamo scommesse)
-   */
   kellyFraction(probability: number, decimalOdds: number): number {
     if (!isFinite(probability) || probability <= 0 || probability >= 1) return 0;
     if (!isFinite(decimalOdds) || decimalOdds <= 1) return 0;
-
-    const b = decimalOdds - 1;  // net odds
-    const p = probability;
-    const q = 1 - p;
-
-    const fullKelly = (b * p - q) / b;
-    if (fullKelly <= 0) return 0;  // EV negativo → non scommettere
-
-    const fractionalKelly = fullKelly * this.KELLY_FRACTION;
-    return Math.min(fractionalKelly, this.MAX_STAKE_PERCENT / 100);
+    const b = decimalOdds - 1;
+    const fullKelly = (b * probability - (1 - probability)) / b;
+    if (fullKelly <= 0) return 0;
+    return Math.min(fullKelly * this.KELLY_FRACTION, this.MAX_STAKE_PERCENT / 100);
   }
 
-  /**
-   * Stake suggerito: Kelly puro modulato dalla confidence.
-   *
-   * MIGLIORAMENTO chiave:
-   * - Kelly è il driver principale
-   * - La confidence moltiplica Kelly (non impone floor fissi)
-   * - HIGH:   kelly × 1.20 (leggero boost)
-   * - MEDIUM: kelly × 1.00 (neutro)
-   * - LOW:    kelly × 0.75 (riduzione cautelativa)
-   *
-   * Il risultato è clampato tra MIN_STAKE_PERCENT e MAX_STAKE_PERCENT.
-   * Non ci sono mai floor fissi che ignorano Kelly.
-   */
   computeSuggestedStake(
     probability: number,
     decimalOdds: number,
     ev: number
   ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' } {
-    const kelly = this.kellyFraction(probability, decimalOdds) * 100; // come percentuale
+    const kelly = this.kellyFraction(probability, decimalOdds) * 100;
 
+    // Confidence basata su EV e probabilità, NON su soglie fisse di odds
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-    if (ev >= 0.08 && probability >= 0.55) {
-      confidence = 'HIGH';
-    } else if (ev >= 0.05 && probability >= 0.45) {
-      confidence = 'MEDIUM';
-    } else {
-      confidence = 'LOW';
-    }
+    if      (ev >= 0.08 && kelly >= 1.5) confidence = 'HIGH';
+    else if (ev >= 0.05 && kelly >= 0.8) confidence = 'MEDIUM';
+    else                                  confidence = 'LOW';
 
-    const multiplier = this.CONFIDENCE_MULTIPLIERS[confidence];
-    const rawStake = kelly * multiplier;
-
-    // Clamp tra min e max — SENZA floor fissi per confidence
+    const rawStake = kelly * this.CONFIDENCE_MULTIPLIERS[confidence];
     const stakePercent = Math.max(
       this.MIN_STAKE_PERCENT,
       Math.min(this.MAX_STAKE_PERCENT, rawStake)
     );
-
     return { stakePercent: parseFloat(stakePercent.toFixed(2)), confidence };
+  }
+
+  // ==================== FILTRI ADATTATIVI v3 ====================
+
+  /**
+   * Gate principale — Kelly adattivo, filtri minimi giustificati.
+   *
+   * NON filtra per probabilità minima assoluta: Kelly già penalizza
+   * le bet su underdog assegnando stake proporzionalmente piccoli.
+   * NON filtra per MAX_ODDS fisso basso: un underdog a quota 7.00 con
+   * EV genuino riceve stake piccolo ma viene accettato.
+   *
+   * FILTRA:
+   * 1. Odds fuori da [MIN_ODDS, MAX_ODDS] = [1.40, 8.00]
+   * 2. EV <= soglia della categoria (differenziata per affidabilità modello)
+   * 3. Edge no-vig <= 0 (il bookmaker ci batte anche senza margine)
+   * 4. Incoerenza: nostra prob < 80% implied_raw (mercato sa qualcosa che non sappiamo)
+   * 5. Kelly = 0 (EV negativo dal punto di vista Kelly → non scommettere mai)
+   */
+  private passesFilters(
+    ourProb: number,
+    odds: number,
+    ev: number,
+    edgeNoVig: number,
+    category: MarketCategory
+  ): boolean {
+    // 1. Range odds assoluto
+    if (odds < this.MIN_ODDS || odds > this.MAX_ODDS) return false;
+
+    // 2. EV minimo per categoria
+    if (ev <= EV_THRESHOLDS[category]) return false;
+
+    // 3. Edge no-vig positivo
+    if (edgeNoVig <= 0) return false;
+
+    // 4. Coerenza prob/mercato
+    const impliedRaw = this.impliedProbabilityFromOdds(odds);
+    if (ourProb < impliedRaw * this.COHERENCE_RATIO) return false;
+
+    // 5. Kelly positivo (ridondante con EV > 0, ma guard esplicito)
+    if (this.kellyFraction(ourProb, odds) <= 0) return false;
+
+    return true;
   }
 
   // ==================== ANALISI MERCATI ====================
 
-  /**
-   * Analisi mercati originale (mantiene retrocompatibilità).
-   * Usa implied probability raw (con vig) per l'edge.
-   */
   analyzeMarkets(
     probabilities: Record<string, number>,
     bookmakerOdds: Record<string, number>,
@@ -293,33 +293,33 @@ export class ValueBettingEngine {
 
     for (const [key, ourProb] of Object.entries(probabilities)) {
       const odds = bookmakerOdds[key];
-      if (!odds || odds < this.MIN_ODDS || odds > this.MAX_ODDS) continue;
-      if (!ourProb || ourProb <= 0 || ourProb >= 1) continue;
+      if (!odds || !ourProb || ourProb <= 0 || ourProb >= 1) continue;
 
-      const implied = this.impliedProbabilityFromOdds(odds);
-      const ev = this.computeExpectedValue(ourProb, odds);
-      const edge = ourProb - implied;
+      const category   = this.categorizeSelection(key);
+      const implied    = this.impliedProbabilityFromOdds(odds);
+      const ev         = this.computeExpectedValue(ourProb, odds);
+      const edge       = ourProb - implied;
+      const edgeNoVig  = edge; // senza companions, uguale all'edge raw
 
-      const isValueBet = ev > this.MIN_EV_THRESHOLD && edge > 0;
-      if (!isValueBet) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category)) continue;
 
       const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
 
       opportunities.push({
-        marketName: marketNames[key] ?? key,
-        selection: key,
-        ourProbability: parseFloat((ourProb * 100).toFixed(2)),
-        bookmakerOdds: odds,
-        impliedProbability: parseFloat((implied * 100).toFixed(2)),
-        impliedProbabilityNoVig: parseFloat((implied * 100).toFixed(2)), // stessa senza companions
-        expectedValue: parseFloat((ev * 100).toFixed(2)),
-        expectedValueNoVig: parseFloat((ev * 100).toFixed(2)),
-        kellyFraction: parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
-        suggestedStakePercent: stakePercent,
+        marketName:              marketNames[key] ?? key,
+        selection:               key,
+        marketCategory:          category,
+        ourProbability:          parseFloat((ourProb * 100).toFixed(2)),
+        bookmakerOdds:           odds,
+        impliedProbability:      parseFloat((implied    * 100).toFixed(2)),
+        impliedProbabilityNoVig: parseFloat((implied    * 100).toFixed(2)),
+        expectedValue:           parseFloat((ev         * 100).toFixed(2)),
+        kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
+        suggestedStakePercent:   stakePercent,
         confidence,
-        isValueBet,
-        edge: parseFloat((edge * 100).toFixed(2)),
-        edgeNoVig: parseFloat((edge * 100).toFixed(2)),
+        isValueBet:              true,
+        edge:                    parseFloat((edge    * 100).toFixed(2)),
+        edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
       });
     }
 
@@ -327,24 +327,8 @@ export class ValueBettingEngine {
   }
 
   /**
-   * Analisi mercati con vig removal (metodo migliorato).
-   *
-   * Richiede `marketGroups`: mappa selection → quote di TUTTI gli outcome
-   * dello stesso mercato. Questo permette di calcolare la probabilità
-   * senza vig e l'edge reale.
-   *
-   * Esempio per 1X2:
-   *   marketGroups = {
-   *     homeWin: { odds: 1.85, companions: [3.40, 4.20] },  // home, draw, away
-   *     draw:    { odds: 3.40, companions: [1.85, 4.20] },
-   *     awayWin: { odds: 4.20, companions: [1.85, 3.40] },
-   *   }
-   *
-   * Esempio per Over/Under 2.5:
-   *   marketGroups = {
-   *     over25:  { odds: 1.70, companions: [2.10] },
-   *     under25: { odds: 2.10, companions: [1.70] },
-   *   }
+   * Versione con vig removal completo: usa le quote di tutti gli outcome
+   * dello stesso mercato per calcolare l'edge reale (più preciso).
    */
   analyzeMarketsWithVigRemoval(
     probabilities: Record<string, number>,
@@ -355,46 +339,36 @@ export class ValueBettingEngine {
 
     for (const [key, ourProb] of Object.entries(probabilities)) {
       const group = marketGroups[key];
-      if (!group) continue;
+      if (!group || !ourProb || ourProb <= 0 || ourProb >= 1) continue;
 
       const { odds, companions } = group;
-      if (!odds || odds < this.MIN_ODDS || odds > this.MAX_ODDS) continue;
-      if (!ourProb || ourProb <= 0 || ourProb >= 1) continue;
-
-      // Implied probability RAW (con vig)
-      const impliedRaw = this.impliedProbabilityFromOdds(odds);
-
-      // Implied probability senza vig (metodo proporzionale)
-      const allOdds = [odds, ...companions.filter(o => isFinite(o) && o > 1)];
+      const allOdds      = [odds, ...companions.filter(o => isFinite(o) && o > 1)];
+      const impliedRaw   = this.impliedProbabilityFromOdds(odds);
       const impliedNoVig = this.impliedProbabilityNoVig(odds, allOdds);
+      const ev           = this.computeExpectedValue(ourProb, odds);
+      const edgeRaw      = ourProb - impliedRaw;
+      const edgeNoVig    = ourProb - impliedNoVig;
+      const category     = this.categorizeSelection(key);
 
-      // EV è sempre P * odds - 1 numericamente, ma l'edge è più preciso
-      const ev = this.computeExpectedValue(ourProb, odds);
-      const edgeRaw = ourProb - impliedRaw;
-      const edgeNoVig = ourProb - impliedNoVig;
-
-      // Filtro principale: edge contro implied SENZA VIG
-      // (evita falsi positivi dovuti al margine del bookmaker)
-      const isValueBet = ev > this.MIN_EV_THRESHOLD && edgeNoVig > 0;
-      if (!isValueBet) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category)) continue;
 
       const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
 
       opportunities.push({
-        marketName: marketNames[key] ?? key,
-        selection: key,
-        ourProbability: parseFloat((ourProb * 100).toFixed(2)),
-        bookmakerOdds: odds,
-        impliedProbability: parseFloat((impliedRaw * 100).toFixed(2)),
+        marketName:              marketNames[key] ?? key,
+        selection:               key,
+        marketCategory:          category,
+        ourProbability:          parseFloat((ourProb      * 100).toFixed(2)),
+        bookmakerOdds:           odds,
+        impliedProbability:      parseFloat((impliedRaw   * 100).toFixed(2)),
         impliedProbabilityNoVig: parseFloat((impliedNoVig * 100).toFixed(2)),
-        expectedValue: parseFloat((ev * 100).toFixed(2)),
-        expectedValueNoVig: parseFloat((ev * 100).toFixed(2)),
-        kellyFraction: parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
-        suggestedStakePercent: stakePercent,
+        expectedValue:           parseFloat((ev           * 100).toFixed(2)),
+        kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
+        suggestedStakePercent:   stakePercent,
         confidence,
-        isValueBet,
-        edge: parseFloat((edgeRaw * 100).toFixed(2)),
-        edgeNoVig: parseFloat((edgeNoVig * 100).toFixed(2)),
+        isValueBet:              true,
+        edge:                    parseFloat((edgeRaw   * 100).toFixed(2)),
+        edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
       });
     }
 
@@ -402,96 +376,85 @@ export class ValueBettingEngine {
   }
 
   /**
-   * Costruisce i market groups a partire dal flat odds map.
-   * Questo metodo raggruppata automaticamente le quote per mercato
-   * in modo da poter applicare il vig removal.
-   *
-   * Logica di raggruppamento:
-   * - 1X2: homeWin + draw + awayWin
-   * - Over/Under stessa linea: es. over25 + under25
-   * - BTTS: btts + bttsNo
-   * - Double Chance: i tre outcome insieme
-   * - DNB: dnb_home + dnb_away
-   * - Team totals per linea
-   * - Asian handicap per linea
+   * Stima volume bet atteso per partita (utile per capire se si è nel
+   * range target 150-400/stagione su 38 partite per squadra top di lega).
    */
-  buildMarketGroups(
-    bookmakerOdds: Record<string, number>
-  ): Record<string, MarketOddsGroup> {
-    const groups: Record<string, MarketOddsGroup> = {};
+  getBetVolumeEstimate(
+    opportunities: BetOpportunity[]
+  ): { total: number; byCategory: Record<MarketCategory, number> } {
+    const byCategory = {} as Record<MarketCategory, number>;
+    for (const opp of opportunities) {
+      byCategory[opp.marketCategory] = (byCategory[opp.marketCategory] ?? 0) + 1;
+    }
+    return { total: opportunities.length, byCategory };
+  }
 
-    // Helper: verifica che una quota sia valida
-    const validOdds = (o: number | undefined): o is number =>
+  /**
+   * Seleziona solo HIGH confidence — usato dal BacktestingEngine
+   * per simulazioni conservative.
+   */
+  selectHighConfidence(opportunities: BetOpportunity[]): BetOpportunity[] {
+    return opportunities.filter(o => o.confidence === 'HIGH');
+  }
+
+  /**
+   * Seleziona HIGH + MEDIUM confidence — usato per target 150-400 bet.
+   */
+  selectMediumAndAbove(opportunities: BetOpportunity[]): BetOpportunity[] {
+    return opportunities.filter(o => o.confidence === 'HIGH' || o.confidence === 'MEDIUM');
+  }
+
+  // ==================== MARKET GROUPS ====================
+
+  buildMarketGroups(bookmakerOdds: Record<string, number>): Record<string, MarketOddsGroup> {
+    const groups: Record<string, MarketOddsGroup> = {};
+    const v = (o: number | undefined): o is number =>
       typeof o === 'number' && isFinite(o) && o > 1;
 
-    // --- 1X2 ---
-    const h = bookmakerOdds['homeWin'];
-    const d = bookmakerOdds['draw'];
-    const a = bookmakerOdds['awayWin'];
-    if (validOdds(h)) groups['homeWin'] = { selection: 'homeWin', odds: h, companions: [d, a].filter(validOdds) };
-    if (validOdds(d)) groups['draw'] = { selection: 'draw', odds: d, companions: [h, a].filter(validOdds) };
-    if (validOdds(a)) groups['awayWin'] = { selection: 'awayWin', odds: a, companions: [h, d].filter(validOdds) };
+    const pair = (k1: string, k2: string) => {
+      const o1 = bookmakerOdds[k1], o2 = bookmakerOdds[k2];
+      if (v(o1)) groups[k1] = { selection: k1, odds: o1, companions: v(o2) ? [o2] : [] };
+      if (v(o2)) groups[k2] = { selection: k2, odds: o2, companions: v(o1) ? [o1] : [] };
+    };
 
-    // --- BTTS ---
-    const btts = bookmakerOdds['btts'];
-    const bttsNo = bookmakerOdds['bttsNo'];
-    if (validOdds(btts)) groups['btts'] = { selection: 'btts', odds: btts, companions: [bttsNo].filter(validOdds) };
-    if (validOdds(bttsNo)) groups['bttsNo'] = { selection: 'bttsNo', odds: bttsNo, companions: [btts].filter(validOdds) };
+    const triple = (k1: string, k2: string, k3: string) => {
+      const o1 = bookmakerOdds[k1], o2 = bookmakerOdds[k2], o3 = bookmakerOdds[k3];
+      if (v(o1)) groups[k1] = { selection: k1, odds: o1, companions: [o2,o3].filter(v) as number[] };
+      if (v(o2)) groups[k2] = { selection: k2, odds: o2, companions: [o1,o3].filter(v) as number[] };
+      if (v(o3)) groups[k3] = { selection: k3, odds: o3, companions: [o1,o2].filter(v) as number[] };
+    };
 
-    // --- DNB ---
-    const dnbH = bookmakerOdds['dnb_home'];
-    const dnbA = bookmakerOdds['dnb_away'];
-    if (validOdds(dnbH)) groups['dnb_home'] = { selection: 'dnb_home', odds: dnbH, companions: [dnbA].filter(validOdds) };
-    if (validOdds(dnbA)) groups['dnb_away'] = { selection: 'dnb_away', odds: dnbA, companions: [dnbH].filter(validOdds) };
+    triple('homeWin', 'draw', 'awayWin');
+    pair('btts', 'bttsNo');
+    pair('dnb_home', 'dnb_away');
+    triple('double_chance_1x', 'double_chance_x2', 'double_chance_12');
 
-    // --- Double Chance ---
-    const dc1x = bookmakerOdds['double_chance_1x'];
-    const dcx2 = bookmakerOdds['double_chance_x2'];
-    const dc12 = bookmakerOdds['double_chance_12'];
-    if (validOdds(dc1x)) groups['double_chance_1x'] = { selection: 'double_chance_1x', odds: dc1x, companions: [dcx2, dc12].filter(validOdds) };
-    if (validOdds(dcx2)) groups['double_chance_x2'] = { selection: 'double_chance_x2', odds: dcx2, companions: [dc1x, dc12].filter(validOdds) };
-    if (validOdds(dc12)) groups['double_chance_12'] = { selection: 'double_chance_12', odds: dc12, companions: [dc1x, dcx2].filter(validOdds) };
-
-    // --- Over/Under goal (per linea) ---
-    const ouGoalLines = ['05', '15', '25', '35', '45'];
-    for (const line of ouGoalLines) {
-      const ov = bookmakerOdds[`over${line}`];
-      const un = bookmakerOdds[`under${line}`];
-      if (validOdds(ov)) groups[`over${line}`] = { selection: `over${line}`, odds: ov, companions: [un].filter(validOdds) };
-      if (validOdds(un)) groups[`under${line}`] = { selection: `under${line}`, odds: un, companions: [ov].filter(validOdds) };
+    for (const l of ['05','15','25','35','45'])        pair(`over${l}`, `under${l}`);
+    for (const l of ['75','85','95','105','115','125','135','145','155','165','175']) {
+      pair(`shotsOver${l}`, `shotsUnder${l}`);
+      pair(`shotsHomeOver${l}`, `shotsHomeUnder${l}`);
+      pair(`shotsAwayOver${l}`, `shotsAwayUnder${l}`);
     }
+    for (const l of ['25','35','45','55','65','75','85','95','105','115']) {
+      pair(`shotsOTOver${l}`, `shotsOTUnder${l}`);
+    }
+    for (const l of ['05','15','25','35','45','55','65','75','85'])
+      pair(`yellowOver${l}`, `yellowUnder${l}`);
+    for (const l of ['125','145','175','205','235','265','295','325','355'])
+      pair(`foulsOver${l}`, `foulsUnder${l}`);
 
-    // --- Over/Under generici con pattern (shots, cards, fouls, sot, team totals) ---
-    const allKeys = Object.keys(bookmakerOdds);
-    for (const key of allKeys) {
-      if (groups[key]) continue; // già gestito sopra
-
+    // Mercati generici residui
+    for (const key of Object.keys(bookmakerOdds)) {
+      if (groups[key]) continue;
       const odds = bookmakerOdds[key];
-      if (!validOdds(odds)) continue;
-
-      // Cerca il companion Over↔Under
-      let companionKey: string | null = null;
-      if (key.startsWith('over')) {
-        companionKey = 'under' + key.slice(4);
-      } else if (key.startsWith('under')) {
-        companionKey = 'over' + key.slice(5);
-      } else if (key.includes('_over_')) {
-        companionKey = key.replace('_over_', '_under_');
-      } else if (key.includes('_under_')) {
-        companionKey = key.replace('_under_', '_over_');
-      }
-
-      if (companionKey) {
-        const companionOdds = bookmakerOdds[companionKey];
-        groups[key] = {
-          selection: key,
-          odds,
-          companions: validOdds(companionOdds) ? [companionOdds] : [],
-        };
-      } else {
-        // Mercato senza companion noto: usa solo la quota singola
-        groups[key] = { selection: key, odds, companions: [] };
-      }
+      if (!v(odds)) continue;
+      let comp: string | null = null;
+      if      (key.startsWith('over'))      comp = 'under' + key.slice(4);
+      else if (key.startsWith('under'))     comp = 'over'  + key.slice(5);
+      else if (key.includes('_over_'))      comp = key.replace('_over_',  '_under_');
+      else if (key.includes('_under_'))     comp = key.replace('_under_', '_over_');
+      const cOdds = comp ? bookmakerOdds[comp] : undefined;
+      groups[key] = { selection: key, odds, companions: v(cOdds) ? [cOdds!] : [] };
     }
 
     return groups;
@@ -499,110 +462,51 @@ export class ValueBettingEngine {
 
   // ==================== CALIBRAZIONE ISOTONICA ====================
 
-  /**
-   * Regressione isotonica per calibrare le probabilità del modello.
-   *
-   * Il modello Dixon-Coles (come tutti i modelli discriminativi) tende a
-   * produrre probabilità overconfident — concentra la massa vicino a 0 e 1
-   * più di quanto i dati reali giustifichino.
-   *
-   * La calibrazione isotonica (PAVA algorithm) trova la funzione non-decrescente
-   * f: P_raw → P_calibrata che minimizza l'errore quadratico sulle frequenze
-   * osservate, senza assunzioni parametriche sulla forma.
-   *
-   * Come usarla:
-   *   1. Raccogliere dal backtesting le coppie (P_predicted, outcome) per molte partite
-   *   2. Chiamare fitIsotonicCalibration(predictions, outcomes) per stimare la mappa
-   *   3. Chiamare calibrate(P_raw) su ogni probabilità prima di usarla per Kelly
-   *
-   * @param predictions  Array di probabilità predette dal modello [0,1]
-   * @param outcomes     Array binari corrispondenti (1=evento accaduto, 0=no)
-   */
   fitIsotonicCalibration(
     predictions: number[],
     outcomes: number[]
   ): { calibrationPoints: Array<{ x: number; y: number }> } {
-    if (predictions.length !== outcomes.length || predictions.length === 0) {
+    if (predictions.length !== outcomes.length || predictions.length === 0)
       return { calibrationPoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
-    }
 
-    // Ordina per probabilità predetta crescente
     const paired = predictions
       .map((p, i) => ({ p, o: outcomes[i] }))
       .filter(({ p }) => isFinite(p) && p >= 0 && p <= 1)
       .sort((a, b) => a.p - b.p);
 
-    // Raggruppa in bucket (10 bucket per default)
     const nBuckets = Math.min(10, Math.floor(paired.length / 5));
     if (nBuckets < 2) return { calibrationPoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
 
-    const bucketSize = Math.ceil(paired.length / nBuckets);
-    const buckets: Array<{ xMean: number; yMean: number }> = [];
-
-    for (let i = 0; i < paired.length; i += bucketSize) {
-      const slice = paired.slice(i, i + bucketSize);
-      const xMean = slice.reduce((s, v) => s + v.p, 0) / slice.length;
-      const yMean = slice.reduce((s, v) => s + v.o, 0) / slice.length;
-      buckets.push({ xMean, yMean });
+    const bSize = Math.ceil(paired.length / nBuckets);
+    const buckets = [];
+    for (let i = 0; i < paired.length; i += bSize) {
+      const sl = paired.slice(i, i + bSize);
+      buckets.push({
+        xMean: sl.reduce((s,v) => s+v.p, 0) / sl.length,
+        yMean: sl.reduce((s,v) => s+v.o, 0) / sl.length,
+      });
     }
 
-    // PAVA (Pool Adjacent Violators Algorithm) per monotonia
-    // Unisce bucket adiacenti che violano la monotonia
-    const pools: Array<{ x: number; y: number; weight: number }> = buckets.map(b => ({
-      x: b.xMean,
-      y: b.yMean,
-      weight: 1,
-    }));
-
+    const pools = buckets.map(b => ({ x: b.xMean, y: b.yMean, weight: 1 }));
     let changed = true;
     while (changed) {
       changed = false;
       for (let i = 0; i < pools.length - 1; i++) {
-        if (pools[i].y > pools[i + 1].y) {
-          // Merge: media pesata
-          const w1 = pools[i].weight;
-          const w2 = pools[i + 1].weight;
-          const mergedY = (pools[i].y * w1 + pools[i + 1].y * w2) / (w1 + w2);
-          const mergedX = (pools[i].x * w1 + pools[i + 1].x * w2) / (w1 + w2);
-          pools.splice(i, 2, { x: mergedX, y: mergedY, weight: w1 + w2 });
-          changed = true;
-          break;
+        if (pools[i].y > pools[i+1].y) {
+          const w1 = pools[i].weight, w2 = pools[i+1].weight;
+          pools.splice(i, 2, {
+            x: (pools[i].x*w1 + pools[i+1].x*w2) / (w1+w2),
+            y: (pools[i].y*w1 + pools[i+1].y*w2) / (w1+w2),
+            weight: w1+w2,
+          });
+          changed = true; break;
         }
       }
     }
 
-    // Aggiungi punti boundary
-    const points: Array<{ x: number; y: number }> = [
-      { x: 0, y: 0 },
-      ...pools.map(p => ({ x: p.x, y: p.y })),
-      { x: 1, y: 1 },
-    ];
-
-    return { calibrationPoints: points };
+    return { calibrationPoints: [{ x:0, y:0 }, ...pools.map(p => ({ x:p.x, y:p.y })), { x:1, y:1 }] };
   }
 
-  /**
-   * Applica la calibrazione isotonica a una probabilità raw.
-   * Usa interpolazione lineare tra i punti di calibrazione.
-   *
-   * BLENDING ANTI-OVERFITTING:
-   * La calibrazione isotonica può peggiorare le prestazioni se stimata
-   * su un campione piccolo o non stazionario. Regola d'oro: mai calibrare
-   * su meno di ~1000 predizioni. Sotto quella soglia, il blending
-   * ammortizza il rischio:
-   *
-   *   P_final = α * P_raw + (1 - α) * P_cal
-   *
-   * dove α dipende dal numero di osservazioni:
-   *   - n < 200   → α = 0.90 (quasi tutto il peso al modello raw)
-   *   - n = 500   → α ≈ 0.70
-   *   - n = 1000  → α ≈ 0.50 (blending bilanciato)
-   *   - n ≥ 3000  → α ≈ 0.10 (quasi tutto il peso alla calibrazione)
-   *
-   * @param rawProb           Probabilità raw del modello [0,1]
-   * @param calibrationPoints Output di fitIsotonicCalibration
-   * @param nObservations     Numero di predizioni usate per stimare la calibrazione
-   */
   calibrate(
     rawProb: number,
     calibrationPoints: Array<{ x: number; y: number }>,
@@ -612,11 +516,9 @@ export class ValueBettingEngine {
     if (rawProb <= 0) return 0;
     if (rawProb >= 1) return 1;
 
-    // Interpolazione lineare tra i punti di calibrazione
-    let pCal = rawProb; // fallback
+    let pCal = rawProb;
     for (let i = 0; i < calibrationPoints.length - 1; i++) {
-      const lo = calibrationPoints[i];
-      const hi = calibrationPoints[i + 1];
+      const lo = calibrationPoints[i], hi = calibrationPoints[i+1];
       if (rawProb >= lo.x && rawProb <= hi.x) {
         const t = hi.x > lo.x ? (rawProb - lo.x) / (hi.x - lo.x) : 0;
         pCal = lo.y + t * (hi.y - lo.y);
@@ -624,165 +526,78 @@ export class ValueBettingEngine {
       }
     }
 
-    // Blending: α decresce all'aumentare di n
-    // α = 1/(1 + n/1000) → sigmoid-like con punto medio a n=1000
     const n = Math.max(0, nObservations);
-    const alpha = n < 200
-      ? 0.90                               // campione piccolo: quasi ignorare cal
-      : Math.max(0.10, 1 / (1 + n / 1000)); // decresce verso 0.10 con n grande
-
-    const pFinal = alpha * rawProb + (1 - alpha) * pCal;
-    return Math.min(0.99, Math.max(0.01, pFinal));
+    const alpha = n < 200 ? 0.90 : Math.max(0.10, 1 / (1 + n / 1000));
+    return Math.min(0.99, Math.max(0.01, alpha * rawProb + (1-alpha) * pCal));
   }
 
-  // ==================== BUDGET E SCOMMESSE ====================
+  // ==================== BUDGET ====================
 
-  /**
-   * Validazione consistenza budget.
-   */
   validateBudget(budget: BudgetState): boolean {
-    const expectedAvailable =
-      budget.totalBudget +
-      budget.totalWon -
-      budget.totalLost -
-      budget.totalStaked;
-    return Math.abs(expectedAvailable - budget.availableBudget) < 0.01;
+    const exp = budget.totalBudget + budget.totalWon - budget.totalLost - budget.totalStaked;
+    return Math.abs(exp - budget.availableBudget) < 0.01;
   }
 
-  /**
-   * Liquidazione scommessa con calcolo ROI corretto.
-   *
-   * MIGLIORAMENTO: il ROI viene calcolato SOLO sulle scommesse liquidate
-   * (WON + LOST), escludendo quelle pendenti. Questo evita di
-   * sottostimare il ROI quando ci sono bet aperti.
-   *
-   * ROI = (totalWon - totalLost) / settledStaked × 100
-   */
   settleBet(
-    budget: BudgetState,
-    bet: BetRecord,
-    won: boolean,
-    returnAmount?: number,
-    // NUOVO: passare tutte le scommesse per calcolare settled correctly
-    allBets?: BetRecord[]
+    budget: BudgetState, bet: BetRecord, won: boolean,
+    returnAmount?: number, allBets?: BetRecord[]
   ): { updatedBudget: BudgetState; updatedBet: BetRecord } {
-    const updatedBet = { ...bet };
+    const updatedBet    = { ...bet };
     const updatedBudget = { ...budget };
 
     if (won) {
-      const winAmount = returnAmount ?? bet.stake * bet.odds;
-      updatedBet.status = 'WON';
-      updatedBet.returnAmount = winAmount;
-      updatedBet.profit = winAmount - bet.stake;
-      updatedBudget.availableBudget += winAmount;
-      updatedBudget.totalWon += winAmount;
+      const win = returnAmount ?? bet.stake * bet.odds;
+      updatedBet.status = 'WON'; updatedBet.returnAmount = win; updatedBet.profit = win - bet.stake;
+      updatedBudget.availableBudget += win; updatedBudget.totalWon += win;
     } else {
-      updatedBet.status = 'LOST';
-      updatedBet.returnAmount = 0;
-      updatedBet.profit = -bet.stake;
+      updatedBet.status = 'LOST'; updatedBet.returnAmount = 0; updatedBet.profit = -bet.stake;
       updatedBudget.totalLost += bet.stake;
     }
+    updatedBet.settledAt = new Date(); updatedBudget.updatedAt = new Date();
 
-    updatedBet.settledAt = new Date();
-    updatedBudget.updatedAt = new Date();
-
-    // ROI solo su scommesse liquidate
-    if (allBets && allBets.length > 0) {
-      const settled = allBets.filter(
-        (b) => b.status === 'WON' || b.status === 'LOST'
-      );
-      // Include anche la scommessa appena liquidata
-      const settledStaked = settled.reduce((s, b) => s + b.stake, 0) + bet.stake;
-      const totalReturn = settled.reduce(
-        (s, b) => s + (b.status === 'WON' ? (b.returnAmount ?? b.stake * b.odds) : 0),
-        0
-      ) + (won ? (returnAmount ?? bet.stake * bet.odds) : 0);
-      const totalLostSettled = settled.reduce(
-        (s, b) => s + (b.status === 'LOST' ? b.stake : 0),
-        0
-      ) + (won ? 0 : bet.stake);
-
-      if (settledStaked > 0) {
-        updatedBudget.roi = ((totalReturn - settledStaked) / settledStaked) * 100;
-      }
-    } else {
-      // Fallback: metodo originale ma almeno esclude le pending
-      // Approssimazione: (won - lost) / (won_stake + lost_stake)
-      const wonAmount = updatedBudget.totalWon;
-      const lostAmount = updatedBudget.totalLost;
-      const settledStakedApprox = wonAmount / Math.max(0.01, budget.totalBets > 0
-        ? (won ? budget.roi / 100 + 1 : 1)
-        : 1);
-      // Fallback semplificato: usa totalStaked se non abbiamo info migliori
-      if (updatedBudget.totalStaked > 0) {
-        updatedBudget.roi =
-          ((updatedBudget.totalWon - updatedBudget.totalLost) /
-            updatedBudget.totalStaked) *
-          100;
-      }
-    }
+    const settled       = (allBets ?? []).filter(b => b.status === 'WON' || b.status === 'LOST');
+    const settledStaked = settled.reduce((s,b) => s+b.stake, 0) + bet.stake;
+    const totalReturn   = settled.reduce((s,b) => s+(b.status==='WON'?(b.returnAmount??b.stake*b.odds):0), 0)
+                        + (won ? (returnAmount??bet.stake*bet.odds) : 0);
+    if (settledStaked > 0)
+      updatedBudget.roi = ((totalReturn - settledStaked) / settledStaked) * 100;
 
     return { updatedBudget, updatedBet };
   }
 
-  /**
-   * Piazza una scommessa — deduce dallo stake disponibile.
-   */
   placeBet(budget: BudgetState, stakeAmount: number): BudgetState {
-    if (!isFinite(stakeAmount) || stakeAmount <= 0) {
-      throw new Error('Importo scommessa non valido');
-    }
-    if (stakeAmount > budget.availableBudget) {
-      throw new Error(
-        `Budget insufficiente: servono €${stakeAmount.toFixed(2)}, disponibili €${budget.availableBudget.toFixed(2)}`
-      );
-    }
+    if (!isFinite(stakeAmount) || stakeAmount <= 0) throw new Error('Importo scommessa non valido');
+    if (stakeAmount > budget.availableBudget)
+      throw new Error(`Budget insufficiente: servono €${stakeAmount.toFixed(2)}, disponibili €${budget.availableBudget.toFixed(2)}`);
     return {
       ...budget,
       availableBudget: budget.availableBudget - stakeAmount,
-      totalStaked: budget.totalStaked + stakeAmount,
-      totalBets: budget.totalBets + 1,
-      updatedAt: new Date(),
+      totalStaked:     budget.totalStaked + stakeAmount,
+      totalBets:       budget.totalBets + 1,
+      updatedAt:       new Date(),
     };
   }
 
   // ==================== UTILITY ====================
 
-  /**
-   * Dato un set di quote bookmaker per un mercato 1X2,
-   * restituisce le probabilità senza vig per i tre outcome.
-   * Metodo di convenienza per il frontend.
-   */
-  devig1X2(
-    oddsHome: number,
-    oddsDraw: number,
-    oddsAway: number
-  ): { home: number; draw: number; away: number; overround: number } {
-    const allOdds = [oddsHome, oddsDraw, oddsAway].filter(
-      (o) => isFinite(o) && o > 1
-    );
-    const overround = allOdds.reduce((s, o) => s + 1 / o, 0);
+  devig1X2(oddsHome: number, oddsDraw: number, oddsAway: number) {
+    const all = [oddsHome, oddsDraw, oddsAway].filter(o => isFinite(o) && o > 1);
+    const or  = all.reduce((s,o) => s+1/o, 0);
     return {
-      home: this.impliedProbabilityNoVig(oddsHome, allOdds),
-      draw: this.impliedProbabilityNoVig(oddsDraw, allOdds),
-      away: this.impliedProbabilityNoVig(oddsAway, allOdds),
-      overround: parseFloat(overround.toFixed(4)),
+      home: this.impliedProbabilityNoVig(oddsHome, all),
+      draw: this.impliedProbabilityNoVig(oddsDraw, all),
+      away: this.impliedProbabilityNoVig(oddsAway, all),
+      overround: parseFloat(or.toFixed(4)),
     };
   }
 
-  /**
-   * Dato un mercato Over/Under, restituisce le probabilità senza vig.
-   */
-  devigOverUnder(
-    oddsOver: number,
-    oddsUnder: number
-  ): { over: number; under: number; overround: number } {
-    const allOdds = [oddsOver, oddsUnder].filter((o) => isFinite(o) && o > 1);
-    const overround = allOdds.reduce((s, o) => s + 1 / o, 0);
+  devigOverUnder(oddsOver: number, oddsUnder: number) {
+    const all = [oddsOver, oddsUnder].filter(o => isFinite(o) && o > 1);
+    const or  = all.reduce((s,o) => s+1/o, 0);
     return {
-      over: this.impliedProbabilityNoVig(oddsOver, allOdds),
-      under: this.impliedProbabilityNoVig(oddsUnder, allOdds),
-      overround: parseFloat(overround.toFixed(4)),
+      over:      this.impliedProbabilityNoVig(oddsOver,  all),
+      under:     this.impliedProbabilityNoVig(oddsUnder, all),
+      overround: parseFloat(or.toFixed(4)),
     };
   }
 }
