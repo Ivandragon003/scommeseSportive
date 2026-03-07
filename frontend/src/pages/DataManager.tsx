@@ -439,7 +439,14 @@ const DataManager: React.FC = () => {
 
   const stats = useMemo(() => {
     const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, cs: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, fotmob: 0 };
-    const add = (sk: string, nk: string, rv: any) => { const v = Number(rv); if (Number.isFinite(v)) { s[sk] += v; s[nk]++; } };
+    const add = (sk: string, nk: string, rv: any) => {
+      if (rv === null || rv === undefined || rv === '') return;
+      const v = Number(rv);
+      if (Number.isFinite(v)) {
+        s[sk] += v;
+        s[nk]++;
+      }
+    };
     const selectedId = String(selectedTeam?.team_id ?? '').trim();
     const selectedNameKey = normalizeKey(selectedTeam?.name ?? '');
     for (const m of scopedMatches) {
@@ -470,8 +477,14 @@ const DataManager: React.FC = () => {
       add('fouls','foulsN', h ? m.home_fouls : m.away_fouls);
       add('yc','ycN', h ? m.home_yellow_cards : m.away_yellow_cards);
       add('rc','rcN', h ? m.home_red_cards : m.away_red_cards);
-      const poss = Number(h ? m.home_possession : m.away_possession);
-      if (Number.isFinite(poss)) { s.poss += poss; s.possN++; }
+      const possRaw = h ? m.home_possession : m.away_possession;
+      if (possRaw !== null && possRaw !== undefined && possRaw !== '') {
+        const poss = Number(possRaw);
+        if (Number.isFinite(poss)) {
+          s.poss += poss;
+          s.possN++;
+        }
+      }
       if (String(m.source ?? '').toLowerCase() === 'fotmob') s.fotmob++;
     }
     const d = Math.max(1, s.p);
@@ -495,6 +508,27 @@ const DataManager: React.FC = () => {
     s.possCov = `${s.possN}/${s.p}`;
     return s;
   }, [scopedMatches, selectedTeam]);
+
+  const modelShotsForAvg = useMemo(() => {
+    if (!selectedTeam) return null;
+    const h = Number(selectedTeam.avg_home_shots);
+    const a = Number(selectedTeam.avg_away_shots);
+    if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
+    return (h + a) / 2;
+  }, [selectedTeam]);
+
+  const modelSotForAvg = useMemo(() => {
+    if (!selectedTeam) return null;
+    const h = Number(selectedTeam.avg_home_shots_ot);
+    const a = Number(selectedTeam.avg_away_shots_ot);
+    if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
+    return (h + a) / 2;
+  }, [selectedTeam]);
+
+  const shotsForDisplay = stats.sfN > 0 ? n(stats.sfAvg, 2) : (modelShotsForAvg !== null ? `${n(modelShotsForAvg, 2)}*` : '-');
+  const shotsAgainstDisplay = stats.saN > 0 ? n(stats.saAvg, 2) : '-';
+  const sotForDisplay = stats.sotfN > 0 ? n(stats.sotfAvg, 2) : (modelSotForAvg !== null ? `${n(modelSotForAvg, 2)}*` : '-');
+  const sotAgainstDisplay = stats.sotaN > 0 ? n(stats.sotaAvg, 2) : '-';
 
   const players = selectedTeam ? (playersByTeam[selectedTeam.team_id] ?? []) : [];
   const qualityRows = [
@@ -813,10 +847,10 @@ const DataManager: React.FC = () => {
                           ['xG fatto / subito', useOfficialSeasonStats
                             ? `${n(seasonStats.xgForPerMatch, 2)} / ${n(seasonStats.xgAgainstPerMatch, 2)}`
                             : `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)} (${stats.xgfCov})`],
-                          ['Tiri fatti / subiti', `${n(stats.sfAvg, 2)} / ${n(stats.saAvg, 2)} (${stats.sfCov})`],
+                          ['Tiri fatti / subiti', `${shotsForDisplay} / ${shotsAgainstDisplay} (${stats.sfCov})`],
                           ['Tiri in porta (OT) fatti / subiti', useOfficialSeasonStats
                             ? `${n(seasonStats.shotsOnTargetPerMatch, 2)} / ${n(stats.sotaAvg, 2)}`
-                            : `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)} (${stats.sotfCov})`],
+                            : `${sotForDisplay} / ${sotAgainstDisplay} (${stats.sotfCov})`],
                           ['Falli / partita', useOfficialSeasonStats
                             ? n(seasonStats.foulsPerMatch, 2)
                             : `${n(stats.foulsAvg, 2)} (${stats.foulsCov})`],
@@ -833,25 +867,30 @@ const DataManager: React.FC = () => {
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>
+                    {(stats.sfN === 0 || stats.sotfN === 0) && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
+                        * valore stimato da statistiche squadra (modello), perche i tiri match-level non sono presenti in FotMob.
+                      </div>
+                    )}
                   </div>
 
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head model"> Stats Modello AI</div>
+                    <div className="dm-stats-head model">Statistiche Modello AI</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
-                          ['Attack Strength',   n(selectedTeam.attack_strength, 3)],
-                          ['Defence Strength',  n(selectedTeam.defence_strength, 3)],
-                          ['Avg Home Shots',    n(selectedTeam.avg_home_shots, 2)],
-                          ['Avg Away Shots',    n(selectedTeam.avg_away_shots, 2)],
-                          ['Avg Home Shots On Target (OT)', n(selectedTeam.avg_home_shots_ot, 2)],
-                          ['Avg Away Shots On Target (OT)', n(selectedTeam.avg_away_shots_ot, 2)],
-                          ['Avg Home xG',       n(selectedTeam.avg_home_xg, 2)],
-                          ['Avg Away xG',       n(selectedTeam.avg_away_xg, 2)],
-                          ['Avg Yellow Cards',  n(selectedTeam.avg_yellow_cards, 2)],
-                          ['Avg Red Cards',     n(selectedTeam.avg_red_cards, 3)],
-                          ['Avg Fouls',         n(selectedTeam.avg_fouls, 2)],
-                          ['Shots Suppression', n(selectedTeam.shots_suppression, 3)],
+                          ['Forza attacco',   n(selectedTeam.attack_strength, 3)],
+                          ['Forza difesa',  n(selectedTeam.defence_strength, 3)],
+                          ['Media tiri casa',    n(selectedTeam.avg_home_shots, 2)],
+                          ['Media tiri trasferta',    n(selectedTeam.avg_away_shots, 2)],
+                          ['Media tiri in porta casa (OT)', n(selectedTeam.avg_home_shots_ot, 2)],
+                          ['Media tiri in porta trasferta (OT)', n(selectedTeam.avg_away_shots_ot, 2)],
+                          ['Media xG casa',       n(selectedTeam.avg_home_xg, 2)],
+                          ['Media xG trasferta',       n(selectedTeam.avg_away_xg, 2)],
+                          ['Media gialli',  n(selectedTeam.avg_yellow_cards, 2)],
+                          ['Media rossi',     n(selectedTeam.avg_red_cards, 3)],
+                          ['Media falli',         n(selectedTeam.avg_fouls, 2)],
+                          ['Soppressione tiri', n(selectedTeam.shots_suppression, 3)],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>

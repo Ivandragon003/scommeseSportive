@@ -782,11 +782,25 @@ export class DatabaseService {
     return this.all('SELECT * FROM teams');
   }
 
+  /**
+   * Ritorna le squadre per competizione.
+   * Alias esplicito usato dalle route scraper.
+   */
+  async getTeamsByCompetition(competition: string): Promise<any[]> {
+    return this.getTeams(competition);
+  }
+
   async getTeam(teamId: string): Promise<any | null> {
     return this.get('SELECT * FROM teams WHERE team_id = ?', [teamId]);
   }
 
   async recomputeTeamAverages(teamId: string): Promise<void> {
+    const safeAvgOrNull = (v: unknown): number | null => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const homeRows = await this.get(
       `
       SELECT
@@ -867,12 +881,12 @@ export class DatabaseService {
     `,
       {
         teamId,
-        homeShots: homeN > 0 ? Number(homeRows?.avg_shots ?? 0) : null,
-        homeShotsOT: homeN > 0 ? Number(homeRows?.avg_shots_ot ?? 0) : null,
-        homeXG: homeN > 0 ? Number(homeRows?.avg_xg ?? 0) : null,
-        awayShots: awayN > 0 ? Number(awayRows?.avg_shots ?? 0) : null,
-        awayShotsOT: awayN > 0 ? Number(awayRows?.avg_shots_ot ?? 0) : null,
-        awayXG: awayN > 0 ? Number(awayRows?.avg_xg ?? 0) : null,
+        homeShots: homeN > 0 ? safeAvgOrNull(homeRows?.avg_shots) : null,
+        homeShotsOT: homeN > 0 ? safeAvgOrNull(homeRows?.avg_shots_ot) : null,
+        homeXG: homeN > 0 ? safeAvgOrNull(homeRows?.avg_xg) : null,
+        awayShots: awayN > 0 ? safeAvgOrNull(awayRows?.avg_shots) : null,
+        awayShotsOT: awayN > 0 ? safeAvgOrNull(awayRows?.avg_shots_ot) : null,
+        awayXG: awayN > 0 ? safeAvgOrNull(awayRows?.avg_xg) : null,
         yellow: avgYellow,
         red: avgRed,
         fouls: avgFouls,
