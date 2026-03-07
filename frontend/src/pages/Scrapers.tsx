@@ -91,7 +91,7 @@ export default function Scrapers() {
   // FotMob state
   const [fotmobComp, setFotmobComp] = useState('Serie A');
   const [fotmobYears, setFotmobYears] = useState(2);
-  const [fotmobIncludeDetails, setFotmobIncludeDetails] = useState(true);
+  const [fotmobIncludeDetails, setFotmobIncludeDetails] = useState(false);
   const [fotmobForceRefresh, setFotmobForceRefresh] = useState(false);
   const [fotmobImportPlayers, setFotmobImportPlayers] = useState(false);
   const [fotmobLoading, setFotmobLoading] = useState(false);
@@ -283,6 +283,15 @@ export default function Scrapers() {
                     ['Squadre create', fotmobResult.teamsCreated],
                     ['Giocatori aggiornati', fotmobResult.playersUpdated],
                     ['Squadre ricalcolate', fotmobResult.teamsRecomputed],
+                    ['Transfermarkt sync', fotmobResult.transfermarkt
+                      ? Object.entries(fotmobResult.transfermarkt?.competitions ?? {})
+                          .map(([comp, info]: [string, any]) => (
+                            info?.ok
+                              ? `${comp}: ${info.updatedTeams ?? 0}/${info.totalScraped ?? 0} squadre`
+                              : `${comp}: errore`
+                          ))
+                          .join(' | ')
+                      : undefined],
                     ['Training automatico', fotmobResult.autoModelFit
                       ? Object.entries(fotmobResult.autoModelFit)
                           .map(([comp, info]: [string, any]) => (

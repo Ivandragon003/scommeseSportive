@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService } from '../db/DatabaseService';
+import { syncTransfermarktStatsForCompetition, transfermarktRouteHandler } from './transfermarktRoute';
 
 const router = Router();
 const db = new DatabaseService();
@@ -33,7 +34,7 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
     const { players } = req.body;
     if (!Array.isArray(players)) return res.status(400).json({ success: false, error: 'Array richiesto' });
     let ok = 0;
-    for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch {} }
+    for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch { } }
     return res.json({ success: true, imported: ok });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
 });
@@ -111,31 +112,31 @@ router.post('/matches/bulk', async (req: Request, res: Response) => {
     for (const m of matches) {
       try {
         const normalized = {
-          matchId:          m.matchId ?? m.match_id ?? m.id ?? `auto_${Date.now()}_${Math.random()}`,
-          homeTeamId:       m.homeTeamId ?? m.home_team_id ?? m.HomeTeam ?? m.home_team,
-          awayTeamId:       m.awayTeamId ?? m.away_team_id ?? m.AwayTeam ?? m.away_team,
-          homeTeamName:     m.homeTeamName ?? m.home_team_name ?? m.HomeTeam ?? undefined,
-          awayTeamName:     m.awayTeamName ?? m.away_team_name ?? m.AwayTeam ?? undefined,
-          date:             new Date(m.date ?? m.Date ?? m.datetime),
-          homeGoals:        m.homeGoals ?? m.home_goals ?? m.FTHG ?? m.score?.home,
-          awayGoals:        m.awayGoals ?? m.away_goals ?? m.FTAG ?? m.score?.away,
-          homeXG:           m.homeXG ?? m.home_xg ?? m.xg_home ?? m.xG_home,
-          awayXG:           m.awayXG ?? m.away_xg ?? m.xg_away ?? m.xG_away,
-          homeTotalShots:   m.homeTotalShots ?? m.home_shots ?? m.home_total_shots ?? m.HS,
-          awayTotalShots:   m.awayTotalShots ?? m.away_shots ?? m.away_total_shots ?? m.AS,
-          homeShotsOnTarget:m.homeShotsOnTarget ?? m.home_shots_on_target ?? m.HST,
-          awayShotsOnTarget:m.awayShotsOnTarget ?? m.away_shots_on_target ?? m.AST,
-          homePossession:   m.homePossession ?? m.home_possession ?? m.Poss_home,
-          awayPossession:   m.awayPossession ?? m.away_possession ?? m.Poss_away,
-          homeFouls:        m.homeFouls ?? m.home_fouls ?? m.HF,
-          awayFouls:        m.awayFouls ?? m.away_fouls ?? m.AF,
-          homeYellowCards:  m.homeYellowCards ?? m.home_yellow_cards ?? m.HY,
-          awayYellowCards:  m.awayYellowCards ?? m.away_yellow_cards ?? m.AY,
-          homeRedCards:     m.homeRedCards ?? m.home_red_cards ?? m.HR,
-          awayRedCards:     m.awayRedCards ?? m.away_red_cards ?? m.AR,
-          referee:          m.referee ?? m.Referee,
-          competition:      m.competition ?? m.league ?? m.Division,
-          season:           m.season ?? m.Season,
+          matchId: m.matchId ?? m.match_id ?? m.id ?? `auto_${Date.now()}_${Math.random()}`,
+          homeTeamId: m.homeTeamId ?? m.home_team_id ?? m.HomeTeam ?? m.home_team,
+          awayTeamId: m.awayTeamId ?? m.away_team_id ?? m.AwayTeam ?? m.away_team,
+          homeTeamName: m.homeTeamName ?? m.home_team_name ?? m.HomeTeam ?? undefined,
+          awayTeamName: m.awayTeamName ?? m.away_team_name ?? m.AwayTeam ?? undefined,
+          date: new Date(m.date ?? m.Date ?? m.datetime),
+          homeGoals: m.homeGoals ?? m.home_goals ?? m.FTHG ?? m.score?.home,
+          awayGoals: m.awayGoals ?? m.away_goals ?? m.FTAG ?? m.score?.away,
+          homeXG: m.homeXG ?? m.home_xg ?? m.xg_home ?? m.xG_home,
+          awayXG: m.awayXG ?? m.away_xg ?? m.xg_away ?? m.xG_away,
+          homeTotalShots: m.homeTotalShots ?? m.home_shots ?? m.home_total_shots ?? m.HS,
+          awayTotalShots: m.awayTotalShots ?? m.away_shots ?? m.away_total_shots ?? m.AS,
+          homeShotsOnTarget: m.homeShotsOnTarget ?? m.home_shots_on_target ?? m.HST,
+          awayShotsOnTarget: m.awayShotsOnTarget ?? m.away_shots_on_target ?? m.AST,
+          homePossession: m.homePossession ?? m.home_possession ?? m.Poss_home,
+          awayPossession: m.awayPossession ?? m.away_possession ?? m.Poss_away,
+          homeFouls: m.homeFouls ?? m.home_fouls ?? m.HF,
+          awayFouls: m.awayFouls ?? m.away_fouls ?? m.AF,
+          homeYellowCards: m.homeYellowCards ?? m.home_yellow_cards ?? m.HY,
+          awayYellowCards: m.awayYellowCards ?? m.away_yellow_cards ?? m.AY,
+          homeRedCards: m.homeRedCards ?? m.home_red_cards ?? m.HR,
+          awayRedCards: m.awayRedCards ?? m.away_red_cards ?? m.AR,
+          referee: m.referee ?? m.Referee,
+          competition: m.competition ?? m.league ?? m.Division,
+          season: m.season ?? m.Season,
         };
         await db.upsertMatch(normalized);
         imported++;
@@ -546,17 +547,17 @@ function formatPrediction(pred: any): any {
 
   const bestValueOpportunity = pred.bestValueOpportunity
     ? {
-        ...pred.bestValueOpportunity,
-        expectedValue: roundN(Number(pred.bestValueOpportunity.expectedValue ?? 0), 2),
-        edge: roundN(Number(pred.bestValueOpportunity.edge ?? 0), 2),
-        score: roundN(Number(pred.bestValueOpportunity.score ?? 0), 3),
-        factorBreakdown: {
-          baseModelScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.baseModelScore ?? 0), 3),
-          contextualScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.contextualScore ?? 0), 3),
-          totalScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.totalScore ?? 0), 3),
-        },
-        reasons: Array.isArray(pred.bestValueOpportunity.reasons) ? pred.bestValueOpportunity.reasons : [],
-      }
+      ...pred.bestValueOpportunity,
+      expectedValue: roundN(Number(pred.bestValueOpportunity.expectedValue ?? 0), 2),
+      edge: roundN(Number(pred.bestValueOpportunity.edge ?? 0), 2),
+      score: roundN(Number(pred.bestValueOpportunity.score ?? 0), 3),
+      factorBreakdown: {
+        baseModelScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.baseModelScore ?? 0), 3),
+        contextualScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.contextualScore ?? 0), 3),
+        totalScore: roundN(Number(pred.bestValueOpportunity.factorBreakdown?.totalScore ?? 0), 3),
+      },
+      reasons: Array.isArray(pred.bestValueOpportunity.reasons) ? pred.bestValueOpportunity.reasons : [],
+    }
     : null;
 
   return {
@@ -868,8 +869,8 @@ async function runFotmobImport(req: Request, res: Response) {
       competitions,
       seasons,
       yearsBack = 2,
-      importPlayers = true,
-      includeMatchDetails = true,
+      importPlayers = false,
+      includeMatchDetails = false,
       forceRefresh = false,
     } = req.body ?? {};
 
@@ -890,9 +891,6 @@ async function runFotmobImport(req: Request, res: Response) {
         'home_shots', 'away_shots',
         'home_shots_on_target', 'away_shots_on_target',
         'home_possession', 'away_possession',
-        'home_fouls', 'away_fouls',
-        'home_yellow_cards', 'away_yellow_cards',
-        'home_red_cards', 'away_red_cards',
       ];
 
       const values = fields.map(k => matchRow[k]);
@@ -1161,6 +1159,55 @@ async function runFotmobImport(req: Request, res: Response) {
       }
     }
 
+    const transfermarktByCompetition: Record<string, any> = {};
+    for (const comp of competitionsToRun) {
+      try {
+        const perSeason: any[] = [];
+        let latestOk: any = null;
+        for (const tmSeason of seasonsToScrape) {
+          try {
+            const tm = await syncTransfermarktStatsForCompetition(db, comp, tmSeason);
+            perSeason.push({
+              ok: true,
+              season: tm.season,
+              updatedTeams: tm.updatedTeams,
+              totalScraped: tm.totalScraped,
+              notMatched: tm.notMatched,
+              leagueAvgShotsOT: tm.leagueAvgShotsOT,
+              leagueAvgShotsTotal: tm.leagueAvgShotsTotal,
+              source: tm.source,
+            });
+            latestOk = tm;
+          } catch (seasonErr: any) {
+            perSeason.push({
+              ok: false,
+              season: tmSeason,
+              error: seasonErr?.message ?? 'sync Transfermarkt non disponibile',
+            });
+          }
+        }
+
+        const summary = latestOk ?? perSeason.find((x) => x.ok) ?? perSeason[perSeason.length - 1];
+        transfermarktByCompetition[comp] = {
+          ok: Boolean(summary?.ok),
+          season: summary?.season ?? null,
+          updatedTeams: summary?.updatedTeams ?? 0,
+          totalScraped: summary?.totalScraped ?? 0,
+          notMatched: summary?.notMatched ?? [],
+          leagueAvgShotsOT: summary?.leagueAvgShotsOT ?? null,
+          leagueAvgShotsTotal: summary?.leagueAvgShotsTotal ?? null,
+          source: summary?.source ?? null,
+          bySeason: perSeason,
+        };
+      } catch (e: any) {
+        transfermarktByCompetition[comp] = {
+          ok: false,
+          season: null,
+          error: e?.message ?? 'sync Transfermarkt non disponibile',
+        };
+      }
+    }
+
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
     const lastDatesAfter: Record<string, string> = {};
     for (const comp of competitionsToRun) {
@@ -1183,6 +1230,11 @@ async function runFotmobImport(req: Request, res: Response) {
         teamsRecomputed,
         deletedMatchesByCompetition,
         autoModelFit,
+        transfermarkt: {
+          enabled: true,
+          season: seasonsToScrape,
+          competitions: transfermarktByCompetition,
+        },
         dbLastDateAfter: lastDatesAfter,
         isUpToDate: totalNew === 0,
         forceRefresh,
@@ -1262,7 +1314,7 @@ const getConfiguredOddsApiKey = () =>
 
 let oddsRuntimeState: OddsRuntimeState = {
   competition: 'Serie A',
-  markets: ['h2h', 'totals'],
+  markets: ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'],
   matchesFound: 0,
   matches: [],
   remainingRequests: null,
@@ -1537,7 +1589,7 @@ const buildModelEstimatedOdds = async (
 const getCompetitionOdds = async (
   apiKey: string,
   competition: string,
-  markets: string[] = ['h2h', 'totals'],
+  markets: string[] = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'],
   useCache = true
 ): Promise<{ oddsService: OddsApiService; matches: OddsMatch[]; fromCache: boolean }> => {
   const cacheKey = `${apiKey.trim()}::${competition}::${markets.join(',')}`;
@@ -1625,10 +1677,10 @@ const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => 
 
 router.post('/scraper/odds', async (req: Request, res: Response) => {
   try {
-    const { competition = 'Serie A', markets = ['h2h', 'totals'] } = req.body;
+    const { competition = 'Serie A', markets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'] } = req.body;
     const normalizedMarkets = Array.isArray(markets) && markets.length > 0
       ? markets.map((m: unknown) => String(m)).filter(Boolean)
-      : ['h2h', 'totals'];
+      : ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
     const apiKey = getConfiguredOddsApiKey();
     if (!apiKey) {
       return res.status(500).json({
@@ -1681,6 +1733,8 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
   }
 });
 
+
+
 router.post('/scraper/odds/match', async (req: Request, res: Response) => {
   try {
     const {
@@ -1696,7 +1750,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
 
     const trimmedApiKey = getConfiguredOddsApiKey();
     const preferredMarkets = ['h2h', 'totals', 'spreads'];
-    const fallbackMarkets = ['h2h', 'totals'];
+    const fallbackMarkets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
     const eventAdditionalMarkets = [
       'btts',
       'draw_no_bet',
@@ -1920,6 +1974,8 @@ router.get('/scraper/odds/info', (_req, res) => {
     }
   });
 });
+
+router.post('/scraper/transfermarkt', (req, res) => transfermarktRouteHandler(req, res, db));
 
 export default router;
 

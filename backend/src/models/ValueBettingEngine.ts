@@ -129,10 +129,10 @@ export interface MarketOddsGroup {
 const EV_THRESHOLDS: Record<MarketCategory, number> = {
   goal_1x2:    0.030,   // 3.0%
   goal_ou:     0.025,   // 2.5%
-  shots:       0.040,   // 4.0%
-  shots_ot:    0.040,   // 4.0%
-  yellow_cards: 0.045,  // 4.5%
-  fouls:       0.050,   // 5.0%
+  shots:       0.005,   // 0.5% (mercato core del progetto)
+  shots_ot:    0.005,   // 0.5% (mercato core del progetto)
+  yellow_cards: 0.008,  // 0.8%
+  fouls:       0.008,   // 0.8%
   exact_score: 0.050,   // 5.0%
   handicap:    0.050,   // 5.0%
   other:       0.040,   // 4.0%
@@ -141,11 +141,11 @@ const EV_THRESHOLDS: Record<MarketCategory, number> = {
 export class ValueBettingEngine {
   // Filtri globali (valgono per tutte le categorie)
   private readonly MIN_ODDS         = 1.40;   // margine bookmaker troppo alto sotto
-  private readonly MAX_ODDS         = 8.00;   // modello inaffidabile oltre
+  private readonly MAX_ODDS         = 12.00;  // modello inaffidabile oltre
   private readonly KELLY_FRACTION   = 0.25;   // Quarter Kelly (conservativo)
   private readonly MAX_STAKE_PERCENT = 4.0;   // cap assoluto % bankroll
   private readonly MIN_STAKE_PERCENT = 0.25;  // stake minimo (non vale la pena sotto)
-  private readonly COHERENCE_RATIO  = 0.80;   // nostra prob >= 80% implied_raw
+  private readonly COHERENCE_RATIO  = 0.65;   // nostra prob >= 65% implied_raw
 
   private readonly CONFIDENCE_MULTIPLIERS = {
     HIGH:   1.20,
@@ -263,8 +263,18 @@ export class ValueBettingEngine {
     edgeNoVig: number,
     category: MarketCategory
   ): boolean {
+    const isShotsDisciplineCore =
+      category === 'shots' ||
+      category === 'shots_ot' ||
+      category === 'fouls' ||
+      category === 'yellow_cards';
+
+    const minOdds = isShotsDisciplineCore ? 1.20 : this.MIN_ODDS;
+    const maxOdds = isShotsDisciplineCore ? 15.00 : this.MAX_ODDS;
+    const coherenceRatio = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
+
     // 1. Range odds assoluto
-    if (odds < this.MIN_ODDS || odds > this.MAX_ODDS) return false;
+    if (odds < minOdds || odds > maxOdds) return false;
 
     // 2. EV minimo per categoria
     if (ev <= EV_THRESHOLDS[category]) return false;
@@ -274,7 +284,7 @@ export class ValueBettingEngine {
 
     // 4. Coerenza prob/mercato
     const impliedRaw = this.impliedProbabilityFromOdds(odds);
-    if (ourProb < impliedRaw * this.COHERENCE_RATIO) return false;
+    if (ourProb < impliedRaw * coherenceRatio) return false;
 
     // 5. Kelly positivo (ridondante con EV > 0, ma guard esplicito)
     if (this.kellyFraction(ourProb, odds) <= 0) return false;

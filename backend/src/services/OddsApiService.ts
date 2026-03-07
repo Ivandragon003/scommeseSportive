@@ -325,7 +325,7 @@ export class OddsApiService {
       const point = Number(outcome.point ?? 0);
       if (!Number.isFinite(point)) return null;
 
-      const homeLine = isHome ? point : isAway ? -point : NaN;
+      const homeLine = isHome ? -point : isAway ? point : NaN;
       if (!Number.isFinite(homeLine)) return null;
       const normalizedHomeLine = Object.is(homeLine, -0) ? 0 : homeLine;
       const line = Number.isInteger(normalizedHomeLine)
