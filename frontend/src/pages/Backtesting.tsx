@@ -227,11 +227,16 @@ const Backtesting: React.FC = () => {
                   <span className="fp-badge" style={{ background: r.netProfit >= 0 ? 'var(--green-dim)' : 'var(--red-dim)', color: r.netProfit >= 0 ? 'var(--green)' : 'var(--red)', borderColor: r.netProfit >= 0 ? 'var(--green-border)' : 'var(--red-border)' }}>
                     {r.netProfit >= 0 ? '+' : ''}€{r.netProfit?.toFixed(2)} netto
                   </span>
+                  {r.equityCurve.length > 500 && (
+                    <span className="fp-badge fp-badge-gold">
+                      Mostrando 500/{r.equityCurve.length} punti
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={{ padding: '24px 24px 8px' }}>
                 <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={r.equityCurve.slice(0, 500)}>
+                  <LineChart data={r.equityCurve}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="matchNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} label={{ value: 'Partita #', position: 'insideBottom', offset: -5, fill: 'var(--text-3)', fontSize: 11 }} />
                     <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `€${v}`} />
