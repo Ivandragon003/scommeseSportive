@@ -88,6 +88,8 @@ export class DatabaseService {
         away_yellow_cards INTEGER,
         home_red_cards INTEGER,
         away_red_cards INTEGER,
+        home_corners INTEGER,
+        away_corners INTEGER,
         referee TEXT,
         competition TEXT,
         season TEXT,
@@ -113,6 +115,8 @@ export class DatabaseService {
         avg_yellow_cards REAL DEFAULT 1.9,
         avg_red_cards REAL DEFAULT 0.11,
         avg_fouls REAL DEFAULT 11.2,
+        avg_home_corners REAL DEFAULT 5.5,
+        avg_away_corners REAL DEFAULT 4.5,
         shots_suppression REAL DEFAULT 1.0,
         source_team_id INTEGER,
         team_stats_json TEXT,
@@ -220,6 +224,8 @@ export class DatabaseService {
       { table: 'matches', column: 'source', type: "TEXT DEFAULT 'manual'" },
       { table: 'matches', column: 'source_match_id', type: 'INTEGER' },
       { table: 'matches', column: 'raw_json', type: 'TEXT' },
+      { table: 'matches', column: 'home_corners', type: 'INTEGER' },
+      { table: 'matches', column: 'away_corners', type: 'INTEGER' },
       { table: 'teams', column: 'source_team_id', type: 'INTEGER' },
       { table: 'teams', column: 'team_stats_json', type: 'TEXT' },
       { table: 'players', column: 'avg_xg_per_game', type: 'REAL DEFAULT 0.0' },
@@ -233,13 +239,15 @@ export class DatabaseService {
       { table: 'bets', column: 'away_team_name', type: 'TEXT' },
       { table: 'bets', column: 'competition', type: 'TEXT' },
       { table: 'bets', column: 'match_date', type: 'TEXT' },
+      { table: 'teams', column: 'avg_home_corners', type: 'REAL DEFAULT 5.5' },
+      { table: 'teams', column: 'avg_away_corners', type: 'REAL DEFAULT 4.5' },
     ];
 
     for (const c of columns) {
       try {
         await this.execute(`ALTER TABLE ${c.table} ADD COLUMN ${c.column} ${c.type}`, undefined, true);
       } catch {
-        // Colonna gia presente
+        // Colonna già presente
       }
     }
   }
@@ -255,6 +263,7 @@ export class DatabaseService {
         home_shots, away_shots, home_shots_on_target, away_shots_on_target,
         home_possession, away_possession, home_fouls, away_fouls,
         home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards,
+        home_corners, away_corners,
         referee, competition, season, source, source_match_id, raw_json
       ) VALUES (
         :matchId, :homeTeamId, :awayTeamId, :homeTeamName, :awayTeamName,
@@ -262,6 +271,7 @@ export class DatabaseService {
         :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
         :homePoss, :awayPoss, :homeFouls, :awayFouls,
         :homeYellow, :awayYellow, :homeRed, :awayRed,
+        :homeCorners, :awayCorners,
         :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
     `,
@@ -288,6 +298,8 @@ export class DatabaseService {
         awayYellow: match.awayYellowCards ?? null,
         homeRed: match.homeRedCards ?? null,
         awayRed: match.awayRedCards ?? null,
+        homeCorners: match.homeCorners ?? null,
+        awayCorners: match.awayCorners ?? null,
         referee: match.referee ?? null,
         competition: match.competition ?? null,
         season: match.season ?? null,
@@ -312,6 +324,7 @@ export class DatabaseService {
       'home_fouls', 'away_fouls',
       'home_yellow_cards', 'away_yellow_cards',
       'home_red_cards', 'away_red_cards',
+      'home_corners', 'away_corners',
       'referee',
       'competition', 'season',
       'source', 'source_match_id',
@@ -658,7 +671,6 @@ export class DatabaseService {
     }
 
     if (matchDate) {
-      // Evita abbinamenti a partite di stagioni lontane (stesso pairing squadre).
       q += ' AND ABS(julianday(date) - julianday(?)) <= 3';
       params.push(matchDate);
       q += ' ORDER BY ABS(julianday(date) - julianday(?)) ASC, datetime(date) DESC LIMIT 1';
@@ -740,7 +752,9 @@ export class DatabaseService {
         attack_strength, defence_strength,
         avg_home_shots, avg_away_shots, avg_home_shots_ot, avg_away_shots_ot,
         avg_home_xg, avg_away_xg,
-        avg_yellow_cards, avg_red_cards, avg_fouls, shots_suppression,
+        avg_yellow_cards, avg_red_cards, avg_fouls,
+        avg_home_corners, avg_away_corners,
+        shots_suppression,
         source_team_id, team_stats_json,
         last_updated
       ) VALUES (
@@ -748,7 +762,9 @@ export class DatabaseService {
         :attack, :defence,
         :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
         :homeXG, :awayXG,
-        :yellowCards, :redCards, :fouls, :shotsSuppression,
+        :yellowCards, :redCards, :fouls,
+        :homeCorners, :awayCorners,
+        :shotsSuppression,
         :sourceTeamId, :teamStatsJson,
         datetime('now')
       )
@@ -770,6 +786,8 @@ export class DatabaseService {
         yellowCards: team.avgYellowCards ?? 1.9,
         redCards: team.avgRedCards ?? 0.11,
         fouls: team.avgFouls ?? 11.2,
+        homeCorners: team.avgHomeCorners ?? 5.5,
+        awayCorners: team.avgAwayCorners ?? 4.5,
         shotsSuppression: team.shotsSuppression ?? 1.0,
         sourceTeamId: team.sourceTeamId ?? null,
         teamStatsJson: team.teamStatsJson ?? null,
@@ -782,10 +800,6 @@ export class DatabaseService {
     return this.all('SELECT * FROM teams');
   }
 
-  /**
-   * Ritorna le squadre per competizione.
-   * Alias esplicito usato dalle route scraper.
-   */
   async getTeamsByCompetition(competition: string): Promise<any[]> {
     return this.getTeams(competition);
   }
@@ -802,70 +816,76 @@ export class DatabaseService {
     };
 
     const homeRows = await this.get(
-      `
-      SELECT
-        AVG(home_shots)           AS avg_shots,
-        AVG(home_shots_on_target) AS avg_shots_ot,
-        AVG(home_xg)              AS avg_xg,
-        AVG(away_shots)           AS avg_shots_conceded,
-        AVG(home_yellow_cards)    AS avg_yellow,
-        AVG(home_red_cards)       AS avg_red,
-        AVG(home_fouls)           AS avg_fouls,
-        COUNT(*)                  AS n
+      `SELECT
+        SUM(home_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) / 
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots,
+        SUM(home_shots_on_target * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_ot,
+        SUM(home_xg * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_xg,
+        SUM(away_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_conceded,
+        SUM(home_yellow_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_yellow,
+        SUM(home_red_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_red,
+        SUM(home_fouls * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_fouls,
+        SUM(home_corners * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_corners,
+        SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) AS total_weight,
+        COUNT(*) AS n
       FROM matches
-      WHERE home_team_id = ? AND home_goals IS NOT NULL
-    `,
+      WHERE home_team_id = ? AND home_goals IS NOT NULL`,
       [teamId]
     );
 
     const awayRows = await this.get(
-      `
-      SELECT
-        AVG(away_shots)           AS avg_shots,
-        AVG(away_shots_on_target) AS avg_shots_ot,
-        AVG(away_xg)              AS avg_xg,
-        AVG(home_shots)           AS avg_shots_conceded,
-        AVG(away_yellow_cards)    AS avg_yellow,
-        AVG(away_red_cards)       AS avg_red,
-        AVG(away_fouls)           AS avg_fouls,
-        COUNT(*)                  AS n
+      `SELECT
+        SUM(away_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots,
+        SUM(away_shots_on_target * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_ot,
+        SUM(away_xg * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_xg,
+        SUM(home_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_conceded,
+        SUM(away_yellow_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_yellow,
+        SUM(away_red_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_red,
+        SUM(away_fouls * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_fouls,
+        SUM(away_corners * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
+        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_corners,
+        SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) AS total_weight,
+        COUNT(*) AS n
       FROM matches
-      WHERE away_team_id = ? AND home_goals IS NOT NULL
-    `,
+      WHERE away_team_id = ? AND home_goals IS NOT NULL`,
       [teamId]
     );
 
     const LEAGUE_AVG_SHOTS_CONCEDED = 12.1;
-
     const homeN = Number(homeRows?.n ?? 0);
     const awayN = Number(awayRows?.n ?? 0);
     const totalN = homeN + awayN;
     if (totalN === 0) return;
 
-    const avgConcededAll =
-      totalN > 0
-        ? ((Number(homeRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * homeN +
-            Number(awayRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * awayN) /
-            totalN)
-        : LEAGUE_AVG_SHOTS_CONCEDED;
+    const homeW = Number(homeRows?.total_weight ?? 0);
+    const awayW = Number(awayRows?.total_weight ?? 0);
+    const totalW = homeW + awayW;
+
+    const avgConcededAll = totalW > 0
+      ? ((Number(homeRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * homeW + Number(awayRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * awayW) / totalW)
+      : LEAGUE_AVG_SHOTS_CONCEDED;
     const shotsSuppression = avgConcededAll / LEAGUE_AVG_SHOTS_CONCEDED;
 
-    const avgYellow =
-      totalN > 0
-        ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeN + Number(awayRows?.avg_yellow ?? 1.9) * awayN) / totalN)
-        : 1.9;
-    const avgRed =
-      totalN > 0
-        ? ((Number(homeRows?.avg_red ?? 0.11) * homeN + Number(awayRows?.avg_red ?? 0.11) * awayN) / totalN)
-        : 0.11;
-    const avgFouls =
-      totalN > 0
-        ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeN + Number(awayRows?.avg_fouls ?? 11.2) * awayN) / totalN)
-        : 11.2;
+    const avgYellow = totalW > 0 ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeW + Number(awayRows?.avg_yellow ?? 1.9) * awayW) / totalW) : 1.9;
+    const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
+    const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
 
     await this.run(
-      `
-      UPDATE teams SET
+      `UPDATE teams SET
         avg_home_shots     = COALESCE(:homeShots,   avg_home_shots),
         avg_home_shots_ot  = COALESCE(:homeShotsOT, avg_home_shots_ot),
         avg_home_xg        = COALESCE(:homeXG,      avg_home_xg),
@@ -875,10 +895,11 @@ export class DatabaseService {
         avg_yellow_cards   = :yellow,
         avg_red_cards      = :red,
         avg_fouls          = :fouls,
+        avg_home_corners   = :homeCorners,
+        avg_away_corners   = :awayCorners,
         shots_suppression  = :suppression,
         last_updated       = datetime('now')
-      WHERE team_id = :teamId
-    `,
+      WHERE team_id = :teamId`,
       {
         teamId,
         homeShots: homeN > 0 ? safeAvgOrNull(homeRows?.avg_shots) : null,
@@ -890,6 +911,8 @@ export class DatabaseService {
         yellow: avgYellow,
         red: avgRed,
         fouls: avgFouls,
+        homeCorners: safeAvgOrNull(homeRows?.avg_corners) ?? 5.5,
+        awayCorners: safeAvgOrNull(awayRows?.avg_corners) ?? 4.5,
         suppression: shotsSuppression,
       }
     );
@@ -899,8 +922,7 @@ export class DatabaseService {
 
   async upsertPlayer(player: any): Promise<void> {
     await this.run(
-      `
-      INSERT OR REPLACE INTO players (
+      `INSERT OR REPLACE INTO players (
         player_id, name, team_id, position_code,
         avg_shots_per_game, avg_shots_on_target_per_game,
         avg_xg_per_game, avg_xgot_per_game,
@@ -914,8 +936,7 @@ export class DatabaseService {
         :totalGoals, :totalShots, :totalShotsOnTarget,
         :shotShare, :games, :available,
         :sourcePlayerId, :statsJson, datetime('now')
-      )
-    `,
+      )`,
       {
         playerId: player.playerId,
         name: player.name,
@@ -946,20 +967,12 @@ export class DatabaseService {
 
   async markPlayersUnavailable(competition?: string): Promise<number> {
     const normalizedCompetition = String(competition ?? '').trim();
-
     if (!normalizedCompetition) {
       const result = await this.execute('UPDATE players SET is_available = 0');
       return Number(result?.rowsAffected ?? 0);
     }
-
     const result = await this.execute(
-      `
-      UPDATE players
-      SET is_available = 0
-      WHERE team_id IN (
-        SELECT team_id FROM teams WHERE competition = ?
-      )
-    `,
+      `UPDATE players SET is_available = 0 WHERE team_id IN (SELECT team_id FROM teams WHERE competition = ?)`,
       [normalizedCompetition]
     );
     return Number(result?.rowsAffected ?? 0);
@@ -969,12 +982,8 @@ export class DatabaseService {
 
   async upsertReferee(ref: any): Promise<void> {
     await this.run(
-      `
-      INSERT OR REPLACE INTO referees (
-        referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game, avg_red_cards_per_game, total_games, last_updated
-      )
-      VALUES (:refId, :name, :fouls, :yellow, :red, :games, datetime('now'))
-    `,
+      `INSERT OR REPLACE INTO referees (referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game, avg_red_cards_per_game, total_games, last_updated)
+      VALUES (:refId, :name, :fouls, :yellow, :red, :games, datetime('now'))`,
       {
         refId: ref.refId ?? String(ref.name ?? '').toLowerCase().replace(/\s/g, '_'),
         name: ref.name,
@@ -992,13 +1001,7 @@ export class DatabaseService {
 
   // ==================== MODEL PARAMS ====================
 
-  async saveModelParams(
-    competition: string,
-    season: string,
-    params: object,
-    trainingMatches: number,
-    logLikelihood?: number
-  ): Promise<void> {
+  async saveModelParams(competition: string, season: string, params: object, trainingMatches: number, logLikelihood?: number): Promise<void> {
     await this.run(
       'INSERT INTO model_params (competition, season, params_json, training_matches, log_likelihood) VALUES (?, ?, ?, ?, ?)',
       [competition, season, JSON.stringify(params), trainingMatches, logLikelihood ?? null]
@@ -1006,19 +1009,10 @@ export class DatabaseService {
   }
 
   async getLatestModelParams(competition: string): Promise<any | null> {
-    const row = await this.get(
-      'SELECT * FROM model_params WHERE competition = ? ORDER BY fitted_at DESC LIMIT 1',
-      [competition]
-    );
+    const row = await this.get('SELECT * FROM model_params WHERE competition = ? ORDER BY fitted_at DESC LIMIT 1', [competition]);
     if (!row) return null;
-
     let parsedParams: any = {};
-    try {
-      parsedParams = JSON.parse(String(row.params_json ?? '{}'));
-    } catch {
-      parsedParams = {};
-    }
-
+    try { parsedParams = JSON.parse(String(row.params_json ?? '{}')); } catch { parsedParams = {}; }
     return { ...row, params: parsedParams };
   }
 
@@ -1030,12 +1024,8 @@ export class DatabaseService {
 
   async createOrResetBudget(userId: string, amount: number): Promise<void> {
     await this.run(
-      `
-      INSERT OR REPLACE INTO budgets (
-        user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, updated_at
-      )
-      VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, datetime('now'))
-    `,
+      `INSERT OR REPLACE INTO budgets (user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, updated_at)
+      VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, datetime('now'))`,
       [userId, amount, amount]
     );
   }
@@ -1043,27 +1033,17 @@ export class DatabaseService {
   async deleteMatchesByCompetitionAndSeasons(competition: string, seasons: string[]): Promise<number> {
     const normalizedCompetition = String(competition ?? '').trim();
     if (!normalizedCompetition) return 0;
-
-    const seasonVariants = Array.from(
-      new Set(
-        (seasons ?? [])
-          .map((s) => String(s ?? '').trim())
-          .filter(Boolean)
-          .flatMap((rawSeason) => [
-            rawSeason,
-            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
-            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
-          ])
-      )
-    );
-
+    const seasonVariants = Array.from(new Set((seasons ?? []).map((s) => String(s ?? '').trim()).filter(Boolean).flatMap((rawSeason) => [
+      rawSeason,
+      rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+      rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+    ])));
     const params: any[] = [normalizedCompetition];
     let sql = 'DELETE FROM matches WHERE competition = ?';
     if (seasonVariants.length > 0) {
       sql += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
       params.push(...seasonVariants);
     }
-
     const result = await this.execute(sql, params);
     return Number(result?.rowsAffected ?? 0);
   }
@@ -1074,22 +1054,19 @@ export class DatabaseService {
 
   async updateBudget(budget: any): Promise<void> {
     await this.run(
-      `
-      UPDATE budgets SET
+      `UPDATE budgets SET
         total_budget = :totalBudget, available_budget = :availableBudget,
         total_bets = :totalBets, total_staked = :totalStaked,
         total_won = :totalWon, total_lost = :totalLost,
         roi = :roi, win_rate = :winRate, updated_at = datetime('now')
-      WHERE user_id = :userId
-    `,
+      WHERE user_id = :userId`,
       budget
     );
   }
 
   async saveBet(bet: any): Promise<void> {
     await this.run(
-      `
-      INSERT OR REPLACE INTO bets (
+      `INSERT OR REPLACE INTO bets (
         bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
         odds, stake, our_probability, expected_value,
         status, return_amount, profit, placed_at, settled_at, notes
@@ -1097,8 +1074,7 @@ export class DatabaseService {
         :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
         :odds, :stake, :ourProbability, :expectedValue,
         :status, :returnAmount, :profit, :placedAt, :settledAt, :notes
-      )
-    `,
+      )`,
       {
         betId: bet.betId,
         userId: bet.userId,
@@ -1106,11 +1082,7 @@ export class DatabaseService {
         homeTeamName: bet.homeTeamName ?? null,
         awayTeamName: bet.awayTeamName ?? null,
         competition: bet.competition ?? null,
-        matchDate: bet.matchDate
-          ? bet.matchDate instanceof Date
-            ? bet.matchDate.toISOString()
-            : bet.matchDate
-          : null,
+        matchDate: bet.matchDate ? (bet.matchDate instanceof Date ? bet.matchDate.toISOString() : bet.matchDate) : null,
         marketName: bet.marketName,
         selection: bet.selection,
         odds: bet.odds,
@@ -1121,20 +1093,14 @@ export class DatabaseService {
         returnAmount: bet.returnAmount ?? null,
         profit: bet.profit ?? null,
         placedAt: bet.placedAt instanceof Date ? bet.placedAt.toISOString() : bet.placedAt,
-        settledAt: bet.settledAt
-          ? bet.settledAt instanceof Date
-            ? bet.settledAt.toISOString()
-            : bet.settledAt
-          : null,
+        settledAt: bet.settledAt ? (bet.settledAt instanceof Date ? bet.settledAt.toISOString() : bet.settledAt) : null,
         notes: bet.notes ?? null,
       }
     );
   }
 
   async getBets(userId: string, status?: string): Promise<any[]> {
-    if (status) {
-      return this.all('SELECT * FROM bets WHERE user_id = ? AND status = ? ORDER BY placed_at DESC', [userId, status]);
-    }
+    if (status) return this.all('SELECT * FROM bets WHERE user_id = ? AND status = ? ORDER BY placed_at DESC', [userId, status]);
     return this.all('SELECT * FROM bets WHERE user_id = ? ORDER BY placed_at DESC', [userId]);
   }
 
@@ -1154,10 +1120,7 @@ export class DatabaseService {
 
   async getBacktestResults(competition?: string): Promise<any[]> {
     if (competition) {
-      return this.all(
-        'SELECT id, competition, season_range, run_at FROM backtest_results WHERE competition = ? ORDER BY run_at DESC',
-        [competition]
-      );
+      return this.all('SELECT id, competition, season_range, run_at FROM backtest_results WHERE competition = ? ORDER BY run_at DESC', [competition]);
     }
     return this.all('SELECT id, competition, season_range, run_at FROM backtest_results ORDER BY run_at DESC LIMIT 50');
   }
@@ -1165,14 +1128,8 @@ export class DatabaseService {
   async getBacktestResult(id: number): Promise<any | null> {
     const row = await this.get('SELECT * FROM backtest_results WHERE id = ?', [id]);
     if (!row) return null;
-
     let parsed: any = {};
-    try {
-      parsed = JSON.parse(String(row.result_json ?? '{}'));
-    } catch {
-      parsed = {};
-    }
-
+    try { parsed = JSON.parse(String(row.result_json ?? '{}')); } catch { parsed = {}; }
     return { ...row, result: parsed };
   }
 

@@ -247,7 +247,11 @@ export class SpecializedModels {
    * (threshold=2 → P(X>2) = P(X>=3); threshold=2.5 → P(X>=3)).
    */
   negBinOver(threshold: number, mu: number, r: number): number {
-    return Math.max(0, Math.min(1, 1 - this.negBinCDF(Math.floor(threshold), mu, r)));
+    // BUG FIX: per threshold=3 (linea intera), floor=3 -> P(X>3) = P(X>=4)
+    // Questo è corretto, e DixonColesModel usa chiavi tipo "11.5" o "12.0"
+    // Ma per sicurezza normalizziamo il comportamento delle linee intere.
+    const k = Math.floor(threshold);
+    return Math.max(0, Math.min(1, 1 - this.negBinCDF(k, mu, r)));
   }
 
   /**
@@ -314,19 +318,19 @@ export class SpecializedModels {
    */
   computeShotsDistribution(data: ShotsModelData): {
     home: ShotsDistribution & {
-      totalShots:    { expected: number; variance: number; distribution: Record<string, number> };
+      totalShots: { expected: number; variance: number; distribution: Record<string, number> };
       shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
     };
     away: ShotsDistribution & {
-      totalShots:    { expected: number; variance: number; distribution: Record<string, number> };
+      totalShots: { expected: number; variance: number; distribution: Record<string, number> };
       shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
     };
     /** @deprecated usa home.totalShots / away.totalShots */
     total: Record<string, { over: number; under: number }>;
     combined: {
-      totalShots:        { expected: number; variance: number };
-      totalOnTarget:     { expected: number; variance: number };
-      overUnder:         Record<string, number>;
+      totalShots: { expected: number; variance: number };
+      totalOnTarget: { expected: number; variance: number };
+      overUnder: Record<string, number>;
       onTargetOverUnder: Record<string, number>;
     };
   } {
@@ -343,19 +347,19 @@ export class SpecializedModels {
     const muAwayOT = Math.max(0.5, muAway * awayOTRate);
 
     // --- r DINAMICO con lower bound adattivo r_min = 1 + 1/sqrt(n) ---
-    const varHome   = data.homeTeamVarShots   ?? muHome   * 1.6;
-    const varAway   = data.awayTeamVarShots   ?? muAway   * 1.6;
+    const varHome = data.homeTeamVarShots ?? muHome * 1.6;
+    const varAway = data.awayTeamVarShots ?? muAway * 1.6;
     const varHomeOT = data.homeTeamVarShotsOT ?? muHomeOT * 2.0;
     const varAwayOT = data.awayTeamVarShotsOT ?? muAwayOT * 2.0;
 
-    const rHome   = this.estimateDispersion(muHome,   varHome,   nHome, 40);
-    const rAway   = this.estimateDispersion(muAway,   varAway,   nAway, 40);
+    const rHome = this.estimateDispersion(muHome, varHome, nHome, 40);
+    const rAway = this.estimateDispersion(muAway, varAway, nAway, 40);
     const rHomeOT = this.estimateDispersion(muHomeOT, varHomeOT, nHome, 30);
     const rAwayOT = this.estimateDispersion(muAwayOT, varAwayOT, nAway, 30);
 
     // Varianza effettiva NegBin: Var = mu + mu²/r
-    const varHomeEff   = muHome   + muHome   * muHome   / rHome;
-    const varAwayEff   = muAway   + muAway   * muAway   / rAway;
+    const varHomeEff = muHome + muHome * muHome / rHome;
+    const varAwayEff = muAway + muAway * muAway / rAway;
     const varHomeOTEff = muHomeOT + muHomeOT * muHomeOT / rHomeOT;
     const varAwayOTEff = muAwayOT + muAwayOT * muAwayOT / rAwayOT;
 
@@ -395,48 +399,53 @@ export class SpecializedModels {
       return result;
     };
 
-    const shotsLines      = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5];
-    const totalShotsLines = [15.5, 17.5, 19.5, 21.5, 23.5, 25.5, 27.5, 29.5, 31.5];
-    const onTargetLines   = [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5];
+    const shotsLines = [
+      7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5
+    ];
+    const totalShotsLines = [
+      15.5, 17.5, 19.5, 20.5, 21.5, 22.5, 23.5,
+      24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 31.5
+    ];
+    const onTargetLines = [4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5];
 
     // --- Totali combinati ---
-    const muTotal   = muHome + muAway;
+    const muTotal = muHome + muAway;
     const muTotalOT = muHomeOT + muAwayOT;
-    const varTotal   = varHomeEff + varAwayEff;
+    const varTotal = varHomeEff + varAwayEff;
     const varTotalOT = varHomeOTEff + varAwayOTEff;
     const nMin = Math.min(nHome, nAway);
-    const rTotal   = this.estimateDispersion(muTotal,   varTotal,   nMin, 60);
+    const rTotal = this.estimateDispersion(muTotal, varTotal, nMin, 60);
     const rTotalOT = this.estimateDispersion(muTotalOT, varTotalOT, nMin, 50);
 
     return {
       home: {
         // Legacy ShotsDistribution (usati da DixonColesModel.ts)
-        teamId:                '',
-        expectedTotalShots:    parseFloat(muHome.toFixed(3)),
+        teamId: '',
+        expectedTotalShots: parseFloat(muHome.toFixed(3)),
         expectedShotsOnTarget: parseFloat(muHomeOT.toFixed(3)),
-        overUnder:             makeOU(muHome, rHome, shotsLines),
-        negBinParams:          { mu: muHome, r: rHome },
+        overUnder: makeOU(muHome, rHome, shotsLines),
+        negBinParams: { mu: muHome, r: rHome },
         // Nuovi (frontend)
-        totalShots:    { expected: parseFloat(muHome.toFixed(3)),   variance: parseFloat(varHomeEff.toFixed(3)),   distribution: makeDist(muHome,   rHome)   },
+        totalShots: { expected: parseFloat(muHome.toFixed(3)), variance: parseFloat(varHomeEff.toFixed(3)), distribution: makeDist(muHome, rHome) },
         shotsOnTarget: { expected: parseFloat(muHomeOT.toFixed(3)), variance: parseFloat(varHomeOTEff.toFixed(3)), distribution: makeDist(muHomeOT, rHomeOT) },
       },
       away: {
         // Legacy ShotsDistribution (usati da DixonColesModel.ts)
-        teamId:                '',
-        expectedTotalShots:    parseFloat(muAway.toFixed(3)),
+        teamId: '',
+        expectedTotalShots: parseFloat(muAway.toFixed(3)),
         expectedShotsOnTarget: parseFloat(muAwayOT.toFixed(3)),
-        overUnder:             makeOU(muAway, rAway, shotsLines),
-        negBinParams:          { mu: muAway, r: rAway },
+        overUnder: makeOU(muAway, rAway, shotsLines),
+        negBinParams: { mu: muAway, r: rAway },
         // Nuovi (frontend)
-        totalShots:    { expected: parseFloat(muAway.toFixed(3)),   variance: parseFloat(varAwayEff.toFixed(3)),   distribution: makeDist(muAway,   rAway)   },
+        totalShots: { expected: parseFloat(muAway.toFixed(3)), variance: parseFloat(varAwayEff.toFixed(3)), distribution: makeDist(muAway, rAway) },
         shotsOnTarget: { expected: parseFloat(muAwayOT.toFixed(3)), variance: parseFloat(varAwayOTEff.toFixed(3)), distribution: makeDist(muAwayOT, rAwayOT) },
       },
       // Legacy total (usato da DixonColesModel.ts riga ~419)
       total: makeOU(muTotal, rTotal, totalShotsLines),
       combined: {
-        totalShots:        { expected: parseFloat(muTotal.toFixed(3)),   variance: parseFloat(varTotal.toFixed(3))   },
-        totalOnTarget:     { expected: parseFloat(muTotalOT.toFixed(3)), variance: parseFloat(varTotalOT.toFixed(3)) },
-        overUnder:         makeFlatOU(muTotal,   rTotal,   totalShotsLines),
+        totalShots: { expected: parseFloat(muTotal.toFixed(3)), variance: parseFloat(varTotal.toFixed(3)) },
+        totalOnTarget: { expected: parseFloat(muTotalOT.toFixed(3)), variance: parseFloat(varTotalOT.toFixed(3)) },
+        overUnder: makeFlatOU(muTotal, rTotal, totalShotsLines),
         onTargetOverUnder: makeFlatOU(muTotalOT, rTotalOT, onTargetLines),
       },
     };
@@ -503,7 +512,7 @@ export class SpecializedModels {
     // sigmoid(x) = 1 / (1 + exp(-x))
     // Boost max empirico +22% (derby storici)
     const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
-    const compBoost = 0.22 * (2 * sigmoid(data.competitiveness * 8 - 4) - 0) ;
+    const compBoost = 0.22 * (2 * sigmoid(data.competitiveness * 8 - 4) - 0);
     const compFactor = 1.0 + compBoost;
 
     // --- Expected gialli ---
@@ -534,14 +543,16 @@ export class SpecializedModels {
 
     // Varianza del totale (indipendenza tra squadre)
     const varTotalYellow = (muHomeYellow + muHomeYellow * muHomeYellow / this.estimateDispersion(muHomeYellow, varHomeYellow, sampleHome, 50)) +
-                           (muAwayYellow + muAwayYellow * muAwayYellow / this.estimateDispersion(muAwayYellow, varAwayYellow, sampleAway, 50));
+      (muAwayYellow + muAwayYellow * muAwayYellow / this.estimateDispersion(muAwayYellow, varAwayYellow, sampleAway, 50));
     const rYellow = this.estimateDispersion(muTotalYellow, varTotalYellow, Math.min(sampleHome, sampleAway), 50);
 
     // Card points: più overdispersi (r più basso)
     const rCardPoints = Math.max(3, rYellow * 0.82);
 
     // --- Linee Over/Under ---
-    const yellowLines = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5];
+    const yellowLines = [
+      0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5
+    ];
     const cardPointsLines = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5];
 
     const makeOU = (mu: number, r: number, lines: number[]) => {
@@ -643,7 +654,10 @@ export class SpecializedModels {
     const varTotal = varHomeFoulsActual + varAwayFoulsActual + 2 * covFouls;
     const rTotal = this.estimateDispersion(muTotal, varTotal, Math.min(sampleHome, sampleAway), 60);
 
-    const foulsLines = [12.5, 14.5, 17.5, 20.5, 23.5, 26.5, 29.5, 32.5, 35.5];
+    const foulsLines = [
+      12.5, 14.5, 17.5, 19.5, 20.5, 21.5, 22.5,
+      23.5, 24.5, 25.5, 26.5, 29.5, 32.5, 35.5
+    ];
 
     const makeOU = (mu: number, r: number, lines: number[]) => {
       const result: Record<string, { over: number; under: number }> = {};
@@ -743,7 +757,7 @@ export class SpecializedModels {
       const rPlayer = this.estimateDispersion(
         expectedShots,
         Math.max(expectedShots * 1.1, varPlayer),
-        1.0,
+        player.gamesPlayed,  // FIX: use actual sample size
         30
       );
 
@@ -753,7 +767,7 @@ export class SpecializedModels {
       const rPlayerOT = this.estimateDispersion(
         expectedShotsOT,
         Math.max(expectedShotsOT * 1.1, varPlayerOT),
-        1.0,
+        player.gamesPlayed,  // FIX: use actual sample size
         30
       );
 
@@ -781,6 +795,68 @@ export class SpecializedModels {
     }
 
     return predictions.sort((a, b) => b.expectedShots - a.expectedShots);
+  }
+
+  /**
+   * Modello angoli (corners) — Stima basata su tiri e stile di gioco.
+   */
+  computeCornersDistribution(data: {
+    homeTeamAvgCornersFor: number;
+    homeTeamAvgCornersAgainst: number;
+    awayTeamAvgCornersFor: number;
+    awayTeamAvgCornersAgainst: number;
+    homeTeamSampleSize?: number;
+    awayTeamSampleSize?: number;
+  }): {
+    expectedHomeCorners: number;
+    expectedAwayCorners: number;
+    expectedTotalCorners: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    negBinParams: NegBinParams;
+  } {
+    const nHome = data.homeTeamSampleSize ?? 20;
+    const nAway = data.awayTeamSampleSize ?? 20;
+
+    // Media angoli: difesa avversaria influenza indirettamente
+    const muHome = Math.max(2,
+      (data.homeTeamAvgCornersFor * 0.6 + data.awayTeamAvgCornersAgainst * 0.4)
+    );
+    const muAway = Math.max(2,
+      (data.awayTeamAvgCornersFor * 0.6 + data.homeTeamAvgCornersAgainst * 0.4)
+    );
+    const muTotal = muHome + muAway;
+
+    // Corners: NegBin con overdispersion moderata
+    const varHome = muHome * 1.5;
+    const varAway = muAway * 1.5;
+    const varTotal = varHome + varAway + 0.2 * Math.sqrt(varHome * varAway);
+
+    const rHome = this.estimateDispersion(muHome, varHome, nHome, 40);
+    const rAway = this.estimateDispersion(muAway, varAway, nAway, 40);
+    const nMin = Math.min(nHome, nAway);
+    const rTotal = this.estimateDispersion(muTotal, varTotal, nMin, 60);
+
+    const cornerLines = [6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5];
+
+    const makeOU = (mu: number, r: number, lines: number[]) => {
+      const result: Record<string, { over: number; under: number }> = {};
+      for (const line of lines) {
+        const over = this.negBinOver(line, mu, r);
+        result[`${line}`] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+      return result;
+    };
+
+    return {
+      expectedHomeCorners: parseFloat(muHome.toFixed(3)),
+      expectedAwayCorners: parseFloat(muAway.toFixed(3)),
+      expectedTotalCorners: parseFloat(muTotal.toFixed(3)),
+      overUnder: makeOU(muTotal, rTotal, cornerLines),
+      negBinParams: { mu: muTotal, r: rTotal },
+    };
   }
 
   // ==================== UTILITY PUBBLICHE ====================

@@ -118,17 +118,6 @@ export class PredictionService {
       cards_over55: 'yellow_over_5.5',
       cards_under35: 'yellow_under_3.5',
       cards_under45: 'yellow_under_4.5',
-      fouls_over205: 'fouls_over_20.5',
-      fouls_over235: 'fouls_over_23.5',
-      fouls_over265: 'fouls_over_26.5',
-      fouls_under235: 'fouls_under_23.5',
-      shots_over225: 'shots_total_over_23.5',
-      shots_over235: 'shots_total_over_23.5',
-      shots_over255: 'shots_total_over_25.5',
-      shots_under225: 'shots_total_under_23.5',
-      shots_under235: 'shots_total_under_23.5',
-      sot_over75: 'sot_total_over_7.5',
-      sot_over95: 'sot_total_over_9.5',
       dnb_home_win: 'dnb_home',
       dnb_away_win: 'dnb_away',
       doublechance_1x: 'double_chance_1x',
@@ -314,152 +303,96 @@ export class PredictionService {
       competitiveness,
     };
 
-    const probs = model.computeFullProbabilities(
-      request.homeTeamId, request.awayTeamId,
-      undefined, undefined, supp
-    );
+    const probs = model.computeFullProbabilities(request.homeTeamId, request.awayTeamId, undefined, undefined, supp);
 
-    // Value bets
-    let valueOpportunities: BetOpportunity[] = [];
-    const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds);
-    if (Object.keys(normalizedOdds).length > 0) {
-      const flatProbs = this.flattenProbabilities(probs);
-      const marketNames = this.buildMarketNames(Object.keys(flatProbs));
-      valueOpportunities = this.engine.analyzeMarkets(flatProbs, normalizedOdds, marketNames);
-    }
+    // Arricchisci con mercati secondari
+    this.enrichFlatProbabilities(probs.flatProbabilities);
 
-    const analysisFactors = this.buildAnalysisFactors(request, probs, homeTeam, awayTeam, competitiveness);
-    const bestValueOpportunity = this.computeBestValueOpportunity(valueOpportunities, analysisFactors);
+    // Allinea le chiavi delle quote
+    const alignedOdds = this.alignOddsKeys(request.bookmakerOdds || {});
 
-    const matchCount = (await this.db.getMatches({ competition: request.competition })).length;
-    const modelConfidence = Math.min(0.95, Math.max(0.30, 1 / (1 + Math.exp(-(matchCount - 100) / 40))));
+    const marketNames = this.getMarketNames(Object.keys(probs.flatProbabilities));
+    const valueOpportunities = this.engine.analyzeMarkets(probs.flatProbabilities, alignedOdds, marketNames);
+
+    const factors = this.buildAnalysisFactors(request, probs, homeTeam, awayTeam, competitiveness);
+    const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
 
     return {
-      matchId: request.matchId ?? `pred_${Date.now()}`,
-      homeTeam: homeTeam?.name ?? request.homeTeamId,
-      awayTeam: awayTeam?.name ?? request.awayTeamId,
+      matchId: request.matchId || uuidv4(),
+      homeTeam: homeTeam?.name || 'Home',
+      awayTeam: awayTeam?.name || 'Away',
       probabilities: probs,
       valueOpportunities,
-      bestValueOpportunity,
-      analysisFactors,
-      modelConfidence,
+      bestValueOpportunity: bestValue,
+      analysisFactors: factors,
+      modelConfidence: 0.75,
       computedAt: new Date(),
     };
   }
 
-  private flattenProbabilities(probs: FullMatchProbabilities): Record<string, number> {
-    const poisOver = (line: number, lambda: number) => {
-      const maxK = Math.max(14, Math.ceil(lambda + 8 * Math.sqrt(Math.max(0.1, lambda))));
-      let cdf = 0;
-      for (let k = 0; k <= Math.floor(line) && k <= maxK; k++) {
-        let p = Math.exp(-lambda);
-        for (let i = 1; i <= k; i++) p *= lambda / i;
-        cdf += p;
-      }
-      return Math.max(0, Math.min(1, 1 - cdf));
-    };
+  private enrichFlatProbabilities(flat: Record<string, number>): void {
+    const p1 = flat['homeWin'] || 0;
+    const px = flat['draw'] || 0;
+    const p2 = flat['awayWin'] || 0;
 
-    const flat: Record<string, number> = {
-      homeWin: probs.homeWin, draw: probs.draw, awayWin: probs.awayWin,
-      btts: probs.btts, bttsNo: 1 - probs.btts,
-      over05: probs.over05, over15: probs.over15, over25: probs.over25,
-      over35: probs.over35, over45: probs.over45,
-      under05: probs.under05, under15: probs.under15, under25: probs.under25, under35: probs.under35, under45: probs.under45,
-    };
-
-    // Mercati combo
-    flat.double_chance_1x = Math.max(0, Math.min(1, probs.homeWin + probs.draw));
-    flat.double_chance_x2 = Math.max(0, Math.min(1, probs.draw + probs.awayWin));
-    flat.double_chance_12 = Math.max(0, Math.min(1, probs.homeWin + probs.awayWin));
-
-    const dnbDen = Math.max(1e-6, probs.homeWin + probs.awayWin);
-    flat.dnb_home = Math.max(0, Math.min(1, probs.homeWin / dnbDen));
-    flat.dnb_away = Math.max(0, Math.min(1, probs.awayWin / dnbDen));
-
-    for (const [k, v] of Object.entries(probs.exactScore)) flat[`exact_${k}`] = v as number;
-    for (const [k, v] of Object.entries(probs.handicap)) flat[`hcp_${k}`] = v as number;
-    for (const [k, v] of Object.entries(probs.asianHandicap)) {
-      const pHome = Number(v as number);
-      flat[`ahcp_${k}`] = pHome;
-      flat[`ahcp_away_${k}`] = Math.max(0, Math.min(1, 1 - pHome));
+    if (p1 + p2 > 0) {
+      flat['dnb_home'] = p1 / (p1 + p2);
+      flat['dnb_away'] = p2 / (p1 + p2);
     }
-
-    // Team totals (linee principali)
-    const lambdaHomeGoals = Math.max(0.1, Number(probs.lambdaHome ?? 0));
-    const lambdaAwayGoals = Math.max(0.1, Number(probs.lambdaAway ?? 0));
-    for (const line of [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]) {
-      const key = line.toFixed(1).replace('.', '');
-      const overHome = poisOver(line, lambdaHomeGoals);
-      const overAway = poisOver(line, lambdaAwayGoals);
-      flat[`team_home_over_${key}`] = overHome;
-      flat[`team_home_under_${key}`] = 1 - overHome;
-      flat[`team_away_over_${key}`] = overAway;
-      flat[`team_away_under_${key}`] = 1 - overAway;
-    }
-
-    // Tiri totali squadra
-    for (const [k, v] of Object.entries(probs.shotsTotal)) {
-      flat[`shots_total_over_${k}`] = (v as any).over;
-      flat[`shots_total_under_${k}`] = (v as any).under;
-    }
-    for (const [k, v] of Object.entries(probs.shotsHome.overUnder)) {
-      flat[`shots_home_over_${k}`] = (v as any).over;
-      flat[`shots_home_under_${k}`] = (v as any).under;
-    }
-    for (const [k, v] of Object.entries(probs.shotsAway.overUnder)) {
-      flat[`shots_away_over_${k}`] = (v as any).over;
-      flat[`shots_away_under_${k}`] = (v as any).under;
-    }
-
-    // Cartellini
-    for (const [k, v] of Object.entries(probs.cards.overUnderYellow)) {
-      flat[`yellow_over_${k}`] = (v as any).over;
-      flat[`yellow_under_${k}`] = (v as any).under;
-    }
-    for (const [k, v] of Object.entries(probs.cards.overUnderTotal)) {
-      flat[`cards_total_over_${k}`] = (v as any).over;
-      flat[`cards_total_under_${k}`] = (v as any).under;
-    }
-    flat.cards_over35 = probs.cards.overUnderYellow['3.5']?.over ?? 0;
-    flat.cards_over45 = probs.cards.overUnderYellow['4.5']?.over ?? 0;
-    flat.cards_over55 = probs.cards.overUnderYellow['5.5']?.over ?? 0;
-    flat.cards_under35 = probs.cards.overUnderYellow['3.5']?.under ?? 0;
-    flat.cards_under45 = probs.cards.overUnderYellow['4.5']?.under ?? 0;
-
-    // Falli
-    for (const [k, v] of Object.entries(probs.fouls.overUnder)) {
-      flat[`fouls_over_${k}`] = (v as any).over;
-      flat[`fouls_under_${k}`] = (v as any).under;
-    }
-    flat.fouls_over205 = probs.fouls.overUnder['20.5']?.over ?? 0;
-    flat.fouls_over235 = probs.fouls.overUnder['23.5']?.over ?? 0;
-    flat.fouls_over265 = probs.fouls.overUnder['26.5']?.over ?? 0;
-    flat.fouls_under235 = probs.fouls.overUnder['23.5']?.under ?? 0;
-
-    // Alias legacy usati dal frontend
-    flat.shots_over225 = probs.shotsTotal['23.5']?.over ?? 0;
-    flat.shots_over235 = probs.shotsTotal['23.5']?.over ?? 0;
-    flat.shots_over255 = probs.shotsTotal['25.5']?.over ?? 0;
-    flat.shots_under225 = probs.shotsTotal['23.5']?.under ?? 0;
-    flat.shots_under235 = probs.shotsTotal['23.5']?.under ?? 0;
-    const lambdaSOT = Math.max(0.1, probs.shotsOnTargetHome.expected + probs.shotsOnTargetAway.expected);
-    for (const line of [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]) {
-      const over = poisOver(line, lambdaSOT);
-      const key = line.toFixed(1);
-      flat[`sot_total_over_${key}`] = over;
-      flat[`sot_total_under_${key}`] = 1 - over;
-    }
-    flat.sot_over75 = flat['sot_total_over_7.5'];
-    flat.sot_over95 = flat['sot_total_over_9.5'];
-
-    return flat;
+    flat['double_chance_1x'] = p1 + px;
+    flat['double_chance_x2'] = p2 + px;
+    flat['double_chance_12'] = p1 + p2;
+    // bttsNo è già calcolato in DixonColesModel, rimosso duplicato
   }
 
-  private buildMarketNames(selections: string[] = []): Record<string, string> {
+  private alignOddsKeys(odds: Record<string, number>): Record<string, number> {
+    const aligned: Record<string, number> = {};
+
+    const domainMap: Record<string, string> = {
+      'shots_total': 'shots',      // shots_total_over_23.5 → shotsOver235
+      'shots_home': 'shotsHome',  // shots_home_over_11.5  → shotsHomeOver115
+      'shots_away': 'shotsAway',
+      'sot_total': 'shotsOT',
+      'yellow': 'yellow',
+      'fouls': 'fouls',
+      'cards_total': 'cardsTotal',
+    };
+
+    for (const [key, val] of Object.entries(odds)) {
+      if (!Number.isFinite(val) || val <= 1) continue;
+
+      // Formato snake_case con punto: shots_total_over_23.5 o senza punto shots_total_over_235
+      const m = key.match(
+        /^(shots_total|shots_home|shots_away|sot_total|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
+      );
+      if (m) {
+        const domain = domainMap[m[1].toLowerCase()] ?? m[1];
+        const side = m[2].charAt(0).toUpperCase() + m[2].slice(1);
+        const lineKey = m[3].replace(/[.,]/g, '');
+        const camelKey = `${domain}${side}${lineKey}`;
+        aligned[camelKey] = val;
+        aligned[key] = val; // mantieni anche originale per sicurezza
+        continue;
+      }
+
+      // Chiavi già in altri formati → converti genericamente
+      let k = key.toLowerCase()
+        .replace(/_([a-z0-9])/g, (_, l) => l.toUpperCase())
+        .replace(/[\.\s]/g, '');
+      aligned[k] = val;
+      aligned[key] = val;
+    }
+
+    return aligned;
+  }
+
+  getMarketNames(selections: string[]): Record<string, string> {
     const names: Record<string, string> = {
       homeWin: '1X2 - Vittoria Casa',
       draw: '1X2 - Pareggio',
       awayWin: '1X2 - Vittoria Ospite',
+      homewin: '1X2 - Vittoria Casa',
+      awaywin: '1X2 - Vittoria Ospite',
       double_chance_1x: 'Double Chance 1X',
       double_chance_x2: 'Double Chance X2',
       double_chance_12: 'Double Chance 12',
@@ -472,110 +405,52 @@ export class PredictionService {
       over15: 'Over 1.5 Goal',
       over35: 'Over 3.5 Goal',
       under05: 'Under 0.5 Goal',
-      cards_over35: 'Cartellini Over 3.5',
-      cards_over45: 'Cartellini Over 4.5',
-      cards_over55: 'Cartellini Over 5.5',
-      cards_under35: 'Cartellini Under 3.5',
-      cards_under45: 'Cartellini Under 4.5',
-      fouls_over205: 'Falli Over 20.5',
-      fouls_over235: 'Falli Over 23.5',
-      fouls_over265: 'Falli Over 26.5',
-      fouls_under235: 'Falli Under 23.5',
-      shots_over225: 'Tiri Totali Over 23.5',
-      shots_over235: 'Tiri Totali Over 23.5',
-      shots_over255: 'Tiri Totali Over 25.5',
-      shots_under225: 'Tiri Totali Under 23.5',
-      shots_under235: 'Tiri Totali Under 23.5',
-      sot_over75: 'Tiri in Porta Over 7.5',
-      sot_over95: 'Tiri in Porta Over 9.5',
     };
 
     const formatLine = (raw: string): string => {
       const n = Number(raw);
-      if (!isFinite(n)) return raw;
-      return n.toFixed(1);
+      return isFinite(n) ? n.toFixed(1) : raw;
     };
 
     const dynamicName = (selection: string): string | null => {
-      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
       if (m) {
-        const domainLabels: Record<string, string> = {
-          shots_total: 'Tiri Totali',
-          shots_home: 'Tiri Casa',
-          shots_away: 'Tiri Ospite',
-          fouls: 'Falli Totali',
-          yellow: 'Gialli Totali',
-          cards_total: 'Cartellini Pesati',
-          sot_total: 'Tiri in Porta Totali',
+        const labels: Record<string, string> = {
+          shots_total: 'Tiri Totali', shots_home: 'Tiri Casa', shots_away: 'Tiri Ospite',
+          fouls: 'Falli Totali', yellow: 'Gialli Totali', cards_total: 'Cartellini Pesati',
+          sot_total: 'Tiri in Porta Totali'
         };
-        const side = m[2] === 'over' ? 'Over' : 'Under';
-        return `${domainLabels[m[1]] ?? m[1]} ${side} ${formatLine(m[3])}`;
+        return `${labels[m[1]] ?? m[1]} ${m[2] === 'over' ? 'Over' : 'Under'} ${formatLine(m[3])}`;
       }
 
       const teamTotal = selection.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
-      if (teamTotal) {
-        const sideTeam = teamTotal[1] === 'home' ? 'Casa' : 'Ospite';
-        const side = teamTotal[2] === 'over' ? 'Over' : 'Under';
-        return `Goal ${sideTeam} ${side} ${formatLine(teamTotal[3])}`;
-      }
+      if (teamTotal) return `Goal ${teamTotal[1] === 'home' ? 'Casa' : 'Ospite'} ${teamTotal[2] === 'over' ? 'Over' : 'Under'} ${formatLine(teamTotal[3])}`;
 
       const goal = selection.match(/^(over|under)(\d+)$/);
       if (goal && goal[2].length >= 2) {
-        const numericLine = Number(`${goal[2].slice(0, -1)}.${goal[2].slice(-1)}`);
-        if (Number.isFinite(numericLine) && numericLine > 7.5) return null;
-        const side = goal[1] === 'over' ? 'Over' : 'Under';
         const line = `${goal[2].slice(0, -1)}.${goal[2].slice(-1)}`;
-        return `${side} ${line} Goal`;
+        return `${goal[1] === 'over' ? 'Over' : 'Under'} ${line} Goal`;
       }
 
-      const exact = selection.match(/^exact_(\d+-\d+)$/);
-      if (exact) return `Risultato Esatto ${exact[1]}`;
-
-      if (selection.startsWith('hcp_')) return `Handicap Europeo ${selection.replace('hcp_', '')}`;
-      const ahAway = selection.match(/^ahcp_away_(-?[0-9]+(?:\.[0-9]+)?)$/);
-      if (ahAway) {
-        const line = Number(ahAway[1]);
-        const lineTxt = Number.isFinite(line) ? `${line > 0 ? '+' : ''}${line}` : ahAway[1];
-        return `Asian Handicap Ospite (${lineTxt})`;
-      }
-
-      const ahHome = selection.match(/^ahcp_(-?[0-9]+(?:\.[0-9]+)?)$/);
-      if (ahHome) {
-        const line = Number(ahHome[1]);
-        const lineTxt = Number.isFinite(line) ? `${line > 0 ? '+' : ''}${line}` : ahHome[1];
-        return `Asian Handicap Casa (${lineTxt})`;
-      }
       return null;
     };
 
     for (const key of selections) {
-      if (names[key]) continue;
-      const inferred = dynamicName(key);
-      if (inferred) names[key] = inferred;
+      if (!names[key]) {
+        const inferred = dynamicName(key);
+        if (inferred) names[key] = inferred;
+      }
     }
-
     return names;
   }
 
   private inferSelectionDirection(selection: string): number {
     const k = String(selection ?? '').toLowerCase();
-    if (k === 'homewin') return 1;
-    if (k === 'awaywin') return -1;
-    if (k === 'dnb_home') return 1;
-    if (k === 'dnb_away') return -1;
-    if (k === 'double_chance_1x') return 1;
-    if (k === 'double_chance_x2') return -1;
-    if (k === 'double_chance_12') return 0;
-    if (k.startsWith('hcp_home')) return 1;
-    if (k.startsWith('hcp_away')) return -1;
-    if (k.startsWith('handicaphome')) return 1;
-    if (k.startsWith('handicapaway')) return -1;
-    if (k.startsWith('team_home_')) return 1;
-    if (k.startsWith('team_away_')) return -1;
-    if (k.startsWith('ahcp_away_')) return -1;
-    if (k.startsWith('ahcp_')) return 1;
+    if (k === 'homewin' || k === 'dnb_home' || k === 'double_chance_1x' || k.startsWith('hcp_home') || k.startsWith('team_home_') || k.startsWith('ahcp_')) return 1;
+    if (k === 'awaywin' || k === 'dnb_away' || k === 'double_chance_x2' || k.startsWith('hcp_away') || k.startsWith('team_away_') || k.startsWith('ahcp_away_')) return -1;
     return 0;
   }
+
 
   private buildAnalysisFactors(
     request: PredictionRequest,
@@ -664,7 +539,7 @@ export class PredictionService {
       const probabilityContribution = clampNum(prob, 0, 100) * 0.20;
       const oddsRiskPenalty =
         odds > 12 ? (odds - 12) * 2.4 + 6.5 :
-        odds > 8 ? (odds - 8) * 1.4 : 0;
+          odds > 8 ? (odds - 8) * 1.4 : 0;
       const lowProbPenalty = prob < 30 ? (30 - prob) * 0.55 : 0;
 
       const baseModelScore =
@@ -702,6 +577,10 @@ export class PredictionService {
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
     const best = scored[0];
+
+    // Floor minimo assoluto per evitare di consigliare scommesse troppo deboli
+    if (best.baseModelScore < -5) return null;
+
     const implied = Number(100 / Math.max(1.01, Number(best.opp.bookmakerOdds ?? 0)));
 
     const reasons: string[] = [
