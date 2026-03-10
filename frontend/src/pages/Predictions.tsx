@@ -72,10 +72,28 @@ const rankOpportunity = (o: any): number => {
   const ev = Number(o?.expectedValue ?? 0);
   const edge = Number(o?.edge ?? 0);
   const p = Number(o?.ourProbability ?? 0);
-  return (ev * 0.55) + (edge * 0.30) + (p * 0.08) + (confidenceRank(o?.confidence) * 4);
+  const pNorm = p > 1 ? p / 100 : p;
+  return (ev * 0.55) + (edge * 0.30) + (pNorm * 8) + (confidenceRank(o?.confidence) * 4);
 };
 const fmtSelection = (selection: string): string => {
   if (!selection) return '-';
+  const clean = String(selection ?? '');
+  const camelOU = clean.match(/^(shots|shotsHome|shotsAway|shotsOT|yellow|fouls|cardsTotal)(Over|Under)(\d+)$/);
+  if (camelOU) {
+    const domainLabel: Record<string, string> = {
+      shots: 'Tiri Totali',
+      shotsHome: 'Tiri Casa',
+      shotsAway: 'Tiri Ospite',
+      shotsOT: 'Tiri in Porta',
+      yellow: 'Gialli Totali',
+      fouls: 'Falli Totali',
+      cardsTotal: 'Cartellini',
+    };
+    const line = camelOU[3].length >= 3
+      ? `${camelOU[3].slice(0, -1)}.${camelOU[3].slice(-1)}`
+      : camelOU[3];
+    return `${domainLabel[camelOU[1]] ?? camelOU[1]} ${camelOU[2]} ${line}`;
+  }
   if (selection === 'homeWin') return '1 - Vittoria Casa';
   if (selection === 'draw') return 'X - Pareggio';
   if (selection === 'awayWin') return '2 - Vittoria Ospite';
@@ -139,6 +157,8 @@ const fmtMarketKey = (market: string): string => {
 const formatCompactOuKey = (k: string): string => {
   const clean = String(k ?? '').toLowerCase().replace(/^over|^under/, '');
   if (/^\d+\.\d+$/.test(clean)) return clean;
+  if (/^\.\d+$/.test(clean)) return `0${clean}`;
+  if (/^\d$/.test(clean)) return `0.${clean}`;
   if (/^\d+$/.test(clean) && clean.length >= 2) return `${clean.slice(0, -1)}.${clean.slice(-1)}`;
   return clean;
 };
@@ -499,6 +519,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [marketsRequested, setMarketsRequested] = useState<string[]>([]);
   const [oddsMsg, setOddsMsg] = useState('');
   const [oddsTone, setOddsTone] = useState<'info'|'success'|'warning'|'danger'>('info');
+  const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const analyzeReqRef = useRef(0);
   const analysisCacheRef = useRef<Map<string, {
@@ -593,6 +614,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     const cached = analysisCacheRef.current.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.cachedAt < 120000) {
+      setAnalysisCacheKey(cacheKey);
       setActiveMatchId(resolvedMatchId);
       setPred(cached.pred);
       setOdds(cached.odds);
@@ -612,6 +634,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     }
 
     const reqId = ++analyzeReqRef.current;
+    setAnalysisCacheKey(cacheKey);
     setActiveMatchId(resolvedMatchId);
     setLoadingMatchId(mid || resolvedMatchId);
     setOddsMsg(''); setOdds({});
@@ -731,7 +754,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     const suggestedStake = bankroll > 0 ? (Number(opp.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
     const fallbackStake = Math.max(1, Number(suggestedStake.toFixed(2)));
     const stake = manualStake > 0 ? manualStake : fallbackStake;
-    if (!manualStake && stake > 0) {
+    if (manualStake <= 0 && stake > 0) {
+      if (!window.confirm(`Nessuna puntata inserita. Usa stake suggerito EUR ${stake.toFixed(2)}?`)) return;
       setStakes((p) => ({ ...p, [oppKey]: stake.toFixed(2) }));
     }
     if (stake < 1) return alert('Puntata minima Eurobet: 1 EUR');
@@ -801,6 +825,11 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   });
   const suggestedTotalStake = strategyTop.reduce((s, o) => s + Number(o.suggestedStakeAmount ?? 0), 0);
   const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
+  const handleRefresh = () => {
+    if (!analysisCacheKey || !activeMatchRow) return;
+    analysisCacheRef.current.delete(analysisCacheKey);
+    handleAnalyze(activeMatchRow);
+  };
 
   const TABS = [
     {id:'1x2',  label:'1X2 & Goal'},
@@ -916,7 +945,12 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
                   <div className="pr-results-meta">{pred.competition} | lambda {pred.lambdaHome} - {pred.lambdaAway}</div>
                 </div>
-                {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
+                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={handleRefresh} disabled={!activeMatchRow || loading}>
+                    Aggiorna
+                  </button>
+                </div>
               </div>
 
               {/* Match hero */}
