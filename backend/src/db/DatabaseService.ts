@@ -809,6 +809,7 @@ export class DatabaseService {
   }
 
   async recomputeTeamAverages(teamId: string): Promise<void> {
+    const DECAY_PER_DAY = 0.005;
     const safeAvgOrNull = (v: unknown): number | null => {
       if (v === null || v === undefined || v === '') return null;
       const n = Number(v);
@@ -817,23 +818,23 @@ export class DatabaseService {
 
     const homeRows = await this.get(
       `SELECT
-        SUM(home_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) / 
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots,
-        SUM(home_shots_on_target * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_ot,
-        SUM(home_xg * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_xg,
-        SUM(away_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_conceded,
-        SUM(home_yellow_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_yellow,
-        SUM(home_red_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_red,
-        SUM(home_fouls * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_fouls,
-        SUM(home_corners * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_corners,
-        SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) AS total_weight,
+        SUM(home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots,
+        SUM(home_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots_ot,
+        SUM(home_xg * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_xg,
+        SUM(away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots_conceded,
+        SUM(home_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_yellow,
+        SUM(home_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_red,
+        SUM(home_fouls * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_fouls,
+        SUM(home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_corners,
+        SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n
       FROM matches
       WHERE home_team_id = ? AND home_goals IS NOT NULL`,
@@ -842,23 +843,23 @@ export class DatabaseService {
 
     const awayRows = await this.get(
       `SELECT
-        SUM(away_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots,
-        SUM(away_shots_on_target * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_ot,
-        SUM(away_xg * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_xg,
-        SUM(home_shots * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_shots_conceded,
-        SUM(away_yellow_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_yellow,
-        SUM(away_red_cards * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_red,
-        SUM(away_fouls * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_fouls,
-        SUM(away_corners * EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) /
-        NULLIF(SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)), 0) AS avg_corners,
-        SUM(EXP(-0.0065 * (julianday('now') - julianday(date)) / 7.0)) AS total_weight,
+        SUM(away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots,
+        SUM(away_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots_ot,
+        SUM(away_xg * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_xg,
+        SUM(home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_shots_conceded,
+        SUM(away_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_yellow,
+        SUM(away_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_red,
+        SUM(away_fouls * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_fouls,
+        SUM(away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) /
+        NULLIF(SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))), 0) AS avg_corners,
+        SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n
       FROM matches
       WHERE away_team_id = ? AND home_goals IS NOT NULL`,

@@ -277,6 +277,17 @@ export class BacktestingEngine {
     return raw.slice(0, -1) + '.' + raw.slice(-1);
   }
 
+  private parseStatLine(raw: string): number | null {
+    const cleaned = String(raw ?? '').trim().replace(',', '.');
+    if (!cleaned) return null;
+    if (/^\\d+\\.\\d+$/.test(cleaned)) return Number(cleaned);
+    if (/^\\d+$/.test(cleaned) && cleaned.length >= 2) {
+      const n = Number(`${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
   // ==================== VALUTAZIONE BET ====================
 
   private evaluateBet(selection: string, match: MatchData): boolean {
@@ -358,7 +369,34 @@ export class BacktestingEngine {
       ? match.homeFouls + match.awayFouls : undefined;
     res = evalOU(totalFouls, selection, 'foulsOver', 'foulsUnder');
     if (res !== null) return res;
+    // --- Formati snake_case bookmaker (shots_total_over_235, ecc.) ---
+    const prefixed = selection.match(
+      /^(shots_total|shots_home|shots_away|sot_total|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
+    );
+    if (prefixed) {
+      const domain = prefixed[1].toLowerCase();
+      const side = prefixed[2].toLowerCase() as 'over' | 'under';
+      const line = this.parseStatLine(prefixed[3]);
+      if (line === null) return false;
 
+      let actual: number | undefined;
+      if (domain === 'shots_total') {
+        actual = totalShots;
+      } else if (domain === 'shots_home') {
+        actual = match.homeTotalShots;
+      } else if (domain === 'shots_away') {
+        actual = match.awayTotalShots;
+      } else if (domain === 'sot_total') {
+        actual = totalSOT;
+      } else if (domain === 'yellow' || domain === 'cards_total') {
+        actual = totalYellow;
+      } else if (domain === 'fouls') {
+        actual = totalFouls;
+      }
+
+      if (actual === undefined) return false;
+      return side === 'over' ? actual > line : actual <= line;
+    }
     // Dato non disponibile → conservativamente considerata persa
     return false;
   }
@@ -496,3 +534,4 @@ export class BacktestingEngine {
     };
   }
 }
+
