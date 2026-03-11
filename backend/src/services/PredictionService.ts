@@ -520,36 +520,24 @@ export class PredictionService {
   ): BestValueOpportunityExplanation | null {
     if (!Array.isArray(opportunities) || opportunities.length === 0) return null;
 
-    const confidenceBoost = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3.0 : c === 'MEDIUM' ? 1.6 : 0.5;
     const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+    const confidenceRank = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3 : c === 'MEDIUM' ? 2 : 1;
+    const rankOpportunity = (o: BetOpportunity): number => {
+      const ev = Number(o.expectedValue ?? 0) / 100;
+      const edge = Number(o.edge ?? 0) / 100;
+      const conf = confidenceRank(o.confidence) / 3;
+      const kelly = Number(o.kellyFraction ?? 0) / 100;
+      return (kelly * 0.40) + (ev * 0.30) + (edge * 0.20) + (conf * 0.10);
+    };
     const avgEv = opportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / opportunities.length;
 
     const scored = opportunities.map((opp) => {
       const direction = this.inferSelectionDirection(opp.selection);
-      const ev = Number(opp.expectedValue ?? 0);
-      const edge = Number(opp.edge ?? 0);
-      const kelly = Number(opp.kellyFraction ?? 0);
       const prob = Number(opp.ourProbability ?? 0);
       const odds = Number(opp.bookmakerOdds ?? 0);
 
-      // Evita che quote estreme (longshot) dominino il ranking solo per EV teorico.
-      const evContribution = clampNum(ev, -25, 65) * 0.40;
-      const edgeContribution = clampNum(edge, -20, 35) * 0.24;
-      const kellyContribution = clampNum(kelly, 0, 5.5) * 0.55;
-      const probabilityContribution = clampNum(prob, 0, 100) * 0.20;
-      const oddsRiskPenalty =
-        odds > 12 ? (odds - 12) * 2.4 + 6.5 :
-          odds > 8 ? (odds - 8) * 1.4 : 0;
-      const lowProbPenalty = prob < 30 ? (30 - prob) * 0.55 : 0;
-
-      const baseModelScore =
-        evContribution +
-        edgeContribution +
-        kellyContribution +
-        probabilityContribution +
-        confidenceBoost(opp.confidence) -
-        oddsRiskPenalty -
-        lowProbPenalty;
+      // Ranking normalizzato (0-1) con Kelly come peso principale.
+      const baseModelScore = clampNum(rankOpportunity(opp), 0, 1);
 
       const directionalContext =
         direction * (
@@ -561,25 +549,26 @@ export class PredictionService {
           factors.atRiskPlayersDelta * 2
         );
 
-      let contextualScore = directionalContext;
+      let contextualScore = directionalContext / 100;
       const sKey = String(opp.selection ?? '').toLowerCase();
       if (sKey.includes('yellow') || sKey.includes('cards') || sKey.includes('fouls')) {
-        contextualScore += (factors.competitiveness * 2.2) + Math.abs(factors.disciplinaryDelta) * 1.4;
+        contextualScore += (factors.competitiveness * 0.05) + Math.abs(factors.disciplinaryDelta) * 0.03;
       } else if (sKey.startsWith('over') || sKey.includes('_over_')) {
-        contextualScore += factors.formDelta * 0.8 + factors.motivationDelta * 0.6;
+        contextualScore += factors.formDelta * 0.02 + factors.motivationDelta * 0.015;
       } else if (sKey.startsWith('under') || sKey.includes('_under_')) {
-        contextualScore -= factors.formDelta * 0.6;
+        contextualScore -= factors.formDelta * 0.015;
       }
 
+      contextualScore = clampNum(contextualScore, -0.3, 0.3);
       const totalScore = baseModelScore + contextualScore;
-      return { opp, baseModelScore, contextualScore, totalScore, oddsRiskPenalty, lowProbPenalty, prob, odds };
+      return { opp, baseModelScore, contextualScore, totalScore, prob, odds };
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
     const best = scored[0];
 
     // Floor minimo assoluto per evitare di consigliare scommesse troppo deboli
-    if (best.baseModelScore < -5) return null;
+    if (best.baseModelScore < 0.05) return null;
 
     const implied = Number(100 / Math.max(1.01, Number(best.opp.bookmakerOdds ?? 0)));
 
@@ -589,19 +578,12 @@ export class PredictionService {
       `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
     ];
 
-    if (best.contextualScore >= 1.5) {
+    if (best.contextualScore >= 0.05) {
       reasons.push('I fattori contestuali (campo/forma/obiettivi/assenze/disciplina) rafforzano la scelta.');
-    } else if (best.contextualScore <= -1.5) {
+    } else if (best.contextualScore <= -0.05) {
       reasons.push('La scelta resta +EV ma con contesto meno favorevole: consigliata prudenza sulla stake.');
     } else {
       reasons.push('La scelta e guidata principalmente da EV+edge, con contesto neutro.');
-    }
-
-    if (best.oddsRiskPenalty > 0.01) {
-      reasons.push(`Penalizzazione rischio quota alta applicata (${best.odds.toFixed(2)}).`);
-    }
-    if (best.lowProbPenalty > 0.01) {
-      reasons.push(`Penalizzazione probabilita bassa applicata (P modello ${best.prob.toFixed(2)}%).`);
     }
 
     return {

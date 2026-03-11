@@ -129,13 +129,25 @@ export interface MarketOddsGroup {
 const EV_THRESHOLDS: Record<MarketCategory, number> = {
   goal_1x2:    0.030,   // 3.0%
   goal_ou:     0.025,   // 2.5%
-  shots:       0.005,   // 0.5% (mercato core del progetto)
-  shots_ot:    0.005,   // 0.5% (mercato core del progetto)
-  yellow_cards: 0.008,  // 0.8%
-  fouls:       0.008,   // 0.8%
-  exact_score: 0.050,   // 5.0%
-  handicap:    0.050,   // 5.0%
-  other:       0.040,   // 4.0%
+  shots:       0.005,   // mercato core
+  shots_ot:    0.005,   // mercato core
+  yellow_cards: 0.008,
+  fouls:       0.008,
+  exact_score: 0.050,
+  handicap:    0.050,
+  other:       0.040,
+};
+
+const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
+  goal_1x2:    0.02,
+  goal_ou:     0.02,
+  shots:       0.03,
+  yellow_cards: 0.025,
+  fouls:       0.03,
+  shots_ot:    0.03,
+  handicap:    0.02,
+  exact_score: 0.05,
+  other:       0.04,
 };
 
 export class ValueBettingEngine {
@@ -156,23 +168,45 @@ export class ValueBettingEngine {
   // ==================== CATEGORIZZAZIONE ====================
 
   categorizeSelection(selection: string): MarketCategory {
-    if (['homeWin','draw','awayWin','btts','bttsNo','dnb_home','dnb_away',
-         'double_chance_1x','double_chance_x2','double_chance_12'].includes(selection))
+    const s = String(selection ?? '').toLowerCase();
+
+    // 1X2 e derivati
+    if (['homewin','draw','awaywin','btts','bttsno','dnb_home','dnb_away',
+         'double_chance_1x','double_chance_x2','double_chance_12'].includes(s))
       return 'goal_1x2';
-    if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(selection))
+
+    // Goal over/under
+    if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s))
       return 'goal_ou';
-    if (selection.startsWith('shotsOT') || selection.startsWith('shotsOnTarget'))
-      return 'shots_ot';
-    if (selection.startsWith('shots') || selection.startsWith('shotsHome') || selection.startsWith('shotsAway'))
-      return 'shots';
-    if (selection.startsWith('yellow'))
-      return 'yellow_cards';
-    if (selection.startsWith('fouls'))
-      return 'fouls';
-    if (selection.startsWith('exact_'))
-      return 'exact_score';
-    if (selection.startsWith('hcp_') || selection.startsWith('asian_'))
+    if (/^team_(home|away)_(over|under)/.test(s))
+      return 'goal_ou';
+
+    // Handicap
+    if (s.startsWith('hcp_') || s.startsWith('ahcp_') || s.startsWith('asian_'))
       return 'handicap';
+
+    // Risultato esatto
+    if (s.startsWith('exact_'))
+      return 'exact_score';
+
+    // Snake_case bookmaker
+    if (/^shots_total_(over|under)/.test(s)) return 'shots';
+    if (/^shots_home_(over|under)/.test(s)) return 'shots';
+    if (/^shots_away_(over|under)/.test(s)) return 'shots';
+    if (/^sot_total_(over|under)/.test(s)) return 'shots_ot';
+    if (/^yellow_(over|under)/.test(s)) return 'yellow_cards';
+    if (/^cards_total_(over|under)/.test(s)) return 'yellow_cards';
+    if (/^fouls_(over|under)/.test(s)) return 'fouls';
+
+    // CamelCase interno
+    if (/^shots(over|under)\d+$/.test(s)) return 'shots';
+    if (/^shotshome(over|under)\d+$/.test(s)) return 'shots';
+    if (/^shotsaway(over|under)\d+$/.test(s)) return 'shots';
+    if (/^shotsot(over|under)\d+$/.test(s)) return 'shots_ot';
+    if (/^yellow(over|under)\d+$/.test(s)) return 'yellow_cards';
+    if (/^cardstotal(over|under)\d+$/.test(s)) return 'yellow_cards';
+    if (/^fouls(over|under)\d+$/.test(s)) return 'fouls';
+
     return 'other';
   }
 
@@ -205,6 +239,77 @@ export class ValueBettingEngine {
 
   computeOverround(allOdds: number[]): number {
     return allOdds.reduce((s,o) => (!isFinite(o)||o<=1 ? s : s+1/o), 0);
+  }
+
+  private computeBookmakerMargin(allOdds: number[]): number {
+    const overround = this.computeOverround(allOdds);
+    if (!isFinite(overround) || overround <= 0) return 0;
+    return Math.max(0, overround - 1);
+  }
+
+  private minEvForCategory(category: MarketCategory, margin?: number): number {
+    if (!isFinite(Number(margin))) return EV_THRESHOLDS[category];
+    const buffer = EV_MARGIN_BUFFERS[category] ?? 0.03;
+    return Math.max(0, Number(margin) + buffer);
+  }
+
+  private computeCategoryMargins(
+    bookmakerOdds: Record<string, number>
+  ): Record<MarketCategory, number> {
+    const groups = this.buildMarketGroups(bookmakerOdds);
+    const sums: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    const counts: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    const seen = new Set<string>();
+
+    for (const [selection, group] of Object.entries(groups)) {
+      const category = this.categorizeSelection(selection);
+      const oddsList = [group.odds, ...group.companions].filter(o => isFinite(o) && o > 1).sort((a,b)=>a-b);
+      if (oddsList.length < 2) continue;
+      const key = `${category}|${oddsList.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const margin = this.computeBookmakerMargin(oddsList);
+      if (!isFinite(margin)) continue;
+      sums[category] = (sums[category] ?? 0) + margin;
+      counts[category] = (counts[category] ?? 0) + 1;
+    }
+
+    const out: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    (Object.keys(sums) as MarketCategory[]).forEach((cat) => {
+      const avg = sums[cat] / Math.max(1, counts[cat] ?? 1);
+      out[cat] = Math.max(0, Math.min(0.25, avg));
+    });
+    return out;
+  }
+
+  private computeCategoryMarginsFromGroups(
+    marketGroups: Record<string, MarketOddsGroup>
+  ): Record<MarketCategory, number> {
+    const sums: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    const counts: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    const seen = new Set<string>();
+
+    for (const [selection, group] of Object.entries(marketGroups)) {
+      const category = this.categorizeSelection(selection);
+      const oddsList = [group.odds, ...group.companions].filter(o => isFinite(o) && o > 1).sort((a,b)=>a-b);
+      if (oddsList.length < 2) continue;
+      const key = `${category}|${oddsList.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const margin = this.computeBookmakerMargin(oddsList);
+      if (!isFinite(margin)) continue;
+      sums[category] = (sums[category] ?? 0) + margin;
+      counts[category] = (counts[category] ?? 0) + 1;
+    }
+
+    const out: Record<MarketCategory, number> = {} as Record<MarketCategory, number>;
+    (Object.keys(sums) as MarketCategory[]).forEach((cat) => {
+      const avg = sums[cat] / Math.max(1, counts[cat] ?? 1);
+      out[cat] = Math.max(0, Math.min(0.25, avg));
+    });
+    return out;
   }
 
   // ==================== KELLY CRITERION ====================
@@ -261,7 +366,8 @@ export class ValueBettingEngine {
     odds: number,
     ev: number,
     edgeNoVig: number,
-    category: MarketCategory
+    category: MarketCategory,
+    minEv: number
   ): boolean {
     const isShotsDisciplineCore =
       category === 'shots' ||
@@ -277,7 +383,7 @@ export class ValueBettingEngine {
     if (odds < minOdds || odds > maxOdds) return false;
 
     // 2. EV minimo per categoria
-    if (ev <= EV_THRESHOLDS[category]) return false;
+    if (ev <= minEv) return false;
 
     // 3. Edge no-vig positivo
     if (edgeNoVig <= 0) return false;
@@ -300,6 +406,7 @@ export class ValueBettingEngine {
     marketNames: Record<string, string>
   ): BetOpportunity[] {
     const opportunities: BetOpportunity[] = [];
+    const marginByCategory = this.computeCategoryMargins(bookmakerOdds);
 
     for (const [key, ourProb] of Object.entries(probabilities)) {
       const odds = bookmakerOdds[key];
@@ -310,8 +417,9 @@ export class ValueBettingEngine {
       const ev         = this.computeExpectedValue(ourProb, odds);
       const edge       = ourProb - implied;
       const edgeNoVig  = edge; // senza companions, uguale all'edge raw
+      const minEv      = this.minEvForCategory(category, marginByCategory[category]);
 
-      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category)) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
 
       const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
 
@@ -346,6 +454,7 @@ export class ValueBettingEngine {
     marketNames: Record<string, string>
   ): BetOpportunity[] {
     const opportunities: BetOpportunity[] = [];
+    const marginByCategory = this.computeCategoryMarginsFromGroups(marketGroups);
 
     for (const [key, ourProb] of Object.entries(probabilities)) {
       const group = marketGroups[key];
@@ -359,8 +468,9 @@ export class ValueBettingEngine {
       const edgeRaw      = ourProb - impliedRaw;
       const edgeNoVig    = ourProb - impliedNoVig;
       const category     = this.categorizeSelection(key);
+      const minEv        = this.minEvForCategory(category, marginByCategory[category]);
 
-      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category)) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
 
       const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
 
