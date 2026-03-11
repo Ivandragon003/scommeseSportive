@@ -280,8 +280,8 @@ export class BacktestingEngine {
   private parseStatLine(raw: string): number | null {
     const cleaned = String(raw ?? '').trim().replace(',', '.');
     if (!cleaned) return null;
-    if (/^\\d+\\.\\d+$/.test(cleaned)) return Number(cleaned);
-    if (/^\\d+$/.test(cleaned) && cleaned.length >= 2) {
+    if (/^\d+\.\d+$/.test(cleaned)) return Number(cleaned);
+    if (/^\d+$/.test(cleaned) && cleaned.length >= 2) {
       const n = Number(`${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`);
       return Number.isFinite(n) ? n : null;
     }
