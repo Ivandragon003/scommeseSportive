@@ -122,6 +122,8 @@ export interface SupplementaryData {
     avgRedCards: number;
     avgFouls: number;
     shotsSuppression: number;
+    avgHomeCorners?: number;
+    avgAwayCorners?: number;
     // Varianza per r dinamico in SpecializedModels
     varShots?: number;
     varShotsOT?: number;
@@ -136,6 +138,8 @@ export interface SupplementaryData {
     avgRedCards: number;
     avgFouls: number;
     shotsSuppression: number;
+    avgHomeCorners?: number;
+    avgAwayCorners?: number;
     varShots?: number;
     varShotsOT?: number;
     varYellowCards?: number;
@@ -151,6 +155,7 @@ export interface SupplementaryData {
   homePlayers?: PlayerShotsData[];
   awayPlayers?: PlayerShotsData[];
   competitiveness?: number;   // 0 = amichevole, 1 = derby storico
+  isDerby?: boolean;
   leagueAvgYellow?: number;
   leagueAvgFouls?: number;
   homeAdvantageShots?: number;
@@ -360,9 +365,15 @@ export class DixonColesModel {
     // --- Shots (NegBin) ---
     const hs  = supp?.homeTeamStats ?? {} as any;
     const as_ = supp?.awayTeamStats ?? {} as any;
+    const SERIE_A_SHOT_GOAL_RATIO = 11.0; // shots totali / goal
+    const alpha = 0.35; // peso prior lambda
+    const impliedShotsHome = matrix.lambdaHome * SERIE_A_SHOT_GOAL_RATIO;
+    const impliedShotsAway = matrix.lambdaAway * SERIE_A_SHOT_GOAL_RATIO;
+    const blendedHomeShots = (1 - alpha) * (hs.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsHome;
+    const blendedAwayShots = (1 - alpha) * (as_.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsAway;
     const shotsData: ShotsModelData = {
-      homeTeamAvgShots:         hs.avgShots         ?? SERIE_A_DEFAULTS.avgShots,
-      awayTeamAvgShots:         as_.avgShots        ?? SERIE_A_DEFAULTS.avgShots,
+      homeTeamAvgShots:         Math.max(3, blendedHomeShots),
+      awayTeamAvgShots:         Math.max(3, blendedAwayShots),
       homeTeamAvgShotsOT:       hs.avgShotsOT       ?? SERIE_A_DEFAULTS.avgShotsOT,
       awayTeamAvgShotsOT:       as_.avgShotsOT      ?? SERIE_A_DEFAULTS.avgShotsOT,
       homeTeamShotsSuppression: hs.shotsSuppression ?? 1.0,
@@ -379,6 +390,11 @@ export class DixonColesModel {
 
     // --- Cards (NegBin + referee factor) ---
     const ref = supp?.refereeStats ?? {} as any;
+    const strengthDiff = Math.abs(matrix.lambdaHome - matrix.lambdaAway);
+    const matchIntensity = Math.max(0, Math.min(1, 1 - strengthDiff / 2.0));
+    const derivedCompetitiveness = supp?.competitiveness !== undefined
+      ? supp.competitiveness
+      : Math.max(0.25, matchIntensity * 0.7 + (supp?.isDerby ? 0.3 : 0));
     const cardsData: CardsModelData = {
       homeTeamAvgYellow:  hs.avgYellowCards  ?? SERIE_A_DEFAULTS.avgYellowCards,
       awayTeamAvgYellow:  as_.avgYellowCards ?? SERIE_A_DEFAULTS.avgYellowCards,
@@ -388,7 +404,7 @@ export class DixonColesModel {
       refereeAvgRed:      ref.avgRed         ?? SERIE_A_DEFAULTS.refereeAvgRed,
       refereeAvgTotal:    (ref.avgYellow ?? 3.8) + (ref.avgRed ?? 0.22) * 2,
       leagueAvgYellow:    supp?.leagueAvgYellow ?? SERIE_A_DEFAULTS.leagueAvgYellow,
-      competitiveness:    supp?.competitiveness  ?? 0.3,
+      competitiveness:    derivedCompetitiveness,
       homeTeamVarYellow:  hs.varYellowCards,
       awayTeamVarYellow:  as_.varYellowCards,
       homeTeamSampleSize: hs.sampleSize,
@@ -416,6 +432,49 @@ export class DixonColesModel {
       awayTeamSampleSize: as_.sampleSize,
     };
     const fouls = this.specialized.computeFoulsDistribution(foulsData);
+
+    // --- Correzione gialli in funzione dei falli attesi ---
+    const leagueAvgFouls = supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls;
+    const foulsRatio = fouls.expectedTotalFouls / Math.max(1, leagueAvgFouls);
+    const foulEffect = Math.pow(foulsRatio, 0.7);
+    const refStrictness = ref.avgYellow !== undefined
+      ? Math.min(1, Math.max(0, ref.avgYellow / Math.max(0.1, SERIE_A_DEFAULTS.refereeAvgYellow)))
+      : 0.5;
+    const yellowFoulsCorrFactor = foulEffect * (0.7 + 0.3 * refStrictness);
+    const adjustedYellowMu = cards.expectedTotalYellow * yellowFoulsCorrFactor;
+    if (Math.abs(yellowFoulsCorrFactor - 1) > 0.02) {
+      const rYellow = cards.negBinParams.r;
+      const yellowLines = [0.5,1.5,2.5,3.5,4.5,5.5,6.5,7.5,8.5,9.5];
+      for (const line of yellowLines) {
+        const over = this.specialized.negBinOver(line, adjustedYellowMu, rYellow);
+        cards.overUnderYellow[`${line}`] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+      cards.expectedTotalYellow = parseFloat(adjustedYellowMu.toFixed(4));
+    }
+
+    // --- Corners ---
+    let cornersResult: ReturnType<SpecializedModels['computeCornersDistribution']> | null = null;
+    if (hs.avgHomeCorners !== undefined && as_.avgAwayCorners !== undefined) {
+      const cornersData = {
+        homeTeamAvgCornersFor:     hs.avgHomeCorners     ?? 5.5,
+        homeTeamAvgCornersAgainst: as_.avgAwayCorners    ?? 4.5,
+        awayTeamAvgCornersFor:     as_.avgAwayCorners    ?? 4.5,
+        awayTeamAvgCornersAgainst: hs.avgHomeCorners     ?? 5.5,
+        homeTeamSampleSize:        hs.sampleSize,
+        awayTeamSampleSize:        as_.sampleSize,
+      };
+
+      const leagueAvgShots = 24.0;
+      const shotsRatio = (shotsData.homeTeamAvgShots + shotsData.awayTeamAvgShots) / leagueAvgShots;
+      const shotsCorrFactor = 1 + 0.3 * (shotsRatio - 1);
+      cornersData.homeTeamAvgCornersFor = Math.max(2, (hs.avgHomeCorners ?? 5.5) * shotsCorrFactor);
+      cornersData.awayTeamAvgCornersFor = Math.max(2, (as_.avgAwayCorners ?? 4.5) * shotsCorrFactor);
+
+      cornersResult = this.specialized.computeCornersDistribution(cornersData);
+    }
 
     // --- Player shots ---
     const playerShotsHome = (supp?.homePlayers ?? []).length > 0
@@ -504,6 +563,14 @@ export class DixonColesModel {
           [`foulsUnder${fmtLine(line)}`, under],
         ])
       ),
+
+      // Angoli
+      ...(cornersResult ? Object.fromEntries(
+        Object.entries(cornersResult.overUnder).flatMap(([line, { over, under }]) => [
+          [`cornersOver${fmtLine(line)}`,  over],
+          [`cornersUnder${fmtLine(line)}`, under],
+        ])
+      ) : {}),
     };
 
     return {

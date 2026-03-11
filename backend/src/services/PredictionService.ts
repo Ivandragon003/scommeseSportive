@@ -238,6 +238,7 @@ export class PredictionService {
       avgHomeXG: row.avg_home_xg, avgAwayXG: row.avg_away_xg,
       avgYellowCards: row.avg_yellow_cards, avgRedCards: row.avg_red_cards,
       avgFouls: row.avg_fouls, shotsSuppression: row.shots_suppression,
+      avgHomeCorners: row.avg_home_corners, avgAwayCorners: row.avg_away_corners,
     };
   }
 
@@ -284,6 +285,8 @@ export class PredictionService {
         avgRedCards: homeTeam.avg_red_cards ?? 0.11,
         avgFouls: homeTeam.avg_fouls ?? 11.2,
         shotsSuppression: homeTeam.shots_suppression ?? 1.0,
+        avgHomeCorners: homeTeam.avg_home_corners ?? 5.5,
+        avgAwayCorners: homeTeam.avg_away_corners ?? 4.5,
       } : undefined,
       awayTeamStats: awayTeam ? {
         avgShots: awayTeam.avg_away_shots ?? 10.4,
@@ -292,6 +295,8 @@ export class PredictionService {
         avgRedCards: awayTeam.avg_red_cards ?? 0.11,
         avgFouls: awayTeam.avg_fouls ?? 11.2,
         shotsSuppression: awayTeam.shots_suppression ?? 1.0,
+        avgHomeCorners: awayTeam.avg_home_corners ?? 5.5,
+        avgAwayCorners: awayTeam.avg_away_corners ?? 4.5,
       } : undefined,
       refereeStats: referee ? {
         avgYellow: referee.avg_yellow_cards_per_game,
@@ -301,6 +306,7 @@ export class PredictionService {
       homePlayers: homePlayers.map(toPlayerData),
       awayPlayers: awayPlayers.map(toPlayerData),
       competitiveness,
+      isDerby: Boolean(request.isDerby),
     };
 
     const probs = model.computeFullProbabilities(request.homeTeamId, request.awayTeamId, undefined, undefined, supp);
@@ -421,6 +427,12 @@ export class PredictionService {
           sot_total: 'Tiri in Porta Totali'
         };
         return `${labels[m[1]] ?? m[1]} ${m[2] === 'over' ? 'Over' : 'Under'} ${formatLine(m[3])}`;
+      }
+
+      const cornersMatch = selection.match(/^corners(Over|Under)(\d+)$/);
+      if (cornersMatch) {
+        const line = `${cornersMatch[2].slice(0, -1)}.${cornersMatch[2].slice(-1)}`;
+        return `Angoli ${cornersMatch[1] === 'Over' ? 'Over' : 'Under'} ${line}`;
       }
 
       const teamTotal = selection.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
