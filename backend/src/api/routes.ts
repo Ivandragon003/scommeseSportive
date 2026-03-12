@@ -134,6 +134,8 @@ router.post('/matches/bulk', async (req: Request, res: Response) => {
           awayYellowCards: m.awayYellowCards ?? m.away_yellow_cards ?? m.AY,
           homeRedCards: m.homeRedCards ?? m.home_red_cards ?? m.HR,
           awayRedCards: m.awayRedCards ?? m.away_red_cards ?? m.AR,
+          homeCorners: m.homeCorners ?? m.home_corners ?? m.HC,
+          awayCorners: m.awayCorners ?? m.away_corners ?? m.AC,
           referee: m.referee ?? m.Referee,
           competition: m.competition ?? m.league ?? m.Division,
           season: m.season ?? m.Season,
@@ -464,6 +466,7 @@ function formatPrediction(pred: any): any {
   const probs: any = pred.probabilities ?? {};
   const cards = probs.cards ?? {};
   const fouls = probs.fouls ?? {};
+  const corners = probs.corners ?? {};
 
   const lambdaHome = Number(probs.lambdaHome ?? 0);
   const lambdaAway = Number(probs.lambdaAway ?? 0);
@@ -496,10 +499,12 @@ function formatPrediction(pred: any): any {
 
   const combinedShotsExp = homeShotsExp + awayShotsExp;
   const combinedSOTExp = homeSOTExp + awaySOTExp;
+  const totalCornersExp = Number(corners.expectedTotalCorners ?? 0);
 
   const overUnderYellow = mapOverUnder(cards.overUnderYellow ?? {});
   const overUnderFouls = mapOverUnder(fouls.overUnder ?? {});
   const overUnderShots = mapOverUnder(probs.shotsTotal ?? {});
+  const overUnderCorners = mapOverUnder(corners.overUnder ?? {});
 
   const asPlayer = (p: any, side: string, idx: number) => {
     const expShots = Number(p.expectedShots ?? 0);
@@ -655,6 +660,15 @@ function formatPrediction(pred: any): any {
           under115: roundN(1 - poissonOver(11.5, combinedSOTExp), 4),
         },
       },
+    },
+
+    cornersPrediction: {
+      totalCorners: {
+        expected: roundN(totalCornersExp, 3),
+      },
+      homeCorners: { expected: roundN(Number(corners.expectedHomeCorners ?? 0), 3) },
+      awayCorners: { expected: roundN(Number(corners.expectedAwayCorners ?? 0), 3) },
+      overUnder: overUnderCorners,
     },
 
     playerShotsPredictions,
@@ -891,6 +905,7 @@ async function runFotmobImport(req: Request, res: Response) {
         'home_shots', 'away_shots',
         'home_shots_on_target', 'away_shots_on_target',
         'home_possession', 'away_possession',
+        'home_corners', 'away_corners',
       ];
 
       const values = fields.map(k => matchRow[k]);
@@ -1453,6 +1468,10 @@ const collectModelProbabilitiesForOdds = (prediction: any): Record<string, numbe
   for (const [line, pair] of Object.entries(probs.shotsAway?.overUnder ?? {})) {
     push(`shots_away_over_${line}`, (pair as any)?.over);
     push(`shots_away_under_${line}`, (pair as any)?.under);
+  }
+  for (const [line, pair] of Object.entries(probs.corners?.overUnder ?? {})) {
+    push(`corners_over_${line}`, (pair as any)?.over);
+    push(`corners_under_${line}`, (pair as any)?.under);
   }
 
   // Cartellini e falli

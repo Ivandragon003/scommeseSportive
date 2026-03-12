@@ -102,6 +102,13 @@ export interface FullMatchProbabilities {
   // Cards & fouls
   cards: CardsDistribution;
   fouls: FoulsDistribution;
+  corners?: {
+    expectedHomeCorners: number;
+    expectedAwayCorners: number;
+    expectedTotalCorners: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    negBinParams: { mu: number; r: number };
+  };
   // Player shots
   playerShots: { home: PlayerShotsPrediction[]; away: PlayerShotsPrediction[] };
   // Expected goals
@@ -584,6 +591,7 @@ export class DixonColesModel {
       shotsOnTargetHome: { expected: shotsResult.home.expectedShotsOnTarget },
       shotsOnTargetAway: { expected: shotsResult.away.expectedShotsOnTarget },
       cards, fouls,
+      corners: cornersResult ?? undefined,
       playerShots: { home: playerShotsHome, away: playerShotsAway },
       lambdaHome: matrix.lambdaHome,
       lambdaAway: matrix.lambdaAway,

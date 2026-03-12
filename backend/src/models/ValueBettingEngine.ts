@@ -66,6 +66,7 @@ export type MarketCategory =
   | 'goal_ou'        // over/under 0.5 - 4.5
   | 'shots'          // tiri squadra e totali
   | 'shots_ot'       // tiri in porta
+  | 'corners'        // angoli totali
   | 'yellow_cards'   // cartellini gialli
   | 'fouls'          // falli
   | 'exact_score'    // risultato esatto
@@ -131,6 +132,7 @@ const EV_THRESHOLDS: Record<MarketCategory, number> = {
   goal_ou:     0.025,   // 2.5%
   shots:       0.005,   // mercato core
   shots_ot:    0.005,   // mercato core
+  corners:     0.008,
   yellow_cards: 0.008,
   fouls:       0.008,
   exact_score: 0.050,
@@ -142,6 +144,7 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
   goal_1x2:    0.02,
   goal_ou:     0.02,
   shots:       0.03,
+  corners:     0.03,
   yellow_cards: 0.025,
   fouls:       0.03,
   shots_ot:    0.03,
@@ -194,6 +197,7 @@ export class ValueBettingEngine {
     if (/^shots_home_(over|under)/.test(s)) return 'shots';
     if (/^shots_away_(over|under)/.test(s)) return 'shots';
     if (/^sot_total_(over|under)/.test(s)) return 'shots_ot';
+    if (/^corners_(over|under)/.test(s)) return 'corners';
     if (/^yellow_(over|under)/.test(s)) return 'yellow_cards';
     if (/^cards_total_(over|under)/.test(s)) return 'yellow_cards';
     if (/^fouls_(over|under)/.test(s)) return 'fouls';
@@ -203,6 +207,7 @@ export class ValueBettingEngine {
     if (/^shotshome(over|under)\d+$/.test(s)) return 'shots';
     if (/^shotsaway(over|under)\d+$/.test(s)) return 'shots';
     if (/^shotsot(over|under)\d+$/.test(s)) return 'shots_ot';
+    if (/^corners(over|under)\d+$/.test(s)) return 'corners';
     if (/^yellow(over|under)\d+$/.test(s)) return 'yellow_cards';
     if (/^cardstotal(over|under)\d+$/.test(s)) return 'yellow_cards';
     if (/^fouls(over|under)\d+$/.test(s)) return 'fouls';
@@ -372,6 +377,7 @@ export class ValueBettingEngine {
     const isShotsDisciplineCore =
       category === 'shots' ||
       category === 'shots_ot' ||
+      category === 'corners' ||
       category === 'fouls' ||
       category === 'yellow_cards';
 
@@ -557,6 +563,9 @@ export class ValueBettingEngine {
     }
     for (const l of ['25','35','45','55','65','75','85','95','105','115']) {
       pair(`shotsOTOver${l}`, `shotsOTUnder${l}`);
+    }
+    for (const l of ['65','75','85','95','105','115','125','135','145']) {
+      pair(`cornersOver${l}`, `cornersUnder${l}`);
     }
     for (const l of ['05','15','25','35','45','55','65','75','85'])
       pair(`yellowOver${l}`, `yellowUnder${l}`);
