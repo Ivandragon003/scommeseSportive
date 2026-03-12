@@ -155,7 +155,7 @@ export class PredictionService {
       }
 
       // Mercati dinamici: shots_total_over_235 -> shots_total_over_23.5
-      const prefixed = k.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      const prefixed = k.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total|corners)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
       if (prefixed) {
         const prefix = prefixed[1].toLowerCase();
         const side = prefixed[2].toLowerCase();
@@ -359,6 +359,7 @@ export class PredictionService {
       'shots_home': 'shotsHome',  // shots_home_over_11.5  → shotsHomeOver115
       'shots_away': 'shotsAway',
       'sot_total': 'shotsOT',
+      'corners': 'corners',
       'yellow': 'yellow',
       'fouls': 'fouls',
       'cards_total': 'cardsTotal',
@@ -369,7 +370,7 @@ export class PredictionService {
 
       // Formato snake_case con punto: shots_total_over_23.5 o senza punto shots_total_over_235
       const m = key.match(
-        /^(shots_total|shots_home|shots_away|sot_total|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
+        /^(shots_total|shots_home|shots_away|sot_total|corners|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
       );
       if (m) {
         const domain = domainMap[m[1].toLowerCase()] ?? m[1];
@@ -419,14 +420,31 @@ export class PredictionService {
     };
 
     const dynamicName = (selection: string): string | null => {
-      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total|corners)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
       if (m) {
         const labels: Record<string, string> = {
           shots_total: 'Tiri Totali', shots_home: 'Tiri Casa', shots_away: 'Tiri Ospite',
           fouls: 'Falli Totali', yellow: 'Gialli Totali', cards_total: 'Cartellini Pesati',
-          sot_total: 'Tiri in Porta Totali'
+          sot_total: 'Tiri in Porta Totali', corners: 'Angoli Totali'
         };
         return `${labels[m[1]] ?? m[1]} ${m[2] === 'over' ? 'Over' : 'Under'} ${formatLine(m[3])}`;
+      }
+
+      const compactStats = selection.match(/^(shots|shotshome|shotsaway|shotsot|corners|yellow|cardstotal|fouls)(Over|Under)(\d+)$/i);
+      if (compactStats) {
+        const labels: Record<string, string> = {
+          shots: 'Tiri Totali',
+          shotshome: 'Tiri Casa',
+          shotsaway: 'Tiri Ospite',
+          shotsot: 'Tiri in Porta Totali',
+          corners: 'Angoli Totali',
+          yellow: 'Gialli Totali',
+          cardstotal: 'Cartellini Pesati',
+          fouls: 'Falli Totali',
+        };
+        const side = compactStats[2].toLowerCase() === 'over' ? 'Over' : 'Under';
+        const line = `${compactStats[3].slice(0, -1)}.${compactStats[3].slice(-1)}`;
+        return `${labels[compactStats[1].toLowerCase()] ?? compactStats[1]} ${side} ${line}`;
       }
 
       const cornersMatch = selection.match(/^corners(Over|Under)(\d+)$/);
@@ -739,12 +757,14 @@ export class PredictionService {
     const awaySot = numOrNull(matchRow?.away_shots_on_target);
     const homeFouls = numOrNull(matchRow?.home_fouls);
     const awayFouls = numOrNull(matchRow?.away_fouls);
+    const homeCorners = numOrNull(matchRow?.home_corners);
+    const awayCorners = numOrNull(matchRow?.away_corners);
     const homeYellow = numOrNull(matchRow?.home_yellow_cards);
     const awayYellow = numOrNull(matchRow?.away_yellow_cards);
     const homeRed = numOrNull(matchRow?.home_red_cards);
     const awayRed = numOrNull(matchRow?.away_red_cards);
 
-    const prefixedStats = s.match(/^(shots_total|shots_home|shots_away|sot_total|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
+    const prefixedStats = s.match(/^(shots_total|shots_home|shots_away|sot_total|corners|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/);
     if (prefixedStats) {
       const domain = prefixedStats[1];
       const side = prefixedStats[2] as 'over' | 'under';
@@ -760,6 +780,8 @@ export class PredictionService {
         actual = awayShots;
       } else if (domain === 'sot_total') {
         actual = homeSot !== null && awaySot !== null ? homeSot + awaySot : null;
+      } else if (domain === 'corners') {
+        actual = homeCorners !== null && awayCorners !== null ? homeCorners + awayCorners : null;
       } else if (domain === 'fouls') {
         actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
       } else if (domain === 'yellow') {
@@ -773,7 +795,7 @@ export class PredictionService {
       return settled(this.decideOverUnder(actual, side, line), `${domain} over/under`);
     }
 
-    const legacyStats = s.match(/^(shots|sot|fouls|cards)_(over|under)(\d+)$/);
+    const legacyStats = s.match(/^(shots|sot|corners|fouls|cards)_(over|under)(\d+)$/);
     if (legacyStats) {
       const domain = legacyStats[1];
       const side = legacyStats[2] as 'over' | 'under';
@@ -785,6 +807,8 @@ export class PredictionService {
         actual = homeShots !== null && awayShots !== null ? homeShots + awayShots : null;
       } else if (domain === 'sot') {
         actual = homeSot !== null && awaySot !== null ? homeSot + awaySot : null;
+      } else if (domain === 'corners') {
+        actual = homeCorners !== null && awayCorners !== null ? homeCorners + awayCorners : null;
       } else if (domain === 'fouls') {
         actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
       } else if (domain === 'cards') {
@@ -793,6 +817,37 @@ export class PredictionService {
 
       if (actual === null) return null;
       return settled(this.decideOverUnder(actual, side, line), `${domain} legacy over/under`);
+    }
+
+    const compactStats = s.match(/^(shots|shotshome|shotsaway|shotsot|corners|yellow|cardstotal|fouls)(over|under)(\d+)$/);
+    if (compactStats) {
+      const domain = compactStats[1];
+      const side = compactStats[2] as 'over' | 'under';
+      const line = this.parseMarketLine(compactStats[3]);
+      if (line === null) return null;
+
+      let actual: number | null = null;
+      if (domain === 'shots') {
+        actual = homeShots !== null && awayShots !== null ? homeShots + awayShots : null;
+      } else if (domain === 'shotshome') {
+        actual = homeShots;
+      } else if (domain === 'shotsaway') {
+        actual = awayShots;
+      } else if (domain === 'shotsot') {
+        actual = homeSot !== null && awaySot !== null ? homeSot + awaySot : null;
+      } else if (domain === 'corners') {
+        actual = homeCorners !== null && awayCorners !== null ? homeCorners + awayCorners : null;
+      } else if (domain === 'yellow') {
+        actual = homeYellow !== null && awayYellow !== null ? homeYellow + awayYellow : null;
+      } else if (domain === 'cardstotal') {
+        if (homeYellow === null || awayYellow === null) return null;
+        actual = homeYellow + awayYellow + 2 * ((homeRed ?? 0) + (awayRed ?? 0));
+      } else if (domain === 'fouls') {
+        actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
+      }
+
+      if (actual === null) return null;
+      return settled(this.decideOverUnder(actual, side, line), `${domain} compact over/under`);
     }
 
     return null;

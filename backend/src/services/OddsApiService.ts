@@ -274,10 +274,11 @@ export class OddsApiService {
     const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
     const compactLine = lineRaw.replace('.', '');
 
-    const domainFromContext = (): 'shots_total' | 'sot_total' | 'fouls' | 'yellow' | null => {
+    const domainFromContext = (): 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow' | null => {
       const probe = `${market} ${nameLower} ${desc.toLowerCase()}`.replace(/[^a-z0-9\s]/g, ' ');
       if (/\bshots?\s+on\s+target\b|\bon\s+target\b|\bsot\b/.test(probe)) return 'sot_total';
       if (/\bshots?\b/.test(probe)) return 'shots_total';
+      if (/\bcorners?\b|\bcorner\s+kicks?\b/.test(probe)) return 'corners';
       if (/\bfouls?\b/.test(probe)) return 'fouls';
       if (/\byellow\b|\bcards?\b|\bbookings?\b/.test(probe)) return 'yellow';
       return null;
@@ -344,11 +345,13 @@ export class OddsApiService {
       return null;
     }
 
-    if ((market.includes('shots') || market.includes('cards') || market.includes('fouls')) && (nameLower === 'over' || nameLower === 'under')) {
+    if ((market.includes('shots') || market.includes('corners') || market.includes('cards') || market.includes('fouls')) && (nameLower === 'over' || nameLower === 'under')) {
       const contextualDomain = domainFromContext();
       const domain = contextualDomain
         ?? (market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
         ? 'sot_total'
+        : market.includes('corners')
+          ? 'corners'
         : market.includes('shots')
           ? 'shots_total'
           : market.includes('cards') || market.includes('yellow')
