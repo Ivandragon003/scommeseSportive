@@ -2,8 +2,8 @@ import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData }
 import { ValueBettingEngine, BetOpportunity } from '../models/ValueBettingEngine';
 import { BacktestingEngine } from '../models/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
-import { PlayerShotsData } from '../models/SpecializedModels';
 import { v4 as uuidv4 } from 'uuid';
+import { PredictionContextBuilder } from './PredictionContextBuilder';
 
 export interface PredictionRequest {
   homeTeamId: string;
@@ -58,6 +58,7 @@ export interface BestValueOpportunityExplanation {
 
 export interface PredictionResponse {
   matchId: string;
+  competition?: string;
   homeTeam: string;
   awayTeam: string;
   probabilities: FullMatchProbabilities;
@@ -73,11 +74,13 @@ export class PredictionService {
   private engine: ValueBettingEngine;
   private backtester: BacktestingEngine;
   private db: DatabaseService;
+  private contextBuilder: PredictionContextBuilder;
 
   constructor(db: DatabaseService) {
     this.db = db;
     this.engine = new ValueBettingEngine();
     this.backtester = new BacktestingEngine();
+    this.contextBuilder = new PredictionContextBuilder();
   }
 
   private clamp(v: number, min: number, max: number): number {
@@ -265,73 +268,49 @@ export class PredictionService {
     const homePlayers = await this.db.getPlayersByTeam(request.homeTeamId);
     const awayPlayers = await this.db.getPlayersByTeam(request.awayTeamId);
 
-    const toPlayerData = (p: any): PlayerShotsData => ({
-      playerId: p.player_id, playerName: p.name, teamId: p.team_id,
-      avgShotsPerGame: p.avg_shots_per_game, avgShotsOnTargetPerGame: p.avg_shots_on_target_per_game,
-      gamesPlayed: p.games_played, shotShareOfTeam: p.shot_share_of_team,
-      isStarter: true, positionCode: p.position_code,
+    const context = this.contextBuilder.build({
+      request,
+      homeTeam,
+      awayTeam,
+      referee,
+      homePlayers,
+      awayPlayers,
     });
 
-    const competitiveness =
-      request.competitiveness !== undefined
-        ? this.clamp(request.competitiveness, 0, 1)
-        : this.clamp(0.30 + (request.isDerby ? 0.35 : 0) + (request.isHighStakes ? 0.20 : 0), 0, 1);
-
-    const supp: SupplementaryData = {
-      homeTeamStats: homeTeam ? {
-        avgShots: homeTeam.avg_home_shots ?? 12.1,
-        avgShotsOT: homeTeam.avg_home_shots_ot ?? 4.8,
-        avgYellowCards: homeTeam.avg_yellow_cards ?? 1.9,
-        avgRedCards: homeTeam.avg_red_cards ?? 0.11,
-        avgFouls: homeTeam.avg_fouls ?? 11.2,
-        shotsSuppression: homeTeam.shots_suppression ?? 1.0,
-        avgHomeCorners: homeTeam.avg_home_corners ?? 5.5,
-        avgAwayCorners: homeTeam.avg_away_corners ?? 4.5,
-      } : undefined,
-      awayTeamStats: awayTeam ? {
-        avgShots: awayTeam.avg_away_shots ?? 10.4,
-        avgShotsOT: awayTeam.avg_away_shots_ot ?? 3.9,
-        avgYellowCards: awayTeam.avg_yellow_cards ?? 1.9,
-        avgRedCards: awayTeam.avg_red_cards ?? 0.11,
-        avgFouls: awayTeam.avg_fouls ?? 11.2,
-        shotsSuppression: awayTeam.shots_suppression ?? 1.0,
-        avgHomeCorners: awayTeam.avg_home_corners ?? 5.5,
-        avgAwayCorners: awayTeam.avg_away_corners ?? 4.5,
-      } : undefined,
-      refereeStats: referee ? {
-        avgYellow: referee.avg_yellow_cards_per_game,
-        avgRed: referee.avg_red_cards_per_game,
-        avgFouls: referee.avg_fouls_per_game,
-      } : undefined,
-      homePlayers: homePlayers.map(toPlayerData),
-      awayPlayers: awayPlayers.map(toPlayerData),
-      competitiveness,
-      isDerby: Boolean(request.isDerby),
-    };
-
-    const probs = model.computeFullProbabilities(request.homeTeamId, request.awayTeamId, undefined, undefined, supp);
+    const supp: SupplementaryData = context.supplementaryData;
+    const competitiveness = context.competitiveness;
+    const probs = model.computeFullProbabilities(
+      request.homeTeamId,
+      request.awayTeamId,
+      context.homeXG,
+      context.awayXG,
+      supp,
+    );
 
     // Arricchisci con mercati secondari
     this.enrichFlatProbabilities(probs.flatProbabilities);
 
     // Allinea le chiavi delle quote
-    const alignedOdds = this.alignOddsKeys(request.bookmakerOdds || {});
+    const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds || {});
+    const alignedOdds = this.alignOddsKeys(normalizedOdds);
 
     const marketNames = this.getMarketNames(Object.keys(probs.flatProbabilities));
     const valueOpportunities = this.engine.analyzeMarkets(probs.flatProbabilities, alignedOdds, marketNames);
 
     const factors = this.buildAnalysisFactors(request, probs, homeTeam, awayTeam, competitiveness);
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
+    const modelConfidence = context.richnessScore;
 
     return {
       matchId: request.matchId || uuidv4(),
+      competition: request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined,
       homeTeam: homeTeam?.name || 'Home',
       awayTeam: awayTeam?.name || 'Away',
       probabilities: probs,
       valueOpportunities,
       bestValueOpportunity: bestValue,
       analysisFactors: factors,
-      modelConfidence: 0.75,
+      modelConfidence,
       computedAt: new Date(),
     };
   }

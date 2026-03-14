@@ -35,6 +35,7 @@ import {
   CardsDistribution,
   FoulsDistribution,
   PlayerShotsPrediction,
+  NegBinParams,
 } from './SpecializedModels';
 
 export interface TeamStrength {
@@ -94,11 +95,23 @@ export interface FullMatchProbabilities {
   handicap: Record<string, number>;
   asianHandicap: Record<string, number>;
   // Shot markets
-  shotsHome: { expected: number; overUnder: Record<string, { over: number; under: number }> };
-  shotsAway: { expected: number; overUnder: Record<string, { over: number; under: number }> };
+  shotsHome: {
+    expected: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    totalShots: { expected: number; variance: number; distribution: Record<string, number> };
+    shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
+    negBinParams: NegBinParams;
+  };
+  shotsAway: {
+    expected: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    totalShots: { expected: number; variance: number; distribution: Record<string, number> };
+    shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
+    negBinParams: NegBinParams;
+  };
   shotsTotal: Record<string, { over: number; under: number }>;
-  shotsOnTargetHome: { expected: number };
-  shotsOnTargetAway: { expected: number };
+  shotsOnTargetHome: { expected: number; variance: number; distribution: Record<string, number> };
+  shotsOnTargetAway: { expected: number; variance: number; distribution: Record<string, number> };
   // Cards & fouls
   cards: CardsDistribution;
   fouls: FoulsDistribution;
@@ -131,6 +144,7 @@ export interface SupplementaryData {
     shotsSuppression: number;
     avgHomeCorners?: number;
     avgAwayCorners?: number;
+    avgPossession?: number;
     // Varianza per r dinamico in SpecializedModels
     varShots?: number;
     varShotsOT?: number;
@@ -147,6 +161,7 @@ export interface SupplementaryData {
     shotsSuppression: number;
     avgHomeCorners?: number;
     avgAwayCorners?: number;
+    avgPossession?: number;
     varShots?: number;
     varShotsOT?: number;
     varYellowCards?: number;
@@ -166,6 +181,15 @@ export interface SupplementaryData {
   leagueAvgYellow?: number;
   leagueAvgFouls?: number;
   homeAdvantageShots?: number;
+  contextAdjustments?: {
+    homeGoalMultiplier?: number;
+    awayGoalMultiplier?: number;
+    homeShotMultiplier?: number;
+    awayShotMultiplier?: number;
+    yellowCardMultiplier?: number;
+    foulMultiplier?: number;
+    homePossessionShift?: number;
+  };
 }
 
 // Default Serie A 2019-2024
@@ -287,6 +311,10 @@ export class DixonColesModel {
     homeXG?: number, awayXG?: number
   ): ScoreMatrix {
     const { lambdaHome, lambdaAway } = this.computeExpectedGoals(homeId, awayId, homeXG, awayXG);
+    return this.buildScoreMatrixFromLambdas(lambdaHome, lambdaAway);
+  }
+
+  private buildScoreMatrixFromLambdas(lambdaHome: number, lambdaAway: number): ScoreMatrix {
     const rho = this.params.rho;
     const N   = this.MAX_GOALS;
     const probs: number[][] = [];
@@ -321,7 +349,24 @@ export class DixonColesModel {
     homeXG?: number, awayXG?: number,
     supp?: SupplementaryData
   ): FullMatchProbabilities {
-    const matrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
+    const context = supp?.contextAdjustments ?? {};
+    const baseMatrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
+    const adjustedLambdaHome = this.clamp(
+      baseMatrix.lambdaHome * (context.homeGoalMultiplier ?? 1),
+      this.LAMBDA_MIN,
+      this.LAMBDA_MAX,
+    );
+    const adjustedLambdaAway = this.clamp(
+      baseMatrix.lambdaAway * (context.awayGoalMultiplier ?? 1),
+      this.LAMBDA_MIN,
+      this.LAMBDA_MAX,
+    );
+
+    const matrix: ScoreMatrix =
+      adjustedLambdaHome === baseMatrix.lambdaHome && adjustedLambdaAway === baseMatrix.lambdaAway
+        ? baseMatrix
+        : this.buildScoreMatrixFromLambdas(adjustedLambdaHome, adjustedLambdaAway);
+
     const p = matrix.probabilities;
     const N = this.MAX_GOALS;
 
@@ -376,8 +421,10 @@ export class DixonColesModel {
     const alpha = 0.35; // peso prior lambda
     const impliedShotsHome = matrix.lambdaHome * SERIE_A_SHOT_GOAL_RATIO;
     const impliedShotsAway = matrix.lambdaAway * SERIE_A_SHOT_GOAL_RATIO;
-    const blendedHomeShots = (1 - alpha) * (hs.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsHome;
-    const blendedAwayShots = (1 - alpha) * (as_.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsAway;
+    const blendedHomeShotsBase = (1 - alpha) * (hs.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsHome;
+    const blendedAwayShotsBase = (1 - alpha) * (as_.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsAway;
+    const blendedHomeShots = blendedHomeShotsBase * (context.homeShotMultiplier ?? 1);
+    const blendedAwayShots = blendedAwayShotsBase * (context.awayShotMultiplier ?? 1);
     const shotsData: ShotsModelData = {
       homeTeamAvgShots:         Math.max(3, blendedHomeShots),
       awayTeamAvgShots:         Math.max(3, blendedAwayShots),
@@ -421,12 +468,62 @@ export class DixonColesModel {
       leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
     };
     const cards = this.specialized.computeCardsDistribution(cardsData);
+    if (context.yellowCardMultiplier && Math.abs(context.yellowCardMultiplier - 1) > 0.01) {
+      const yellowFactor = Math.max(0.8, Math.min(1.4, context.yellowCardMultiplier));
+      const rYellow = cards.negBinParams.r;
+      const adjustedHomeYellow = cards.expectedHomeYellow * yellowFactor;
+      const adjustedAwayYellow = cards.expectedAwayYellow * yellowFactor;
+      const adjustedTotalYellow = adjustedHomeYellow + adjustedAwayYellow;
+      const adjustedCardPoints = cards.expectedTotalCards * yellowFactor;
+
+      cards.expectedHomeYellow = parseFloat(adjustedHomeYellow.toFixed(4));
+      cards.expectedAwayYellow = parseFloat(adjustedAwayYellow.toFixed(4));
+      cards.expectedTotalYellow = parseFloat(adjustedTotalYellow.toFixed(4));
+      cards.expectedTotalCards = parseFloat(adjustedCardPoints.toFixed(4));
+      cards.negBinParams.mu = parseFloat(adjustedTotalYellow.toFixed(4));
+
+      for (const line of Object.keys(cards.overUnderYellow ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedTotalYellow, rYellow);
+        cards.overUnderYellow[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+      for (const line of Object.keys(cards.overUnderTotal ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedCardPoints, Math.max(3, rYellow * 0.82));
+        cards.overUnderTotal[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+    }
 
     // --- Fouls (NegBin + possession correction) ---
     const lambdaTotal = matrix.lambdaHome + matrix.lambdaAway;
-    const estimatedHomePoss = lambdaTotal > 0
+    const inferredHomePoss = lambdaTotal > 0
       ? 0.5 + 0.1 * (matrix.lambdaHome - matrix.lambdaAway) / lambdaTotal
       : 0.5;
+    const toPossessionRatio = (value: unknown): number | undefined => {
+      const raw = Number(value);
+      if (!Number.isFinite(raw)) return undefined;
+      const normalized = raw > 1 ? raw / 100 : raw;
+      return this.clamp(normalized, 0.3, 0.7);
+    };
+    const homePossRatio = toPossessionRatio(hs.avgPossession);
+    const awayPossRatio = toPossessionRatio(as_.avgPossession);
+    const historicalHomePoss = homePossRatio !== undefined
+      ? homePossRatio
+      : awayPossRatio !== undefined
+        ? this.clamp(1 - awayPossRatio, 0.3, 0.7)
+        : undefined;
+    const estimatedHomePossBase = historicalHomePoss !== undefined
+      ? (historicalHomePoss * 0.65) + (inferredHomePoss * 0.35)
+      : inferredHomePoss;
+    const estimatedHomePoss = this.clamp(
+      estimatedHomePossBase + (context.homePossessionShift ?? 0),
+      0.3,
+      0.7,
+    );
     const foulsData: FoulsModelData = {
       homeTeamAvgFouls:   hs.avgFouls         ?? SERIE_A_DEFAULTS.avgFouls,
       awayTeamAvgFouls:   as_.avgFouls        ?? SERIE_A_DEFAULTS.avgFouls,
@@ -439,6 +536,24 @@ export class DixonColesModel {
       awayTeamSampleSize: as_.sampleSize,
     };
     const fouls = this.specialized.computeFoulsDistribution(foulsData);
+    if (context.foulMultiplier && Math.abs(context.foulMultiplier - 1) > 0.01) {
+      const foulFactor = Math.max(0.85, Math.min(1.3, context.foulMultiplier));
+      const adjustedHomeFouls = fouls.expectedHomeFouls * foulFactor;
+      const adjustedAwayFouls = fouls.expectedAwayFouls * foulFactor;
+      const adjustedTotalFouls = adjustedHomeFouls + adjustedAwayFouls;
+      fouls.expectedHomeFouls = parseFloat(adjustedHomeFouls.toFixed(4));
+      fouls.expectedAwayFouls = parseFloat(adjustedAwayFouls.toFixed(4));
+      fouls.expectedTotalFouls = parseFloat(adjustedTotalFouls.toFixed(4));
+      fouls.negBinParams.mu = parseFloat(adjustedTotalFouls.toFixed(4));
+
+      for (const line of Object.keys(fouls.overUnder ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedTotalFouls, fouls.negBinParams.r);
+        fouls.overUnder[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+    }
 
     // --- Correzione gialli in funzione dei falli attesi ---
     const leagueAvgFouls = supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls;
@@ -585,11 +700,31 @@ export class DixonColesModel {
       over05: o05,  over15: o15,  over25: o25,  over35: o35,  over45: o45,
       under05: 1-o05, under15: 1-o15, under25: 1-o25, under35: 1-o35, under45: 1-o45,
       exactScore, handicap, asianHandicap,
-      shotsHome: { expected: shotsResult.home.expectedTotalShots, overUnder: shotsResult.home.overUnder },
-      shotsAway: { expected: shotsResult.away.expectedTotalShots, overUnder: shotsResult.away.overUnder },
+      shotsHome: {
+        expected: shotsResult.home.expectedTotalShots,
+        overUnder: shotsResult.home.overUnder,
+        totalShots: shotsResult.home.totalShots,
+        shotsOnTarget: shotsResult.home.shotsOnTarget,
+        negBinParams: shotsResult.home.negBinParams,
+      },
+      shotsAway: {
+        expected: shotsResult.away.expectedTotalShots,
+        overUnder: shotsResult.away.overUnder,
+        totalShots: shotsResult.away.totalShots,
+        shotsOnTarget: shotsResult.away.shotsOnTarget,
+        negBinParams: shotsResult.away.negBinParams,
+      },
       shotsTotal: shotsResult.total,
-      shotsOnTargetHome: { expected: shotsResult.home.expectedShotsOnTarget },
-      shotsOnTargetAway: { expected: shotsResult.away.expectedShotsOnTarget },
+      shotsOnTargetHome: {
+        expected: shotsResult.home.expectedShotsOnTarget,
+        variance: shotsResult.home.shotsOnTarget.variance,
+        distribution: shotsResult.home.shotsOnTarget.distribution,
+      },
+      shotsOnTargetAway: {
+        expected: shotsResult.away.expectedShotsOnTarget,
+        variance: shotsResult.away.shotsOnTarget.variance,
+        distribution: shotsResult.away.shotsOnTarget.distribution,
+      },
       cards, fouls,
       corners: cornersResult ?? undefined,
       playerShots: { home: playerShotsHome, away: playerShotsAway },

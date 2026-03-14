@@ -443,7 +443,7 @@ export class FotmobScraper {
 
         try {
           await page.waitForFunction(
-            () => document.body.innerText.includes('Total shots') || document.body.innerText.includes('Top stats'),
+            "document.body.innerText.includes('Total shots') || document.body.innerText.includes('Top stats')",
             { timeout: Math.min(15000, this.FETCH_TIMEOUT_MS) }
           );
         } catch {

@@ -120,7 +120,7 @@ export interface CardsDistribution {
   expectedHomeYellow: number;
   expectedAwayYellow: number;
   expectedTotalYellow: number;
-  expectedHomeCornered: number;
+  expectedHomeRed: number;
   expectedAwayRed: number;
   expectedTotalCards: number;
   overUnderYellow: Record<string, { over: number; under: number }>;
@@ -139,6 +139,9 @@ export interface FoulsDistribution {
 export interface PlayerShotsPrediction {
   playerId: string;
   playerName: string;
+  teamId: string;
+  positionCode: string;
+  sampleSize: number;
   expectedShots: number;
   expectedShotsOnTarget: number;
   prob1PlusShots: number;
@@ -571,7 +574,7 @@ export class SpecializedModels {
       expectedHomeYellow: parseFloat(muHomeYellow.toFixed(4)),
       expectedAwayYellow: parseFloat(muAwayYellow.toFixed(4)),
       expectedTotalYellow: parseFloat(muTotalYellow.toFixed(4)),
-      expectedHomeCornered: parseFloat(lambdaHomeRed.toFixed(4)),
+      expectedHomeRed: parseFloat(lambdaHomeRed.toFixed(4)),
       expectedAwayRed: parseFloat(lambdaAwayRed.toFixed(4)),
       expectedTotalCards: parseFloat(muTotalCardPoints.toFixed(4)),
       overUnderYellow: makeOU(muTotalYellow, rYellow, yellowLines),
@@ -784,6 +787,9 @@ export class SpecializedModels {
       predictions.push({
         playerId: player.playerId,
         playerName: player.playerName,
+        teamId: player.teamId,
+        positionCode: player.positionCode,
+        sampleSize: player.gamesPlayed,
         expectedShots: parseFloat(expectedShots.toFixed(4)),
         expectedShotsOnTarget: parseFloat(expectedShotsOT.toFixed(4)),
         prob1PlusShots: parseFloat(p1PlusShots.toFixed(4)),
