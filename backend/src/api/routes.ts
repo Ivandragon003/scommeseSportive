@@ -467,14 +467,20 @@ function formatPrediction(pred: any): any {
   const cards = probs.cards ?? {};
   const fouls = probs.fouls ?? {};
   const corners = probs.corners ?? {};
+  const homeShotsModel = probs.shotsHome ?? {};
+  const awayShotsModel = probs.shotsAway ?? {};
+  const homeShotTotals = homeShotsModel.totalShots ?? {};
+  const awayShotTotals = awayShotsModel.totalShots ?? {};
+  const homeShotTarget = homeShotsModel.shotsOnTarget ?? probs.shotsOnTargetHome ?? {};
+  const awayShotTarget = awayShotsModel.shotsOnTarget ?? probs.shotsOnTargetAway ?? {};
 
   const lambdaHome = Number(probs.lambdaHome ?? 0);
   const lambdaAway = Number(probs.lambdaAway ?? 0);
 
-  const homeShotsExp = Number(probs.shotsHome?.expected ?? 0);
-  const awayShotsExp = Number(probs.shotsAway?.expected ?? 0);
-  const homeSOTExp = Number(probs.shotsOnTargetHome?.expected ?? 0);
-  const awaySOTExp = Number(probs.shotsOnTargetAway?.expected ?? 0);
+  const homeShotsExp = Number(homeShotsModel.expected ?? homeShotTotals.expected ?? 0);
+  const awayShotsExp = Number(awayShotsModel.expected ?? awayShotTotals.expected ?? 0);
+  const homeSOTExp = Number(homeShotTarget.expected ?? 0);
+  const awaySOTExp = Number(awayShotTarget.expected ?? 0);
 
   const cardsR = Math.max(1, Number(cards.negBinParams?.r ?? 12));
   const foulsR = Math.max(1, Number(fouls.negBinParams?.r ?? 13));
@@ -492,10 +498,18 @@ function formatPrediction(pred: any): any {
   const foulsDist = negBinDistribution(totalFoulsExp, foulsR, 50);
   const redDist = poissonDistribution(redExp, 4);
 
-  const shotsHomeDist = poissonDistribution(homeShotsExp, 25);
-  const shotsAwayDist = poissonDistribution(awayShotsExp, 25);
-  const shotsHomeSOTDist = poissonDistribution(homeSOTExp, 15);
-  const shotsAwaySOTDist = poissonDistribution(awaySOTExp, 15);
+  const shotsHomeDist = Object.keys(homeShotTotals.distribution ?? {}).length > 0
+    ? homeShotTotals.distribution
+    : poissonDistribution(homeShotsExp, 25);
+  const shotsAwayDist = Object.keys(awayShotTotals.distribution ?? {}).length > 0
+    ? awayShotTotals.distribution
+    : poissonDistribution(awayShotsExp, 25);
+  const shotsHomeSOTDist = Object.keys(homeShotTarget.distribution ?? {}).length > 0
+    ? homeShotTarget.distribution
+    : poissonDistribution(homeSOTExp, 15);
+  const shotsAwaySOTDist = Object.keys(awayShotTarget.distribution ?? {}).length > 0
+    ? awayShotTarget.distribution
+    : poissonDistribution(awaySOTExp, 15);
 
   const combinedShotsExp = homeShotsExp + awayShotsExp;
   const combinedSOTExp = homeSOTExp + awaySOTExp;
@@ -512,8 +526,8 @@ function formatPrediction(pred: any): any {
     return {
       playerId: p.playerId ?? `${side}_${idx}`,
       playerName: p.playerName ?? p.name ?? `Player ${idx + 1}`,
-      teamId: side,
-      position: 'UNK',
+      teamId: p.teamId ?? side,
+      position: p.positionCode ?? p.position ?? 'UNK',
       expectedShots: roundN(expShots, 3),
       expectedOnTarget: roundN(expSOT, 3),
       shotDistribution: poissonDistribution(expShots, 8),
@@ -529,7 +543,7 @@ function formatPrediction(pred: any): any {
         zeroShots: roundN(Math.max(0, 1 - Number(p.prob1PlusShots ?? 0)), 4),
       },
       confidenceLevel: roundN(Number(pred.modelConfidence ?? 0.75), 3),
-      sampleSize: 20,
+      sampleSize: Number(p.sampleSize ?? 0),
     };
   };
 
@@ -567,6 +581,7 @@ function formatPrediction(pred: any): any {
 
   return {
     matchId: pred.matchId,
+    competition: pred.competition ?? null,
     homeTeam: pred.homeTeam,
     awayTeam: pred.awayTeam,
     lambdaHome: roundN(lambdaHome, 3),
@@ -640,17 +655,39 @@ function formatPrediction(pred: any): any {
 
     shotsPrediction: {
       home: {
-        totalShots: { expected: roundN(homeShotsExp, 2), distribution: shotsHomeDist },
-        shotsOnTarget: { expected: roundN(homeSOTExp, 2), distribution: shotsHomeSOTDist },
+        totalShots: {
+          expected: roundN(homeShotsExp, 2),
+          variance: roundN(Number(homeShotTotals.variance ?? 0), 2),
+          distribution: shotsHomeDist,
+        },
+        shotsOnTarget: {
+          expected: roundN(homeSOTExp, 2),
+          variance: roundN(Number(homeShotTarget.variance ?? 0), 2),
+          distribution: shotsHomeSOTDist,
+        },
       },
       away: {
-        totalShots: { expected: roundN(awayShotsExp, 2), distribution: shotsAwayDist },
-        shotsOnTarget: { expected: roundN(awaySOTExp, 2), distribution: shotsAwaySOTDist },
+        totalShots: {
+          expected: roundN(awayShotsExp, 2),
+          variance: roundN(Number(awayShotTotals.variance ?? 0), 2),
+          distribution: shotsAwayDist,
+        },
+        shotsOnTarget: {
+          expected: roundN(awaySOTExp, 2),
+          variance: roundN(Number(awayShotTarget.variance ?? 0), 2),
+          distribution: shotsAwaySOTDist,
+        },
       },
       combined: {
-        totalShots: { expected: roundN(combinedShotsExp, 2) },
+        totalShots: {
+          expected: roundN(combinedShotsExp, 2),
+          variance: roundN(Number(probs.shotsHome?.totalShots?.variance ?? 0) + Number(probs.shotsAway?.totalShots?.variance ?? 0), 2),
+        },
         overUnder: overUnderShots,
-        totalOnTarget: { expected: roundN(combinedSOTExp, 2) },
+        totalOnTarget: {
+          expected: roundN(combinedSOTExp, 2),
+          variance: roundN(Number(homeShotTarget.variance ?? 0) + Number(awayShotTarget.variance ?? 0), 2),
+        },
         onTargetOverUnder: {
           over75: roundN(poissonOver(7.5, combinedSOTExp), 4),
           over95: roundN(poissonOver(9.5, combinedSOTExp), 4),

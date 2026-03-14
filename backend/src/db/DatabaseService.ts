@@ -745,9 +745,17 @@ export class DatabaseService {
   // ==================== TEAMS ====================
 
   async upsertTeam(team: any): Promise<void> {
+    const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(team ?? {}, key);
+    const existing = team?.teamId ? await this.getTeam(team.teamId) : null;
+    const pick = <T>(key: string, currentValue: T | null | undefined, fallback: T): T | null => {
+      if (has(key)) return (team[key] ?? null) as T | null;
+      if (currentValue !== undefined) return (currentValue ?? null) as T | null;
+      return fallback;
+    };
+
     await this.run(
       `
-      INSERT OR REPLACE INTO teams (
+      INSERT INTO teams (
         team_id, name, short_name, country, competition,
         attack_strength, defence_strength,
         avg_home_shots, avg_away_shots, avg_home_shots_ot, avg_away_shots_ot,
@@ -768,29 +776,51 @@ export class DatabaseService {
         :sourceTeamId, :teamStatsJson,
         datetime('now')
       )
+      ON CONFLICT(team_id) DO UPDATE SET
+        name = excluded.name,
+        short_name = excluded.short_name,
+        country = excluded.country,
+        competition = excluded.competition,
+        attack_strength = excluded.attack_strength,
+        defence_strength = excluded.defence_strength,
+        avg_home_shots = excluded.avg_home_shots,
+        avg_away_shots = excluded.avg_away_shots,
+        avg_home_shots_ot = excluded.avg_home_shots_ot,
+        avg_away_shots_ot = excluded.avg_away_shots_ot,
+        avg_home_xg = excluded.avg_home_xg,
+        avg_away_xg = excluded.avg_away_xg,
+        avg_yellow_cards = excluded.avg_yellow_cards,
+        avg_red_cards = excluded.avg_red_cards,
+        avg_fouls = excluded.avg_fouls,
+        avg_home_corners = excluded.avg_home_corners,
+        avg_away_corners = excluded.avg_away_corners,
+        shots_suppression = excluded.shots_suppression,
+        source_team_id = excluded.source_team_id,
+        team_stats_json = excluded.team_stats_json,
+        last_updated = datetime('now')
     `,
       {
         teamId: team.teamId,
-        name: team.name,
-        shortName: team.shortName ?? null,
-        country: team.country ?? null,
-        competition: team.competition ?? null,
-        attack: team.attackStrength ?? 0.0,
-        defence: team.defenceStrength ?? 0.0,
-        homeShots: team.avgHomeShots ?? 12.1,
-        awayShots: team.avgAwayShots ?? 10.4,
-        homeShotsOT: team.avgHomeShotsOT ?? 4.8,
-        awayShotsOT: team.avgAwayShotsOT ?? 3.9,
-        homeXG: team.avgHomeXG ?? null,
-        awayXG: team.avgAwayXG ?? null,
-        yellowCards: team.avgYellowCards ?? 1.9,
-        redCards: team.avgRedCards ?? 0.11,
-        fouls: team.avgFouls ?? 11.2,
-        homeCorners: team.avgHomeCorners ?? 5.5,
-        awayCorners: team.avgAwayCorners ?? 4.5,
-        shotsSuppression: team.shotsSuppression ?? 1.0,
-        sourceTeamId: team.sourceTeamId ?? null,
-        teamStatsJson: team.teamStatsJson ?? null,
+        name: pick('name', existing?.name, String(team.teamId)),
+        shortName: pick('shortName', existing?.short_name, null as string | null),
+        country: pick('country', existing?.country, null as string | null),
+        competition: pick('competition', existing?.competition, null as string | null),
+        attack: pick('attackStrength', existing?.attack_strength, 0.0),
+        defence: pick('defenceStrength', existing?.defence_strength, 0.0),
+        homeShots: pick('avgHomeShots', existing?.avg_home_shots, 12.1),
+        awayShots: pick('avgAwayShots', existing?.avg_away_shots, 10.4),
+        homeShotsOT: pick('avgHomeShotsOT', existing?.avg_home_shots_ot, 4.8),
+        awayShotsOT: pick('avgAwayShotsOT', existing?.avg_away_shots_ot, 3.9),
+        homeXG: pick('avgHomeXG', existing?.avg_home_xg, null as number | null),
+        awayXG: pick('avgAwayXG', existing?.avg_away_xg, null as number | null),
+        yellowCards: pick('avgYellowCards', existing?.avg_yellow_cards, 1.9),
+        redCards: pick('avgRedCards', existing?.avg_red_cards, 0.11),
+        fouls: pick('avgFouls', existing?.avg_fouls, 11.2),
+        homeCorners: pick('avgHomeCorners', existing?.avg_home_corners, 5.5),
+        awayCorners: pick('avgAwayCorners', existing?.avg_away_corners, 4.5),
+        shotsSuppression: pick('shotsSuppression', existing?.shots_suppression, 1.0),
+        sourceTeamId: pick('sourceTeamId', existing?.source_team_id, null as number | null),
+        teamStatsJson: pick('teamStatsJson', existing?.team_stats_json, null as string | null),
       }
     );
   }
@@ -815,6 +845,22 @@ export class DatabaseService {
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     };
+    const safeVarianceOrNull = (v: unknown): number | null => {
+      const n = safeAvgOrNull(v);
+      if (n === null) return null;
+      return Math.max(0, n);
+    };
+    const parseJson = (value: unknown): Record<string, any> => {
+      if (typeof value !== 'string' || value.trim().length === 0) return {};
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+
+    const existingTeam = await this.getTeam(teamId);
 
     const homeRows = await this.get(
       `SELECT
@@ -834,6 +880,11 @@ export class DatabaseService {
         NULLIF(SUM(CASE WHEN home_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN home_corners IS NOT NULL THEN home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN home_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners,
+        AVG(home_possession * 1.0) AS avg_possession,
+        AVG(home_shots * home_shots * 1.0) - AVG(home_shots * 1.0) * AVG(home_shots * 1.0) AS var_shots,
+        AVG(home_shots_on_target * home_shots_on_target * 1.0) - AVG(home_shots_on_target * 1.0) * AVG(home_shots_on_target * 1.0) AS var_shots_ot,
+        AVG(home_yellow_cards * home_yellow_cards * 1.0) - AVG(home_yellow_cards * 1.0) * AVG(home_yellow_cards * 1.0) AS var_yellow,
+        AVG(home_fouls * home_fouls * 1.0) - AVG(home_fouls * 1.0) * AVG(home_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n
       FROM matches
@@ -859,6 +910,11 @@ export class DatabaseService {
         NULLIF(SUM(CASE WHEN away_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN away_corners IS NOT NULL THEN away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN away_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners,
+        AVG(away_possession * 1.0) AS avg_possession,
+        AVG(away_shots * away_shots * 1.0) - AVG(away_shots * 1.0) * AVG(away_shots * 1.0) AS var_shots,
+        AVG(away_shots_on_target * away_shots_on_target * 1.0) - AVG(away_shots_on_target * 1.0) * AVG(away_shots_on_target * 1.0) AS var_shots_ot,
+        AVG(away_yellow_cards * away_yellow_cards * 1.0) - AVG(away_yellow_cards * 1.0) * AVG(away_yellow_cards * 1.0) AS var_yellow,
+        AVG(away_fouls * away_fouls * 1.0) - AVG(away_fouls * 1.0) * AVG(away_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n
       FROM matches
@@ -884,6 +940,32 @@ export class DatabaseService {
     const avgYellow = totalW > 0 ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeW + Number(awayRows?.avg_yellow ?? 1.9) * awayW) / totalW) : 1.9;
     const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
+    const existingStats = parseJson(existingTeam?.team_stats_json);
+    const computedStats = {
+      ...(existingStats.computed ?? {}),
+      overallSampleSize: totalN,
+      home: {
+        sampleSize: homeN,
+        avgPossession: safeAvgOrNull(homeRows?.avg_possession),
+        varShots: safeVarianceOrNull(homeRows?.var_shots),
+        varShotsOT: safeVarianceOrNull(homeRows?.var_shots_ot),
+        varYellowCards: safeVarianceOrNull(homeRows?.var_yellow),
+        varFouls: safeVarianceOrNull(homeRows?.var_fouls),
+      },
+      away: {
+        sampleSize: awayN,
+        avgPossession: safeAvgOrNull(awayRows?.avg_possession),
+        varShots: safeVarianceOrNull(awayRows?.var_shots),
+        varShotsOT: safeVarianceOrNull(awayRows?.var_shots_ot),
+        varYellowCards: safeVarianceOrNull(awayRows?.var_yellow),
+        varFouls: safeVarianceOrNull(awayRows?.var_fouls),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    const teamStatsJson = JSON.stringify({
+      ...existingStats,
+      computed: computedStats,
+    });
 
     await this.run(
       `UPDATE teams SET
@@ -899,6 +981,7 @@ export class DatabaseService {
         avg_home_corners   = :homeCorners,
         avg_away_corners   = :awayCorners,
         shots_suppression  = :suppression,
+        team_stats_json    = :teamStatsJson,
         last_updated       = datetime('now')
       WHERE team_id = :teamId`,
       {
@@ -915,6 +998,7 @@ export class DatabaseService {
         homeCorners: safeAvgOrNull(homeRows?.avg_corners) ?? 5.5,
         awayCorners: safeAvgOrNull(awayRows?.avg_corners) ?? 4.5,
         suppression: shotsSuppression,
+        teamStatsJson,
       }
     );
   }
