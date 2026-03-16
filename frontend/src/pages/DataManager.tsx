@@ -470,10 +470,11 @@ const DataManager: React.FC = () => {
       if (gf > ga) { s.w++; s.pts += 3; } else if (gf === ga) { s.d++; s.pts++; } else s.l++;
       add('xgf','xgfN', h ? m.home_xg : m.away_xg);
       add('xga','xgaN', h ? m.away_xg : m.home_xg);
-      add('sf', 'sfN',  h ? m.home_shots : m.away_shots);
-      add('sa', 'saN',  h ? m.away_shots : m.home_shots);
-      add('sotf','sotfN', h ? m.home_shots_on_target : m.away_shots_on_target);
-      add('sota','sotaN', h ? m.away_shots_on_target : m.home_shots_on_target);
+      // Removed shots data as it's now null from Fotmob (using Transfermarkt averages instead)
+      // add('sf', 'sfN',  h ? m.home_shots : m.away_shots);
+      // add('sa', 'saN',  h ? m.away_shots : m.home_shots);
+      // add('sotf','sotfN', h ? m.home_shots_on_target : m.away_shots_on_target);
+      // add('sota','sotaN', h ? m.away_shots_on_target : m.home_shots_on_target);
       add('fouls','foulsN', h ? m.home_fouls : m.away_fouls);
       add('yc','ycN', h ? m.home_yellow_cards : m.away_yellow_cards);
       add('rc','rcN', h ? m.home_red_cards : m.away_red_cards);
@@ -491,10 +492,11 @@ const DataManager: React.FC = () => {
     s.ppg = s.pts / d; s.gd = s.gf - s.ga; s.wr = s.w / d;
     s.xgfAvg  = s.xgfN  > 0 ? s.xgf  / s.xgfN  : null;
     s.xgaAvg  = s.xgaN  > 0 ? s.xga  / s.xgaN  : null;
-    s.sfAvg   = s.sfN   > 0 ? s.sf   / s.sfN   : null;
-    s.saAvg   = s.saN   > 0 ? s.sa   / s.saN   : null;
-    s.sotfAvg = s.sotfN > 0 ? s.sotf / s.sotfN : null;
-    s.sotaAvg = s.sotaN > 0 ? s.sota / s.sotaN : null;
+    // Removed shots averages as data is now null
+    // s.sfAvg   = s.sfN   > 0 ? s.sf   / s.sfN   : null;
+    // s.saAvg   = s.saN   > 0 ? s.sa   / s.saN   : null;
+    // s.sotfAvg = s.sotfN > 0 ? s.sotf / s.sotfN : null;
+    // s.sotaAvg = s.sotaN > 0 ? s.sota / s.sotaN : null;
     s.foulsAvg= s.foulsN> 0 ? s.fouls/ s.foulsN: null;
     s.ycAvg   = s.ycN   > 0 ? s.yc   / s.ycN   : null;
     s.rcAvg   = s.rcN   > 0 ? s.rc   / s.rcN   : null;
@@ -525,16 +527,17 @@ const DataManager: React.FC = () => {
     return (h + a) / 2;
   }, [selectedTeam]);
 
-  const shotsForDisplay = stats.sfN > 0 ? n(stats.sfAvg, 2) : (modelShotsForAvg !== null ? `${n(modelShotsForAvg, 2)}*` : '-');
-  const shotsAgainstDisplay = stats.saN > 0 ? n(stats.saAvg, 2) : '-';
-  const sotForDisplay = stats.sotfN > 0 ? n(stats.sotfAvg, 2) : (modelSotForAvg !== null ? `${n(modelSotForAvg, 2)}*` : '-');
-  const sotAgainstDisplay = stats.sotaN > 0 ? n(stats.sotaAvg, 2) : '-';
+  const shotsForDisplay = modelShotsForAvg !== null ? `${n(modelShotsForAvg, 2)}*` : '-';
+  const shotsAgainstDisplay = '-'; // Removed as data is null
+  const sotForDisplay = modelSotForAvg !== null ? `${n(modelSotForAvg, 2)}*` : '-';
+  const sotAgainstDisplay = '-'; // Removed as data is null
 
   const players = selectedTeam ? (playersByTeam[selectedTeam.team_id] ?? []) : [];
   const qualityRows = [
     { key: 'xg', label: 'xG' },
-    { key: 'shots', label: 'Tiri' },
-    { key: 'shotsOnTarget', label: 'Tiri OT' },
+    // Removed shots and shotsOnTarget as data is now null from Fotmob
+    // { key: 'shots', label: 'Tiri' },
+    // { key: 'shotsOnTarget', label: 'Tiri OT' },
     { key: 'fouls', label: 'Falli' },
     { key: 'yellowCards', label: 'Gialli' },
     { key: 'redCards', label: 'Rossi' },
@@ -693,7 +696,7 @@ const DataManager: React.FC = () => {
                         <div className="dm-league-kpi"><span>Partite</span><strong>{league.matches ?? 0}</strong></div>
                         <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals ?? 0, 2)}</strong></div>
                         <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards ?? 0, 2)}</strong></div>
-                        <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots ?? 0, 2)}</strong></div>
+                        {/* Removed avgTotalShots as shots data is now null from Fotmob */}
                         <div className="dm-league-kpi"><span>xG coverage</span><strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong></div>
                         <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>
                       </div>
@@ -732,7 +735,7 @@ const DataManager: React.FC = () => {
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
                   <thead>
-                    <tr><th>Data</th><th>Casa</th><th style={{ textAlign: 'center' }}>Ris.</th><th>Ospite</th><th>xG</th><th>Tiri</th><th>Campionato</th></tr>
+                    <tr><th>Data</th><th>Casa</th><th style={{ textAlign: 'center' }}>Ris.</th><th>Ospite</th><th>xG</th><th>Campionato</th></tr>
                   </thead>
                   <tbody>
                     {filteredMatches.slice(0, 80).map((m: any) => (
@@ -746,11 +749,7 @@ const DataManager: React.FC = () => {
                             ? `${n(m.home_xg, 1)} - ${n(m.away_xg, 1)}`
                             : '-'}
                         </td>
-                        <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>
-                          {(m.home_shots !== null && m.home_shots !== undefined && m.away_shots !== null && m.away_shots !== undefined)
-                            ? `${m.home_shots} - ${m.away_shots}`
-                            : '-'}
-                        </td>
+                        {/* Removed shots column as data is now null */}
                         <td><span className="dm-comp-tag">{m.competition}</span></td>
                       </tr>
                     ))}
