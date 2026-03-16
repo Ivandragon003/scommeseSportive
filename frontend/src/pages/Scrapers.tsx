@@ -98,6 +98,9 @@ export default function Scrapers() {
   const [fotmobResult, setFotmobResult] = useState<any>(null);
   const [fotmobError, setFotmobError] = useState<string | null>(null);
 
+  // Scraper status
+  const [scraperStatus, setScraperStatus] = useState<any>(null);
+
   // Odds state
   const [oddsLoading, setOddsLoading] = useState(false);
   const [oddsError, setOddsError] = useState<string | null>(null);
@@ -124,6 +127,21 @@ export default function Scrapers() {
     };
     loadOddsStatus();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fetchStatus = async () => {
+      try {
+        const res = await API.get('/scraper/status');
+        if (active) setScraperStatus(res.data?.data ?? null);
+      } catch (err) {
+        console.error('Failed to fetch scraper status:', err);
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Every 5 seconds
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
   const handleFotmob = async (mode: FotmobMode) => {
@@ -172,6 +190,30 @@ export default function Scrapers() {
             Scarica statistiche storiche e quote live in automatico
           </p>
         </div>
+
+        {/* AUTO SYNC STATUS */}
+        {scraperStatus && (
+          <div className="fp-card" style={{ marginBottom: 24, padding: 16, background: 'var(--bg-1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: 18 }}>
+                {scraperStatus.isUpdating ? '⏳' : '✅'}
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>
+                  {scraperStatus.isUpdating ? 'Aggiornamento automatico in corso...' : 'Sistema aggiornato'}
+                </div>
+                {scraperStatus.lastUpdate && (
+                  <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
+                    Ultimo aggiornamento: {formatDate(scraperStatus.lastUpdate.at)} - {scraperStatus.lastUpdate.message}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  Auto-sync: {scraperStatus.autoSyncEnabled ? 'Abilitato (top 5 leghe)' : 'Disabilitato'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* TABS */}
         <div className="fp-tabs" style={{ marginBottom: 24 }}>

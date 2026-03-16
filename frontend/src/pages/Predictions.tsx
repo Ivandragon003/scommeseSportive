@@ -40,8 +40,11 @@ const MARKET_LABELS: Record<string,string> = {
   under25:'U2.5', under35:'U3.5',
   'yellow_over_3.5':'Gialli O3.5','yellow_over_4.5':'Gialli O4.5','yellow_over_5.5':'Gialli O5.5',
   'fouls_over_20.5':'Falli O20.5','fouls_over_23.5':'Falli O23.5',
-  'shots_total_over_23.5':'Tiri O23.5','shots_total_over_25.5':'Tiri O25.5',
-  'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5',
+  'shots_total_over_23.5':'Tiri O23.5','shots_total_over_25.5':'Tiri O25.5','shots_total_over_27.5':'Tiri O27.5','shots_total_over_29.5':'Tiri O29.5',
+  'shots_total_under_22.5':'Tiri U22.5','shots_total_under_24.5':'Tiri U24.5','shots_total_under_26.5':'Tiri U26.5','shots_total_under_28.5':'Tiri U28.5',
+  'shots_home_over_10.5':'Tiri Casa O10.5','shots_home_over_12.5':'Tiri Casa O12.5','shots_home_over_14.5':'Tiri Casa O14.5',
+  'shots_away_over_10.5':'Tiri Ospite O10.5','shots_away_over_12.5':'Tiri Ospite O12.5','shots_away_over_14.5':'Tiri Ospite O14.5',
+  'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5','sot_total_over_11.5':'SOT O11.5','sot_total_over_13.5':'SOT O13.5',
 };
 const prettyLine = (raw: string): string => {
   const cleaned = String(raw ?? '').trim().replace(',', '.');

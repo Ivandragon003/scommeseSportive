@@ -1053,10 +1053,10 @@ export class FotmobScraper {
       awayGoals: match.awayGoals,
       homeXG: match.homeXG,
       awayXG: match.awayXG,
-      homeTotalShots: match.homeTotalShots,
-      awayTotalShots: match.awayTotalShots,
-      homeShotsOnTarget: match.homeShotsOnTarget,
-      awayShotsOnTarget: match.awayShotsOnTarget,
+      homeTotalShots: null, // Removed to avoid duplication with Transfermarkt
+      awayTotalShots: null, // Removed to avoid duplication with Transfermarkt
+      homeShotsOnTarget: null, // Removed to avoid duplication with Transfermarkt
+      awayShotsOnTarget: null, // Removed to avoid duplication with Transfermarkt
       homePossession: match.homePossession,
       awayPossession: match.awayPossession,
       homeFouls: match.homeFouls,
