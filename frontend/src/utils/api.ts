@@ -149,8 +149,27 @@ export const getSystemAnalytics = (params?: { userId?: string; competition?: str
 export const getFotmobTeamSeasonStats = (params: { competition: string; season: string; teamId: string }) =>
   API.get<ApiResponse<any>>('/stats/fotmob/team-season', { params, timeout: 120000 }).then(r => r.data);
 
+<<<<<<< HEAD
 export const getScraperStatus = () =>
   API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
+=======
+export const autoRefreshDataOnEnter = (params?: {
+  mode?: 'single' | 'top5';
+  competition?: string;
+  yearsBack?: number;
+  importPlayers?: boolean;
+  includeMatchDetails?: boolean;
+  forceRefresh?: boolean;
+}) =>
+  API.post<ApiResponse<any>>('/scraper/fotmob', {
+    mode: params?.mode ?? 'top5',
+    competition: params?.competition ?? 'Serie A',
+    yearsBack: params?.yearsBack ?? 2,
+    importPlayers: params?.importPlayers ?? false,
+    includeMatchDetails: params?.includeMatchDetails ?? false,
+    forceRefresh: params?.forceRefresh ?? false,
+  }, { timeout: 3600000 }).then(r => r.data);
+>>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
 // Health
 export const healthCheck = () =>

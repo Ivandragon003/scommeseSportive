@@ -289,7 +289,7 @@ export class DatabaseService {
   async upsertMatch(match: any): Promise<void> {
     await this.run(
       `
-      INSERT OR REPLACE INTO matches (
+      INSERT INTO matches (
         match_id, home_team_id, away_team_id, home_team_name, away_team_name,
         date, home_goals, away_goals, home_xg, away_xg,
         home_shots, away_shots, home_shots_on_target, away_shots_on_target,
@@ -306,6 +306,36 @@ export class DatabaseService {
         :homeCorners, :awayCorners,
         :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
+      ON CONFLICT(match_id) DO UPDATE SET
+        home_team_id = COALESCE(excluded.home_team_id, matches.home_team_id),
+        away_team_id = COALESCE(excluded.away_team_id, matches.away_team_id),
+        home_team_name = COALESCE(excluded.home_team_name, matches.home_team_name),
+        away_team_name = COALESCE(excluded.away_team_name, matches.away_team_name),
+        date = COALESCE(excluded.date, matches.date),
+        home_goals = COALESCE(excluded.home_goals, matches.home_goals),
+        away_goals = COALESCE(excluded.away_goals, matches.away_goals),
+        home_xg = COALESCE(excluded.home_xg, matches.home_xg),
+        away_xg = COALESCE(excluded.away_xg, matches.away_xg),
+        home_shots = COALESCE(excluded.home_shots, matches.home_shots),
+        away_shots = COALESCE(excluded.away_shots, matches.away_shots),
+        home_shots_on_target = COALESCE(excluded.home_shots_on_target, matches.home_shots_on_target),
+        away_shots_on_target = COALESCE(excluded.away_shots_on_target, matches.away_shots_on_target),
+        home_possession = COALESCE(excluded.home_possession, matches.home_possession),
+        away_possession = COALESCE(excluded.away_possession, matches.away_possession),
+        home_fouls = COALESCE(excluded.home_fouls, matches.home_fouls),
+        away_fouls = COALESCE(excluded.away_fouls, matches.away_fouls),
+        home_yellow_cards = COALESCE(excluded.home_yellow_cards, matches.home_yellow_cards),
+        away_yellow_cards = COALESCE(excluded.away_yellow_cards, matches.away_yellow_cards),
+        home_red_cards = COALESCE(excluded.home_red_cards, matches.home_red_cards),
+        away_red_cards = COALESCE(excluded.away_red_cards, matches.away_red_cards),
+        home_corners = COALESCE(excluded.home_corners, matches.home_corners),
+        away_corners = COALESCE(excluded.away_corners, matches.away_corners),
+        referee = COALESCE(excluded.referee, matches.referee),
+        competition = COALESCE(excluded.competition, matches.competition),
+        season = COALESCE(excluded.season, matches.season),
+        source = COALESCE(excluded.source, matches.source),
+        source_match_id = COALESCE(excluded.source_match_id, matches.source_match_id),
+        raw_json = COALESCE(excluded.raw_json, matches.raw_json)
     `,
       {
         matchId: match.matchId,

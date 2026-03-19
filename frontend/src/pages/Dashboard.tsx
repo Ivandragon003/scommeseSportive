@@ -34,6 +34,12 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
     void loadData();
   }, [activeUser]);
 
+  useEffect(() => {
+    const onSyncDone = () => { void loadData(); };
+    window.addEventListener('data-sync-complete', onSyncDone);
+    return () => window.removeEventListener('data-sync-complete', onSyncDone);
+  }, [activeUser]);
+
   const loadData = async () => {
     setRefreshing(true);
     const [budgetRes, betsRes, matchesCountRes, analyticsRes, scraperStatusRes] = await Promise.allSettled([
