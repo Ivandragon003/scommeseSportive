@@ -32,7 +32,7 @@ const localStyles = `
     border: 1px solid var(--border); background: var(--surface2);
     cursor: pointer; font-size: 13px; font-weight: 600;
     color: var(--text-2); transition: all var(--transition);
-    font-family: 'Syne', sans-serif;
+    font-family: var(--font-sans);
   }
   .sc-comp:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface3); }
   .sc-comp.on  { background: var(--blue-dim); color: var(--blue); border-color: var(--blue-border); box-shadow: 0 0 10px rgba(76,201,240,0.12); }
@@ -57,7 +57,7 @@ const localStyles = `
     color: var(--blue); font-size: 14px; font-weight: 700;
     cursor: pointer; transition: all var(--transition);
     display: flex; align-items: center; justify-content: center; gap: 10px;
-    font-family: 'Syne', sans-serif;
+    font-family: var(--font-sans);
   }
   .sc-big-btn:hover:not(:disabled) {
     background: var(--blue-hover); border-color: var(--blue);

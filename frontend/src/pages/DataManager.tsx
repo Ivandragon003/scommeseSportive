@@ -98,7 +98,7 @@ const localStyles = `
   .dm-detail-comp { font-size: 13px; color: var(--text-2); }
   .dm-scope-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
   .dm-scope-tab {
-    font-family: 'Syne',sans-serif; font-size: 11px; font-weight: 700;
+    font-family: var(--font-sans); font-size: 11px; font-weight: 700;
     padding: 7px 14px; border-radius: var(--radius-xs); border: 1px solid var(--border);
     background: transparent; color: var(--text-2); cursor: pointer; transition: all var(--transition);
   }
@@ -143,7 +143,7 @@ const localStyles = `
 
   /* ACTION BUTTONS - grandi, per model tab */
   .dm-action-btn {
-    font-family: 'Syne',sans-serif; font-weight: 700; font-size: 14px;
+    font-family: var(--font-sans); font-weight: 700; font-size: 14px;
     border-radius: var(--radius-sm); cursor: pointer; padding: 15px 24px;
     transition: all var(--transition); display: flex; align-items: center;
     gap: 8px; width: 100%; justify-content: center; border: 1px solid;
