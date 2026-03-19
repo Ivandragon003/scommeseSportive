@@ -1,5 +1,6 @@
 import { SupplementaryData } from '../models/DixonColesModel';
 import { PlayerShotsData } from '../models/SpecializedModels';
+import { predictionConfig } from '../config/predictionConfig';
 
 export interface ContextualPredictionInput {
   competitiveness?: number;
@@ -184,6 +185,7 @@ export class PredictionContextBuilder {
     );
 
     const goalBias =
+<<<<<<< HEAD
       formDelta * 0.12 +
       motivationDelta * 0.06 +
       restDelta * 0.05 +
@@ -196,6 +198,16 @@ export class PredictionContextBuilder {
       restDelta * 0.04 +
       scheduleLoadDelta * 0.03 +
       absencesDelta * 0.04;
+=======
+      formDelta * predictionConfig.model.contextWeights.form +
+      motivationDelta * predictionConfig.model.contextWeights.motivation +
+      absencesDelta * predictionConfig.model.contextWeights.absences +
+      disciplineDelta * predictionConfig.model.contextWeights.discipline;
+    const shotBias =
+      formDelta * predictionConfig.model.contextWeights.form * 0.75 +
+      motivationDelta * predictionConfig.model.contextWeights.motivation * 0.67 +
+      absencesDelta * predictionConfig.model.contextWeights.absences * 0.8;
+>>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
     return {
       homeGoalMultiplier: this.clamp(1 + goalBias, 0.72, 1.35),

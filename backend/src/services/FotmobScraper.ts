@@ -98,6 +98,8 @@ export class FotmobScraper {
   private readonly DETAILS_CIRCUIT_MIN_ATTEMPTS = 12;
   private readonly DETAILS_CIRCUIT_BLOCK_RATIO = 0.65;
   private readonly FETCH_TIMEOUT_MS = 45000;
+  private readonly FETCH_MAX_RETRIES = 2;
+  private readonly FETCH_RETRY_WAIT_MS = 1200;
   private readonly SEASON_STATS_CACHE_TTL_MS = 10 * 60 * 1000;
   private seasonStatsCache = new Map<string, { at: number; data: Record<string, FotmobTeamSeasonStats> }>();
   private browser: Browser | null = null;
@@ -184,74 +186,93 @@ export class FotmobScraper {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  private async fetchJson<T>(apiPath: string): Promise<T> {
-    const page = await this.ensurePage();
-    const url = `${this.BASE_URL}${apiPath}`;
-    const response = await page.request.get(url, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': this.BASE_URL,
-        'Origin': this.BASE_URL,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      timeout: this.FETCH_TIMEOUT_MS,
-    });
-    if (response.ok()) {
-      return response.json() as Promise<T>;
+  private async withRetry<T>(fn: () => Promise<T>, maxRetries = this.FETCH_MAX_RETRIES): Promise<T> {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxRetries) break;
+        const waitMs = this.FETCH_RETRY_WAIT_MS * (attempt + 1);
+        await this.sleep(waitMs);
+      }
     }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
 
-    // Fallback: fetch eseguito dentro il browser context con cookie/sessione attiva.
-    const fallback = await page.evaluate(async (fullUrl: string) => {
-      const r = await fetch(fullUrl, {
-        method: 'GET',
-        credentials: 'include',
+  private async fetchJson<T>(apiPath: string): Promise<T> {
+    return this.withRetry(async () => {
+      const page = await this.ensurePage();
+      const url = `${this.BASE_URL}${apiPath}`;
+      const response = await page.request.get(url, {
         headers: {
           'Accept': 'application/json, text/plain, */*',
+          'Referer': this.BASE_URL,
+          'Origin': this.BASE_URL,
+          'X-Requested-With': 'XMLHttpRequest',
         },
+        timeout: this.FETCH_TIMEOUT_MS,
       });
-      const text = await r.text();
-      return { ok: r.ok, status: r.status, text };
-    }, url);
+      if (response.ok()) {
+        return response.json() as Promise<T>;
+      }
 
-    if (!fallback.ok) {
-      throw new Error(`FotMob API ${apiPath} returned ${fallback.status}`);
-    }
+      // Fallback: fetch eseguito dentro il browser context con cookie/sessione attiva.
+      const fallback = await page.evaluate(async (fullUrl: string) => {
+        const r = await fetch(fullUrl, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+          },
+        });
+        const text = await r.text();
+        return { ok: r.ok, status: r.status, text };
+      }, url);
 
-    return JSON.parse(fallback.text) as T;
+      if (!fallback.ok) {
+        throw new Error(`FotMob API ${apiPath} returned ${fallback.status}`);
+      }
+
+      return JSON.parse(fallback.text) as T;
+    });
   }
 
   private async fetchAbsoluteJson<T>(url: string): Promise<T> {
-    const page = await this.ensurePage();
-    const response = await page.request.get(url, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': this.BASE_URL,
-        'Origin': this.BASE_URL,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      timeout: this.FETCH_TIMEOUT_MS,
-    });
-    if (response.ok()) {
-      return response.json() as Promise<T>;
-    }
-
-    const fallback = await page.evaluate(async (fullUrl: string) => {
-      const r = await fetch(fullUrl, {
-        method: 'GET',
-        credentials: 'include',
+    return this.withRetry(async () => {
+      const page = await this.ensurePage();
+      const response = await page.request.get(url, {
         headers: {
           'Accept': 'application/json, text/plain, */*',
+          'Referer': this.BASE_URL,
+          'Origin': this.BASE_URL,
+          'X-Requested-With': 'XMLHttpRequest',
         },
+        timeout: this.FETCH_TIMEOUT_MS,
       });
-      const text = await r.text();
-      return { ok: r.ok, status: r.status, text };
-    }, url);
+      if (response.ok()) {
+        return response.json() as Promise<T>;
+      }
 
-    if (!fallback.ok) {
-      throw new Error(`FotMob API absolute ${url} returned ${fallback.status}`);
-    }
+      const fallback = await page.evaluate(async (fullUrl: string) => {
+        const r = await fetch(fullUrl, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+          },
+        });
+        const text = await r.text();
+        return { ok: r.ok, status: r.status, text };
+      }, url);
 
-    return JSON.parse(fallback.text) as T;
+      if (!fallback.ok) {
+        throw new Error(`FotMob API absolute ${url} returned ${fallback.status}`);
+      }
+
+      return JSON.parse(fallback.text) as T;
+    });
   }
 
   private detailsApiBlocked(message: string): boolean {
@@ -654,6 +675,7 @@ export class FotmobScraper {
     if (!rawDate) return null;
     const date = new Date(rawDate);
     if (Number.isNaN(date.getTime())) return null;
+    const isFutureFixture = date.getTime() > Date.now();
 
     const homeTeamName = String(summary?.home?.name ?? summary?.homeTeam?.name ?? '').trim();
     const awayTeamName = String(summary?.away?.name ?? summary?.awayTeam?.name ?? '').trim();
@@ -731,7 +753,9 @@ export class FotmobScraper {
         ).trim() || null)
       : null;
 
-    const playerStats = details ? this.parsePlayerStatsFromMatch(details, homeTeamId, awayTeamId) : [];
+    const playerStats = !isFutureFixture && details
+      ? this.parsePlayerStatsFromMatch(details, homeTeamId, awayTeamId)
+      : [];
     const matchId = `fotmob_${sourceMatchId}`;
 
     return {
@@ -744,26 +768,26 @@ export class FotmobScraper {
       awayTeamName,
       homeGoals,
       awayGoals,
-      homeXG: xg.home,
-      awayXG: xg.away,
-      homeTotalShots: shots.home,
-      awayTotalShots: shots.away,
-      homeShotsOnTarget: sot.home,
-      awayShotsOnTarget: sot.away,
-      homePossession: poss.home,
-      awayPossession: poss.away,
-      homeYellowCards: yellow.home,
-      awayYellowCards: yellow.away,
-      homeRedCards: red.home,
-      awayRedCards: red.away,
-      homeFouls: fouls.home,
-      awayFouls: fouls.away,
-      homeCorners: corners.home,
-      awayCorners: corners.away,
-      referee,
+      homeXG: isFutureFixture ? null : xg.home,
+      awayXG: isFutureFixture ? null : xg.away,
+      homeTotalShots: isFutureFixture ? null : shots.home,
+      awayTotalShots: isFutureFixture ? null : shots.away,
+      homeShotsOnTarget: isFutureFixture ? null : sot.home,
+      awayShotsOnTarget: isFutureFixture ? null : sot.away,
+      homePossession: isFutureFixture ? null : poss.home,
+      awayPossession: isFutureFixture ? null : poss.away,
+      homeYellowCards: isFutureFixture ? null : yellow.home,
+      awayYellowCards: isFutureFixture ? null : yellow.away,
+      homeRedCards: isFutureFixture ? null : red.home,
+      awayRedCards: isFutureFixture ? null : red.away,
+      homeFouls: isFutureFixture ? null : fouls.home,
+      awayFouls: isFutureFixture ? null : fouls.away,
+      homeCorners: isFutureFixture ? null : corners.home,
+      awayCorners: isFutureFixture ? null : corners.away,
+      referee: isFutureFixture ? null : referee,
       competition: leagueName,
       season,
-      rawJson: JSON.stringify(details ?? summary ?? {}),
+      rawJson: JSON.stringify((isFutureFixture ? summary : (details ?? summary)) ?? {}),
       playerStats,
     };
   }

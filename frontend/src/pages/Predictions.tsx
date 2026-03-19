@@ -540,6 +540,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [oddsMsg, setOddsMsg] = useState('');
   const [oddsTone, setOddsTone] = useState<'info'|'success'|'warning'|'danger'>('info');
   const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
+  const [autoSyncMsg, setAutoSyncMsg] = useState<string>('');
   const rightRef = useRef<HTMLDivElement>(null);
   const analyzeReqRef = useRef(0);
   const analysisCacheRef = useRef<Map<string, {
@@ -600,6 +601,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   }, [competition, season, matchMode]);
   useEffect(() => { loadMatchdays(); }, [season]);
   useEffect(() => {
+<<<<<<< HEAD
     setPred(null);
     setActiveMatchId(null);
     setAnalysisCacheKey(null);
@@ -608,6 +610,25 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     setMarketsRequested([]);
     setStakes({});
   }, [matchMode]);
+=======
+    const onSyncDone = () => {
+      setAutoSyncMsg('Dati aggiornati. Lista partite e modelli ricaricati.');
+      analysisCacheRef.current.clear();
+      void loadUpcoming();
+      void loadMatchdays();
+      void loadUserContext();
+    };
+    const onSyncError = () => {
+      setAutoSyncMsg('Aggiornamento automatico non completato. Uso ultimi dati disponibili.');
+    };
+    window.addEventListener('data-sync-complete', onSyncDone);
+    window.addEventListener('data-sync-error', onSyncError);
+    return () => {
+      window.removeEventListener('data-sync-complete', onSyncDone);
+      window.removeEventListener('data-sync-error', onSyncError);
+    };
+  }, [competition, season, activeUser]);
+>>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
   const comps = useMemo(() => Array.from(new Set(['Serie A', ...teams.map((t:any) => t.competition).filter(Boolean)])), [teams]);
 
@@ -1003,6 +1024,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         {/*  LEFT PANEL  */}
         <div className="pr-left">
           <div className="pr-left-head">
+<<<<<<< HEAD
             <div className="pr-left-title">{leftPanelTitle}</div>
 
             <div style={{display:'flex',gap:6,marginBottom:10}}>
@@ -1013,6 +1035,14 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 Recenti Giocate
               </button>
             </div>
+=======
+            <div className="pr-left-title">Partite in programma</div>
+            {autoSyncMsg && (
+              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+                {autoSyncMsg}
+              </div>
+            )}
+>>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
             {/* Filters */}
             <div className="pr-season-row">
