@@ -201,9 +201,9 @@ const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
 
 /*  STYLES  */
 const S = `
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=DM+Mono:wght@400;500&display=swap');
 
-.pr { display:flex; height:calc(100vh - 56px); overflow:hidden; font-family:'Syne',sans-serif; background:var(--bg); color:var(--text); }
+.pr { display:flex; height:calc(100vh - 56px); overflow:hidden; font-family:var(--font-sans); background:var(--bg); color:var(--text); }
 
 /* LEFT PANEL  fixed sidebar */
 .pr-left {
@@ -318,7 +318,7 @@ const S = `
 .pr-tabs { display:flex; gap:2px; padding:0 20px 12px; overflow-x:auto; scrollbar-width:none; flex-shrink:0; }
 .pr-tabs::-webkit-scrollbar { display:none; }
 .pr-tab {
-  font-family:'Syne',sans-serif; font-size:11px; font-weight:700;
+  font-family:var(--font-sans); font-size:11px; font-weight:700;
   white-space:nowrap; padding:7px 14px; border-radius:8px;
   border:1px solid transparent; background:transparent; color:var(--text-3);
   cursor:pointer; transition:all var(--transition); flex-shrink:0;
@@ -601,7 +601,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   }, [competition, season, matchMode]);
   useEffect(() => { loadMatchdays(); }, [season]);
   useEffect(() => {
-<<<<<<< HEAD
     setPred(null);
     setActiveMatchId(null);
     setAnalysisCacheKey(null);
@@ -610,7 +609,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     setMarketsRequested([]);
     setStakes({});
   }, [matchMode]);
-=======
+  useEffect(() => {
     const onSyncDone = () => {
       setAutoSyncMsg('Dati aggiornati. Lista partite e modelli ricaricati.');
       analysisCacheRef.current.clear();
@@ -628,7 +627,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       window.removeEventListener('data-sync-error', onSyncError);
     };
   }, [competition, season, activeUser]);
->>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
   const comps = useMemo(() => Array.from(new Set(['Serie A', ...teams.map((t:any) => t.competition).filter(Boolean)])), [teams]);
 
@@ -1024,7 +1022,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         {/*  LEFT PANEL  */}
         <div className="pr-left">
           <div className="pr-left-head">
-<<<<<<< HEAD
             <div className="pr-left-title">{leftPanelTitle}</div>
 
             <div style={{display:'flex',gap:6,marginBottom:10}}>
@@ -1035,14 +1032,11 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 Recenti Giocate
               </button>
             </div>
-=======
-            <div className="pr-left-title">Partite in programma</div>
             {autoSyncMsg && (
               <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
                 {autoSyncMsg}
               </div>
             )}
->>>>>>> cb01f0627e21f4a43b3ff0e10d9cf61fad31c23e
 
             {/* Filters */}
             <div className="pr-season-row">
@@ -1126,7 +1120,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   ? 'Apri una partita gia giocata per verificare il pronostico finale consigliato.'
                   : 'Clicca su una partita nel pannello di sinistra per analizzarla.'}<br />
                 {matchMode === 'recent'
-                  ? 'Il replay usa il modello attuale e quote stimate, non un archivio storico bookmaker.'
+                  ? 'Il replay usa prima lo snapshot storico del bookmaker; se manca, passa alle quote stimate dal modello.'
                   : 'Le quote vengono caricate automaticamente.'}
               </div>
             </div>
