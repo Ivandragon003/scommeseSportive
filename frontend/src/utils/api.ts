@@ -36,10 +36,18 @@ export const getUpcomingMatches = (
   return API.get<ApiResponse<any[]>>('/matches/upcoming', { params }).then(r => r.data);
 };
 
+export const getRecentMatches = (
+  filters?: { competition?: string; season?: string; limit?: number } | string
+) => {
+  const params = typeof filters === 'string' ? { competition: filters } : (filters ?? {});
+  return API.get<ApiResponse<any[]>>('/matches/recent', { params }).then(r => r.data);
+};
+
 export const getMatchdayMap = (params?: { competition?: string; season?: string; matchesPerMatchday?: number }) =>
   API.get<ApiResponse<Record<string, number>>>('/matches/matchdays', { params }).then(r => r.data);
 
 export const getEurobetOddsForMatch = (params: {
+  matchId?: string;
   competition: string;
   homeTeam: string;
   awayTeam: string;
@@ -66,6 +74,9 @@ export const getPrediction = (request: {
   bookmakerOdds?: Record<string, number>;
 }) =>
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
+
+export const replayPlayedMatchPrediction = (matchId: string) =>
+  API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
 
 // Budget
 export const getBudget = (userId: string) =>
@@ -98,8 +109,27 @@ export const getBets = (userId: string, status?: string) =>
   API.get<ApiResponse<any[]>>(`/bets/${userId}`, { params: { status } }).then(r => r.data);
 
 // Backtesting
-export const runBacktest = (params: { competition: string; season?: string; historicalOdds?: any }) =>
+export const runBacktest = (params: {
+  competition: string;
+  season?: string;
+  historicalOdds?: any;
+  trainRatio?: number;
+  confidenceLevel?: 'high_only' | 'medium_and_above';
+}) =>
   API.post<ApiResponse<any>>('/backtest', params).then(r => r.data);
+
+export const runWalkForwardBacktest = (params: {
+  competition: string;
+  season?: string;
+  historicalOdds?: any;
+  initialTrainMatches?: number;
+  testWindowMatches?: number;
+  stepMatches?: number;
+  confidenceLevel?: 'high_only' | 'medium_and_above';
+  expandingWindow?: boolean;
+  maxFolds?: number;
+}) =>
+  API.post<ApiResponse<any>>('/backtest/walk-forward', params).then(r => r.data);
 
 export const getBacktestResults = (competition?: string) =>
   API.get<ApiResponse<any[]>>('/backtest/results', { params: { competition } }).then(r => r.data);
@@ -113,8 +143,14 @@ export const recomputeAverages = (competition?: string) =>
 export const getStatsOverview = () =>
   API.get<ApiResponse<any>>('/stats/overview').then(r => r.data);
 
+export const getSystemAnalytics = (params?: { userId?: string; competition?: string }) =>
+  API.get<ApiResponse<any>>('/analytics/system', { params }).then(r => r.data);
+
 export const getFotmobTeamSeasonStats = (params: { competition: string; season: string; teamId: string }) =>
   API.get<ApiResponse<any>>('/stats/fotmob/team-season', { params, timeout: 120000 }).then(r => r.data);
+
+export const getScraperStatus = () =>
+  API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
 
 // Health
 export const healthCheck = () =>

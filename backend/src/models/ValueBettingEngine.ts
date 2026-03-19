@@ -48,6 +48,8 @@ export interface BetOpportunity {
   marketName: string;
   selection: string;
   marketCategory: MarketCategory;
+  marketTier: MarketTier;
+  adaptiveRankMultiplier?: number;
   ourProbability: number;           // percentuale (0-100)
   bookmakerOdds: number;
   impliedProbability: number;       // percentuale raw (con vig)
@@ -72,6 +74,25 @@ export type MarketCategory =
   | 'exact_score'    // risultato esatto
   | 'handicap'       // handicap europeo e asiatico
   | 'other';
+
+export type MarketTier = 'CORE' | 'SECONDARY' | 'SPECULATIVE';
+
+export interface AdaptiveCategoryTuning {
+  evDelta: number;
+  coherenceDelta: number;
+  rankingMultiplier: number;
+  sampleSize: number;
+  rankingErrorRate: number;
+  filterRejectionRate: number;
+  confirmationRate: number;
+}
+
+export interface AdaptiveEngineTuningProfile {
+  source: string;
+  generatedAt: string;
+  totalReviews: number;
+  categories: Partial<Record<MarketCategory, AdaptiveCategoryTuning>>;
+}
 
 export interface BudgetState {
   userId: string;
@@ -109,6 +130,34 @@ export interface MarketOddsGroup {
   selection: string;
   odds: number;
   companions: number[];
+}
+
+export interface SelectionDiagnostics {
+  selection: string;
+  marketName: string;
+  marketCategory: MarketCategory;
+  marketTier: MarketTier;
+  bookmakerOdds: number | null;
+  ourProbability: number | null;
+  impliedProbability: number | null;
+  impliedProbabilityNoVig: number | null;
+  expectedValue: number | null;
+  edge: number | null;
+  edgeNoVig: number | null;
+  kellyFraction: number | null;
+  suggestedStakePercent: number | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  bookmakerMargin: number;
+  minEvThreshold: number;
+  filterSettings: {
+    minOdds: number;
+    maxOdds: number;
+    coherenceRatio: number;
+  };
+  adaptiveRankMultiplier: number;
+  passed: boolean;
+  rejectionCodes: string[];
+  rejectionReasons: string[];
 }
 
 // ==================== SOGLIE EV PER CATEGORIA ====================
@@ -167,6 +216,60 @@ export class ValueBettingEngine {
     MEDIUM: 1.00,
     LOW:    0.70,   // accettata ma con stake ridotto
   };
+  private adaptiveTuningProfile: AdaptiveEngineTuningProfile | null = null;
+
+  private clampNumber(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  setAdaptiveTuning(profile: AdaptiveEngineTuningProfile | null | undefined): void {
+    this.adaptiveTuningProfile = profile ?? null;
+  }
+
+  getAdaptiveTuning(): AdaptiveEngineTuningProfile | null {
+    return this.adaptiveTuningProfile;
+  }
+
+  private getCategoryTuning(category: MarketCategory): AdaptiveCategoryTuning {
+    return this.adaptiveTuningProfile?.categories?.[category] ?? {
+      evDelta: 0,
+      coherenceDelta: 0,
+      rankingMultiplier: 1,
+      sampleSize: 0,
+      rankingErrorRate: 0,
+      filterRejectionRate: 0,
+      confirmationRate: 0,
+    };
+  }
+
+  private getFilterSettings(category: MarketCategory): {
+    minOdds: number;
+    maxOdds: number;
+    coherenceRatio: number;
+  } {
+    const isShotsDisciplineCore =
+      category === 'shots' ||
+      category === 'shots_ot' ||
+      category === 'corners' ||
+      category === 'fouls' ||
+      category === 'yellow_cards';
+
+    const tuning = this.getCategoryTuning(category);
+    const baseCoherence = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
+    return {
+      minOdds: isShotsDisciplineCore ? 1.20 : this.MIN_ODDS,
+      maxOdds: isShotsDisciplineCore ? 15.00 : this.MAX_ODDS,
+      coherenceRatio: this.clampNumber(baseCoherence + tuning.coherenceDelta, 0.45, 0.85),
+    };
+  }
+
+  getMarketTier(category: MarketCategory): MarketTier {
+    if (category === 'goal_1x2' || category === 'goal_ou') return 'CORE';
+    if (category === 'shots' || category === 'shots_ot' || category === 'corners' || category === 'yellow_cards' || category === 'fouls')
+      return 'SECONDARY';
+    return 'SPECULATIVE';
+  }
 
   // ==================== CATEGORIZZAZIONE ====================
 
@@ -253,9 +356,14 @@ export class ValueBettingEngine {
   }
 
   private minEvForCategory(category: MarketCategory, margin?: number): number {
-    if (!isFinite(Number(margin))) return EV_THRESHOLDS[category];
+    const tuning = this.getCategoryTuning(category);
+    if (!isFinite(Number(margin))) return this.clampNumber(EV_THRESHOLDS[category] + tuning.evDelta, 0.001, 0.12);
     const buffer = EV_MARGIN_BUFFERS[category] ?? 0.03;
-    return Math.max(0, Number(margin) + buffer);
+    return this.clampNumber(Math.max(0, Number(margin) + buffer) + tuning.evDelta, 0.001, 0.12);
+  }
+
+  private getCategoryRankingMultiplier(category: MarketCategory): number {
+    return this.clampNumber(this.getCategoryTuning(category).rankingMultiplier, 0.85, 1.20);
   }
 
   private computeCategoryMargins(
@@ -374,16 +482,7 @@ export class ValueBettingEngine {
     category: MarketCategory,
     minEv: number
   ): boolean {
-    const isShotsDisciplineCore =
-      category === 'shots' ||
-      category === 'shots_ot' ||
-      category === 'corners' ||
-      category === 'fouls' ||
-      category === 'yellow_cards';
-
-    const minOdds = isShotsDisciplineCore ? 1.20 : this.MIN_ODDS;
-    const maxOdds = isShotsDisciplineCore ? 15.00 : this.MAX_ODDS;
-    const coherenceRatio = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
+    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category);
 
     // 1. Range odds assoluto
     if (odds < minOdds || odds > maxOdds) return false;
@@ -404,6 +503,111 @@ export class ValueBettingEngine {
     return true;
   }
 
+  diagnoseSelection(
+    probabilities: Record<string, number>,
+    bookmakerOdds: Record<string, number>,
+    selection: string,
+    marketNames: Record<string, string> = {}
+  ): SelectionDiagnostics {
+    const category = this.categorizeSelection(selection);
+    const marketTier = this.getMarketTier(category);
+    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category);
+    const odds = Number(bookmakerOdds?.[selection]);
+    const ourProb = Number(probabilities?.[selection]);
+    const groups = this.buildMarketGroups(bookmakerOdds ?? {});
+    const group = groups[selection];
+    const allOdds = group
+      ? [group.odds, ...group.companions].filter((o) => isFinite(o) && o > 1)
+      : (Number.isFinite(odds) && odds > 1 ? [odds] : []);
+    const marginByCategory = this.computeCategoryMarginsFromGroups(groups);
+    const bookmakerMargin = allOdds.length >= 2 ? this.computeBookmakerMargin(allOdds) : 0;
+    const minEvThreshold = this.minEvForCategory(category, marginByCategory[category]);
+
+    if (!Number.isFinite(odds) || odds <= 1 || !Number.isFinite(ourProb) || ourProb <= 0 || ourProb >= 1) {
+      return {
+        selection,
+        marketName: marketNames[selection] ?? selection,
+        marketCategory: category,
+        marketTier,
+        bookmakerOdds: Number.isFinite(odds) && odds > 1 ? odds : null,
+        ourProbability: Number.isFinite(ourProb) && ourProb > 0 && ourProb < 1 ? Number((ourProb * 100).toFixed(2)) : null,
+        impliedProbability: null,
+        impliedProbabilityNoVig: null,
+        expectedValue: null,
+        edge: null,
+        edgeNoVig: null,
+        kellyFraction: null,
+        suggestedStakePercent: null,
+        confidence: null,
+        bookmakerMargin: Number((bookmakerMargin * 100).toFixed(2)),
+        minEvThreshold: Number((minEvThreshold * 100).toFixed(2)),
+        filterSettings: { minOdds, maxOdds, coherenceRatio },
+        adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category).toFixed(3)),
+        passed: false,
+        rejectionCodes: ['missing_market_data'],
+        rejectionReasons: ['Mercato non disponibile nello snapshot quote o probabilita modello assente.'],
+      };
+    }
+
+    const impliedRaw = this.impliedProbabilityFromOdds(odds);
+    const impliedNoVig = allOdds.length >= 2 ? this.impliedProbabilityNoVig(odds, allOdds) : impliedRaw;
+    const ev = this.computeExpectedValue(ourProb, odds);
+    const edge = ourProb - impliedRaw;
+    const edgeNoVig = ourProb - impliedNoVig;
+    const kelly = this.kellyFraction(ourProb, odds);
+
+    const rejectionCodes: string[] = [];
+    const rejectionReasons: string[] = [];
+    const addReason = (code: string, text: string) => {
+      if (rejectionCodes.includes(code)) return;
+      rejectionCodes.push(code);
+      rejectionReasons.push(text);
+    };
+
+    if (odds < minOdds || odds > maxOdds) {
+      addReason('odds_out_of_range', `Quota fuori range operativo (${minOdds.toFixed(2)} - ${maxOdds.toFixed(2)}).`);
+    }
+    if (ev <= minEvThreshold) {
+      addReason('ev_below_threshold', `Valore atteso insufficiente per la categoria: ${Number((ev * 100).toFixed(2))}% contro soglia ${Number((minEvThreshold * 100).toFixed(2))}%.`);
+    }
+    if (edgeNoVig <= 0) {
+      addReason('edge_no_vig_non_positive', 'Anche tolto il margine bookmaker, il modello non vedeva vantaggio reale.');
+    }
+    if (ourProb < impliedRaw * coherenceRatio) {
+      addReason('coherence_too_low', 'La probabilita del modello era troppo distante da quella implicita del mercato.');
+    }
+    if (kelly <= 0) {
+      addReason('kelly_non_positive', 'Lo stake Kelly risultava nullo, quindi il motore non la considerava giocabile.');
+    }
+
+    const passed = rejectionCodes.length === 0;
+    const stake = passed ? this.computeSuggestedStake(ourProb, odds, ev) : null;
+
+    return {
+      selection,
+      marketName: marketNames[selection] ?? selection,
+      marketCategory: category,
+      marketTier,
+      bookmakerOdds: Number(odds.toFixed(2)),
+      ourProbability: Number((ourProb * 100).toFixed(2)),
+      impliedProbability: Number((impliedRaw * 100).toFixed(2)),
+      impliedProbabilityNoVig: Number((impliedNoVig * 100).toFixed(2)),
+      expectedValue: Number((ev * 100).toFixed(2)),
+      edge: Number((edge * 100).toFixed(2)),
+      edgeNoVig: Number((edgeNoVig * 100).toFixed(2)),
+      kellyFraction: Number((kelly * 100).toFixed(2)),
+      suggestedStakePercent: stake ? stake.stakePercent : null,
+      confidence: stake ? stake.confidence : null,
+      bookmakerMargin: Number((bookmakerMargin * 100).toFixed(2)),
+      minEvThreshold: Number((minEvThreshold * 100).toFixed(2)),
+      filterSettings: { minOdds, maxOdds, coherenceRatio },
+      adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category).toFixed(3)),
+      passed,
+      rejectionCodes,
+      rejectionReasons,
+    };
+  }
+
   // ==================== ANALISI MERCATI ====================
 
   analyzeMarkets(
@@ -419,6 +623,8 @@ export class ValueBettingEngine {
       if (!odds || !ourProb || ourProb <= 0 || ourProb >= 1) continue;
 
       const category   = this.categorizeSelection(key);
+      const marketTier = this.getMarketTier(category);
+      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category);
       const implied    = this.impliedProbabilityFromOdds(odds);
       const ev         = this.computeExpectedValue(ourProb, odds);
       const edge       = ourProb - implied;
@@ -433,6 +639,8 @@ export class ValueBettingEngine {
         marketName:              marketNames[key] ?? key,
         selection:               key,
         marketCategory:          category,
+        marketTier,
+        adaptiveRankMultiplier,
         ourProbability:          parseFloat((ourProb * 100).toFixed(2)),
         bookmakerOdds:           odds,
         impliedProbability:      parseFloat((implied    * 100).toFixed(2)),
@@ -447,7 +655,7 @@ export class ValueBettingEngine {
       });
     }
 
-    return opportunities.sort((a, b) => b.expectedValue - a.expectedValue);
+    return opportunities.sort((a, b) => (b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) - (a.expectedValue * (a.adaptiveRankMultiplier ?? 1)));
   }
 
   /**
@@ -474,6 +682,8 @@ export class ValueBettingEngine {
       const edgeRaw      = ourProb - impliedRaw;
       const edgeNoVig    = ourProb - impliedNoVig;
       const category     = this.categorizeSelection(key);
+      const marketTier   = this.getMarketTier(category);
+      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category);
       const minEv        = this.minEvForCategory(category, marginByCategory[category]);
 
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
@@ -484,6 +694,8 @@ export class ValueBettingEngine {
         marketName:              marketNames[key] ?? key,
         selection:               key,
         marketCategory:          category,
+        marketTier,
+        adaptiveRankMultiplier,
         ourProbability:          parseFloat((ourProb      * 100).toFixed(2)),
         bookmakerOdds:           odds,
         impliedProbability:      parseFloat((impliedRaw   * 100).toFixed(2)),
@@ -498,7 +710,7 @@ export class ValueBettingEngine {
       });
     }
 
-    return opportunities.sort((a, b) => b.expectedValue - a.expectedValue);
+    return opportunities.sort((a, b) => (b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) - (a.expectedValue * (a.adaptiveRankMultiplier ?? 1)));
   }
 
   /**

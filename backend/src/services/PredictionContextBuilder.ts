@@ -9,6 +9,10 @@ export interface ContextualPredictionInput {
   awayFormIndex?: number;
   homeObjectiveIndex?: number;
   awayObjectiveIndex?: number;
+  homeRestDays?: number;
+  awayRestDays?: number;
+  homeRecentMatchesCount?: number;
+  awayRecentMatchesCount?: number;
   homeSuspensions?: number;
   awaySuspensions?: number;
   homeRecentRedCards?: number;
@@ -96,19 +100,31 @@ export class PredictionContextBuilder {
     };
   }
 
+  private readTransfermarktShots(teamRow: any, venue: VenueKey): { avgShots?: number; avgShotsOT?: number } {
+    const json = this.parseJson(teamRow?.team_stats_json);
+    const venueNode = json?.transfermarkt?.[venue] ?? {};
+    return {
+      avgShots: this.toFiniteNumber(venueNode?.avgShots),
+      avgShotsOT: this.toFiniteNumber(venueNode?.avgShotsOT),
+    };
+  }
+
   private buildTeamStats(teamRow: any, venue: VenueKey) {
     const venueStats = this.readVenueStats(teamRow, venue);
+    const transfermarktShots = this.readTransfermarktShots(teamRow, venue);
 
     return {
       avgShots: Number(
-        venue === 'home'
+        transfermarktShots.avgShots ??
+        (venue === 'home'
           ? teamRow?.avg_home_shots ?? 12.1
-          : teamRow?.avg_away_shots ?? 10.4
+          : teamRow?.avg_away_shots ?? 10.4)
       ),
       avgShotsOT: Number(
-        venue === 'home'
+        transfermarktShots.avgShotsOT ??
+        (venue === 'home'
           ? teamRow?.avg_home_shots_ot ?? 4.8
-          : teamRow?.avg_away_shots_ot ?? 3.9
+          : teamRow?.avg_away_shots_ot ?? 3.9)
       ),
       avgYellowCards: Number(teamRow?.avg_yellow_cards ?? 1.9),
       avgRedCards: Number(teamRow?.avg_red_cards ?? 0.11),
@@ -139,6 +155,16 @@ export class PredictionContextBuilder {
       -1,
       1,
     );
+    const restDelta = this.clamp(
+      (Number(request.homeRestDays ?? 6) - Number(request.awayRestDays ?? 6)) / 10,
+      -1,
+      1,
+    );
+    const scheduleLoadDelta = this.clamp(
+      (Number(request.awayRecentMatchesCount ?? 0) - Number(request.homeRecentMatchesCount ?? 0)) / 4,
+      -1,
+      1,
+    );
 
     const homeAbsenceLoad =
       Number(request.homeSuspensions ?? 0) + Number(request.homeKeyAbsences ?? 0) * 1.35;
@@ -160,11 +186,15 @@ export class PredictionContextBuilder {
     const goalBias =
       formDelta * 0.12 +
       motivationDelta * 0.06 +
+      restDelta * 0.05 +
+      scheduleLoadDelta * 0.04 +
       absencesDelta * 0.05 +
       disciplineDelta * 0.03;
     const shotBias =
       formDelta * 0.09 +
       motivationDelta * 0.04 +
+      restDelta * 0.04 +
+      scheduleLoadDelta * 0.03 +
       absencesDelta * 0.04;
 
     return {
@@ -173,12 +203,12 @@ export class PredictionContextBuilder {
       homeShotMultiplier: this.clamp(1 + shotBias, 0.75, 1.30),
       awayShotMultiplier: this.clamp(1 - shotBias, 0.75, 1.30),
       yellowCardMultiplier: this.clamp(
-        1 + competitiveness * 0.08 + atRiskTotal * 0.04 + Math.abs(disciplineDelta) * 0.05,
+        1 + competitiveness * 0.08 + atRiskTotal * 0.04 + Math.abs(disciplineDelta) * 0.05 + Math.abs(scheduleLoadDelta) * 0.03,
         0.9,
         1.35,
       ),
       foulMultiplier: this.clamp(
-        1 + competitiveness * 0.05 + atRiskTotal * 0.03 + Math.abs(disciplineDelta) * 0.04,
+        1 + competitiveness * 0.05 + atRiskTotal * 0.03 + Math.abs(disciplineDelta) * 0.04 + Math.abs(scheduleLoadDelta) * 0.025,
         0.92,
         1.25,
       ),

@@ -57,7 +57,7 @@ export class OddsApiService {
     'Premier League': 'soccer_epl',
     'La Liga':        'soccer_spain_la_liga',
     'Bundesliga':     'soccer_germany_bundesliga',
-    'Ligue 1':        'soccer_france_ligue_1',
+    'Ligue 1':        'soccer_france_ligue_one',
     'Champions League': 'soccer_uefa_champs_league',
   };
 

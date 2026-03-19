@@ -7,6 +7,41 @@ const router = Router();
 const db = new DatabaseService();
 const svc = new PredictionService(db);
 
+async function buildStatsOverviewPayload() {
+  const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
+  const [coverage, leagues, playersByLeague] = await Promise.all([
+    db.getMatchesCoverageStats(),
+    db.getLeagueSummaries(top5),
+    db.getPlayerCoverageByLeague(top5),
+  ]);
+
+  const leaguesWithPlayers = leagues.map((league) => ({
+    ...league,
+    players: playersByLeague[league.competition] ?? { players: 0, teamsWithPlayers: 0, avgGamesPlayed: 0 },
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    checks: {
+      allCoreStatsLoaded:
+        coverage.fields.xg.pct >= 60 &&
+        coverage.fields.shots.pct >= 70 &&
+        coverage.fields.shotsOnTarget.pct >= 70 &&
+        coverage.fields.fouls.pct >= 60 &&
+        coverage.fields.yellowCards.pct >= 60,
+      recommendedThresholds: {
+        xgPct: 60,
+        shotsPct: 70,
+        shotsOnTargetPct: 70,
+        foulsPct: 60,
+        yellowCardsPct: 60,
+      },
+    },
+    coverage,
+    leagues: leaguesWithPlayers,
+  };
+}
+
 // ====== TEAMS ======
 router.get('/teams', async (req: Request, res: Response) => {
   try { res.json({ success: true, data: await db.getTeams(req.query.competition as string) }); }
@@ -90,6 +125,18 @@ router.get('/matches/upcoming', async (req: Request, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
     const matches = await db.getUpcomingMatches({
+      competition: req.query.competition as string | undefined,
+      season: req.query.season as string | undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    });
+    res.json({ success: true, data: matches, count: matches.length });
+  } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.get('/matches/recent', async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+    const matches = await db.getRecentCompletedMatches({
       competition: req.query.competition as string | undefined,
       season: req.query.season as string | undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
@@ -383,6 +430,119 @@ router.post('/predict', async (req: Request, res: Response) => {
     const pred = await svc.predict(req.body);
     res.json({ success: true, data: formatPrediction(pred) });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+router.post('/predict/replay', async (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.body?.matchId ?? '').trim();
+    if (!matchId) return res.status(400).json({ success: false, error: 'matchId obbligatorio.' });
+
+    const match = await db.getMatchById(matchId);
+    if (!match) return res.status(404).json({ success: false, error: 'Partita non trovata.' });
+    if (match.home_goals === null || match.away_goals === null) {
+      return res.status(400).json({ success: false, error: 'La partita non e ancora conclusa.' });
+    }
+
+    const historicalSnapshot =
+      await db.getLatestOddsSnapshotForMatch(String(match.match_id))
+      ?? await db.findLatestOddsSnapshotByTeams(
+        String(match.home_team_name ?? ''),
+        String(match.away_team_name ?? ''),
+        String(match.competition ?? ''),
+        String(match.date ?? '')
+      );
+
+    const historicalReplayOdds = sanitizeOddsMap(
+      historicalSnapshot?.liveSelectedOdds ?? historicalSnapshot?.eurobetOdds ?? {}
+    );
+
+    let replayEstimatedOdds: Record<string, number> = {};
+    let replayOddsUsed: Record<string, number> = historicalReplayOdds;
+    let replaySource = 'historical_bookmaker_snapshot';
+    let analysisDisclaimer =
+      `Replay su quote bookmaker archiviate il ${String(historicalSnapshot?.captured_at ?? '').trim() || 'data non disponibile'}: ` +
+      `mercati valutati solo sulle quote reali salvate per questa partita.`;
+    let marketsRequested = Array.isArray(historicalSnapshot?.marketsRequested) && historicalSnapshot.marketsRequested.length > 0
+      ? historicalSnapshot.marketsRequested
+      : ['historical_bookmaker_snapshot'];
+
+    if (Object.keys(replayOddsUsed).length === 0) {
+      const basePred = await svc.predict({
+        homeTeamId: String(match.home_team_id),
+        awayTeamId: String(match.away_team_id),
+        matchId: String(match.match_id),
+        competition: String(match.competition ?? ''),
+      });
+
+      replayEstimatedOdds = sanitizeOddsMap(
+        Object.entries(collectModelProbabilitiesForOdds(basePred)).reduce((acc, [selection, prob]) => {
+          acc[selection] = probabilityToOdds(prob, marketOverround(selection));
+          return acc;
+        }, {} as Record<string, number>)
+      );
+      replayOddsUsed = replayEstimatedOdds;
+      replaySource = 'model_estimated_replay';
+      analysisDisclaimer = 'Replay statistico su partita gia giocata: quota finale stimata dal modello, non archivio bookmaker storico.';
+      marketsRequested = ['model_estimated_replay'];
+    }
+
+    const replayPred = await svc.predict({
+      homeTeamId: String(match.home_team_id),
+      awayTeamId: String(match.away_team_id),
+      matchId: String(match.match_id),
+      competition: String(match.competition ?? ''),
+      bookmakerOdds: replayOddsUsed,
+    });
+
+    const formatted = formatPrediction(replayPred);
+    const recommended = replayPred.bestValueOpportunity ?? null;
+    const recommendedBetResult = recommended
+      ? svc.evaluateSelectionAgainstMatch(String(recommended.selection ?? ''), match)
+      : null;
+    const learningReview = svc.buildCompletedMatchLearningReview(replayPred, match, replayOddsUsed);
+    await db.saveLearningReview(
+      String(match.match_id),
+      String(match.competition ?? ''),
+      learningReview
+    );
+
+    res.json({
+      success: true,
+      data: {
+        ...formatted,
+        analysisMode: 'played_match_replay',
+        analysisDisclaimer,
+        oddsReplaySource: replaySource,
+        replayOddsUsed,
+        replayEstimatedOdds,
+        historicalSnapshot: historicalSnapshot
+          ? {
+              capturedAt: historicalSnapshot.captured_at,
+              source: historicalSnapshot.source,
+              usedFallbackBookmaker: historicalSnapshot.usedFallbackBookmaker,
+              usedSyntheticOdds: historicalSnapshot.usedSyntheticOdds,
+            }
+          : null,
+        marketsRequested,
+        actualMatch: {
+          homeGoals: Number(match.home_goals ?? 0),
+          awayGoals: Number(match.away_goals ?? 0),
+          actualScore: `${match.home_goals}-${match.away_goals}`,
+          date: match.date,
+        },
+        learningReview,
+        recommendedBetResult: recommendedBetResult
+          ? {
+              ...recommendedBetResult,
+              selection: recommended.selection,
+              selectionLabel: recommended.selectionLabel ?? recommended.marketName,
+            }
+          : null,
+      },
+    });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
 });
 
 function roundN(v: number, n = 3): number {
@@ -816,9 +976,52 @@ router.get('/bets/:userId', async (req: Request, res: Response) => {
 // ====== BACKTEST ======
 router.post('/backtest', async (req: Request, res: Response) => {
   try {
-    const result = await svc.runBacktest(req.body.competition, req.body.season, req.body.historicalOdds);
+    const result = await svc.runBacktest(
+      req.body.competition,
+      req.body.season,
+      req.body.historicalOdds,
+      {
+        trainRatio: req.body.trainRatio,
+        confidenceLevel: req.body.confidenceLevel,
+      }
+    );
     res.json({ success: true, data: result });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+router.post('/learning/reviews/sync', async (req: Request, res: Response) => {
+  try {
+    const result = await svc.syncCompletedMatchLearningReviews({
+      competition: req.body?.competition,
+      season: req.body?.season,
+      limit: req.body?.limit,
+      forceRefresh: Boolean(req.body?.forceRefresh),
+    });
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
+  try {
+    const result = await svc.runWalkForwardBacktest(
+      req.body.competition,
+      req.body.season,
+      req.body.historicalOdds,
+      {
+        initialTrainMatches: req.body.initialTrainMatches,
+        testWindowMatches: req.body.testWindowMatches,
+        stepMatches: req.body.stepMatches,
+        confidenceLevel: req.body.confidenceLevel,
+        expandingWindow: req.body.expandingWindow,
+        maxFolds: req.body.maxFolds,
+      }
+    );
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
 });
 
 router.get('/backtest/results', async (req: Request, res: Response) => {
@@ -836,40 +1039,35 @@ router.get('/backtest/results/:id', async (req: Request, res: Response) => {
 
 router.get('/stats/overview', async (_req: Request, res: Response) => {
   try {
-    const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
-    const [coverage, leagues, playersByLeague] = await Promise.all([
-      db.getMatchesCoverageStats(),
-      db.getLeagueSummaries(top5),
-      db.getPlayerCoverageByLeague(top5),
-    ]);
+    return res.json({ success: true, data: await buildStatsOverviewPayload() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
 
-    const leaguesWithPlayers = leagues.map((league) => ({
-      ...league,
-      players: playersByLeague[league.competition] ?? { players: 0, teamsWithPlayers: 0, avgGamesPlayed: 0 },
-    }));
+router.get('/analytics/system', async (req: Request, res: Response) => {
+  try {
+    const competition = String(req.query.competition ?? '').trim() || undefined;
+    const userId = String(req.query.userId ?? '').trim() || 'default';
+    const [overview, oddsArchive, userClv, learningLoop, adaptiveTuning] = await Promise.all([
+      buildStatsOverviewPayload(),
+      db.getOddsArchiveStats({ competition }),
+      db.getUserBetClvReport(userId),
+      db.getLearningReviewStats({ competition }),
+      svc.getAdaptiveTuningSummary(competition),
+    ]);
 
     return res.json({
       success: true,
       data: {
         generatedAt: new Date().toISOString(),
-        checks: {
-          allCoreStatsLoaded:
-            coverage.fields.xg.pct >= 60 &&
-            coverage.fields.shots.pct >= 70 &&
-            coverage.fields.shotsOnTarget.pct >= 70 &&
-            coverage.fields.fouls.pct >= 60 &&
-            coverage.fields.yellowCards.pct >= 60,
-          recommendedThresholds: {
-            xgPct: 60,
-            shotsPct: 70,
-            shotsOnTargetPct: 70,
-            foulsPct: 60,
-            yellowCardsPct: 60,
-          },
-        },
-        coverage,
-        leagues: leaguesWithPlayers,
-      }
+        competition: competition ?? 'all',
+        overview,
+        oddsArchive,
+        userClv,
+        learningLoop,
+        adaptiveTuning,
+      },
     });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
@@ -1453,6 +1651,73 @@ const sanitizeOddsMap = (input: Record<string, number>): Record<string, number> 
   return out;
 };
 
+const buildOddsSnapshotId = (matchId?: string | null, oddsProviderMatchId?: string | null): string => {
+  const seed = String(matchId ?? oddsProviderMatchId ?? 'match')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .slice(0, 48);
+  return `odds_snapshot_${seed}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const persistOddsSnapshot = async (input: {
+  matchId?: string | null;
+  oddsProviderMatchId?: string | null;
+  competition?: string | null;
+  homeTeamName: string;
+  awayTeamName: string;
+  commenceTime?: string | null;
+  source: string;
+  selectedOdds?: Record<string, number>;
+  liveSelectedOdds?: Record<string, number>;
+  eurobetOdds?: Record<string, number>;
+  estimatedOdds?: Record<string, number>;
+  fallbackOdds?: Record<string, number>;
+  allBookmakerOdds?: Record<string, Record<string, number>>;
+  marketsRequested?: string[];
+  usedFallbackBookmaker?: boolean;
+  usedSyntheticOdds?: boolean;
+  confidenceScore?: number;
+}): Promise<{ saved: boolean; matchId: string | null }> => {
+  const liveSelectedOdds = sanitizeOddsMap(input.liveSelectedOdds ?? {});
+  const eurobetOdds = sanitizeOddsMap(input.eurobetOdds ?? {});
+  if (Object.keys(liveSelectedOdds).length === 0 && Object.keys(eurobetOdds).length === 0) {
+    return { saved: false, matchId: null };
+  }
+
+  let resolvedMatchId = String(input.matchId ?? '').trim() || null;
+  if (!resolvedMatchId) {
+    const match = await db.findMatchByTeams(
+      input.homeTeamName,
+      input.awayTeamName,
+      input.competition ?? undefined,
+      input.commenceTime ?? undefined
+    );
+    resolvedMatchId = match?.match_id ? String(match.match_id) : null;
+  }
+
+  await db.saveOddsSnapshot({
+    snapshotId: buildOddsSnapshotId(resolvedMatchId, input.oddsProviderMatchId),
+    matchId: resolvedMatchId,
+    oddsProviderMatchId: input.oddsProviderMatchId ?? null,
+    competition: input.competition ?? null,
+    homeTeamName: input.homeTeamName,
+    awayTeamName: input.awayTeamName,
+    commenceTime: input.commenceTime ?? null,
+    source: input.source,
+    selectedOdds: sanitizeOddsMap(input.selectedOdds ?? {}),
+    liveSelectedOdds,
+    eurobetOdds,
+    estimatedOdds: sanitizeOddsMap(input.estimatedOdds ?? {}),
+    fallbackOdds: sanitizeOddsMap(input.fallbackOdds ?? {}),
+    allBookmakerOdds: input.allBookmakerOdds ?? {},
+    marketsRequested: Array.isArray(input.marketsRequested) ? input.marketsRequested : [],
+    usedFallbackBookmaker: Boolean(input.usedFallbackBookmaker),
+    usedSyntheticOdds: Boolean(input.usedSyntheticOdds),
+    confidenceScore: Number.isFinite(Number(input.confidenceScore)) ? Number(input.confidenceScore) : null,
+  });
+
+  return { saved: true, matchId: resolvedMatchId };
+};
+
 const collectModelProbabilitiesForOdds = (prediction: any): Record<string, number> => {
   const probs: any = prediction?.probabilities ?? {};
   const out: Record<string, number> = {};
@@ -1763,6 +2028,37 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     }));
 
     const updatedAt = new Date().toISOString();
+    let savedSnapshots = 0;
+    for (const match of matches) {
+      try {
+        const eurobetOdds = oddsService.extractBestOdds(match, 'eurobet');
+        const liveSelectedOdds = oddsService.extractBestOdds(match);
+        const oddsProviderMatchId = String(match.matchId ?? '').replace(/^odds_/, '');
+        const snapshot = await persistOddsSnapshot({
+          oddsProviderMatchId,
+          competition: String(competition),
+          homeTeamName: match.homeTeam,
+          awayTeamName: match.awayTeam,
+          commenceTime: match.commenceTime,
+          source: Object.keys(liveSelectedOdds).some((k) => eurobetOdds[k] === undefined)
+            ? 'the_odds_api_bulk_fallback_bookmaker'
+            : 'the_odds_api_bulk_eurobet',
+          selectedOdds: liveSelectedOdds,
+          liveSelectedOdds,
+          eurobetOdds,
+          estimatedOdds: {},
+          fallbackOdds: liveSelectedOdds,
+          allBookmakerOdds: oddsService.compareBookmakers(match),
+          marketsRequested: normalizedMarkets,
+          usedFallbackBookmaker: Object.keys(liveSelectedOdds).some((k) => eurobetOdds[k] === undefined),
+          usedSyntheticOdds: false,
+        });
+        if (snapshot.saved) savedSnapshots++;
+      } catch (snapshotErr: any) {
+        console.warn('[OddsApi] Snapshot bulk non salvato:', snapshotErr?.message ?? snapshotErr);
+      }
+    }
+
     oddsRuntimeState = {
       competition: String(competition),
       markets: normalizedMarkets,
@@ -1779,6 +2075,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         markets: normalizedMarkets,
         matchesFound: matches.length,
         matches: enriched,
+        savedSnapshots,
         remainingRequests: oddsService.getRemainingRequests(),
         lastUpdatedAt: updatedAt,
       }
@@ -1794,6 +2091,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
 router.post('/scraper/odds/match', async (req: Request, res: Response) => {
   try {
     const {
+      matchId,
       competition = 'Serie A',
       homeTeam,
       awayTeam,
@@ -1984,6 +2282,34 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         ? 'the_odds_api_plus_model_completion'
         : (usedFallbackBookmaker ? 'the_odds_api_fallback_bookmaker' : 'the_odds_api_eurobet');
 
+    let historicalSnapshotSaved = false;
+    let snapshotMatchId: string | null = null;
+    try {
+      const snapshot = await persistOddsSnapshot({
+        matchId: String(matchId ?? '').trim() || null,
+        oddsProviderMatchId: eventId || null,
+        competition: String(competition),
+        homeTeamName: mergedBest.homeTeam,
+        awayTeamName: mergedBest.awayTeam,
+        commenceTime: mergedBest.commenceTime,
+        source,
+        selectedOdds,
+        liveSelectedOdds,
+        eurobetOdds,
+        estimatedOdds,
+        fallbackOdds,
+        allBookmakerOdds: oddsService.compareBookmakers(mergedBest),
+        marketsRequested: finalMarketsRequested.length > 0 ? finalMarketsRequested : marketsRequested,
+        usedFallbackBookmaker,
+        usedSyntheticOdds,
+        confidenceScore: Number(bestScore.toFixed(3)),
+      });
+      historicalSnapshotSaved = snapshot.saved;
+      snapshotMatchId = snapshot.matchId;
+    } catch (snapshotErr: any) {
+      console.warn('[OddsApi/match] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
+    }
+
     return res.json({
       success: true,
       data: {
@@ -2001,6 +2327,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           awayTeam: mergedBest.awayTeam,
           commenceTime: mergedBest.commenceTime,
         },
+        historicalSnapshotSaved,
+        snapshotMatchId,
         confidenceScore: Number(bestScore.toFixed(3)),
         remainingRequests: oddsService.getRemainingRequests(),
       }

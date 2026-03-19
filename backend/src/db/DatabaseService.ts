@@ -206,11 +206,43 @@ export class DatabaseService {
         result_json TEXT NOT NULL,
         run_at TEXT DEFAULT (datetime('now'))
       )`,
+      `CREATE TABLE IF NOT EXISTS odds_snapshots (
+        snapshot_id TEXT PRIMARY KEY,
+        match_id TEXT,
+        odds_provider_match_id TEXT,
+        competition TEXT,
+        home_team_name TEXT NOT NULL,
+        away_team_name TEXT NOT NULL,
+        commence_time TEXT,
+        source TEXT NOT NULL,
+        selected_odds_json TEXT,
+        live_selected_odds_json TEXT,
+        eurobet_odds_json TEXT,
+        estimated_odds_json TEXT,
+        fallback_odds_json TEXT,
+        all_bookmaker_odds_json TEXT,
+        markets_requested_json TEXT,
+        used_fallback_bookmaker INTEGER DEFAULT 0,
+        used_synthetic_odds INTEGER DEFAULT 0,
+        confidence_score REAL,
+        captured_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS learning_reviews (
+        match_id TEXT PRIMARY KEY,
+        competition TEXT,
+        review_type TEXT NOT NULL,
+        review_json TEXT NOT NULL,
+        saved_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_status ON bets(status)',
+      'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_match_id ON odds_snapshots(match_id, captured_at)',
+      'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_lookup ON odds_snapshots(home_team_name, away_team_name, competition, commence_time)',
+      'CREATE INDEX IF NOT EXISTS idx_learning_reviews_competition ON learning_reviews(competition, updated_at)',
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
     ];
 
@@ -645,6 +677,103 @@ export class DatabaseService {
     return this.get('SELECT * FROM matches WHERE match_id = ?', [matchId]);
   }
 
+  async getTeamScheduleInsights(
+    teamId: string,
+    referenceDate?: string
+  ): Promise<{ lastPlayedAt: string | null; restDays: number | null; matchesInLast14Days: number; matchesInLast7Days: number }> {
+    const refIso = String(referenceDate ?? '').trim();
+    const paramsBase: any[] = [teamId, teamId];
+    const dateClause = refIso
+      ? `AND datetime(date) < datetime(?)`
+      : `AND datetime(date) < datetime('now')`;
+
+    const lastMatch = await this.get(
+      `
+      SELECT date
+      FROM matches
+      WHERE (home_team_id = ? OR away_team_id = ?)
+        AND home_goals IS NOT NULL
+        AND away_goals IS NOT NULL
+        ${dateClause}
+      ORDER BY datetime(date) DESC
+      LIMIT 1
+      `,
+      refIso ? [...paramsBase, refIso] : paramsBase
+    );
+
+    const recentRows = await this.get(
+      `
+      SELECT
+        SUM(CASE WHEN datetime(date) >= datetime(?, '-14 days') THEN 1 ELSE 0 END) AS matches_14d,
+        SUM(CASE WHEN datetime(date) >= datetime(?, '-7 days') THEN 1 ELSE 0 END) AS matches_7d
+      FROM matches
+      WHERE (home_team_id = ? OR away_team_id = ?)
+        AND home_goals IS NOT NULL
+        AND away_goals IS NOT NULL
+        AND datetime(date) < datetime(?)
+      `,
+      [
+        refIso || new Date().toISOString(),
+        refIso || new Date().toISOString(),
+        teamId,
+        teamId,
+        refIso || new Date().toISOString(),
+      ]
+    );
+
+    let restDays: number | null = null;
+    const lastPlayedAt = String(lastMatch?.date ?? '').trim() || null;
+    const targetDate = refIso ? new Date(refIso) : new Date();
+    if (lastPlayedAt) {
+      const prev = new Date(lastPlayedAt);
+      if (!Number.isNaN(prev.getTime()) && !Number.isNaN(targetDate.getTime())) {
+        restDays = Math.max(0, Math.round((targetDate.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)));
+      }
+    }
+
+    return {
+      lastPlayedAt,
+      restDays,
+      matchesInLast14Days: Number(recentRows?.matches_14d ?? 0),
+      matchesInLast7Days: Number(recentRows?.matches_7d ?? 0),
+    };
+  }
+
+  async findMatchByTeams(
+    homeTeamName: string,
+    awayTeamName: string,
+    competition?: string,
+    matchDate?: string
+  ): Promise<any | null> {
+    const home = String(homeTeamName ?? '').trim().toLowerCase();
+    const away = String(awayTeamName ?? '').trim().toLowerCase();
+    if (!home || !away) return null;
+
+    let q = `
+      SELECT *
+      FROM matches
+      WHERE lower(trim(home_team_name)) = ?
+        AND lower(trim(away_team_name)) = ?
+    `;
+    const params: any[] = [home, away];
+
+    if (competition && String(competition).trim()) {
+      q += ' AND competition = ?';
+      params.push(String(competition).trim());
+    }
+
+    if (matchDate) {
+      q += ' AND ABS(julianday(date) - julianday(?)) <= 3';
+      params.push(matchDate);
+      q += ' ORDER BY ABS(julianday(date) - julianday(?)) ASC, datetime(date) DESC LIMIT 1';
+      params.push(matchDate);
+    } else {
+      q += ' ORDER BY datetime(date) DESC LIMIT 1';
+    }
+
+    return this.get(q, params);
+  }
+
   async findPlayedMatchByTeams(
     homeTeamName: string,
     awayTeamName: string,
@@ -680,6 +809,436 @@ export class DatabaseService {
     }
 
     return this.get(q, params);
+  }
+
+  private parseOddsSnapshotRow(row: any): any | null {
+    if (!row) return null;
+    const parseJson = (value: unknown): any => {
+      if (typeof value !== 'string' || value.trim() === '') return {};
+      try {
+        return JSON.parse(value);
+      } catch {
+        return {};
+      }
+    };
+
+    return {
+      ...row,
+      selectedOdds: parseJson(row.selected_odds_json),
+      liveSelectedOdds: parseJson(row.live_selected_odds_json),
+      eurobetOdds: parseJson(row.eurobet_odds_json),
+      estimatedOdds: parseJson(row.estimated_odds_json),
+      fallbackOdds: parseJson(row.fallback_odds_json),
+      allBookmakerOdds: parseJson(row.all_bookmaker_odds_json),
+      marketsRequested: Array.isArray(parseJson(row.markets_requested_json)) ? parseJson(row.markets_requested_json) : [],
+      usedFallbackBookmaker: Boolean(Number(row.used_fallback_bookmaker ?? 0)),
+      usedSyntheticOdds: Boolean(Number(row.used_synthetic_odds ?? 0)),
+      confidenceScore: row.confidence_score === null || row.confidence_score === undefined ? null : Number(row.confidence_score),
+    };
+  }
+
+  async saveOddsSnapshot(snapshot: {
+    snapshotId: string;
+    matchId?: string | null;
+    oddsProviderMatchId?: string | null;
+    competition?: string | null;
+    homeTeamName: string;
+    awayTeamName: string;
+    commenceTime?: string | null;
+    source: string;
+    selectedOdds?: Record<string, number>;
+    liveSelectedOdds?: Record<string, number>;
+    eurobetOdds?: Record<string, number>;
+    estimatedOdds?: Record<string, number>;
+    fallbackOdds?: Record<string, number>;
+    allBookmakerOdds?: Record<string, Record<string, number>>;
+    marketsRequested?: string[];
+    usedFallbackBookmaker?: boolean;
+    usedSyntheticOdds?: boolean;
+    confidenceScore?: number | null;
+    capturedAt?: string | Date;
+  }): Promise<void> {
+    await this.run(
+      `INSERT INTO odds_snapshots (
+        snapshot_id, match_id, odds_provider_match_id, competition, home_team_name, away_team_name,
+        commence_time, source, selected_odds_json, live_selected_odds_json, eurobet_odds_json,
+        estimated_odds_json, fallback_odds_json, all_bookmaker_odds_json, markets_requested_json,
+        used_fallback_bookmaker, used_synthetic_odds, confidence_score, captured_at
+      ) VALUES (
+        :snapshotId, :matchId, :oddsProviderMatchId, :competition, :homeTeamName, :awayTeamName,
+        :commenceTime, :source, :selectedOddsJson, :liveSelectedOddsJson, :eurobetOddsJson,
+        :estimatedOddsJson, :fallbackOddsJson, :allBookmakerOddsJson, :marketsRequestedJson,
+        :usedFallbackBookmaker, :usedSyntheticOdds, :confidenceScore, :capturedAt
+      )`,
+      {
+        snapshotId: snapshot.snapshotId,
+        matchId: snapshot.matchId ?? null,
+        oddsProviderMatchId: snapshot.oddsProviderMatchId ?? null,
+        competition: snapshot.competition ?? null,
+        homeTeamName: snapshot.homeTeamName,
+        awayTeamName: snapshot.awayTeamName,
+        commenceTime: snapshot.commenceTime ?? null,
+        source: snapshot.source ?? 'unknown',
+        selectedOddsJson: JSON.stringify(snapshot.selectedOdds ?? {}),
+        liveSelectedOddsJson: JSON.stringify(snapshot.liveSelectedOdds ?? {}),
+        eurobetOddsJson: JSON.stringify(snapshot.eurobetOdds ?? {}),
+        estimatedOddsJson: JSON.stringify(snapshot.estimatedOdds ?? {}),
+        fallbackOddsJson: JSON.stringify(snapshot.fallbackOdds ?? {}),
+        allBookmakerOddsJson: JSON.stringify(snapshot.allBookmakerOdds ?? {}),
+        marketsRequestedJson: JSON.stringify(snapshot.marketsRequested ?? []),
+        usedFallbackBookmaker: snapshot.usedFallbackBookmaker ? 1 : 0,
+        usedSyntheticOdds: snapshot.usedSyntheticOdds ? 1 : 0,
+        confidenceScore: Number.isFinite(Number(snapshot.confidenceScore)) ? Number(snapshot.confidenceScore) : null,
+        capturedAt: snapshot.capturedAt
+          ? (snapshot.capturedAt instanceof Date ? snapshot.capturedAt.toISOString() : snapshot.capturedAt)
+          : new Date().toISOString(),
+      }
+    );
+  }
+
+  async getLatestOddsSnapshotForMatch(matchId: string): Promise<any | null> {
+    const row = await this.get(
+      'SELECT * FROM odds_snapshots WHERE match_id = ? ORDER BY datetime(captured_at) DESC LIMIT 1',
+      [matchId]
+    );
+    return this.parseOddsSnapshotRow(row);
+  }
+
+  async findLatestOddsSnapshotByTeams(
+    homeTeamName: string,
+    awayTeamName: string,
+    competition?: string,
+    commenceTime?: string
+  ): Promise<any | null> {
+    const home = String(homeTeamName ?? '').trim().toLowerCase();
+    const away = String(awayTeamName ?? '').trim().toLowerCase();
+    if (!home || !away) return null;
+
+    let q = `
+      SELECT *
+      FROM odds_snapshots
+      WHERE lower(trim(home_team_name)) = ?
+        AND lower(trim(away_team_name)) = ?
+    `;
+    const params: any[] = [home, away];
+
+    if (competition && String(competition).trim()) {
+      q += ' AND competition = ?';
+      params.push(String(competition).trim());
+    }
+
+    if (commenceTime) {
+      q += ' AND ABS(julianday(commence_time) - julianday(?)) <= 3';
+      params.push(commenceTime);
+      q += ' ORDER BY ABS(julianday(commence_time) - julianday(?)) ASC, datetime(captured_at) DESC LIMIT 1';
+      params.push(commenceTime);
+    } else {
+      q += ' ORDER BY datetime(captured_at) DESC LIMIT 1';
+    }
+
+    const row = await this.get(q, params);
+    return this.parseOddsSnapshotRow(row);
+  }
+
+  async getOddsSnapshots(filters?: { competition?: string; matchId?: string; limit?: number }): Promise<any[]> {
+    let q = 'SELECT * FROM odds_snapshots WHERE 1=1';
+    const params: any[] = [];
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      params.push(filters.competition);
+    }
+    if (filters?.matchId) {
+      q += ' AND match_id = ?';
+      params.push(filters.matchId);
+    }
+    q += ' ORDER BY datetime(captured_at) ASC';
+    if (Number.isFinite(Number(filters?.limit))) {
+      q += ' LIMIT ?';
+      params.push(Math.max(1, Math.min(Math.trunc(Number(filters?.limit)), 5000)));
+    }
+    const rows = await this.all(q, params);
+    return rows.map((row) => this.parseOddsSnapshotRow(row)).filter(Boolean);
+  }
+
+  async getHistoricalOddsMap(filters?: { competition?: string; season?: string }): Promise<Record<string, Record<string, number>>> {
+    let q = `
+      SELECT os.*, m.season, m.date AS match_date, m.home_goals, m.away_goals
+      FROM odds_snapshots os
+      INNER JOIN matches m ON m.match_id = os.match_id
+      WHERE m.home_goals IS NOT NULL
+        AND m.away_goals IS NOT NULL
+    `;
+    const params: any[] = [];
+    if (filters?.competition) {
+      q += ' AND m.competition = ?';
+      params.push(filters.competition);
+    }
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(new Set([
+          rawSeason,
+          rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+          rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+        ]));
+        if (seasonVariants.length === 1) {
+          q += ' AND m.season = ?';
+          params.push(seasonVariants[0]);
+        } else {
+          q += ` AND m.season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          params.push(...seasonVariants);
+        }
+      }
+    }
+    q += ' ORDER BY datetime(os.captured_at) DESC';
+
+    const rows = (await this.all(q, params))
+      .map((row) => this.parseOddsSnapshotRow(row))
+      .filter(Boolean);
+
+    const out: Record<string, Record<string, number>> = {};
+    for (const row of rows) {
+      const matchId = String(row.match_id ?? '').trim();
+      if (!matchId || out[matchId]) continue;
+      const liveOdds = row.liveSelectedOdds ?? row.eurobetOdds ?? {};
+      const normalized: Record<string, number> = {};
+      for (const [selection, odd] of Object.entries(liveOdds)) {
+        const n = Number(odd);
+        if (Number.isFinite(n) && n > 1) normalized[selection] = Number(n.toFixed(2));
+      }
+      if (Object.keys(normalized).length > 0) out[matchId] = normalized;
+    }
+    return out;
+  }
+
+  async getOddsArchiveStats(filters?: { competition?: string }): Promise<any> {
+    const rows = await this.getOddsSnapshots({ competition: filters?.competition });
+    const totalSnapshots = rows.length;
+    const byMatch = new Map<string, any[]>();
+    const byCompetition = new Map<string, { snapshots: number; matches: Set<string> }>();
+    const sourceBreakdown: Record<string, number> = {};
+    let withRealOdds = 0;
+    let withSyntheticCompletion = 0;
+    let withEurobetPure = 0;
+
+    for (const row of rows) {
+      const matchId = String(row.match_id ?? '').trim() || `unlinked_${row.snapshot_id}`;
+      const competition = String(row.competition ?? 'unknown');
+      const matchBucket = byMatch.get(matchId) ?? [];
+      matchBucket.push(row);
+      byMatch.set(matchId, matchBucket);
+
+      const comp = byCompetition.get(competition) ?? { snapshots: 0, matches: new Set<string>() };
+      comp.snapshots++;
+      comp.matches.add(matchId);
+      byCompetition.set(competition, comp);
+
+      const source = String(row.source ?? 'unknown');
+      sourceBreakdown[source] = (sourceBreakdown[source] ?? 0) + 1;
+
+      if (Object.keys(row.liveSelectedOdds ?? {}).length > 0 || Object.keys(row.eurobetOdds ?? {}).length > 0) withRealOdds++;
+      if (Boolean(row.usedSyntheticOdds)) withSyntheticCompletion++;
+      if (!Boolean(row.usedFallbackBookmaker) && !Boolean(row.usedSyntheticOdds) && Object.keys(row.eurobetOdds ?? {}).length > 0) withEurobetPure++;
+    }
+
+    const earliest = rows[0]?.captured_at ?? null;
+    const latest = rows[rows.length - 1]?.captured_at ?? null;
+    const matchesWithMultipleSnapshots = Array.from(byMatch.values()).filter((items) => items.length >= 2).length;
+
+    return {
+      totalSnapshots,
+      matchesCovered: byMatch.size,
+      matchesWithMultipleSnapshots,
+      realOddsSnapshots: withRealOdds,
+      syntheticCompletionSnapshots: withSyntheticCompletion,
+      eurobetPureSnapshots: withEurobetPure,
+      earliestCapturedAt: earliest,
+      latestCapturedAt: latest,
+      sourceBreakdown,
+      byCompetition: Array.from(byCompetition.entries()).map(([competition, data]) => ({
+        competition,
+        snapshots: data.snapshots,
+        matchesCovered: data.matches.size,
+      })),
+    };
+  }
+
+  async getUserBetClvReport(userId: string): Promise<any> {
+    const bets = await this.getBets(userId);
+    const relevantBets = bets.filter((bet: any) => String(bet.match_id ?? '').trim());
+    if (relevantBets.length === 0) {
+      return {
+        trackedBets: 0,
+        betsWithClosingLine: 0,
+        avgClvPct: 0,
+        positiveClvRate: 0,
+        recent: [],
+      };
+    }
+
+    const matchIds = Array.from(new Set(relevantBets.map((bet: any) => String(bet.match_id))));
+    const placeholders = matchIds.map(() => '?').join(', ');
+    const rows = (await this.all(
+      `SELECT * FROM odds_snapshots WHERE match_id IN (${placeholders}) ORDER BY datetime(captured_at) ASC`,
+      matchIds
+    )).map((row) => this.parseOddsSnapshotRow(row)).filter(Boolean);
+
+    const byMatch = new Map<string, any[]>();
+    for (const row of rows) {
+      const matchId = String(row.match_id ?? '').trim();
+      if (!matchId) continue;
+      const bucket = byMatch.get(matchId) ?? [];
+      bucket.push(row);
+      byMatch.set(matchId, bucket);
+    }
+
+    const recent = relevantBets.map((bet: any) => {
+      const matchId = String(bet.match_id ?? '').trim();
+      const selection = String(bet.selection ?? '').trim();
+      const placedOdds = Number(bet.odds ?? 0);
+      const snapshots = byMatch.get(matchId) ?? [];
+      const extractReal = (snapshot: any): number | null => {
+        const candidate = Number(snapshot?.liveSelectedOdds?.[selection] ?? snapshot?.eurobetOdds?.[selection]);
+        return Number.isFinite(candidate) && candidate > 1 ? Number(candidate.toFixed(2)) : null;
+      };
+      const openingOdds = snapshots.length > 0 ? extractReal(snapshots[0]) : null;
+      const closingOdds = snapshots.length > 0 ? extractReal(snapshots[snapshots.length - 1]) : null;
+      const clvPct =
+        Number.isFinite(placedOdds) && placedOdds > 1 && Number.isFinite(Number(closingOdds)) && Number(closingOdds) > 1
+          ? Number((((placedOdds / Number(closingOdds)) - 1) * 100).toFixed(2))
+          : null;
+      return {
+        betId: String(bet.bet_id ?? ''),
+        matchId,
+        selection,
+        marketName: String(bet.market_name ?? ''),
+        status: String(bet.status ?? ''),
+        placedOdds: Number.isFinite(placedOdds) ? Number(placedOdds.toFixed(2)) : null,
+        openingOdds,
+        closingOdds,
+        clvPct,
+      };
+    });
+
+    const withClv = recent.filter((row) => Number.isFinite(Number(row.clvPct)));
+    const avgClvPct = withClv.length > 0
+      ? Number((withClv.reduce((sum, row) => sum + Number(row.clvPct ?? 0), 0) / withClv.length).toFixed(2))
+      : 0;
+    const positiveClvRate = withClv.length > 0
+      ? Number(((withClv.filter((row) => Number(row.clvPct ?? 0) > 0).length / withClv.length) * 100).toFixed(2))
+      : 0;
+
+    return {
+      trackedBets: recent.length,
+      betsWithClosingLine: withClv.length,
+      avgClvPct,
+      positiveClvRate,
+      recent: recent.slice(0, 20),
+    };
+  }
+
+  async saveLearningReview(matchId: string, competition: string | null | undefined, review: any): Promise<void> {
+    const normalizedMatchId = String(matchId ?? '').trim();
+    if (!normalizedMatchId) return;
+
+    await this.run(
+      `
+      INSERT INTO learning_reviews (match_id, competition, review_type, review_json)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(match_id) DO UPDATE SET
+        competition = excluded.competition,
+        review_type = excluded.review_type,
+        review_json = excluded.review_json,
+        updated_at = datetime('now')
+      `,
+      [
+        normalizedMatchId,
+        competition ? String(competition) : null,
+        String(review?.reviewType ?? 'no_actionable_signal'),
+        JSON.stringify(review ?? {}),
+      ]
+    );
+  }
+
+  async getLearningReview(matchId: string): Promise<any | null> {
+    const row = await this.get('SELECT * FROM learning_reviews WHERE match_id = ?', [matchId]);
+    if (!row) return null;
+    let review: any = {};
+    try {
+      review = JSON.parse(String(row.review_json ?? '{}'));
+    } catch {
+      review = {};
+    }
+    return {
+      matchId: String(row.match_id ?? ''),
+      competition: row.competition ?? null,
+      reviewType: String(row.review_type ?? 'no_actionable_signal'),
+      savedAt: row.saved_at ?? null,
+      updatedAt: row.updated_at ?? null,
+      review,
+    };
+  }
+
+  async getLearningReviews(filters?: { competition?: string; limit?: number }): Promise<any[]> {
+    let q = 'SELECT * FROM learning_reviews WHERE 1=1';
+    const params: any[] = [];
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      params.push(filters.competition);
+    }
+    q += ' ORDER BY datetime(updated_at) DESC';
+    if (Number.isFinite(Number(filters?.limit))) {
+      q += ' LIMIT ?';
+      params.push(Math.max(1, Math.min(Math.trunc(Number(filters?.limit)), 500)));
+    }
+
+    const rows = await this.all(q, params);
+    return rows.map((row: any) => {
+      let review: any = {};
+      try {
+        review = JSON.parse(String(row.review_json ?? '{}'));
+      } catch {
+        review = {};
+      }
+      return {
+        matchId: String(row.match_id ?? ''),
+        competition: row.competition ?? null,
+        reviewType: String(row.review_type ?? 'no_actionable_signal'),
+        savedAt: row.saved_at ?? null,
+        updatedAt: row.updated_at ?? null,
+        review,
+      };
+    });
+  }
+
+  async getLearningReviewStats(filters?: { competition?: string; limit?: number }): Promise<any> {
+    const parsed = await this.getLearningReviews({ competition: filters?.competition });
+
+    const byType = parsed.reduce((acc, row) => {
+      acc[row.reviewType] = Number(acc[row.reviewType] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const totalReviews = parsed.length;
+    const actionableReviews = parsed.filter((row) => row.reviewType !== 'no_actionable_signal').length;
+    const missedWinningSelections = parsed.filter((row) => row.review?.missedWinningSelection).length;
+    const recentLimit = Math.max(1, Math.min(Number(filters?.limit ?? 12), 50));
+
+    return {
+      totalReviews,
+      actionableReviews,
+      missedWinningSelections,
+      reviewTypeBreakdown: byType,
+      recentReviews: parsed.slice(0, recentLimit).map((row) => ({
+        matchId: row.matchId,
+        competition: row.competition,
+        reviewType: row.reviewType,
+        headline: String(row.review?.headline ?? ''),
+        humanSummary: String(row.review?.humanSummary ?? ''),
+        lessons: Array.isArray(row.review?.lessons) ? row.review.lessons.slice(0, 3) : [],
+        updatedAt: row.updatedAt,
+      })),
+    };
   }
 
   async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
@@ -721,6 +1280,52 @@ export class DatabaseService {
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
       : 380;
     q += ' ORDER BY datetime(date) ASC LIMIT ?';
+    params.push(safeLimit);
+
+    return this.all(q, params);
+  }
+
+  async getRecentCompletedMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
+    let q = `
+      SELECT *
+      FROM matches
+      WHERE home_goals IS NOT NULL
+        AND away_goals IS NOT NULL
+    `;
+    const params: any[] = [];
+
+    if (filters?.competition) {
+      q += ' AND competition = ?';
+      params.push(filters.competition);
+    }
+
+    if (filters?.season) {
+      const rawSeason = filters.season.trim();
+      if (rawSeason.length > 0) {
+        const seasonVariants = Array.from(
+          new Set([
+            rawSeason,
+            rawSeason.includes('/') ? rawSeason.replace('/', '-') : rawSeason,
+            rawSeason.includes('-') ? rawSeason.replace('-', '/') : rawSeason,
+          ])
+        );
+
+        if (seasonVariants.length === 1) {
+          q += ' AND season = ?';
+          params.push(seasonVariants[0]);
+        } else {
+          q += ` AND season IN (${seasonVariants.map(() => '?').join(', ')})`;
+          params.push(...seasonVariants);
+        }
+      }
+    }
+
+    const requestedLimit = Number(filters?.limit ?? 80);
+    const safeLimit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(Math.trunc(requestedLimit), 300))
+      : 80;
+
+    q += ' ORDER BY datetime(date) DESC LIMIT ?';
     params.push(safeLimit);
 
     return this.all(q, params);
@@ -845,6 +1450,13 @@ export class DatabaseService {
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     };
+    const safePreferredNumber = (...values: unknown[]): number | null => {
+      for (const value of values) {
+        const parsed = safeAvgOrNull(value);
+        if (parsed !== null) return parsed;
+      }
+      return null;
+    };
     const safeVarianceOrNull = (v: unknown): number | null => {
       const n = safeAvgOrNull(v);
       if (n === null) return null;
@@ -941,6 +1553,7 @@ export class DatabaseService {
     const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
     const existingStats = parseJson(existingTeam?.team_stats_json);
+    const transfermarktStats = existingStats.transfermarkt ?? {};
     const computedStats = {
       ...(existingStats.computed ?? {}),
       overallSampleSize: totalN,
@@ -967,6 +1580,27 @@ export class DatabaseService {
       computed: computedStats,
     });
 
+    const preferredHomeShots = safePreferredNumber(
+      transfermarktStats?.home?.avgShots,
+      homeN > 0 ? homeRows?.avg_shots : null,
+      existingTeam?.avg_home_shots,
+    );
+    const preferredAwayShots = safePreferredNumber(
+      transfermarktStats?.away?.avgShots,
+      awayN > 0 ? awayRows?.avg_shots : null,
+      existingTeam?.avg_away_shots,
+    );
+    const preferredHomeShotsOT = safePreferredNumber(
+      transfermarktStats?.home?.avgShotsOT,
+      homeN > 0 ? homeRows?.avg_shots_ot : null,
+      existingTeam?.avg_home_shots_ot,
+    );
+    const preferredAwayShotsOT = safePreferredNumber(
+      transfermarktStats?.away?.avgShotsOT,
+      awayN > 0 ? awayRows?.avg_shots_ot : null,
+      existingTeam?.avg_away_shots_ot,
+    );
+
     await this.run(
       `UPDATE teams SET
         avg_home_shots     = COALESCE(:homeShots,   avg_home_shots),
@@ -986,11 +1620,11 @@ export class DatabaseService {
       WHERE team_id = :teamId`,
       {
         teamId,
-        homeShots: homeN > 0 ? safeAvgOrNull(homeRows?.avg_shots) : null,
-        homeShotsOT: homeN > 0 ? safeAvgOrNull(homeRows?.avg_shots_ot) : null,
+        homeShots: preferredHomeShots,
+        homeShotsOT: preferredHomeShotsOT,
         homeXG: homeN > 0 ? safeAvgOrNull(homeRows?.avg_xg) : null,
-        awayShots: awayN > 0 ? safeAvgOrNull(awayRows?.avg_shots) : null,
-        awayShotsOT: awayN > 0 ? safeAvgOrNull(awayRows?.avg_shots_ot) : null,
+        awayShots: preferredAwayShots,
+        awayShotsOT: preferredAwayShotsOT,
         awayXG: awayN > 0 ? safeAvgOrNull(awayRows?.avg_xg) : null,
         yellow: avgYellow,
         red: avgRed,
