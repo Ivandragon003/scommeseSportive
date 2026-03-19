@@ -27,7 +27,7 @@
  */
 
 import { DixonColesModel, MatchData } from './DixonColesModel';
-import { ValueBettingEngine, BetOpportunity, MarketCategory } from './ValueBettingEngine';
+import { ValueBettingEngine, BetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from './ValueBettingEngine';
 
 export interface BacktestResult {
   totalMatches: number;
@@ -90,6 +90,46 @@ export interface MonthlyStats {
   roi: number;
 }
 
+export interface WalkForwardFoldSummary {
+  foldNumber: number;
+  trainMatches: number;
+  testMatches: number;
+  betsPlaced: number;
+  betsWon: number;
+  totalStaked: number;
+  roi: number;
+  winRate: number;
+  netProfit: number;
+  brierScore: number;
+  logLoss: number;
+  startDate: Date;
+  endDate: Date;
+}
+
+export interface WalkForwardBacktestResult {
+  totalMatches: number;
+  totalFolds: number;
+  expandingWindow: boolean;
+  initialTrainMatches: number;
+  testWindowMatches: number;
+  stepMatches: number;
+  folds: WalkForwardFoldSummary[];
+  summary: {
+    totalBetsPlaced: number;
+    totalBetsWon: number;
+    totalNetProfit: number;
+    totalStaked: number;
+    roi: number;
+    winRate: number;
+    averageFoldROI: number;
+    medianFoldROI: number;
+    roiStdDev: number;
+    positiveFoldRate: number;
+    averageBrierScore: number;
+    averageLogLoss: number;
+  };
+}
+
 interface TestBet {
   matchDate: Date;
   market: string;
@@ -118,19 +158,18 @@ export class BacktestingEngine {
     this.engine = new ValueBettingEngine();
   }
 
-  runBacktest(
-    matches: MatchData[],
-    historicalOdds: Record<string, Record<string, number>>,
-    trainRatio = 0.7,
-    confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above'
-  ): BacktestResult {
-    const sorted   = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const splitIdx = Math.floor(sorted.length * trainRatio);
-    const trainMatches = sorted.slice(0, splitIdx);
-    const testMatches  = sorted.slice(splitIdx);
-    const teams = [...new Set(sorted.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
+  setAdaptiveTuning(profile: AdaptiveEngineTuningProfile | null | undefined): void {
+    this.engine.setAdaptiveTuning(profile ?? null);
+  }
 
-    console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
+  private simulateBacktestScenario(
+    trainMatches: MatchData[],
+    testMatches: MatchData[],
+    historicalOdds: Record<string, Record<string, number>>,
+    confidenceLevel: 'high_only' | 'medium_and_above'
+  ): BacktestResult {
+    const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
+
     this.model.fitModel(trainMatches, teams);
 
     const bets: TestBet[] = [];
@@ -188,9 +227,114 @@ export class BacktestingEngine {
       });
     }
 
-    const result = this.computeMetrics(bets, equityCurve, trainMatches.length, testMatches.length);
+    return this.computeMetrics(bets, equityCurve, trainMatches.length, testMatches.length);
+  }
+
+  runBacktest(
+    matches: MatchData[],
+    historicalOdds: Record<string, Record<string, number>>,
+    trainRatio = 0.7,
+    confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above'
+  ): BacktestResult {
+    const sorted   = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const splitIdx = Math.floor(sorted.length * trainRatio);
+    const trainMatches = sorted.slice(0, splitIdx);
+    const testMatches  = sorted.slice(splitIdx);
+
+    console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
+    const result = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
     console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}%`);
     return result;
+  }
+
+  runWalkForwardBacktest(
+    matches: MatchData[],
+    historicalOdds: Record<string, Record<string, number>>,
+    options?: {
+      initialTrainMatches?: number;
+      testWindowMatches?: number;
+      stepMatches?: number;
+      confidenceLevel?: 'high_only' | 'medium_and_above';
+      expandingWindow?: boolean;
+      maxFolds?: number;
+    }
+  ): WalkForwardBacktestResult {
+    const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const totalMatches = sorted.length;
+    const initialTrainMatches = Math.max(30, Math.min(Number(options?.initialTrainMatches ?? Math.floor(totalMatches * 0.55)), totalMatches - 10));
+    const testWindowMatches = Math.max(10, Math.min(Number(options?.testWindowMatches ?? Math.max(10, Math.floor(totalMatches * 0.12))), totalMatches - initialTrainMatches));
+    const stepMatches = Math.max(5, Math.min(Number(options?.stepMatches ?? testWindowMatches), testWindowMatches));
+    const confidenceLevel = options?.confidenceLevel ?? 'medium_and_above';
+    const expandingWindow = options?.expandingWindow !== false;
+    const maxFolds = Math.max(1, Number(options?.maxFolds ?? 12));
+
+    const folds: WalkForwardFoldSummary[] = [];
+
+    for (let testStart = initialTrainMatches; testStart < sorted.length && folds.length < maxFolds; testStart += stepMatches) {
+      const testEnd = Math.min(sorted.length, testStart + testWindowMatches);
+      const trainStart = expandingWindow ? 0 : Math.max(0, testStart - initialTrainMatches);
+      const trainMatches = sorted.slice(trainStart, testStart);
+      const testMatches = sorted.slice(testStart, testEnd);
+      if (trainMatches.length < 30 || testMatches.length < 5) continue;
+
+      const foldResult = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
+      folds.push({
+        foldNumber: folds.length + 1,
+        trainMatches: trainMatches.length,
+        testMatches: testMatches.length,
+        betsPlaced: foldResult.betsPlaced,
+        betsWon: foldResult.betsWon,
+        totalStaked: Number(foldResult.totalStaked.toFixed(2)),
+        roi: Number(foldResult.roi.toFixed(2)),
+        winRate: Number(foldResult.winRate.toFixed(2)),
+        netProfit: Number(foldResult.netProfit.toFixed(2)),
+        brierScore: Number(foldResult.brierScore.toFixed(4)),
+        logLoss: Number(foldResult.logLoss.toFixed(4)),
+        startDate: testMatches[0].date,
+        endDate: testMatches[testMatches.length - 1].date,
+      });
+    }
+
+    const totalBetsPlaced = folds.reduce((sum, fold) => sum + fold.betsPlaced, 0);
+    const totalBetsWon = folds.reduce((sum, fold) => sum + fold.betsWon, 0);
+    const totalNetProfit = folds.reduce((sum, fold) => sum + fold.netProfit, 0);
+    const foldRois = folds.map((fold) => fold.roi);
+    const averageFoldROI = foldRois.length > 0 ? foldRois.reduce((sum, value) => sum + value, 0) / foldRois.length : 0;
+    const sortedRois = [...foldRois].sort((a, b) => a - b);
+    const medianFoldROI = sortedRois.length > 0
+      ? (sortedRois.length % 2 === 1
+        ? sortedRois[Math.floor(sortedRois.length / 2)]
+        : (sortedRois[sortedRois.length / 2 - 1] + sortedRois[sortedRois.length / 2]) / 2)
+      : 0;
+    const roiStdDev = foldRois.length > 0
+      ? Math.sqrt(foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length)
+      : 0;
+    const totalStaked = folds.reduce((sum, fold) => sum + fold.totalStaked, 0);
+    const totalRoi = totalStaked > 0 ? (totalNetProfit / totalStaked) * 100 : averageFoldROI;
+
+    return {
+      totalMatches,
+      totalFolds: folds.length,
+      expandingWindow,
+      initialTrainMatches,
+      testWindowMatches,
+      stepMatches,
+      folds,
+      summary: {
+        totalBetsPlaced,
+        totalBetsWon,
+        totalNetProfit: Number(totalNetProfit.toFixed(2)),
+        totalStaked: Number(totalStaked.toFixed(2)),
+        roi: Number(totalRoi.toFixed(2)),
+        winRate: totalBetsPlaced > 0 ? Number(((totalBetsWon / totalBetsPlaced) * 100).toFixed(2)) : 0,
+        averageFoldROI: Number(averageFoldROI.toFixed(2)),
+        medianFoldROI: Number(medianFoldROI.toFixed(2)),
+        roiStdDev: Number(roiStdDev.toFixed(2)),
+        positiveFoldRate: folds.length > 0 ? Number(((folds.filter((fold) => fold.roi > 0).length / folds.length) * 100).toFixed(2)) : 0,
+        averageBrierScore: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.brierScore, 0) / folds.length).toFixed(4)) : 0,
+        averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
+      },
+    };
   }
 
   // ==================== QUOTE SINTETICHE ====================

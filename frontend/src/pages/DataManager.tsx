@@ -23,6 +23,16 @@ const normalizeKey = (v: any) =>
     .replace(/\s+/g, '_')
     .replace(/[^a-z0-9_]/g, '');
 
+const parseJsonSafe = (value: unknown): Record<string, any> => {
+  if (typeof value !== 'string' || value.trim().length === 0) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
 /* Solo stili specifici di DataManager */
 const localStyles = `
   .dm-wrap { padding: 40px 32px; min-height: 100vh; }
@@ -366,6 +376,19 @@ const DataManager: React.FC = () => {
 
   const filteredTeams = competitionFilter ? teams.filter((t: any) => t.competition === competitionFilter) : teams;
   const selectedTeam  = teams.find((t: any) => String(t.team_id) === String(selectedTeamId)) ?? null;
+  const selectedTeamStats = useMemo(() => parseJsonSafe(selectedTeam?.team_stats_json), [selectedTeam?.team_stats_json]);
+  const transfermarktShotSource = useMemo(() => {
+    const tm = selectedTeamStats.transfermarkt ?? {};
+    const hasSource = tm?.preferredForShots || tm?.home || tm?.away;
+    if (!hasSource) return null;
+    const season = String(tm.season ?? '').trim();
+    const scrapedAt = String(tm.scrapedAt ?? '').trim();
+    const dt = scrapedAt ? new Date(scrapedAt) : null;
+    return {
+      label: season ? `Transfermarkt (${season})` : 'Transfermarkt',
+      updatedAt: dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleString('it-IT') : '-',
+    };
+  }, [selectedTeamStats]);
 
   useEffect(() => {
     const nf = competitionFilter ? teams.filter((t: any) => t.competition === competitionFilter) : teams;
@@ -510,27 +533,6 @@ const DataManager: React.FC = () => {
     s.possCov = `${s.possN}/${s.p}`;
     return s;
   }, [scopedMatches, selectedTeam]);
-
-  const modelShotsForAvg = useMemo(() => {
-    if (!selectedTeam) return null;
-    const h = Number(selectedTeam.avg_home_shots);
-    const a = Number(selectedTeam.avg_away_shots);
-    if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
-    return (h + a) / 2;
-  }, [selectedTeam]);
-
-  const modelSotForAvg = useMemo(() => {
-    if (!selectedTeam) return null;
-    const h = Number(selectedTeam.avg_home_shots_ot);
-    const a = Number(selectedTeam.avg_away_shots_ot);
-    if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
-    return (h + a) / 2;
-  }, [selectedTeam]);
-
-  const shotsForDisplay = modelShotsForAvg !== null ? `${n(modelShotsForAvg, 2)}*` : '-';
-  const shotsAgainstDisplay = '-'; // Removed as data is null
-  const sotForDisplay = modelSotForAvg !== null ? `${n(modelSotForAvg, 2)}*` : '-';
-  const sotAgainstDisplay = '-'; // Removed as data is null
 
   const players = selectedTeam ? (playersByTeam[selectedTeam.team_id] ?? []) : [];
   const qualityRows = [
@@ -846,10 +848,6 @@ const DataManager: React.FC = () => {
                           ['xG fatto / subito', useOfficialSeasonStats
                             ? `${n(seasonStats.xgForPerMatch, 2)} / ${n(seasonStats.xgAgainstPerMatch, 2)}`
                             : `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)} (${stats.xgfCov})`],
-                          ['Tiri fatti / subiti', `${shotsForDisplay} / ${shotsAgainstDisplay} (${stats.sfCov})`],
-                          ['Tiri in porta (OT) fatti / subiti', useOfficialSeasonStats
-                            ? `${n(seasonStats.shotsOnTargetPerMatch, 2)} / ${n(stats.sotaAvg, 2)}`
-                            : `${sotForDisplay} / ${sotAgainstDisplay} (${stats.sotfCov})`],
                           ['Falli / partita', useOfficialSeasonStats
                             ? n(seasonStats.foulsPerMatch, 2)
                             : `${n(stats.foulsAvg, 2)} (${stats.foulsCov})`],
@@ -866,11 +864,9 @@ const DataManager: React.FC = () => {
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>
-                    {(stats.sfN === 0 || stats.sotfN === 0) && (
-                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
-                        * valore stimato da statistiche squadra (modello), perche i tiri match-level non sono presenti in FotMob.
-                      </div>
-                    )}
+                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
+                      I tiri non sono mostrati in questo pannello: per il modello usiamo la sorgente dedicata del pannello a destra.
+                    </div>
                   </div>
 
                   <div className="dm-stats-panel">
@@ -880,6 +876,7 @@ const DataManager: React.FC = () => {
                         {[
                           ['Forza attacco',   n(selectedTeam.attack_strength, 3)],
                           ['Forza difesa',  n(selectedTeam.defence_strength, 3)],
+                          ['Fonte tiri modello', transfermarktShotSource?.label ?? 'Storico partite'],
                           ['Media tiri casa',    n(selectedTeam.avg_home_shots, 2)],
                           ['Media tiri trasferta',    n(selectedTeam.avg_away_shots, 2)],
                           ['Media tiri in porta casa (OT)', n(selectedTeam.avg_home_shots_ot, 2)],
@@ -890,6 +887,7 @@ const DataManager: React.FC = () => {
                           ['Media rossi',     n(selectedTeam.avg_red_cards, 3)],
                           ['Media falli',         n(selectedTeam.avg_fouls, 2)],
                           ['Soppressione tiri', n(selectedTeam.shots_suppression, 3)],
+                          ['Aggiornamento fonte tiri', transfermarktShotSource?.updatedAt ?? '-'],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>

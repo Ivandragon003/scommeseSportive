@@ -1,19 +1,59 @@
-import React, { useState, useEffect } from 'react';
-import { runBacktest, getBacktestResults, getBacktestResult } from '../utils/api';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  BarChart, Bar, ScatterChart, Scatter, ReferenceLine
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
+import {
+  getBacktestResult,
+  getBacktestResults,
+  runBacktest,
+  runWalkForwardBacktest,
+} from '../utils/api';
+
+type BacktestMode = 'classic' | 'walk_forward';
+type ConfidenceMode = 'high_only' | 'medium_and_above';
+
+const formatPct = (value: number | null | undefined, digits = 2) => `${Number(value ?? 0).toFixed(digits)}%`;
+const formatMoney = (value: number | null | undefined) => `EUR ${Number(value ?? 0).toFixed(2)}`;
+const formatDate = (value: string | Date | null | undefined) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('it-IT');
+};
+
+const isWalkForwardResult = (value: any): boolean =>
+  Boolean(value && (value.kind === 'walk_forward' || Array.isArray(value.folds)));
 
 const Backtesting: React.FC = () => {
   const [competition, setCompetition] = useState('Serie A');
   const [season, setSeason] = useState('');
+  const [mode, setMode] = useState<BacktestMode>('classic');
+  const [confidenceLevel, setConfidenceLevel] = useState<ConfidenceMode>('medium_and_above');
+  const [trainRatio, setTrainRatio] = useState('0.70');
+  const [initialTrainMatches, setInitialTrainMatches] = useState('');
+  const [testWindowMatches, setTestWindowMatches] = useState('');
+  const [stepMatches, setStepMatches] = useState('');
+  const [maxFolds, setMaxFolds] = useState('10');
+  const [expandingWindow, setExpandingWindow] = useState(true);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [currentResult, setCurrentResult] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('overview');
 
-  useEffect(() => { loadResults(); }, []);
+  useEffect(() => {
+    void loadResults();
+  }, []);
 
   const loadResults = async () => {
     const res = await getBacktestResults();
@@ -23,55 +63,89 @@ const Backtesting: React.FC = () => {
   const handleRun = async () => {
     setLoading(true);
     try {
-      const res = await runBacktest({ competition, season: season || undefined });
-      if (res.data) {
-        setCurrentResult(res.data);
+      const payload =
+        mode === 'classic'
+          ? await runBacktest({
+              competition,
+              season: season || undefined,
+              trainRatio: Number(trainRatio),
+              confidenceLevel,
+            })
+          : await runWalkForwardBacktest({
+              competition,
+              season: season || undefined,
+              initialTrainMatches: initialTrainMatches ? Number(initialTrainMatches) : undefined,
+              testWindowMatches: testWindowMatches ? Number(testWindowMatches) : undefined,
+              stepMatches: stepMatches ? Number(stepMatches) : undefined,
+              maxFolds: maxFolds ? Number(maxFolds) : undefined,
+              confidenceLevel,
+              expandingWindow,
+            });
+
+      if (payload.data) {
+        setCurrentResult(payload.data);
+        setActiveTab(isWalkForwardResult(payload.data) ? 'folds' : 'overview');
         await loadResults();
-        setActiveTab('overview');
       }
     } catch (e: any) {
-      alert('Errore backtest: ' + e.message);
+      alert(`Errore backtest: ${e.message}`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const loadHistorical = async (id: number) => {
     const res = await getBacktestResult(id);
-    if (res.data?.result) setCurrentResult(res.data.result);
+    const result = res.data?.result ?? null;
+    if (result) {
+      setCurrentResult(result);
+      setActiveTab(isWalkForwardResult(result) ? 'folds' : 'overview');
+    }
   };
 
-  const r = currentResult;
+  const currentIsWalkForward = useMemo(() => isWalkForwardResult(currentResult), [currentResult]);
+  const classicResult = currentIsWalkForward ? null : currentResult;
+  const walkForwardResult = currentIsWalkForward ? currentResult : null;
 
   return (
     <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
-
       <div style={{ marginBottom: 32 }}>
-        <h1 className="fp-page-title fp-gradient-gold">
-          Backtesting & Validazione
-        </h1>
+        <h1 className="fp-page-title fp-gradient-gold">Backtesting & Validazione</h1>
         <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-          Test del modello su dati storici · Simulazione scommesse
+          Split classico e walk-forward con priorita alle quote storiche archiviate
         </p>
       </div>
 
       <div className="fp-grid-2" style={{ marginBottom: 24 }}>
-
-        {/* RUN FORM */}
         <div className="fp-card">
           <div className="fp-card-head">
-            <div className="fp-card-title">▶ Esegui Backtest</div>
+            <div className="fp-card-title">Esegui Validazione</div>
           </div>
           <div className="fp-card-body">
             <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
-              ℹ️ Il backtest usa il <strong>70%</strong> dei dati per addestrare il modello e il <strong>30%</strong> per simulare le scommesse.
+              Il motore usa prima gli snapshot reali del bookmaker. Dove mancano, passa alle quote stimate dal modello.
             </div>
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Modalita</label>
+                <select className="fp-input" value={mode} onChange={(e) => setMode(e.target.value as BacktestMode)}>
+                  <option value="classic">Backtest classico</option>
+                  <option value="walk_forward">Walk-forward</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Confidence filter</label>
+                <select className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
+                  <option value="medium_and_above">Medium and above</option>
+                  <option value="high_only">High only</option>
+                </select>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label">Competizione</label>
                 <input
                   className="fp-input"
                   value={competition}
-                  onChange={e => setCompetition(e.target.value)}
+                  onChange={(e) => setCompetition(e.target.value)}
                   placeholder="es. Serie A"
                 />
               </div>
@@ -80,134 +154,125 @@ const Backtesting: React.FC = () => {
                 <input
                   className="fp-input"
                   value={season}
-                  onChange={e => setSeason(e.target.value)}
-                  placeholder="es. 2023-24"
+                  onChange={(e) => setSeason(e.target.value)}
+                  placeholder="es. 2024-25"
                 />
               </div>
             </div>
-            <button
-              className="fp-btn fp-btn-gold fp-btn-lg"
-              onClick={handleRun}
-              disabled={loading}
-            >
-              {loading ? '⏳ Eseguendo backtest...' : '▶ Avvia Backtest'}
+
+            {mode === 'classic' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18, maxWidth: 280 }}>
+                <label className="fp-label">Train ratio</label>
+                <input
+                  className="fp-input"
+                  value={trainRatio}
+                  onChange={(e) => setTrainRatio(e.target.value)}
+                  placeholder="0.70"
+                />
+              </div>
+            ) : (
+              <>
+                <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label className="fp-label">Initial train matches</label>
+                    <input className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="auto" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label className="fp-label">Test window matches</label>
+                    <input className="fp-input" value={testWindowMatches} onChange={(e) => setTestWindowMatches(e.target.value)} placeholder="auto" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label className="fp-label">Step matches</label>
+                    <input className="fp-input" value={stepMatches} onChange={(e) => setStepMatches(e.target.value)} placeholder="auto" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label className="fp-label">Max folds</label>
+                    <input className="fp-input" value={maxFolds} onChange={(e) => setMaxFolds(e.target.value)} placeholder="10" />
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
+                  <input type="checkbox" checked={expandingWindow} onChange={(e) => setExpandingWindow(e.target.checked)} />
+                  Expanding window
+                </label>
+              </>
+            )}
+
+            <button className="fp-btn fp-btn-gold fp-btn-lg" onClick={handleRun} disabled={loading}>
+              {loading ? 'Esecuzione in corso...' : mode === 'classic' ? 'Avvia Backtest' : 'Avvia Walk-forward'}
             </button>
           </div>
         </div>
 
-        {/* HISTORY */}
-        {results.length > 0 && (
-          <div className="fp-card">
-            <div className="fp-card-head">
-              <div className="fp-card-title">🕑 Backtest Precedenti</div>
-              <span className="fp-badge fp-badge-gray">{results.length} salvati</span>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="fp-table">
-                <thead>
-                  <tr>
-                    <th>Competizione</th>
-                    <th>Stagione</th>
-                    <th>Data</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.slice(0, 8).map((row: any) => (
-                    <tr key={row.id}>
-                      <td style={{ fontWeight: 600 }}>{row.competition}</td>
-                      <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{row.season_range}</td>
-                      <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>
-                        {new Date(row.run_at).toLocaleDateString('it-IT')}
-                      </td>
-                      <td>
-                        <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => loadHistorical(row.id)}>
-                          Carica
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div className="fp-card">
+          <div className="fp-card-head">
+            <div className="fp-card-title">Run Salvati</div>
+            <span className="fp-badge fp-badge-gray">{results.length} run</span>
           </div>
-        )}
+          <div style={{ overflowX: 'auto' }}>
+            <table className="fp-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Competizione</th>
+                  <th>Stagione</th>
+                  <th>Data</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.slice(0, 10).map((row: any) => (
+                  <tr key={row.id}>
+                    <td>
+                      <span className={`fp-badge ${String(row.result_json ?? '').includes('walk_forward') ? 'fp-badge-blue' : 'fp-badge-gold'}`}>
+                        {String(row.result_json ?? '').includes('walk_forward') ? 'Walk-forward' : 'Classic'}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{row.competition}</td>
+                    <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{row.season_range}</td>
+                    <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{formatDate(row.run_at)}</td>
+                    <td>
+                      <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => loadHistorical(row.id)}>
+                        Carica
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {results.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-3)' }}>
+                      Nessun run salvato
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
-      {r && (
+      {classicResult && (
         <>
-          {/* KPI ROW 1 */}
           <div className="fp-grid-4" style={{ marginBottom: 16 }}>
             {[
-              {
-                icon: '📈', label: 'ROI',
-                val: `${r.roi >= 0 ? '+' : ''}${r.roi?.toFixed(2)}%`,
-                c: r.roi >= 0 ? 'green' : 'red',
-                sub: `su ${r.testMatches} partite test`,
-              },
-              {
-                icon: '🎯', label: 'Win Rate',
-                val: `${r.winRate?.toFixed(1)}%`,
-                c: 'blue',
-                sub: `${r.betsWon}/${r.betsPlaced} scommesse`,
-              },
-              {
-                icon: '📊', label: 'Sharpe Ratio',
-                val: r.sharpeRatio?.toFixed(2),
-                c: r.sharpeRatio > 1 ? 'green' : r.sharpeRatio > 0 ? 'gold' : 'red',
-                sub: r.sharpeRatio > 1 ? 'Buono' : r.sharpeRatio > 0 ? 'Accettabile' : 'Negativo',
-              },
-              {
-                icon: '📉', label: 'Max Drawdown',
-                val: `${r.maxDrawdown?.toFixed(1)}%`,
-                c: r.maxDrawdown < 20 ? 'green' : 'red',
-                sub: r.maxDrawdown < 20 ? 'Contenuto' : 'Elevato',
-              },
-            ].map(({ icon, label, val, c, sub }) => (
-              <div key={label} className={`fp-stat c-${c}`}>
-                <span className="fp-stat-icon">{icon}</span>
-                <div className={`fp-stat-val c-${c}`}>{val}</div>
-                <div className="fp-stat-label">{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, fontFamily: 'DM Mono, monospace' }}>{sub}</div>
+              { label: 'ROI', value: `${classicResult.roi >= 0 ? '+' : ''}${formatPct(classicResult.roi, 2)}`, color: classicResult.roi >= 0 ? 'green' : 'red' },
+              { label: 'Win Rate', value: formatPct(classicResult.winRate, 1), color: 'blue' },
+              { label: 'Profit Factor', value: Number(classicResult.profitFactor ?? 0).toFixed(2), color: Number(classicResult.profitFactor ?? 0) > 1 ? 'green' : 'red' },
+              { label: 'Brier Score', value: Number(classicResult.brierScore ?? classicResult.brierScoreGoals ?? 0).toFixed(4), color: 'gold' },
+            ].map((item) => (
+              <div key={item.label} className={`fp-stat c-${item.color}`}>
+                <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
+                <div className="fp-stat-label">{item.label}</div>
               </div>
             ))}
           </div>
 
-          {/* KPI ROW 2 */}
-          <div className="fp-grid-4" style={{ marginBottom: 24 }}>
-            {[
-              { icon: '🔢', label: 'Quota Media', val: r.averageOdds?.toFixed(2), c: 'blue' },
-              { icon: '⚡', label: 'EV Medio', val: `${r.averageEV?.toFixed(2)}%`, c: 'purple' },
-              {
-                icon: '💹', label: 'Profit Factor',
-                val: r.profitFactor?.toFixed(2),
-                c: r.profitFactor > 1 ? 'green' : 'red',
-                sub: r.profitFactor > 1.5 ? 'Eccellente' : r.profitFactor > 1 ? 'Positivo' : 'Negativo',
-              },
-              {
-                icon: '🎲', label: 'Brier Score',
-                val: r.brierScoreGoals?.toFixed(4),
-                c: r.brierScoreGoals < 0.25 ? 'green' : 'gold',
-                sub: r.brierScoreGoals < 0.25 ? 'Buono' : 'Da migliorare',
-              },
-            ].map(({ icon, label, val, c, sub }: any) => (
-              <div key={label} className={`fp-stat c-${c}`}>
-                <span className="fp-stat-icon">{icon}</span>
-                <div className={`fp-stat-val c-${c}`}>{val}</div>
-                <div className="fp-stat-label">{label}</div>
-                {sub && <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, fontFamily: 'DM Mono, monospace' }}>{sub}</div>}
-              </div>
-            ))}
-          </div>
-
-          {/* TABS */}
           <div className="fp-tabs" style={{ marginBottom: 20 }}>
             {[
-              { id: 'overview',     label: '📈 Curva Equity' },
-              { id: 'monthly',      label: '📅 Performance Mensile' },
-              { id: 'calibration',  label: '🎯 Calibrazione' },
-              { id: 'stats',        label: '📊 Statistiche Dettagliate' },
-            ].map(tab => (
+              { id: 'overview', label: 'Curva equity' },
+              { id: 'monthly', label: 'Performance mensile' },
+              { id: 'calibration', label: 'Calibrazione' },
+              { id: 'stats', label: 'Statistiche' },
+            ].map((tab) => (
               <button
                 key={tab.id}
                 className={`fp-tab${activeTab === tab.id ? ' active' : ''}`}
@@ -218,90 +283,216 @@ const Backtesting: React.FC = () => {
             ))}
           </div>
 
-          {/* ── EQUITY CURVE ── */}
-          {activeTab === 'overview' && r.equityCurve?.length > 0 && (
-            <div className="fp-card">
+          {activeTab === 'overview' && Array.isArray(classicResult.equityCurve) && classicResult.equityCurve.length > 0 && (
+            <div className="fp-card" style={{ marginBottom: 24 }}>
               <div className="fp-card-head">
-                <div className="fp-card-title">📈 Curva Equity (€1000 iniziali)</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <span className="fp-badge" style={{ background: r.netProfit >= 0 ? 'var(--green-dim)' : 'var(--red-dim)', color: r.netProfit >= 0 ? 'var(--green)' : 'var(--red)', borderColor: r.netProfit >= 0 ? 'var(--green-border)' : 'var(--red-border)' }}>
-                    {r.netProfit >= 0 ? '+' : ''}€{r.netProfit?.toFixed(2)} netto
-                  </span>
-                  {r.equityCurve.length > 500 && (
-                    <span className="fp-badge fp-badge-gold">
-                      Mostrando 500/{r.equityCurve.length} punti
-                    </span>
-                  )}
-                </div>
+                <div className="fp-card-title">Curva Equity</div>
+                <span className={`fp-badge ${classicResult.netProfit >= 0 ? 'fp-badge-green' : 'fp-badge-red'}`}>
+                  {classicResult.netProfit >= 0 ? '+' : ''}{formatMoney(classicResult.netProfit)}
+                </span>
               </div>
               <div style={{ padding: '24px 24px 8px' }}>
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={r.equityCurve}>
+                <ResponsiveContainer width="100%" height={340}>
+                  <LineChart data={classicResult.equityCurve}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="matchNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} label={{ value: 'Partita #', position: 'insideBottom', offset: -5, fill: 'var(--text-3)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `€${v}`} />
+                    <XAxis dataKey="matchNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
+                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `EUR ${value}`} />
                     <Tooltip
                       contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: any) => [`€${parseFloat(v).toFixed(2)}`, 'Bankroll']}
+                      formatter={(value: any) => [formatMoney(Number(value)), 'Bankroll']}
                     />
                     <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
-                    <ReferenceLine y={1000} stroke="var(--border-hover)" strokeDasharray="4 4" label={{ value: 'Capitale iniziale', fill: 'var(--text-3)', fontSize: 11 }} />
+                    <ReferenceLine y={1000} stroke="var(--border-hover)" strokeDasharray="4 4" />
                     <Line type="monotone" dataKey="bankroll" name="Bankroll" stroke="var(--blue)" strokeWidth={2.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <div className="fp-grid-3" style={{ padding: '16px 24px 24px', borderTop: '1px solid var(--border)' }}>
-                {[
-                  { label: 'Profitto Netto', val: `€${r.netProfit?.toFixed(2)}`, color: r.netProfit >= 0 ? 'var(--green)' : 'var(--red)' },
-                  { label: 'Totale Puntato', val: `€${r.totalStaked?.toFixed(2)}`, color: 'var(--text)' },
-                  { label: 'Recovery Factor', val: r.recoveryFactor?.toFixed(2), color: 'var(--blue)' },
-                ].map(({ label, val, color }) => (
-                  <div key={label} style={{ textAlign: 'center' }}>
-                    <div style={{ fontWeight: 800, fontSize: 20, color, fontFamily: 'DM Mono, monospace' }}>{val}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>{label}</div>
-                  </div>
-                ))}
+            </div>
+          )}
+
+          {activeTab === 'monthly' && Array.isArray(classicResult.monthlyStats) && classicResult.monthlyStats.length > 0 && (
+            <div className="fp-card" style={{ marginBottom: 24 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">ROI Mensile</div>
+              </div>
+              <div style={{ padding: '24px 24px 8px' }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={classicResult.monthlyStats}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="month" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
+                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
+                    <Tooltip
+                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
+                      formatter={(value: any) => [`${Number(value).toFixed(2)}%`, 'ROI']}
+                    />
+                    <ReferenceLine y={0} stroke="var(--border-hover)" />
+                    <Bar dataKey="roi" fill="var(--blue)" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           )}
 
-          {/* ── MONTHLY ── */}
-          {activeTab === 'monthly' && r.monthlyStats?.length > 0 && (
-            <div className="fp-card">
-              <div className="fp-card-head"><div className="fp-card-title">📅 ROI Mensile</div></div>
+          {activeTab === 'calibration' && Array.isArray(classicResult.calibration) && classicResult.calibration.length > 0 && (
+            <div className="fp-card" style={{ marginBottom: 24 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">Calibrazione</div>
+              </div>
               <div style={{ padding: '24px 24px 8px' }}>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={r.monthlyStats}>
+                  <ScatterChart>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
+                    <XAxis dataKey="predictedAvg" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                    <YAxis dataKey="actualFrequency" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
                     <Tooltip
                       contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: any) => [`${parseFloat(v).toFixed(2)}%`, 'ROI']}
+                      formatter={(value: any) => [`${(Number(value) * 100).toFixed(1)}%`]}
+                    />
+                    <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="var(--blue)" strokeDasharray="4 4" />
+                    <Scatter data={classicResult.calibration.filter((bucket: any) => bucket.count > 0)} fill="var(--green)" />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'stats' && (
+            <div className="fp-grid-2" style={{ marginBottom: 24 }}>
+              <div className="fp-card">
+                <div className="fp-card-head">
+                  <div className="fp-card-title">Dataset</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="fp-table">
+                    <tbody>
+                      {[
+                        ['Partite totali', classicResult.totalMatches],
+                        ['Training', classicResult.trainingMatches],
+                        ['Test', classicResult.testMatches],
+                        ['Bet piazzate', classicResult.betsPlaced],
+                        ['Bet vinte', classicResult.betsWon],
+                        ['Quota media', Number(classicResult.averageOdds ?? 0).toFixed(2)],
+                      ].map(([label, value]) => (
+                        <tr key={String(label)}>
+                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="fp-card">
+                <div className="fp-card-head">
+                  <div className="fp-card-title">Metriche</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="fp-table">
+                    <tbody>
+                      {[
+                        ['ROI', formatPct(classicResult.roi, 2)],
+                        ['Win rate', formatPct(classicResult.winRate, 2)],
+                        ['Sharpe ratio', Number(classicResult.sharpeRatio ?? 0).toFixed(3)],
+                        ['Max drawdown', formatPct(classicResult.maxDrawdown, 2)],
+                        ['Recovery factor', Number(classicResult.recoveryFactor ?? 0).toFixed(2)],
+                        ['Historical odds coverage', classicResult.historicalOddsCoverage ?? '-'],
+                      ].map(([label, value]) => (
+                        <tr key={String(label)}>
+                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {walkForwardResult && (
+        <>
+          <div className="fp-grid-4" style={{ marginBottom: 16 }}>
+            {[
+              { label: 'Fold totali', value: walkForwardResult.totalFolds ?? 0, color: 'blue' },
+              { label: 'ROI aggregato', value: `${walkForwardResult.summary?.roi >= 0 ? '+' : ''}${formatPct(walkForwardResult.summary?.roi, 2)}`, color: (walkForwardResult.summary?.roi ?? 0) >= 0 ? 'green' : 'red' },
+              { label: 'Fold positivi', value: formatPct(walkForwardResult.summary?.positiveFoldRate ?? 0, 1), color: 'gold' },
+              { label: 'ROI std dev', value: formatPct(walkForwardResult.summary?.roiStdDev ?? 0, 2), color: 'purple' },
+            ].map((item) => (
+              <div key={item.label} className={`fp-stat c-${item.color}`}>
+                <div className={`fp-stat-val c-${item.color}`}>{String(item.value)}</div>
+                <div className="fp-stat-label">{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="fp-tabs" style={{ marginBottom: 20 }}>
+            {[
+              { id: 'folds', label: 'Folds' },
+              { id: 'stability', label: 'Stabilita' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                className={`fp-tab${activeTab === tab.id ? ' active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'folds' && Array.isArray(walkForwardResult.folds) && (
+            <div className="fp-card" style={{ marginBottom: 24 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">Risultati per fold</div>
+                <span className="fp-badge fp-badge-blue">
+                  {walkForwardResult.expandingWindow ? 'Expanding window' : 'Rolling window'}
+                </span>
+              </div>
+              <div style={{ padding: '24px 24px 8px' }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={walkForwardResult.folds}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="foldNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
+                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
+                    <Tooltip
+                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
+                      formatter={(value: any) => [`${Number(value).toFixed(2)}%`, 'ROI fold']}
                     />
                     <ReferenceLine y={0} stroke="var(--border-hover)" />
-                    <Bar dataKey="roi" name="ROI Mensile" fill="var(--blue)" radius={[6, 6, 0, 0]} opacity={0.9} />
+                    <Bar dataKey="roi" fill="var(--gold)" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
                   <thead>
-                    <tr><th>Anno</th><th>Mese</th><th>Scommesse</th><th>Puntato</th><th>Rientro</th><th>Profitto</th><th>ROI</th></tr>
+                    <tr>
+                      <th>Fold</th>
+                      <th>Range</th>
+                      <th>Train</th>
+                      <th>Test</th>
+                      <th>Bet</th>
+                      <th>ROI</th>
+                      <th>Win rate</th>
+                      <th>Profitto</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {r.monthlyStats.map((m: any) => (
-                      <tr key={`${m.year}-${m.month}`}>
-                        <td className="fp-mono">{m.year}</td>
-                        <td>{m.month}</td>
-                        <td className="fp-mono">{m.bets}</td>
-                        <td className="fp-mono">€{m.staked?.toFixed(2)}</td>
-                        <td className="fp-mono">€{m.returned?.toFixed(2)}</td>
-                        <td className="fp-mono" style={{ color: m.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
-                          {m.profit >= 0 ? '+' : ''}€{m.profit?.toFixed(2)}
+                    {walkForwardResult.folds.map((fold: any) => (
+                      <tr key={fold.foldNumber}>
+                        <td className="fp-mono">{fold.foldNumber}</td>
+                        <td className="fp-mono">{formatDate(fold.startDate)} - {formatDate(fold.endDate)}</td>
+                        <td className="fp-mono">{fold.trainMatches}</td>
+                        <td className="fp-mono">{fold.testMatches}</td>
+                        <td className="fp-mono">{fold.betsPlaced}</td>
+                        <td className="fp-mono" style={{ color: fold.roi >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
+                          {fold.roi >= 0 ? '+' : ''}{formatPct(fold.roi, 2)}
                         </td>
-                        <td className="fp-mono" style={{ color: m.roi >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
-                          {m.roi >= 0 ? '+' : ''}{m.roi?.toFixed(2)}%
+                        <td className="fp-mono">{formatPct(fold.winRate, 1)}</td>
+                        <td className="fp-mono" style={{ color: fold.netProfit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
+                          {fold.netProfit >= 0 ? '+' : ''}{formatMoney(fold.netProfit)}
                         </td>
                       </tr>
                     ))}
@@ -311,108 +502,54 @@ const Backtesting: React.FC = () => {
             </div>
           )}
 
-          {/* ── CALIBRATION ── */}
-          {activeTab === 'calibration' && r.calibration?.length > 0 && (
-            <div className="fp-card">
-              <div className="fp-card-head">
-                <div>
-                  <div className="fp-card-title">🎯 Calibrazione del Modello</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Un modello perfettamente calibrato segue la diagonale</div>
+          {activeTab === 'stability' && (
+            <div className="fp-grid-2" style={{ marginBottom: 24 }}>
+              <div className="fp-card">
+                <div className="fp-card-head">
+                  <div className="fp-card-title">Sintesi Walk-forward</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="fp-table">
+                    <tbody>
+                      {[
+                        ['Match totali', walkForwardResult.totalMatches],
+                        ['Fold totali', walkForwardResult.totalFolds],
+                        ['Bet piazzate', walkForwardResult.summary?.totalBetsPlaced ?? 0],
+                        ['Bet vinte', walkForwardResult.summary?.totalBetsWon ?? 0],
+                        ['Puntato', formatMoney(walkForwardResult.summary?.totalStaked)],
+                        ['Profitto netto', `${(walkForwardResult.summary?.totalNetProfit ?? 0) >= 0 ? '+' : ''}${formatMoney(walkForwardResult.summary?.totalNetProfit)}`],
+                      ].map(([label, value]) => (
+                        <tr key={String(label)}>
+                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              <div style={{ padding: '24px 24px 8px' }}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <ScatterChart>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="predictedAvg" name="Probabilità Predetta" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={v => `${(v*100).toFixed(0)}%`} />
-                    <YAxis dataKey="actualFrequency" name="Frequenza Reale" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={v => `${(v*100).toFixed(0)}%`} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: any) => [`${(parseFloat(v)*100).toFixed(1)}%`]}
-                    />
-                    <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="var(--blue)" strokeDasharray="4 4" label={{ value: 'Perfetta calibrazione', fill: 'var(--text-3)', fontSize: 10 }} />
-                    <Scatter data={r.calibration.filter((b: any) => b.count > 0)} fill="var(--green)" name="Buckets" />
-                  </ScatterChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="fp-table">
-                  <thead>
-                    <tr><th>Range Predetto</th><th>Prob. Media</th><th>Freq. Reale</th><th>Campioni</th><th>Errore</th></tr>
-                  </thead>
-                  <tbody>
-                    {r.calibration.filter((b: any) => b.count > 0).map((b: any) => {
-                      const err = Math.abs(b.predictedAvg - b.actualFrequency);
-                      return (
-                        <tr key={b.predictedRange}>
-                          <td className="fp-mono">{b.predictedRange}</td>
-                          <td className="fp-mono">{(b.predictedAvg * 100).toFixed(1)}%</td>
-                          <td className="fp-mono">{(b.actualFrequency * 100).toFixed(1)}%</td>
-                          <td className="fp-mono">{b.count}</td>
-                          <td>
-                            <span className={`fp-badge ${err < 0.05 ? 'fp-badge-green' : err < 0.1 ? 'fp-badge-gold' : 'fp-badge-red'}`}>
-                              {(err * 100).toFixed(1)}pp
-                            </span>
-                          </td>
+              <div className="fp-card">
+                <div className="fp-card-head">
+                  <div className="fp-card-title">Stabilita</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="fp-table">
+                    <tbody>
+                      {[
+                        ['ROI aggregato', formatPct(walkForwardResult.summary?.roi, 2)],
+                        ['ROI medio fold', formatPct(walkForwardResult.summary?.averageFoldROI, 2)],
+                        ['ROI mediano fold', formatPct(walkForwardResult.summary?.medianFoldROI, 2)],
+                        ['Deviazione ROI', formatPct(walkForwardResult.summary?.roiStdDev, 2)],
+                        ['Brier medio', Number(walkForwardResult.summary?.averageBrierScore ?? 0).toFixed(4)],
+                        ['Log loss medio', Number(walkForwardResult.summary?.averageLogLoss ?? 0).toFixed(4)],
+                      ].map(([label, value]) => (
+                        <tr key={String(label)}>
+                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ── STATS ── */}
-          {activeTab === 'stats' && (
-            <div className="fp-card">
-              <div className="fp-card-head"><div className="fp-card-title">📊 Statistiche Complete</div></div>
-              <div className="fp-card-body">
-                <div className="fp-grid-2">
-                  <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                    <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.2px', color: 'var(--blue)' }}>
-                      📂 Dati Dataset
-                    </div>
-                    <table className="fp-table">
-                      <tbody>
-                        {[
-                          ['Partite totali', r.totalMatches],
-                          ['Partite training', `${r.trainingMatches} (70%)`],
-                          ['Partite test', `${r.testMatches} (30%)`],
-                          ['Scommesse piazzate', r.betsPlaced],
-                          ['Scommesse vinte', r.betsWon],
-                          ['Win Rate', `${r.winRate?.toFixed(2)}%`],
-                        ].map(([k, v]) => (
-                          <tr key={String(k)}>
-                            <td style={{ color: 'var(--text-2)' }}>{k}</td>
-                            <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(v)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                    <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.2px', color: 'var(--gold)' }}>
-                      🤖 Metriche Qualità
-                    </div>
-                    <table className="fp-table">
-                      <tbody>
-                        {[
-                          ['Brier Score', r.brierScoreGoals?.toFixed(4)],
-                          ['Log Loss', r.logLoss?.toFixed(4)],
-                          ['Sharpe Ratio (ann.)', r.sharpeRatio?.toFixed(3)],
-                          ['Max Drawdown', `${r.maxDrawdown?.toFixed(2)}%`],
-                          ['Recovery Factor', r.recoveryFactor?.toFixed(2)],
-                          ['Profit Factor', r.profitFactor?.toFixed(2)],
-                        ].map(([k, v]) => (
-                          <tr key={String(k)}>
-                            <td style={{ color: 'var(--text-2)' }}>{k}</td>
-                            <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(v)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>

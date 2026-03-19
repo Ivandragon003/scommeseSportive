@@ -35,6 +35,16 @@ export async function syncTransfermarktStatsForCompetition(
   competition: string = 'Serie A',
   season: string = '',
 ): Promise<TransfermarktSyncResponse> {
+  const parseJson = (value: unknown): Record<string, any> => {
+    if (typeof value !== 'string' || value.trim().length === 0) return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
   // 1. Scrapa Transfermarkt
   const scraped = await scrapeTransfermarktShots(competition, season || undefined);
 
@@ -105,6 +115,32 @@ export async function syncTransfermarktStatsForCompetition(
     // 5. Aggiorna il DB
     const existingTeam = await db.getTeam(dbEntry.teamId);
     if (existingTeam) {
+      const existingStats = parseJson(existingTeam.team_stats_json);
+      const transfermarktStats = {
+        ...(existingStats.transfermarkt ?? {}),
+        preferredForShots: true,
+        competition,
+        season: scraped.season,
+        scrapedAt: scraped.scrapedAt.toISOString(),
+        source: scraped.source,
+        totals: {
+          matchesPlayed: totalMatches,
+          homeMatches,
+          awayMatches,
+          avgShotsOT: parseFloat(avgShotsOTPerGame.toFixed(2)),
+          avgShotsTotal: parseFloat(avgShotsTotalPerGame.toFixed(2)),
+          accuracyPct: parseFloat(Number(tmTeam.accuracyPct ?? 0).toFixed(2)),
+        },
+        home: {
+          avgShots: parseFloat(avgHomeShots.toFixed(2)),
+          avgShotsOT: parseFloat(avgHomeShotsOT.toFixed(2)),
+        },
+        away: {
+          avgShots: parseFloat(avgAwayShots.toFixed(2)),
+          avgShotsOT: parseFloat(avgAwayShotsOT.toFixed(2)),
+        },
+      };
+
       await db.upsertTeam({
         teamId: dbEntry.teamId,
         name: existingTeam.name,
@@ -123,6 +159,10 @@ export async function syncTransfermarktStatsForCompetition(
         avgRedCards: existingTeam.avg_red_cards,
         avgFouls: existingTeam.avg_fouls,
         shotsSuppression: existingTeam.shots_suppression,
+        teamStatsJson: JSON.stringify({
+          ...existingStats,
+          transfermarkt: transfermarktStats,
+        }),
       });
     }
 

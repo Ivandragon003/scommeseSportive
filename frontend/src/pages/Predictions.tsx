@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getEurobetOddsForMatch, placeBet, getBets } from '../utils/api';
+import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getRecentMatches, getEurobetOddsForMatch, replayPlayedMatchPrediction, placeBet, getBets } from '../utils/api';
 import axios from 'axios';
 
 interface PredictionsProps { activeUser: string; }
@@ -71,6 +71,21 @@ const mktLabel = (k: string) => {
   return k.replace(/_/g, ' ');
 };
 const confidenceRank = (v?: string): number => v === 'HIGH' ? 3 : v === 'MEDIUM' ? 2 : 1;
+const marketTierLabel = (tier?: string): string =>
+  tier === 'CORE' ? 'Mercato core' : tier === 'SECONDARY' ? 'Mercato secondario' : tier === 'SPECULATIVE' ? 'Mercato speculativo' : 'Tier n/d';
+const marketTierBadgeClass = (tier?: string): string =>
+  tier === 'CORE' ? 'pr-badge-green' : tier === 'SECONDARY' ? 'pr-badge-blue' : tier === 'SPECULATIVE' ? 'pr-badge-gold' : 'pr-badge-gray';
+const buildOddsReliabilityBadge = (pred: any, isReplay: boolean) => {
+  if (isReplay) {
+    return pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
+      ? { label: 'Snapshot bookmaker reale', className: 'pr-badge-green' }
+      : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
+  }
+  if (pred?.usedSyntheticOdds) return { label: 'Quote completate dal modello', className: 'pr-badge-gold' };
+  if (pred?.usedFallbackBookmaker) return { label: 'Bookmaker fallback', className: 'pr-badge-blue' };
+  if (pred?.oddsSource) return { label: 'Quote live reali', className: 'pr-badge-green' };
+  return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
+};
 const rankOpportunity = (o: any): number => {
   const ev = Number(o?.expectedValue ?? 0);
   const edge = Number(o?.edge ?? 0);
@@ -507,10 +522,12 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [teams, setTeams] = useState<any[]>([]);
   const [competition, setCompetition] = useState('Serie A');
   const [season, setSeason] = useState(currentSeason());
+  const [matchMode, setMatchMode] = useState<'upcoming'|'recent'>('upcoming');
   const [loading, setLoading] = useState(false);
   const [loadingMatchId, setLoadingMatchId] = useState<string|null>(null);
   const [upcomingLoading, setUpcomingLoading] = useState(false);
   const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [recentMatches, setRecentMatches] = useState<any[]>([]);
   const [matchdayMap, setMatchdayMap] = useState<Record<string,number>>({});
   const [pred, setPred] = useState<any>(null);
   const [activeMatchId, setActiveMatchId] = useState<string|null>(null);
@@ -561,6 +578,14 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     } catch { setUpcoming([]); }
     setUpcomingLoading(false);
   };
+  const loadRecent = async () => {
+    setUpcomingLoading(true);
+    try {
+      const res = await getRecentMatches({ competition: competition || undefined, season: season || undefined, limit:160 });
+      setRecentMatches(res.data ?? []);
+    } catch { setRecentMatches([]); }
+    setUpcomingLoading(false);
+  };
   const loadMatchdays = async () => {
     if (!season?.trim()) { setMatchdayMap({}); return; }
     try {
@@ -569,24 +594,49 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     } catch { setMatchdayMap({}); }
   };
 
-  useEffect(() => { loadUpcoming(); }, [competition, season]);
+  useEffect(() => {
+    if (matchMode === 'recent') loadRecent();
+    else loadUpcoming();
+  }, [competition, season, matchMode]);
   useEffect(() => { loadMatchdays(); }, [season]);
+  useEffect(() => {
+    setPred(null);
+    setActiveMatchId(null);
+    setAnalysisCacheKey(null);
+    setOdds({});
+    setOddsMsg('');
+    setMarketsRequested([]);
+    setStakes({});
+  }, [matchMode]);
 
   const comps = useMemo(() => Array.from(new Set(['Serie A', ...teams.map((t:any) => t.competition).filter(Boolean)])), [teams]);
 
+  const visibleMatches = useMemo(() => matchMode === 'recent' ? recentMatches : upcoming, [matchMode, recentMatches, upcoming]);
   const grouped = useMemo(() => {
     const g = new Map<string,any[]>();
-    for (const m of upcoming) {
+    for (const m of visibleMatches) {
       const k = dateToDayKey(m.date);
       const b = g.get(k) ?? []; b.push(m); g.set(k, b);
     }
     return Array.from(g.entries())
-      .sort(([a],[b]) => a==='unknown'?1:b==='unknown'?-1:a.localeCompare(b))
-      .map(([k,ms]) => ({key:k, label:formatDayLabel(k), matches:[...ms].sort((a:any,b:any) => new Date(a.date).getTime()-new Date(b.date).getTime())}));
-  }, [upcoming]);
+      .sort(([a],[b]) => {
+        if (a === 'unknown') return 1;
+        if (b === 'unknown') return -1;
+        return matchMode === 'recent' ? b.localeCompare(a) : a.localeCompare(b);
+      })
+      .map(([k,ms]) => ({
+        key:k,
+        label:formatDayLabel(k),
+        matches:[...ms].sort((a:any,b:any) =>
+          matchMode === 'recent'
+            ? new Date(b.date).getTime()-new Date(a.date).getTime()
+            : new Date(a.date).getTime()-new Date(b.date).getTime()
+        )
+      }));
+  }, [visibleMatches, matchMode]);
   const activeMatchRow = useMemo(
-    () => upcoming.find((m: any) => String(m.match_id ?? '') === String(activeMatchId ?? '')),
-    [upcoming, activeMatchId]
+    () => visibleMatches.find((m: any) => String(m.match_id ?? '') === String(activeMatchId ?? '')),
+    [visibleMatches, activeMatchId]
   );
 
   const parseOdds = () => {
@@ -611,9 +661,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     const awayId = String(match.away_team_id ?? '');
     const comp = String(match.competition ?? competition);
     const mid = String(match.match_id ?? '');
+    const isPlayedMatch = matchMode === 'recent' || (match.home_goals !== null && match.away_goals !== null);
     if (!homeId || !awayId) return;
     const resolvedMatchId = mid || `match_${homeId}_${awayId}_${dateToDayKey(String(match.date ?? ''))}`;
-    const cacheKey = `${resolvedMatchId}|${homeId}|${awayId}|${comp}`;
+    const cacheKey = `${matchMode}|${resolvedMatchId}|${homeId}|${awayId}|${comp}`;
     const cached = analysisCacheRef.current.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.cachedAt < 120000) {
@@ -632,7 +683,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         }
       }
       setStakes(st);
-      setTab('odds');
+      setTab(isPlayedMatch ? 'strategy' : 'odds');
       return;
     }
 
@@ -647,6 +698,56 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
 
     try {
+      if (isPlayedMatch) {
+        setOddsMsg('Ricalcolo consiglio sulla partita gia giocata...'); setOddsTone('info');
+        setLoading(true);
+        const replayRes = await replayPlayedMatchPrediction(mid);
+        if (reqId !== analyzeReqRef.current) return;
+        const replayData = replayRes.data ?? null;
+        if (!replayData) throw new Error('Replay non disponibile.');
+
+        const replayOdds = replayData.replayOddsUsed ?? replayData.replayEstimatedOdds ?? {};
+        const requestedMarkets = Array.isArray(replayData.marketsRequested) ? replayData.marketsRequested : ['model_estimated_replay'];
+        const appliedOdds = Object.entries(replayOdds).reduce((acc, [k, v]) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 1) acc[k] = n.toFixed(2);
+          return acc;
+        }, {} as Record<string, string>);
+
+        const replayPred = {
+          ...replayData,
+          oddsSource: replayData.oddsReplaySource ?? 'historical_bookmaker_snapshot',
+        };
+        setPred(replayPred);
+        applyOdds(replayOdds);
+        setMarketsRequested(requestedMarkets);
+        setOddsMsg(replayData.analysisDisclaimer ?? 'Replay statistico su partita gia giocata.');
+        setOddsTone('warning');
+        setTab('strategy');
+
+        const st: Record<string,string> = {};
+        for (const o of replayPred?.valueOpportunities ?? []) {
+          if (budget?.available_budget) {
+            const k = buildBetKey(String(replayPred?.matchId ?? resolvedMatchId), String(o.selection), String(o.marketName));
+            st[k] = ((o.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+          }
+        }
+        setStakes(st);
+
+        analysisCacheRef.current.set(cacheKey, {
+          pred: replayPred,
+          odds: appliedOdds,
+          marketsRequested: requestedMarkets,
+          oddsMsg: replayData.analysisDisclaimer ?? 'Replay statistico su partita gia giocata.',
+          oddsTone: 'warning',
+          cachedAt: Date.now(),
+        });
+
+        setLoading(false);
+        setLoadingMatchId(null);
+        return;
+      }
+
       setOddsMsg('Recupero quote live...'); setOddsTone('info');
       const homeName = resolveTeam(homeId, match.home_team_name);
       const awayName = resolveTeam(awayId, match.away_team_name);
@@ -659,6 +760,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         competition: comp || undefined
       });
       const oddsPromise = getEurobetOddsForMatch({
+        matchId: resolvedMatchId,
         competition: comp || 'Serie A',
         homeTeam: homeName,
         awayTeam: awayName,
@@ -697,9 +799,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         }, {} as Record<string, string>);
 
         if (payload.source === 'the_odds_api_plus_model_completion') {
-          finalOddsMsg = 'Quote live integrate con stima modello sui mercati mancanti.';
+          finalOddsMsg = 'Quote live integrate con stima modello sui mercati mancanti. I mercati statistici completati dal modello generano poche value bet reali.';
           finalOddsTone = 'warning';
-        } else if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno.'; finalOddsTone = 'warning'; }
+        } else if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno. Su tiri, falli e cartellini l edge contro il mercato e quindi molto limitato.'; finalOddsTone = 'warning'; }
         else if (payload.usedFallbackBookmaker) { finalOddsMsg = 'Eurobet n/d - quote bookmaker alternativo.'; finalOddsTone = 'warning'; }
         else { finalOddsMsg = 'Quote Eurobet caricate.'; finalOddsTone = 'success'; }
 
@@ -713,13 +815,28 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         });
         if (reqId !== analyzeReqRef.current) return;
         if (enrichedRes.data?.data) {
-          finalPred = enrichedRes.data.data;
+          finalPred = {
+            ...enrichedRes.data.data,
+            oddsSource: payload.source ?? null,
+            usedSyntheticOdds: Boolean(payload.usedSyntheticOdds),
+            usedFallbackBookmaker: Boolean(payload.usedFallbackBookmaker),
+          };
           setPred(finalPred);
           setTab('odds');
         }
       } else {
         finalOddsMsg = payload.message ?? 'Quote non disponibili.';
         finalOddsTone = 'warning';
+      }
+
+      if (finalPred) {
+        finalPred = {
+          ...finalPred,
+          oddsSource: payload.source ?? finalPred.oddsSource ?? null,
+          usedSyntheticOdds: Boolean(payload.usedSyntheticOdds ?? finalPred.usedSyntheticOdds),
+          usedFallbackBookmaker: Boolean(payload.usedFallbackBookmaker ?? finalPred.usedFallbackBookmaker),
+        };
+        setPred(finalPred);
       }
 
       setOddsMsg(finalOddsMsg);
@@ -751,6 +868,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   };
 
   const handleBet = async (opp: any) => {
+    if (pred?.analysisMode === 'played_match_replay') {
+      return alert('Partita gia giocata: questa schermata e solo una verifica retrospettiva.');
+    }
     if (!budget) return alert('Inizializza il bankroll nella sezione Budget.');
     const oppKey = buildBetKey(String(pred?.matchId ?? activeMatchId ?? ''), String(opp.selection), String(opp.marketName));
     const manualStake = parseFloat(stakes[oppKey] ?? '0');
@@ -803,6 +923,28 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     [vb]
   );
   const currentMatchId = String(pred?.matchId ?? activeMatchId ?? '');
+  const isReplayAnalysis = pred?.analysisMode === 'played_match_replay';
+  const actualMatch = pred?.actualMatch ?? null;
+  const recommendedBetResult = pred?.recommendedBetResult ?? null;
+  const learningReview = pred?.learningReview ?? null;
+  const oddsReliabilityBadge = buildOddsReliabilityBadge(pred, isReplayAnalysis);
+  const replayOutcomeTone =
+    recommendedBetResult?.status === 'WON'
+      ? 'success'
+      : recommendedBetResult?.status === 'LOST'
+        ? 'danger'
+        : recommendedBetResult?.status === 'VOID'
+          ? 'warning'
+          : 'info';
+  const replayOutcomeLabel =
+    recommendedBetResult?.status === 'WON'
+      ? 'Pronostico verificato: esito vincente'
+      : recommendedBetResult?.status === 'LOST'
+        ? 'Pronostico verificato: esito perdente'
+        : recommendedBetResult?.status === 'VOID'
+          ? 'Pronostico verificato: esito void'
+          : '';
+  const leftPanelTitle = matchMode === 'recent' ? 'Partite recenti giocate' : 'Partite in programma';
   const placedBetKeySet = useMemo(
     () =>
       new Set(
@@ -817,16 +959,21 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const bankroll = Number(budget?.available_budget ?? 0);
   const maxExposurePct = 8;
   const maxExposureAmount = bankroll > 0 ? (bankroll * maxExposurePct) / 100 : 0;
-  const strategyTop = vbRanked.slice(0, 3).map((o, idx) => {
-    const stake = bankroll > 0 ? (Number(o.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
+  const finalRecommendedChoice = useMemo(() => {
+    if (!bestValueOpp) return null;
+    const match =
+      vbRanked.find((o: any) =>
+        String(o.selection ?? '') === String(bestValueOpp.selection ?? '') &&
+        String(o.marketName ?? '') === String(bestValueOpp.marketName ?? '')
+      ) ?? null;
+    if (!match) return null;
+    const suggestedStakeAmount = bankroll > 0 ? (Number(match.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
     return {
-      rank: idx + 1,
-      ...o,
-      suggestedStakeAmount: stake,
-      rankScore: rankOpportunity(o),
+      ...match,
+      suggestedStakeAmount,
     };
-  });
-  const suggestedTotalStake = strategyTop.reduce((s, o) => s + Number(o.suggestedStakeAmount ?? 0), 0);
+  }, [bestValueOpp, bankroll, vbRanked]);
+  const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
   const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
   const handleRefresh = () => {
     if (!analysisCacheKey || !activeMatchRow) return;
@@ -843,7 +990,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
     {id:'fouls', label:'Falli'},
     {id:'shots', label:'Tiri'},
     {id:'players', label:'Giocatori', count:pp.length},
-    {id:'strategy',label:'Piano Bet'},
+    {id:'strategy',label:'Pronostico Finale'},
     {id:'method', label:'Algoritmo'},
     {id:'value',   label:'Scommesse',  count:vb.length},
   ];
@@ -856,7 +1003,16 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         {/*  LEFT PANEL  */}
         <div className="pr-left">
           <div className="pr-left-head">
-            <div className="pr-left-title">Partite in programma</div>
+            <div className="pr-left-title">{leftPanelTitle}</div>
+
+            <div style={{display:'flex',gap:6,marginBottom:10}}>
+              <button className={`pr-tab${matchMode==='upcoming' ? ' active' : ''}`} onClick={() => setMatchMode('upcoming')}>
+                In Programma
+              </button>
+              <button className={`pr-tab${matchMode==='recent' ? ' active' : ''}`} onClick={() => setMatchMode('recent')}>
+                Recenti Giocate
+              </button>
+            </div>
 
             {/* Filters */}
             <div className="pr-season-row">
@@ -892,6 +1048,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   const mid = String(m.match_id ?? '');
                   const isLoading = loadingMatchId === mid;
                   const isActive  = activeMatchId === mid;
+                  const isPlayedRow = matchMode === 'recent' || (m.home_goals !== null && m.away_goals !== null);
+                  const scoreLabel = isPlayedRow && m.home_goals !== null && m.away_goals !== null
+                    ? `${m.home_goals}-${m.away_goals}`
+                    : null;
                   const hasMD = isSerieA(m.competition ?? competition);
                   const md = matchdayMap[mid];
                   const matchVB = isActive && vb.length > 0;
@@ -909,7 +1069,9 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                       </div>
                       {isLoading
                         ? <div className="pr-match-spinner"><div className="pr-spin" /></div>
-                        : matchVB
+                        : scoreLabel
+                          ? <span className="pr-match-vb">{scoreLabel}</span>
+                          : matchVB
                           ? <span className="pr-match-vb">{vb.length} VB</span>
                           : <span className="pr-match-comp" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
                               {String(m.competition ?? '').replace('Serie A','SA').replace('Premier League','EPL').replace('La Liga','LAL').replace('Bundesliga','BUN').replace('Ligue 1','L1').slice(0,6)}
@@ -930,8 +1092,12 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               <div className="pr-empty-icon">?</div>
               <div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Seleziona una partita</div>
               <div className="pr-empty-msg">
-                Clicca su una partita nel pannello di sinistra per analizzarla.<br />
-                Le quote vengono caricate automaticamente.
+                {matchMode === 'recent'
+                  ? 'Apri una partita gia giocata per verificare il pronostico finale consigliato.'
+                  : 'Clicca su una partita nel pannello di sinistra per analizzarla.'}<br />
+                {matchMode === 'recent'
+                  ? 'Il replay usa il modello attuale e quote stimate, non un archivio storico bookmaker.'
+                  : 'Le quote vengono caricate automaticamente.'}
               </div>
             </div>
           ) : loading && !pred ? (
@@ -946,7 +1112,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               <div className="pr-results-head">
                 <div>
                   <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
-                  <div className="pr-results-meta">{pred.competition} | lambda {pred.lambdaHome} - {pred.lambdaAway}</div>
+                  <div className="pr-results-meta">
+                    {pred.competition} | lambda {pred.lambdaHome} - {pred.lambdaAway}
+                    {actualMatch?.actualScore ? ` | finale ${actualMatch.actualScore}` : ''}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
@@ -965,12 +1134,26 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 <div className="pr-hero-center">
                   <div className="pr-hero-vs">VS</div>
                   <div className="pr-confidence">{(pred.modelConfidence*100).toFixed(0)}% conf.</div>
+                  {actualMatch?.actualScore && (
+                    <div className="pr-hero-lambda" style={{ marginTop: 8 }}>finale {actualMatch.actualScore}</div>
+                  )}
                 </div>
                 <div className="pr-hero-team right">
                   <div className="pr-hero-name">{pred.awayTeam}</div>
                   <div className="pr-hero-lambda">lambda = {pred.lambdaAway}</div>
                 </div>
               </div>
+
+              {isReplayAnalysis && (
+                <div style={{margin:'0 20px 12px'}}>
+                  <div className={`pr-alert pr-alert-${replayOutcomeTone}`}>
+                    <strong>Replay retrospettivo.</strong> {actualMatch?.actualScore ? `Risultato reale ${actualMatch.actualScore}. ` : ''}
+                    {replayOutcomeLabel && recommendedBetResult
+                      ? `${replayOutcomeLabel} sulla selezione ${recommendedBetResult.selectionLabel ?? fmtSelection(recommendedBetResult.selection)}.`
+                      : 'Serve per verificare il consiglio finale su una partita gia conclusa.'}
+                  </div>
+                </div>
+              )}
 
               {/* Quick KPIs */}
               {gp && (
@@ -989,10 +1172,19 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
               )}
 
               {/* Value bet banner */}
-              {vb.length > 0 && (
+              {bestValueOpp && (
                 <div style={{margin:'0 20px 12px'}}>
-                  <div className="pr-alert pr-alert-success" style={{cursor:'pointer'}} onClick={() => setTab('value')}>
-                    OK <strong>{vb.length} scommesse a valore positivo</strong> trovate - clicca per vederle
+                  <div
+                    className={`pr-alert ${isReplayAnalysis ? `pr-alert-${replayOutcomeTone}` : 'pr-alert-success'}`}
+                    style={{cursor:'pointer'}}
+                    onClick={() => setTab('strategy')}
+                  >
+                    Pronostico finale consigliato: <strong>{bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)}</strong> a quota <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong>
+                    {recommendedBetResult?.status ? ` | esito ${recommendedBetResult.status}` : ''}
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
+                      <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>{marketTierLabel(bestValueOpp.marketTier)}</span>
+                      <span className={`pr-badge ${oddsReliabilityBadge.className}`}>{oddsReliabilityBadge.label}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1277,12 +1469,96 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                   <div>
                     <div className="pr-card">
                       <div className="pr-card-head">
-                        <div className="pr-card-title">Piano Operativo Scommesse</div>
+                        <div className="pr-card-title">Pronostico Finale Consigliato</div>
+                      </div>
+                      <div className="pr-card-body">
+                        {!bestValueOpp ? (
+                          <div className="pr-info" style={{ textAlign:'center' }}>
+                            Nessun pronostico finale consigliato: per questa partita non c e una giocata abbastanza solida.
+                          </div>
+                        ) : (
+                          <div className="pr-g2">
+                            <div>
+                              <div className="pr-info" style={{ marginBottom: 12 }}>
+                                <strong>{bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)}</strong><br />
+                                Quota consigliata: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong>
+                                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
+                                  <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>{marketTierLabel(bestValueOpp.marketTier)}</span>
+                                  <span className={`pr-badge ${oddsReliabilityBadge.className}`}>{oddsReliabilityBadge.label}</span>
+                                </div>
+                              </div>
+                              {recommendedBetResult && (
+                                <div className={`pr-alert pr-alert-${replayOutcomeTone}`} style={{ marginBottom: 12 }}>
+                                  <strong>{recommendedBetResult.status}</strong>
+                                  {actualMatch?.actualScore ? ` | risultato ${actualMatch.actualScore}` : ''}
+                                  <br />
+                                  {recommendedBetResult.reason}
+                                </div>
+                              )}
+                              <div className="pr-info" style={{ marginBottom: 12 }}>
+                                {bestValueOpp.humanSummary ?? 'Questa e la giocata finale consigliata per il quadro complessivo della partita.'}
+                              </div>
+                              <div className="pr-info">
+                                <strong>Perche questa scelta</strong>
+                                <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                                  {(Array.isArray(bestValueOpp.humanReasons) ? bestValueOpp.humanReasons : []).map((r: string, idx: number) => (
+                                    <li key={`${bestValueOpp.selection}_human_${idx}`}>{r}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          <div>
+                            <div className="pr-sec">Gestione Match</div>
+                            <div className="pr-info" style={{ marginBottom: 10 }}>
+                                {isReplayAnalysis ? (
+                                  <>
+                                    Match chiuso il: <strong>{formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}</strong><br />
+                                    Esito reale: <strong>{actualMatch?.actualScore ?? '-'}</strong><br />
+                                    Modalita: <strong>verifica retrospettiva</strong>
+                                  </>
+                                ) : (
+                                  <>
+                                    Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong><br />
+                                    Esposizione suggerita: <strong>EUR {suggestedTotalStake.toFixed(2)}</strong><br />
+                                    Cap esposizione ({maxExposurePct}%): <strong>EUR {maxExposureAmount.toFixed(2)}</strong>
+                                  </>
+                                )}
+                            </div>
+                              {!isReplayAnalysis && (
+                                <>
+                                  <div className="pr-prob-track" style={{ height: 12 }}>
+                                    <div
+                                      className="pr-prob-fill"
+                                      style={{
+                                        width: `${Math.min(100, exposureRatio * 100)}%`,
+                                        background: exposureRatio > 1 ? 'var(--red)' : exposureRatio > 0.8 ? 'var(--gold)' : 'var(--green)',
+                                        minWidth: 0,
+                                        justifyContent: 'flex-start',
+                                        paddingRight: 0,
+                                      }}
+                                    />
+                                  </div>
+                                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 8 }}>
+                                    Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pr-card">
+                      <div className="pr-card-head">
+                        <div className="pr-card-title">Criterio Operativo</div>
+                        <button className="fp-btn fp-btn-sm fp-btn-solid" onClick={() => setTab('value')}>Apri tab Scommesse</button>
                       </div>
                       <div className="pr-card-body">
                         <div className="pr-info" style={{ marginBottom: 12 }}>
-                          Regole pratiche: gioca solo mercati con EV positivo, priorita ai top 3 per score qualitativo,
-                          esposizione totale consigliata max <strong>{maxExposurePct}%</strong> del bankroll disponibile.
+                          {isReplayAnalysis
+                            ? 'Questa e una rilettura retrospettiva: una sola giocata finale viene confrontata con il risultato reale.'
+                            : 'Una sola giocata finale consigliata per match. Le altre quote restano disponibili solo come confronto analitico.'}
                         </div>
                         <div className="pr-g2">
                           <div>
@@ -1292,8 +1568,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                 {[
                                   ['EV minimo', '> 2%'],
                                   ['Quote accettate', '1.30 - 15.00'],
-                                  ['Stake sizing', 'Kelly 1/4 con cap 5%'],
-                                  ['Numero giocate', '1-3 per match'],
+                                  ['Stake sizing', isReplayAnalysis ? 'non applicato nel replay' : 'Kelly 1/4 con cap 5%'],
+                                  ['Numero giocate', isReplayAnalysis ? '1 consiglio finale verificato' : '1-3 per match'],
                                   ['Stop se nessun value', 'Nessuna puntata'],
                                 ].map(([k, v]) => (
                                   <tr key={k}>
@@ -1305,66 +1581,72 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                             </table>
                           </div>
                           <div>
-                            <div className="pr-sec">Rischio Match Corrente</div>
+                            <div className="pr-sec">Lettura del Match</div>
                             <div className="pr-info" style={{ marginBottom: 10 }}>
-                              Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong><br />
-                              Stake suggerita top picks: <strong>EUR {suggestedTotalStake.toFixed(2)}</strong><br />
-                              Cap esposizione ({maxExposurePct}%): <strong>EUR {maxExposureAmount.toFixed(2)}</strong>
-                            </div>
-                            <div className="pr-prob-track" style={{ height: 12 }}>
-                              <div
-                                className="pr-prob-fill"
-                                style={{
-                                  width: `${Math.min(100, exposureRatio * 100)}%`,
-                                  background: exposureRatio > 1 ? 'var(--red)' : exposureRatio > 0.8 ? 'var(--gold)' : 'var(--green)',
-                                  minWidth: 0,
-                                  justifyContent: 'flex-start',
-                                  paddingRight: 0,
-                                }}
-                              />
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 8 }}>
-                              Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
+                              {bestValueOpp
+                                ? `${bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)} e la sola quota proposta come uscita finale.`
+                                : 'Se non c e una giocata davvero solida, il sistema non propone un pronostico finale.'}
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Top 3 Giocate Consigliate</div>
-                        <button className="fp-btn fp-btn-sm fp-btn-solid" onClick={() => setTab('value')}>Apri tab Scommesse</button>
-                      </div>
-                      <div className="pr-card-body">
-                        {strategyTop.length === 0 ? (
-                          <div className="pr-info" style={{ textAlign:'center' }}>
-                            Nessuna giocata consigliata: non sono presenti value bet valide per questa partita.
+                    {isReplayAnalysis && learningReview && (
+                      <div className="pr-card">
+                        <div className="pr-card-head">
+                          <div className="pr-card-title">Analisi Errore / Apprendimento</div>
+                          <span className={`pr-badge ${
+                            learningReview.reviewType === 'model_confirmed'
+                              ? 'pr-badge-green'
+                              : learningReview.reviewType === 'no_actionable_signal'
+                                ? 'pr-badge-gray'
+                                : 'pr-badge-gold'
+                          }`}>
+                            {learningReview.reviewType === 'model_confirmed'
+                              ? 'Confermato'
+                              : learningReview.reviewType === 'ranking_error'
+                                ? 'Ranking'
+                                : learningReview.reviewType === 'filter_rejection'
+                                  ? 'Filtro'
+                                  : 'Neutro'}
+                          </span>
+                        </div>
+                        <div className="pr-card-body">
+                          <div className="pr-info" style={{ marginBottom: 12 }}>
+                            <strong>{learningReview.headline}</strong><br />
+                            {learningReview.humanSummary}
                           </div>
-                        ) : (
-                          <div style={{ display:'grid', gap: 10 }}>
-                            {strategyTop.map((o: any) => (
-                              <div key={o.selection} className="pr-ah-cell" style={{ borderRadius: 10, padding: '10px 12px' }}>
-                                <div style={{ display:'flex', flexDirection:'column', gap: 3 }}>
-                                  <strong>#{o.rank} {o.marketName}</strong>
-                                  <span style={{ fontSize: 11, color:'var(--text-2)' }}>
-                                    EV +{o.expectedValue}% | Edge +{o.edge}% | P. nostra {o.ourProbability}% | quota {o.bookmakerOdds}
-                                  </span>
-                                </div>
-                                <div style={{ textAlign:'right' }}>
-                                  <div className={`pr-badge ${o.confidence==='HIGH' ? 'pr-badge-green' : o.confidence==='MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
-                                    {o.confidence}
-                                  </div>
-                                  <div className="fp-mono" style={{ marginTop: 5 }}>
-                                    EUR {Number(o.suggestedStakeAmount ?? 0).toFixed(2)} ({Number(o.suggestedStakePercent ?? 0).toFixed(2)}% budget)
-                                  </div>
-                                </div>
+                          {learningReview.missedWinningSelection && (
+                            <div className="pr-g2">
+                              <div className="pr-info">
+                                <strong>Linea vincente non sfruttata</strong><br />
+                                {learningReview.missedWinningSelection.selectionLabel}<br />
+                                Quota: <strong>{Number(learningReview.missedWinningSelection.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
+                                Stato nel motore: <strong>{learningReview.missedWinningSelection.wasAlreadyValueBet ? 'gia valutata ma non scelta' : 'scartata prima del ranking'}</strong>
                               </div>
-                            ))}
+                              <div className="pr-info">
+                                <strong>Diagnosi sintetica</strong><br />
+                                {(learningReview.missedWinningSelection.diagnostics?.rejectionReasons ?? []).length > 0
+                                  ? (learningReview.missedWinningSelection.diagnostics.rejectionReasons as string[]).join(' ')
+                                  : 'La linea era gia passata nei filtri, ma non e stata promossa come pronostico finale.'}
+                              </div>
+                            </div>
+                          )}
+                          <div className="pr-info" style={{ marginTop: 12 }}>
+                            <strong>Cosa imparare da questo match</strong>
+                            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                              {(Array.isArray(learningReview.lessons) ? learningReview.lessons : []).map((lesson: string, idx: number) => (
+                                <li key={`learning_review_${idx}`}>{lesson}</li>
+                              ))}
+                            </ul>
                           </div>
-                        )}
+                          <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
+                            Questa review serve a correggere criteri e pesi del modello. Non puo garantire solo quote vincenti: se si inseguono tutti gli esiti a posteriori il sistema peggiora per overfitting.
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
 
@@ -1440,46 +1722,40 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     {bestValueOpp && (
                       <div className="pr-card">
                         <div className="pr-card-head">
-                          <div className="pr-card-title">Miglior quota valore consigliata</div>
-                          <span className={`pr-badge ${bestValueOpp.confidence === 'HIGH' ? 'pr-badge-green' : bestValueOpp.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
-                            {bestValueOpp.confidence}
-                          </span>
+                          <div className="pr-card-title">Pronostico Finale Consigliato</div>
+                          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                            <span className={`pr-badge ${bestValueOpp.confidence === 'HIGH' ? 'pr-badge-green' : bestValueOpp.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
+                              {bestValueOpp.confidence}
+                            </span>
+                            <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
+                              {marketTierLabel(bestValueOpp.marketTier)}
+                            </span>
+                            <span className={`pr-badge ${oddsReliabilityBadge.className}`}>
+                              {oddsReliabilityBadge.label}
+                            </span>
+                          </div>
                         </div>
                         <div className="pr-card-body">
                           <div className="pr-g2">
                             <div className="pr-info">
-                              <strong>{bestValueOpp.marketName}</strong><br />
-                              Selezione: <strong>{fmtSelection(bestValueOpp.selection)}</strong><br />
-                              Quota: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
-                              EV: <strong>+{Number(bestValueOpp.expectedValue ?? 0).toFixed(2)}%</strong> |
-                              Edge: <strong> +{Number(bestValueOpp.edge ?? 0).toFixed(2)}%</strong>
+                              <strong>{bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)}</strong><br />
+                              Quota consigliata: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
+                              {bestValueOpp.humanSummary ?? 'Questa e la giocata finale consigliata per la lettura complessiva del match.'}
                             </div>
                             <div className="pr-info">
-                              <strong>Score combinato</strong><br />
-                              Base modello: <strong>{Number(bestValueOpp.factorBreakdown?.baseModelScore ?? 0).toFixed(3)}</strong><br />
-                              Contesto: <strong>{Number(bestValueOpp.factorBreakdown?.contextualScore ?? 0).toFixed(3)}</strong><br />
-                              Totale: <strong>{Number(bestValueOpp.factorBreakdown?.totalScore ?? bestValueOpp.score ?? 0).toFixed(3)}</strong>
+                              <strong>Indicazione pratica</strong><br />
+                              Una sola giocata finale per partita.<br />
+                              Le altre quote restano sotto come confronto e non come consiglio principale.
                             </div>
                           </div>
                           <div className="pr-info" style={{ marginTop: 10 }}>
-                            <strong>Perche questa e la giocata migliore</strong>
+                            <strong>Perche questa e la scelta finale</strong>
                             <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
-                              {(Array.isArray(bestValueOpp.reasons) ? bestValueOpp.reasons : []).map((r: string, idx: number) => (
+                              {(Array.isArray(bestValueOpp.humanReasons) ? bestValueOpp.humanReasons : []).map((r: string, idx: number) => (
                                 <li key={`${bestValueOpp.selection}_reason_${idx}`}>{r}</li>
                               ))}
                             </ul>
                           </div>
-                          {analysisFactors && (
-                            <div className="pr-info" style={{ marginTop: 10 }}>
-                              <strong>Fattori contestuali letti dal modello</strong><br />
-                              Home advantage: <strong>{Number(analysisFactors.homeAdvantageIndex ?? 0).toFixed(3)}</strong> |
-                              Forma: <strong>{Number(analysisFactors.formDelta ?? 0).toFixed(3)}</strong> |
-                              Obiettivi: <strong>{Number(analysisFactors.motivationDelta ?? 0).toFixed(3)}</strong><br />
-                              Assenze/squalifiche: <strong>{Number(analysisFactors.suspensionsDelta ?? 0).toFixed(3)}</strong> |
-                              Espulsioni recenti: <strong>{Number(analysisFactors.disciplinaryDelta ?? 0).toFixed(3)}</strong> |
-                              Diffidati: <strong>{Number(analysisFactors.atRiskPlayersDelta ?? 0).toFixed(3)}</strong>
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
@@ -1500,6 +1776,11 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     </div>
                     {!budget && (
                       <div className="pr-alert pr-alert-warning">ATTENZIONE: inizializza il bankroll in Budget Manager.</div>
+                    )}
+                    {isReplayAnalysis && (
+                      <div className="pr-alert pr-alert-warning">
+                        Modalita replay: quote ricostruite dal modello e puntata disabilitata su partite gia concluse.
+                      </div>
                     )}
                     {vb.length === 0 ? (
                       <div className="pr-info" style={{textAlign:'center',padding:'32px 0'}}>
@@ -1522,10 +1803,15 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                             <div className="pr-vb-top">
                               <div>
                                 <div className="pr-vb-market">{o.marketName}</div>
-                                <div className="pr-vb-market-sub">{fmtSelection(String(o.selection))}</div>
-                                <span className={`pr-badge ${o.confidence==='HIGH'?'pr-badge-green':o.confidence==='MEDIUM'?'pr-badge-blue':'pr-badge-gold'}`}>
-                                  {o.confidence}
-                                </span>
+                              <div className="pr-vb-market-sub">{fmtSelection(String(o.selection))}</div>
+                                <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                  <span className={`pr-badge ${o.confidence==='HIGH'?'pr-badge-green':o.confidence==='MEDIUM'?'pr-badge-blue':'pr-badge-gold'}`}>
+                                    {o.confidence}
+                                  </span>
+                                  <span className={`pr-badge ${marketTierBadgeClass(o.marketTier)}`}>
+                                    {marketTierLabel(o.marketTier)}
+                                  </span>
+                                </div>
                               </div>
                               <div>
                                 <div className="pr-vb-ev-num">+{o.expectedValue}%</div>
@@ -1555,6 +1841,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                   step={0.1}
                                   value={stakes[stakeKey] ?? ''}
                                   placeholder={suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '1.00'}
+                                  disabled={isReplayAnalysis}
                                   onChange={e => setStakes(p => ({...p,[stakeKey]:e.target.value}))}
                                 />
                                 {budget && (
@@ -1564,7 +1851,13 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                                   </span>
                                 )}
                               </div>
-                              {alreadyPlaced
+                              {isReplayAnalysis
+                                ? <span className={`pr-badge ${String(recommendedBetResult?.selection ?? '') === String(o.selection ?? '') ? `pr-badge-${replayOutcomeTone === 'danger' ? 'gold' : replayOutcomeTone === 'success' ? 'green' : replayOutcomeTone === 'warning' ? 'gold' : 'gray'}` : 'pr-badge-gray'}`}>
+                                    {String(recommendedBetResult?.selection ?? '') === String(o.selection ?? '')
+                                      ? `Esito ${recommendedBetResult?.status ?? 'n/d'}`
+                                      : 'Solo analisi'}
+                                  </span>
+                                : alreadyPlaced
                                 ? <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
                                 : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
                                     Scommetti -&gt;
