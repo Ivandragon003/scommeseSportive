@@ -4,6 +4,7 @@ import { BacktestingEngine } from '../models/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
+import { predictionConfig } from '../config/predictionConfig';
 
 export interface PredictionRequest {
   homeTeamId: string;
@@ -105,10 +106,65 @@ export class PredictionService {
     return {
       attackParams,
       defenceParams,
-      homeAdvantage: this.clamp(Number(raw?.homeAdvantage ?? 0.25), -0.8, 1.2),
+      homeAdvantage: this.clamp(
+        Number(raw?.homeAdvantage ?? 0.25) * predictionConfig.model.homeAdvantageScale,
+        -0.8,
+        1.2
+      ),
       rho: this.clamp(Number(raw?.rho ?? -0.13), -0.5, 0.0),
       tau: this.clamp(Number(raw?.tau ?? 0.0065), 0.0001, 0.05),
     };
+  }
+
+  private applyHomeAdvantageScale(params: any): any {
+    const rawHomeAdvantage = Number(params?.homeAdvantage ?? 0.25);
+    return {
+      ...params,
+      homeAdvantage: this.clamp(
+        rawHomeAdvantage * predictionConfig.model.homeAdvantageScale,
+        -0.8,
+        1.2
+      ),
+    };
+  }
+
+  private shouldEnableStatMarkets(supp: SupplementaryData): boolean {
+    const homeSample = Number(supp?.homeTeamStats?.sampleSize ?? 0);
+    const awaySample = Number(supp?.awayTeamStats?.sampleSize ?? 0);
+    if (!Number.isFinite(homeSample) || !Number.isFinite(awaySample)) return false;
+
+    const perTeamMin = predictionConfig.markets.minSampleSizePerTeam;
+    const combinedMin = predictionConfig.markets.minCombinedSampleSize;
+    return (
+      homeSample >= perTeamMin &&
+      awaySample >= perTeamMin &&
+      (homeSample + awaySample) >= combinedMin
+    );
+  }
+
+  private dropInsufficientStatMarkets(
+    flatProbabilities: Record<string, number>,
+    shouldKeep: boolean,
+  ): Record<string, number> {
+    if (shouldKeep) return flatProbabilities;
+    const blockedPrefixes = [
+      'shots',
+      'shotshome',
+      'shotsaway',
+      'shotsot',
+      'fouls',
+      'yellow',
+      'cards_total',
+      'cardstotal',
+    ];
+
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(flatProbabilities ?? {})) {
+      const normalized = String(key).toLowerCase();
+      const blocked = blockedPrefixes.some((prefix) => normalized.startsWith(prefix));
+      if (!blocked) out[key] = value;
+    }
+    return out;
   }
 
   private normalizeBookmakerOdds(input?: Record<string, number>): Record<string, number> {
@@ -209,7 +265,9 @@ export class PredictionService {
 
     const teams = [...new Set(matches.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
     const model = new DixonColesModel();
-    const params = model.fitModel(matches, teams);
+    const fittedParams = model.fitModel(matches, teams);
+    const params = this.applyHomeAdvantageScale(fittedParams);
+    model.setParams(params);
 
     // Aggiorna parametri nel DB e ricalcola medie statistiche
     for (const teamId of teams) {
@@ -285,6 +343,20 @@ export class PredictionService {
       context.homeXG,
       context.awayXG,
       supp,
+    );
+
+    const statsMarketsEnabled = this.shouldEnableStatMarkets(supp);
+    if (!statsMarketsEnabled) {
+      probs.shotsTotal = {};
+      probs.shotsHome.overUnder = {};
+      probs.shotsAway.overUnder = {};
+      probs.cards.overUnderYellow = {};
+      probs.cards.overUnderTotal = {};
+      probs.fouls.overUnder = {};
+    }
+    probs.flatProbabilities = this.dropInsufficientStatMarkets(
+      probs.flatProbabilities,
+      statsMarketsEnabled
     );
 
     // Arricchisci con mercati secondari

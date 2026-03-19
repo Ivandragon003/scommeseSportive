@@ -95,6 +95,9 @@ export default function Scrapers() {
   const [fotmobForceRefresh, setFotmobForceRefresh] = useState(false);
   const [fotmobImportPlayers, setFotmobImportPlayers] = useState(false);
   const [fotmobLoading, setFotmobLoading] = useState(false);
+  const [fotmobElapsedSec, setFotmobElapsedSec] = useState(0);
+  const [fotmobStartedAt, setFotmobStartedAt] = useState<number | null>(null);
+  const [activeFotmobMode, setActiveFotmobMode] = useState<FotmobMode>('single');
   const [fotmobResult, setFotmobResult] = useState<any>(null);
   const [fotmobError, setFotmobError] = useState<string | null>(null);
 
@@ -130,6 +133,14 @@ export default function Scrapers() {
   }, []);
 
   useEffect(() => {
+    if (!fotmobLoading || !fotmobStartedAt) return;
+    const interval = setInterval(() => {
+      setFotmobElapsedSec(Math.max(0, Math.floor((Date.now() - fotmobStartedAt) / 1000)));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [fotmobLoading, fotmobStartedAt]);
+
+  useEffect(() => {
     let active = true;
     const fetchStatus = async () => {
       try {
@@ -146,6 +157,9 @@ export default function Scrapers() {
 
   const handleFotmob = async (mode: FotmobMode) => {
     setFotmobLoading(true);
+    setActiveFotmobMode(mode);
+    setFotmobStartedAt(Date.now());
+    setFotmobElapsedSec(0);
     setFotmobError(null);
     setFotmobResult(null);
     try {
@@ -160,6 +174,7 @@ export default function Scrapers() {
       setFotmobError(e.response?.data?.error ?? e.message);
     }
     setFotmobLoading(false);
+    setFotmobStartedAt(null);
   };
 
   const handleOdds = async () => {
@@ -175,6 +190,19 @@ export default function Scrapers() {
   };
 
   const seasons = generateSeasons(fotmobYears);
+  const estimateFotmobSeconds = (() => {
+    const competitionsCount = activeFotmobMode === 'top5' ? 5 : 1;
+    const basePerSeason = fotmobIncludeDetails ? 95 : 45;
+    return Math.max(45, competitionsCount * fotmobYears * basePerSeason);
+  })();
+  const remainingSec = Math.max(0, estimateFotmobSeconds - fotmobElapsedSec);
+  const formatDuration = (totalSec: number) => {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}m ${String(s).padStart(2, '0')}s`;
+  };
+  const lastUpdateFailed = Boolean(scraperStatus?.lastUpdate && scraperStatus?.lastUpdate?.success === false);
+  const lastUpdateSucceeded = Boolean(scraperStatus?.lastUpdate && scraperStatus?.lastUpdate?.success === true);
 
   return (
     <>
@@ -196,11 +224,17 @@ export default function Scrapers() {
           <div className="fp-card" style={{ marginBottom: 24, padding: 16, background: 'var(--bg-1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ fontSize: 18 }}>
-                {scraperStatus.isUpdating ? '⏳' : '✅'}
+                {scraperStatus.isUpdating ? '⏳' : lastUpdateFailed ? '⚠️' : '✅'}
               </div>
               <div>
                 <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>
-                  {scraperStatus.isUpdating ? 'Aggiornamento automatico in corso...' : 'Sistema aggiornato'}
+                  {scraperStatus.isUpdating
+                    ? 'Aggiornamento automatico in corso...'
+                    : lastUpdateFailed
+                      ? 'Ultimo aggiornamento con errore'
+                      : lastUpdateSucceeded
+                        ? 'Sistema aggiornato'
+                        : 'Nessun aggiornamento registrato'}
                 </div>
                 {scraperStatus.lastUpdate && (
                   <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
@@ -298,6 +332,12 @@ export default function Scrapers() {
                   {fotmobLoading ? '⏳ Download in corso...' : '⬇ Scarica Top-5 insieme'}
                 </button>
               </div>
+              {fotmobLoading && (
+                <div className="fp-alert fp-alert-info" style={{ marginTop: 14 }}>
+                  Aggiornamento dati in corso... trascorso <strong>{formatDuration(fotmobElapsedSec)}</strong> |
+                  stima residua <strong>~{formatDuration(remainingSec)}</strong>
+                </div>
+              )}
 
               {fotmobError && (
                 <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>

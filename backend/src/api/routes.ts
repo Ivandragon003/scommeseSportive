@@ -881,6 +881,7 @@ router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', ver
 // ====== FOTMOB SCRAPER (IMPORT INCREMENTALE) ======
 import { FotmobScraper } from '../services/FotmobScraper';
 const fotmob = new FotmobScraper();
+let fotmobImportInProgress = false;
 
 router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
   try {
@@ -910,6 +911,14 @@ router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
 });
 
 async function runFotmobImport(req: Request, res: Response) {
+  if (fotmobImportInProgress) {
+    return res.status(409).json({
+      success: false,
+      error: 'Import FotMob già in corso. Attendi il completamento prima di lanciare un altro campionato.',
+    });
+  }
+
+  fotmobImportInProgress = true;
   try {
     req.setTimeout(60 * 60 * 1000);
     res.setTimeout(60 * 60 * 1000);
@@ -955,6 +964,37 @@ async function runFotmobImport(req: Request, res: Response) {
       return hasNullish || allZeroLike;
     };
 
+    const nowTs = Date.now();
+    const isFutureMatch = (isoDate: string): boolean => {
+      const ts = new Date(String(isoDate ?? '')).getTime();
+      if (!Number.isFinite(ts)) return false;
+      return ts > nowTs;
+    };
+
+    const toFixtureOnly = (match: any): any => ({
+      ...match,
+      homeGoals: null,
+      awayGoals: null,
+      homeXG: null,
+      awayXG: null,
+      homeTotalShots: null,
+      awayTotalShots: null,
+      homeShotsOnTarget: null,
+      awayShotsOnTarget: null,
+      homePossession: null,
+      awayPossession: null,
+      homeYellowCards: null,
+      awayYellowCards: null,
+      homeRedCards: null,
+      awayRedCards: null,
+      homeFouls: null,
+      awayFouls: null,
+      homeCorners: null,
+      awayCorners: null,
+      referee: null,
+      playerStats: [],
+    });
+
     let totalImported = 0;
     let totalUpdatedExisting = 0;
     let totalSkipped = 0;
@@ -975,33 +1015,56 @@ async function runFotmobImport(req: Request, res: Response) {
     for (const competitionName of competitionsToRun) {
       for (const season of seasonsToScrape) {
         const lastDateInDb = await db.getLastMatchDate(competitionName, season);
-        const allMatches = await fotmob.scrapeSeason(competitionName, season, {
-          includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
-        });
+        let allMatches: any[] = [];
+        try {
+          allMatches = await fotmob.scrapeSeason(competitionName, season, {
+            includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
+          });
+        } catch (seasonError: any) {
+          seasonSummary[`${competitionName} ${season}`] = {
+            lastDateBefore: lastDateInDb ?? 'nessuna',
+            totalOnSource: 0,
+            newImported: 0,
+            updatedExisting: 0,
+            newImportedPlayed: 0,
+            newImportedUpcoming: 0,
+            touchedTotal: 0,
+            skipped: 0,
+            playersUpserted: 0,
+            error: seasonError?.message ?? 'errore scraping stagione',
+          };
+          continue;
+        }
 
         const matchesToImport: typeof allMatches = [];
         for (const m of allMatches) {
+          const futureFixture = isFutureMatch(m.date);
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
+          const normalizedMatch = futureFixture ? toFixtureOnly(m) : m;
           const existing = await db.getMatchById(m.matchId);
           if (forceRefresh) {
-            matchesToImport.push(m);
+            matchesToImport.push(normalizedMatch);
             continue;
           }
           if (!existing) {
-            matchesToImport.push(m);
+            matchesToImport.push(normalizedMatch);
             continue;
           }
-          // Mantieni sempre in DB anche le partite future/non concluse.
+          // Per partite future salva solo fixture: mai stats.
+          if (futureFixture) {
+            matchesToImport.push(normalizedMatch);
+            continue;
+          }
           if (!isPlayed) {
-            matchesToImport.push(m);
+            matchesToImport.push(normalizedMatch);
             continue;
           }
           if (includeMatchDetails !== false && hasMissingAdvancedStats(existing)) {
-            matchesToImport.push(m);
+            matchesToImport.push(normalizedMatch);
             continue;
           }
           if (lastDateInDb && m.date.substring(0, 10) <= lastDateInDb) continue;
-          matchesToImport.push(m);
+          matchesToImport.push(normalizedMatch);
         }
 
         const playersAgg = new Map<string, {
@@ -1025,6 +1088,7 @@ async function runFotmobImport(req: Request, res: Response) {
         let skipped = 0;
 
         for (const m of matchesToImport) {
+          const futureFixture = isFutureMatch(m.date);
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
           for (const team of [
             { teamId: m.homeTeamId, name: m.homeTeamName },
@@ -1054,7 +1118,7 @@ async function runFotmobImport(req: Request, res: Response) {
               else importedUpcoming++;
             }
 
-            if (importPlayers && isPlayed) {
+            if (importPlayers && isPlayed && !futureFixture) {
               for (const p of m.playerStats) {
                 const agg = playersAgg.get(p.playerId) ?? {
                   playerId: p.playerId,
@@ -1300,6 +1364,7 @@ async function runFotmobImport(req: Request, res: Response) {
     console.error('[fotmob] Errore:', e.message);
     res.status(500).json({ success: false, error: e.message });
   } finally {
+    fotmobImportInProgress = false;
     await fotmob.close().catch(() => undefined);
   }
 }
