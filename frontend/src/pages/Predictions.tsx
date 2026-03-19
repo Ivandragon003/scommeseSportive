@@ -523,6 +523,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const [oddsMsg, setOddsMsg] = useState('');
   const [oddsTone, setOddsTone] = useState<'info'|'success'|'warning'|'danger'>('info');
   const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
+  const [autoSyncMsg, setAutoSyncMsg] = useState<string>('');
   const rightRef = useRef<HTMLDivElement>(null);
   const analyzeReqRef = useRef(0);
   const analysisCacheRef = useRef<Map<string, {
@@ -571,6 +572,24 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
 
   useEffect(() => { loadUpcoming(); }, [competition, season]);
   useEffect(() => { loadMatchdays(); }, [season]);
+  useEffect(() => {
+    const onSyncDone = () => {
+      setAutoSyncMsg('Dati aggiornati. Lista partite e modelli ricaricati.');
+      analysisCacheRef.current.clear();
+      void loadUpcoming();
+      void loadMatchdays();
+      void loadUserContext();
+    };
+    const onSyncError = () => {
+      setAutoSyncMsg('Aggiornamento automatico non completato. Uso ultimi dati disponibili.');
+    };
+    window.addEventListener('data-sync-complete', onSyncDone);
+    window.addEventListener('data-sync-error', onSyncError);
+    return () => {
+      window.removeEventListener('data-sync-complete', onSyncDone);
+      window.removeEventListener('data-sync-error', onSyncError);
+    };
+  }, [competition, season, activeUser]);
 
   const comps = useMemo(() => Array.from(new Set(['Serie A', ...teams.map((t:any) => t.competition).filter(Boolean)])), [teams]);
 
@@ -857,6 +876,11 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         <div className="pr-left">
           <div className="pr-left-head">
             <div className="pr-left-title">Partite in programma</div>
+            {autoSyncMsg && (
+              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+                {autoSyncMsg}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="pr-season-row">

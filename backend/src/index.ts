@@ -10,6 +10,8 @@ const AUTO_SYNC_ON_BOOT =
 let isUpdating = false;
 let lastUpdate: { at: Date; success: boolean; message: string } | null = null;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -57,31 +59,59 @@ async function runBootDataSync(): Promise<void> {
   isUpdating = true;
   console.log('[bootstrap-sync] Starting automatic FotMob + Transfermarkt sync for all top 5 leagues...');
   try {
-    const response = await fetch(`http://localhost:${PORT}/api/scraper/fotmob`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mode: 'top5',
-        yearsBack: 2,
-        importPlayers: false,
-        includeMatchDetails: false,
-        forceRefresh: false,
-      }),
-    });
+    const maxAttempts = 3;
+    let lastErrorMessage = 'Unknown error';
+    let completed = false;
 
-    const payload: any = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.success === false) {
-      console.error('[bootstrap-sync] Failed:', payload?.error ?? `HTTP ${response.status}`);
-      lastUpdate = { at: new Date(), success: false, message: payload?.error ?? `HTTP ${response.status}` };
-      return;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${PORT}/api/scraper/fotmob`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'top5',
+            yearsBack: 2,
+            importPlayers: false,
+            includeMatchDetails: false,
+            forceRefresh: false,
+          }),
+        });
+
+        const payload: any = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.success === false) {
+          lastErrorMessage = payload?.error ?? `HTTP ${response.status}`;
+          console.error(`[bootstrap-sync] Attempt ${attempt}/${maxAttempts} failed:`, lastErrorMessage);
+          if (attempt < maxAttempts) {
+            await sleep(1500 * attempt);
+            continue;
+          }
+          break;
+        }
+
+        const data = payload?.data ?? {};
+        console.log(
+          `[bootstrap-sync] Done. New matches: ${Number(data?.newMatchesImported ?? 0)}, ` +
+          `updated: ${Number(data?.existingMatchesUpdated ?? 0)}.`,
+        );
+        lastUpdate = {
+          at: new Date(),
+          success: true,
+          message: `Imported ${Number(data?.newMatchesImported ?? 0)} matches`,
+        };
+        completed = true;
+        break;
+      } catch (err: any) {
+        lastErrorMessage = err?.message ?? 'Unknown error';
+        console.error(`[bootstrap-sync] Attempt ${attempt}/${maxAttempts} error:`, lastErrorMessage);
+        if (attempt < maxAttempts) {
+          await sleep(1500 * attempt);
+        }
+      }
     }
 
-    const data = payload?.data ?? {};
-    console.log(
-      `[bootstrap-sync] Done. New matches: ${Number(data?.newMatchesImported ?? 0)}, ` +
-      `updated: ${Number(data?.existingMatchesUpdated ?? 0)}.`,
-    );
-    lastUpdate = { at: new Date(), success: true, message: `Imported ${Number(data?.newMatchesImported ?? 0)} matches` };
+    if (!completed) {
+      lastUpdate = { at: new Date(), success: false, message: lastErrorMessage };
+    }
   } catch (err: any) {
     console.error('[bootstrap-sync] Error:', err?.message ?? err);
     lastUpdate = { at: new Date(), success: false, message: err?.message ?? 'Unknown error' };
