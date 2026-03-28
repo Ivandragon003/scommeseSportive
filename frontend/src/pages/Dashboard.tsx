@@ -105,14 +105,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
   const netProfit = ((Number(budget?.total_staked ?? 0) * Number(roi ?? 0)) / 100);
   const oddsArchive = analytics?.oddsArchive ?? {};
   const userClv = analytics?.userClv ?? {};
-  const learningLoop = analytics?.learningLoop ?? {};
-  const adaptiveTuning = analytics?.adaptiveTuning ?? {};
   const overview = analytics?.overview ?? {};
   const coverage = overview?.coverage?.fields ?? {};
   const scheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
-  const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
   const sourceBreakdown = Object.entries(oddsArchive?.sourceBreakdown ?? {}).slice(0, 4);
-  const topAdaptiveCategories = Object.entries(adaptiveTuning?.categories ?? {}).slice(0, 4);
 
   return (
     <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
@@ -218,7 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
       <div className="fp-grid-2" style={{ marginBottom: 24 }}>
         <div className="fp-card">
           <div className="fp-card-head">
-            <div className="fp-card-title">Qualità Dataset</div>
+            <div className="fp-card-title">Qualita Dataset</div>
             <span className={`fp-badge ${overview?.checks?.allCoreStatsLoaded ? 'fp-badge-green' : 'fp-badge-gold'}`}>
               {overview?.checks?.allCoreStatsLoaded ? 'Core stats OK' : 'Copertura da completare'}
             </span>
@@ -258,7 +254,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
                   ['Match coperti', oddsArchive?.matchesCovered ?? 0],
                   ['Con quote reali', oddsArchive?.snapshotsWithRealOdds ?? 0],
                   ['Con completamento modello', oddsArchive?.snapshotsWithSyntheticCompletion ?? 0],
-                  ['Solo Eurobet', oddsArchive?.snapshotsUsingEurobetPure ?? 0],
+                  ['Solo bookmaker preferito', oddsArchive?.snapshotsUsingEurobetPure ?? 0],
                 ].map(([label, value]) => (
                   <tr key={label}>
                     <td style={{ color: 'var(--text-2)' }}>{label}</td>
@@ -345,142 +341,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
             <div className="fp-alert fp-alert-info">
               Il replay e il backtest usano prima le quote storiche archiviate. Se uno snapshot manca, il sistema passa al fallback del modello.
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="fp-grid-2" style={{ marginBottom: 24 }}>
-        <div className="fp-card">
-          <div className="fp-card-head">
-            <div className="fp-card-title">Taratura Adattiva</div>
-            <span className={`fp-badge ${topAdaptiveCategories.length > 0 ? 'fp-badge-blue' : 'fp-badge-gray'}`}>
-              {adaptiveTuning?.totalReviews ?? 0} review usate
-            </span>
-          </div>
-          {topAdaptiveCategories.length > 0 ? (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="fp-table">
-                <thead>
-                  <tr>
-                    <th>Categoria</th>
-                    <th>Campioni</th>
-                    <th>EV delta</th>
-                    <th>Coherence</th>
-                    <th>Rank x</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topAdaptiveCategories.map(([category, tuning]: [string, any]) => (
-                    <tr key={category}>
-                      <td style={{ fontWeight: 600 }}>{category}</td>
-                      <td className="fp-mono">{tuning?.sampleSize ?? 0}</td>
-                      <td className="fp-mono">{Number((tuning?.evDelta ?? 0) * 100).toFixed(2)}%</td>
-                      <td className="fp-mono">{Number(tuning?.coherenceDelta ?? 0).toFixed(3)}</td>
-                      <td className="fp-mono">{Number(tuning?.rankingMultiplier ?? 1).toFixed(3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="fp-card-body">
-              <div className="fp-alert fp-alert-info">
-                Nessuna taratura adattiva attiva. Si popola quando il sistema accumula review post-partita sufficienti.
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="fp-card">
-          <div className="fp-card-head">
-            <div className="fp-card-title">Scheduler Learning</div>
-            <span className={`fp-badge ${learningScheduler?.enabled ? 'fp-badge-blue' : 'fp-badge-gray'}`}>
-              {learningScheduler?.enabled ? 'Attivo' : 'Disattivo'}
-            </span>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="fp-table">
-              <tbody>
-                {[
-                  ['Intervallo', learningScheduler ? `${learningScheduler.intervalHours}h` : '-'],
-                  ['Match per ciclo', learningScheduler?.matchLimit ?? '-'],
-                  ['Ultimo run', formatDateTime(learningScheduler?.lastRunAt)],
-                  ['Prossimo run', formatDateTime(learningScheduler?.nextRunAt)],
-                  ['Review create', learningScheduler?.lastResult?.created ?? 0],
-                ].map(([label, value]) => (
-                  <tr key={label}>
-                    <td style={{ color: 'var(--text-2)' }}>{label}</td>
-                    <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {learningScheduler?.lastError && (
-            <div className="fp-alert fp-alert-warning" style={{ margin: '0 20px 20px' }}>
-              {learningScheduler.lastError}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="fp-card" style={{ marginBottom: 24 }}>
-        <div className="fp-card-head">
-          <div className="fp-card-title">Apprendimento Post-partita</div>
-          <span className={`fp-badge ${(learningLoop?.actionableReviews ?? 0) > 0 ? 'fp-badge-gold' : 'fp-badge-gray'}`}>
-            {learningLoop?.actionableReviews ?? 0} review azionabili
-          </span>
-        </div>
-        <div className="fp-grid-2" style={{ padding: '0 20px 20px' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="fp-table">
-              <tbody>
-                {[
-                  ['Review totali', learningLoop?.totalReviews ?? 0],
-                  ['Review azionabili', learningLoop?.actionableReviews ?? 0],
-                  ['Missed winners', learningLoop?.missedWinningSelections ?? 0],
-                  ['Ranking error', learningLoop?.reviewTypeBreakdown?.ranking_error ?? 0],
-                  ['Filter rejection', learningLoop?.reviewTypeBreakdown?.filter_rejection ?? 0],
-                ].map(([label, value]) => (
-                  <tr key={label}>
-                    <td style={{ color: 'var(--text-2)' }}>{label}</td>
-                    <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="fp-card-body" style={{ padding: 0 }}>
-            {Array.isArray(learningLoop?.recentReviews) && learningLoop.recentReviews.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {learningLoop.recentReviews.slice(0, 3).map((review: any) => (
-                  <div
-                    key={`${review.matchId}_${review.updatedAt}`}
-                    style={{
-                      padding: 14,
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface2)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
-                      <strong>{review.headline || review.reviewType}</strong>
-                      <span className="fp-badge fp-badge-gray">{review.reviewType}</span>
-                    </div>
-                    <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.5 }}>
-                      {review.humanSummary}
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)', fontFamily: 'DM Mono, monospace' }}>
-                      {review.competition || 'N/D'} · {formatDateTime(review.updatedAt)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="fp-alert fp-alert-info">
-                Nessuna review post-partita salvata. Si popolano quando apri il replay di una partita conclusa.
-              </div>
-            )}
           </div>
         </div>
       </div>

@@ -39,7 +39,7 @@ const localStyles = `
 
   .dm-title {
     font-size: clamp(28px,4vw,40px); font-weight: 800; letter-spacing: -1.5px; line-height: 1;
-    background: linear-gradient(135deg, #fff 35%, var(--purple));
+    background: linear-gradient(135deg, var(--text) 18%, var(--blue) 58%, var(--purple));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin-bottom: 8px;
   }
@@ -126,7 +126,7 @@ const localStyles = `
 
   /* Stats inner table */
   .dm-stats-table { width: 100%; }
-  .dm-stats-table tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background var(--transition); }
+  .dm-stats-table tr { border-bottom: 1px solid rgba(115,136,161,0.12); transition: background var(--transition); }
   .dm-stats-table tr:last-child { border-bottom: none; }
   .dm-stats-table tr:hover { background: var(--surface3); }
   .dm-stats-table td { padding: 10px 16px; font-size: 13px; }
@@ -166,7 +166,7 @@ const localStyles = `
     width: 100%; height: 210px; resize: vertical; outline: none; line-height: 1.65;
     transition: border-color var(--transition), background var(--transition);
   }
-  .dm-textarea:hover  { background: var(--surface3); border-color: rgba(255,255,255,0.16); }
+  .dm-textarea:hover  { background: var(--surface3); border-color: var(--border-hover); }
   .dm-textarea:focus  { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-dim); }
   .dm-import-hint { font-size: 12px; color: var(--text-2); margin-top: 8px; line-height: 1.6; }
   .dm-import-hint code {
@@ -193,7 +193,7 @@ const localStyles = `
   .dm-qual-row { display: grid; grid-template-columns: 100px 1fr auto; gap: 10px; align-items: center; margin-bottom: 8px; }
   .dm-qual-row:last-child { margin-bottom: 0; }
   .dm-qual-key { color: var(--text-2); font-size: 12px; }
-  .dm-qual-track { height: 7px; border-radius: 20px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .dm-qual-track { height: 7px; border-radius: 20px; background: var(--surface3); overflow: hidden; }
   .dm-qual-fill { height: 100%; border-radius: 20px; background: var(--blue); }
   .dm-qual-val { font-family: 'DM Mono',monospace; font-size: 11px; color: var(--text); min-width: 48px; text-align: right; }
   .dm-top5-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }

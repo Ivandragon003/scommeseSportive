@@ -49,6 +49,7 @@ export interface BetOpportunity {
   selection: string;
   marketCategory: MarketCategory;
   marketTier: MarketTier;
+  selectionFamily?: string;
   adaptiveRankMultiplier?: number;
   ourProbability: number;           // percentuale (0-100)
   bookmakerOdds: number;
@@ -76,6 +77,7 @@ export type MarketCategory =
   | 'other';
 
 export type MarketTier = 'CORE' | 'SECONDARY' | 'SPECULATIVE';
+export type SelectionFamily = string;
 
 export interface AdaptiveCategoryTuning {
   evDelta: number;
@@ -85,6 +87,7 @@ export interface AdaptiveCategoryTuning {
   rankingErrorRate: number;
   filterRejectionRate: number;
   confirmationRate: number;
+  wrongPickRate: number;
 }
 
 export interface AdaptiveEngineTuningProfile {
@@ -92,6 +95,7 @@ export interface AdaptiveEngineTuningProfile {
   generatedAt: string;
   totalReviews: number;
   categories: Partial<Record<MarketCategory, AdaptiveCategoryTuning>>;
+  selectionFamilies?: Record<string, AdaptiveCategoryTuning>;
 }
 
 export interface BudgetState {
@@ -137,6 +141,7 @@ export interface SelectionDiagnostics {
   marketName: string;
   marketCategory: MarketCategory;
   marketTier: MarketTier;
+  selectionFamily: SelectionFamily;
   bookmakerOdds: number | null;
   ourProbability: number | null;
   impliedProbability: number | null;
@@ -240,10 +245,40 @@ export class ValueBettingEngine {
       rankingErrorRate: 0,
       filterRejectionRate: 0,
       confirmationRate: 0,
+      wrongPickRate: 0,
     };
   }
 
-  private getFilterSettings(category: MarketCategory): {
+  private getFamilyTuning(selectionFamily: SelectionFamily): AdaptiveCategoryTuning {
+    return this.adaptiveTuningProfile?.selectionFamilies?.[selectionFamily] ?? {
+      evDelta: 0,
+      coherenceDelta: 0,
+      rankingMultiplier: 1,
+      sampleSize: 0,
+      rankingErrorRate: 0,
+      filterRejectionRate: 0,
+      confirmationRate: 0,
+      wrongPickRate: 0,
+    };
+  }
+
+  private getCombinedTuning(category: MarketCategory, selection: string): AdaptiveCategoryTuning {
+    const categoryTuning = this.getCategoryTuning(category);
+    const familyTuning = this.getFamilyTuning(this.getSelectionFamily(selection));
+
+    return {
+      evDelta: this.clampNumber(categoryTuning.evDelta + familyTuning.evDelta, -0.03, 0.03),
+      coherenceDelta: this.clampNumber(categoryTuning.coherenceDelta + familyTuning.coherenceDelta, -0.18, 0.12),
+      rankingMultiplier: this.clampNumber(categoryTuning.rankingMultiplier * familyTuning.rankingMultiplier, 0.8, 1.35),
+      sampleSize: Number((Number(categoryTuning.sampleSize ?? 0) + Number(familyTuning.sampleSize ?? 0)).toFixed(2)),
+      rankingErrorRate: Number((Number(categoryTuning.rankingErrorRate ?? 0) + Number(familyTuning.rankingErrorRate ?? 0)).toFixed(2)),
+      filterRejectionRate: Number((Number(categoryTuning.filterRejectionRate ?? 0) + Number(familyTuning.filterRejectionRate ?? 0)).toFixed(2)),
+      confirmationRate: Number((Number(categoryTuning.confirmationRate ?? 0) + Number(familyTuning.confirmationRate ?? 0)).toFixed(2)),
+      wrongPickRate: Number((Number(categoryTuning.wrongPickRate ?? 0) + Number(familyTuning.wrongPickRate ?? 0)).toFixed(2)),
+    };
+  }
+
+  private getFilterSettings(category: MarketCategory, selection?: string): {
     minOdds: number;
     maxOdds: number;
     coherenceRatio: number;
@@ -255,7 +290,7 @@ export class ValueBettingEngine {
       category === 'fouls' ||
       category === 'yellow_cards';
 
-    const tuning = this.getCategoryTuning(category);
+    const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
     const baseCoherence = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
     return {
       minOdds: isShotsDisciplineCore ? 1.20 : this.MIN_ODDS,
@@ -269,6 +304,40 @@ export class ValueBettingEngine {
     if (category === 'shots' || category === 'shots_ot' || category === 'corners' || category === 'yellow_cards' || category === 'fouls')
       return 'SECONDARY';
     return 'SPECULATIVE';
+  }
+
+  getSelectionFamily(selection: string): SelectionFamily {
+    const s = String(selection ?? '').toLowerCase();
+
+    if (s === 'homewin') return 'home_win';
+    if (s === 'draw') return 'draw';
+    if (s === 'awaywin') return 'away_win';
+    if (s === 'btts') return 'btts_yes';
+    if (s === 'bttsno') return 'btts_no';
+    if (s === 'dnb_home') return 'dnb_home';
+    if (s === 'dnb_away') return 'dnb_away';
+    if (s === 'double_chance_1x') return 'double_chance_1x';
+    if (s === 'double_chance_x2') return 'double_chance_x2';
+    if (s === 'double_chance_12') return 'double_chance_12';
+    if (/^team_home_(over|under)_/.test(s)) return s.includes('_over_') ? 'team_home_goal_over' : 'team_home_goal_under';
+    if (/^team_away_(over|under)_/.test(s)) return s.includes('_over_') ? 'team_away_goal_over' : 'team_away_goal_under';
+    if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s)) return s.startsWith('over') ? 'goal_over' : 'goal_under';
+    if (/^shots_total_(over|under)_/.test(s) || /^shots(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_total_under' : 'shots_total_over';
+    if (/^shots_home_(over|under)_/.test(s) || /^shotshome(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_home_under' : 'shots_home_over';
+    if (/^shots_away_(over|under)_/.test(s) || /^shotsaway(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_away_under' : 'shots_away_over';
+    if (/^sot_total_(over|under)_/.test(s) || /^shotsot(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_ot_under' : 'shots_ot_over';
+    if (/^corners_(over|under)_/.test(s) || /^corners(over|under)\d+$/i.test(s)) return s.includes('under') ? 'corners_under' : 'corners_over';
+    if (/^yellow_(over|under)_/.test(s) || /^cards_total_(over|under)_/.test(s) || /^(yellow|cardstotal)(over|under)\d+$/i.test(s)) {
+      return s.includes('under') ? 'cards_under' : 'cards_over';
+    }
+    if (/^fouls_(over|under)_/.test(s) || /^fouls(over|under)\d+$/i.test(s)) return s.includes('under') ? 'fouls_under' : 'fouls_over';
+    if (s.startsWith('hcp_') || s.startsWith('ahcp_') || s.startsWith('asian_')) {
+      if (s.includes('away')) return 'handicap_away';
+      return 'handicap_home';
+    }
+    if (s.startsWith('exact_')) return 'exact_score';
+
+    return `${this.categorizeSelection(selection)}_generic`;
   }
 
   // ==================== CATEGORIZZAZIONE ====================
@@ -355,15 +424,16 @@ export class ValueBettingEngine {
     return Math.max(0, overround - 1);
   }
 
-  private minEvForCategory(category: MarketCategory, margin?: number): number {
-    const tuning = this.getCategoryTuning(category);
+  private minEvForCategory(category: MarketCategory, margin?: number, selection?: string): number {
+    const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
     if (!isFinite(Number(margin))) return this.clampNumber(EV_THRESHOLDS[category] + tuning.evDelta, 0.001, 0.12);
     const buffer = EV_MARGIN_BUFFERS[category] ?? 0.03;
     return this.clampNumber(Math.max(0, Number(margin) + buffer) + tuning.evDelta, 0.001, 0.12);
   }
 
-  private getCategoryRankingMultiplier(category: MarketCategory): number {
-    return this.clampNumber(this.getCategoryTuning(category).rankingMultiplier, 0.85, 1.20);
+  private getCategoryRankingMultiplier(category: MarketCategory, selection?: string): number {
+    const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
+    return this.clampNumber(tuning.rankingMultiplier, 0.85, 1.25);
   }
 
   private computeCategoryMargins(
@@ -511,7 +581,8 @@ export class ValueBettingEngine {
   ): SelectionDiagnostics {
     const category = this.categorizeSelection(selection);
     const marketTier = this.getMarketTier(category);
-    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category);
+    const selectionFamily = this.getSelectionFamily(selection);
+    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category, selection);
     const odds = Number(bookmakerOdds?.[selection]);
     const ourProb = Number(probabilities?.[selection]);
     const groups = this.buildMarketGroups(bookmakerOdds ?? {});
@@ -521,7 +592,7 @@ export class ValueBettingEngine {
       : (Number.isFinite(odds) && odds > 1 ? [odds] : []);
     const marginByCategory = this.computeCategoryMarginsFromGroups(groups);
     const bookmakerMargin = allOdds.length >= 2 ? this.computeBookmakerMargin(allOdds) : 0;
-    const minEvThreshold = this.minEvForCategory(category, marginByCategory[category]);
+    const minEvThreshold = this.minEvForCategory(category, marginByCategory[category], selection);
 
     if (!Number.isFinite(odds) || odds <= 1 || !Number.isFinite(ourProb) || ourProb <= 0 || ourProb >= 1) {
       return {
@@ -529,6 +600,7 @@ export class ValueBettingEngine {
         marketName: marketNames[selection] ?? selection,
         marketCategory: category,
         marketTier,
+        selectionFamily,
         bookmakerOdds: Number.isFinite(odds) && odds > 1 ? odds : null,
         ourProbability: Number.isFinite(ourProb) && ourProb > 0 && ourProb < 1 ? Number((ourProb * 100).toFixed(2)) : null,
         impliedProbability: null,
@@ -542,7 +614,7 @@ export class ValueBettingEngine {
         bookmakerMargin: Number((bookmakerMargin * 100).toFixed(2)),
         minEvThreshold: Number((minEvThreshold * 100).toFixed(2)),
         filterSettings: { minOdds, maxOdds, coherenceRatio },
-        adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category).toFixed(3)),
+        adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category, selection).toFixed(3)),
         passed: false,
         rejectionCodes: ['missing_market_data'],
         rejectionReasons: ['Mercato non disponibile nello snapshot quote o probabilita modello assente.'],
@@ -588,6 +660,7 @@ export class ValueBettingEngine {
       marketName: marketNames[selection] ?? selection,
       marketCategory: category,
       marketTier,
+      selectionFamily,
       bookmakerOdds: Number(odds.toFixed(2)),
       ourProbability: Number((ourProb * 100).toFixed(2)),
       impliedProbability: Number((impliedRaw * 100).toFixed(2)),
@@ -601,7 +674,7 @@ export class ValueBettingEngine {
       bookmakerMargin: Number((bookmakerMargin * 100).toFixed(2)),
       minEvThreshold: Number((minEvThreshold * 100).toFixed(2)),
       filterSettings: { minOdds, maxOdds, coherenceRatio },
-      adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category).toFixed(3)),
+      adaptiveRankMultiplier: Number(this.getCategoryRankingMultiplier(category, selection).toFixed(3)),
       passed,
       rejectionCodes,
       rejectionReasons,
@@ -624,12 +697,13 @@ export class ValueBettingEngine {
 
       const category   = this.categorizeSelection(key);
       const marketTier = this.getMarketTier(category);
-      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category);
+      const selectionFamily = this.getSelectionFamily(key);
+      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
       const implied    = this.impliedProbabilityFromOdds(odds);
       const ev         = this.computeExpectedValue(ourProb, odds);
       const edge       = ourProb - implied;
       const edgeNoVig  = edge; // senza companions, uguale all'edge raw
-      const minEv      = this.minEvForCategory(category, marginByCategory[category]);
+      const minEv      = this.minEvForCategory(category, marginByCategory[category], key);
 
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
 
@@ -640,6 +714,7 @@ export class ValueBettingEngine {
         selection:               key,
         marketCategory:          category,
         marketTier,
+        selectionFamily,
         adaptiveRankMultiplier,
         ourProbability:          parseFloat((ourProb * 100).toFixed(2)),
         bookmakerOdds:           odds,
@@ -683,8 +758,9 @@ export class ValueBettingEngine {
       const edgeNoVig    = ourProb - impliedNoVig;
       const category     = this.categorizeSelection(key);
       const marketTier   = this.getMarketTier(category);
-      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category);
-      const minEv        = this.minEvForCategory(category, marginByCategory[category]);
+      const selectionFamily = this.getSelectionFamily(key);
+      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
+      const minEv        = this.minEvForCategory(category, marginByCategory[category], key);
 
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
 
@@ -695,6 +771,7 @@ export class ValueBettingEngine {
         selection:               key,
         marketCategory:          category,
         marketTier,
+        selectionFamily,
         adaptiveRankMultiplier,
         ourProbability:          parseFloat((ourProb      * 100).toFixed(2)),
         bookmakerOdds:           odds,

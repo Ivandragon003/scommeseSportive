@@ -65,3 +65,58 @@ test('completed match review flags ranking error when a winning value bet was al
   assert.equal(review.missedWinningSelection.selection, 'homeWin');
   assert.equal(review.missedWinningSelection.wasAlreadyValueBet, true);
 });
+
+test('adaptive tuning profile learns from missed winners and penalizes wrong picks by selection family', async () => {
+  const service = new PredictionService({});
+
+  service.db.getLearningReviews = async () => [
+    {
+      reviewType: 'filter_rejection',
+      review: {
+        reviewType: 'filter_rejection',
+        reviewSource: 'historical_bookmaker_snapshot',
+        learningWeight: 1,
+        recommendedSelection: {
+          selection: 'shots_total_under_23.5',
+          result: 'LOST',
+        },
+        missedWinningSelection: {
+          selection: 'shots_total_over_23.5',
+        },
+      },
+    },
+    {
+      reviewType: 'ranking_error',
+      review: {
+        reviewType: 'ranking_error',
+        reviewSource: 'model_estimated_replay',
+        learningWeight: 0.35,
+        recommendedSelection: {
+          selection: 'draw',
+          result: 'LOST',
+        },
+        missedWinningSelection: {
+          selection: 'homeWin',
+        },
+      },
+    },
+  ];
+
+  const profile = await service.getAdaptiveTuningProfile('Serie A', true);
+
+  assert.ok(profile.selectionFamilies);
+  assert.ok(profile.selectionFamilies.shots_total_over);
+  assert.ok(profile.selectionFamilies.shots_total_under);
+  assert.ok(profile.selectionFamilies.home_win);
+  assert.ok(profile.selectionFamilies.draw);
+
+  assert.ok(profile.selectionFamilies.shots_total_over.evDelta < 0);
+  assert.ok(profile.selectionFamilies.shots_total_over.coherenceDelta < 0);
+  assert.ok(profile.selectionFamilies.shots_total_over.filterRejectionRate > 0);
+
+  assert.ok(profile.selectionFamilies.shots_total_under.wrongPickRate > 0);
+  assert.ok(profile.selectionFamilies.shots_total_under.rankingMultiplier < 1);
+
+  assert.ok(profile.selectionFamilies.home_win.rankingMultiplier > 1);
+  assert.ok(profile.selectionFamilies.draw.wrongPickRate > 0);
+});

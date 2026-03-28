@@ -93,6 +93,7 @@ const learningSchedulerState: {
     skippedExisting?: number;
     skippedNoSnapshot?: number;
     skippedNoOdds?: number;
+    usedModelFallbackReviews?: number;
     adaptiveTuningReviews?: number;
   } | null;
 } = {
@@ -379,6 +380,7 @@ async function runLearningReviewSync(trigger: 'boot' | 'scheduled'): Promise<voi
       skippedExisting: Number(data?.skippedExisting ?? 0),
       skippedNoSnapshot: Number(data?.skippedNoSnapshot ?? 0),
       skippedNoOdds: Number(data?.skippedNoOdds ?? 0),
+      usedModelFallbackReviews: Number(data?.usedModelFallbackReviews ?? 0),
       adaptiveTuningReviews: Number(data?.adaptiveTuning?.totalReviews ?? 0),
     };
     console.log(

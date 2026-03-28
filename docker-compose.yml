@@ -22,6 +22,19 @@ services:
       - LEARNING_REVIEW_RUN_ON_BOOT=${LEARNING_REVIEW_RUN_ON_BOOT}
       - LEARNING_REVIEW_INTERVAL_HOURS=${LEARNING_REVIEW_INTERVAL_HOURS}
       - LEARNING_REVIEW_MATCH_LIMIT=${LEARNING_REVIEW_MATCH_LIMIT}
+      - EUROBET_PERSISTENT_PROFILE_ENABLED=${EUROBET_PERSISTENT_PROFILE_ENABLED:-true}
+      - EUROBET_PROFILE_DIR=${EUROBET_PROFILE_DIR:-/app/.playwright/eurobet-profile}
+      - EUROBET_EVENT_CONCURRENCY=${EUROBET_EVENT_CONCURRENCY:-1}
+      - EUROBET_BROWSER_HEADLESS=${EUROBET_BROWSER_HEADLESS:-true}
+      - EUROBET_BROWSER_CHANNEL=${EUROBET_BROWSER_CHANNEL:-}
+      - EUROBET_BROWSER_EXECUTABLE_PATH=${EUROBET_BROWSER_EXECUTABLE_PATH:-}
+      - EUROBET_BROWSER_SLOW_MO=${EUROBET_BROWSER_SLOW_MO:-0}
+      - EUROBET_MATCH_TIMEOUT_MS=${EUROBET_MATCH_TIMEOUT_MS:-7000}
+      - ODDS_EVENT_TIMEOUT_MS=${ODDS_EVENT_TIMEOUT_MS:-8000}
+      - ODDS_PROVIDER_MATCH_TIMEOUT_MS=${ODDS_PROVIDER_MATCH_TIMEOUT_MS:-9000}
+      - ODDS_MATCH_CACHE_TTL_SECONDS=${ODDS_MATCH_CACHE_TTL_SECONDS:-180}
+    volumes:
+      - backend_eurobet_profile:/app/.playwright/eurobet-profile
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
@@ -40,3 +53,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  backend_eurobet_profile:
