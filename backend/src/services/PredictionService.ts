@@ -50,6 +50,10 @@ export interface AnalysisFactors {
   disciplinaryDelta: number;
   atRiskPlayersDelta: number;
   competitiveness: number;
+  statSampleStrength: number;
+  shotsReliability: number;
+  cornersReliability: number;
+  disciplineReliability: number;
   notes: string[];
 }
 
@@ -88,6 +92,8 @@ export interface PredictionResponse {
 
 export interface CompletedMatchLearningReview {
   reviewType: 'model_confirmed' | 'ranking_error' | 'filter_rejection' | 'no_actionable_signal';
+  reviewSource: 'historical_bookmaker_snapshot' | 'model_estimated_replay';
+  learningWeight: number;
   headline: string;
   humanSummary: string;
   lessons: string[];
@@ -145,12 +151,50 @@ export class PredictionService {
       generatedAt: new Date().toISOString(),
       totalReviews: 0,
       categories: {},
+      selectionFamilies: {},
     };
   }
 
   private getAdaptiveTuningCacheKey(competition?: string): string {
     const normalized = String(competition ?? '').trim().toLowerCase();
     return normalized || 'all';
+  }
+
+  private probabilityToOdds(probability: number, overround = 0.06): number {
+    const p = this.clamp(Number(probability) || 0, 0.02, 0.96);
+    const implied = this.clamp(p * (1 + overround), 0.02, 0.985);
+    return Number((1 / implied).toFixed(2));
+  }
+
+  private marketOverround(selectionKey: string): number {
+    if (selectionKey === 'homeWin' || selectionKey === 'draw' || selectionKey === 'awayWin') return 0.06;
+    if (selectionKey.startsWith('exact_')) return 0.09;
+    if (selectionKey.startsWith('hcp_') || selectionKey.startsWith('ahcp_') || selectionKey.startsWith('handicap')) return 0.055;
+    return 0.045;
+  }
+
+  private collectModelProbabilitiesForOdds(prediction: PredictionResponse): Record<string, number> {
+    const flat = prediction?.probabilities?.flatProbabilities ?? {};
+    const out: Record<string, number> = {};
+
+    for (const [key, value] of Object.entries(flat)) {
+      const probability = Number(value);
+      if (Number.isFinite(probability) && probability > 0 && probability < 1) {
+        out[key] = probability;
+      }
+    }
+
+    return out;
+  }
+
+  private buildReplayEstimatedOdds(prediction: PredictionResponse): Record<string, number> {
+    const probabilities = this.collectModelProbabilitiesForOdds(prediction);
+    const estimatedOdds = Object.entries(probabilities).reduce((acc, [selection, probability]) => {
+      acc[selection] = this.probabilityToOdds(probability, this.marketOverround(selection));
+      return acc;
+    }, {} as Record<string, number>);
+
+    return this.normalizeReplayOdds(estimatedOdds);
   }
 
   async getAdaptiveTuningProfile(competition?: string, forceRefresh = false): Promise<AdaptiveEngineTuningProfile> {
@@ -166,73 +210,116 @@ export class PredictionService {
       limit: 250,
     });
 
-    const categories = new Map<MarketCategory, {
-      total: number;
-      rankingErrors: number;
-      filterRejections: number;
-      confirmations: number;
-    }>();
+    const profile: AdaptiveEngineTuningProfile = this.buildEmptyAdaptiveTuningProfile();
+    profile.generatedAt = new Date().toISOString();
+    profile.totalReviews = reviews.length;
+    const createBucket = () => ({
+      totalWeight: 0,
+      rankingErrors: 0,
+      filterRejections: 0,
+      confirmations: 0,
+      wrongPicks: 0,
+    });
 
-    const register = (category: MarketCategory | null, reviewType: string) => {
-      if (!category) return;
-      const bucket = categories.get(category) ?? {
-        total: 0,
-        rankingErrors: 0,
-        filterRejections: 0,
-        confirmations: 0,
+    const categories = new Map<MarketCategory, ReturnType<typeof createBucket>>();
+    const selectionFamilies = new Map<string, ReturnType<typeof createBucket>>();
+
+    const register = (
+      target: Map<any, ReturnType<typeof createBucket>>,
+      key: string | null | undefined,
+      signal: 'ranking_error' | 'filter_rejection' | 'model_confirmed' | 'wrong_pick',
+      weight: number,
+    ) => {
+      const normalizedKey = String(key ?? '').trim();
+      if (!normalizedKey || weight <= 0) return;
+      const bucket = target.get(normalizedKey) ?? createBucket();
+      bucket.totalWeight += weight;
+      if (signal === 'ranking_error') bucket.rankingErrors += weight;
+      if (signal === 'filter_rejection') bucket.filterRejections += weight;
+      if (signal === 'model_confirmed') bucket.confirmations += weight;
+      if (signal === 'wrong_pick') bucket.wrongPicks += weight;
+      target.set(normalizedKey, bucket);
+    };
+
+    const buildTuning = (
+      bucket: ReturnType<typeof createBucket>,
+      scope: 'category' | 'family',
+    ) => {
+      const total = Math.max(0.15, Number(bucket.totalWeight ?? 0));
+      const confidenceScale = this.clamp(total / (scope === 'family' ? 8 : 12), 0.2, 1);
+      const rankingErrorRate = bucket.rankingErrors / total;
+      const filterRejectionRate = bucket.filterRejections / total;
+      const confirmationRate = bucket.confirmations / total;
+      const wrongPickRate = bucket.wrongPicks / total;
+
+      const rawEvDelta =
+        (-filterRejectionRate * (scope === 'family' ? 0.018 : 0.010)) +
+        (-rankingErrorRate * (scope === 'family' ? 0.004 : 0.002)) +
+        (confirmationRate * 0.002) +
+        (wrongPickRate * (scope === 'family' ? 0.010 : 0.004));
+      const rawCoherenceDelta =
+        (-filterRejectionRate * (scope === 'family' ? 0.10 : 0.06)) +
+        (-rankingErrorRate * (scope === 'family' ? 0.02 : 0.015)) +
+        (confirmationRate * 0.01) +
+        (wrongPickRate * (scope === 'family' ? 0.05 : 0.02));
+      const rawRankingMultiplier =
+        1 +
+        (rankingErrorRate * (scope === 'family' ? 0.26 : 0.14)) +
+        (confirmationRate * (scope === 'family' ? 0.04 : 0.05)) -
+        (filterRejectionRate * 0.03) -
+        (wrongPickRate * (scope === 'family' ? 0.18 : 0.10));
+
+      return {
+        evDelta: Number(this.clamp(rawEvDelta * confidenceScale, scope === 'family' ? -0.02 : -0.012, scope === 'family' ? 0.012 : 0.008).toFixed(4)),
+        coherenceDelta: Number(this.clamp(rawCoherenceDelta * confidenceScale, scope === 'family' ? -0.12 : -0.08, scope === 'family' ? 0.05 : 0.03).toFixed(4)),
+        rankingMultiplier: Number(this.clamp(1 + ((rawRankingMultiplier - 1) * confidenceScale), scope === 'family' ? 0.85 : 0.9, scope === 'family' ? 1.25 : 1.18).toFixed(3)),
+        sampleSize: Number(total.toFixed(2)),
+        rankingErrorRate: Number((rankingErrorRate * 100).toFixed(2)),
+        filterRejectionRate: Number((filterRejectionRate * 100).toFixed(2)),
+        confirmationRate: Number((confirmationRate * 100).toFixed(2)),
+        wrongPickRate: Number((wrongPickRate * 100).toFixed(2)),
       };
-      bucket.total += 1;
-      if (reviewType === 'ranking_error') bucket.rankingErrors += 1;
-      if (reviewType === 'filter_rejection') bucket.filterRejections += 1;
-      if (reviewType === 'model_confirmed') bucket.confirmations += 1;
-      categories.set(category, bucket);
     };
 
     for (const row of reviews) {
       const review = row?.review ?? {};
       const reviewType = String(row?.reviewType ?? review?.reviewType ?? 'no_actionable_signal');
+      const reviewSource = String(review?.reviewSource ?? 'historical_bookmaker_snapshot');
+      const weight = this.clamp(
+        Number(review?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
+        0.15,
+        1,
+      );
+
       const primarySelection =
         reviewType === 'model_confirmed'
           ? String(review?.recommendedSelection?.selection ?? '').trim()
           : String(review?.missedWinningSelection?.selection ?? review?.recommendedSelection?.selection ?? '').trim();
-      if (!primarySelection) continue;
-      register(this.engine.categorizeSelection(primarySelection), reviewType);
+
+      if (primarySelection) {
+        register(categories, this.engine.categorizeSelection(primarySelection), reviewType as any, weight);
+        register(selectionFamilies, this.engine.getSelectionFamily(primarySelection), reviewType as any, weight);
+      }
+
+      const recommendedSelection = String(review?.recommendedSelection?.selection ?? '').trim();
+      const recommendedResult = String(review?.recommendedSelection?.result ?? '').trim().toUpperCase();
+      if (
+        reviewType !== 'model_confirmed' &&
+        recommendedSelection &&
+        recommendedResult === 'LOST' &&
+        recommendedSelection !== primarySelection
+      ) {
+        register(categories, this.engine.categorizeSelection(recommendedSelection), 'wrong_pick', weight * 0.8);
+        register(selectionFamilies, this.engine.getSelectionFamily(recommendedSelection), 'wrong_pick', weight * 0.8);
+      }
     }
 
-    const profile: AdaptiveEngineTuningProfile = this.buildEmptyAdaptiveTuningProfile();
-    profile.generatedAt = new Date().toISOString();
-    profile.totalReviews = reviews.length;
-
     for (const [category, bucket] of categories.entries()) {
-      const total = Math.max(1, bucket.total);
-      const confidenceScale = this.clamp(total / 12, 0.25, 1);
-      const rankingErrorRate = bucket.rankingErrors / total;
-      const filterRejectionRate = bucket.filterRejections / total;
-      const confirmationRate = bucket.confirmations / total;
+      profile.categories[category] = buildTuning(bucket, 'category');
+    }
 
-      const rawEvDelta =
-        (-filterRejectionRate * 0.012) +
-        (-rankingErrorRate * 0.004) +
-        (confirmationRate * 0.003);
-      const rawCoherenceDelta =
-        (-filterRejectionRate * 0.08) +
-        (-rankingErrorRate * 0.02) +
-        (confirmationRate * 0.015);
-      const rawRankingMultiplier =
-        1 +
-        (rankingErrorRate * 0.18) +
-        (confirmationRate * 0.06) -
-        (filterRejectionRate * 0.02);
-
-      profile.categories[category] = {
-        evDelta: Number(this.clamp(rawEvDelta * confidenceScale, -0.012, 0.006).toFixed(4)),
-        coherenceDelta: Number(this.clamp(rawCoherenceDelta * confidenceScale, -0.08, 0.03).toFixed(4)),
-        rankingMultiplier: Number(this.clamp(1 + ((rawRankingMultiplier - 1) * confidenceScale), 0.92, 1.18).toFixed(3)),
-        sampleSize: bucket.total,
-        rankingErrorRate: Number((rankingErrorRate * 100).toFixed(2)),
-        filterRejectionRate: Number((filterRejectionRate * 100).toFixed(2)),
-        confirmationRate: Number((confirmationRate * 100).toFixed(2)),
-      };
+    for (const [selectionFamily, bucket] of selectionFamilies.entries()) {
+      profile.selectionFamilies![selectionFamily] = buildTuning(bucket, 'family');
     }
 
     this.adaptiveTuningCache.set(cacheKey, {
@@ -543,7 +630,7 @@ export class PredictionService {
     const marketNames = this.getMarketNames(Object.keys(probs.flatProbabilities));
     const valueOpportunities = this.engine.analyzeMarkets(probs.flatProbabilities, alignedOdds, marketNames);
 
-    const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness);
+    const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
     const modelConfidence = context.richnessScore;
 
@@ -751,6 +838,12 @@ export class PredictionService {
           ? 'Il volume offensivo atteso rende questa linea la piu coerente tra le opzioni disponibili.'
           : 'Il ritmo previsto non giustifica una soglia statistica troppo alta su questo mercato.'
       );
+    } else if (category === 'corners') {
+      pushUnique(
+        selection.includes('over')
+          ? 'La lettura del match suggerisce abbastanza pressione e sviluppo laterale da sostenere una linea alta sugli angoli.'
+          : 'Il tipo di partita atteso non spinge verso un numero alto di calci d angolo.'
+      );
     } else if (category === 'fouls' || category === 'yellow_cards') {
       pushUnique(
         selection.includes('over')
@@ -805,6 +898,8 @@ export class PredictionService {
             ? 'E la linea che resta piu coerente anche se il match cambia leggermente ritmo durante la gara.'
             : category === 'shots' || category === 'shots_ot'
               ? 'La soglia scelta resta la piu stabile rispetto al volume statistico previsto.'
+              : category === 'corners'
+                ? 'La soglia scelta resta la piu coerente con il tipo di sviluppo territoriale atteso.'
               : category === 'fouls' || category === 'yellow_cards'
                 ? 'Il tipo di partita atteso sostiene questa lettura in modo piu regolare delle alternative.'
                 : 'Resta la giocata piu ordinata e sostenibile tra quelle disponibili.'
@@ -866,8 +961,20 @@ export class PredictionService {
   buildCompletedMatchLearningReview(
     prediction: PredictionResponse,
     matchRow: any,
-    bookmakerOdds: Record<string, number>
+    bookmakerOdds: Record<string, number>,
+    options?: {
+      source?: 'historical_bookmaker_snapshot' | 'model_estimated_replay';
+      learningWeight?: number;
+    }
   ): CompletedMatchLearningReview {
+    const reviewSource = options?.source ?? 'historical_bookmaker_snapshot';
+    const learningWeight = Number(
+      this.clamp(
+        Number(options?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
+        0.15,
+        1,
+      ).toFixed(3)
+    );
     const recommended = prediction.bestValueOpportunity ?? null;
     const recommendedResult = recommended
       ? this.evaluateSelectionForMatch(String(recommended.selection ?? ''), matchRow)
@@ -925,6 +1032,8 @@ export class PredictionService {
     if (recommended && recommendedResult?.status === 'WON') {
       return {
         reviewType: 'model_confirmed',
+        reviewSource,
+        learningWeight,
         headline: 'Pronostico finale confermato',
         humanSummary: 'La selezione finale ha letto correttamente il match. Non c e un errore da correggere su questa partita.',
         lessons: [
@@ -949,6 +1058,8 @@ export class PredictionService {
     if (!missed) {
       return {
         reviewType: 'no_actionable_signal',
+        reviewSource,
+        learningWeight,
         headline: 'Nessuna correzione chiara dal post-partita',
         humanSummary: 'Con i mercati effettivamente salvati per questa partita non emerge una linea vincente alternativa abbastanza leggibile da usarla come correzione affidabile.',
         lessons: [
@@ -973,6 +1084,8 @@ export class PredictionService {
     if (missed.wasAlreadyValueBet) {
       return {
         reviewType: 'ranking_error',
+        reviewSource,
+        learningWeight,
         headline: 'Linea vincente gia vista ma non scelta come finale',
         humanSummary: `${missedSelection.selectionLabel} aveva gia segnali utili, ma il ranking finale ha preferito ${recommendedSelection?.selectionLabel ?? 'un altra selezione'} e qui il match ha punito quella scelta.`,
         lessons: this.buildLearningLessonsFromDiagnostics(missed.diagnostics, true),
@@ -983,6 +1096,8 @@ export class PredictionService {
 
     return {
       reviewType: 'filter_rejection',
+      reviewSource,
+      learningWeight,
       headline: 'Linea vincente esclusa dai filtri del motore',
       humanSummary: `${missedSelection.selectionLabel} e risultata vincente sul campo, ma non e entrata tra le giocate perche i filtri interni non la consideravano abbastanza solida prima del match.`,
       lessons: this.buildLearningLessonsFromDiagnostics(missed.diagnostics, false),
@@ -1003,6 +1118,7 @@ export class PredictionService {
     skippedExisting: number;
     skippedNoSnapshot: number;
     skippedNoOdds: number;
+    usedModelFallbackReviews: number;
     adaptiveTuning: AdaptiveEngineTuningProfile;
   }> {
     const limit = Math.max(5, Math.min(Number(options?.limit ?? 60), 250));
@@ -1018,6 +1134,7 @@ export class PredictionService {
     let skippedExisting = 0;
     let skippedNoSnapshot = 0;
     let skippedNoOdds = 0;
+    let usedModelFallbackReviews = 0;
 
     for (const match of matches) {
       const matchId = String(match?.match_id ?? '').trim();
@@ -1039,17 +1156,30 @@ export class PredictionService {
           String(match.date ?? '')
         );
 
-      if (!historicalSnapshot) {
-        skippedNoSnapshot += 1;
-        continue;
-      }
-
-      const replayOdds = this.normalizeReplayOdds(
+      let replaySource: 'historical_bookmaker_snapshot' | 'model_estimated_replay' = 'historical_bookmaker_snapshot';
+      let learningWeight = 1;
+      let replayOdds = this.normalizeReplayOdds(
         historicalSnapshot?.liveSelectedOdds ?? historicalSnapshot?.eurobetOdds ?? {}
       );
-      if (Object.keys(replayOdds).length === 0) {
-        skippedNoOdds += 1;
-        continue;
+
+      if (!historicalSnapshot || Object.keys(replayOdds).length === 0) {
+        if (!historicalSnapshot) skippedNoSnapshot += 1;
+
+        const basePrediction = await this.predict({
+          homeTeamId: String(match.home_team_id),
+          awayTeamId: String(match.away_team_id),
+          matchId,
+          competition: String(match.competition ?? ''),
+        });
+        replayOdds = this.buildReplayEstimatedOdds(basePrediction);
+        replaySource = 'model_estimated_replay';
+        learningWeight = 0.35;
+
+        if (Object.keys(replayOdds).length === 0) {
+          skippedNoOdds += 1;
+          continue;
+        }
+        usedModelFallbackReviews += 1;
       }
 
       const replayPred = await this.predict({
@@ -1059,7 +1189,10 @@ export class PredictionService {
         competition: String(match.competition ?? ''),
         bookmakerOdds: replayOdds,
       });
-      const review = this.buildCompletedMatchLearningReview(replayPred, match, replayOdds);
+      const review = this.buildCompletedMatchLearningReview(replayPred, match, replayOdds, {
+        source: replaySource,
+        learningWeight,
+      });
       await this.db.saveLearningReview(matchId, String(match.competition ?? ''), review);
 
       if (existing) refreshed += 1;
@@ -1074,6 +1207,7 @@ export class PredictionService {
       skippedExisting,
       skippedNoSnapshot,
       skippedNoOdds,
+      usedModelFallbackReviews,
       adaptiveTuning,
     };
   }
@@ -1088,7 +1222,8 @@ export class PredictionService {
     probs: FullMatchProbabilities,
     homeTeam: any,
     awayTeam: any,
-    competitiveness: number
+    competitiveness: number,
+    supp?: SupplementaryData
   ): AnalysisFactors {
     const homeAdvantageIndex = this.clamp((Number(probs.lambdaHome ?? 0) - Number(probs.lambdaAway ?? 0)) / 2, -1, 1);
 
@@ -1135,6 +1270,58 @@ export class PredictionService {
     const awayAtRisk = Number(request.awayDiffidati ?? 0);
     const atRiskPlayersDelta = this.clamp((awayAtRisk - homeAtRisk) / 8, -1, 1);
 
+    const averageFinite = (...values: Array<number | undefined>): number | null => {
+      const valid = values
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value >= 0);
+      if (valid.length === 0) return null;
+      return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+    };
+
+    const homeSample = Number(supp?.homeTeamStats?.sampleSize ?? 0);
+    const awaySample = Number(supp?.awayTeamStats?.sampleSize ?? 0);
+    const minSample = Math.max(0, Math.min(homeSample, awaySample));
+    const sampleFloor = Math.max(1, predictionConfig.markets.minSampleSizePerTeam);
+    const statSampleStrength = this.clamp((minSample - sampleFloor) / 12, 0, 1);
+
+    const avgShotVariance = averageFinite(
+      supp?.homeTeamStats?.varShots,
+      supp?.awayTeamStats?.varShots,
+      supp?.homeTeamStats?.varShotsOT,
+      supp?.awayTeamStats?.varShotsOT,
+    );
+    const shotStability =
+      avgShotVariance === null
+        ? 0.72
+        : this.clamp(1 - (avgShotVariance / 42), 0.45, 1);
+    const shotsReliability = this.clamp(
+      (statSampleStrength * 0.7) + (shotStability * 0.3),
+      0,
+      1,
+    );
+
+    const cornersReliability = this.clamp(
+      (statSampleStrength * 0.8) + 0.2,
+      0,
+      1,
+    );
+
+    const avgDisciplineVariance = averageFinite(
+      supp?.homeTeamStats?.varFouls,
+      supp?.awayTeamStats?.varFouls,
+      supp?.homeTeamStats?.varYellowCards,
+      supp?.awayTeamStats?.varYellowCards,
+    );
+    const disciplineStability =
+      avgDisciplineVariance === null
+        ? 0.68
+        : this.clamp(1 - (avgDisciplineVariance / 55), 0.4, 1);
+    const disciplineReliability = this.clamp(
+      (statSampleStrength * 0.65) + (disciplineStability * 0.35),
+      0,
+      1,
+    );
+
     const notes: string[] = [];
     if (Math.abs(homeAdvantageIndex) > 0.15) notes.push(`Vantaggio casa stimato: ${homeAdvantageIndex >= 0 ? 'pro casa' : 'pro ospite'}.`);
     if (Math.abs(formDelta) > 0.15) notes.push(`Forma recente: ${formDelta >= 0 ? 'migliore casa' : 'migliore ospite'}.`);
@@ -1144,6 +1331,9 @@ export class PredictionService {
     if (Math.abs(suspensionsDelta) > 0.1) notes.push(`Assenze/squalifiche: ${suspensionsDelta >= 0 ? 'piu penalizzanti per ospite' : 'piu penalizzanti per casa'}.`);
     if (Math.abs(disciplinaryDelta) > 0.1) notes.push(`Disciplina (espulsioni recenti): ${disciplinaryDelta >= 0 ? 'rischio maggiore ospite' : 'rischio maggiore casa'}.`);
     if (Math.abs(atRiskPlayersDelta) > 0.1) notes.push(`Diffidati: ${atRiskPlayersDelta >= 0 ? 'piu diffidati ospite' : 'piu diffidati casa'}.`);
+    if (shotsReliability >= 0.75) notes.push('Campione tiri abbastanza solido per pesare davvero nel ranking finale.');
+    if (cornersReliability >= 0.75) notes.push('Campione angoli abbastanza solido per candidare anche mercati corners come pick finale.');
+    if (disciplineReliability >= 0.75) notes.push('Campione falli/cartellini abbastanza solido per valutare mercati disciplinari in alto nel ranking.');
 
     return {
       homeAdvantageIndex: Number(homeAdvantageIndex.toFixed(3)),
@@ -1155,6 +1345,10 @@ export class PredictionService {
       disciplinaryDelta: Number(disciplinaryDelta.toFixed(3)),
       atRiskPlayersDelta: Number(atRiskPlayersDelta.toFixed(3)),
       competitiveness: Number(competitiveness.toFixed(3)),
+      statSampleStrength: Number(statSampleStrength.toFixed(3)),
+      shotsReliability: Number(shotsReliability.toFixed(3)),
+      cornersReliability: Number(cornersReliability.toFixed(3)),
+      disciplineReliability: Number(disciplineReliability.toFixed(3)),
       notes,
     };
   }
@@ -1167,14 +1361,28 @@ export class PredictionService {
 
     const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
     const confidenceRank = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3 : c === 'MEDIUM' ? 2 : 1;
-    const tierWeight = (tier?: string) => tier === 'CORE' ? 1 : tier === 'SECONDARY' ? 0.94 : 0.82;
+    const tierWeight = (opp: BetOpportunity): number => {
+      const category = this.engine.categorizeSelection(opp.selection);
+      const tier = String((opp as any).marketTier ?? 'SECONDARY');
+      let weight = tier === 'CORE' ? 1 : tier === 'SECONDARY' ? 0.94 : 0.82;
+
+      if (category === 'shots' || category === 'shots_ot') {
+        weight += factors.shotsReliability * 0.08;
+      } else if (category === 'corners') {
+        weight += factors.cornersReliability * 0.08;
+      } else if (category === 'fouls' || category === 'yellow_cards') {
+        weight += factors.disciplineReliability * 0.09;
+      }
+
+      return clampNum(weight, 0.82, 1.08);
+    };
     const rankOpportunity = (o: BetOpportunity): number => {
       const ev = Number(o.expectedValue ?? 0) / 100;
       const edge = Number(o.edge ?? 0) / 100;
       const conf = confidenceRank(o.confidence) / 3;
       const kelly = Number(o.kellyFraction ?? 0) / 100;
       return ((kelly * 0.40) + (ev * 0.30) + (edge * 0.20) + (conf * 0.10))
-        * tierWeight((o as any).marketTier)
+        * tierWeight(o)
         * Number((o as any).adaptiveRankMultiplier ?? 1);
     };
     const avgEv = opportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / opportunities.length;
@@ -1201,8 +1409,20 @@ export class PredictionService {
 
       let contextualScore = directionalContext / 100;
       const sKey = String(opp.selection ?? '').toLowerCase();
+      const category = this.engine.categorizeSelection(opp.selection);
       if (sKey.includes('yellow') || sKey.includes('cards') || sKey.includes('fouls')) {
         contextualScore += (factors.competitiveness * 0.05) + Math.abs(factors.disciplinaryDelta) * 0.03;
+        contextualScore += factors.disciplineReliability * 0.05;
+      } else if (category === 'shots' || category === 'shots_ot') {
+        contextualScore += factors.shotsReliability * 0.05;
+        contextualScore += sKey.includes('_over_')
+          ? factors.formDelta * 0.02 + factors.motivationDelta * 0.015
+          : -factors.formDelta * 0.015;
+      } else if (category === 'corners') {
+        contextualScore += (factors.cornersReliability * 0.045) + (Math.abs(factors.homeAdvantageIndex) * 0.015);
+        contextualScore += sKey.includes('_over_')
+          ? factors.formDelta * 0.015 + factors.motivationDelta * 0.01
+          : -factors.formDelta * 0.01;
       } else if (sKey.startsWith('over') || sKey.includes('_over_')) {
         contextualScore += factors.formDelta * 0.02 + factors.motivationDelta * 0.015;
       } else if (sKey.startsWith('under') || sKey.includes('_under_')) {

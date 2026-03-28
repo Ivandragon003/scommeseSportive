@@ -10,8 +10,9 @@
  * - 1 richiesta/giorno per le quote aggiornate = ~30/mese
  * - Abbondante margine con il piano gratuito
  *
- * BOOKMAKER CODE per Eurobet: "eurobet"
- * Altri disponibili: "bet365", "snai", "sisal", "betfair"
+ * Nota: The Odds API non elenca attualmente Eurobet tra i bookmaker EU supportati.
+ * Per il feed live usiamo quindi un ordine di preferenza su bookmaker realmente disponibili
+ * nel provider (prima opzione italiana: Codere IT).
  *
  * MERCATI SUPPORTATI:
  * - h2h  1X2 (home win / draw / away win)
@@ -34,7 +35,7 @@ export interface OddsMatch {
 }
 
 export interface BookmakerOdds {
-  bookmakerKey: string;       // es. "eurobet"
+  bookmakerKey: string;       // es. "codere_it"
   bookmakerName: string;
   markets: MarketOdds[];
 }
@@ -61,7 +62,21 @@ export class OddsApiService {
     'Champions League': 'soccer_uefa_champs_league',
   };
 
-  private static readonly PREFERRED_BOOKMAKERS = ['eurobet', 'bet365', 'snai', 'sisal', 'unibet', 'betfair_ex_eu'];
+  private static readonly PREFERRED_BOOKMAKERS = [
+    'codere_it',
+    'pinnacle',
+    'betfair_ex_eu',
+    'marathonbet',
+    'williamhill',
+    'betsson',
+    'nordicbet',
+    'unibet_fr',
+    'unibet_nl',
+    'unibet_se',
+    'tipico_de',
+    'winamax_fr',
+    'winamax_de',
+  ];
 
   private readonly BASE_URL = 'https://api.the-odds-api.com/v4';
   private apiKey: string;
@@ -117,7 +132,7 @@ export class OddsApiService {
 
     const params: Record<string, string> = {
       apiKey: this.apiKey,
-      regions: 'eu',               // bookmaker europei (include Eurobet)
+      regions: 'eu',               // bookmaker europei supportati dal provider
       markets: markets.join(','),
       oddsFormat: 'decimal',        // quote decimali (1.85, 3.40, ecc.)
       dateFormat: 'iso',
@@ -244,6 +259,22 @@ export class OddsApiService {
     return Number.isInteger(n) ? String(n) : String(n);
   }
 
+  private extractBookmakerOdds(match: OddsMatch, bookmaker: BookmakerOdds): Record<string, number> {
+    const odds: Record<string, number> = {};
+
+    for (const market of bookmaker.markets ?? []) {
+      for (const outcome of market.outcomes ?? []) {
+        const key = this.toSelectionKey(match, market.marketKey, outcome);
+        if (!key) continue;
+        if (odds[key] === undefined && Number.isFinite(outcome.price) && outcome.price > 1) {
+          odds[key] = outcome.price;
+        }
+      }
+    }
+
+    return odds;
+  }
+
   private toSelectionKey(match: OddsMatch, marketKey: string, outcome: OutcomeOdds): string | null {
     const normalize = (v: string): string =>
       String(v ?? '')
@@ -364,13 +395,13 @@ export class OddsApiService {
   }
 
   /**
-   * Estrae le quote di Eurobet (o il miglior bookmaker disponibile)
+   * Estrae le quote del bookmaker preferito (o il miglior bookmaker disponibile)
    * per un match specifico, in formato flat per il ValueBettingEngine.
    *
    * Formato output:
    * { homeWin: 1.85, draw: 3.40, awayWin: 4.20, over25: 1.70, under25: 2.10 }
    */
-  extractBestOdds(match: OddsMatch, preferredBookmaker: string = 'eurobet'): Record<string, number> {
+  extractBestOdds(match: OddsMatch, preferredBookmaker: string = OddsApiService.PREFERRED_BOOKMAKERS[0]): Record<string, number> {
     const odds: Record<string, number> = {};
 
     // Trova il bookmaker preferito, altrimenti prendi il primo disponibile
@@ -393,13 +424,10 @@ export class OddsApiService {
       const bookmaker = match.bookmakers.find((b) => b.bookmakerKey === bookmakerKey);
       if (!bookmaker) continue;
 
-      for (const market of bookmaker.markets) {
-        for (const outcome of market.outcomes) {
-          const key = this.toSelectionKey(match, market.marketKey, outcome);
-          if (!key) continue;
-          if (odds[key] === undefined && Number.isFinite(outcome.price) && outcome.price > 1) {
-            odds[key] = outcome.price;
-          }
+      const bookmakerOdds = this.extractBookmakerOdds(match, bookmaker);
+      for (const [key, price] of Object.entries(bookmakerOdds)) {
+        if (odds[key] === undefined) {
+          odds[key] = price;
         }
       }
     }
@@ -415,17 +443,7 @@ export class OddsApiService {
     const comparison: Record<string, Record<string, number>> = {};
 
     for (const bm of match.bookmakers) {
-      const bmOdds: Record<string, number> = {};
-      for (const market of bm.markets) {
-        if (market.marketKey === 'h2h') {
-          for (const outcome of market.outcomes) {
-            const key = outcome.name === match.homeTeam ? '1'
-              : outcome.name === 'Draw' ? 'X'
-              : '2';
-            bmOdds[key] = outcome.price;
-          }
-        }
-      }
+      const bmOdds = this.extractBookmakerOdds(match, bm);
       if (Object.keys(bmOdds).length > 0) {
         comparison[bm.bookmakerName] = bmOdds;
       }

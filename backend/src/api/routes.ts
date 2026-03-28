@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService } from '../db/DatabaseService';
+import { EurobetOddsMatch, EurobetOddsService } from '../services/EurobetOddsService';
+import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { syncTransfermarktStatsForCompetition, transfermarktRouteHandler } from './transfermarktRoute';
 
 const router = Router();
@@ -499,7 +501,12 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
     const recommendedBetResult = recommended
       ? svc.evaluateSelectionAgainstMatch(String(recommended.selection ?? ''), match)
       : null;
-    const learningReview = svc.buildCompletedMatchLearningReview(replayPred, match, replayOddsUsed);
+    const learningReview = svc.buildCompletedMatchLearningReview(replayPred, match, replayOddsUsed, {
+      source: replaySource === 'historical_bookmaker_snapshot'
+        ? 'historical_bookmaker_snapshot'
+        : 'model_estimated_replay',
+      learningWeight: replaySource === 'historical_bookmaker_snapshot' ? 1 : 0.35,
+    });
     await db.saveLearningReview(
       String(match.match_id),
       String(match.competition ?? ''),
@@ -530,7 +537,6 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
           actualScore: `${match.home_goals}-${match.away_goals}`,
           date: match.date,
         },
-        learningReview,
         recommendedBetResult: recommendedBetResult
           ? {
               ...recommendedBetResult,
@@ -1080,6 +1086,15 @@ router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', ver
 import { FotmobScraper } from '../services/FotmobScraper';
 const fotmob = new FotmobScraper();
 let fotmobImportInProgress = false;
+let fotmobActiveImportMeta: {
+  startedAt: string;
+  mode: string;
+  competitions: string[];
+  seasons: string[];
+  includeMatchDetails: boolean;
+  forceRefresh: boolean;
+  importPlayers: boolean;
+} | null = null;
 
 router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
   try {
@@ -1110,9 +1125,15 @@ router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
 
 async function runFotmobImport(req: Request, res: Response) {
   if (fotmobImportInProgress) {
-    return res.status(409).json({
-      success: false,
-      error: 'Import FotMob già in corso. Attendi il completamento prima di lanciare un altro campionato.',
+    return res.status(202).json({
+      success: true,
+      data: {
+        source: 'fotmob',
+        alreadyRunning: true,
+        inProgress: true,
+        message: 'Import FotMob già in corso. Attendi il completamento prima di lanciare un altro campionato.',
+        activeImport: fotmobActiveImportMeta,
+      }
     });
   }
 
@@ -1141,6 +1162,16 @@ async function runFotmobImport(req: Request, res: Response) {
     const seasonsToScrape: string[] = Array.isArray(seasons) && seasons.length > 0
       ? seasons
       : FotmobScraper.generateSeasons(yearsBack);
+
+    fotmobActiveImportMeta = {
+      startedAt: new Date().toISOString(),
+      mode: String(mode),
+      competitions: competitionsToRun,
+      seasons: seasonsToScrape,
+      includeMatchDetails: Boolean(includeMatchDetails),
+      forceRefresh: Boolean(forceRefresh),
+      importPlayers: Boolean(importPlayers),
+    };
 
     const hasMissingAdvancedStats = (matchRow: any): boolean => {
       if (!matchRow) return true;
@@ -1198,6 +1229,12 @@ async function runFotmobImport(req: Request, res: Response) {
     let totalSkipped = 0;
     let totalNew = 0;
     let totalUpcomingImported = 0;
+    const competitionActivity: Record<string, {
+      playedTouched: number;
+      fixturesTouched: number;
+      newPlayed: number;
+      updatedPlayed: number;
+    }> = {};
     const deletedMatchesByCompetition: Record<string, number> = {};
 
     if (forceRefresh) {
@@ -1211,6 +1248,12 @@ async function runFotmobImport(req: Request, res: Response) {
     const seasonSummary: Record<string, any> = {};
 
     for (const competitionName of competitionsToRun) {
+      competitionActivity[competitionName] = competitionActivity[competitionName] ?? {
+        playedTouched: 0,
+        fixturesTouched: 0,
+        newPlayed: 0,
+        updatedPlayed: 0,
+      };
       for (const season of seasonsToScrape) {
         const lastDateInDb = await db.getLastMatchDate(competitionName, season);
         let allMatches: any[] = [];
@@ -1281,6 +1324,8 @@ async function runFotmobImport(req: Request, res: Response) {
 
         let imported = 0;
         let updatedExisting = 0;
+        let updatedExistingPlayed = 0;
+        let updatedExistingUpcoming = 0;
         let importedPlayed = 0;
         let importedUpcoming = 0;
         let skipped = 0;
@@ -1310,6 +1355,8 @@ async function runFotmobImport(req: Request, res: Response) {
             await db.upsertMatch(fotmob.toDbFormat(m));
             if (existedBefore) {
               updatedExisting++;
+              if (isPlayed) updatedExistingPlayed++;
+              else updatedExistingUpcoming++;
             } else {
               imported++;
               if (isPlayed) importedPlayed++;
@@ -1380,6 +1427,10 @@ async function runFotmobImport(req: Request, res: Response) {
         totalSkipped += skipped;
         totalNew += imported;
         totalUpcomingImported += importedUpcoming;
+        competitionActivity[competitionName].playedTouched += importedPlayed + updatedExistingPlayed;
+        competitionActivity[competitionName].fixturesTouched += importedUpcoming + updatedExistingUpcoming;
+        competitionActivity[competitionName].newPlayed += importedPlayed;
+        competitionActivity[competitionName].updatedPlayed += updatedExistingPlayed;
 
         seasonSummary[`${competitionName} ${season}`] = {
           lastDateBefore: lastDateInDb ?? 'nessuna',
@@ -1387,7 +1438,9 @@ async function runFotmobImport(req: Request, res: Response) {
           newImported: imported,
           updatedExisting,
           newImportedPlayed: importedPlayed,
+          updatedExistingPlayed,
           newImportedUpcoming: importedUpcoming,
+          updatedExistingUpcoming,
           touchedTotal: matchesToImport.length,
           skipped,
           playersUpserted: playersAgg.size,
@@ -1395,8 +1448,12 @@ async function runFotmobImport(req: Request, res: Response) {
       }
     }
 
+    const competitionsNeedingPostProcessing = competitionsToRun.filter((comp) =>
+      forceRefresh || (competitionActivity[comp]?.playedTouched ?? 0) > 0
+    );
+
     let teamsRecomputed = 0;
-    for (const comp of competitionsToRun) {
+    for (const comp of competitionsNeedingPostProcessing) {
       const teams = await db.getTeams(comp);
       for (const t of teams) {
         await db.recomputeTeamAverages(t.team_id);
@@ -1446,9 +1503,18 @@ async function runFotmobImport(req: Request, res: Response) {
       toDate?: string;
       matchesUsed?: number;
       teams?: number;
+      skipped?: boolean;
       error?: string;
     }> = {};
     for (const comp of competitionsToRun) {
+      if (!competitionsNeedingPostProcessing.includes(comp)) {
+        autoModelFit[comp] = {
+          ok: true,
+          skipped: true,
+          reason: 'Nessuna nuova partita giocata importata o aggiornata: refit modello saltato.',
+        };
+        continue;
+      }
       try {
         const currentSeasonRows = await db.getMatches({ competition: comp, season: currentSeason });
         const completedCurrentSeasonMatches = currentSeasonRows.filter(
@@ -1475,6 +1541,22 @@ async function runFotmobImport(req: Request, res: Response) {
 
     const transfermarktByCompetition: Record<string, any> = {};
     for (const comp of competitionsToRun) {
+      if (!competitionsNeedingPostProcessing.includes(comp)) {
+        transfermarktByCompetition[comp] = {
+          ok: true,
+          skipped: true,
+          season: null,
+          updatedTeams: 0,
+          totalScraped: 0,
+          notMatched: [],
+          leagueAvgShotsOT: null,
+          leagueAvgShotsTotal: null,
+          source: null,
+          bySeason: [],
+          reason: 'Nessuna nuova partita giocata importata o aggiornata: sync Transfermarkt saltata.',
+        };
+        continue;
+      }
       try {
         const perSeason: any[] = [];
         let latestOk: any = null;
@@ -1544,6 +1626,8 @@ async function runFotmobImport(req: Request, res: Response) {
         teamsRecomputed,
         deletedMatchesByCompetition,
         autoModelFit,
+        postProcessingCompetitions: competitionsNeedingPostProcessing,
+        skippedPostProcessingCompetitions: competitionsToRun.filter((comp) => !competitionsNeedingPostProcessing.includes(comp)),
         transfermarkt: {
           enabled: true,
           season: seasonsToScrape,
@@ -1563,6 +1647,7 @@ async function runFotmobImport(req: Request, res: Response) {
     res.status(500).json({ success: false, error: e.message });
   } finally {
     fotmobImportInProgress = false;
+    fotmobActiveImportMeta = null;
     await fotmob.close().catch(() => undefined);
   }
 }
@@ -1593,18 +1678,22 @@ router.get('/scraper/fotmob/info', async (_req, res) => {
       top5Competitions: top5,
       suggestedSeasons: seasons,
       dbLastImport: dbStatus,
+      importInProgress: fotmobImportInProgress,
+      activeImport: fotmobActiveImportMeta,
       note: 'Import FotMob via Playwright. Puoi lanciare import singolo o top-5 insieme.',
     }
   });
 });
 
-// ====== THE ODDS API ======
-import { OddsApiService, OddsMatch } from '../services/OddsApiService';
-
 type OddsCacheEntry = {
   cachedAt: number;
   matches: OddsMatch[];
-  remainingRequests: number;
+  remainingRequests: number | null;
+};
+
+type EurobetCacheEntry = {
+  cachedAt: number;
+  matches: EurobetOddsMatch[];
 };
 
 type OddsMatchSummary = {
@@ -1623,9 +1712,98 @@ type OddsRuntimeState = {
 };
 
 const oddsCache = new Map<string, OddsCacheEntry>();
+const eurobetCache = new Map<string, EurobetCacheEntry>();
+const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
+const matchOddsInFlight = new Map<string, Promise<any>>();
 const ODDS_CACHE_TTL_MS = 90 * 1000;
+const EUROBET_CACHE_TTL_MS = 90 * 1000;
+const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
+const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 7 * 1000;
+const DEFAULT_ODDS_EVENT_TIMEOUT_MS = 8 * 1000;
+const DEFAULT_ODDS_PROVIDER_MATCH_TIMEOUT_MS = 9 * 1000;
 const getConfiguredOddsApiKey = () =>
   String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? '').trim();
+
+const parsePositiveIntEnv = (name: string, fallback: number): number => {
+  const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+};
+
+const getMatchOddsCacheTtlMs = (): number =>
+  parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
+
+const getEurobetMatchTimeoutMs = (): number =>
+  parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS);
+
+const getOddsEventTimeoutMs = (): number =>
+  parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', DEFAULT_ODDS_EVENT_TIMEOUT_MS);
+
+const getOddsProviderMatchTimeoutMs = (): number =>
+  parsePositiveIntEnv('ODDS_PROVIDER_MATCH_TIMEOUT_MS', DEFAULT_ODDS_PROVIDER_MATCH_TIMEOUT_MS);
+
+const getAxiosStatusCode = (error: any): number | null => {
+  const status = Number(error?.response?.status);
+  return Number.isFinite(status) ? status : null;
+};
+
+const shouldRetryOddsFallbackMarkets = (error: any): boolean => {
+  const status = getAxiosStatusCode(error);
+  if (status === null) return true;
+  return ![400, 401, 402, 403, 404, 422, 429].includes(status);
+};
+
+const normalizeMatchOddsCachePart = (value: string): string =>
+  String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const buildMatchOddsCacheKey = (input: {
+  matchId?: string | null;
+  competition?: string | null;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime?: string | null;
+}): string => [
+  normalizeMatchOddsCachePart(String(input.matchId ?? '')),
+  normalizeMatchOddsCachePart(String(input.competition ?? '')),
+  normalizeMatchOddsCachePart(input.homeTeam),
+  normalizeMatchOddsCachePart(input.awayTeam),
+  normalizeMatchOddsCachePart(String(input.commenceTime ?? '')),
+].join('::');
+
+const getCachedMatchOddsPayload = (cacheKey: string): any | null => {
+  const cached = matchOddsCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() - cached.cachedAt >= getMatchOddsCacheTtlMs()) {
+    matchOddsCache.delete(cacheKey);
+    return null;
+  }
+  return cached.data;
+};
+
+const setCachedMatchOddsPayload = (cacheKey: string, data: any): void => {
+  matchOddsCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    data,
+  });
+};
+
+const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 let oddsRuntimeState: OddsRuntimeState = {
   competition: 'Serie A',
@@ -1714,6 +1892,44 @@ const sanitizeOddsMap = (input: Record<string, number>): Record<string, number> 
     out[k] = Number(v.toFixed(2));
   }
   return out;
+};
+
+const summarizeOddsCoverage = (
+  liveSelectedOdds: Record<string, number>,
+  eurobetOdds: Record<string, number>,
+  estimatedOdds: Record<string, number>
+): {
+  eurobetPresent: boolean;
+  liveDomains: Record<string, number>;
+  eurobetDomains: Record<string, number>;
+  syntheticDomains: Record<string, number>;
+  providerNotes: string[];
+} => {
+  const domainMatchers: Array<{ key: string; test: (selection: string) => boolean }> = [
+    { key: 'h2h', test: (selection) => ['homeWin', 'draw', 'awayWin'].includes(selection) },
+    { key: 'goals', test: (selection) => /^(over|under)\d+/.test(selection) || /^(team_(home|away)_(over|under)_|btts|bttsNo|dnb_|double_chance_)/.test(selection) },
+    { key: 'corners', test: (selection) => /^corners_/.test(selection) },
+    { key: 'cards', test: (selection) => /^(yellow_|cards_total_)/.test(selection) },
+    { key: 'shots', test: (selection) => /^(shots_total_|shots_home_|shots_away_|sot_total_)/.test(selection) },
+    { key: 'fouls', test: (selection) => /^fouls_/.test(selection) },
+  ];
+
+  const countDomains = (oddsMap: Record<string, number>): Record<string, number> =>
+    domainMatchers.reduce((acc, domain) => {
+      acc[domain.key] = Object.keys(oddsMap ?? {}).filter((selection) => domain.test(selection)).length;
+      return acc;
+    }, {} as Record<string, number>);
+
+  return {
+    eurobetPresent: Object.keys(eurobetOdds ?? {}).length > 0,
+    liveDomains: countDomains(liveSelectedOdds),
+    eurobetDomains: countDomains(eurobetOdds),
+    syntheticDomains: countDomains(estimatedOdds),
+    providerNotes: [
+      'The Odds API al momento non espone in modo affidabile mercati squadra live su tiri e falli per bookmaker EU.',
+      'Corners e cards vengono richiesti come mercati live dedicati, ma dipendono dalla copertura reale del bookmaker sul singolo evento.',
+    ],
+  };
 };
 
 const buildOddsSnapshotId = (matchId?: string | null, oddsProviderMatchId?: string | null): string => {
@@ -1959,7 +2175,7 @@ const buildModelEstimatedOdds = async (
 
   return {
     found: true,
-    message: 'Quote live non disponibili: caricate quote stimate dal modello interno (non quote live Eurobet).',
+    message: 'Quote live non disponibili: caricate quote stimate dal modello interno (non quote live bookmaker).',
     selectedOdds: baseOdds,
     usedFallbackBookmaker: true,
     usedSyntheticOdds: true,
@@ -1995,6 +2211,49 @@ const getCompetitionOdds = async (
     remainingRequests: oddsService.getRemainingRequests(),
   });
   return { oddsService, matches, fromCache: false };
+};
+
+const getEurobetCompetitionOdds = async (
+  competition: string,
+  includeExtendedGroups = false,
+  useCache = true,
+  fixtures?: Array<{ homeTeam: string; awayTeam: string; commenceTime?: string | null }>
+): Promise<{ eurobetService: EurobetOddsService; matches: EurobetOddsMatch[]; fromCache: boolean }> => {
+  const cacheKey = `${competition}::${includeExtendedGroups ? 'extended' : 'base'}`;
+  const cached = eurobetCache.get(cacheKey);
+  const now = Date.now();
+  if (useCache && cached && now - cached.cachedAt < EUROBET_CACHE_TTL_MS) {
+    return {
+      eurobetService: new EurobetOddsService(),
+      matches: cached.matches,
+      fromCache: true,
+    };
+  }
+
+  const eurobetService = new EurobetOddsService();
+  try {
+    let matches = Array.isArray(fixtures) && fixtures.length > 0
+      ? await eurobetService.getOddsForFixtures(competition, fixtures, { includeExtendedGroups })
+      : await eurobetService.getOdds(competition, { includeExtendedGroups });
+    if (matches.length === 0 && Array.isArray(fixtures) && fixtures.length > 0) {
+      matches = await eurobetService.getOdds(competition, { includeExtendedGroups }).catch(() => []);
+    }
+    eurobetCache.set(cacheKey, {
+      cachedAt: now,
+      matches,
+    });
+    return { eurobetService, matches, fromCache: false };
+  } catch (error) {
+    await eurobetService.close().catch(() => undefined);
+    if (useCache && cached && cached.matches.length > 0) {
+      return {
+        eurobetService: new EurobetOddsService(),
+        matches: cached.matches,
+        fromCache: true,
+      };
+    }
+    throw error;
+  }
 };
 
 const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => {
@@ -2062,16 +2321,107 @@ const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => 
 };
 
 router.post('/scraper/odds', async (req: Request, res: Response) => {
+  let eurobetService: EurobetOddsService | null = null;
   try {
     const { competition = 'Serie A', markets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'] } = req.body;
     const normalizedMarkets = Array.isArray(markets) && markets.length > 0
       ? markets.map((m: unknown) => String(m)).filter(Boolean)
       : ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
+    const eurobetFixtures = (await db.getUpcomingMatches({
+      competition: String(competition),
+      limit: 40,
+    })).map((match: any) => ({
+      homeTeam: String(match.home_team_name ?? ''),
+      awayTeam: String(match.away_team_name ?? ''),
+      commenceTime: match.date ? String(match.date) : null,
+    })).filter((match: any) => match.homeTeam && match.awayTeam);
+
+    try {
+      const eurobetResult = await getEurobetCompetitionOdds(String(competition), false, false, eurobetFixtures);
+      eurobetService = eurobetResult.eurobetService;
+      const eurobetMatches = eurobetResult.matches;
+
+      if (eurobetMatches.length > 0) {
+        const enriched = eurobetMatches.map((match) => {
+          const eurobetOdds = eurobetService!.extractBestOdds(match, 'eurobet');
+          return {
+            homeTeam: match.homeTeam,
+            awayTeam: match.awayTeam,
+            commenceTime: match.commenceTime,
+            eurobetOdds,
+            bestOdds: eurobetOdds,
+            bookmakerComparison: eurobetService!.compareBookmakers(match),
+            margins: match.bookmakers.reduce((acc, bookmaker) => {
+              const margin = eurobetService!.calculateMargin(match, bookmaker.bookmakerKey);
+              if (margin !== null) acc[bookmaker.bookmakerName] = `${margin}%`;
+              return acc;
+            }, {} as Record<string, string>),
+            remainingRequests: null,
+            source: 'eurobet_scraper',
+          };
+        });
+
+        const updatedAt = new Date().toISOString();
+        let savedSnapshots = 0;
+        for (const match of eurobetMatches) {
+          try {
+            const eurobetOdds = eurobetService.extractBestOdds(match, 'eurobet');
+            const snapshot = await persistOddsSnapshot({
+              oddsProviderMatchId: match.eventAlias,
+              competition: String(competition),
+              homeTeamName: match.homeTeam,
+              awayTeamName: match.awayTeam,
+              commenceTime: match.commenceTime,
+              source: 'eurobet_scraper_bulk',
+              selectedOdds: eurobetOdds,
+              liveSelectedOdds: eurobetOdds,
+              eurobetOdds,
+              estimatedOdds: {},
+              fallbackOdds: eurobetOdds,
+              allBookmakerOdds: eurobetService.compareBookmakers(match),
+              marketsRequested: ['eurobet_event_base'],
+              usedFallbackBookmaker: false,
+              usedSyntheticOdds: false,
+            });
+            if (snapshot.saved) savedSnapshots++;
+          } catch (snapshotErr: any) {
+            console.warn('[Eurobet/bulk] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
+          }
+        }
+
+        oddsRuntimeState = {
+          competition: String(competition),
+          markets: normalizedMarkets,
+          matchesFound: eurobetMatches.length,
+          matches: toOddsSummary(eurobetMatches),
+          remainingRequests: null,
+          lastUpdatedAt: updatedAt,
+        };
+
+        return res.json({
+          success: true,
+          data: {
+            competition,
+            markets: normalizedMarkets,
+            matchesFound: eurobetMatches.length,
+            matches: enriched,
+            savedSnapshots,
+            remainingRequests: null,
+            lastUpdatedAt: updatedAt,
+            source: 'eurobet_scraper',
+          }
+        });
+      }
+    } catch (eurobetError: any) {
+      console.warn('[Eurobet/bulk] Fallback su The Odds API:', eurobetError?.message ?? eurobetError);
+    }
+
+    const preferredProviderBookmaker = OddsApiService.getSupportedBookmakers()[0] ?? 'codere_it';
     const apiKey = getConfiguredOddsApiKey();
     if (!apiKey) {
-      return res.status(500).json({
+      return res.status(503).json({
         success: false,
-        error: 'ODDS_API_KEY non configurata sul server.',
+        error: 'Eurobet non disponibile e ODDS_API_KEY non configurata sul server.',
       });
     }
 
@@ -2082,7 +2432,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       awayTeam: m.awayTeam,
       commenceTime: m.commenceTime,
       eurobetOdds: oddsService.extractBestOdds(m, 'eurobet'),
-      bestOdds: oddsService.extractBestOdds(m),
+      bestOdds: oddsService.extractBestOdds(m, preferredProviderBookmaker),
       bookmakerComparison: oddsService.compareBookmakers(m),
       margins: m.bookmakers.reduce((acc, bm) => {
         const margin = oddsService.calculateMargin(m, bm.bookmakerKey);
@@ -2097,7 +2447,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     for (const match of matches) {
       try {
         const eurobetOdds = oddsService.extractBestOdds(match, 'eurobet');
-        const liveSelectedOdds = oddsService.extractBestOdds(match);
+        const liveSelectedOdds = oddsService.extractBestOdds(match, preferredProviderBookmaker);
         const oddsProviderMatchId = String(match.matchId ?? '').replace(/^odds_/, '');
         const snapshot = await persistOddsSnapshot({
           oddsProviderMatchId,
@@ -2148,12 +2498,17 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[OddsApi] Errore:', e.message);
     res.status(500).json({ success: false, error: e.message });
+  } finally {
+    if (eurobetService) {
+      await eurobetService.close().catch(() => undefined);
+    }
   }
 });
 
 
 
 router.post('/scraper/odds/match', async (req: Request, res: Response) => {
+  let eurobetService: EurobetOddsService | null = null;
   try {
     const {
       matchId,
@@ -2162,245 +2517,334 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       awayTeam,
       commenceTime,
     } = req.body ?? {};
+    const preferredProviderBookmaker = OddsApiService.getSupportedBookmakers()[0] ?? 'codere_it';
 
     if (!homeTeam || !awayTeam) {
       return res.status(400).json({ success: false, error: 'homeTeam e awayTeam sono obbligatori.' });
     }
 
-    const trimmedApiKey = getConfiguredOddsApiKey();
-    const preferredMarkets = ['h2h', 'totals', 'spreads'];
-    const fallbackMarkets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
-    const eventAdditionalMarkets = [
-      'btts',
-      'draw_no_bet',
-      'h2h_3_way',
-      'double_chance',
-      'team_totals',
-      'alternate_totals',
-      'alternate_spreads',
-      'alternate_team_totals',
-    ];
-    if (!trimmedApiKey) {
-      const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
-      return res.json({
-        success: true,
-        data: {
-          ...estimated,
-          eurobetOdds: {},
-          fallbackOdds: estimated.selectedOdds,
-          allBookmakerOdds: [],
-          marketsRequested: ['model_estimated'],
-          remainingRequests: null,
-        }
-      });
+    const cacheKey = buildMatchOddsCacheKey({
+      matchId: String(matchId ?? '').trim() || null,
+      competition: String(competition),
+      homeTeam: String(homeTeam),
+      awayTeam: String(awayTeam),
+      commenceTime: commenceTime ? String(commenceTime) : null,
+    });
+    const cachedPayload = getCachedMatchOddsPayload(cacheKey);
+    if (cachedPayload) {
+      return res.json({ success: true, data: cachedPayload });
     }
 
-    let oddsService: OddsApiService;
-    let matches: OddsMatch[];
-    let marketsRequested = [...preferredMarkets];
-    try {
-      const result = await getCompetitionOdds(trimmedApiKey, competition, preferredMarkets);
-      oddsService = result.oddsService;
-      matches = result.matches;
-    } catch (apiError: any) {
-      try {
-        const fallbackResult = await getCompetitionOdds(trimmedApiKey, competition, fallbackMarkets);
-        oddsService = fallbackResult.oddsService;
-        matches = fallbackResult.matches;
-        marketsRequested = [...fallbackMarkets];
-      } catch {
-        const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
-        if (estimated.found) {
-          return res.json({
-            success: true,
-            data: {
-              ...estimated,
-              message: `The Odds API non disponibile (${apiError?.response?.status ?? apiError?.message ?? 'errore'}): caricate quote stimate dal modello.`,
-              eurobetOdds: {},
-              fallbackOdds: estimated.selectedOdds,
-              allBookmakerOdds: [],
-              marketsRequested: ['model_estimated'],
-              remainingRequests: null,
-            }
-          });
-        }
-        throw apiError;
-      }
-
-      if (!matches || !oddsService) {
-        const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
-        if (estimated.found) {
-          return res.json({
-            success: true,
-            data: {
-              ...estimated,
-              message: `The Odds API non disponibile (${apiError?.response?.status ?? apiError?.message ?? 'errore'}): caricate quote stimate dal modello.`,
-              eurobetOdds: {},
-              fallbackOdds: estimated.selectedOdds,
-              allBookmakerOdds: [],
-              marketsRequested: ['model_estimated'],
-              remainingRequests: null,
-            }
-          });
-        }
-        throw apiError;
-      }
-
-      // continua con il fallback mercati base se quelli completi non sono disponibili
+    const inFlight = matchOddsInFlight.get(cacheKey);
+    if (inFlight) {
+      const sharedPayload = await inFlight;
+      return res.json({ success: true, data: sharedPayload });
     }
 
-    if (!matches || !oddsService) {
-      const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
-      if (estimated.found) {
-        return res.json({
-          success: true,
-          data: {
-            ...estimated,
-            message: 'The Odds API non disponibile: caricate quote stimate dal modello.',
-            eurobetOdds: {},
-            fallbackOdds: estimated.selectedOdds,
-            allBookmakerOdds: [],
-            marketsRequested: ['model_estimated'],
-            remainingRequests: null,
+    const startedAt = Date.now();
+    const work = (async () => {
+      const trimmedApiKey = getConfiguredOddsApiKey();
+      const preferredMarkets = ['h2h', 'totals', 'spreads'];
+      const fallbackMarkets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
+      const eventAdditionalMarkets = [
+        'btts',
+        'draw_no_bet',
+        'h2h_3_way',
+        'double_chance',
+        'team_totals',
+        'alternate_totals',
+        'alternate_totals_corners',
+        'alternate_totals_cards',
+        'alternate_spreads',
+        'alternate_spreads_corners',
+        'alternate_spreads_cards',
+        'alternate_team_totals',
+      ];
+      const estimatedPromise = buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
+
+      const eurobetPromise = withTimeout((async () => {
+        const eurobetResult = await getEurobetCompetitionOdds(
+          String(competition),
+          false,
+          true,
+          [{
+            homeTeam: String(homeTeam),
+            awayTeam: String(awayTeam),
+            commenceTime: commenceTime ? String(commenceTime) : null,
+          }]
+        );
+        eurobetService = eurobetResult.eurobetService;
+
+        let bestScore = -1;
+        let bestEurobet: EurobetOddsMatch | null = null;
+        for (const candidate of eurobetResult.matches) {
+          const score = matchScore(candidate, String(homeTeam), String(awayTeam), commenceTime ? String(commenceTime) : undefined);
+          if (score > bestScore) {
+            bestScore = score;
+            bestEurobet = candidate;
           }
-        });
-      }
-      throw new Error('Nessuna fonte quote disponibile');
-    }
-
-    if (!matches || matches.length === 0) {
-      return res.json({
-        success: true,
-        data: {
-          found: false,
-          message: 'Nessuna quota disponibile ora per questa competizione.',
-          remainingRequests: oddsService.getRemainingRequests(),
         }
-      });
-    }
 
-    let best: OddsMatch | null = null;
-    let bestScore = -1;
-    for (const m of matches) {
-      const score = matchScore(m, String(homeTeam), String(awayTeam), commenceTime ? String(commenceTime) : undefined);
-      if (score > bestScore) {
-        best = m;
-        bestScore = score;
-      }
-    }
-
-    if (!best || bestScore < 1.25) {
-      return res.json({
-        success: true,
-        data: {
-          found: false,
-          message: 'Match non trovato nelle quote live al momento.',
-          bestScore: Number(bestScore.toFixed(3)),
-          remainingRequests: oddsService.getRemainingRequests(),
+        let match: EurobetOddsMatch | null = null;
+        if (bestEurobet && bestScore >= 1.25) {
+          match = await eurobetService.enrichMatchWithExtendedGroups(bestEurobet);
         }
-      });
-    }
 
-    const eventId = String(best.matchId ?? '').startsWith('odds_')
-      ? String(best.matchId).replace(/^odds_/, '')
-      : '';
-    let mergedBest = best;
-    let additionalMarketsLoaded: string[] = [];
-    if (eventId) {
+        return { match, bestScore };
+      })(), getEurobetMatchTimeoutMs(), 'Eurobet match lookup').catch((eurobetError: any) => {
+        console.warn('[Eurobet/match] Fallback su provider secondario:', eurobetError?.message ?? eurobetError);
+        return { match: null as EurobetOddsMatch | null, bestScore: -1 };
+      });
+
+      const oddsPromise = (async () => {
+        if (!trimmedApiKey) {
+          return {
+            oddsService: null as OddsApiService | null,
+            mergedBest: null as OddsMatch | null,
+            additionalMarketsLoaded: [] as string[],
+            fallbackBestScore: -1,
+            marketsRequested: [...preferredMarkets],
+            eventId: '',
+          };
+        }
+
+        let oddsService: OddsApiService | null = null;
+        let mergedBest: OddsMatch | null = null;
+        let additionalMarketsLoaded: string[] = [];
+        let fallbackBestScore = -1;
+        let marketsRequested = [...preferredMarkets];
+        let eventId = '';
+
+        try {
+          let matches: OddsMatch[] = [];
+          try {
+            const result = await withTimeout(
+              getCompetitionOdds(trimmedApiKey, competition, preferredMarkets),
+              getOddsProviderMatchTimeoutMs(),
+              'Odds provider primary lookup'
+            );
+            oddsService = result.oddsService;
+            matches = result.matches;
+          } catch (apiError: any) {
+            if (!shouldRetryOddsFallbackMarkets(apiError)) {
+              throw apiError;
+            }
+
+            const fallbackResult = await withTimeout(
+              getCompetitionOdds(trimmedApiKey, competition, fallbackMarkets),
+              getOddsProviderMatchTimeoutMs(),
+              'Odds provider fallback lookup'
+            );
+            oddsService = fallbackResult.oddsService;
+            matches = fallbackResult.matches;
+            marketsRequested = [...fallbackMarkets];
+            console.warn('[OddsApi/match] Mercati completi non disponibili, uso fallback esteso:', apiError?.message ?? apiError);
+          }
+
+          if (matches.length > 0 && oddsService) {
+            let best: OddsMatch | null = null;
+            for (const candidate of matches) {
+              const score = matchScore(candidate, String(homeTeam), String(awayTeam), commenceTime ? String(commenceTime) : undefined);
+              if (score > fallbackBestScore) {
+                fallbackBestScore = score;
+                best = candidate;
+              }
+            }
+
+            if (best && fallbackBestScore >= 1.25) {
+              eventId = String(best.matchId ?? '').startsWith('odds_')
+                ? String(best.matchId).replace(/^odds_/, '')
+                : '';
+              mergedBest = best;
+              if (eventId) {
+                try {
+                  const extraEvent = await withTimeout(
+                    oddsService.getEventOdds(String(competition), eventId, eventAdditionalMarkets),
+                    getOddsEventTimeoutMs(),
+                    'Odds event markets lookup'
+                  );
+                  if (extraEvent) {
+                    mergedBest = mergeOddsMatchMarkets(best, extraEvent);
+                    additionalMarketsLoaded = Array.from(
+                      new Set(
+                        (extraEvent.bookmakers ?? [])
+                          .flatMap((bookmaker) => (bookmaker.markets ?? []).map((market) => String(market.marketKey)))
+                          .filter(Boolean)
+                      )
+                    );
+                  }
+                } catch (extraErr: any) {
+                  console.warn('[OddsApi/match] Mercati evento extra non disponibili:', extraErr?.message ?? extraErr);
+                }
+              }
+            }
+          }
+        } catch (apiError: any) {
+          console.warn('[OddsApi/match] Provider fallback non disponibile:', apiError?.message ?? apiError);
+        }
+
+        return {
+          oddsService,
+          mergedBest,
+          additionalMarketsLoaded,
+          fallbackBestScore,
+          marketsRequested,
+          eventId,
+        };
+      })();
+
+      const [
+        { match: eurobetMatch, bestScore: eurobetBestScore },
+        { oddsService, mergedBest, additionalMarketsLoaded, fallbackBestScore, marketsRequested, eventId },
+      ] = await Promise.all([eurobetPromise, oddsPromise]);
+
+      if (!eurobetMatch && !mergedBest) {
+        const estimated = await estimatedPromise;
+        return {
+          found: false,
+          message: 'Quote Eurobet non disponibili per questa partita al momento.',
+          source: 'eurobet_unavailable',
+          selectedOdds: {},
+          eurobetOdds: {},
+          fallbackOdds: {},
+          allBookmakerOdds: {},
+          oddsCoverage: summarizeOddsCoverage({}, {}, estimated.found ? estimated.selectedOdds : {}),
+          usedFallbackBookmaker: false,
+          usedSyntheticOdds: false,
+          bestScore: Number(Math.max(eurobetBestScore, fallbackBestScore).toFixed(3)),
+          marketsRequested: ['eurobet_only'],
+          remainingRequests: oddsService?.getRemainingRequests?.() ?? null,
+        };
+      }
+
+      const eurobetOdds = eurobetMatch && eurobetService
+        ? eurobetService.extractBestOdds(eurobetMatch, 'eurobet')
+        : {};
+      const providerFallbackOdds = mergedBest && oddsService
+        ? oddsService.extractBestOdds(mergedBest, preferredProviderBookmaker)
+        : {};
+
+      const liveSelectedOdds = sanitizeOddsMap(eurobetOdds);
+      const estimated = await estimatedPromise;
+      const estimatedOdds = estimated.found ? estimated.selectedOdds : {};
+      const selectedOdds = liveSelectedOdds;
+      const fallbackOdds = sanitizeOddsMap(providerFallbackOdds);
+      const oddsCoverage = summarizeOddsCoverage(
+        sanitizeOddsMap({ ...providerFallbackOdds, ...eurobetOdds }),
+        eurobetOdds,
+        estimatedOdds
+      );
+      const missingEurobetSelectionsFromFallback = Object.keys(providerFallbackOdds)
+        .filter((selection) => eurobetOdds[selection] === undefined);
+      const missingEurobetSelectionsFromModel = Object.keys(estimatedOdds)
+        .filter((selection) => eurobetOdds[selection] === undefined);
+      const usedFallbackBookmaker = false;
+      const usedSyntheticOdds = false;
+      const source = Object.keys(eurobetOdds).length > 0 ? 'eurobet_scraper' : 'eurobet_unavailable';
+
+      const responseMatch = eurobetMatch ?? mergedBest!;
+      const eurobetRequested = eurobetMatch
+        ? ['eurobet_event_base', ...eurobetMatch.loadedGroupAliases.filter((alias) => alias !== 'base').map((alias) => `eurobet:${alias}`)]
+        : [];
+      const finalMarketsRequested = Array.from(new Set([
+        ...eurobetRequested,
+        ...marketsRequested,
+        ...additionalMarketsLoaded,
+      ]));
+
+      const allBookmakerOdds = {
+        ...(mergedBest && oddsService ? oddsService.compareBookmakers(mergedBest) : {}),
+        ...(eurobetMatch && eurobetService ? eurobetService.compareBookmakers(eurobetMatch) : {}),
+      };
+
+      let historicalSnapshotSaved = false;
+      let snapshotMatchId: string | null = null;
       try {
-        const extraEvent = await oddsService.getEventOdds(String(competition), eventId, eventAdditionalMarkets);
-        if (extraEvent) {
-          mergedBest = mergeOddsMatchMarkets(best, extraEvent);
-          additionalMarketsLoaded = Array.from(
-            new Set(
-              (extraEvent.bookmakers ?? [])
-                .flatMap((bm) => (bm.markets ?? []).map((m) => String(m.marketKey)))
-                .filter(Boolean)
-            )
-          );
-        }
-      } catch (extraErr: any) {
-        console.warn('[OddsApi/match] Mercati evento extra non disponibili:', extraErr?.message ?? extraErr);
+        const snapshot = await persistOddsSnapshot({
+          matchId: String(matchId ?? '').trim() || null,
+          oddsProviderMatchId: (eurobetMatch?.eventAlias ?? eventId) || null,
+          competition: String(competition),
+          homeTeamName: responseMatch.homeTeam,
+          awayTeamName: responseMatch.awayTeam,
+          commenceTime: responseMatch.commenceTime,
+          source,
+          selectedOdds,
+          liveSelectedOdds,
+          eurobetOdds,
+          estimatedOdds,
+          fallbackOdds,
+          allBookmakerOdds,
+          marketsRequested: finalMarketsRequested,
+          usedFallbackBookmaker,
+          usedSyntheticOdds,
+          confidenceScore: Number(Math.max(eurobetBestScore, fallbackBestScore).toFixed(3)),
+        });
+        historicalSnapshotSaved = snapshot.saved;
+        snapshotMatchId = snapshot.matchId;
+      } catch (snapshotErr: any) {
+        console.warn('[OddsApi/match] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
       }
-    }
-    const finalMarketsRequested = Array.from(new Set([...marketsRequested, ...additionalMarketsLoaded]));
 
-    const eurobetAvailable = mergedBest.bookmakers.some((b) => b.bookmakerKey === 'eurobet');
-    const eurobetOnlyMatch: OddsMatch = {
-      ...mergedBest,
-      bookmakers: mergedBest.bookmakers.filter((b) => b.bookmakerKey === 'eurobet'),
-    };
+      const providerNotes = [...oddsCoverage.providerNotes];
+      if (missingEurobetSelectionsFromFallback.length > 0) {
+        providerNotes.push('Sono disponibili quote da bookmaker alternativi, ma vengono nascoste per mostrare solo quote Eurobet.');
+      }
+      if (missingEurobetSelectionsFromModel.length > 0) {
+        providerNotes.push('Le selezioni senza quota Eurobet non vengono completate dal modello.');
+      }
+      if (eurobetMatch?.unavailableGroupAliases?.includes('statistiche-partita')) {
+        providerNotes.push('Eurobet ha restituito i mercati base, ma il gruppo statistiche partita non era disponibile in questa sessione di scraping.');
+      }
 
-    // selectedOdds: prova Eurobet, ma completa automaticamente i mercati mancanti con altri bookmaker.
-    const eurobetOdds = oddsService.extractBestOdds(eurobetOnlyMatch, 'eurobet');
-    const liveSelectedOdds = oddsService.extractBestOdds(mergedBest, 'eurobet');
-    const estimated = await buildModelEstimatedOdds(String(competition), String(homeTeam), String(awayTeam));
-    const estimatedOdds = estimated.found ? estimated.selectedOdds : {};
-    // Mantieni priorita assoluta alle quote live; completa solo i mercati mancanti col modello.
-    const selectedOdds = sanitizeOddsMap({ ...estimatedOdds, ...liveSelectedOdds });
-    const fallbackOdds = selectedOdds;
-    const usedFallbackBookmaker = !eurobetAvailable
-      || Object.keys(liveSelectedOdds).some((k) => eurobetOdds[k] === undefined);
-    const usedSyntheticOdds = Object.keys(estimatedOdds).some((k) => liveSelectedOdds[k] === undefined);
-    const source =
-      usedSyntheticOdds
-        ? 'the_odds_api_plus_model_completion'
-        : (usedFallbackBookmaker ? 'the_odds_api_fallback_bookmaker' : 'the_odds_api_eurobet');
-
-    let historicalSnapshotSaved = false;
-    let snapshotMatchId: string | null = null;
-    try {
-      const snapshot = await persistOddsSnapshot({
-        matchId: String(matchId ?? '').trim() || null,
-        oddsProviderMatchId: eventId || null,
-        competition: String(competition),
-        homeTeamName: mergedBest.homeTeam,
-        awayTeamName: mergedBest.awayTeam,
-        commenceTime: mergedBest.commenceTime,
-        source,
-        selectedOdds,
-        liveSelectedOdds,
-        eurobetOdds,
-        estimatedOdds,
-        fallbackOdds,
-        allBookmakerOdds: oddsService.compareBookmakers(mergedBest),
-        marketsRequested: finalMarketsRequested.length > 0 ? finalMarketsRequested : marketsRequested,
-        usedFallbackBookmaker,
-        usedSyntheticOdds,
-        confidenceScore: Number(bestScore.toFixed(3)),
-      });
-      historicalSnapshotSaved = snapshot.saved;
-      snapshotMatchId = snapshot.matchId;
-    } catch (snapshotErr: any) {
-      console.warn('[OddsApi/match] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
-    }
-
-    return res.json({
-      success: true,
-      data: {
+      return {
         found: Object.keys(selectedOdds).length > 0,
+        message: Object.keys(selectedOdds).length > 0
+          ? 'Quote reali Eurobet caricate.'
+          : 'Quote Eurobet non disponibili per questa partita al momento.',
         usedFallbackBookmaker,
         usedSyntheticOdds,
         source,
         selectedOdds,
         eurobetOdds,
         fallbackOdds,
-        allBookmakerOdds: [],
-        marketsRequested: finalMarketsRequested.length > 0 ? finalMarketsRequested : marketsRequested,
+        allBookmakerOdds,
+        oddsCoverage: {
+          ...oddsCoverage,
+          providerNotes,
+        },
+        marketsRequested: finalMarketsRequested,
         match: {
-          homeTeam: mergedBest.homeTeam,
-          awayTeam: mergedBest.awayTeam,
-          commenceTime: mergedBest.commenceTime,
+          homeTeam: responseMatch.homeTeam,
+          awayTeam: responseMatch.awayTeam,
+          commenceTime: responseMatch.commenceTime,
         },
         historicalSnapshotSaved,
         snapshotMatchId,
-        confidenceScore: Number(bestScore.toFixed(3)),
-        remainingRequests: oddsService.getRemainingRequests(),
-      }
-    });
+        confidenceScore: Number(Math.max(eurobetBestScore, fallbackBestScore).toFixed(3)),
+        remainingRequests: oddsService?.getRemainingRequests?.() ?? null,
+      };
+    })();
+
+    matchOddsInFlight.set(cacheKey, work);
+    const payload = await work;
+    setCachedMatchOddsPayload(cacheKey, payload);
+    console.info(`[OddsApi/match] Completed in ${Date.now() - startedAt}ms for ${String(homeTeam)} vs ${String(awayTeam)}`);
+    return res.json({ success: true, data: payload });
   } catch (e: any) {
     console.error('[OddsApi/match] Errore:', e.message);
     return res.status(500).json({ success: false, error: e.message });
+  } finally {
+    const cacheKey = buildMatchOddsCacheKey({
+      matchId: String(req.body?.matchId ?? '').trim() || null,
+      competition: String(req.body?.competition ?? 'Serie A'),
+      homeTeam: String(req.body?.homeTeam ?? ''),
+      awayTeam: String(req.body?.awayTeam ?? ''),
+      commenceTime: req.body?.commenceTime ? String(req.body.commenceTime) : null,
+    });
+    matchOddsInFlight.delete(cacheKey);
+    if (eurobetService) {
+      await eurobetService.close().catch(() => undefined);
+    }
   }
 });
 
@@ -2415,11 +2859,11 @@ router.get('/scraper/odds/info', (_req, res) => {
   res.json({
     success: true,
     data: {
-      competitions: OddsApiService.getSupportedCompetitions(),
-      bookmakers: OddsApiService.getSupportedBookmakers(),
+      competitions: EurobetOddsService.getSupportedCompetitions(),
+      bookmakers: ['eurobet', ...OddsApiService.getSupportedBookmakers()],
       freePlanLimit: 500,
       registrationUrl: 'https://the-odds-api.com',
-      note: 'Piano gratuito: 500 richieste/mese. Per la Serie A bastano ~4 richieste/settimana.',
+      note: 'Eurobet e la sorgente primaria. The Odds API resta come fallback gratuito per coprire mercati o sessioni Eurobet non disponibili.',
     }
   });
 });

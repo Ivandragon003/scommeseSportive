@@ -3,6 +3,10 @@ backend/dist/
 frontend/build/
 backend/data/
 data/
+.playwright/
+backend/.playwright/
+backend/tmp_script_*.js
+package-lock.json
 *.db
 *.db-*
 *.db-wal

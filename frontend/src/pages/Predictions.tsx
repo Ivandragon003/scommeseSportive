@@ -81,9 +81,8 @@ const buildOddsReliabilityBadge = (pred: any, isReplay: boolean) => {
       ? { label: 'Snapshot bookmaker reale', className: 'pr-badge-green' }
       : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
   }
-  if (pred?.usedSyntheticOdds) return { label: 'Quote completate dal modello', className: 'pr-badge-gold' };
-  if (pred?.usedFallbackBookmaker) return { label: 'Bookmaker fallback', className: 'pr-badge-blue' };
-  if (pred?.oddsSource) return { label: 'Quote live reali', className: 'pr-badge-green' };
+  if (pred?.oddsSource === 'eurobet_scraper') return { label: 'Quote reali Eurobet', className: 'pr-badge-green' };
+  if (pred?.oddsSource === 'eurobet_unavailable') return { label: 'Quote Eurobet non disponibili', className: 'pr-badge-gray' };
   return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
 };
 const rankOpportunity = (o: any): number => {
@@ -184,6 +183,26 @@ const formatCompactOuKey = (k: string): string => {
 const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
   `${String(matchId ?? '')}::${String(selection ?? '')}::${String(marketName ?? '')}`;
 
+const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: string | null) => {
+  if (!prediction) return prediction;
+  if (oddsSource === 'eurobet_scraper') {
+    return {
+      ...prediction,
+      oddsSource: 'eurobet_scraper',
+      usedSyntheticOdds: false,
+      usedFallbackBookmaker: false,
+    };
+  }
+  return {
+    ...prediction,
+    oddsSource: oddsSource ?? 'eurobet_unavailable',
+    usedSyntheticOdds: false,
+    usedFallbackBookmaker: false,
+    valueOpportunities: [],
+    bestValueOpportunity: null,
+  };
+};
+
 const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
   { term: 'Quota', meaning: 'Prezzo bookmaker decimale della selezione (es. 2.10).' },
   { term: 'P. Nostra', meaning: 'Probabilita stimata dal modello per quella selezione.' },
@@ -203,7 +222,15 @@ const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
 const S = `
 @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=DM+Mono:wght@400;500&display=swap');
 
-.pr { display:flex; height:calc(100vh - 56px); overflow:hidden; font-family:var(--font-sans); background:var(--bg); color:var(--text); }
+.pr {
+  display:flex;
+  height:100%;
+  min-height:calc(100vh - var(--header-height) - var(--sync-height));
+  overflow:hidden;
+  font-family:var(--font-sans);
+  background:var(--bg);
+  color:var(--text);
+}
 
 /* LEFT PANEL  fixed sidebar */
 .pr-left {
@@ -220,9 +247,9 @@ const S = `
 .pr-season-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
 
 /* MATCH LIST */
-.pr-list { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.10) transparent; }
+.pr-list { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(115,136,161,0.28) transparent; }
 .pr-list::-webkit-scrollbar { width:3px; }
-.pr-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.10); border-radius:2px; }
+.pr-list::-webkit-scrollbar-thumb { background:rgba(115,136,161,0.28); border-radius:2px; }
 .pr-day-sep {
   position:sticky; top:0; z-index:2;
   background:var(--surface3); border-bottom:1px solid var(--border);
@@ -231,7 +258,7 @@ const S = `
 }
 .pr-match-row {
   display:flex; align-items:center; gap:10px;
-  padding:10px 16px; border-bottom:1px solid rgba(255,255,255,0.04);
+  padding:10px 16px; border-bottom:1px solid rgba(115,136,161,0.12);
   cursor:pointer; transition:background var(--transition); position:relative;
 }
 .pr-match-row:hover { background:var(--surface2); }
@@ -336,7 +363,7 @@ const S = `
 /* PROB BARS */
 .pr-prob-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 .pr-prob-lbl { font-size:12px; color:var(--text-2); width:100px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.pr-prob-track { flex:1; background:rgba(255,255,255,0.05); border-radius:100px; height:24px; overflow:hidden; }
+.pr-prob-track { flex:1; background:var(--surface3); border:1px solid var(--border); border-radius:100px; height:24px; overflow:hidden; }
 .pr-prob-fill {
   height:100%; border-radius:100px;
   display:flex; align-items:center; justify-content:flex-end;
@@ -416,7 +443,7 @@ const S = `
 .pr-badge-green  { background:var(--green-dim);  color:var(--green);  border-color:var(--green-border); }
 .pr-badge-blue   { background:var(--blue-dim);   color:var(--blue);   border-color:var(--blue-border);  }
 .pr-badge-gold   { background:var(--gold-dim);   color:var(--gold);   border-color:var(--gold-border);  }
-.pr-badge-gray   { background:rgba(255,255,255,0.06); color:var(--text-2); border-color:var(--border); }
+.pr-badge-gray   { background:var(--surface3); color:var(--text-2); border-color:var(--border); }
 .pr-badge-purple { background:var(--purple-dim); color:var(--purple); border-color:var(--purple-border); }
 
 .pr-alert { padding:10px 14px; border-radius:10px; font-size:12px; line-height:1.6; margin-bottom:12px; }
@@ -504,12 +531,12 @@ const DistChart: React.FC<{dist:Record<string,number>; expected:number; title:st
       <div className="pr-chart-head"><span>{title}</span><span>Atteso = <strong>{fmtN(expected)}</strong></span></div>
       <ResponsiveContainer width="100%" height={110}>
         <BarChart data={data} margin={{top:2,right:2,bottom:2,left:0}}>
-          <CartesianGrid strokeDasharray="2 2" stroke="rgba(255,255,255,0.04)" />
+          <CartesianGrid strokeDasharray="2 2" stroke="rgba(115,136,161,0.18)" />
           <XAxis dataKey="k" tick={{fontSize:9,fill:'var(--text-3)'}} />
           <YAxis tickFormatter={v=>`${v}%`} tick={{fontSize:9,fill:'var(--text-3)'}} width={28} />
           <Tooltip contentStyle={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11}}
             formatter={(v:any) => [`${v}%`,'P']} labelFormatter={(l:any) => `k=${l}`} />
-          <ReferenceLine x={Math.round(expected)} stroke="rgba(255,255,255,0.15)" strokeDasharray="3 3" />
+          <ReferenceLine x={Math.round(expected)} stroke="rgba(74,96,120,0.45)" strokeDasharray="3 3" />
           <Bar dataKey="pct" fill={color} radius={[3,3,0,0]} opacity={0.85} />
         </BarChart>
       </ResponsiveContainer>
@@ -789,7 +816,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       const baseRes = await basePredPromise;
       if (reqId !== analyzeReqRef.current) return;
       if (baseRes.data?.data) {
-        setPred(baseRes.data.data);
+        setPred(sanitizePredictionForEurobetOnly(baseRes.data.data));
         setLoading(false);
         setLoadingMatchId(null);
       }
@@ -817,12 +844,8 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
           return acc;
         }, {} as Record<string, string>);
 
-        if (payload.source === 'the_odds_api_plus_model_completion') {
-          finalOddsMsg = 'Quote live integrate con stima modello sui mercati mancanti. I mercati statistici completati dal modello generano poche value bet reali.';
-          finalOddsTone = 'warning';
-        } else if (payload.usedSyntheticOdds) { finalOddsMsg = 'Quote stimate dal modello interno. Su tiri, falli e cartellini l edge contro il mercato e quindi molto limitato.'; finalOddsTone = 'warning'; }
-        else if (payload.usedFallbackBookmaker) { finalOddsMsg = 'Eurobet n/d - quote bookmaker alternativo.'; finalOddsTone = 'warning'; }
-        else { finalOddsMsg = 'Quote Eurobet caricate.'; finalOddsTone = 'success'; }
+        finalOddsMsg = payload.message ?? 'Quote reali Eurobet caricate.';
+        finalOddsTone = 'success';
 
         // Fase 2: aggiorna value bet con quote live
         const enrichedRes = await axios.post('/api/predict', {
@@ -834,27 +857,18 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
         });
         if (reqId !== analyzeReqRef.current) return;
         if (enrichedRes.data?.data) {
-          finalPred = {
-            ...enrichedRes.data.data,
-            oddsSource: payload.source ?? null,
-            usedSyntheticOdds: Boolean(payload.usedSyntheticOdds),
-            usedFallbackBookmaker: Boolean(payload.usedFallbackBookmaker),
-          };
+          finalPred = sanitizePredictionForEurobetOnly(enrichedRes.data.data, payload.source ?? 'eurobet_scraper');
           setPred(finalPred);
           setTab('odds');
         }
       } else {
-        finalOddsMsg = payload.message ?? 'Quote non disponibili.';
+        finalOddsMsg = payload.message ?? 'Quote Eurobet non disponibili per questa partita.';
         finalOddsTone = 'warning';
+        finalPred = sanitizePredictionForEurobetOnly(finalPred, payload.source ?? 'eurobet_unavailable');
       }
 
       if (finalPred) {
-        finalPred = {
-          ...finalPred,
-          oddsSource: payload.source ?? finalPred.oddsSource ?? null,
-          usedSyntheticOdds: Boolean(payload.usedSyntheticOdds ?? finalPred.usedSyntheticOdds),
-          usedFallbackBookmaker: Boolean(payload.usedFallbackBookmaker ?? finalPred.usedFallbackBookmaker),
-        };
+        finalPred = sanitizePredictionForEurobetOnly(finalPred, payload.source ?? finalPred.oddsSource ?? null);
         setPred(finalPred);
       }
 
@@ -945,7 +959,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const isReplayAnalysis = pred?.analysisMode === 'played_match_replay';
   const actualMatch = pred?.actualMatch ?? null;
   const recommendedBetResult = pred?.recommendedBetResult ?? null;
-  const learningReview = pred?.learningReview ?? null;
   const oddsReliabilityBadge = buildOddsReliabilityBadge(pred, isReplayAnalysis);
   const replayOutcomeTone =
     recommendedBetResult?.status === 'WON'
@@ -1615,62 +1628,6 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         </div>
                       </div>
                     </div>
-
-                    {isReplayAnalysis && learningReview && (
-                      <div className="pr-card">
-                        <div className="pr-card-head">
-                          <div className="pr-card-title">Analisi Errore / Apprendimento</div>
-                          <span className={`pr-badge ${
-                            learningReview.reviewType === 'model_confirmed'
-                              ? 'pr-badge-green'
-                              : learningReview.reviewType === 'no_actionable_signal'
-                                ? 'pr-badge-gray'
-                                : 'pr-badge-gold'
-                          }`}>
-                            {learningReview.reviewType === 'model_confirmed'
-                              ? 'Confermato'
-                              : learningReview.reviewType === 'ranking_error'
-                                ? 'Ranking'
-                                : learningReview.reviewType === 'filter_rejection'
-                                  ? 'Filtro'
-                                  : 'Neutro'}
-                          </span>
-                        </div>
-                        <div className="pr-card-body">
-                          <div className="pr-info" style={{ marginBottom: 12 }}>
-                            <strong>{learningReview.headline}</strong><br />
-                            {learningReview.humanSummary}
-                          </div>
-                          {learningReview.missedWinningSelection && (
-                            <div className="pr-g2">
-                              <div className="pr-info">
-                                <strong>Linea vincente non sfruttata</strong><br />
-                                {learningReview.missedWinningSelection.selectionLabel}<br />
-                                Quota: <strong>{Number(learningReview.missedWinningSelection.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
-                                Stato nel motore: <strong>{learningReview.missedWinningSelection.wasAlreadyValueBet ? 'gia valutata ma non scelta' : 'scartata prima del ranking'}</strong>
-                              </div>
-                              <div className="pr-info">
-                                <strong>Diagnosi sintetica</strong><br />
-                                {(learningReview.missedWinningSelection.diagnostics?.rejectionReasons ?? []).length > 0
-                                  ? (learningReview.missedWinningSelection.diagnostics.rejectionReasons as string[]).join(' ')
-                                  : 'La linea era gia passata nei filtri, ma non e stata promossa come pronostico finale.'}
-                              </div>
-                            </div>
-                          )}
-                          <div className="pr-info" style={{ marginTop: 12 }}>
-                            <strong>Cosa imparare da questo match</strong>
-                            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
-                              {(Array.isArray(learningReview.lessons) ? learningReview.lessons : []).map((lesson: string, idx: number) => (
-                                <li key={`learning_review_${idx}`}>{lesson}</li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
-                            Questa review serve a correggere criteri e pesi del modello. Non puo garantire solo quote vincenti: se si inseguono tutti gli esiti a posteriori il sistema peggiora per overfitting.
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1809,7 +1766,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     {vb.length === 0 ? (
                       <div className="pr-info" style={{textAlign:'center',padding:'32px 0'}}>
                         Nessuna scommessa con EV positivo trovata.<br />
-                        <span style={{color:'var(--text-3)',fontSize:11}}>Quote non disponibili o edge insufficiente (&gt;2%).</span>
+                        <span style={{color:'var(--text-3)',fontSize:11}}>Quote Eurobet non disponibili oppure edge insufficiente (&gt;2%).</span>
                       </div>
                     ) : (
                       <>

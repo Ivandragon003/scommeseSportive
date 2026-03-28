@@ -170,6 +170,9 @@ export default function Scrapers() {
         importPlayers: fotmobImportPlayers,
       });
       setFotmobResult(res.data.data);
+      if (res.data?.data?.alreadyRunning || res.data?.data?.inProgress) {
+        setFotmobError(null);
+      }
     } catch (e: any) {
       setFotmobError(e.response?.data?.error ?? e.message);
     }
@@ -346,25 +349,35 @@ export default function Scrapers() {
               )}
 
               {fotmobResult && (
-                <div className={`fp-alert ${fotmobResult.isUpToDate ? 'fp-alert-info' : 'fp-alert-success'}`} style={{ marginTop: 16 }}>
+                <div className={`fp-alert ${fotmobResult.alreadyRunning || fotmobResult.inProgress || fotmobResult.isUpToDate ? 'fp-alert-info' : 'fp-alert-success'}`} style={{ marginTop: 16 }}>
                   <div style={{ fontWeight: 800, marginBottom: 12, fontSize: 14 }}>
-                    {fotmobResult.isUpToDate ? '✓ Database già aggiornato' : '✓ Import completato con successo'}
+                    {fotmobResult.alreadyRunning || fotmobResult.inProgress
+                      ? 'Import già in corso'
+                      : fotmobResult.isUpToDate
+                        ? '✓ Database già aggiornato'
+                        : '✓ Import completato con successo'}
                   </div>
+                  {fotmobResult.message && (
+                    <div style={{ marginBottom: 12, color: 'inherit', opacity: 0.82 }}>
+                      {fotmobResult.message}
+                    </div>
+                  )}
                   {[
-                    ['Modalità', fotmobResult.mode],
-                    ['Campionati', fotmobResult.competitions?.join(', ')],
-                    ['Stagioni', fotmobResult.seasons?.join(', ')],
-                    ['Nuove partite importate', fotmobResult.newMatchesImported ?? fotmobResult.imported],
-                    ['Partite future importate', fotmobResult.upcomingMatchesImported ?? 0],
-                    ['Partite aggiornate', fotmobResult.existingMatchesUpdated ?? 0],
+                    ['Modalità', fotmobResult.mode ?? fotmobResult.activeImport?.mode],
+                    ['Campionati', fotmobResult.competitions?.join(', ') ?? fotmobResult.activeImport?.competitions?.join(', ')],
+                    ['Stagioni', fotmobResult.seasons?.join(', ') ?? fotmobResult.activeImport?.seasons?.join(', ')],
+                    ['Avviato alle', fotmobResult.activeImport?.startedAt ? new Date(fotmobResult.activeImport.startedAt).toLocaleString('it-IT') : undefined],
+                    ['Nuove partite importate', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : (fotmobResult.newMatchesImported ?? fotmobResult.imported)],
+                    ['Partite future importate', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : (fotmobResult.upcomingMatchesImported ?? 0)],
+                    ['Partite aggiornate', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : (fotmobResult.existingMatchesUpdated ?? 0)],
                     ['Partite eliminate pre-refresh', fotmobResult.deletedMatchesByCompetition
                       ? Object.entries(fotmobResult.deletedMatchesByCompetition)
                           .map(([comp, v]) => `${comp}: ${String(v)}`)
                           .join(' | ')
                       : undefined],
-                    ['Squadre create', fotmobResult.teamsCreated],
-                    ['Giocatori aggiornati', fotmobResult.playersUpdated],
-                    ['Squadre ricalcolate', fotmobResult.teamsRecomputed],
+                    ['Squadre create', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : fotmobResult.teamsCreated],
+                    ['Giocatori aggiornati', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : fotmobResult.playersUpdated],
+                    ['Squadre ricalcolate', fotmobResult.alreadyRunning || fotmobResult.inProgress ? undefined : fotmobResult.teamsRecomputed],
                     ['Transfermarkt sync', fotmobResult.transfermarkt
                       ? Object.entries(fotmobResult.transfermarkt?.competitions ?? {})
                           .map(([comp, info]: [string, any]) => (
