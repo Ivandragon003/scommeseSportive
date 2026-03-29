@@ -8,6 +8,10 @@ import { UnderstatScraper } from '../services/UnderstatScraper';
 const router = Router();
 const db = new DatabaseService();
 const svc = new PredictionService(db);
+const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
+  2,
+  Math.min(Number(process.env.UNDERSTAT_DETAIL_CONCURRENCY ?? 10), 24)
+);
 
 async function buildStatsOverviewPayload() {
   const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
@@ -1295,12 +1299,16 @@ async function runUnderstatImport(req: Request, res: Response) {
 
       const existingTeams = await db.getTeams(competitionName);
       const teamLookup = new Map<string, any>();
+      const resolvedTeamCache = new Map<string, any>();
       for (const team of existingTeams) {
         teamLookup.set(canonicalUnderstatTeamName(String(team.name ?? team.team_id)), team);
       }
 
       const resolveInternalTeam = async (sourceTeamId: string, teamName: string, shortName?: string | null): Promise<any> => {
         const canonical = canonicalUnderstatTeamName(teamName);
+        const cacheKey = `${sourceTeamId}:${canonical}`;
+        const cached = resolvedTeamCache.get(cacheKey);
+        if (cached) return cached;
         let existingTeam = teamLookup.get(canonical);
         if (!existingTeam) {
           const partialMatches = Array.from(teamLookup.entries()).filter(([key]) =>
@@ -1310,15 +1318,23 @@ async function runUnderstatImport(req: Request, res: Response) {
         }
 
         if (existingTeam) {
-          await db.upsertTeam({
-            teamId: existingTeam.team_id,
-            name: existingTeam.name ?? teamName,
-            shortName: existingTeam.short_name ?? shortName ?? null,
-            competition: competitionName,
-            sourceTeamId: Number(sourceTeamId),
-            teamStatsJson: existingTeam.team_stats_json ?? JSON.stringify({ source: 'understat', competition: competitionName }),
-          });
-          return await db.getTeam(String(existingTeam.team_id));
+          const needsRefresh =
+            Number(existingTeam.source_team_id ?? existingTeam.sourceTeamId ?? 0) !== Number(sourceTeamId)
+            || !existingTeam.short_name;
+          if (needsRefresh) {
+            await db.upsertTeam({
+              teamId: existingTeam.team_id,
+              name: existingTeam.name ?? teamName,
+              shortName: existingTeam.short_name ?? shortName ?? null,
+              competition: competitionName,
+              sourceTeamId: Number(sourceTeamId),
+              teamStatsJson: existingTeam.team_stats_json ?? JSON.stringify({ source: 'understat', competition: competitionName }),
+            });
+            existingTeam = (await db.getTeam(String(existingTeam.team_id))) ?? existingTeam;
+          }
+          resolvedTeamCache.set(cacheKey, existingTeam);
+          teamLookup.set(canonical, existingTeam);
+          return existingTeam;
         }
 
         const createdTeamId = `understat_team_${sourceTeamId}`;
@@ -1333,6 +1349,7 @@ async function runUnderstatImport(req: Request, res: Response) {
         const created = await db.getTeam(createdTeamId);
         if (created) {
           teamLookup.set(canonical, created);
+          resolvedTeamCache.set(cacheKey, created);
           teamsCreated++;
         }
         return created;
@@ -1344,7 +1361,7 @@ async function runUnderstatImport(req: Request, res: Response) {
         try {
           allMatches = await understat.scrapeSeason(competitionName, season, {
             includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
-            detailConcurrency: 8,
+            detailConcurrency: UNDERSTAT_DETAIL_CONCURRENCY,
           });
         } catch (seasonError: any) {
           seasonSummary[`${competitionName} ${season}`] = {
@@ -1363,11 +1380,13 @@ async function runUnderstatImport(req: Request, res: Response) {
         }
 
         const matchesToImport: typeof allMatches = [];
+        const existingMatchCache = new Map<string, any>();
         for (const m of allMatches) {
           const futureFixture = isFutureMatch(m.date);
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
           const normalizedMatch = futureFixture ? toFixtureOnly(m) : m;
           const existing = await db.getMatchById(m.matchId);
+          existingMatchCache.set(m.matchId, existing ?? null);
           if (forceRefresh || !existing) {
             matchesToImport.push(normalizedMatch);
             continue;
@@ -1432,7 +1451,7 @@ async function runUnderstatImport(req: Request, res: Response) {
           };
 
           try {
-            const existedBefore = Boolean(await db.getMatchById(internalizedMatch.matchId));
+            const existedBefore = Boolean(existingMatchCache.get(internalizedMatch.matchId));
             await db.upsertMatch(understat.toDbFormat(futureFixture ? toFixtureOnly(internalizedMatch) : internalizedMatch));
             if (existedBefore) {
               updatedExisting++;

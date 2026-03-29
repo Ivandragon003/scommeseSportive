@@ -70,6 +70,22 @@ const formatDate = (iso: string) => {
   }
 };
 
+const formatFullDate = (iso?: string | null) => {
+  if (!iso) return 'n/d';
+  try {
+    return new Date(iso).toLocaleString('it-IT', {
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(iso);
+  }
+};
+
 const formatDuration = (totalSec: number) => {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
@@ -186,6 +202,9 @@ export default function Scrapers() {
 
   const lastUpdateFailed = Boolean(scraperStatus?.lastUpdate && scraperStatus?.lastUpdate?.success === false);
   const lastUpdateSucceeded = Boolean(scraperStatus?.lastUpdate && scraperStatus?.lastUpdate?.success === true);
+  const understatScheduler = scraperStatus?.understatScheduler ?? null;
+  const oddsScheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
+  const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
 
   return (
     <>
@@ -220,7 +239,19 @@ export default function Scrapers() {
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                  Auto-sync: {scraperStatus.autoSyncEnabled ? 'Abilitato (top 5 leghe)' : 'Disabilitato'}
+                  Sync notturna: {understatScheduler?.enabled
+                    ? `ogni giorno alle ${understatScheduler?.time ?? '01:00'} | prossimo run ${formatFullDate(understatScheduler?.nextRunAt)}`
+                    : 'disabilitata'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  Quote live: {oddsScheduler?.enabled
+                    ? `alle ${oddsScheduler?.time ?? '02:15'} | prossimo run ${formatFullDate(oddsScheduler?.nextRunAt)}`
+                    : 'disabilitate'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  Learning review: {learningScheduler?.enabled
+                    ? `alle ${learningScheduler?.time ?? '03:00'} | prossimo run ${formatFullDate(learningScheduler?.nextRunAt)}`
+                    : 'disabilitata'}
                 </div>
               </div>
             </div>

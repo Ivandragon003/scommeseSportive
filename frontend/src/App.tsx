@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Loader2,
   RadioTower,
+  RefreshCw,
   Target,
   Wallet,
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
-import { autoRefreshDataOnEnter, getScraperStatus } from './utils/api';
+import { getScraperStatus } from './utils/api';
 import './footpredictor.css';
 
 type SyncState = 'idle' | 'loading' | 'success' | 'error';
@@ -38,10 +39,50 @@ const StatusIcon: React.FC<{ state: SyncState }> = ({ state }) => {
   return <Loader2 size={16} className="fp-spin" />;
 };
 
+const formatSyncDateTime = (iso?: string | null) => {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString('it-IT', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getSystemHealthFromRuns = (runs: any[]): { state: SyncState; label: string } => {
+  const latestByScheduler = new Map<string, any>();
+  for (const run of Array.isArray(runs) ? runs : []) {
+    const key = String(run?.schedulerName ?? '').trim();
+    if (!key || latestByScheduler.has(key)) continue;
+    latestByScheduler.set(key, run);
+  }
+
+  const requiredRuns = ['understat', 'odds', 'learning']
+    .map((key) => latestByScheduler.get(key))
+    .filter(Boolean);
+
+  if (requiredRuns.length === 0) {
+    return { state: 'loading', label: 'Sistema in attesa' };
+  }
+  if (requiredRuns.some((run) => run?.success === false)) {
+    return { state: 'error', label: 'Sistema con errori' };
+  }
+  if (requiredRuns.length === 3 && requiredRuns.every((run) => run?.success === true)) {
+    return { state: 'success', label: 'Sistema OK' };
+  }
+  return { state: 'loading', label: 'Sistema parziale' };
+};
+
 const AppShell: React.FC<{
   activeUser: string;
   syncStatus: { state: SyncState; message: string };
-}> = ({ activeUser, syncStatus }) => {
+  systemHealth: { state: SyncState; label: string };
+  statusRefreshing: boolean;
+  onRefreshStatus: () => void;
+}> = ({ activeUser, syncStatus, systemHealth, statusRefreshing, onRefreshStatus }) => {
   const location = useLocation();
   const isWorkbench = location.pathname === '/predictions';
   const mainContentClass = isWorkbench ? 'main-content main-content--workbench' : 'main-content main-content--scroll';
@@ -50,7 +91,7 @@ const AppShell: React.FC<{
     <div className="app-shell">
       <div className={`sync-banner sync-banner--${syncStatus.state}`}>
         <div className="sync-banner__row">
-          <span className="sync-banner__label">Auto Sync</span>
+          <span className="sync-banner__label">Sync Notturna</span>
           <span className="sync-banner__message">{syncStatus.message}</span>
         </div>
         <div className="sync-banner__row">
@@ -71,6 +112,21 @@ const AppShell: React.FC<{
         </div>
 
         <div className="app-header-right">
+          <button
+            type="button"
+            className="fp-btn fp-btn-ghost fp-btn-sm app-header-refresh"
+            onClick={onRefreshStatus}
+            disabled={statusRefreshing}
+            title="Ricarica subito lo stato scheduler"
+          >
+            <RefreshCw size={14} className={statusRefreshing ? 'fp-spin' : ''} />
+            <span>{statusRefreshing ? 'Aggiorno...' : 'Aggiorna stato'}</span>
+          </button>
+          <div className={`app-status-chip is-${systemHealth.state}`}>
+            <span className="app-status-dot" />
+            <StatusIcon state={systemHealth.state} />
+            <span>{systemHealth.label}</span>
+          </div>
           <div className={`app-status-chip is-${syncStatus.state}`}>
             <span className="app-status-dot" />
             <StatusIcon state={syncStatus.state} />
@@ -99,7 +155,7 @@ const AppShell: React.FC<{
 
         <main className={mainContentClass}>
           <Routes>
-            <Route path="/" element={<Dashboard activeUser={activeUser} />} />
+            <Route path="/" element={<Dashboard activeUser={activeUser} onRefreshStatus={onRefreshStatus} />} />
             <Route path="/predictions" element={<Predictions activeUser={activeUser} />} />
             <Route path="/budget" element={<BudgetManager activeUser={activeUser} />} />
             <Route path="/backtest" element={<Backtesting />} />
@@ -125,161 +181,113 @@ const App: React.FC = () => {
   const activeUser = 'user1';
   const [syncStatus, setSyncStatus] = useState<{ state: SyncState; message: string }>({
     state: 'loading',
-    message: 'Aggiornamento dati Understat in corso...',
+    message: 'Verifica stato sincronizzazione notturna...',
   });
+  const [systemHealth, setSystemHealth] = useState<{ state: SyncState; label: string }>({
+    state: 'loading',
+    label: 'Sistema in attesa',
+  });
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    let active = true;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearPollTimer = () => {
-      if (pollTimer) {
-        clearTimeout(pollTimer);
-        pollTimer = null;
-      }
-    };
-
-    const finalizeFromStatus = (statusPayload: any) => {
+  const applyStatus = useCallback((statusPayload: any) => {
+      const scheduler = statusPayload?.data?.understatScheduler ?? null;
       const lastUpdate = statusPayload?.data?.lastUpdate ?? null;
+      setSystemHealth(getSystemHealthFromRuns(statusPayload?.data?.recentSchedulerRuns ?? []));
+      if (statusPayload?.data?.isUpdating || scheduler?.running) {
+        const nextMessage = scheduler?.lastRunAt
+          ? `Sincronizzazione notturna Understat in corso. Avviata ${formatSyncDateTime(scheduler.lastRunAt) ?? 'di recente'}.`
+          : 'Sincronizzazione notturna Understat in corso...';
+        setSyncStatus({ state: 'loading', message: nextMessage });
+        return;
+      }
+
       if (lastUpdate?.success) {
+        const nextRun = formatSyncDateTime(scheduler?.nextRunAt);
         setSyncStatus({
           state: 'success',
-          message: lastUpdate?.message || 'Dati aggiornati correttamente.',
+          message: nextRun
+            ? `${lastUpdate?.message || 'Dati aggiornati correttamente.'} Prossima sync: ${nextRun}.`
+            : lastUpdate?.message || 'Dati aggiornati correttamente.',
         });
         window.dispatchEvent(new Event('data-sync-complete'));
         return;
       }
 
-      setSyncStatus({
-        state: 'error',
-        message: lastUpdate?.message || 'Aggiornamento non completato.',
-      });
-      window.dispatchEvent(new Event('data-sync-error'));
-    };
+      if (lastUpdate?.success === false) {
+        setSyncStatus({
+          state: 'error',
+          message: lastUpdate?.message || 'Ultima sincronizzazione non completata.',
+        });
+        window.dispatchEvent(new Event('data-sync-error'));
+        return;
+      }
 
-    const pollBackendSync = async () => {
+      const nextRun = formatSyncDateTime(scheduler?.nextRunAt);
+      if (scheduler?.enabled && nextRun) {
+        setSyncStatus({
+          state: 'success',
+          message: `Sync notturna programmata alle ${scheduler?.time ?? '01:00'}. Prossimo avvio: ${nextRun}.`,
+        });
+        return;
+      }
+
+      setSyncStatus({
+        state: 'success',
+        message: 'Sincronizzazione automatica non pianificata. Usa la pagina Scrapers per un refresh manuale.',
+      });
+  }, []);
+
+  const refreshStatus = useCallback(async (options?: { silent?: boolean }) => {
+      const isSilent = options?.silent === true;
+      if (!isSilent && mountedRef.current) {
+        setStatusRefreshing(true);
+      }
       try {
         const statusPayload = await getScraperStatus();
-        if (!active) return;
-        if (statusPayload?.data?.isUpdating) {
-          setSyncStatus({
-            state: 'loading',
-            message: 'Aggiornamento backend gia in corso. Attendo completamento...',
-          });
-          pollTimer = setTimeout(() => { void pollBackendSync(); }, 5000);
-          return;
-        }
-
-        finalizeFromStatus(statusPayload);
+        if (!mountedRef.current) return;
+        applyStatus(statusPayload);
       } catch (error: any) {
-        if (!active) return;
+        if (!mountedRef.current) return;
         setSyncStatus({
           state: 'error',
           message: error?.response?.data?.error || error?.message || 'Impossibile leggere lo stato del sync automatico.',
         });
+        setSystemHealth({ state: 'error', label: 'Sistema non raggiungibile' });
         window.dispatchEvent(new Event('data-sync-error'));
+      } finally {
+        if (!isSilent && mountedRef.current) {
+          setStatusRefreshing(false);
+        }
       }
+  }, [applyStatus]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const safeRefresh = async (options?: { silent?: boolean }) => {
+      await refreshStatus(options);
     };
 
-    const runAutoRefresh = async () => {
-      setSyncStatus({ state: 'loading', message: 'Verifica stato aggiornamento automatico...' });
-      try {
-        const statusPayload = await getScraperStatus().catch(() => null);
-        if (!active) return;
-
-        const lastUpdateAt = statusPayload?.data?.lastUpdate?.at
-          ? new Date(statusPayload.data.lastUpdate.at).getTime()
-          : null;
-        const updatedRecently = Boolean(
-          statusPayload?.data?.lastUpdate?.success &&
-          lastUpdateAt &&
-          Number.isFinite(lastUpdateAt) &&
-          Date.now() - lastUpdateAt < 10 * 60 * 1000
-        );
-
-        if (statusPayload?.data?.isUpdating) {
-          setSyncStatus({
-            state: 'loading',
-            message: 'Aggiornamento backend gia in corso. Attendo completamento...',
-          });
-          void pollBackendSync();
-          return;
-        }
-
-        if (updatedRecently) {
-          setSyncStatus({
-            state: 'success',
-            message: statusPayload?.data?.lastUpdate?.message || 'Dati gia aggiornati di recente.',
-          });
-          window.dispatchEvent(new Event('data-sync-complete'));
-          return;
-        }
-
-        setSyncStatus({ state: 'loading', message: 'Aggiornamento dati Understat in corso...' });
-        const response = await autoRefreshDataOnEnter({
-          mode: 'top5',
-          yearsBack: 1,
-          importPlayers: true,
-          includeMatchDetails: true,
-          forceRefresh: false,
-        });
-
-        if (!active) return;
-
-        if (response?.success) {
-          if (response?.data?.alreadyRunning || response?.data?.inProgress) {
-            setSyncStatus({
-              state: 'loading',
-              message: response?.data?.message || 'Aggiornamento gia in corso su un altro processo...',
-            });
-            return;
-          }
-
-          setSyncStatus({
-            state: 'success',
-            message: response?.data?.message || 'Dati aggiornati correttamente.',
-          });
-          window.dispatchEvent(new Event('data-sync-complete'));
-          return;
-        }
-
-        setSyncStatus({
-          state: 'error',
-          message: response?.error || 'Aggiornamento non completato.',
-        });
-        window.dispatchEvent(new Event('data-sync-error'));
-      } catch (error: any) {
-        if (!active) return;
-        const message = error?.response?.data?.error || error?.message || 'Errore durante aggiornamento automatico.';
-        const normalizedMessage = String(message)
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-        if (normalizedMessage.includes('gia in corso')) {
-          setSyncStatus({
-            state: 'loading',
-            message: 'Aggiornamento gia in corso su un altro processo...',
-          });
-          return;
-        }
-        setSyncStatus({
-          state: 'error',
-          message,
-        });
-        window.dispatchEvent(new Event('data-sync-error'));
-      }
-    };
-
-    void runAutoRefresh();
+    void safeRefresh({ silent: true });
+    const interval = setInterval(() => { void safeRefresh({ silent: true }); }, 60000);
+    const onManualRefresh = () => { void safeRefresh(); };
+    window.addEventListener('scraper-status-refresh', onManualRefresh);
     return () => {
-      active = false;
-      clearPollTimer();
+      mountedRef.current = false;
+      clearInterval(interval);
+      window.removeEventListener('scraper-status-refresh', onManualRefresh);
     };
-  }, []);
+  }, [refreshStatus]);
 
   return (
     <Router>
-      <AppShell activeUser={activeUser} syncStatus={syncStatus} />
+      <AppShell
+        activeUser={activeUser}
+        syncStatus={syncStatus}
+        systemHealth={systemHealth}
+        statusRefreshing={statusRefreshing}
+        onRefreshStatus={() => { void refreshStatus(); }}
+      />
     </Router>
   );
 };
