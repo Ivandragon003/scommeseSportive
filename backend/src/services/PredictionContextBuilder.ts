@@ -101,28 +101,16 @@ export class PredictionContextBuilder {
     };
   }
 
-  private readTransfermarktShots(teamRow: any, venue: VenueKey): { avgShots?: number; avgShotsOT?: number } {
-    const json = this.parseJson(teamRow?.team_stats_json);
-    const venueNode = json?.transfermarkt?.[venue] ?? {};
-    return {
-      avgShots: this.toFiniteNumber(venueNode?.avgShots),
-      avgShotsOT: this.toFiniteNumber(venueNode?.avgShotsOT),
-    };
-  }
-
   private buildTeamStats(teamRow: any, venue: VenueKey) {
     const venueStats = this.readVenueStats(teamRow, venue);
-    const transfermarktShots = this.readTransfermarktShots(teamRow, venue);
 
     return {
       avgShots: Number(
-        transfermarktShots.avgShots ??
         (venue === 'home'
           ? teamRow?.avg_home_shots ?? 12.1
           : teamRow?.avg_away_shots ?? 10.4)
       ),
       avgShotsOT: Number(
-        transfermarktShots.avgShotsOT ??
         (venue === 'home'
           ? teamRow?.avg_home_shots_ot ?? 4.8
           : teamRow?.avg_away_shots_ot ?? 3.9)

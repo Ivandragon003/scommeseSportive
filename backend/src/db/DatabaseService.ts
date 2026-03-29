@@ -63,6 +63,16 @@ export class DatabaseService {
     await this.ensureOptionalColumns();
   }
 
+  private parseJsonObject(value: unknown): Record<string, any> {
+    if (typeof value !== 'string' || value.trim().length === 0) return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
   private async initSchema(): Promise<void> {
     const statements = [
       `CREATE TABLE IF NOT EXISTS matches (
@@ -251,6 +261,27 @@ export class DatabaseService {
     }
   }
 
+  async getTableColumns(table: string): Promise<string[]> {
+    const result = await this.execute(`PRAGMA table_info(${table})`, undefined, true);
+    return this.normalizeRows((result.rows ?? []) as Array<Record<string, unknown>>)
+      .map((row: any) => String(row?.name ?? '').trim())
+      .filter(Boolean);
+  }
+
+  async ensureTableColumns(table: string, columns: Array<{ column: string; type: string }>): Promise<string[]> {
+    const existing = new Set(await this.getTableColumns(table));
+    const added: string[] = [];
+
+    for (const item of columns) {
+      if (existing.has(item.column)) continue;
+      await this.execute(`ALTER TABLE ${table} ADD COLUMN ${item.column} ${item.type}`, undefined, true);
+      existing.add(item.column);
+      added.push(item.column);
+    }
+
+    return added;
+  }
+
   private async ensureOptionalColumns(): Promise<void> {
     const columns: Array<{ table: string; column: string; type: string }> = [
       { table: 'matches', column: 'source', type: "TEXT DEFAULT 'manual'" },
@@ -273,13 +304,36 @@ export class DatabaseService {
       { table: 'bets', column: 'match_date', type: 'TEXT' },
       { table: 'teams', column: 'avg_home_corners', type: 'REAL DEFAULT 5.5' },
       { table: 'teams', column: 'avg_away_corners', type: 'REAL DEFAULT 4.5' },
+      { table: 'teams', column: 'league_id', type: 'TEXT' },
+      { table: 'teams', column: 'season', type: 'TEXT' },
+      { table: 'teams', column: 'shots_total', type: 'INTEGER' },
+      { table: 'teams', column: 'shots_on_target', type: 'INTEGER' },
+      { table: 'teams', column: 'shots_pct', type: 'REAL' },
+      { table: 'teams', column: 'shots_per90', type: 'REAL' },
+      { table: 'teams', column: 'sot_per90', type: 'REAL' },
+      { table: 'teams', column: 'xg', type: 'REAL' },
+      { table: 'teams', column: 'npxg', type: 'REAL' },
+      { table: 'teams', column: 'xag', type: 'REAL' },
+      { table: 'teams', column: 'xga', type: 'REAL' },
+      { table: 'teams', column: 'fouls_committed', type: 'INTEGER' },
+      { table: 'teams', column: 'fouls_drawn', type: 'INTEGER' },
+      { table: 'teams', column: 'yellow_cards', type: 'INTEGER' },
+      { table: 'teams', column: 'red_cards', type: 'INTEGER' },
+      { table: 'teams', column: 'double_yellows', type: 'INTEGER' },
+      { table: 'teams', column: 'corners', type: 'INTEGER' },
     ];
 
-    for (const c of columns) {
+    const byTable = new Map<string, Array<{ column: string; type: string }>>();
+    for (const item of columns) {
+      const current = byTable.get(item.table) ?? [];
+      current.push({ column: item.column, type: item.type });
+      byTable.set(item.table, current);
+    }
+
+    for (const [table, items] of byTable.entries()) {
       try {
-        await this.execute(`ALTER TABLE ${c.table} ADD COLUMN ${c.column} ${c.type}`, undefined, true);
+        await this.ensureTableColumns(table, items);
       } catch {
-        // Colonna già presente
       }
     }
   }
@@ -1473,6 +1527,11 @@ export class DatabaseService {
     return this.get('SELECT * FROM teams WHERE team_id = ?', [teamId]);
   }
 
+  async getTeamStatsJson(teamId: string): Promise<Record<string, any>> {
+    const row = await this.get('SELECT team_stats_json FROM teams WHERE team_id = ?', [teamId]);
+    return this.parseJsonObject(row?.team_stats_json);
+  }
+
   async recomputeTeamAverages(teamId: string): Promise<void> {
     const DECAY_PER_DAY = 0.005;
     const safeAvgOrNull = (v: unknown): number | null => {
@@ -1583,7 +1642,6 @@ export class DatabaseService {
     const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
     const existingStats = parseJson(existingTeam?.team_stats_json);
-    const transfermarktStats = existingStats.transfermarkt ?? {};
     const computedStats = {
       ...(existingStats.computed ?? {}),
       overallSampleSize: totalN,
@@ -1611,22 +1669,18 @@ export class DatabaseService {
     });
 
     const preferredHomeShots = safePreferredNumber(
-      transfermarktStats?.home?.avgShots,
       homeN > 0 ? homeRows?.avg_shots : null,
       existingTeam?.avg_home_shots,
     );
     const preferredAwayShots = safePreferredNumber(
-      transfermarktStats?.away?.avgShots,
       awayN > 0 ? awayRows?.avg_shots : null,
       existingTeam?.avg_away_shots,
     );
     const preferredHomeShotsOT = safePreferredNumber(
-      transfermarktStats?.home?.avgShotsOT,
       homeN > 0 ? homeRows?.avg_shots_ot : null,
       existingTeam?.avg_home_shots_ot,
     );
     const preferredAwayShotsOT = safePreferredNumber(
-      transfermarktStats?.away?.avgShotsOT,
       awayN > 0 ? awayRows?.avg_shots_ot : null,
       existingTeam?.avg_away_shots_ot,
     );
