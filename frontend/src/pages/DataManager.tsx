@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   bulkImportMatches, fitModel, getMatches,
-  getFotmobTeamSeasonStats, getPlayersByTeam, getStatsOverview, getTeams, recomputeAverages,
+  getUnderstatTeamSeasonStats, getPlayersByTeam, getStatsOverview, getTeams, recomputeAverages,
 } from '../utils/api';
 
 type TeamScope = 'current' | 'previous' | 'total';
@@ -121,7 +121,7 @@ const localStyles = `
   .dm-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
   .dm-stats-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
   .dm-stats-head { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-  .dm-stats-head.fotmob { color: var(--blue); }
+  .dm-stats-head.understat { color: var(--blue); }
   .dm-stats-head.model  { color: var(--gold); }
 
   /* Stats inner table */
@@ -377,18 +377,14 @@ const DataManager: React.FC = () => {
   const filteredTeams = competitionFilter ? teams.filter((t: any) => t.competition === competitionFilter) : teams;
   const selectedTeam  = teams.find((t: any) => String(t.team_id) === String(selectedTeamId)) ?? null;
   const selectedTeamStats = useMemo(() => parseJsonSafe(selectedTeam?.team_stats_json), [selectedTeam?.team_stats_json]);
-  const transfermarktShotSource = useMemo(() => {
-    const tm = selectedTeamStats.transfermarkt ?? {};
-    const hasSource = tm?.preferredForShots || tm?.home || tm?.away;
-    if (!hasSource) return null;
-    const season = String(tm.season ?? '').trim();
-    const scrapedAt = String(tm.scrapedAt ?? '').trim();
+  const understatSource = useMemo(() => {
+    const scrapedAt = String(selectedTeam?.last_updated ?? '').trim();
     const dt = scrapedAt ? new Date(scrapedAt) : null;
     return {
-      label: season ? `Transfermarkt (${season})` : 'Transfermarkt',
+      label: 'Understat',
       updatedAt: dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleString('it-IT') : '-',
     };
-  }, [selectedTeamStats]);
+  }, [selectedTeam?.last_updated]);
 
   useEffect(() => {
     const nf = competitionFilter ? teams.filter((t: any) => t.competition === competitionFilter) : teams;
@@ -432,7 +428,7 @@ const DataManager: React.FC = () => {
     if (seasonStatsLoadingKey === key) return;
 
     setSeasonStatsLoadingKey(key);
-    getFotmobTeamSeasonStats({ competition, season: currentTeamSeason, teamId })
+    getUnderstatTeamSeasonStats({ competition, season: currentTeamSeason, teamId })
       .then((res: any) => {
         setSeasonStatsByKey((prev) => ({
           ...prev,
@@ -461,7 +457,7 @@ const DataManager: React.FC = () => {
   const useOfficialSeasonStats = scope === 'current' && Boolean(seasonStats);
 
   const stats = useMemo(() => {
-    const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, cs: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, fotmob: 0 };
+    const s: any = { p: scopedMatches.length, w: 0, d: 0, l: 0, pts: 0, gf: 0, ga: 0, cs: 0, xgf: 0, xga: 0, sf: 0, sa: 0, sotf: 0, sota: 0, fouls: 0, yc: 0, rc: 0, xgfN: 0, xgaN: 0, sfN: 0, saN: 0, sotfN: 0, sotaN: 0, foulsN: 0, ycN: 0, rcN: 0, poss: 0, possN: 0, understat: 0 };
     const add = (sk: string, nk: string, rv: any) => {
       if (rv === null || rv === undefined || rv === '') return;
       const v = Number(rv);
@@ -493,11 +489,10 @@ const DataManager: React.FC = () => {
       if (gf > ga) { s.w++; s.pts += 3; } else if (gf === ga) { s.d++; s.pts++; } else s.l++;
       add('xgf','xgfN', h ? m.home_xg : m.away_xg);
       add('xga','xgaN', h ? m.away_xg : m.home_xg);
-      // Removed shots data as it's now null from Fotmob (using Transfermarkt averages instead)
-      // add('sf', 'sfN',  h ? m.home_shots : m.away_shots);
-      // add('sa', 'saN',  h ? m.away_shots : m.home_shots);
-      // add('sotf','sotfN', h ? m.home_shots_on_target : m.away_shots_on_target);
-      // add('sota','sotaN', h ? m.away_shots_on_target : m.home_shots_on_target);
+      add('sf', 'sfN',  h ? m.home_shots : m.away_shots);
+      add('sa', 'saN',  h ? m.away_shots : m.home_shots);
+      add('sotf','sotfN', h ? m.home_shots_on_target : m.away_shots_on_target);
+      add('sota','sotaN', h ? m.away_shots_on_target : m.home_shots_on_target);
       add('fouls','foulsN', h ? m.home_fouls : m.away_fouls);
       add('yc','ycN', h ? m.home_yellow_cards : m.away_yellow_cards);
       add('rc','rcN', h ? m.home_red_cards : m.away_red_cards);
@@ -509,17 +504,16 @@ const DataManager: React.FC = () => {
           s.possN++;
         }
       }
-      if (String(m.source ?? '').toLowerCase() === 'fotmob') s.fotmob++;
+      if (String(m.source ?? '').toLowerCase() === 'understat') s.understat++;
     }
     const d = Math.max(1, s.p);
     s.ppg = s.pts / d; s.gd = s.gf - s.ga; s.wr = s.w / d;
     s.xgfAvg  = s.xgfN  > 0 ? s.xgf  / s.xgfN  : null;
     s.xgaAvg  = s.xgaN  > 0 ? s.xga  / s.xgaN  : null;
-    // Removed shots averages as data is now null
-    // s.sfAvg   = s.sfN   > 0 ? s.sf   / s.sfN   : null;
-    // s.saAvg   = s.saN   > 0 ? s.sa   / s.saN   : null;
-    // s.sotfAvg = s.sotfN > 0 ? s.sotf / s.sotfN : null;
-    // s.sotaAvg = s.sotaN > 0 ? s.sota / s.sotaN : null;
+    s.sfAvg   = s.sfN   > 0 ? s.sf   / s.sfN   : null;
+    s.saAvg   = s.saN   > 0 ? s.sa   / s.saN   : null;
+    s.sotfAvg = s.sotfN > 0 ? s.sotf / s.sotfN : null;
+    s.sotaAvg = s.sotaN > 0 ? s.sota / s.sotaN : null;
     s.foulsAvg= s.foulsN> 0 ? s.fouls/ s.foulsN: null;
     s.ycAvg   = s.ycN   > 0 ? s.yc   / s.ycN   : null;
     s.rcAvg   = s.rcN   > 0 ? s.rc   / s.rcN   : null;
@@ -537,14 +531,10 @@ const DataManager: React.FC = () => {
   const players = selectedTeam ? (playersByTeam[selectedTeam.team_id] ?? []) : [];
   const qualityRows = [
     { key: 'xg', label: 'xG' },
-    // Removed shots and shotsOnTarget as data is now null from Fotmob
-    // { key: 'shots', label: 'Tiri' },
-    // { key: 'shotsOnTarget', label: 'Tiri OT' },
-    { key: 'fouls', label: 'Falli' },
+    { key: 'shots', label: 'Tiri' },
+    { key: 'shotsOnTarget', label: 'Tiri OT' },
     { key: 'yellowCards', label: 'Gialli' },
     { key: 'redCards', label: 'Rossi' },
-    { key: 'possession', label: 'Possesso' },
-    { key: 'referee', label: 'Arbitro' },
   ].map((item) => ({
     ...item,
     pct: Number(statsOverview?.coverage?.fields?.[item.key]?.pct ?? 0),
@@ -604,8 +594,8 @@ const DataManager: React.FC = () => {
               <div className="fp-card-body">
                 <div className="dm-steps">
                   {[
-                    { n: '01', title: 'Importa Dati',     desc: 'Importa i dati FotMob tramite Dati Automatici o manualmente via JSON.' },
-                    { n: '02', title: 'Ricalcola Medie',  desc: 'Aggiorna le medie statistiche per ogni squadra (tiri, xG, cartellini, falli).' },
+                    { n: '01', title: 'Importa Dati',     desc: 'Importa i dati Understat tramite Dati Automatici o manualmente via JSON.' },
+                    { n: '02', title: 'Ricalcola Medie',  desc: 'Aggiorna le medie statistiche per ogni squadra (tiri, xG e cartellini).' },
                     { n: '03', title: 'Addestra Modello', desc: 'Esegui il fit Dixon-Coles per calibrare attack e defence strength.' },
                     { n: '04', title: 'Analizza Partite', desc: 'Vai in Previsioni per calcolare probabilita, quote e value bet.' },
                   ].map(({ n: num, title, desc }, i, arr) => (
@@ -698,7 +688,7 @@ const DataManager: React.FC = () => {
                         <div className="dm-league-kpi"><span>Partite</span><strong>{league.matches ?? 0}</strong></div>
                         <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals ?? 0, 2)}</strong></div>
                         <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards ?? 0, 2)}</strong></div>
-                        {/* Removed avgTotalShots as shots data is now null from Fotmob */}
+                        <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots ?? 0, 2)}</strong></div>
                         <div className="dm-league-kpi"><span>xG coverage</span><strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong></div>
                         <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>
                       </div>
@@ -828,7 +818,7 @@ const DataManager: React.FC = () => {
 
                 <div className="dm-stats-grid">
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head fotmob"> Stats Partite (FotMob)</div>
+                    <div className="dm-stats-head understat">Stats Match Importate (Understat)</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -845,38 +835,34 @@ const DataManager: React.FC = () => {
                           ['Reti inviolate', useOfficialSeasonStats
                             ? `${n(seasonStats.cleanSheetsTotal, 0)}`
                             : stats.cs],
+                          ['Tiri fatti / subiti', `${n(stats.sfAvg, 2)} / ${n(stats.saAvg, 2)} (${stats.sfCov})`],
+                          ['Tiri in porta fatti / subiti', `${n(stats.sotfAvg, 2)} / ${n(stats.sotaAvg, 2)} (${stats.sotfCov})`],
                           ['xG fatto / subito', useOfficialSeasonStats
                             ? `${n(seasonStats.xgForPerMatch, 2)} / ${n(seasonStats.xgAgainstPerMatch, 2)}`
                             : `${n(stats.xgfAvg, 2)} / ${n(stats.xgaAvg, 2)} (${stats.xgfCov})`],
-                          ['Falli / partita', useOfficialSeasonStats
-                            ? n(seasonStats.foulsPerMatch, 2)
-                            : `${n(stats.foulsAvg, 2)} (${stats.foulsCov})`],
                           ['Gialli / partita', useOfficialSeasonStats
                             ? n(seasonStats.yellowPerMatch, 2)
                             : `${n(stats.ycAvg, 2)} (${stats.ycCov})`],
                           ['Rossi / partita', useOfficialSeasonStats
                             ? n(seasonStats.redPerMatch, 3)
                             : `${n(stats.rcAvg, 3)} (${stats.rcCov})`],
-                          ['Possesso medio', useOfficialSeasonStats
-                            ? `${n(seasonStats.possessionAvg, 1)}%`
-                            : (stats.possAvg !== null ? `${n(stats.possAvg, 1)}% (${stats.possCov})` : `- (${stats.possCov})`)],
-                          ['Match FotMob', useOfficialSeasonStats ? seasonStats.played : stats.fotmob],
+                          ['Match Understat', useOfficialSeasonStats ? seasonStats.played : stats.understat],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>
                     <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
-                      I tiri non sono mostrati in questo pannello: per il modello usiamo la sorgente dedicata del pannello a destra.
+                      Questo pannello usa lo storico match importato da Understat. Il modello usa la stessa fonte dati, senza mix con altre sorgenti.
                     </div>
                   </div>
 
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head model">Statistiche Modello AI</div>
+                    <div className="dm-stats-head model">Statistiche Squadra e Modello</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
                           ['Forza attacco',   n(selectedTeam.attack_strength, 3)],
                           ['Forza difesa',  n(selectedTeam.defence_strength, 3)],
-                          ['Fonte tiri modello', transfermarktShotSource?.label ?? 'Storico partite'],
+                          ['Fonte dati modello', understatSource.label],
                           ['Media tiri casa',    n(selectedTeam.avg_home_shots, 2)],
                           ['Media tiri trasferta',    n(selectedTeam.avg_away_shots, 2)],
                           ['Media tiri in porta casa (OT)', n(selectedTeam.avg_home_shots_ot, 2)],
@@ -885,9 +871,8 @@ const DataManager: React.FC = () => {
                           ['Media xG trasferta',       n(selectedTeam.avg_away_xg, 2)],
                           ['Media gialli',  n(selectedTeam.avg_yellow_cards, 2)],
                           ['Media rossi',     n(selectedTeam.avg_red_cards, 3)],
-                          ['Media falli',         n(selectedTeam.avg_fouls, 2)],
                           ['Soppressione tiri', n(selectedTeam.shots_suppression, 3)],
-                          ['Aggiornamento fonte tiri', transfermarktShotSource?.updatedAt ?? '-'],
+                          ['Aggiornamento fonte dati', understatSource.updatedAt],
                         ].map(([l, v]) => <tr key={String(l)}><td>{l}</td><td>{String(v)}</td></tr>)}
                       </tbody>
                     </table>
@@ -904,7 +889,7 @@ const DataManager: React.FC = () => {
                 {playersLoading === selectedTeam.team_id ? (
                   <div className="fp-spinner-wrap"><div className="fp-spinner" /></div>
                 ) : players.length === 0 ? (
-                  <div className="fp-alert fp-alert-info">Nessun giocatore disponibile. Esegui import da FotMob.</div>
+                  <div className="fp-alert fp-alert-info">Nessun giocatore disponibile. Esegui import da Understat.</div>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="fp-table">
@@ -941,7 +926,7 @@ const DataManager: React.FC = () => {
               <div className="fp-card-head"><div className="fp-card-title">Pipeline Modello</div></div>
               <div className="fp-card-body">
                 <div className="fp-alert fp-alert-info">
-                  Dopo ogni import FotMob il sistema esegue automaticamente:
+                  Dopo ogni import Understat il sistema esegue automaticamente:
                   <strong> ricalcolo medie squadre</strong> e <strong>fit del modello Dixon-Coles</strong> per i campionati importati.
                 </div>
                 <div className="dm-model-grid" style={{ marginTop: 12 }}>
@@ -949,7 +934,7 @@ const DataManager: React.FC = () => {
                     <div className="fp-card-head"><div className="fp-card-title">Ricalcolo Medie</div></div>
                     <div className="fp-card-body">
                       <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, margin: 0 }}>
-                        Automatico su import: aggiorna tiri, xG, cartellini, falli e fattore difensivo per squadra.
+                        Automatico su import: aggiorna tiri, xG, cartellini e fattore difensivo per squadra.
                       </p>
                     </div>
                   </div>

@@ -125,7 +125,7 @@ const App: React.FC = () => {
   const activeUser = 'user1';
   const [syncStatus, setSyncStatus] = useState<{ state: SyncState; message: string }>({
     state: 'loading',
-    message: 'Aggiornamento dati in corso...',
+    message: 'Aggiornamento dati Understat in corso...',
   });
 
   useEffect(() => {
@@ -215,12 +215,12 @@ const App: React.FC = () => {
           return;
         }
 
-        setSyncStatus({ state: 'loading', message: 'Aggiornamento dati in corso...' });
+        setSyncStatus({ state: 'loading', message: 'Aggiornamento dati Understat in corso...' });
         const response = await autoRefreshDataOnEnter({
           mode: 'top5',
           yearsBack: 1,
-          importPlayers: false,
-          includeMatchDetails: false,
+          importPlayers: true,
+          includeMatchDetails: true,
           forceRefresh: false,
         });
 

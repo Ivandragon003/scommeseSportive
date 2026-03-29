@@ -153,7 +153,7 @@ async function runBootDataSync(): Promise<void> {
   }
 
   isUpdating = true;
-  console.log('[bootstrap-sync] Starting automatic FotMob + Transfermarkt sync for all top 5 leagues...');
+  console.log('[bootstrap-sync] Starting automatic Understat sync for all top 5 leagues...');
   try {
     const maxAttempts = 3;
     let lastErrorMessage = 'Unknown error';
@@ -161,14 +161,14 @@ async function runBootDataSync(): Promise<void> {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const response = await fetch(`http://127.0.0.1:${PORT}/api/scraper/fotmob`, {
+        const response = await fetch(`http://127.0.0.1:${PORT}/api/scraper/understat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mode: 'top5',
-            yearsBack: 2,
-            importPlayers: false,
-            includeMatchDetails: false,
+            yearsBack: 1,
+            importPlayers: true,
+            includeMatchDetails: true,
             forceRefresh: false,
           }),
         });

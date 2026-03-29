@@ -5,6 +5,7 @@ backend/data/
 data/
 .playwright/
 backend/.playwright/
+backend/.tmp-fbref-profile/
 backend/tmp_script_*.js
 package-lock.json
 *.db

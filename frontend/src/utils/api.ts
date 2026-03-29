@@ -146,8 +146,32 @@ export const getStatsOverview = () =>
 export const getSystemAnalytics = (params?: { userId?: string; competition?: string }) =>
   API.get<ApiResponse<any>>('/analytics/system', { params }).then(r => r.data);
 
-export const getFotmobTeamSeasonStats = (params: { competition: string; season: string; teamId: string }) =>
-  API.get<ApiResponse<any>>('/stats/fotmob/team-season', { params, timeout: 120000 }).then(r => r.data);
+export const getUnderstatTeamSeasonStats = (params: { competition: string; season: string; teamId: string }) =>
+  API.get<ApiResponse<any>>('/stats/understat/team-season', { params, timeout: 120000 }).then(r => r.data);
+
+export const getUnderstatScraperInfo = () =>
+  API.get<ApiResponse<any>>('/scraper/understat/info', { timeout: 120000 }).then(r => r.data);
+
+export const runUnderstatImport = (params?: {
+  mode?: 'single' | 'top5';
+  competition?: string;
+  competitions?: string[];
+  seasons?: string[];
+  yearsBack?: number;
+  importPlayers?: boolean;
+  includeMatchDetails?: boolean;
+  forceRefresh?: boolean;
+}) =>
+  API.post<ApiResponse<any>>('/scraper/understat', {
+    mode: params?.mode ?? 'top5',
+    competition: params?.competition ?? 'Serie A',
+    competitions: params?.competitions,
+    seasons: params?.seasons,
+    yearsBack: params?.yearsBack ?? 1,
+    importPlayers: params?.importPlayers ?? true,
+    includeMatchDetails: params?.includeMatchDetails ?? true,
+    forceRefresh: params?.forceRefresh ?? false,
+  }, { timeout: 3600000 }).then(r => r.data);
 
 export const getScraperStatus = () =>
   API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
@@ -160,12 +184,12 @@ export const autoRefreshDataOnEnter = (params?: {
   includeMatchDetails?: boolean;
   forceRefresh?: boolean;
 }) =>
-  API.post<ApiResponse<any>>('/scraper/fotmob', {
+  API.post<ApiResponse<any>>('/scraper/understat', {
     mode: params?.mode ?? 'top5',
     competition: params?.competition ?? 'Serie A',
-    yearsBack: params?.yearsBack ?? 2,
-    importPlayers: params?.importPlayers ?? false,
-    includeMatchDetails: params?.includeMatchDetails ?? false,
+    yearsBack: params?.yearsBack ?? 1,
+    importPlayers: params?.importPlayers ?? true,
+    includeMatchDetails: params?.includeMatchDetails ?? true,
     forceRefresh: params?.forceRefresh ?? false,
   }, { timeout: 3600000 }).then(r => r.data);
 

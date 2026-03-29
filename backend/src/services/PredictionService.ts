@@ -414,6 +414,19 @@ export class PredictionService {
     return out;
   }
 
+  private dropUnavailableUnderstatMarkets(
+    flatProbabilities: Record<string, number>,
+  ): Record<string, number> {
+    const blockedPrefixes = ['corners', 'fouls'];
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(flatProbabilities ?? {})) {
+      const normalized = String(key).toLowerCase();
+      const blocked = blockedPrefixes.some((prefix) => normalized.startsWith(prefix));
+      if (!blocked) out[key] = value;
+    }
+    return out;
+  }
+
   private normalizeBookmakerOdds(input?: Record<string, number>): Record<string, number> {
     if (!input) return {};
 
@@ -614,6 +627,7 @@ export class PredictionService {
       probs.cards.overUnderYellow = {};
       probs.cards.overUnderTotal = {};
       probs.fouls.overUnder = {};
+      if (probs.corners) probs.corners.overUnder = {};
     }
     probs.flatProbabilities = this.dropInsufficientStatMarkets(
       probs.flatProbabilities,
@@ -622,6 +636,9 @@ export class PredictionService {
 
     // Arricchisci con mercati secondari
     this.enrichFlatProbabilities(probs.flatProbabilities);
+    probs.fouls.overUnder = {};
+    if (probs.corners) probs.corners.overUnder = {};
+    probs.flatProbabilities = this.dropUnavailableUnderstatMarkets(probs.flatProbabilities);
 
     // Allinea le chiavi delle quote
     const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds || {});

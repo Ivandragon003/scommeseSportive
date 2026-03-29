@@ -3,7 +3,7 @@ import { PredictionService } from '../services/PredictionService';
 import { DatabaseService } from '../db/DatabaseService';
 import { EurobetOddsMatch, EurobetOddsService } from '../services/EurobetOddsService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
-import { syncTransfermarktStatsForCompetition, transfermarktRouteHandler } from './transfermarktRoute';
+import { UnderstatScraper } from '../services/UnderstatScraper';
 
 const router = Router();
 const db = new DatabaseService();
@@ -29,13 +29,11 @@ async function buildStatsOverviewPayload() {
         coverage.fields.xg.pct >= 60 &&
         coverage.fields.shots.pct >= 70 &&
         coverage.fields.shotsOnTarget.pct >= 70 &&
-        coverage.fields.fouls.pct >= 60 &&
         coverage.fields.yellowCards.pct >= 60,
       recommendedThresholds: {
         xgPct: 60,
         shotsPct: 70,
         shotsOnTargetPct: 70,
-        foulsPct: 60,
         yellowCardsPct: 60,
       },
     },
@@ -257,13 +255,6 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
         return Number.isFinite(n) ? n : null;
       };
 
-      const normalizeTeamId = (name: string): string =>
-        String(name ?? '')
-          .toLowerCase()
-          .trim()
-          .replace(/\s+/g, '_')
-          .replace(/[^a-z0-9_]/g, '');
-
       type PlayerAgg = {
         playerId: string;
         sourcePlayerId: number | null;
@@ -311,27 +302,20 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
           raw = null;
         }
 
-        const shotMap = raw?.content?.shotmap?.shots;
-        if (!Array.isArray(shotMap) || shotMap.length === 0) continue;
+        const understatHomeShots = Array.isArray(raw?.details?.shots?.h) ? raw.details.shots.h : [];
+        const understatAwayShots = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : [];
+        if (understatHomeShots.length === 0 && understatAwayShots.length === 0) continue;
         matchesWithShotmap++;
 
-        for (const shot of shotMap) {
-          const playerName = String(shot?.playerName ?? shot?.player ?? '').trim();
-          if (!playerName) continue;
+        const ingestUnderstatShot = (shot: any, teamId: string) => {
+          const playerName = String(shot?.player ?? shot?.playerName ?? shot?.player_name ?? '').trim();
+          if (!playerName) return;
 
-          const rawPlayerId = numOrNull(shot?.playerId);
+          const rawPlayerId = numOrNull(shot?.player_id ?? shot?.playerId);
           const sourcePlayerId = rawPlayerId === null ? null : Math.trunc(rawPlayerId);
           const playerId = sourcePlayerId !== null
-            ? `fotmob_player_${sourcePlayerId}`
-            : `fotmob_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
-
-          const teamName = String(shot?.teamName ?? '').trim();
-          const teamIdFromName = teamName ? normalizeTeamId(teamName) : '';
-          const isHome = shot?.isHome === true || String(shot?.isHome ?? '').toLowerCase() === 'true' || String(shot?.isHome ?? '') === '1';
-          let teamId = isHome ? homeTeamId : awayTeamId;
-          if (teamIdFromName === homeTeamId || teamIdFromName === awayTeamId) {
-            teamId = teamIdFromName;
-          }
+            ? `understat_player_${sourcePlayerId}`
+            : `understat_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
 
           const existing = playersAgg.get(playerId) ?? {
             playerId,
@@ -351,24 +335,39 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
           existing.games.add(String(m.match_id));
           existing.shots += 1;
 
-          const eventType = String(shot?.eventType ?? '').toLowerCase();
-          const isOnTarget = Boolean(shot?.isOnTarget) || eventType.includes('on_target');
+          const result = String(shot?.result ?? shot?.eventType ?? '').toLowerCase();
+          const shotXg = numOrNull(shot?.xG ?? shot?.expectedGoals) ?? 0;
+          const isOnTarget =
+            Boolean(shot?.isOnTarget) ||
+            result === 'goal' ||
+            result === 'savedshot' ||
+            result.includes('on_target');
           if (isOnTarget) existing.shotsOnTarget += 1;
 
-          const isGoal = Boolean(shot?.isGoal) || eventType.includes('goal');
+          const isGoal = Boolean(shot?.isGoal) || result === 'goal' || result.includes('goal');
           if (isGoal) existing.goals += 1;
 
-          existing.xg += numOrNull(shot?.expectedGoals) ?? 0;
-          existing.xgot += numOrNull(shot?.expectedGoalsOnTarget) ?? 0;
+          existing.xg += shotXg;
+          if (isOnTarget) {
+            existing.xgot += shotXg;
+          }
+
           if (existing.rawSamples.length < 8) {
             existing.rawSamples.push({
-              eventType: shot?.eventType ?? null,
-              bodyPart: shot?.bodyPart ?? null,
+              eventType: shot?.result ?? shot?.eventType ?? null,
+              bodyPart: shot?.shotType ?? shot?.bodyPart ?? null,
               situation: shot?.situation ?? null,
             });
           }
 
           playersAgg.set(playerId, existing);
+        };
+
+        for (const shot of understatHomeShots) {
+          ingestUnderstatShot(shot, homeTeamId);
+        }
+        for (const shot of understatAwayShots) {
+          ingestUnderstatShot(shot, awayTeamId);
         }
       }
 
@@ -1082,11 +1081,10 @@ router.get('/analytics/system', async (req: Request, res: Response) => {
 
 router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', version: '2.0' }));
 
-// ====== FOTMOB SCRAPER (IMPORT INCREMENTALE) ======
-import { FotmobScraper } from '../services/FotmobScraper';
-const fotmob = new FotmobScraper();
-let fotmobImportInProgress = false;
-let fotmobActiveImportMeta: {
+// ====== UNDERSTAT SCRAPER (FONTE DATI UNICA) ======
+const understat = new UnderstatScraper();
+let understatImportInProgress = false;
+let understatActiveImportMeta: {
   startedAt: string;
   mode: string;
   competitions: string[];
@@ -1096,7 +1094,23 @@ let fotmobActiveImportMeta: {
   importPlayers: boolean;
 } | null = null;
 
-router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
+const canonicalUnderstatTeamName = (name: string): string =>
+  ({
+    newcastle_united: 'newcastle',
+    manchester_united: 'manchester_united',
+    manchester_city: 'manchester_city',
+    psg: 'psg',
+    paris_saint_germain: 'psg',
+    inter_milan: 'inter',
+    internazionale: 'inter',
+    athletic_club: 'athletic_bilbao',
+    borussia_monchengladbach: 'monchengladbach',
+    gladbach: 'monchengladbach',
+    olympique_marseille: 'marseille',
+    olympique_lyonnais: 'lyon',
+  } as Record<string, string>)[UnderstatScraper.normalizeTeamName(name)] ?? UnderstatScraper.normalizeTeamName(name);
+
+router.get('/stats/understat/team-season', async (req: Request, res: Response) => {
   try {
     const competition = String(req.query.competition ?? '').trim();
     const season = String(req.query.season ?? '').trim();
@@ -1109,11 +1123,19 @@ router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
       });
     }
 
-    const data = await fotmob.getTeamSeasonStats(competition, season, teamId);
+    const team = await db.getTeam(teamId);
+    if (!team) {
+      return res.status(404).json({
+        success: false,
+        error: `Squadra non trovata: ${teamId}`,
+      });
+    }
+
+    const data = await understat.getTeamSeasonStats(competition, season, String(team.name ?? teamId));
     if (!data) {
       return res.status(404).json({
         success: false,
-        error: `Stats stagionali non trovate per ${teamId} (${competition} ${season})`,
+        error: `Stats stagionali Understat non trovate per ${team.name ?? teamId} (${competition} ${season})`,
       });
     }
 
@@ -1123,21 +1145,46 @@ router.get('/stats/fotmob/team-season', async (req: Request, res: Response) => {
   }
 });
 
-async function runFotmobImport(req: Request, res: Response) {
-  if (fotmobImportInProgress) {
+router.get('/scraper/understat/info', async (_req, res) => {
+  const competitions = UnderstatScraper.getSupportedCompetitions();
+  const top5 = UnderstatScraper.getTop5Competitions();
+  const seasons = UnderstatScraper.generateSeasons(4);
+  const dbStatus: Record<string, string> = {};
+  for (const comp of competitions) {
+    const lastSeason = seasons[seasons.length - 1];
+    const lastDate = await db.getLastMatchDate(comp, lastSeason);
+    dbStatus[comp] = lastDate ?? 'nessun dato';
+  }
+
+  res.json({
+    success: true,
+    data: {
+      competitions,
+      top5Competitions: top5,
+      suggestedSeasons: seasons,
+      dbLastImport: dbStatus,
+      importInProgress: understatImportInProgress,
+      activeImport: understatActiveImportMeta,
+      note: 'Import Understat via endpoint JSON ufficiali del sito. Fonte dati unica attiva per squadre, partite e giocatori.',
+    },
+  });
+});
+
+async function runUnderstatImport(req: Request, res: Response) {
+  if (understatImportInProgress) {
     return res.status(202).json({
       success: true,
       data: {
-        source: 'fotmob',
+        source: 'understat',
         alreadyRunning: true,
         inProgress: true,
-        message: 'Import FotMob già in corso. Attendi il completamento prima di lanciare un altro campionato.',
-        activeImport: fotmobActiveImportMeta,
-      }
+        message: 'Import Understat gia in corso. Attendi il completamento prima di lanciare un altro campionato.',
+        activeImport: understatActiveImportMeta,
+      },
     });
   }
 
-  fotmobImportInProgress = true;
+  understatImportInProgress = true;
   try {
     req.setTimeout(60 * 60 * 1000);
     res.setTimeout(60 * 60 * 1000);
@@ -1147,23 +1194,23 @@ async function runFotmobImport(req: Request, res: Response) {
       competition = 'Serie A',
       competitions,
       seasons,
-      yearsBack = 2,
-      importPlayers = false,
-      includeMatchDetails = false,
+      yearsBack = 1,
+      importPlayers = true,
+      includeMatchDetails = true,
       forceRefresh = false,
     } = req.body ?? {};
 
     const competitionsToRun: string[] = mode === 'top5'
-      ? FotmobScraper.getTop5Competitions()
+      ? UnderstatScraper.getTop5Competitions()
       : Array.isArray(competitions) && competitions.length > 0
         ? competitions
         : [competition];
 
     const seasonsToScrape: string[] = Array.isArray(seasons) && seasons.length > 0
       ? seasons
-      : FotmobScraper.generateSeasons(yearsBack);
+      : UnderstatScraper.generateSeasons(yearsBack);
 
-    fotmobActiveImportMeta = {
+    understatActiveImportMeta = {
       startedAt: new Date().toISOString(),
       mode: String(mode),
       competitions: competitionsToRun,
@@ -1179,25 +1226,15 @@ async function runFotmobImport(req: Request, res: Response) {
         'home_xg', 'away_xg',
         'home_shots', 'away_shots',
         'home_shots_on_target', 'away_shots_on_target',
-        'home_possession', 'away_possession',
-        'home_corners', 'away_corners',
+        'home_yellow_cards', 'away_yellow_cards',
       ];
-
-      const values = fields.map(k => matchRow[k]);
-      const hasNullish = values.some(v => v === null || v === undefined || v === '');
-      const numericValues = values
-        .map(v => (v === null || v === undefined || v === '' ? null : Number(v)))
-        .filter((v): v is number => v !== null && Number.isFinite(v));
-      const allZeroLike = numericValues.length > 0 && numericValues.every(v => Math.abs(v) < 1e-9);
-
-      return hasNullish || allZeroLike;
+      return fields.some((field) => matchRow[field] === null || matchRow[field] === undefined || matchRow[field] === '');
     };
 
     const nowTs = Date.now();
     const isFutureMatch = (isoDate: string): boolean => {
       const ts = new Date(String(isoDate ?? '')).getTime();
-      if (!Number.isFinite(ts)) return false;
-      return ts > nowTs;
+      return Number.isFinite(ts) && ts > nowTs;
     };
 
     const toFixtureOnly = (match: any): any => ({
@@ -1243,6 +1280,7 @@ async function runFotmobImport(req: Request, res: Response) {
         deletedMatchesByCompetition[comp] = deleted;
       }
     }
+
     let teamsCreated = 0;
     let playersUpdated = 0;
     const seasonSummary: Record<string, any> = {};
@@ -1254,12 +1292,59 @@ async function runFotmobImport(req: Request, res: Response) {
         newPlayed: 0,
         updatedPlayed: 0,
       };
+
+      const existingTeams = await db.getTeams(competitionName);
+      const teamLookup = new Map<string, any>();
+      for (const team of existingTeams) {
+        teamLookup.set(canonicalUnderstatTeamName(String(team.name ?? team.team_id)), team);
+      }
+
+      const resolveInternalTeam = async (sourceTeamId: string, teamName: string, shortName?: string | null): Promise<any> => {
+        const canonical = canonicalUnderstatTeamName(teamName);
+        let existingTeam = teamLookup.get(canonical);
+        if (!existingTeam) {
+          const partialMatches = Array.from(teamLookup.entries()).filter(([key]) =>
+            canonical.length >= 6 && (key.includes(canonical) || canonical.includes(key))
+          );
+          if (partialMatches.length === 1) existingTeam = partialMatches[0][1];
+        }
+
+        if (existingTeam) {
+          await db.upsertTeam({
+            teamId: existingTeam.team_id,
+            name: existingTeam.name ?? teamName,
+            shortName: existingTeam.short_name ?? shortName ?? null,
+            competition: competitionName,
+            sourceTeamId: Number(sourceTeamId),
+            teamStatsJson: existingTeam.team_stats_json ?? JSON.stringify({ source: 'understat', competition: competitionName }),
+          });
+          return await db.getTeam(String(existingTeam.team_id));
+        }
+
+        const createdTeamId = `understat_team_${sourceTeamId}`;
+        await db.upsertTeam({
+          teamId: createdTeamId,
+          name: teamName,
+          shortName: shortName ?? null,
+          competition: competitionName,
+          sourceTeamId: Number(sourceTeamId),
+          teamStatsJson: JSON.stringify({ source: 'understat', competition: competitionName }),
+        });
+        const created = await db.getTeam(createdTeamId);
+        if (created) {
+          teamLookup.set(canonical, created);
+          teamsCreated++;
+        }
+        return created;
+      };
+
       for (const season of seasonsToScrape) {
         const lastDateInDb = await db.getLastMatchDate(competitionName, season);
         let allMatches: any[] = [];
         try {
-          allMatches = await fotmob.scrapeSeason(competitionName, season, {
+          allMatches = await understat.scrapeSeason(competitionName, season, {
             includeDetails: Boolean(importPlayers) || includeMatchDetails !== false,
+            detailConcurrency: 8,
           });
         } catch (seasonError: any) {
           seasonSummary[`${competitionName} ${season}`] = {
@@ -1283,20 +1368,11 @@ async function runFotmobImport(req: Request, res: Response) {
           const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
           const normalizedMatch = futureFixture ? toFixtureOnly(m) : m;
           const existing = await db.getMatchById(m.matchId);
-          if (forceRefresh) {
+          if (forceRefresh || !existing) {
             matchesToImport.push(normalizedMatch);
             continue;
           }
-          if (!existing) {
-            matchesToImport.push(normalizedMatch);
-            continue;
-          }
-          // Per partite future salva solo fixture: mai stats.
-          if (futureFixture) {
-            matchesToImport.push(normalizedMatch);
-            continue;
-          }
-          if (!isPlayed) {
+          if (futureFixture || !isPlayed) {
             matchesToImport.push(normalizedMatch);
             continue;
           }
@@ -1321,6 +1397,7 @@ async function runFotmobImport(req: Request, res: Response) {
           xgot: number;
           rawSamples: Record<string, unknown>[];
         }>();
+        const teamShotTotals = new Map<string, number>();
 
         let imported = 0;
         let updatedExisting = 0;
@@ -1330,29 +1407,33 @@ async function runFotmobImport(req: Request, res: Response) {
         let importedUpcoming = 0;
         let skipped = 0;
 
-        for (const m of matchesToImport) {
-          const futureFixture = isFutureMatch(m.date);
-          const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
-          for (const team of [
-            { teamId: m.homeTeamId, name: m.homeTeamName },
-            { teamId: m.awayTeamId, name: m.awayTeamName },
-          ]) {
-            const existingTeam = await db.getTeam(team.teamId);
-            if (!existingTeam) {
-              await db.upsertTeam({
-                teamId: team.teamId,
-                name: team.name,
-                competition: competitionName,
-                sourceTeamId: null,
-                teamStatsJson: JSON.stringify({ source: 'fotmob', competition: competitionName, season }),
-              });
-              teamsCreated++;
-            }
+        for (const match of matchesToImport) {
+          const homeTeam = await resolveInternalTeam(String(match.homeTeamId), String(match.homeTeamName), null);
+          const awayTeam = await resolveInternalTeam(String(match.awayTeamId), String(match.awayTeamName), null);
+          if (!homeTeam || !awayTeam) {
+            skipped++;
+            continue;
           }
 
+          const futureFixture = isFutureMatch(match.date);
+          const isPlayed = match.homeGoals !== null && match.awayGoals !== null;
+          const internalizedMatch = {
+            ...match,
+            homeTeamId: String(homeTeam.team_id),
+            awayTeamId: String(awayTeam.team_id),
+            playerStats: Array.isArray(match.playerStats)
+              ? match.playerStats.map((player: any) => ({
+                  ...player,
+                  teamId: String(player.teamId) === String(match.homeTeamId)
+                    ? String(homeTeam.team_id)
+                    : String(awayTeam.team_id),
+                }))
+              : [],
+          };
+
           try {
-            const existedBefore = Boolean(await db.getMatchById(m.matchId));
-            await db.upsertMatch(fotmob.toDbFormat(m));
+            const existedBefore = Boolean(await db.getMatchById(internalizedMatch.matchId));
+            await db.upsertMatch(understat.toDbFormat(futureFixture ? toFixtureOnly(internalizedMatch) : internalizedMatch));
             if (existedBefore) {
               updatedExisting++;
               if (isPlayed) updatedExistingPlayed++;
@@ -1364,12 +1445,12 @@ async function runFotmobImport(req: Request, res: Response) {
             }
 
             if (importPlayers && isPlayed && !futureFixture) {
-              for (const p of m.playerStats) {
-                const agg = playersAgg.get(p.playerId) ?? {
-                  playerId: p.playerId,
-                  sourcePlayerId: p.sourcePlayerId,
-                  name: p.playerName,
-                  teamId: p.teamId,
+              for (const player of internalizedMatch.playerStats) {
+                const agg = playersAgg.get(player.playerId) ?? {
+                  playerId: player.playerId,
+                  sourcePlayerId: player.sourcePlayerId,
+                  name: player.playerName,
+                  teamId: player.teamId,
                   games: new Set<string>(),
                   shots: 0,
                   shotsOnTarget: 0,
@@ -1378,14 +1459,15 @@ async function runFotmobImport(req: Request, res: Response) {
                   xgot: 0,
                   rawSamples: [],
                 };
-                agg.games.add(m.matchId);
-                agg.shots += p.shots;
-                agg.shotsOnTarget += p.shotsOnTarget;
-                agg.goals += p.goals;
-                agg.xg += p.xg;
-                agg.xgot += p.xgot;
-                agg.rawSamples.push(p.raw);
-                playersAgg.set(p.playerId, agg);
+                agg.games.add(internalizedMatch.matchId);
+                agg.shots += player.shots;
+                agg.shotsOnTarget += player.shotsOnTarget;
+                agg.goals += player.goals;
+                agg.xg += player.xg;
+                agg.xgot += player.xgot;
+                agg.rawSamples.push(player.raw);
+                playersAgg.set(player.playerId, agg);
+                teamShotTotals.set(player.teamId, Number(teamShotTotals.get(player.teamId) ?? 0) + Number(player.shots ?? 0));
               }
             }
           } catch {
@@ -1393,30 +1475,31 @@ async function runFotmobImport(req: Request, res: Response) {
           }
         }
 
-        for (const [, p] of playersAgg) {
-          const games = Math.max(1, p.games.size);
+        for (const [, player] of playersAgg) {
+          const games = Math.max(1, player.games.size);
+          const teamShots = Math.max(1, Number(teamShotTotals.get(player.teamId) ?? 0));
           await db.upsertPlayer({
-            playerId: p.playerId,
-            sourcePlayerId: p.sourcePlayerId,
-            name: p.name,
-            teamId: p.teamId,
+            playerId: player.playerId,
+            sourcePlayerId: player.sourcePlayerId,
+            name: player.name,
+            teamId: player.teamId,
             positionCode: 'MF',
-            avgShotsPerGame: p.shots / games,
-            avgShotsOnTargetPerGame: p.shotsOnTarget / games,
-            avgXGPerGame: p.xg / games,
-            avgXGOTPerGame: p.xgot / games,
-            totalGoals: p.goals,
-            totalShots: p.shots,
-            totalShotsOnTarget: p.shotsOnTarget,
-            shotShareOfTeam: 0,
+            avgShotsPerGame: player.shots / games,
+            avgShotsOnTargetPerGame: player.shotsOnTarget / games,
+            avgXGPerGame: player.xg / games,
+            avgXGOTPerGame: player.xgot / games,
+            totalGoals: player.goals,
+            totalShots: player.shots,
+            totalShotsOnTarget: player.shotsOnTarget,
+            shotShareOfTeam: player.shots / teamShots,
             gamesPlayed: games,
             statsJson: JSON.stringify({
-              source: 'fotmob',
+              source: 'understat',
               season,
               competition: competitionName,
-              totalXG: p.xg,
-              totalXGOT: p.xgot,
-              rawSamples: p.rawSamples.slice(0, 8),
+              totalXG: player.xg,
+              totalXGOT: player.xgot,
+              rawSamples: player.rawSamples.slice(0, 8),
             }),
           });
           playersUpdated++;
@@ -1455,11 +1538,12 @@ async function runFotmobImport(req: Request, res: Response) {
     let teamsRecomputed = 0;
     for (const comp of competitionsNeedingPostProcessing) {
       const teams = await db.getTeams(comp);
-      for (const t of teams) {
-        await db.recomputeTeamAverages(t.team_id);
+      for (const team of teams) {
+        await db.recomputeTeamAverages(team.team_id);
         teamsRecomputed++;
       }
     }
+
     const now = new Date();
     const currentSeasonStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
     const currentSeason = `${currentSeasonStartYear}/${currentSeasonStartYear + 1}`;
@@ -1506,6 +1590,7 @@ async function runFotmobImport(req: Request, res: Response) {
       skipped?: boolean;
       error?: string;
     }> = {};
+
     for (const comp of competitionsToRun) {
       if (!competitionsNeedingPostProcessing.includes(comp)) {
         autoModelFit[comp] = {
@@ -1539,81 +1624,16 @@ async function runFotmobImport(req: Request, res: Response) {
       }
     }
 
-    const transfermarktByCompetition: Record<string, any> = {};
-    for (const comp of competitionsToRun) {
-      if (!competitionsNeedingPostProcessing.includes(comp)) {
-        transfermarktByCompetition[comp] = {
-          ok: true,
-          skipped: true,
-          season: null,
-          updatedTeams: 0,
-          totalScraped: 0,
-          notMatched: [],
-          leagueAvgShotsOT: null,
-          leagueAvgShotsTotal: null,
-          source: null,
-          bySeason: [],
-          reason: 'Nessuna nuova partita giocata importata o aggiornata: sync Transfermarkt saltata.',
-        };
-        continue;
-      }
-      try {
-        const perSeason: any[] = [];
-        let latestOk: any = null;
-        for (const tmSeason of seasonsToScrape) {
-          try {
-            const tm = await syncTransfermarktStatsForCompetition(db, comp, tmSeason);
-            perSeason.push({
-              ok: true,
-              season: tm.season,
-              updatedTeams: tm.updatedTeams,
-              totalScraped: tm.totalScraped,
-              notMatched: tm.notMatched,
-              leagueAvgShotsOT: tm.leagueAvgShotsOT,
-              leagueAvgShotsTotal: tm.leagueAvgShotsTotal,
-              source: tm.source,
-            });
-            latestOk = tm;
-          } catch (seasonErr: any) {
-            perSeason.push({
-              ok: false,
-              season: tmSeason,
-              error: seasonErr?.message ?? 'sync Transfermarkt non disponibile',
-            });
-          }
-        }
-
-        const summary = latestOk ?? perSeason.find((x) => x.ok) ?? perSeason[perSeason.length - 1];
-        transfermarktByCompetition[comp] = {
-          ok: Boolean(summary?.ok),
-          season: summary?.season ?? null,
-          updatedTeams: summary?.updatedTeams ?? 0,
-          totalScraped: summary?.totalScraped ?? 0,
-          notMatched: summary?.notMatched ?? [],
-          leagueAvgShotsOT: summary?.leagueAvgShotsOT ?? null,
-          leagueAvgShotsTotal: summary?.leagueAvgShotsTotal ?? null,
-          source: summary?.source ?? null,
-          bySeason: perSeason,
-        };
-      } catch (e: any) {
-        transfermarktByCompetition[comp] = {
-          ok: false,
-          season: null,
-          error: e?.message ?? 'sync Transfermarkt non disponibile',
-        };
-      }
-    }
-
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
     const lastDatesAfter: Record<string, string> = {};
     for (const comp of competitionsToRun) {
       lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
-        source: 'fotmob',
+        source: 'understat',
         mode,
         competitions: competitionsToRun,
         seasons: seasonsToScrape,
@@ -1628,62 +1648,26 @@ async function runFotmobImport(req: Request, res: Response) {
         autoModelFit,
         postProcessingCompetitions: competitionsNeedingPostProcessing,
         skippedPostProcessingCompetitions: competitionsToRun.filter((comp) => !competitionsNeedingPostProcessing.includes(comp)),
-        transfermarkt: {
-          enabled: true,
-          season: seasonsToScrape,
-          competitions: transfermarktByCompetition,
-        },
         dbLastDateAfter: lastDatesAfter,
         isUpToDate: totalNew === 0,
         forceRefresh,
         message: totalNew === 0
-          ? 'DB gia aggiornato, nessuna nuova partita trovata.'
-          : `Importate ${totalImported} partite (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
+          ? 'DB gia aggiornato, nessuna nuova partita trovata da Understat.'
+          : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
-      }
+      },
     });
   } catch (e: any) {
-    console.error('[fotmob] Errore:', e.message);
-    res.status(500).json({ success: false, error: e.message });
+    console.error('[understat] Errore:', e.message);
+    return res.status(500).json({ success: false, error: e.message });
   } finally {
-    fotmobImportInProgress = false;
-    fotmobActiveImportMeta = null;
-    await fotmob.close().catch(() => undefined);
+    understatImportInProgress = false;
+    understatActiveImportMeta = null;
+    await understat.close().catch(() => undefined);
   }
 }
 
-router.post('/scraper/fotmob', runFotmobImport);
-
-/**
- * Info sulle competizioni e stagioni disponibili + stato del DB.
- * Utile per il frontend per sapere quando e stato fatto l'ultimo import.
- */
-router.get('/scraper/fotmob/info', async (_req, res) => {
-  const competitions = FotmobScraper.getSupportedCompetitions();
-  const top5 = FotmobScraper.getTop5Competitions();
-  const seasons = FotmobScraper.generateSeasons(4);
-
-  // Mostra l'ultima data importata per ogni competizione
-  const dbStatus: Record<string, string> = {};
-  for (const comp of competitions) {
-    const lastSeason = seasons[seasons.length - 1];
-    const lastDate = await db.getLastMatchDate(comp, lastSeason);
-    dbStatus[comp] = lastDate ?? 'nessun dato';
-  }
-
-  res.json({
-    success: true,
-    data: {
-      competitions,
-      top5Competitions: top5,
-      suggestedSeasons: seasons,
-      dbLastImport: dbStatus,
-      importInProgress: fotmobImportInProgress,
-      activeImport: fotmobActiveImportMeta,
-      note: 'Import FotMob via Playwright. Puoi lanciare import singolo o top-5 insieme.',
-    }
-  });
-});
+router.post('/scraper/understat', runUnderstatImport);
 
 type OddsCacheEntry = {
   cachedAt: number;
@@ -2868,7 +2852,7 @@ router.get('/scraper/odds/info', (_req, res) => {
   });
 });
 
-router.post('/scraper/transfermarkt', (req, res) => transfermarktRouteHandler(req, res, db));
 
 export default router;
+
 
