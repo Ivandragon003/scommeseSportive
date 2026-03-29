@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import {
   getBudget,
   getBets,
@@ -10,6 +11,7 @@ import {
 
 interface DashboardProps {
   activeUser: string;
+  onRefreshStatus?: () => Promise<void> | void;
 }
 
 const formatCurrency = (value: number | null | undefined) => `EUR ${Number(value ?? 0).toFixed(2)}`;
@@ -19,8 +21,58 @@ const formatDateTime = (value?: string | null) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString('it-IT');
 };
+const formatDuration = (value?: number | null) => {
+  if (!value || value <= 0) return '-';
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+};
+const getSchedulerTone = (scheduler: any) => {
+  if (scheduler?.running) return 'fp-badge-blue';
+  if (scheduler?.lastError) return 'fp-badge-red';
+  if (scheduler?.lastRunAt) return 'fp-badge-green';
+  return 'fp-badge-gray';
+};
+const getSchedulerLabel = (scheduler: any) => {
+  if (scheduler?.running) return 'In corso';
+  if (scheduler?.lastError) return 'Errore';
+  if (scheduler?.lastRunAt) return 'OK';
+  return 'In attesa';
+};
+const formatSchedulerName = (value?: string | null) => {
+  if (value === 'understat') return 'Understat';
+  if (value === 'odds') return 'Quote';
+  if (value === 'learning') return 'Learning';
+  return value || '-';
+};
+const getNightlyHealth = (runs: any[]) => {
+  const latestByScheduler = new Map<string, any>();
+  for (const run of runs) {
+    const key = String(run?.schedulerName ?? '').trim();
+    if (!key || latestByScheduler.has(key)) continue;
+    latestByScheduler.set(key, run);
+  }
 
-const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
+  const understat = latestByScheduler.get('understat');
+  const odds = latestByScheduler.get('odds');
+  const learning = latestByScheduler.get('learning');
+  const available = [understat, odds, learning].filter(Boolean);
+
+  if (available.length === 0) {
+    return { label: 'Ultima notte in attesa', tone: 'fp-badge-gray' };
+  }
+  if (available.some((run) => run?.success === false)) {
+    return { label: 'Ultima notte con errori', tone: 'fp-badge-red' };
+  }
+  if (available.length === 3 && available.every((run) => run?.success === true)) {
+    return { label: 'Ultima notte OK', tone: 'fp-badge-green' };
+  }
+  return { label: 'Ultima notte parziale', tone: 'fp-badge-gold' };
+};
+
+const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) => {
   const [budget, setBudget] = useState<any>(null);
   const [recentBets, setRecentBets] = useState<any[]>([]);
   const [matchCount, setMatchCount] = useState(0);
@@ -30,17 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
   const [initAmount, setInitAmount] = useState('1000');
   const [showInit, setShowInit] = useState(false);
 
-  useEffect(() => {
-    void loadData();
-  }, [activeUser]);
-
-  useEffect(() => {
-    const onSyncDone = () => { void loadData(); };
-    window.addEventListener('data-sync-complete', onSyncDone);
-    return () => window.removeEventListener('data-sync-complete', onSyncDone);
-  }, [activeUser]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setRefreshing(true);
     const [budgetRes, betsRes, matchesCountRes, analyticsRes, scraperStatusRes] = await Promise.allSettled([
       getBudget(activeUser),
@@ -88,6 +130,23 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
     }
 
     setRefreshing(false);
+  }, [activeUser]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const onSyncDone = () => { void loadData(); };
+    window.addEventListener('data-sync-complete', onSyncDone);
+    return () => window.removeEventListener('data-sync-complete', onSyncDone);
+  }, [loadData]);
+
+  const handleRefreshStatus = async () => {
+    await Promise.allSettled([
+      loadData(),
+      Promise.resolve(onRefreshStatus?.()),
+    ]);
   };
 
   const handleInitBudget = async () => {
@@ -108,6 +167,12 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
   const overview = analytics?.overview ?? {};
   const coverage = overview?.coverage?.fields ?? {};
   const scheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
+  const understatScheduler = scraperStatus?.understatScheduler ?? null;
+  const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
+  const recentSchedulerRuns = Array.isArray(scraperStatus?.recentSchedulerRuns)
+    ? scraperStatus.recentSchedulerRuns
+    : [];
+  const nightlyHealth = getNightlyHealth(recentSchedulerRuns);
   const sourceBreakdown = Object.entries(oddsArchive?.sourceBreakdown ?? {}).slice(0, 4);
 
   return (
@@ -117,6 +182,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
         <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
           Stato operativo del sistema | {activeUser}
         </p>
+        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className={`fp-badge ${nightlyHealth.tone}`}>{nightlyHealth.label}</span>
+          <button
+            type="button"
+            className="fp-btn fp-btn-ghost fp-btn-sm"
+            onClick={() => { void handleRefreshStatus(); }}
+            disabled={refreshing}
+            title="Ricarica subito lo stato scheduler e i dati dashboard"
+          >
+            <RefreshCw size={14} className={refreshing ? 'fp-spin' : ''} />
+            <span>{refreshing ? 'Aggiorno...' : 'Aggiorna stato'}</span>
+          </button>
+        </div>
         {refreshing && (
           <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '8px 0 0', fontFamily: 'DM Mono, monospace' }}>
             Aggiornamento dati...
@@ -284,34 +362,75 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
       <div className="fp-grid-2" style={{ marginBottom: 24 }}>
         <div className="fp-card">
           <div className="fp-card-head">
-            <div className="fp-card-title">Scheduler Quote</div>
-            <span className={`fp-badge ${scheduler?.enabled ? 'fp-badge-blue' : 'fp-badge-gray'}`}>
-              {scheduler?.enabled ? 'Attivo' : 'Disattivo'}
+            <div className="fp-card-title">Pipeline Notturna</div>
+            <span className={`fp-badge ${scraperStatus?.isUpdating ? 'fp-badge-blue' : 'fp-badge-gray'}`}>
+              {scraperStatus?.isUpdating ? 'Job attivo' : 'Schedulata'}
             </span>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="fp-table">
-              <tbody>
-                {[
-                  ['Intervallo', scheduler ? `${scheduler.intervalHours}h` : '-'],
-                  ['Competizioni', scheduler?.competitions?.length ?? 0],
+          <div className="fp-card-body" style={{ display: 'grid', gap: 16 }}>
+            {[
+              {
+                title: 'Import dati Understat',
+                scheduler: understatScheduler,
+                details: [
+                  ['Orario', understatScheduler?.time ?? '-'],
+                  ['Ultimo run', formatDateTime(understatScheduler?.lastRunAt)],
+                  ['Durata', formatDuration(understatScheduler?.lastDurationMs)],
+                  ['Nuove partite', understatScheduler?.lastResult?.newMatchesImported ?? 0],
+                  ['Aggiornate', understatScheduler?.lastResult?.existingMatchesUpdated ?? 0],
+                  ['Prossimo run', formatDateTime(understatScheduler?.nextRunAt)],
+                ],
+              },
+              {
+                title: 'Snapshot quote',
+                scheduler,
+                details: [
+                  ['Orario', scheduler?.time ?? '-'],
                   ['Ultimo run', formatDateTime(scheduler?.lastRunAt)],
+                  ['Durata', formatDuration(scheduler?.lastDurationMs)],
+                  ['Competizioni OK', Array.isArray(scheduler?.lastResults) ? scheduler.lastResults.filter((entry: any) => entry.success).length : 0],
+                  ['Snapshot salvati', Array.isArray(scheduler?.lastResults) ? scheduler.lastResults.reduce((sum: number, entry: any) => sum + Number(entry.savedSnapshots ?? 0), 0) : 0],
                   ['Prossimo run', formatDateTime(scheduler?.nextRunAt)],
-                  ['Esecuzione in corso', scheduler?.running ? 'Si' : 'No'],
-                ].map(([label, value]) => (
-                  <tr key={label}>
-                    <td style={{ color: 'var(--text-2)' }}>{label}</td>
-                    <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                ],
+              },
+              {
+                title: 'Learning review',
+                scheduler: learningScheduler,
+                details: [
+                  ['Orario', learningScheduler?.time ?? '-'],
+                  ['Ultimo run', formatDateTime(learningScheduler?.lastRunAt)],
+                  ['Durata', formatDuration(learningScheduler?.lastDurationMs)],
+                  ['Review create', learningScheduler?.lastResult?.created ?? 0],
+                  ['Review refresh', learningScheduler?.lastResult?.refreshed ?? 0],
+                  ['Prossimo run', formatDateTime(learningScheduler?.nextRunAt)],
+                ],
+              },
+            ].map((item) => (
+              <div key={item.title} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px' }}>
+                  <div style={{ fontWeight: 700 }}>{item.title}</div>
+                  <span className={`fp-badge ${getSchedulerTone(item.scheduler)}`}>{getSchedulerLabel(item.scheduler)}</span>
+                </div>
+                <div style={{ overflowX: 'auto', padding: '0 16px 8px' }}>
+                  <table className="fp-table">
+                    <tbody>
+                      {item.details.map(([label, value]) => (
+                        <tr key={`${item.title}-${String(label)}`}>
+                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {item.scheduler?.lastError && (
+                  <div className="fp-alert fp-alert-warning" style={{ margin: '0 16px 16px' }}>
+                    {item.scheduler.lastError}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-          {scheduler?.lastError && (
-            <div className="fp-alert fp-alert-warning" style={{ margin: '0 20px 20px' }}>
-              {scheduler.lastError}
-            </div>
-          )}
         </div>
 
         <div className="fp-card">
@@ -342,6 +461,55 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser }) => {
               Il replay e il backtest usano prima le quote storiche archiviate. Se uno snapshot manca, il sistema passa al fallback del modello.
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="fp-card" style={{ marginBottom: 24 }}>
+        <div className="fp-card-head">
+          <div className="fp-card-title">Storico Ultimi 7 Run</div>
+          <span className="fp-badge fp-badge-gray">{recentSchedulerRuns.length} eventi</span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="fp-table">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Esito</th>
+                <th>Avvio</th>
+                <th>Durata</th>
+                <th>Dettaglio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentSchedulerRuns.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ color: 'var(--text-2)', textAlign: 'center' }}>Nessun run storico disponibile.</td>
+                </tr>
+              ) : recentSchedulerRuns.map((run: any) => {
+                const summary = run?.summary ?? {};
+                const detail = run?.error
+                  ? run.error
+                  : run?.schedulerName === 'understat'
+                    ? `${Number(summary?.newMatchesImported ?? 0)} nuove, ${Number(summary?.existingMatchesUpdated ?? 0)} aggiornate`
+                    : run?.schedulerName === 'odds'
+                      ? `${Number(summary?.savedSnapshots ?? 0)} snapshot, ${Number(summary?.okCount ?? 0)}/${Number(summary?.totalCompetitions ?? 0)} leghe`
+                      : `${Number(summary?.created ?? 0)} create, ${Number(summary?.refreshed ?? 0)} refresh`;
+                return (
+                  <tr key={String(run?.runId ?? `${run?.schedulerName}-${run?.startedAt}`)}>
+                    <td style={{ fontWeight: 600 }}>{formatSchedulerName(run?.schedulerName)}</td>
+                    <td>
+                      <span className={`fp-badge ${run?.success ? 'fp-badge-green' : 'fp-badge-red'}`}>
+                        {run?.success ? 'OK' : 'Errore'}
+                      </span>
+                    </td>
+                    <td className="fp-mono">{formatDateTime(run?.startedAt)}</td>
+                    <td className="fp-mono">{formatDuration(run?.durationMs)}</td>
+                    <td style={{ color: 'var(--text-2)' }}>{detail}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 

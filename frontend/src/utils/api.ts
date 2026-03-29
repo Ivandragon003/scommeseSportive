@@ -176,23 +176,6 @@ export const runUnderstatImport = (params?: {
 export const getScraperStatus = () =>
   API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
 
-export const autoRefreshDataOnEnter = (params?: {
-  mode?: 'single' | 'top5';
-  competition?: string;
-  yearsBack?: number;
-  importPlayers?: boolean;
-  includeMatchDetails?: boolean;
-  forceRefresh?: boolean;
-}) =>
-  API.post<ApiResponse<any>>('/scraper/understat', {
-    mode: params?.mode ?? 'top5',
-    competition: params?.competition ?? 'Serie A',
-    yearsBack: params?.yearsBack ?? 1,
-    importPlayers: params?.importPlayers ?? true,
-    includeMatchDetails: params?.includeMatchDetails ?? true,
-    forceRefresh: params?.forceRefresh ?? false,
-  }, { timeout: 3600000 }).then(r => r.data);
-
 // Health
 export const healthCheck = () =>
   API.get<ApiResponse<any>>('/health').then(r => r.data);

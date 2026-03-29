@@ -221,7 +221,13 @@ button {
 .app-header-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 12px;
+}
+
+.app-header-refresh {
+  white-space: nowrap;
 }
 
 .app-status-chip {
@@ -1181,5 +1187,9 @@ button {
   .app-status-chip {
     padding: 8px 10px;
     font-size: 11px;
+  }
+
+  .app-header-refresh span {
+    display: none;
   }
 }

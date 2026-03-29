@@ -5,6 +5,7 @@ type SqlArgs = Record<string, any> | any[];
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
   private initPromise: Promise<void>;
+  private schedulerRunRetention: number;
 
   constructor() {
     const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
@@ -18,6 +19,10 @@ export class DatabaseService {
     }
 
     this.db = createClient({ url, authToken });
+    this.schedulerRunRetention = Math.max(
+      10,
+      Math.min(Number(process.env.SCHEDULER_RUN_RETENTION ?? 100) || 100, 1000)
+    );
     this.initPromise = this.initialize();
   }
 
@@ -245,6 +250,18 @@ export class DatabaseService {
         saved_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       )`,
+      `CREATE TABLE IF NOT EXISTS scheduler_runs (
+        run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scheduler_name TEXT NOT NULL,
+        trigger TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        success INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER,
+        summary_json TEXT,
+        error TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )`,
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
@@ -253,6 +270,7 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_match_id ON odds_snapshots(match_id, captured_at)',
       'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_lookup ON odds_snapshots(home_team_name, away_team_name, competition, commence_time)',
       'CREATE INDEX IF NOT EXISTS idx_learning_reviews_competition ON learning_reviews(competition, updated_at)',
+      'CREATE INDEX IF NOT EXISTS idx_scheduler_runs_name_started ON scheduler_runs(scheduler_name, started_at DESC)',
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
     ];
 
@@ -1934,6 +1952,77 @@ export class DatabaseService {
     let parsed: any = {};
     try { parsed = JSON.parse(String(row.result_json ?? '{}')); } catch { parsed = {}; }
     return { ...row, result: parsed };
+  }
+
+  // ==================== SCHEDULER RUNS ====================
+
+  async saveSchedulerRun(entry: {
+    schedulerName: string;
+    trigger?: string | null;
+    startedAt: string;
+    endedAt?: string | null;
+    success: boolean;
+    durationMs?: number | null;
+    summary?: Record<string, any> | null;
+    error?: string | null;
+  }): Promise<number> {
+    const result = await this.execute(
+      `INSERT INTO scheduler_runs (
+        scheduler_name, trigger, started_at, ended_at, success, duration_ms, summary_json, error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.schedulerName,
+        entry.trigger ?? null,
+        entry.startedAt,
+        entry.endedAt ?? null,
+        entry.success ? 1 : 0,
+        entry.durationMs ?? null,
+        entry.summary ? JSON.stringify(entry.summary) : null,
+        entry.error ?? null,
+      ]
+    );
+    await this.pruneSchedulerRuns();
+    return Number(result?.lastInsertRowid ?? 0);
+  }
+
+  async pruneSchedulerRuns(limit = this.schedulerRunRetention): Promise<number> {
+    const safeLimit = Math.max(10, Math.min(Number(limit) || this.schedulerRunRetention, 1000));
+    const result = await this.execute(
+      `DELETE FROM scheduler_runs
+       WHERE run_id NOT IN (
+         SELECT run_id
+         FROM scheduler_runs
+         ORDER BY datetime(started_at) DESC, run_id DESC
+         LIMIT ?
+       )`,
+      [safeLimit]
+    );
+    return Number(result?.rowsAffected ?? 0);
+  }
+
+  async listRecentSchedulerRuns(limit = 7): Promise<any[]> {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 7, 50));
+    const rows = await this.all(
+      `SELECT * FROM scheduler_runs
+       ORDER BY datetime(started_at) DESC, run_id DESC
+       LIMIT ?`,
+      [safeLimit]
+    );
+    return rows.map((row) => {
+      let summary: any = null;
+      try { summary = row?.summary_json ? JSON.parse(String(row.summary_json)) : null; } catch { summary = null; }
+      return {
+        runId: Number(row?.run_id ?? 0),
+        schedulerName: String(row?.scheduler_name ?? ''),
+        trigger: row?.trigger ? String(row.trigger) : null,
+        startedAt: row?.started_at ? String(row.started_at) : null,
+        endedAt: row?.ended_at ? String(row.ended_at) : null,
+        success: Number(row?.success ?? 0) === 1,
+        durationMs: row?.duration_ms === null || row?.duration_ms === undefined ? null : Number(row.duration_ms),
+        error: row?.error ? String(row.error) : null,
+        summary,
+      };
+    });
   }
 
   async close(): Promise<void> {
