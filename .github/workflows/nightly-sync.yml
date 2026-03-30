@@ -1,0 +1,58 @@
+name: Nightly Sync
+
+on:
+  schedule:
+    - cron: '0 23 * * *'
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-sync
+  cancel-in-progress: false
+
+jobs:
+  nightly-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TZ: Europe/Rome
+      SYNC_TIMEZONE: Europe/Rome
+      EXPECTED_LOCAL_HOUR: '01'
+      PORT: '3001'
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      RUN_ODDS_SYNC: ${{ vars.RUN_ODDS_SYNC }}
+      ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Run nightly sync
+        run: bash scripts/ci/nightly-sync.sh
+
+      - name: Upload backend sync log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-nightly-sync-log
+          path: backend-nightly-sync.log
+          if-no-files-found: ignore
