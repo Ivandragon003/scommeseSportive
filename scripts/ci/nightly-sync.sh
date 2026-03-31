@@ -11,6 +11,10 @@ EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-01}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
+UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
+LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-1800}"
+ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-1800}"
+FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 
 BACKEND_PID=""
 
@@ -22,6 +26,40 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+print_backend_log_tail() {
+  if [[ -f "$BACKEND_LOG" ]]; then
+    echo "----- backend log tail -----"
+    tail -n 120 "$BACKEND_LOG" || true
+    echo "----------------------------"
+  fi
+}
+
+post_json() {
+  local url="$1"
+  local body="$2"
+  local timeout_seconds="$3"
+  if ! curl --silent --show-error --fail --max-time "$timeout_seconds" \
+    -X POST "$url" \
+    -H "Content-Type: application/json" \
+    --data "$body"; then
+    echo "Request failed: $url"
+    print_backend_log_tail
+    return 1
+  fi
+  echo
+}
+
+get_json() {
+  local url="$1"
+  local timeout_seconds="$2"
+  if ! curl --silent --show-error --fail --max-time "$timeout_seconds" "$url"; then
+    echo "Request failed: $url"
+    print_backend_log_tail
+    return 1
+  fi
+  echo
+}
 
 if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" ]]; then
   CURRENT_LOCAL_HOUR="$(TZ="$SYNC_TIMEZONE" date +%H)"
@@ -75,11 +113,10 @@ for attempt in $(seq 1 60); do
 done
 
 echo "Running Understat sync..."
-curl --silent --show-error --fail \
-  -X POST "http://127.0.0.1:$PORT/api/scraper/understat" \
-  -H "Content-Type: application/json" \
-  --data '{"mode":"top5","yearsBack":1,"importPlayers":true,"includeMatchDetails":true,"forceRefresh":false}'
-echo
+post_json \
+  "http://127.0.0.1:$PORT/api/scraper/understat" \
+  '{"mode":"top5","yearsBack":1,"importPlayers":true,"includeMatchDetails":true,"forceRefresh":false}' \
+  "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
 if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
@@ -88,25 +125,22 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
       continue
     fi
     echo "Running odds snapshot sync for: $competition"
-    curl --silent --show-error --fail \
-      -X POST "http://127.0.0.1:$PORT/api/scraper/odds" \
-      -H "Content-Type: application/json" \
-      --data "{\"competition\":\"$competition\",\"markets\":[\"h2h\",\"totals\",\"spreads\"]}"
-    echo
+    post_json \
+      "http://127.0.0.1:$PORT/api/scraper/odds" \
+      "{\"competition\":\"$competition\",\"markets\":[\"h2h\",\"totals\",\"spreads\"]}" \
+      "$ODDS_SYNC_TIMEOUT_SECONDS"
   done
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
 fi
 
 echo "Running learning review sync..."
-curl --silent --show-error --fail \
-  -X POST "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
-  -H "Content-Type: application/json" \
-  --data '{"limit":50,"forceRefresh":false}'
-echo
+post_json \
+  "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
+  '{"limit":50,"forceRefresh":false}' \
+  "$LEARNING_SYNC_TIMEOUT_SECONDS"
 
 echo "Fetching final scheduler status snapshot..."
-curl --silent --show-error --fail "http://127.0.0.1:$PORT/api/scraper/status"
-echo
+get_json "http://127.0.0.1:$PORT/api/scraper/status" "$FINAL_STATUS_TIMEOUT_SECONDS"
 
 echo "Nightly sync workflow completed."
