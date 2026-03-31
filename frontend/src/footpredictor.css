@@ -261,6 +261,12 @@ button {
   border-color: var(--red-border);
 }
 
+.app-status-chip.is-warning {
+  color: var(--gold);
+  background: var(--gold-dim);
+  border-color: var(--gold-border);
+}
+
 .app-status-dot {
   width: 8px;
   height: 8px;

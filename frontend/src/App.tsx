@@ -22,7 +22,7 @@ import Scrapers from './pages/Scrapers';
 import { getScraperStatus } from './utils/api';
 import './footpredictor.css';
 
-type SyncState = 'idle' | 'loading' | 'success' | 'error';
+type SyncState = 'idle' | 'loading' | 'success' | 'error' | 'warning';
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', meta: 'stato sistema', icon: LayoutDashboard },
@@ -36,6 +36,7 @@ const NAV_ITEMS = [
 const StatusIcon: React.FC<{ state: SyncState }> = ({ state }) => {
   if (state === 'success') return <CheckCircle2 size={16} />;
   if (state === 'error') return <AlertTriangle size={16} />;
+  if (state === 'warning') return <AlertTriangle size={16} />;
   return <Loader2 size={16} className="fp-spin" />;
 };
 
@@ -72,15 +73,15 @@ const getSystemHealthFromRuns = (runs: any[]): { state: SyncState; label: string
     return { state: 'error', label: 'Sistema con errori' };
   }
   if (coreRuns.length < 2) {
-    return { state: 'loading', label: 'Sistema parziale' };
+    return { state: 'warning', label: 'Sistema parziale' };
   }
   if (odds && odds?.success === false) {
-    return { state: 'loading', label: 'Sistema parziale' };
+    return { state: 'warning', label: 'Sistema parziale' };
   }
   if (coreRuns.every((run) => run?.success === true)) {
     return { state: 'success', label: 'Sistema OK' };
   }
-  return { state: 'loading', label: 'Sistema parziale' };
+  return { state: 'warning', label: 'Sistema parziale' };
 };
 
 const AppShell: React.FC<{
