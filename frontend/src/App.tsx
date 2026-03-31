@@ -60,17 +60,24 @@ const getSystemHealthFromRuns = (runs: any[]): { state: SyncState; label: string
     latestByScheduler.set(key, run);
   }
 
-  const requiredRuns = ['understat', 'odds', 'learning']
-    .map((key) => latestByScheduler.get(key))
-    .filter(Boolean);
+  const understat = latestByScheduler.get('understat');
+  const learning = latestByScheduler.get('learning');
+  const odds = latestByScheduler.get('odds');
+  const coreRuns = [understat, learning].filter(Boolean);
 
-  if (requiredRuns.length === 0) {
+  if (coreRuns.length === 0 && !odds) {
     return { state: 'loading', label: 'Sistema in attesa' };
   }
-  if (requiredRuns.some((run) => run?.success === false)) {
+  if (coreRuns.some((run) => run?.success === false)) {
     return { state: 'error', label: 'Sistema con errori' };
   }
-  if (requiredRuns.length === 3 && requiredRuns.every((run) => run?.success === true)) {
+  if (coreRuns.length < 2) {
+    return { state: 'loading', label: 'Sistema parziale' };
+  }
+  if (odds && odds?.success === false) {
+    return { state: 'loading', label: 'Sistema parziale' };
+  }
+  if (coreRuns.every((run) => run?.success === true)) {
     return { state: 'success', label: 'Sistema OK' };
   }
   return { state: 'loading', label: 'Sistema parziale' };

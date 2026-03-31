@@ -47,26 +47,47 @@ const formatSchedulerName = (value?: string | null) => {
   if (value === 'learning') return 'Learning';
   return value || '-';
 };
-const getNightlyHealth = (runs: any[]) => {
+const buildLatestSchedulerRunMap = (runs: any[]) => {
   const latestByScheduler = new Map<string, any>();
-  for (const run of runs) {
+  for (const run of Array.isArray(runs) ? runs : []) {
     const key = String(run?.schedulerName ?? '').trim();
     if (!key || latestByScheduler.has(key)) continue;
     latestByScheduler.set(key, run);
   }
-
+  return latestByScheduler;
+};
+const mergeSchedulerWithRecentRun = (scheduler: any, recentRun: any) => {
+  if (!recentRun) return scheduler ?? null;
+  const base = scheduler ?? {};
+  if (base?.running || base?.lastRunAt || base?.lastError) return base;
+  return {
+    ...base,
+    lastRunAt: recentRun?.startedAt ?? null,
+    lastDurationMs: recentRun?.durationMs ?? null,
+    lastError: recentRun?.success === false ? recentRun?.error ?? 'Run esterno fallito' : null,
+    lastResult: base?.lastResult ?? recentRun?.summary ?? null,
+  };
+};
+const getNightlyHealth = (runs: any[]) => {
+  const latestByScheduler = buildLatestSchedulerRunMap(runs);
   const understat = latestByScheduler.get('understat');
   const odds = latestByScheduler.get('odds');
   const learning = latestByScheduler.get('learning');
-  const available = [understat, odds, learning].filter(Boolean);
+  const coreRuns = [understat, learning].filter(Boolean);
 
-  if (available.length === 0) {
+  if (coreRuns.length === 0 && !odds) {
     return { label: 'Ultima notte in attesa', tone: 'fp-badge-gray' };
   }
-  if (available.some((run) => run?.success === false)) {
+  if (coreRuns.some((run) => run?.success === false)) {
     return { label: 'Ultima notte con errori', tone: 'fp-badge-red' };
   }
-  if (available.length === 3 && available.every((run) => run?.success === true)) {
+  if (coreRuns.length < 2) {
+    return { label: 'Ultima notte parziale', tone: 'fp-badge-gold' };
+  }
+  if (odds && odds?.success === false) {
+    return { label: 'Ultima notte parziale', tone: 'fp-badge-gold' };
+  }
+  if (coreRuns.every((run) => run?.success === true)) {
     return { label: 'Ultima notte OK', tone: 'fp-badge-green' };
   }
   return { label: 'Ultima notte parziale', tone: 'fp-badge-gold' };
@@ -167,11 +188,18 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) =>
   const overview = analytics?.overview ?? {};
   const coverage = overview?.coverage?.fields ?? {};
   const scheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
-  const understatScheduler = scraperStatus?.understatScheduler ?? null;
-  const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
   const recentSchedulerRuns = Array.isArray(scraperStatus?.recentSchedulerRuns)
     ? scraperStatus.recentSchedulerRuns
     : [];
+  const latestSchedulerRuns = buildLatestSchedulerRunMap(recentSchedulerRuns);
+  const understatScheduler = mergeSchedulerWithRecentRun(
+    scraperStatus?.understatScheduler ?? null,
+    latestSchedulerRuns.get('understat')
+  );
+  const learningScheduler = mergeSchedulerWithRecentRun(
+    scraperStatus?.learningReviewScheduler ?? null,
+    latestSchedulerRuns.get('learning')
+  );
   const nightlyHealth = getNightlyHealth(recentSchedulerRuns);
   const sourceBreakdown = Object.entries(oddsArchive?.sourceBreakdown ?? {}).slice(0, 4);
 

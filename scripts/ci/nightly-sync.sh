@@ -116,7 +116,7 @@ done
 echo "Running Understat sync..."
 post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
-  '{"mode":"top5","yearsBack":1,"importPlayers":true,"includeMatchDetails":true,"forceRefresh":false}' \
+  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
 if [[ "$CI_SKIP_ODDS_SYNC" == "true" ]]; then
@@ -140,7 +140,7 @@ fi
 echo "Running learning review sync..."
 post_json \
   "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
-  '{"limit":50,"forceRefresh":false}' \
+  "{\"limit\":50,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"learning\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$LEARNING_SYNC_TIMEOUT_SECONDS"
 
 echo "Fetching final scheduler status snapshot..."
