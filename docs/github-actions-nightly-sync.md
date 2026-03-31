@@ -8,7 +8,6 @@ Il workflow:
 - avvia il backend in CI
 - esegue la sync Understat
 - esegue la learning review
-- opzionalmente esegue anche la sync quote
 - salva il log come artifact GitHub Actions
 
 File inclusi:
@@ -30,15 +29,23 @@ Nel repository GitHub vai in:
 
 - `ODDS_API_KEY`
 
-Se `ODDS_API_KEY` manca, il workflow salta la sync quote e continua con Understat + learning review.
+Non serve per la sync notturna dati. Puoi tenerlo nel repository solo se ti serve per altri workflow futuri.
 
-## Variabile opzionale
+## Sync quote
 
-Nel repository GitHub puoi aggiungere anche:
+La sync quote `Eurobet` non viene eseguita nel workflow GitHub Actions.
 
-- `RUN_ODDS_SYNC=true`
+Motivo:
+- lo scraping browser-based di Eurobet non e affidabile sui runner GitHub ospitati
+- puo bloccarsi o andare in timeout
+- rende instabile il job notturno che invece deve aggiornare soprattutto i dati `Understat`
 
-Se assente o `false`, la sync quote non parte.
+Quindi il workflow notturno GitHub aggiorna:
+- dati Understat
+- learning review
+
+e salta sempre:
+- sync quote Eurobet
 
 ## Orario di esecuzione
 
