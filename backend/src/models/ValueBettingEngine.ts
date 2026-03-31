@@ -44,6 +44,44 @@
  * LOW viene ancora accettata se Kelly è positivo — solo con stake ridotto.
  */
 
+// ==================== COMBINATA (MULTI-BET) ====================
+
+/**
+ * Rappresenta una scommessa combinata (accumulatore) di N quote singole.
+ *
+ * MATEMATICA:
+ * - Probabilità combinata = Π(ourProbability_i) — SOLO se le quote sono su
+ *   partite diverse (indipendenza statistica). Quote della stessa partita
+ *   possono essere correlate: il campo warningCorrelation lo segnala.
+ * - Quota combinata = Π(bookmakerOdds_i)
+ * - EV combinato = P_combinata × Quota_combinata − 1
+ * - Kelly combinato = (P × Q − 1) / (Q − 1) × 0.25 (Quarter Kelly)
+ * - MAX_STAKE combinata: cap più basso (2.4% vs 4%) perché la varianza
+ *   aumenta moltiplicativamente con il numero di gambe.
+ */
+export interface ComboBetOpportunity {
+  /** Quote singole che compongono la combinata */
+  legs: BetOpportunity[];
+  /** Numero di gambe (2, 3, ...) */
+  numLegs: number;
+  /** Quota decimale combinata = Π(odds_i) */
+  combinedOdds: number;
+  /** Probabilità combinata del modello in percentuale = Π(ourProb_i/100)×100 */
+  combinedProbability: number;
+  /** EV combinato in percentuale */
+  combinedEV: number;
+  /** Quarter Kelly applicato alla combinata, in percentuale */
+  kellyFraction: number;
+  /** Stake suggerito in % bankroll (capped più basso delle singole) */
+  suggestedStakePercent: number;
+  /** Confidence: HIGH solo se tutte le gambe sono HIGH; LOW se almeno una è LOW */
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** True se tutte le gambe provengono da matchId diversi */
+  isIndependent: boolean;
+  /** Presente se due o più gambe provengono dalla stessa partita */
+  warningCorrelation?: string;
+}
+
 export interface BetOpportunity {
   marketName: string;
   selection: string;
@@ -62,6 +100,8 @@ export interface BetOpportunity {
   isValueBet: boolean;
   edge: number;                     // vs implied raw
   edgeNoVig: number;                // vs implied senza vig
+  /** matchId della partita di riferimento — usato per rilevare correlazione nelle combinate */
+  matchId?: string;
 }
 
 export type MarketCategory =
@@ -994,6 +1034,130 @@ export class ValueBettingEngine {
       totalBets:       budget.totalBets + 1,
       updatedAt:       new Date(),
     };
+  }
+
+  // ==================== COMBINATA (MULTI-BET) ====================
+
+  /**
+   * Genera tutte le combinazioni di valore dalle scommesse singole passate.
+   *
+   * Logica di filtraggio:
+   * - Combina da 2 a maxLegs scommesse.
+   * - Scarta combinazioni con EV combinato inferiore a minCombinedEV.
+   * - Segnala (ma non scarta) le combinazioni con quote della stessa partita
+   *   (correlazione potenziale → EV potrebbe essere sovrastimato).
+   * - Ordina per EV combinato decrescente.
+   *
+   * Uso tipico:
+   *   const singles = engine.analyzeMarketsWithVigRemoval(...);
+   *   const combos  = engine.buildCombinations(singles, 3, 0.08);
+   *   // Considera solo le prime 5 combinate per partita
+   *   const top5    = combos.slice(0, 5);
+   *
+   * @param opportunities  Lista di scommesse singole già filtrate con isValueBet=true.
+   * @param maxLegs        Numero massimo di gambe per combinata (default 3).
+   *                       Non superare 4: oltre quella soglia l'EV combinato
+   *                       dipende troppo dall'accuratezza delle singole probabilità.
+   * @param minCombinedEV  Soglia EV minimo in decimale (default 0.06 = 6%).
+   *                       Più alta rispetto alle singole perché la varianza
+   *                       aumenta con il numero di gambe.
+   */
+  buildCombinations(
+    opportunities: BetOpportunity[],
+    maxLegs = 3,
+    minCombinedEV = 0.06
+  ): ComboBetOpportunity[] {
+    // Considera solo le bet singole già passate i filtri
+    const valid = opportunities.filter((o) => o.isValueBet && o.ourProbability > 0 && o.bookmakerOdds > 1);
+    if (valid.length < 2) return [];
+
+    const results: ComboBetOpportunity[] = [];
+    const clampedMax = Math.min(maxLegs, 4, valid.length);
+
+    for (let size = 2; size <= clampedMax; size++) {
+      const combos = this.generateCombinations(valid, size);
+      for (const legs of combos) {
+        const combo = this.evaluateCombo(legs, minCombinedEV);
+        if (combo) results.push(combo);
+      }
+    }
+
+    return results.sort(
+      (a, b) => b.combinedEV - a.combinedEV
+    );
+  }
+
+  /**
+   * Valuta una singola combinazione di gambe.
+   * Restituisce null se non supera la soglia EV o se il Kelly è nullo.
+   */
+  private evaluateCombo(legs: BetOpportunity[], minCombinedEV: number): ComboBetOpportunity | null {
+    // Probabilità e quota combinate
+    const combinedProbabilityDecimal = legs.reduce(
+      (acc, leg) => acc * (leg.ourProbability / 100),
+      1
+    );
+    const combinedOdds = legs.reduce((acc, leg) => acc * leg.bookmakerOdds, 1);
+    const combinedEV = combinedProbabilityDecimal * combinedOdds - 1;
+
+    if (combinedEV < minCombinedEV) return null;
+
+    // Kelly per la combinata: stessa formula ma cap più basso
+    const b = combinedOdds - 1;
+    const fullKelly = b > 0
+      ? (b * combinedProbabilityDecimal - (1 - combinedProbabilityDecimal)) / b
+      : 0;
+    if (fullKelly <= 0) return null;
+
+    const quarterKelly = fullKelly * this.KELLY_FRACTION;
+    // Cap combinata più conservativo: max 2.4% (60% del cap singola 4%)
+    const MAX_COMBO_STAKE = this.MAX_STAKE_PERCENT * 0.6;
+    const stakePercent = this.clampNumber(
+      quarterKelly * 100,
+      this.MIN_STAKE_PERCENT,
+      MAX_COMBO_STAKE
+    );
+
+    // Confidence: peggiore delle gambe
+    const hasLow  = legs.some((l) => l.confidence === 'LOW');
+    const allHigh = legs.every((l) => l.confidence === 'HIGH');
+    const confidence: 'HIGH' | 'MEDIUM' | 'LOW' = hasLow ? 'LOW' : allHigh ? 'HIGH' : 'MEDIUM';
+
+    // Rilevamento correlazione: gambe della stessa partita
+    const matchIds = legs.map((l) => l.matchId).filter(Boolean) as string[];
+    const uniqueMatches = new Set(matchIds);
+    const hasDuplicateMatch = matchIds.length > 0 && uniqueMatches.size < legs.length;
+
+    return {
+      legs,
+      numLegs: legs.length,
+      combinedOdds: Number(combinedOdds.toFixed(2)),
+      combinedProbability: Number((combinedProbabilityDecimal * 100).toFixed(3)),
+      combinedEV: Number((combinedEV * 100).toFixed(2)),
+      kellyFraction: Number((quarterKelly * 100).toFixed(3)),
+      suggestedStakePercent: Number(stakePercent.toFixed(2)),
+      confidence,
+      isIndependent: !hasDuplicateMatch,
+      warningCorrelation: hasDuplicateMatch
+        ? `Attenzione: ${legs.filter((l) => matchIds.filter((id) => id === l.matchId).length > 1).length} gambe provengono dalla stessa partita — la probabilità combinata potrebbe essere sovrastimata perché i mercati sono correlati.`
+        : undefined,
+    };
+  }
+
+  /**
+   * Genera tutte le combinazioni di dimensione `size` dall'array `arr`.
+   * Usa ricorsione tail-friendly con slice per evitare stack overflow su
+   * array grandi (in pratica le bet singole per partita sono < 30).
+   */
+  private generateCombinations<T>(arr: T[], size: number): T[][] {
+    if (size === 0) return [[]];
+    if (size > arr.length) return [];
+    if (size === arr.length) return [arr.slice()];
+
+    const [first, ...rest] = arr;
+    const withFirst = this.generateCombinations(rest, size - 1).map((combo) => [first, ...combo]);
+    const withoutFirst = this.generateCombinations(rest, size);
+    return [...withFirst, ...withoutFirst];
   }
 
   // ==================== UTILITY ====================
