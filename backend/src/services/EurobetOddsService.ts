@@ -553,40 +553,92 @@ export class EurobetOddsService {
     );
   }
 
+  /**
+   * Naviga verso pageUrl e intercetta la risposta API corrispondente a responseUrl.
+   *
+   * STRATEGIA (v2):
+   * ---------------
+   * 1. Usa waitForResponse() avviato IN PARALLELO con page.goto — elimina la
+   *    race condition del vecchio listener page.on('response') che poteva
+   *    perdere risposte arrivate prima che il listener fosse attaccato.
+   * 2. Match parziale sull'URL (includes) anziché uguaglianza stretta, per
+   *    resistere a variazioni di query string o path minori introdotte da
+   *    aggiornamenti lato Eurobet.
+   * 3. In caso di timeout/errore: refresh sessione e retry.
+   * 4. Fallback finale: tenta fetchSameOriginJson direttamente nel browser,
+   *    utile se la SPA ha già caricato la pagina e la risposta non viene più
+   *    emessa dal network (es. cache browser).
+   */
   private async captureNavigatedJsonOnPage<T>(page: Page, pageUrl: string, responseUrl: string): Promise<T> {
-    let lastStatus: number | null = null;
+    // Estrae la parte di path significativa per il match parziale
+    // (es. "/services/event/calcio/it-serie-a/milan-inter-...") ignorando
+    // la base URL e i parametri query che possono variare.
+    const urlMatchFragment = (() => {
+      try {
+        const parsed = new URL(responseUrl);
+        return parsed.pathname;
+      } catch {
+        return responseUrl;
+      }
+    })();
+
+    let lastError: unknown = null;
 
     for (let attempt = 0; attempt < EurobetOddsService.NAVIGATION_RETRIES; attempt++) {
-      const responses: Array<{ status: number; text: string }> = [];
-      const onResponse = async (response: any) => {
-        if (response.url() !== responseUrl) return;
-        const text = await response.text().catch(() => '');
-        responses.push({ status: response.status(), text });
-      };
-
-      page.on('response', onResponse);
       try {
-        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-        await this.dismissCookieBanner(page).catch(() => undefined);
-        await page.waitForTimeout(3500 + attempt * 1500);
-      } finally {
-        page.off('response', onResponse);
-      }
+        // Promise per la risposta API: avviata PRIMA di goto per non perdere
+        // risposte che arrivano durante il caricamento della pagina.
+        const responsePromise = page.waitForResponse(
+          (res) => {
+            const url = res.url();
+            return (
+              url.includes(urlMatchFragment) &&
+              res.status() >= 200 &&
+              res.status() < 300
+            );
+          },
+          { timeout: 35000 + attempt * 5000 }
+        );
 
-      const success = [...responses].reverse().find((entry) => entry.status >= 200 && entry.status < 300 && this.looksLikeJson(entry.text));
-      if (success) {
-        return JSON.parse(success.text) as T;
-      }
+        // Naviga in parallelo
+        await Promise.all([
+          page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 }),
+          // Cookie banner: non bloccare se fallisce
+          page.waitForTimeout(400).then(() => this.dismissCookieBanner(page).catch(() => undefined)),
+        ]).catch(() => undefined); // goto può lanciare su redirect; non è fatale
 
-      const last = responses.length > 0 ? responses[responses.length - 1] : undefined;
-      lastStatus = last?.status ?? lastStatus;
+        const matchedResponse = await responsePromise;
+        const text = await matchedResponse.text();
 
-      if (attempt < EurobetOddsService.NAVIGATION_RETRIES - 1) {
-        await this.refreshEurobetSession(page);
+        if (this.looksLikeJson(text)) {
+          return JSON.parse(text) as T;
+        }
+
+        // Risposta ricevuta ma non è JSON valido (HTML di errore, captcha, ecc.)
+        lastError = new Error(`Eurobet ${urlMatchFragment} ha restituito una risposta non-JSON (status ${matchedResponse.status()})`);
+      } catch (err) {
+        lastError = err;
+
+        // Fallback: tenta di chiamare l'API direttamente dal contesto browser.
+        // Funziona se la SPA ha già impostato i cookie di sessione corretti.
+        try {
+          return await this.fetchSameOriginJson<T>(page, responseUrl);
+        } catch {
+          // Ignora — continua con il retry
+        }
+
+        if (attempt < EurobetOddsService.NAVIGATION_RETRIES - 1) {
+          await this.refreshEurobetSession(page);
+          // Backoff esponenziale: 2s, 4s, 6s
+          await page.waitForTimeout(2000 + attempt * 2000);
+        }
       }
     }
 
-    throw new Error(`Eurobet ${responseUrl} returned ${lastStatus ?? 'no-response'}`);
+    const errorMessage = lastError instanceof Error
+      ? lastError.message
+      : `Eurobet ${urlMatchFragment} non ha risposto dopo ${EurobetOddsService.NAVIGATION_RETRIES} tentativi`;
+    throw new Error(errorMessage);
   }
 
   private async gotoAndFetchOnPage<T>(page: Page, pageUrl: string, requestPath: string): Promise<T> {
@@ -594,11 +646,15 @@ export class EurobetOddsService {
     for (let attempt = 0; attempt < 3; attempt++) {
       await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await this.dismissCookieBanner(page).catch(() => undefined);
-      await page.waitForTimeout(3000 + attempt * 1200);
+      // Backoff progressivo: 1.5s → 3.0s → 5.4s
+      await page.waitForTimeout(1500 + attempt * 1200 * (attempt + 1));
       try {
         return await this.fetchSameOriginJson<T>(page, requestPath);
       } catch (error) {
         lastError = error;
+        if (attempt < 2) {
+          await this.refreshEurobetSession(page);
+        }
       }
     }
     throw lastError instanceof Error ? lastError : new Error(`Eurobet ${requestPath} non disponibile`);
