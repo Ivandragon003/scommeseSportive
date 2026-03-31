@@ -9,6 +9,7 @@ PORT="${PORT:-3001}"
 SYNC_TIMEZONE="${SYNC_TIMEZONE:-Europe/Rome}"
 EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-01}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
+CI_SKIP_ODDS_SYNC="${CI_SKIP_ODDS_SYNC:-true}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
@@ -118,7 +119,9 @@ post_json \
   '{"mode":"top5","yearsBack":1,"importPlayers":true,"includeMatchDetails":true,"forceRefresh":false}' \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
-if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
+if [[ "$CI_SKIP_ODDS_SYNC" == "true" ]]; then
+  echo "Skipping odds sync in CI. Eurobet automation is not reliable on GitHub-hosted runners."
+elif [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
   for competition in "${competitions[@]}"; do
     if [[ -z "$competition" ]]; then
