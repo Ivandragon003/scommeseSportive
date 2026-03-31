@@ -101,6 +101,7 @@ export default function Scrapers() {
   const [yearsBack, setYearsBack] = useState(1);
   const [includeMatchDetails, setIncludeMatchDetails] = useState(true);
   const [importPlayers, setImportPlayers] = useState(true);
+  const [includeSofaScoreSupplemental, setIncludeSofaScoreSupplemental] = useState(true);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [understatLoading, setUnderstatLoading] = useState(false);
   const [understatStartedAt, setUnderstatStartedAt] = useState<number | null>(null);
@@ -172,6 +173,7 @@ export default function Scrapers() {
         yearsBack,
         importPlayers,
         includeMatchDetails,
+        includeSofaScoreSupplemental,
         forceRefresh,
       });
       setUnderstatResult(res.data?.data ?? null);
@@ -213,7 +215,7 @@ export default function Scrapers() {
         <div style={{ marginBottom: 32 }}>
           <h1 className="fp-page-title fp-gradient-green">Dati Automatici</h1>
           <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-            Understat e la sola fonte dati attiva per squadre, partite, giocatori e statistiche modello
+            Understat resta la fonte primaria; SofaScore completa referee, possesso, falli e corner quando mancano
           </p>
         </div>
 
@@ -261,7 +263,7 @@ export default function Scrapers() {
         <div className="fp-tabs" style={{ marginBottom: 24 }}>
           <button className={`fp-tab${activeTab === 'understat' ? ' active' : ''}`} onClick={() => setActiveTab('understat')}>
             📊 Understat
-            <span className="fp-badge fp-badge-green" style={{ fontSize: 10, marginLeft: 6 }}>Fonte unica</span>
+            <span className="fp-badge fp-badge-green" style={{ fontSize: 10, marginLeft: 6 }}>Fonte primaria</span>
           </button>
           <button className={`fp-tab${activeTab === 'odds' ? ' active' : ''}`} onClick={() => setActiveTab('odds')}>
             📈 Quote Live (Odds API)
@@ -274,7 +276,7 @@ export default function Scrapers() {
               <div>
                 <div className="fp-card-title">📥 Download da Understat</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                  Match, xG, tiri, cartellini e giocatori. Falli e corner non sono forniti come totali reali dalla sorgente.
+                  Match, xG, tiri, cartellini e giocatori da Understat. SofaScore completa possesso, falli, corner e arbitro solo dove mancanti.
                 </div>
               </div>
             </div>
@@ -312,10 +314,17 @@ export default function Scrapers() {
                   <input type="checkbox" checked={importPlayers} onChange={(e) => setImportPlayers(e.target.checked)} />
                   Aggiorna anche statistiche giocatori
                 </label>
+                <label className="sc-check">
+                  <input type="checkbox" checked={includeSofaScoreSupplemental} onChange={(e) => setIncludeSofaScoreSupplemental(e.target.checked)} />
+                  Completa referee, possesso, falli e corner con SofaScore
+                </label>
                 <label className="sc-check" style={{ marginBottom: 0 }}>
                   <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} />
                   Forza refresh completo
                 </label>
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>
+                  Understat non viene sostituito: SofaScore integra solo i campi mancanti e non tocca xG, tiri o risultati.
+                </div>
               </div>
 
               <div style={{ display: 'grid', gap: 10 }}>
@@ -362,6 +371,9 @@ export default function Scrapers() {
                     ['Nuove partite importate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.newMatchesImported],
                     ['Partite future importate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.upcomingMatchesImported],
                     ['Partite aggiornate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.existingMatchesUpdated],
+                    ['Match completati con SofaScore', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedMatches],
+                    ['Match chiusi per medie squadra', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedCompletedMatches],
+                    ['Arbitri aggiornati da SofaScore', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedReferees],
                     ['Squadre create', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.teamsCreated],
                     ['Giocatori aggiornati', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.playersUpdated],
                     ['Squadre ricalcolate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.teamsRecomputed],
