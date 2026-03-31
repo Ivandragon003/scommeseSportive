@@ -998,7 +998,54 @@ router.post('/backtest', async (req: Request, res: Response) => {
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 
+type ExternalSchedulerRunMeta = {
+  enabled: boolean;
+  schedulerName: string;
+  trigger: string;
+  startedAt: string;
+};
+
+function getExternalSchedulerRunMeta(req: Request, expectedSchedulerName: string): ExternalSchedulerRunMeta | null {
+  const candidate = req.body?._schedulerRun;
+  if (!candidate || candidate.enabled !== true) return null;
+
+  const schedulerName = String(candidate.schedulerName ?? '').trim();
+  if (schedulerName !== expectedSchedulerName) return null;
+
+  const startedAtRaw = String(candidate.startedAt ?? '').trim();
+  const startedAt = startedAtRaw && !Number.isNaN(new Date(startedAtRaw).getTime())
+    ? startedAtRaw
+    : new Date().toISOString();
+
+  return {
+    enabled: true,
+    schedulerName,
+    trigger: String(candidate.trigger ?? 'external').trim() || 'external',
+    startedAt,
+  };
+}
+
+async function persistExternalSchedulerRun(
+  meta: ExternalSchedulerRunMeta | null,
+  success: boolean,
+  summary?: Record<string, any> | null,
+  error?: string | null
+): Promise<void> {
+  if (!meta) return;
+  await db.saveSchedulerRun({
+    schedulerName: meta.schedulerName,
+    trigger: meta.trigger,
+    startedAt: meta.startedAt,
+    endedAt: new Date().toISOString(),
+    success,
+    durationMs: Math.max(0, Date.now() - new Date(meta.startedAt).getTime()),
+    summary: summary ?? null,
+    error: error ?? null,
+  });
+}
+
 router.post('/learning/reviews/sync', async (req: Request, res: Response) => {
+  const externalRun = getExternalSchedulerRunMeta(req, 'learning');
   try {
     const result = await svc.syncCompletedMatchLearningReviews({
       competition: req.body?.competition,
@@ -1006,8 +1053,10 @@ router.post('/learning/reviews/sync', async (req: Request, res: Response) => {
       limit: req.body?.limit,
       forceRefresh: Boolean(req.body?.forceRefresh),
     });
+    await persistExternalSchedulerRun(externalRun, true, result, null);
     res.json({ success: true, data: result });
   } catch (e: any) {
+    await persistExternalSchedulerRun(externalRun, false, null, e.message);
     res.status(400).json({ success: false, error: e.message });
   }
 });
@@ -1175,7 +1224,13 @@ router.get('/scraper/understat/info', async (_req, res) => {
 });
 
 async function runUnderstatImport(req: Request, res: Response) {
+  const externalRun = getExternalSchedulerRunMeta(req, 'understat');
   if (understatImportInProgress) {
+    await persistExternalSchedulerRun(externalRun, true, {
+      alreadyRunning: true,
+      inProgress: true,
+      message: 'Import Understat gia in corso.',
+    }, null);
     return res.status(202).json({
       success: true,
       data: {
@@ -1649,7 +1704,7 @@ async function runUnderstatImport(req: Request, res: Response) {
       lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
     }
 
-    return res.json({
+    const responsePayload = {
       success: true,
       data: {
         source: 'understat',
@@ -1675,9 +1730,12 @@ async function runUnderstatImport(req: Request, res: Response) {
           : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       },
-    });
+    };
+    await persistExternalSchedulerRun(externalRun, true, responsePayload.data, null);
+    return res.json(responsePayload);
   } catch (e: any) {
     console.error('[understat] Errore:', e.message);
+    await persistExternalSchedulerRun(externalRun, false, null, e.message);
     return res.status(500).json({ success: false, error: e.message });
   } finally {
     understatImportInProgress = false;
