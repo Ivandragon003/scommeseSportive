@@ -161,6 +161,8 @@ export const runUnderstatImport = (params?: {
   importPlayers?: boolean;
   includeMatchDetails?: boolean;
   forceRefresh?: boolean;
+  includeSofaScoreSupplemental?: boolean;
+  sofaScoreSupplementalLimit?: number;
 }) =>
   API.post<ApiResponse<any>>('/scraper/understat', {
     mode: params?.mode ?? 'top5',
@@ -171,10 +173,27 @@ export const runUnderstatImport = (params?: {
     importPlayers: params?.importPlayers ?? true,
     includeMatchDetails: params?.includeMatchDetails ?? true,
     forceRefresh: params?.forceRefresh ?? false,
+    includeSofaScoreSupplemental: params?.includeSofaScoreSupplemental ?? true,
+    sofaScoreSupplementalLimit: params?.sofaScoreSupplementalLimit,
   }, { timeout: 3600000 }).then(r => r.data);
 
 export const getScraperStatus = () =>
   API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
+
+export const runSofaScoreSupplemental = (params?: {
+  competition?: string;
+  season?: string;
+  limit?: number;
+  onlyMissing?: boolean;
+  enabled?: boolean;
+}) =>
+  API.post<ApiResponse<any>>('/scraper/sofascore/supplemental', {
+    competition: params?.competition,
+    season: params?.season,
+    limit: params?.limit,
+    onlyMissing: params?.onlyMissing ?? true,
+    enabled: params?.enabled,
+  }, { timeout: 3600000 }).then(r => r.data);
 
 // Health
 export const healthCheck = () =>

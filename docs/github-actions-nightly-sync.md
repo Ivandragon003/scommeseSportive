@@ -7,6 +7,7 @@ Questa configurazione serve quando non vuoi tenere acceso il PC e non hai un ser
 Il workflow:
 - avvia il backend in CI
 - esegue la sync Understat
+- completa i campi mancanti con SofaScore sui match toccati dalla sync
 - esegue la learning review
 - salva il log come artifact GitHub Actions
 
@@ -42,6 +43,7 @@ Motivo:
 
 Quindi il workflow notturno GitHub aggiorna:
 - dati Understat
+- possesso, falli, corner e arbitro tramite supplementazione SofaScore
 - learning review
 
 e salta sempre:

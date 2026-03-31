@@ -12,6 +12,8 @@ RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 CI_SKIP_ODDS_SYNC="${CI_SKIP_ODDS_SYNC:-true}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
+SOFASCORE_SUPPLEMENTAL_ENABLED="${SOFASCORE_SUPPLEMENTAL_ENABLED:-true}"
+SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN="${SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN:-40}"
 UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-1800}"
 ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-1800}"
@@ -116,7 +118,7 @@ done
 echo "Running Understat sync..."
 post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
-  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"includeSofaScoreSupplemental\":$SOFASCORE_SUPPLEMENTAL_ENABLED,\"sofaScoreSupplementalLimit\":$SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
 if [[ "$CI_SKIP_ODDS_SYNC" == "true" ]]; then
