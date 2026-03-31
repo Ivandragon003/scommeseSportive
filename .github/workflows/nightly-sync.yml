@@ -16,7 +16,7 @@ concurrency:
 jobs:
   nightly-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       TZ: Europe/Rome
       SYNC_TIMEZONE: Europe/Rome
@@ -27,12 +27,16 @@ jobs:
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       RUN_ODDS_SYNC: ${{ vars.RUN_ODDS_SYNC }}
       ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
+      UNDERSTAT_SYNC_TIMEOUT_SECONDS: '4200'
+      LEARNING_SYNC_TIMEOUT_SECONDS: '1800'
+      ODDS_SYNC_TIMEOUT_SECONDS: '1800'
+      FINAL_STATUS_TIMEOUT_SECONDS: '120'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -51,7 +55,7 @@ jobs:
 
       - name: Upload backend sync log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: backend-nightly-sync-log
           path: backend-nightly-sync.log
