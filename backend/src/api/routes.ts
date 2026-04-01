@@ -229,6 +229,7 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
       fromDate,
       toDate,
       recomputePlayers = true,
+      recomputeReferees = true,
     } = req.body ?? {};
 
     const normalizedCompetition = String(competition ?? '').trim();
@@ -239,193 +240,41 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
       teamsUpdated++;
     }
 
-    let playersMarkedUnavailable = 0;
-    let playersUpdated = 0;
-    let playersDetected = 0;
-    let playedMatchesConsidered = 0;
-    let matchesWithShotmap = 0;
-
-    if (recomputePlayers) {
-      const matches = await db.getMatches({
+    const playerStats = recomputePlayers
+      ? await rebuildPlayerDerivedStats({
         competition: normalizedCompetition || undefined,
         season: String(season ?? '').trim() || undefined,
         fromDate: String(fromDate ?? '').trim() || undefined,
         toDate: String(toDate ?? '').trim() || undefined,
-        includeRawJson: true,
-      });
-
-      const numOrNull = (v: unknown): number | null => {
-        if (v === null || v === undefined || v === '') return null;
-        const n = Number(v);
-        return Number.isFinite(n) ? n : null;
+      })
+      : {
+        playersMarkedUnavailable: 0,
+        playersDetected: 0,
+        playersUpdated: 0,
+        playedMatchesConsidered: 0,
+        matchesWithShotmap: 0,
       };
 
-      type PlayerAgg = {
-        playerId: string;
-        sourcePlayerId: number | null;
-        name: string;
-        teamId: string;
-        games: Set<string>;
-        shots: number;
-        shotsOnTarget: number;
-        goals: number;
-        xg: number;
-        xgot: number;
-        rawSamples: Record<string, unknown>[];
+    const refereeStats = recomputeReferees
+      ? await rebuildRefereeDerivedStats({
+        competition: normalizedCompetition || undefined,
+        season: String(season ?? '').trim() || undefined,
+        fromDate: String(fromDate ?? '').trim() || undefined,
+        toDate: String(toDate ?? '').trim() || undefined,
+      })
+      : {
+        refereesDetected: 0,
+        refereesUpdated: 0,
+        matchesConsidered: 0,
       };
-
-      const teamShotsTotals = new Map<string, number>();
-      const playersAgg = new Map<string, PlayerAgg>();
-
-      const playedMatches = matches.filter(
-        (m: any) => m.home_goals !== null && m.away_goals !== null
-      );
-      playedMatchesConsidered = playedMatches.length;
-
-      playersMarkedUnavailable = await db.markPlayersUnavailable(normalizedCompetition || undefined);
-
-      for (const m of playedMatches) {
-        const homeTeamId = String(m.home_team_id ?? '').trim();
-        const awayTeamId = String(m.away_team_id ?? '').trim();
-        if (!homeTeamId || !awayTeamId) continue;
-
-        const homeShots = numOrNull(m.home_shots);
-        const awayShots = numOrNull(m.away_shots);
-        if (homeShots !== null) {
-          teamShotsTotals.set(homeTeamId, (teamShotsTotals.get(homeTeamId) ?? 0) + homeShots);
-        }
-        if (awayShots !== null) {
-          teamShotsTotals.set(awayTeamId, (teamShotsTotals.get(awayTeamId) ?? 0) + awayShots);
-        }
-
-        let raw: any = null;
-        try {
-          raw = typeof m.raw_json === 'string' && m.raw_json.trim().length > 0
-            ? JSON.parse(m.raw_json)
-            : null;
-        } catch {
-          raw = null;
-        }
-
-        const understatHomeShots = Array.isArray(raw?.details?.shots?.h) ? raw.details.shots.h : [];
-        const understatAwayShots = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : [];
-        if (understatHomeShots.length === 0 && understatAwayShots.length === 0) continue;
-        matchesWithShotmap++;
-
-        const ingestUnderstatShot = (shot: any, teamId: string) => {
-          const playerName = String(shot?.player ?? shot?.playerName ?? shot?.player_name ?? '').trim();
-          if (!playerName) return;
-
-          const rawPlayerId = numOrNull(shot?.player_id ?? shot?.playerId);
-          const sourcePlayerId = rawPlayerId === null ? null : Math.trunc(rawPlayerId);
-          const playerId = sourcePlayerId !== null
-            ? `understat_player_${sourcePlayerId}`
-            : `understat_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
-
-          const existing = playersAgg.get(playerId) ?? {
-            playerId,
-            sourcePlayerId,
-            name: playerName,
-            teamId,
-            games: new Set<string>(),
-            shots: 0,
-            shotsOnTarget: 0,
-            goals: 0,
-            xg: 0,
-            xgot: 0,
-            rawSamples: [],
-          };
-
-          existing.teamId = teamId;
-          existing.games.add(String(m.match_id));
-          existing.shots += 1;
-
-          const result = String(shot?.result ?? shot?.eventType ?? '').toLowerCase();
-          const shotXg = numOrNull(shot?.xG ?? shot?.expectedGoals) ?? 0;
-          const isOnTarget =
-            Boolean(shot?.isOnTarget) ||
-            result === 'goal' ||
-            result === 'savedshot' ||
-            result.includes('on_target');
-          if (isOnTarget) existing.shotsOnTarget += 1;
-
-          const isGoal = Boolean(shot?.isGoal) || result === 'goal' || result.includes('goal');
-          if (isGoal) existing.goals += 1;
-
-          existing.xg += shotXg;
-          if (isOnTarget) {
-            existing.xgot += shotXg;
-          }
-
-          if (existing.rawSamples.length < 8) {
-            existing.rawSamples.push({
-              eventType: shot?.result ?? shot?.eventType ?? null,
-              bodyPart: shot?.shotType ?? shot?.bodyPart ?? null,
-              situation: shot?.situation ?? null,
-            });
-          }
-
-          playersAgg.set(playerId, existing);
-        };
-
-        for (const shot of understatHomeShots) {
-          ingestUnderstatShot(shot, homeTeamId);
-        }
-        for (const shot of understatAwayShots) {
-          ingestUnderstatShot(shot, awayTeamId);
-        }
-      }
-
-      playersDetected = playersAgg.size;
-
-      for (const [, p] of playersAgg) {
-        const games = Math.max(1, p.games.size);
-        const teamShotsTotal = Math.max(0, teamShotsTotals.get(p.teamId) ?? 0);
-        const shotShare = teamShotsTotal > 0 ? p.shots / teamShotsTotal : 0;
-
-        await db.upsertPlayer({
-          playerId: p.playerId,
-          sourcePlayerId: p.sourcePlayerId,
-          name: p.name,
-          teamId: p.teamId,
-          positionCode: 'MF',
-          avgShotsPerGame: p.shots / games,
-          avgShotsOnTargetPerGame: p.shotsOnTarget / games,
-          avgXGPerGame: p.xg / games,
-          avgXGOTPerGame: p.xgot / games,
-          totalGoals: p.goals,
-          totalShots: p.shots,
-          totalShotsOnTarget: p.shotsOnTarget,
-          shotShareOfTeam: shotShare,
-          gamesPlayed: games,
-          isAvailable: true,
-          statsJson: JSON.stringify({
-            source: 'recompute_from_matches_raw',
-            filters: {
-              competition: normalizedCompetition || null,
-              season: String(season ?? '').trim() || null,
-              fromDate: String(fromDate ?? '').trim() || null,
-              toDate: String(toDate ?? '').trim() || null,
-            },
-            playedMatchesConsidered,
-            matchesWithShotmap,
-            sampleCount: p.rawSamples.length,
-            rawSamples: p.rawSamples,
-          }),
-        });
-        playersUpdated++;
-      }
-    }
 
     res.json({
       success: true,
       teamsUpdated,
       playersRecomputeEnabled: Boolean(recomputePlayers),
-      playersMarkedUnavailable,
-      playersDetected,
-      playersUpdated,
-      playedMatchesConsidered,
-      matchesWithShotmap,
+      refereesRecomputeEnabled: Boolean(recomputeReferees),
+      ...playerStats,
+      ...refereeStats,
     });
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -1023,6 +872,340 @@ function getExternalSchedulerRunMeta(req: Request, expectedSchedulerName: string
     schedulerName,
     trigger: String(candidate.trigger ?? 'external').trim() || 'external',
     startedAt,
+  };
+}
+
+function numOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseRawJson(value: unknown): any | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeShotResult(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function safePct(numerator: number, denominator: number): number {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return numerator / denominator;
+}
+
+async function rebuildPlayerDerivedStats(options?: {
+  competition?: string;
+  season?: string;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<{
+  playersMarkedUnavailable: number;
+  playersDetected: number;
+  playersUpdated: number;
+  playedMatchesConsidered: number;
+  matchesWithShotmap: number;
+}> {
+  const normalizedCompetition = String(options?.competition ?? '').trim();
+  const matches = await db.getMatches({
+    competition: normalizedCompetition || undefined,
+    season: String(options?.season ?? '').trim() || undefined,
+    fromDate: String(options?.fromDate ?? '').trim() || undefined,
+    toDate: String(options?.toDate ?? '').trim() || undefined,
+    includeRawJson: true,
+  });
+
+  type PlayerAgg = {
+    playerId: string;
+    sourcePlayerId: number | null;
+    name: string;
+    teamId: string;
+    positionCode: string;
+    games: Set<string>;
+    minutesTotal: number;
+    shots: number;
+    shotsOnTarget: number;
+    goals: number;
+    xg: number;
+    xgot: number;
+    yellowCards: number;
+    redCards: number;
+    rawSamples: Record<string, unknown>[];
+  };
+
+  const teamShotsTotals = new Map<string, number>();
+  const playersAgg = new Map<string, PlayerAgg>();
+  const playedMatches = matches.filter((m: any) => m.home_goals !== null && m.away_goals !== null);
+  const playersMarkedUnavailable = await db.markPlayersUnavailable(normalizedCompetition || undefined);
+  let matchesWithShotmap = 0;
+
+  const buildOnTargetMap = (shots: any[]): Map<string, { count: number; xgot: number; samples: Record<string, unknown>[] }> => {
+    const out = new Map<string, { count: number; xgot: number; samples: Record<string, unknown>[] }>();
+    for (const shot of shots) {
+      const playerId = String(shot?.player_id ?? shot?.playerId ?? '').trim();
+      if (!playerId) continue;
+      const result = normalizeShotResult(shot?.result ?? shot?.eventType);
+      const isOnTarget = result === 'goal' || result === 'savedshot' || result.includes('ontarget');
+      if (!isOnTarget) continue;
+      const current = out.get(playerId) ?? { count: 0, xgot: 0, samples: [] };
+      current.count += 1;
+      current.xgot += Number(numOrNull(shot?.xG ?? shot?.expectedGoals) ?? 0);
+      if (current.samples.length < 5) {
+        current.samples.push({
+          result: shot?.result ?? shot?.eventType ?? null,
+          situation: shot?.situation ?? null,
+          shotType: shot?.shotType ?? shot?.bodyPart ?? null,
+        });
+      }
+      out.set(playerId, current);
+    }
+    return out;
+  };
+
+  const ingestRoster = (
+    rosterEntries: Record<string, any>,
+    shots: any[],
+    teamId: string,
+    matchId: string
+  ) => {
+    const onTargetByPlayer = buildOnTargetMap(shots);
+    for (const entry of Object.values(rosterEntries ?? {})) {
+      const playerName = String((entry as any)?.player ?? (entry as any)?.playerName ?? '').trim();
+      if (!playerName) continue;
+      const sourcePlayerId = numOrNull((entry as any)?.player_id ?? (entry as any)?.id);
+      const playerId = sourcePlayerId !== null
+        ? `understat_player_${Math.trunc(sourcePlayerId)}`
+        : `understat_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
+      const onTarget = onTargetByPlayer.get(String((entry as any)?.player_id ?? '')) ?? { count: 0, xgot: 0, samples: [] };
+      const current = playersAgg.get(playerId) ?? {
+        playerId,
+        sourcePlayerId: sourcePlayerId === null ? null : Math.trunc(sourcePlayerId),
+        name: playerName,
+        teamId,
+        positionCode: String((entry as any)?.position ?? 'MF').trim().split(/\s+/)[0] || 'MF',
+        games: new Set<string>(),
+        minutesTotal: 0,
+        shots: 0,
+        shotsOnTarget: 0,
+        goals: 0,
+        xg: 0,
+        xgot: 0,
+        yellowCards: 0,
+        redCards: 0,
+        rawSamples: [],
+      };
+      current.teamId = teamId;
+      current.games.add(matchId);
+      current.minutesTotal += Number(numOrNull((entry as any)?.time) ?? 0);
+      current.shots += Number(numOrNull((entry as any)?.shots) ?? 0);
+      current.shotsOnTarget += Number(onTarget.count ?? 0);
+      current.goals += Number(numOrNull((entry as any)?.goals) ?? 0);
+      current.xg += Number(numOrNull((entry as any)?.xG) ?? 0);
+      current.xgot += Number(onTarget.xgot ?? 0);
+      current.yellowCards += Number(numOrNull((entry as any)?.yellow_card) ?? 0);
+      current.redCards += Number(numOrNull((entry as any)?.red_card) ?? 0);
+      if (current.rawSamples.length < 8) {
+        current.rawSamples.push({
+          minutes: numOrNull((entry as any)?.time),
+          position: (entry as any)?.position ?? null,
+          yellowCard: numOrNull((entry as any)?.yellow_card),
+          redCard: numOrNull((entry as any)?.red_card),
+          onTargetSamples: onTarget.samples,
+        });
+      }
+      playersAgg.set(playerId, current);
+    }
+  };
+
+  for (const match of playedMatches) {
+    const homeTeamId = String(match.home_team_id ?? '').trim();
+    const awayTeamId = String(match.away_team_id ?? '').trim();
+    if (!homeTeamId || !awayTeamId) continue;
+
+    const homeShots = numOrNull(match.home_shots);
+    const awayShots = numOrNull(match.away_shots);
+    if (homeShots !== null) teamShotsTotals.set(homeTeamId, (teamShotsTotals.get(homeTeamId) ?? 0) + homeShots);
+    if (awayShots !== null) teamShotsTotals.set(awayTeamId, (teamShotsTotals.get(awayTeamId) ?? 0) + awayShots);
+
+    const raw = parseRawJson(match.raw_json);
+    const homeRosters = raw?.details?.rosters?.h ?? {};
+    const awayRosters = raw?.details?.rosters?.a ?? {};
+    const homeShotsDetail = Array.isArray(raw?.details?.shots?.h) ? raw.details.shots.h : [];
+    const awayShotsDetail = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : [];
+    if (homeShotsDetail.length > 0 || awayShotsDetail.length > 0) matchesWithShotmap++;
+
+    ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id));
+    ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id));
+  }
+
+  let playersUpdated = 0;
+  for (const [, player] of playersAgg) {
+    const games = Math.max(1, player.games.size);
+    const minutesBase = player.minutesTotal > 0 ? player.minutesTotal : games * 90;
+    const teamShotsTotal = Math.max(1, Number(teamShotsTotals.get(player.teamId) ?? 0));
+
+    await db.upsertPlayer({
+      playerId: player.playerId,
+      sourcePlayerId: player.sourcePlayerId,
+      name: player.name,
+      teamId: player.teamId,
+      positionCode: player.positionCode,
+      avgShotsPerGame: player.shots / games,
+      avgShotsOnTargetPerGame: player.shotsOnTarget / games,
+      avgXGPerGame: player.xg / games,
+      avgXGOTPerGame: player.xgot / games,
+      totalGoals: player.goals,
+      totalShots: player.shots,
+      totalShotsOnTarget: player.shotsOnTarget,
+      minutesTotal: player.minutesTotal,
+      avgMinutes: player.minutesTotal > 0 ? player.minutesTotal / games : 0,
+      shotsPer90: minutesBase > 0 ? (player.shots / minutesBase) * 90 : 0,
+      shotsOnTargetPer90: minutesBase > 0 ? (player.shotsOnTarget / minutesBase) * 90 : 0,
+      xgPer90: minutesBase > 0 ? (player.xg / minutesBase) * 90 : 0,
+      shotOnTargetPct: safePct(player.shotsOnTarget, player.shots),
+      goalConversion: safePct(player.goals, player.shots),
+      yellowCardsTotal: player.yellowCards,
+      redCardsTotal: player.redCards,
+      cardsPer90: minutesBase > 0 ? ((player.yellowCards + player.redCards) / minutesBase) * 90 : 0,
+      shotShareOfTeam: player.shots / teamShotsTotal,
+      gamesPlayed: games,
+      isAvailable: true,
+      statsJson: JSON.stringify({
+        source: 'recompute_from_matches_raw',
+        filters: {
+          competition: normalizedCompetition || null,
+          season: String(options?.season ?? '').trim() || null,
+          fromDate: String(options?.fromDate ?? '').trim() || null,
+          toDate: String(options?.toDate ?? '').trim() || null,
+        },
+        playedMatchesConsidered: playedMatches.length,
+        matchesWithShotmap,
+        totalXG: player.xg,
+        totalXGOT: player.xgot,
+        minutesTotal: player.minutesTotal,
+        yellowCardsTotal: player.yellowCards,
+        redCardsTotal: player.redCards,
+        rawSamples: player.rawSamples.slice(0, 8),
+      }),
+    });
+    playersUpdated++;
+  }
+
+  return {
+    playersMarkedUnavailable,
+    playersDetected: playersAgg.size,
+    playersUpdated,
+    playedMatchesConsidered: playedMatches.length,
+    matchesWithShotmap,
+  };
+}
+
+async function rebuildRefereeDerivedStats(options?: {
+  competition?: string;
+  season?: string;
+  fromDate?: string;
+  toDate?: string;
+  names?: string[];
+}): Promise<{ refereesDetected: number; refereesUpdated: number; matchesConsidered: number }> {
+  const matches = await db.getMatches({
+    competition: String(options?.competition ?? '').trim() || undefined,
+    season: String(options?.season ?? '').trim() || undefined,
+    fromDate: String(options?.fromDate ?? '').trim() || undefined,
+    toDate: String(options?.toDate ?? '').trim() || undefined,
+  });
+  const targetNames = new Set((options?.names ?? []).map((name) => String(name ?? '').trim().toLowerCase()).filter(Boolean));
+  const playedMatches = matches.filter((m: any) =>
+    m.home_goals !== null
+    && m.away_goals !== null
+    && String(m.referee ?? '').trim().length > 0
+    && (targetNames.size === 0 || targetNames.has(String(m.referee ?? '').trim().toLowerCase()))
+  );
+
+  const aggregates = new Map<string, {
+    name: string;
+    games: number;
+    foulsTotal: number;
+    foulsGames: number;
+    yellowTotal: number;
+    yellowGames: number;
+    redTotal: number;
+    redGames: number;
+    yellowSamples: number[];
+  }>();
+
+  for (const match of playedMatches) {
+    const name = String(match.referee ?? '').trim();
+    if (!name) continue;
+    const current = aggregates.get(name) ?? {
+      name,
+      games: 0,
+      foulsTotal: 0,
+      foulsGames: 0,
+      yellowTotal: 0,
+      yellowGames: 0,
+      redTotal: 0,
+      redGames: 0,
+      yellowSamples: [],
+    };
+    current.games += 1;
+
+    const totalFouls =
+      numOrNull(match.home_fouls) !== null && numOrNull(match.away_fouls) !== null
+        ? Number(match.home_fouls) + Number(match.away_fouls)
+        : null;
+    if (totalFouls !== null) {
+      current.foulsTotal += totalFouls;
+      current.foulsGames += 1;
+    }
+
+    const totalYellow =
+      numOrNull(match.home_yellow_cards) !== null && numOrNull(match.away_yellow_cards) !== null
+        ? Number(match.home_yellow_cards) + Number(match.away_yellow_cards)
+        : null;
+    if (totalYellow !== null) {
+      current.yellowTotal += totalYellow;
+      current.yellowGames += 1;
+      current.yellowSamples.push(totalYellow);
+    }
+
+    const totalRed =
+      numOrNull(match.home_red_cards) !== null && numOrNull(match.away_red_cards) !== null
+        ? Number(match.home_red_cards) + Number(match.away_red_cards)
+        : null;
+    if (totalRed !== null) {
+      current.redTotal += totalRed;
+      current.redGames += 1;
+    }
+
+    aggregates.set(name, current);
+  }
+
+  let refereesUpdated = 0;
+  for (const [, referee] of aggregates) {
+    const yellowMean = referee.yellowGames > 0 ? referee.yellowTotal / referee.yellowGames : 0;
+    const variance = referee.yellowSamples.length > 0
+      ? referee.yellowSamples.reduce((sum, sample) => sum + ((sample - yellowMean) ** 2), 0) / referee.yellowSamples.length
+      : 0;
+    await db.upsertReferee({
+      name: referee.name,
+      avgFouls: referee.foulsGames > 0 ? referee.foulsTotal / referee.foulsGames : undefined,
+      avgYellow: referee.yellowGames > 0 ? yellowMean : undefined,
+      avgRed: referee.redGames > 0 ? referee.redTotal / referee.redGames : undefined,
+      games: referee.games,
+      dispersionYellow: Math.sqrt(Math.max(0, variance)),
+    });
+    refereesUpdated++;
+  }
+
+  return {
+    refereesDetected: aggregates.size,
+    refereesUpdated,
+    matchesConsidered: playedMatches.length,
   };
 }
 
@@ -1866,12 +2049,31 @@ async function runUnderstatImport(req: Request, res: Response) {
     );
 
     let teamsRecomputed = 0;
+    let playersMarkedUnavailable = 0;
+    let playersDerivedDetected = 0;
+    let playersDerivedUpdated = 0;
+    let playersDerivedMatches = 0;
+    let playerMatchesWithShotmap = 0;
+    let refereesDerivedDetected = 0;
+    let refereesDerivedUpdated = 0;
+    let refereeMatchesConsidered = 0;
     for (const comp of competitionsNeedingPostProcessing) {
       const teams = await db.getTeams(comp);
       for (const team of teams) {
         await db.recomputeTeamAverages(team.team_id);
         teamsRecomputed++;
       }
+      const playerStats = await rebuildPlayerDerivedStats({ competition: comp });
+      playersMarkedUnavailable += playerStats.playersMarkedUnavailable;
+      playersDerivedDetected += playerStats.playersDetected;
+      playersDerivedUpdated += playerStats.playersUpdated;
+      playersDerivedMatches += playerStats.playedMatchesConsidered;
+      playerMatchesWithShotmap += playerStats.matchesWithShotmap;
+
+      const refereeStats = await rebuildRefereeDerivedStats({ competition: comp });
+      refereesDerivedDetected += refereeStats.refereesDetected;
+      refereesDerivedUpdated += refereeStats.refereesUpdated;
+      refereeMatchesConsidered += refereeStats.matchesConsidered;
     }
 
     const now = new Date();
@@ -1974,6 +2176,14 @@ async function runUnderstatImport(req: Request, res: Response) {
         teamsCreated,
         playersUpdated,
         teamsRecomputed,
+        playersMarkedUnavailable,
+        playersDerivedDetected,
+        playersDerivedUpdated,
+        playersDerivedMatches,
+        playerMatchesWithShotmap,
+        refereesDerivedDetected,
+        refereesDerivedUpdated,
+        refereeMatchesConsidered,
         sofaScoreSupplemental,
         deletedMatchesByCompetition,
         autoModelFit,
