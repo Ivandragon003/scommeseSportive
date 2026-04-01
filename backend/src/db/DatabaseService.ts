@@ -149,6 +149,16 @@ export class DatabaseService {
         total_goals INTEGER DEFAULT 0,
         total_shots INTEGER DEFAULT 0,
         total_shots_on_target INTEGER DEFAULT 0,
+        minutes_total INTEGER DEFAULT 0,
+        avg_minutes REAL DEFAULT 0.0,
+        shots_per90 REAL DEFAULT 0.0,
+        shots_on_target_per90 REAL DEFAULT 0.0,
+        xg_per90 REAL DEFAULT 0.0,
+        shot_on_target_pct REAL DEFAULT 0.0,
+        goal_conversion REAL DEFAULT 0.0,
+        yellow_cards_total INTEGER DEFAULT 0,
+        red_cards_total INTEGER DEFAULT 0,
+        cards_per90 REAL DEFAULT 0.0,
         shot_share_of_team REAL DEFAULT 0.0,
         games_played INTEGER DEFAULT 0,
         is_available INTEGER DEFAULT 1,
@@ -314,6 +324,16 @@ export class DatabaseService {
       { table: 'players', column: 'total_goals', type: 'INTEGER DEFAULT 0' },
       { table: 'players', column: 'total_shots', type: 'INTEGER DEFAULT 0' },
       { table: 'players', column: 'total_shots_on_target', type: 'INTEGER DEFAULT 0' },
+      { table: 'players', column: 'minutes_total', type: 'INTEGER DEFAULT 0' },
+      { table: 'players', column: 'avg_minutes', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'shots_per90', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'shots_on_target_per90', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'xg_per90', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'shot_on_target_pct', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'goal_conversion', type: 'REAL DEFAULT 0.0' },
+      { table: 'players', column: 'yellow_cards_total', type: 'INTEGER DEFAULT 0' },
+      { table: 'players', column: 'red_cards_total', type: 'INTEGER DEFAULT 0' },
+      { table: 'players', column: 'cards_per90', type: 'REAL DEFAULT 0.0' },
       { table: 'players', column: 'source_player_id', type: 'INTEGER' },
       { table: 'players', column: 'stats_json', type: 'TEXT' },
       { table: 'bets', column: 'home_team_name', type: 'TEXT' },
@@ -1578,6 +1598,61 @@ export class DatabaseService {
         return {};
       }
     };
+    const safeRatio = (numerator: number, denominator: number): number | null => {
+      if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return null;
+      return numerator / denominator;
+    };
+    const averageByRows = (total: number, rows: number): number | null => {
+      if (!Number.isFinite(total) || rows <= 0) return null;
+      return total / rows;
+    };
+    const buildRecentWindow = (rows: any[]): Record<string, number | null> => {
+      const count = rows.length;
+      if (count === 0) {
+        return {
+          matches: 0,
+          avgShots: null,
+          avgShotsOT: null,
+          avgXg: null,
+          avgGoalsFor: null,
+          avgGoalsAgainst: null,
+          avgFouls: null,
+          avgYellowCards: null,
+          avgCorners: null,
+        };
+      }
+      const sum = rows.reduce((acc, row) => {
+        acc.shots += Number(row.shots ?? 0);
+        acc.shotsOT += Number(row.shots_ot ?? 0);
+        acc.xg += Number(row.xg ?? 0);
+        acc.goalsFor += Number(row.goals_for ?? 0);
+        acc.goalsAgainst += Number(row.goals_against ?? 0);
+        acc.fouls += Number(row.fouls ?? 0);
+        acc.yellow += Number(row.yellow_cards ?? 0);
+        acc.corners += Number(row.corners ?? 0);
+        return acc;
+      }, {
+        shots: 0,
+        shotsOT: 0,
+        xg: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        fouls: 0,
+        yellow: 0,
+        corners: 0,
+      });
+      return {
+        matches: count,
+        avgShots: sum.shots / count,
+        avgShotsOT: sum.shotsOT / count,
+        avgXg: sum.xg / count,
+        avgGoalsFor: sum.goalsFor / count,
+        avgGoalsAgainst: sum.goalsAgainst / count,
+        avgFouls: sum.fouls / count,
+        avgYellowCards: sum.yellow / count,
+        avgCorners: sum.corners / count,
+      };
+    };
 
     const existingTeam = await this.getTeam(teamId);
 
@@ -1641,6 +1716,60 @@ export class DatabaseService {
       [teamId]
     );
 
+    const homeTotals = await this.get(
+      `SELECT
+        COUNT(*) AS n,
+        SUM(COALESCE(home_shots, 0)) AS total_shots,
+        SUM(COALESCE(home_shots_on_target, 0)) AS total_shots_ot,
+        SUM(COALESCE(home_xg, 0)) AS total_xg,
+        SUM(COALESCE(away_xg, 0)) AS total_xga,
+        SUM(COALESCE(home_fouls, 0)) AS total_fouls_committed,
+        SUM(COALESCE(away_fouls, 0)) AS total_fouls_drawn,
+        SUM(COALESCE(home_yellow_cards, 0)) AS total_yellow,
+        SUM(COALESCE(home_red_cards, 0)) AS total_red,
+        SUM(COALESCE(home_corners, 0)) AS total_corners
+      FROM matches
+      WHERE home_team_id = ? AND home_goals IS NOT NULL`,
+      [teamId]
+    );
+
+    const awayTotals = await this.get(
+      `SELECT
+        COUNT(*) AS n,
+        SUM(COALESCE(away_shots, 0)) AS total_shots,
+        SUM(COALESCE(away_shots_on_target, 0)) AS total_shots_ot,
+        SUM(COALESCE(away_xg, 0)) AS total_xg,
+        SUM(COALESCE(home_xg, 0)) AS total_xga,
+        SUM(COALESCE(away_fouls, 0)) AS total_fouls_committed,
+        SUM(COALESCE(home_fouls, 0)) AS total_fouls_drawn,
+        SUM(COALESCE(away_yellow_cards, 0)) AS total_yellow,
+        SUM(COALESCE(away_red_cards, 0)) AS total_red,
+        SUM(COALESCE(away_corners, 0)) AS total_corners
+      FROM matches
+      WHERE away_team_id = ? AND home_goals IS NOT NULL`,
+      [teamId]
+    );
+
+    const recentRows = await this.all(
+      `SELECT
+        date,
+        CASE WHEN home_team_id = ? THEN home_shots ELSE away_shots END AS shots,
+        CASE WHEN home_team_id = ? THEN home_shots_on_target ELSE away_shots_on_target END AS shots_ot,
+        CASE WHEN home_team_id = ? THEN home_xg ELSE away_xg END AS xg,
+        CASE WHEN home_team_id = ? THEN home_goals ELSE away_goals END AS goals_for,
+        CASE WHEN home_team_id = ? THEN away_goals ELSE home_goals END AS goals_against,
+        CASE WHEN home_team_id = ? THEN home_fouls ELSE away_fouls END AS fouls,
+        CASE WHEN home_team_id = ? THEN home_yellow_cards ELSE away_yellow_cards END AS yellow_cards,
+        CASE WHEN home_team_id = ? THEN home_corners ELSE away_corners END AS corners
+      FROM matches
+      WHERE (home_team_id = ? OR away_team_id = ?)
+        AND home_goals IS NOT NULL
+        AND away_goals IS NOT NULL
+      ORDER BY datetime(date) DESC
+      LIMIT 10`,
+      [teamId, teamId, teamId, teamId, teamId, teamId, teamId, teamId, teamId, teamId]
+    );
+
     const LEAGUE_AVG_SHOTS_CONCEDED = 12.1;
     const homeN = Number(homeRows?.n ?? 0);
     const awayN = Number(awayRows?.n ?? 0);
@@ -1659,10 +1788,44 @@ export class DatabaseService {
     const avgYellow = totalW > 0 ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeW + Number(awayRows?.avg_yellow ?? 1.9) * awayW) / totalW) : 1.9;
     const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
+    const totalShots = Number(homeTotals?.total_shots ?? 0) + Number(awayTotals?.total_shots ?? 0);
+    const totalShotsOnTarget = Number(homeTotals?.total_shots_ot ?? 0) + Number(awayTotals?.total_shots_ot ?? 0);
+    const totalXg = Number(homeTotals?.total_xg ?? 0) + Number(awayTotals?.total_xg ?? 0);
+    const totalXga = Number(homeTotals?.total_xga ?? 0) + Number(awayTotals?.total_xga ?? 0);
+    const totalFoulsCommitted = Number(homeTotals?.total_fouls_committed ?? 0) + Number(awayTotals?.total_fouls_committed ?? 0);
+    const totalFoulsDrawn = Number(homeTotals?.total_fouls_drawn ?? 0) + Number(awayTotals?.total_fouls_drawn ?? 0);
+    const totalYellowCards = Number(homeTotals?.total_yellow ?? 0) + Number(awayTotals?.total_yellow ?? 0);
+    const totalRedCards = Number(homeTotals?.total_red ?? 0) + Number(awayTotals?.total_red ?? 0);
+    const totalCorners = Number(homeTotals?.total_corners ?? 0) + Number(awayTotals?.total_corners ?? 0);
+    const recent5 = buildRecentWindow(recentRows.slice(0, 5));
+    const recent10 = buildRecentWindow(recentRows.slice(0, 10));
     const existingStats = parseJson(existingTeam?.team_stats_json);
     const computedStats = {
       ...(existingStats.computed ?? {}),
       overallSampleSize: totalN,
+      totals: {
+        shots: totalShots,
+        shotsOnTarget: totalShotsOnTarget,
+        xg: totalXg,
+        xga: totalXga,
+        foulsCommitted: totalFoulsCommitted,
+        foulsDrawn: totalFoulsDrawn,
+        yellowCards: totalYellowCards,
+        redCards: totalRedCards,
+        corners: totalCorners,
+      },
+      rates: {
+        shotsPct: safeRatio(totalShotsOnTarget, totalShots),
+        shotsPerMatch: averageByRows(totalShots, totalN),
+        shotsOnTargetPerMatch: averageByRows(totalShotsOnTarget, totalN),
+        xgPerMatch: averageByRows(totalXg, totalN),
+        xgaPerMatch: averageByRows(totalXga, totalN),
+        foulsCommittedPerMatch: averageByRows(totalFoulsCommitted, totalN),
+        foulsDrawnPerMatch: averageByRows(totalFoulsDrawn, totalN),
+        yellowCardsPerMatch: averageByRows(totalYellowCards, totalN),
+        redCardsPerMatch: averageByRows(totalRedCards, totalN),
+        cornersPerMatch: averageByRows(totalCorners, totalN),
+      },
       home: {
         sampleSize: homeN,
         avgPossession: safeAvgOrNull(homeRows?.avg_possession),
@@ -1678,6 +1841,10 @@ export class DatabaseService {
         varShotsOT: safeVarianceOrNull(awayRows?.var_shots_ot),
         varYellowCards: safeVarianceOrNull(awayRows?.var_yellow),
         varFouls: safeVarianceOrNull(awayRows?.var_fouls),
+      },
+      recent: {
+        last5: recent5,
+        last10: recent10,
       },
       updatedAt: new Date().toISOString(),
     };
@@ -1716,6 +1883,18 @@ export class DatabaseService {
         avg_fouls          = :fouls,
         avg_home_corners   = :homeCorners,
         avg_away_corners   = :awayCorners,
+        shots_total        = :shotsTotal,
+        shots_on_target    = :shotsOnTarget,
+        shots_pct          = :shotsPct,
+        shots_per90        = :shotsPer90,
+        sot_per90          = :sotPer90,
+        xg                 = :xgTotal,
+        xga                = :xgaTotal,
+        fouls_committed    = :foulsCommitted,
+        fouls_drawn        = :foulsDrawn,
+        yellow_cards       = :yellowCardsTotal,
+        red_cards          = :redCardsTotal,
+        corners            = :cornersTotal,
         shots_suppression  = :suppression,
         team_stats_json    = :teamStatsJson,
         last_updated       = datetime('now')
@@ -1733,6 +1912,18 @@ export class DatabaseService {
         fouls: avgFouls,
         homeCorners: safeAvgOrNull(homeRows?.avg_corners) ?? 5.5,
         awayCorners: safeAvgOrNull(awayRows?.avg_corners) ?? 4.5,
+        shotsTotal: totalShots,
+        shotsOnTarget: totalShotsOnTarget,
+        shotsPct: safeRatio(totalShotsOnTarget, totalShots),
+        shotsPer90: averageByRows(totalShots, totalN),
+        sotPer90: averageByRows(totalShotsOnTarget, totalN),
+        xgTotal: totalXg,
+        xgaTotal: totalXga,
+        foulsCommitted: totalFoulsCommitted,
+        foulsDrawn: totalFoulsDrawn,
+        yellowCardsTotal: totalYellowCards,
+        redCardsTotal: totalRedCards,
+        cornersTotal: totalCorners,
         suppression: shotsSuppression,
         teamStatsJson,
       }
@@ -1748,6 +1939,8 @@ export class DatabaseService {
         avg_shots_per_game, avg_shots_on_target_per_game,
         avg_xg_per_game, avg_xgot_per_game,
         total_goals, total_shots, total_shots_on_target,
+        minutes_total, avg_minutes, shots_per90, shots_on_target_per90, xg_per90,
+        shot_on_target_pct, goal_conversion, yellow_cards_total, red_cards_total, cards_per90,
         shot_share_of_team, games_played, is_available,
         source_player_id, stats_json, last_updated
       ) VALUES (
@@ -1755,6 +1948,8 @@ export class DatabaseService {
         :avgShots, :avgShotsOT,
         :avgXG, :avgXGOT,
         :totalGoals, :totalShots, :totalShotsOnTarget,
+        :minutesTotal, :avgMinutes, :shotsPer90, :shotsOnTargetPer90, :xgPer90,
+        :shotOnTargetPct, :goalConversion, :yellowCardsTotal, :redCardsTotal, :cardsPer90,
         :shotShare, :games, :available,
         :sourcePlayerId, :statsJson, datetime('now')
       )`,
@@ -1770,6 +1965,16 @@ export class DatabaseService {
         totalGoals: player.totalGoals ?? 0,
         totalShots: player.totalShots ?? 0,
         totalShotsOnTarget: player.totalShotsOnTarget ?? 0,
+        minutesTotal: player.minutesTotal ?? 0,
+        avgMinutes: player.avgMinutes ?? 0,
+        shotsPer90: player.shotsPer90 ?? 0,
+        shotsOnTargetPer90: player.shotsOnTargetPer90 ?? 0,
+        xgPer90: player.xgPer90 ?? 0,
+        shotOnTargetPct: player.shotOnTargetPct ?? 0,
+        goalConversion: player.goalConversion ?? 0,
+        yellowCardsTotal: player.yellowCardsTotal ?? 0,
+        redCardsTotal: player.redCardsTotal ?? 0,
+        cardsPer90: player.cardsPer90 ?? 0,
         shotShare: player.shotShareOfTeam ?? 0,
         games: player.gamesPlayed ?? 0,
         available: player.isAvailable !== false ? 1 : 0,
@@ -1803,8 +2008,11 @@ export class DatabaseService {
 
   async upsertReferee(ref: any): Promise<void> {
     await this.run(
-      `INSERT OR REPLACE INTO referees (referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game, avg_red_cards_per_game, total_games, last_updated)
-      VALUES (:refId, :name, :fouls, :yellow, :red, :games, datetime('now'))`,
+      `INSERT OR REPLACE INTO referees (
+        referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game,
+        avg_red_cards_per_game, total_games, dispersion_yellow, last_updated
+      )
+      VALUES (:refId, :name, :fouls, :yellow, :red, :games, :dispersionYellow, datetime('now'))`,
       {
         refId: ref.refId ?? String(ref.name ?? '').toLowerCase().replace(/\s/g, '_'),
         name: ref.name,
@@ -1812,6 +2020,7 @@ export class DatabaseService {
         yellow: ref.avgYellow ?? 3.8,
         red: ref.avgRed ?? 0.22,
         games: ref.games ?? 0,
+        dispersionYellow: ref.dispersionYellow ?? 12.4,
       }
     );
   }
