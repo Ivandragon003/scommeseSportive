@@ -583,6 +583,37 @@ function formatPrediction(pred: any): any {
       suggestedStakePercent: roundN(Number(o.suggestedStakePercent), 2),
     }));
 
+  const speculativeOpportunities = (pred.speculativeOpportunities ?? [])
+    .filter((o: any) => isFinite(Number(o.bookmakerOdds)) && isFinite(Number(o.ourProbability)))
+    .map((o: any) => ({
+      ...o,
+      ourProbability: roundN(Number(o.ourProbability), 2),
+      impliedProbability: roundN(Number(o.impliedProbability), 2),
+      expectedValue: roundN(Number(o.expectedValue), 2),
+      edge: roundN(Number(o.edge), 2),
+      kellyFraction: roundN(Number(o.kellyFraction), 2),
+      suggestedStakePercent: roundN(Number(o.suggestedStakePercent), 2),
+    }));
+
+  const comboBets = (pred.comboBets ?? [])
+    .filter((c: any) => Array.isArray(c?.legs) && c.legs.length >= 2)
+    .map((c: any) => ({
+      ...c,
+      combinedOdds: roundN(Number(c.combinedOdds), 2),
+      combinedProbability: roundN(Number(c.combinedProbability), 3),
+      combinedEV: roundN(Number(c.combinedEV), 2),
+      kellyFraction: roundN(Number(c.kellyFraction), 3),
+      suggestedStakePercent: roundN(Number(c.suggestedStakePercent), 2),
+      legs: (c.legs ?? []).map((leg: any) => ({
+        ...leg,
+        ourProbability: roundN(Number(leg.ourProbability), 2),
+        impliedProbability: roundN(Number(leg.impliedProbability), 2),
+        expectedValue: roundN(Number(leg.expectedValue), 2),
+        kellyFraction: roundN(Number(leg.kellyFraction), 2),
+        suggestedStakePercent: roundN(Number(leg.suggestedStakePercent), 2),
+      })),
+    }));
+
   const bestValueOpportunity = pred.bestValueOpportunity
     ? {
       ...pred.bestValueOpportunity,
@@ -606,6 +637,7 @@ function formatPrediction(pred: any): any {
     lambdaHome: roundN(lambdaHome, 3),
     lambdaAway: roundN(lambdaAway, 3),
     modelConfidence: Number(pred.modelConfidence ?? 0),
+    richnessScore: Number(pred.richnessScore ?? pred.modelConfidence ?? 0),
     computedAt: pred.computedAt,
 
     goalProbabilities: {
@@ -729,6 +761,8 @@ function formatPrediction(pred: any): any {
 
     playerShotsPredictions,
     valueOpportunities,
+    comboBets,
+    speculativeOpportunities,
     bestValueOpportunity,
     analysisFactors: pred.analysisFactors ?? null,
 

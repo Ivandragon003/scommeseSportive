@@ -2,10 +2,14 @@ import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData }
 import {
   ValueBettingEngine,
   BetOpportunity,
+  ComboBetOpportunity,
   SelectionDiagnostics,
   AdaptiveEngineTuningProfile,
   MarketCategory,
 } from '../models/ValueBettingEngine';
+import {
+  analyzeMarketsEnhanced,
+} from '../models/CombinedBettingFixes';
 import { BacktestingEngine, WalkForwardBacktestResult } from '../models/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
@@ -84,9 +88,12 @@ export interface PredictionResponse {
   awayTeam: string;
   probabilities: FullMatchProbabilities;
   valueOpportunities: BetOpportunity[];
+  comboBets?: ComboBetOpportunity[];
+  speculativeOpportunities?: BetOpportunity[];
   bestValueOpportunity?: BestValueOpportunityExplanation | null;
   analysisFactors?: AnalysisFactors;
   modelConfidence: number;
+  richnessScore?: number;
   computedAt: Date;
 }
 
@@ -122,6 +129,11 @@ export class PredictionService {
   private db: DatabaseService;
   private contextBuilder: PredictionContextBuilder;
   private adaptiveTuningCache: Map<string, { expiresAt: number; profile: AdaptiveEngineTuningProfile }> = new Map();
+  private calibrationCache: Map<string, {
+    expiresAt: number;
+    points: Array<{ x: number; y: number }>;
+    observations: number;
+  }> = new Map();
 
   constructor(db: DatabaseService) {
     this.db = db;
@@ -158,6 +170,108 @@ export class PredictionService {
   private getAdaptiveTuningCacheKey(competition?: string): string {
     const normalized = String(competition ?? '').trim().toLowerCase();
     return normalized || 'all';
+  }
+
+  private getCalibrationCacheKey(competition?: string): string {
+    const normalized = String(competition ?? '').trim().toLowerCase();
+    return normalized || 'all';
+  }
+
+  private invalidateAdaptiveTuning(competition?: string): void {
+    const scopedKey = this.getAdaptiveTuningCacheKey(competition);
+    this.adaptiveTuningCache.delete(scopedKey);
+    if (scopedKey !== 'all') {
+      this.adaptiveTuningCache.delete('all');
+    }
+  }
+
+  private didSelectionWinInRow(selection: string, row: any): boolean | null {
+    const h = Number(row?.home_goals);
+    const a = Number(row?.away_goals);
+    if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
+
+    const total = h + a;
+    const s = String(selection ?? '').trim();
+    const lower = s.toLowerCase();
+
+    if (lower === 'homewin') return h > a;
+    if (lower === 'draw') return h === a;
+    if (lower === 'awaywin') return a > h;
+    if (lower === 'btts') return h > 0 && a > 0;
+    if (lower === 'bttsno') return h === 0 || a === 0;
+    if (lower === 'double_chance_1x') return h >= a;
+    if (lower === 'double_chance_x2') return a >= h;
+    if (lower === 'double_chance_12') return h !== a;
+    if (lower === 'dnb_home') return h > a;
+    if (lower === 'dnb_away') return a > h;
+
+    const mGoal = lower.match(/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/);
+    if (mGoal) {
+      const side = mGoal[1];
+      const line = Number(`${mGoal[2][0]}.${mGoal[2][1]}`);
+      return side === 'over' ? total > line : total <= line;
+    }
+
+    return null;
+  }
+
+  private async getCalibrationProfile(
+    model: DixonColesModel,
+    competition?: string,
+    forceRefresh = false
+  ): Promise<{ calibrationPoints: Array<{ x: number; y: number }>; nObservations: number }> {
+    const cacheKey = this.getCalibrationCacheKey(competition);
+    const now = Date.now();
+    const cached = this.calibrationCache.get(cacheKey);
+    if (!forceRefresh && cached && cached.expiresAt > now) {
+      return { calibrationPoints: cached.points, nObservations: cached.observations };
+    }
+
+    const rows = await this.db.getMatches({ competition });
+    const completedRows = rows
+      .filter((m: any) =>
+        m?.home_goals !== null &&
+        m?.away_goals !== null &&
+        String(m?.home_team_id ?? '').trim() &&
+        String(m?.away_team_id ?? '').trim()
+      )
+      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 450);
+
+    const predicted: number[] = [];
+    const observed: number[] = [];
+    const trackSelections = ['homeWin', 'draw', 'awayWin', 'over25', 'under25', 'btts'];
+
+    for (const row of completedRows) {
+      const probs = model.computeFullProbabilities(
+        String(row.home_team_id),
+        String(row.away_team_id),
+        Number.isFinite(Number(row.home_xg)) ? Number(row.home_xg) : undefined,
+        Number.isFinite(Number(row.away_xg)) ? Number(row.away_xg) : undefined
+      );
+
+      for (const selection of trackSelections) {
+        const raw = Number(probs.flatProbabilities?.[selection]);
+        const outcome = this.didSelectionWinInRow(selection, row);
+        if (!Number.isFinite(raw) || raw <= 0 || raw >= 1 || outcome === null) continue;
+        predicted.push(raw);
+        observed.push(outcome ? 1 : 0);
+      }
+    }
+
+    const { calibrationPoints } = this.engine.fitIsotonicCalibration(predicted, observed);
+    const result = {
+      calibrationPoints,
+      nObservations: predicted.length,
+    };
+
+    this.calibrationCache.set(cacheKey, {
+      expiresAt: now + (6 * 60 * 60 * 1000),
+      points: result.calibrationPoints,
+      observations: result.nObservations,
+    });
+
+    return result;
   }
 
   private probabilityToOdds(probability: number, overround = 0.06): number {
@@ -645,7 +759,24 @@ export class PredictionService {
     const alignedOdds = this.alignOddsKeys(normalizedOdds);
 
     const marketNames = this.getMarketNames(Object.keys(probs.flatProbabilities));
-    const valueOpportunities = this.engine.analyzeMarkets(probs.flatProbabilities, alignedOdds, marketNames);
+    const marketGroups = this.engine.buildMarketGroups(alignedOdds);
+    const calibrationProfile = await this.getCalibrationProfile(
+      model,
+      request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined
+    );
+    const enhanced = analyzeMarketsEnhanced({
+      flatProbabilities: probs.flatProbabilities,
+      marketGroups,
+      marketNames,
+      matchId: request.matchId,
+      richnessScore: Number(context.richnessScore ?? 0.3),
+      calibrationPoints: calibrationProfile.calibrationPoints,
+      nCalibrationObs: calibrationProfile.nObservations,
+      engine: this.engine,
+      maxComboLegs: 3,
+      minCombinedEV: 0.08,
+    });
+    const valueOpportunities = enhanced.allBets;
 
     const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
@@ -658,9 +789,12 @@ export class PredictionService {
       awayTeam: awayTeam?.name || 'Away',
       probabilities: probs,
       valueOpportunities,
+      comboBets: enhanced.comboBets,
+      speculativeOpportunities: enhanced.speculativeBets,
       bestValueOpportunity: bestValue,
       analysisFactors: factors,
       modelConfidence,
+      richnessScore: Number(context.richnessScore ?? 0),
       computedAt: new Date(),
     };
   }
@@ -1152,6 +1286,7 @@ export class PredictionService {
     let skippedNoSnapshot = 0;
     let skippedNoOdds = 0;
     let usedModelFallbackReviews = 0;
+    const touchedCompetitions = new Set<string>();
 
     for (const match of matches) {
       const matchId = String(match?.match_id ?? '').trim();
@@ -1211,9 +1346,23 @@ export class PredictionService {
         learningWeight,
       });
       await this.db.saveLearningReview(matchId, String(match.competition ?? ''), review);
+      touchedCompetitions.add(String(match.competition ?? '').trim());
 
       if (existing) refreshed += 1;
       else created += 1;
+    }
+
+    if (created > 0 || refreshed > 0) {
+      if (touchedCompetitions.size > 0) {
+        for (const competition of touchedCompetitions) {
+          this.invalidateAdaptiveTuning(competition);
+        }
+      } else {
+        this.invalidateAdaptiveTuning(options?.competition);
+      }
+      if (!options?.competition) {
+        this.invalidateAdaptiveTuning(undefined);
+      }
     }
 
     const adaptiveTuning = await this.applyAdaptiveTuning(options?.competition, true);
