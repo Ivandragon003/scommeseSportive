@@ -96,6 +96,12 @@ export class PredictionContextBuilder {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
 
+  private normalizeFormIndex(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0.5;
+    return this.clamp(parsed, 0, 1);
+  }
+
   private parseJson(value: unknown): Record<string, any> | null {
     if (typeof value !== 'string' || value.trim().length === 0) return null;
     try {
@@ -266,20 +272,25 @@ export class PredictionContextBuilder {
 
   build(params: PredictionContextBuildParams): PredictionContextBuildResult {
     const { request, homeTeam, awayTeam, referee, homePlayers, awayPlayers } = params;
+    const normalizedRequest: ContextualPredictionInput = {
+      ...request,
+      homeFormIndex: this.normalizeFormIndex(request.homeFormIndex),
+      awayFormIndex: this.normalizeFormIndex(request.awayFormIndex),
+    };
     const competitiveness =
-      request.competitiveness !== undefined
-        ? this.clamp(Number(request.competitiveness), 0, 1)
+      normalizedRequest.competitiveness !== undefined
+        ? this.clamp(Number(normalizedRequest.competitiveness), 0, 1)
         : this.clamp(
             0.30 +
-            (request.isDerby ? 0.35 : 0) +
-            (request.isHighStakes ? 0.20 : 0),
+            (normalizedRequest.isDerby ? 0.35 : 0) +
+            (normalizedRequest.isHighStakes ? 0.20 : 0),
             0,
             1,
           );
 
     const homeTeamStats = homeTeam ? this.buildTeamStats(homeTeam, 'home') : undefined;
     const awayTeamStats = awayTeam ? this.buildTeamStats(awayTeam, 'away') : undefined;
-    const contextAdjustments = this.buildContextAdjustments(request, competitiveness);
+    const contextAdjustments = this.buildContextAdjustments(normalizedRequest, competitiveness);
 
     const refereeStats = referee
       ? {
@@ -324,7 +335,7 @@ export class PredictionContextBuilder {
         homePlayers: homePlayers.map((player) => this.toPlayerData(player)),
         awayPlayers: awayPlayers.map((player) => this.toPlayerData(player)),
         competitiveness,
-        isDerby: Boolean(request.isDerby),
+        isDerby: Boolean(normalizedRequest.isDerby),
         contextAdjustments,
       },
       competitiveness,

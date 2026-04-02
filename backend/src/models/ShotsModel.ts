@@ -1,3 +1,8 @@
+import {
+  negBinPMF as computeNegBinPMF,
+  poissonPMF as computePoissonPMF,
+} from './MathUtils';
+
 /**
  * ShotsModel — Modello Tiri a Livello Squadra e Giocatore
  *
@@ -147,21 +152,11 @@ export interface PlayerShotPrediction {
 export class ShotsModel {
 
   private poissonPMF(k: number, lambda: number): number {
-    if (lambda <= 0) return k === 0 ? 1 : 0;
-    let logP = -lambda + k * Math.log(lambda);
-    for (let i = 1; i <= k; i++) logP -= Math.log(i);
-    return isFinite(logP) ? Math.exp(logP) : 0;
+    return computePoissonPMF(k, lambda);
   }
 
   private negBinPMF(k: number, mu: number, r: number): number {
-    if (r <= 0 || !isFinite(r)) return this.poissonPMF(k, mu);
-    if (mu <= 0) return k === 0 ? 1 : 0;
-    const p = r / (r + mu);
-    let logP = 0;
-    // log C(k+r-1, k) = log Gamma(k+r) - log Gamma(r) - log(k!)
-    for (let i = 0; i < k; i++) logP += Math.log(r + i) - Math.log(i + 1);
-    logP += r * Math.log(p) + k * Math.log(1 - p);
-    return isFinite(logP) ? Math.exp(logP) : 0;
+    return computeNegBinPMF(k, mu, r);
   }
 
   /**

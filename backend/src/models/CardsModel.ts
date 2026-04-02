@@ -1,3 +1,9 @@
+import {
+  negBinOver as computeNegBinOver,
+  negBinPMF as computeNegBinPMF,
+  poissonPMF as computePoissonPMF,
+} from './MathUtils';
+
 /**
  * CardsModel — Modello Cartellini con Distribuzione Binomiale Negativa
  * Versione migliorata
@@ -100,74 +106,15 @@ export class CardsModel {
   // ==================== FUNZIONI MATEMATICHE DI BASE ====================
 
   /**
-   * Log-Gamma via Lanczos (g=7, 9 coeff.) — precisione ~15 cifre decimali.
-   * Sostituisce la precedente ricorsione+Stirling che era imprecisa per x < 5.
-   */
-  private logGamma(x: number): number {
-    if (x <= 0) return Infinity;
-    if (x < 0.5) {
-      return Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - this.logGamma(1 - x);
-    }
-    const g = 7;
-    const c = [
-      0.99999999999980993,
-      676.5203681218851,
-      -1259.1392167224028,
-      771.32342877765313,
-      -176.61502916214059,
-      12.507343278686905,
-      -0.13857109526572012,
-      9.9843695780195716e-6,
-      1.5056327351493116e-7,
-    ];
-    let xr = x - 1;
-    let ag = c[0];
-    for (let i = 1; i < g + 2; i++) ag += c[i] / (xr + i);
-    const t = xr + g + 0.5;
-    return 0.5 * Math.log(2 * Math.PI) + (xr + 0.5) * Math.log(t) - t + Math.log(ag);
-  }
-
-  /**
-   * Log-fattoriale con lookup table per n <= 20 (performance + precisione).
-   */
-  private readonly LOG_FACT: number[] = (() => {
-    const t = [0];
-    for (let i = 1; i <= 20; i++) t.push(t[i - 1] + Math.log(i));
-    return t;
-  })();
-
-  private logFactorial(n: number): number {
-    if (n <= 20) return this.LOG_FACT[n];
-    return this.logGamma(n + 1);
-  }
-
-  /**
    * PMF della Binomiale Negativa in log-space.
    * MIGLIORAMENTO: usa logGamma Lanczos (più preciso) e logFactorial con lookup.
    */
   private negBinPMF(k: number, mu: number, r: number): number {
-    if (mu <= 0) return k === 0 ? 1 : 0;
-
-    // Degenerazione a Poisson se r >> mu (quasi-Poisson)
-    if (r > 500) return this.poissonPMF(k, mu);
-
-    const p = r / (r + mu);
-    const logProb =
-      this.logGamma(k + r) -
-      this.logFactorial(k) -
-      this.logGamma(r) +
-      r * Math.log(p) +
-      k * Math.log(1 - p);
-
-    const val = Math.exp(logProb);
-    return isFinite(val) ? Math.max(0, val) : 0;
+    return computeNegBinPMF(k, mu, r);
   }
 
   private poissonPMF(k: number, lambda: number): number {
-    if (lambda <= 0) return k === 0 ? 1 : 0;
-    let logP = -lambda + k * Math.log(lambda);
-    for (let i = 1; i <= k; i++) logP -= Math.log(i);
-    return isFinite(logP) ? Math.exp(logP) : 0;
+    return computePoissonPMF(k, lambda);
   }
 
   /**
@@ -187,7 +134,7 @@ export class CardsModel {
    * P(X > threshold).
    */
   private negBinOver(threshold: number, mu: number, r: number): number {
-    return Math.max(0, Math.min(1, 1 - this.negBinCDF(Math.floor(threshold), mu, r)));
+    return computeNegBinOver(threshold, mu, r);
   }
 
   /**
@@ -504,47 +451,8 @@ export class CardsModel {
  */
 export class FoulsModel {
 
-  private logGamma(x: number): number {
-    if (x <= 0) return Infinity;
-    if (x < 0.5) {
-      return Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - this.logGamma(1 - x);
-    }
-    const g = 7;
-    const c = [
-      0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-      771.32342877765313, -176.61502916214059, 12.507343278686905,
-      -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
-    ];
-    let xr = x - 1;
-    let ag = c[0];
-    for (let i = 1; i < g + 2; i++) ag += c[i] / (xr + i);
-    const t = xr + g + 0.5;
-    return 0.5 * Math.log(2 * Math.PI) + (xr + 0.5) * Math.log(t) - t + Math.log(ag);
-  }
-
-  private logFactorial(n: number): number {
-    if (n <= 1) return 0;
-    let r = 0;
-    for (let i = 2; i <= n; i++) r += Math.log(i);
-    return r;
-  }
-
   private negBinPMF(k: number, mu: number, r: number): number {
-    if (mu <= 0) return k === 0 ? 1 : 0;
-    if (r > 500) {
-      // Approssimazione Poisson
-      let logP = -mu + k * Math.log(mu);
-      for (let i = 1; i <= k; i++) logP -= Math.log(i);
-      return isFinite(logP) ? Math.exp(logP) : 0;
-    }
-    const p = r / (r + mu);
-    const logP =
-      this.logGamma(k + r) -
-      this.logFactorial(k) -
-      this.logGamma(r) +
-      r * Math.log(p) +
-      k * Math.log(1 - p);
-    return isFinite(logP) ? Math.max(0, Math.exp(logP)) : 0;
+    return computeNegBinPMF(k, mu, r);
   }
 
   predictFouls(

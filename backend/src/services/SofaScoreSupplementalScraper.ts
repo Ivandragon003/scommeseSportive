@@ -116,6 +116,46 @@ export class SofaScoreSupplementalScraper {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  private static pickFirstNumber(...candidates: unknown[]): number | null {
+    for (const candidate of candidates) {
+      const n = SofaScoreSupplementalScraper.toNumber(candidate);
+      if (n !== null) return n;
+    }
+    return null;
+  }
+
+  private static extractRefereeAvgFouls(referee: any, games: number | null): number | null {
+    const explicitAverage = SofaScoreSupplementalScraper.pickFirstNumber(
+      referee?.foulsPerGame,
+      referee?.avgFouls,
+      referee?.averageFouls,
+      referee?.foulsAverage,
+      referee?.fouls_per_game,
+      referee?.statistics?.foulsPerGame,
+      referee?.statistics?.avgFouls,
+      referee?.stats?.foulsPerGame
+    );
+    if (explicitAverage !== null) return explicitAverage;
+
+    const rawFouls = SofaScoreSupplementalScraper.pickFirstNumber(
+      referee?.fouls,
+      referee?.foulsCalled,
+      referee?.foulsWon,
+      referee?.totalFouls,
+      referee?.statistics?.fouls,
+      referee?.stats?.fouls
+    );
+    if (rawFouls === null) return null;
+
+    if (games && games > 0 && rawFouls > 60) {
+      return rawFouls / games;
+    }
+    if (rawFouls >= 8 && rawFouls <= 50) {
+      return rawFouls;
+    }
+    return null;
+  }
+
   private static buildRefereeStats(referee: any): SofaScoreRefereeStats | null {
     const name = String(referee?.name ?? '').trim();
     if (!name) return null;
@@ -131,7 +171,7 @@ export class SofaScoreSupplementalScraper {
       name,
       avgYellow: games && games > 0 && yellowCards !== null ? yellowCards / games : null,
       avgRed: games && games > 0 ? totalRedDismissals / games : null,
-      avgFouls: null,
+      avgFouls: SofaScoreSupplementalScraper.extractRefereeAvgFouls(referee, games),
       games,
     };
   }

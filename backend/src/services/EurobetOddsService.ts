@@ -83,6 +83,7 @@ export class EurobetOddsService {
   private static readonly NAVIGATION_RETRIES = 3;
   private static readonly DEFAULT_EVENT_CONCURRENCY = 2;
   private static readonly DEFAULT_PROFILE_EVENT_CONCURRENCY = 1;
+  private static readonly PERSISTENT_BOOT_TIMEOUT_MS = 120_000;
   private static persistentContextPromise: Promise<BrowserContext> | null = null;
   private static persistentWarmupPromise: Promise<void> | null = null;
   private static processHooksRegistered = false;
@@ -278,26 +279,50 @@ export class EurobetOddsService {
 
   private async ensureContext(): Promise<BrowserContext> {
     if (this.isPersistentProfileEnabled()) {
-      if (!EurobetOddsService.persistentContextPromise) {
-        EurobetOddsService.persistentContextPromise = this.createPersistentContext().catch((error) => {
-          EurobetOddsService.persistentContextPromise = null;
-          throw error;
-        });
+      let lastError: unknown = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          if (!EurobetOddsService.persistentContextPromise) {
+            EurobetOddsService.persistentContextPromise = this.createPersistentContext().catch((error) => {
+              this.resetPersistentContextState();
+              throw error;
+            });
+          }
+
+          this.context = await this.awaitWithTimeout(
+            EurobetOddsService.persistentContextPromise,
+            EurobetOddsService.PERSISTENT_BOOT_TIMEOUT_MS,
+            'inizializzazione context persistente'
+          );
+          this.ownsContext = false;
+          this.ownsBrowser = false;
+
+          if (!EurobetOddsService.persistentWarmupPromise) {
+            EurobetOddsService.persistentWarmupPromise = this.warmPersistentContext(this.context).catch((error) => {
+              this.resetPersistentContextState();
+              throw error;
+            });
+          }
+          await this.awaitWithTimeout(
+            EurobetOddsService.persistentWarmupPromise,
+            EurobetOddsService.PERSISTENT_BOOT_TIMEOUT_MS,
+            'warmup context persistente'
+          );
+
+          return this.context;
+        } catch (error) {
+          lastError = error;
+          this.resetPersistentContextState();
+          if (attempt < 2) {
+            console.warn('[Eurobet] Context persistente non disponibile, nuovo tentativo in corso...');
+          }
+        }
       }
 
-      this.context = await EurobetOddsService.persistentContextPromise;
-      this.ownsContext = false;
-      this.ownsBrowser = false;
-
-      if (!EurobetOddsService.persistentWarmupPromise) {
-        EurobetOddsService.persistentWarmupPromise = this.warmPersistentContext(this.context).catch((error) => {
-          EurobetOddsService.persistentWarmupPromise = null;
-          throw error;
-        });
-      }
-      await EurobetOddsService.persistentWarmupPromise;
-
-      return this.context;
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('Impossibile inizializzare il context persistente Eurobet');
     }
 
     if (!this.browser) {
@@ -311,6 +336,39 @@ export class EurobetOddsService {
     }
 
     return this.context;
+  }
+
+  private resetPersistentContextState(): void {
+    const stalePromise = EurobetOddsService.persistentContextPromise;
+    EurobetOddsService.persistentWarmupPromise = null;
+    EurobetOddsService.persistentContextPromise = null;
+    if (stalePromise) {
+      void stalePromise
+        .then((context) => context.close().catch(() => undefined))
+        .catch(() => undefined);
+    }
+  }
+
+  private async awaitWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    operation: string
+  ): Promise<T> {
+    return await new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`[Eurobet] Timeout durante ${operation}`));
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
   }
 
   private async withPage<T>(task: (page: Page) => Promise<T>): Promise<T> {

@@ -1,3 +1,8 @@
+import {
+  negBinOver as computeNegBinOver,
+  negBinPMF as computeNegBinPMF,
+} from './MathUtils';
+
 /**
  * MODELLI STATISTICI SPECIALIZZATI — Versione migliorata
  * =========================================================
@@ -156,75 +161,11 @@ export class SpecializedModels {
   // ==================== BINOMIALE NEGATIVA ====================
 
   /**
-   * Log-Gamma via approssimazione di Lanczos a 9 coefficienti.
-   * Precisione: ~15 cifre significative per x > 0.
-   * Significativamente più accurata di Stirling per x < 5.
-   */
-  private logGamma(x: number): number {
-    if (x <= 0) return Infinity;
-
-    // Ricorsione per x piccolo: logGamma(x) = logGamma(x+1) - log(x)
-    if (x < 0.5) {
-      return Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - this.logGamma(1 - x);
-    }
-
-    // Coefficienti di Lanczos (g=7, n=9) — Standard di riferimento DLMF
-    const g = 7;
-    const c = [
-      0.99999999999980993,
-      676.5203681218851,
-      -1259.1392167224028,
-      771.32342877765313,
-      -176.61502916214059,
-      12.507343278686905,
-      -0.13857109526572012,
-      9.9843695780195716e-6,
-      1.5056327351493116e-7,
-    ];
-
-    let xr = x - 1;
-    let ag = c[0];
-    for (let i = 1; i < g + 2; i++) ag += c[i] / (xr + i);
-    const t = xr + g + 0.5;
-    return 0.5 * Math.log(2 * Math.PI) + (xr + 0.5) * Math.log(t) - t + Math.log(ag);
-  }
-
-  /**
-   * Log-fattoriale esatto per n interi, Lanczos per n grandi.
-   * Usa una piccola lookup table per n <= 20 (performance + precisione).
-   */
-  private readonly LOG_FACT_TABLE = (() => {
-    const t = [0]; // log(0!) = 0
-    for (let i = 1; i <= 20; i++) t.push(t[i - 1] + Math.log(i));
-    return t;
-  })();
-
-  private logFactorial(n: number): number {
-    if (n < 0) return Infinity;
-    if (n <= 20) return this.LOG_FACT_TABLE[n];
-    return this.logGamma(n + 1);
-  }
-
-  /**
    * PMF della Binomiale Negativa via log-space per stabilità numerica.
    * Parametrizzazione (mu, r): E[X]=mu, Var[X]=mu+mu²/r.
    */
   negBinPMF(k: number, mu: number, r: number): number {
-    if (k < 0 || !isFinite(mu) || !isFinite(r) || mu <= 0 || r <= 0) {
-      return k === 0 ? 1 : 0;
-    }
-
-    // logP = logGamma(k+r) - logFact(k) - logGamma(r) + r*log(r/(r+mu)) + k*log(mu/(r+mu))
-    const logP = (
-      this.logGamma(k + r) -
-      this.logFactorial(k) -
-      this.logGamma(r) +
-      r * Math.log(r / (r + mu)) +
-      k * Math.log(mu / (r + mu))
-    );
-
-    const result = Math.exp(logP);
-    return isFinite(result) ? Math.max(0, result) : 0;
+    return computeNegBinPMF(k, mu, r);
   }
 
   /**
@@ -250,11 +191,7 @@ export class SpecializedModels {
    * (threshold=2 → P(X>2) = P(X>=3); threshold=2.5 → P(X>=3)).
    */
   negBinOver(threshold: number, mu: number, r: number): number {
-    // BUG FIX: per threshold=3 (linea intera), floor=3 -> P(X>3) = P(X>=4)
-    // Questo è corretto, e DixonColesModel usa chiavi tipo "11.5" o "12.0"
-    // Ma per sicurezza normalizziamo il comportamento delle linee intere.
-    const k = Math.floor(threshold);
-    return Math.max(0, Math.min(1, 1 - this.negBinCDF(k, mu, r)));
+    return computeNegBinOver(threshold, mu, r);
   }
 
   /**

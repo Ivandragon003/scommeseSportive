@@ -22,18 +22,21 @@
  *
  * 6. evaluateBet: gestisce tutti i mercati inclusi tiri, gialli, falli.
  *    Per i mercati statistici, se il dato reale non è disponibile in MatchData,
- *    la bet viene marcata come non valutabile (return false = considerata persa
- *    dal punto di vista della simulazione → penalizzazione conservativa).
+ *    la bet viene marcata come non valutabile (VOID) e separata dalle metriche
+ *    di ROI/win-rate per evitare penalizzazioni silenziose nel backtest.
  */
 
 import { DixonColesModel, MatchData } from './DixonColesModel';
-import { ValueBettingEngine, BetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from './ValueBettingEngine';
+import { ValueBettingEngine, BetOpportunity, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from './ValueBettingEngine';
+import { evaluateComboBet } from './CombinedBettingFixes';
 
 export interface BacktestResult {
   totalMatches: number;
   trainingMatches: number;
   testMatches: number;
   betsPlaced: number;
+  voidedBets: number;
+  unevaluableRate: number;
   betsWon: number;
   totalStaked: number;
   totalReturn: number;
@@ -52,10 +55,16 @@ export interface BacktestResult {
   recoveryFactor: number;
   profitFactor: number;
   marketBreakdown: Record<string, MarketStats>;
+  marketUnevaluableBreakdown: Record<string, {
+    attempted: number;
+    voided: number;
+    unevaluableRate: number;
+  }>;
 }
 
 export interface MarketStats {
   bets: number;
+  voided: number;
   won: number;
   staked: number;
   returned: number;
@@ -63,6 +72,7 @@ export interface MarketStats {
   winRate: number;
   avgOdds: number;
   avgEV: number;
+  unevaluableRate: number;
 }
 
 export interface CalibrationBucket {
@@ -173,6 +183,8 @@ export class BacktestingEngine {
     this.model.fitModel(trainMatches, teams);
 
     const bets: TestBet[] = [];
+    const attemptedByCategory: Record<string, number> = {};
+    const voidedByCategory: Record<string, number> = {};
     let bankroll = this.INITIAL_BANKROLL;
     const equityCurve: EquityPoint[] = [
       { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
@@ -198,8 +210,16 @@ export class BacktestingEngine {
       for (const opp of selected) {
         const stakeAmount = (bankroll * opp.suggestedStakePercent) / 100;
         if (stakeAmount > bankroll * 0.04 || stakeAmount < 0.50) continue;
+        const categoryKey = String(opp.marketCategory);
+        attemptedByCategory[categoryKey] = (attemptedByCategory[categoryKey] ?? 0) + 1;
 
-        const won          = this.evaluateBet(opp.selection, match);
+        const outcome = this.evaluateBetNullable(opp.selection, match);
+        if (outcome === null) {
+          voidedByCategory[categoryKey] = (voidedByCategory[categoryKey] ?? 0) + 1;
+          continue;
+        }
+
+        const won = outcome;
         const returnAmount = won ? stakeAmount * opp.bookmakerOdds : 0;
         const profit       = returnAmount - stakeAmount;
 
@@ -227,7 +247,23 @@ export class BacktestingEngine {
       });
     }
 
-    return this.computeMetrics(bets, equityCurve, trainMatches.length, testMatches.length);
+    const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
+    if (totalVoided > 0) {
+      const details = Object.entries(voidedByCategory)
+        .sort((a, b) => b[1] - a[1])
+        .map(([category, count]) => `${category}:${count}`)
+        .join(', ');
+      console.warn(`[Backtest] Bet non valutabili (VOID): ${totalVoided} | breakdown: ${details}`);
+    }
+
+    return this.computeMetrics(
+      bets,
+      equityCurve,
+      trainMatches.length,
+      testMatches.length,
+      attemptedByCategory,
+      voidedByCategory
+    );
   }
 
   runBacktest(
@@ -541,22 +577,68 @@ export class BacktestingEngine {
       if (actual === undefined) return false;
       return side === 'over' ? actual > line : actual <= line;
     }
-    // Dato non disponibile → conservativamente considerata persa
+    // Selezione non riconosciuta o dato non interpretabile dal parser corrente.
     return false;
+  }
+
+  private evaluateBetNullable(selection: string, match: MatchData): boolean | null {
+    const s = String(selection ?? '').toLowerCase();
+    const requiresShots =
+      /^shots(over|under)\d+$/i.test(s) ||
+      /^shotshome(over|under)\d+$/i.test(s) ||
+      /^shotsaway(over|under)\d+$/i.test(s) ||
+      /^shots_total_(over|under)_/i.test(s) ||
+      /^shots_home_(over|under)_/i.test(s) ||
+      /^shots_away_(over|under)_/i.test(s);
+    const requiresSot =
+      /^shotsot(over|under)\d+$/i.test(s) ||
+      /^sot_total_(over|under)_/i.test(s);
+    const requiresYellow =
+      /^yellow(over|under)\d+$/i.test(s) ||
+      /^cards_total_(over|under)_/i.test(s) ||
+      /^yellow_(over|under)_/i.test(s);
+    const requiresFouls =
+      /^fouls(over|under)\d+$/i.test(s) ||
+      /^fouls_(over|under)_/i.test(s);
+
+    if (requiresShots && (match.homeTotalShots === undefined || match.awayTotalShots === undefined)) return null;
+    if (requiresSot && (match.homeShotsOnTarget === undefined || match.awayShotsOnTarget === undefined)) return null;
+    if (requiresYellow && (match.homeYellowCards === undefined || match.awayYellowCards === undefined)) return null;
+    if (requiresFouls && (match.homeFouls === undefined || match.awayFouls === undefined)) return null;
+
+    return this.evaluateBet(selection, match);
+  }
+
+  evaluateComboBetOpportunity(
+    combo: ComboBetOpportunity,
+    matchResults: Record<string, MatchData>
+  ): {
+    won: boolean;
+    allLegsEvaluable: boolean;
+    legsResults: Array<{ selection: string; won: boolean | null }>;
+  } {
+    return evaluateComboBet(
+      combo,
+      matchResults,
+      (selection, matchData) => this.evaluateBetNullable(selection, matchData as MatchData)
+    );
   }
 
   // ==================== METRICHE ====================
 
   private computeMetrics(
     bets: TestBet[], equity: EquityPoint[],
-    trainCount: number, testCount: number
+    trainCount: number, testCount: number,
+    attemptedByCategory: Record<string, number> = {},
+    voidedByCategory: Record<string, number> = {},
   ): BacktestResult {
-    if (bets.length === 0) return this.emptyResult(trainCount, testCount);
-
     const won         = bets.filter(b => b.won);
     const totalStaked = bets.reduce((s,b) => s+b.stake, 0);
     const totalReturn = bets.reduce((s,b) => s+(b.won?b.stake*b.odds:0), 0);
     const netProfit   = totalReturn - totalStaked;
+    const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
+    const totalAttempts = bets.length + totalVoided;
+    const unevaluableRate = totalAttempts > 0 ? (totalVoided / totalAttempts) * 100 : 0;
 
     // Market breakdown per categoria
     const breakdown: Record<string, { bets:number; won:number; staked:number; returned:number; oddsSum:number; evSum:number }> = {};
@@ -570,10 +652,24 @@ export class BacktestingEngine {
       breakdown[cat].oddsSum  += bet.odds;
       breakdown[cat].evSum    += bet.ev;
     }
+
+    const categories = new Set<string>([
+      ...Object.keys(breakdown),
+      ...Object.keys(attemptedByCategory),
+      ...Object.keys(voidedByCategory),
+    ]);
+
+    const marketUnevaluableBreakdown: BacktestResult['marketUnevaluableBreakdown'] = {};
     const marketBreakdown: Record<string, MarketStats> = {};
-    for (const [cat, d] of Object.entries(breakdown)) {
+    for (const cat of categories) {
+      const d = breakdown[cat] ?? { bets: 0, won: 0, staked: 0, returned: 0, oddsSum: 0, evSum: 0 };
+      const voided = Number(voidedByCategory[cat] ?? 0);
+      const attempted = Math.max(Number(attemptedByCategory[cat] ?? 0), d.bets + voided);
+      const categoryUnevaluableRate = attempted > 0 ? (voided / attempted) * 100 : 0;
+
       marketBreakdown[cat] = {
         bets:     d.bets,
+        voided,
         won:      d.won,
         staked:   d.staked,
         returned: d.returned,
@@ -581,6 +677,12 @@ export class BacktestingEngine {
         winRate:  d.bets   > 0 ? (d.won / d.bets) * 100 : 0,
         avgOdds:  d.bets   > 0 ? d.oddsSum / d.bets : 0,
         avgEV:    d.bets   > 0 ? (d.evSum   / d.bets) * 100 : 0,
+        unevaluableRate: categoryUnevaluableRate,
+      };
+      marketUnevaluableBreakdown[cat] = {
+        attempted,
+        voided,
+        unevaluableRate: categoryUnevaluableRate,
       };
     }
 
@@ -602,12 +704,16 @@ export class BacktestingEngine {
       if (dd > maxDD) maxDD = dd;
     }
 
-    const logLoss = -bets.reduce((s,b) => {
-      const p = b.ourProb, y = b.won ? 1 : 0;
-      return s + y*Math.log(Math.max(1e-10,p)) + (1-y)*Math.log(Math.max(1e-10,1-p));
-    }, 0) / bets.length;
+    const logLoss = bets.length > 0
+      ? -bets.reduce((s,b) => {
+        const p = b.ourProb, y = b.won ? 1 : 0;
+        return s + y*Math.log(Math.max(1e-10,p)) + (1-y)*Math.log(Math.max(1e-10,1-p));
+      }, 0) / bets.length
+      : 0;
 
-    const brierScore   = bets.reduce((s,b) => s+(b.ourProb-(b.won?1:0))**2, 0) / bets.length;
+    const brierScore = bets.length > 0
+      ? bets.reduce((s,b) => s+(b.ourProb-(b.won?1:0))**2, 0) / bets.length
+      : 0;
     const grossWin     = bets.filter(b=>b.profit>0) .reduce((s,b)=>s+b.profit, 0);
     const grossLoss    = Math.abs(bets.filter(b=>b.profit<=0).reduce((s,b)=>s+b.profit, 0));
     const profitFactor = grossLoss>0 ? grossWin/grossLoss : grossWin>0 ? Infinity : 0;
@@ -617,12 +723,14 @@ export class BacktestingEngine {
       trainingMatches: trainCount,
       testMatches:     testCount,
       betsPlaced:      bets.length,
+      voidedBets:      totalVoided,
+      unevaluableRate,
       betsWon:         won.length,
       totalStaked, totalReturn, netProfit,
       roi:          totalStaked>0 ? (netProfit/totalStaked)*100 : 0,
       winRate:      bets.length>0  ? (won.length/bets.length)*100 : 0,
-      averageOdds:  bets.reduce((s,b)=>s+b.odds,0)/bets.length,
-      averageEV:    bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100,
+      averageOdds:  bets.length > 0 ? bets.reduce((s,b)=>s+b.odds,0)/bets.length : 0,
+      averageEV:    bets.length > 0 ? bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100 : 0,
       brierScore, logLoss,
       calibration:  this.computeCalibration(bets),
       equityCurve:  equity,
@@ -630,7 +738,9 @@ export class BacktestingEngine {
       sharpeRatio:  sharpe,
       maxDrawdown:  maxDD*100,
       recoveryFactor: maxDD>0 ? netProfit/(maxDD*this.INITIAL_BANKROLL) : 0,
-      profitFactor, marketBreakdown,
+      profitFactor,
+      marketBreakdown,
+      marketUnevaluableBreakdown,
     };
   }
 
@@ -671,9 +781,9 @@ export class BacktestingEngine {
   private emptyResult(trainCount: number, testCount: number): BacktestResult {
     return {
       totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
-      betsPlaced:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
+      betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
       roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0,
-      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{},
+      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, marketUnevaluableBreakdown:{},
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
     };
   }
