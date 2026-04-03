@@ -1,10 +1,9 @@
-import { PredictionService } from './services/PredictionService';
-import { DatabaseService } from './db/DatabaseService';
+import {
+    alignOddsKeysInternal,
+    enrichFlatProbabilitiesInternal,
+} from './services/PredictionService';
 
 async function verify() {
-    const db = new DatabaseService();
-    const svc = new PredictionService(db);
-
     console.log('--- Final Refined Verification ---');
     try {
         const odds = {
@@ -15,7 +14,7 @@ async function verify() {
         };
 
         console.log('Testing alignOddsKeys with domain mapping...');
-        const aligned = (svc as any).alignOddsKeys(odds);
+        const aligned = alignOddsKeysInternal(odds);
         console.log('Aligned keys:', Object.keys(aligned));
 
         const expectedKeys = ['shotsOver235', 'shotsHomeOver115', 'shotsOTOver75', 'yellowOver35'];
@@ -34,7 +33,7 @@ async function verify() {
             'awayWin': 0.30,
             'btts': 0.52
         };
-        (svc as any).enrichFlatProbabilities(flatProbs);
+        enrichFlatProbabilitiesInternal(flatProbs);
         console.log('Enriched keys:', Object.keys(flatProbs));
 
         if (flatProbs.dnb_home > 0 && flatProbs.double_chance_1x > 0) {

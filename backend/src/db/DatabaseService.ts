@@ -4,6 +4,7 @@ type SqlArgs = Record<string, any> | any[];
 
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
+  private static optionalColumnsCheckPromise: Promise<void> | null = null;
   private initPromise: Promise<void>;
   private schedulerRunRetention: number;
 
@@ -48,6 +49,25 @@ export class DatabaseService {
     return this.db.execute({ sql, args });
   }
 
+  private async executeBatch(statements: string[], skipInit = false): Promise<void> {
+    if (!skipInit) await this.initPromise;
+    const clientWithBatch = this.db as ReturnType<typeof createClient> & {
+      batch?: (stmts: string[]) => Promise<unknown>;
+    };
+
+    if (typeof clientWithBatch.batch === 'function') {
+      try {
+        await clientWithBatch.batch(statements);
+        return;
+      } catch {
+      }
+    }
+
+    for (const statement of statements) {
+      await this.execute(statement, undefined, true);
+    }
+  }
+
   private async run(sql: string, args?: SqlArgs): Promise<void> {
     await this.execute(sql, args);
   }
@@ -65,7 +85,7 @@ export class DatabaseService {
   private async initialize(): Promise<void> {
     await this.execute('PRAGMA foreign_keys = ON', undefined, true);
     await this.initSchema();
-    await this.ensureOptionalColumns();
+    await this.ensureOptionalColumnsOnce();
   }
 
   private parseJsonObject(value: unknown): Record<string, any> {
@@ -284,9 +304,17 @@ export class DatabaseService {
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
     ];
 
-    for (const sql of statements) {
-      await this.execute(sql, undefined, true);
+    await this.executeBatch(statements, true);
+  }
+
+  private async ensureOptionalColumnsOnce(): Promise<void> {
+    if (!DatabaseService.optionalColumnsCheckPromise) {
+      DatabaseService.optionalColumnsCheckPromise = this.ensureOptionalColumns().catch((error) => {
+        DatabaseService.optionalColumnsCheckPromise = null;
+        throw error;
+      });
     }
+    await DatabaseService.optionalColumnsCheckPromise;
   }
 
   async getTableColumns(table: string): Promise<string[]> {

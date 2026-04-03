@@ -1,10 +1,12 @@
 import cors from 'cors';
 import express from 'express';
-import routes from './api/routes';
+import createApiRouter from './api/routes';
 import { DatabaseService } from './db/DatabaseService';
+import { PredictionService } from './services/PredictionService';
 
 const app = express();
-const schedulerDb = new DatabaseService();
+const db = new DatabaseService();
+const svc = new PredictionService(db);
 const PORT = Number(process.env.PORT ?? 3001);
 const AUTO_SYNC_ON_BOOT =
   String(process.env.AUTO_SYNC_ON_BOOT ?? 'true').trim().toLowerCase() !== 'false';
@@ -193,10 +195,10 @@ app.use((req, _res, next) => {
   next();
 });
 
-app.use('/api', routes);
+app.use('/api', createApiRouter({ db, svc }));
 
 app.get('/api/scraper/status', async (_req, res) => {
-  const recentSchedulerRuns = await schedulerDb.listRecentSchedulerRuns(7).catch(() => []);
+  const recentSchedulerRuns = await db.listRecentSchedulerRuns(7).catch(() => []);
   res.json({
     success: true,
     data: {
@@ -310,7 +312,7 @@ async function persistSchedulerRun(entry: {
   summary?: Record<string, unknown> | null;
   error?: string | null;
 }): Promise<void> {
-  await schedulerDb.saveSchedulerRun({
+  await db.saveSchedulerRun({
     schedulerName: entry.schedulerName,
     trigger: entry.trigger,
     startedAt: entry.startedAt.toISOString(),
@@ -765,9 +767,7 @@ function startLearningReviewScheduler(): void {
 app.listen(PORT, () => {
   console.log(`Football Predictor Backend running on http://localhost:${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
-  setTimeout(() => {
-    void runBootDataSync();
-  }, 1500);
+  void runBootDataSync();
   startUnderstatScheduler();
   startOddsSnapshotScheduler();
   startLearningReviewScheduler();
