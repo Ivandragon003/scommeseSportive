@@ -1,791 +1,1160 @@
 /**
- * Backtesting Engine — v3
+ * Dixon-Coles Model — v3.1
  *
- * MODIFICHE v3:
+ * MODIFICHE rispetto all'originale:
  *
- * 1. SELEZIONE BET: selectMediumAndAbove (HIGH + MEDIUM confidence)
- *    invece di solo HIGH. Questo porta il volume nel range target
- *    150-400 bet/stagione su una lega completa (38 giornate × N partite).
- *    L'utente può passare a selectHighConfidence per essere più conservativo.
+ * 1. homeAdvantage default: 0.10 (era 0.15, era 0.25 in v1)
+ *    I dati aggregati dei top 5 campionati europei 2020-2024 mostrano
+ *    un calo strutturale del vantaggio casa post-COVID che non si è
+ *    invertito. exp(0.10) ≈ +10.5% goal attesi in casa vs trasferta.
+ *    Serie A 2022-2024: home win rate ~40%, ben lontano dal 46% pre-2015.
+ *    Il vecchio 0.15 (+16%) sovrastimava l'edge casalingo e generava
+ *    false opportunità di valore sul homeWin in partite equilibrate.
+ *    Il parametro viene comunque riallenato dai dati storici reali via
+ *    trainOnMatches(), quindi questa è solo la prior iniziale.
  *
- * 2. RANGE ODDS SINTETICI: [1.40, 8.00] allineato con ValueBettingEngine v3.
- *    Il motore genererà quote anche per underdog (quota 4-8) quando
- *    la probabilità implicita è nel range corretto.
+ * 2. homeAdvantageShots: 1.08 (era 1.12)
+ *    Coerente con la riduzione del vantaggio casa sui goal: anche i tiri
+ *    in casa sono calati proporzionalmente.
  *
- * 3. MARGINE SINTETICO: ridotto a 5% (era 6%). Bookmaker competitivi
- *    (Pinnacle, Betfair) hanno margini realistici del 3-5%.
+ * 3. computeFullProbabilities ora restituisce flatProbabilities:
+ *    Record<string, number> con TUTTI i mercati già mappati con le
+ *    chiavi usate da ValueBettingEngine v3:
+ *      - goal:     homeWin, draw, awayWin, btts, bttsNo, over/under*
+ *      - shots:    shotsOver*, shotsUnder*, shotsHomeOver*, shotsAwayOver*
+ *      - shots OT: shotsOTOver*, shotsOTUnder*
+ *      - gialli:   yellowOver*, yellowUnder*
+ *      - falli:    foulsOver*, foulsUnder*
+ *      - exact:    exact_H-A
+ *      - handicap: hcp_home+X, hcp_away+X
+ *    Questo elimina la necessità di flattenProbabilities nel BacktestingEngine.
  *
- * 4. JITTER RIDOTTO: ±6% (era ±8%). Meno rumore → simulazione più realistica
- *    del comportamento di un bookmaker efficiente.
+ * 3. SupplementaryData estesa con campi varianza e sampleSize per
+ *    passare informazioni a SpecializedModels (r dinamico).
  *
- * 5. marketBreakdown: aggiornato con MarketCategory di v3.
- *
- * 6. evaluateBet: gestisce tutti i mercati inclusi tiri, gialli, falli.
- *    Per i mercati statistici, se il dato reale non è disponibile in MatchData,
- *    la bet viene marcata come non valutabile (VOID) e separata dalle metriche
- *    di ROI/win-rate per evitare penalizzazioni silenziose nel backtest.
- */
+ * Resto invariato (Dixon-Coles 1997, gradient ascent, normalizzazione,
+ * correzione τ per bassi score, decadimento temporale τ=0.0065).
+ **/
 
-import { DixonColesModel, MatchData } from './DixonColesModel';
-import { ValueBettingEngine, BetOpportunity, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from './ValueBettingEngine';
-import { evaluateComboBet } from './CombinedBettingFixes';
+import {
+  SpecializedModels,
+  ShotsModelData,
+  CardsModelData,
+  FoulsModelData,
+  PlayerShotsData,
+  CardsDistribution,
+  FoulsDistribution,
+  PlayerShotsPrediction,
+  NegBinParams,
+} from './SpecializedModels';
 
-export interface BacktestResult {
-  totalMatches: number;
-  trainingMatches: number;
-  testMatches: number;
-  betsPlaced: number;
-  voidedBets: number;
-  unevaluableRate: number;
-  betsWon: number;
-  totalStaked: number;
-  totalReturn: number;
-  netProfit: number;
-  roi: number;
-  winRate: number;
-  averageOdds: number;
-  averageEV: number;
-  brierScore: number;
-  logLoss: number;
-  calibration: CalibrationBucket[];
-  equityCurve: EquityPoint[];
-  monthlyStats: MonthlyStats[];
-  sharpeRatio: number;
-  maxDrawdown: number;
-  recoveryFactor: number;
-  profitFactor: number;
-  marketBreakdown: Record<string, MarketStats>;
-  marketUnevaluableBreakdown: Record<string, {
-    attempted: number;
-    voided: number;
-    unevaluableRate: number;
-  }>;
+export interface TeamStrength {
+  teamId: string;
+  name: string;
+  attackParam: number;
+  defenceParam: number;
 }
 
-export interface MarketStats {
-  bets: number;
-  voided: number;
-  won: number;
-  staked: number;
-  returned: number;
-  roi: number;
-  winRate: number;
-  avgOdds: number;
-  avgEV: number;
-  unevaluableRate: number;
-}
-
-export interface CalibrationBucket {
-  predictedRange: string;
-  predictedAvg: number;
-  actualFrequency: number;
-  count: number;
-}
-
-export interface EquityPoint {
+export interface MatchData {
+  matchId: string;
+  homeTeamId: string;
+  awayTeamId: string;
   date: Date;
-  matchNumber: number;
-  bankroll: number;
-  profit: number;
-  cumulativeROI: number;
+  homeGoals?: number;
+  awayGoals?: number;
+  homeXG?: number;
+  awayXG?: number;
+  homeShotsOnTarget?: number;
+  awayShotsOnTarget?: number;
+  homeTotalShots?: number;
+  awayTotalShots?: number;
+  homePossession?: number;
+  awayPossession?: number;
+  homeFouls?: number;
+  awayFouls?: number;
+  homeYellowCards?: number;
+  awayYellowCards?: number;
+  homeRedCards?: number;
+  awayRedCards?: number;
+  referee?: string;
+  competition?: string;
+  season?: string;
 }
 
-export interface MonthlyStats {
-  year: number;
-  month: number;
-  bets: number;
-  staked: number;
-  returned: number;
-  profit: number;
-  roi: number;
+export interface ModelParams {
+  attackParams: Record<string, number>;
+  defenceParams: Record<string, number>;
+  homeAdvantage: number;
+  rho: number;
+  tau: number;
+  /**
+   * homeAdvantagePerTeam: parametro di vantaggio casa per squadra/stadio.
+   * Sovrascrive homeAdvantage globale per le squadre elencate.
+   * Viene riallenato da fitModel() se enablePerTeamHomeAdvantage=true.
+   *
+   * Motivazione: alcune squadre hanno un vantaggio casa strutturalmente più
+   * alto (es. Atalanta al Gewiss Stadium, Napoli al Maradona in certi anni)
+   * o più basso (squadre che performano meglio in trasferta). Il parametro
+   * globale unico livella queste differenze e distorce le probabilità.
+   *
+   * Default: {} → il parametro globale homeAdvantage viene usato per tutti.
+   */
+  homeAdvantagePerTeam: Record<string, number>;
 }
 
-export interface WalkForwardFoldSummary {
-  foldNumber: number;
-  trainMatches: number;
-  testMatches: number;
-  betsPlaced: number;
-  betsWon: number;
-  totalStaked: number;
-  roi: number;
-  winRate: number;
-  netProfit: number;
-  brierScore: number;
-  logLoss: number;
-  startDate: Date;
-  endDate: Date;
+export interface ScoreMatrix {
+  probabilities: number[][];
+  maxGoals: number;
+  lambdaHome: number;
+  lambdaAway: number;
 }
 
-export interface WalkForwardBacktestResult {
-  totalMatches: number;
-  totalFolds: number;
-  expandingWindow: boolean;
-  initialTrainMatches: number;
-  testWindowMatches: number;
-  stepMatches: number;
-  folds: WalkForwardFoldSummary[];
-  summary: {
-    totalBetsPlaced: number;
-    totalBetsWon: number;
-    totalNetProfit: number;
-    totalStaked: number;
-    roi: number;
-    winRate: number;
-    averageFoldROI: number;
-    medianFoldROI: number;
-    roiStdDev: number;
-    positiveFoldRate: number;
-    averageBrierScore: number;
-    averageLogLoss: number;
+export interface FullMatchProbabilities {
+  // Goal markets
+  homeWin: number; draw: number; awayWin: number; btts: number;
+  over05: number; over15: number; over25: number; over35: number; over45: number;
+  under05: number; under15: number; under25: number; under35: number; under45: number;
+  exactScore: Record<string, number>;
+  handicap: Record<string, number>;
+  asianHandicap: Record<string, number>;
+  // Shot markets
+  shotsHome: {
+    expected: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    totalShots: { expected: number; variance: number; distribution: Record<string, number> };
+    shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
+    negBinParams: NegBinParams;
+  };
+  shotsAway: {
+    expected: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    totalShots: { expected: number; variance: number; distribution: Record<string, number> };
+    shotsOnTarget: { expected: number; variance: number; distribution: Record<string, number> };
+    negBinParams: NegBinParams;
+  };
+  shotsTotal: Record<string, { over: number; under: number }>;
+  shotsOnTargetHome: { expected: number; variance: number; distribution: Record<string, number> };
+  shotsOnTargetAway: { expected: number; variance: number; distribution: Record<string, number> };
+  // Cards & fouls
+  cards: CardsDistribution;
+  fouls: FoulsDistribution;
+  corners?: {
+    expectedHomeCorners: number;
+    expectedAwayCorners: number;
+    expectedTotalCorners: number;
+    overUnder: Record<string, { over: number; under: number }>;
+    negBinParams: { mu: number; r: number };
+  };
+  // Player shots
+  playerShots: { home: PlayerShotsPrediction[]; away: PlayerShotsPrediction[] };
+  // Expected goals
+  lambdaHome: number;
+  lambdaAway: number;
+  /**
+   * Mappa piatta di TUTTI i mercati, pronta per ValueBettingEngine.analyzeMarkets().
+   * Chiavi allineate con categorizeSelection() di ValueBettingEngine v3.
+   */
+  flatProbabilities: Record<string, number>;
+}
+
+export interface SupplementaryData {
+  homeTeamStats?: {
+    avgShots: number;
+    avgShotsOT: number;
+    avgYellowCards: number;
+    avgRedCards: number;
+    avgFouls: number;
+    shotsSuppression: number;
+    avgHomeCorners?: number;
+    avgAwayCorners?: number;
+    avgPossession?: number;
+    // Varianza per r dinamico in SpecializedModels
+    varShots?: number;
+    varShotsOT?: number;
+    varYellowCards?: number;
+    varFouls?: number;
+    sampleSize?: number;
+  };
+  awayTeamStats?: {
+    avgShots: number;
+    avgShotsOT: number;
+    avgYellowCards: number;
+    avgRedCards: number;
+    avgFouls: number;
+    shotsSuppression: number;
+    avgHomeCorners?: number;
+    avgAwayCorners?: number;
+    avgPossession?: number;
+    varShots?: number;
+    varShotsOT?: number;
+    varYellowCards?: number;
+    varFouls?: number;
+    sampleSize?: number;
+  };
+  refereeStats?: {
+    avgYellow: number;
+    avgRed: number;
+    avgFouls: number;
+    sampleSize?: number;
+  };
+  homePlayers?: PlayerShotsData[];
+  awayPlayers?: PlayerShotsData[];
+  competitiveness?: number;   // 0 = amichevole, 1 = derby storico
+  isDerby?: boolean;
+  leagueAvgYellow?: number;
+  leagueAvgFouls?: number;
+  homeAdvantageShots?: number;
+  contextAdjustments?: {
+    homeGoalMultiplier?: number;
+    awayGoalMultiplier?: number;
+    homeShotMultiplier?: number;
+    awayShotMultiplier?: number;
+    yellowCardMultiplier?: number;
+    foulMultiplier?: number;
+    homePossessionShift?: number;
   };
 }
 
-interface TestBet {
-  matchDate: Date;
-  market: string;
-  marketCategory: MarketCategory;
-  selection: string;
-  odds: number;
-  stake: number;
-  ourProb: number;
-  ev: number;
-  won: boolean;
-  profit: number;
-}
+// Default Serie A 2019-2024
+const SERIE_A_DEFAULTS = {
+  avgShots: 12.1,
+  avgShotsOT: 4.8,
+  avgYellowCards: 1.9,
+  avgRedCards: 0.11,
+  avgFouls: 11.2,
+  shotsSuppression: 1.0,
+  leagueAvgYellow: 3.8,
+  leagueAvgFouls: 22.4,
+  refereeAvgYellow: 3.8,
+  refereeAvgRed: 0.22,
+  refereeAvgFouls: 22.4,
+  homeAdvantageShots: 1.08,  // v3.1: ridotto da 1.12 — coerente con riduzione HA goal
+};
 
-export class BacktestingEngine {
-  private model:  DixonColesModel;
-  private engine: ValueBettingEngine;
-  private readonly INITIAL_BANKROLL = 1000;
-  private readonly SYNTHETIC_MARGIN = 1.05;   // 5% margine bookmaker simulato
-  private readonly SYNTHETIC_JITTER = 0.06;   // ±6% rumore deterministico
-  // Quote sintetiche generate solo nel range dove il modello è affidabile
-  private readonly SYN_MIN_ODDS = 1.40;
-  private readonly SYN_MAX_ODDS = 8.00;
+export class DixonColesModel {
+  private params: ModelParams;
+  private readonly MAX_GOALS   = 10;
+  private readonly PARAM_BOUND = 3.5;
+  private readonly LAMBDA_MIN  = 0.05;
+  private readonly LAMBDA_MAX  = 6.0;
+  private specialized: SpecializedModels;
 
-  constructor() {
-    this.model  = new DixonColesModel();
-    this.engine = new ValueBettingEngine();
+  constructor(params?: Partial<ModelParams>) {
+    this.params = {
+      attackParams:  {},
+      defenceParams: {},
+      homeAdvantage: 0.10,   // v3.1: ridotto da 0.15 — vantaggio casa moderno ~+10.5%
+      rho:           -0.13,
+      tau:           0.0065,
+      homeAdvantagePerTeam: {},
+      ...params,
+    };
+    this.specialized = new SpecializedModels();
   }
 
-  setAdaptiveTuning(profile: AdaptiveEngineTuningProfile | null | undefined): void {
-    this.engine.setAdaptiveTuning(profile ?? null);
+  // ==================== UTILITY NUMERICA ====================
+
+  private clamp(v: number, min: number, max: number): number {
+    if (!isFinite(v)) return min;
+    return Math.min(max, Math.max(min, v));
   }
 
-  private simulateBacktestScenario(
-    trainMatches: MatchData[],
-    testMatches: MatchData[],
-    historicalOdds: Record<string, Record<string, number>>,
-    confidenceLevel: 'high_only' | 'medium_and_above'
-  ): BacktestResult {
-    const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
-
-    this.model.fitModel(trainMatches, teams);
-
-    const bets: TestBet[] = [];
-    const attemptedByCategory: Record<string, number> = {};
-    const voidedByCategory: Record<string, number> = {};
-    let bankroll = this.INITIAL_BANKROLL;
-    const equityCurve: EquityPoint[] = [
-      { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
-    ];
-
-    for (let i = 0; i < testMatches.length; i++) {
-      const match = testMatches[i];
-      if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
-
-      const probs = this.model.computeFullProbabilities(
-        match.homeTeamId, match.awayTeamId, match.homeXG, match.awayXG
-      );
-      const probMap     = probs.flatProbabilities;
-      const marketNames = this.buildMarketNames(probMap);
-      const odds        = historicalOdds[match.matchId]
-        ?? this.generateSyntheticOdds(match.matchId, probMap);
-
-      const allOpportunities = this.engine.analyzeMarkets(probMap, odds, marketNames);
-      const selected = confidenceLevel === 'high_only'
-        ? this.engine.selectHighConfidence(allOpportunities)
-        : this.engine.selectMediumAndAbove(allOpportunities);
-
-      for (const opp of selected) {
-        const stakeAmount = (bankroll * opp.suggestedStakePercent) / 100;
-        if (stakeAmount > bankroll * 0.04 || stakeAmount < 0.50) continue;
-        const categoryKey = String(opp.marketCategory);
-        attemptedByCategory[categoryKey] = (attemptedByCategory[categoryKey] ?? 0) + 1;
-
-        const outcome = this.evaluateBetNullable(opp.selection, match);
-        if (outcome === null) {
-          voidedByCategory[categoryKey] = (voidedByCategory[categoryKey] ?? 0) + 1;
-          continue;
-        }
-
-        const won = outcome;
-        const returnAmount = won ? stakeAmount * opp.bookmakerOdds : 0;
-        const profit       = returnAmount - stakeAmount;
-
-        bankroll += profit;
-        bets.push({
-          matchDate:       match.date,
-          market:          opp.marketName,
-          marketCategory:  opp.marketCategory,
-          selection:       opp.selection,
-          odds:            opp.bookmakerOdds,
-          stake:           stakeAmount,
-          ourProb:         opp.ourProbability / 100,
-          ev:              opp.expectedValue  / 100,
-          won,
-          profit,
-        });
-      }
-
-      equityCurve.push({
-        date:          match.date,
-        matchNumber:   i + 1,
-        bankroll,
-        profit:        bankroll - this.INITIAL_BANKROLL,
-        cumulativeROI: ((bankroll - this.INITIAL_BANKROLL) / this.INITIAL_BANKROLL) * 100,
-      });
-    }
-
-    const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
-    if (totalVoided > 0) {
-      const details = Object.entries(voidedByCategory)
-        .sort((a, b) => b[1] - a[1])
-        .map(([category, count]) => `${category}:${count}`)
-        .join(', ');
-      console.warn(`[Backtest] Bet non valutabili (VOID): ${totalVoided} | breakdown: ${details}`);
-    }
-
-    return this.computeMetrics(
-      bets,
-      equityCurve,
-      trainMatches.length,
-      testMatches.length,
-      attemptedByCategory,
-      voidedByCategory
-    );
+  private safeExp(x: number): number {
+    return Math.exp(this.clamp(x, -10, 10));
   }
 
-  runBacktest(
-    matches: MatchData[],
-    historicalOdds: Record<string, Record<string, number>>,
-    trainRatio = 0.7,
-    confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above'
-  ): BacktestResult {
-    const sorted   = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const splitIdx = Math.floor(sorted.length * trainRatio);
-    const trainMatches = sorted.slice(0, splitIdx);
-    const testMatches  = sorted.slice(splitIdx);
-
-    console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
-    const result = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
-    console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}%`);
-    return result;
+  private safeProb(p: number): number {
+    return !isFinite(p) || p < 0 ? 0 : p;
   }
 
-  runWalkForwardBacktest(
-    matches: MatchData[],
-    historicalOdds: Record<string, Record<string, number>>,
-    options?: {
-      initialTrainMatches?: number;
-      testWindowMatches?: number;
-      stepMatches?: number;
-      confidenceLevel?: 'high_only' | 'medium_and_above';
-      expandingWindow?: boolean;
-      maxFolds?: number;
+  private poissonPMF(k: number, lambda: number): number {
+    if (lambda <= 0) return k === 0 ? 1 : 0;
+    let logP = -lambda + k * Math.log(lambda);
+    for (let i = 1; i <= k; i++) logP -= Math.log(i);
+    return isFinite(logP) ? Math.exp(logP) : 0;
+  }
+
+  // ==================== CORREZIONE DIXON-COLES ====================
+
+  /**
+   * Correzione τ per correlazione negativa tra homeGoals e awayGoals
+   * sui risultati bassi (0-0, 1-0, 0-1, 1-1).
+   * Dixon & Coles 1997, eq. (2).
+   */
+  private tauCorrection(
+    x: number, y: number,
+    lH: number, lA: number,
+    rho: number
+  ): number {
+    if (x === 0 && y === 0) return 1 - lH * lA * rho;
+    if (x === 1 && y === 0) return 1 + lA * rho;
+    if (x === 0 && y === 1) return 1 + lH * rho;
+    if (x === 1 && y === 1) return 1 - rho;
+    return 1.0;
+  }
+
+  private tauDerivative(x: number, y: number, lH: number, lA: number): number {
+    if (x === 0 && y === 0) return -lH * lA;
+    if (x === 1 && y === 0) return lA;
+    if (x === 0 && y === 1) return lH;
+    if (x === 1 && y === 1) return -1;
+    return 0;
+  }
+
+  // ==================== EXPECTED GOALS ====================
+
+  computeExpectedGoals(
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number
+  ): { lambdaHome: number; lambdaAway: number } {
+    const aH = this.safeExp(this.clamp(this.params.attackParams[homeId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dA = this.safeExp(-this.clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const aA = this.safeExp(this.clamp(this.params.attackParams[awayId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dH = this.safeExp(-this.clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+
+    // Usa il vantaggio casa per-squadra se disponibile, altrimenti il globale.
+    const ha = this.params.homeAdvantagePerTeam?.[homeId] ?? this.params.homeAdvantage;
+    let lH = aH * dA * this.safeExp(ha);
+    let lA = aA * dH;
+
+    // Blend con xG se disponibile (60% modello, 40% xG)
+    if (homeXG !== undefined && awayXG !== undefined && homeXG > 0 && awayXG > 0) {
+      lH = 0.6 * lH + 0.4 * homeXG;
+      lA = 0.6 * lA + 0.4 * awayXG;
     }
-  ): WalkForwardBacktestResult {
-    const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const totalMatches = sorted.length;
-    const initialTrainMatches = Math.max(30, Math.min(Number(options?.initialTrainMatches ?? Math.floor(totalMatches * 0.55)), totalMatches - 10));
-    const testWindowMatches = Math.max(10, Math.min(Number(options?.testWindowMatches ?? Math.max(10, Math.floor(totalMatches * 0.12))), totalMatches - initialTrainMatches));
-    const stepMatches = Math.max(5, Math.min(Number(options?.stepMatches ?? testWindowMatches), testWindowMatches));
-    const confidenceLevel = options?.confidenceLevel ?? 'medium_and_above';
-    const expandingWindow = options?.expandingWindow !== false;
-    const maxFolds = Math.max(1, Number(options?.maxFolds ?? 12));
 
-    const folds: WalkForwardFoldSummary[] = [];
-
-    for (let testStart = initialTrainMatches; testStart < sorted.length && folds.length < maxFolds; testStart += stepMatches) {
-      const testEnd = Math.min(sorted.length, testStart + testWindowMatches);
-      const trainStart = expandingWindow ? 0 : Math.max(0, testStart - initialTrainMatches);
-      const trainMatches = sorted.slice(trainStart, testStart);
-      const testMatches = sorted.slice(testStart, testEnd);
-      if (trainMatches.length < 30 || testMatches.length < 5) continue;
-
-      const foldResult = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
-      folds.push({
-        foldNumber: folds.length + 1,
-        trainMatches: trainMatches.length,
-        testMatches: testMatches.length,
-        betsPlaced: foldResult.betsPlaced,
-        betsWon: foldResult.betsWon,
-        totalStaked: Number(foldResult.totalStaked.toFixed(2)),
-        roi: Number(foldResult.roi.toFixed(2)),
-        winRate: Number(foldResult.winRate.toFixed(2)),
-        netProfit: Number(foldResult.netProfit.toFixed(2)),
-        brierScore: Number(foldResult.brierScore.toFixed(4)),
-        logLoss: Number(foldResult.logLoss.toFixed(4)),
-        startDate: testMatches[0].date,
-        endDate: testMatches[testMatches.length - 1].date,
-      });
-    }
-
-    const totalBetsPlaced = folds.reduce((sum, fold) => sum + fold.betsPlaced, 0);
-    const totalBetsWon = folds.reduce((sum, fold) => sum + fold.betsWon, 0);
-    const totalNetProfit = folds.reduce((sum, fold) => sum + fold.netProfit, 0);
-    const foldRois = folds.map((fold) => fold.roi);
-    const averageFoldROI = foldRois.length > 0 ? foldRois.reduce((sum, value) => sum + value, 0) / foldRois.length : 0;
-    const sortedRois = [...foldRois].sort((a, b) => a - b);
-    const medianFoldROI = sortedRois.length > 0
-      ? (sortedRois.length % 2 === 1
-        ? sortedRois[Math.floor(sortedRois.length / 2)]
-        : (sortedRois[sortedRois.length / 2 - 1] + sortedRois[sortedRois.length / 2]) / 2)
-      : 0;
-    const roiStdDev = foldRois.length > 0
-      ? Math.sqrt(foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length)
-      : 0;
-    const totalStaked = folds.reduce((sum, fold) => sum + fold.totalStaked, 0);
-    const totalRoi = totalStaked > 0 ? (totalNetProfit / totalStaked) * 100 : averageFoldROI;
+    if (!isFinite(lH) || lH <= 0) lH = 1.35;
+    if (!isFinite(lA) || lA <= 0) lA = 1.05;
 
     return {
-      totalMatches,
-      totalFolds: folds.length,
-      expandingWindow,
-      initialTrainMatches,
-      testWindowMatches,
-      stepMatches,
-      folds,
-      summary: {
-        totalBetsPlaced,
-        totalBetsWon,
-        totalNetProfit: Number(totalNetProfit.toFixed(2)),
-        totalStaked: Number(totalStaked.toFixed(2)),
-        roi: Number(totalRoi.toFixed(2)),
-        winRate: totalBetsPlaced > 0 ? Number(((totalBetsWon / totalBetsPlaced) * 100).toFixed(2)) : 0,
-        averageFoldROI: Number(averageFoldROI.toFixed(2)),
-        medianFoldROI: Number(medianFoldROI.toFixed(2)),
-        roiStdDev: Number(roiStdDev.toFixed(2)),
-        positiveFoldRate: folds.length > 0 ? Number(((folds.filter((fold) => fold.roi > 0).length / folds.length) * 100).toFixed(2)) : 0,
-        averageBrierScore: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.brierScore, 0) / folds.length).toFixed(4)) : 0,
-        averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
-      },
+      lambdaHome: this.clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX),
+      lambdaAway: this.clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX),
     };
   }
 
-  // ==================== QUOTE SINTETICHE ====================
+  buildScoreMatrix(
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number
+  ): ScoreMatrix {
+    const { lambdaHome, lambdaAway } = this.computeExpectedGoals(homeId, awayId, homeXG, awayXG);
+    return this.buildScoreMatrixFromLambdas(lambdaHome, lambdaAway);
+  }
 
-  private deterministicNoise(seed: string): number {
-    let h = 2166136261;
-    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
-    return ((h >>> 0) / 4294967295 - 0.5) * 2;
+  private buildScoreMatrixFromLambdas(lambdaHome: number, lambdaAway: number): ScoreMatrix {
+    const rho = this.params.rho;
+    const N   = this.MAX_GOALS;
+    const probs: number[][] = [];
+    let total = 0;
+
+    for (let h = 0; h <= N; h++) {
+      probs[h] = [];
+      for (let a = 0; a <= N; a++) {
+        const p = this.safeProb(
+          this.poissonPMF(h, lambdaHome) *
+          this.poissonPMF(a, lambdaAway) *
+          this.tauCorrection(h, a, lambdaHome, lambdaAway, rho)
+        );
+        probs[h][a] = p;
+        total += p;
+      }
+    }
+
+    if (!isFinite(total) || total <= 0) {
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) probs[h][a] = 0;
+      probs[0][0] = 1; total = 1;
+    }
+    for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) probs[h][a] /= total;
+
+    return { probabilities: probs, maxGoals: N, lambdaHome, lambdaAway };
+  }
+
+  // ==================== PROBABILITÀ COMPLETE ====================
+
+  computeFullProbabilities(
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number,
+    supp?: SupplementaryData
+  ): FullMatchProbabilities {
+    const context = supp?.contextAdjustments ?? {};
+    const baseMatrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
+    const adjustedLambdaHome = this.clamp(
+      baseMatrix.lambdaHome * (context.homeGoalMultiplier ?? 1),
+      this.LAMBDA_MIN,
+      this.LAMBDA_MAX,
+    );
+    const adjustedLambdaAway = this.clamp(
+      baseMatrix.lambdaAway * (context.awayGoalMultiplier ?? 1),
+      this.LAMBDA_MIN,
+      this.LAMBDA_MAX,
+    );
+
+    const matrix: ScoreMatrix =
+      adjustedLambdaHome === baseMatrix.lambdaHome && adjustedLambdaAway === baseMatrix.lambdaAway
+        ? baseMatrix
+        : this.buildScoreMatrixFromLambdas(adjustedLambdaHome, adjustedLambdaAway);
+
+    const p = matrix.probabilities;
+    const N = this.MAX_GOALS;
+
+    // --- Goal markets ---
+    let homeWin = 0, draw = 0, awayWin = 0, btts = 0;
+    for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) {
+      if      (h > a)  homeWin += p[h][a];
+      else if (h === a) draw   += p[h][a];
+      else              awayWin += p[h][a];
+      if (h > 0 && a > 0) btts += p[h][a];
+    }
+
+    const over = (t: number): number => {
+      let s = 0;
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) if (h + a > t) s += p[h][a];
+      return s;
+    };
+
+    const o05 = over(0.5), o15 = over(1.5), o25 = over(2.5), o35 = over(3.5), o45 = over(4.5);
+
+    // Exact score
+    const exactScore: Record<string, number> = {};
+    for (let h = 0; h <= 6; h++) for (let a = 0; a <= 6; a++)
+      exactScore[`${h}-${a}`] = p[Math.min(h, N)][Math.min(a, N)];
+
+    // Handicap europeo
+    const handicap: Record<string, number> = {};
+    for (const line of [-2.5,-2,-1.5,-1,-0.5,0.5,1,1.5,2,2.5]) {
+      let hw = 0;
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++)
+        if (h - a + line > 0) hw += p[h][a];
+      handicap[`home${line > 0 ? '+' : ''}${line}`] = hw;
+      handicap[`away${(-line) > 0 ? '+' : ''}${-line}`] = 1 - hw;
+    }
+
+    // Asian handicap
+    const asianHandicap: Record<string, number> = {};
+    for (const line of [-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75]) {
+      let prob = 0;
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) {
+        const diff = (h - a) + line;
+        if      (diff > 0)  prob += p[h][a];
+        else if (diff === 0) prob += p[h][a] * 0.5;
+      }
+      asianHandicap[`${line}`] = prob;
+    }
+
+    // --- Shots (NegBin) ---
+    const hs  = supp?.homeTeamStats ?? {} as any;
+    const as_ = supp?.awayTeamStats ?? {} as any;
+    const SERIE_A_SHOT_GOAL_RATIO = 11.0; // shots totali / goal
+    const alpha = 0.35; // peso prior lambda
+    const impliedShotsHome = matrix.lambdaHome * SERIE_A_SHOT_GOAL_RATIO;
+    const impliedShotsAway = matrix.lambdaAway * SERIE_A_SHOT_GOAL_RATIO;
+    const blendedHomeShotsBase = (1 - alpha) * (hs.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsHome;
+    const blendedAwayShotsBase = (1 - alpha) * (as_.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsAway;
+    const blendedHomeShots = blendedHomeShotsBase * (context.homeShotMultiplier ?? 1);
+    const blendedAwayShots = blendedAwayShotsBase * (context.awayShotMultiplier ?? 1);
+    const shotsData: ShotsModelData = {
+      homeTeamAvgShots:         Math.max(3, blendedHomeShots),
+      awayTeamAvgShots:         Math.max(3, blendedAwayShots),
+      homeTeamAvgShotsOT:       hs.avgShotsOT       ?? SERIE_A_DEFAULTS.avgShotsOT,
+      awayTeamAvgShotsOT:       as_.avgShotsOT      ?? SERIE_A_DEFAULTS.avgShotsOT,
+      homeTeamShotsSuppression: hs.shotsSuppression ?? 1.0,
+      awayTeamShotsSuppression: as_.shotsSuppression ?? 1.0,
+      homeAdvantageShots:       supp?.homeAdvantageShots ?? SERIE_A_DEFAULTS.homeAdvantageShots,
+      homeTeamVarShots:         hs.varShots,
+      awayTeamVarShots:         as_.varShots,
+      homeTeamVarShotsOT:       hs.varShotsOT,
+      awayTeamVarShotsOT:       as_.varShotsOT,
+      homeTeamSampleSize:       hs.sampleSize,
+      awayTeamSampleSize:       as_.sampleSize,
+    };
+    const shotsResult = this.specialized.computeShotsDistribution(shotsData);
+
+    // --- Cards (NegBin + referee factor) ---
+    const ref = supp?.refereeStats ?? {} as any;
+    const strengthDiff = Math.abs(matrix.lambdaHome - matrix.lambdaAway);
+    const matchIntensity = Math.max(0, Math.min(1, 1 - strengthDiff / 2.0));
+    const derivedCompetitiveness = supp?.competitiveness !== undefined
+      ? supp.competitiveness
+      : Math.max(0.25, matchIntensity * 0.7 + (supp?.isDerby ? 0.3 : 0));
+    const cardsData: CardsModelData = {
+      homeTeamAvgYellow:  hs.avgYellowCards  ?? SERIE_A_DEFAULTS.avgYellowCards,
+      awayTeamAvgYellow:  as_.avgYellowCards ?? SERIE_A_DEFAULTS.avgYellowCards,
+      homeTeamAvgRed:     hs.avgRedCards     ?? SERIE_A_DEFAULTS.avgRedCards,
+      awayTeamAvgRed:     as_.avgRedCards    ?? SERIE_A_DEFAULTS.avgRedCards,
+      refereeAvgYellow:   ref.avgYellow      ?? SERIE_A_DEFAULTS.refereeAvgYellow,
+      refereeAvgRed:      ref.avgRed         ?? SERIE_A_DEFAULTS.refereeAvgRed,
+      refereeAvgTotal:    (ref.avgYellow ?? 3.8) + (ref.avgRed ?? 0.22) * 2,
+      leagueAvgYellow:    supp?.leagueAvgYellow ?? SERIE_A_DEFAULTS.leagueAvgYellow,
+      competitiveness:    derivedCompetitiveness,
+      homeTeamVarYellow:  hs.varYellowCards,
+      awayTeamVarYellow:  as_.varYellowCards,
+      homeTeamSampleSize: hs.sampleSize,
+      awayTeamSampleSize: as_.sampleSize,
+      refereeSampleSize:  ref.sampleSize,
+      refereeAvgFouls:    ref.avgFouls,
+      leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
+    };
+    const cards = this.specialized.computeCardsDistribution(cardsData);
+    if (context.yellowCardMultiplier && Math.abs(context.yellowCardMultiplier - 1) > 0.01) {
+      const yellowFactor = Math.max(0.8, Math.min(1.4, context.yellowCardMultiplier));
+      const rYellow = cards.negBinParams.r;
+      const adjustedHomeYellow = cards.expectedHomeYellow * yellowFactor;
+      const adjustedAwayYellow = cards.expectedAwayYellow * yellowFactor;
+      const adjustedTotalYellow = adjustedHomeYellow + adjustedAwayYellow;
+      const adjustedCardPoints = cards.expectedTotalCards * yellowFactor;
+
+      cards.expectedHomeYellow = parseFloat(adjustedHomeYellow.toFixed(4));
+      cards.expectedAwayYellow = parseFloat(adjustedAwayYellow.toFixed(4));
+      cards.expectedTotalYellow = parseFloat(adjustedTotalYellow.toFixed(4));
+      cards.expectedTotalCards = parseFloat(adjustedCardPoints.toFixed(4));
+      cards.negBinParams.mu = parseFloat(adjustedTotalYellow.toFixed(4));
+
+      for (const line of Object.keys(cards.overUnderYellow ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedTotalYellow, rYellow);
+        cards.overUnderYellow[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+      for (const line of Object.keys(cards.overUnderTotal ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedCardPoints, Math.max(3, rYellow * 0.82));
+        cards.overUnderTotal[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+    }
+
+    // --- Fouls (NegBin + possession correction) ---
+    const lambdaTotal = matrix.lambdaHome + matrix.lambdaAway;
+    const inferredHomePoss = lambdaTotal > 0
+      ? 0.5 + 0.1 * (matrix.lambdaHome - matrix.lambdaAway) / lambdaTotal
+      : 0.5;
+    const toPossessionRatio = (value: unknown): number | undefined => {
+      const raw = Number(value);
+      if (!Number.isFinite(raw)) return undefined;
+      const normalized = raw > 1 ? raw / 100 : raw;
+      return this.clamp(normalized, 0.3, 0.7);
+    };
+    const homePossRatio = toPossessionRatio(hs.avgPossession);
+    const awayPossRatio = toPossessionRatio(as_.avgPossession);
+    const historicalHomePoss = homePossRatio !== undefined
+      ? homePossRatio
+      : awayPossRatio !== undefined
+        ? this.clamp(1 - awayPossRatio, 0.3, 0.7)
+        : undefined;
+    const estimatedHomePossBase = historicalHomePoss !== undefined
+      ? (historicalHomePoss * 0.65) + (inferredHomePoss * 0.35)
+      : inferredHomePoss;
+    const estimatedHomePoss = this.clamp(
+      estimatedHomePossBase + (context.homePossessionShift ?? 0),
+      0.3,
+      0.7,
+    );
+    const foulsData: FoulsModelData = {
+      homeTeamAvgFouls:   hs.avgFouls         ?? SERIE_A_DEFAULTS.avgFouls,
+      awayTeamAvgFouls:   as_.avgFouls        ?? SERIE_A_DEFAULTS.avgFouls,
+      homePossessionEst:  Math.max(0.3, Math.min(0.7, estimatedHomePoss)),
+      refereeAvgFouls:    ref.avgFouls        ?? SERIE_A_DEFAULTS.refereeAvgFouls,
+      leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
+      homeTeamVarFouls:   hs.varFouls,
+      awayTeamVarFouls:   as_.varFouls,
+      homeTeamSampleSize: hs.sampleSize,
+      awayTeamSampleSize: as_.sampleSize,
+    };
+    const fouls = this.specialized.computeFoulsDistribution(foulsData);
+    if (context.foulMultiplier && Math.abs(context.foulMultiplier - 1) > 0.01) {
+      const foulFactor = Math.max(0.85, Math.min(1.3, context.foulMultiplier));
+      const adjustedHomeFouls = fouls.expectedHomeFouls * foulFactor;
+      const adjustedAwayFouls = fouls.expectedAwayFouls * foulFactor;
+      const adjustedTotalFouls = adjustedHomeFouls + adjustedAwayFouls;
+      fouls.expectedHomeFouls = parseFloat(adjustedHomeFouls.toFixed(4));
+      fouls.expectedAwayFouls = parseFloat(adjustedAwayFouls.toFixed(4));
+      fouls.expectedTotalFouls = parseFloat(adjustedTotalFouls.toFixed(4));
+      fouls.negBinParams.mu = parseFloat(adjustedTotalFouls.toFixed(4));
+
+      for (const line of Object.keys(fouls.overUnder ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjustedTotalFouls, fouls.negBinParams.r);
+        fouls.overUnder[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+    }
+
+    // --- Correzione gialli in funzione dei falli attesi ---
+    const leagueAvgFouls = supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls;
+    const foulsRatio = fouls.expectedTotalFouls / Math.max(1, leagueAvgFouls);
+    const foulEffect = Math.pow(foulsRatio, 0.7);
+    const refStrictness = ref.avgYellow !== undefined
+      ? Math.min(1, Math.max(0, ref.avgYellow / Math.max(0.1, SERIE_A_DEFAULTS.refereeAvgYellow)))
+      : 0.5;
+    const yellowFoulsCorrFactor = foulEffect * (0.7 + 0.3 * refStrictness);
+    const adjustedYellowMu = cards.expectedTotalYellow * yellowFoulsCorrFactor;
+    if (Math.abs(yellowFoulsCorrFactor - 1) > 0.02) {
+      const rYellow = cards.negBinParams.r;
+      const yellowLines = [0.5,1.5,2.5,3.5,4.5,5.5,6.5,7.5,8.5,9.5];
+      for (const line of yellowLines) {
+        const over = this.specialized.negBinOver(line, adjustedYellowMu, rYellow);
+        cards.overUnderYellow[`${line}`] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+      cards.expectedTotalYellow = parseFloat(adjustedYellowMu.toFixed(4));
+    }
+
+    // --- Corners ---
+    let cornersResult: ReturnType<SpecializedModels['computeCornersDistribution']> | null = null;
+    if (hs.avgHomeCorners !== undefined && as_.avgAwayCorners !== undefined) {
+      const cornersData = {
+        homeTeamAvgCornersFor:     hs.avgHomeCorners     ?? 5.5,
+        homeTeamAvgCornersAgainst: as_.avgAwayCorners    ?? 4.5,
+        awayTeamAvgCornersFor:     as_.avgAwayCorners    ?? 4.5,
+        awayTeamAvgCornersAgainst: hs.avgHomeCorners     ?? 5.5,
+        homeTeamSampleSize:        hs.sampleSize,
+        awayTeamSampleSize:        as_.sampleSize,
+      };
+
+      const leagueAvgShots = 24.0;
+      const shotsRatio = (shotsData.homeTeamAvgShots + shotsData.awayTeamAvgShots) / leagueAvgShots;
+      const shotsCorrFactor = 1 + 0.3 * (shotsRatio - 1);
+      cornersData.homeTeamAvgCornersFor = Math.max(2, (hs.avgHomeCorners ?? 5.5) * shotsCorrFactor);
+      cornersData.awayTeamAvgCornersFor = Math.max(2, (as_.avgAwayCorners ?? 4.5) * shotsCorrFactor);
+
+      cornersResult = this.specialized.computeCornersDistribution(cornersData);
+    }
+
+    // --- Player shots ---
+    const playerShotsHome = (supp?.homePlayers ?? []).length > 0
+      ? this.specialized.computePlayerShotsPredictions(
+          supp!.homePlayers!, shotsResult.home.expectedTotalShots, shotsResult.home.expectedShotsOnTarget)
+      : [];
+    const playerShotsAway = (supp?.awayPlayers ?? []).length > 0
+      ? this.specialized.computePlayerShotsPredictions(
+          supp!.awayPlayers!, shotsResult.away.expectedTotalShots, shotsResult.away.expectedShotsOnTarget)
+      : [];
+
+    // ==================== FLAT PROBABILITIES ====================
+    // Helper: "15.5" → "155", "7.5" → "75"
+    const fmtLine = (l: string) => l.replace('.', '');
+
+    const flatProbabilities: Record<string, number> = {
+      // 1X2 + BTTS
+      homeWin, draw, awayWin,
+      btts, bttsNo: 1 - btts,
+
+      // Over/Under goal
+      over05: o05,  under05: 1 - o05,
+      over15: o15,  under15: 1 - o15,
+      over25: o25,  under25: 1 - o25,
+      over35: o35,  under35: 1 - o35,
+      over45: o45,  under45: 1 - o45,
+
+      // Exact score
+      ...Object.fromEntries(
+        Object.entries(exactScore).map(([k, v]) => [`exact_${k}`, v])
+      ),
+
+      // Handicap europeo
+      ...Object.fromEntries(
+        Object.entries(handicap).map(([k, v]) => [`hcp_${k}`, v])
+      ),
+
+      // Tiri casa
+      ...Object.fromEntries(
+        Object.entries(shotsResult.home.overUnder).flatMap(([line, { over, under }]) => [
+          [`shotsHomeOver${fmtLine(line)}`,  over],
+          [`shotsHomeUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri ospite
+      ...Object.fromEntries(
+        Object.entries(shotsResult.away.overUnder).flatMap(([line, { over, under }]) => [
+          [`shotsAwayOver${fmtLine(line)}`,  over],
+          [`shotsAwayUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri totali
+      ...Object.fromEntries(
+        Object.entries(shotsResult.total).flatMap(([line, { over, under }]) => [
+          [`shotsOver${fmtLine(line)}`,  over],
+          [`shotsUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Tiri in porta (combined OT)
+      ...Object.fromEntries(
+        Object.entries(shotsResult.combined?.onTargetOverUnder ?? {}).flatMap(([key, prob]) => {
+          // chiavi tipo "over75" → "shotsOTOver75"
+          const isOver = key.startsWith('over');
+          const line   = key.slice(isOver ? 4 : 5);
+          return isOver
+            ? [[`shotsOTOver${line}`, prob], [`shotsOTUnder${line}`, 1 - (prob as number)]]
+            : [];
+        })
+      ),
+
+      // Cartellini gialli
+      ...Object.fromEntries(
+        Object.entries(cards.overUnderYellow).flatMap(([line, { over, under }]) => [
+          [`yellowOver${fmtLine(line)}`,  over],
+          [`yellowUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Falli
+      ...Object.fromEntries(
+        Object.entries(fouls.overUnder).flatMap(([line, { over, under }]) => [
+          [`foulsOver${fmtLine(line)}`,  over],
+          [`foulsUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
+      // Angoli
+      ...(cornersResult ? Object.fromEntries(
+        Object.entries(cornersResult.overUnder).flatMap(([line, { over, under }]) => [
+          [`cornersOver${fmtLine(line)}`,  over],
+          [`cornersUnder${fmtLine(line)}`, under],
+        ])
+      ) : {}),
+    };
+
+    return {
+      homeWin, draw, awayWin, btts,
+      over05: o05,  over15: o15,  over25: o25,  over35: o35,  over45: o45,
+      under05: 1-o05, under15: 1-o15, under25: 1-o25, under35: 1-o35, under45: 1-o45,
+      exactScore, handicap, asianHandicap,
+      shotsHome: {
+        expected: shotsResult.home.expectedTotalShots,
+        overUnder: shotsResult.home.overUnder,
+        totalShots: shotsResult.home.totalShots,
+        shotsOnTarget: shotsResult.home.shotsOnTarget,
+        negBinParams: shotsResult.home.negBinParams,
+      },
+      shotsAway: {
+        expected: shotsResult.away.expectedTotalShots,
+        overUnder: shotsResult.away.overUnder,
+        totalShots: shotsResult.away.totalShots,
+        shotsOnTarget: shotsResult.away.shotsOnTarget,
+        negBinParams: shotsResult.away.negBinParams,
+      },
+      shotsTotal: shotsResult.total,
+      shotsOnTargetHome: {
+        expected: shotsResult.home.expectedShotsOnTarget,
+        variance: shotsResult.home.shotsOnTarget.variance,
+        distribution: shotsResult.home.shotsOnTarget.distribution,
+      },
+      shotsOnTargetAway: {
+        expected: shotsResult.away.expectedShotsOnTarget,
+        variance: shotsResult.away.shotsOnTarget.variance,
+        distribution: shotsResult.away.shotsOnTarget.distribution,
+      },
+      cards, fouls,
+      corners: cornersResult ?? undefined,
+      playerShots: { home: playerShotsHome, away: playerShotsAway },
+      lambdaHome: matrix.lambdaHome,
+      lambdaAway: matrix.lambdaAway,
+      flatProbabilities,
+    };
+  }
+
+  // ==================== FITTING ====================
+
+  /**
+   * Calcola il peso temporale di una partita rispettando l'identità di stagione.
+   *
+   * PROBLEMA COL DECADIMENTO ESPONENZIALE PURO:
+   * exp(-τ × età) tratta tutte le partite come un continuum temporale,
+   * ignorando la struttura del campionato:
+   * - A metà stagione (giornata 19/38) la giornata 1 pesa pochissimo,
+   *   ma descrive la STESSA squadra con lo STESSO allenatore → informazione persa.
+   * - Le partite della stagione precedente con lo stesso allenatore possono
+   *   valere più di una partita recente post-cambio allenatore.
+   *
+   * SCHEMA IBRIDO stagione-aware + recency:
+   *
+   * 1. STAGIONE CORRENTE → peso quasi-uniforme (τ intra molto basso = 0.002):
+   *    La squadra ha un'identità stabile. Le partite della giornata 1 e della
+   *    giornata 20 descrivono la stessa rosa, lo stesso modulo, lo stesso
+   *    allenatore. Decadimento minimo — solo per dare leggermente più peso
+   *    alle partite delle ultime 2 settimane rispetto a quelle di 3 mesi fa.
+   *
+   * 2. STAGIONE PRECEDENTE → salto fisso (prevSeasonWeight=0.35) + decadimento inter:
+   *    Le partite dell'anno prima descrivono spesso un'identità diversa.
+   *    Peso massimo 35% di una partita corrente. Poi decadimento τ=0.018.
+   *
+   * 3. STAGIONI ANTECEDENTI → peso residuo (0.08) + stesso decadimento inter:
+   *    Quasi irrilevanti dopo 2 anni.
+   *
+   * 4. CAMBIO ALLENATORE (opzionale):
+   *    Partite pre-cambio ricevono moltiplicatore managerChangePenalty=0.15.
+   *    Una partita della stagione corrente ma con l'ex-allenatore vale poco.
+   *
+   * ESEMPIO (metà stagione, giornata 20, Serie A 2024-25):
+   *   Giornata  1 corrente  → w ≈ 0.98  (stesso allenatore, stesso modulo)
+   *   Giornata 20 corrente  → w = 1.00  (partita più recente)
+   *   Ultima giornata 23-24 → w ≈ 0.33  (anno prima, identità diversa)
+   *   Giornata  1 del 23-24 → w ≈ 0.19  (anno prima + più vecchia)
+   *   Due anni fa           → w ≈ 0.04  (quasi irrilevante)
+   */
+  private computeMatchWeight(
+    match: MatchData,
+    currentSeason: string,
+    previousSeason: string,
+    now: Date,
+    opts: {
+      prevSeasonWeight?: number;
+      tauInter?: number;
+      managerChangeDates?: Record<string, Date>;
+      managerChangePenalty?: number;
+    } = {}
+  ): number {
+    const {
+      prevSeasonWeight     = 0.35,
+      tauInter             = 0.018,
+      managerChangeDates   = {},
+      managerChangePenalty = 0.15,
+    } = opts;
+
+    const ageWeeks = (now.getTime() - match.date.getTime()) / (1000 * 60 * 60 * 24 * 7);
+    if (ageWeeks < 0) return 0;
+
+    const matchSeason = match.season ?? '';
+
+    let w: number;
+    if (matchSeason === currentSeason) {
+      // Stagione corrente: quasi-uniforme, lievissimo decadimento
+      w = Math.exp(-0.002 * ageWeeks);
+    } else if (matchSeason === previousSeason && previousSeason !== '') {
+      // Stagione precedente: salto fisso + decadimento inter-stagionale
+      w = prevSeasonWeight * Math.exp(-tauInter * ageWeeks);
+    } else if (matchSeason === '') {
+      // Season non valorizzato: fallback al decadimento esponenziale classico
+      w = Math.exp(-this.params.tau * ageWeeks);
+    } else {
+      // Stagioni più vecchie: peso residuo minimo
+      w = 0.08 * Math.exp(-tauInter * ageWeeks);
+    }
+
+    // Penalità cambio allenatore: la partita descrive un'identità che non esiste più
+    for (const teamId of [match.homeTeamId, match.awayTeamId]) {
+      const changeDate = managerChangeDates[teamId];
+      if (changeDate && match.date < changeDate) {
+        w *= managerChangePenalty;
+        break;
+      }
+    }
+
+    return Math.max(0, w);
   }
 
   /**
-   * Genera quote sintetiche per tutti i mercati con probabilità plausibile.
-   * Applica margine 5% + jitter deterministico ±6%.
-   * Genera solo se la quota fair è nel range [SYN_MIN_ODDS, SYN_MAX_ODDS].
+   * Risolve la stagione corrente e quella precedente dall'insieme di partite.
+   * Formato atteso: "2024-25", "2023-24", "2024", "2023" (ordine lessicografico).
    */
-  private generateSyntheticOdds(
-    matchId: string,
-    probMap: Record<string, number>
-  ): Record<string, number> {
-    const odds: Record<string, number> = {};
-    for (const [market, prob] of Object.entries(probMap)) {
-      if (!prob || prob <= 0.02 || prob >= 0.98) continue;
-      const fairOdds = 1 / prob;
-      if (fairOdds < this.SYN_MIN_ODDS || fairOdds > this.SYN_MAX_ODDS) continue;
-      const withMargin = fairOdds * this.SYNTHETIC_MARGIN;
-      const noise      = this.deterministicNoise(`${matchId}:${market}`);
-      const noisy      = withMargin * (1 + noise * this.SYNTHETIC_JITTER);
-      odds[market]     = parseFloat(Math.max(1.05, Math.min(20, noisy)).toFixed(3));
+  private resolveSeasons(matches: MatchData[], now: Date): { current: string; previous: string } {
+    const seasons = [...new Set(matches.map(m => m.season).filter(Boolean) as string[])].sort();
+    if (seasons.length === 0) {
+      const yr = now.getFullYear();
+      return { current: String(yr), previous: String(yr - 1) };
     }
-    return odds;
+    const current  = seasons[seasons.length - 1];
+    const previous = seasons.length >= 2 ? seasons[seasons.length - 2] : '';
+    return { current, previous };
   }
 
-  // ==================== NOMI MERCATI ====================
-
-  private buildMarketNames(probMap: Record<string, number>): Record<string, string> {
-    const names: Record<string, string> = {
-      homeWin: 'Esito - 1', draw: 'Esito - X', awayWin: 'Esito - 2',
-      btts: 'Goal Goal', bttsNo: 'No Goal',
-      over05:'Over 0.5', under05:'Under 0.5', over15:'Over 1.5', under15:'Under 1.5',
-      over25:'Over 2.5', under25:'Under 2.5', over35:'Over 3.5', under35:'Under 3.5',
-      over45:'Over 4.5', under45:'Under 4.5',
-    };
-
-    for (const key of Object.keys(probMap)) {
-      if (names[key]) continue;
-      if      (key.startsWith('shotsOver')    && !key.includes('Home') && !key.includes('Away'))
-        names[key] = `Tiri Tot Over ${this.lineFromKey(key, 'shotsOver')}`;
-      else if (key.startsWith('shotsUnder')   && !key.includes('Home') && !key.includes('Away'))
-        names[key] = `Tiri Tot Under ${this.lineFromKey(key, 'shotsUnder')}`;
-      else if (key.startsWith('shotsHomeOver'))
-        names[key] = `Tiri Casa Over ${this.lineFromKey(key, 'shotsHomeOver')}`;
-      else if (key.startsWith('shotsHomeUnder'))
-        names[key] = `Tiri Casa Under ${this.lineFromKey(key, 'shotsHomeUnder')}`;
-      else if (key.startsWith('shotsAwayOver'))
-        names[key] = `Tiri Osp Over ${this.lineFromKey(key, 'shotsAwayOver')}`;
-      else if (key.startsWith('shotsAwayUnder'))
-        names[key] = `Tiri Osp Under ${this.lineFromKey(key, 'shotsAwayUnder')}`;
-      else if (key.startsWith('shotsOTOver'))
-        names[key] = `SOT Over ${this.lineFromKey(key, 'shotsOTOver')}`;
-      else if (key.startsWith('shotsOTUnder'))
-        names[key] = `SOT Under ${this.lineFromKey(key, 'shotsOTUnder')}`;
-      else if (key.startsWith('yellowOver'))
-        names[key] = `Gialli Over ${this.lineFromKey(key, 'yellowOver')}`;
-      else if (key.startsWith('yellowUnder'))
-        names[key] = `Gialli Under ${this.lineFromKey(key, 'yellowUnder')}`;
-      else if (key.startsWith('foulsOver'))
-        names[key] = `Falli Over ${this.lineFromKey(key, 'foulsOver')}`;
-      else if (key.startsWith('foulsUnder'))
-        names[key] = `Falli Under ${this.lineFromKey(key, 'foulsUnder')}`;
-      else if (key.startsWith('exact_'))
-        names[key] = `Risultato Esatto ${key.replace('exact_', '')}`;
-      else if (key.startsWith('hcp_'))
-        names[key] = `Handicap ${key.replace('hcp_', '')}`;
-      else
-        names[key] = key;
-    }
-    return names;
-  }
-
-  /** "shotsOver155" → "15.5" */
-  private lineFromKey(key: string, prefix: string): string {
-    const raw = key.slice(prefix.length);
-    if (raw.length <= 1) return raw;
-    return raw.slice(0, -1) + '.' + raw.slice(-1);
-  }
-
-  private parseStatLine(raw: string): number | null {
-    const cleaned = String(raw ?? '').trim().replace(',', '.');
-    if (!cleaned) return null;
-    if (/^\d+\.\d+$/.test(cleaned)) return Number(cleaned);
-    if (/^\d+$/.test(cleaned) && cleaned.length >= 2) {
-      const n = Number(`${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`);
-      return Number.isFinite(n) ? n : null;
-    }
-    return null;
-  }
-
-  // ==================== VALUTAZIONE BET ====================
-
-  private evaluateBet(selection: string, match: MatchData): boolean {
-    const h = match.homeGoals!;
-    const a = match.awayGoals!;
-    const total = h + a;
-
-    // --- Goal ---
-    const goalMap: Record<string, boolean> = {
-      homeWin: h > a, draw: h === a, awayWin: a > h,
-      btts: h > 0 && a > 0, bttsNo: h === 0 || a === 0,
-      over05: total > 0.5, under05: total <= 0.5,
-      over15: total > 1.5, under15: total <= 1.5,
-      over25: total > 2.5, under25: total <= 2.5,
-      over35: total > 3.5, under35: total <= 3.5,
-      over45: total > 4.5, under45: total <= 4.5,
-    };
-    if (selection in goalMap) return goalMap[selection];
-
-    // --- Exact score ---
-    if (selection.startsWith('exact_')) {
-      const [gh, ga] = selection.replace('exact_', '').split('-').map(Number);
-      return h === gh && a === ga;
+  /**
+   * Gradient ascent sulla log-verosimiglianza con pesi ibridi stagione-aware.
+   *
+   * I pesi vengono pre-calcolati una volta sola prima del loop di ottimizzazione
+   * (sono funzione solo dei metadati della partita, non dei parametri).
+   * Il gradiente viene normalizzato per il peso totale (non per il numero di partite)
+   * così le iterazioni sono comparabili indipendentemente dalla distribuzione dei pesi.
+   *
+   * @param opts.prevSeasonWeight     Peso massimo stagione precedente (default 0.35)
+   * @param opts.tauInter             Decadimento inter-stagionale (default 0.018)
+   * @param opts.managerChangeDates   Map teamId → data cambio allenatore
+   * @param opts.managerChangePenalty Peso partite pre-cambio allenatore (default 0.15)
+   */
+  fitModel(
+    matches: MatchData[],
+    teams: string[],
+    maxIter = 280,
+    lr = 0.04,
+    opts: {
+      prevSeasonWeight?: number;
+      tauInter?: number;
+      managerChangeDates?: Record<string, Date>;
+      managerChangePenalty?: number;
+      /**
+       * enablePerTeamHomeAdvantage: se true, stima un parametro homeAdvantage
+       * separato per ciascuna squadra home. Richiede almeno 8-10 partite home
+       * per squadra per stabilità. Con dataset piccoli preferire false.
+       * Default: false → usa il parametro globale homeAdvantage per tutti.
+       */
+      enablePerTeamHomeAdvantage?: boolean;
+      /**
+       * structuralBreaks: eventi strutturali (cambio modulo, mercato estivo,
+       * retrocessione/promozione) che azzerano parzialmente la storia di una
+       * squadra, similmente al cambio allenatore.
+       * Map teamId → data dell'evento strutturale.
+       */
+      structuralBreaks?: Record<string, Date>;
+      /**
+       * structuralBreakPenalty: moltiplicatore peso per partite pre-evento
+       * strutturale. Default 0.25 (più permissivo di managerChangePenalty=0.15
+       * perché il cambio tattico è parziale, non totale).
+       */
+      structuralBreakPenalty?: number;
+    } = {}
+  ): ModelParams {
+    for (const t of teams) {
+      if (this.params.attackParams[t]  === undefined) this.params.attackParams[t]  = 0.0;
+      if (this.params.defenceParams[t] === undefined) this.params.defenceParams[t] = 0.0;
     }
 
-    // --- Handicap europeo ---
-    if (selection.startsWith('hcp_')) {
-      const raw = selection.replace('hcp_', '');
-      const isHome = raw.startsWith('home');
-      const lineStr = raw.replace(/^(home|away)/, '').replace('+', '');
-      const line = parseFloat(lineStr);
-      if (!isFinite(line)) return false;
-      const diff = isHome ? (h - a + line) : (a - h + line);
-      return diff > 0;
-    }
+    const now = new Date();
+    const { current: currentSeason, previous: previousSeason } = this.resolveSeasons(matches, now);
 
-    // Metodo riutilizzabile per Over/Under su valore numerico
-    const evalOU = (val: number | undefined, key: string, overPrefix: string, underPrefix: string): boolean | null => {
-      if (val === undefined) return null;
-      if (selection.startsWith(overPrefix)) {
-        const line = parseFloat(this.lineFromKey(selection, overPrefix));
-        return val > line;
+    const {
+      enablePerTeamHomeAdvantage = false,
+      structuralBreaks = {},
+      structuralBreakPenalty = 0.25,
+    } = opts;
+
+    const validMatches = matches.filter(m => m.homeGoals !== undefined && m.awayGoals !== undefined);
+    if (validMatches.length === 0 || teams.length === 0) return this.params;
+
+    // Inizializza homeAdvantagePerTeam se abilitato
+    if (enablePerTeamHomeAdvantage) {
+      for (const t of teams) {
+        if (this.params.homeAdvantagePerTeam[t] === undefined) {
+          this.params.homeAdvantagePerTeam[t] = this.params.homeAdvantage;
+        }
       }
-      if (selection.startsWith(underPrefix)) {
-        const line = parseFloat(this.lineFromKey(selection, underPrefix));
-        return val <= line;
+    }
+
+    // Pre-calcola i pesi una volta sola — immutabili durante il fitting.
+    // Applica structuralBreakPenalty alle partite pre-evento strutturale.
+    const weights = validMatches.map(m => {
+      let w = this.computeMatchWeight(m, currentSeason, previousSeason, now, opts);
+      if (w > 0 && Object.keys(structuralBreaks).length > 0) {
+        for (const teamId of [m.homeTeamId, m.awayTeamId]) {
+          const breakDate = structuralBreaks[teamId];
+          if (breakDate && m.date < breakDate) {
+            w *= structuralBreakPenalty;
+            break;
+          }
+        }
       }
-      return null;
-    };
-
-    // --- Tiri totali ---
-    const totalShots = match.homeTotalShots !== undefined && match.awayTotalShots !== undefined
-      ? match.homeTotalShots + match.awayTotalShots : undefined;
-    let res = evalOU(totalShots, selection, 'shotsOver', 'shotsUnder');
-    if (res !== null && !selection.includes('Home') && !selection.includes('Away') && !selection.includes('OT')) return res;
-
-    // --- Tiri casa ---
-    res = evalOU(match.homeTotalShots, selection, 'shotsHomeOver', 'shotsHomeUnder');
-    if (res !== null) return res;
-
-    // --- Tiri ospite ---
-    res = evalOU(match.awayTotalShots, selection, 'shotsAwayOver', 'shotsAwayUnder');
-    if (res !== null) return res;
-
-    // --- Tiri in porta totali ---
-    const totalSOT = match.homeShotsOnTarget !== undefined && match.awayShotsOnTarget !== undefined
-      ? match.homeShotsOnTarget + match.awayShotsOnTarget : undefined;
-    res = evalOU(totalSOT, selection, 'shotsOTOver', 'shotsOTUnder');
-    if (res !== null) return res;
-
-    // --- Cartellini gialli totali ---
-    const totalYellow = match.homeYellowCards !== undefined && match.awayYellowCards !== undefined
-      ? match.homeYellowCards + match.awayYellowCards : undefined;
-    res = evalOU(totalYellow, selection, 'yellowOver', 'yellowUnder');
-    if (res !== null) return res;
-
-    // --- Falli totali ---
-    const totalFouls = match.homeFouls !== undefined && match.awayFouls !== undefined
-      ? match.homeFouls + match.awayFouls : undefined;
-    res = evalOU(totalFouls, selection, 'foulsOver', 'foulsUnder');
-    if (res !== null) return res;
-    // --- Formati snake_case bookmaker (shots_total_over_235, ecc.) ---
-    const prefixed = selection.match(
-      /^(shots_total|shots_home|shots_away|sot_total|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
-    );
-    if (prefixed) {
-      const domain = prefixed[1].toLowerCase();
-      const side = prefixed[2].toLowerCase() as 'over' | 'under';
-      const line = this.parseStatLine(prefixed[3]);
-      if (line === null) return false;
-
-      let actual: number | undefined;
-      if (domain === 'shots_total') {
-        actual = totalShots;
-      } else if (domain === 'shots_home') {
-        actual = match.homeTotalShots;
-      } else if (domain === 'shots_away') {
-        actual = match.awayTotalShots;
-      } else if (domain === 'sot_total') {
-        actual = totalSOT;
-      } else if (domain === 'yellow' || domain === 'cards_total') {
-        actual = totalYellow;
-      } else if (domain === 'fouls') {
-        actual = totalFouls;
-      }
-
-      if (actual === undefined) return false;
-      return side === 'over' ? actual > line : actual <= line;
-    }
-    // Selezione non riconosciuta o dato non interpretabile dal parser corrente.
-    return false;
-  }
-
-  private evaluateBetNullable(selection: string, match: MatchData): boolean | null {
-    const s = String(selection ?? '').toLowerCase();
-    const requiresShots =
-      /^shots(over|under)\d+$/i.test(s) ||
-      /^shotshome(over|under)\d+$/i.test(s) ||
-      /^shotsaway(over|under)\d+$/i.test(s) ||
-      /^shots_total_(over|under)_/i.test(s) ||
-      /^shots_home_(over|under)_/i.test(s) ||
-      /^shots_away_(over|under)_/i.test(s);
-    const requiresSot =
-      /^shotsot(over|under)\d+$/i.test(s) ||
-      /^sot_total_(over|under)_/i.test(s);
-    const requiresYellow =
-      /^yellow(over|under)\d+$/i.test(s) ||
-      /^cards_total_(over|under)_/i.test(s) ||
-      /^yellow_(over|under)_/i.test(s);
-    const requiresFouls =
-      /^fouls(over|under)\d+$/i.test(s) ||
-      /^fouls_(over|under)_/i.test(s);
-
-    if (requiresShots && (match.homeTotalShots === undefined || match.awayTotalShots === undefined)) return null;
-    if (requiresSot && (match.homeShotsOnTarget === undefined || match.awayShotsOnTarget === undefined)) return null;
-    if (requiresYellow && (match.homeYellowCards === undefined || match.awayYellowCards === undefined)) return null;
-    if (requiresFouls && (match.homeFouls === undefined || match.awayFouls === undefined)) return null;
-
-    return this.evaluateBet(selection, match);
-  }
-
-  evaluateComboBetOpportunity(
-    combo: ComboBetOpportunity,
-    matchResults: Record<string, MatchData>
-  ): {
-    won: boolean;
-    allLegsEvaluable: boolean;
-    legsResults: Array<{ selection: string; won: boolean | null }>;
-  } {
-    return evaluateComboBet(
-      combo,
-      matchResults,
-      (selection, matchData) => this.evaluateBetNullable(selection, matchData as MatchData)
-    );
-  }
-
-  // ==================== METRICHE ====================
-
-  private computeMetrics(
-    bets: TestBet[], equity: EquityPoint[],
-    trainCount: number, testCount: number,
-    attemptedByCategory: Record<string, number> = {},
-    voidedByCategory: Record<string, number> = {},
-  ): BacktestResult {
-    const won         = bets.filter(b => b.won);
-    const totalStaked = bets.reduce((s,b) => s+b.stake, 0);
-    const totalReturn = bets.reduce((s,b) => s+(b.won?b.stake*b.odds:0), 0);
-    const netProfit   = totalReturn - totalStaked;
-    const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
-    const totalAttempts = bets.length + totalVoided;
-    const unevaluableRate = totalAttempts > 0 ? (totalVoided / totalAttempts) * 100 : 0;
-
-    // Market breakdown per categoria
-    const breakdown: Record<string, { bets:number; won:number; staked:number; returned:number; oddsSum:number; evSum:number }> = {};
-    for (const bet of bets) {
-      const cat = bet.marketCategory;
-      if (!breakdown[cat]) breakdown[cat] = { bets:0, won:0, staked:0, returned:0, oddsSum:0, evSum:0 };
-      breakdown[cat].bets++;
-      if (bet.won) breakdown[cat].won++;
-      breakdown[cat].staked   += bet.stake;
-      breakdown[cat].returned += bet.won ? bet.stake * bet.odds : 0;
-      breakdown[cat].oddsSum  += bet.odds;
-      breakdown[cat].evSum    += bet.ev;
-    }
-
-    const categories = new Set<string>([
-      ...Object.keys(breakdown),
-      ...Object.keys(attemptedByCategory),
-      ...Object.keys(voidedByCategory),
-    ]);
-
-    const marketUnevaluableBreakdown: BacktestResult['marketUnevaluableBreakdown'] = {};
-    const marketBreakdown: Record<string, MarketStats> = {};
-    for (const cat of categories) {
-      const d = breakdown[cat] ?? { bets: 0, won: 0, staked: 0, returned: 0, oddsSum: 0, evSum: 0 };
-      const voided = Number(voidedByCategory[cat] ?? 0);
-      const attempted = Math.max(Number(attemptedByCategory[cat] ?? 0), d.bets + voided);
-      const categoryUnevaluableRate = attempted > 0 ? (voided / attempted) * 100 : 0;
-
-      marketBreakdown[cat] = {
-        bets:     d.bets,
-        voided,
-        won:      d.won,
-        staked:   d.staked,
-        returned: d.returned,
-        roi:      d.staked > 0 ? ((d.returned - d.staked) / d.staked) * 100 : 0,
-        winRate:  d.bets   > 0 ? (d.won / d.bets) * 100 : 0,
-        avgOdds:  d.bets   > 0 ? d.oddsSum / d.bets : 0,
-        avgEV:    d.bets   > 0 ? (d.evSum   / d.bets) * 100 : 0,
-        unevaluableRate: categoryUnevaluableRate,
-      };
-      marketUnevaluableBreakdown[cat] = {
-        attempted,
-        voided,
-        unevaluableRate: categoryUnevaluableRate,
-      };
-    }
-
-    // Sharpe ratio (daily P&L)
-    const dailyR: number[] = [];
-    for (let i = 1; i < equity.length; i++) {
-      if (equity[i-1].bankroll > 0)
-        dailyR.push((equity[i].bankroll - equity[i-1].bankroll) / equity[i-1].bankroll);
-    }
-    const avgR  = dailyR.reduce((s,r)=>s+r,0)/(dailyR.length||1);
-    const stdR  = Math.sqrt(dailyR.reduce((s,r)=>s+(r-avgR)**2,0)/(dailyR.length||1));
-    const sharpe = stdR > 0 ? (avgR/stdR)*Math.sqrt(252) : 0;
-
-    // Max drawdown
-    let peak = this.INITIAL_BANKROLL, maxDD = 0;
-    for (const pt of equity) {
-      if (pt.bankroll > peak) peak = pt.bankroll;
-      const dd = (peak - pt.bankroll) / peak;
-      if (dd > maxDD) maxDD = dd;
-    }
-
-    const logLoss = bets.length > 0
-      ? -bets.reduce((s,b) => {
-        const p = b.ourProb, y = b.won ? 1 : 0;
-        return s + y*Math.log(Math.max(1e-10,p)) + (1-y)*Math.log(Math.max(1e-10,1-p));
-      }, 0) / bets.length
-      : 0;
-
-    const brierScore = bets.length > 0
-      ? bets.reduce((s,b) => s+(b.ourProb-(b.won?1:0))**2, 0) / bets.length
-      : 0;
-    const grossWin     = bets.filter(b=>b.profit>0) .reduce((s,b)=>s+b.profit, 0);
-    const grossLoss    = Math.abs(bets.filter(b=>b.profit<=0).reduce((s,b)=>s+b.profit, 0));
-    const profitFactor = grossLoss>0 ? grossWin/grossLoss : grossWin>0 ? Infinity : 0;
-
-    return {
-      totalMatches:    trainCount + testCount,
-      trainingMatches: trainCount,
-      testMatches:     testCount,
-      betsPlaced:      bets.length,
-      voidedBets:      totalVoided,
-      unevaluableRate,
-      betsWon:         won.length,
-      totalStaked, totalReturn, netProfit,
-      roi:          totalStaked>0 ? (netProfit/totalStaked)*100 : 0,
-      winRate:      bets.length>0  ? (won.length/bets.length)*100 : 0,
-      averageOdds:  bets.length > 0 ? bets.reduce((s,b)=>s+b.odds,0)/bets.length : 0,
-      averageEV:    bets.length > 0 ? bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100 : 0,
-      brierScore, logLoss,
-      calibration:  this.computeCalibration(bets),
-      equityCurve:  equity,
-      monthlyStats: this.computeMonthlyStats(bets),
-      sharpeRatio:  sharpe,
-      maxDrawdown:  maxDD*100,
-      recoveryFactor: maxDD>0 ? netProfit/(maxDD*this.INITIAL_BANKROLL) : 0,
-      profitFactor,
-      marketBreakdown,
-      marketUnevaluableBreakdown,
-    };
-  }
-
-  private computeCalibration(bets: TestBet[]): CalibrationBucket[] {
-    const buckets = [
-      {min:0,max:0.1,label:'0-10%'},{min:0.1,max:0.2,label:'10-20%'},
-      {min:0.2,max:0.3,label:'20-30%'},{min:0.3,max:0.4,label:'30-40%'},
-      {min:0.4,max:0.5,label:'40-50%'},{min:0.5,max:0.6,label:'50-60%'},
-      {min:0.6,max:0.7,label:'60-70%'},{min:0.7,max:0.8,label:'70-80%'},
-      {min:0.8,max:1.0,label:'80-100%'},
-    ];
-    return buckets.map(b => {
-      const inB = bets.filter(bet => bet.ourProb>=b.min && bet.ourProb<b.max);
-      return {
-        predictedRange:  b.label,
-        predictedAvg:    inB.length>0 ? inB.reduce((s,bet)=>s+bet.ourProb,0)/inB.length : (b.min+b.max)/2,
-        actualFrequency: inB.length>0 ? inB.filter(bet=>bet.won).length/inB.length : 0,
-        count:           inB.length,
-      };
+      return w;
     });
-  }
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+    if (totalWeight <= 0) return this.params;
+    const invTotalWeight = 1 / totalWeight;
 
-  private computeMonthlyStats(bets: TestBet[]): MonthlyStats[] {
-    const byMonth: Record<string, TestBet[]> = {};
-    for (const bet of bets) {
-      const key = `${bet.matchDate.getFullYear()}-${bet.matchDate.getMonth()}`;
-      (byMonth[key] ??= []).push(bet);
-    }
-    return Object.entries(byMonth).map(([key, mb]) => {
-      const [year, month] = key.split('-').map(Number);
-      const staked   = mb.reduce((s,b)=>s+b.stake, 0);
-      const returned = mb.reduce((s,b)=>s+(b.won?b.stake*b.odds:0), 0);
-      return { year, month:month+1, bets:mb.length, staked, returned,
-               profit:returned-staked, roi:staked>0?((returned-staked)/staked)*100:0 };
-    }).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
-  }
+    // Restituisce l'homeAdvantage effettivo: per-squadra se abilitato, globale altrimenti
+    const getHA = (homeId: string): number =>
+      enablePerTeamHomeAdvantage
+        ? (this.params.homeAdvantagePerTeam[homeId] ?? this.params.homeAdvantage)
+        : this.params.homeAdvantage;
 
-  private emptyResult(trainCount: number, testCount: number): BacktestResult {
-    return {
-      totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
-      betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
-      roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0,
-      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, marketUnevaluableBreakdown:{},
-      sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
+    const logLikelihood = (): number => {
+      let ll = 0;
+      for (let i = 0; i < validMatches.length; i++) {
+        const m = validMatches[i];
+        const w = weights[i];
+        if (w <= 0) continue;
+        const lH  = this.safeExp((this.params.attackParams[m.homeTeamId]??0) - (this.params.defenceParams[m.awayTeamId]??0) + getHA(m.homeTeamId));
+        const lA  = this.safeExp((this.params.attackParams[m.awayTeamId]??0) - (this.params.defenceParams[m.homeTeamId]??0));
+        const x = m.homeGoals!, y = m.awayGoals!;
+        const pBase = this.poissonPMF(x, lH) * this.poissonPMF(y, lA);
+        const tauC  = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
+        if (pBase > 0) ll += w * Math.log(Math.max(1e-12, pBase * tauC));
+      }
+      return ll;
     };
-  }
-}
 
+    const reg = 0.003;
+
+    /**
+     * OTTIMIZZATORE: Adam (Kingma & Ba, 2014)
+     *
+     * Sostituisce il gradient ascent con decadimento 1/√iter.
+     *
+     * PERCHÉ ADAM È MEGLIO DEL GRADIENT ASCENT SEMPLICE:
+     *
+     * 1. MOMENTUM (β₁): accumula una media esponenziale mobile del gradiente
+     *    (primo momento). Questo smussamento riduce l'oscillazione nei
+     *    parametri dove i gradienti cambiano segno frequentemente —
+     *    tipico di attack/defence su squadre con pochi dati.
+     *
+     * 2. ADATTIVITÀ (β₂): accumula la media esponenziale del gradiente al
+     *    quadrato (secondo momento). Divide il learning rate per √(m₂+ε),
+     *    producendo passi grandi dove il gradiente è piccolo e costante
+     *    (parametri ben determinati) e passi piccoli dove è noisy (parametri
+     *    su squadre con poche partite). In pratica: learning rate per-parametro.
+     *
+     * 3. CORREZIONE BIAS: nelle prime iterazioni m₁ e m₂ sono inizializzati
+     *    a zero → sottostimano il gradiente reale. La correzione m̂₁=m₁/(1-β₁ᵗ)
+     *    compensa questo, garantendo passi corretti fin dall'iter 1.
+     *
+     * 4. CONVERGENZA: Adam tipicamente converge in 80-120 iter su questo
+     *    tipo di problema (vs 200-280 del gradient ascent). La tolleranza
+     *    di flat-iter viene ridotta di conseguenza.
+     *
+     * IPERPARAMETRI:
+     *   β₁ = 0.9   → momentum standard (media su ~10 iter recenti)
+     *   β₂ = 0.999 → varianza stabile (media su ~1000 iter)
+     *   ε  = 1e-8  → stabilità numerica (evita /0)
+     *   lr = parametro passato (default 0.04, Adam è meno sensibile al lr
+     *        rispetto al gradient ascent puro grazie all'adattività)
+     */
+    const β1 = 0.9, β2 = 0.999, ε = 1e-8;
+
+    // Primo momento (media gradiente)
+    const m1A: Record<string,number> = {}, m1D: Record<string,number> = {};
+    const m1HAPt: Record<string,number> = {};
+    let m1HA = 0, m1Rho = 0;
+
+    // Secondo momento (varianza gradiente)
+    const m2A: Record<string,number> = {}, m2D: Record<string,number> = {};
+    const m2HAPt: Record<string,number> = {};
+    let m2HA = 0, m2Rho = 0;
+
+    for (const t of teams) {
+      m1A[t] = 0; m1D[t] = 0; m2A[t] = 0; m2D[t] = 0;
+      if (enablePerTeamHomeAdvantage) { m1HAPt[t] = 0; m2HAPt[t] = 0; }
+    }
+
+    let prevLL = -Infinity, flatIters = 0;
+
+    for (let iter = 1; iter <= maxIter; iter++) {
+      // ---- calcolo gradienti ----
+      const gA: Record<string,number> = {}, gD: Record<string,number> = {};
+      for (const t of teams) { gA[t] = 0; gD[t] = 0; }
+      let gHA = 0, gRho = 0;
+      const gHAPerTeam: Record<string, number> = {};
+      if (enablePerTeamHomeAdvantage) {
+        for (const t of teams) gHAPerTeam[t] = 0;
+      }
+
+      for (let i = 0; i < validMatches.length; i++) {
+        const m = validMatches[i];
+        const w = weights[i];
+        if (w <= 0) continue;
+        const lH = this.safeExp(
+          (this.params.attackParams[m.homeTeamId]??0) -
+          (this.params.defenceParams[m.awayTeamId]??0) +
+          getHA(m.homeTeamId)
+        );
+        const lA = this.safeExp(
+          (this.params.attackParams[m.awayTeamId]??0) -
+          (this.params.defenceParams[m.homeTeamId]??0)
+        );
+        const x = m.homeGoals!, y = m.awayGoals!;
+        const errH = x - lH, errA = y - lA;
+
+        gA[m.homeTeamId] += w * errH;  gD[m.awayTeamId] += w * (-errH);
+        gA[m.awayTeamId] += w * errA;  gD[m.homeTeamId] += w * (-errA);
+        gHA += w * errH;
+
+        if (enablePerTeamHomeAdvantage) {
+          gHAPerTeam[m.homeTeamId] = (gHAPerTeam[m.homeTeamId] ?? 0) + w * errH;
+        }
+
+        const tauC = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
+        const dTau = this.tauDerivative(x, y, lH, lA);
+        if (isFinite(dTau)) gRho += w * (dTau / tauC);
+      }
+
+      // ---- normalizza gradienti per peso totale + L2 regularization ----
+      for (const t of teams) {
+        gA[t] = gA[t] * invTotalWeight - reg * (this.params.attackParams[t]  ?? 0);
+        gD[t] = gD[t] * invTotalWeight - reg * (this.params.defenceParams[t] ?? 0);
+        if (enablePerTeamHomeAdvantage) {
+          // Regularizzazione verso parametro globale (shrinkage)
+          const regPt = 0.05 * ((this.params.homeAdvantagePerTeam[t] ?? this.params.homeAdvantage) - this.params.homeAdvantage);
+          gHAPerTeam[t] = (gHAPerTeam[t] ?? 0) * invTotalWeight - regPt;
+        }
+      }
+      const gHAnorm  = gHA  * invTotalWeight - reg * this.params.homeAdvantage;
+      const gRhoNorm = gRho * invTotalWeight - 0.02 * (this.params.rho + 0.13);
+
+      // ---- Adam update con bias correction ----
+      const bc1 = 1 - Math.pow(β1, iter);   // bias correction primo momento
+      const bc2 = 1 - Math.pow(β2, iter);   // bias correction secondo momento
+
+      for (const t of teams) {
+        // Attack
+        m1A[t] = β1 * m1A[t] + (1 - β1) * gA[t];
+        m2A[t] = β2 * m2A[t] + (1 - β2) * gA[t] * gA[t];
+        const stepA = lr * (m1A[t] / bc1) / (Math.sqrt(m2A[t] / bc2) + ε);
+        this.params.attackParams[t] = this.clamp(
+          (this.params.attackParams[t] ?? 0) + stepA,
+          -this.PARAM_BOUND, this.PARAM_BOUND
+        );
+
+        // Defence
+        m1D[t] = β1 * m1D[t] + (1 - β1) * gD[t];
+        m2D[t] = β2 * m2D[t] + (1 - β2) * gD[t] * gD[t];
+        const stepD = lr * (m1D[t] / bc1) / (Math.sqrt(m2D[t] / bc2) + ε);
+        this.params.defenceParams[t] = this.clamp(
+          (this.params.defenceParams[t] ?? 0) + stepD,
+          -this.PARAM_BOUND, this.PARAM_BOUND
+        );
+
+        // HomeAdvantage per-squadra (se abilitato)
+        if (enablePerTeamHomeAdvantage) {
+          m1HAPt[t] = β1 * m1HAPt[t] + (1 - β1) * gHAPerTeam[t];
+          m2HAPt[t] = β2 * m2HAPt[t] + (1 - β2) * gHAPerTeam[t] * gHAPerTeam[t];
+          const stepHAPt = lr * (m1HAPt[t] / bc1) / (Math.sqrt(m2HAPt[t] / bc2) + ε);
+          this.params.homeAdvantagePerTeam[t] = this.clamp(
+            (this.params.homeAdvantagePerTeam[t] ?? this.params.homeAdvantage) + stepHAPt,
+            -0.5, 0.8
+          );
+        }
+      }
+
+      // HomeAdvantage globale
+      m1HA = β1 * m1HA + (1 - β1) * gHAnorm;
+      m2HA = β2 * m2HA + (1 - β2) * gHAnorm * gHAnorm;
+      const stepHA = lr * (m1HA / bc1) / (Math.sqrt(m2HA / bc2) + ε);
+      this.params.homeAdvantage = this.clamp(
+        this.params.homeAdvantage + stepHA,
+        -0.8, 1.2
+      );
+
+      // Rho
+      m1Rho = β1 * m1Rho + (1 - β1) * gRhoNorm;
+      m2Rho = β2 * m2Rho + (1 - β2) * gRhoNorm * gRhoNorm;
+      const stepRho = lr * (m1Rho / bc1) / (Math.sqrt(m2Rho / bc2) + ε);
+      this.params.rho = this.clamp(this.params.rho + stepRho, -0.5, 0.0);
+
+      // ---- criterio di arresto ----
+      // Adam converge più velocemente: tolleranza più stretta (1e-7 vs 1e-6)
+      // e finestra flat più breve (8 iter vs 12)
+      const ll = logLikelihood();
+      if (!isFinite(ll)) break;
+      if (Math.abs(ll - prevLL) < 1e-7) flatIters++; else flatIters = 0;
+      prevLL = ll;
+      if (iter > 40 && flatIters >= 8) break;
+    }
+
+    // Normalizzazione (vincolo di identificabilità: Σ attack = 0)
+    const nT   = teams.length;
+    const avgA = teams.reduce((s,t) => s+(this.params.attackParams[t]??0),  0) / nT;
+    const avgD = teams.reduce((s,t) => s+(this.params.defenceParams[t]??0), 0) / nT;
+    for (const t of teams) {
+      this.params.attackParams[t]  = (this.params.attackParams[t]??0)  - avgA;
+      this.params.defenceParams[t] = (this.params.defenceParams[t]??0) - avgD;
+    }
+
+    return this.params;
+  }
+
+  getParams(): ModelParams { return this.params; }
+  setParams(p: Partial<ModelParams>): void { this.params = { ...this.params, ...p }; }
+}
