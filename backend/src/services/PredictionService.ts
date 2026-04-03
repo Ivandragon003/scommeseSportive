@@ -122,6 +122,62 @@ export interface CompletedMatchLearningReview {
   } | null;
 }
 
+// Exported for narrow smoke tests so key normalization/enrichment stays type-safe and refactor-safe.
+export function enrichFlatProbabilitiesInternal(flat: Record<string, number>): void {
+  const p1 = flat['homeWin'] || 0;
+  const px = flat['draw'] || 0;
+  const p2 = flat['awayWin'] || 0;
+
+  if (p1 + p2 > 0) {
+    flat['dnb_home'] = p1 / (p1 + p2);
+    flat['dnb_away'] = p2 / (p1 + p2);
+  }
+  flat['double_chance_1x'] = p1 + px;
+  flat['double_chance_x2'] = p2 + px;
+  flat['double_chance_12'] = p1 + p2;
+}
+
+// Exported for narrow smoke tests so odds-key mappings fail at compile time if renamed or removed.
+export function alignOddsKeysInternal(odds: Record<string, number>): Record<string, number> {
+  const aligned: Record<string, number> = {};
+
+  const domainMap: Record<string, string> = {
+    shots_total: 'shots',
+    shots_home: 'shotsHome',
+    shots_away: 'shotsAway',
+    sot_total: 'shotsOT',
+    corners: 'corners',
+    yellow: 'yellow',
+    fouls: 'fouls',
+    cards_total: 'cardsTotal',
+  };
+
+  for (const [key, val] of Object.entries(odds)) {
+    if (!Number.isFinite(val) || val <= 1) continue;
+
+    const m = key.match(
+      /^(shots_total|shots_home|shots_away|sot_total|corners|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
+    );
+    if (m) {
+      const domain = domainMap[m[1].toLowerCase()] ?? m[1];
+      const side = m[2].charAt(0).toUpperCase() + m[2].slice(1);
+      const lineKey = m[3].replace(/[.,]/g, '');
+      const camelKey = `${domain}${side}${lineKey}`;
+      aligned[camelKey] = val;
+      aligned[key] = val;
+      continue;
+    }
+
+    const normalizedKey = key.toLowerCase()
+      .replace(/_([a-z0-9])/g, (_, l) => l.toUpperCase())
+      .replace(/[\.\s]/g, '');
+    aligned[normalizedKey] = val;
+    aligned[key] = val;
+  }
+
+  return aligned;
+}
+
 export class PredictionService {
   private models: Map<string, DixonColesModel> = new Map();
   private engine: ValueBettingEngine;
@@ -800,60 +856,12 @@ export class PredictionService {
   }
 
   private enrichFlatProbabilities(flat: Record<string, number>): void {
-    const p1 = flat['homeWin'] || 0;
-    const px = flat['draw'] || 0;
-    const p2 = flat['awayWin'] || 0;
-
-    if (p1 + p2 > 0) {
-      flat['dnb_home'] = p1 / (p1 + p2);
-      flat['dnb_away'] = p2 / (p1 + p2);
-    }
-    flat['double_chance_1x'] = p1 + px;
-    flat['double_chance_x2'] = p2 + px;
-    flat['double_chance_12'] = p1 + p2;
+    enrichFlatProbabilitiesInternal(flat);
     // bttsNo è già calcolato in DixonColesModel, rimosso duplicato
   }
 
   private alignOddsKeys(odds: Record<string, number>): Record<string, number> {
-    const aligned: Record<string, number> = {};
-
-    const domainMap: Record<string, string> = {
-      'shots_total': 'shots',      // shots_total_over_23.5 → shotsOver235
-      'shots_home': 'shotsHome',  // shots_home_over_11.5  → shotsHomeOver115
-      'shots_away': 'shotsAway',
-      'sot_total': 'shotsOT',
-      'corners': 'corners',
-      'yellow': 'yellow',
-      'fouls': 'fouls',
-      'cards_total': 'cardsTotal',
-    };
-
-    for (const [key, val] of Object.entries(odds)) {
-      if (!Number.isFinite(val) || val <= 1) continue;
-
-      // Formato snake_case con punto: shots_total_over_23.5 o senza punto shots_total_over_235
-      const m = key.match(
-        /^(shots_total|shots_home|shots_away|sot_total|corners|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
-      );
-      if (m) {
-        const domain = domainMap[m[1].toLowerCase()] ?? m[1];
-        const side = m[2].charAt(0).toUpperCase() + m[2].slice(1);
-        const lineKey = m[3].replace(/[.,]/g, '');
-        const camelKey = `${domain}${side}${lineKey}`;
-        aligned[camelKey] = val;
-        aligned[key] = val; // mantieni anche originale per sicurezza
-        continue;
-      }
-
-      // Chiavi già in altri formati → converti genericamente
-      let k = key.toLowerCase()
-        .replace(/_([a-z0-9])/g, (_, l) => l.toUpperCase())
-        .replace(/[\.\s]/g, '');
-      aligned[k] = val;
-      aligned[key] = val;
-    }
-
-    return aligned;
+    return alignOddsKeysInternal(odds);
   }
 
   getMarketNames(selections: string[]): Record<string, string> {

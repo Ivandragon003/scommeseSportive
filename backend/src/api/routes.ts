@@ -6,13 +6,20 @@ import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { SofaScoreSupplementalScraper } from '../services/SofaScoreSupplementalScraper';
 import { UnderstatScraper } from '../services/UnderstatScraper';
 
-const router = Router();
-const db = new DatabaseService();
-const svc = new PredictionService(db);
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   2,
   Math.min(Number(process.env.UNDERSTAT_DETAIL_CONCURRENCY ?? 10), 24)
 );
+
+export type ApiRouterDependencies = {
+  db: DatabaseService;
+  svc?: PredictionService;
+};
+
+export function createApiRouter(deps: ApiRouterDependencies): Router {
+const router = Router();
+const db = deps.db;
+const svc = deps.svc ?? new PredictionService(db);
 
 async function buildStatsOverviewPayload() {
   const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
@@ -3431,6 +3438,9 @@ router.get('/scraper/odds/info', (_req, res) => {
 });
 
 
-export default router;
+return router;
+}
+
+export default createApiRouter;
 
 
