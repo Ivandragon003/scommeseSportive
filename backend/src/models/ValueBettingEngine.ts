@@ -1110,8 +1110,32 @@ export class ValueBettingEngine {
     if (fullKelly <= 0) return null;
 
     const quarterKelly = fullKelly * this.KELLY_FRACTION;
-    // Cap combinata più conservativo: max 2.4% (60% del cap singola 4%)
-    const MAX_COMBO_STAKE = this.MAX_STAKE_PERCENT * 0.6;
+
+    /**
+     * MAX_COMBO_STAKE scalato inversamente con √n_legs.
+     *
+     * MOTIVAZIONE MATEMATICA:
+     * Una combinata con n legs indipendenti ha varianza totale che cresce
+     * proporzionalmente a n (somma di varianze). La deviazione standard
+     * cresce quindi con √n. Per mantenere lo stesso livello di rischio
+     * relativo al bankroll, lo stake deve scendere con 1/√n.
+     *
+     * Formula: MAX_COMBO_STAKE(n) = BASE_CAP / √n
+     *   n=1 → 2.4%  (identico al vecchio comportamento per singola)
+     *   n=2 → 1.70% (−29%)
+     *   n=3 → 1.39% (−42%)
+     *   n=4 → 1.20% (−50%)
+     *
+     * BASE_CAP = MAX_STAKE_PERCENT × 0.6 = 4.0 × 0.6 = 2.4%
+     * Questo preserva il cap originale per le singole e riduce
+     * automaticamente l'esposizione al crescere del numero di legs.
+     *
+     * FLOOR: 0.5% — sotto questa soglia la combinata non vale il rischio
+     * operativo (spread, liquidità, errori di esecuzione).
+     */
+    const BASE_COMBO_CAP = this.MAX_STAKE_PERCENT * 0.6;  // 2.4%
+    const nLegs = legs.length;
+    const MAX_COMBO_STAKE = Math.max(0.5, BASE_COMBO_CAP / Math.sqrt(nLegs));
     const stakePercent = this.clampNumber(
       quarterKelly * 100,
       this.MIN_STAKE_PERCENT,
