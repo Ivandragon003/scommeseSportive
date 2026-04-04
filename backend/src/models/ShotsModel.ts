@@ -375,20 +375,59 @@ export class ShotsModel {
    * 1. Se gioca in casa vs in trasferta (homeMultiplier dal profilo)
    * 2. Qualità difesa avversaria (defenceQuality: 0.7 difesa forte, 1.3 debole)
    * 3. Se titolare vs probabile panchina (riduce λ, aumenta π)
+   *
+   * NUOVO — minutesFactor con intervallo di confidenza:
+   *   Il vecchio modello usava minutesFactor = expectedMinutes / 90 come
+   *   scalare puntuale. Questo è ottimistico: i minuti attesi hanno
+   *   incertezza reale (sostituzione anticipata, espulsione, infortunio).
+   *
+   *   Modelliamo l'incertezza con una distribuzione triangolare sui minuti:
+   *     minMinutes = expectedMinutes × (1 - minutesUncertainty)
+   *     maxMinutes = min(90, expectedMinutes × (1 + minutesUncertainty))
+   *     mode = expectedMinutes
+   *
+   *   E[minutesFactor] = (min + max + mode) / (3 × 90)  [media triangolare]
+   *   Var[minutesFactor] = (min² + max² + mode² - min×max - min×mode - max×mode) / (18 × 90²)
+   *
+   *   La varianza del minutesFactor si propaga su π come shift verso
+   *   valori più alti (più incertezza → più probabilità di 0 tiri).
+   *   La formula è: π_adj += varianceShift × sqrt(Var[minutesFactor])
+   *
+   * @param minutesUncertainty  Incertezza relativa sui minuti (default 0.15 = ±15%)
    */
   predictPlayerShots(
     profile: PlayerShotProfile,
     isHome: boolean,
-    defenceQuality: number = 1.0,    // 1.0 = media, <1 forte, >1 debole
+    defenceQuality: number = 1.0,
     isLikelyStarter: boolean = true,
-    expectedMinutes: number = 90
+    expectedMinutes: number = 90,
+    minutesUncertainty: number = 0.15
   ): PlayerShotPrediction {
-    // Scala π in base ai minuti attesi
-    // Se gioca meno (sostituzione prevista), π aumenta
-    const minutesFactor = expectedMinutes / 90;
-    const adjustedPi = Math.min(0.98, profile.zipPi + (1 - minutesFactor) * 0.3);
+    // --- minutesFactor con banda di incertezza (distribuzione triangolare) ---
+    const clampedMinutes = Math.max(1, Math.min(90, expectedMinutes));
+    const minMins  = clampedMinutes * (1 - minutesUncertainty);
+    const maxMins  = Math.min(90, clampedMinutes * (1 + minutesUncertainty));
+    const modeMins = clampedMinutes;
 
-    // λ si scala con: casa/trasferta, qualità difesa avversaria
+    // Media della distribuzione triangolare
+    const avgMinutes = (minMins + maxMins + modeMins) / 3;
+    const minutesFactor = avgMinutes / 90;
+
+    // Varianza della distribuzione triangolare (normalizzata per 90)
+    const minF  = minMins  / 90;
+    const maxF  = maxMins  / 90;
+    const modeF = modeMins / 90;
+    const varMinutesFactor =
+      (minF * minF + maxF * maxF + modeF * modeF - minF * maxF - minF * modeF - maxF * modeF) / 18;
+    // Shift di π proporzionale alla deviazione standard dei minuti:
+    // più incertezza sui minuti → più probabilità di 0 tiri per interruzione anticipata
+    const VARIANCE_SHIFT = 0.4;
+    const minutesVariancePenalty = VARIANCE_SHIFT * Math.sqrt(Math.max(0, varMinutesFactor));
+
+    // Scala π in base ai minuti attesi (media) + penalità varianza
+    const adjustedPi = Math.min(0.98, profile.zipPi + (1 - minutesFactor) * 0.3 + minutesVariancePenalty);
+
+    // λ si scala con: casa/trasferta, qualità difesa, minutesFactor medio
     const locationMult = isHome ? profile.homeMultiplier : 1.0;
     const adjustedLambda = profile.zipLambda * locationMult * defenceQuality * minutesFactor;
 
@@ -396,49 +435,51 @@ export class ShotsModel {
     const finalPi = isLikelyStarter ? adjustedPi : Math.min(0.95, adjustedPi + 0.4);
     const finalLambda = Math.max(0.1, adjustedLambda);
 
-    // Stesso per tiri in porta (con lambda ridotto)
+    // Tiri in porta: stessa logica con lambda ridotto
     const sotLambda = Math.max(0.05, profile.onTargetLambda * locationMult * defenceQuality * minutesFactor);
-    const sotPi = Math.min(0.99, profile.onTargetPi + (1 - minutesFactor) * 0.25);
+    const sotVariancePenalty = minutesVariancePenalty * 0.8; // attenuato per SOT
+    const sotPi = Math.min(0.99, profile.onTargetPi + (1 - minutesFactor) * 0.25 + sotVariancePenalty);
 
     // Distribuzione shots
     const maxK = 8;
     const shotDist = this.generateZIPDistribution(finalPi, finalLambda, maxK);
-    const sotDist = this.generateZIPDistribution(sotPi, sotLambda, maxK);
+    const sotDist  = this.generateZIPDistribution(sotPi, sotLambda, maxK);
 
     const normShot = shotDist.map(p => p / Math.max(1e-10, shotDist.reduce((s, v) => s + v, 0)));
-    const normSOT = sotDist.map(p => p / Math.max(1e-10, sotDist.reduce((s, v) => s + v, 0)));
+    const normSOT  = sotDist.map(p => p / Math.max(1e-10, sotDist.reduce((s, v) => s + v, 0)));
 
     const cdfShot = (t: number) => normShot.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfSOT = (t: number) => normSOT.reduce((s, p, k) => k > t ? s + p : s, 0);
+    const cdfSOT  = (t: number) => normSOT.reduce((s, p, k)  => k > t ? s + p : s, 0);
 
-    const expectedShots = (1 - finalPi) * finalLambda;
-    const expectedOnTarget = (1 - sotPi) * sotLambda;
+    const expectedShots    = (1 - finalPi) * finalLambda;
+    const expectedOnTarget = (1 - sotPi)   * sotLambda;
 
+    // Confidenza: sigmoide su sample size — invariata
     const confidence = Math.min(0.90, 1 / (1 + Math.exp(-(profile.sampleSize - 10) / 7)));
 
     const fmt = (n: number) => parseFloat(n.toFixed(4));
 
     return {
-      playerId: profile.playerId,
-      playerName: profile.playerName,
-      teamId: profile.teamId,
-      position: profile.position,
-      expectedShots: parseFloat(expectedShots.toFixed(3)),
+      playerId:    profile.playerId,
+      playerName:  profile.playerName,
+      teamId:      profile.teamId,
+      position:    profile.position,
+      expectedShots:    parseFloat(expectedShots.toFixed(3)),
       expectedOnTarget: parseFloat(expectedOnTarget.toFixed(3)),
-      shotDistribution: Object.fromEntries(normShot.map((p, k) => [k, fmt(p)])),
-      onTargetDistribution: Object.fromEntries(normSOT.map((p, k) => [k, fmt(p)])),
+      shotDistribution:     Object.fromEntries(normShot.map((p, k) => [k, fmt(p)])),
+      onTargetDistribution: Object.fromEntries(normSOT.map((p, k)  => [k, fmt(p)])),
       markets: {
-        over05shots: fmt(cdfShot(0.5)),
-        over15shots: fmt(cdfShot(1.5)),
-        over25shots: fmt(cdfShot(2.5)),
-        over35shots: fmt(cdfShot(3.5)),
+        over05shots:    fmt(cdfShot(0.5)),
+        over15shots:    fmt(cdfShot(1.5)),
+        over25shots:    fmt(cdfShot(2.5)),
+        over35shots:    fmt(cdfShot(3.5)),
         over05onTarget: fmt(cdfSOT(0.5)),
         over15onTarget: fmt(cdfSOT(1.5)),
         over25onTarget: fmt(cdfSOT(2.5)),
-        zeroShots: fmt(normShot[0] ?? 1),
+        zeroShots:      fmt(normShot[0] ?? 1),
       },
       confidenceLevel: parseFloat(confidence.toFixed(3)),
-      sampleSize: profile.sampleSize
+      sampleSize: profile.sampleSize,
     };
   }
 
