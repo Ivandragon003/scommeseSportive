@@ -62,8 +62,12 @@ const Backtesting: React.FC = () => {
   }, []);
 
   const loadResults = async () => {
-    const res = await getBacktestResults();
-    setResults(res.data ?? []);
+    try {
+      const res = await getBacktestResults();
+      setResults(res.data ?? []);
+    } catch {
+      setResults([]);
+    }
   };
 
   const handleRun = async () => {
@@ -102,12 +106,16 @@ const Backtesting: React.FC = () => {
   };
 
   const loadHistorical = async (id: number) => {
-    const res = await getBacktestResult(id);
-    const result = res.data?.result ?? null;
-    if (result) {
-      setCurrentResult(result);
-      setCurrentResultId(id);
-      setActiveTab(isWalkForwardResult(result) ? 'folds' : 'overview');
+    try {
+      const res = await getBacktestResult(id);
+      const result = res.data?.result ?? null;
+      if (result) {
+        setCurrentResult(result);
+        setCurrentResultId(id);
+        setActiveTab(isWalkForwardResult(result) ? 'folds' : 'overview');
+      }
+    } catch (e: any) {
+      alert(`Errore caricamento run: ${e.message}`);
     }
   };
 
