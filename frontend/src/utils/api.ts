@@ -137,6 +137,15 @@ export const getBacktestResults = (competition?: string) =>
 export const getBacktestResult = (id: number) =>
   API.get<ApiResponse<any>>(`/backtest/results/${id}`).then(r => r.data);
 
+export const deleteBacktestResult = (id: number) =>
+  API.delete<ApiResponse<{ deleted: boolean }>>(`/backtest/results/${id}`).then(r => r.data);
+
+export const deleteBacktestResults = (competition?: string) =>
+  API.delete<ApiResponse<{ deletedCount: number }>>('/backtest/results', { params: { competition } }).then(r => r.data);
+
+export const pruneBacktestResults = (keepLatest: number, competition?: string) =>
+  API.post<ApiResponse<{ deletedCount: number }>>('/backtest/results/prune', { keepLatest, competition }).then(r => r.data);
+
 export const recomputeAverages = (competition?: string) =>
   API.post<ApiResponse<any>>('/model/recompute-averages', { competition }).then(r => r.data);
 

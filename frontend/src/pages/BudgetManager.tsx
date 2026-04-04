@@ -46,6 +46,10 @@ const localStyles = `
 `;
 
 const toAmount = (v: any) => Number(v ?? 0);
+const formatDateTime = (value: any) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('it-IT');
+};
 
 const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   const [budget, setBudget] = useState<any>(null);
@@ -78,9 +82,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   const handleReset = async () => {
     const amount = Number(initAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    await initBudget(activeUser, amount);
-    await loadAll();
-    setShowReset(false);
+    try {
+      await initBudget(activeUser, amount);
+      await loadAll();
+      setShowReset(false);
+    } catch (e: any) {
+      alert(`Errore reset budget: ${e.message}`);
+    }
   };
 
   const pendingBets = useMemo(() => bets.filter((b) => String(b.status) === 'PENDING'), [bets]);
@@ -260,7 +268,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                             </td>
                             <td className="fp-mono">{Number(bet.odds ?? 0).toFixed(2)}</td>
                             <td className="fp-mono">EUR {Number(bet.stake ?? 0).toFixed(2)}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{new Date(bet.placed_at).toLocaleString('it-IT')}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{formatDateTime(bet.placed_at)}</td>
                             <td><span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span></td>
                           </tr>
                         ))}
@@ -320,7 +328,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                           <td className="fp-mono" style={{ color: Number(bet.profit ?? 0) > 0 ? 'var(--green)' : Number(bet.profit ?? 0) < 0 ? 'var(--red)' : 'var(--text-2)' }}>
                             {bet.profit !== null && bet.profit !== undefined ? `${Number(bet.profit) > 0 ? '+' : ''}EUR ${Number(bet.profit).toFixed(2)}` : '-'}
                           </td>
-                          <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{new Date(bet.placed_at).toLocaleString('it-IT')}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{formatDateTime(bet.placed_at)}</td>
                         </tr>
                       ))}
                     </tbody>

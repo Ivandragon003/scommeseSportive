@@ -1320,6 +1320,42 @@ router.get('/backtest/results/:id', async (req: Request, res: Response) => {
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
 });
 
+router.delete('/backtest/results/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: 'ID run non valido' });
+    const deleted = await db.deleteBacktestResult(id);
+    if (!deleted) return res.status(404).json({ success: false, error: 'Run non trovato' });
+    return res.json({ success: true, data: { deleted: true } });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.delete('/backtest/results', async (req: Request, res: Response) => {
+  try {
+    const competition = String(req.query.competition ?? '').trim();
+    const deletedCount = await db.deleteBacktestResults(competition || undefined);
+    return res.json({ success: true, data: { deletedCount } });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/backtest/results/prune', async (req: Request, res: Response) => {
+  try {
+    const keepLatestRaw = Number(req.body?.keepLatest);
+    if (!Number.isFinite(keepLatestRaw) || keepLatestRaw < 0) {
+      return res.status(400).json({ success: false, error: 'keepLatest deve essere un numero >= 0' });
+    }
+    const competition = String(req.body?.competition ?? '').trim();
+    const deletedCount = await db.pruneBacktestResults(Math.floor(keepLatestRaw), competition || undefined);
+    return res.json({ success: true, data: { deletedCount } });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 router.get('/stats/overview', async (_req: Request, res: Response) => {
   try {
     return res.json({ success: true, data: await buildStatsOverviewPayload() });
