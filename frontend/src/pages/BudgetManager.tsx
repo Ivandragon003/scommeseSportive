@@ -91,6 +91,19 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
     }
   };
 
+  const handleQuickReset = async () => {
+    const amount = Number(initAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('Inserisci un importo valido per il reset.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Confermi il reset completo di budget e scommesse per l'utente ${activeUser}?`
+    );
+    if (!confirmed) return;
+    await handleReset();
+  };
+
   const pendingBets = useMemo(() => bets.filter((b) => String(b.status) === 'PENDING'), [bets]);
 
   const settledBets = useMemo(
@@ -134,7 +147,18 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
             <div className="bm-title">Budget e Scommesse</div>
             <div className="bm-sub">Esito automatico su partite concluse e storico completo</div>
           </div>
-          <div className="bm-user">Utente: <strong>{activeUser}</strong></div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {!loading && budget && (
+              <button
+                className="fp-btn fp-btn-red fp-btn-sm"
+                onClick={handleQuickReset}
+                title="Azzera budget e cancella tutte le scommesse dell'utente corrente"
+              >
+                Reset Budget + Scommesse
+              </button>
+            )}
+            <div className="bm-user">Utente: <strong>{activeUser}</strong></div>
+          </div>
         </div>
 
         {loading ? (
