@@ -2930,97 +2930,124 @@ const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => 
 router.post('/scraper/odds', async (req: Request, res: Response) => {
   let eurobetService: EurobetOddsService | null = null;
   try {
-    const { competition = 'Serie A', markets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'] } = req.body;
-    const normalizedMarkets = Array.isArray(markets) && markets.length > 0
-      ? markets.map((m: unknown) => String(m)).filter(Boolean)
-      : ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
-    const eurobetFixtures = (await db.getUpcomingMatches({
-      competition: String(competition),
-      limit: 40,
-    })).map((match: any) => ({
-      homeTeam: String(match.home_team_name ?? ''),
-      awayTeam: String(match.away_team_name ?? ''),
-      commenceTime: match.date ? String(match.date) : null,
-    })).filter((match: any) => match.homeTeam && match.awayTeam);
+    const skipEurobet =
+      String(process.env.SKIP_EUROBET_SCRAPER ?? 'false').trim().toLowerCase() === 'true';
 
-    try {
-      const eurobetResult = await getEurobetCompetitionOdds(String(competition), false, false, eurobetFixtures);
-      eurobetService = eurobetResult.eurobetService;
-      const eurobetMatches = eurobetResult.matches;
+    const {
+      competition = 'Serie A',
+      markets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'],
+    } = req.body;
 
-      if (eurobetMatches.length > 0) {
-        const enriched = eurobetMatches.map((match) => {
-          const eurobetOdds = eurobetService!.extractBestOdds(match, 'eurobet');
-          return {
-            homeTeam: match.homeTeam,
-            awayTeam: match.awayTeam,
-            commenceTime: match.commenceTime,
-            eurobetOdds,
-            bestOdds: eurobetOdds,
-            bookmakerComparison: eurobetService!.compareBookmakers(match),
-            margins: match.bookmakers.reduce((acc, bookmaker) => {
-              const margin = eurobetService!.calculateMargin(match, bookmaker.bookmakerKey);
-              if (margin !== null) acc[bookmaker.bookmakerName] = `${margin}%`;
-              return acc;
-            }, {} as Record<string, string>),
-            remainingRequests: null,
-            source: 'eurobet_scraper',
-          };
-        });
+    const normalizedMarkets =
+      Array.isArray(markets) && markets.length > 0
+        ? markets.map((m: unknown) => String(m)).filter(Boolean)
+        : ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
 
-        const updatedAt = new Date().toISOString();
-        let savedSnapshots = 0;
-        for (const match of eurobetMatches) {
-          try {
-            const eurobetOdds = eurobetService.extractBestOdds(match, 'eurobet');
-            const snapshot = await persistOddsSnapshot({
-              oddsProviderMatchId: match.eventAlias,
-              competition: String(competition),
-              homeTeamName: match.homeTeam,
-              awayTeamName: match.awayTeam,
+    if (!skipEurobet) {
+      try {
+        const eurobetFixtures = (
+          await db.getUpcomingMatches({
+            competition: String(competition),
+            limit: 40,
+          })
+        )
+          .map((match: any) => ({
+            homeTeam: String(match.home_team_name ?? ''),
+            awayTeam: String(match.away_team_name ?? ''),
+            commenceTime: match.date ? String(match.date) : null,
+          }))
+          .filter((match: any) => match.homeTeam && match.awayTeam);
+
+        const EUROBET_BULK_TIMEOUT_MS = 60_000;
+        const eurobetResult = await withTimeout(
+          getEurobetCompetitionOdds(String(competition), false, false, eurobetFixtures),
+          EUROBET_BULK_TIMEOUT_MS,
+          'Eurobet bulk odds'
+        );
+        eurobetService = eurobetResult.eurobetService;
+        const eurobetMatches = eurobetResult.matches;
+
+        if (eurobetMatches.length > 0) {
+          const enriched = eurobetMatches.map((match) => {
+            const eurobetOdds = eurobetService!.extractBestOdds(match, 'eurobet');
+            return {
+              homeTeam: match.homeTeam,
+              awayTeam: match.awayTeam,
               commenceTime: match.commenceTime,
-              source: 'eurobet_scraper_bulk',
-              selectedOdds: eurobetOdds,
-              liveSelectedOdds: eurobetOdds,
               eurobetOdds,
-              estimatedOdds: {},
-              fallbackOdds: eurobetOdds,
-              allBookmakerOdds: eurobetService.compareBookmakers(match),
-              marketsRequested: ['eurobet_event_base'],
-              usedFallbackBookmaker: false,
-              usedSyntheticOdds: false,
-            });
-            if (snapshot.saved) savedSnapshots++;
-          } catch (snapshotErr: any) {
-            console.warn('[Eurobet/bulk] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
+              bestOdds: eurobetOdds,
+              bookmakerComparison: eurobetService!.compareBookmakers(match),
+              margins: match.bookmakers.reduce((acc, bookmaker) => {
+                const margin = eurobetService!.calculateMargin(match, bookmaker.bookmakerKey);
+                if (margin !== null) acc[bookmaker.bookmakerName] = `${margin}%`;
+                return acc;
+              }, {} as Record<string, string>),
+              remainingRequests: null,
+              source: 'eurobet_scraper',
+            };
+          });
+
+          const updatedAt = new Date().toISOString();
+          let savedSnapshots = 0;
+          for (const match of eurobetMatches) {
+            try {
+              const eurobetOdds = eurobetService.extractBestOdds(match, 'eurobet');
+              const snapshot = await persistOddsSnapshot({
+                oddsProviderMatchId: match.eventAlias,
+                competition: String(competition),
+                homeTeamName: match.homeTeam,
+                awayTeamName: match.awayTeam,
+                commenceTime: match.commenceTime,
+                source: 'eurobet_scraper_bulk',
+                selectedOdds: eurobetOdds,
+                liveSelectedOdds: eurobetOdds,
+                eurobetOdds,
+                estimatedOdds: {},
+                fallbackOdds: eurobetOdds,
+                allBookmakerOdds: eurobetService.compareBookmakers(match),
+                marketsRequested: ['eurobet_event_base'],
+                usedFallbackBookmaker: false,
+                usedSyntheticOdds: false,
+              });
+              if (snapshot.saved) savedSnapshots++;
+            } catch (snapshotErr: any) {
+              console.warn('[Eurobet/bulk] Snapshot non salvato:', snapshotErr?.message ?? snapshotErr);
+            }
           }
-        }
 
-        oddsRuntimeState = {
-          competition: String(competition),
-          markets: normalizedMarkets,
-          matchesFound: eurobetMatches.length,
-          matches: toOddsSummary(eurobetMatches),
-          remainingRequests: null,
-          lastUpdatedAt: updatedAt,
-        };
-
-        return res.json({
-          success: true,
-          data: {
-            competition,
+          oddsRuntimeState = {
+            competition: String(competition),
             markets: normalizedMarkets,
             matchesFound: eurobetMatches.length,
-            matches: enriched,
-            savedSnapshots,
+            matches: toOddsSummary(eurobetMatches),
             remainingRequests: null,
             lastUpdatedAt: updatedAt,
-            source: 'eurobet_scraper',
-          }
-        });
+          };
+
+          return res.json({
+            success: true,
+            data: {
+              competition,
+              markets: normalizedMarkets,
+              matchesFound: eurobetMatches.length,
+              matches: enriched,
+              savedSnapshots,
+              remainingRequests: null,
+              lastUpdatedAt: updatedAt,
+              source: 'eurobet_scraper',
+            },
+          });
+        }
+      } catch (eurobetError: any) {
+        console.warn('[Eurobet/bulk] Fallback su The Odds API:', eurobetError?.message ?? eurobetError);
+      } finally {
+        if (eurobetService) {
+          await eurobetService.close().catch(() => undefined);
+          eurobetService = null;
+        }
       }
-    } catch (eurobetError: any) {
-      console.warn('[Eurobet/bulk] Fallback su The Odds API:', eurobetError?.message ?? eurobetError);
+    } else {
+      console.info('[Eurobet/bulk] Skipped (SKIP_EUROBET_SCRAPER=true), using The Odds API directly.');
     }
 
     const preferredProviderBookmaker = OddsApiService.getSupportedBookmakers()[0] ?? 'codere_it';
@@ -3034,7 +3061,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
 
     const { oddsService, matches } = await getCompetitionOdds(apiKey, competition, normalizedMarkets, false);
 
-    const enriched = matches.map(m => ({
+    const enriched = matches.map((m) => ({
       homeTeam: m.homeTeam,
       awayTeam: m.awayTeam,
       commenceTime: m.commenceTime,
@@ -3100,7 +3127,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         savedSnapshots,
         remainingRequests: oddsService.getRemainingRequests(),
         lastUpdatedAt: updatedAt,
-      }
+      },
     });
   } catch (e: any) {
     console.error('[OddsApi] Errore:', e.message);
