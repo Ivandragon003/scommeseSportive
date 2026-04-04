@@ -1314,7 +1314,9 @@ router.get('/backtest/results', async (req: Request, res: Response) => {
 
 router.get('/backtest/results/:id', async (req: Request, res: Response) => {
   try {
-    const r = await db.getBacktestResult(parseInt(req.params.id));
+    const id = Number.parseInt(String(req.params.id ?? ''), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: 'ID run non valido' });
+    const r = await db.getBacktestResult(id);
     if (!r) return res.status(404).json({ success: false, error: 'Non trovato' });
     return res.json({ success: true, data: r });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
