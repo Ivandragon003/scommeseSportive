@@ -1,8 +1,12 @@
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Browser, BrowserContext, Page, chromium } from 'playwright';
+import { Browser, BrowserContext, Page } from 'playwright';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { BookmakerOdds, MarketOdds, OddsMatch, OutcomeOdds } from './OddsApiService';
+
+chromium.use(StealthPlugin());
 
 type EurobetTreeNode = {
   description?: string;
