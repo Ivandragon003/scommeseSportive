@@ -484,3 +484,449 @@ npm run dev
 
 Questo software è destinato esclusivamente a scopi **educativi e informativi**.
 Le scommesse comportano rischi finanziari significativi. Gioca sempre responsabilmente.
+---
+
+## FORMULARIO COMPLETO DEL SISTEMA
+Football Prediction & Value Betting Engine  
+Versione 4.0 — Aprile 2026
+
+### 1. DIXON-COLES MODEL
+
+#### 1.1 Goal Rate (Lambda) per squadra
+Il tasso di goal attesi viene stimato come:
+
+```
+lambda_home = alpha_home x beta_away x gamma_home x exp(HA_home)
+lambda_away = alpha_away x beta_home x gamma_away
+```
+
+dove:
+- `alpha_i` = parametro offensivo (attack param)
+- `beta_i` = parametro difensivo (defence param)
+- `gamma_home` = `contextAdjustments.homeGoalMultiplier` (da `PredictionContextBuilder`)
+- `HA_home` = `homeAdvantagePerTeam[homeId] ?? homeAdvantage`
+  parametro per squadra/stadio (nuovo v4)
+  globale `0.10` se non specificato -> `exp(0.10) ~= +10.5%` goal in casa
+
+Nuovo v4: `homeAdvantage` non e piu un unico scalare globale.  
+`fitModel()` ora stima un HA separato per ogni squadra home se `enablePerTeamHomeAdvantage=true`.  
+Il parametro globale rimane come prior e fallback (shrinkage).  
+Ridotto da `0.25` (v1) -> `0.10` (v3): home win rate Serie A 2020-2024 ~40% (era ~46% pre-2015).
+
+#### 1.2 Score Matrix — Distribuzione di Poisson bivariata
+La probabilita di un risultato `(i, j)`:
+
+```
+P(home=i, away=j) = tau(i,j,lambda_home,lambda_away,rho) x Poisson(i,lambda_home) x Poisson(j,lambda_away)
+```
+
+Correzione `tau` di Dixon-Coles (bassi punteggi):
+- `tau(0,0) = 1 - lambda_home x lambda_away x rho`
+- `tau(1,0) = 1 + lambda_away x rho`
+- `tau(0,1) = 1 + lambda_home x rho`
+- `tau(1,1) = 1 - rho`
+- `tau(i,j) = 1` per tutti gli altri `(i,j)`
+
+`rho` = parametro correlazione goal casa/ospite (default ~`-0.13`)
+
+#### 1.3 Ottimizzatore Adam (nuovo v4 — sostituisce Gradient Ascent)
+I parametri vengono stimati massimizzando la log-verosimiglianza pesata con l'ottimizzatore Adam:
+
+```
+L = sum_t w(t) x log P(home_goals_t, away_goals_t)
+```
+
+Peso ibrido stagione-aware (invariato):
+- stagione corrente: `w = exp(-0.002 x age_weeks)` (quasi uniforme)
+- stagione precedente: `w = 0.35 x exp(-0.018 x age_weeks)`
+- stagioni piu vecchie: `w = 0.08 x exp(-0.018 x age_weeks)`
+- partite pre-cambio allenatore: `w x 0.15`
+- partite pre-evento strutturale (mercato, promozione): `w x 0.25` (nuovo v4)
+
+Adam update (Kingma & Ba, 2014):
+
+```
+m1_t = beta1 x m1_{t-1} + (1 - beta1) x g_t      [beta1 = 0.90]
+m2_t = beta2 x m2_{t-1} + (1 - beta2) x g_t^2    [beta2 = 0.999]
+m1_hat = m1_t / (1 - beta1^t)    (bias correction)
+m2_hat = m2_t / (1 - beta2^t)
+Delta_theta = lr x m1_hat / (sqrt(m2_hat) + eps) [eps = 1e-8]
+theta_{t+1} = theta_t + Delta_theta
+```
+
+Convergenza: `|LL_t - LL_{t-1}| < 1e-7` per 8 iter (era 1e-6, 12 iter).  
+Tipicamente converge in 80-120 iter (era 200-280 con gradient ascent).  
+Vantaggio Adam: learning rate adattivo per parametro.  
+Interfaccia pubblica `fitModel()` invariata: cambia solo il loop interno.
+
+#### 1.4 Bootstrap parametrico per propagazione incertezza (nuovo v4)
+Il metodo `bootstrapLambdas()` campiona N perturbazioni gaussiane dei parametri stimati e restituisce la distribuzione di lambda:
+
+```
+sigma_attack[t]  = PARAM_NOISE_BASE / sqrt(n_home)   [PARAM_NOISE_BASE = 0.18]
+sigma_defence[t] = PARAM_NOISE_BASE / sqrt(n_away)
+sigma_HA         = PARAM_NOISE_BASE / sqrt(n_total)
+```
+
+Per ogni campione `i = 1..N` (`N = 200` default):
+
+```
+alpha_H^i = alpha_home + eps_i x sigma_attack_home     [eps_i ~ N(0,1)]
+alpha_A^i, beta_H^i, beta_A^i, HA^i analogamente
+lambda_home^i = exp(alpha_H^i - beta_A^i + HA^i)
+lambda_away^i = exp(alpha_A^i - beta_H^i)
+```
+
+Output:
+- `lambda_home_mean`, `lambda_home_std`, `lambda_away_mean`, `lambda_away_std`
+- `CV_max = max(std_home/mean_home, std_away/mean_away)`
+- `uncertaintyFactor = clamp(CV_max / 0.25, 0, 1)` in `[0,1]`
+
+`uncertaintyFactor = 0`: parametri stabili (molte partite)  
+`uncertaintyFactor = 1`: alta incertezza (poche partite, lambda molto variabile)  
+Usato dal Bayesian Kelly nel Value Engine per scalare lo stake.
+
+#### 1.5 Probabilita mercati 1X2 e Over/Under
+Dalla score matrix (invariato rispetto a v3):
+
+| Mercato | Formula |
+|---|---|
+| `P(homeWin)` | `sum_{i>j} P(home=i, away=j)` |
+| `P(draw)` | `sum_{i=j} P(home=i, away=j)` |
+| `P(awayWin)` | `sum_{i<j} P(home=i, away=j)` |
+| `P(btts)` | `sum_{i>=1, j>=1} P(i, j)` |
+| `P(over 2.5)` | `sum_{i+j>2} P(i, j)` |
+| `P(exact i-j)` | `P(home=i, away=j)` diretta |
+| `P(handicap h)` | `sum_{i-j>h} P(i, j)` europeo |
+
+### 2. SPECIALIZED MODELS — Binomiale Negativa
+
+#### 2.1 Distribuzione NegBin e stima dispersione
+
+```
+P(X=k | mu, r) = C(k+r-1, k) x p^r x (1-p)^k
+p = r / (r + mu)
+E[X] = mu
+Var[X] = mu + mu^2/r
+```
+
+Stima `r` dai dati (metodo dei momenti):
+
+```
+r = mu^2 / (sigma^2 - mu)
+r_min = 1 + 1/sqrt(n)
+r_max contestuale: shots 40, SOT 30, yellow 50, fouls 60
+```
+
+#### 2.2-2.5 Tiri, cartellini, falli, angoli
+Invariati rispetto a v3. I parametri `r` sono stimati dinamicamente per ogni squadra dai dati storici di varianza.
+
+### 3. SHOTS MODEL — Zero-Inflated Poisson (giocatore)
+
+#### 3.1 Modello ZIP
+
+```
+P(X=0) = pi + (1-pi) x e^{-lambda}
+P(X=k) = (1-pi) x e^{-lambda} x lambda^k / k!   per k >= 1
+E[X] = (1-pi) x lambda
+Var[X] = (1-pi) x lambda x (1 + pi x lambda)
+```
+
+#### 3.2 Stima parametri ZIP — algoritmo EM
+
+```
+E-step: gamma = pi / (pi + (1-pi) x e^{-lambda})
+n_structural = n_zeros x gamma
+
+M-step: pi_new = n_structural / n
+lambda_new = sum x_i / (n - n_structural)
+```
+
+Convergenza: `|Delta_pi| < 1e-6` AND `|Delta_lambda| < 1e-6` (max 100 iter).
+
+#### 3.3 minutesFactor con distribuzione triangolare (nuovo v4)
+Distribuzione triangolare sui minuti `[min, mode, max]`:
+
+```
+min  = expectedMinutes x (1 - minutesUncertainty)   [default +-15%]
+max  = min(90, expectedMinutes x (1 + minutesUncertainty))
+mode = expectedMinutes
+
+E[minutesFactor] = (min + max + mode) / (3 x 90)
+Var[minutesFactor] = (min^2 + max^2 + mode^2 - minxmax - minxmode - maxxmode) / 18 / 90^2
+```
+
+Propagazione varianza su `pi`:
+
+```
+minutesVariancePenalty = 0.4 x sqrt(Var[minutesFactor])
+pi_adj = min(0.98, pi + (1 - E[minutesFactor]) x 0.30 + minutesVariancePenalty)
+lambda_adj = lambda x E[minutesFactor] x locationMult x defenceQuality
+```
+
+Tiri in porta: stessa logica con `minutesVariancePenalty x 0.8` (attenuato).  
+Confidenza: `min(0.90, sigma((n - 10) / 7))` (invariato).  
+Piu incertezza sui minuti -> `pi` piu alto -> piu probabilita strutturale di 0 tiri.
+
+### 4. PREDICTION CONTEXT BUILDER
+
+#### 4.1 absenceLoad scalato per profondita rosa (nuovo v4)
+
+```
+ABSENCE_IMPACT_RATE = 0.28
+
+homeAbsenceLoad = homeSuspensions + homeKeyAbsences x 1.35
+awayAbsenceLoad = awaySuspensions + awayKeyAbsences x 1.35
+
+homeAbsenceDivisor = max(13, homeRosterDepth) x 0.28
+awayAbsenceDivisor = max(13, awayRosterDepth) x 0.28
+
+absencesDelta = clamp(
+  awayAbsenceLoad/awayAbsenceDivisor - homeAbsenceLoad/homeAbsenceDivisor,
+  -1, +1
+)
+```
+
+Esempi:
+- rosa 16 -> divisore 4.5
+- rosa 22 -> divisore 6.2
+- rosa 28 -> divisore 7.8
+
+#### 4.2 goalBias con interazione forma x assenze (nuovo v4)
+
+```
+formAbsenceInteraction = formDelta x absencesDelta x 0.04
+
+goalBias = formDelta x w_form
+         + motivDelta x w_motivation
+         + restDelta x 0.05
+         + schedLoadDelta x 0.04
+         + absencesDelta x w_absences
+         + disciplineDelta x w_discipline
+         + formAbsenceInteraction
+```
+
+`shotBias` analogo, con `formAbsenceInteraction x 0.6`.
+
+Pesi (invariati):
+- `w_form ~= 0.12`
+- `w_motivation ~= 0.06`
+- `w_absences ~= 0.05`
+- `w_discipline ~= 0.03`
+
+#### 4.3 Moltiplicatori goal con asimmetria di forma (v2, invariato)
+
+```
+homeFormAbs = clamp((homeFormIndex - 0.5) x 0.08, -0.04, +0.04)
+awayFormAbs = clamp((awayFormIndex - 0.5) x 0.08, -0.04, +0.04)
+pureGoalBias = goalBias - formDelta x w_form x 0.5
+
+homeGoalMultiplier = clamp(1 + homeFormAbs + pureGoalBias, 0.72, 1.35)
+awayGoalMultiplier = clamp(1 + awayFormAbs - pureGoalBias, 0.72, 1.35)
+homeShotMultiplier = clamp(1 + homeFormAbsx0.8 + pureShotBias, 0.75, 1.30)
+awayShotMultiplier = clamp(1 + awayFormAbsx0.8 - pureShotBias, 0.75, 1.30)
+```
+
+#### 4.4 RichnessScore (invariato v3)
+
+```
+richnessScore = clamp(
+  0.30 + min(1, sampleBase/24)x0.32 + (hasBothXG?0.12:0)
+  + playerCoveragex0.10 + refereeCoveragex0.06,
+  0.30, 0.93
+)
+```
+
+### 5. VALUE BETTING ENGINE
+
+#### 5.1 Expected Value e edgeNoVig (nuovo v4)
+
+```
+EV = P_model x odds - 1
+
+p_implied_raw = 1 / odds
+p_no_vig = p_implied_raw / overround
+
+edge = P_model - p_implied_raw
+edgeNoVig = P_model - p_no_vig
+```
+
+#### 5.2 Bayesian Kelly adattivo (nuovo v4)
+
+```
+Full Kelly: f* = (b x P - (1-P)) / b, b = odds - 1
+Quarter Kelly: f_quarter = f* x 0.25
+
+stake_base = clamp(f_quarter x 100 x confidenceMult,
+                   MIN_STAKE=0.25%, MAX_STAKE=4.0%)
+
+uncertaintyDiscount = clamp(uncertaintyFactor, 0, 1) x 0.5
+stake_final = max(0.25%, stake_base x (1 - uncertaintyDiscount))
+```
+
+Confidence multiplier (invariato):
+- HIGH (`EV>=8%` AND `kelly>=1.5%`): `x1.20`
+- MEDIUM (`EV>=5%` AND `kelly>=0.8%`): `x1.00`
+- LOW (altrimenti): `x0.70`
+
+`computeSuggestedStake()` resta invariata (wrapper con `uncertaintyFactor=0`).  
+Usare `computeSuggestedStakeWithUncertainty()` passando l'output di `bootstrapLambdas()`.
+
+#### 5.3 Soglie EV per categoria (invariato v3)
+
+| Categoria | Soglia EV minimo |
+|---|---|
+| `goal_1x2` | 3.0% |
+| `goal_ou` | 2.5% |
+| `shots` | 4.0% |
+| `shots_ot` | 4.0% |
+| `corners` | 3.5% |
+| `yellow_cards` | 4.5% |
+| `fouls` | 5.0% |
+| `exact_score` | 5.0% |
+| `handicap` | 5.0% |
+
+#### 5.4 Soglia EV adattiva per richnessScore (invariato v3)
+
+```
+evMultiplier = 1 + (1 - richnessScore) x 1.2
+evDelta_agg  ~= soglia_base x (evMultiplier - 1)
+```
+
+### 6. COMBINATE (Multi-Bet)
+
+#### 6.1 Matematica e MAX_COMBO_STAKE scalato con sqrt(n_legs) (nuovo v4)
+
+```
+P_combo = product_i P_i
+odds_combo = product_i odds_i
+EV_combo = P_combo x odds_combo - 1
+
+b = odds_combo - 1
+f* = (b x P_combo - (1-P_combo)) / b
+f_quarter = f* x 0.25
+
+BASE_COMBO_CAP = 4.0% x 0.6 = 2.4%
+MAX_COMBO_STAKE(n) = max(0.5%, BASE_COMBO_CAP / sqrt(n))
+
+stake_combo = clamp(f_quarterx100, MIN_STAKE=0.25%, MAX_COMBO_STAKE(n))
+```
+
+#### 6.2 Correzione correlazione intra-partita (invariato v3)
+Correlazioni stimate:
+- `homeWin <-> over2.5`: `rho ~= +0.40`
+- `over2.5 <-> btts`: `rho ~= +0.55`
+- `homeWin <-> btts`: `rho ~= -0.20`
+- `shots <-> over2.5`: `rho ~= +0.30`
+
+Kelly corretto (approssimazione pratica):
+- `sum stake_i` per partita `<= 5% bankroll` (CORE)
+- `sum stake_i` per partita `<= 4% bankroll` (SECONDARY)
+- Se si supera, scaling proporzionale degli stake
+
+### 7. CALIBRAZIONE ISOTONICA (aggiornato v4)
+
+#### 7.1 Fit con bucket adattivi + Pool Adjacent Violators (nuovo v4)
+Passo 1 — bucket adattivi a densita uniforme:
+- ordina le bet per `ourProb` crescente
+- `nBuckets = max(1, floor(n / MIN_BUCKET_SIZE))`, con `MIN_BUCKET_SIZE = 20`
+- ogni bucket ha ~`MIN_BUCKET_SIZE` bet
+- `x_bucket = media ourProb`, `y_bucket = frequenza vittorie`
+
+Passo 2 — Isotonic Regression (PAV):
+- se `y[i] > y[i+1]`, fondi i bucket
+- ripeti fino a convergenza
+- risultato: `y[0] <= y[1] <= ... <= y[K]`
+
+Output: `predictedRange = '[min%-max%]'` su quantili effettivi.
+
+#### 7.2 Applicazione della calibrazione (invariato v3)
+
+```
+t = (p_raw - x_lo) / (x_hi - x_lo)
+p_cal = y_lo + t x (y_hi - y_lo)
+
+alpha = max(0.10, 1 / (1 + n/1000))
+p_final = alpha x p_raw + (1-alpha) x p_cal
+```
+
+### 8. BACKTESTING ENGINE (aggiornato v4)
+
+#### 8.1 Holdout temporale duro (nuovo v4)
+
+```
+runBacktest(matches, odds, trainRatio=0.7, confidenceLevel, temporalHoldoutMonths=0)
+```
+
+Con `temporalHoldoutMonths > 0`:
+- `cutoff = lastDate - temporalHoldoutMonths mesi`
+- `trainSet = matches con date < cutoff`
+- `testSet = matches con date >= cutoff` (mai visto nel fitting)
+- fallback a `trainRatio` se `trainSet < 30`
+
+Metrica chiave: confronto `edgeNoVig(testSet)` vs `edgeNoVig(trainSet)`.
+
+#### 8.2 Nuove metriche di monitoraggio (nuovo v4)
+
+| Metrica | Descrizione |
+|---|---|
+| `edgeNoVig` | `mean(ourProb_i - 1/odds_i)` |
+| `edgeDecayByMonth` | edgeNoVig per mese |
+| `rollingSharpePeriods` | Sharpe su finestre fisse di 50 bet |
+| `usedSyntheticOddsOnly` | true se tutte le quote sono sintetiche |
+
+#### 8.3 Metriche standard (invariato v3)
+
+| Metrica | Formula |
+|---|---|
+| ROI | `(totalReturn - totalStaked) / totalStaked x 100` |
+| Win Rate | `betsWon / betsPlaced` |
+| Brier Score | `mean((P_model_i - outcome_i)^2)` |
+| Log Loss | `-mean(y_i log(P_i) + (1-y_i) log(1-P_i))` |
+| Sharpe Ratio | `(mu_profit / sigma_profit) x sqrt(bets_per_year)` |
+| Max Drawdown | `min((bankroll_t - peak_t)/peak_t)` |
+| Recovery Factor | `netProfit / |MaxDD x initialBankroll|` |
+| Profit Factor | `sum(profit_won) / sum(|profit_lost|)` |
+
+#### 8.4 Walk-Forward Validation (invariato v3)
+Per ogni fold `k = 1..K`:
+- train: `match[0 .. splitPoint_k]`
+- test: `match[splitPoint_k .. splitPoint_k + testWindow]`
+- expanding window: train cresce a ogni fold
+- rolling window: train a dimensione fissa
+
+Metriche aggregate:
+- `medianFoldROI`
+- `roiStdDev`
+- `positiveFoldRate = count(ROI_k > 0)/K`
+
+### 9. ADAPTIVE TUNING — Learning Reviews (invariato v3)
+
+```
+evDelta raw = -filterRejectionRatex0.010
+              -rankingErrorRatex0.002
+              +confirmationRatex0.002
+              +wrongPickRatex0.004
+
+confidenceScale = clamp(totalWeight/12, 0.2, 1.0)
+evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
+```
+
+### 10. RIEPILOGO MODIFICHE v4
+
+| Modifica | File e descrizione |
+|---|---|
+| Adam optimizer | `DixonColesModel.ts` — sostituisce gradient ascent, bias correction |
+| homeAdvantagePerTeam | `DixonColesModel.ts` — parametro HA per squadra/stadio |
+| structuralBreaks | `DixonColesModel.ts` — penalita peso 0.25 pre-eventi strutturali |
+| bootstrapLambdas() | `DixonColesModel.ts` — bootstrap parametrico N=200, `uncertaintyFactor` |
+| Holdout temporale duro | `BacktestingEngine.ts` — `temporalHoldoutMonths` in `runBacktest()` |
+| Isotonic + bucket adattivi | `BacktestingEngine.ts` — PAV con bucket uniformi >=20 bet |
+| edgeNoVig + edgeDecay + rollingSharpe | `BacktestingEngine.ts` — metriche monitoraggio alpha |
+| MAX_COMBO_STAKE x 1/sqrt(n_legs) | `ValueBettingEngine.ts` — cap stake combinata scalato |
+| Bayesian Kelly adattivo | `ValueBettingEngine.ts` — `computeSuggestedStakeWithUncertainty()` |
+| absenceLoad per profondita rosa | `PredictionContextBuilder.ts` — divisore dinamico |
+| Interazione forma x assenze | `PredictionContextBuilder.ts` — `formDelta x absencesDelta x 0.04` |
+| minutesFactor triangolare | `ShotsModel.ts` — triangolare +-15%, varianza su pi ZIP |
+
+--- Fine del documento ---

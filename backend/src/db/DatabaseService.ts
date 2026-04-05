@@ -2177,10 +2177,26 @@ export class DatabaseService {
   }
 
   async getBacktestResults(competition?: string): Promise<any[]> {
-    if (competition) {
-      return this.all('SELECT id, competition, season_range, run_at FROM backtest_results WHERE competition = ? ORDER BY run_at DESC', [competition]);
-    }
-    return this.all('SELECT id, competition, season_range, run_at FROM backtest_results ORDER BY run_at DESC LIMIT 50');
+    const rows = competition
+      ? await this.all(
+        'SELECT id, competition, season_range, run_at, result_json FROM backtest_results WHERE competition = ? ORDER BY run_at DESC',
+        [competition]
+      )
+      : await this.all(
+        'SELECT id, competition, season_range, run_at, result_json FROM backtest_results ORDER BY run_at DESC LIMIT 50'
+      );
+
+    return rows.map((row: any) => {
+      const parsed = this.parseJsonObject(row.result_json);
+      const kind = parsed.kind === 'walk_forward' ? 'walk_forward' : 'classic';
+      return {
+        id: row.id,
+        competition: row.competition,
+        season_range: row.season_range,
+        run_at: row.run_at,
+        kind,
+      };
+    });
   }
 
   async getBacktestResult(id: number): Promise<any | null> {
@@ -2189,6 +2205,48 @@ export class DatabaseService {
     let parsed: any = {};
     try { parsed = JSON.parse(String(row.result_json ?? '{}')); } catch { parsed = {}; }
     return { ...row, result: parsed };
+  }
+
+  async deleteBacktestResult(id: number): Promise<boolean> {
+    const result = await this.execute('DELETE FROM backtest_results WHERE id = ?', [id]);
+    return Number(result?.rowsAffected ?? 0) > 0;
+  }
+
+  async deleteBacktestResults(competition?: string): Promise<number> {
+    if (competition && String(competition).trim()) {
+      const result = await this.execute('DELETE FROM backtest_results WHERE competition = ?', [String(competition).trim()]);
+      return Number(result?.rowsAffected ?? 0);
+    }
+    const result = await this.execute('DELETE FROM backtest_results');
+    return Number(result?.rowsAffected ?? 0);
+  }
+
+  async pruneBacktestResults(keepLatest: number, competition?: string): Promise<number> {
+    const safeKeep = Math.max(0, Math.floor(Number(keepLatest) || 0));
+    if (competition && String(competition).trim()) {
+      const result = await this.execute(
+        `DELETE FROM backtest_results
+         WHERE id IN (
+           SELECT id FROM backtest_results
+           WHERE competition = ?
+           ORDER BY datetime(run_at) DESC
+           LIMIT -1 OFFSET ?
+         )`,
+        [String(competition).trim(), safeKeep]
+      );
+      return Number(result?.rowsAffected ?? 0);
+    }
+
+    const result = await this.execute(
+      `DELETE FROM backtest_results
+       WHERE id IN (
+         SELECT id FROM backtest_results
+         ORDER BY datetime(run_at) DESC
+         LIMIT -1 OFFSET ?
+       )`,
+      [safeKeep]
+    );
+    return Number(result?.rowsAffected ?? 0);
   }
 
   // ==================== SCHEDULER RUNS ====================

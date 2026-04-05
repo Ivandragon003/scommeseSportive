@@ -9,7 +9,6 @@ PORT="${PORT:-3001}"
 SYNC_TIMEZONE="${SYNC_TIMEZONE:-Europe/Rome}"
 EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-01}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
-CI_SKIP_ODDS_SYNC="${CI_SKIP_ODDS_SYNC:-true}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 SOFASCORE_SUPPLEMENTAL_ENABLED="${SOFASCORE_SUPPLEMENTAL_ENABLED:-true}"
@@ -121,9 +120,7 @@ post_json \
   "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"includeSofaScoreSupplemental\":$SOFASCORE_SUPPLEMENTAL_ENABLED,\"sofaScoreSupplementalLimit\":$SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
-if [[ "$CI_SKIP_ODDS_SYNC" == "true" ]]; then
-  echo "Skipping odds sync in CI. Eurobet automation is not reliable on GitHub-hosted runners."
-elif [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
+if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
   for competition in "${competitions[@]}"; do
     if [[ -z "$competition" ]]; then
