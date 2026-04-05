@@ -452,14 +452,35 @@ export class EurobetOddsService {
   private async applyContextStealth(context: BrowserContext): Promise<void> {
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      const pluginArrayProto = Object.getPrototypeOf(navigator.plugins);
+      const plugins = [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+        { name: 'Native Client', filename: 'internal-nacl-plugin' },
+      ];
+      Object.setPrototypeOf(plugins, pluginArrayProto);
+
+      Object.defineProperty(navigator, 'plugins', { get: () => plugins });
       Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
       Object.defineProperty(navigator, 'languages', { get: () => ['it-IT', 'it', 'en-US', 'en'] });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4] });
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      window.chrome = { runtime: {} };
-    });
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
 
+      const originalQuery = window.navigator.permissions.query.bind(window.navigator.permissions);
+      window.navigator.permissions.query = ((parameters: { name?: string }) =>
+        parameters?.name === 'notifications'
+          ? Promise.resolve({ state: (globalThis as any).Notification?.permission ?? 'default' })
+          : originalQuery(parameters as Parameters<typeof originalQuery>[0])) as typeof window.navigator.permissions.query;
+
+      (window as any).chrome = {
+        runtime: {
+          onMessage: { addListener: () => undefined },
+          connect: () => undefined,
+        },
+        loadTimes: () => ({}),
+        csi: () => ({}),
+      };
+    });
   }
 
   private async warmPersistentContext(context: BrowserContext): Promise<void> {
@@ -470,14 +491,17 @@ export class EurobetOddsService {
         timeout: 90000,
       }).catch(() => undefined);
       await this.dismissCookieBanner(page).catch(() => undefined);
-      await page.waitForTimeout(3500);
+      await page.mouse.move(400 + Math.random() * 200, 300 + Math.random() * 200);
+      await page.waitForTimeout(2000 + Math.random() * 2000);
+      await page.mouse.move(600 + Math.random() * 100, 400 + Math.random() * 100);
+      await page.waitForTimeout(1500 + Math.random() * 1500);
 
       await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
         timeout: 90000,
       }).catch(() => undefined);
       await this.dismissCookieBanner(page).catch(() => undefined);
-      await page.waitForTimeout(5000);
+      await page.waitForTimeout(4000 + Math.random() * 3000);
     } finally {
       await page.close().catch(() => undefined);
     }
@@ -1066,13 +1090,24 @@ export class EurobetOddsService {
     const args = [
       '--disable-blink-features=AutomationControlled',
       '--lang=it-IT',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-infobars',
+      '--disable-notifications',
+      '--disable-popup-blocking',
+      '--ignore-certificate-errors',
+      '--disable-gpu',
+      '--disable-web-security',
+      '--allow-running-insecure-content',
     ];
 
     if (this.isDockerRuntime()) {
       args.push(
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--single-process',
       );
     }
 
