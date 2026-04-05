@@ -60,6 +60,31 @@ export interface BacktestResult {
     voided: number;
     unevaluableRate: number;
   }>;
+  /**
+   * edgeNoVig: edge medio del modello calcolato rimuovendo il vig dalle quote
+   * usate nel backtest. È il proxy più vicino al Closing Line Value (CLV).
+   * Formula: edgeNoVig_i = ourProb_i - (1 / odds_i)
+   * Un valore > 0 in media indica che il modello batte il mercato ante-vig.
+   * NOTA: con quote sintetiche questo valore è ottimisticamente distorto;
+   * ha significato reale solo con quote storiche di chiusura (Pinnacle/Betfair).
+   */
+  edgeNoVig: number;
+  /**
+   * edgeDecayByMonth: edgeNoVig medio per mese, in ordine cronologico.
+   * Permette di rilevare erosione dell'alpha nel tempo (edge decay).
+   * Se i valori scendono sistematicamente → il modello perde valore.
+   */
+  edgeDecayByMonth: Array<{ year: number; month: number; edgeNoVig: number; bets: number }>;
+  /**
+   * rollingSharpePeriods: Sharpe ratio calcolato su finestre fisse di N bet.
+   * Utile per rilevare se il Sharpe globale è trainato da un sottoperiodo.
+   */
+  rollingSharpePeriods: Array<{ periodStart: number; periodEnd: number; sharpe: number }>;
+  /**
+   * usedSyntheticOddsOnly: true se non è stata passata nessuna quota reale.
+   * In questo caso edgeNoVig e Sharpe hanno valore puramente indicativo.
+   */
+  usedSyntheticOddsOnly: boolean;
 }
 
 export interface MarketStats {
@@ -151,6 +176,8 @@ interface TestBet {
   ev: number;
   won: boolean;
   profit: number;
+  /** true se la quota usata è sintetica (nessuna quota reale disponibile per la partita) */
+  isSynthetic: boolean;
 }
 
 export class BacktestingEngine {
@@ -186,6 +213,8 @@ export class BacktestingEngine {
     const attemptedByCategory: Record<string, number> = {};
     const voidedByCategory: Record<string, number> = {};
     let bankroll = this.INITIAL_BANKROLL;
+    let syntheticOddsMatchCount = 0;
+    let realOddsMatchCount = 0;
     const equityCurve: EquityPoint[] = [
       { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
     ];
@@ -199,8 +228,11 @@ export class BacktestingEngine {
       );
       const probMap     = probs.flatProbabilities;
       const marketNames = this.buildMarketNames(probMap);
+      const hasRealOdds = Boolean(historicalOdds[match.matchId]);
       const odds        = historicalOdds[match.matchId]
         ?? this.generateSyntheticOdds(match.matchId, probMap);
+
+      if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
 
       const allOpportunities = this.engine.analyzeMarkets(probMap, odds, marketNames);
       const selected = confidenceLevel === 'high_only'
@@ -235,6 +267,7 @@ export class BacktestingEngine {
           ev:              opp.expectedValue  / 100,
           won,
           profit,
+          isSynthetic:     !hasRealOdds,
         });
       }
 
@@ -255,6 +288,16 @@ export class BacktestingEngine {
         .join(', ');
       console.warn(`[Backtest] Bet non valutabili (VOID): ${totalVoided} | breakdown: ${details}`);
     }
+    if (realOddsMatchCount === 0 && syntheticOddsMatchCount > 0) {
+      console.warn(
+        `[Backtest] Nessuna quota reale fornita (${syntheticOddsMatchCount} partite con quote sintetiche). ` +
+        'I risultati non sono validabili contro il mercato reale.'
+      );
+    } else if (syntheticOddsMatchCount > 0) {
+      console.info(
+        `[Backtest] Quote reali: ${realOddsMatchCount} partite | Quote sintetiche: ${syntheticOddsMatchCount} partite.`
+      );
+    }
 
     return this.computeMetrics(
       bets,
@@ -266,20 +309,79 @@ export class BacktestingEngine {
     );
   }
 
+  /**
+   * runBacktest — split temporale con holdout duro opzionale.
+   *
+   * SPLIT PER RATIO (default, trainRatio=0.7):
+   *   Le ultime (1-trainRatio)×N partite diventano il test set.
+   *   Equivalente al comportamento precedente.
+   *
+   * HOLDOUT TEMPORALE DURO (temporalHoldoutMonths > 0):
+   *   Gli ultimi N mesi del dataset vengono riservati come test set
+   *   e NON vengono mai usati nel training, indipendentemente dalla ratio.
+   *   Questo è il metodo corretto per rilevare overfitting temporale:
+   *   il modello non ha mai "visto" il futuro durante il fitting.
+   *
+   *   Esempio: dataset gen 2022 - dic 2024, holdout = 6 mesi
+   *     → Training: gen 2022 - giu 2024
+   *     → Test (holdout): lug 2024 - dic 2024
+   *
+   *   Se il dataset copre meno di holdout+3 mesi viene usato il fallback
+   *   ratio per evitare training set vuoti.
+   *
+   *   METRICA CHIAVE: confrontare edgeNoVig del holdout vs edgeNoVig del
+   *   training. Se holdout << training → overfitting temporale confermato.
+   *
+   * @param temporalHoldoutMonths  Mesi finali da bloccare come test (0 = disabilitato)
+   */
   runBacktest(
     matches: MatchData[],
     historicalOdds: Record<string, Record<string, number>>,
     trainRatio = 0.7,
-    confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above'
+    confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above',
+    temporalHoldoutMonths = 0
   ): BacktestResult {
-    const sorted   = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const splitIdx = Math.floor(sorted.length * trainRatio);
-    const trainMatches = sorted.slice(0, splitIdx);
-    const testMatches  = sorted.slice(splitIdx);
+    const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let trainMatches: MatchData[];
+    let testMatches: MatchData[];
+
+    if (temporalHoldoutMonths > 0 && sorted.length > 0) {
+      // Calcola la data di cutoff: ultima data del dataset meno N mesi
+      const lastDate = sorted[sorted.length - 1].date;
+      const cutoff   = new Date(lastDate);
+      cutoff.setMonth(cutoff.getMonth() - temporalHoldoutMonths);
+
+      const candidateTrain = sorted.filter(m => m.date < cutoff);
+      const candidateTest  = sorted.filter(m => m.date >= cutoff);
+
+      // Fallback a ratio se il training sarebbe troppo piccolo (< 30 partite)
+      if (candidateTrain.length >= 30 && candidateTest.length >= 5) {
+        trainMatches = candidateTrain;
+        testMatches  = candidateTest;
+        console.log(
+          `[Backtest] Holdout temporale duro: cutoff ${cutoff.toISOString().slice(0,10)} | ` +
+          `Training: ${trainMatches.length} partite | Test: ${testMatches.length} partite ` +
+          `(ultimi ${temporalHoldoutMonths} mesi)`
+        );
+      } else {
+        console.warn(
+          `[Backtest] Holdout temporale di ${temporalHoldoutMonths} mesi produce training < 30 partite — ` +
+          `fallback a trainRatio=${trainRatio}.`
+        );
+        const splitIdx = Math.floor(sorted.length * trainRatio);
+        trainMatches = sorted.slice(0, splitIdx);
+        testMatches  = sorted.slice(splitIdx);
+      }
+    } else {
+      const splitIdx = Math.floor(sorted.length * trainRatio);
+      trainMatches = sorted.slice(0, splitIdx);
+      testMatches  = sorted.slice(splitIdx);
+    }
 
     console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
     const result = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
-    console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}%`);
+    console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}% | edgeNoVig: ${result.edgeNoVig.toFixed(4)}${result.usedSyntheticOddsOnly ? ' ⚠️ solo quote sintetiche' : ''}`);
     return result;
   }
 
@@ -718,6 +820,57 @@ export class BacktestingEngine {
     const grossLoss    = Math.abs(bets.filter(b=>b.profit<=0).reduce((s,b)=>s+b.profit, 0));
     const profitFactor = grossLoss>0 ? grossWin/grossLoss : grossWin>0 ? Infinity : 0;
 
+    // ---- edgeNoVig: edge medio modelo vs quote ante-vig (proxy CLV) ----
+    // edge_i = ourProb_i - impliedProb_ante_vig_i = ourProb_i - (1 / bookmakerOdds_i)
+    // Con quote sintetiche questo è ottimisticamente distorto (il margine
+    // è già noto e modellato). Ha significato reale solo con quote di chiusura.
+    const edgeNoVig = bets.length > 0
+      ? bets.reduce((s, b) => s + (b.ourProb - 1 / b.odds), 0) / bets.length
+      : 0;
+
+    // ---- edgeDecayByMonth: edgeNoVig medio per mese in ordine cronologico ----
+    const edgeByMonthMap: Record<string, { sum: number; count: number }> = {};
+    for (const bet of bets) {
+      const key = `${bet.matchDate.getFullYear()}-${String(bet.matchDate.getMonth() + 1).padStart(2, '0')}`;
+      if (!edgeByMonthMap[key]) edgeByMonthMap[key] = { sum: 0, count: 0 };
+      edgeByMonthMap[key].sum   += bet.ourProb - 1 / bet.odds;
+      edgeByMonthMap[key].count += 1;
+    }
+    const edgeDecayByMonth = Object.entries(edgeByMonthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, { sum, count }]) => {
+        const [yr, mo] = key.split('-').map(Number);
+        return { year: yr, month: mo, edgeNoVig: Number((sum / count).toFixed(4)), bets: count };
+      });
+
+    // ---- rollingSharpePeriods: Sharpe su finestre fisse di 50 bet ----
+    const ROLLING_WINDOW = 50;
+    const rollingSharpePeriods: BacktestResult['rollingSharpePeriods'] = [];
+    if (bets.length >= ROLLING_WINDOW) {
+      for (let start = 0; start + ROLLING_WINDOW <= bets.length; start += ROLLING_WINDOW) {
+        const window = bets.slice(start, start + ROLLING_WINDOW);
+        const returns = window.map(b => b.profit / b.stake);
+        const avgRet  = returns.reduce((s, r) => s + r, 0) / returns.length;
+        const stdRet  = Math.sqrt(returns.reduce((s, r) => s + (r - avgRet) ** 2, 0) / returns.length);
+        const periodSharpe = stdRet > 0 ? (avgRet / stdRet) * Math.sqrt(ROLLING_WINDOW) : 0;
+        rollingSharpePeriods.push({
+          periodStart: start + 1,
+          periodEnd:   start + ROLLING_WINDOW,
+          sharpe:      Number(periodSharpe.toFixed(3)),
+        });
+      }
+    }
+
+    // ---- usedSyntheticOddsOnly: warning se nessuna quota reale disponibile ----
+    const usedSyntheticOddsOnly = bets.length > 0 && bets.every(b => b.isSynthetic);
+    if (usedSyntheticOddsOnly) {
+      console.warn(
+        '[Backtest] ATTENZIONE: tutte le quote sono sintetiche. ' +
+        'edgeNoVig e Sharpe non riflettono condizioni reali di mercato. ' +
+        'Fornire quote storiche di chiusura (Pinnacle/Betfair) per risultati affidabili.'
+      );
+    }
+
     return {
       totalMatches:    trainCount + testCount,
       trainingMatches: trainCount,
@@ -741,26 +894,112 @@ export class BacktestingEngine {
       profitFactor,
       marketBreakdown,
       marketUnevaluableBreakdown,
+      edgeNoVig:              Number(edgeNoVig.toFixed(4)),
+      edgeDecayByMonth,
+      rollingSharpePeriods,
+      usedSyntheticOddsOnly,
     };
   }
 
+  /**
+   * Calibrazione con isotonic regression e bucket adattivi.
+   *
+   * PROBLEMI DEI BUCKET FISSI (vecchia implementazione):
+   * - Bucket [0.6-0.7] può avere 300 bet, [0.8-1.0] solo 8.
+   *   Le frequenze osservate su 8 campioni sono statisticamente inutili.
+   * - Non c'è garanzia di monotonia: un modello ben calibrato dovrebbe
+   *   avere actualFrequency crescente con predictedAvg. I bucket fissi
+   *   non lo impongono e producono inversioni spurie da rumore campionario.
+   *
+   * SOLUZIONE — due passi:
+   *
+   * PASSO 1: Bucket adattivi a densità uniforme.
+   *   Le bet vengono ordinate per ourProb e divise in N_BUCKETS gruppi
+   *   di dimensione uguale (~MIN_BUCKET_SIZE bet ciascuno). Questo
+   *   garantisce che ogni bucket abbia abbastanza campioni per una
+   *   stima stabile della frequenza osservata.
+   *   Se le bet sono poche (< 2×MIN_BUCKET_SIZE) si usa un unico bucket.
+   *
+   * PASSO 2: Isotonic regression (Pool Adjacent Violators — PAV).
+   *   Imposta la monotonia: se bucket[i].actualFreq > bucket[i+1].actualFreq
+   *   (inversione), i due bucket vengono fusi e la loro frequenza viene
+   *   rimpiazzata dalla media ponderata per count.
+   *   Il PAV garantisce che la sequenza finale sia non-decrescente.
+   *   Questo è il metodo standard per la calibrazione in ML
+   *   (Platt scaling, temperature scaling usano isotonica come base).
+   *
+   * OUTPUT: array di CalibrationBucket con predictedRange nel formato
+   *   "[min%-max%]" basato sui quantili effettivi dei dati, non su
+   *   intervalli fissi — più informativo per capire dove il modello
+   *   è davvero esposto.
+   */
   private computeCalibration(bets: TestBet[]): CalibrationBucket[] {
-    const buckets = [
-      {min:0,max:0.1,label:'0-10%'},{min:0.1,max:0.2,label:'10-20%'},
-      {min:0.2,max:0.3,label:'20-30%'},{min:0.3,max:0.4,label:'30-40%'},
-      {min:0.4,max:0.5,label:'40-50%'},{min:0.5,max:0.6,label:'50-60%'},
-      {min:0.6,max:0.7,label:'60-70%'},{min:0.7,max:0.8,label:'70-80%'},
-      {min:0.8,max:1.0,label:'80-100%'},
-    ];
-    return buckets.map(b => {
-      const inB = bets.filter(bet => bet.ourProb>=b.min && bet.ourProb<b.max);
-      return {
-        predictedRange:  b.label,
-        predictedAvg:    inB.length>0 ? inB.reduce((s,bet)=>s+bet.ourProb,0)/inB.length : (b.min+b.max)/2,
-        actualFrequency: inB.length>0 ? inB.filter(bet=>bet.won).length/inB.length : 0,
-        count:           inB.length,
-      };
-    });
+    if (bets.length === 0) return [];
+
+    const MIN_BUCKET_SIZE = 20;
+    const sorted = [...bets].sort((a, b) => a.ourProb - b.ourProb);
+
+    // --- Passo 1: bucket adattivi a densità uniforme ---
+    const nBuckets = Math.max(1, Math.floor(sorted.length / MIN_BUCKET_SIZE));
+    const bucketSize = Math.ceil(sorted.length / nBuckets);
+
+    interface RawBucket {
+      bets: TestBet[];
+      predictedAvg: number;
+      actualFreq: number;
+      count: number;
+      minProb: number;
+      maxProb: number;
+    }
+
+    const rawBuckets: RawBucket[] = [];
+    for (let i = 0; i < sorted.length; i += bucketSize) {
+      const group = sorted.slice(i, i + bucketSize);
+      const count = group.length;
+      const predictedAvg = group.reduce((s, b) => s + b.ourProb, 0) / count;
+      const actualFreq   = group.filter(b => b.won).length / count;
+      rawBuckets.push({
+        bets:    group,
+        predictedAvg,
+        actualFreq,
+        count,
+        minProb: group[0].ourProb,
+        maxProb: group[group.length - 1].ourProb,
+      });
+    }
+
+    // --- Passo 2: isotonic regression (Pool Adjacent Violators) ---
+    // Fondi bucket adiacenti che violano la monotonia fino a convergenza.
+    let stable = false;
+    while (!stable) {
+      stable = true;
+      for (let i = 0; i < rawBuckets.length - 1; i++) {
+        if (rawBuckets[i].actualFreq > rawBuckets[i + 1].actualFreq) {
+          // Inversione: fondi i due bucket
+          const merged = [...rawBuckets[i].bets, ...rawBuckets[i + 1].bets];
+          const count  = merged.length;
+          const predictedAvg = merged.reduce((s, b) => s + b.ourProb, 0) / count;
+          const actualFreq   = merged.filter(b => b.won).length / count;
+          rawBuckets.splice(i, 2, {
+            bets:    merged,
+            predictedAvg,
+            actualFreq,
+            count,
+            minProb: rawBuckets[i].minProb,
+            maxProb: rawBuckets[i + 1].maxProb,
+          });
+          stable = false;
+          break; // riparti dal check dall'inizio
+        }
+      }
+    }
+
+    return rawBuckets.map(b => ({
+      predictedRange:  `${(b.minProb * 100).toFixed(0)}%-${(b.maxProb * 100).toFixed(0)}%`,
+      predictedAvg:    Number(b.predictedAvg.toFixed(4)),
+      actualFrequency: Number(b.actualFreq.toFixed(4)),
+      count:           b.count,
+    }));
   }
 
   private computeMonthlyStats(bets: TestBet[]): MonthlyStats[] {
@@ -785,6 +1024,7 @@ export class BacktestingEngine {
       roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0,
       calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, marketUnevaluableBreakdown:{},
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
+      edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
     };
   }
 }

@@ -546,25 +546,82 @@ export class ValueBettingEngine {
     return Math.min(fullKelly * this.KELLY_FRACTION, this.MAX_STAKE_PERCENT / 100);
   }
 
-  computeSuggestedStake(
+  /**
+   * Bayesian Kelly adattivo con penalità per incertezza del modello.
+   *
+   * PROBLEMA DEL KELLY STANDARD:
+   * Kelly assume che P_model sia la probabilità vera. Ma P_model è una
+   * stima con incertezza: un modello allenato su 8 partite home della
+   * Juventus ha un'incertezza molto più alta di uno con 35 partite.
+   * Kelly su un P_model incerto tende a sovracommettere, specialmente
+   * sulle high-confidence bet dove i parametri sono meno stabili.
+   *
+   * SOLUZIONE — Kelly con penalità varianza:
+   *   stake_bayesian = stake_kelly × (1 - uncertaintyPenalty × uncertaintyFactor)
+   *
+   * dove:
+   *   uncertaintyFactor ∈ [0,1]: output di DixonColesModel.bootstrapLambdas()
+   *     0 = parametri stabili (molte partite, λ ben determinato)
+   *     1 = alta incertezza (poche partite, λ molto variabile)
+   *
+   *   uncertaintyPenalty ∈ [0,1]: quanto l'incertezza riduce lo stake.
+   *     Default 0.5 → con uncertaintyFactor=1 lo stake è dimezzato.
+   *     Questo è conservativo ma giustificato: con alta incertezza
+   *     il Kelly pieno è quasi certamente troppo aggressivo.
+   *
+   * EFFETTO PRATICO su HIGH-confidence bet:
+   *   Le bet HIGH hanno EV alto → Kelly suggerisce stake alto.
+   *   Ma se l'EV alto viene da parametri incerti (poche partite),
+   *   uncertaintyFactor è alto → stake ridotto automaticamente.
+   *   Questo risolve il problema di sovraconfidenza su HIGH.
+   *
+   * @param uncertaintyFactor  Da DixonColesModel.bootstrapLambdas() (default 0 = no penalità)
+   * @param uncertaintyPenalty Quanto ridurre lo stake al max (default 0.5 = -50%)
+   */
+  computeSuggestedStakeWithUncertainty(
     probability: number,
     decimalOdds: number,
-    ev: number
-  ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' } {
+    ev: number,
+    uncertaintyFactor = 0,
+    uncertaintyPenalty = 0.5
+  ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW'; uncertaintyDiscount: number } {
     const kelly = this.kellyFraction(probability, decimalOdds) * 100;
 
-    // Confidence basata su EV e probabilità, NON su soglie fisse di odds
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     if      (ev >= 0.08 && kelly >= 1.5) confidence = 'HIGH';
     else if (ev >= 0.05 && kelly >= 0.8) confidence = 'MEDIUM';
     else                                  confidence = 'LOW';
 
     const rawStake = kelly * this.CONFIDENCE_MULTIPLIERS[confidence];
-    const stakePercent = Math.max(
+    const clampedStake = Math.max(
       this.MIN_STAKE_PERCENT,
       Math.min(this.MAX_STAKE_PERCENT, rawStake)
     );
-    return { stakePercent: parseFloat(stakePercent.toFixed(2)), confidence };
+
+    // Sconto per incertezza del modello
+    const clampedUF = Math.max(0, Math.min(1, uncertaintyFactor));
+    const uncertaintyDiscount = clampedUF * uncertaintyPenalty;
+    const stakePercent = Math.max(
+      this.MIN_STAKE_PERCENT,
+      clampedStake * (1 - uncertaintyDiscount)
+    );
+
+    return {
+      stakePercent:      parseFloat(stakePercent.toFixed(2)),
+      confidence,
+      uncertaintyDiscount: Number(uncertaintyDiscount.toFixed(3)),
+    };
+  }
+
+  computeSuggestedStake(
+    probability: number,
+    decimalOdds: number,
+    ev: number
+  ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' } {
+    const { stakePercent, confidence } = this.computeSuggestedStakeWithUncertainty(
+      probability, decimalOdds, ev, 0, 0.5
+    );
+    return { stakePercent, confidence };
   }
 
   // ==================== FILTRI ADATTATIVI v3 ====================
@@ -1110,8 +1167,32 @@ export class ValueBettingEngine {
     if (fullKelly <= 0) return null;
 
     const quarterKelly = fullKelly * this.KELLY_FRACTION;
-    // Cap combinata più conservativo: max 2.4% (60% del cap singola 4%)
-    const MAX_COMBO_STAKE = this.MAX_STAKE_PERCENT * 0.6;
+
+    /**
+     * MAX_COMBO_STAKE scalato inversamente con √n_legs.
+     *
+     * MOTIVAZIONE MATEMATICA:
+     * Una combinata con n legs indipendenti ha varianza totale che cresce
+     * proporzionalmente a n (somma di varianze). La deviazione standard
+     * cresce quindi con √n. Per mantenere lo stesso livello di rischio
+     * relativo al bankroll, lo stake deve scendere con 1/√n.
+     *
+     * Formula: MAX_COMBO_STAKE(n) = BASE_CAP / √n
+     *   n=1 → 2.4%  (identico al vecchio comportamento per singola)
+     *   n=2 → 1.70% (−29%)
+     *   n=3 → 1.39% (−42%)
+     *   n=4 → 1.20% (−50%)
+     *
+     * BASE_CAP = MAX_STAKE_PERCENT × 0.6 = 4.0 × 0.6 = 2.4%
+     * Questo preserva il cap originale per le singole e riduce
+     * automaticamente l'esposizione al crescere del numero di legs.
+     *
+     * FLOOR: 0.5% — sotto questa soglia la combinata non vale il rischio
+     * operativo (spread, liquidità, errori di esecuzione).
+     */
+    const BASE_COMBO_CAP = this.MAX_STAKE_PERCENT * 0.6;  // 2.4%
+    const nLegs = legs.length;
+    const MAX_COMBO_STAKE = Math.max(0.5, BASE_COMBO_CAP / Math.sqrt(nLegs));
     const stakePercent = this.clampNumber(
       quarterKelly * 100,
       this.MIN_STAKE_PERCENT,

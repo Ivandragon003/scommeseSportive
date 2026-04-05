@@ -55,6 +55,19 @@ export interface ContextualPredictionInput {
   awayDiffidati?: number;
   homeKeyAbsences?: number;
   awayKeyAbsences?: number;
+  /**
+   * homeRosterDepth / awayRosterDepth: dimensione effettiva della rosa
+   * disponibile (esclusi infortunati a lungo termine già non convocabili).
+   * Default: 22 (rosa tipo Serie A).
+   *
+   * MOTIVAZIONE: perdere 2 titolari su una rosa di 16 è catastrofico;
+   * perderne 2 su 26 è gestibile. Il vecchio absenceLoad usava un
+   * divisore fisso (/ 6) che ignorava questa differenza strutturale.
+   * Con rosterDepth il peso delle assenze scala correttamente:
+   *   absenceImpact = absenceCount / (rosterDepth × absenceImpactRate)
+   */
+  homeRosterDepth?: number;
+  awayRosterDepth?: number;
 }
 
 type VenueKey = 'home' | 'away';
@@ -198,7 +211,34 @@ export class PredictionContextBuilder {
       Number(request.homeSuspensions ?? 0) + Number(request.homeKeyAbsences ?? 0) * 1.35;
     const awayAbsenceLoad =
       Number(request.awaySuspensions ?? 0) + Number(request.awayKeyAbsences ?? 0) * 1.35;
-    const absencesDelta = this.clamp((awayAbsenceLoad - homeAbsenceLoad) / 6, -1, 1);
+
+    /**
+     * absencesDelta scalato per profondità rosa.
+     *
+     * VECCHIO: divisore fisso /6 — perdere 2 titolari su 16 pesava
+     * uguale che perderli su 26. Distorsione strutturale reale.
+     *
+     * NUOVO: il divisore è proporzionale alla dimensione della rosa.
+     * Formula: absenceDivisor = rosterDepth × ABSENCE_IMPACT_RATE
+     *   dove ABSENCE_IMPACT_RATE = 0.28 calibrato su Serie A:
+     *   una rosa da 22 → divisore ≈ 6.16 (vicino al vecchio /6)
+     *   una rosa da 16 → divisore ≈ 4.5  (impatto maggiore)
+     *   una rosa da 28 → divisore ≈ 7.8  (impatto minore)
+     *
+     * Questo cattura la realtà: il Napoli con 26 giocatori sente
+     * meno le assenze dell'Empoli con 17 disponibili.
+     */
+    const ABSENCE_IMPACT_RATE = 0.28;
+    const DEFAULT_ROSTER_DEPTH = 22;
+    const homeDepth = Math.max(13, Number(request.homeRosterDepth ?? DEFAULT_ROSTER_DEPTH));
+    const awayDepth = Math.max(13, Number(request.awayRosterDepth ?? DEFAULT_ROSTER_DEPTH));
+    const homeAbsenceDivisor = homeDepth * ABSENCE_IMPACT_RATE;
+    const awayAbsenceDivisor = awayDepth * ABSENCE_IMPACT_RATE;
+    // Delta normalizzato: positivo = home ha meno assenze (vantaggio home)
+    const absencesDelta = this.clamp(
+      awayAbsenceLoad / awayAbsenceDivisor - homeAbsenceLoad / homeAbsenceDivisor,
+      -1, 1
+    );
 
     const disciplineDelta = this.clamp(
       Number(request.awayRecentRedCards ?? 0) - Number(request.homeRecentRedCards ?? 0),
@@ -211,21 +251,47 @@ export class PredictionContextBuilder {
       1,
     );
 
-    // Bias totale: somma pesata dei fattori contestuali.
-    // Un valore positivo favorisce il home, negativo favorisce l'away.
+    /**
+     * goalBias con termine di interazione non lineare forma × assenze.
+     *
+     * VECCHIO: somma lineare — forma e assenze contribuiscono
+     * indipendentemente al bias. Ma l'effetto reale è diverso:
+     * una squadra in forma eccellente (formIndex 0.9) che perde
+     * un titolare chiave soffre meno di una in forma mediocre (0.4)
+     * che perde lo stesso giocatore. La forma attenua l'impatto
+     * delle assenze e viceversa.
+     *
+     * NUOVO: aggiungo un termine di interazione moltiplicativo
+     *   interactionTerm = formDelta × absencesDelta × INTERACTION_WEIGHT
+     *
+     * Interpretazione:
+     * - formDelta > 0 e absencesDelta > 0 (home meglio in forma
+     *   E meno assenze): l'interazione AMPLIFICA il vantaggio home
+     * - formDelta > 0 ma absencesDelta < 0 (home in forma ma con
+     *   più assenze): l'interazione ATTENUA il vantaggio forma
+     *
+     * INTERACTION_WEIGHT = 0.04: piccolo ma non trascurabile.
+     * Evita di dominare i termini principali.
+     */
+    const INTERACTION_WEIGHT = 0.04;
+    const formAbsenceInteraction = formDelta * absencesDelta * INTERACTION_WEIGHT;
+
     const goalBias =
       formDelta * predictionConfig.model.contextWeights.form +
       motivationDelta * predictionConfig.model.contextWeights.motivation +
       restDelta * 0.05 +
       scheduleLoadDelta * 0.04 +
       absencesDelta * predictionConfig.model.contextWeights.absences +
-      disciplineDelta * predictionConfig.model.contextWeights.discipline;
+      disciplineDelta * predictionConfig.model.contextWeights.discipline +
+      formAbsenceInteraction;   // termine di interazione non lineare
+
     const shotBias =
       formDelta * predictionConfig.model.contextWeights.form * 0.75 +
       motivationDelta * predictionConfig.model.contextWeights.motivation * 0.67 +
       restDelta * 0.04 +
       scheduleLoadDelta * 0.03 +
-      absencesDelta * predictionConfig.model.contextWeights.absences * 0.8;
+      absencesDelta * predictionConfig.model.contextWeights.absences * 0.8 +
+      formAbsenceInteraction * 0.6; // attenuato per i tiri (effetto minore)
 
     // FIX ASIMMETRIA: i moltiplicatori home/away non sono semplicemente 1±bias.
     // Se entrambe le squadre sono in buona forma, il moltiplicatore assoluto

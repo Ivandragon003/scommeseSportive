@@ -15,8 +15,11 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  deleteBacktestResult,
+  deleteBacktestResults,
   getBacktestResult,
   getBacktestResults,
+  pruneBacktestResults,
   runBacktest,
   runWalkForwardBacktest,
 } from '../utils/api';
@@ -47,17 +50,24 @@ const Backtesting: React.FC = () => {
   const [maxFolds, setMaxFolds] = useState('10');
   const [expandingWindow, setExpandingWindow] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [currentResult, setCurrentResult] = useState<any>(null);
+  const [currentResultId, setCurrentResultId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [pruneKeepLatest, setPruneKeepLatest] = useState('20');
 
   useEffect(() => {
     void loadResults();
   }, []);
 
   const loadResults = async () => {
-    const res = await getBacktestResults();
-    setResults(res.data ?? []);
+    try {
+      const res = await getBacktestResults();
+      setResults(res.data ?? []);
+    } catch {
+      setResults([]);
+    }
   };
 
   const handleRun = async () => {
@@ -84,6 +94,7 @@ const Backtesting: React.FC = () => {
 
       if (payload.data) {
         setCurrentResult(payload.data);
+        setCurrentResultId(null);
         setActiveTab(isWalkForwardResult(payload.data) ? 'folds' : 'overview');
         await loadResults();
       }
@@ -95,11 +106,76 @@ const Backtesting: React.FC = () => {
   };
 
   const loadHistorical = async (id: number) => {
-    const res = await getBacktestResult(id);
-    const result = res.data?.result ?? null;
-    if (result) {
-      setCurrentResult(result);
-      setActiveTab(isWalkForwardResult(result) ? 'folds' : 'overview');
+    try {
+      const res = await getBacktestResult(id);
+      const result = res.data?.result ?? null;
+      if (result) {
+        setCurrentResult(result);
+        setCurrentResultId(id);
+        setActiveTab(isWalkForwardResult(result) ? 'folds' : 'overview');
+      }
+    } catch (e: any) {
+      alert(`Errore caricamento run: ${e.message}`);
+    }
+  };
+
+  const handleDeleteRun = async (id: number) => {
+    if (!window.confirm(`Eliminare il run #${id}?`)) return;
+    setMaintenanceLoading(true);
+    try {
+      await deleteBacktestResult(id);
+      if (currentResultId === id) {
+        setCurrentResult(null);
+        setCurrentResultId(null);
+      }
+      await loadResults();
+    } catch (e: any) {
+      alert(`Errore eliminazione run: ${e.message}`);
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const handleDeleteAllRuns = async () => {
+    const scope = competition.trim();
+    const confirmMsg = scope
+      ? `Eliminare tutti i run di backtest per ${scope}?`
+      : 'Eliminare tutti i run di backtest salvati?';
+    if (!window.confirm(confirmMsg)) return;
+    setMaintenanceLoading(true);
+    try {
+      const res = await deleteBacktestResults(scope || undefined);
+      alert(`Run eliminati: ${res.data?.deletedCount ?? 0}`);
+      setCurrentResult(null);
+      setCurrentResultId(null);
+      await loadResults();
+    } catch (e: any) {
+      alert(`Errore eliminazione backtest: ${e.message}`);
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const handlePruneRuns = async () => {
+    const keepLatest = Number(pruneKeepLatest);
+    if (!Number.isFinite(keepLatest) || keepLatest < 0) {
+      alert('Inserisci un numero valido (>= 0)');
+      return;
+    }
+    const scope = competition.trim();
+    const confirmMsg = scope
+      ? `Mantieni solo gli ultimi ${Math.floor(keepLatest)} run per ${scope}?`
+      : `Mantieni solo gli ultimi ${Math.floor(keepLatest)} run globali?`;
+    if (!window.confirm(confirmMsg)) return;
+    setMaintenanceLoading(true);
+    try {
+      const res = await pruneBacktestResults(Math.floor(keepLatest), scope || undefined);
+      alert(`Run eliminati: ${res.data?.deletedCount ?? 0}`);
+      await loadResults();
+    } catch (e: any) {
+      alert(`Errore prune backtest: ${e.message}`);
+    } finally {
+      setMaintenanceLoading(false);
     }
   };
 
@@ -206,7 +282,29 @@ const Backtesting: React.FC = () => {
         <div className="fp-card">
           <div className="fp-card-head">
             <div className="fp-card-title">Run Salvati</div>
-            <span className="fp-badge fp-badge-gray">{results.length} run</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span className="fp-badge fp-badge-gray">{results.length} run</span>
+              <button className="fp-btn fp-btn-red fp-btn-sm" onClick={handleDeleteAllRuns} disabled={maintenanceLoading}>
+                Svuota
+              </button>
+            </div>
+          </div>
+          <div className="fp-card-body" style={{ borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              className="fp-input"
+              style={{ maxWidth: 120 }}
+              type="number"
+              min={0}
+              value={pruneKeepLatest}
+              onChange={(e) => setPruneKeepLatest(e.target.value)}
+              placeholder="20"
+            />
+            <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={handlePruneRuns} disabled={maintenanceLoading}>
+              Mantieni ultimi N
+            </button>
+            <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
+              Filtro opzionale per competizione: usa il campo "Competizione" qui a sinistra.
+            </span>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="fp-table">
@@ -223,16 +321,19 @@ const Backtesting: React.FC = () => {
                 {results.slice(0, 10).map((row: any) => (
                   <tr key={row.id}>
                     <td>
-                      <span className={`fp-badge ${String(row.result_json ?? '').includes('walk_forward') ? 'fp-badge-blue' : 'fp-badge-gold'}`}>
-                        {String(row.result_json ?? '').includes('walk_forward') ? 'Walk-forward' : 'Classic'}
+                      <span className={`fp-badge ${row.kind === 'walk_forward' ? 'fp-badge-blue' : 'fp-badge-gold'}`}>
+                        {row.kind === 'walk_forward' ? 'Walk-forward' : 'Classic'}
                       </span>
                     </td>
                     <td style={{ fontWeight: 600 }}>{row.competition}</td>
                     <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{row.season_range}</td>
                     <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{formatDate(row.run_at)}</td>
-                    <td>
-                      <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => loadHistorical(row.id)}>
+                    <td style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => loadHistorical(row.id)} disabled={maintenanceLoading}>
                         Carica
+                      </button>
+                      <button className="fp-btn fp-btn-red fp-btn-sm" onClick={() => handleDeleteRun(Number(row.id))} disabled={maintenanceLoading}>
+                        Elimina
                       </button>
                     </td>
                   </tr>

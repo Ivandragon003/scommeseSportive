@@ -25,8 +25,7 @@ jobs:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-      RUN_ODDS_SYNC: ${{ vars.RUN_ODDS_SYNC }}
-      CI_SKIP_ODDS_SYNC: 'true'
+      RUN_ODDS_SYNC: 'true'
       SOFASCORE_SUPPLEMENTAL_ENABLED: 'true'
       SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN: '40'
       ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
