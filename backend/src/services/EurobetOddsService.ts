@@ -502,6 +502,17 @@ export class EurobetOddsService {
       }).catch(() => undefined);
       await this.dismissCookieBanner(page).catch(() => undefined);
       await page.waitForTimeout(4000 + Math.random() * 3000);
+
+      for (let i = 0; i < 3; i += 1) {
+        await page.mouse.wheel(0, 300 + Math.random() * 200);
+        await page.waitForTimeout(800 + Math.random() * 600);
+      }
+
+      const firstEventLink = page.locator('a[href*="/calcio/it-serie-a/"]').first();
+      if (await firstEventLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstEventLink.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(3000 + Math.random() * 2000);
+      }
     } finally {
       await page.close().catch(() => undefined);
     }
