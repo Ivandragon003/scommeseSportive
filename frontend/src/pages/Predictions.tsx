@@ -82,6 +82,7 @@ const buildOddsReliabilityBadge = (pred: any, isReplay: boolean) => {
       : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
   }
   if (pred?.oddsSource === 'eurobet_scraper') return { label: 'Quote reali Eurobet', className: 'pr-badge-green' };
+  if (pred?.oddsSource === 'fallback_provider') return { label: 'Quote provider secondario', className: 'pr-badge-gold' };
   if (pred?.oddsSource === 'eurobet_unavailable') return { label: 'Quote Eurobet non disponibili', className: 'pr-badge-gray' };
   return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
 };
@@ -191,6 +192,14 @@ const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: string |
       oddsSource: 'eurobet_scraper',
       usedSyntheticOdds: false,
       usedFallbackBookmaker: false,
+    };
+  }
+  if (oddsSource === 'fallback_provider') {
+    return {
+      ...prediction,
+      oddsSource: 'fallback_provider',
+      usedSyntheticOdds: false,
+      usedFallbackBookmaker: true,
     };
   }
   return {
@@ -832,13 +841,16 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
       let finalOddsTone: 'info'|'success'|'warning'|'danger' = 'info';
       let appliedOdds: Record<string, string> = {};
 
-      const autoOdds: Record<string, number> = payload?.found && payload?.selectedOdds
+      const eurobetAutoOdds: Record<string, number> = payload?.found && payload?.selectedOdds
         ? (payload.selectedOdds as Record<string, number>)
         : {};
+      const providerFallbackAutoOdds: Record<string, number> = payload?.fallbackOdds
+        ? (payload.fallbackOdds as Record<string, number>)
+        : {};
 
-      if (Object.keys(autoOdds).length > 0) {
-        applyOdds(autoOdds);
-        appliedOdds = Object.entries(autoOdds).reduce((acc, [k, v]) => {
+      if (Object.keys(eurobetAutoOdds).length > 0) {
+        applyOdds(eurobetAutoOdds);
+        appliedOdds = Object.entries(eurobetAutoOdds).reduce((acc, [k, v]) => {
           const n = Number(v);
           if (Number.isFinite(n) && n > 1) acc[k] = n.toFixed(2);
           return acc;
@@ -853,11 +865,35 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
           awayTeamId: awayId,
           matchId: resolvedMatchId,
           competition: comp || undefined,
-          bookmakerOdds: autoOdds
+          bookmakerOdds: eurobetAutoOdds
         });
         if (reqId !== analyzeReqRef.current) return;
         if (enrichedRes.data?.data) {
           finalPred = sanitizePredictionForEurobetOnly(enrichedRes.data.data, payload.source ?? 'eurobet_scraper');
+          setPred(finalPred);
+          setTab('odds');
+        }
+      } else if (Object.keys(providerFallbackAutoOdds).length > 0) {
+        applyOdds(providerFallbackAutoOdds);
+        appliedOdds = Object.entries(providerFallbackAutoOdds).reduce((acc, [k, v]) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 1) acc[k] = n.toFixed(2);
+          return acc;
+        }, {} as Record<string, string>);
+
+        finalOddsMsg = 'Quote Eurobet non disponibili: mostro quote provider secondario per analisi.';
+        finalOddsTone = 'warning';
+
+        const enrichedRes = await axios.post('/api/predict', {
+          homeTeamId: homeId,
+          awayTeamId: awayId,
+          matchId: resolvedMatchId,
+          competition: comp || undefined,
+          bookmakerOdds: providerFallbackAutoOdds
+        });
+        if (reqId !== analyzeReqRef.current) return;
+        if (enrichedRes.data?.data) {
+          finalPred = sanitizePredictionForEurobetOnly(enrichedRes.data.data, 'fallback_provider');
           setPred(finalPred);
           setTab('odds');
         }
