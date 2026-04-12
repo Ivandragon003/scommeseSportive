@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@types/react-router-dom": "^5.3.3",
     "axios": "^1.6.7",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
@@ -29,7 +28,7 @@
   },
   "proxy": "http://localhost:3001",
   "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3"
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
   }
 }

@@ -116,6 +116,7 @@ export class EurobetOddsService {
     'internazionale': ['inter'],
     'inter milan': ['inter'],
     'paris saint germain': ['psg', 'paris-saint-germain'],
+    'paris sg': ['psg', 'paris-saint-germain'],
     'manchester united': ['manchester-united', 'man-utd'],
     'manchester city': ['manchester-city', 'man-city'],
     'tottenham hotspur': ['tottenham', 'tottenham-hotspur'],
@@ -155,35 +156,18 @@ export class EurobetOddsService {
 
   async getOdds(competition: string, options: GetOddsOptions = {}): Promise<EurobetOddsMatch[]> {
     const meetingAlias = await this.resolveMeetingAlias(competition);
-    const { eventAliases, groupAliases } = await this.withPage(async (page) => {
-      return this.collectMeetingPageMetadata(page, meetingAlias);
-    });
+    let baseMatches = await this.loadCompetitionMatchesFromMeetingJson(competition, meetingAlias);
 
-    if (eventAliases.length === 0) {
-      throw new Error(`Eurobet non ha esposto eventi navigabili per ${competition}`);
+    if (baseMatches.length === 0) {
+      this.logEurobet('warn', 'Meeting JSON non ha prodotto match validi, attivo fallback DOM/network', {
+        competition,
+        meetingAlias,
+      });
+      baseMatches = await this.loadCompetitionMatchesFromDomFallback(competition, meetingAlias);
     }
 
-    const rawMatches = await this.mapWithConcurrency(
-      eventAliases,
-      this.getEventConcurrency(),
-      async (eventAlias) => {
-        try {
-          const eventDetail = await this.fetchEventDetail(meetingAlias, eventAlias);
-          return this.buildMatchFromEventResponse(
-            meetingAlias,
-            eventAlias,
-            eventDetail,
-            this.mergeAliases(groupAliases, this.extractGroupAliases(eventDetail?.result?.groupData?.groupList))
-          );
-        } catch {
-          return null;
-        }
-      }
-    );
-
-    const baseMatches = rawMatches.filter((match): match is EurobetOddsMatch => Boolean(match));
     if (baseMatches.length === 0) {
-      throw new Error(`Eurobet non ha restituito quote evento valide per ${competition}`);
+      throw new Error(`Eurobet non ha restituito quote valide per ${competition}`);
     }
 
     if (!options.includeExtendedGroups) return baseMatches;
@@ -201,14 +185,301 @@ export class EurobetOddsService {
     fixtures: FixtureCandidate[],
     options: GetOddsOptions = {}
   ): Promise<EurobetOddsMatch[]> {
+    if (fixtures.length === 0) return [];
+
     const meetingAlias = await this.resolveMeetingAlias(competition);
-    const matches = await this.mapWithConcurrency(
-      fixtures,
+    const meetingMatches = await this.loadCompetitionMatchesFromMeetingJson(competition, meetingAlias);
+    const { matchedMatches, missingFixtures } = this.matchFixturesToCompetitionMatches(fixtures, meetingMatches);
+
+    if (missingFixtures.length > 0) {
+      this.logEurobet('warn', 'Alcune fixture non sono state trovate nel meeting JSON, attivo fallback per alias evento', {
+        competition,
+        meetingAlias,
+        matched: matchedMatches.length,
+        missing: missingFixtures.length,
+        requested: fixtures.length,
+      });
+    }
+
+    const fallbackMatches = await this.mapWithConcurrency(
+      missingFixtures,
       this.getEventConcurrency(),
-      async (fixture) => this.fetchFixtureOdds(meetingAlias, fixture, options)
+      async (fixture) => this.fetchFixtureOdds(competition, meetingAlias, fixture)
     );
 
-    return matches.filter((match): match is EurobetOddsMatch => Boolean(match));
+    const mergedMatches = this.dedupeMatchesById([
+      ...matchedMatches,
+      ...fallbackMatches.filter((match): match is EurobetOddsMatch => Boolean(match)),
+    ]);
+
+    if (!options.includeExtendedGroups) return mergedMatches;
+
+    return this.mapWithConcurrency(
+      mergedMatches,
+      this.getEventConcurrency(),
+      async (match) => this.enrichMatchWithExtendedGroups(match)
+    );
+  }
+
+  private async loadCompetitionMatchesFromMeetingJson(
+    competition: string,
+    meetingAlias: string
+  ): Promise<EurobetOddsMatch[]> {
+    let meetingDetail: EurobetMeetingResponse;
+    try {
+      meetingDetail = await this.fetchMeetingDetail(meetingAlias, { competition, meetingAlias });
+    } catch (error) {
+      this.logEurobet('warn', 'Fetch meeting JSON fallito', { competition, meetingAlias }, error);
+      return [];
+    }
+
+    const availableGroupAliases = this.extractGroupAliases(meetingDetail?.result?.groupData?.groupList);
+    const meetingItems = this.extractMeetingItems(meetingDetail);
+
+    if (meetingItems.length === 0) {
+      this.logEurobet('warn', 'Meeting JSON vuoto o senza eventi', { competition, meetingAlias });
+      return [];
+    }
+
+    const matches = meetingItems
+      .map((item) => this.tryBuildMatchFromMeetingItem(competition, meetingAlias, item, availableGroupAliases))
+      .filter((match): match is EurobetOddsMatch => Boolean(match));
+
+    if (matches.length === 0) {
+      this.logEurobet('warn', 'Meeting JSON presente ma parsing quote base vuoto', {
+        competition,
+        meetingAlias,
+        events: meetingItems.length,
+      });
+    }
+
+    return matches;
+  }
+
+  private async loadCompetitionMatchesFromDomFallback(
+    competition: string,
+    meetingAlias: string
+  ): Promise<EurobetOddsMatch[]> {
+    let metadata: { eventAliases: string[]; groupAliases: string[] };
+    try {
+      metadata = await this.withPage(async (page) => this.collectMeetingPageMetadata(page, meetingAlias));
+    } catch (error) {
+      this.logEurobet('warn', 'Fallback DOM non disponibile', { competition, meetingAlias }, error);
+      return [];
+    }
+
+    if (metadata.eventAliases.length === 0) {
+      this.logEurobet('warn', 'Fallback DOM senza anchor evento', {
+        competition,
+        meetingAlias,
+        reason: 'cookie-banner, lazy loading SPA o DOM cambiato',
+      });
+      return [];
+    }
+
+    const rawMatches = await this.mapWithConcurrency(
+      metadata.eventAliases,
+      this.getEventConcurrency(),
+      async (eventAlias) => {
+        try {
+          const eventDetail = await this.fetchEventDetail(meetingAlias, eventAlias, {
+            competition,
+            meetingAlias,
+            eventAlias,
+          });
+          return this.tryBuildMatchFromEventResponse(
+            competition,
+            meetingAlias,
+            eventAlias,
+            eventDetail,
+            this.mergeAliases(metadata.groupAliases, this.extractGroupAliases(eventDetail?.result?.groupData?.groupList))
+          );
+        } catch (error) {
+          this.logEurobet('warn', 'Fallback event detail fallito', {
+            competition,
+            meetingAlias,
+            eventAlias,
+          }, error);
+          return null;
+        }
+      }
+    );
+
+    const matches = rawMatches.filter((match): match is EurobetOddsMatch => Boolean(match));
+    if (matches.length === 0) {
+      this.logEurobet('warn', 'Fallback DOM ha trovato eventi ma nessuna quota valida', {
+        competition,
+        meetingAlias,
+        events: metadata.eventAliases.length,
+      });
+    }
+
+    return matches;
+  }
+
+  private extractMeetingItems(meetingDetail: EurobetMeetingResponse): EurobetMeetingItem[] {
+    return (meetingDetail?.result?.dataGroupList ?? []).flatMap((group) =>
+      Array.isArray(group?.itemList) ? group.itemList : []
+    );
+  }
+
+  private tryBuildMatchFromMeetingItem(
+    competition: string,
+    meetingAlias: string,
+    item: EurobetMeetingItem,
+    availableGroupAliases: string[]
+  ): EurobetOddsMatch | null {
+    const eventAlias = String(item?.eventInfo?.aliasUrl ?? '').trim();
+    const match = this.buildMatchFromMeetingItem(meetingAlias, item, availableGroupAliases);
+    return this.validateBaseMatch(match, {
+      competition,
+      meetingAlias,
+      eventAlias,
+      source: 'meeting-json',
+    });
+  }
+
+  private tryBuildMatchFromEventResponse(
+    competition: string,
+    meetingAlias: string,
+    eventAlias: string,
+    response: EurobetEventResponse,
+    availableGroupAliases: string[]
+  ): EurobetOddsMatch | null {
+    const match = this.buildMatchFromEventResponse(meetingAlias, eventAlias, response, availableGroupAliases);
+    return this.validateBaseMatch(match, {
+      competition,
+      meetingAlias,
+      eventAlias,
+      source: 'event-detail',
+    });
+  }
+
+  private validateBaseMatch(
+    match: EurobetOddsMatch,
+    context: Record<string, unknown>
+  ): EurobetOddsMatch | null {
+    if (!match.eventAlias || !match.homeTeam || !match.awayTeam) {
+      this.logEurobet('warn', 'Match Eurobet incompleto nel payload', context);
+      return null;
+    }
+
+    if (!this.hasQuoteMarkets(match)) {
+      this.logEurobet('warn', 'Parsing quote vuoto per il match', context);
+      return null;
+    }
+
+    return match;
+  }
+
+  private hasQuoteMarkets(match: EurobetOddsMatch): boolean {
+    return match.bookmakers.some((bookmaker) =>
+      (bookmaker.markets ?? []).some((market) => (market.outcomes ?? []).length > 0)
+    );
+  }
+
+  private matchFixturesToCompetitionMatches(
+    fixtures: FixtureCandidate[],
+    matches: EurobetOddsMatch[]
+  ): { matchedMatches: EurobetOddsMatch[]; missingFixtures: FixtureCandidate[] } {
+    const available = [...matches];
+    const matchedMatches: EurobetOddsMatch[] = [];
+    const missingFixtures: FixtureCandidate[] = [];
+
+    for (const fixture of fixtures) {
+      const bestIndex = this.findBestFixtureMatchIndex(fixture, available);
+      if (bestIndex === -1) {
+        missingFixtures.push(fixture);
+        continue;
+      }
+
+      matchedMatches.push(available[bestIndex]);
+      available.splice(bestIndex, 1);
+    }
+
+    return { matchedMatches, missingFixtures };
+  }
+
+  private findBestFixtureMatchIndex(fixture: FixtureCandidate, matches: EurobetOddsMatch[]): number {
+    let bestIndex = -1;
+    let bestScore = -1;
+
+    matches.forEach((match, index) => {
+      const score = this.scoreFixtureMatch(fixture, match);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+
+    return bestIndex;
+  }
+
+  private scoreFixtureMatch(fixture: FixtureCandidate, match: EurobetOddsMatch): number {
+    const homeScore = this.scoreTeamNameMatch(fixture.homeTeam, match.homeTeam);
+    const awayScore = this.scoreTeamNameMatch(fixture.awayTeam, match.awayTeam);
+    if (homeScore < 0.55 || awayScore < 0.55) return -1;
+
+    const timeDistanceMinutes = this.getTimeDistanceMinutes(fixture.commenceTime, match.commenceTime);
+    const nameScore = Math.round(((homeScore + awayScore) / 2) * 1000);
+    if (timeDistanceMinutes === null) return nameScore;
+    if (timeDistanceMinutes > 180) return -1;
+
+    return nameScore + Math.max(0, 240 - timeDistanceMinutes);
+  }
+
+  private getTimeDistanceMinutes(left?: string | null, right?: string | null): number | null {
+    const leftTime = left ? new Date(left).getTime() : Number.NaN;
+    const rightTime = right ? new Date(right).getTime() : Number.NaN;
+    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return null;
+    return Math.round(Math.abs(leftTime - rightTime) / 60_000);
+  }
+
+  private teamNamesMatch(left: string, right: string): boolean {
+    return this.scoreTeamNameMatch(left, right) >= 0.55;
+  }
+
+  private buildTeamIdentityCandidates(teamName: string): Set<string> {
+    const compact = this.normalizeWords(teamName).replace(/\s+/g, '');
+    const slugCandidates = this.buildTeamSlugCandidates(teamName)
+      .map((value) => value.replace(/[^a-z0-9]+/g, ''));
+
+    return new Set([compact, ...slugCandidates].filter(Boolean));
+  }
+
+  private scoreTeamNameMatch(left: string, right: string): number {
+    const leftCandidates = this.buildTeamIdentityCandidates(left);
+    const rightCandidates = this.buildTeamIdentityCandidates(right);
+
+    for (const candidate of leftCandidates) {
+      if (rightCandidates.has(candidate)) return 1;
+    }
+
+    const leftNorm = this.normalizeWords(left);
+    const rightNorm = this.normalizeWords(right);
+    if (!leftNorm || !rightNorm) return 0;
+    if (leftNorm === rightNorm) return 1;
+
+    const leftTokens = new Set(leftNorm.split(' ').filter(Boolean));
+    const rightTokens = new Set(rightNorm.split(' ').filter(Boolean));
+    const intersection = Array.from(leftTokens).filter((token) => rightTokens.has(token)).length;
+    const union = new Set([...leftTokens, ...rightTokens]).size;
+    const jaccard = union > 0 ? intersection / union : 0;
+
+    const leftCompact = leftNorm.replace(/\s+/g, '');
+    const rightCompact = rightNorm.replace(/\s+/g, '');
+    const containment = leftCompact.includes(rightCompact) || rightCompact.includes(leftCompact) ? 0.8 : 0;
+
+    return Math.max(jaccard, containment);
+  }
+
+  private dedupeMatchesById(matches: EurobetOddsMatch[]): EurobetOddsMatch[] {
+    const seen = new Set<string>();
+    return matches.filter((match) => {
+      if (seen.has(match.matchId)) return false;
+      seen.add(match.matchId);
+      return true;
+    });
   }
 
   async enrichMatchWithExtendedGroups(match: EurobetOddsMatch): Promise<EurobetOddsMatch> {
@@ -231,7 +502,12 @@ export class EurobetOddsService {
         }
         bookmakers = this.mergeMarkets(bookmakers, extraMarkets);
         loaded.add(alias);
-      } catch {
+      } catch (error) {
+        this.logEurobet('warn', 'Fetch gruppo esteso fallito', {
+          meetingAlias: match.meetingAlias,
+          eventAlias: match.eventAlias,
+          groupAlias: alias,
+        }, error);
         unavailable.add(alias);
       }
     }
@@ -379,7 +655,7 @@ export class EurobetOddsService {
     const context = await this.ensureContext();
     const page = await context.newPage();
     try {
-      await this.dismissCookieBanner(page).catch(() => undefined);
+      await this.tryDismissCookieBanner(page, { scope: 'withPage' });
       return await task(page);
     } finally {
       await page.close().catch(() => undefined);
@@ -391,7 +667,7 @@ export class EurobetOddsService {
     const context = await this.createContext(browser);
     const page = await context.newPage();
     try {
-      await this.dismissCookieBanner(page).catch(() => undefined);
+      await this.tryDismissCookieBanner(page, { scope: 'withIsolatedPage' });
       return await task(page);
     } finally {
       await page.close().catch(() => undefined);
@@ -486,21 +762,41 @@ export class EurobetOddsService {
   private async warmPersistentContext(context: BrowserContext): Promise<void> {
     const page = await context.newPage();
     try {
-      await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 90000,
-      }).catch(() => undefined);
-      await this.dismissCookieBanner(page).catch(() => undefined);
+      try {
+        await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 90000,
+        });
+      } catch (error) {
+        this.logEurobet('warn', 'Warmup home page fallita', {
+          pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse`,
+          scope: 'warmPersistentContext',
+        }, error);
+      }
+      await this.tryDismissCookieBanner(page, {
+        pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse`,
+        scope: 'warmPersistentContext',
+      });
       await page.mouse.move(400 + Math.random() * 200, 300 + Math.random() * 200);
       await page.waitForTimeout(2000 + Math.random() * 2000);
       await page.mouse.move(600 + Math.random() * 100, 400 + Math.random() * 100);
       await page.waitForTimeout(1500 + Math.random() * 1500);
 
-      await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`, {
-        waitUntil: 'networkidle',
-        timeout: 90000,
-      }).catch(() => undefined);
-      await this.dismissCookieBanner(page).catch(() => undefined);
+      try {
+        await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`, {
+          waitUntil: 'networkidle',
+          timeout: 90000,
+        });
+      } catch (error) {
+        this.logEurobet('warn', 'Warmup Serie A fallita', {
+          pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`,
+          scope: 'warmPersistentContext',
+        }, error);
+      }
+      await this.tryDismissCookieBanner(page, {
+        pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`,
+        scope: 'warmPersistentContext',
+      });
       await page.waitForTimeout(4000 + Math.random() * 3000);
 
       for (let i = 0; i < 3; i += 1) {
@@ -510,7 +806,14 @@ export class EurobetOddsService {
 
       const firstEventLink = page.locator('a[href*="/calcio/it-serie-a/"]').first();
       if (await firstEventLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await firstEventLink.click({ timeout: 5000 }).catch(() => undefined);
+        try {
+          await firstEventLink.click({ timeout: 5000 });
+        } catch (error) {
+          this.logEurobet('warn', 'Warmup click primo evento fallito', {
+            pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/it-serie-a`,
+            scope: 'warmPersistentContext',
+          }, error);
+        }
         await page.waitForTimeout(3000 + Math.random() * 2000);
       }
     } finally {
@@ -544,7 +847,11 @@ export class EurobetOddsService {
     });
   }
 
-  private async fetchSameOriginJson<T>(page: Page, path: string): Promise<T> {
+  private async fetchSameOriginJson<T>(
+    page: Page,
+    path: string,
+    context: Record<string, unknown> = {}
+  ): Promise<T> {
     const response = await page.evaluate(
       async ({ requestPath, headers }) => {
         const result = await fetch(requestPath, {
@@ -555,6 +862,7 @@ export class EurobetOddsService {
         return {
           ok: result.ok,
           status: result.status,
+          contentType: result.headers.get('content-type') ?? '',
           text,
         };
       },
@@ -562,10 +870,26 @@ export class EurobetOddsService {
     );
 
     if (!response.ok) {
+      this.logEurobet('warn', 'Fetch same-origin Eurobet con status non valido', {
+        path,
+        status: response.status,
+        contentType: response.contentType,
+        snippet: this.buildPayloadSnippet(response.text),
+        ...context,
+      });
       throw new Error(`Eurobet ${path} returned ${response.status}`);
     }
 
-    return JSON.parse(response.text) as T;
+    return this.parseJsonPayload<T>(
+      response.text,
+      `Fetch same-origin ${path} (${response.contentType || 'content-type sconosciuto'})`,
+      {
+        path,
+        status: response.status,
+        contentType: response.contentType,
+        ...context,
+      }
+    );
   }
 
   private async resolveMeetingAlias(competition: string): Promise<string> {
@@ -581,8 +905,10 @@ export class EurobetOddsService {
         this.competitionAliasCache.set(normalizedCompetition, match.aliasUrl);
         return match.aliasUrl;
       }
-    } catch {
-      // fallback statico piu robusto del fallimento completo
+    } catch (error) {
+      this.logEurobet('warn', 'Fetch sport-list fallito, uso fallback statico se disponibile', {
+        competition,
+      }, error);
     }
 
     const fallback = EurobetOddsService.FALLBACK_MEETING_ALIASES[competition];
@@ -604,49 +930,74 @@ export class EurobetOddsService {
     });
   }
 
-  private async fetchMeetingDetail(meetingAlias: string): Promise<EurobetMeetingResponse> {
+  private async fetchMeetingDetail(
+    meetingAlias: string,
+    context: Record<string, unknown> = {}
+  ): Promise<EurobetMeetingResponse> {
     return this.captureNavigatedJson(
       `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}`,
-      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/meeting/calcio/${meetingAlias}?prematch=1&live=0`
+      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/meeting/calcio/${meetingAlias}?prematch=1&live=0`,
+      context
     );
   }
 
-  private async fetchEventDetail(meetingAlias: string, eventAlias: string): Promise<EurobetEventResponse> {
+  private async fetchEventDetail(
+    meetingAlias: string,
+    eventAlias: string,
+    context: Record<string, unknown> = {}
+  ): Promise<EurobetEventResponse> {
     return this.captureNavigatedJson(
       `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}/${eventAlias}`,
-      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}?prematch=1&live=0`
+      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}?prematch=1&live=0`,
+      context
     );
   }
 
-  private async fetchEventGroupDetail(meetingAlias: string, eventAlias: string, groupAlias: string): Promise<EurobetEventResponse> {
+  private async fetchEventGroupDetail(
+    meetingAlias: string,
+    eventAlias: string,
+    groupAlias: string,
+    context: Record<string, unknown> = {}
+  ): Promise<EurobetEventResponse> {
     const encodedGroup = encodeURIComponent(groupAlias);
     return this.captureNavigatedJson(
       `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}/${eventAlias}/group/${encodedGroup}`,
-      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}/${groupAlias}?prematch=1&live=0`
+      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}/${groupAlias}?prematch=1&live=0`,
+      context
     );
   }
 
-  private async captureNavigatedJson<T>(pageUrl: string, responseUrl: string): Promise<T> {
+  private async captureNavigatedJson<T>(
+    pageUrl: string,
+    responseUrl: string,
+    context: Record<string, unknown> = {}
+  ): Promise<T> {
     if (this.isPersistentProfileEnabled()) {
       try {
         return await this.withPage(async (page) => {
-          return this.captureNavigatedJsonOnPage(page, pageUrl, responseUrl);
+          return this.captureNavigatedJsonOnPage(page, pageUrl, responseUrl, context);
         });
-      } catch {
-        // Se il profilo persistente non basta, riprova con un browser fresco.
+      } catch (error) {
+        this.logEurobet('warn', 'Context persistente fallito, riprovo con browser isolato', context, error);
       }
     }
 
     return this.withIsolatedPage(async (page) => {
-      return this.captureNavigatedJsonOnPage(page, pageUrl, responseUrl);
+      return this.captureNavigatedJsonOnPage(page, pageUrl, responseUrl, context);
     });
   }
 
-  private async fetchEventDetailOnPage(page: Page, meetingAlias: string, eventAlias: string): Promise<EurobetEventResponse> {
+  private async fetchEventDetailOnPage(
+    page: Page,
+    meetingAlias: string,
+    eventAlias: string,
+    context: Record<string, unknown> = {}
+  ): Promise<EurobetEventResponse> {
     return this.captureNavigatedJsonOnPage(
       page,
       `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}/${eventAlias}`,
-      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}?prematch=1&live=0`
+      `${EurobetOddsService.BASE_URL}/detail-service/sport-schedule/services/event/calcio/${meetingAlias}/${eventAlias}?prematch=1&live=0`,
+      context
     );
   }
 
@@ -666,7 +1017,12 @@ export class EurobetOddsService {
    *    utile se la SPA ha già caricato la pagina e la risposta non viene più
    *    emessa dal network (es. cache browser).
    */
-  private async captureNavigatedJsonOnPage<T>(page: Page, pageUrl: string, responseUrl: string): Promise<T> {
+  private async captureNavigatedJsonOnPage<T>(
+    page: Page,
+    pageUrl: string,
+    responseUrl: string,
+    context: Record<string, unknown> = {}
+  ): Promise<T> {
     // Estrae la parte di path significativa per il match parziale
     // (es. "/services/event/calcio/it-serie-a/milan-inter-...") ignorando
     // la base URL e i parametri query che possono variare.
@@ -686,42 +1042,88 @@ export class EurobetOddsService {
         // Promise per la risposta API: avviata PRIMA di goto per non perdere
         // risposte che arrivano durante il caricamento della pagina.
         const responsePromise = page.waitForResponse(
-          (res) => {
-            const url = res.url();
-            return (
-              url.includes(urlMatchFragment) &&
-              res.status() >= 200 &&
-              res.status() < 300
-            );
-          },
+          (res) => res.url().includes(urlMatchFragment),
           { timeout: 35000 + attempt * 5000 }
         );
 
         // Naviga in parallelo
         await Promise.all([
-          page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 }),
+          page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch((error) => {
+            this.logEurobet('warn', 'Navigazione Eurobet ha restituito errore non fatale', {
+              pageUrl,
+              expectedResponseUrl: responseUrl,
+              attempt: attempt + 1,
+              ...context,
+            }, error);
+            return null;
+          }),
           // Cookie banner: non bloccare se fallisce
-          page.waitForTimeout(400).then(() => this.dismissCookieBanner(page).catch(() => undefined)),
+          page.waitForTimeout(400).then(() => this.tryDismissCookieBanner(page, {
+            pageUrl,
+            expectedResponseUrl: responseUrl,
+            attempt: attempt + 1,
+            scope: 'captureNavigatedJsonOnPage',
+            ...context,
+          })),
         ]).catch(() => undefined); // goto può lanciare su redirect; non è fatale
 
         const matchedResponse = await responsePromise;
         const text = await matchedResponse.text();
+        const interceptedUrl = matchedResponse.url();
+        const status = matchedResponse.status();
+        const contentType = await matchedResponse.headerValue('content-type') ?? '';
+        const responseContext = {
+          pageUrl,
+          expectedResponseUrl: responseUrl,
+          interceptedUrl,
+          status,
+          contentType,
+          attempt: attempt + 1,
+          ...context,
+        };
 
-        if (this.looksLikeJson(text)) {
-          return JSON.parse(text) as T;
+        if (status < 200 || status >= 300) {
+          this.logEurobet('warn', 'Risposta network Eurobet con status non valido', {
+            ...responseContext,
+            snippet: this.buildPayloadSnippet(text),
+          });
+          throw new Error(`Eurobet ${urlMatchFragment} returned status ${status}`);
         }
 
-        // Risposta ricevuta ma non è JSON valido (HTML di errore, captcha, ecc.)
-        lastError = new Error(`Eurobet ${urlMatchFragment} ha restituito una risposta non-JSON (status ${matchedResponse.status()})`);
+        if (!this.looksLikeJson(text)) {
+          this.logEurobet('warn', 'Risposta network Eurobet non JSON', {
+            ...responseContext,
+            snippet: this.buildPayloadSnippet(text),
+          });
+        }
+
+        return this.parseJsonPayload<T>(
+          text,
+          `Risposta network ${urlMatchFragment} (status ${status})`,
+          responseContext
+        );
       } catch (err) {
         lastError = err;
+        this.logEurobet('warn', 'Navigazione/attesa risposta Eurobet fallita', {
+          pageUrl,
+          expectedResponseUrl: responseUrl,
+          urlMatchFragment,
+          attempt: attempt + 1,
+          ...context,
+        }, err);
 
         // Fallback: tenta di chiamare l'API direttamente dal contesto browser.
         // Funziona se la SPA ha già impostato i cookie di sessione corretti.
         try {
-          return await this.fetchSameOriginJson<T>(page, responseUrl);
-        } catch {
-          // Ignora — continua con il retry
+          return await this.fetchSameOriginJson<T>(page, responseUrl, context);
+        } catch (fallbackError) {
+          lastError = fallbackError;
+          this.logEurobet('warn', 'Fallback fetch same-origin fallito', {
+            pageUrl,
+            expectedResponseUrl: responseUrl,
+            attempt: attempt + 1,
+            ...context,
+          }, fallbackError);
         }
 
         if (attempt < EurobetOddsService.NAVIGATION_RETRIES - 1) {
@@ -742,7 +1144,12 @@ export class EurobetOddsService {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      await this.dismissCookieBanner(page).catch(() => undefined);
+      await this.tryDismissCookieBanner(page, {
+        pageUrl,
+        expectedResponseUrl: requestPath,
+        attempt: attempt + 1,
+        scope: 'gotoAndFetchOnPage',
+      });
       // Backoff progressivo: 1.5s → 3.0s → 5.4s
       await page.waitForTimeout(1500 + attempt * 1200 * (attempt + 1));
       try {
@@ -814,32 +1221,73 @@ export class EurobetOddsService {
   }
 
   private async fetchFixtureOdds(
+    competition: string,
     meetingAlias: string,
-    fixture: FixtureCandidate,
-    options: GetOddsOptions
+    fixture: FixtureCandidate
   ): Promise<EurobetOddsMatch | null> {
     const candidateAliases = this.buildEventAliasCandidates(fixture);
+    let bestMatch: EurobetOddsMatch | null = null;
+    let bestScore = -1;
 
     for (const eventAlias of candidateAliases) {
       try {
-        const eventDetail = await this.fetchEventDetail(meetingAlias, eventAlias);
-        const match = this.buildMatchFromEventResponse(
+        const eventDetail = await this.fetchEventDetail(meetingAlias, eventAlias, {
+          competition,
+          meetingAlias,
+          eventAlias,
+          fixtureHomeTeam: fixture.homeTeam,
+          fixtureAwayTeam: fixture.awayTeam,
+          source: 'fixture-fallback',
+        });
+        const match = this.tryBuildMatchFromEventResponse(
+          competition,
           meetingAlias,
           eventAlias,
           eventDetail,
           this.extractGroupAliases(eventDetail?.result?.groupData?.groupList)
         );
 
-        if (!this.fixtureMatches(fixture, match)) {
+        if (!match) {
           continue;
         }
 
-        return options.includeExtendedGroups ? await this.enrichMatchWithExtendedGroups(match) : match;
-      } catch {
+        const score = this.scoreFixtureMatch(fixture, match);
+        if (!this.fixtureMatches(fixture, match)) {
+          this.logEurobet('info', 'Alias evento fallback non corrisponde alla fixture richiesta', {
+            competition,
+            meetingAlias,
+            eventAlias,
+            fixtureHomeTeam: fixture.homeTeam,
+            fixtureAwayTeam: fixture.awayTeam,
+            score,
+          });
+          continue;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = match;
+        }
+      } catch (error) {
+        this.logEurobet('warn', 'Fetch fallback per fixture fallito', {
+          competition,
+          meetingAlias,
+          eventAlias,
+          fixtureHomeTeam: fixture.homeTeam,
+          fixtureAwayTeam: fixture.awayTeam,
+        }, error);
         continue;
       }
     }
 
+    if (bestMatch) return bestMatch;
+
+    this.logEurobet('warn', 'Nessun alias evento fallback ha prodotto una quota valida per la fixture', {
+      competition,
+      meetingAlias,
+      fixtureHomeTeam: fixture.homeTeam,
+      fixtureAwayTeam: fixture.awayTeam,
+    });
     return null;
   }
 
@@ -849,7 +1297,11 @@ export class EurobetOddsService {
   }> {
     const pageUrl = `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}`;
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-    await this.dismissCookieBanner(page).catch(() => undefined);
+    await this.tryDismissCookieBanner(page, {
+      pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse/calcio/${meetingAlias}`,
+      meetingAlias,
+      scope: 'collectMeetingPageMetadata',
+    });
 
     for (let attempt = 0; attempt < EurobetOddsService.COMPETITION_SCROLL_ATTEMPTS; attempt++) {
       const extracted = await page.evaluate((alias) => {
@@ -890,30 +1342,131 @@ export class EurobetOddsService {
   }
 
   private async dismissCookieBanner(page: Page): Promise<void> {
+    const bannerSelectors = [
+      '#onetrust-banner-sdk',
+      '#CybotCookiebotDialog',
+      '[data-testid*="cookie" i]',
+      '[id*="cookie" i]',
+      '[class*="cookie" i]',
+      '[aria-label*="cookie" i]',
+      '[role="dialog"][aria-label*="cookie" i]',
+      '[role="dialog"][id*="consent" i]',
+    ];
+
+    const bannerLocator = page.locator(bannerSelectors.join(', ')).first();
+    const bannerVisible = await bannerLocator.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!bannerVisible) return;
+
+    const candidateLocators = [
+      page.getByRole('button', { name: /accetta.*cookie|accetta tutti|accept all|consenti tutti|accetto/i }).first(),
+      page.getByRole('button', { name: /chiudi|close|continua|prosegui/i }).first(),
+      page.locator('[data-testid*="accept" i], [data-testid*="cookie-accept" i], [id*="accept" i], [class*="accept" i]').first(),
+      page.locator('button:has-text("Accetta"), button:has-text("Accept"), button:has-text("Cookie"), button:has-text("Chiudi")').first(),
+    ];
+
+    for (const locator of candidateLocators) {
+      const visible = await locator.isVisible({ timeout: 800 }).catch(() => false);
+      if (!visible) continue;
+      await locator.click({ timeout: 2500 });
+      await page.waitForTimeout(300);
+      return;
+    }
+
     await page.evaluate(() => {
-      const labels = ['Accetta tutti i cookie', 'Chiudi'];
-      const buttons = Array.from(document.querySelectorAll('button'));
-      for (const label of labels) {
-        const button = buttons.find((candidate) => String(candidate.textContent ?? '').trim() === label);
-        if (button instanceof HTMLElement) {
-          button.click();
+      const buttonLabels = ['accetta', 'accept', 'cookie', 'chiudi', 'close', 'continua'];
+      const elements = Array.from(document.querySelectorAll('button, [role="button"], [data-testid]'));
+      for (const element of elements) {
+        const label = String(
+          (element.textContent ?? '')
+          || element.getAttribute('aria-label')
+          || element.getAttribute('data-testid')
+          || ''
+        ).trim().toLowerCase();
+        if (!label) continue;
+        if (!buttonLabels.some((fragment) => label.includes(fragment))) continue;
+        if (element instanceof HTMLElement) {
+          element.click();
+          return;
         }
       }
-    }).catch(() => undefined);
+    });
+  }
+
+  private async tryDismissCookieBanner(page: Page, context: Record<string, unknown> = {}): Promise<void> {
+    try {
+      await this.dismissCookieBanner(page);
+    } catch (error) {
+      this.logEurobet('warn', 'Gestione cookie banner fallita', context, error);
+    }
   }
 
   private async refreshEurobetSession(page: Page): Promise<void> {
-    await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 90000,
-    }).catch(() => undefined);
-    await this.dismissCookieBanner(page).catch(() => undefined);
+    try {
+      await page.goto(`${EurobetOddsService.BASE_URL}/it/scommesse`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 90000,
+      });
+    } catch (error) {
+      this.logEurobet('warn', 'Refresh sessione Eurobet fallito', {
+        pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse`,
+        scope: 'refreshEurobetSession',
+      }, error);
+    }
+    await this.tryDismissCookieBanner(page, {
+      pageUrl: `${EurobetOddsService.BASE_URL}/it/scommesse`,
+      scope: 'refreshEurobetSession',
+    });
     await page.waitForTimeout(2500);
+  }
+
+  private parseJsonPayload<T>(
+    rawText: string,
+    sourceLabel: string,
+    context: Record<string, unknown> = {}
+  ): T {
+    const text = String(rawText ?? '').trim();
+    if (!this.looksLikeJson(text)) {
+      const reason = this.classifyNonJsonPayload(text);
+      this.logEurobet('warn', `${sourceLabel} ha restituito ${reason}`, {
+        ...context,
+        snippet: this.buildPayloadSnippet(text),
+      });
+      throw new Error(`Eurobet ${sourceLabel} ha restituito ${reason}`);
+    }
+
+    try {
+      return JSON.parse(text) as T;
+    } catch (error) {
+      this.logEurobet('warn', `${sourceLabel} contiene JSON non parsabile`, {
+        ...context,
+        snippet: this.buildPayloadSnippet(text),
+      }, error);
+      throw new Error(`Eurobet ${sourceLabel} contiene JSON non parsabile`);
+    }
+  }
+
+  private classifyNonJsonPayload(text: string): string {
+    const compact = String(text ?? '').trim().toLowerCase();
+    if (!compact) return 'una risposta vuota';
+    if (compact.startsWith('<') || compact.includes('<html')) {
+      if (compact.includes('captcha') || compact.includes('cloudflare') || compact.includes('just a moment')) {
+        return 'HTML/captcha invece di JSON';
+      }
+      return 'HTML invece di JSON';
+    }
+    return 'testo non JSON';
   }
 
   private looksLikeJson(text: string): boolean {
     const trimmed = String(text ?? '').trim();
     return trimmed.startsWith('{') || trimmed.startsWith('[');
+  }
+
+  private buildPayloadSnippet(text: string, maxLength = 180): string {
+    const compact = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!compact) return '';
+    if (compact.length <= maxLength) return compact;
+    return `${compact.slice(0, maxLength)}...`;
   }
 
   private mergeAliases(...groups: Array<string[] | undefined>): string[] {
@@ -944,7 +1497,17 @@ export class EurobetOddsService {
   private buildTeamSlugCandidates(teamName: string): string[] {
     const normalized = this.normalizeWords(teamName);
     const compact = normalized.replace(/\s+/g, '-');
-    const overrides = EurobetOddsService.TEAM_SLUG_OVERRIDES[normalized] ?? [];
+    const overrides = new Set<string>();
+
+    for (const [canonical, aliases] of Object.entries(EurobetOddsService.TEAM_SLUG_OVERRIDES)) {
+      const normalizedAliases = aliases.map((value) => this.normalizeWords(value));
+      if (normalized === canonical || normalizedAliases.includes(normalized)) {
+        overrides.add(canonical.replace(/\s+/g, '-'));
+        for (const alias of normalizedAliases) {
+          overrides.add(alias.replace(/\s+/g, '-'));
+        }
+      }
+    }
 
     return Array.from(
       new Set(
@@ -962,12 +1525,13 @@ export class EurobetOddsService {
     const baseDate = new Date(raw);
     if (Number.isNaN(baseDate.getTime())) return [''];
 
-    const deltas = [0, -60, 60];
+    const deltas = [-120, -60, 0, 60, 120];
+    const timeZones: Array<'Europe/Rome' | 'UTC'> = ['Europe/Rome', 'UTC'];
     return Array.from(
       new Set(
-        deltas.map((deltaMinutes) => {
+        deltas.flatMap((deltaMinutes) => {
           const candidate = new Date(baseDate.getTime() + deltaMinutes * 60_000);
-          return this.formatEurobetTimestamp(candidate, deltaMinutes === 0 ? 'Europe/Rome' : 'UTC');
+          return timeZones.map((timeZone) => this.formatEurobetTimestamp(candidate, timeZone));
         }).filter(Boolean)
       )
     );
@@ -990,9 +1554,38 @@ export class EurobetOddsService {
   }
 
   private fixtureMatches(fixture: FixtureCandidate, match: EurobetOddsMatch): boolean {
-    const normalize = (value: string): string => this.normalizeWords(value).replace(/\s+/g, '');
-    return normalize(fixture.homeTeam) === normalize(match.homeTeam)
-      && normalize(fixture.awayTeam) === normalize(match.awayTeam);
+    return this.scoreFixtureMatch(fixture, match) >= 700;
+  }
+
+  private logEurobet(
+    level: 'info' | 'warn' | 'error',
+    message: string,
+    context: Record<string, unknown> = {},
+    error?: unknown
+  ): void {
+    const filteredContext = Object.fromEntries(
+      Object.entries(context).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    );
+    const contextSuffix = Object.keys(filteredContext).length > 0
+      ? ` | ${JSON.stringify(filteredContext)}`
+      : '';
+    const errorSuffix = error ? ` | ${this.describeEurobetError(error)}` : '';
+    const line = `[Eurobet] ${message}${contextSuffix}${errorSuffix}`;
+
+    if (level === 'error') {
+      console.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      console.warn(line);
+      return;
+    }
+    console.info(line);
+  }
+
+  private describeEurobetError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return typeof error === 'string' ? error : 'Errore sconosciuto';
   }
 
   private isPersistentProfileEnabled(): boolean {
@@ -1277,9 +1870,15 @@ export class EurobetOddsService {
   }
 
   private parsePrice(raw: unknown): number | null {
-    const numeric = Number(raw);
-    if (!Number.isFinite(numeric) || numeric <= 100) return null;
-    return Number((numeric / 100).toFixed(2));
+    const numeric = this.parseNumberish(raw);
+    if (numeric === null || numeric <= 0) return null;
+
+    const normalized = Number.isInteger(numeric) && numeric >= 100 && !this.hasExplicitDecimalSeparator(raw)
+      ? numeric / 100
+      : numeric;
+
+    if (normalized < 1.01 || normalized > 1000) return null;
+    return this.trimToTwoDecimals(normalized);
   }
 
   private extractLine(oddGroup: EurobetOddGroup): number | undefined {
@@ -1306,12 +1905,36 @@ export class EurobetOddsService {
   private extractLineFromAdditionalInfo(values: unknown): number | undefined {
     if (!Array.isArray(values)) return undefined;
     for (const value of values) {
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric) || numeric <= 0) continue;
-      if (numeric >= 10) return Number((numeric / 100).toFixed(1));
-      return numeric;
+      const numeric = this.parseNumberish(value);
+      if (numeric === null || numeric <= 0) continue;
+      const normalized = Number.isInteger(numeric) && numeric >= 10 && !this.hasExplicitDecimalSeparator(value)
+        ? numeric / 100
+        : numeric;
+      return this.trimToTwoDecimals(normalized);
     }
     return undefined;
+  }
+
+  private parseNumberish(raw: unknown): number | null {
+    if (typeof raw === 'number') {
+      return Number.isFinite(raw) ? raw : null;
+    }
+
+    if (typeof raw !== 'string') return null;
+
+    const normalized = raw.trim().replace(',', '.');
+    if (!normalized) return null;
+
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private hasExplicitDecimalSeparator(raw: unknown): boolean {
+    return typeof raw === 'string' && /[.,]/.test(raw);
+  }
+
+  private trimToTwoDecimals(value: number): number {
+    return Number(value.toFixed(2));
   }
 
   private mergeMarkets(existingBookmakers: BookmakerOdds[], extraMarkets: MarketOdds[]): BookmakerOdds[] {

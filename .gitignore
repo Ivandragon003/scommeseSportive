@@ -1,18 +1,50 @@
+# Dependencies
 node_modules/
+**/node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Build artifacts
+dist/
+build/
+coverage/
+*.tsbuildinfo
 backend/dist/
 frontend/build/
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+out/
+tmp/
+temp/
+
+# Runtime data / local tooling
 backend/data/
 data/
 .playwright/
 backend/.playwright/
 backend/.tmp-fbref-profile/
 backend/tmp_script_*.js
-package-lock.json
+backend-nightly-sync.log
+
+# Databases
 *.db
 *.db-*
 *.db-wal
 *.db-shm
-*.db-shm
-*.db-wal
-.env.production
-backend-nightly-sync.log
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Optional root lockfile
+package-lock.json

@@ -930,3 +930,10 @@ evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
 | minutesFactor triangolare | `ShotsModel.ts` — triangolare +-15%, varianza su pi ZIP |
 
 --- Fine del documento ---
+
+## Environment locale e rotazione credenziali
+
+- Crea il file locale con `copy .env.example .env` nella root del repository e compila solo i placeholder necessari.
+- Non versionare mai `.env`, `.env.production` o altri file con credenziali reali.
+- Se il repository ha esposto credenziali in passato, ruotale prima di qualunque nuovo deploy o pubblicazione pubblica.
+- Dopo la clonazione, `npm install` in `backend` e `frontend` resta il flusso corretto: le cartelle `node_modules` non devono essere nel repository.
