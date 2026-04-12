@@ -16,6 +16,61 @@ export type ApiRouterDependencies = {
   svc?: PredictionService;
 };
 
+export type EurobetCompetitionFixtureScope = {
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime?: string | null;
+};
+
+const normalizeEurobetCompetitionCachePart = (value: string): string =>
+  String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const normalizeEurobetFixtureCommenceTime = (value?: string | null): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const timestamp = Date.parse(raw);
+  if (Number.isFinite(timestamp)) {
+    return new Date(timestamp).toISOString();
+  }
+  return raw;
+};
+
+const buildEurobetFixtureSignature = (fixtures?: EurobetCompetitionFixtureScope[]): string => {
+  if (!Array.isArray(fixtures) || fixtures.length === 0) return 'all';
+
+  return fixtures
+    .map((fixture) => [
+      normalizeEurobetCompetitionCachePart(String(fixture.homeTeam ?? '')),
+      normalizeEurobetCompetitionCachePart(String(fixture.awayTeam ?? '')),
+      normalizeEurobetCompetitionCachePart(normalizeEurobetFixtureCommenceTime(fixture.commenceTime)),
+    ].join('__'))
+    .sort()
+    .join('|');
+};
+
+export const buildEurobetCompetitionCacheKey = (input: {
+  competition: string;
+  includeExtendedGroups?: boolean;
+  fixtures?: EurobetCompetitionFixtureScope[];
+}): string => {
+  const fixtureScoped = Array.isArray(input.fixtures) && input.fixtures.length > 0;
+  return [
+    normalizeEurobetCompetitionCachePart(String(input.competition ?? '')),
+    input.includeExtendedGroups ? 'extended' : 'base',
+    fixtureScoped ? 'fixtures' : 'bulk',
+    buildEurobetFixtureSignature(input.fixtures),
+  ].join('::');
+};
+
+export const shouldUseEurobetCompetitionCache = (
+  fixtures?: EurobetCompetitionFixtureScope[]
+): boolean => !Array.isArray(fixtures) || fixtures.length === 0;
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
@@ -2826,10 +2881,15 @@ const getEurobetCompetitionOdds = async (
   useCache = true,
   fixtures?: Array<{ homeTeam: string; awayTeam: string; commenceTime?: string | null }>
 ): Promise<{ eurobetService: EurobetOddsService; matches: EurobetOddsMatch[]; fromCache: boolean }> => {
-  const cacheKey = `${competition}::${includeExtendedGroups ? 'extended' : 'base'}`;
-  const cached = eurobetCache.get(cacheKey);
+  const cacheKey = buildEurobetCompetitionCacheKey({
+    competition,
+    includeExtendedGroups,
+    fixtures,
+  });
+  const cacheEnabled = useCache && shouldUseEurobetCompetitionCache(fixtures);
+  const cached = cacheEnabled ? eurobetCache.get(cacheKey) : undefined;
   const now = Date.now();
-  if (useCache && cached && now - cached.cachedAt < EUROBET_CACHE_TTL_MS) {
+  if (cacheEnabled && cached && now - cached.cachedAt < EUROBET_CACHE_TTL_MS) {
     return {
       eurobetService: new EurobetOddsService(),
       matches: cached.matches,
@@ -2845,14 +2905,16 @@ const getEurobetCompetitionOdds = async (
     if (matches.length === 0 && Array.isArray(fixtures) && fixtures.length > 0) {
       matches = await eurobetService.getOdds(competition, { includeExtendedGroups }).catch(() => []);
     }
-    eurobetCache.set(cacheKey, {
-      cachedAt: now,
-      matches,
-    });
+    if (cacheEnabled) {
+      eurobetCache.set(cacheKey, {
+        cachedAt: now,
+        matches,
+      });
+    }
     return { eurobetService, matches, fromCache: false };
   } catch (error) {
     await eurobetService.close().catch(() => undefined);
-    if (useCache && cached && cached.matches.length > 0) {
+    if (cacheEnabled && cached && cached.matches.length > 0) {
       return {
         eurobetService: new EurobetOddsService(),
         matches: cached.matches,
@@ -3200,7 +3262,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         const eurobetResult = await getEurobetCompetitionOdds(
           String(competition),
           false,
-          true,
+          false,
           [{
             homeTeam: String(homeTeam),
             awayTeam: String(awayTeam),
