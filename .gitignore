@@ -45,6 +45,5 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Optional root lockfile
-package-lock.json
+gitleaks-report.*
+secret-scan-report.*

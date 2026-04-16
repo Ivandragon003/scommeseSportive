@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import {
+  normalizeProviderHealth,
+  normalizeSystemHealth,
+  normalizeSystemMetrics,
+} from '../utils/systemObservability';
 
 const API = axios.create({ baseURL: '/api', timeout: 3600000 });
 
@@ -96,6 +101,9 @@ export default function Scrapers() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('understat');
   const [scraperStatus, setScraperStatus] = useState<any>(null);
   const [understatInfo, setUnderstatInfo] = useState<any>(null);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
+  const [providerHealth, setProviderHealth] = useState<any>(null);
+  const [systemMetrics, setSystemMetrics] = useState<any>(null);
 
   const [competition, setCompetition] = useState('Serie A');
   const [yearsBack, setYearsBack] = useState(1);
@@ -137,15 +145,21 @@ export default function Scrapers() {
 
     const loadStatus = async () => {
       try {
-        const [statusRes, infoRes, oddsRes] = await Promise.all([
+        const [statusRes, infoRes, oddsRes, systemHealthRes, providerHealthRes, systemMetricsRes] = await Promise.all([
           API.get('/scraper/status'),
           API.get('/scraper/understat/info'),
           API.get('/scraper/odds/status'),
+          API.get('/system/health'),
+          API.get('/system/provider-health'),
+          API.get('/system/metrics'),
         ]);
         if (!active) return;
         setScraperStatus(statusRes.data?.data ?? null);
         setUnderstatInfo(infoRes.data?.data ?? null);
         applyOddsState(oddsRes.data?.data ?? null);
+        setSystemHealth(normalizeSystemHealth(systemHealthRes.data ?? {}));
+        setProviderHealth(normalizeProviderHealth(providerHealthRes.data ?? {}));
+        setSystemMetrics(normalizeSystemMetrics(systemMetricsRes.data ?? {}));
       } catch (error) {
         console.error('Failed to fetch scraper status:', error);
       }
@@ -207,6 +221,8 @@ export default function Scrapers() {
   const understatScheduler = scraperStatus?.understatScheduler ?? null;
   const oddsScheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
   const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
+  const effectiveProviderHealth = providerHealth ?? normalizeProviderHealth({});
+  const effectiveSystemMetrics = systemMetrics ?? normalizeSystemMetrics({});
 
   return (
     <>
@@ -254,6 +270,10 @@ export default function Scrapers() {
                   Learning review: {learningScheduler?.enabled
                     ? `alle ${learningScheduler?.time ?? '03:00'} | prossimo run ${formatFullDate(learningScheduler?.nextRunAt)}`
                     : 'disabilitata'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  Provider quote: {effectiveProviderHealth.status} | freshness {effectiveProviderHealth.freshnessMinutes ?? 'n/d'}m
+                  {effectiveProviderHealth.fallbackReason ? ` | fallback ${effectiveProviderHealth.fallbackReason}` : ''}
                 </div>
               </div>
             </div>
@@ -423,6 +443,39 @@ export default function Scrapers() {
               </span>
             </div>
             <div className="fp-card-body">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <div className="fp-stat c-blue">
+                  <div className="fp-stat-val c-blue">
+                    {effectiveProviderHealth.status === 'healthy'
+                      ? 'OK'
+                      : effectiveProviderHealth.status === 'degraded'
+                        ? 'Parziale'
+                        : effectiveProviderHealth.status === 'unhealthy'
+                          ? 'Errore'
+                          : 'n/d'}
+                  </div>
+                  <div className="fp-stat-label">Stato Provider</div>
+                </div>
+                <div className="fp-stat c-gold">
+                  <div className="fp-stat-val c-gold">
+                    {effectiveProviderHealth.freshnessMinutes !== null ? `${effectiveProviderHealth.freshnessMinutes}m` : 'n/d'}
+                  </div>
+                  <div className="fp-stat-label">Freshness Quote</div>
+                </div>
+                <div className="fp-stat c-green">
+                  <div className="fp-stat-val c-green">
+                    {effectiveSystemMetrics.provider.avgScrapeLatencyMs !== null
+                      ? formatDuration(effectiveSystemMetrics.provider.avgScrapeLatencyMs)
+                      : 'n/d'}
+                  </div>
+                  <div className="fp-stat-label">Latenza Media</div>
+                </div>
+                <div className="fp-stat c-red">
+                  <div className="fp-stat-val c-red">{effectiveSystemMetrics.trends.errorRuns}</div>
+                  <div className="fp-stat-label">Run in Errore</div>
+                </div>
+              </div>
+
               <button className="sc-big-btn" onClick={handleOdds} disabled={oddsLoading}>
                 {oddsLoading ? '⏳ Scaricamento quote live...' : '⬇ Scarica quote live'}
               </button>
@@ -430,6 +483,25 @@ export default function Scrapers() {
               {oddsLastUpdatedAt && (
                 <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
                   Ultimo aggiornamento: <strong style={{ color: 'var(--text)' }}>{formatDate(oddsLastUpdatedAt)}</strong>
+                </div>
+              )}
+
+              {systemHealth?.issues?.length > 0 && (
+                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                  {systemHealth.issues.slice(0, 3).map((issue: any, index: number) => (
+                    <div
+                      key={`${issue.scope}-${index}`}
+                      className={issue.severity === 'error' ? 'fp-alert fp-alert-danger' : 'fp-alert fp-alert-warning'}
+                    >
+                      <strong>{issue.scope}</strong>: {issue.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {effectiveProviderHealth.fallbackReason && (
+                <div className="fp-alert fp-alert-warning" style={{ marginTop: 12 }}>
+                  Fallback attivo: {effectiveProviderHealth.fallbackReason}
                 </div>
               )}
 

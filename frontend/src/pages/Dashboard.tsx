@@ -4,10 +4,20 @@ import {
   getBudget,
   getBets,
   getMatchesCount,
+  getProviderHealth,
+  getRecentSystemRuns,
   getScraperStatus,
+  getSystemHealth,
   getSystemAnalytics,
+  getSystemMetrics,
   initBudget,
 } from '../utils/api';
+import {
+  normalizeProviderHealth,
+  normalizeRecentRuns,
+  normalizeSystemHealth,
+  normalizeSystemMetrics,
+} from '../utils/systemObservability';
 
 interface DashboardProps {
   activeUser: string;
@@ -99,18 +109,26 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) =>
   const [matchCount, setMatchCount] = useState(0);
   const [analytics, setAnalytics] = useState<any>(null);
   const [scraperStatus, setScraperStatus] = useState<any>(null);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
+  const [providerHealth, setProviderHealth] = useState<any>(null);
+  const [systemMetrics, setSystemMetrics] = useState<any>(null);
+  const [recentSystemRuns, setRecentSystemRuns] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [initAmount, setInitAmount] = useState('1000');
   const [showInit, setShowInit] = useState(false);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
-    const [budgetRes, betsRes, matchesCountRes, analyticsRes, scraperStatusRes] = await Promise.allSettled([
+    const [budgetRes, betsRes, matchesCountRes, analyticsRes, scraperStatusRes, systemHealthRes, providerHealthRes, systemMetricsRes, recentRunsRes] = await Promise.allSettled([
       getBudget(activeUser),
       getBets(activeUser),
       getMatchesCount(),
       getSystemAnalytics({ userId: activeUser }),
       getScraperStatus(),
+      getSystemHealth(),
+      getProviderHealth(),
+      getSystemMetrics(),
+      getRecentSystemRuns(12),
     ]);
 
     if (budgetRes.status === 'fulfilled') {
@@ -148,6 +166,30 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) =>
       setScraperStatus(scraperStatusRes.value.data ?? null);
     } else {
       setScraperStatus(null);
+    }
+
+    if (systemHealthRes.status === 'fulfilled') {
+      setSystemHealth(normalizeSystemHealth(systemHealthRes.value));
+    } else {
+      setSystemHealth(null);
+    }
+
+    if (providerHealthRes.status === 'fulfilled') {
+      setProviderHealth(normalizeProviderHealth(providerHealthRes.value));
+    } else {
+      setProviderHealth(null);
+    }
+
+    if (systemMetricsRes.status === 'fulfilled') {
+      setSystemMetrics(normalizeSystemMetrics(systemMetricsRes.value));
+    } else {
+      setSystemMetrics(null);
+    }
+
+    if (recentRunsRes.status === 'fulfilled') {
+      setRecentSystemRuns(normalizeRecentRuns(recentRunsRes.value));
+    } else {
+      setRecentSystemRuns(null);
     }
 
     setRefreshing(false);
@@ -202,6 +244,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) =>
   );
   const nightlyHealth = getNightlyHealth(recentSchedulerRuns);
   const sourceBreakdown = Object.entries(oddsArchive?.sourceBreakdown ?? {}).slice(0, 4);
+  const effectiveProviderHealth = providerHealth ?? systemHealth?.providers ?? normalizeProviderHealth({});
+  const effectiveMetrics = systemMetrics ?? systemHealth?.metrics ?? normalizeSystemMetrics({});
+  const effectiveRecentRuns = recentSystemRuns ?? normalizeRecentRuns({});
 
   return (
     <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
@@ -242,6 +287,154 @@ const Dashboard: React.FC<DashboardProps> = ({ activeUser, onRefreshStatus }) =>
             <div className="fp-stat-label">{item.label}</div>
           </div>
         ))}
+      </div>
+
+      <div className="fp-grid-4" style={{ marginBottom: 24 }}>
+        {[
+          {
+            label: 'Provider Quote',
+            value: effectiveProviderHealth.status === 'healthy'
+              ? 'OK'
+              : effectiveProviderHealth.status === 'degraded'
+                ? 'Parziale'
+                : effectiveProviderHealth.status === 'unhealthy'
+                  ? 'Errore'
+                  : 'Sconosciuto',
+            color: effectiveProviderHealth.status === 'healthy'
+              ? 'green'
+              : effectiveProviderHealth.status === 'degraded'
+                ? 'gold'
+                : effectiveProviderHealth.status === 'unhealthy'
+                  ? 'red'
+                  : 'gray',
+          },
+          {
+            label: 'Freshness Quote',
+            value: effectiveProviderHealth.freshnessMinutes === null
+              ? 'n/d'
+              : `${effectiveProviderHealth.freshnessMinutes}m`,
+            color: effectiveProviderHealth.freshnessMinutes !== null && effectiveProviderHealth.freshnessMinutes <= 30 ? 'green' : 'gold',
+          },
+          {
+            label: 'Fallback Rate',
+            value: formatPct(effectiveMetrics.provider.fallbackRatePct, 1),
+            color: effectiveMetrics.provider.fallbackRatePct <= 15 ? 'green' : effectiveMetrics.provider.fallbackRatePct <= 35 ? 'gold' : 'red',
+          },
+          {
+            label: 'Latency Scraping',
+            value: effectiveMetrics.provider.avgScrapeLatencyMs !== null
+              ? formatDuration(effectiveMetrics.provider.avgScrapeLatencyMs)
+              : 'n/d',
+            color: effectiveMetrics.provider.avgScrapeLatencyMs !== null && effectiveMetrics.provider.avgScrapeLatencyMs <= 20000 ? 'green' : 'gold',
+          },
+        ].map((item) => (
+          <div key={item.label} className={`fp-stat c-${item.color}`}>
+            <div className={`fp-stat-val c-${item.color}`}>{String(item.value)}</div>
+            <div className="fp-stat-label">{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="fp-grid-2" style={{ marginBottom: 24 }}>
+        <div className="fp-card">
+          <div className="fp-card-head">
+            <div className="fp-card-title">Provider e Freshness</div>
+          </div>
+          <div className="fp-card-body">
+            {[
+              ['Provider primario', effectiveProviderHealth.primaryProvider],
+              ['Sorgente attiva', effectiveProviderHealth.oddsSource ?? 'n/d'],
+              ['Fetch quote', formatDateTime(effectiveProviderHealth.fetchedAt)],
+              ['Ultimo sync dati', formatDateTime(systemHealth?.freshness?.lastUnderstatSyncAt)],
+              ['Match con quota base', effectiveProviderHealth.matchesWithBaseOdds],
+              ['Match con gruppi estesi', effectiveProviderHealth.matchesWithExtendedGroups],
+            ].map(([label, value]) => (
+              <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--text-2)' }}>{String(label)}</span>
+                <strong>{String(value ?? 'n/d')}</strong>
+              </div>
+            ))}
+            {effectiveProviderHealth.fallbackReason && (
+              <div className="fp-alert fp-alert-warning" style={{ marginTop: 14 }}>
+                Fallback attivo: {effectiveProviderHealth.fallbackReason}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="fp-card">
+          <div className="fp-card-head">
+            <div className="fp-card-title">Trend Errori e Warning</div>
+          </div>
+          <div className="fp-card-body">
+            <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
+              <div className="fp-alert fp-alert-info">
+                Warning run: <strong>{effectiveMetrics.trends.warningRuns}</strong> | Error run: <strong>{effectiveMetrics.trends.errorRuns}</strong>
+              </div>
+              <div className="fp-alert fp-alert-info">
+                Eurobet success rate: <strong>{formatPct(effectiveMetrics.provider.eurobetSuccessRatePct, 1)}</strong> | Fixture match rate: <strong>{formatPct(effectiveMetrics.provider.fixtureMatchRatePct, 1)}</strong>
+              </div>
+            </div>
+            {effectiveMetrics.trends.topErrorCategories.length > 0 ? (
+              effectiveMetrics.trends.topErrorCategories.map((item: any) => (
+                <div key={item.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>{item.category}</span>
+                  <strong>{item.count}</strong>
+                </div>
+              ))
+            ) : (
+              <div style={{ color: 'var(--text-2)' }}>Nessuna categoria errore recente.</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="fp-card" style={{ marginBottom: 24 }}>
+        <div className="fp-card-head">
+          <div className="fp-card-title">Run Recenti Sistema</div>
+        </div>
+        <div className="fp-card-body">
+          {systemHealth?.issues?.length > 0 && (
+            <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+              {systemHealth.issues.slice(0, 4).map((issue: any, index: number) => (
+                <div
+                  key={`${issue.scope}-${index}`}
+                  className={issue.severity === 'error' ? 'fp-alert fp-alert-danger' : 'fp-alert fp-alert-warning'}
+                >
+                  <strong>{issue.scope}</strong>: {issue.message}
+                </div>
+              ))}
+            </div>
+          )}
+          <table className="fp-table">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Componente</th>
+                <th>Stato</th>
+                <th>Partite</th>
+                <th>Durata</th>
+                <th>Quando</th>
+              </tr>
+            </thead>
+            <tbody>
+              {effectiveRecentRuns.runs.slice(0, 8).map((run: any) => (
+                <tr key={String(run.runId)}>
+                  <td style={{ fontFamily: 'DM Mono, monospace' }}>{run.kind}</td>
+                  <td>{run.component}</td>
+                  <td>
+                    <span className={`fp-badge ${run.status === 'ok' ? 'fp-badge-green' : 'fp-badge-red'}`}>
+                      {run.status === 'ok' ? 'OK' : 'Errore'}
+                    </span>
+                  </td>
+                  <td>{run.matchCount ?? '-'}</td>
+                  <td>{formatDuration(run.durationMs)}</td>
+                  <td>{formatDateTime(run.startedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showInit && (

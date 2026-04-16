@@ -137,6 +137,16 @@ export const getBacktestResults = (competition?: string) =>
 export const getBacktestResult = (id: number) =>
   API.get<ApiResponse<any>>(`/backtest/results/${id}`).then(r => r.data);
 
+export const getBacktestReport = (params?: {
+  runId?: number;
+  competition?: string;
+  market?: string;
+  source?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) =>
+  API.get<ApiResponse<any>>('/backtest/report', { params }).then(r => r.data);
+
 export const deleteBacktestResult = (id: number) =>
   API.delete<ApiResponse<{ deleted: boolean }>>(`/backtest/results/${id}`).then(r => r.data);
 
@@ -188,6 +198,18 @@ export const runUnderstatImport = (params?: {
 
 export const getScraperStatus = () =>
   API.get<ApiResponse<any>>('/scraper/status').then(r => r.data);
+
+export const getSystemHealth = () =>
+  API.get<ApiResponse<any>>('/system/health').then(r => r.data);
+
+export const getProviderHealth = () =>
+  API.get<ApiResponse<any>>('/system/provider-health').then(r => r.data);
+
+export const getSystemMetrics = () =>
+  API.get<ApiResponse<any>>('/system/metrics').then(r => r.data);
+
+export const getRecentSystemRuns = (limit = 20) =>
+  API.get<ApiResponse<any>>('/system/recent-runs', { params: { limit } }).then(r => r.data);
 
 export const runSofaScoreSupplemental = (params?: {
   competition?: string;

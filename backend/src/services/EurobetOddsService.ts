@@ -79,6 +79,53 @@ type FixtureCandidate = {
   commenceTime?: string | null;
 };
 
+export type EurobetSmokeSourceUsed = 'meeting-json' | 'dom-fallback' | 'event-detail';
+
+export type EurobetSmokeErrorCategory =
+  | 'resolve_meeting_alias_failed'
+  | 'meeting_json_failed'
+  | 'non_json_response'
+  | 'html_or_captcha'
+  | 'cookie_or_spa_dom_issue'
+  | 'parsing_zero_markets'
+  | 'fixture_matching_failed'
+  | 'extended_groups_failed';
+
+export type EurobetSmokeIssue = {
+  category: EurobetSmokeErrorCategory;
+  message: string;
+  recoverable: boolean;
+  context?: Record<string, unknown>;
+};
+
+export type EurobetSmokeOptions = {
+  fixtures?: FixtureCandidate[];
+  includeExtendedGroups?: boolean;
+};
+
+export type EurobetSmokeReport = {
+  competition: string;
+  meetingAlias: string | null;
+  sourceUsed: EurobetSmokeSourceUsed | null;
+  matchesFound: number;
+  matchesWithBaseOdds: number;
+  matchesWithExtendedGroups: number;
+  durationMs: number;
+  errorCategory: EurobetSmokeErrorCategory | null;
+  warnings: string[];
+  success: boolean;
+  severity: 'healthy' | 'degraded' | 'failed';
+  fixtureCount: number;
+  includeExtendedGroups: boolean;
+  issues: EurobetSmokeIssue[];
+};
+
+type EurobetSmokeTracker = {
+  meetingAlias: string | null;
+  sourceUsed: EurobetSmokeSourceUsed | null;
+  issues: EurobetSmokeIssue[];
+};
+
 export class EurobetOddsService {
   private static readonly BASE_URL = 'https://www.eurobet.it';
   private static readonly USER_AGENT =
@@ -136,6 +183,7 @@ export class EurobetOddsService {
   private ownsBrowser = false;
   private ownsContext = false;
   private competitionAliasCache = new Map<string, string>();
+  private smokeTracker: EurobetSmokeTracker | null = null;
 
   static getSupportedCompetitions(): string[] {
     return [...EurobetOddsService.SUPPORTED_COMPETITIONS];
@@ -192,6 +240,12 @@ export class EurobetOddsService {
     const { matchedMatches, missingFixtures } = this.matchFixturesToCompetitionMatches(fixtures, meetingMatches);
 
     if (missingFixtures.length > 0) {
+      this.recordSmokeIssue('fixture_matching_failed', 'Alcune fixture non sono presenti nel meeting JSON', true, {
+        competition,
+        meetingAlias,
+        requested: fixtures.length,
+        missing: missingFixtures.length,
+      });
       this.logEurobet('warn', 'Alcune fixture non sono state trovate nel meeting JSON, attivo fallback per alias evento', {
         competition,
         meetingAlias,
@@ -212,6 +266,14 @@ export class EurobetOddsService {
       ...fallbackMatches.filter((match): match is EurobetOddsMatch => Boolean(match)),
     ]);
 
+    if (fixtures.length > 0 && mergedMatches.length === 0) {
+      this.recordSmokeIssue('fixture_matching_failed', 'Nessuna fixture richiesta ha prodotto un match Eurobet valido', false, {
+        competition,
+        meetingAlias,
+        requested: fixtures.length,
+      });
+    }
+
     if (!options.includeExtendedGroups) return mergedMatches;
 
     return this.mapWithConcurrency(
@@ -221,14 +283,46 @@ export class EurobetOddsService {
     );
   }
 
+  async runSmokeReport(
+    competition: string,
+    options: EurobetSmokeOptions = {}
+  ): Promise<EurobetSmokeReport> {
+    const startedAt = Date.now();
+    const fixtures = options.fixtures ?? [];
+    const includeExtendedGroups = Boolean(options.includeExtendedGroups);
+    this.startSmokeTracker();
+
+    try {
+      const matches = fixtures.length > 0
+        ? await this.getOddsForFixtures(competition, fixtures, { includeExtendedGroups })
+        : await this.getOdds(competition, { includeExtendedGroups });
+      return this.buildSmokeReport(competition, matches, startedAt, fixtures.length, includeExtendedGroups);
+    } catch (error) {
+      const category = this.classifyErrorFromMessage(this.describeEurobetError(error));
+      if (category) {
+        this.recordSmokeIssue(category, this.describeEurobetError(error), false);
+      }
+      return this.buildSmokeReport(competition, [], startedAt, fixtures.length, includeExtendedGroups);
+    } finally {
+      await this.close().catch(() => undefined);
+      this.smokeTracker = null;
+    }
+  }
+
   private async loadCompetitionMatchesFromMeetingJson(
     competition: string,
     meetingAlias: string
   ): Promise<EurobetOddsMatch[]> {
+    this.setSmokeMeetingAlias(meetingAlias);
     let meetingDetail: EurobetMeetingResponse;
     try {
       meetingDetail = await this.fetchMeetingDetail(meetingAlias, { competition, meetingAlias });
     } catch (error) {
+      this.recordSmokeIssue('meeting_json_failed', 'Meeting JSON non disponibile', true, {
+        competition,
+        meetingAlias,
+      });
+      this.recordDerivedSmokeIssue(error, true, { competition, meetingAlias });
       this.logEurobet('warn', 'Fetch meeting JSON fallito', { competition, meetingAlias }, error);
       return [];
     }
@@ -237,6 +331,10 @@ export class EurobetOddsService {
     const meetingItems = this.extractMeetingItems(meetingDetail);
 
     if (meetingItems.length === 0) {
+      this.recordSmokeIssue('meeting_json_failed', 'Meeting JSON vuoto o senza eventi', true, {
+        competition,
+        meetingAlias,
+      });
       this.logEurobet('warn', 'Meeting JSON vuoto o senza eventi', { competition, meetingAlias });
       return [];
     }
@@ -246,11 +344,17 @@ export class EurobetOddsService {
       .filter((match): match is EurobetOddsMatch => Boolean(match));
 
     if (matches.length === 0) {
+      this.recordSmokeIssue('parsing_zero_markets', 'Meeting JSON presente ma nessun mercato base valido', true, {
+        competition,
+        meetingAlias,
+      });
       this.logEurobet('warn', 'Meeting JSON presente ma parsing quote base vuoto', {
         competition,
         meetingAlias,
         events: meetingItems.length,
       });
+    } else {
+      this.markSmokeSource('meeting-json');
     }
 
     return matches;
@@ -264,11 +368,20 @@ export class EurobetOddsService {
     try {
       metadata = await this.withPage(async (page) => this.collectMeetingPageMetadata(page, meetingAlias));
     } catch (error) {
+      this.recordSmokeIssue('cookie_or_spa_dom_issue', 'Fallback DOM non disponibile', true, {
+        competition,
+        meetingAlias,
+      });
+      this.recordDerivedSmokeIssue(error, true, { competition, meetingAlias });
       this.logEurobet('warn', 'Fallback DOM non disponibile', { competition, meetingAlias }, error);
       return [];
     }
 
     if (metadata.eventAliases.length === 0) {
+      this.recordSmokeIssue('cookie_or_spa_dom_issue', 'Fallback DOM senza anchor evento utili', true, {
+        competition,
+        meetingAlias,
+      });
       this.logEurobet('warn', 'Fallback DOM senza anchor evento', {
         competition,
         meetingAlias,
@@ -295,6 +408,11 @@ export class EurobetOddsService {
             this.mergeAliases(metadata.groupAliases, this.extractGroupAliases(eventDetail?.result?.groupData?.groupList))
           );
         } catch (error) {
+          this.recordDerivedSmokeIssue(error, true, {
+            competition,
+            meetingAlias,
+            eventAlias,
+          });
           this.logEurobet('warn', 'Fallback event detail fallito', {
             competition,
             meetingAlias,
@@ -307,11 +425,17 @@ export class EurobetOddsService {
 
     const matches = rawMatches.filter((match): match is EurobetOddsMatch => Boolean(match));
     if (matches.length === 0) {
+      this.recordSmokeIssue('parsing_zero_markets', 'Fallback DOM ha trovato eventi ma nessun mercato valido', true, {
+        competition,
+        meetingAlias,
+      });
       this.logEurobet('warn', 'Fallback DOM ha trovato eventi ma nessuna quota valida', {
         competition,
         meetingAlias,
         events: metadata.eventAliases.length,
       });
+    } else {
+      this.markSmokeSource('dom-fallback');
     }
 
     return matches;
@@ -360,16 +484,146 @@ export class EurobetOddsService {
     context: Record<string, unknown>
   ): EurobetOddsMatch | null {
     if (!match.eventAlias || !match.homeTeam || !match.awayTeam) {
+      this.recordSmokeIssue('parsing_zero_markets', 'Payload match incompleto', true, context);
       this.logEurobet('warn', 'Match Eurobet incompleto nel payload', context);
       return null;
     }
 
     if (!this.hasQuoteMarkets(match)) {
+      this.recordSmokeIssue('parsing_zero_markets', 'Parsing quote vuoto per il match', true, context);
       this.logEurobet('warn', 'Parsing quote vuoto per il match', context);
       return null;
     }
 
     return match;
+  }
+
+  private startSmokeTracker(): void {
+    this.smokeTracker = {
+      meetingAlias: null,
+      sourceUsed: null,
+      issues: [],
+    };
+  }
+
+  private setSmokeMeetingAlias(meetingAlias: string): void {
+    if (!this.smokeTracker) return;
+    this.smokeTracker.meetingAlias = meetingAlias;
+  }
+
+  private markSmokeSource(source: EurobetSmokeSourceUsed): void {
+    if (!this.smokeTracker) return;
+
+    const priority: Record<EurobetSmokeSourceUsed, number> = {
+      'meeting-json': 1,
+      'dom-fallback': 2,
+      'event-detail': 3,
+    };
+
+    if (!this.smokeTracker.sourceUsed || priority[source] >= priority[this.smokeTracker.sourceUsed]) {
+      this.smokeTracker.sourceUsed = source;
+    }
+  }
+
+  private recordSmokeIssue(
+    category: EurobetSmokeErrorCategory,
+    message: string,
+    recoverable: boolean,
+    context: Record<string, unknown> = {}
+  ): void {
+    if (!this.smokeTracker) return;
+    const filteredContext = Object.fromEntries(
+      Object.entries(context).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    );
+
+    this.smokeTracker.issues.push({
+      category,
+      message,
+      recoverable,
+      context: Object.keys(filteredContext).length > 0 ? filteredContext : undefined,
+    });
+  }
+
+  private buildSmokeReport(
+    competition: string,
+    matches: EurobetOddsMatch[],
+    startedAt: number,
+    fixtureCount: number,
+    includeExtendedGroups: boolean
+  ): EurobetSmokeReport {
+    const tracker = this.smokeTracker ?? { meetingAlias: null, sourceUsed: null, issues: [] };
+    const issues = this.dedupeSmokeIssues(tracker.issues);
+    const fatalIssues = issues.filter((issue) => !issue.recoverable);
+    const warnings = issues
+      .filter((issue) => issue.recoverable)
+      .map((issue) => `${issue.category}: ${issue.message}`);
+
+    const baseOddsCount = matches.filter((match) => this.hasQuoteMarkets(match)).length;
+    const extendedGroupsCount = matches.filter((match) =>
+      match.loadedGroupAliases.some((alias) => alias !== 'base')
+    ).length;
+
+    const errorCategory = fatalIssues.length > 0
+      ? fatalIssues[0].category
+      : matches.length === 0
+        ? this.deriveFatalCategoryFromIssues(issues, fixtureCount)
+        : null;
+
+    const success = errorCategory === null && matches.length > 0;
+    const severity: EurobetSmokeReport['severity'] = errorCategory
+      ? 'failed'
+      : warnings.length > 0
+        ? 'degraded'
+        : 'healthy';
+
+    return {
+      competition,
+      meetingAlias: tracker.meetingAlias,
+      sourceUsed: tracker.sourceUsed,
+      matchesFound: matches.length,
+      matchesWithBaseOdds: baseOddsCount,
+      matchesWithExtendedGroups: extendedGroupsCount,
+      durationMs: Date.now() - startedAt,
+      errorCategory,
+      warnings,
+      success,
+      severity,
+      fixtureCount,
+      includeExtendedGroups,
+      issues,
+    };
+  }
+
+  private dedupeSmokeIssues(issues: EurobetSmokeIssue[]): EurobetSmokeIssue[] {
+    const seen = new Set<string>();
+    return issues.filter((issue) => {
+      const key = `${issue.category}|${issue.message}|${JSON.stringify(issue.context ?? {})}|${issue.recoverable}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private deriveFatalCategoryFromIssues(
+    issues: EurobetSmokeIssue[],
+    fixtureCount: number
+  ): EurobetSmokeErrorCategory | null {
+    const priority: EurobetSmokeErrorCategory[] = [
+      'resolve_meeting_alias_failed',
+      'html_or_captcha',
+      'non_json_response',
+      'meeting_json_failed',
+      'cookie_or_spa_dom_issue',
+      'parsing_zero_markets',
+      'fixture_matching_failed',
+      'extended_groups_failed',
+    ];
+
+    for (const category of priority) {
+      if (issues.some((issue) => issue.category === category)) return category;
+    }
+
+    return fixtureCount > 0 ? 'fixture_matching_failed' : null;
   }
 
   private hasQuoteMarkets(match: EurobetOddsMatch): boolean {
@@ -497,12 +751,27 @@ export class EurobetOddsService {
           groupDetail?.result?.betGroupList ?? []
         );
         if (extraMarkets.length === 0) {
+          this.recordSmokeIssue('extended_groups_failed', `Gruppo esteso ${alias} vuoto`, true, {
+            meetingAlias: match.meetingAlias,
+            eventAlias: match.eventAlias,
+            groupAlias: alias,
+          });
           unavailable.add(alias);
           continue;
         }
         bookmakers = this.mergeMarkets(bookmakers, extraMarkets);
         loaded.add(alias);
       } catch (error) {
+        this.recordSmokeIssue('extended_groups_failed', `Fetch gruppo esteso ${alias} fallito`, true, {
+          meetingAlias: match.meetingAlias,
+          eventAlias: match.eventAlias,
+          groupAlias: alias,
+        });
+        this.recordDerivedSmokeIssue(error, true, {
+          meetingAlias: match.meetingAlias,
+          eventAlias: match.eventAlias,
+          groupAlias: alias,
+        });
         this.logEurobet('warn', 'Fetch gruppo esteso fallito', {
           meetingAlias: match.meetingAlias,
           eventAlias: match.eventAlias,
@@ -903,9 +1172,11 @@ export class EurobetOddsService {
       const match = flatMeetings.find((node) => this.isCompetitionMatch(String(node.description ?? ''), competition));
       if (match?.aliasUrl) {
         this.competitionAliasCache.set(normalizedCompetition, match.aliasUrl);
+        this.setSmokeMeetingAlias(match.aliasUrl);
         return match.aliasUrl;
       }
     } catch (error) {
+      this.recordDerivedSmokeIssue(error, true, { competition });
       this.logEurobet('warn', 'Fetch sport-list fallito, uso fallback statico se disponibile', {
         competition,
       }, error);
@@ -914,9 +1185,13 @@ export class EurobetOddsService {
     const fallback = EurobetOddsService.FALLBACK_MEETING_ALIASES[competition];
     if (fallback) {
       this.competitionAliasCache.set(normalizedCompetition, fallback);
+      this.setSmokeMeetingAlias(fallback);
       return fallback;
     }
 
+    this.recordSmokeIssue('resolve_meeting_alias_failed', 'Impossibile risolvere il meeting alias per la competizione richiesta', false, {
+      competition,
+    });
     throw new Error(`Eurobet non supporta o non espone la competizione: ${competition}`);
   }
 
@@ -1269,6 +1544,11 @@ export class EurobetOddsService {
           bestMatch = match;
         }
       } catch (error) {
+        this.recordDerivedSmokeIssue(error, true, {
+          competition,
+          meetingAlias,
+          eventAlias,
+        });
         this.logEurobet('warn', 'Fetch fallback per fixture fallito', {
           competition,
           meetingAlias,
@@ -1280,8 +1560,17 @@ export class EurobetOddsService {
       }
     }
 
-    if (bestMatch) return bestMatch;
+    if (bestMatch) {
+      this.markSmokeSource('event-detail');
+      return bestMatch;
+    }
 
+    this.recordSmokeIssue('fixture_matching_failed', 'Nessun alias evento fallback corrisponde alla fixture richiesta', true, {
+      competition,
+      meetingAlias,
+      fixtureHomeTeam: fixture.homeTeam,
+      fixtureAwayTeam: fixture.awayTeam,
+    });
     this.logEurobet('warn', 'Nessun alias evento fallback ha prodotto una quota valida per la fixture', {
       competition,
       meetingAlias,
@@ -1396,6 +1685,7 @@ export class EurobetOddsService {
     try {
       await this.dismissCookieBanner(page);
     } catch (error) {
+      this.recordSmokeIssue('cookie_or_spa_dom_issue', 'Gestione cookie banner fallita', true, context);
       this.logEurobet('warn', 'Gestione cookie banner fallita', context, error);
     }
   }
@@ -1427,6 +1717,10 @@ export class EurobetOddsService {
     const text = String(rawText ?? '').trim();
     if (!this.looksLikeJson(text)) {
       const reason = this.classifyNonJsonPayload(text);
+      const category = reason === 'HTML/captcha invece di JSON' || reason === 'HTML invece di JSON'
+        ? 'html_or_captcha'
+        : 'non_json_response';
+      this.recordSmokeIssue(category, `${sourceLabel} ha restituito ${reason}`, true, context);
       this.logEurobet('warn', `${sourceLabel} ha restituito ${reason}`, {
         ...context,
         snippet: this.buildPayloadSnippet(text),
@@ -1455,6 +1749,47 @@ export class EurobetOddsService {
       return 'HTML invece di JSON';
     }
     return 'testo non JSON';
+  }
+
+  private classifyErrorFromMessage(message: string): EurobetSmokeErrorCategory | null {
+    const normalized = this.normalizeWords(message);
+    if (!normalized) return null;
+    if (normalized.includes('captcha') || normalized.includes('cloudflare') || normalized.includes('html invece di json')) {
+      return 'html_or_captcha';
+    }
+    if (normalized.includes('non json') || normalized.includes('testo non json')) {
+      return 'non_json_response';
+    }
+    if (normalized.includes('cookie') || normalized.includes('spa') || normalized.includes('dom')) {
+      return 'cookie_or_spa_dom_issue';
+    }
+    if (normalized.includes('meeting json')) {
+      return 'meeting_json_failed';
+    }
+    if (normalized.includes('parsing quote vuoto') || normalized.includes('mercato')) {
+      return 'parsing_zero_markets';
+    }
+    if (normalized.includes('fixture')) {
+      return 'fixture_matching_failed';
+    }
+    if (normalized.includes('gruppo esteso')) {
+      return 'extended_groups_failed';
+    }
+    if (normalized.includes('competizione')) {
+      return 'resolve_meeting_alias_failed';
+    }
+    return null;
+  }
+
+  private recordDerivedSmokeIssue(
+    error: unknown,
+    recoverable: boolean,
+    context: Record<string, unknown> = {}
+  ): void {
+    const message = this.describeEurobetError(error);
+    const category = this.classifyErrorFromMessage(message);
+    if (!category) return;
+    this.recordSmokeIssue(category, message, recoverable, context);
   }
 
   private looksLikeJson(text: string): boolean {
@@ -2025,7 +2360,7 @@ export class EurobetOddsService {
     let nextIndex = 0;
 
     const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (true) {
+      for (;;) {
         const currentIndex = nextIndex++;
         if (currentIndex >= items.length) return;
         results[currentIndex] = await worker(items[currentIndex], currentIndex);

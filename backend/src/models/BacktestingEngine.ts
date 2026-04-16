@@ -55,6 +55,7 @@ export interface BacktestResult {
   recoveryFactor: number;
   profitFactor: number;
   marketBreakdown: Record<string, MarketStats>;
+  detailedBets: BacktestBetDetail[];
   marketUnevaluableBreakdown: Record<string, {
     attempted: number;
     voided: number;
@@ -163,10 +164,50 @@ export interface WalkForwardBacktestResult {
     averageBrierScore: number;
     averageLogLoss: number;
   };
+  detailedBets: BacktestBetDetail[];
+}
+
+export type BacktestOddsSource = 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
+
+export interface HistoricalOddsContextEntry {
+  odds: Record<string, number>;
+  oddsSource: BacktestOddsSource;
+  snapshotSource?: string | null;
+  capturedAt?: string | null;
+  usedFallbackBookmaker?: boolean;
+  usedSyntheticOdds?: boolean;
+}
+
+export interface BacktestBetDetail {
+  matchId: string;
+  matchDate: string;
+  competition?: string | null;
+  season?: string | null;
+  marketName: string;
+  marketCategory: MarketCategory;
+  selection: string;
+  odds: number;
+  impliedProbability: number;
+  ourProbability: number;
+  expectedValue: number;
+  edge: number;
+  edgeNoVig: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  stake: number;
+  profit: number;
+  outcome: 'WON' | 'LOST';
+  won: boolean;
+  isSynthetic: boolean;
+  oddsSource: BacktestOddsSource;
+  snapshotSource?: string | null;
+  oddsCapturedAt?: string | null;
 }
 
 interface TestBet {
+  matchId: string;
   matchDate: Date;
+  competition?: string | null;
+  season?: string | null;
   market: string;
   marketCategory: MarketCategory;
   selection: string;
@@ -174,10 +215,16 @@ interface TestBet {
   stake: number;
   ourProb: number;
   ev: number;
+  edge: number;
+  edgeNoVig: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   won: boolean;
   profit: number;
   /** true se la quota usata è sintetica (nessuna quota reale disponibile per la partita) */
   isSynthetic: boolean;
+  oddsSource: BacktestOddsSource;
+  snapshotSource?: string | null;
+  oddsCapturedAt?: string | null;
 }
 
 export class BacktestingEngine {
@@ -203,7 +250,8 @@ export class BacktestingEngine {
     trainMatches: MatchData[],
     testMatches: MatchData[],
     historicalOdds: Record<string, Record<string, number>>,
-    confidenceLevel: 'high_only' | 'medium_and_above'
+    confidenceLevel: 'high_only' | 'medium_and_above',
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): BacktestResult {
     const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
 
@@ -229,8 +277,10 @@ export class BacktestingEngine {
       const probMap     = probs.flatProbabilities;
       const marketNames = this.buildMarketNames(probMap);
       const hasRealOdds = Boolean(historicalOdds[match.matchId]);
+      const oddsContext = historicalOddsContext[match.matchId];
       const odds        = historicalOdds[match.matchId]
         ?? this.generateSyntheticOdds(match.matchId, probMap);
+      const oddsSource: BacktestOddsSource = oddsContext?.oddsSource ?? (hasRealOdds ? 'unknown' : 'synthetic');
 
       if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
 
@@ -257,7 +307,10 @@ export class BacktestingEngine {
 
         bankroll += profit;
         bets.push({
+          matchId:         match.matchId,
           matchDate:       match.date,
+          competition:     match.competition ?? null,
+          season:          match.season ?? null,
           market:          opp.marketName,
           marketCategory:  opp.marketCategory,
           selection:       opp.selection,
@@ -265,9 +318,15 @@ export class BacktestingEngine {
           stake:           stakeAmount,
           ourProb:         opp.ourProbability / 100,
           ev:              opp.expectedValue  / 100,
+          edge:            opp.edge / 100,
+          edgeNoVig:       opp.edgeNoVig / 100,
+          confidence:      opp.confidence,
           won,
           profit,
           isSynthetic:     !hasRealOdds,
+          oddsSource,
+          snapshotSource:  oddsContext?.snapshotSource ?? null,
+          oddsCapturedAt:  oddsContext?.capturedAt ?? null,
         });
       }
 
@@ -339,7 +398,8 @@ export class BacktestingEngine {
     historicalOdds: Record<string, Record<string, number>>,
     trainRatio = 0.7,
     confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above',
-    temporalHoldoutMonths = 0
+    temporalHoldoutMonths = 0,
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): BacktestResult {
     const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -380,7 +440,13 @@ export class BacktestingEngine {
     }
 
     console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
-    const result = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
+    const result = this.simulateBacktestScenario(
+      trainMatches,
+      testMatches,
+      historicalOdds,
+      confidenceLevel,
+      historicalOddsContext
+    );
     console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}% | edgeNoVig: ${result.edgeNoVig.toFixed(4)}${result.usedSyntheticOddsOnly ? ' ⚠️ solo quote sintetiche' : ''}`);
     return result;
   }
@@ -395,7 +461,8 @@ export class BacktestingEngine {
       confidenceLevel?: 'high_only' | 'medium_and_above';
       expandingWindow?: boolean;
       maxFolds?: number;
-    }
+    },
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): WalkForwardBacktestResult {
     const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
     const totalMatches = sorted.length;
@@ -407,6 +474,7 @@ export class BacktestingEngine {
     const maxFolds = Math.max(1, Number(options?.maxFolds ?? 12));
 
     const folds: WalkForwardFoldSummary[] = [];
+    const detailedBets: BacktestBetDetail[] = [];
 
     for (let testStart = initialTrainMatches; testStart < sorted.length && folds.length < maxFolds; testStart += stepMatches) {
       const testEnd = Math.min(sorted.length, testStart + testWindowMatches);
@@ -415,7 +483,14 @@ export class BacktestingEngine {
       const testMatches = sorted.slice(testStart, testEnd);
       if (trainMatches.length < 30 || testMatches.length < 5) continue;
 
-      const foldResult = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel);
+      const foldResult = this.simulateBacktestScenario(
+        trainMatches,
+        testMatches,
+        historicalOdds,
+        confidenceLevel,
+        historicalOddsContext
+      );
+      detailedBets.push(...foldResult.detailedBets);
       folds.push({
         foldNumber: folds.length + 1,
         trainMatches: trainMatches.length,
@@ -472,6 +547,7 @@ export class BacktestingEngine {
         averageBrierScore: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.brierScore, 0) / folds.length).toFixed(4)) : 0,
         averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
       },
+      detailedBets,
     };
   }
 
@@ -893,6 +969,30 @@ export class BacktestingEngine {
       recoveryFactor: maxDD>0 ? netProfit/(maxDD*this.INITIAL_BANKROLL) : 0,
       profitFactor,
       marketBreakdown,
+      detailedBets: bets.map((bet) => ({
+        matchId: bet.matchId,
+        matchDate: bet.matchDate.toISOString(),
+        competition: bet.competition ?? null,
+        season: bet.season ?? null,
+        marketName: bet.market,
+        marketCategory: bet.marketCategory,
+        selection: bet.selection,
+        odds: Number(bet.odds.toFixed(2)),
+        impliedProbability: Number((1 / bet.odds).toFixed(6)),
+        ourProbability: Number(bet.ourProb.toFixed(6)),
+        expectedValue: Number(bet.ev.toFixed(6)),
+        edge: Number(bet.edge.toFixed(6)),
+        edgeNoVig: Number(bet.edgeNoVig.toFixed(6)),
+        confidence: bet.confidence,
+        stake: Number(bet.stake.toFixed(2)),
+        profit: Number(bet.profit.toFixed(2)),
+        outcome: bet.won ? 'WON' : 'LOST',
+        won: bet.won,
+        isSynthetic: bet.isSynthetic,
+        oddsSource: bet.oddsSource,
+        snapshotSource: bet.snapshotSource ?? null,
+        oddsCapturedAt: bet.oddsCapturedAt ?? null,
+      })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
       edgeDecayByMonth,
@@ -1022,7 +1122,7 @@ export class BacktestingEngine {
       totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
       betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
       roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0,
-      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, marketUnevaluableBreakdown:{},
+      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, detailedBets:[], marketUnevaluableBreakdown:{},
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
     };

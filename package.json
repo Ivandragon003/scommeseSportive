@@ -1,0 +1,19 @@
+{
+  "name": "scommesesportive",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "dotenv -e .env -- npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend start",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend run test && npm --prefix frontend run test:ci",
+    "ci": "npm --prefix backend run lint && npm --prefix backend run typecheck && npm --prefix backend run build && npm --prefix backend run test:ci && npm --prefix frontend run lint && npm --prefix frontend run typecheck && npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0"
+  }
+}
