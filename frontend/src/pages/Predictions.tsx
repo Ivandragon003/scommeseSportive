@@ -1,12 +1,18 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { getTeams, getBudget, getMatchdayMap, getUpcomingMatches, getRecentMatches, getEurobetOddsForMatch, replayPlayedMatchPrediction, placeBet, getBets } from '../utils/api';
 import axios from 'axios';
+import PredictionHero from '../components/predictions/PredictionHero';
+import BestValueCard from '../components/predictions/BestValueCard';
+import OddsSourceBadge from '../components/predictions/OddsSourceBadge';
+import StakePlanner from '../components/predictions/StakePlanner';
+import MethodologyDrawer from '../components/predictions/MethodologyDrawer';
+import ShotsSection from '../components/predictions/ShotsSection';
+import ValueOpportunitiesTable from '../components/predictions/ValueOpportunitiesTable';
+import { DistChart, ProbBar } from '../components/predictions/PredictionStatPrimitives';
+import { formatCompactOuKey, fmtN, fmtPct, fmtSelection, marketTierBadgeClass, marketTierLabel } from '../components/predictions/predictionFormatting';
+import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
 
 interface PredictionsProps { activeUser: string; }
-
-const fmtPct = (n: number) => (n * 100).toFixed(2) + '%';
-const fmtN = (n: number, d = 2) => n.toFixed(d);
 
 const currentSeason = () => {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth() + 1;
@@ -34,47 +40,7 @@ const formatDayLabel = (k: string) => {
   return l.charAt(0).toUpperCase() + l.slice(1);
 };
 
-const MARKET_LABELS: Record<string,string> = {
-  homeWin:'Casa (1)', draw:'Pareggio (X)', awayWin:'Ospite (2)',
-  btts:'GG Si', bttsNo:'GG No', over15:'O1.5', over25:'O2.5', over35:'O3.5', over45:'O4.5',
-  under25:'U2.5', under35:'U3.5',
-  'yellow_over_3.5':'Gialli O3.5','yellow_over_4.5':'Gialli O4.5','yellow_over_5.5':'Gialli O5.5',
-  'fouls_over_20.5':'Falli O20.5','fouls_over_23.5':'Falli O23.5',
-  'shots_total_over_23.5':'Tiri O23.5','shots_total_over_25.5':'Tiri O25.5','shots_total_over_27.5':'Tiri O27.5','shots_total_over_29.5':'Tiri O29.5',
-  'shots_total_under_22.5':'Tiri U22.5','shots_total_under_24.5':'Tiri U24.5','shots_total_under_26.5':'Tiri U26.5','shots_total_under_28.5':'Tiri U28.5',
-  'shots_home_over_10.5':'Tiri Casa O10.5','shots_home_over_12.5':'Tiri Casa O12.5','shots_home_over_14.5':'Tiri Casa O14.5',
-  'shots_away_over_10.5':'Tiri Ospite O10.5','shots_away_over_12.5':'Tiri Ospite O12.5','shots_away_over_14.5':'Tiri Ospite O14.5',
-  'sot_total_over_7.5':'SOT O7.5','sot_total_over_9.5':'SOT O9.5','sot_total_over_11.5':'SOT O11.5','sot_total_over_13.5':'SOT O13.5',
-};
-const prettyLine = (raw: string): string => {
-  const cleaned = String(raw ?? '').trim().replace(',', '.');
-  if (/^-?\d+\.\d+$/.test(cleaned)) return cleaned;
-  if (/^-?\d+$/.test(cleaned) && cleaned.length >= 2) return `${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`;
-  return cleaned;
-};
-const mktLabel = (k: string) => {
-  if (MARKET_LABELS[k]) return MARKET_LABELS[k];
-  const stats = k.match(/^(shots_total|shots_home|shots_away|sot_total|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
-  if (stats) {
-    const domainLabel: Record<string, string> = {
-      shots_total: 'Tiri Totali',
-      shots_home: 'Tiri Casa',
-      shots_away: 'Tiri Ospite',
-      sot_total: 'Tiri in Porta Totali',
-      fouls: 'Falli Totali',
-      yellow: 'Gialli Totali',
-      cards_total: 'Cartellini Pesati',
-    };
-    const side = stats[2].toLowerCase() === 'over' ? 'Over' : 'Under';
-    return `${domainLabel[stats[1].toLowerCase()] ?? stats[1]} ${side} ${prettyLine(stats[3])}`;
-  }
-  return k.replace(/_/g, ' ');
-};
 const confidenceRank = (v?: string): number => v === 'HIGH' ? 3 : v === 'MEDIUM' ? 2 : 1;
-const marketTierLabel = (tier?: string): string =>
-  tier === 'CORE' ? 'Mercato core' : tier === 'SECONDARY' ? 'Mercato secondario' : tier === 'SPECULATIVE' ? 'Mercato speculativo' : 'Tier n/d';
-const marketTierBadgeClass = (tier?: string): string =>
-  tier === 'CORE' ? 'pr-badge-green' : tier === 'SECONDARY' ? 'pr-badge-blue' : tier === 'SPECULATIVE' ? 'pr-badge-gold' : 'pr-badge-gray';
 const buildOddsReliabilityBadge = (pred: any, isReplay: boolean) => {
   if (isReplay) {
     return pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
@@ -93,68 +59,6 @@ const rankOpportunity = (o: any): number => {
   const pNorm = p > 1 ? p / 100 : p;
   return (ev * 0.55) + (edge * 0.30) + (pNorm * 8) + (confidenceRank(o?.confidence) * 4);
 };
-const fmtSelection = (selection: string): string => {
-  if (!selection) return '-';
-  const clean = String(selection ?? '');
-  const camelOU = clean.match(/^(shots|shotsHome|shotsAway|shotsOT|yellow|fouls|cardsTotal)(Over|Under)(\d+)$/);
-  if (camelOU) {
-    const domainLabel: Record<string, string> = {
-      shots: 'Tiri Totali',
-      shotsHome: 'Tiri Casa',
-      shotsAway: 'Tiri Ospite',
-      shotsOT: 'Tiri in Porta',
-      yellow: 'Gialli Totali',
-      fouls: 'Falli Totali',
-      cardsTotal: 'Cartellini',
-    };
-    const line = camelOU[3].length >= 3
-      ? `${camelOU[3].slice(0, -1)}.${camelOU[3].slice(-1)}`
-      : camelOU[3];
-    return `${domainLabel[camelOU[1]] ?? camelOU[1]} ${camelOU[2]} ${line}`;
-  }
-  if (selection === 'homeWin') return '1 - Vittoria Casa';
-  if (selection === 'draw') return 'X - Pareggio';
-  if (selection === 'awayWin') return '2 - Vittoria Ospite';
-  if (selection === 'double_chance_1x') return 'Double Chance 1X';
-  if (selection === 'double_chance_x2') return 'Double Chance X2';
-  if (selection === 'double_chance_12') return 'Double Chance 12';
-  if (selection === 'dnb_home') return 'Draw No Bet Casa';
-  if (selection === 'dnb_away') return 'Draw No Bet Ospite';
-  if (selection.startsWith('hcp_home')) return `Handicap Casa ${selection.replace('hcp_home', '')}`;
-  if (selection.startsWith('hcp_away')) return `Handicap Ospite ${selection.replace('hcp_away', '')}`;
-  if (selection.startsWith('ahcp_away_')) {
-    const raw = selection.replace('ahcp_away_', '');
-    const n = Number(raw);
-    if (Number.isFinite(n)) return `Asian Handicap Ospite ${n > 0 ? '+' : ''}${n}`;
-    return `Asian Handicap Ospite ${raw}`;
-  }
-  if (selection.startsWith('ahcp_')) {
-    const raw = selection.replace('ahcp_', '');
-    const n = Number(raw);
-    if (Number.isFinite(n)) return `Asian Handicap Casa ${n > 0 ? '+' : ''}${n}`;
-    return `Asian Handicap ${raw}`;
-  }
-
-  const compactGoal = selection.match(/^(over|under)(\d+)$/i);
-  if (compactGoal && compactGoal[2].length >= 2) {
-    const lineNum = Number(`${compactGoal[2].slice(0, -1)}.${compactGoal[2].slice(-1)}`);
-    if (Number.isFinite(lineNum) && lineNum > 7.5) return mktLabel(selection);
-    const side = compactGoal[1].toLowerCase() === 'over' ? 'Over' : 'Under';
-    const line = `${compactGoal[2].slice(0, -1)}.${compactGoal[2].slice(-1)}`;
-    return `${side} ${line} Goal`;
-  }
-
-  const teamTotals = selection.match(/^team_(home|away)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
-  if (teamTotals) {
-    const team = teamTotals[1].toLowerCase() === 'home' ? 'Casa' : 'Ospite';
-    const side = teamTotals[2].toLowerCase() === 'over' ? 'Over' : 'Under';
-    const line = prettyLine(teamTotals[3]);
-    return `Goal ${team} ${side} ${line}`;
-  }
-
-  return mktLabel(selection);
-};
-
 const fmtMarketKey = (market: string): string => {
   const k = String(market ?? '').toLowerCase();
   if (k === 'h2h') return '1X2';
@@ -170,15 +74,6 @@ const fmtMarketKey = (market: string): string => {
   if (k === 'alternate_team_totals') return 'Team Totals Alternativi';
   if (k === 'model_estimated') return 'Quote stimate dal modello';
   return market;
-};
-
-const formatCompactOuKey = (k: string): string => {
-  const clean = String(k ?? '').toLowerCase().replace(/^over|^under/, '');
-  if (/^\d+\.\d+$/.test(clean)) return clean;
-  if (/^\.\d+$/.test(clean)) return `0${clean}`;
-  if (/^\d$/.test(clean)) return `0.${clean}`;
-  if (/^\d+$/.test(clean) && clean.length >= 2) return `${clean.slice(0, -1)}.${clean.slice(-1)}`;
-  return clean;
 };
 
 const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
@@ -520,38 +415,6 @@ const S = `
   .pr-vb-stats { grid-template-columns:repeat(2,1fr); }
 }
 `;
-
-/*  SUB-COMPONENTS  */
-const ProbBar: React.FC<{label:string; value:number; color?:string}> = ({label, value, color='var(--blue)'}) => (
-  <div className="pr-prob-row">
-    <span className="pr-prob-lbl" title={label}>{label}</span>
-    <div className="pr-prob-track">
-      <div className="pr-prob-fill" style={{width:`${Math.min(100,value*100)}%`, background:color}}>
-        {(value*100).toFixed(1)}%
-      </div>
-    </div>
-  </div>
-);
-
-const DistChart: React.FC<{dist:Record<string,number>; expected:number; title:string; color?:string}> = ({dist, expected, title, color='var(--blue)'}) => {
-  const data = Object.entries(dist).map(([k,v]) => ({k:parseInt(k), pct:parseFloat((v*100).toFixed(2))})).filter(d => d.pct >= 0.05).sort((a,b) => a.k-b.k);
-  return (
-    <div style={{marginBottom:14}}>
-      <div className="pr-chart-head"><span>{title}</span><span>Atteso = <strong>{fmtN(expected)}</strong></span></div>
-      <ResponsiveContainer width="100%" height={110}>
-        <BarChart data={data} margin={{top:2,right:2,bottom:2,left:0}}>
-          <CartesianGrid strokeDasharray="2 2" stroke="rgba(115,136,161,0.18)" />
-          <XAxis dataKey="k" tick={{fontSize:9,fill:'var(--text-3)'}} />
-          <YAxis tickFormatter={v=>`${v}%`} tick={{fontSize:9,fill:'var(--text-3)'}} width={28} />
-          <Tooltip contentStyle={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11}}
-            formatter={(v:any) => [`${v}%`,'P']} labelFormatter={(l:any) => `k=${l}`} />
-          <ReferenceLine x={Math.round(expected)} stroke="rgba(74,96,120,0.45)" strokeDasharray="3 3" />
-          <Bar dataKey="pct" fill={color} radius={[3,3,0,0]} opacity={0.85} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-};
 
 /*  MAIN  */
 const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
@@ -979,7 +842,10 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const bestValueOpp = pred?.bestValueOpportunity ?? null;
   const analysisFactors = pred?.analysisFactors ?? pred?.methodology?.contextualFactors ?? null;
   const methodology = pred?.methodology ?? {};
-  const vbRanked = useMemo(() => [...vb].sort((a, b) => rankOpportunity(b) - rankOpportunity(a)), [vb]);
+  const vbRanked = useMemo<BestValueOpportunityModel[]>(
+    () => [...vb].sort((a, b) => rankOpportunity(b) - rankOpportunity(a)),
+    [vb]
+  );
   const allOddsEntries = useMemo(
     () => Object.entries(odds)
       .map(([selection, odd]) => ({ selection, odd: Number(odd) }))
@@ -996,6 +862,18 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
   const actualMatch = pred?.actualMatch ?? null;
   const recommendedBetResult = pred?.recommendedBetResult ?? null;
   const oddsReliabilityBadge = buildOddsReliabilityBadge(pred, isReplayAnalysis);
+  const oddsSourceWarning =
+    isReplayAnalysis
+      ? (pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
+          ? 'Replay costruito su snapshot bookmaker storico.'
+          : 'Replay costruito su quote modello: utile per analisi, non come riferimento operativo.')
+      : pred?.usedSyntheticOdds
+        ? 'Quote stimate dal modello: trattale come supporto analitico, non come prezzo bookmaker verificato.'
+        : pred?.oddsSource === 'fallback_provider'
+          ? 'Provider secondario attivo: confronta la giocata con Eurobet prima di eseguirla.'
+          : pred?.oddsSource === 'eurobet_unavailable'
+            ? 'Eurobet non ha esposto quote operative per questo match.'
+            : null;
   const replayOutcomeTone =
     recommendedBetResult?.status === 'WON'
       ? 'success'
@@ -1198,51 +1076,27 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 </div>
               </div>
 
-              {/* Match hero */}
-              <div className="pr-hero">
-                <div className="pr-hero-team">
-                  <div className="pr-hero-name">{pred.homeTeam}</div>
-                  <div className="pr-hero-lambda">lambda = {pred.lambdaHome}</div>
-                </div>
-                <div className="pr-hero-center">
-                  <div className="pr-hero-vs">VS</div>
-                  <div className="pr-confidence">{(pred.modelConfidence*100).toFixed(0)}% conf.</div>
-                  {actualMatch?.actualScore && (
-                    <div className="pr-hero-lambda" style={{ marginTop: 8 }}>finale {actualMatch.actualScore}</div>
-                  )}
-                </div>
-                <div className="pr-hero-team right">
-                  <div className="pr-hero-name">{pred.awayTeam}</div>
-                  <div className="pr-hero-lambda">lambda = {pred.lambdaAway}</div>
-                </div>
-              </div>
-
-              {isReplayAnalysis && (
-                <div style={{margin:'0 20px 12px'}}>
-                  <div className={`pr-alert pr-alert-${replayOutcomeTone}`}>
-                    <strong>Replay retrospettivo.</strong> {actualMatch?.actualScore ? `Risultato reale ${actualMatch.actualScore}. ` : ''}
-                    {replayOutcomeLabel && recommendedBetResult
-                      ? `${replayOutcomeLabel} sulla selezione ${recommendedBetResult.selectionLabel ?? fmtSelection(recommendedBetResult.selection)}.`
-                      : 'Serve per verificare il consiglio finale su una partita gia conclusa.'}
-                  </div>
-                </div>
-              )}
-
-              {/* Quick KPIs */}
-              {gp && (
-                <div className="pr-kpi-row">
-                  {[
-                    {label:'1 Casa',   val:fmtPct(gp.homeWin), color:'var(--blue)'},
-                    {label:'X Pari',   val:fmtPct(gp.draw),    color:'var(--text-2)'},
-                    {label:'2 Ospite', val:fmtPct(gp.awayWin), color:'var(--red)'},
-                  ].map(({label,val,color}) => (
-                    <div className="pr-kpi" key={label}>
-                      <div className="pr-kpi-val" style={{color}}>{val}</div>
-                      <div className="pr-kpi-lbl">{label}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <PredictionHero
+                homeTeam={pred.homeTeam}
+                awayTeam={pred.awayTeam}
+                lambdaHome={pred.lambdaHome}
+                lambdaAway={pred.lambdaAway}
+                modelConfidence={pred.modelConfidence}
+                actualScore={actualMatch?.actualScore}
+                goalProbabilities={gp ?? null}
+                replaySummary={
+                  isReplayAnalysis
+                    ? {
+                        tone: replayOutcomeTone,
+                        text: `Replay retrospettivo. ${actualMatch?.actualScore ? `Risultato reale ${actualMatch.actualScore}. ` : ''}${
+                          replayOutcomeLabel && recommendedBetResult
+                            ? `${replayOutcomeLabel} sulla selezione ${recommendedBetResult.selectionLabel ?? fmtSelection(recommendedBetResult.selection)}.`
+                            : 'Serve per verificare il consiglio finale su una partita gia conclusa.'
+                        }`,
+                      }
+                    : null
+                }
+              />
 
               {/* Value bet banner */}
               {bestValueOpp && (
@@ -1256,7 +1110,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     {recommendedBetResult?.status ? ` | esito ${recommendedBetResult.status}` : ''}
                     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
                       <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>{marketTierLabel(bestValueOpp.marketTier)}</span>
-                      <span className={`pr-badge ${oddsReliabilityBadge.className}`}>{oddsReliabilityBadge.label}</span>
+                      <OddsSourceBadge badge={oddsReliabilityBadge} />
                     </div>
                   </div>
                 </div>
@@ -1455,52 +1309,7 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                 )}
 
                 {/* SHOTS */}
-                {tab==='shots' && sp && (
-                  <div>
-                    <div className="pr-g2">
-                      {[
-                        {team:pred.homeTeam, d:sp.home, c1:'var(--blue)', c2:'var(--green)'},
-                        {team:pred.awayTeam, d:sp.away, c1:'var(--red)',  c2:'var(--gold)'},
-                      ].map(({team,d,c1,c2}) => (
-                        <div className="pr-card" key={team}>
-                          <div className="pr-card-head">
-                            <div className="pr-card-title">{team}</div>
-                            <span className="pr-badge pr-badge-blue">M {fmtN(d.totalShots.expected)}</span>
-                          </div>
-                          <div className="pr-card-body">
-                            <DistChart dist={d.totalShots.distribution} expected={d.totalShots.expected} title="Tiri totali" color={c1} />
-                            <DistChart dist={d.shotsOnTarget.distribution} expected={d.shotsOnTarget.expected} title="Tiri in porta" color={c2} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Totali combinati</div>
-                        <div style={{display:'flex',gap:4}}>
-                          <span className="pr-badge pr-badge-blue">Tiri {fmtN(sp.combined.totalShots.expected)}</span>
-                          <span className="pr-badge pr-badge-green">In porta {fmtN(sp.combined.totalOnTarget.expected)}</span>
-                        </div>
-                      </div>
-                      <div className="pr-card-body">
-                        <div className="pr-g2">
-                          <div>
-                            <div className="pr-sec">Tiri Totali</div>
-                            {Object.entries(sp.combined.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                              <ProbBar key={k} label={`Over ${formatCompactOuKey(k)} tiri`} value={v as number} color="var(--blue)" />
-                            ))}
-                          </div>
-                          <div>
-                            <div className="pr-sec">Tiri in Porta</div>
-                            {Object.entries(sp.combined.onTargetOverUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                              <ProbBar key={k} label={`Over ${formatCompactOuKey(k)} in porta`} value={v as number} color="var(--green)" />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {tab==='shots' && sp && <ShotsSection homeTeam={pred.homeTeam} awayTeam={pred.awayTeam} shotsPrediction={sp} />}
 
                 {/* PLAYERS */}
                 {tab==='players' && (
@@ -1545,80 +1354,35 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         <div className="pr-card-title">Pronostico Finale Consigliato</div>
                       </div>
                       <div className="pr-card-body">
-                        {!bestValueOpp ? (
-                          <div className="pr-info" style={{ textAlign:'center' }}>
-                            Nessun pronostico finale consigliato: per questa partita non c e una giocata abbastanza solida.
-                          </div>
-                        ) : (
-                          <div className="pr-g2">
-                            <div>
-                              <div className="pr-info" style={{ marginBottom: 12 }}>
-                                <strong>{bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)}</strong><br />
-                                Quota consigliata: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong>
-                                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
-                                  <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>{marketTierLabel(bestValueOpp.marketTier)}</span>
-                                  <span className={`pr-badge ${oddsReliabilityBadge.className}`}>{oddsReliabilityBadge.label}</span>
-                                </div>
-                              </div>
-                              {recommendedBetResult && (
-                                <div className={`pr-alert pr-alert-${replayOutcomeTone}`} style={{ marginBottom: 12 }}>
-                                  <strong>{recommendedBetResult.status}</strong>
-                                  {actualMatch?.actualScore ? ` | risultato ${actualMatch.actualScore}` : ''}
-                                  <br />
-                                  {recommendedBetResult.reason}
-                                </div>
-                              )}
-                              <div className="pr-info" style={{ marginBottom: 12 }}>
-                                {bestValueOpp.humanSummary ?? 'Questa e la giocata finale consigliata per il quadro complessivo della partita.'}
-                              </div>
-                              <div className="pr-info">
-                                <strong>Perche questa scelta</strong>
-                                <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
-                                  {(Array.isArray(bestValueOpp.humanReasons) ? bestValueOpp.humanReasons : []).map((r: string, idx: number) => (
-                                    <li key={`${bestValueOpp.selection}_human_${idx}`}>{r}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            </div>
+                        <div className="pr-g2">
                           <div>
-                            <div className="pr-sec">Gestione Match</div>
-                            <div className="pr-info" style={{ marginBottom: 10 }}>
-                                {isReplayAnalysis ? (
-                                  <>
-                                    Match chiuso il: <strong>{formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}</strong><br />
-                                    Esito reale: <strong>{actualMatch?.actualScore ?? '-'}</strong><br />
-                                    Modalita: <strong>verifica retrospettiva</strong>
-                                  </>
-                                ) : (
-                                  <>
-                                    Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong><br />
-                                    Esposizione suggerita: <strong>EUR {suggestedTotalStake.toFixed(2)}</strong><br />
-                                    Cap esposizione ({maxExposurePct}%): <strong>EUR {maxExposureAmount.toFixed(2)}</strong>
-                                  </>
-                                )}
-                            </div>
-                              {!isReplayAnalysis && (
-                                <>
-                                  <div className="pr-prob-track" style={{ height: 12 }}>
-                                    <div
-                                      className="pr-prob-fill"
-                                      style={{
-                                        width: `${Math.min(100, exposureRatio * 100)}%`,
-                                        background: exposureRatio > 1 ? 'var(--red)' : exposureRatio > 0.8 ? 'var(--gold)' : 'var(--green)',
-                                        minWidth: 0,
-                                        justifyContent: 'flex-start',
-                                        paddingRight: 0,
-                                      }}
-                                    />
-                                  </div>
-                                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 8 }}>
-                                    Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
-                                  </div>
-                                </>
-                              )}
-                            </div>
+                            <BestValueCard
+                              opportunity={bestValueOpp as BestValueOpportunityModel | null}
+                              oddsBadge={oddsReliabilityBadge}
+                              oddsWarning={oddsSourceWarning}
+                              recommendedBetResult={
+                                recommendedBetResult
+                                  ? {
+                                      ...recommendedBetResult,
+                                      reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
+                                    }
+                                  : null
+                              }
+                              replayTone={replayOutcomeTone}
+                              showConfidence={false}
+                            />
                           </div>
-                        )}
+                          <StakePlanner
+                            isReplayAnalysis={isReplayAnalysis}
+                            actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
+                            actualScore={actualMatch?.actualScore ?? '-'}
+                            bankroll={bankroll}
+                            suggestedTotalStake={suggestedTotalStake}
+                            maxExposurePct={maxExposurePct}
+                            maxExposureAmount={maxExposureAmount}
+                            exposureRatio={exposureRatio}
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -1669,68 +1433,16 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
 
                 {/* METHOD */}
                 {tab==='method' && (
-                  <div>
-                    <div className="pr-card">
-                      <div className="pr-card-head"><div className="pr-card-title">Come Calcola l'Algoritmo</div></div>
-                      <div className="pr-card-body">
-                        <div className="pr-g2">
-                          <div className="pr-info">
-                            <strong>Goal model</strong><br />
-                            Dixon-Coles stima lambda casa/ospite e costruisce la matrice punteggi 0..10.<br />
-                            Runtime attuale: lambda casa <strong>{fmtN(Number(methodology?.runtime?.lambdaHome ?? pred?.lambdaHome ?? 0), 3)}</strong>,
-                            lambda ospite <strong>{fmtN(Number(methodology?.runtime?.lambdaAway ?? pred?.lambdaAway ?? 0), 3)}</strong>.
-                          </div>
-                          <div className="pr-info">
-                            <strong>Mercati avanzati</strong><br />
-                            Tiri, cartellini e falli usano Binomiale Negativa con dispersione dedicata.<br />
-                            Attesi correnti: tiri totali <strong>{fmtN(Number(methodology?.runtime?.totalShotsExpected ?? sp?.combined?.totalShots?.expected ?? 0), 2)}</strong>,
-                            gialli <strong>{fmtN(Number(methodology?.runtime?.totalYellowExpected ?? cp?.totalYellow?.expected ?? 0), 2)}</strong>,
-                            falli <strong>{fmtN(Number(methodology?.runtime?.totalFoulsExpected ?? fp?.totalFouls?.expected ?? 0), 2)}</strong>.
-                          </div>
-                        </div>
-                        <div className="pr-g2" style={{ marginTop: 12 }}>
-                          <div className="pr-info">
-                            <strong>Value betting</strong><br />
-                            P_imp = 1/quota, EV = p*quota - 1, edge = p - P_imp.<br />
-                            Stake = Kelly frazionale (1/4) con limiti min/max.
-                          </div>
-                          <div className="pr-info">
-                            <strong>Esempio live</strong><br />
-                            {vbRanked[0]
-                              ? (
-                                <>
-                                  Mercato: <strong>{vbRanked[0].marketName}</strong><br />
-                                  P. nostra {vbRanked[0].ourProbability}% | quota {vbRanked[0].bookmakerOdds} | EV +{vbRanked[0].expectedValue}% | stake {vbRanked[0].suggestedStakePercent}% bankroll
-                                </>
-                              )
-                              : 'Nessuna value bet disponibile su questa partita.'
-                            }
-                          </div>
-                        </div>
-                        <div className="pr-alert pr-alert-info" style={{ marginTop: 12 }}>
-                          Formula sintetica pipeline: dati storici -&gt; stima parametri squadre -&gt; probabilita mercati -&gt; confronto quote bookmaker -&gt; filtro EV -&gt; staking Kelly.
-                        </div>
-                        {analysisFactors && (
-                          <div className="pr-info" style={{ marginTop: 12 }}>
-                            <strong>Fattori contestuali nel ranking value</strong><br />
-                            Home advantage index: <strong>{Number(analysisFactors.homeAdvantageIndex ?? 0).toFixed(3)}</strong> |
-                            Form delta: <strong>{Number(analysisFactors.formDelta ?? 0).toFixed(3)}</strong> |
-                            Motivation delta: <strong>{Number(analysisFactors.motivationDelta ?? 0).toFixed(3)}</strong><br />
-                            Suspensions delta: <strong>{Number(analysisFactors.suspensionsDelta ?? 0).toFixed(3)}</strong> |
-                            Red cards delta: <strong>{Number(analysisFactors.disciplinaryDelta ?? 0).toFixed(3)}</strong> |
-                            Diffidati delta: <strong>{Number(analysisFactors.atRiskPlayersDelta ?? 0).toFixed(3)}</strong>
-                            {(analysisFactors.notes ?? []).length > 0 && (
-                              <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
-                                {(analysisFactors.notes ?? []).map((n: string, idx: number) => (
-                                  <li key={`analysis_note_${idx}`}>{n}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <MethodologyDrawer
+                    methodology={methodology}
+                    fallbackLambdaHome={Number(pred?.lambdaHome ?? 0)}
+                    fallbackLambdaAway={Number(pred?.lambdaAway ?? 0)}
+                    fallbackTotalShotsExpected={Number(sp?.combined?.totalShots?.expected ?? 0)}
+                    fallbackTotalYellowExpected={Number(cp?.totalYellow?.expected ?? 0)}
+                    fallbackTotalFoulsExpected={Number(fp?.totalFouls?.expected ?? 0)}
+                    topOpportunity={vbRanked[0] ?? null}
+                    analysisFactors={analysisFactors}
+                  />
                 )}
 
                 {/* VALUE BETS */}
@@ -1739,42 +1451,35 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                     {bestValueOpp && (
                       <div className="pr-card">
                         <div className="pr-card-head">
-                          <div className="pr-card-title">Pronostico Finale Consigliato</div>
-                          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        <div className="pr-card-title">Pronostico Finale Consigliato</div>
+                        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                          {bestValueOpp.confidence && (
                             <span className={`pr-badge ${bestValueOpp.confidence === 'HIGH' ? 'pr-badge-green' : bestValueOpp.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
                               {bestValueOpp.confidence}
                             </span>
-                            <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
-                              {marketTierLabel(bestValueOpp.marketTier)}
-                            </span>
-                            <span className={`pr-badge ${oddsReliabilityBadge.className}`}>
-                              {oddsReliabilityBadge.label}
-                            </span>
-                          </div>
+                          )}
+                          <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
+                            {marketTierLabel(bestValueOpp.marketTier)}
+                          </span>
+                          <OddsSourceBadge badge={oddsReliabilityBadge} />
                         </div>
-                        <div className="pr-card-body">
-                          <div className="pr-g2">
-                            <div className="pr-info">
-                              <strong>{bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)}</strong><br />
-                              Quota consigliata: <strong>{Number(bestValueOpp.bookmakerOdds ?? 0).toFixed(2)}</strong><br />
-                              {bestValueOpp.humanSummary ?? 'Questa e la giocata finale consigliata per la lettura complessiva del match.'}
-                            </div>
+                      </div>
+                      <div className="pr-card-body">
+                        <div className="pr-g2">
+                          <BestValueCard
+                            opportunity={bestValueOpp as BestValueOpportunityModel}
+                            oddsBadge={oddsReliabilityBadge}
+                            oddsWarning={oddsSourceWarning}
+                            showConfidence={false}
+                          />
                             <div className="pr-info">
                               <strong>Indicazione pratica</strong><br />
                               Una sola giocata finale per partita.<br />
                               Le altre quote restano sotto come confronto e non come consiglio principale.
                             </div>
-                          </div>
-                          <div className="pr-info" style={{ marginTop: 10 }}>
-                            <strong>Perche questa e la scelta finale</strong>
-                            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
-                              {(Array.isArray(bestValueOpp.humanReasons) ? bestValueOpp.humanReasons : []).map((r: string, idx: number) => (
-                                <li key={`${bestValueOpp.selection}_reason_${idx}`}>{r}</li>
-                              ))}
-                            </ul>
-                          </div>
                         </div>
                       </div>
+                    </div>
                     )}
                     <div className="pr-card">
                       <div className="pr-card-head">
@@ -1791,100 +1496,22 @@ const Predictions: React.FC<PredictionsProps> = ({activeUser}) => {
                         </div>
                       </div>
                     </div>
-                    {!budget && (
-                      <div className="pr-alert pr-alert-warning">ATTENZIONE: inizializza il bankroll in Budget Manager.</div>
-                    )}
-                    {isReplayAnalysis && (
-                      <div className="pr-alert pr-alert-warning">
-                        Modalita replay: quote ricostruite dal modello e puntata disabilitata su partite gia concluse.
-                      </div>
-                    )}
-                    {vb.length === 0 ? (
-                      <div className="pr-info" style={{textAlign:'center',padding:'32px 0'}}>
-                        Nessuna scommessa con EV positivo trovata.<br />
-                        <span style={{color:'var(--text-3)',fontSize:11}}>Quote Eurobet non disponibili oppure edge insufficiente (&gt;2%).</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="pr-alert pr-alert-success">
-                          OK <strong>{vb.length}</strong> scommesse EV positivo (soglia &gt;2%)
-                        </div>
-                        {vbRanked.map((o:any) => {
-                          const stakeKey = oppStakeKey(o);
-                          const currentStake = oppStakeValue(o);
-                          const currentStakePct = bankroll > 0 ? (currentStake / bankroll) * 100 : 0;
-                          const suggestedAmount = bankroll > 0 ? (Number(o.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
-                          const alreadyPlaced = placedBetKeySet.has(stakeKey);
-                          return (
-                          <div key={stakeKey} className={`pr-vb${o.confidence==='MEDIUM'?' medium':o.confidence==='LOW'?' low':''}`}>
-                            <div className="pr-vb-top">
-                              <div>
-                                <div className="pr-vb-market">{o.marketName}</div>
-                              <div className="pr-vb-market-sub">{fmtSelection(String(o.selection))}</div>
-                                <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                  <span className={`pr-badge ${o.confidence==='HIGH'?'pr-badge-green':o.confidence==='MEDIUM'?'pr-badge-blue':'pr-badge-gold'}`}>
-                                    {o.confidence}
-                                  </span>
-                                  <span className={`pr-badge ${marketTierBadgeClass(o.marketTier)}`}>
-                                    {marketTierLabel(o.marketTier)}
-                                  </span>
-                                </div>
-                              </div>
-                              <div>
-                                <div className="pr-vb-ev-num">+{o.expectedValue}%</div>
-                                <div className="pr-vb-ev-lbl">EV</div>
-                              </div>
-                            </div>
-                            <div className="pr-vb-stats">
-                              {[
-                                {l:'P. Nostra',    v:o.ourProbability+'%'},
-                                {l:'P. Implicita', v:o.impliedProbability+'%'},
-                                {l:'Edge',         v:'+'+o.edge+'%'},
-                                {l:'Quota',        v:o.bookmakerOdds},
-                                {l:'Kelly 1/4',    v:o.kellyFraction+'%'},
-                              ].map(({l,v}) => (
-                                <div className="pr-vb-stat" key={l}>
-                                  <div className="pr-vb-stat-lbl">{l}</div>
-                                  <div className="pr-vb-stat-val">{v}</div>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="pr-vb-bottom">
-                              <div className="pr-stake-wrap">
-                                <span className="pr-stake-lbl">Puntata EUR</span>
-                                <input
-                                  className="pr-stake-input" type="number"
-                                  min={1}
-                                  step={0.1}
-                                  value={stakes[stakeKey] ?? ''}
-                                  placeholder={suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '1.00'}
-                                  disabled={isReplayAnalysis}
-                                  onChange={e => setStakes(p => ({...p,[stakeKey]:e.target.value}))}
-                                />
-                                {budget && (
-                                  <span className="pr-suggest">
-                                    <span>{currentStake > 0 ? `attuale ${currentStakePct.toFixed(1)}% budget` : 'attuale 0.0% budget'}</span>
-                                    <span>sugg. EUR {suggestedAmount.toFixed(2)} ({Number(o.suggestedStakePercent ?? 0).toFixed(2)}% budget)</span>
-                                  </span>
-                                )}
-                              </div>
-                              {isReplayAnalysis
-                                ? <span className={`pr-badge ${String(recommendedBetResult?.selection ?? '') === String(o.selection ?? '') ? `pr-badge-${replayOutcomeTone === 'danger' ? 'gold' : replayOutcomeTone === 'success' ? 'green' : replayOutcomeTone === 'warning' ? 'gold' : 'gray'}` : 'pr-badge-gray'}`}>
-                                    {String(recommendedBetResult?.selection ?? '') === String(o.selection ?? '')
-                                      ? `Esito ${recommendedBetResult?.status ?? 'n/d'}`
-                                      : 'Solo analisi'}
-                                  </span>
-                                : alreadyPlaced
-                                ? <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
-                                : <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => handleBet(o)} disabled={!budget}>
-                                    Scommetti -&gt;
-                                  </button>
-                              }
-                            </div>
-                          </div>
-                        )})}
-                      </>
-                    )}
+                    <ValueOpportunitiesTable
+                      opportunities={vbRanked}
+                      bankroll={bankroll}
+                      budgetReady={Boolean(budget)}
+                      isReplayAnalysis={isReplayAnalysis}
+                      oddsSource={pred?.oddsSource ?? null}
+                      providerWarning={oddsSourceWarning}
+                      placedBetKeySet={placedBetKeySet}
+                      recommendedBetResult={recommendedBetResult}
+                      replayOutcomeTone={replayOutcomeTone}
+                      stakes={stakes}
+                      getStakeKey={(o) => oppStakeKey(o)}
+                      getStakeValue={(o) => oppStakeValue(o)}
+                      onStakeChange={(stakeKey, value) => setStakes((previous) => ({ ...previous, [stakeKey]: value }))}
+                      onBet={(opportunity) => handleBet(opportunity)}
+                    />
                   </div>
                 )}
 

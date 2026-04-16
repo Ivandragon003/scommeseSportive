@@ -10,11 +10,12 @@ import {
 import {
   analyzeMarketsEnhanced,
 } from '../models/CombinedBettingFixes';
-import { BacktestingEngine, WalkForwardBacktestResult } from '../models/BacktestingEngine';
+import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { predictionConfig } from '../config/predictionConfig';
+import { buildBacktestReport } from './BacktestReportService';
 
 export interface PredictionRequest {
   homeTeamId: string;
@@ -170,7 +171,7 @@ export function alignOddsKeysInternal(odds: Record<string, number>): Record<stri
 
     const normalizedKey = key.toLowerCase()
       .replace(/_([a-z0-9])/g, (_, l) => l.toUpperCase())
-      .replace(/[\.\s]/g, '');
+      .replace(/[.\s]/g, '');
     aligned[normalizedKey] = val;
     aligned[key] = val;
   }
@@ -2105,6 +2106,21 @@ export class PredictionService {
         matchId: m.match_id, homeTeamId: m.home_team_id, awayTeamId: m.away_team_id,
         date: new Date(m.date), homeGoals: m.home_goals, awayGoals: m.away_goals,
         homeXG: m.home_xg, awayXG: m.away_xg,
+        homeShotsOnTarget: m.home_shots_on_target,
+        awayShotsOnTarget: m.away_shots_on_target,
+        homeTotalShots: m.home_shots,
+        awayTotalShots: m.away_shots,
+        homePossession: m.home_possession,
+        awayPossession: m.away_possession,
+        homeFouls: m.home_fouls,
+        awayFouls: m.away_fouls,
+        homeYellowCards: m.home_yellow_cards,
+        awayYellowCards: m.away_yellow_cards,
+        homeRedCards: m.home_red_cards,
+        awayRedCards: m.away_red_cards,
+        referee: m.referee,
+        competition: m.competition,
+        season: m.season,
       }));
 
     if (matches.length < 50) throw new Error(`Servono almeno 50 partite. Disponibili: ${matches.length}`);
@@ -2122,17 +2138,31 @@ export class PredictionService {
   ) {
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
-    const oddsMap =
+    const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
       historicalOdds && Object.keys(historicalOdds).length > 0
-        ? historicalOdds
-        : await this.db.getHistoricalOddsMap({ competition, season });
+        ? Object.entries(historicalOdds).reduce((acc, [matchId, odds]) => {
+          acc[matchId] = {
+            odds,
+            oddsSource: 'unknown',
+            snapshotSource: null,
+            capturedAt: null,
+            usedFallbackBookmaker: false,
+            usedSyntheticOdds: false,
+          };
+          return acc;
+        }, {} as Record<string, HistoricalOddsContextEntry>)
+        : await this.db.getHistoricalOddsDetailMap({ competition, season });
+    const oddsMap = Object.entries(oddsDetailMap).reduce((acc, [matchId, detail]) => {
+      acc[matchId] = detail.odds;
+      return acc;
+    }, {} as Record<string, Record<string, number>>);
     const trainRatio = Number.isFinite(Number(options?.trainRatio))
       ? Math.max(0.5, Math.min(Number(options?.trainRatio), 0.9))
       : 0.7;
     const confidenceLevel = options?.confidenceLevel ?? 'medium_and_above';
 
-    const result = this.backtester.runBacktest(matches, oddsMap, trainRatio, confidenceLevel);
-    const payload = {
+    const result = this.backtester.runBacktest(matches, oddsMap, trainRatio, confidenceLevel, 0, oddsDetailMap);
+    const payload: Record<string, any> = {
       kind: 'classic',
       competition,
       season: season ?? 'all',
@@ -2142,7 +2172,9 @@ export class PredictionService {
       historicalOddsCoverage: Object.keys(oddsMap).length,
       ...result,
     };
-    await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+    payload.reportSnapshot = buildBacktestReport(payload);
+    const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+    payload.resultId = resultId;
     return payload;
   }
 
@@ -2158,16 +2190,48 @@ export class PredictionService {
       expandingWindow?: boolean;
       maxFolds?: number;
     }
-  ): Promise<WalkForwardBacktestResult> {
+  ): Promise<WalkForwardBacktestResult & {
+    kind: 'walk_forward';
+    competition: string;
+    season: string;
+    confidenceLevel: 'high_only' | 'medium_and_above';
+    adaptiveTuning: AdaptiveEngineTuningProfile;
+    historicalOddsCoverage: number;
+    reportSnapshot: ReturnType<typeof buildBacktestReport>;
+    resultId: number;
+  }> {
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
-    const oddsMap =
+    const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
       historicalOdds && Object.keys(historicalOdds).length > 0
-        ? historicalOdds
-        : await this.db.getHistoricalOddsMap({ competition, season });
+        ? Object.entries(historicalOdds).reduce((acc, [matchId, odds]) => {
+          acc[matchId] = {
+            odds,
+            oddsSource: 'unknown',
+            snapshotSource: null,
+            capturedAt: null,
+            usedFallbackBookmaker: false,
+            usedSyntheticOdds: false,
+          };
+          return acc;
+        }, {} as Record<string, HistoricalOddsContextEntry>)
+        : await this.db.getHistoricalOddsDetailMap({ competition, season });
+    const oddsMap = Object.entries(oddsDetailMap).reduce((acc, [matchId, detail]) => {
+      acc[matchId] = detail.odds;
+      return acc;
+    }, {} as Record<string, Record<string, number>>);
 
-    const result = this.backtester.runWalkForwardBacktest(matches, oddsMap, options);
-    const payload = {
+    const result = this.backtester.runWalkForwardBacktest(matches, oddsMap, options, oddsDetailMap);
+    const payload: WalkForwardBacktestResult & {
+      kind: 'walk_forward';
+      competition: string;
+      season: string;
+      confidenceLevel: 'high_only' | 'medium_and_above';
+      adaptiveTuning: AdaptiveEngineTuningProfile;
+      historicalOddsCoverage: number;
+      reportSnapshot: ReturnType<typeof buildBacktestReport>;
+      resultId: number;
+    } = {
       kind: 'walk_forward',
       competition,
       season: season ?? 'all',
@@ -2176,8 +2240,12 @@ export class PredictionService {
       adaptiveTuning,
       historicalOddsCoverage: Object.keys(oddsMap).length,
       ...result,
+      reportSnapshot: buildBacktestReport({}),
+      resultId: 0,
     };
-    await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+    payload.reportSnapshot = buildBacktestReport(payload);
+    const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+    payload.resultId = resultId;
     return payload;
   }
 }

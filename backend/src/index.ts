@@ -1,12 +1,15 @@
 import cors from 'cors';
 import express from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
 import { DatabaseService } from './db/DatabaseService';
 import { PredictionService } from './services/PredictionService';
+import { SystemObservabilityService } from './services/SystemObservabilityService';
 
 const app = express();
 const db = new DatabaseService();
 const svc = new PredictionService(db);
+const observability = new SystemObservabilityService(db);
 const PORT = Number(process.env.PORT ?? 3001);
 const AUTO_SYNC_ON_BOOT =
   String(process.env.AUTO_SYNC_ON_BOOT ?? 'true').trim().toLowerCase() !== 'false';
@@ -187,18 +190,72 @@ app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use((req, _res, next) => {
-  if (req.path === '/api/health') {
-    return next();
-  }
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+app.use((req, res, next) => {
+  const requestId = String(req.headers['x-request-id'] ?? '').trim() || uuidv4();
+  const startedAt = Date.now();
+  res.locals.requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+
+  res.on('finish', () => {
+    if (req.path === '/api/health') return;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    observability.log(level, 'http_request', {
+      requestId,
+      runId: null,
+      provider: 'http',
+      competition: typeof req.query?.competition === 'string' ? req.query.competition : null,
+      meetingAlias: null,
+      matchCount: null,
+      durationMs: Date.now() - startedAt,
+      errorCategory: res.statusCode >= 500 ? 'http_5xx' : res.statusCode >= 400 ? 'http_4xx' : null,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+    });
+  });
+
   next();
 });
 
-app.use('/api', createApiRouter({ db, svc }));
+app.use('/api', createApiRouter({ db, svc, observability }));
+
+const getSchedulerSnapshot = () => ({
+  understat: understatSchedulerState,
+  odds: oddsSchedulerState,
+  learning: learningSchedulerState,
+});
+
+app.get('/api/system/health', async (_req, res) => {
+  const recentSchedulerRuns = await db.listRecentSchedulerRuns(12).catch(() => []);
+  const payload = await observability.getSystemHealthPayload({
+    isUpdating,
+    lastUpdate,
+    schedulers: getSchedulerSnapshot(),
+    recentSchedulerRuns,
+  });
+  res.json({ success: true, data: payload });
+});
+
+app.get('/api/system/provider-health', async (_req, res) => {
+  const payload = await observability.getProviderHealthPayload();
+  res.json({ success: true, data: payload });
+});
+
+app.get('/api/system/metrics', async (_req, res) => {
+  const payload = await observability.getMetricsPayload();
+  res.json({ success: true, data: payload });
+});
+
+app.get('/api/system/recent-runs', async (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit ?? 20) || 20, 50));
+  const recentSchedulerRuns = await db.listRecentSchedulerRuns(limit).catch(() => []);
+  const payload = await observability.getRecentRunsPayload(limit, recentSchedulerRuns);
+  res.json({ success: true, data: payload });
+});
 
 app.get('/api/scraper/status', async (_req, res) => {
   const recentSchedulerRuns = await db.listRecentSchedulerRuns(7).catch(() => []);
+  const providerHealth = await observability.getProviderHealthPayload().catch(() => null);
   res.json({
     success: true,
     data: {
@@ -209,6 +266,7 @@ app.get('/api/scraper/status', async (_req, res) => {
       oddsSnapshotScheduler: oddsSchedulerState,
       learningReviewScheduler: learningSchedulerState,
       recentSchedulerRuns,
+      providerHealth,
     },
   });
 });
@@ -228,6 +286,8 @@ async function runBootDataSync(): Promise<void> {
     return;
   }
 
+  const startedAt = new Date();
+  const runId = observability.createRunId('boot_sync');
   isUpdating = true;
   console.log('[bootstrap-sync] Starting automatic Understat sync for all top 5 leagues...');
   try {
@@ -270,6 +330,21 @@ async function runBootDataSync(): Promise<void> {
           success: true,
           message: `Imported ${Number(data?.newMatchesImported ?? 0)} matches`,
         };
+        await observability.recordSyncRun({
+          runId,
+          component: 'boot_sync',
+          provider: 'understat',
+          matchCount: Number(data?.newMatchesImported ?? 0) + Number(data?.existingMatchesUpdated ?? 0),
+          durationMs: Date.now() - startedAt.getTime(),
+          success: true,
+          metadata: {
+            newMatchesImported: Number(data?.newMatchesImported ?? 0),
+            existingMatchesUpdated: Number(data?.existingMatchesUpdated ?? 0),
+            upcomingMatchesImported: Number(data?.upcomingMatchesImported ?? 0),
+          },
+          startedAt: startedAt.toISOString(),
+          endedAt: new Date().toISOString(),
+        });
         completed = true;
         break;
       } catch (err: any) {
@@ -283,10 +358,32 @@ async function runBootDataSync(): Promise<void> {
 
     if (!completed) {
       lastUpdate = { at: new Date(), success: false, message: lastErrorMessage };
+      await observability.recordSyncRun({
+        runId,
+        component: 'boot_sync',
+        provider: 'understat',
+        durationMs: Date.now() - startedAt.getTime(),
+        success: false,
+        errorCategory: 'sync_failed',
+        metadata: { message: lastErrorMessage },
+        startedAt: startedAt.toISOString(),
+        endedAt: new Date().toISOString(),
+      });
     }
   } catch (err: any) {
     console.error('[bootstrap-sync] Error:', err?.message ?? err);
     lastUpdate = { at: new Date(), success: false, message: err?.message ?? 'Unknown error' };
+    await observability.recordSyncRun({
+      runId,
+      component: 'boot_sync',
+      provider: 'understat',
+      durationMs: Date.now() - startedAt.getTime(),
+      success: false,
+      errorCategory: 'sync_failed',
+      metadata: { message: err?.message ?? 'Unknown error' },
+      startedAt: startedAt.toISOString(),
+      endedAt: new Date().toISOString(),
+    });
   } finally {
     isUpdating = false;
   }
@@ -323,6 +420,31 @@ async function persistSchedulerRun(entry: {
     error: entry.error ?? null,
   }).catch((err) => {
     console.error(`[scheduler-history] Failed to save ${entry.schedulerName} run:`, err?.message ?? err);
+  });
+
+  const component =
+    entry.schedulerName === 'understat'
+      ? 'understat_scheduler'
+      : entry.schedulerName === 'odds'
+        ? 'odds_scheduler'
+        : 'learning_scheduler';
+
+  await observability.recordSyncRun({
+    runId: observability.createRunId(component),
+    component,
+    provider: entry.schedulerName === 'odds' ? 'eurobet' : entry.schedulerName,
+    durationMs: entry.durationMs,
+    success: entry.success,
+    errorCategory: entry.success ? null : 'sync_failed',
+    metadata: {
+      trigger: entry.trigger,
+      summary: entry.summary ?? null,
+      error: entry.error ?? null,
+    },
+    startedAt: entry.startedAt.toISOString(),
+    endedAt: entry.endedAt.toISOString(),
+  }).catch((err) => {
+    console.error(`[observability] Failed to save ${component} sync run:`, err?.message ?? err);
   });
 }
 

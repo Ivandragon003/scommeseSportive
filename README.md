@@ -226,41 +226,40 @@ sottostima del ROI durante la stagione.
 
 ---
 
-## 🚀 Installazione e Avvio
+## Setup locale e avvio
 
-### Opzione 1: Docker (consigliato)
+- usa sempre `./.env` nella root del repository
+- crea il file con `copy .env.example .env`
+- il backend legge dal root `.env` database, odds, scheduler e Playwright
+- il frontend locale non usa segreti; `FRONTEND_PORT` serve al mapping Docker
 
-```bash
-git clone <repo>
-cd football-predictor
-docker-compose up --build
-```
-
-Apri http://localhost:3000
-
-### Opzione 2: Sviluppo Locale
-
-Prerequisiti:
-- `Node.js >= 20` (consigliato tramite `.nvmrc`)
-- Configura Turso/libSQL tramite variabili ambiente (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`)
-
-**Backend:**
-```bash
-cd backend
+```powershell
 npm install
+npm --prefix backend install
+npm --prefix frontend install
 npm run dev
-# Backend su http://localhost:3001
 ```
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm start
-# Frontend su http://localhost:3000
-```
+Servizi: frontend `http://localhost:3000`, backend `http://localhost:3001/api/health`.
+
+Docker: `docker compose up -d --build`
+
+Comandi root: `npm run dev`, `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `npm run test`, `npm run ci`.
+
+Per setup completo, deploy, GitHub Actions e troubleshooting usa la sezione `Onboarding operativo` in fondo a questo README.
+
+Compatibili: `start.bat`, `start.sh`, `docker-compose.yml`, `docker-compose.prod.yml`.
 
 ---
+
+
+
+
+
+
+
+
+
 
 ## 📁 Struttura Progetto
 
@@ -299,13 +298,13 @@ football-predictor/
 
 ## 📥 Importazione Dati
 
-### Fonti Consigliate
+### Fonte dati attiva del progetto
 
-| Fonte | URL | Dati |
+| Ambito | Fonte | Note operative |
 |---|---|---|
-| football-data.org | https://football-data.org | Risultati, API gratuita |
-| fbref.com | https://fbref.com | xG, tiri, falli, arbitri |
-| understat.com | https://understat.com | xG per tiro |
+| Dati calcistici | Understat | Fonte ufficiale attiva per squadre, partite, giocatori, xG e tiri |
+| Quote utente | Eurobet | Unica fonte quote mostrata lato UI |
+| Fallback tecnici quote | Provider interni / diagnostici | Ammessi solo lato backend, mai mostrati come quote Eurobet |
 
 ### Formato JSON Import
 
@@ -385,8 +384,9 @@ prior empiriche Serie A.
 ### Mercati analizzati
 
 L'endpoint `/api/scraper/odds/match` richiede mercati `h2h`, `totals`, `spreads`.
-Se non disponibili: fallback `h2h`, `totals`. Se il provider non risponde: quote stimate
-dal modello (`model_estimated`).
+Se non disponibili: fallback `h2h`, `totals`. Se il provider non risponde, eventuali
+stime o fallback restano interni al backend per continuita operativa e diagnostica,
+ma non devono essere mostrati all'utente come quote Eurobet.
 
 ### Pipeline di scelta "miglior quota valore"
 
@@ -468,16 +468,17 @@ Se non forniti, il sistema usa inferenza da parametri squadra e valori neutri.
 - `shotsPrediction.combined.overUnder`: Over/Under tiri totali (linee 15.5–31.5).
 - `shotsPrediction.combined.onTargetOverUnder`: Over/Under tiri in porta (linee 5.5–11.5).
 
-### Configurazione Turso
+### Configurazione runtime locale
 
-```bash
-cd backend
-cp .env.example .env
-# imposta TURSO_DATABASE_URL e TURSO_AUTH_TOKEN
+Usa solo il file `.env` nella root del repository.
+
+```powershell
+copy .env.example .env
 npm install
+npm --prefix backend install
+npm --prefix frontend install
 npm run dev
 ```
-
 ---
 
 ## 🤝 Avvertenza
@@ -936,4 +937,144 @@ evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
 - Crea il file locale con `copy .env.example .env` nella root del repository e compila solo i placeholder necessari.
 - Non versionare mai `.env`, `.env.production` o altri file con credenziali reali.
 - Se il repository ha esposto credenziali in passato, ruotale prima di qualunque nuovo deploy o pubblicazione pubblica.
-- Dopo la clonazione, `npm install` in `backend` e `frontend` resta il flusso corretto: le cartelle `node_modules` non devono essere nel repository.
+- Dopo la clonazione installa prima le dipendenze root con `npm install`, poi quelle di `backend` e `frontend`: le cartelle `node_modules` non devono essere nel repository.
+
+## Sicurezza e rotazione credenziali
+
+### Uso corretto dei segreti
+
+- In GitHub Actions usa sempre `Settings > Secrets and variables > Actions` per salvare chiavi API, token DB e credenziali runtime.
+- Nei workflow referenzia i segreti solo tramite `${{ secrets.NOME_SECRET }}`.
+- In `docker-compose.yml` e `docker-compose.prod.yml` il runtime deve leggere i valori solo da variabili ambiente interpolate, non da file committati con valori reali.
+- `.env.example` deve contenere solo placeholder sicuri.
+
+### Secret scan automatico
+
+- Il repository esegue uno scan automatico su `push` e `pull_request` tramite [`.github/workflows/secret-scan.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/secret-scan.yml).
+- La configurazione Gitleaks sta in [`.gitleaks.toml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.gitleaks.toml).
+- Lo scan locale richiede `gitleaks` installato sulla macchina oppure Docker disponibile.
+- Lo scan locale equivalente e:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\security\run-secret-scan.ps1 -Mode git
+```
+
+### Cosa fare se una chiave viene esposta
+
+1. revoca o ruota subito la credenziale compromessa
+2. aggiorna GitHub Secrets, variabili ambiente locali e ambiente di deploy
+3. riesegui lo scan locale e quello CI
+4. valuta la bonifica history seguendo [docs/security/history-cleanup.md](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/security/history-cleanup.md)
+5. registra data, impatto e credenziali ruotate nel changelog operativo interno
+
+### Come ruotare le credenziali applicative
+
+- `TURSO_AUTH_TOKEN`: genera un nuovo token dal provider, aggiorna GitHub Secrets e i file `.env` locali, poi invalida il vecchio token.
+- `ODDS_API_KEY` e altre API key esterne: crea una nuova chiave dal portale del provider, sostituiscila nei secret manager, poi revoca la precedente.
+- Se il leak ha toccato piu ambienti, ruota tutte le varianti `dev`, `staging`, `prod` e non solo quella usata localmente.
+
+### Bonifica history
+
+- La guida operativa e in [docs/security/history-cleanup.md](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/security/history-cleanup.md).
+- Nessuna bonifica distruttiva viene eseguita automaticamente in questo repository.
+
+## Onboarding operativo
+
+### Setup locale raccomandato
+
+1. Clona il repository.
+2. Crea `./.env` nella root a partire da [`.env.example`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.env.example).
+3. Installa le dipendenze:
+
+```powershell
+npm install
+npm --prefix backend install
+npm --prefix frontend install
+```
+
+4. Avvia lo sviluppo da root:
+
+```powershell
+npm run dev
+```
+
+Servizi previsti:
+- frontend: [http://localhost:3000](http://localhost:3000)
+- backend: [http://localhost:3001/api/health](http://localhost:3001/api/health)
+
+### Variabili ambiente: verita unica
+
+- Il file `.env` nella root e la sola sorgente di verita locale.
+- Backend:
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `SKIP_EUROBET_SCRAPER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `EUROBET_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
+- Frontend:
+  nessun segreto runtime richiesto in locale; `FRONTEND_PORT` serve per Docker.
+
+### Docker
+
+Avvio standard:
+
+```powershell
+docker compose up -d --build
+```
+
+Avvio produzione-like:
+
+```powershell
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+Compatibilita preservata:
+- [start.bat](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/start.bat)
+- [start.sh](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/start.sh)
+- [docker-compose.yml](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docker-compose.yml)
+- [docker-compose.prod.yml](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docker-compose.prod.yml)
+
+### GitHub Actions e deploy
+
+- CI generale: [`.github/workflows/ci.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/ci.yml)
+- Nightly sync: [`.github/workflows/nightly-sync.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/nightly-sync.yml)
+- Secret scan: [`.github/workflows/secret-scan.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/secret-scan.yml)
+- Eurobet smoke manuale: [`.github/workflows/eurobet-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/eurobet-smoke.yml)
+
+Per GitHub Actions e deploy usa solo GitHub Secrets o variabili ambiente del runtime:
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `ODDS_API_KEY`
+
+### Smoke Eurobet
+
+Controllo locale rapido:
+
+```powershell
+cd backend
+npm run smoke:eurobet -- --competition "Serie A" --verbose
+```
+
+Con fixture specifiche:
+
+```powershell
+cd backend
+npm run smoke:eurobet -- --competition "Serie A" --fixture "Inter|Milan|2026-04-20T18:45:00Z" --include-extended-groups
+```
+
+### Troubleshooting
+
+- Playwright/Chromium:
+
+```powershell
+cd backend
+npx playwright install --with-deps chromium
+```
+
+- Debug Eurobet con browser visibile:
+
+```powershell
+cd backend
+npm run dev:eurobet-headed
+```
+
+- Porte:
+  `3000` per frontend locale, `3001` per backend; in Docker puoi cambiare la porta frontend con `FRONTEND_PORT`.
+- Env:
+  se usi i comandi root, non creare `.env` separati in `backend` o `frontend`.

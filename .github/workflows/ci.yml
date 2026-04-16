@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Prepare backend log directory
+        run: mkdir -p ci-logs/backend
+
+      - name: Install backend dependencies
+        working-directory: backend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm ci 2>&1 | tee ../ci-logs/backend/npm-ci.log
+
+      - name: Lint backend
+        working-directory: backend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run lint 2>&1 | tee ../ci-logs/backend/lint.log
+
+      - name: Typecheck backend
+        working-directory: backend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run typecheck 2>&1 | tee ../ci-logs/backend/typecheck.log
+
+      - name: Build backend
+        working-directory: backend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run build 2>&1 | tee ../ci-logs/backend/build.log
+
+      - name: Test backend
+        working-directory: backend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run test 2>&1 | tee ../ci-logs/backend/test.log
+
+      - name: Upload backend CI logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-ci-logs
+          path: ci-logs/backend
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Prepare frontend log directory
+        run: mkdir -p ci-logs/frontend
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm ci 2>&1 | tee ../ci-logs/frontend/npm-ci.log
+
+      - name: Lint frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run lint 2>&1 | tee ../ci-logs/frontend/lint.log
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run typecheck 2>&1 | tee ../ci-logs/frontend/typecheck.log
+
+      - name: Build frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run build 2>&1 | tee ../ci-logs/frontend/build.log
+
+      - name: Upload frontend CI logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-ci-logs
+          path: ci-logs/frontend
+          if-no-files-found: ignore

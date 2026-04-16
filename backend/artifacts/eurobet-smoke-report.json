@@ -1,0 +1,16 @@
+{
+  "competition": "Serie A",
+  "meetingAlias": "it-serie-a",
+  "sourceUsed": "meeting-json",
+  "matchesFound": 10,
+  "matchesWithBaseOdds": 10,
+  "matchesWithExtendedGroups": 0,
+  "durationMs": 15949,
+  "errorCategory": null,
+  "warnings": [],
+  "success": true,
+  "severity": "healthy",
+  "fixtureCount": 0,
+  "includeExtendedGroups": false,
+  "issues": []
+}

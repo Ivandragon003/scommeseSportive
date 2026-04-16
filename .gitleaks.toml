@@ -1,0 +1,10 @@
+title = "scommeseSportive gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder sicuri ammessi solo nel file di esempio environment"
+paths = [
+  '''(^|/)\.env\.example$''',
+]

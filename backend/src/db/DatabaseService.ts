@@ -1,6 +1,14 @@
 import { createClient } from '@libsql/client';
 
 type SqlArgs = Record<string, any> | any[];
+type HistoricalOddsDetail = {
+  odds: Record<string, number>;
+  oddsSource: 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
+  snapshotSource: string | null;
+  capturedAt: string | null;
+  usedFallbackBookmaker: boolean;
+  usedSyntheticOdds: boolean;
+};
 
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
@@ -60,6 +68,7 @@ export class DatabaseService {
         await clientWithBatch.batch(statements);
         return;
       } catch {
+        // Fallback to sequential execution when batch is unsupported or fails.
       }
     }
 
@@ -292,6 +301,32 @@ export class DatabaseService {
         error TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       )`,
+      `CREATE TABLE IF NOT EXISTS system_runs (
+        run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_type TEXT NOT NULL,
+        component TEXT NOT NULL,
+        request_id TEXT,
+        external_run_id TEXT,
+        provider TEXT,
+        competition TEXT,
+        meeting_alias TEXT,
+        source_used TEXT,
+        match_count INTEGER,
+        market_count INTEGER,
+        fixture_count INTEGER,
+        matches_with_base_odds INTEGER,
+        matches_with_extended_groups INTEGER,
+        duration_ms INTEGER,
+        success INTEGER NOT NULL DEFAULT 0,
+        warning_count INTEGER DEFAULT 0,
+        fallback_used INTEGER DEFAULT 0,
+        error_category TEXT,
+        warning_json TEXT,
+        metadata_json TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )`,
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
@@ -301,6 +336,8 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_lookup ON odds_snapshots(home_team_name, away_team_name, competition, commence_time)',
       'CREATE INDEX IF NOT EXISTS idx_learning_reviews_competition ON learning_reviews(competition, updated_at)',
       'CREATE INDEX IF NOT EXISTS idx_scheduler_runs_name_started ON scheduler_runs(scheduler_name, started_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_system_runs_type_started ON system_runs(run_type, started_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_system_runs_component_started ON system_runs(component, started_at DESC)',
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
     ];
 
@@ -400,6 +437,7 @@ export class DatabaseService {
       try {
         await this.ensureTableColumns(table, items);
       } catch {
+        // Ignore additive schema checks that fail on older/local database states.
       }
     }
   }
@@ -987,6 +1025,18 @@ export class DatabaseService {
     };
   }
 
+  private classifyHistoricalOddsSource(row: any): HistoricalOddsDetail['oddsSource'] {
+    const source = String(row?.source ?? '').trim().toLowerCase();
+    if (Boolean(row?.usedSyntheticOdds) || source.includes('model_estimated') || source.includes('synthetic')) {
+      return 'synthetic';
+    }
+    if (Boolean(row?.usedFallbackBookmaker) || source.includes('odds_api') || source.includes('fallback')) {
+      return 'fallback';
+    }
+    if (source.includes('eurobet')) return 'eurobet_scraper';
+    return 'unknown';
+  }
+
   async saveOddsSnapshot(snapshot: {
     snapshotId: string;
     matchId?: string | null;
@@ -1111,6 +1161,14 @@ export class DatabaseService {
   }
 
   async getHistoricalOddsMap(filters?: { competition?: string; season?: string }): Promise<Record<string, Record<string, number>>> {
+    const detailMap = await this.getHistoricalOddsDetailMap(filters);
+    return Object.entries(detailMap).reduce((acc, [matchId, detail]) => {
+      if (Object.keys(detail.odds).length > 0) acc[matchId] = detail.odds;
+      return acc;
+    }, {} as Record<string, Record<string, number>>);
+  }
+
+  async getHistoricalOddsDetailMap(filters?: { competition?: string; season?: string }): Promise<Record<string, HistoricalOddsDetail>> {
     let q = `
       SELECT os.*, m.season, m.date AS match_date, m.home_goals, m.away_goals
       FROM odds_snapshots os
@@ -1146,7 +1204,7 @@ export class DatabaseService {
       .map((row) => this.parseOddsSnapshotRow(row))
       .filter(Boolean);
 
-    const out: Record<string, Record<string, number>> = {};
+    const out: Record<string, HistoricalOddsDetail> = {};
     for (const row of rows) {
       const matchId = String(row.match_id ?? '').trim();
       if (!matchId || out[matchId]) continue;
@@ -1156,7 +1214,16 @@ export class DatabaseService {
         const n = Number(odd);
         if (Number.isFinite(n) && n > 1) normalized[selection] = Number(n.toFixed(2));
       }
-      if (Object.keys(normalized).length > 0) out[matchId] = normalized;
+      if (Object.keys(normalized).length > 0) {
+        out[matchId] = {
+          odds: normalized,
+          oddsSource: this.classifyHistoricalOddsSource(row),
+          snapshotSource: String(row.source ?? '').trim() || null,
+          capturedAt: String(row.captured_at ?? '').trim() || null,
+          usedFallbackBookmaker: Boolean(row.usedFallbackBookmaker),
+          usedSyntheticOdds: Boolean(row.usedSyntheticOdds),
+        };
+      }
     }
     return out;
   }
@@ -1187,8 +1254,8 @@ export class DatabaseService {
       sourceBreakdown[source] = (sourceBreakdown[source] ?? 0) + 1;
 
       if (Object.keys(row.liveSelectedOdds ?? {}).length > 0 || Object.keys(row.eurobetOdds ?? {}).length > 0) withRealOdds++;
-      if (Boolean(row.usedSyntheticOdds)) withSyntheticCompletion++;
-      if (!Boolean(row.usedFallbackBookmaker) && !Boolean(row.usedSyntheticOdds) && Object.keys(row.eurobetOdds ?? {}).length > 0) withEurobetPure++;
+      if (row.usedSyntheticOdds) withSyntheticCompletion++;
+      if (!row.usedFallbackBookmaker && !row.usedSyntheticOdds && Object.keys(row.eurobetOdds ?? {}).length > 0) withEurobetPure++;
     }
 
     const earliest = rows[0]?.captured_at ?? null;
@@ -2168,12 +2235,14 @@ export class DatabaseService {
 
   // ==================== BACKTEST ====================
 
-  async saveBacktestResult(competition: string, seasonRange: string, result: object): Promise<void> {
-    await this.run('INSERT INTO backtest_results (competition, season_range, result_json) VALUES (?, ?, ?)', [
+  async saveBacktestResult(competition: string, seasonRange: string, result: object): Promise<number> {
+    const insertResult = await this.execute('INSERT INTO backtest_results (competition, season_range, result_json) VALUES (?, ?, ?)', [
       competition,
       seasonRange,
       JSON.stringify(result),
     ]);
+    const inserted = Number(insertResult?.lastInsertRowid ?? 0);
+    return Number.isFinite(inserted) && inserted > 0 ? inserted : 0;
   }
 
   async getBacktestResults(competition?: string): Promise<any[]> {
@@ -2316,6 +2385,145 @@ export class DatabaseService {
         durationMs: row?.duration_ms === null || row?.duration_ms === undefined ? null : Number(row.duration_ms),
         error: row?.error ? String(row.error) : null,
         summary,
+      };
+    });
+  }
+
+  async saveSystemRun(entry: {
+    runType: string;
+    component: string;
+    requestId?: string | null;
+    externalRunId?: string | null;
+    provider?: string | null;
+    competition?: string | null;
+    meetingAlias?: string | null;
+    sourceUsed?: string | null;
+    matchCount?: number | null;
+    marketCount?: number | null;
+    fixtureCount?: number | null;
+    matchesWithBaseOdds?: number | null;
+    matchesWithExtendedGroups?: number | null;
+    durationMs?: number | null;
+    success: boolean;
+    warningCount?: number | null;
+    fallbackUsed?: boolean;
+    errorCategory?: string | null;
+    warnings?: string[] | null;
+    metadata?: Record<string, any> | null;
+    startedAt: string;
+    endedAt?: string | null;
+  }): Promise<number> {
+    const result = await this.execute(
+      `INSERT INTO system_runs (
+        run_type, component, request_id, external_run_id, provider, competition,
+        meeting_alias, source_used, match_count, market_count, fixture_count,
+        matches_with_base_odds, matches_with_extended_groups, duration_ms,
+        success, warning_count, fallback_used, error_category, warning_json,
+        metadata_json, started_at, ended_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.runType,
+        entry.component,
+        entry.requestId ?? null,
+        entry.externalRunId ?? null,
+        entry.provider ?? null,
+        entry.competition ?? null,
+        entry.meetingAlias ?? null,
+        entry.sourceUsed ?? null,
+        entry.matchCount ?? null,
+        entry.marketCount ?? null,
+        entry.fixtureCount ?? null,
+        entry.matchesWithBaseOdds ?? null,
+        entry.matchesWithExtendedGroups ?? null,
+        entry.durationMs ?? null,
+        entry.success ? 1 : 0,
+        entry.warningCount ?? 0,
+        entry.fallbackUsed ? 1 : 0,
+        entry.errorCategory ?? null,
+        entry.warnings ? JSON.stringify(entry.warnings) : null,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        entry.startedAt,
+        entry.endedAt ?? null,
+      ]
+    );
+
+    return Number(result?.lastInsertRowid ?? 0);
+  }
+
+  async listRecentSystemRuns(
+    limit = 25,
+    filters?: { runType?: string; component?: string }
+  ): Promise<any[]> {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 200));
+    const conditions: string[] = [];
+    const args: any[] = [];
+
+    if (filters?.runType) {
+      conditions.push('run_type = ?');
+      args.push(filters.runType);
+    }
+    if (filters?.component) {
+      conditions.push('component = ?');
+      args.push(filters.component);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    args.push(safeLimit);
+
+    const rows = await this.all(
+      `SELECT * FROM system_runs
+       ${where}
+       ORDER BY datetime(started_at) DESC, run_id DESC
+       LIMIT ?`,
+      args
+    );
+
+    return rows.map((row) => {
+      let warnings: string[] = [];
+      let metadata: Record<string, any> | null = null;
+
+      try {
+        warnings = row?.warning_json ? JSON.parse(String(row.warning_json)) : [];
+      } catch {
+        warnings = [];
+      }
+
+      try {
+        metadata = row?.metadata_json ? JSON.parse(String(row.metadata_json)) : null;
+      } catch {
+        metadata = null;
+      }
+
+      return {
+        runId: Number(row?.run_id ?? 0),
+        runType: String(row?.run_type ?? ''),
+        component: String(row?.component ?? ''),
+        requestId: row?.request_id ? String(row.request_id) : null,
+        externalRunId: row?.external_run_id ? String(row.external_run_id) : null,
+        provider: row?.provider ? String(row.provider) : null,
+        competition: row?.competition ? String(row.competition) : null,
+        meetingAlias: row?.meeting_alias ? String(row.meeting_alias) : null,
+        sourceUsed: row?.source_used ? String(row.source_used) : null,
+        matchCount: row?.match_count === null || row?.match_count === undefined ? null : Number(row.match_count),
+        marketCount: row?.market_count === null || row?.market_count === undefined ? null : Number(row.market_count),
+        fixtureCount: row?.fixture_count === null || row?.fixture_count === undefined ? null : Number(row.fixture_count),
+        matchesWithBaseOdds:
+          row?.matches_with_base_odds === null || row?.matches_with_base_odds === undefined
+            ? null
+            : Number(row.matches_with_base_odds),
+        matchesWithExtendedGroups:
+          row?.matches_with_extended_groups === null || row?.matches_with_extended_groups === undefined
+            ? null
+            : Number(row.matches_with_extended_groups),
+        durationMs: row?.duration_ms === null || row?.duration_ms === undefined ? null : Number(row.duration_ms),
+        success: Number(row?.success ?? 0) === 1,
+        warningCount: Number(row?.warning_count ?? 0),
+        fallbackUsed: Number(row?.fallback_used ?? 0) === 1,
+        errorCategory: row?.error_category ? String(row.error_category) : null,
+        warnings,
+        metadata,
+        startedAt: row?.started_at ? String(row.started_at) : null,
+        endedAt: row?.ended_at ? String(row.ended_at) : null,
       };
     });
   }

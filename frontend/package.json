@@ -15,7 +15,10 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "test:ci": "react-scripts test --watchAll=false --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings=0"
   },
   "browserslist": {
     "production": [
@@ -28,7 +31,10 @@
   },
   "proxy": "http://localhost:3001",
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/jest": "^29.5.14",
     "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1"
+    "@types/react-dom": "^18.3.1",
+    "eslint": "^8.57.1"
   }
 }
