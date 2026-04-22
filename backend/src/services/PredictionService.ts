@@ -1,4 +1,4 @@
-import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/DixonColesModel';
+import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import {
   ValueBettingEngine,
   BetOpportunity,
@@ -6,11 +6,11 @@ import {
   SelectionDiagnostics,
   AdaptiveEngineTuningProfile,
   MarketCategory,
-} from '../models/ValueBettingEngine';
+} from '../models/value/ValueBettingEngine';
 import {
   analyzeMarketsEnhanced,
-} from '../models/CombinedBettingFixes';
-import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/BacktestingEngine';
+} from '../models/value/EnhancedMarketAnalysis';
+import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
@@ -123,6 +123,20 @@ export interface CompletedMatchLearningReview {
   } | null;
 }
 
+type BudgetBetSummary = {
+  totalBets: number;
+  totalStaked: number;
+  totalWon: number;
+  totalLost: number;
+  totalReturned: number;
+  totalProfit: number;
+  settledStaked: number;
+  settledCount: number;
+  wonCount: number;
+  winRate: number;
+  roi: number;
+};
+
 // Exported for narrow smoke tests so key normalization/enrichment stays type-safe and refactor-safe.
 export function enrichFlatProbabilitiesInternal(flat: Record<string, number>): void {
   const p1 = flat['homeWin'] || 0;
@@ -177,6 +191,64 @@ export function alignOddsKeysInternal(odds: Record<string, number>): Record<stri
   }
 
   return aligned;
+}
+
+export function summarizeBudgetBetsInternal(allBets: any[]): BudgetBetSummary {
+  let totalStaked = 0;
+  let totalWon = 0;
+  let totalLost = 0;
+  let totalReturned = 0;
+  let totalProfit = 0;
+  let settledStaked = 0;
+  let settledCount = 0;
+  let wonCount = 0;
+
+  for (const bet of allBets) {
+    const status = String(bet?.status ?? '').trim().toUpperCase();
+    const stake = Number(bet?.stake ?? 0) || 0;
+    const returnAmount = Number(bet?.return_amount ?? 0) || 0;
+    const profit = Number(bet?.profit ?? 0) || 0;
+
+    totalStaked += stake;
+
+    if (status === 'WON') {
+      totalWon += returnAmount;
+      totalReturned += returnAmount;
+      settledCount += 1;
+      wonCount += 1;
+      totalProfit += profit;
+      settledStaked += stake;
+      continue;
+    }
+
+    if (status === 'LOST') {
+      totalLost += stake;
+      settledCount += 1;
+      totalProfit += profit;
+      settledStaked += stake;
+      continue;
+    }
+
+    if (status === 'VOID') {
+      totalReturned += returnAmount;
+      totalProfit += profit;
+      settledStaked += stake;
+    }
+  }
+
+  return {
+    totalBets: allBets.length,
+    totalStaked,
+    totalWon,
+    totalLost,
+    totalReturned,
+    totalProfit,
+    settledStaked,
+    settledCount,
+    wonCount,
+    winRate: settledCount > 0 ? (wonCount / settledCount) * 100 : 0,
+    roi: settledStaked > 0 ? (totalProfit / settledStaked) * 100 : 0,
+  };
 }
 
 export class PredictionService {
@@ -1910,40 +1982,19 @@ export class PredictionService {
     if (!budget) return null;
 
     const allBets = await this.db.getBets(userId);
-    const totalBets = allBets.length;
-    const totalStaked = allBets.reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
-    const totalWon = allBets
-      .filter((b: any) => b.status === 'WON')
-      .reduce((s: number, b: any) => s + Number(b.return_amount ?? 0), 0);
-    const totalLost = allBets
-      .filter((b: any) => b.status === 'LOST')
-      .reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
-
-    const totalReturned = allBets
-      .filter((b: any) => b.status === 'WON' || b.status === 'VOID')
-      .reduce((s: number, b: any) => s + Number(b.return_amount ?? 0), 0);
-
-    const settled = allBets.filter((b: any) => b.status === 'WON' || b.status === 'LOST');
-    const wonCount = settled.filter((b: any) => b.status === 'WON').length;
-    const winRate = settled.length > 0 ? (wonCount / settled.length) * 100 : 0;
-
-    const settledForRoi = allBets.filter((b: any) => b.status === 'WON' || b.status === 'LOST' || b.status === 'VOID');
-    const totalProfit = settledForRoi.reduce((s: number, b: any) => s + Number(b.profit ?? 0), 0);
-    const settledStaked = settledForRoi.reduce((s: number, b: any) => s + Number(b.stake ?? 0), 0);
-    const roi = settledStaked > 0 ? (totalProfit / settledStaked) * 100 : 0;
-
-    const availableBudget = Number(budget.total_budget ?? 0) - totalStaked + totalReturned;
+    const summary = summarizeBudgetBetsInternal(allBets);
+    const availableBudget = Number(budget.total_budget ?? 0) - summary.totalStaked + summary.totalReturned;
 
     await this.db.updateBudget({
       userId,
       totalBudget: Number(budget.total_budget ?? 0),
       availableBudget: Number(availableBudget.toFixed(2)),
-      totalBets,
-      totalStaked: Number(totalStaked.toFixed(2)),
-      totalWon: Number(totalWon.toFixed(2)),
-      totalLost: Number(totalLost.toFixed(2)),
-      roi: Number(roi.toFixed(2)),
-      winRate: Number(winRate.toFixed(2)),
+      totalBets: summary.totalBets,
+      totalStaked: Number(summary.totalStaked.toFixed(2)),
+      totalWon: Number(summary.totalWon.toFixed(2)),
+      totalLost: Number(summary.totalLost.toFixed(2)),
+      roi: Number(summary.roi.toFixed(2)),
+      winRate: Number(summary.winRate.toFixed(2)),
     });
 
     return this.db.getBudget(userId);

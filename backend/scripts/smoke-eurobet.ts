@@ -4,6 +4,12 @@ import {
   EurobetOddsService,
   EurobetSmokeReport,
 } from '../src/services/EurobetOddsService';
+import {
+  EUROBET_SMOKE_LOG_FILENAME,
+  EUROBET_SMOKE_REPORT_FILENAME,
+  ensureEurobetSmokeArtifactsDir,
+  resolveEurobetSmokeArtifactPath,
+} from '../src/services/EurobetSmokeArtifactsService';
 
 type SmokeCliOptions = {
   competition: string;
@@ -65,8 +71,8 @@ function parseArgs(argv: string[]): SmokeCliOptions {
     fixtures: [],
     includeExtendedGroups: false,
     verbose: false,
-    reportFile: path.resolve(process.cwd(), 'artifacts', 'eurobet-smoke-report.json'),
-    logFile: path.resolve(process.cwd(), 'artifacts', 'eurobet-smoke.log'),
+    reportFile: resolveEurobetSmokeArtifactPath(undefined, EUROBET_SMOKE_REPORT_FILENAME),
+    logFile: resolveEurobetSmokeArtifactPath(undefined, EUROBET_SMOKE_LOG_FILENAME),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -93,11 +99,11 @@ function parseArgs(argv: string[]): SmokeCliOptions {
         options.verbose = true;
         break;
       case '--report-file':
-        options.reportFile = path.resolve(process.cwd(), String(argv[index + 1] ?? '').trim());
+        options.reportFile = resolveEurobetSmokeArtifactPath(String(argv[index + 1] ?? '').trim(), EUROBET_SMOKE_REPORT_FILENAME);
         index += 1;
         break;
       case '--log-file':
-        options.logFile = path.resolve(process.cwd(), String(argv[index + 1] ?? '').trim());
+        options.logFile = resolveEurobetSmokeArtifactPath(String(argv[index + 1] ?? '').trim(), EUROBET_SMOKE_LOG_FILENAME);
         index += 1;
         break;
       default:
@@ -170,6 +176,7 @@ function writeReport(reportFile: string, report: EurobetSmokeReport): void {
 
 async function main(): Promise<void> {
   loadRootEnv();
+  ensureEurobetSmokeArtifactsDir();
   const options = parseArgs(process.argv.slice(2));
   const restoreConsole = createConsoleCapture(options.logFile, options.verbose);
   const service = new EurobetOddsService();
@@ -206,7 +213,7 @@ async function main(): Promise<void> {
   }
 
   console.log(JSON.stringify(report, null, 2));
-  process.exitCode = report.errorCategory ? 1 : 0;
+  process.exitCode = report.severity === 'failed' ? 1 : 0;
 }
 
 main().catch((error) => {

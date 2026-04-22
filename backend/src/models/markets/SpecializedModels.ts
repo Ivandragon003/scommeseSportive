@@ -1,7 +1,7 @@
 import {
   negBinOver as computeNegBinOver,
   negBinPMF as computeNegBinPMF,
-} from './MathUtils';
+} from '../utils/MathUtils';
 
 /**
  * MODELLI STATISTICI SPECIALIZZATI — Versione migliorata
@@ -774,8 +774,6 @@ export class SpecializedModels {
     const varAway = muAway * 1.5;
     const varTotal = varHome + varAway + 0.2 * Math.sqrt(varHome * varAway);
 
-    const rHome = this.estimateDispersion(muHome, varHome, nHome, 40);
-    const rAway = this.estimateDispersion(muAway, varAway, nAway, 40);
     const nMin = Math.min(nHome, nAway);
     const rTotal = this.estimateDispersion(muTotal, varTotal, nMin, 60);
 

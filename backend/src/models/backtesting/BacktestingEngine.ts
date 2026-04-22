@@ -26,9 +26,9 @@
  *    di ROI/win-rate per evitare penalizzazioni silenziose nel backtest.
  */
 
-import { DixonColesModel, MatchData } from './DixonColesModel';
-import { ValueBettingEngine, BetOpportunity, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from './ValueBettingEngine';
-import { evaluateComboBet } from './CombinedBettingFixes';
+import { DixonColesModel, MatchData } from '../core/DixonColesModel';
+import { ValueBettingEngine, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from '../value/ValueBettingEngine';
+import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 
 export interface BacktestResult {
   totalMatches: number;

@@ -1,5 +1,5 @@
-import { SupplementaryData } from '../models/DixonColesModel';
-import { PlayerShotsData } from '../models/SpecializedModels';
+import { SupplementaryData } from '../models/core/DixonColesModel';
+import { PlayerShotsData } from '../models/markets/SpecializedModels';
 import { predictionConfig } from '../config/predictionConfig';
 
 /**

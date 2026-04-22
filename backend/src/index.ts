@@ -3,6 +3,7 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
 import { DatabaseService } from './db/DatabaseService';
+import { createOddsProviderCoordinatorBundle } from './services/odds-provider/providerRuntimeConfig';
 import { PredictionService } from './services/PredictionService';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 
@@ -236,9 +237,39 @@ app.get('/api/system/health', async (_req, res) => {
   res.json({ success: true, data: payload });
 });
 
-app.get('/api/system/provider-health', async (_req, res) => {
+app.get('/api/system/provider-health', async (req, res) => {
+  const refresh =
+    String(req.query.refresh ?? '').trim().toLowerCase() === '1'
+    || String(req.query.refresh ?? '').trim().toLowerCase() === 'true';
+  const competition = String(req.query.competition ?? 'Serie A').trim() || 'Serie A';
   const payload = await observability.getProviderHealthPayload();
-  res.json({ success: true, data: payload });
+
+  if (!refresh) {
+    return res.json({ success: true, data: payload });
+  }
+
+  const { coordinator, primaryProviderName, fallbackProviderName } = createOddsProviderCoordinatorBundle();
+  const liveHealth = await coordinator.healthCheck({ competition });
+  const existingWarnings = Array.isArray(payload.warnings) ? payload.warnings.map(String) : [];
+  const mergedWarnings = Array.from(new Set([...existingWarnings, ...liveHealth.warnings]));
+
+  return res.json({
+    success: true,
+    data: {
+      ...payload,
+      status: liveHealth.status,
+      primaryProvider: liveHealth.primaryProvider ?? primaryProviderName,
+      fallbackProvider: liveHealth.fallbackProvider ?? fallbackProviderName,
+      activeProvider: liveHealth.activeProvider,
+      oddsSource: liveHealth.oddsSource,
+      fallbackReason: liveHealth.fallbackReason,
+      providerHealth: liveHealth.providerHealth,
+      warnings: mergedWarnings,
+      warningCount: mergedWarnings.length,
+      fetchedAt: liveHealth.checkedAt,
+      freshnessMinutes: 0,
+    },
+  });
 });
 
 app.get('/api/system/metrics', async (_req, res) => {

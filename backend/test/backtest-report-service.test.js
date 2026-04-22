@@ -115,6 +115,81 @@ test('buildBacktestReport applica i filtri per market, source e data', () => {
   assert.equal(report.segments.byMarket[0].key, 'shots');
 });
 
+test('buildBacktestReport mantiene il filtro per marketName oltre al marketCategory', () => {
+  const report = buildBacktestReport(sampleResult, {
+    market: 'over 2.5',
+  });
+
+  assert.equal(report.dataset.filteredBets, 1);
+  assert.equal(report.summary.totalBets, 1);
+  assert.equal(report.summary.netProfit, 22.5);
+  assert.equal(report.segments.byMarket[0].key, 'goal_ou');
+});
+
+test('buildBacktestReport conta i record invalidi senza scartarli dal report', () => {
+  const report = buildBacktestReport({
+    kind: 'classic',
+    competition: 'Serie A',
+    season: '2025-26',
+    usedSyntheticOddsOnly: false,
+    detailedBets: [
+      {
+        matchId: '',
+        predictionId: 'pred-1',
+        matchDate: 'not-a-date',
+        competition: 'Serie A',
+        season: '2025-26',
+        marketName: 'Over 2.5',
+        marketCategory: 'goal_ou',
+        selection: 'over25',
+        odds: 'bad-odds',
+        impliedProbability: 0.5,
+        ourProbability: 'bad-probability',
+        expectedValue: 0.1,
+        edge: 0.04,
+        edgeNoVig: 0.04,
+        confidence: 'LOW',
+        stake: 10,
+        profit: -10,
+        outcome: 'LOST',
+        won: false,
+        isSynthetic: false,
+        oddsSource: 'fallback',
+      },
+      {
+        matchId: 'm-valid',
+        predictionId: '',
+        matchDate: '2026-02-12T19:45:00.000Z',
+        competition: 'Serie A',
+        season: '2025-26',
+        marketName: 'Esito - 1',
+        marketCategory: 'goal_1x2',
+        selection: 'homeWin',
+        odds: 2,
+        impliedProbability: 0.5,
+        ourProbability: 0.52,
+        expectedValue: 0.04,
+        edge: 0.02,
+        edgeNoVig: 0.02,
+        confidence: 'MEDIUM',
+        stake: 12,
+        profit: 12,
+        outcome: 'WON',
+        won: true,
+        isSynthetic: false,
+        oddsSource: 'eurobet_scraper',
+      },
+    ],
+  });
+
+  assert.equal(report.summary.totalBets, 2);
+  assert.equal(report.dataset.quality.invalidMatchDates, 1);
+  assert.equal(report.dataset.quality.invalidProbabilities, 1);
+  assert.equal(report.dataset.quality.invalidOdds, 1);
+  assert.equal(report.dataset.quality.missingMatchIds, 1);
+  assert.equal(report.dataset.quality.missingPredictionIds, 1);
+});
+
 test('buildBacktestReport segnala run legacy senza detailed bets', () => {
   const report = buildBacktestReport({
     kind: 'classic',

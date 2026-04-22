@@ -126,6 +126,63 @@ type EurobetSmokeTracker = {
   issues: EurobetSmokeIssue[];
 };
 
+type FixtureMatchStrategy =
+  | 'exact-pair'
+  | 'alias-pair'
+  | 'slug-intersection'
+  | 'alias-intersection'
+  | 'single-team-date'
+  | 'date-window'
+  | 'competition-window'
+  | 'no-candidates';
+
+type FixtureMatchDescriptor = {
+  competitionKey: string | null;
+  homeSlugKeys: string[];
+  awaySlugKeys: string[];
+  homeIdentityKeys: string[];
+  awayIdentityKeys: string[];
+  slugPairKeys: string[];
+  identityPairKeys: string[];
+  dateKeys: string[];
+  commenceTimeMs: number | null;
+};
+
+type IndexedFixtureMatch = {
+  match: EurobetOddsMatch;
+  competitionKey: string | null;
+  homeSlugKeys: string[];
+  awaySlugKeys: string[];
+  homeIdentityKeys: string[];
+  awayIdentityKeys: string[];
+  slugPairKeys: string[];
+  identityPairKeys: string[];
+  dateKeys: string[];
+  commenceTimeMs: number | null;
+};
+
+type FixtureMatchIndex = {
+  entries: IndexedFixtureMatch[];
+  allIndexes: number[];
+  byCompetitionKey: Map<string, number[]>;
+  byDateKey: Map<string, number[]>;
+  byHomeSlugKey: Map<string, number[]>;
+  byAwaySlugKey: Map<string, number[]>;
+  byHomeIdentityKey: Map<string, number[]>;
+  byAwayIdentityKey: Map<string, number[]>;
+  bySlugPairKey: Map<string, number[]>;
+  byIdentityPairKey: Map<string, number[]>;
+};
+
+type FixtureMatchDecision = {
+  bestIndex: number;
+  bestScore: number;
+  candidateCount: number;
+  comparedCount: number;
+  strategy: FixtureMatchStrategy;
+  ambiguousCandidates: Array<{ index: number; score: number }>;
+};
+
 export class EurobetOddsService {
   private static readonly BASE_URL = 'https://www.eurobet.it';
   private static readonly USER_AGENT =
@@ -138,6 +195,26 @@ export class EurobetOddsService {
   private static persistentContextPromise: Promise<BrowserContext> | null = null;
   private static persistentWarmupPromise: Promise<void> | null = null;
   private static processHooksRegistered = false;
+  private static readonly TIME_FORMATTERS: Record<'Europe/Rome' | 'UTC', Intl.DateTimeFormat> = {
+    'Europe/Rome': new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Rome',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    UTC: new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+  };
 
   private static readonly SUPPORTED_COMPETITIONS = [
     'Serie A',
@@ -184,6 +261,13 @@ export class EurobetOddsService {
   private ownsContext = false;
   private competitionAliasCache = new Map<string, string>();
   private smokeTracker: EurobetSmokeTracker | null = null;
+  private normalizedWordCache = new Map<string, string>();
+  private teamAliasCandidateCache = new Map<string, string[]>();
+  private teamSlugCandidateCache = new Map<string, string[]>();
+  private teamIdentityCandidateCache = new Map<string, string[]>();
+  private parsedTimeCache = new Map<string, number | null>();
+  private timeCandidateCache = new Map<string, string[]>();
+  private dateCandidateCache = new Map<string, string[]>();
 
   static getSupportedCompetitions(): string[] {
     return [...EurobetOddsService.SUPPORTED_COMPETITIONS];
@@ -237,7 +321,7 @@ export class EurobetOddsService {
 
     const meetingAlias = await this.resolveMeetingAlias(competition);
     const meetingMatches = await this.loadCompetitionMatchesFromMeetingJson(competition, meetingAlias);
-    const { matchedMatches, missingFixtures } = this.matchFixturesToCompetitionMatches(fixtures, meetingMatches);
+    const { matchedMatches, missingFixtures } = this.matchFixturesToCompetitionMatches(fixtures, meetingMatches, meetingAlias);
 
     if (missingFixtures.length > 0) {
       this.recordSmokeIssue('fixture_matching_failed', 'Alcune fixture non sono presenti nel meeting JSON', true, {
@@ -634,39 +718,413 @@ export class EurobetOddsService {
 
   private matchFixturesToCompetitionMatches(
     fixtures: FixtureCandidate[],
-    matches: EurobetOddsMatch[]
+    matches: EurobetOddsMatch[],
+    competitionKey?: string
   ): { matchedMatches: EurobetOddsMatch[]; missingFixtures: FixtureCandidate[] } {
-    const available = [...matches];
+    const fixtureIndex = this.buildFixtureMatchIndex(matches, competitionKey);
+    const consumedIndexes = new Set<number>();
     const matchedMatches: EurobetOddsMatch[] = [];
     const missingFixtures: FixtureCandidate[] = [];
 
     for (const fixture of fixtures) {
-      const bestIndex = this.findBestFixtureMatchIndex(fixture, available);
-      if (bestIndex === -1) {
+      const decision = this.findBestFixtureMatchIndex(fixture, fixtureIndex, consumedIndexes, competitionKey);
+      if (decision.bestIndex === -1) {
         missingFixtures.push(fixture);
         continue;
       }
 
-      matchedMatches.push(available[bestIndex]);
-      available.splice(bestIndex, 1);
+      if (decision.ambiguousCandidates.length > 1) {
+        const bestEntry = fixtureIndex.entries[decision.bestIndex];
+        const alternativeEntries = decision.ambiguousCandidates
+          .slice(0, 3)
+          .map(({ index, score }) => ({
+            eventAlias: fixtureIndex.entries[index].match.eventAlias,
+            score,
+          }));
+        this.recordSmokeIssue('fixture_matching_failed', 'Fixture matching ambiguo, selezionato il candidato con score migliore', true, {
+          competitionKey: competitionKey ?? bestEntry.match.meetingAlias,
+          fixtureHomeTeam: fixture.homeTeam,
+          fixtureAwayTeam: fixture.awayTeam,
+          strategy: decision.strategy,
+          candidateCount: decision.candidateCount,
+          alternatives: alternativeEntries,
+        });
+        this.logEurobet('warn', 'Fixture matching ambiguo, seleziono il candidato con score migliore', {
+          competitionKey: competitionKey ?? bestEntry.match.meetingAlias,
+          fixtureHomeTeam: fixture.homeTeam,
+          fixtureAwayTeam: fixture.awayTeam,
+          strategy: decision.strategy,
+          candidateCount: decision.candidateCount,
+          comparedCount: decision.comparedCount,
+          selectedEventAlias: bestEntry.match.eventAlias,
+          alternatives: alternativeEntries,
+        });
+      }
+
+      matchedMatches.push(fixtureIndex.entries[decision.bestIndex].match);
+      consumedIndexes.add(decision.bestIndex);
     }
 
     return { matchedMatches, missingFixtures };
   }
 
-  private findBestFixtureMatchIndex(fixture: FixtureCandidate, matches: EurobetOddsMatch[]): number {
+  private buildFixtureMatchIndex(matches: EurobetOddsMatch[], competitionKey?: string): FixtureMatchIndex {
+    const defaultCompetitionKey = this.normalizeCompetitionKey(competitionKey);
+    const entries = matches.map((match) => ({
+      match,
+      competitionKey: this.normalizeCompetitionKey(match.meetingAlias) ?? defaultCompetitionKey,
+      homeSlugKeys: this.buildTeamSlugCandidates(match.homeTeam),
+      awaySlugKeys: this.buildTeamSlugCandidates(match.awayTeam),
+      homeIdentityKeys: this.getTeamIdentityCandidateList(match.homeTeam),
+      awayIdentityKeys: this.getTeamIdentityCandidateList(match.awayTeam),
+      slugPairKeys: this.buildOrderedPairKeys(
+        this.buildTeamSlugCandidates(match.homeTeam),
+        this.buildTeamSlugCandidates(match.awayTeam)
+      ),
+      identityPairKeys: this.buildOrderedPairKeys(
+        this.getTeamIdentityCandidateList(match.homeTeam),
+        this.getTeamIdentityCandidateList(match.awayTeam)
+      ),
+      dateKeys: this.buildDateCandidateKeys(match.commenceTime, false),
+      commenceTimeMs: this.parseTimeValue(match.commenceTime),
+    }));
+    const byCompetitionKey = new Map<string, number[]>();
+    const byDateKey = new Map<string, number[]>();
+    const byHomeSlugKey = new Map<string, number[]>();
+    const byAwaySlugKey = new Map<string, number[]>();
+    const byHomeIdentityKey = new Map<string, number[]>();
+    const byAwayIdentityKey = new Map<string, number[]>();
+    const bySlugPairKey = new Map<string, number[]>();
+    const byIdentityPairKey = new Map<string, number[]>();
+
+    entries.forEach((entry, index) => {
+      this.appendFixtureIndex(byCompetitionKey, entry.competitionKey, index);
+      entry.dateKeys.forEach((key) => this.appendFixtureIndex(byDateKey, key, index));
+      entry.homeSlugKeys.forEach((key) => this.appendFixtureIndex(byHomeSlugKey, key, index));
+      entry.awaySlugKeys.forEach((key) => this.appendFixtureIndex(byAwaySlugKey, key, index));
+      entry.homeIdentityKeys.forEach((key) => this.appendFixtureIndex(byHomeIdentityKey, key, index));
+      entry.awayIdentityKeys.forEach((key) => this.appendFixtureIndex(byAwayIdentityKey, key, index));
+      entry.slugPairKeys.forEach((key) => this.appendFixtureIndex(bySlugPairKey, key, index));
+      entry.identityPairKeys.forEach((key) => this.appendFixtureIndex(byIdentityPairKey, key, index));
+    });
+
+    return {
+      entries,
+      allIndexes: entries.map((_, index) => index),
+      byCompetitionKey,
+      byDateKey,
+      byHomeSlugKey,
+      byAwaySlugKey,
+      byHomeIdentityKey,
+      byAwayIdentityKey,
+      bySlugPairKey,
+      byIdentityPairKey,
+    };
+  }
+
+  private findBestFixtureMatchIndex(
+    fixture: FixtureCandidate,
+    matchIndex: FixtureMatchIndex,
+    consumedIndexes: Set<number>,
+    competitionKey?: string
+  ): FixtureMatchDecision {
+    const { candidateIndexes, strategy } = this.findCandidateFixtureMatchIndexes(
+      fixture,
+      matchIndex,
+      consumedIndexes,
+      competitionKey
+    );
     let bestIndex = -1;
     let bestScore = -1;
+    let comparedCount = 0;
+    const scoredCandidates: Array<{ index: number; score: number }> = [];
 
-    matches.forEach((match, index) => {
-      const score = this.scoreFixtureMatch(fixture, match);
+    for (const index of candidateIndexes) {
+      const score = this.scoreFixtureMatch(fixture, matchIndex.entries[index].match);
+      comparedCount += 1;
+      if (score >= 0) {
+        scoredCandidates.push({ index, score });
+      }
       if (score > bestScore) {
         bestScore = score;
         bestIndex = index;
       }
+    }
+
+    const ambiguousCandidates = bestScore >= 700
+      ? scoredCandidates
+        .filter(({ score }) => score >= 700 && (bestScore - score) <= 25)
+        .sort((left, right) => right.score - left.score)
+      : [];
+
+    return {
+      bestIndex,
+      bestScore,
+      candidateCount: candidateIndexes.length,
+      comparedCount,
+      strategy,
+      ambiguousCandidates,
+    };
+  }
+
+  private findCandidateFixtureMatchIndexes(
+    fixture: FixtureCandidate,
+    matchIndex: FixtureMatchIndex,
+    consumedIndexes: Set<number>,
+    competitionKey?: string
+  ): { candidateIndexes: number[]; strategy: FixtureMatchStrategy } {
+    const descriptor = this.buildFixtureMatchDescriptor(fixture, competitionKey);
+    const competitionCandidates = this.resolveCompetitionCandidates(matchIndex, consumedIndexes, descriptor.competitionKey);
+
+    const exactPairCandidates = this.collectIndexedMatchCandidates(descriptor.slugPairKeys, matchIndex.bySlugPairKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    if (exactPairCandidates.size > 0) {
+      return this.finalizeFixtureCandidateSelection('exact-pair', exactPairCandidates, descriptor, matchIndex);
+    }
+
+    const aliasPairCandidates = this.collectIndexedMatchCandidates(descriptor.identityPairKeys, matchIndex.byIdentityPairKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    if (aliasPairCandidates.size > 0) {
+      return this.finalizeFixtureCandidateSelection('alias-pair', aliasPairCandidates, descriptor, matchIndex);
+    }
+
+    const homeSlugCandidates = this.collectIndexedMatchCandidates(descriptor.homeSlugKeys, matchIndex.byHomeSlugKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    const awaySlugCandidates = this.collectIndexedMatchCandidates(descriptor.awaySlugKeys, matchIndex.byAwaySlugKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    const exactSlugIntersection = this.intersectCandidateSets(homeSlugCandidates, awaySlugCandidates);
+    if (exactSlugIntersection.size > 0) {
+      return this.finalizeFixtureCandidateSelection('slug-intersection', exactSlugIntersection, descriptor, matchIndex);
+    }
+
+    const homeAliasCandidates = this.collectIndexedMatchCandidates(descriptor.homeIdentityKeys, matchIndex.byHomeIdentityKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    const awayAliasCandidates = this.collectIndexedMatchCandidates(descriptor.awayIdentityKeys, matchIndex.byAwayIdentityKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    const aliasIntersection = this.intersectCandidateSets(homeAliasCandidates, awayAliasCandidates);
+    if (aliasIntersection.size > 0) {
+      return this.finalizeFixtureCandidateSelection('alias-intersection', aliasIntersection, descriptor, matchIndex);
+    }
+
+    const dateCandidates = this.collectIndexedMatchCandidates(descriptor.dateKeys, matchIndex.byDateKey, {
+      consumedIndexes,
+      allowedIndexes: competitionCandidates,
+    });
+    const oneSidedDateCandidates = this.unionCandidateSets(
+      this.intersectCandidateSets(dateCandidates, this.unionCandidateSets(homeSlugCandidates, homeAliasCandidates)),
+      this.intersectCandidateSets(dateCandidates, this.unionCandidateSets(awaySlugCandidates, awayAliasCandidates))
+    );
+    if (oneSidedDateCandidates.size > 0) {
+      return this.finalizeFixtureCandidateSelection('single-team-date', oneSidedDateCandidates, descriptor, matchIndex);
+    }
+
+    if (dateCandidates.size > 0) {
+      return this.finalizeFixtureCandidateSelection('date-window', dateCandidates, descriptor, matchIndex);
+    }
+
+    if (competitionCandidates.size > 0) {
+      return this.finalizeFixtureCandidateSelection('competition-window', competitionCandidates, descriptor, matchIndex);
+    }
+
+    return { candidateIndexes: [], strategy: 'no-candidates' };
+  }
+
+  private collectIndexedMatchCandidates(
+    keys: string[],
+    sourceIndex: Map<string, number[]>,
+    options: {
+      consumedIndexes?: Set<number>;
+      allowedIndexes?: Set<number>;
+    } = {}
+  ): Set<number> {
+    const collected = new Set<number>();
+    const consumedIndexes = options.consumedIndexes;
+    const allowedIndexes = options.allowedIndexes;
+    for (const key of keys) {
+      for (const candidateIndex of sourceIndex.get(key) ?? []) {
+        if (consumedIndexes?.has(candidateIndex)) continue;
+        if (allowedIndexes && !allowedIndexes.has(candidateIndex)) continue;
+        collected.add(candidateIndex);
+      }
+    }
+    return collected;
+  }
+
+  private appendFixtureIndex(indexMap: Map<string, number[]>, key: string | null, index: number): void {
+    if (!key) return;
+    const bucket = indexMap.get(key) ?? [];
+    bucket.push(index);
+    indexMap.set(key, bucket);
+  }
+
+  private normalizeCompetitionKey(value?: string | null): string | null {
+    const normalized = this.normalizeWords(String(value ?? ''));
+    return normalized || null;
+  }
+
+  private buildFixtureMatchDescriptor(fixture: FixtureCandidate, competitionKey?: string): FixtureMatchDescriptor {
+    const homeSlugKeys = this.buildTeamSlugCandidates(fixture.homeTeam);
+    const awaySlugKeys = this.buildTeamSlugCandidates(fixture.awayTeam);
+    const homeIdentityKeys = this.getTeamIdentityCandidateList(fixture.homeTeam);
+    const awayIdentityKeys = this.getTeamIdentityCandidateList(fixture.awayTeam);
+    return {
+      competitionKey: this.normalizeCompetitionKey(competitionKey),
+      homeSlugKeys,
+      awaySlugKeys,
+      homeIdentityKeys,
+      awayIdentityKeys,
+      slugPairKeys: this.buildOrderedPairKeys(homeSlugKeys, awaySlugKeys),
+      identityPairKeys: this.buildOrderedPairKeys(homeIdentityKeys, awayIdentityKeys),
+      dateKeys: this.buildDateCandidateKeys(fixture.commenceTime, true),
+      commenceTimeMs: this.parseTimeValue(fixture.commenceTime),
+    };
+  }
+
+  private buildOrderedPairKeys(leftKeys: string[], rightKeys: string[]): string[] {
+    const keys = new Set<string>();
+    for (const left of leftKeys) {
+      for (const right of rightKeys) {
+        if (!left || !right) continue;
+        keys.add(`${left}|${right}`);
+      }
+    }
+    return Array.from(keys);
+  }
+
+  private buildDateCandidateKeys(commenceTime?: string | null, includeOffsets = true): string[] {
+    const raw = String(commenceTime ?? '').trim();
+    if (!raw) return [];
+
+    const cacheKey = `${includeOffsets ? 'fixture' : 'match'}|${raw}`;
+    const cached = this.dateCandidateCache.get(cacheKey);
+    if (cached) return cached;
+
+    const baseTimeMs = this.parseTimeValue(raw);
+    if (baseTimeMs === null) return [];
+
+    const deltas = includeOffsets ? [-120, -60, 0, 60, 120] : [0];
+    const keys = Array.from(new Set(
+      deltas.flatMap((deltaMinutes) => {
+        const candidate = new Date(baseTimeMs + deltaMinutes * 60_000);
+        return [
+          this.formatEurobetTimestamp(candidate, 'UTC').slice(0, 8),
+          this.formatEurobetTimestamp(candidate, 'Europe/Rome').slice(0, 8),
+        ];
+      }).filter(Boolean)
+    ));
+
+    this.dateCandidateCache.set(cacheKey, keys);
+    return keys;
+  }
+
+  private resolveCompetitionCandidates(
+    matchIndex: FixtureMatchIndex,
+    consumedIndexes: Set<number>,
+    competitionKey: string | null
+  ): Set<number> {
+    if (competitionKey) {
+      const scoped = this.collectIndexedMatchCandidates([competitionKey], matchIndex.byCompetitionKey, {
+        consumedIndexes,
+      });
+      if (scoped.size > 0) return scoped;
+    }
+
+    return new Set(matchIndex.allIndexes.filter((index) => !consumedIndexes.has(index)));
+  }
+
+  private intersectCandidateSets(left: Set<number>, right: Set<number>): Set<number> {
+    if (left.size === 0 || right.size === 0) return new Set<number>();
+    const smaller = left.size <= right.size ? left : right;
+    const larger = left.size <= right.size ? right : left;
+    const intersected = new Set<number>();
+    for (const value of smaller) {
+      if (larger.has(value)) {
+        intersected.add(value);
+      }
+    }
+    return intersected;
+  }
+
+  private unionCandidateSets(left: Set<number>, right: Set<number>): Set<number> {
+    if (left.size === 0) return new Set(right);
+    if (right.size === 0) return new Set(left);
+    return new Set([...left, ...right]);
+  }
+
+  private finalizeFixtureCandidateSelection(
+    strategy: FixtureMatchStrategy,
+    candidates: Set<number>,
+    descriptor: FixtureMatchDescriptor,
+    matchIndex: FixtureMatchIndex
+  ): { candidateIndexes: number[]; strategy: FixtureMatchStrategy } {
+    const reducedCandidates = this.reduceFixtureCandidatesByDateAndTime(candidates, descriptor, matchIndex);
+    const candidateIndexes = Array.from(reducedCandidates).sort((left, right) => {
+      const leftDistance = this.getFixtureCandidateTimeDistance(descriptor.commenceTimeMs, matchIndex.entries[left].commenceTimeMs);
+      const rightDistance = this.getFixtureCandidateTimeDistance(descriptor.commenceTimeMs, matchIndex.entries[right].commenceTimeMs);
+      return leftDistance - rightDistance;
     });
 
-    return bestIndex;
+    return { candidateIndexes, strategy };
+  }
+
+  private reduceFixtureCandidatesByDateAndTime(
+    candidates: Set<number>,
+    descriptor: FixtureMatchDescriptor,
+    matchIndex: FixtureMatchIndex
+  ): Set<number> {
+    let reduced = candidates;
+
+    if (descriptor.dateKeys.length > 0) {
+      const dateCandidates = this.collectIndexedMatchCandidates(descriptor.dateKeys, matchIndex.byDateKey, {
+        allowedIndexes: reduced,
+      });
+      if (dateCandidates.size > 0) {
+        reduced = dateCandidates;
+      }
+    }
+
+    if (descriptor.commenceTimeMs === null) {
+      return reduced;
+    }
+
+    const tightWindow = new Set(
+      Array.from(reduced).filter((index) => {
+        const matchTimeMs = matchIndex.entries[index].commenceTimeMs;
+        return matchTimeMs === null || Math.abs(matchTimeMs - descriptor.commenceTimeMs!) <= 120 * 60_000;
+      })
+    );
+    if (tightWindow.size > 0) {
+      return tightWindow;
+    }
+
+    const broadWindow = new Set(
+      Array.from(reduced).filter((index) => {
+        const matchTimeMs = matchIndex.entries[index].commenceTimeMs;
+        return matchTimeMs === null || Math.abs(matchTimeMs - descriptor.commenceTimeMs!) <= 180 * 60_000;
+      })
+    );
+    if (broadWindow.size > 0) {
+      return broadWindow;
+    }
+
+    return reduced;
+  }
+
+  private getFixtureCandidateTimeDistance(leftTimeMs: number | null, rightTimeMs: number | null): number {
+    if (leftTimeMs === null || rightTimeMs === null) return Number.POSITIVE_INFINITY;
+    return Math.abs(leftTimeMs - rightTimeMs);
   }
 
   private scoreFixtureMatch(fixture: FixtureCandidate, match: EurobetOddsMatch): number {
@@ -683,9 +1141,9 @@ export class EurobetOddsService {
   }
 
   private getTimeDistanceMinutes(left?: string | null, right?: string | null): number | null {
-    const leftTime = left ? new Date(left).getTime() : Number.NaN;
-    const rightTime = right ? new Date(right).getTime() : Number.NaN;
-    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return null;
+    const leftTime = this.parseTimeValue(left);
+    const rightTime = this.parseTimeValue(right);
+    if (leftTime === null || rightTime === null) return null;
     return Math.round(Math.abs(leftTime - rightTime) / 60_000);
   }
 
@@ -694,16 +1152,12 @@ export class EurobetOddsService {
   }
 
   private buildTeamIdentityCandidates(teamName: string): Set<string> {
-    const compact = this.normalizeWords(teamName).replace(/\s+/g, '');
-    const slugCandidates = this.buildTeamSlugCandidates(teamName)
-      .map((value) => value.replace(/[^a-z0-9]+/g, ''));
-
-    return new Set([compact, ...slugCandidates].filter(Boolean));
+    return new Set(this.getTeamIdentityCandidateList(teamName));
   }
 
   private scoreTeamNameMatch(left: string, right: string): number {
-    const leftCandidates = this.buildTeamIdentityCandidates(left);
-    const rightCandidates = this.buildTeamIdentityCandidates(right);
+    const leftCandidates = this.getTeamIdentityCandidateList(left);
+    const rightCandidates = new Set(this.getTeamIdentityCandidateList(right));
 
     for (const candidate of leftCandidates) {
       if (rightCandidates.has(candidate)) return 1;
@@ -1829,40 +2283,61 @@ export class EurobetOddsService {
     return Array.from(aliases);
   }
 
-  private buildTeamSlugCandidates(teamName: string): string[] {
-    const normalized = this.normalizeWords(teamName);
-    const compact = normalized.replace(/\s+/g, '-');
-    const overrides = new Set<string>();
+  private getTeamAliasCandidateList(teamName: string): string[] {
+    const cacheKey = String(teamName ?? '');
+    const cached = this.teamAliasCandidateCache.get(cacheKey);
+    if (cached) return cached;
 
-    for (const [canonical, aliases] of Object.entries(EurobetOddsService.TEAM_SLUG_OVERRIDES)) {
-      const normalizedAliases = aliases.map((value) => this.normalizeWords(value));
-      if (normalized === canonical || normalizedAliases.includes(normalized)) {
-        overrides.add(canonical.replace(/\s+/g, '-'));
-        for (const alias of normalizedAliases) {
-          overrides.add(alias.replace(/\s+/g, '-'));
-        }
+    const normalized = this.normalizeWords(teamName);
+    const aliases = new Set<string>();
+    if (normalized) {
+      aliases.add(normalized);
+    }
+
+    for (const [canonical, aliasList] of Object.entries(EurobetOddsService.TEAM_SLUG_OVERRIDES)) {
+      const normalizedAliases = [canonical, ...aliasList.map((value) => this.normalizeWords(value))]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean);
+      if (normalizedAliases.includes(normalized)) {
+        normalizedAliases.forEach((value) => aliases.add(value));
       }
     }
 
-    return Array.from(
+    const candidates = Array.from(aliases);
+    this.teamAliasCandidateCache.set(cacheKey, candidates);
+    return candidates;
+  }
+
+  private buildTeamSlugCandidates(teamName: string): string[] {
+    const cacheKey = String(teamName ?? '');
+    const cached = this.teamSlugCandidateCache.get(cacheKey);
+    if (cached) return cached;
+
+    const candidates = Array.from(
       new Set(
-        [compact, ...overrides]
+        this.getTeamAliasCandidateList(teamName)
+          .map((value) => value.replace(/\s+/g, '-'))
           .map((value) => String(value ?? '').trim().toLowerCase())
           .filter(Boolean)
       )
     );
+    this.teamSlugCandidateCache.set(cacheKey, candidates);
+    return candidates;
   }
 
   private buildTimeCandidates(commenceTime?: string | null): string[] {
     const raw = String(commenceTime ?? '').trim();
     if (!raw) return [''];
 
+    const cached = this.timeCandidateCache.get(raw);
+    if (cached) return cached;
+
     const baseDate = new Date(raw);
     if (Number.isNaN(baseDate.getTime())) return [''];
 
     const deltas = [-120, -60, 0, 60, 120];
     const timeZones: Array<'Europe/Rome' | 'UTC'> = ['Europe/Rome', 'UTC'];
-    return Array.from(
+    const candidates = Array.from(
       new Set(
         deltas.flatMap((deltaMinutes) => {
           const candidate = new Date(baseDate.getTime() + deltaMinutes * 60_000);
@@ -1870,19 +2345,12 @@ export class EurobetOddsService {
         }).filter(Boolean)
       )
     );
+    this.timeCandidateCache.set(raw, candidates);
+    return candidates;
   }
 
   private formatEurobetTimestamp(date: Date, timeZone: 'Europe/Rome' | 'UTC'): string {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
+    const formatter = EurobetOddsService.TIME_FORMATTERS[timeZone];
     const parts = formatter.formatToParts(date);
     const pick = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
     return `${pick('year')}${pick('month')}${pick('day')}${pick('hour')}${pick('minute')}`;
@@ -2327,7 +2795,6 @@ export class EurobetOddsService {
 
   private isCompetitionMatch(candidate: string, competition: string): boolean {
     const normalizedCandidate = this.normalizeWords(candidate);
-    const normalizedCompetition = this.normalizeWords(competition);
     const overrides: Record<string, string[]> = {
       'La Liga': ['liga', 'la liga'],
       'Premier League': ['premier league'],
@@ -2342,13 +2809,48 @@ export class EurobetOddsService {
   }
 
   private normalizeWords(value: string): string {
-    return String(value ?? '')
+    const cacheKey = String(value ?? '');
+    const cached = this.normalizedWordCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const normalized = String(value ?? '')
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    this.normalizedWordCache.set(cacheKey, normalized);
+    return normalized;
+  }
+
+  private getTeamIdentityCandidateList(teamName: string): string[] {
+    const cacheKey = String(teamName ?? '');
+    const cached = this.teamIdentityCandidateCache.get(cacheKey);
+    if (cached) return cached;
+
+    const aliasCandidates = this.getTeamAliasCandidateList(teamName)
+      .map((value) => value.replace(/\s+/g, ''));
+    const slugCandidates = this.buildTeamSlugCandidates(teamName)
+      .map((value) => value.replace(/[^a-z0-9]+/g, ''));
+    const compact = this.normalizeWords(teamName).replace(/\s+/g, '');
+    const candidates = Array.from(new Set([compact, ...aliasCandidates, ...slugCandidates].filter(Boolean)));
+    this.teamIdentityCandidateCache.set(cacheKey, candidates);
+    return candidates;
+  }
+
+  private parseTimeValue(value?: string | null): number | null {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+
+    if (this.parsedTimeCache.has(raw)) {
+      return this.parsedTimeCache.get(raw) ?? null;
+    }
+
+    const parsed = new Date(raw).getTime();
+    const result = Number.isFinite(parsed) ? parsed : null;
+    this.parsedTimeCache.set(raw, result);
+    return result;
   }
 
   private async mapWithConcurrency<T, R>(

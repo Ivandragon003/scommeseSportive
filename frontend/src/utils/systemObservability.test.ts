@@ -11,6 +11,7 @@ test('normalizeProviderHealth mappa payload provider senza perdere i campi diagn
       status: 'degraded',
       primaryProvider: 'eurobet',
       fallbackProvider: 'odds_api',
+      activeProvider: 'odds_api',
       oddsSource: 'eurobet+odds_api',
       fallbackReason: 'Provider primario eurobet non disponibile',
       providerHealth: {
@@ -28,15 +29,32 @@ test('normalizeProviderHealth mappa payload provider senza perdere i campi diagn
       warningCount: 1,
       isMerged: true,
       freshnessMinutes: 3,
+      lastSmokeRun: {
+        origin: 'local_artifact',
+        competition: 'Serie A',
+        generatedAt: '2026-04-16T10:05:00.000Z',
+        freshnessMinutes: 2,
+        severity: 'degraded',
+        success: true,
+        errorCategory: 'meeting_json_failed',
+        sourceUsed: 'meeting-json',
+        matchesFound: 6,
+        matchesWithBaseOdds: 4,
+        matchesWithExtendedGroups: 1,
+        durationMs: 18450,
+        warnings: ['dom fallback'],
+      },
     },
   });
 
   expect(normalized.status).toBe('degraded');
+  expect(normalized.activeProvider).toBe('odds_api');
   expect(normalized.providerHealth.eurobet.status).toBe('unhealthy');
   expect(normalized.fallbackProvider).toBe('odds_api');
   expect(normalized.marketCount).toBe(22);
   expect(normalized.warningCount).toBe(1);
   expect(normalized.isMerged).toBe(true);
+  expect(normalized.lastSmokeRun?.severity).toBe('degraded');
 });
 
 test('normalizeSystemMetrics mappa metriche aggregate e last outcome', () => {
@@ -128,6 +146,7 @@ test('normalizeSystemHealth compone provider, metriche e issues', () => {
       providers: {
         status: 'degraded',
         primaryProvider: 'eurobet',
+        activeProvider: 'odds_api',
         providerHealth: {
           eurobet: { status: 'unhealthy', message: 'meeting_json_failed' },
         },

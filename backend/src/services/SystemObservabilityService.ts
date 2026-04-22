@@ -1,7 +1,8 @@
 import { DatabaseService } from '../db/DatabaseService';
+import { readLastEurobetSmokeRun } from './EurobetSmokeArtifactsService';
+import { getConfiguredFallbackProviderName, getConfiguredPrimaryProviderName } from './odds-provider/providerRuntimeConfig';
 
 type StructuredLogLevel = 'info' | 'warn' | 'error';
-type SystemRunType = 'provider_fetch' | 'sync' | 'health_check';
 
 export type ProviderRunRecord = {
   requestId?: string | null;
@@ -276,36 +277,57 @@ export class SystemObservabilityService {
 
   async getProviderHealthPayload(): Promise<Record<string, unknown>> {
     const snapshot = this.lastProviderSnapshot ?? await this.loadLatestProviderSnapshot();
-    const providerHealth = snapshot?.providerHealth ?? {};
-    const fallbackProvider = providerHealth.odds_api ? 'odds_api' : null;
-    const eurobetStatus = providerHealth.eurobet?.status ?? (snapshot?.provider === 'eurobet' && snapshot.success ? 'healthy' : 'unknown');
+    const lastSmokeRun = readLastEurobetSmokeRun();
+    const primaryProvider = getConfiguredPrimaryProviderName();
+    const providerHealth = {
+      ...(snapshot?.providerHealth ?? {}),
+    };
+    if (!providerHealth.eurobet && lastSmokeRun) {
+      providerHealth.eurobet = {
+        provider: 'eurobet',
+        status: this.mapSmokeSeverityToStatus(lastSmokeRun.severity),
+        checkedAt: lastSmokeRun.generatedAt,
+        message: lastSmokeRun.errorCategory ?? lastSmokeRun.warnings[0] ?? 'Smoke Eurobet disponibile',
+      };
+    }
+    const fallbackProvider = getConfiguredFallbackProviderName() ?? (providerHealth.odds_api ? 'odds_api' : null);
+
+    const activeProvider = this.deriveActiveProvider(snapshot, primaryProvider, fallbackProvider);
+    const primaryStatus = String(providerHealth[primaryProvider]?.status ?? 'unknown');
     const overallStatus =
-      eurobetStatus === 'healthy'
-        ? 'healthy'
-        : snapshot?.fallbackUsed
-          ? 'degraded'
-          : eurobetStatus === 'unknown'
-            ? 'unknown'
-            : 'unhealthy';
+      activeProvider === fallbackProvider && fallbackProvider
+        ? 'degraded'
+        : primaryStatus === 'healthy'
+          ? 'healthy'
+          : primaryStatus === 'degraded'
+            ? 'degraded'
+            : !snapshot && lastSmokeRun
+              ? this.mapSmokeSeverityToStatus(lastSmokeRun.severity)
+              : primaryStatus === 'unknown'
+                ? 'unknown'
+                : 'unhealthy';
+    const fetchedAt = snapshot?.fetchedAt ?? lastSmokeRun?.generatedAt ?? null;
 
     return {
       status: overallStatus,
-      primaryProvider: 'eurobet',
+      primaryProvider,
       fallbackProvider,
+      activeProvider,
       oddsSource: snapshot?.sourceUsed ?? null,
       fallbackReason: snapshot?.fallbackReason ?? null,
       providerHealth,
-      fetchedAt: snapshot?.fetchedAt ?? null,
+      fetchedAt,
       matchCount: snapshot?.matchCount ?? 0,
       matchesWithBaseOdds: snapshot?.matchesWithBaseOdds ?? 0,
       matchesWithExtendedGroups: snapshot?.matchesWithExtendedGroups ?? 0,
       marketCount: snapshot?.marketCount ?? 0,
       durationMs: snapshot?.durationMs ?? null,
-      errorCategory: snapshot?.errorCategory ?? null,
+      errorCategory: snapshot?.errorCategory ?? lastSmokeRun?.errorCategory ?? null,
       warnings: snapshot?.warnings ?? [],
       warningCount: snapshot?.warningCount ?? 0,
       isMerged: snapshot?.sourceUsed?.includes('+') ?? false,
-      freshnessMinutes: minutesSince(snapshot?.fetchedAt ?? null),
+      freshnessMinutes: minutesSince(fetchedAt),
+      lastSmokeRun,
     };
   }
 
@@ -459,12 +481,15 @@ export class SystemObservabilityService {
         errorCategory: 'sync_failed',
       });
     }
-    if ((providerHealth.status === 'unhealthy' || providerHealth.status === 'degraded') && providerHealth.errorCategory) {
+    if (
+      providerHealth.status === 'unhealthy'
+      || (providerHealth.status === 'degraded' && (providerHealth.errorCategory || providerHealth.fallbackReason))
+    ) {
       issues.push({
         scope: 'provider',
         severity: providerHealth.status === 'unhealthy' ? 'error' : 'warning',
-        message: String(providerHealth.fallbackReason ?? providerHealth.errorCategory),
-        errorCategory: String(providerHealth.errorCategory ?? ''),
+        message: String(providerHealth.fallbackReason ?? providerHealth.errorCategory ?? 'Provider quote degradato'),
+        errorCategory: providerHealth.errorCategory ? String(providerHealth.errorCategory) : null,
       });
     }
     if (freshnessMinutes !== null && freshnessMinutes > 24 * 60) {
@@ -514,6 +539,31 @@ export class SystemObservabilityService {
       if (message) return message;
     }
     return null;
+  }
+
+  private deriveActiveProvider(
+    snapshot: ProviderSnapshot | null,
+    primaryProvider: string,
+    fallbackProvider: string | null
+  ): string | null {
+    const sourceUsed = String(snapshot?.sourceUsed ?? '').trim();
+    if (!sourceUsed) {
+      if (snapshot?.fallbackUsed && fallbackProvider) return fallbackProvider;
+      return snapshot?.success ? primaryProvider : null;
+    }
+    if (sourceUsed.includes('+')) return primaryProvider;
+    if (sourceUsed === 'odds_api') return 'odds_api';
+    if (sourceUsed === 'eurobet') return 'eurobet';
+    if (sourceUsed === fallbackProvider) return fallbackProvider;
+    if (sourceUsed === primaryProvider) return primaryProvider;
+    return snapshot?.fallbackUsed && fallbackProvider ? fallbackProvider : primaryProvider;
+  }
+
+  private mapSmokeSeverityToStatus(severity?: string | null): string {
+    if (severity === 'healthy') return 'healthy';
+    if (severity === 'degraded') return 'degraded';
+    if (severity === 'failed') return 'unhealthy';
+    return 'unknown';
   }
 
   private async loadLatestProviderSnapshot(): Promise<ProviderSnapshot | null> {

@@ -165,7 +165,7 @@ export class OddsApiService {
       }/500`
     );
 
-    return this.parseOddsResponse(response.data, competition);
+    return this.parseOddsResponse(response.data);
   }
 
   async getEventOdds(
@@ -204,7 +204,7 @@ export class OddsApiService {
     return this.parseSingleEventResponse(response.data);
   }
 
-  private parseOddsResponse(data: any[], competition: string): OddsMatch[] {
+  private parseOddsResponse(data: any[]): OddsMatch[] {
     if (!Array.isArray(data)) return [];
 
     return data.map(event => ({

@@ -113,6 +113,42 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
   assert.equal(metrics.trends.topErrorCategories[0].category, 'meeting_json_failed');
 });
 
+test('SystemObservabilityService costruisce provider health con activeProvider e fallbackReason', async () => {
+  const db = createDbStub();
+  const svc = new SystemObservabilityService(db);
+
+  await svc.recordProviderRun({
+    runId: 'run_2',
+    provider: 'eurobet',
+    competition: 'Serie A',
+    sourceUsed: 'odds_api',
+    matchCount: 3,
+    marketCount: 12,
+    fixtureCount: 5,
+    matchesWithBaseOdds: 3,
+    matchesWithExtendedGroups: 0,
+    durationMs: 9000,
+    success: true,
+    fallbackUsed: true,
+    fallbackReason: 'Provider primario eurobet non disponibile',
+    warnings: ['fallback attivo'],
+    providerHealth: {
+      eurobet: { status: 'unhealthy', checkedAt: '2026-04-16T10:00:00.000Z', message: 'meeting_json_failed' },
+      odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'fallback operativo' },
+    },
+    startedAt: '2026-04-16T10:00:00.000Z',
+    endedAt: '2026-04-16T10:00:09.000Z',
+  });
+
+  const payload = await svc.getProviderHealthPayload();
+
+  assert.equal(payload.primaryProvider, 'eurobet');
+  assert.equal(payload.activeProvider, 'odds_api');
+  assert.equal(payload.status, 'degraded');
+  assert.equal(payload.fallbackReason, 'Provider primario eurobet non disponibile');
+  assert.equal(payload.providerHealth.odds_api.status, 'healthy');
+});
+
 test('SystemObservabilityService costruisce recent runs combinando system e scheduler', async () => {
   const db = createDbStub([
     {

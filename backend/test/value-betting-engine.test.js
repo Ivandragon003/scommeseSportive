@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ValueBettingEngine } = require('../dist/models/ValueBettingEngine.js');
+const { ValueBettingEngine } = require('../dist/models/value/ValueBettingEngine.js');
 
 test('adaptive tuning adjusts coherence and rank multiplier by category', () => {
   const engine = new ValueBettingEngine();

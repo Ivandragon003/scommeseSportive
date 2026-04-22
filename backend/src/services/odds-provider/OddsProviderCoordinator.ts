@@ -6,7 +6,7 @@ import {
   OddsProviderHealthStatus,
   OddsProviderRequest,
 } from './OddsProvider';
-import { collectMarketSources, findBestMatchIndex, matchFixturesToMatches, mergeOddsMatchMarkets } from './oddsProviderUtils';
+import { collectMarketSources, findBestMatchIndex, mergeOddsMatchMarkets } from './oddsProviderUtils';
 
 type CoordinatorOptions = {
   mergeMarkets?: boolean;
@@ -46,6 +46,18 @@ type ProviderFetchState = {
   runtime: Record<string, unknown>;
 };
 
+export type CoordinatedProviderHealth = {
+  status: OddsProviderHealthStatus;
+  primaryProvider: string;
+  fallbackProvider: string | null;
+  activeProvider: string | null;
+  oddsSource: string | null;
+  fallbackReason: string | null;
+  providerHealth: Record<string, OddsProviderHealth>;
+  checkedAt: string;
+  warnings: string[];
+};
+
 export class OddsProviderCoordinator {
   constructor(
     private readonly primaryProvider: OddsProviderAdapter,
@@ -64,6 +76,77 @@ export class OddsProviderCoordinator {
     options: CoordinatorOptions = {}
   ): Promise<CoordinatedOddsResponse> {
     return this.execute(request, options, true);
+  }
+
+  async healthCheck(request: OddsProviderRequest): Promise<CoordinatedProviderHealth> {
+    const checkedAt = new Date().toISOString();
+    const primaryName = this.primaryProvider.getProviderName();
+    const fallbackName = this.fallbackProvider?.getProviderName() ?? null;
+    const providerHealth: Record<string, OddsProviderHealth> = {};
+    const warnings: string[] = [];
+
+    try {
+      providerHealth[primaryName] = await this.primaryProvider.healthCheck(request);
+    } catch (error) {
+      providerHealth[primaryName] = this.buildHealthFromError(primaryName, error);
+    }
+
+    if (this.fallbackProvider && fallbackName) {
+      try {
+        providerHealth[fallbackName] = await this.fallbackProvider.healthCheck(request);
+      } catch (error) {
+        providerHealth[fallbackName] = this.buildHealthFromError(fallbackName, error);
+      }
+    }
+
+    const primaryHealth = providerHealth[primaryName];
+    const fallbackHealth = fallbackName ? providerHealth[fallbackName] ?? null : null;
+    const primaryOperational = this.isOperationalStatus(primaryHealth?.status);
+    const fallbackOperational = this.isOperationalStatus(fallbackHealth?.status);
+
+    let status: OddsProviderHealthStatus = primaryHealth?.status ?? 'not_checked';
+    let activeProvider: string | null = primaryOperational ? primaryName : null;
+    let oddsSource: string | null = activeProvider;
+    let fallbackReason: string | null = null;
+
+    if (!primaryOperational && fallbackOperational && fallbackName) {
+      status = 'degraded';
+      activeProvider = fallbackName;
+      oddsSource = fallbackName;
+      fallbackReason = `Provider primario ${primaryName} non disponibile, fallback ${fallbackName} attivo`;
+    } else if (!primaryOperational && fallbackName) {
+      const fallbackStatus = fallbackHealth?.status ?? 'not_checked';
+      status = fallbackStatus === 'disabled' ? 'unhealthy' : fallbackStatus;
+      fallbackReason = `Provider primario ${primaryName} non disponibile e fallback ${fallbackName} non operativo`;
+      oddsSource = null;
+    } else if (!primaryOperational) {
+      status = primaryHealth?.status ?? 'unhealthy';
+      fallbackReason = `Provider primario ${primaryName} non operativo`;
+      oddsSource = null;
+    }
+
+    for (const provider of Object.values(providerHealth)) {
+      if (provider?.message && provider.status !== 'healthy') {
+        warnings.push(`${provider.provider}: ${provider.message}`);
+      }
+    }
+    if (fallbackReason) {
+      warnings.push(fallbackReason);
+    }
+
+    await this.closeProviders();
+
+    return {
+      status,
+      primaryProvider: primaryName,
+      fallbackProvider: fallbackName,
+      activeProvider,
+      oddsSource,
+      fallbackReason,
+      providerHealth,
+      checkedAt,
+      warnings: Array.from(new Set(warnings.filter(Boolean))),
+    };
   }
 
   private async execute(
@@ -90,78 +173,75 @@ export class OddsProviderCoordinator {
     let fallbackReason: string | null = null;
 
     try {
-      primaryState = await this.fetchFromProvider(this.primaryProvider, request, fixtureScoped);
-      providerHealth[this.primaryProvider.getProviderName()] = this.buildHealth(
-        this.primaryProvider.getProviderName(),
-        primaryState.matches.length > 0 ? 'healthy' : 'degraded',
-        primaryState.matches.length > 0 ? undefined : 'Provider primario senza match utili'
-      );
-      providerRuntime[this.primaryProvider.getProviderName()] = this.primaryProvider.getRuntimeMetadata();
-      warnings.push(...primaryState.warnings);
-    } catch (error) {
-      providerHealth[this.primaryProvider.getProviderName()] = this.buildHealthFromError(
-        this.primaryProvider.getProviderName(),
-        error
-      );
-      warnings.push(`${this.primaryProvider.getProviderName()}: ${error instanceof Error ? error.message : String(error)}`);
-      fallbackReason = `Provider primario ${this.primaryProvider.getProviderName()} non disponibile`;
-    }
-
-    const needFallback = Boolean(this.fallbackProvider)
-      && options.useFallback !== false
-      && (
-        !primaryState
-        || primaryState.matches.length === 0
-        || (fixtureScoped && (primaryState.matches.length < (request.fixtures?.length ?? 0)))
-        || options.mergeMarkets === true
-      );
-
-    if (needFallback && this.fallbackProvider) {
       try {
-        fallbackState = await this.fetchFromProvider(this.fallbackProvider, request, fixtureScoped);
-        providerHealth[this.fallbackProvider.getProviderName()] = this.buildHealth(
-          this.fallbackProvider.getProviderName(),
-          fallbackState.matches.length > 0 ? 'healthy' : 'degraded',
-          fallbackState.matches.length > 0 ? undefined : 'Provider fallback senza match utili'
+        primaryState = await this.fetchFromProvider(this.primaryProvider, request, fixtureScoped);
+        providerHealth[this.primaryProvider.getProviderName()] = this.buildHealth(
+          this.primaryProvider.getProviderName(),
+          primaryState.matches.length > 0 ? 'healthy' : 'degraded',
+          primaryState.matches.length > 0 ? undefined : 'Provider primario senza match utili'
         );
-        providerRuntime[this.fallbackProvider.getProviderName()] = this.fallbackProvider.getRuntimeMetadata();
-        warnings.push(...fallbackState.warnings);
-        fallbackReason = fallbackReason ?? fallbackState.fallbackReason;
+        providerRuntime[this.primaryProvider.getProviderName()] = this.primaryProvider.getRuntimeMetadata();
+        warnings.push(...primaryState.warnings);
       } catch (error) {
-        providerHealth[this.fallbackProvider.getProviderName()] = this.buildHealthFromError(
-          this.fallbackProvider.getProviderName(),
+        providerHealth[this.primaryProvider.getProviderName()] = this.buildHealthFromError(
+          this.primaryProvider.getProviderName(),
           error
         );
-        warnings.push(`${this.fallbackProvider.getProviderName()}: ${error instanceof Error ? error.message : String(error)}`);
+        warnings.push(`${this.primaryProvider.getProviderName()}: ${error instanceof Error ? error.message : String(error)}`);
+        fallbackReason = `Provider primario ${this.primaryProvider.getProviderName()} non disponibile`;
       }
+
+      const needFallback = Boolean(this.fallbackProvider)
+        && options.useFallback !== false
+        && (
+          !primaryState
+          || primaryState.matches.length === 0
+          || (fixtureScoped && (primaryState.matches.length < (request.fixtures?.length ?? 0)))
+          || options.mergeMarkets === true
+        );
+
+      if (needFallback && this.fallbackProvider) {
+        try {
+          fallbackState = await this.fetchFromProvider(this.fallbackProvider, request, fixtureScoped);
+          providerHealth[this.fallbackProvider.getProviderName()] = this.buildHealth(
+            this.fallbackProvider.getProviderName(),
+            fallbackState.matches.length > 0 ? 'healthy' : 'degraded',
+            fallbackState.matches.length > 0 ? undefined : 'Provider fallback senza match utili'
+          );
+          providerRuntime[this.fallbackProvider.getProviderName()] = this.fallbackProvider.getRuntimeMetadata();
+          warnings.push(...fallbackState.warnings);
+          fallbackReason = fallbackReason ?? fallbackState.fallbackReason;
+        } catch (error) {
+          providerHealth[this.fallbackProvider.getProviderName()] = this.buildHealthFromError(
+            this.fallbackProvider.getProviderName(),
+            error
+          );
+          warnings.push(`${this.fallbackProvider.getProviderName()}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      const matches = this.composeMatches(
+        request.fixtures ?? [],
+        primaryState,
+        fallbackState,
+        providerHealth,
+        fetchedAt,
+        Boolean(options.mergeMarkets)
+      );
+
+      return {
+        primaryProvider: this.primaryProvider.getProviderName(),
+        fetchedAt,
+        fallbackReason: fallbackReason ?? this.deriveFallbackReason(matches),
+        providerHealth,
+        providerRuntime,
+        isMerged: matches.some((entry) => entry.isMerged),
+        matches,
+        warnings: Array.from(new Set(warnings.filter(Boolean))),
+      };
+    } finally {
+      await this.closeProviders();
     }
-
-    const matches = this.composeMatches(
-      request.fixtures ?? [],
-      primaryState,
-      fallbackState,
-      providerHealth,
-      fetchedAt,
-      Boolean(options.mergeMarkets)
-    );
-
-    const response: CoordinatedOddsResponse = {
-      primaryProvider: this.primaryProvider.getProviderName(),
-      fetchedAt,
-      fallbackReason: fallbackReason ?? this.deriveFallbackReason(matches),
-      providerHealth,
-      providerRuntime,
-      isMerged: matches.some((entry) => entry.isMerged),
-      matches,
-      warnings: Array.from(new Set(warnings.filter(Boolean))),
-    };
-
-    await Promise.all([
-      this.primaryProvider.close?.(),
-      this.fallbackProvider?.close?.(),
-    ]);
-
-    return response;
   }
 
   private async fetchFromProvider(
@@ -366,5 +446,16 @@ export class OddsProviderCoordinator {
     const message = error instanceof Error ? error.message : String(error);
     const status: OddsProviderHealthStatus = /missing|disabled/i.test(message) ? 'disabled' : 'unhealthy';
     return this.buildHealth(provider, status, message);
+  }
+
+  private isOperationalStatus(status?: OddsProviderHealthStatus | null): boolean {
+    return status === 'healthy' || status === 'degraded';
+  }
+
+  private async closeProviders(): Promise<void> {
+    await Promise.all([
+      this.primaryProvider.close?.(),
+      this.fallbackProvider?.close?.(),
+    ]);
   }
 }
