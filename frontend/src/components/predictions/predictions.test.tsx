@@ -34,7 +34,8 @@ describe('predictions UI components', () => {
 
     expect(screen.getByTestId('best-value-card')).toBeTruthy();
     expect(screen.getByText('Over 2.5 Goal')).toBeTruthy();
-    expect(screen.getByText(/Quota consigliata/i)).toBeTruthy();
+    expect(screen.getByText('Quota')).toBeTruthy();
+    expect(screen.getByText('2.15')).toBeTruthy();
     expect(screen.getByText('xG combinati alti')).toBeTruthy();
   });
 

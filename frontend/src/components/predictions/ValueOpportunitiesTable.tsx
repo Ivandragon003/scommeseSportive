@@ -65,6 +65,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
           <div className="pr-alert pr-alert-success">
             OK <strong>{opportunities.length}</strong> scommesse EV positivo (soglia &gt;2%)
           </div>
+          <div className="pr-alert pr-alert-info">
+            Confronto completo mercati: la migliore giocata resta quella evidenziata in alto. Qui sotto vedi solo alternative e confronto operativo.
+          </div>
           {opportunities.map((opportunity) => {
             const stakeKey = getStakeKey(opportunity);
             const currentStake = getStakeValue(opportunity);

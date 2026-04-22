@@ -22,7 +22,7 @@ const StakePlanner: React.FC<StakePlannerProps> = ({
   exposureRatio,
 }) => (
   <div>
-    <div className="pr-sec">Gestione Match</div>
+    <div className="pr-sec">Stake consigliato e rischio</div>
     <div className="pr-info" style={{ marginBottom: 10 }} data-testid="stake-planner">
       {isReplayAnalysis ? (
         <>
@@ -66,6 +66,9 @@ const StakePlanner: React.FC<StakePlannerProps> = ({
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 8 }}>
           Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
+        </div>
+        <div className="pr-alert pr-alert-warning" style={{ marginTop: 12, marginBottom: 0 }}>
+          Stake indicativo: non aumentare l'esposizione per inseguire recuperi. Se il bankroll reale o il rischio percepito non sono coerenti, riduci la puntata.
         </div>
       </>
     )}

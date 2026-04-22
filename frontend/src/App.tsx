@@ -8,6 +8,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   Loader2,
+  MoreHorizontal,
   RadioTower,
   RefreshCw,
   Target,
@@ -30,8 +31,28 @@ const NAV_ITEMS = [
   { path: '/budget', label: 'Budget', meta: 'bankroll e storico', icon: Wallet },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
   { path: '/data', label: 'Dati', meta: 'squadre e modelli', icon: Database },
-  { path: '/scrapers', label: 'Scrapers', meta: 'sync automatiche', icon: RadioTower },
+  { path: '/scrapers', label: 'Dati & Provider', meta: 'pipeline dati e quote', icon: RadioTower },
 ];
+
+const MOBILE_PRIMARY_NAV_PATHS = ['/', '/predictions', '/budget'];
+const MOBILE_PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
+const MOBILE_SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
+const ACTIVE_USER_STORAGE_KEY = 'footpredictor.activeUser';
+const DEFAULT_ACTIVE_USER = String(process.env.REACT_APP_DEFAULT_USER ?? 'user1').trim() || 'user1';
+const CONFIGURED_USERS = Array.from(new Set(
+  String(process.env.REACT_APP_USER_OPTIONS ?? DEFAULT_ACTIVE_USER)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+));
+
+const getInitialActiveUser = () => {
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem(ACTIVE_USER_STORAGE_KEY)?.trim();
+    if (stored) return stored;
+  }
+  return CONFIGURED_USERS[0] ?? DEFAULT_ACTIVE_USER;
+};
 
 const StatusIcon: React.FC<{ state: SyncState }> = ({ state }) => {
   if (state === 'success') return <CheckCircle2 size={16} />;
@@ -84,16 +105,34 @@ const getSystemHealthFromRuns = (runs: any[]): { state: SyncState; label: string
   return { state: 'warning', label: 'Sistema parziale' };
 };
 
-const AppShell: React.FC<{
+interface AppShellProps {
   activeUser: string;
+  availableUsers: string[];
+  onChangeActiveUser: (nextUser: string) => void;
   syncStatus: { state: SyncState; message: string };
   systemHealth: { state: SyncState; label: string };
   statusRefreshing: boolean;
   onRefreshStatus: () => void;
-}> = ({ activeUser, syncStatus, systemHealth, statusRefreshing, onRefreshStatus }) => {
+}
+
+export const AppShell: React.FC<AppShellProps> = ({
+  activeUser,
+  availableUsers,
+  onChangeActiveUser,
+  syncStatus,
+  systemHealth,
+  statusRefreshing,
+  onRefreshStatus,
+}) => {
   const location = useLocation();
   const isWorkbench = location.pathname === '/predictions';
   const mainContentClass = isWorkbench ? 'main-content main-content--workbench' : 'main-content main-content--scroll';
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const isMoreSectionActive = MOBILE_SECONDARY_NAV_ITEMS.some(({ path }) => location.pathname === path);
+
+  useEffect(() => {
+    setMobileMoreOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="app-shell">
@@ -101,10 +140,6 @@ const AppShell: React.FC<{
         <div className="sync-banner__row">
           <span className="sync-banner__label">Sync Notturna</span>
           <span className="sync-banner__message">{syncStatus.message}</span>
-        </div>
-        <div className="sync-banner__row">
-          <span className="sync-banner__label">Utente</span>
-          <span className="sync-banner__message">{activeUser}</span>
         </div>
       </div>
 
@@ -114,21 +149,44 @@ const AppShell: React.FC<{
             <Activity size={24} />
           </div>
           <div className="app-brand-copy">
-            <div className="app-brand-name">FootPredictor</div>
-            <div className="app-brand-tag">Workspace operativo per quote, statistiche, bankroll e validazione</div>
+            <div className="app-brand-name" translate="no">FootPredictor</div>
+            <div className="app-brand-tag">Decisioni rapide su pick, quote, bankroll e validazione</div>
           </div>
         </div>
 
         <div className="app-header-right">
+          {availableUsers.length > 1 ? (
+            <label className="app-user-picker">
+              <span className="app-user-picker__label">Workspace</span>
+              <select
+                className="app-user-picker__select"
+                value={activeUser}
+                onChange={(event) => onChangeActiveUser(event.target.value)}
+                aria-label="Workspace attivo"
+              >
+                {availableUsers.map((user) => (
+                  <option key={user} value={user}>
+                    {user}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="app-user-chip">
+              <span className="app-user-chip__label">Workspace</span>
+              <strong className="app-user-chip__value" translate="no">{activeUser}</strong>
+            </div>
+          )}
           <button
             type="button"
             className="fp-btn fp-btn-ghost fp-btn-sm app-header-refresh"
             onClick={onRefreshStatus}
             disabled={statusRefreshing}
-            title="Ricarica subito lo stato scheduler"
+            title={statusRefreshing ? 'Aggiornamento stato sistema in corso' : 'Ricarica stato sync e salute del sistema'}
+            aria-label={statusRefreshing ? 'Aggiornamento stato in corso' : 'Aggiorna stato sistema'}
           >
             <RefreshCw size={14} className={statusRefreshing ? 'fp-spin' : ''} />
-            <span>{statusRefreshing ? 'Aggiorno...' : 'Aggiorna stato'}</span>
+            <span>{statusRefreshing ? 'Aggiorno…' : 'Aggiorna Sistema'}</span>
           </button>
           <div className={`app-status-chip is-${systemHealth.state}`}>
             <span className="app-status-dot" />
@@ -138,7 +196,15 @@ const AppShell: React.FC<{
           <div className={`app-status-chip is-${syncStatus.state}`}>
             <span className="app-status-dot" />
             <StatusIcon state={syncStatus.state} />
-            <span>{syncStatus.state === 'error' ? 'Sync bloccata' : syncStatus.state === 'success' ? 'Sync pronta' : 'Sync in corso'}</span>
+            <span>
+              {syncStatus.state === 'error'
+                ? 'Sync errore'
+                : syncStatus.state === 'success'
+                  ? 'Sync OK'
+                  : syncStatus.state === 'warning'
+                    ? 'Sync parziale'
+                    : 'Sync in corso'}
+            </span>
           </div>
         </div>
       </header>
@@ -163,7 +229,7 @@ const AppShell: React.FC<{
 
         <main className={mainContentClass}>
           <Routes>
-            <Route path="/" element={<Dashboard activeUser={activeUser} onRefreshStatus={onRefreshStatus} />} />
+            <Route path="/" element={<Dashboard activeUser={activeUser} />} />
             <Route path="/predictions" element={<Predictions activeUser={activeUser} />} />
             <Route path="/budget" element={<BudgetManager activeUser={activeUser} />} />
             <Route path="/backtest" element={<Backtesting />} />
@@ -174,19 +240,64 @@ const AppShell: React.FC<{
       </div>
 
       <nav className="mobile-nav" aria-label="Navigazione rapida">
-        {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+        {MOBILE_PRIMARY_NAV_ITEMS.map(({ path, label, icon: Icon }) => (
           <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}>
             <Icon size={18} />
             <span>{label}</span>
           </NavLink>
         ))}
+        <button
+          type="button"
+          className={`mobile-nav-item mobile-nav-item--toggle${mobileMoreOpen || isMoreSectionActive ? ' active' : ''}`}
+          onClick={() => setMobileMoreOpen((current) => !current)}
+          aria-expanded={mobileMoreOpen}
+          aria-controls="mobile-more-menu"
+          aria-label="Apri altre sezioni"
+        >
+          <MoreHorizontal size={18} />
+          <span>Altro</span>
+        </button>
       </nav>
+      {mobileMoreOpen && (
+        <div className="mobile-more-sheet" id="mobile-more-menu">
+          <div className="mobile-more-sheet__header">
+            <span>Altre Sezioni</span>
+            <button
+              type="button"
+              className="fp-btn fp-btn-ghost fp-btn-sm"
+              onClick={() => setMobileMoreOpen(false)}
+              aria-label="Chiudi menu altre sezioni"
+            >
+              Chiudi
+            </button>
+          </div>
+          <div className="mobile-more-sheet__grid">
+            {MOBILE_SECONDARY_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
+              <NavLink
+                key={path}
+                to={path}
+                end={path === '/'}
+                className={({ isActive }) => `mobile-more-link${isActive ? ' active' : ''}`}
+                onClick={() => setMobileMoreOpen(false)}
+              >
+                <span className="mobile-more-link__icon" aria-hidden="true">
+                  <Icon size={18} />
+                </span>
+                <span className="mobile-more-link__copy">
+                  <span className="mobile-more-link__label">{label}</span>
+                  <span className="mobile-more-link__meta">{meta}</span>
+                </span>
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 const App: React.FC = () => {
-  const activeUser = 'user1';
+  const [activeUser, setActiveUser] = useState(getInitialActiveUser);
   const [syncStatus, setSyncStatus] = useState<{ state: SyncState; message: string }>({
     state: 'loading',
     message: 'Verifica stato sincronizzazione notturna...',
@@ -197,6 +308,13 @@ const App: React.FC = () => {
   });
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const mountedRef = useRef(true);
+  const availableUsers = Array.from(new Set([...CONFIGURED_USERS, activeUser].filter(Boolean)));
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACTIVE_USER_STORAGE_KEY, activeUser);
+    }
+  }, [activeUser]);
 
   const applyStatus = useCallback((statusPayload: any) => {
       const scheduler = statusPayload?.data?.understatScheduler ?? null;
@@ -291,6 +409,8 @@ const App: React.FC = () => {
     <Router>
       <AppShell
         activeUser={activeUser}
+        availableUsers={availableUsers}
+        onChangeActiveUser={setActiveUser}
         syncStatus={syncStatus}
         systemHealth={systemHealth}
         statusRefreshing={statusRefreshing}
@@ -301,3 +421,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+export { NAV_ITEMS, MOBILE_PRIMARY_NAV_ITEMS, MOBILE_SECONDARY_NAV_ITEMS };

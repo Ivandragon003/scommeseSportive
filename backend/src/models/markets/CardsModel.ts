@@ -2,7 +2,7 @@ import {
   negBinOver as computeNegBinOver,
   negBinPMF as computeNegBinPMF,
   poissonPMF as computePoissonPMF,
-} from './MathUtils';
+} from '../utils/MathUtils';
 
 /**
  * CardsModel — Modello Cartellini con Distribuzione Binomiale Negativa
@@ -494,10 +494,6 @@ export class FoulsModel {
     const varTotal = varHomeFouls + varAwayFouls + 2 * rhoCov;
 
     const muTotal = muHome + muAway;
-    const rTotal = varTotal > muTotal
-      ? Math.max(2, Math.min(60, (muTotal * muTotal) / (varTotal - muTotal)))
-      : 30;
-
     // Distribuzione via convoluzione
     const maxK = Math.ceil((muHome + muAway) * 2.5 + 25);
     const distHome: number[] = Array.from({ length: maxK + 1 }, (_, k) => this.negBinPMF(k, muHome, rHome));

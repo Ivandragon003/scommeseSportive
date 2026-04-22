@@ -10,6 +10,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project tsconfig.scripts.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"test/**/*.{js,ts}\" \"scripts/**/*.{js,ts}\" --max-warnings=0",
+    "benchmark:performance": "npm run build && node benchmarks/run-performance-benchmarks.js",
     "test": "npm run build && node --test test/**/*.test.js",
     "test:ci": "node --test test/**/*.test.js",
     "start": "node dist/index.js",

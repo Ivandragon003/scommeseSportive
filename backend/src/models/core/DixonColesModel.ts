@@ -46,7 +46,7 @@ import {
   FoulsDistribution,
   PlayerShotsPrediction,
   NegBinParams,
-} from './SpecializedModels';
+} from '../markets/SpecializedModels';
 
 export interface TeamStrength {
   teamId: string;

@@ -80,6 +80,22 @@ function createOddsMatch(markets, overrides = {}) {
   };
 }
 
+function createFixtureOddsMatch(overrides = {}) {
+  return {
+    matchId: `eurobet_${overrides.eventAlias ?? 'fixture_test'}`,
+    meetingAlias: 'it-serie-a',
+    eventAlias: 'fixture_test',
+    homeTeam: 'Inter',
+    awayTeam: 'Milan',
+    commenceTime: '2026-04-12T18:45:00.000Z',
+    bookmakers: [],
+    availableGroupAliases: [],
+    loadedGroupAliases: ['base'],
+    unavailableGroupAliases: [],
+    ...overrides,
+  };
+}
+
 test('Eurobet getOdds usa il meeting JSON come percorso primario senza dipendere dal DOM', async () => {
   const service = new EurobetOddsService();
   const item = createMeetingItem({
@@ -161,6 +177,104 @@ test('Eurobet fixtureMatches accetta alias squadra e tolleranza oraria realistic
 
   assert.equal(service.fixtureMatches(fixture, match), true);
   assert.ok(service.scoreFixtureMatch(fixture, match) >= 700);
+});
+
+test('Eurobet riduce i candidati con exact pair match prima del fuzzy globale', () => {
+  const service = new EurobetOddsService();
+  const matches = [
+    createFixtureOddsMatch({
+      eventAlias: 'inter-milan-202604121845',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    }),
+    createFixtureOddsMatch({
+      eventAlias: 'inter-milan-202604122100',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-12T21:00:00.000Z',
+    }),
+    createFixtureOddsMatch({
+      eventAlias: 'inter-roma-202604121845',
+      homeTeam: 'Inter',
+      awayTeam: 'Roma',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    }),
+    createFixtureOddsMatch({
+      eventAlias: 'juventus-milan-202604121845',
+      homeTeam: 'Juventus',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    }),
+  ];
+
+  const index = service.buildFixtureMatchIndex(matches, 'it-serie-a');
+  const selection = service.findCandidateFixtureMatchIndexes({
+    homeTeam: 'Inter',
+    awayTeam: 'Milan',
+    commenceTime: '2026-04-12T18:45:00.000Z',
+  }, index, new Set(), 'it-serie-a');
+
+  assert.equal(selection.strategy, 'exact-pair');
+  assert.deepEqual(
+    selection.candidateIndexes.map((candidateIndex) => matches[candidateIndex].eventAlias),
+    ['inter-milan-202604121845']
+  );
+});
+
+test('Eurobet matchFixturesToCompetitionMatches supporta alias PSG e sceglie il match corretto nello stesso giorno', () => {
+  const service = new EurobetOddsService();
+  const matches = [
+    createFixtureOddsMatch({
+      meetingAlias: 'eu-champions-league',
+      eventAlias: 'paris-saint-germain-manchester-city-202604122015',
+      homeTeam: 'Paris Saint-Germain',
+      awayTeam: 'Manchester City',
+      commenceTime: '2026-04-12T20:15:00.000Z',
+    }),
+    createFixtureOddsMatch({
+      meetingAlias: 'eu-champions-league',
+      eventAlias: 'paris-fc-manchester-united-202604122015',
+      homeTeam: 'Paris FC',
+      awayTeam: 'Manchester United',
+      commenceTime: '2026-04-12T20:15:00.000Z',
+    }),
+  ];
+
+  const { matchedMatches, missingFixtures } = service.matchFixturesToCompetitionMatches([
+    {
+      homeTeam: 'PSG',
+      awayTeam: 'Man City',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    },
+  ], matches, 'eu-champions-league');
+
+  assert.equal(matchedMatches.length, 1);
+  assert.equal(matchedMatches[0].eventAlias, 'paris-saint-germain-manchester-city-202604122015');
+  assert.equal(missingFixtures.length, 0);
+});
+
+test('Eurobet matchFixturesToCompetitionMatches restituisce missingFixtures quando non trova candidati validi', () => {
+  const service = new EurobetOddsService();
+  const matches = [
+    createFixtureOddsMatch({
+      eventAlias: 'juventus-roma-202604121845',
+      homeTeam: 'Juventus',
+      awayTeam: 'Roma',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    }),
+  ];
+
+  const { matchedMatches, missingFixtures } = service.matchFixturesToCompetitionMatches([
+    {
+      homeTeam: 'Bayern Monaco',
+      awayTeam: 'Borussia Dortmund',
+      commenceTime: '2026-04-12T18:45:00.000Z',
+    },
+  ], matches, 'it-serie-a');
+
+  assert.equal(matchedMatches.length, 0);
+  assert.equal(missingFixtures.length, 1);
 });
 
 test('Eurobet buildTimeCandidates genera varianti coerenti per UTC e Europe/Rome con delta fino a 120 minuti', () => {

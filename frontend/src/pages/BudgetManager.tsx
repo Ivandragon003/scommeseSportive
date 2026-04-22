@@ -1,5 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { getBudget, getBets, initBudget } from '../utils/api';
+import React, { useState } from 'react';
+import { initBudget } from '../utils/api';
+import ToastStack from '../components/common/ToastStack';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import { useToastState } from '../hooks/useToastState';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { useBudgetManagerData } from '../hooks/useBudgetManagerData';
+import { getErrorMessage } from '../utils/errorUtils';
 
 interface BudgetManagerProps {
   activeUser: string;
@@ -52,73 +58,51 @@ const formatDateTime = (value: any) => {
 };
 
 const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
-  const [budget, setBudget] = useState<any>(null);
-  const [bets, setBets] = useState<any[]>([]);
-  const [filter, setFilter] = useState('');
-  const [loading, setLoading] = useState(true);
   const [initAmount, setInitAmount] = useState('1000');
   const [showReset, setShowReset] = useState(false);
-
-  const loadAll = async () => {
-    setLoading(true);
-    try {
-      const [budgetRes, betsRes] = await Promise.all([
-        getBudget(activeUser),
-        getBets(activeUser, filter || undefined),
-      ]);
-      setBudget(budgetRes.data ?? null);
-      setBets(betsRes.data ?? []);
-    } catch {
-      setBudget(null);
-      setBets([]);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadAll();
-  }, [activeUser, filter]);
+  const toastState = useToastState();
+  const confirmDialog = useConfirmDialog();
+  const {
+    budget,
+    bets,
+    filter,
+    loading,
+    pendingBets,
+    netProfit,
+    winsCount,
+    lossesCount,
+    voidCount,
+    setFilter,
+    loadAll,
+  } = useBudgetManagerData(activeUser);
 
   const handleReset = async () => {
     const amount = Number(initAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
     try {
       await initBudget(activeUser, amount);
-      await loadAll();
+      await loadAll({ force: true });
       setShowReset(false);
     } catch (e: any) {
-      alert(`Errore reset budget: ${e.message}`);
+      toastState.showToast({ tone: 'error', message: getErrorMessage(e, 'Errore reset budget') });
     }
   };
 
   const handleQuickReset = async () => {
     const amount = Number(initAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert('Inserisci un importo valido per il reset.');
+      toastState.showToast({ tone: 'warning', message: 'Inserisci un importo valido per il reset.' });
       return;
     }
-    const confirmed = window.confirm(
-      `Confermi il reset completo di budget e scommesse per l'utente ${activeUser}?`
-    );
+    const confirmed = await confirmDialog.confirm({
+      title: 'Confermare reset completo?',
+      message: `Confermi il reset completo di budget e scommesse per l'utente ${activeUser}?`,
+      confirmLabel: 'Reset completo',
+      tone: 'danger',
+    });
     if (!confirmed) return;
     await handleReset();
   };
-
-  const pendingBets = useMemo(() => bets.filter((b) => String(b.status) === 'PENDING'), [bets]);
-
-  const settledBets = useMemo(
-    () => bets.filter((b) => ['WON', 'LOST', 'VOID'].includes(String(b.status))),
-    [bets]
-  );
-
-  const netProfit = useMemo(
-    () => settledBets.reduce((s, b) => s + Number(b.profit ?? 0), 0),
-    [settledBets]
-  );
-
-  const winsCount = settledBets.filter((b) => String(b.status) === 'WON').length;
-  const lossesCount = settledBets.filter((b) => String(b.status) === 'LOST').length;
-  const voidCount = settledBets.filter((b) => String(b.status) === 'VOID').length;
 
   const usedPct = budget
     ? Math.min(100, ((toAmount(budget.total_budget) - toAmount(budget.available_budget)) / Math.max(1, toAmount(budget.total_budget))) * 100)
@@ -150,11 +134,11 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             {!loading && budget && (
               <button
-                className="fp-btn fp-btn-red fp-btn-sm"
-                onClick={handleQuickReset}
-                title="Azzera budget e cancella tutte le scommesse dell'utente corrente"
+                className="fp-btn fp-btn-ghost fp-btn-sm"
+                onClick={() => setShowReset((value) => !value)}
+                title="Apri manutenzione bankroll e reset scommesse"
               >
-                Reset Budget + Scommesse
+                Manutenzione bankroll
               </button>
             )}
             <div className="bm-user">Utente: <strong>{activeUser}</strong></div>
@@ -207,14 +191,14 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
               <div className="fp-card">
                 <div className="fp-card-head">
                   <div className="fp-card-title">Dettaglio Finanziario</div>
-                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setShowReset((v) => !v)}>Reset</button>
+                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setShowReset((v) => !v)}>Apri manutenzione</button>
                 </div>
                 <div className="fp-card-body">
                   {showReset && (
                     <div style={{ marginBottom: 12 }}>
                       <div className="bm-init-row">
                         <input className="fp-input" type="number" value={initAmount} onChange={(e) => setInitAmount(e.target.value)} />
-                        <button className="fp-btn fp-btn-red" onClick={handleReset}>Conferma</button>
+                        <button className="fp-btn fp-btn-red" onClick={handleQuickReset}>Conferma reset</button>
                       </div>
                       <div className="fp-alert fp-alert-warning" style={{ marginTop: 10 }}>
                         Il reset azzera metriche e disponibilita e cancella tutte le scommesse dell'utente selezionato.
@@ -363,6 +347,8 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
           </>
         )}
       </div>
+      <ToastStack toasts={toastState.toasts} onDismiss={toastState.dismissToast} />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 };

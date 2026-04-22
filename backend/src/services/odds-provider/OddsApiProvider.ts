@@ -2,7 +2,6 @@ import { OddsApiService, OddsMatch } from '../OddsApiService';
 import {
   OddsProviderAdapter,
   OddsProviderFetchResult,
-  OddsProviderFixture,
   OddsProviderHealth,
   OddsProviderRequest,
 } from './OddsProvider';

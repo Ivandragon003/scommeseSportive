@@ -1,7 +1,7 @@
 import {
   negBinPMF as computeNegBinPMF,
   poissonPMF as computePoissonPMF,
-} from './MathUtils';
+} from '../utils/MathUtils';
 
 /**
  * ShotsModel — Modello Tiri a Livello Squadra e Giocatore

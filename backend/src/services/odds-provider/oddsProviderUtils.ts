@@ -1,4 +1,4 @@
-import { OddsMatch } from '../OddsApiService';
+import { BookmakerOdds, MarketOdds, OddsMatch } from '../OddsApiService';
 import { OddsProviderFixture } from './OddsProvider';
 
 export const normalizeTeamForOdds = (name: string): string => {
@@ -107,7 +107,7 @@ export const matchFixturesToMatches = (
 };
 
 export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => {
-  const byBookmaker = new Map<string, any>();
+  const byBookmaker = new Map<string, BookmakerOdds>();
 
   for (const bookmaker of base.bookmakers ?? []) {
     byBookmaker.set(String(bookmaker.bookmakerKey), {
@@ -127,7 +127,7 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
       continue;
     }
 
-    const marketMap = new Map<string, any>();
+    const marketMap = new Map<string, MarketOdds>();
     for (const market of existing.markets ?? []) {
       marketMap.set(String(market.marketKey), {
         ...market,
@@ -148,11 +148,11 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
 
       const outcomeSet = new Set<string>();
       for (const outcome of previous.outcomes ?? []) {
-        outcomeSet.add(`${String(outcome.name)}|${String(outcome.point ?? '')}|${String((outcome as any).description ?? '')}`);
+        outcomeSet.add(`${String(outcome.name)}|${String(outcome.point ?? '')}|${String(outcome.description ?? '')}`);
       }
 
       for (const outcome of market.outcomes ?? []) {
-        const signature = `${String(outcome.name)}|${String(outcome.point ?? '')}|${String((outcome as any).description ?? '')}`;
+        const signature = `${String(outcome.name)}|${String(outcome.point ?? '')}|${String(outcome.description ?? '')}`;
         if (!outcomeSet.has(signature)) {
           previous.outcomes.push(outcome);
           outcomeSet.add(signature);

@@ -1058,6 +1058,11 @@ cd backend
 npm run smoke:eurobet -- --competition "Serie A" --fixture "Inter|Milan|2026-04-20T18:45:00Z" --include-extended-groups
 ```
 
+I report prodotti dallo smoke (`backend/artifacts/*.json`, `backend/artifacts/*.log`) sono artifact runtime locali o di GitHub Actions:
+- non devono essere committati
+- il workflow [`.github/workflows/eurobet-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/eurobet-smoke.yml) continua a caricarli come artifact scaricabili
+- se serve un esempio stabile per documentazione, usa [docs/examples/eurobet-smoke-report.example.json](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/examples/eurobet-smoke-report.example.json)
+
 ### Troubleshooting
 
 - Playwright/Chromium:
