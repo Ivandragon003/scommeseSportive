@@ -57,9 +57,10 @@ export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): O
       ? { label: 'Snapshot bookmaker reale', className: 'pr-badge-green' }
       : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
   }
-  if (prediction?.oddsSource === 'eurobet_scraper') return { label: 'Quote reali Eurobet', className: 'pr-badge-green' };
+  if (prediction?.oddsSource === 'odds_api') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
+  if (prediction?.oddsSource === 'eurobet' || prediction?.oddsSource === 'eurobet_scraper') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
   if (prediction?.oddsSource === 'fallback_provider') return { label: 'Quote provider secondario', className: 'pr-badge-gold' };
-  if (prediction?.oddsSource === 'eurobet_unavailable') return { label: 'Quote Eurobet non disponibili', className: 'pr-badge-gray' };
+  if (prediction?.oddsSource === 'eurobet_unavailable' || prediction?.oddsSource === 'odds_unavailable' || prediction?.oddsSource === 'unavailable') return { label: 'Quote bookmaker non disponibili', className: 'pr-badge-gray' };
   return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
 };
 
@@ -93,10 +94,10 @@ export const buildBetKey = (matchId: string, selection: string, marketName: stri
 
 export const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: string | null) => {
   if (!prediction) return prediction;
-  if (oddsSource === 'eurobet_scraper') {
+  if (oddsSource === 'odds_api' || oddsSource === 'eurobet' || oddsSource === 'eurobet_scraper') {
     return {
       ...prediction,
-      oddsSource: 'eurobet_scraper',
+      oddsSource: oddsSource === 'odds_api' ? 'odds_api' : 'eurobet',
       usedSyntheticOdds: false,
       usedFallbackBookmaker: false,
     };
@@ -111,7 +112,7 @@ export const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: s
   }
   return {
     ...prediction,
-    oddsSource: oddsSource ?? 'eurobet_unavailable',
+    oddsSource: oddsSource ?? 'odds_unavailable',
     usedSyntheticOdds: false,
     usedFallbackBookmaker: false,
     valueOpportunities: [],

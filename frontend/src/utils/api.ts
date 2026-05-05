@@ -173,7 +173,7 @@ export const getMatchdayMap = (
 ) =>
   cachedGet<Record<string, number>>('/matches/matchdays', { params }, { cacheMs: CACHE_TTL.matchdays, ...options });
 
-export const getEurobetOddsForMatch = (params: {
+export const getOddsForMatch = (params: {
   matchId?: string;
   competition: string;
   homeTeam: string;
@@ -181,6 +181,8 @@ export const getEurobetOddsForMatch = (params: {
   commenceTime?: string;
 }) =>
   API.post<ApiResponse<any>>('/scraper/odds/match', params, { timeout: 240000 }).then(r => r.data);
+
+export const getEurobetOddsForMatch = getOddsForMatch;
 
 export const createMatch = (match: any) =>
   API.post<ApiResponse<any>>('/matches', match).then(r => r.data);
