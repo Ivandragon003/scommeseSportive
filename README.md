@@ -303,8 +303,8 @@ football-predictor/
 | Ambito | Fonte | Note operative |
 |---|---|---|
 | Dati calcistici | Understat | Fonte ufficiale attiva per squadre, partite, giocatori, xG e tiri |
-| Quote utente | Eurobet | Unica fonte quote mostrata lato UI |
-| Fallback tecnici quote | Provider interni / diagnostici | Ammessi solo lato backend, mai mostrati come quote Eurobet |
+| Quote utente | The Odds API | Fonte primaria stabile per importare e mostrare quote bookmaker reali |
+| Fallback tecnici quote | Eurobet / diagnostica provider | Ammessi se configurati, con provenance esplicita e senza bloccare la visualizzazione Odds API |
 
 ### Formato JSON Import
 
@@ -384,9 +384,10 @@ prior empiriche Serie A.
 ### Mercati analizzati
 
 L'endpoint `/api/scraper/odds/match` richiede mercati `h2h`, `totals`, `spreads`.
-Se non disponibili: fallback `h2h`, `totals`. Se il provider non risponde, eventuali
-stime o fallback restano interni al backend per continuita operativa e diagnostica,
-ma non devono essere mostrati all'utente come quote Eurobet.
+The Odds API e il provider primario quando `ODDS_API_KEY` o `THE_ODDS_API_KEY` e configurata.
+Se `spreads` non e disponibile, il backend ritenta con `h2h`, `totals`. Eurobet puo restare
+fallback opzionale o diagnostico, ma non deve bloccare la visualizzazione delle quote bookmaker
+quando Odds API trova la partita.
 
 ### Pipeline di scelta "miglior quota valore"
 
@@ -1006,9 +1007,21 @@ Servizi previsti:
 
 - Il file `.env` nella root e la sola sorgente di verita locale.
 - Backend:
-  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `SKIP_EUROBET_SCRAPER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `EUROBET_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `SKIP_EUROBET_SCRAPER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `EUROBET_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
 - Frontend:
   nessun segreto runtime richiesto in locale; `FRONTEND_PORT` serve per Docker.
+
+Configurazione quote raccomandata:
+
+```dotenv
+ODDS_API_KEY=your-odds-api-key
+ODDS_PRIMARY_PROVIDER=odds_api
+SKIP_EUROBET_SCRAPER=true
+ODDS_SNAPSHOT_SCHEDULER_ENABLED=true
+ODDS_SNAPSHOT_RUN_ON_BOOT=true
+```
+
+Eurobet resta utilizzabile solo se lo abiliti esplicitamente, ad esempio con `ODDS_PRIMARY_PROVIDER=eurobet` e `SKIP_EUROBET_SCRAPER=false`.
 
 ### Docker
 

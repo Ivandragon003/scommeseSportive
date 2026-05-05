@@ -44,6 +44,7 @@ type ProviderFetchState = {
   warnings: string[];
   fetchedAt: string;
   runtime: Record<string, unknown>;
+  details: Record<string, unknown>;
 };
 
 export type CoordinatedProviderHealth = {
@@ -180,7 +181,10 @@ export class OddsProviderCoordinator {
           primaryState.matches.length > 0 ? 'healthy' : 'degraded',
           primaryState.matches.length > 0 ? undefined : 'Provider primario senza match utili'
         );
-        providerRuntime[this.primaryProvider.getProviderName()] = this.primaryProvider.getRuntimeMetadata();
+        providerRuntime[this.primaryProvider.getProviderName()] = {
+          ...primaryState.runtime,
+          fetchDetails: primaryState.details,
+        };
         warnings.push(...primaryState.warnings);
       } catch (error) {
         providerHealth[this.primaryProvider.getProviderName()] = this.buildHealthFromError(
@@ -208,7 +212,10 @@ export class OddsProviderCoordinator {
             fallbackState.matches.length > 0 ? 'healthy' : 'degraded',
             fallbackState.matches.length > 0 ? undefined : 'Provider fallback senza match utili'
           );
-          providerRuntime[this.fallbackProvider.getProviderName()] = this.fallbackProvider.getRuntimeMetadata();
+          providerRuntime[this.fallbackProvider.getProviderName()] = {
+            ...fallbackState.runtime,
+            fetchDetails: fallbackState.details,
+          };
           warnings.push(...fallbackState.warnings);
           fallbackReason = fallbackReason ?? fallbackState.fallbackReason;
         } catch (error) {
@@ -259,6 +266,7 @@ export class OddsProviderCoordinator {
       warnings: result.warnings,
       fetchedAt: result.fetchedAt,
       runtime: provider.getRuntimeMetadata(),
+      details: result.details ?? {},
     };
   }
 

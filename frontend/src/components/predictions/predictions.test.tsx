@@ -28,7 +28,7 @@ describe('predictions UI components', () => {
     render(
       <BestValueCard
         opportunity={opportunity}
-        oddsBadge={{ label: 'Quote reali Eurobet', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
       />
     );
 
@@ -64,7 +64,7 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/Utilizzo cap rischio: 31.3%/i)).toBeTruthy();
   });
 
-  test('gestisce fallback provider e stato eurobet unavailable', () => {
+  test('gestisce fallback provider e stato quote unavailable', () => {
     const noop = () => undefined;
     render(
       <ValueOpportunitiesTable
@@ -72,7 +72,7 @@ describe('predictions UI components', () => {
         bankroll={1000}
         budgetReady
         isReplayAnalysis={false}
-        oddsSource="eurobet_unavailable"
+        oddsSource="odds_unavailable"
         providerWarning="Provider secondario disponibile solo per confronto interno."
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
@@ -85,7 +85,7 @@ describe('predictions UI components', () => {
     );
 
     expect(screen.getByText(/Provider secondario disponibile/i)).toBeTruthy();
-    expect(screen.getByText(/Quote Eurobet non disponibili per questa partita/i)).toBeTruthy();
-    expect(screen.getByText(/Finche Eurobet non espone il mercato/i)).toBeTruthy();
+    expect(screen.getByText(/Quote bookmaker non disponibili per questa partita/i)).toBeTruthy();
+    expect(screen.getByText(/Finche il provider non espone il mercato/i)).toBeTruthy();
   });
 });

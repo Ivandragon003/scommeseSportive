@@ -1,25 +1,64 @@
 import { BookmakerOdds, MarketOdds, OddsMatch } from '../OddsApiService';
 import { OddsProviderFixture } from './OddsProvider';
 
-export const normalizeTeamForOdds = (name: string): string => {
-  const aliases: Record<string, string> = {
-    'inter milan': 'inter',
-    'ac milan': 'milan',
-    'hellas verona': 'verona',
-    'ssc napoli': 'napoli',
-    'ss lazio': 'lazio',
-  };
+const MAX_FIXTURE_MATCH_WINDOW_HOURS = 36;
 
-  const cleaned = String(name ?? '')
+const TEAM_ALIAS_GROUPS: string[][] = [
+  ['inter', 'internazionale', 'inter milan', 'fc internazionale milano', 'internazionale milano'],
+  ['milan', 'ac milan', 'a c milan'],
+  ['roma', 'as roma', 'a s roma'],
+  ['lazio', 'ss lazio', 's s lazio'],
+  ['napoli', 'ssc napoli', 's s c napoli'],
+  ['juventus', 'juve', 'juventus fc'],
+  ['psg', 'paris saint germain', 'paris sg', 'paris st germain'],
+  ['manchester city', 'man city', 'mancity'],
+  ['manchester united', 'man united', 'man utd'],
+];
+
+const normalizeTeamRaw = (name: string): string =>
+  String(name ?? '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[-_.']/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\b(fc|ac|as|ss|ssc|calcio|club)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
+const teamAliasLookup: Record<string, string> = TEAM_ALIAS_GROUPS.reduce((acc, group) => {
+  const canonical = normalizeTeamRaw(group[0]);
+  for (const alias of group) {
+    acc[normalizeTeamRaw(alias)] = canonical;
+  }
+  return acc;
+}, {} as Record<string, string>);
+
+const aliasSetByCanonical = TEAM_ALIAS_GROUPS.reduce((acc, group) => {
+  const canonical = normalizeTeamRaw(group[0]);
+  acc[canonical] = new Set(group.map(normalizeTeamRaw).filter(Boolean));
+  acc[canonical].add(canonical);
+  return acc;
+}, {} as Record<string, Set<string>>);
+
+export const normalizeTeamForOdds = (name: string): string => {
+  const aliases: Record<string, string> = {
+    'hellas verona': 'verona',
+    ...teamAliasLookup,
+  };
+
+  const cleaned = normalizeTeamRaw(name);
   return aliases[cleaned] ?? cleaned;
+};
+
+const getTeamAliases = (name: string): Set<string> => {
+  const normalized = normalizeTeamForOdds(name);
+  const aliases = new Set<string>([normalized]);
+  for (const alias of aliasSetByCanonical[normalized] ?? []) {
+    aliases.add(alias);
+  }
+  return aliases;
 };
 
 export const teamSimilarity = (a: string, b: string): number => {
@@ -27,6 +66,13 @@ export const teamSimilarity = (a: string, b: string): number => {
   const nb = normalizeTeamForOdds(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
+
+  const aliasesA = getTeamAliases(a);
+  const aliasesB = getTeamAliases(b);
+  for (const alias of aliasesA) {
+    if (aliasesB.has(alias)) return 1;
+  }
+
   if (na.includes(nb) || nb.includes(na)) return 0.86;
 
   const at = new Set(na.split(' ').filter(Boolean));
@@ -40,34 +86,111 @@ export const teamSimilarity = (a: string, b: string): number => {
   return inter / Math.max(at.size, bt.size);
 };
 
+const getTimeDiffHours = (candidate: OddsMatch, commenceTime?: string | null): number | null => {
+  if (!commenceTime) return null;
+  const targetTs = new Date(commenceTime).getTime();
+  const candTs = new Date(candidate.commenceTime).getTime();
+  if (Number.isNaN(targetTs) || Number.isNaN(candTs)) return null;
+  return Math.abs(targetTs - candTs) / (1000 * 60 * 60);
+};
+
+export type FixtureCandidateScore = {
+  candidate: {
+    matchId: string;
+    homeTeam: string;
+    awayTeam: string;
+    commenceTime: string;
+  };
+  score: number;
+  straightTeamScore: number;
+  swappedTeamScore: number;
+  timeDiffHours: number | null;
+  reason: string;
+  warnings: string[];
+};
+
+export const scoreFixtureCandidate = (
+  candidate: OddsMatch,
+  homeTeam: string,
+  awayTeam: string,
+  commenceTime?: string | null
+): FixtureCandidateScore => {
+  const homeScore = teamSimilarity(homeTeam, candidate.homeTeam);
+  const awayScore = teamSimilarity(awayTeam, candidate.awayTeam);
+  const straightTeamScore = homeScore + awayScore;
+  const swappedTeamScore = teamSimilarity(homeTeam, candidate.awayTeam)
+    + teamSimilarity(awayTeam, candidate.homeTeam);
+  const timeDiffHours = getTimeDiffHours(candidate, commenceTime);
+  const warnings: string[] = [];
+
+  if (swappedTeamScore >= Math.max(straightTeamScore + 0.25, 1.65)) {
+    warnings.push('home_away_inverted_candidate');
+  }
+
+  if (timeDiffHours !== null && timeDiffHours > MAX_FIXTURE_MATCH_WINDOW_HOURS) {
+    return {
+      candidate: {
+        matchId: String(candidate.matchId ?? ''),
+        homeTeam: candidate.homeTeam,
+        awayTeam: candidate.awayTeam,
+        commenceTime: candidate.commenceTime,
+      },
+      score: 0,
+      straightTeamScore,
+      swappedTeamScore,
+      timeDiffHours,
+      reason: 'kickoff_outside_36h_window',
+      warnings,
+    };
+  }
+
+  let score = straightTeamScore;
+  if (timeDiffHours !== null) {
+    if (timeDiffHours <= 1.5) score += 0.5;
+    else if (timeDiffHours <= 4) score += 0.35;
+    else if (timeDiffHours <= 12) score += 0.2;
+    else score += 0.05;
+  }
+
+  if (homeScore >= 0.98 && awayScore >= 0.98) {
+    score += 0.15;
+  }
+
+  const reason = straightTeamScore >= 1.9
+    ? 'team_pair_exact_or_alias'
+    : straightTeamScore >= 1.5
+      ? 'team_pair_fuzzy'
+      : 'team_pair_weak';
+
+  return {
+    candidate: {
+      matchId: String(candidate.matchId ?? ''),
+      homeTeam: candidate.homeTeam,
+      awayTeam: candidate.awayTeam,
+      commenceTime: candidate.commenceTime,
+    },
+    score,
+    straightTeamScore,
+    swappedTeamScore,
+    timeDiffHours,
+    reason,
+    warnings,
+  };
+};
+
 export const matchScore = (
   candidate: OddsMatch,
   homeTeam: string,
   awayTeam: string,
   commenceTime?: string | null
 ): number => {
-  const straight = teamSimilarity(homeTeam, candidate.homeTeam) + teamSimilarity(awayTeam, candidate.awayTeam);
-  const swapped = teamSimilarity(homeTeam, candidate.awayTeam) + teamSimilarity(awayTeam, candidate.homeTeam);
-  let score = Math.max(straight, swapped);
-
-  if (commenceTime) {
-    const targetTs = new Date(commenceTime).getTime();
-    const candTs = new Date(candidate.commenceTime).getTime();
-    if (!Number.isNaN(targetTs) && !Number.isNaN(candTs)) {
-      const diffHours = Math.abs(targetTs - candTs) / (1000 * 60 * 60);
-      if (diffHours <= 1.5) score += 0.5;
-      else if (diffHours <= 4) score += 0.25;
-      else if (diffHours <= 12) score += 0.1;
-    }
-  }
-
-  return score;
+  return scoreFixtureCandidate(candidate, homeTeam, awayTeam, commenceTime).score;
 };
 
 export const findBestMatchIndex = (
   pool: OddsMatch[],
   fixture: OddsProviderFixture,
-  threshold = 1.25
+  threshold = 1.65
 ): number => {
   let bestIndex = -1;
   let bestScore = -1;
@@ -83,27 +206,64 @@ export const findBestMatchIndex = (
   return bestScore >= threshold ? bestIndex : -1;
 };
 
+export type FixtureMatchDiagnostic = {
+  requestedFixture: OddsProviderFixture;
+  matched: boolean;
+  candidateCount: number;
+  bestScore: number;
+  matchedCandidate?: FixtureCandidateScore['candidate'];
+  candidates: FixtureCandidateScore[];
+  warnings: string[];
+};
+
 export const matchFixturesToMatches = (
   fixtures: OddsProviderFixture[],
   matches: OddsMatch[],
-  threshold = 1.25
-): { matchedMatches: OddsMatch[]; missingFixtures: OddsProviderFixture[] } => {
+  threshold = 1.65
+): {
+  matchedMatches: OddsMatch[];
+  missingFixtures: OddsProviderFixture[];
+  diagnostics: FixtureMatchDiagnostic[];
+} => {
   const available = [...matches];
   const matchedMatches: OddsMatch[] = [];
   const missingFixtures: OddsProviderFixture[] = [];
+  const diagnostics: FixtureMatchDiagnostic[] = [];
 
   for (const fixture of fixtures) {
+    const scoredCandidates = available
+      .map((candidate) => scoreFixtureCandidate(candidate, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime))
+      .sort((a, b) => b.score - a.score);
     const bestIndex = findBestMatchIndex(available, fixture, threshold);
     if (bestIndex === -1) {
       missingFixtures.push(fixture);
+      diagnostics.push({
+        requestedFixture: fixture,
+        matched: false,
+        candidateCount: available.length,
+        bestScore: scoredCandidates[0]?.score ?? 0,
+        candidates: scoredCandidates.slice(0, 8),
+        warnings: Array.from(new Set(scoredCandidates.flatMap((candidate) => candidate.warnings))),
+      });
       continue;
     }
 
-    matchedMatches.push(available[bestIndex]);
+    const matched = available[bestIndex];
+    const matchedScore = scoreFixtureCandidate(matched, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime);
+    matchedMatches.push(matched);
+    diagnostics.push({
+      requestedFixture: fixture,
+      matched: true,
+      candidateCount: available.length,
+      bestScore: matchedScore.score,
+      matchedCandidate: matchedScore.candidate,
+      candidates: scoredCandidates.slice(0, 8),
+      warnings: matchedScore.warnings,
+    });
     available.splice(bestIndex, 1);
   }
 
-  return { matchedMatches, missingFixtures };
+  return { matchedMatches, missingFixtures, diagnostics };
 };
 
 export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMatch => {

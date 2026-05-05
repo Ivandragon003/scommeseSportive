@@ -3,7 +3,7 @@ import { createClient } from '@libsql/client';
 type SqlArgs = Record<string, any> | any[];
 type HistoricalOddsDetail = {
   odds: Record<string, number>;
-  oddsSource: 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
+  oddsSource: 'odds_api' | 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
   snapshotSource: string | null;
   capturedAt: string | null;
   usedFallbackBookmaker: boolean;
@@ -1030,9 +1030,13 @@ export class DatabaseService {
     if (Boolean(row?.usedSyntheticOdds) || source.includes('model_estimated') || source.includes('synthetic')) {
       return 'synthetic';
     }
-    if (Boolean(row?.usedFallbackBookmaker) || source.includes('odds_api') || source.includes('fallback')) {
+    if (source === 'odds_api' && !row?.usedFallbackBookmaker) {
+      return 'odds_api';
+    }
+    if (Boolean(row?.usedFallbackBookmaker) || source.includes('fallback')) {
       return 'fallback';
     }
+    if (source.includes('odds_api')) return 'odds_api';
     if (source.includes('eurobet')) return 'eurobet_scraper';
     return 'unknown';
   }

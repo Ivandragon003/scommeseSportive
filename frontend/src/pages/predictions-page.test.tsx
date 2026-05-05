@@ -120,7 +120,7 @@ beforeEach(() => {
 describe('Predictions page', () => {
   test('al mount carica una sola volta liste e contesto utente senza fetch prediction', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getEurobetOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
 
     render(<Predictions activeUser="user1" />);
 
@@ -133,20 +133,21 @@ describe('Predictions page', () => {
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
-    expect(mockedApi.getEurobetOddsForMatch).toHaveBeenCalledTimes(0);
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
   });
 
   test('seleziona la partita, carica quote e mostra best value e stake planner', async () => {
     mockedApi.getPrediction
       .mockResolvedValueOnce({ data: buildPrediction() } as any)
-      .mockResolvedValueOnce({ data: buildPrediction({ oddsSource: 'eurobet_scraper' }) } as any);
-    mockedApi.getEurobetOddsForMatch.mockResolvedValue({
+      .mockResolvedValueOnce({ data: buildPrediction({ oddsSource: 'odds_api' }) } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: true,
-        source: 'eurobet_scraper',
+        source: 'odds_api',
+        primaryProvider: 'odds_api',
         selectedOdds: { over25: 2.1 },
         marketsRequested: ['totals'],
-        message: 'Quote reali Eurobet caricate.',
+        message: 'Quote bookmaker caricate correttamente.',
       },
     } as any);
 
@@ -154,23 +155,23 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByText('Inter'));
 
-    await waitFor(() => expect(mockedApi.getEurobetOddsForMatch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole('button', { name: /Pronostico Finale/i }));
 
     await screen.findByTestId('best-value-card');
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quote reali Eurobet');
+    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quote bookmaker');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
-    expect(screen.getByText(/Quote reali Eurobet caricate/i)).toBeTruthy();
+    expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
   });
 
   test('mostra warning quando il provider fallback viene usato', async () => {
     mockedApi.getPrediction
       .mockResolvedValueOnce({ data: buildPrediction() } as any)
       .mockResolvedValueOnce({ data: buildPrediction() } as any);
-    mockedApi.getEurobetOddsForMatch.mockResolvedValue({
+    mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: false,
         source: 'fallback_provider',
@@ -184,22 +185,22 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByText('Inter'));
 
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/Quote Eurobet non disponibili: mostro quote provider secondario per analisi\./i)).toBeTruthy();
+    expect(screen.getByText(/Quote provider primario non disponibili: mostro quote provider secondario per analisi\./i)).toBeTruthy();
 
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Provider secondario attivo: confronta la giocata con Eurobet prima di eseguirla.');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Provider secondario attivo: verifica la quota prima di eseguirla.');
     });
   });
 
-  test('gestisce Eurobet unavailable senza proporre una quota utente', async () => {
+  test('gestisce provider unavailable senza proporre una quota utente', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getEurobetOddsForMatch.mockResolvedValue({
+    mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: false,
-        source: 'eurobet_unavailable',
-        message: 'Quote Eurobet non disponibili per questa partita.',
+        source: 'odds_unavailable',
+        message: 'Quote bookmaker non disponibili per questa partita.',
       },
     } as any);
 
@@ -207,12 +208,12 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByText('Inter'));
 
-    await waitFor(() => expect(mockedApi.getEurobetOddsForMatch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
 
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quote Eurobet non disponibili per questa partita.');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quote bookmaker non disponibili per questa partita.');
     });
   });
 });

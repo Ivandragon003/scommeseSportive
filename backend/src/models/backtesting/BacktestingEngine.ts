@@ -167,7 +167,7 @@ export interface WalkForwardBacktestResult {
   detailedBets: BacktestBetDetail[];
 }
 
-export type BacktestOddsSource = 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
+export type BacktestOddsSource = 'odds_api' | 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
 
 export interface HistoricalOddsContextEntry {
   odds: Record<string, number>;

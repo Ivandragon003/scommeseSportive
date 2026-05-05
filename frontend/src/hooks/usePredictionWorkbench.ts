@@ -168,9 +168,9 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
       : predictionAnalysis.pred?.usedSyntheticOdds
         ? 'Quote stimate dal modello: trattale come supporto analitico, non come prezzo bookmaker verificato.'
         : predictionAnalysis.pred?.oddsSource === 'fallback_provider'
-          ? 'Provider secondario attivo: confronta la giocata con Eurobet prima di eseguirla.'
-          : predictionAnalysis.pred?.oddsSource === 'eurobet_unavailable'
-            ? 'Eurobet non ha esposto quote operative per questo match.'
+          ? 'Provider secondario attivo: verifica la quota prima di eseguirla.'
+          : ['eurobet_unavailable', 'odds_unavailable', 'unavailable'].includes(String(predictionAnalysis.pred?.oddsSource ?? ''))
+            ? 'Il provider quote non ha esposto quote operative per questo match.'
             : null;
 
   const replayOutcomeTone =

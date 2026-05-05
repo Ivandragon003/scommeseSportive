@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { getEurobetOddsForMatch, getPrediction } from '../utils/api';
+import { getOddsForMatch, getPrediction } from '../utils/api';
 import { sanitizePredictionForEurobetOnly } from '../components/predictions/predictionWorkbenchUtils';
 
 interface FetchPredictionWithOddsInput {
@@ -49,7 +49,7 @@ export function useOddsForMatch() {
       matchId: resolvedMatchId,
       competition: competition || undefined,
     });
-    const oddsPromise = getEurobetOddsForMatch({
+    const oddsPromise = getOddsForMatch({
       matchId: resolvedMatchId,
       competition: competition || 'Serie A',
       homeTeam: homeName,
@@ -73,12 +73,16 @@ export function useOddsForMatch() {
     let oddsTone: 'info' | 'success' | 'warning' | 'danger' = 'info';
     let appliedOdds: Record<string, string> = {};
 
-    const eurobetOdds: Record<string, number> = payload?.found && payload?.selectedOdds
+    const providerOdds: Record<string, number> = payload?.found && payload?.selectedOdds
       ? payload.selectedOdds as Record<string, number>
       : {};
     const fallbackOdds: Record<string, number> = payload?.fallbackOdds
       ? payload.fallbackOdds as Record<string, number>
       : {};
+    const source = String(payload?.source ?? payload?.oddsSource ?? '');
+    const primaryProvider = String(payload?.primaryProvider ?? '');
+    const usedFallbackProvider = Boolean(payload?.usedFallbackBookmaker)
+      || Boolean(source && primaryProvider && source !== primaryProvider);
 
     const stringifyOdds = (odds: Record<string, number>) => Object.entries(odds).reduce((acc, [key, value]) => {
       const nextValue = Number(value);
@@ -88,24 +92,27 @@ export function useOddsForMatch() {
       return acc;
     }, {} as Record<string, string>);
 
-    if (Object.keys(eurobetOdds).length > 0) {
-      appliedOdds = stringifyOdds(eurobetOdds);
-      oddsMessage = payload.message ?? 'Quote reali Eurobet caricate.';
-      oddsTone = 'success';
+    if (Object.keys(providerOdds).length > 0) {
+      appliedOdds = stringifyOdds(providerOdds);
+      oddsMessage = payload.message ?? 'Quote bookmaker caricate.';
+      oddsTone = usedFallbackProvider ? 'warning' : 'success';
 
       const enriched = await getPrediction({
         homeTeamId: homeId,
         awayTeamId: awayId,
         matchId: resolvedMatchId,
         competition: competition || undefined,
-        bookmakerOdds: eurobetOdds,
+        bookmakerOdds: providerOdds,
       });
       if (enriched.data) {
-        finalPrediction = sanitizePredictionForEurobetOnly(enriched.data, payload.source ?? 'eurobet_scraper');
+        finalPrediction = sanitizePredictionForEurobetOnly(
+          enriched.data,
+          usedFallbackProvider ? 'fallback_provider' : (payload.source ?? 'odds_api')
+        );
       }
     } else if (Object.keys(fallbackOdds).length > 0) {
       appliedOdds = stringifyOdds(fallbackOdds);
-      oddsMessage = 'Quote Eurobet non disponibili: mostro quote provider secondario per analisi.';
+      oddsMessage = 'Quote provider primario non disponibili: mostro quote provider secondario per analisi.';
       oddsTone = 'warning';
 
       const enriched = await getPrediction({
@@ -119,15 +126,15 @@ export function useOddsForMatch() {
         finalPrediction = sanitizePredictionForEurobetOnly(enriched.data, 'fallback_provider');
       }
     } else {
-      oddsMessage = payload.message ?? 'Quote Eurobet non disponibili per questa partita.';
+      oddsMessage = payload.message ?? 'Quote bookmaker non disponibili per questa partita.';
       oddsTone = 'warning';
-      finalPrediction = sanitizePredictionForEurobetOnly(finalPrediction, payload.source ?? 'eurobet_unavailable');
+      finalPrediction = sanitizePredictionForEurobetOnly(finalPrediction, payload.source ?? 'odds_unavailable');
     }
 
     if (finalPrediction) {
       finalPrediction = sanitizePredictionForEurobetOnly(
         finalPrediction,
-        payload.source ?? finalPrediction?.oddsSource ?? null
+        finalPrediction?.usedFallbackBookmaker ? 'fallback_provider' : (payload.source ?? finalPrediction?.oddsSource ?? null)
       );
     }
 

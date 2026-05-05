@@ -2,22 +2,46 @@ import { EurobetOddsProvider } from './EurobetOddsProvider';
 import { OddsApiProvider } from './OddsApiProvider';
 import { OddsProviderCoordinator } from './OddsProviderCoordinator';
 
+export type RuntimeOddsProviderName = 'eurobet' | 'odds_api';
+
 export const getConfiguredOddsApiKey = (): string =>
   String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? '').trim();
 
 export const isEurobetScraperSkipped = (): boolean =>
   String(process.env.SKIP_EUROBET_SCRAPER ?? 'false').trim().toLowerCase() === 'true';
 
-export const getConfiguredPrimaryProviderName = (): 'eurobet' | 'odds_api' =>
-  isEurobetScraperSkipped() ? 'odds_api' : 'eurobet';
+const getExplicitPrimaryProviderName = (): RuntimeOddsProviderName | null => {
+  const value = String(process.env.ODDS_PRIMARY_PROVIDER ?? '').trim().toLowerCase();
+  if (value === 'eurobet' || value === 'eurobet_scraper') return 'eurobet';
+  if (value === 'odds_api' || value === 'the_odds_api' || value === 'the-odds-api') return 'odds_api';
+  return null;
+};
 
-export const getConfiguredFallbackProviderName = (): 'odds_api' | null =>
-  !isEurobetScraperSkipped() && Boolean(getConfiguredOddsApiKey()) ? 'odds_api' : null;
+export const getConfiguredPrimaryProviderName = (): RuntimeOddsProviderName => {
+  const explicit = getExplicitPrimaryProviderName();
+  const skipEurobet = isEurobetScraperSkipped();
+  const hasOddsApiKey = Boolean(getConfiguredOddsApiKey());
+
+  if (explicit === 'eurobet' && !skipEurobet) return 'eurobet';
+  if (explicit === 'odds_api') return 'odds_api';
+  if (hasOddsApiKey) return 'odds_api';
+  return 'odds_api';
+};
+
+export const getConfiguredFallbackProviderName = (): RuntimeOddsProviderName | null => {
+  const primary = getConfiguredPrimaryProviderName();
+  const skipEurobet = isEurobetScraperSkipped();
+  const hasOddsApiKey = Boolean(getConfiguredOddsApiKey());
+
+  if (primary === 'odds_api' && !skipEurobet) return 'eurobet';
+  if (primary === 'eurobet' && hasOddsApiKey) return 'odds_api';
+  return null;
+};
 
 export type OddsProviderCoordinatorBundle = {
   coordinator: OddsProviderCoordinator;
-  primaryProviderName: 'eurobet' | 'odds_api';
-  fallbackProviderName: 'odds_api' | null;
+  primaryProviderName: RuntimeOddsProviderName;
+  fallbackProviderName: RuntimeOddsProviderName | null;
   apiKey: string;
   skipEurobet: boolean;
 };
@@ -25,17 +49,21 @@ export type OddsProviderCoordinatorBundle = {
 export const createOddsProviderCoordinatorBundle = (): OddsProviderCoordinatorBundle => {
   const apiKey = getConfiguredOddsApiKey();
   const skipEurobet = isEurobetScraperSkipped();
-  const primaryProvider = skipEurobet
+  const primaryProviderName = getConfiguredPrimaryProviderName();
+  const fallbackProviderName = getConfiguredFallbackProviderName();
+  const primaryProvider = primaryProviderName === 'odds_api'
     ? new OddsApiProvider(apiKey)
     : new EurobetOddsProvider();
-  const fallbackProvider = !skipEurobet && apiKey
+  const fallbackProvider = fallbackProviderName === 'odds_api'
     ? new OddsApiProvider(apiKey)
-    : null;
+    : fallbackProviderName === 'eurobet'
+      ? new EurobetOddsProvider()
+      : null;
 
   return {
     coordinator: new OddsProviderCoordinator(primaryProvider, fallbackProvider),
-    primaryProviderName: skipEurobet ? 'odds_api' : 'eurobet',
-    fallbackProviderName: fallbackProvider ? 'odds_api' : null,
+    primaryProviderName,
+    fallbackProviderName,
     apiKey,
     skipEurobet,
   };

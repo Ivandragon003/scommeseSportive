@@ -32,13 +32,13 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       return baseResult;
     }
 
-    const { matchedMatches, missingFixtures } = matchFixturesToMatches(fixtures, baseResult.matches);
+    const { matchedMatches, missingFixtures, diagnostics } = matchFixturesToMatches(fixtures, baseResult.matches);
     const warnings = [...baseResult.warnings];
     let fallbackReason = baseResult.fallbackReason;
 
     if (missingFixtures.length > 0) {
-      warnings.push(`Fixture non trovate nel provider secondario: ${missingFixtures.length}/${fixtures.length}`);
-      fallbackReason = fallbackReason ?? 'Copertura parziale del provider secondario sulle fixture richieste';
+      warnings.push(`Fixture non trovate in Odds API: ${missingFixtures.length}/${fixtures.length}`);
+      fallbackReason = fallbackReason ?? 'Copertura parziale Odds API sulle fixture richieste';
     }
 
     const matches = await Promise.all(
@@ -50,6 +50,14 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       matches,
       warnings,
       fallbackReason,
+      details: {
+        ...(baseResult.details ?? {}),
+        matchesReceived: baseResult.matches.length,
+        candidateCount: baseResult.matches.length,
+        matchedFixtureCount: matchedMatches.length,
+        missingFixtureCount: missingFixtures.length,
+        fixtureDiagnostics: diagnostics,
+      },
     };
   }
 
@@ -67,7 +75,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       provider: this.getProviderName(),
       status: 'healthy',
       checkedAt: new Date().toISOString(),
-      message: 'Provider secondario configurato',
+      message: 'Odds API configurata',
       details: {
         remainingRequests: this.service.getRemainingRequests(),
       },
@@ -116,6 +124,8 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
         details: {
           marketsUsed: markets,
           remainingRequests: this.service!.getRemainingRequests(),
+          matchesReceived: matches.length,
+          candidateCount: matches.length,
         },
       };
     } catch (error) {
@@ -127,13 +137,15 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       return {
         matches,
         fetchedAt: new Date().toISOString(),
-        fallbackReason: 'Mercati primari non disponibili sul provider secondario, uso fallback mercati estesi',
+        fallbackReason: 'Mercati primari non disponibili su Odds API, uso fallback h2h/totals',
         warnings: [
           error instanceof Error ? error.message : String(error),
         ],
         details: {
           marketsUsed: fallbackMarkets,
           remainingRequests: this.service!.getRemainingRequests(),
+          matchesReceived: matches.length,
+          candidateCount: matches.length,
         },
       };
     }

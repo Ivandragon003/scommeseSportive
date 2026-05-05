@@ -113,13 +113,13 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
   assert.equal(metrics.trends.topErrorCategories[0].category, 'meeting_json_failed');
 });
 
-test('SystemObservabilityService costruisce provider health con activeProvider e fallbackReason', async () => {
+test('SystemObservabilityService costruisce provider health con Odds API primario', async () => {
   const db = createDbStub();
   const svc = new SystemObservabilityService(db);
 
   await svc.recordProviderRun({
     runId: 'run_2',
-    provider: 'eurobet',
+    provider: 'odds_api',
     competition: 'Serie A',
     sourceUsed: 'odds_api',
     matchCount: 3,
@@ -129,12 +129,12 @@ test('SystemObservabilityService costruisce provider health con activeProvider e
     matchesWithExtendedGroups: 0,
     durationMs: 9000,
     success: true,
-    fallbackUsed: true,
-    fallbackReason: 'Provider primario eurobet non disponibile',
-    warnings: ['fallback attivo'],
+    fallbackUsed: false,
+    fallbackReason: null,
+    warnings: [],
     providerHealth: {
-      eurobet: { status: 'unhealthy', checkedAt: '2026-04-16T10:00:00.000Z', message: 'meeting_json_failed' },
-      odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'fallback operativo' },
+      odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'provider operativo' },
+      eurobet: { status: 'not_checked', checkedAt: '2026-04-16T10:00:00.000Z' },
     },
     startedAt: '2026-04-16T10:00:00.000Z',
     endedAt: '2026-04-16T10:00:09.000Z',
@@ -142,10 +142,10 @@ test('SystemObservabilityService costruisce provider health con activeProvider e
 
   const payload = await svc.getProviderHealthPayload();
 
-  assert.equal(payload.primaryProvider, 'eurobet');
+  assert.equal(payload.primaryProvider, 'odds_api');
   assert.equal(payload.activeProvider, 'odds_api');
-  assert.equal(payload.status, 'degraded');
-  assert.equal(payload.fallbackReason, 'Provider primario eurobet non disponibile');
+  assert.equal(payload.status, 'healthy');
+  assert.equal(payload.fallbackReason, null);
   assert.equal(payload.providerHealth.odds_api.status, 'healthy');
 });
 

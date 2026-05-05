@@ -35,9 +35,10 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   onStakeChange,
   onBet,
 }) => {
+  const oddsUnavailable = oddsSource === 'eurobet_unavailable' || oddsSource === 'odds_unavailable' || oddsSource === 'unavailable';
   const emptyMessage =
-    oddsSource === 'eurobet_unavailable'
-      ? 'Quote Eurobet non disponibili per questa partita.'
+    oddsUnavailable
+      ? 'Quote bookmaker non disponibili per questa partita.'
       : 'Nessuna scommessa con EV positivo trovata.';
 
   return (
@@ -55,9 +56,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
           {emptyMessage}
           <br />
           <span style={{ color: 'var(--text-3)', fontSize: 11 }}>
-            {oddsSource === 'eurobet_unavailable'
-              ? 'Finche Eurobet non espone il mercato, il sistema non propone una giocata finale con quota utente.'
-              : 'Quote Eurobet non disponibili oppure edge insufficiente (>2%).'}
+            {oddsUnavailable
+              ? 'Finche il provider non espone il mercato, il sistema non propone una giocata finale con quota utente.'
+              : 'Quote bookmaker non disponibili oppure edge insufficiente (>2%).'}
           </span>
         </div>
       ) : (
