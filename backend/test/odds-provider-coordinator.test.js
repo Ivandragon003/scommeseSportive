@@ -34,6 +34,7 @@ const buildMatch = ({
 const createProvider = (name, options = {}) => ({
   getProviderName: () => name,
   async getCompetitionOdds() {
+    if (options.neverResolveCompetition) return new Promise(() => {});
     if (options.competitionError) throw new Error(options.competitionError);
     return {
       matches: options.competitionMatches ?? [],
@@ -43,6 +44,7 @@ const createProvider = (name, options = {}) => ({
     };
   },
   async getOddsForFixtures() {
+    if (options.neverResolveFixture) return new Promise(() => {});
     if (options.fixtureError) throw new Error(options.fixtureError);
     return {
       matches: options.fixtureMatches ?? options.competitionMatches ?? [],
@@ -85,6 +87,22 @@ const createProvider = (name, options = {}) => ({
   async close() {},
 });
 
+const withEnv = async (nextEnv, fn) => {
+  const keys = Object.keys(nextEnv);
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const [key, value] of Object.entries(nextEnv)) {
+      process.env[key] = String(value);
+    }
+    await fn();
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+};
+
 test('OddsProviderCoordinator usa Eurobet come primario quando e sano', async () => {
   const eurobet = createProvider('eurobet', {
     competitionMatches: [buildMatch({ bookmakers: [{ bookmakerKey: 'eurobet', bookmakerName: 'Eurobet', markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Inter', price: 1.91 }, { name: 'Draw', price: 3.4 }, { name: 'Milan', price: 4.0 }] }] }] })],
@@ -126,6 +144,46 @@ test('OddsProviderCoordinator attiva il fallback quando Eurobet fallisce', async
   assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
   assert.equal(result.providerHealth.odds_api.status, 'healthy');
   assert.equal(result.providerRuntime.odds_api.remainingRequests, 210);
+});
+
+test('OddsProviderCoordinator manda in timeout il provider primario e attiva il fallback fixture-scoped', async () => {
+  await withEnv({ ODDS_PROVIDER_MATCH_TIMEOUT_MS: '25' }, async () => {
+    const eurobet = createProvider('eurobet', {
+      neverResolveFixture: true,
+    });
+    const fallback = createProvider('odds_api', {
+      fixtureMatches: [buildMatch({
+        bookmakers: [{
+          bookmakerKey: 'pinnacle',
+          bookmakerName: 'Pinnacle',
+          markets: [{
+            marketKey: 'h2h',
+            outcomes: [
+              { name: 'Inter', price: 1.95 },
+              { name: 'Draw', price: 3.5 },
+              { name: 'Milan', price: 4.2 },
+            ],
+          }],
+        }],
+      })],
+    });
+
+    const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+    const result = await Promise.race([
+      coordinator.getOddsForFixtures({
+        competition: 'Serie A',
+        fixtures: [{ homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-04-20T18:45:00Z' }],
+      }, { mergeMarkets: true, useFallback: true }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('coordinator did not return before test timeout')), 250)),
+    ]);
+
+    assert.equal(result.matches.length, 1);
+    assert.equal(result.matches[0].oddsSource, 'odds_api');
+    assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
+    assert.match(result.providerHealth.eurobet.message, /Provider eurobet timeout after 25ms/i);
+    assert.equal(result.providerHealth.odds_api.status, 'healthy');
+    assert.match(result.warnings.join(' '), /Provider eurobet timeout after 25ms/i);
+  });
 });
 
 test('OddsProviderCoordinator mergea copertura mercati parziale e mantiene provenance', async () => {

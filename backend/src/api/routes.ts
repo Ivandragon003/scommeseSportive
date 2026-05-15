@@ -7,10 +7,13 @@ import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
 import {
   createOddsProviderCoordinatorBundle,
+  getConfiguredOddsApiKey,
   getConfiguredFallbackProviderName,
   getConfiguredPrimaryProviderName,
+  isEurobetScraperSkipped,
   OddsProviderCoordinatorBundle,
 } from '../services/odds-provider/providerRuntimeConfig';
+import { getProviderTimeoutMs } from '../services/odds-provider/OddsProviderCoordinator';
 import { SofaScoreSupplementalScraper } from '../services/SofaScoreSupplementalScraper';
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
@@ -2432,6 +2435,7 @@ const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
 const matchOddsInFlight = new Map<string, Promise<any>>();
 const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
 const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 60 * 1000;
+const MAX_MATCH_ODDS_ROUTE_TIMEOUT_MS = 60 * 1000;
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -2442,7 +2446,10 @@ const getMatchOddsCacheTtlMs = (): number =>
   parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
 
 const getEurobetMatchTimeoutMs = (): number =>
-  parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS);
+  Math.min(
+    parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS),
+    MAX_MATCH_ODDS_ROUTE_TIMEOUT_MS
+  );
 
 const normalizeMatchOddsCachePart = (value: string): string =>
   String(value ?? '')
@@ -3739,7 +3746,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       endedAt: caughtAt,
     });
     console.error('[Odds/match] Errore:', errorMessage);
-    return res.status(500).json({
+    return res.status(503).json({
       success: false,
       error: errorMessage,
       data: {
@@ -3798,6 +3805,27 @@ router.get('/scraper/odds/info', (_req, res) => {
       fallbackProvider: getConfiguredFallbackProviderName(),
       note: 'Eurobet e il provider primario di default quando SKIP_EUROBET_SCRAPER=false. Usa ODDS_PRIMARY_PROVIDER=odds_api o SKIP_EUROBET_SCRAPER=true per rendere Odds API primario.',
     }
+  });
+});
+
+router.get('/scraper/odds/debug-config', (_req, res) => {
+  res.json({
+    success: true,
+    data: {
+      ODDS_PRIMARY_PROVIDER: String(process.env.ODDS_PRIMARY_PROVIDER ?? '').trim() || null,
+      SKIP_EUROBET_SCRAPER: isEurobetScraperSkipped(),
+      hasOddsApiKey: Boolean(getConfiguredOddsApiKey()),
+      primaryProvider: getConfiguredPrimaryProviderName(),
+      fallbackProvider: getConfiguredFallbackProviderName(),
+      EUROBET_MATCH_TIMEOUT_MS: parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS),
+      routeMatchTimeoutMs: getEurobetMatchTimeoutMs(),
+      ODDS_PROVIDER_MATCH_TIMEOUT_MS: getProviderTimeoutMs('runtime', true),
+      ODDS_EVENT_TIMEOUT_MS: parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', 60 * 1000),
+      ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: getProviderTimeoutMs('runtime', false),
+      EUROBET_BROWSER_HEADLESS: String(process.env.EUROBET_BROWSER_HEADLESS ?? 'true').trim().toLowerCase() !== 'false',
+      EUROBET_PERSISTENT_PROFILE_ENABLED: String(process.env.EUROBET_PERSISTENT_PROFILE_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
+      NODE_ENV: process.env.NODE_ENV ?? null,
+    },
   });
 });
 
