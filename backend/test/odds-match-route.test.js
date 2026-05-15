@@ -188,8 +188,17 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.providerMatchId, 'event_123');
     assert.equal(json.data.matchedHomeTeam, 'Inter');
     assert.equal(json.data.matchedAwayTeam, 'Milan');
-    assert.deepEqual(requests[0].markets, ['h2h', 'totals', 'spreads']);
-    assert.deepEqual(requests[0].fallbackMarkets, ['h2h', 'totals']);
+    assert.ok(requests[0].markets.includes('double_chance'));
+    assert.ok(requests[0].markets.includes('draw_no_bet'));
+    assert.ok(requests[0].markets.includes('alternate_totals'));
+    assert.ok(requests[0].fallbackMarkets.includes('h2h'));
+    assert.ok(requests[0].fallbackMarkets.includes('totals'));
+    assert.ok(requests[0].extraEventMarkets.includes('player_shots'));
+    assert.ok(requests[0].extraEventMarkets.includes('shots_on_target'));
+    assert.ok(requests[0].extraEventMarkets.includes('corners'));
+    assert.ok(requests[0].extraEventMarkets.includes('cards'));
+    assert.ok(requests[0].extraEventMarkets.includes('fouls'));
+    assert.equal(requests[0].includeExtendedGroups, true);
 
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0].matchId, 'understat_match_1');

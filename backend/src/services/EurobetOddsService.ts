@@ -2912,6 +2912,14 @@ export class EurobetOddsService {
     const nameNorm = normalize(name);
     const descNorm = normalize(desc);
     const combinedNorm = `${nameNorm}${descNorm}`;
+    const slug = (value: string): string =>
+      String(value ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 48);
 
     const isHome = name === match.homeTeam || nameLower === 'home'
       || nameNorm === homeNorm
@@ -2919,6 +2927,9 @@ export class EurobetOddsService {
     const isAway = name === match.awayTeam || nameLower === 'away'
       || nameNorm === awayNorm
       || combinedNorm.includes(awayNorm);
+    const contextProbe = `${market} ${nameLower} ${desc.toLowerCase()}`.replace(/[^a-z0-9\s]/g, ' ');
+    const hasHomeContext = isHome || /\b(home|casa)\b/.test(contextProbe);
+    const hasAwayContext = isAway || /\b(away|ospite|trasferta)\b/.test(contextProbe);
 
     const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
     const compactLine = lineRaw.replace('.', '');
@@ -2931,6 +2942,20 @@ export class EurobetOddsService {
       if (/\bfouls?\b|\bfalli\b/.test(probe)) return 'fouls';
       if (/\byellow\b|\bcards?\b|\bbookings?\b|\bcartellini\b|\bammonizioni\b/.test(probe)) return 'yellow';
       return null;
+    };
+
+    const scopeStatDomain = (domain: 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow'): string => {
+      if (domain === 'shots_total') {
+        if (hasHomeContext) return 'shots_home';
+        if (hasAwayContext) return 'shots_away';
+      }
+      if (domain === 'sot_total') {
+        if (hasHomeContext) return 'sot_home';
+        if (hasAwayContext) return 'sot_away';
+      }
+      if (hasHomeContext && (domain === 'corners' || domain === 'fouls' || domain === 'yellow')) return `${domain}_home`;
+      if (hasAwayContext && (domain === 'corners' || domain === 'fouls' || domain === 'yellow')) return `${domain}_away`;
+      return domain;
     };
 
     if (market === 'h2h' || market === 'h2h_3_way') {
@@ -2952,10 +2977,19 @@ export class EurobetOddsService {
       return null;
     }
 
+    if (market.startsWith('player_') && (nameLower === 'over' || nameLower === 'under')) {
+      const playerKey = slug(desc || outcome.description || name);
+      if (!playerKey) return null;
+      const domain = market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
+        ? 'player_sot'
+        : 'player_shots';
+      return `${domain}_${playerKey}_${nameLower}_${lineRaw}`;
+    }
+
     if (market === 'totals' || market === 'alternate_totals') {
       if (nameLower !== 'over' && nameLower !== 'under') return null;
       const contextualDomain = domainFromContext();
-      if (contextualDomain) return `${contextualDomain}_${nameLower}_${lineRaw}`;
+      if (contextualDomain) return `${scopeStatDomain(contextualDomain)}_${nameLower}_${lineRaw}`;
       return `${nameLower}${compactLine}`;
     }
 
@@ -2986,7 +3020,7 @@ export class EurobetOddsService {
               : market.includes('cards') || market.includes('yellow')
                 ? 'yellow'
                 : 'fouls');
-      return `${domain}_${nameLower}_${lineRaw}`;
+      return `${scopeStatDomain(domain)}_${nameLower}_${lineRaw}`;
     }
 
     return null;

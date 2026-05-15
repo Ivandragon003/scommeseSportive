@@ -41,8 +41,9 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       fallbackReason = fallbackReason ?? 'Copertura parziale Odds API sulle fixture richieste';
     }
 
+    const loadedEventMarkets = new Set<string>();
     const matches = await Promise.all(
-      matchedMatches.map(async (match) => this.enrichEventMarkets(request, match, warnings))
+      matchedMatches.map(async (match) => this.enrichEventMarkets(request, match, warnings, loadedEventMarkets))
     );
 
     return {
@@ -57,6 +58,8 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
         matchedFixtureCount: matchedMatches.length,
         missingFixtureCount: missingFixtures.length,
         fixtureDiagnostics: diagnostics,
+        extraEventMarketsRequested: request.extraEventMarkets ?? [],
+        extraEventMarketsLoaded: Array.from(loadedEventMarkets),
       },
     };
   }
@@ -113,48 +116,52 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
     const fallbackMarkets = request.fallbackMarkets && request.fallbackMarkets.length > 0
       ? request.fallbackMarkets
       : [];
+    const attempts = [
+      { label: 'primary', markets },
+      { label: 'fallback', markets: fallbackMarkets },
+      { label: 'minimal', markets: ['h2h', 'totals'] },
+    ].filter((attempt, index, all) =>
+      attempt.markets.length > 0
+      && all.findIndex((entry) => entry.markets.join('|') === attempt.markets.join('|')) === index
+    );
+    const warnings: string[] = [];
 
-    try {
-      const matches = await this.service!.getOdds(request.competition, markets);
+    for (const attempt of attempts) {
+      try {
+        const matches = await this.service!.getOdds(request.competition, attempt.markets);
+        const usedFallbackAttempt = attempt.label !== 'primary';
+        if (usedFallbackAttempt) {
+          warnings.push(`Odds API: caricamento mercati ${attempt.label} dopo errore sui mercati piu estesi.`);
+        }
       return {
         matches,
         fetchedAt: new Date().toISOString(),
-        fallbackReason: null,
-        warnings: [],
+          fallbackReason: usedFallbackAttempt
+            ? `Mercati primari Odds API non disponibili, uso set ${attempt.label}: ${attempt.markets.join(', ')}`
+            : null,
+          warnings,
         details: {
-          marketsUsed: markets,
+            marketsUsed: attempt.markets,
+            marketsRequested: markets,
+            fallbackMarketsRequested: fallbackMarkets,
           remainingRequests: this.service!.getRemainingRequests(),
           matchesReceived: matches.length,
           candidateCount: matches.length,
         },
       };
-    } catch (error) {
-      if (fallbackMarkets.length === 0) {
-        throw error;
+      } catch (error) {
+        warnings.push(`Odds API ${attempt.label} markets failed (${attempt.markets.join(', ')}): ${error instanceof Error ? error.message : String(error)}`);
       }
-
-      const matches = await this.service!.getOdds(request.competition, fallbackMarkets);
-      return {
-        matches,
-        fetchedAt: new Date().toISOString(),
-        fallbackReason: 'Mercati primari non disponibili su Odds API, uso fallback h2h/totals',
-        warnings: [
-          error instanceof Error ? error.message : String(error),
-        ],
-        details: {
-          marketsUsed: fallbackMarkets,
-          remainingRequests: this.service!.getRemainingRequests(),
-          matchesReceived: matches.length,
-          candidateCount: matches.length,
-        },
-      };
     }
+
+    throw new Error(warnings.join(' | ') || 'Odds API non ha restituito quote per i mercati richiesti');
   }
 
   private async enrichEventMarkets(
     request: OddsProviderRequest,
     match: OddsMatch,
-    warnings: string[]
+    warnings: string[],
+    loadedEventMarkets?: Set<string>
   ): Promise<OddsMatch> {
     const eventMarkets = request.extraEventMarkets ?? [];
     if (eventMarkets.length === 0) return match;
@@ -166,12 +173,36 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
 
     try {
       const extra = await this.service!.getEventOdds(request.competition, eventId, eventMarkets);
+      for (const market of eventMarkets) {
+        loadedEventMarkets?.add(market);
+      }
       return extra ? mergeOddsMatchMarkets(match, extra) : match;
     } catch (error) {
       warnings.push(
-        `Mercati evento extra non disponibili per ${match.homeTeam} vs ${match.awayTeam}: ${error instanceof Error ? error.message : String(error)}`
+        `Mercati evento extra in batch non disponibili per ${match.homeTeam} vs ${match.awayTeam}: ${error instanceof Error ? error.message : String(error)}`
       );
-      return match;
     }
+
+    let enriched = match;
+    const loadedMarkets: string[] = [];
+    const uniqueMarkets = Array.from(new Set(eventMarkets.map((market) => String(market).trim()).filter(Boolean)));
+    for (const market of uniqueMarkets) {
+      try {
+        const extra = await this.service!.getEventOdds(request.competition, eventId, [market]);
+        if (!extra) continue;
+        enriched = mergeOddsMatchMarkets(enriched, extra);
+        loadedMarkets.push(market);
+        loadedEventMarkets?.add(market);
+      } catch (marketError) {
+        warnings.push(
+          `Mercato evento Odds API non disponibile (${market}) per ${match.homeTeam} vs ${match.awayTeam}: ${marketError instanceof Error ? marketError.message : String(marketError)}`
+        );
+      }
+    }
+
+    if (loadedMarkets.length > 0) {
+      warnings.push(`Mercati evento Odds API caricati singolarmente: ${loadedMarkets.join(', ')}`);
+    }
+    return enriched;
   }
 }

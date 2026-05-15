@@ -42,21 +42,43 @@ const prettyLine = (raw: string): string => {
   return cleaned;
 };
 
+const prettySlug = (raw: string): string =>
+  String(raw ?? '')
+    .split('_')
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+
 const marketLabel = (key: string) => {
   if (MARKET_LABELS[key]) return MARKET_LABELS[key];
-  const stats = key.match(/^(shots_total|shots_home|shots_away|sot_total|fouls|yellow|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
+  const stats = key.match(/^(shots_total|shots_home|shots_away|sot_total|sot_home|sot_away|corners|corners_home|corners_away|fouls|fouls_home|fouls_away|yellow|yellow_home|yellow_away|cards_total)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
   if (stats) {
     const domainLabel: Record<string, string> = {
       shots_total: 'Tiri Totali',
       shots_home: 'Tiri Casa',
       shots_away: 'Tiri Ospite',
       sot_total: 'Tiri in Porta Totali',
+      sot_home: 'Tiri in Porta Casa',
+      sot_away: 'Tiri in Porta Ospite',
+      corners: 'Angoli Totali',
+      corners_home: 'Angoli Casa',
+      corners_away: 'Angoli Ospite',
       fouls: 'Falli Totali',
+      fouls_home: 'Falli Casa',
+      fouls_away: 'Falli Ospite',
       yellow: 'Gialli Totali',
+      yellow_home: 'Gialli Casa',
+      yellow_away: 'Gialli Ospite',
       cards_total: 'Cartellini Pesati',
     };
     const side = stats[2].toLowerCase() === 'over' ? 'Over' : 'Under';
     return `${domainLabel[stats[1].toLowerCase()] ?? stats[1]} ${side} ${prettyLine(stats[3])}`;
+  }
+  const playerStats = key.match(/^player_(shots|sot)_([a-z0-9_]+)_(over|under)_([0-9]+(?:\.[0-9]+)?)$/i);
+  if (playerStats) {
+    const domain = playerStats[1].toLowerCase() === 'sot' ? 'Tiri in Porta Giocatore' : 'Tiri Giocatore';
+    const side = playerStats[3].toLowerCase() === 'over' ? 'Over' : 'Under';
+    return `${domain} ${prettySlug(playerStats[2])} ${side} ${prettyLine(playerStats[4])}`;
   }
   return key.replace(/_/g, ' ');
 };

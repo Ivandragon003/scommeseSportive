@@ -3271,9 +3271,47 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         fallbackProviderName,
       } = oddsBundle;
 
-      const preferredMarkets = ['h2h', 'totals', 'spreads'];
-      const fallbackMarkets = ['h2h', 'totals'];
-      const eventAdditionalMarkets: string[] = [];
+      const preferredMarkets = [
+        'h2h',
+        'h2h_3_way',
+        'totals',
+        'alternate_totals',
+        'spreads',
+        'alternate_spreads',
+        'btts',
+        'double_chance',
+        'draw_no_bet',
+        'team_totals',
+        'alternate_team_totals',
+      ];
+      const fallbackMarkets = [
+        'h2h',
+        'totals',
+        'alternate_totals',
+        'btts',
+        'double_chance',
+        'draw_no_bet',
+      ];
+      const eventAdditionalMarkets = [
+        'alternate_totals',
+        'alternate_spreads',
+        'alternate_totals_corners',
+        'alternate_spreads_corners',
+        'alternate_totals_cards',
+        'alternate_spreads_cards',
+        'team_totals',
+        'alternate_team_totals',
+        'btts',
+        'double_chance',
+        'draw_no_bet',
+        'player_shots',
+        'player_shots_on_target',
+        'shots',
+        'shots_on_target',
+        'corners',
+        'cards',
+        'fouls',
+      ];
       const coordination = await withTimeout(
         coordinator.getOddsForFixtures(
           {
@@ -3286,7 +3324,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
             markets: preferredMarkets,
             fallbackMarkets,
             extraEventMarkets: eventAdditionalMarkets,
-            includeExtendedGroups: false,
+            includeExtendedGroups: true,
           },
           { mergeMarkets: true, useFallback: true }
         ),
@@ -3384,7 +3422,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           usedFallbackBookmaker: false,
           usedSyntheticOdds: false,
           bestScore: confidenceScore,
-          marketsRequested: preferredMarkets,
+          marketsRequested: Array.from(new Set([...preferredMarkets, ...fallbackMarkets, ...eventAdditionalMarkets])),
           remainingRequests: coordination.providerRuntime.odds_api?.remainingRequests ?? null,
           warnings: diagnosticWarnings,
           candidateCount,
@@ -3435,7 +3473,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         ...eurobetRequested,
         ...preferredMarkets,
         ...fallbackMarkets,
+        ...eventAdditionalMarkets,
         ...((primaryFetchDetails.marketsUsed ?? []) as string[]),
+        ...((primaryFetchDetails.extraEventMarketsRequested ?? []) as string[]),
+        ...((primaryFetchDetails.extraEventMarketsLoaded ?? []) as string[]),
         ...Object.keys(coordinatedMatch.marketSources),
       ]));
 
