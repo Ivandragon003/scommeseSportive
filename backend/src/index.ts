@@ -3,7 +3,14 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
 import { DatabaseService } from './db/DatabaseService';
-import { createOddsProviderCoordinatorBundle } from './services/odds-provider/providerRuntimeConfig';
+import {
+  createOddsProviderCoordinatorBundle,
+  getConfiguredFallbackProviderName,
+  getConfiguredOddsApiKey,
+  getConfiguredPrimaryProviderName,
+  isEurobetScraperSkipped,
+} from './services/odds-provider/providerRuntimeConfig';
+import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoordinator';
 import { PredictionService } from './services/PredictionService';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 
@@ -186,6 +193,26 @@ const learningSchedulerState: {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const parsePositiveIntEnv = (name: string, fallback: number): number => {
+  const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+};
+
+const logOddsRuntimeConfig = (): void => {
+  console.info('[odds-config] Runtime providers', {
+    primaryProvider: getConfiguredPrimaryProviderName(),
+    fallbackProvider: getConfiguredFallbackProviderName(),
+    skipEurobet: isEurobetScraperSkipped(),
+    hasOddsApiKey: Boolean(getConfiguredOddsApiKey()),
+    eurobetMatchTimeoutMs: parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', 60_000),
+    providerMatchTimeoutMs: getProviderTimeoutMs('runtime', true),
+    providerCompetitionTimeoutMs: getProviderTimeoutMs('runtime', false),
+    eurobetBrowserHeadless: String(process.env.EUROBET_BROWSER_HEADLESS ?? 'true').trim().toLowerCase() !== 'false',
+    eurobetPersistentProfileEnabled: String(process.env.EUROBET_PERSISTENT_PROFILE_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
+    nodeEnv: process.env.NODE_ENV ?? null,
+  });
+};
 
 app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json({ limit: '50mb' }));
@@ -920,6 +947,7 @@ function startLearningReviewScheduler(): void {
 app.listen(PORT, () => {
   console.log(`Football Predictor Backend running on http://localhost:${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
+  logOddsRuntimeConfig();
   void runBootDataSync();
   startUnderstatScheduler();
   startOddsSnapshotScheduler();

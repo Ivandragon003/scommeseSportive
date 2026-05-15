@@ -217,12 +217,13 @@ describe('Predictions page', () => {
     });
   });
 
-  test('mostra il messaggio di errore quote quando la route quote fallisce', async () => {
+  test('mostra il messaggio di errore quote quando la route quote risponde 502', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
     mockedApi.getOddsForMatch.mockRejectedValue({
       response: {
+        status: 502,
         data: {
-          error: 'Timeout Eurobet dopo 180000ms',
+          error: 'Request failed with status code 502',
         },
       },
     });
@@ -233,6 +234,6 @@ describe('Predictions page', () => {
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
 
-    expect(await screen.findByText(/Errore quote: Timeout Eurobet dopo 180000ms/i)).toBeTruthy();
+    expect(await screen.findByText(/Errore quote: 502 = backend\/proxy non ha risposto\. Controlla logs backend\./i)).toBeTruthy();
   });
 });

@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const { createApiRouter } = require('../dist/api/routes.js');
+const { OddsProviderCoordinator } = require('../dist/services/odds-provider/OddsProviderCoordinator.js');
 const {
   getConfiguredFallbackProviderName,
   getConfiguredPrimaryProviderName,
@@ -81,20 +82,96 @@ const postMatchOdds = async (baseUrl, body) => {
   };
 };
 
+const getJson = async (baseUrl, path) => {
+  const response = await fetch(`${baseUrl}${path}`);
+  return {
+    status: response.status,
+    json: await response.json(),
+  };
+};
+
 const withProviderEnv = (nextEnv, fn) => {
   const keys = ['ODDS_API_KEY', 'THE_ODDS_API_KEY', 'ODDS_PRIMARY_PROVIDER', 'SKIP_EUROBET_SCRAPER'];
+  for (const key of Object.keys(nextEnv)) {
+    if (!keys.includes(key)) keys.push(key);
+  }
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  try {
-    for (const key of keys) delete process.env[key];
-    Object.assign(process.env, nextEnv);
-    fn();
-  } finally {
+  const restore = () => {
     for (const key of keys) {
       if (previous[key] === undefined) delete process.env[key];
       else process.env[key] = previous[key];
     }
+  };
+
+  try {
+    for (const key of keys) delete process.env[key];
+    Object.assign(process.env, nextEnv);
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.finally(restore);
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 };
+
+const createRouteProvider = (name, options = {}) => ({
+  getProviderName: () => name,
+  async getCompetitionOdds() {
+    return {
+      matches: [],
+      fetchedAt: fixedFetchedAt,
+      fallbackReason: null,
+      warnings: [],
+    };
+  },
+  async getOddsForFixtures() {
+    options.calls.count += 1;
+    if (options.calls.count === 1 && options.firstNeverResolves) {
+      return new Promise(() => {});
+    }
+
+    return {
+      matches: options.matchesAfterFirst ?? [],
+      fetchedAt: fixedFetchedAt,
+      fallbackReason: options.fallbackReason ?? null,
+      warnings: options.warnings ?? [],
+    };
+  },
+  async healthCheck() {
+    return {
+      provider: name,
+      status: 'healthy',
+      checkedAt: fixedFetchedAt,
+    };
+  },
+  extractBestOdds(match) {
+    const result = {};
+    for (const bookmaker of match.bookmakers ?? []) {
+      for (const market of bookmaker.markets ?? []) {
+        for (const outcome of market.outcomes ?? []) {
+          if (market.marketKey === 'h2h' && outcome.name === match.homeTeam) result.homeWin = outcome.price;
+          if (market.marketKey === 'h2h' && outcome.name === 'Draw') result.draw = outcome.price;
+          if (market.marketKey === 'h2h' && outcome.name === match.awayTeam) result.awayWin = outcome.price;
+        }
+      }
+    }
+    return result;
+  },
+  compareBookmakers() {
+    return {};
+  },
+  calculateMargin() {
+    return null;
+  },
+  getRuntimeMetadata() {
+    return {};
+  },
+  async close() {},
+});
 
 test('provider runtime defaulta a Eurobet quando Eurobet non e skippato e Odds API non e configurata', () => {
   withProviderEnv({ SKIP_EUROBET_SCRAPER: 'false' }, () => {
@@ -448,6 +525,104 @@ test('/scraper/odds/match non salva in cache una risposta found=false', async ()
   } finally {
     await server.close();
   }
+});
+
+test('/scraper/odds/match risponde found=false dopo timeout primario senza fallback e non cachea', async () => {
+  await withProviderEnv({
+    ODDS_PROVIDER_MATCH_TIMEOUT_MS: '25',
+    EUROBET_MATCH_TIMEOUT_MS: '1000',
+  }, async () => {
+    const snapshots = [];
+    const calls = { count: 0 };
+    const provider = createRouteProvider('eurobet', {
+      calls,
+      firstNeverResolves: true,
+      matchesAfterFirst: [buildOddsApiMatch()],
+    });
+    const coordinator = new OddsProviderCoordinator(provider, null);
+    const server = await startRouter({
+      coordinator,
+      snapshots,
+      bundleOverrides: {
+        primaryProviderName: 'eurobet',
+        fallbackProviderName: null,
+        skipEurobet: false,
+      },
+    });
+    const body = {
+      matchId: 'understat_match_timeout_no_fallback',
+      competition: 'Serie A',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-25T18:45:00.000Z',
+    };
+
+    try {
+      const first = await postMatchOdds(server.baseUrl, body);
+      const second = await postMatchOdds(server.baseUrl, body);
+
+      assert.equal(first.status, 200);
+      assert.equal(first.json.success, true);
+      assert.equal(first.json.data.found, false);
+      assert.match(first.json.data.warnings.join(' '), /Provider eurobet timeout after 25ms/i);
+      assert.equal(first.json.data.primaryProvider, 'eurobet');
+      assert.equal(first.json.data.fallbackProvider, null);
+      assert.equal(second.status, 200);
+      assert.equal(second.json.data.found, true);
+      assert.equal(second.json.data.source, 'eurobet');
+      assert.equal(calls.count, 2);
+      assert.equal(snapshots.length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('/scraper/odds/debug-config espone configurazione runtime senza segreti', async () => {
+  await withProviderEnv({
+    ODDS_API_KEY: 'super-secret-key',
+    ODDS_PRIMARY_PROVIDER: 'eurobet',
+    SKIP_EUROBET_SCRAPER: 'false',
+    EUROBET_MATCH_TIMEOUT_MS: '180000',
+    ODDS_PROVIDER_MATCH_TIMEOUT_MS: '45000',
+    ODDS_EVENT_TIMEOUT_MS: '60000',
+    EUROBET_BROWSER_HEADLESS: 'true',
+    EUROBET_PERSISTENT_PROFILE_ENABLED: 'true',
+  }, async () => {
+    const snapshots = [];
+    const coordinator = { async getOddsForFixtures() { return { matches: [] }; } };
+    const server = await startRouter({
+      coordinator,
+      snapshots,
+      bundleOverrides: {
+        primaryProviderName: 'eurobet',
+        fallbackProviderName: 'odds_api',
+        apiKey: 'super-secret-key',
+        skipEurobet: false,
+      },
+    });
+
+    try {
+      const { status, json } = await getJson(server.baseUrl, '/scraper/odds/debug-config');
+      const serialized = JSON.stringify(json);
+
+      assert.equal(status, 200);
+      assert.equal(json.success, true);
+      assert.equal(json.data.hasOddsApiKey, true);
+      assert.equal(json.data.ODDS_PRIMARY_PROVIDER, 'eurobet');
+      assert.equal(json.data.SKIP_EUROBET_SCRAPER, false);
+      assert.equal(json.data.primaryProvider, 'eurobet');
+      assert.equal(json.data.fallbackProvider, 'odds_api');
+      assert.equal(json.data.EUROBET_MATCH_TIMEOUT_MS, 180000);
+      assert.equal(json.data.ODDS_PROVIDER_MATCH_TIMEOUT_MS, 45000);
+      assert.equal(json.data.ODDS_EVENT_TIMEOUT_MS, 60000);
+      assert.equal(serialized.includes('super-secret-key'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(json.data, 'ODDS_API_KEY'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(json.data, 'THE_ODDS_API_KEY'), false);
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 test('/scraper/odds/match ritorna errore chiaro se ODDS_API_KEY manca con Odds API primario', async () => {

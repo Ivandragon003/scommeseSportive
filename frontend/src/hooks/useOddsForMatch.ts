@@ -21,6 +21,11 @@ export interface FetchPredictionWithOddsResult {
 }
 
 const getOddsErrorMessage = (error: any): string => {
+  const status = Number(error?.response?.status ?? 0);
+  if (status === 502 || /status code 502/i.test(String(error?.message ?? error?.response?.data?.error ?? ''))) {
+    return '502 = backend/proxy non ha risposto. Controlla logs backend.';
+  }
+
   const responseData = error?.response?.data;
   const rawMessage = responseData?.error
     ?? responseData?.message

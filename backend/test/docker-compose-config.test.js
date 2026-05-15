@@ -14,7 +14,7 @@ const assertComposeOddsRuntime = (fileName) => {
   assert.match(content, /THE_ODDS_API_KEY=\$\{THE_ODDS_API_KEY:-\}/);
   assert.match(content, /EUROBET_MATCH_TIMEOUT_MS=\$\{EUROBET_MATCH_TIMEOUT_MS:-180000\}/);
   assert.match(content, /ODDS_EVENT_TIMEOUT_MS=\$\{ODDS_EVENT_TIMEOUT_MS:-60000\}/);
-  assert.match(content, /ODDS_PROVIDER_MATCH_TIMEOUT_MS=\$\{ODDS_PROVIDER_MATCH_TIMEOUT_MS:-120000\}/);
+  assert.match(content, /ODDS_PROVIDER_MATCH_TIMEOUT_MS=\$\{ODDS_PROVIDER_MATCH_TIMEOUT_MS:-45000\}/);
 };
 
 test('docker-compose.yml espone provider Eurobet default e timeout compatibili con Playwright', () => {

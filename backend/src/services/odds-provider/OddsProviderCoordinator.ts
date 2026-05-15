@@ -59,6 +59,44 @@ export type CoordinatedProviderHealth = {
   warnings: string[];
 };
 
+export const parsePositiveIntEnv = (name: string, fallback: number): number => {
+  const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+};
+
+export const getProviderTimeoutMs = (_providerName: string, fixtureScoped: boolean): number => {
+  if (fixtureScoped) {
+    return parsePositiveIntEnv('ODDS_PROVIDER_MATCH_TIMEOUT_MS', 45_000);
+  }
+
+  const competitionTimeout = Number.parseInt(String(process.env.ODDS_PROVIDER_COMPETITION_TIMEOUT_MS ?? '').trim(), 10);
+  if (Number.isFinite(competitionTimeout) && competitionTimeout > 0) return competitionTimeout;
+  return parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', 60_000);
+};
+
+export const withProviderTimeout = async <T>(
+  providerName: string,
+  fixtureScoped: boolean,
+  promise: Promise<T>
+): Promise<T> => {
+  const timeoutMs = getProviderTimeoutMs(providerName, fixtureScoped);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Provider ${providerName} timeout after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 export class OddsProviderCoordinator {
   constructor(
     private readonly primaryProvider: OddsProviderAdapter,
@@ -256,9 +294,45 @@ export class OddsProviderCoordinator {
     request: OddsProviderRequest,
     fixtureScoped: boolean
   ): Promise<ProviderFetchState> {
-    const result = fixtureScoped
-      ? await provider.getOddsForFixtures(request)
-      : await provider.getCompetitionOdds(request);
+    const providerName = provider.getProviderName();
+    const timeoutMs = getProviderTimeoutMs(providerName, fixtureScoped);
+    const startedAt = Date.now();
+    console.info(`[OddsProviderCoordinator] provider ${providerName} start`, {
+      provider: providerName,
+      fixtureScoped,
+      timeoutMs,
+      competition: request.competition,
+      fixtureCount: request.fixtures?.length ?? 0,
+    });
+
+    let result: Awaited<ReturnType<OddsProviderAdapter['getOddsForFixtures']>>;
+    try {
+      result = await withProviderTimeout(
+        providerName,
+        fixtureScoped,
+        fixtureScoped
+          ? provider.getOddsForFixtures(request)
+          : provider.getCompetitionOdds(request)
+      );
+      console.info(`[OddsProviderCoordinator] provider ${providerName} success`, {
+        provider: providerName,
+        fixtureScoped,
+        timeoutMs,
+        matchCount: result.matches.length,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const event = /timeout/i.test(message) ? 'timeout' : 'error';
+      console.warn(`[OddsProviderCoordinator] provider ${providerName} ${event}`, {
+        provider: providerName,
+        fixtureScoped,
+        timeoutMs,
+        durationMs: Date.now() - startedAt,
+        error: message,
+      });
+      throw error;
+    }
 
     return {
       matches: result.matches,
@@ -266,7 +340,10 @@ export class OddsProviderCoordinator {
       warnings: result.warnings,
       fetchedAt: result.fetchedAt,
       runtime: provider.getRuntimeMetadata(),
-      details: result.details ?? {},
+      details: {
+        ...(result.details ?? {}),
+        providerTimeoutMs: timeoutMs,
+      },
     };
   }
 
