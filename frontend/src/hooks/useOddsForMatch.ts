@@ -20,6 +20,16 @@ export interface FetchPredictionWithOddsResult {
   oddsTone: 'info' | 'success' | 'warning' | 'danger';
 }
 
+const getOddsErrorMessage = (error: any): string => {
+  const responseData = error?.response?.data;
+  const rawMessage = responseData?.error
+    ?? responseData?.message
+    ?? error?.message
+    ?? 'errore sconosciuto durante il caricamento quote';
+
+  return String(rawMessage);
+};
+
 export function useOddsForMatch() {
   const resolveTeamName = useCallback((teamNameIndex: Map<string, string>, id: string, name?: string) => {
     if (name?.trim()) return name.trim();
@@ -55,7 +65,9 @@ export function useOddsForMatch() {
       homeTeam: homeName,
       awayTeam: awayName,
       commenceTime: String(match.date ?? ''),
-    }).catch(() => null);
+    })
+      .then((response) => ({ response, errorMessage: null as string | null }))
+      .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));
 
     const basePredictionResponse = await basePredictionPromise;
     const basePrediction = basePredictionResponse.data ?? null;
@@ -64,8 +76,8 @@ export function useOddsForMatch() {
       onBasePrediction(sanitizePredictionForEurobetOnly(basePrediction));
     }
 
-    const oddsResponse = await oddsPromise;
-    const payload = (oddsResponse as any)?.data ?? {};
+    const oddsResult = await oddsPromise;
+    const payload = (oddsResult.response as any)?.data ?? {};
     const requestedMarkets = Array.isArray(payload.marketsRequested) ? payload.marketsRequested : [];
 
     let finalPrediction = basePrediction;
@@ -125,6 +137,10 @@ export function useOddsForMatch() {
       if (enriched.data) {
         finalPrediction = sanitizePredictionForEurobetOnly(enriched.data, 'fallback_provider');
       }
+    } else if (oddsResult.errorMessage) {
+      oddsMessage = `Errore quote: ${oddsResult.errorMessage}`;
+      oddsTone = 'danger';
+      finalPrediction = sanitizePredictionForEurobetOnly(finalPrediction, 'odds_unavailable');
     } else {
       oddsMessage = payload.message ?? 'Quote bookmaker non disponibili per questa partita.';
       oddsTone = 'warning';

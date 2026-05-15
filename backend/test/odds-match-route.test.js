@@ -175,7 +175,17 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
         matches: [
           {
             match: oddsMatch,
-            providerMatches: { odds_api: oddsMatch },
+            providerMatches: {
+              odds_api: oddsMatch,
+              eurobet: {
+                ...oddsMatch,
+                matchId: 'eurobet_event_456',
+                eventAlias: 'calcio/it-serie-a/inter-milan',
+                meetingAlias: 'it-serie-a',
+                loadedGroupAliases: ['base', 'statistiche-partita'],
+                unavailableGroupAliases: ['speciali-partita'],
+              },
+            },
             oddsSource: 'odds_api',
             fallbackReason: null,
             providerHealth: {
@@ -188,7 +198,7 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
             fetchedAt: fixedFetchedAt,
             isMerged: false,
             marketSources: { h2h: ['odds_api'], totals: ['odds_api'] },
-            bestOddsByProvider: { odds_api: selectedOdds },
+            bestOddsByProvider: { odds_api: selectedOdds, eurobet: { homeWin: 1.9 } },
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },
@@ -218,6 +228,11 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.ok(json.data.timeoutMs >= 45000);
     assert.equal(json.data.providerHealth.odds_api.status, 'healthy');
     assert.deepEqual(json.data.warnings, []);
+    assert.deepEqual(json.data.loadedGroupAliases, ['base', 'statistiche-partita']);
+    assert.deepEqual(json.data.unavailableGroupAliases, ['speciali-partita']);
+    assert.equal(json.data.marketCount, 2);
+    assert.equal(json.data.selectedOddsCount, 5);
+    assert.equal(json.data.eurobetOddsCount, 1);
     assert.deepEqual(json.data.selectedOdds, selectedOdds);
     assert.deepEqual(json.data.fallbackOdds, {});
     assert.equal(json.data.providerMatchId, 'event_123');
@@ -319,11 +334,117 @@ test('/scraper/odds/match ritorna diagnostica quando Odds API non trova la fixtu
     assert.equal(json.data.selectedProvider, null);
     assert.ok(json.data.timeoutMs >= 45000);
     assert.equal(json.data.providerHealth.odds_api.status, 'degraded');
+    assert.deepEqual(json.data.loadedGroupAliases, []);
+    assert.deepEqual(json.data.unavailableGroupAliases, []);
+    assert.equal(json.data.marketCount, 0);
+    assert.equal(json.data.selectedOddsCount, 0);
+    assert.equal(json.data.eurobetOddsCount, 0);
     assert.equal(json.data.candidateCount, 2);
     assert.equal(json.data.requestedFixture.homeTeam, 'Inter');
     assert.match(json.data.message, /Quote bookmaker non trovate/i);
     assert.match(json.data.warnings.join(' '), /Fixture non trovate/i);
     assert.equal(snapshots.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test('/scraper/odds/match non salva in cache una risposta found=false', async () => {
+  const snapshots = [];
+  const selectedOdds = { homeWin: 1.91, draw: 3.45, awayWin: 4.2 };
+  let calls = 0;
+  const coordinator = {
+    async getOddsForFixtures() {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          primaryProvider: 'odds_api',
+          fetchedAt: fixedFetchedAt,
+          fallbackReason: 'Timeout provider',
+          providerHealth: {
+            odds_api: {
+              provider: 'odds_api',
+              status: 'degraded',
+              checkedAt: fixedFetchedAt,
+              message: 'Timeout provider',
+            },
+          },
+          providerRuntime: {
+            odds_api: {
+              remainingRequests: 498,
+              fetchDetails: { candidateCount: 0, matchesReceived: 0 },
+            },
+          },
+          isMerged: false,
+          warnings: ['Timeout provider'],
+          matches: [],
+        };
+      }
+
+      const oddsMatch = buildOddsApiMatch();
+      return {
+        primaryProvider: 'odds_api',
+        fetchedAt: fixedFetchedAt,
+        fallbackReason: null,
+        providerHealth: {
+          odds_api: {
+            provider: 'odds_api',
+            status: 'healthy',
+            checkedAt: fixedFetchedAt,
+          },
+        },
+        providerRuntime: {
+          odds_api: {
+            remainingRequests: 497,
+            fetchDetails: { candidateCount: 1, matchesReceived: 1 },
+          },
+        },
+        isMerged: false,
+        warnings: [],
+        matches: [
+          {
+            match: oddsMatch,
+            providerMatches: { odds_api: oddsMatch },
+            oddsSource: 'odds_api',
+            fallbackReason: null,
+            providerHealth: {
+              odds_api: {
+                provider: 'odds_api',
+                status: 'healthy',
+                checkedAt: fixedFetchedAt,
+              },
+            },
+            fetchedAt: fixedFetchedAt,
+            isMerged: false,
+            marketSources: { h2h: ['odds_api'] },
+            bestOddsByProvider: { odds_api: selectedOdds },
+            bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
+            marginsByProvider: { odds_api: {} },
+          },
+        ],
+      };
+    },
+  };
+
+  const server = await startRouter({ coordinator, snapshots });
+  const body = {
+    matchId: 'understat_match_retry_after_timeout',
+    competition: 'Serie A',
+    homeTeam: 'Inter',
+    awayTeam: 'Milan',
+    commenceTime: '2026-04-25T18:45:00.000Z',
+  };
+
+  try {
+    const first = await postMatchOdds(server.baseUrl, body);
+    const second = await postMatchOdds(server.baseUrl, body);
+
+    assert.equal(first.status, 200);
+    assert.equal(first.json.data.found, false);
+    assert.equal(second.status, 200);
+    assert.equal(second.json.data.found, true);
+    assert.deepEqual(second.json.data.selectedOdds, selectedOdds);
+    assert.equal(calls, 2);
   } finally {
     await server.close();
   }

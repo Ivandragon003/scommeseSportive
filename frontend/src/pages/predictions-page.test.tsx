@@ -216,4 +216,23 @@ describe('Predictions page', () => {
       expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quote bookmaker non disponibili per questa partita.');
     });
   });
+
+  test('mostra il messaggio di errore quote quando la route quote fallisce', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockRejectedValue({
+      response: {
+        data: {
+          error: 'Timeout Eurobet dopo 180000ms',
+        },
+      },
+    });
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByText('Inter'));
+
+    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
+
+    expect(await screen.findByText(/Errore quote: Timeout Eurobet dopo 180000ms/i)).toBeTruthy();
+  });
 });
