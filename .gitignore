@@ -2,11 +2,6 @@
 node_modules/
 **/node_modules/
 
-# Environment files
-.env
-.env.*
-!.env.example
-!**/.env.example
 
 # Build artifacts
 dist/
