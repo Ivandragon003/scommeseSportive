@@ -81,29 +81,58 @@ const postMatchOdds = async (baseUrl, body) => {
   };
 };
 
-test('provider runtime usa Odds API come primario quando la chiave e configurata', () => {
-  const previousKey = process.env.ODDS_API_KEY;
-  const previousPrimary = process.env.ODDS_PRIMARY_PROVIDER;
-  const previousSkip = process.env.SKIP_EUROBET_SCRAPER;
+const withProviderEnv = (nextEnv, fn) => {
+  const keys = ['ODDS_API_KEY', 'THE_ODDS_API_KEY', 'ODDS_PRIMARY_PROVIDER', 'SKIP_EUROBET_SCRAPER'];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
-    process.env.ODDS_API_KEY = 'configured';
-    delete process.env.ODDS_PRIMARY_PROVIDER;
-    process.env.SKIP_EUROBET_SCRAPER = 'false';
+    for (const key of keys) delete process.env[key];
+    Object.assign(process.env, nextEnv);
+    fn();
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+};
 
-    assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
-    assert.equal(getConfiguredFallbackProviderName(), 'eurobet');
+test('provider runtime defaulta a Eurobet quando Eurobet non e skippato e Odds API non e configurata', () => {
+  withProviderEnv({ SKIP_EUROBET_SCRAPER: 'false' }, () => {
+    assert.equal(getConfiguredPrimaryProviderName(), 'eurobet');
+    assert.equal(getConfiguredFallbackProviderName(), null);
+  });
+});
 
-    process.env.ODDS_PRIMARY_PROVIDER = 'eurobet';
+test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=eurobet', () => {
+  withProviderEnv({
+    ODDS_PRIMARY_PROVIDER: 'eurobet',
+    SKIP_EUROBET_SCRAPER: 'false',
+    ODDS_API_KEY: 'configured',
+  }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'eurobet');
     assert.equal(getConfiguredFallbackProviderName(), 'odds_api');
-  } finally {
-    if (previousKey === undefined) delete process.env.ODDS_API_KEY;
-    else process.env.ODDS_API_KEY = previousKey;
-    if (previousPrimary === undefined) delete process.env.ODDS_PRIMARY_PROVIDER;
-    else process.env.ODDS_PRIMARY_PROVIDER = previousPrimary;
-    if (previousSkip === undefined) delete process.env.SKIP_EUROBET_SCRAPER;
-    else process.env.SKIP_EUROBET_SCRAPER = previousSkip;
-  }
+  });
+});
+
+test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=odds_api', () => {
+  withProviderEnv({
+    ODDS_PRIMARY_PROVIDER: 'odds_api',
+    SKIP_EUROBET_SCRAPER: 'false',
+    ODDS_API_KEY: 'configured',
+  }, () => {
+    assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
+    assert.equal(getConfiguredFallbackProviderName(), 'eurobet');
+  });
+});
+
+test('provider runtime usa Odds API quando Eurobet e skippato e chiave configurata', () => {
+  withProviderEnv({
+    SKIP_EUROBET_SCRAPER: 'true',
+    ODDS_API_KEY: 'configured',
+  }, () => {
+    assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
+    assert.equal(getConfiguredFallbackProviderName(), null);
+  });
 });
 
 test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con match locale', async () => {
@@ -183,6 +212,12 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.found, true);
     assert.equal(json.data.source, 'odds_api');
     assert.equal(json.data.oddsSource, 'odds_api');
+    assert.equal(json.data.primaryProvider, 'odds_api');
+    assert.equal(json.data.fallbackProvider, null);
+    assert.equal(json.data.selectedProvider, 'odds_api');
+    assert.ok(json.data.timeoutMs >= 45000);
+    assert.equal(json.data.providerHealth.odds_api.status, 'healthy');
+    assert.deepEqual(json.data.warnings, []);
     assert.deepEqual(json.data.selectedOdds, selectedOdds);
     assert.deepEqual(json.data.fallbackOdds, {});
     assert.equal(json.data.providerMatchId, 'event_123');
@@ -279,6 +314,11 @@ test('/scraper/odds/match ritorna diagnostica quando Odds API non trova la fixtu
     assert.equal(json.success, true);
     assert.equal(json.data.found, false);
     assert.equal(json.data.source, 'odds_api');
+    assert.equal(json.data.primaryProvider, 'odds_api');
+    assert.equal(json.data.fallbackProvider, null);
+    assert.equal(json.data.selectedProvider, null);
+    assert.ok(json.data.timeoutMs >= 45000);
+    assert.equal(json.data.providerHealth.odds_api.status, 'degraded');
     assert.equal(json.data.candidateCount, 2);
     assert.equal(json.data.requestedFixture.homeTeam, 'Inter');
     assert.match(json.data.message, /Quote bookmaker non trovate/i);
@@ -322,6 +362,12 @@ test('/scraper/odds/match ritorna errore chiaro se ODDS_API_KEY manca con Odds A
     assert.match(json.error, /ODDS_API_KEY non configurata/i);
     assert.equal(json.data.found, false);
     assert.equal(json.data.source, 'odds_api');
+    assert.equal(json.data.primaryProvider, 'odds_api');
+    assert.equal(json.data.fallbackProvider, null);
+    assert.equal(json.data.selectedProvider, null);
+    assert.ok(json.data.timeoutMs >= 45000);
+    assert.equal(json.data.providerHealth.odds_api.status, 'disabled');
+    assert.match(json.data.warnings.join(' '), /ODDS_API_KEY non configurata/i);
     assert.equal(called, false);
     assert.equal(snapshots.length, 0);
   } finally {

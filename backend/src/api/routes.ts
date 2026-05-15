@@ -2431,7 +2431,7 @@ type OddsRuntimeState = {
 const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
 const matchOddsInFlight = new Map<string, Promise<any>>();
 const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
-const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 7 * 1000;
+const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 60 * 1000;
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -3232,6 +3232,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
     }
 
     const oddsBundle = createOddsBundle();
+    const matchTimeoutMs = getEurobetMatchTimeoutMs();
     if (oddsBundle.primaryProviderName === 'odds_api' && !oddsBundle.apiKey) {
       return res.status(503).json({
         success: false,
@@ -3241,7 +3242,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           source: 'odds_api',
           oddsSource: 'unavailable',
           primaryProvider: oddsBundle.primaryProviderName,
+          fallbackProvider: oddsBundle.fallbackProviderName,
           activeProvider: null,
+          selectedProvider: null,
+          timeoutMs: matchTimeoutMs,
           fallbackReason: 'ODDS_API_KEY non configurata',
           providerHealth: {
             odds_api: {
@@ -3328,7 +3332,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           },
           { mergeMarkets: true, useFallback: true }
         ),
-        getEurobetMatchTimeoutMs(),
+        matchTimeoutMs,
         'Coordinated match odds lookup'
       );
 
@@ -3397,6 +3401,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
             candidateCount,
             candidates: firstFixtureDiagnostic?.candidates ?? [],
             remainingRequests: coordination.providerRuntime.odds_api?.remainingRequests ?? null,
+            timeoutMs: matchTimeoutMs,
           },
           startedAt: startedAtIso,
           endedAt: new Date().toISOString(),
@@ -3407,7 +3412,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           source: primaryProviderName,
           oddsSource: 'unavailable',
           primaryProvider: primaryProviderName,
+          fallbackProvider: fallbackProviderName,
           activeProvider: null,
+          selectedProvider: null,
+          timeoutMs: matchTimeoutMs,
           fallbackReason: coordination.fallbackReason,
           providerHealth,
           fetchedAt: coordination.fetchedAt,
@@ -3558,6 +3566,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           confidenceScore,
           selectedProvider,
           candidateCount,
+          timeoutMs: matchTimeoutMs,
         },
         startedAt: startedAtIso,
         endedAt: new Date().toISOString(),
@@ -3573,7 +3582,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         source,
         oddsSource: source,
         primaryProvider: primaryProviderName,
+        fallbackProvider: fallbackProviderName,
         activeProvider: selectedProvider,
+        selectedProvider,
+        timeoutMs: matchTimeoutMs,
         fallbackReason: coordinatedMatch.fallbackReason ?? coordination.fallbackReason,
         providerHealth,
         fetchedAt: coordinatedMatch.fetchedAt,
@@ -3687,7 +3699,7 @@ router.get('/scraper/odds/info', (_req, res) => {
       registrationUrl: 'https://the-odds-api.com',
       primaryProvider: getConfiguredPrimaryProviderName(),
       fallbackProvider: getConfiguredFallbackProviderName(),
-      note: 'The Odds API e la sorgente primaria quando ODDS_API_KEY e configurata. Eurobet resta fallback opzionale o diagnostico.',
+      note: 'Eurobet e il provider primario di default quando SKIP_EUROBET_SCRAPER=false. Usa ODDS_PRIMARY_PROVIDER=odds_api o SKIP_EUROBET_SCRAPER=true per rendere Odds API primario.',
     }
   });
 });

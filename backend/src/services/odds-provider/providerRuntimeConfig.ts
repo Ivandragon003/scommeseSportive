@@ -24,6 +24,7 @@ export const getConfiguredPrimaryProviderName = (): RuntimeOddsProviderName => {
 
   if (explicit === 'eurobet' && !skipEurobet) return 'eurobet';
   if (explicit === 'odds_api') return 'odds_api';
+  if (!skipEurobet) return 'eurobet';
   if (hasOddsApiKey) return 'odds_api';
   return 'odds_api';
 };
