@@ -114,39 +114,54 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
 });
 
 test('SystemObservabilityService costruisce provider health con Odds API primario', async () => {
+  const previousPrimary = process.env.ODDS_PRIMARY_PROVIDER;
+  const previousKey = process.env.ODDS_API_KEY;
+  const previousSkip = process.env.SKIP_EUROBET_SCRAPER;
+  process.env.ODDS_PRIMARY_PROVIDER = 'odds_api';
+  process.env.ODDS_API_KEY = 'configured';
+  process.env.SKIP_EUROBET_SCRAPER = 'false';
   const db = createDbStub();
   const svc = new SystemObservabilityService(db);
 
-  await svc.recordProviderRun({
-    runId: 'run_2',
-    provider: 'odds_api',
-    competition: 'Serie A',
-    sourceUsed: 'odds_api',
-    matchCount: 3,
-    marketCount: 12,
-    fixtureCount: 5,
-    matchesWithBaseOdds: 3,
-    matchesWithExtendedGroups: 0,
-    durationMs: 9000,
-    success: true,
-    fallbackUsed: false,
-    fallbackReason: null,
-    warnings: [],
-    providerHealth: {
-      odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'provider operativo' },
-      eurobet: { status: 'not_checked', checkedAt: '2026-04-16T10:00:00.000Z' },
-    },
-    startedAt: '2026-04-16T10:00:00.000Z',
-    endedAt: '2026-04-16T10:00:09.000Z',
-  });
+  try {
+    await svc.recordProviderRun({
+      runId: 'run_2',
+      provider: 'odds_api',
+      competition: 'Serie A',
+      sourceUsed: 'odds_api',
+      matchCount: 3,
+      marketCount: 12,
+      fixtureCount: 5,
+      matchesWithBaseOdds: 3,
+      matchesWithExtendedGroups: 0,
+      durationMs: 9000,
+      success: true,
+      fallbackUsed: false,
+      fallbackReason: null,
+      warnings: [],
+      providerHealth: {
+        odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'provider operativo' },
+        eurobet: { status: 'not_checked', checkedAt: '2026-04-16T10:00:00.000Z' },
+      },
+      startedAt: '2026-04-16T10:00:00.000Z',
+      endedAt: '2026-04-16T10:00:09.000Z',
+    });
 
-  const payload = await svc.getProviderHealthPayload();
+    const payload = await svc.getProviderHealthPayload();
 
-  assert.equal(payload.primaryProvider, 'odds_api');
-  assert.equal(payload.activeProvider, 'odds_api');
-  assert.equal(payload.status, 'healthy');
-  assert.equal(payload.fallbackReason, null);
-  assert.equal(payload.providerHealth.odds_api.status, 'healthy');
+    assert.equal(payload.primaryProvider, 'odds_api');
+    assert.equal(payload.activeProvider, 'odds_api');
+    assert.equal(payload.status, 'healthy');
+    assert.equal(payload.fallbackReason, null);
+    assert.equal(payload.providerHealth.odds_api.status, 'healthy');
+  } finally {
+    if (previousPrimary === undefined) delete process.env.ODDS_PRIMARY_PROVIDER;
+    else process.env.ODDS_PRIMARY_PROVIDER = previousPrimary;
+    if (previousKey === undefined) delete process.env.ODDS_API_KEY;
+    else process.env.ODDS_API_KEY = previousKey;
+    if (previousSkip === undefined) delete process.env.SKIP_EUROBET_SCRAPER;
+    else process.env.SKIP_EUROBET_SCRAPER = previousSkip;
+  }
 });
 
 test('SystemObservabilityService costruisce recent runs combinando system e scheduler', async () => {
