@@ -224,11 +224,11 @@ export interface SelectionDiagnostics {
 const EV_THRESHOLDS: Record<MarketCategory, number> = {
   goal_1x2:    0.030,   // 3.0%
   goal_ou:     0.025,   // 2.5%
-  shots:       0.005,   // mercato core
-  shots_ot:    0.005,   // mercato core
-  corners:     0.008,
-  yellow_cards: 0.008,
-  fouls:       0.008,
+  shots:       0.040,   // 4.0%
+  shots_ot:    0.040,   // 4.0%
+  corners:     0.120,   // disattivato nel flusso attivo (Understat-only)
+  yellow_cards: 0.045,  // 4.5%
+  fouls:       0.120,   // disattivato nel flusso attivo (Understat-only)
   exact_score: 0.050,
   handicap:    0.050,
   other:       0.040,
@@ -250,11 +250,13 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
 export class ValueBettingEngine {
   // Filtri globali (valgono per tutte le categorie)
   private readonly MIN_ODDS         = 1.40;   // margine bookmaker troppo alto sotto
-  private readonly MAX_ODDS         = 12.00;  // modello inaffidabile oltre
+  private readonly MAX_ODDS         = 8.00;   // modello inaffidabile oltre
   private readonly KELLY_FRACTION   = 0.25;   // Quarter Kelly (conservativo)
   private readonly MAX_STAKE_PERCENT = 4.0;   // cap assoluto % bankroll
   private readonly MIN_STAKE_PERCENT = 0.25;  // stake minimo (non vale la pena sotto)
   private readonly COHERENCE_RATIO  = 0.65;   // nostra prob >= 65% implied_raw
+  // Mercati disattivati per policy prodotto (AGENTS.md).
+  private readonly DISABLED_CATEGORIES: ReadonlySet<MarketCategory> = new Set(['corners', 'fouls']);
 
   private readonly CONFIDENCE_MULTIPLIERS = {
     HIGH:   1.20,
@@ -649,6 +651,8 @@ export class ValueBettingEngine {
     category: MarketCategory,
     minEv: number
   ): boolean {
+    if (this.DISABLED_CATEGORIES.has(category)) return false;
+
     const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category);
 
     // 1. Range odds assoluto
