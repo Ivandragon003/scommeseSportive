@@ -1,6 +1,7 @@
 import { SupplementaryData } from '../models/core/DixonColesModel';
 import { PlayerShotsData } from '../models/markets/SpecializedModels';
 import { predictionConfig } from '../config/predictionConfig';
+import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 
 /**
  * PredictionContextBuilder — v2
@@ -96,6 +97,36 @@ export interface PredictionContextBuildResult {
   homeXG?: number;
   awayXG?: number;
   richnessScore: number;
+}
+
+export interface ContextWeightTrainingRow {
+  date?: Date;
+  features: {
+    formDelta?: number;
+    motivationDelta?: number;
+    absencesDelta?: number;
+    disciplineDelta?: number;
+    restDelta?: number;
+    scheduleLoadDelta?: number;
+    formAbsenceInteraction?: number;
+  };
+  outcome: number;
+}
+
+export interface LearnedContextWeights {
+  weights: {
+    w_form: number;
+    w_motivation: number;
+    w_absences: number;
+    w_discipline: number;
+    w_rest: number;
+    w_scheduleLoad: number;
+    w_formAbsenceInteraction: number;
+  };
+  usedFallback: boolean;
+  objective: 'logLoss';
+  trainSamples: number;
+  validationSamples: number;
 }
 
 export class PredictionContextBuilder {
@@ -333,6 +364,105 @@ export class PredictionContextBuilder {
         -0.08,
         0.08,
       ),
+    };
+  }
+
+  /**
+   * Learns context weights from caller-provided training rows only.
+   *
+   * The method performs an internal chronological train/validation split over
+   * the supplied rows. It has no access to an external test set; callers must
+   * pass only training-fold data when running final holdout/backtest workflows.
+   * If the supplied sample is too small, default weights are returned.
+   */
+  learnContextWeights(
+    trainingData: ContextWeightTrainingRow[],
+    options: { minSamples?: number; trainRatio?: number } = {}
+  ): LearnedContextWeights {
+    const defaults = {
+      w_form: predictionEngineConfig.context.weights.w_form,
+      w_motivation: predictionEngineConfig.context.weights.w_motivation,
+      w_absences: predictionEngineConfig.context.weights.w_absences,
+      w_discipline: predictionEngineConfig.context.weights.w_discipline,
+      w_rest: predictionEngineConfig.context.weights.w_rest,
+      w_scheduleLoad: predictionEngineConfig.context.weights.w_scheduleLoad,
+      w_formAbsenceInteraction: predictionEngineConfig.context.weights.w_formAbsenceInteraction,
+    };
+    const minSamples = Math.max(10, Number(options.minSamples ?? 60));
+    const rows = [...trainingData]
+      .filter((row) => row && Number.isFinite(Number(row.outcome)))
+      .sort((a, b) => (a.date?.getTime?.() ?? 0) - (b.date?.getTime?.() ?? 0));
+    const fallback = (trainSamples = 0, validationSamples = 0): LearnedContextWeights => ({
+      weights: defaults,
+      usedFallback: true,
+      objective: 'logLoss',
+      trainSamples,
+      validationSamples,
+    });
+    if (rows.length < minSamples) return fallback(rows.length, 0);
+
+    const trainRatio = this.clamp(Number(options.trainRatio ?? 0.70), 0.50, 0.85);
+    const split = Math.max(1, Math.min(rows.length - 1, Math.floor(rows.length * trainRatio)));
+    const train = rows.slice(0, split);
+    const validation = rows.slice(split);
+    if (train.length < Math.floor(minSamples * 0.5) || validation.length < 3) {
+      return fallback(train.length, validation.length);
+    }
+
+    const featureKeys = [
+      'w_form',
+      'w_motivation',
+      'w_absences',
+      'w_discipline',
+      'w_rest',
+      'w_scheduleLoad',
+      'w_formAbsenceInteraction',
+    ] as const;
+    const featureMap: Record<typeof featureKeys[number], keyof ContextWeightTrainingRow['features']> = {
+      w_form: 'formDelta',
+      w_motivation: 'motivationDelta',
+      w_absences: 'absencesDelta',
+      w_discipline: 'disciplineDelta',
+      w_rest: 'restDelta',
+      w_scheduleLoad: 'scheduleLoadDelta',
+      w_formAbsenceInteraction: 'formAbsenceInteraction',
+    };
+    const candidateScales = [0.60, 0.85, 1.00, 1.15, 1.40];
+    const sigmoid = (x: number) => 1 / (1 + Math.exp(-this.clamp(x, -8, 8)));
+    const logLossFor = (weights: typeof defaults, data: ContextWeightTrainingRow[]) => {
+      return -data.reduce((sum, row) => {
+        const linear = featureKeys.reduce((acc, key) => {
+          const feature = this.clamp(Number(row.features?.[featureMap[key]] ?? 0), -1, 1);
+          return acc + feature * weights[key];
+        }, 0);
+        const p = this.clamp(sigmoid(linear), 1e-6, 1 - 1e-6);
+        const y = Number(row.outcome) > 0 ? 1 : 0;
+        return sum + y * Math.log(p) + (1 - y) * Math.log(1 - p);
+      }, 0) / Math.max(1, data.length);
+    };
+
+    let bestWeights = defaults;
+    let bestScore = logLossFor(defaults, validation);
+    let bestTrainScore = logLossFor(defaults, train);
+    for (const key of featureKeys) {
+      for (const scale of candidateScales) {
+        const candidate = { ...bestWeights, [key]: Number((defaults[key] * scale).toFixed(6)) };
+        const trainScore = logLossFor(candidate, train);
+        const validationScore = logLossFor(candidate, validation);
+        if (validationScore + 0.002 < bestScore || (validationScore <= bestScore && trainScore < bestTrainScore)) {
+          bestWeights = candidate;
+          bestScore = validationScore;
+          bestTrainScore = trainScore;
+        }
+      }
+    }
+
+    return {
+      weights: bestWeights,
+      usedFallback: false,
+      objective: 'logLoss',
+      trainSamples: train.length,
+      validationSamples: validation.length,
     };
   }
 

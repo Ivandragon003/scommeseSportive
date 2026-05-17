@@ -47,6 +47,43 @@ import {
   PlayerShotsPrediction,
   NegBinParams,
 } from '../markets/SpecializedModels';
+import { BootstrapMode, predictionEngineConfig } from '../../config/PredictionEngineConfig';
+
+export interface ScoreDependenceModel {
+  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number;
+}
+
+export class ClassicDixonColesDependence implements ScoreDependenceModel {
+  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number {
+    if (i === 0 && j === 0) return 1 - lambdaHome * lambdaAway * rho;
+    if (i === 1 && j === 0) return 1 + lambdaAway * rho;
+    if (i === 0 && j === 1) return 1 + lambdaHome * rho;
+    if (i === 1 && j === 1) return 1 - rho;
+    return 1;
+  }
+}
+
+export class NoDependence implements ScoreDependenceModel {
+  correction(): number {
+    return 1;
+  }
+}
+
+export class SarmanovLikeDependence implements ScoreDependenceModel {
+  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number {
+    return new ClassicDixonColesDependence().correction(i, j, lambdaHome, lambdaAway, rho);
+  }
+}
+
+export class MarCoLikeDependence implements ScoreDependenceModel {
+  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number {
+    return new ClassicDixonColesDependence().correction(i, j, lambdaHome, lambdaAway, rho);
+  }
+}
+
+export interface DixonColesRuntimeOptions {
+  scoreDependenceModel?: ScoreDependenceModel;
+}
 
 export interface TeamStrength {
   teamId: string;
@@ -238,8 +275,9 @@ export class DixonColesModel {
   private readonly LAMBDA_MIN  = 0.05;
   private readonly LAMBDA_MAX  = 6.0;
   private specialized: SpecializedModels;
+  private scoreDependenceModel: ScoreDependenceModel;
 
-  constructor(params?: Partial<ModelParams>) {
+  constructor(params?: Partial<ModelParams>, options: DixonColesRuntimeOptions = {}) {
     this.params = {
       attackParams:  {},
       defenceParams: {},
@@ -250,6 +288,7 @@ export class DixonColesModel {
       ...params,
     };
     this.specialized = new SpecializedModels();
+    this.scoreDependenceModel = options.scoreDependenceModel ?? new ClassicDixonColesDependence();
   }
 
   // ==================== UTILITY NUMERICA ====================
@@ -286,11 +325,7 @@ export class DixonColesModel {
     lH: number, lA: number,
     rho: number
   ): number {
-    if (x === 0 && y === 0) return 1 - lH * lA * rho;
-    if (x === 1 && y === 0) return 1 + lA * rho;
-    if (x === 0 && y === 1) return 1 + lH * rho;
-    if (x === 1 && y === 1) return 1 - rho;
-    return 1.0;
+    return this.scoreDependenceModel.correction(x, y, lH, lA, rho);
   }
 
   private tauDerivative(x: number, y: number, lH: number, lA: number): number {
@@ -807,15 +842,24 @@ export class DixonColesModel {
     opts: {
       prevSeasonWeight?: number;
       tauInter?: number;
+      currentSeasonDecay?: number;
+      previousSeasonDecay?: number;
+      olderSeasonBaseWeight?: number;
+      olderSeasonDecay?: number;
       managerChangeDates?: Record<string, Date>;
       managerChangePenalty?: number;
     } = {}
   ): number {
+    const temporalConfig = predictionEngineConfig.dixonColes.temporalWeights;
     const {
-      prevSeasonWeight     = 0.35,
-      tauInter             = 0.018,
+      prevSeasonWeight     = temporalConfig.previousSeasonBaseWeight,
+      tauInter             = temporalConfig.previousSeasonDecay,
       managerChangeDates   = {},
-      managerChangePenalty = 0.15,
+      managerChangePenalty = temporalConfig.preCoachChangeWeightMultiplier,
+      currentSeasonDecay   = temporalConfig.currentSeasonDecay,
+      previousSeasonDecay  = tauInter,
+      olderSeasonBaseWeight = temporalConfig.olderSeasonBaseWeight,
+      olderSeasonDecay = temporalConfig.olderSeasonDecay,
     } = opts;
 
     const ageWeeks = (now.getTime() - match.date.getTime()) / (1000 * 60 * 60 * 24 * 7);
@@ -826,16 +870,16 @@ export class DixonColesModel {
     let w: number;
     if (matchSeason === currentSeason) {
       // Stagione corrente: quasi-uniforme, lievissimo decadimento
-      w = Math.exp(-0.002 * ageWeeks);
+      w = Math.exp(-currentSeasonDecay * ageWeeks);
     } else if (matchSeason === previousSeason && previousSeason !== '') {
       // Stagione precedente: salto fisso + decadimento inter-stagionale
-      w = prevSeasonWeight * Math.exp(-tauInter * ageWeeks);
+      w = prevSeasonWeight * Math.exp(-previousSeasonDecay * ageWeeks);
     } else if (matchSeason === '') {
       // Season non valorizzato: fallback al decadimento esponenziale classico
       w = Math.exp(-this.params.tau * ageWeeks);
     } else {
       // Stagioni più vecchie: peso residuo minimo
-      w = 0.08 * Math.exp(-tauInter * ageWeeks);
+      w = olderSeasonBaseWeight * Math.exp(-olderSeasonDecay * ageWeeks);
     }
 
     // Penalità cambio allenatore: la partita descrive un'identità che non esiste più
@@ -886,6 +930,10 @@ export class DixonColesModel {
     opts: {
       prevSeasonWeight?: number;
       tauInter?: number;
+      currentSeasonDecay?: number;
+      previousSeasonDecay?: number;
+      olderSeasonBaseWeight?: number;
+      olderSeasonDecay?: number;
       managerChangeDates?: Record<string, Date>;
       managerChangePenalty?: number;
       /**
@@ -895,6 +943,10 @@ export class DixonColesModel {
        * Default: false → usa il parametro globale homeAdvantage per tutti.
        */
       enablePerTeamHomeAdvantage?: boolean;
+      enableDynamicTeamStrengths?: boolean;
+      dynamicSmoothingSigmaAttack?: number;
+      dynamicSmoothingSigmaDefence?: number;
+      dynamicSmoothingSigmaHomeAdvantage?: number;
       /**
        * structuralBreaks: eventi strutturali (cambio modulo, mercato estivo,
        * retrocessione/promozione) che azzerano parzialmente la storia di una
@@ -908,6 +960,7 @@ export class DixonColesModel {
        * perché il cambio tattico è parziale, non totale).
        */
       structuralBreakPenalty?: number;
+      enableAutomaticStructuralBreakDetection?: boolean;
     } = {}
   ): ModelParams {
     for (const t of teams) {
@@ -921,11 +974,26 @@ export class DixonColesModel {
     const {
       enablePerTeamHomeAdvantage = false,
       structuralBreaks = {},
-      structuralBreakPenalty = 0.25,
+      structuralBreakPenalty = predictionEngineConfig.dixonColes.temporalWeights.preStructuralBreakWeightMultiplier,
     } = opts;
 
     const validMatches = matches.filter(m => m.homeGoals !== undefined && m.awayGoals !== undefined);
     if (validMatches.length === 0 || teams.length === 0) return this.params;
+
+    if (opts.enableDynamicTeamStrengths) {
+      const snapshots = this.fitDynamicTeamStrengths(validMatches, teams, {
+        maxIter,
+        lr,
+        enablePerTeamHomeAdvantage,
+        dynamicSmoothingSigmaAttack: opts.dynamicSmoothingSigmaAttack,
+        dynamicSmoothingSigmaDefence: opts.dynamicSmoothingSigmaDefence,
+        dynamicSmoothingSigmaHomeAdvantage: opts.dynamicSmoothingSigmaHomeAdvantage,
+      });
+      if (snapshots.length > 0) {
+        this.params = { ...snapshots[snapshots.length - 1].params };
+        return this.params;
+      }
+    }
 
     // Inizializza homeAdvantagePerTeam se abilitato
     if (enablePerTeamHomeAdvantage) {
@@ -1155,11 +1223,338 @@ export class DixonColesModel {
     return this.params;
   }
 
+  detectStructuralBreaks(
+    teamMatches: MatchData[],
+    options: { teamId?: string; minWindow?: number; minConfidence?: number } = {}
+  ): Array<{
+    teamId: string;
+    date: Date;
+    confidence: number;
+    breakType: 'attack' | 'defence' | 'global';
+    suggestedWeightMultiplier: number;
+    metrics: { attackShift: number; defenceShift: number };
+  }> {
+    const sorted = [...teamMatches]
+      .filter((m) => m.date instanceof Date && !Number.isNaN(m.date.getTime()))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    const window = Math.max(3, Math.round(options.minWindow ?? predictionEngineConfig.dixonColes.structuralBreaks.detectionWindow));
+    if (sorted.length < window * 2) return [];
+
+    const teamId = options.teamId ?? sorted[0]?.homeTeamId ?? sorted[0]?.awayTeamId ?? 'unknown';
+    const minConfidence = options.minConfidence ?? predictionEngineConfig.dixonColes.structuralBreaks.minConfidence;
+    const valuesFor = (matches: MatchData[]) => {
+      const attackVals: number[] = [];
+      const defenceVals: number[] = [];
+      for (const m of matches) {
+        const isHome = m.homeTeamId === teamId;
+        const isAway = m.awayTeamId === teamId;
+        if (!isHome && !isAway) continue;
+        const goalsFor = isHome ? m.homeGoals : m.awayGoals;
+        const goalsAgainst = isHome ? m.awayGoals : m.homeGoals;
+        const xgFor = isHome ? m.homeXG : m.awayXG;
+        const xgAgainst = isHome ? m.awayXG : m.homeXG;
+        const shotsFor = isHome ? m.homeTotalShots : m.awayTotalShots;
+        const shotsAgainst = isHome ? m.awayTotalShots : m.homeTotalShots;
+
+        const attack = [
+          goalsFor,
+          xgFor,
+          shotsFor !== undefined ? shotsFor / 10 : undefined,
+        ].filter((v): v is number => Number.isFinite(Number(v)));
+        const defence = [
+          goalsAgainst,
+          xgAgainst,
+          shotsAgainst !== undefined ? shotsAgainst / 10 : undefined,
+        ].filter((v): v is number => Number.isFinite(Number(v)));
+        if (attack.length > 0) attackVals.push(attack.reduce((s, v) => s + v, 0) / attack.length);
+        if (defence.length > 0) defenceVals.push(defence.reduce((s, v) => s + v, 0) / defence.length);
+      }
+      const mean = (arr: number[]) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+      return { attack: mean(attackVals), defence: mean(defenceVals) };
+    };
+
+    const breaks: ReturnType<DixonColesModel['detectStructuralBreaks']> = [];
+    for (let split = window; split <= sorted.length - window; split++) {
+      const before = valuesFor(sorted.slice(split - window, split));
+      const after = valuesFor(sorted.slice(split, split + window));
+      const attackShift = after.attack - before.attack;
+      const defenceShift = before.defence - after.defence;
+      const attackScore = Math.abs(attackShift) / Math.max(0.35, Math.abs(before.attack));
+      const defenceScore = Math.abs(defenceShift) / Math.max(0.35, Math.abs(before.defence));
+      const confidence = this.clamp(Math.max(attackScore, defenceScore) / 1.4, 0, 1);
+      if (confidence < minConfidence) continue;
+
+      const breakType = Math.abs(attackScore - defenceScore) < 0.20
+        ? 'global'
+        : attackScore > defenceScore ? 'attack' : 'defence';
+      breaks.push({
+        teamId,
+        date: sorted[split].date,
+        confidence: Number(confidence.toFixed(3)),
+        breakType,
+        suggestedWeightMultiplier: Number(this.clamp(1 - confidence * 0.75, 0.15, 0.75).toFixed(3)),
+        metrics: {
+          attackShift: Number(attackShift.toFixed(3)),
+          defenceShift: Number(defenceShift.toFixed(3)),
+        },
+      });
+    }
+
+    return breaks.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  fitDynamicTeamStrengths(
+    matches: MatchData[],
+    teams: string[],
+    options: {
+      windowSize?: number;
+      maxIter?: number;
+      lr?: number;
+      enablePerTeamHomeAdvantage?: boolean;
+      dynamicSmoothingSigmaAttack?: number;
+      dynamicSmoothingSigmaDefence?: number;
+      dynamicSmoothingSigmaHomeAdvantage?: number;
+    } = {}
+  ): Array<{ windowStart: Date; windowEnd: Date; params: ModelParams; smoothingPenalty: number }> {
+    const valid = [...matches]
+      .filter((m) => m.homeGoals !== undefined && m.awayGoals !== undefined)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    const windowSize = Math.max(8, Math.round(options.windowSize ?? Math.max(8, Math.floor(valid.length / 4))));
+    if (valid.length < windowSize * 2) return [];
+
+    const sigmaAttack = Math.max(0.01, options.dynamicSmoothingSigmaAttack ?? predictionEngineConfig.dixonColes.dynamicTeamStrengths.dynamicSmoothingSigmaAttack);
+    const sigmaDefence = Math.max(0.01, options.dynamicSmoothingSigmaDefence ?? predictionEngineConfig.dixonColes.dynamicTeamStrengths.dynamicSmoothingSigmaDefence);
+    const sigmaHA = Math.max(0.01, options.dynamicSmoothingSigmaHomeAdvantage ?? predictionEngineConfig.dixonColes.dynamicTeamStrengths.dynamicSmoothingSigmaHomeAdvantage);
+    const snapshots: Array<{ windowStart: Date; windowEnd: Date; params: ModelParams; smoothingPenalty: number }> = [];
+    let previousParams: ModelParams | null = null;
+
+    const smoothValue = (current: number, previous: number, sigma: number): number => {
+      const priorWeight = 1 / (sigma * sigma);
+      return (current + priorWeight * previous) / (1 + priorWeight);
+    };
+
+    for (let start = 0; start + windowSize <= valid.length; start += windowSize) {
+      const windowMatches = valid.slice(start, start + windowSize);
+      const local = new DixonColesModel(previousParams ?? this.params, { scoreDependenceModel: this.scoreDependenceModel });
+      const fitted = local.fitModel(windowMatches, teams, options.maxIter ?? 160, options.lr ?? 0.035, {
+        enablePerTeamHomeAdvantage: options.enablePerTeamHomeAdvantage,
+        enableDynamicTeamStrengths: false,
+      });
+
+      let smoothingPenalty = 0;
+      if (previousParams) {
+        for (const team of teams) {
+          const prevA = previousParams.attackParams[team] ?? 0;
+          const prevD = previousParams.defenceParams[team] ?? 0;
+          const currA = fitted.attackParams[team] ?? 0;
+          const currD = fitted.defenceParams[team] ?? 0;
+          smoothingPenalty += ((currA - prevA) ** 2) / (sigmaAttack * sigmaAttack);
+          smoothingPenalty += ((currD - prevD) ** 2) / (sigmaDefence * sigmaDefence);
+          fitted.attackParams[team] = this.clamp(smoothValue(currA, prevA, sigmaAttack), -this.PARAM_BOUND, this.PARAM_BOUND);
+          fitted.defenceParams[team] = this.clamp(smoothValue(currD, prevD, sigmaDefence), -this.PARAM_BOUND, this.PARAM_BOUND);
+
+          if (options.enablePerTeamHomeAdvantage) {
+            const prevHA = previousParams.homeAdvantagePerTeam[team] ?? previousParams.homeAdvantage;
+            const currHA = fitted.homeAdvantagePerTeam[team] ?? fitted.homeAdvantage;
+            smoothingPenalty += ((currHA - prevHA) ** 2) / (sigmaHA * sigmaHA);
+            fitted.homeAdvantagePerTeam[team] = this.clamp(smoothValue(currHA, prevHA, sigmaHA), -0.5, 0.8);
+          }
+        }
+      }
+
+      previousParams = {
+        attackParams: { ...fitted.attackParams },
+        defenceParams: { ...fitted.defenceParams },
+        homeAdvantage: fitted.homeAdvantage,
+        rho: fitted.rho,
+        tau: fitted.tau,
+        homeAdvantagePerTeam: { ...fitted.homeAdvantagePerTeam },
+      };
+      snapshots.push({
+        windowStart: windowMatches[0].date,
+        windowEnd: windowMatches[windowMatches.length - 1].date,
+        params: previousParams,
+        smoothingPenalty: Number(smoothingPenalty.toFixed(6)),
+      });
+    }
+
+    return snapshots;
+  }
+
+  /**
+   * Walk-forward temporal tuning for decay rates.
+   *
+   * The method sorts matches by date, fits each candidate only on matches
+   * strictly before the validation window, then scores the immediately
+   * following validation window. It does not use future validation rows in
+   * the model fit for that fold.
+   */
+  optimizeTemporalWeights(
+    matches: MatchData[],
+    odds?: Record<string, Record<string, number>>,
+    objective: 'logLoss' | 'brierScore' | 'edgeNoVig' = 'logLoss'
+  ): {
+    best: {
+      currentSeasonDecay: number;
+      previousSeasonDecay: number;
+      olderSeasonDecay: number;
+      objectiveValue: number;
+    };
+    folds: Array<{
+      trainMatches: number;
+      validationMatches: number;
+      startDate: Date;
+      endDate: Date;
+      objectiveValue: number;
+    }>;
+    candidates: Array<{
+      currentSeasonDecay: number;
+      previousSeasonDecay: number;
+      olderSeasonDecay: number;
+      objectiveValue: number;
+    }>;
+    usedFallback: boolean;
+  } {
+    const temporalDefaults = predictionEngineConfig.dixonColes.temporalWeights;
+    const valid = [...matches]
+      .filter((match) => match.homeGoals !== undefined && match.awayGoals !== undefined)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    const defaultBest = {
+      currentSeasonDecay: temporalDefaults.currentSeasonDecay,
+      previousSeasonDecay: temporalDefaults.previousSeasonDecay,
+      olderSeasonDecay: temporalDefaults.olderSeasonDecay,
+      objectiveValue: 0,
+    };
+    if (valid.length < 24) {
+      return { best: defaultBest, folds: [], candidates: [defaultBest], usedFallback: true };
+    }
+
+    const teams = [...new Set(valid.flatMap((match) => [match.homeTeamId, match.awayTeamId]))];
+    const currentCandidates = [
+      temporalDefaults.currentSeasonDecay * 0.5,
+      temporalDefaults.currentSeasonDecay,
+      temporalDefaults.currentSeasonDecay * 2,
+    ].map((value) => Math.max(0.0001, value));
+    const previousCandidates = [
+      temporalDefaults.previousSeasonDecay * 0.67,
+      temporalDefaults.previousSeasonDecay,
+      temporalDefaults.previousSeasonDecay * 1.45,
+    ].map((value) => Math.max(0.0005, value));
+    const olderCandidates = [
+      temporalDefaults.olderSeasonDecay * 0.67,
+      temporalDefaults.olderSeasonDecay,
+      temporalDefaults.olderSeasonDecay * 1.45,
+    ].map((value) => Math.max(0.0005, value));
+    const initialTrain = Math.max(12, Math.floor(valid.length * 0.50));
+    const validationWindow = Math.max(4, Math.floor(valid.length * 0.16));
+    const step = validationWindow;
+
+    const scoreCandidate = (candidate: {
+      currentSeasonDecay: number;
+      previousSeasonDecay: number;
+      olderSeasonDecay: number;
+    }) => {
+      const folds: Array<{
+        trainMatches: number;
+        validationMatches: number;
+        startDate: Date;
+        endDate: Date;
+        objectiveValue: number;
+      }> = [];
+
+      for (let start = initialTrain; start < valid.length; start += step) {
+        const train = valid.slice(0, start);
+        const validation = valid.slice(start, Math.min(valid.length, start + validationWindow));
+        if (validation.length === 0) continue;
+        const local = new DixonColesModel(this.params, { scoreDependenceModel: this.scoreDependenceModel });
+        local.fitModel(train, teams, 80, 0.035, {
+          currentSeasonDecay: candidate.currentSeasonDecay,
+          previousSeasonDecay: candidate.previousSeasonDecay,
+          olderSeasonDecay: candidate.olderSeasonDecay,
+          tauInter: candidate.previousSeasonDecay,
+          prevSeasonWeight: temporalDefaults.previousSeasonBaseWeight,
+          olderSeasonBaseWeight: temporalDefaults.olderSeasonBaseWeight,
+        });
+
+        let foldScore = 0;
+        let scored = 0;
+        for (const match of validation) {
+          const probs = local.computeFullProbabilities(match.homeTeamId, match.awayTeamId, match.homeXG, match.awayXG);
+          const outcome = match.homeGoals! > match.awayGoals!
+            ? 'homeWin'
+            : match.homeGoals! === match.awayGoals! ? 'draw' : 'awayWin';
+          const p = this.clamp(Number((probs as any)[outcome] ?? 0), 1e-8, 1 - 1e-8);
+          if (objective === 'brierScore') {
+            foldScore += (1 - p) ** 2;
+          } else if (objective === 'edgeNoVig' && odds?.[match.matchId]?.[outcome]) {
+            foldScore -= p - 1 / Math.max(1.01, odds[match.matchId][outcome]);
+          } else {
+            foldScore += -Math.log(p);
+          }
+          scored++;
+        }
+        if (scored > 0) {
+          folds.push({
+            trainMatches: train.length,
+            validationMatches: validation.length,
+            startDate: validation[0].date,
+            endDate: validation[validation.length - 1].date,
+            objectiveValue: Number((foldScore / scored).toFixed(6)),
+          });
+        }
+      }
+      const objectiveValue = folds.length
+        ? folds.reduce((sum, fold) => sum + fold.objectiveValue, 0) / folds.length
+        : Infinity;
+      return { objectiveValue, folds };
+    };
+
+    const candidates: Array<{
+      currentSeasonDecay: number;
+      previousSeasonDecay: number;
+      olderSeasonDecay: number;
+      objectiveValue: number;
+    }> = [];
+    let best = { ...defaultBest, objectiveValue: Infinity };
+    let bestFolds: ReturnType<typeof scoreCandidate>['folds'] = [];
+    for (const currentSeasonDecay of currentCandidates) {
+      for (const previousSeasonDecay of previousCandidates) {
+        for (const olderSeasonDecay of olderCandidates) {
+          const candidate = { currentSeasonDecay, previousSeasonDecay, olderSeasonDecay };
+          const scored = scoreCandidate(candidate);
+          const row = {
+            ...candidate,
+            objectiveValue: Number(scored.objectiveValue.toFixed(6)),
+          };
+          candidates.push(row);
+          if (scored.objectiveValue < best.objectiveValue) {
+            best = row;
+            bestFolds = scored.folds;
+          }
+        }
+      }
+    }
+
+    return {
+      best,
+      folds: bestFolds,
+      candidates,
+      usedFallback: bestFolds.length === 0,
+    };
+  }
+
   getParams(): ModelParams { return this.params; }
   setParams(p: Partial<ModelParams>): void { this.params = { ...this.params, ...p }; }
 
   /**
    * Bootstrap parametrico per propagazione dell'incertezza.
+   *
+   * Modalita implementate:
+   * - paramNoise: perturbazione gaussiana stocastica dei parametri, implementazione primaria.
+   * - jackknife: fallback deterministico compatibile, basato su shock-grid; non e leave-one-out empirico.
+   * - hessian: fallback deterministico compatibile, basato su shock-grid; non calcola una Hessiana analitica.
+   *
+   * I fallback mantengono lo stesso output pubblico per non rompere computeSuggestedStakeWithUncertainty().
    *
    * PROBLEMA: computeExpectedGoals restituisce stime puntuali (λHome, λAway).
    * Ma i parametri attack/defence/homeAdvantage sono stimati da dati finiti
@@ -1198,21 +1593,47 @@ export class DixonColesModel {
   bootstrapLambdas(
     homeId: string,
     awayId: string,
-    nSamples = 200,
+    nSamplesOrOptions: number | {
+      bootstrapMode?: BootstrapMode;
+      bootstrapSamples?: number;
+      uncertaintyCvReference?: number;
+      matchCounts?: Record<string, number>;
+    } = predictionEngineConfig.dixonColes.bootstrap.bootstrapSamples,
     matchCounts?: Record<string, number>
   ): {
     lambdaHomeMean: number;
     lambdaAwayMean: number;
     lambdaHomeStd: number;
     lambdaAwayStd: number;
+    cvMax: number;
+    CV_max: number;
     uncertaintyFactor: number;
+    lambda_home_mean: number;
+    lambda_home_std: number;
+    lambda_away_mean: number;
+    lambda_away_std: number;
   } {
     const PARAM_NOISE_BASE = 0.18;
-    const MAX_CV = 0.25; // coefficiente di variazione massimo atteso
+    const bootstrapOptions = typeof nSamplesOrOptions === 'number'
+      ? {
+          bootstrapMode: predictionEngineConfig.dixonColes.bootstrap.bootstrapMode,
+          bootstrapSamples: nSamplesOrOptions,
+          uncertaintyCvReference: predictionEngineConfig.dixonColes.bootstrap.uncertaintyCvReference,
+          matchCounts,
+        }
+      : {
+          bootstrapMode: nSamplesOrOptions.bootstrapMode ?? predictionEngineConfig.dixonColes.bootstrap.bootstrapMode,
+          bootstrapSamples: nSamplesOrOptions.bootstrapSamples ?? predictionEngineConfig.dixonColes.bootstrap.bootstrapSamples,
+          uncertaintyCvReference: nSamplesOrOptions.uncertaintyCvReference ?? predictionEngineConfig.dixonColes.bootstrap.uncertaintyCvReference,
+          matchCounts: nSamplesOrOptions.matchCounts ?? matchCounts,
+        };
+    const nSamples = Math.max(2, Math.round(bootstrapOptions.bootstrapSamples));
+    const mode = bootstrapOptions.bootstrapMode;
+    const MAX_CV = Math.max(0.01, bootstrapOptions.uncertaintyCvReference); // coefficiente di variazione massimo atteso
 
     // Stima il numero di partite per squadra se non fornito
-    const nHome = Math.max(5, matchCounts?.[homeId] ?? 18);
-    const nAway = Math.max(5, matchCounts?.[awayId] ?? 18);
+    const nHome = Math.max(5, bootstrapOptions.matchCounts?.[homeId] ?? 18);
+    const nAway = Math.max(5, bootstrapOptions.matchCounts?.[awayId] ?? 18);
     const nTotal = Math.max(10, (nHome + nAway) / 2);
 
     // Deviazione standard dei parametri
@@ -1239,13 +1660,23 @@ export class DixonColesModel {
     const baseDA = this.params.defenceParams[awayId] ?? 0;
     const baseHA = this.params.homeAdvantagePerTeam?.[homeId] ?? this.params.homeAdvantage;
 
+    const deterministicShock = (i: number): number => {
+      const cycle = [-1.5, -0.75, 0, 0.75, 1.5];
+      return cycle[i % cycle.length];
+    };
+
     for (let i = 0; i < nSamples; i++) {
+      const shock = mode === 'paramNoise' ? randn() : deterministicShock(i);
+      const shock2 = mode === 'paramNoise' ? randn() : deterministicShock(i + 1);
+      const shock3 = mode === 'paramNoise' ? randn() : deterministicShock(i + 2);
+      const shock4 = mode === 'paramNoise' ? randn() : deterministicShock(i + 3);
+      const shock5 = mode === 'paramNoise' ? randn() : deterministicShock(i + 4);
       // Perturbazione gaussiana dei parametri
-      const aH = this.clamp(baseAH + randn() * sigmaAttackHome,  -this.PARAM_BOUND, this.PARAM_BOUND);
-      const dH = this.clamp(baseDH + randn() * sigmaDefenceHome, -this.PARAM_BOUND, this.PARAM_BOUND);
-      const aA = this.clamp(baseAA + randn() * sigmaAttackAway,  -this.PARAM_BOUND, this.PARAM_BOUND);
-      const dA = this.clamp(baseDA + randn() * sigmaDefenceAway, -this.PARAM_BOUND, this.PARAM_BOUND);
-      const ha = this.clamp(baseHA + randn() * sigmaHA,          -0.8, 1.2);
+      const aH = this.clamp(baseAH + shock * sigmaAttackHome,  -this.PARAM_BOUND, this.PARAM_BOUND);
+      const dH = this.clamp(baseDH + shock2 * sigmaDefenceHome, -this.PARAM_BOUND, this.PARAM_BOUND);
+      const aA = this.clamp(baseAA + shock3 * sigmaAttackAway,  -this.PARAM_BOUND, this.PARAM_BOUND);
+      const dA = this.clamp(baseDA + shock4 * sigmaDefenceAway, -this.PARAM_BOUND, this.PARAM_BOUND);
+      const ha = this.clamp(baseHA + shock5 * sigmaHA,          -0.8, 1.2);
 
       const lH = this.safeExp(aH - dA + ha);
       const lA = this.safeExp(aA - dH);
@@ -1270,12 +1701,21 @@ export class DixonColesModel {
 
     const uncertaintyFactor = Math.min(1, cvMax / MAX_CV);
 
-    return {
+    const rounded = {
       lambdaHomeMean: Number(lambdaHomeMean.toFixed(4)),
       lambdaAwayMean: Number(lambdaAwayMean.toFixed(4)),
       lambdaHomeStd:  Number(lambdaHomeStd.toFixed(4)),
       lambdaAwayStd:  Number(lambdaAwayStd.toFixed(4)),
+      cvMax: Number(cvMax.toFixed(4)),
+      CV_max: Number(cvMax.toFixed(4)),
       uncertaintyFactor: Number(uncertaintyFactor.toFixed(4)),
+    };
+    return {
+      ...rounded,
+      lambda_home_mean: rounded.lambdaHomeMean,
+      lambda_home_std: rounded.lambdaHomeStd,
+      lambda_away_mean: rounded.lambdaAwayMean,
+      lambda_away_std: rounded.lambdaAwayStd,
     };
   }
 }

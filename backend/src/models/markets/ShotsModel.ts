@@ -2,6 +2,7 @@ import {
   negBinPMF as computeNegBinPMF,
   poissonPMF as computePoissonPMF,
 } from '../utils/MathUtils';
+import { predictionEngineConfig, PlayerShotsDistribution } from '../../config/PredictionEngineConfig';
 
 /**
  * ShotsModel — Modello Tiri a Livello Squadra e Giocatore
@@ -147,6 +148,100 @@ export interface PlayerShotPrediction {
   // Confidenza
   confidenceLevel: number;
   sampleSize: number;
+  modelUsed?: PlayerShotsDistribution;
+  expectedValue?: number;
+  fullDistribution?: Record<number, number>;
+  probabilityOver0_5?: number;
+  probabilityOver1_5?: number;
+  probabilityOver2_5?: number;
+  confidence?: number;
+}
+
+export interface PlayerShotsPredictionOptions {
+  playerShotsDistribution?: PlayerShotsDistribution;
+  dispersion?: number;
+  teamShotsMean?: number;
+  leagueAvgTeamShots?: number;
+  teamInfluenceWeight?: number;
+  minTeamInfluenceMultiplier?: number;
+  maxTeamInfluenceMultiplier?: number;
+}
+
+export interface MinutesObservation {
+  minutes: number;
+  date?: Date;
+  isStarter?: boolean;
+}
+
+export interface MinutesDistributionEstimate {
+  modeUsed: 'triangular' | 'empirical';
+  mean: number;
+  std: number;
+  quantiles: { q25: number; q50: number; q75: number };
+  minutesFactor: number;
+  varianceFactor: number;
+  sampleSize: number;
+}
+
+export interface PlayerShotsOnTargetPrediction {
+  playerId: string;
+  playerName: string;
+  teamId: string;
+  position: string;
+  expectedValue: number;
+  fullDistribution: Record<number, number>;
+  probabilityOver0_5: number;
+  probabilityOver1_5: number;
+  probabilityOver2_5: number;
+  confidence: number;
+  sampleSize: number;
+  modelUsed: PlayerShotsDistribution;
+}
+
+export interface PlayerShotsOnTargetOptions {
+  isHome?: boolean;
+  expectedMinutes?: number;
+  minutesDistributionMode?: 'triangular' | 'empirical';
+  minutesObservations?: MinutesObservation[];
+  isLikelyStarter?: boolean;
+  asOf?: Date;
+  historicalShotAccuracy?: number;
+  leagueAvgShotAccuracy?: number;
+  teamShotsOnTargetMean?: number;
+  opponentShotsOnTargetAllowed?: number;
+  leagueAvgTeamShotsOnTarget?: number;
+  playerShotsDistribution?: PlayerShotsDistribution;
+  dispersion?: number;
+}
+
+export type HierarchicalPlayerRole =
+  | 'forward'
+  | 'winger'
+  | 'attacking_midfielder'
+  | 'midfielder'
+  | 'fullback'
+  | 'centreback'
+  | 'goalkeeper'
+  | 'unknown';
+
+export interface PlayerShotShareObservation {
+  playerShots: number;
+  teamShots: number;
+  playerMinutes: number;
+  date?: Date;
+}
+
+export interface HierarchicalPlayerShotsPrediction {
+  expectedShots: number;
+  expectedValue?: number;
+  probabilityOver0_5: number;
+  probabilityOver1_5: number;
+  probabilityOver2_5: number;
+  fullDistribution: Record<number, number>;
+  confidence: number;
+  sampleSize: number;
+  modelUsed: 'hierarchical_binomial' | 'hierarchical_beta_binomial';
+  tau: number;
 }
 
 export class ShotsModel {
@@ -157,6 +252,61 @@ export class ShotsModel {
 
   private negBinPMF(k: number, mu: number, r: number): number {
     return computeNegBinPMF(k, mu, r);
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private normalizeDistribution(dist: number[]): number[] {
+    const total = dist.reduce((sum, value) => sum + Math.max(0, value), 0);
+    if (total <= 1e-12) return dist.map((_, index) => index === 0 ? 1 : 0);
+    return dist.map((value) => Math.max(0, value) / total);
+  }
+
+  private distributionToRecord(dist: number[]): Record<number, number> {
+    return Object.fromEntries(this.normalizeDistribution(dist).map((p, k) => [k, parseFloat(p.toFixed(4))]));
+  }
+
+  private probabilityOver(dist: number[], line: number): number {
+    const norm = this.normalizeDistribution(dist);
+    return parseFloat(norm.reduce((sum, p, k) => k > line ? sum + p : sum, 0).toFixed(4));
+  }
+
+  private logFactorial(n: number): number {
+    let out = 0;
+    for (let i = 2; i <= n; i++) out += Math.log(i);
+    return out;
+  }
+
+  private binomialPMF(k: number, n: number, p: number): number {
+    if (k < 0 || k > n) return 0;
+    const pp = this.clamp(p, 1e-9, 1 - 1e-9);
+    const logComb = this.logFactorial(n) - this.logFactorial(k) - this.logFactorial(n - k);
+    return Math.exp(logComb + k * Math.log(pp) + (n - k) * Math.log(1 - pp));
+  }
+
+  private logGamma(z: number): number {
+    const coefficients = [
+      676.5203681218851, -1259.1392167224028, 771.32342877765313,
+      -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+      9.9843695780195716e-6, 1.5056327351493116e-7,
+    ];
+    if (z < 0.5) return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * z)) - this.logGamma(1 - z);
+    z -= 1;
+    let x = 0.99999999999980993;
+    for (let i = 0; i < coefficients.length; i++) x += coefficients[i] / (z + i + 1);
+    const t = z + coefficients.length - 0.5;
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  }
+
+  private betaBinomialPMF(k: number, n: number, alpha: number, beta: number): number {
+    if (k < 0 || k > n) return 0;
+    const logComb = this.logFactorial(n) - this.logFactorial(k) - this.logFactorial(n - k);
+    const logBetaNum = this.logGamma(k + alpha) + this.logGamma(n - k + beta) - this.logGamma(n + alpha + beta);
+    const logBetaDen = this.logGamma(alpha) + this.logGamma(beta) - this.logGamma(alpha + beta);
+    return Math.exp(logComb + logBetaNum - logBetaDen);
   }
 
   /**
@@ -171,6 +321,11 @@ export class ShotsModel {
     return (1 - pi) * this.poissonPMF(k, lambda);
   }
 
+  private zinbPMF(k: number, pi: number, mu: number, r: number): number {
+    if (k === 0) return pi + (1 - pi) * this.negBinPMF(0, mu, r);
+    return (1 - pi) * this.negBinPMF(k, mu, r);
+  }
+
   /**
    * Genera distribuzione completa ZIP
    */
@@ -179,6 +334,12 @@ export class ShotsModel {
     for (let k = 0; k <= maxK; k++) {
       dist.push(this.zipPMF(k, pi, lambda));
     }
+    return dist;
+  }
+
+  private generateZINBDistribution(pi: number, mu: number, r: number, maxK: number = 10): number[] {
+    const dist: number[] = [];
+    for (let k = 0; k <= maxK; k++) dist.push(this.zinbPMF(k, pi, mu, r));
     return dist;
   }
 
@@ -239,6 +400,133 @@ export class ShotsModel {
     }
 
     return { pi, lambda, logLikelihood: ll };
+  }
+
+  fitZINBParameters(
+    observations: number[],
+    maxIter: number = 100,
+    tol: number = 1e-6
+  ): { pi: number; mu: number; dispersion: number; logLikelihood: number; fallbackUsed: boolean } {
+    if (observations.length < 8) {
+      const zip = this.fitZIPParameters(observations, maxIter, tol);
+      return { pi: zip.pi, mu: zip.lambda, dispersion: 30, logLikelihood: zip.logLikelihood, fallbackUsed: true };
+    }
+
+    const n = observations.length;
+    const zeros = observations.filter((x) => x === 0).length;
+    const sumX = observations.reduce((s, x) => s + x, 0);
+    const mean = sumX / n;
+    const variance = observations.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, n - 1);
+    let pi = Math.max(0.001, Math.min(0.90, zeros / n - Math.exp(-Math.max(0.01, mean))));
+    let mu = Math.max(0.01, mean / Math.max(0.01, 1 - pi));
+    let dispersion = variance > mean ? Math.max(0.8, Math.min(50, (mu * mu) / Math.max(0.01, variance - mu))) : 30;
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      const oldPi = pi;
+      const oldMu = mu;
+      const oldDispersion = dispersion;
+      const pZeroNb = this.negBinPMF(0, mu, dispersion);
+      const pZeroZinb = pi + (1 - pi) * pZeroNb;
+      const gamma = pZeroZinb > 0 ? pi / pZeroZinb : 0;
+      const structuralZeros = zeros * gamma;
+      const effectiveN = Math.max(0.001, n - structuralZeros);
+
+      pi = Math.max(0.001, Math.min(0.98, structuralZeros / n));
+      mu = Math.max(0.01, sumX / effectiveN);
+      const adjustedVariance = Math.max(mu + 0.01, variance / Math.max(0.05, 1 - pi));
+      dispersion = Math.max(0.5, Math.min(50, (mu * mu) / Math.max(0.01, adjustedVariance - mu)));
+
+      if (
+        Math.abs(pi - oldPi) < tol &&
+        Math.abs(mu - oldMu) < tol &&
+        Math.abs(dispersion - oldDispersion) < tol
+      ) break;
+    }
+
+    const logLikelihood = observations.reduce((sum, x) => {
+      const p = this.zinbPMF(x, pi, mu, dispersion);
+      return sum + Math.log(Math.max(1e-12, p));
+    }, 0);
+
+    return { pi, mu, dispersion, logLikelihood, fallbackUsed: false };
+  }
+
+  estimateMinutesDistribution(params: {
+    mode?: 'triangular' | 'empirical';
+    expectedMinutes: number;
+    minutesUncertainty?: number;
+    observations?: MinutesObservation[];
+    isLikelyStarter?: boolean;
+    asOf?: Date;
+    decayPerDay?: number;
+  }): MinutesDistributionEstimate {
+    const expectedMinutes = this.clamp(params.expectedMinutes, 1, 90);
+    const minutesUncertainty = params.minutesUncertainty ?? 0.15;
+    const triangular = (): MinutesDistributionEstimate => {
+      const minMins = expectedMinutes * (1 - minutesUncertainty);
+      const maxMins = Math.min(90, expectedMinutes * (1 + minutesUncertainty));
+      const modeMins = expectedMinutes;
+      const mean = (minMins + maxMins + modeMins) / 3;
+      const variance =
+        (minMins ** 2 + maxMins ** 2 + modeMins ** 2 - minMins * maxMins - minMins * modeMins - maxMins * modeMins) / 18;
+      return {
+        modeUsed: 'triangular',
+        mean: Number(mean.toFixed(3)),
+        std: Number(Math.sqrt(Math.max(0, variance)).toFixed(3)),
+        quantiles: {
+          q25: Number(((minMins + modeMins) / 2).toFixed(3)),
+          q50: Number(modeMins.toFixed(3)),
+          q75: Number(((modeMins + maxMins) / 2).toFixed(3)),
+        },
+        minutesFactor: Number((mean / 90).toFixed(6)),
+        varianceFactor: Number((variance / (90 * 90)).toFixed(6)),
+        sampleSize: 0,
+      };
+    };
+
+    if (params.mode !== 'empirical') return triangular();
+    const observations = (params.observations ?? [])
+      .filter((obs) => Number.isFinite(obs.minutes) && obs.minutes >= 0 && obs.minutes <= 130)
+      .filter((obs) => params.isLikelyStarter === undefined || obs.isStarter === undefined || obs.isStarter === params.isLikelyStarter);
+    if (observations.length < 4) return triangular();
+
+    const asOf = params.asOf ?? new Date();
+    const decayPerDay = params.decayPerDay ?? 0.018;
+    const weighted = observations.map((obs) => {
+      const ageDays = obs.date instanceof Date
+        ? Math.max(0, (asOf.getTime() - obs.date.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+      return { minutes: this.clamp(obs.minutes, 0, 90), weight: Math.exp(-decayPerDay * ageDays) };
+    });
+    const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+    if (totalWeight <= 0) return triangular();
+
+    const mean = weighted.reduce((sum, item) => sum + item.minutes * item.weight, 0) / totalWeight;
+    const variance = weighted.reduce((sum, item) => sum + item.weight * (item.minutes - mean) ** 2, 0) / totalWeight;
+    const sorted = [...weighted].sort((a, b) => a.minutes - b.minutes);
+    const quantile = (q: number): number => {
+      const target = totalWeight * q;
+      let running = 0;
+      for (const item of sorted) {
+        running += item.weight;
+        if (running >= target) return item.minutes;
+      }
+      return sorted[sorted.length - 1].minutes;
+    };
+
+    return {
+      modeUsed: 'empirical',
+      mean: Number(mean.toFixed(3)),
+      std: Number(Math.sqrt(Math.max(0, variance)).toFixed(3)),
+      quantiles: {
+        q25: Number(quantile(0.25).toFixed(3)),
+        q50: Number(quantile(0.50).toFixed(3)),
+        q75: Number(quantile(0.75).toFixed(3)),
+      },
+      minutesFactor: Number((mean / 90).toFixed(6)),
+      varianceFactor: Number((variance / (90 * 90)).toFixed(6)),
+      sampleSize: observations.length,
+    };
   }
 
   /**
@@ -401,7 +689,8 @@ export class ShotsModel {
     defenceQuality: number = 1.0,
     isLikelyStarter: boolean = true,
     expectedMinutes: number = 90,
-    minutesUncertainty: number = 0.15
+    minutesUncertainty: number = 0.15,
+    options: PlayerShotsPredictionOptions = {}
   ): PlayerShotPrediction {
     // --- minutesFactor con banda di incertezza (distribuzione triangolare) ---
     const clampedMinutes = Math.max(1, Math.min(90, expectedMinutes));
@@ -428,25 +717,47 @@ export class ShotsModel {
     const adjustedPi = Math.min(0.98, profile.zipPi + (1 - minutesFactor) * 0.3 + minutesVariancePenalty);
 
     // λ si scala con: casa/trasferta, qualità difesa, minutesFactor medio
+    const teamInfluenceWeight = options.teamInfluenceWeight ?? predictionEngineConfig.playerShots.teamInfluenceWeight;
+    const minTeamInfluenceMultiplier = options.minTeamInfluenceMultiplier ?? predictionEngineConfig.playerShots.minTeamInfluenceMultiplier;
+    const maxTeamInfluenceMultiplier = options.maxTeamInfluenceMultiplier ?? predictionEngineConfig.playerShots.maxTeamInfluenceMultiplier;
+    const teamShotEnvironmentMultiplier =
+      options.teamShotsMean && options.leagueAvgTeamShots && options.leagueAvgTeamShots > 0
+        ? Math.max(
+            minTeamInfluenceMultiplier,
+            Math.min(
+              maxTeamInfluenceMultiplier,
+              1 + teamInfluenceWeight * ((options.teamShotsMean / options.leagueAvgTeamShots) - 1)
+            )
+          )
+        : 1;
+
     const locationMult = isHome ? profile.homeMultiplier : 1.0;
-    const adjustedLambda = profile.zipLambda * locationMult * defenceQuality * minutesFactor;
+    const adjustedLambda = profile.zipLambda * locationMult * defenceQuality * minutesFactor * teamShotEnvironmentMultiplier;
 
     // Se probabile panchina: π molto alta (80%+ probabilità di 0 tiri)
     const finalPi = isLikelyStarter ? adjustedPi : Math.min(0.95, adjustedPi + 0.4);
     const finalLambda = Math.max(0.1, adjustedLambda);
 
     // Tiri in porta: stessa logica con lambda ridotto
-    const sotLambda = Math.max(0.05, profile.onTargetLambda * locationMult * defenceQuality * minutesFactor);
+    const sotLambda = Math.max(0.05, profile.onTargetLambda * locationMult * defenceQuality * minutesFactor * teamShotEnvironmentMultiplier);
     const sotVariancePenalty = minutesVariancePenalty * 0.8; // attenuato per SOT
     const sotPi = Math.min(0.99, profile.onTargetPi + (1 - minutesFactor) * 0.25 + sotVariancePenalty);
 
     // Distribuzione shots
     const maxK = 8;
-    const shotDist = this.generateZIPDistribution(finalPi, finalLambda, maxK);
-    const sotDist  = this.generateZIPDistribution(sotPi, sotLambda, maxK);
+    const modelUsed = options.playerShotsDistribution ?? predictionEngineConfig.playerShots.playerShotsDistribution;
+    const dispersion = Math.max(0.5, options.dispersion ?? 8);
+    const shotDist = modelUsed === 'ZINB'
+      ? this.generateZINBDistribution(finalPi, finalLambda, dispersion, maxK)
+      : this.generateZIPDistribution(finalPi, finalLambda, maxK);
+    const sotDist  = modelUsed === 'ZINB'
+      ? this.generateZINBDistribution(sotPi, sotLambda, Math.max(0.5, dispersion * 0.8), maxK)
+      : this.generateZIPDistribution(sotPi, sotLambda, maxK);
 
-    const normShot = shotDist.map(p => p / Math.max(1e-10, shotDist.reduce((s, v) => s + v, 0)));
-    const normSOT  = sotDist.map(p => p / Math.max(1e-10, sotDist.reduce((s, v) => s + v, 0)));
+    const shotTotal = Math.max(1e-10, shotDist.reduce((s, v) => s + v, 0));
+    const sotTotal = Math.max(1e-10, sotDist.reduce((s, v) => s + v, 0));
+    const normShot = shotDist.map(p => p / shotTotal);
+    const normSOT  = sotDist.map(p => p / sotTotal);
 
     const cdfShot = (t: number) => normShot.reduce((s, p, k) => k > t ? s + p : s, 0);
     const cdfSOT  = (t: number) => normSOT.reduce((s, p, k)  => k > t ? s + p : s, 0);
@@ -480,6 +791,182 @@ export class ShotsModel {
       },
       confidenceLevel: parseFloat(confidence.toFixed(3)),
       sampleSize: profile.sampleSize,
+      modelUsed,
+      expectedValue: parseFloat(expectedShots.toFixed(3)),
+      fullDistribution: Object.fromEntries(normShot.map((p, k) => [k, fmt(p)])),
+      probabilityOver0_5: fmt(cdfShot(0.5)),
+      probabilityOver1_5: fmt(cdfShot(1.5)),
+      probabilityOver2_5: fmt(cdfShot(2.5)),
+      confidence: parseFloat(confidence.toFixed(3)),
+    };
+  }
+
+  predictPlayerShotsOnTarget(
+    profile: PlayerShotProfile,
+    options: PlayerShotsOnTargetOptions = {}
+  ): PlayerShotsOnTargetPrediction {
+    const minutes = this.estimateMinutesDistribution({
+      mode: options.minutesDistributionMode ?? 'triangular',
+      expectedMinutes: options.expectedMinutes ?? profile.avgMinutesPlayed ?? 75,
+      observations: options.minutesObservations,
+      isLikelyStarter: options.isLikelyStarter,
+      asOf: options.asOf,
+    });
+    const minutesFactor = minutes.minutesFactor;
+    const locationMult = options.isHome ? profile.homeMultiplier : 1;
+    const leagueAccuracy = this.clamp(options.leagueAvgShotAccuracy ?? 0.34, 0.10, 0.65);
+    const sampleWeight = this.clamp(profile.sampleSize / 25, 0, 1);
+    const rawAccuracy = this.clamp(options.historicalShotAccuracy ?? leagueAccuracy, 0.05, 0.85);
+    const shrinkedAccuracy = sampleWeight * rawAccuracy + (1 - sampleWeight) * leagueAccuracy;
+    const accuracyMultiplier = this.clamp(shrinkedAccuracy / leagueAccuracy, 0.75, 1.25);
+
+    const leagueTeamSot = Math.max(0.5, options.leagueAvgTeamShotsOnTarget ?? 4.5);
+    const teamSotMultiplier = options.teamShotsOnTargetMean
+      ? this.clamp(1 + 0.30 * ((options.teamShotsOnTargetMean / leagueTeamSot) - 1), 0.75, 1.25)
+      : 1;
+    const opponentSotMultiplier = options.opponentShotsOnTargetAllowed
+      ? this.clamp(1 + 0.20 * ((options.opponentShotsOnTargetAllowed / leagueTeamSot) - 1), 0.80, 1.20)
+      : 1;
+
+    const pi = this.clamp(
+      profile.onTargetPi + (1 - minutesFactor) * 0.28 + Math.sqrt(Math.max(0, minutes.varianceFactor)) * 0.30,
+      0.001,
+      options.isLikelyStarter === false ? 0.97 : 0.99,
+    );
+    const mu = Math.max(
+      0.02,
+      profile.onTargetLambda * minutesFactor * locationMult * teamSotMultiplier * opponentSotMultiplier * accuracyMultiplier
+    );
+    const modelUsed = options.playerShotsDistribution ?? predictionEngineConfig.playerShots.playerShotsDistribution;
+    const dispersion = Math.max(0.5, options.dispersion ?? 10);
+    const rawDist = modelUsed === 'ZINB'
+      ? this.generateZINBDistribution(pi, mu, dispersion, 8)
+      : this.generateZIPDistribution(pi, mu, 8);
+    const dist = this.normalizeDistribution(rawDist);
+    const expectedValue = (1 - pi) * mu;
+    const confidence = this.clamp(
+      0.25 + Math.min(0.45, profile.sampleSize / 60) + (minutes.modeUsed === 'empirical' ? 0.12 : 0) + (options.teamShotsOnTargetMean ? 0.08 : 0),
+      0.10,
+      0.92,
+    );
+
+    return {
+      playerId: profile.playerId,
+      playerName: profile.playerName,
+      teamId: profile.teamId,
+      position: profile.position,
+      expectedValue: Number(expectedValue.toFixed(3)),
+      fullDistribution: this.distributionToRecord(dist),
+      probabilityOver0_5: this.probabilityOver(dist, 0.5),
+      probabilityOver1_5: this.probabilityOver(dist, 1.5),
+      probabilityOver2_5: this.probabilityOver(dist, 2.5),
+      confidence: Number(confidence.toFixed(3)),
+      sampleSize: profile.sampleSize,
+      modelUsed,
+    };
+  }
+
+  predictHierarchicalPlayerShots(
+    teamShotsDistribution: { mean: number; dispersion?: number },
+    covariates: {
+      playerId: string;
+      playerName: string;
+      teamId: string;
+      role?: HierarchicalPlayerRole;
+      expectedMinutes?: number;
+      observations?: PlayerShotShareObservation[];
+      minMinutesForShotShare?: number;
+      useBetaBinomial?: boolean;
+      asOf?: Date;
+      decayPerDay?: number;
+    }
+  ): HierarchicalPlayerShotsPrediction {
+    const rolePriors: Record<HierarchicalPlayerRole, number> = {
+      forward: 0.18,
+      winger: 0.15,
+      attacking_midfielder: 0.13,
+      midfielder: 0.09,
+      fullback: 0.06,
+      centreback: 0.04,
+      goalkeeper: 0.005,
+      unknown: 0.08,
+    };
+    const role = covariates.role ?? 'unknown';
+    const rolePrior = rolePriors[role] ?? rolePriors.unknown;
+    const minMinutes = covariates.minMinutesForShotShare ?? 20;
+    const asOf = covariates.asOf ?? new Date();
+    const decayPerDay = covariates.decayPerDay ?? 0.018;
+    const observations = (covariates.observations ?? [])
+      .filter((obs) =>
+        Number.isFinite(obs.playerShots) &&
+        Number.isFinite(obs.teamShots) &&
+        obs.teamShots > 0 &&
+        Number(obs.playerMinutes) >= minMinutes
+      )
+      .map((obs) => {
+        const ageDays = obs.date instanceof Date
+          ? Math.max(0, (asOf.getTime() - obs.date.getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+        return {
+          ...obs,
+          weight: Math.exp(-decayPerDay * ageDays),
+          share: this.clamp(obs.playerShots / Math.max(1, obs.teamShots), 0, 1),
+        };
+      });
+
+    const weightedPlayerShots = observations.reduce((sum, obs) => sum + obs.playerShots * obs.weight, 0);
+    const weightedTeamShots = observations.reduce((sum, obs) => sum + obs.teamShots * obs.weight, 0);
+    const tauRaw = weightedTeamShots > 0 ? weightedPlayerShots / weightedTeamShots : rolePrior;
+    const sampleWeight = this.clamp(observations.length / 8, 0, 1);
+    const minutesMultiplier = this.clamp((covariates.expectedMinutes ?? 90) / 90, 0.10, 1.05);
+    const tau = this.clamp((sampleWeight * tauRaw + (1 - sampleWeight) * rolePrior) * minutesMultiplier, 0.001, 0.65);
+
+    const muTeam = Math.max(0.1, teamShotsDistribution.mean);
+    const dispersion = Math.max(0.5, teamShotsDistribution.dispersion ?? 12);
+    const teamStd = Math.sqrt(muTeam + (muTeam * muTeam) / dispersion);
+    const maxTeamShots = Math.min(90, Math.max(12, Math.ceil(muTeam + 6 * teamStd)));
+    const maxPlayerShots = Math.min(15, maxTeamShots);
+    const playerDist = new Array(maxPlayerShots + 1).fill(0);
+
+    const totalShareWeight = observations.reduce((sum, obs) => sum + obs.weight, 0);
+    const meanShare = totalShareWeight > 0
+      ? observations.reduce((sum, obs) => sum + obs.share * obs.weight, 0) / totalShareWeight
+      : tau;
+    const shareVariance = totalShareWeight > 0
+      ? observations.reduce((sum, obs) => sum + obs.weight * (obs.share - meanShare) ** 2, 0) / totalShareWeight
+      : 0;
+    const baselineShareVariance = Math.max(1e-4, tau * (1 - tau) / Math.max(1, observations.length));
+    const useBetaBinomial = Boolean(covariates.useBetaBinomial) && observations.length >= 4 && shareVariance > baselineShareVariance * 1.5;
+    const concentration = useBetaBinomial
+      ? this.clamp((tau * (1 - tau)) / Math.max(1e-4, shareVariance) - 1, 2, 80)
+      : 0;
+    const alpha = Math.max(0.05, tau * concentration);
+    const beta = Math.max(0.05, (1 - tau) * concentration);
+
+    for (let s = 0; s <= maxTeamShots; s++) {
+      const pTeam = this.negBinPMF(s, muTeam, dispersion);
+      for (let x = 0; x <= Math.min(s, maxPlayerShots); x++) {
+        const conditional = useBetaBinomial
+          ? this.betaBinomialPMF(x, s, alpha, beta)
+          : this.binomialPMF(x, s, tau);
+        playerDist[x] += pTeam * conditional;
+      }
+    }
+    const dist = this.normalizeDistribution(playerDist);
+    const expectedShots = dist.reduce((sum, p, k) => sum + p * k, 0);
+    const confidence = this.clamp(0.25 + sampleWeight * 0.45 + Math.min(0.15, weightedTeamShots / 300), 0.10, 0.90);
+
+    return {
+      expectedShots: Number(expectedShots.toFixed(3)),
+      expectedValue: Number(expectedShots.toFixed(3)),
+      probabilityOver0_5: this.probabilityOver(dist, 0.5),
+      probabilityOver1_5: this.probabilityOver(dist, 1.5),
+      probabilityOver2_5: this.probabilityOver(dist, 2.5),
+      fullDistribution: this.distributionToRecord(dist),
+      confidence: Number(confidence.toFixed(3)),
+      sampleSize: observations.length,
+      modelUsed: useBetaBinomial ? 'hierarchical_beta_binomial' : 'hierarchical_binomial',
+      tau: Number(tau.toFixed(6)),
     };
   }
 

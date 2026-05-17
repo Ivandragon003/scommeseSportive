@@ -1,7 +1,9 @@
 import {
   negBinOver as computeNegBinOver,
   negBinPMF as computeNegBinPMF,
+  poissonPMF as computePoissonPMF,
 } from '../utils/MathUtils';
+import { predictionEngineConfig } from '../../config/PredictionEngineConfig';
 
 /**
  * MODELLI STATISTICI SPECIALIZZATI — Versione migliorata
@@ -41,6 +43,26 @@ import {
 export interface NegBinParams {
   mu: number;    // media (E[X])
   r: number;     // dispersion parameter: Var[X] = mu + mu²/r
+}
+
+export type CountDistributionType = 'negative_binomial' | 'poisson' | 'underdispersed_poisson_fallback';
+
+export interface CountDistributionSelection {
+  distributionType: CountDistributionType;
+  warning?: string;
+}
+
+export interface TeamCountMarketPrediction {
+  mean: number;
+  variance: number;
+  dispersion: number;
+  distributionType: CountDistributionType;
+  overUnder: Record<string, { over: number; under: number }>;
+  exact?: Record<string, number>;
+  confidence: number;
+  sampleSize: number;
+  dataRichness: number;
+  warning?: string;
 }
 
 export interface ShotsModelData {
@@ -224,6 +246,118 @@ export class SpecializedModels {
 
     const r = (mu * mu) / (variance - mu);
     return Math.max(minR, Math.min(maxR, r));
+  }
+
+  selectCountDistribution(mean: number, variance: number, tolerance = predictionEngineConfig.specializedModels.countDispersionTolerance): CountDistributionSelection {
+    if (!Number.isFinite(mean) || mean <= 0 || !Number.isFinite(variance)) {
+      return { distributionType: 'poisson', warning: 'invalid_moments_poisson_fallback' };
+    }
+    if (variance > mean + tolerance) return { distributionType: 'negative_binomial' };
+    if (variance < mean - tolerance) {
+      return {
+        distributionType: 'underdispersed_poisson_fallback',
+        warning: 'underdispersion_detected_using_poisson_shrinkage',
+      };
+    }
+    return { distributionType: 'poisson' };
+  }
+
+  estimateDispersionWithShrinkage(params: {
+    mu: number;
+    variance: number;
+    sampleSize: number;
+    leagueDispersion: number;
+    maxR?: number;
+    minSampleForTeamDispersion?: number;
+  }): number {
+    const maxR = params.maxR ?? 200;
+    const teamR = this.estimateDispersion(params.mu, params.variance, params.sampleSize, maxR);
+    const leagueR = Number.isFinite(params.leagueDispersion) && params.leagueDispersion > 0
+      ? Math.min(maxR, Math.max(1, params.leagueDispersion))
+      : teamR;
+    const stableSample = Math.max(
+      1,
+      params.minSampleForTeamDispersion ?? predictionEngineConfig.specializedModels.minSampleForTeamDispersion
+    );
+    const weight = Math.min(1, Math.max(0, params.sampleSize / stableSample));
+    return Number((teamR * weight + leagueR * (1 - weight)).toFixed(4));
+  }
+
+  predictTeamCountMarket(params: {
+    market: 'shots' | 'shots_on_target' | 'yellow_cards' | 'fouls' | 'corners';
+    mean: number;
+    variance: number;
+    sampleSize: number;
+    leagueMean?: number;
+    leagueDispersion?: number;
+    lines: number[];
+    exactCounts?: number[];
+  }): TeamCountMarketPrediction {
+    const sampleSize = Math.max(0, Number(params.sampleSize ?? 0));
+    const mean = this.shrinkToLeague(
+      Math.max(0.01, Number(params.mean)),
+      Math.max(0.01, Number(params.leagueMean ?? params.mean)),
+      sampleSize,
+      predictionEngineConfig.specializedModels.dispersionShrinkageStrength,
+    );
+    const variance = Math.max(0.01, Number(params.variance));
+    const selection = this.selectCountDistribution(mean, variance);
+    const maxRByMarket: Record<string, number> = {
+      shots: 40,
+      shots_on_target: 30,
+      yellow_cards: 50,
+      fouls: 60,
+      corners: 40,
+    };
+    const dispersion = this.estimateDispersionWithShrinkage({
+      mu: mean,
+      variance,
+      sampleSize,
+      leagueDispersion: params.leagueDispersion ?? maxRByMarket[params.market],
+      maxR: maxRByMarket[params.market],
+    });
+
+    const poissonOver = (line: number): number => {
+      let cdf = 0;
+      const floor = Math.floor(line);
+      for (let k = 0; k <= floor; k++) cdf += computePoissonPMF(k, mean);
+      return Math.max(0, Math.min(1, 1 - cdf));
+    };
+    const probabilityOver = (line: number): number => {
+      if (selection.distributionType === 'negative_binomial') return this.negBinOver(line, mean, dispersion);
+      return poissonOver(line);
+    };
+
+    const overUnder: Record<string, { over: number; under: number }> = {};
+    for (const line of params.lines) {
+      const over = Number(probabilityOver(line).toFixed(6));
+      overUnder[String(line)] = { over, under: Number((1 - over).toFixed(6)) };
+    }
+
+    const exact = params.exactCounts
+      ? Object.fromEntries(params.exactCounts.map((k) => [
+          String(k),
+          Number((selection.distributionType === 'negative_binomial'
+            ? this.negBinPMF(k, mean, dispersion)
+            : computePoissonPMF(k, mean)).toFixed(6)),
+        ]))
+      : undefined;
+
+    const dataRichness = Math.max(0.1, Math.min(1, sampleSize / 24));
+    return {
+      mean: Number(mean.toFixed(4)),
+      variance: Number((selection.distributionType === 'negative_binomial'
+        ? mean + mean * mean / dispersion
+        : mean).toFixed(4)),
+      dispersion: Number(dispersion.toFixed(4)),
+      distributionType: selection.distributionType,
+      overUnder,
+      exact,
+      confidence: Number(Math.min(0.95, 0.25 + dataRichness * 0.7).toFixed(4)),
+      sampleSize,
+      dataRichness: Number(dataRichness.toFixed(4)),
+      warning: selection.warning,
+    };
   }
 
   /**

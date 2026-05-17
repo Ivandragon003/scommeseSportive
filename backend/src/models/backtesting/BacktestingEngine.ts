@@ -29,6 +29,7 @@
 import { DixonColesModel, MatchData } from '../core/DixonColesModel';
 import { ValueBettingEngine, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
+import { MetricWeightMode } from '../../config/PredictionEngineConfig';
 
 export interface BacktestResult {
   totalMatches: number;
@@ -47,6 +48,8 @@ export interface BacktestResult {
   averageEV: number;
   brierScore: number;
   logLoss: number;
+  weightedBrierScore?: number;
+  weightedLogLoss?: number;
   calibration: CalibrationBucket[];
   equityCurve: EquityPoint[];
   monthlyStats: MonthlyStats[];
@@ -86,6 +89,8 @@ export interface BacktestResult {
    * In questo caso edgeNoVig e Sharpe hanno valore puramente indicativo.
    */
   usedSyntheticOddsOnly: boolean;
+  marketCalibration?: Record<string, CalibrationBucket[]>;
+  marketReports?: Record<string, MarketLevelReport>;
 }
 
 export interface MarketStats {
@@ -99,6 +104,35 @@ export interface MarketStats {
   avgOdds: number;
   avgEV: number;
   unevaluableRate: number;
+}
+
+export interface MarketLevelReport {
+  roi: number;
+  winRate: number;
+  brierScore: number;
+  logLoss: number;
+  weightedBrierScore: number;
+  weightedLogLoss: number;
+  sharpe: number;
+  maxDrawdown: number;
+  recoveryFactor: number;
+  profitFactor: number;
+  edgeNoVig: number;
+  edgeDecayByMonth: Array<{ year: number; month: number; edgeNoVig: number; bets: number }>;
+  rollingSharpePeriods: Array<{ periodStart: number; periodEnd: number; sharpe: number }>;
+  usedSyntheticOddsOnly: boolean;
+}
+
+interface MarketReportBet {
+  ourProb: number;
+  won: boolean;
+  marketCategory?: MarketCategory | string;
+  stake?: number;
+  odds?: number;
+  profit?: number;
+  edgeNoVig?: number;
+  matchDate?: Date;
+  isSynthetic?: boolean;
 }
 
 export interface CalibrationBucket {
@@ -240,6 +274,309 @@ export class BacktestingEngine {
   constructor() {
     this.model  = new DixonColesModel();
     this.engine = new ValueBettingEngine();
+  }
+
+  computeWeightedProbabilityMetrics(
+    bets: Array<{
+      ourProb: number;
+      won: boolean;
+      stake?: number;
+      odds?: number;
+      marketCategory?: MarketCategory | string;
+      marketVariance?: number;
+    }>,
+    weightMode: MetricWeightMode = 'none'
+  ): { weightedBrierScore: number; weightedLogLoss: number; weightMode: MetricWeightMode } {
+    if (bets.length === 0) {
+      return { weightedBrierScore: 0, weightedLogLoss: 0, weightMode };
+    }
+
+    const rawWeight = (bet: typeof bets[number]): number => {
+      if (weightMode === 'stake') return Math.max(0, Number(bet.stake ?? 0));
+      if (weightMode === 'inverseOdds') return bet.odds && bet.odds > 1 ? 1 / bet.odds : 0;
+      if (weightMode === 'marketVariance') return 1 / Math.max(0.01, Number(bet.marketVariance ?? 1));
+      return 1;
+    };
+
+    const weighted = bets.map((bet) => ({
+      bet,
+      weight: Math.max(0, rawWeight(bet)),
+    }));
+    const totalWeight = weighted.reduce((sum, row) => sum + row.weight, 0) || bets.length;
+    const safeProb = (p: number) => Math.max(1e-10, Math.min(1 - 1e-10, p));
+
+    const brier = weighted.reduce((sum, { bet, weight }) => {
+      const y = bet.won ? 1 : 0;
+      return sum + weight * (safeProb(bet.ourProb) - y) ** 2;
+    }, 0) / totalWeight;
+
+    const logLoss = -weighted.reduce((sum, { bet, weight }) => {
+      const p = safeProb(bet.ourProb);
+      const y = bet.won ? 1 : 0;
+      return sum + weight * (y * Math.log(p) + (1 - y) * Math.log(1 - p));
+    }, 0) / totalWeight;
+
+    return {
+      weightedBrierScore: Number(brier.toFixed(6)),
+      weightedLogLoss: Number(logLoss.toFixed(6)),
+      weightMode,
+    };
+  }
+
+  computeCalibrationByMarket(
+    bets: Array<{ ourProb: number; won: boolean; marketCategory?: MarketCategory | string }>,
+    options: { desiredBuckets?: number; minBucketSize?: number } = {}
+  ): {
+    global: CalibrationBucket[];
+    byMarket: Record<string, CalibrationBucket[]>;
+    blending: Record<string, { alpha: number; sampleSize: number; fallbackGlobal: boolean }>;
+  } {
+    const desiredBuckets = Math.max(1, Number(options.desiredBuckets ?? 10));
+    const minBucketSize = Math.max(10, Number(options.minBucketSize ?? 20));
+    const normalized = bets
+      .filter((bet) => Number.isFinite(bet.ourProb) && bet.ourProb >= 0 && bet.ourProb <= 1)
+      .map((bet) => ({
+        ourProb: Number(bet.ourProb),
+        won: Boolean(bet.won),
+        marketCategory: String(bet.marketCategory ?? 'global'),
+      }));
+    const global = this.computeCalibrationBuckets(normalized, desiredBuckets, minBucketSize);
+    const byMarket: Record<string, CalibrationBucket[]> = {};
+    const blending: Record<string, { alpha: number; sampleSize: number; fallbackGlobal: boolean }> = {
+      global: {
+        alpha: this.calibrationAlpha(normalized.length),
+        sampleSize: normalized.length,
+        fallbackGlobal: false,
+      },
+    };
+
+    const markets = new Set(normalized.map((bet) => bet.marketCategory));
+    for (const market of markets) {
+      const marketBets = normalized.filter((bet) => bet.marketCategory === market);
+      const hasEnoughSample = marketBets.length >= minBucketSize * 2;
+      byMarket[market] = hasEnoughSample
+        ? this.computeCalibrationBuckets(marketBets, desiredBuckets, minBucketSize)
+        : global;
+      blending[market] = {
+        alpha: this.calibrationAlpha(marketBets.length),
+        sampleSize: marketBets.length,
+        fallbackGlobal: !hasEnoughSample,
+      };
+    }
+
+    return { global, byMarket, blending };
+  }
+
+  calibrateProbabilityWithBlending(rawProb: number, buckets: CalibrationBucket[], nObservations: number): number {
+    if (!buckets.length) return rawProb;
+    const sorted = [...buckets].sort((a, b) => a.predictedAvg - b.predictedAvg);
+    let calibrated = sorted[0].actualFrequency;
+    if (rawProb <= sorted[0].predictedAvg) {
+      calibrated = sorted[0].actualFrequency;
+    } else if (rawProb >= sorted[sorted.length - 1].predictedAvg) {
+      calibrated = sorted[sorted.length - 1].actualFrequency;
+    } else {
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const left = sorted[i];
+        const right = sorted[i + 1];
+        if (rawProb >= left.predictedAvg && rawProb <= right.predictedAvg) {
+          const t = right.predictedAvg > left.predictedAvg
+            ? (rawProb - left.predictedAvg) / (right.predictedAvg - left.predictedAvg)
+            : 0;
+          calibrated = left.actualFrequency + t * (right.actualFrequency - left.actualFrequency);
+          break;
+        }
+      }
+    }
+    const alpha = this.calibrationAlpha(nObservations);
+    return Math.max(0.001, Math.min(0.999, alpha * rawProb + (1 - alpha) * calibrated));
+  }
+
+  computeMarketLevelReports(
+    bets: MarketReportBet[],
+    weightMode: MetricWeightMode = 'none'
+  ): Record<string, MarketLevelReport> {
+    const byMarket: Record<string, typeof bets> = {};
+    for (const bet of bets) {
+      const market = String(bet.marketCategory ?? 'other');
+      (byMarket[market] ??= []).push(bet);
+    }
+
+    const reports: Record<string, MarketLevelReport> = {};
+    for (const [market, rows] of Object.entries(byMarket)) {
+      const staked = rows.reduce((sum, bet) => sum + this.reportStake(bet), 0);
+      const returned = rows.reduce((sum, bet) => {
+        const stake = this.reportStake(bet);
+        return sum + stake + this.reportProfit(bet);
+      }, 0);
+      const profits = rows.map((bet) => this.reportProfit(bet));
+      const returns = rows.map((bet, index) => profits[index] / this.reportStakeFloor(bet));
+      const wins = rows.filter((bet) => bet.won).length;
+      const safeProb = (p: number) => Math.max(1e-10, Math.min(1 - 1e-10, p));
+      const brierScore = rows.length
+        ? rows.reduce((sum, bet) => sum + (safeProb(bet.ourProb) - (bet.won ? 1 : 0)) ** 2, 0) / rows.length
+        : 0;
+      const logLoss = rows.length
+        ? -rows.reduce((sum, bet) => {
+          const p = safeProb(bet.ourProb);
+          return sum + (bet.won ? Math.log(p) : Math.log(1 - p));
+        }, 0) / rows.length
+        : 0;
+      const weighted = this.computeWeightedProbabilityMetrics(rows.map((bet) => ({
+        ourProb: bet.ourProb,
+        won: bet.won,
+        stake: bet.stake,
+        odds: bet.odds,
+        marketCategory: market,
+      })), weightMode);
+      const avgReturn = returns.reduce((sum, value) => sum + value, 0) / (returns.length || 1);
+      const stdReturn = Math.sqrt(returns.reduce((sum, value) => sum + (value - avgReturn) ** 2, 0) / (returns.length || 1));
+      const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(Math.max(1, returns.length)) : 0;
+
+      let bankroll = 100;
+      let peak = bankroll;
+      let maxDrawdown = 0;
+      for (const profit of profits) {
+        bankroll += profit;
+        peak = Math.max(peak, bankroll);
+        maxDrawdown = Math.max(maxDrawdown, peak > 0 ? (peak - bankroll) / peak : 0);
+      }
+      const grossWin = profits.filter((profit) => profit > 0).reduce((sum, profit) => sum + profit, 0);
+      const grossLoss = Math.abs(profits.filter((profit) => profit <= 0).reduce((sum, profit) => sum + profit, 0));
+      const edgeNoVig = rows.length
+        ? rows.reduce((sum, bet) => sum + (Number.isFinite(bet.edgeNoVig) ? Number(bet.edgeNoVig) : (bet.ourProb - 1 / Math.max(1.01, Number(bet.odds ?? 2)))), 0) / rows.length
+        : 0;
+
+      reports[market] = {
+        roi: staked > 0 ? Number((((returned - staked) / staked) * 100).toFixed(4)) : 0,
+        winRate: rows.length ? Number(((wins / rows.length) * 100).toFixed(4)) : 0,
+        brierScore: Number(brierScore.toFixed(6)),
+        logLoss: Number(logLoss.toFixed(6)),
+        weightedBrierScore: weighted.weightedBrierScore,
+        weightedLogLoss: weighted.weightedLogLoss,
+        sharpe: Number(sharpe.toFixed(4)),
+        maxDrawdown: Number((maxDrawdown * 100).toFixed(4)),
+        recoveryFactor: maxDrawdown > 0 ? Number(((returned - staked) / (maxDrawdown * 100)).toFixed(4)) : 0,
+        profitFactor: grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(4)) : grossWin > 0 ? Infinity : 0,
+        edgeNoVig: Number(edgeNoVig.toFixed(6)),
+        edgeDecayByMonth: this.computeEdgeDecayForRows(rows),
+        rollingSharpePeriods: this.computeRollingSharpeForRows(rows),
+        usedSyntheticOddsOnly: rows.length > 0 && rows.every((bet) => bet.isSynthetic === true),
+      };
+    }
+    return reports;
+  }
+
+  private reportStake(bet: MarketReportBet): number {
+    return Math.max(0, Number(bet.stake ?? 1));
+  }
+
+  private reportStakeFloor(bet: MarketReportBet): number {
+    return Math.max(0.01, Number(bet.stake ?? 1));
+  }
+
+  private reportProfit(bet: MarketReportBet): number {
+    if (Number.isFinite(bet.profit)) return Number(bet.profit);
+    const stake = this.reportStake(bet);
+    return bet.won ? stake * (Number(bet.odds ?? 2) - 1) : -stake;
+  }
+
+  private calibrationAlpha(nObservations: number): number {
+    return Math.max(0.10, 1 / (1 + Math.max(0, nObservations) / 1000));
+  }
+
+  private computeCalibrationBuckets(
+    bets: Array<{ ourProb: number; won: boolean }>,
+    desiredBuckets: number,
+    minBucketSize: number
+  ): CalibrationBucket[] {
+    if (bets.length === 0) return [];
+    const sorted = [...bets].sort((a, b) => a.ourProb - b.ourProb);
+    const adaptiveMinBucketSize = Math.max(10, Math.floor(sorted.length / Math.max(1, desiredBuckets)), minBucketSize);
+    const nBuckets = Math.max(1, Math.floor(sorted.length / adaptiveMinBucketSize));
+    const bucketSize = Math.max(1, Math.ceil(sorted.length / nBuckets));
+    const rawBuckets = [] as Array<{
+      bets: typeof sorted;
+      predictedAvg: number;
+      actualFreq: number;
+      count: number;
+      minProb: number;
+      maxProb: number;
+    }>;
+    for (let i = 0; i < sorted.length; i += bucketSize) {
+      const group = sorted.slice(i, i + bucketSize);
+      rawBuckets.push({
+        bets: group,
+        predictedAvg: group.reduce((sum, bet) => sum + bet.ourProb, 0) / group.length,
+        actualFreq: group.filter((bet) => bet.won).length / group.length,
+        count: group.length,
+        minProb: group[0].ourProb,
+        maxProb: group[group.length - 1].ourProb,
+      });
+    }
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < rawBuckets.length - 1; i++) {
+        if (rawBuckets[i].actualFreq > rawBuckets[i + 1].actualFreq) {
+          const merged = [...rawBuckets[i].bets, ...rawBuckets[i + 1].bets];
+          rawBuckets.splice(i, 2, {
+            bets: merged,
+            predictedAvg: merged.reduce((sum, bet) => sum + bet.ourProb, 0) / merged.length,
+            actualFreq: merged.filter((bet) => bet.won).length / merged.length,
+            count: merged.length,
+            minProb: rawBuckets[i].minProb,
+            maxProb: rawBuckets[i + 1].maxProb,
+          });
+          changed = true;
+          break;
+        }
+      }
+    }
+    return rawBuckets.map((bucket) => ({
+      predictedRange: `${(bucket.minProb * 100).toFixed(0)}%-${(bucket.maxProb * 100).toFixed(0)}%`,
+      predictedAvg: Number(bucket.predictedAvg.toFixed(4)),
+      actualFrequency: Number(bucket.actualFreq.toFixed(4)),
+      count: bucket.count,
+    }));
+  }
+
+  private computeEdgeDecayForRows(rows: Array<{ matchDate?: Date; edgeNoVig?: number; ourProb: number; odds?: number }>): MarketLevelReport['edgeDecayByMonth'] {
+    const edgeByMonthMap: Record<string, { sum: number; count: number }> = {};
+    for (const row of rows) {
+      const date = row.matchDate instanceof Date ? row.matchDate : new Date(0);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const edge = Number.isFinite(row.edgeNoVig) ? Number(row.edgeNoVig) : row.ourProb - 1 / Math.max(1.01, Number(row.odds ?? 2));
+      if (!edgeByMonthMap[key]) edgeByMonthMap[key] = { sum: 0, count: 0 };
+      edgeByMonthMap[key].sum += edge;
+      edgeByMonthMap[key].count += 1;
+    }
+    return Object.entries(edgeByMonthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => {
+        const [year, month] = key.split('-').map(Number);
+        return { year, month, edgeNoVig: Number((value.sum / value.count).toFixed(4)), bets: value.count };
+      });
+  }
+
+  private computeRollingSharpeForRows(rows: MarketReportBet[]): MarketLevelReport['rollingSharpePeriods'] {
+    const windowSize = 50;
+    if (rows.length < windowSize) return [];
+    const out: MarketLevelReport['rollingSharpePeriods'] = [];
+    for (let start = 0; start + windowSize <= rows.length; start += windowSize) {
+      const window = rows.slice(start, start + windowSize);
+      const returns = window.map((row) => {
+        return this.reportProfit(row) / this.reportStakeFloor(row);
+      });
+      const avg = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+      const std = Math.sqrt(returns.reduce((sum, value) => sum + (value - avg) ** 2, 0) / returns.length);
+      out.push({
+        periodStart: start + 1,
+        periodEnd: start + windowSize,
+        sharpe: Number((std > 0 ? (avg / std) * Math.sqrt(windowSize) : 0).toFixed(3)),
+      });
+    }
+    return out;
   }
 
   setAdaptiveTuning(profile: AdaptiveEngineTuningProfile | null | undefined): void {
@@ -892,6 +1229,7 @@ export class BacktestingEngine {
     const brierScore = bets.length > 0
       ? bets.reduce((s,b) => s+(b.ourProb-(b.won?1:0))**2, 0) / bets.length
       : 0;
+    const weightedMetrics = this.computeWeightedProbabilityMetrics(bets, 'none');
     const grossWin     = bets.filter(b=>b.profit>0) .reduce((s,b)=>s+b.profit, 0);
     const grossLoss    = Math.abs(bets.filter(b=>b.profit<=0).reduce((s,b)=>s+b.profit, 0));
     const profitFactor = grossLoss>0 ? grossWin/grossLoss : grossWin>0 ? Infinity : 0;
@@ -946,6 +1284,8 @@ export class BacktestingEngine {
         'Fornire quote storiche di chiusura (Pinnacle/Betfair) per risultati affidabili.'
       );
     }
+    const marketCalibration = this.computeCalibrationByMarket(bets).byMarket;
+    const marketReports = this.computeMarketLevelReports(bets, 'none');
 
     return {
       totalMatches:    trainCount + testCount,
@@ -961,6 +1301,8 @@ export class BacktestingEngine {
       averageOdds:  bets.length > 0 ? bets.reduce((s,b)=>s+b.odds,0)/bets.length : 0,
       averageEV:    bets.length > 0 ? bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100 : 0,
       brierScore, logLoss,
+      weightedBrierScore: weightedMetrics.weightedBrierScore,
+      weightedLogLoss: weightedMetrics.weightedLogLoss,
       calibration:  this.computeCalibration(bets),
       equityCurve:  equity,
       monthlyStats: this.computeMonthlyStats(bets),
@@ -998,6 +1340,8 @@ export class BacktestingEngine {
       edgeDecayByMonth,
       rollingSharpePeriods,
       usedSyntheticOddsOnly,
+      marketCalibration,
+      marketReports,
     };
   }
 
@@ -1121,10 +1465,11 @@ export class BacktestingEngine {
     return {
       totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
       betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
-      roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0,
+      roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0, weightedBrierScore:0, weightedLogLoss:0,
       calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, detailedBets:[], marketUnevaluableBreakdown:{},
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
+      marketCalibration:{}, marketReports:{},
     };
   }
 }

@@ -43,6 +43,7 @@
  * LOW:    Kelly × 0.70  (riduzione: segnale debole)
  * LOW viene ancora accettata se Kelly è positivo — solo con stake ridotto.
  */
+import { predictionEngineConfig, PredictionEngineConfig, ComboRiskMode } from '../../config/PredictionEngineConfig';
 
 // ==================== COMBINATA (MULTI-BET) ====================
 
@@ -80,6 +81,10 @@ export interface ComboBetOpportunity {
   isIndependent: boolean;
   /** Presente se due o più gambe provengono dalla stessa partita */
   warningCorrelation?: string;
+  /** Effective risk mode used; covarianceMonteCarlo currently means deterministic covariance proxy. */
+  comboRiskMode?: ComboRiskMode;
+  /** Return variance proxy, populated only when covariance correlations are configured. */
+  returnVariance?: number;
 }
 
 export interface BetOpportunity {
@@ -205,6 +210,12 @@ export interface SelectionDiagnostics {
   rejectionReasons: string[];
 }
 
+type ValueBettingRuntimeConfig = Partial<PredictionEngineConfig['valueBetting']> & {
+  /** Legacy name: current behavior is deterministic covariance proxy scaling, not random Monte Carlo simulation. */
+  comboRiskMode?: ComboRiskMode;
+  comboCorrelationMatrix?: Record<string, number>;
+};
+
 // ==================== SOGLIE EV PER CATEGORIA ====================
 
 /**
@@ -248,6 +259,7 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
 };
 
 export class ValueBettingEngine {
+  private readonly runtimeConfig: ValueBettingRuntimeConfig;
   // Filtri globali (valgono per tutte le categorie)
   private readonly MIN_ODDS         = 1.40;   // margine bookmaker troppo alto sotto
   private readonly MAX_ODDS         = 8.00;   // modello inaffidabile oltre
@@ -264,6 +276,19 @@ export class ValueBettingEngine {
     LOW:    0.70,   // accettata ma con stake ridotto
   };
   private adaptiveTuningProfile: AdaptiveEngineTuningProfile | null = null;
+
+  constructor(config: ValueBettingRuntimeConfig = {}) {
+    this.runtimeConfig = {
+      ...predictionEngineConfig.valueBetting,
+      ...config,
+      comboRiskMode: config.comboRiskMode ?? predictionEngineConfig.comboBetting.comboRiskMode,
+      comboCorrelationMatrix: config.comboCorrelationMatrix ?? {},
+      operational: {
+        ...predictionEngineConfig.valueBetting.operational,
+        ...(config.operational ?? {}),
+      },
+    };
+  }
 
   private clampNumber(value: number, min: number, max: number): number {
     if (!Number.isFinite(value)) return min;
@@ -320,6 +345,11 @@ export class ValueBettingEngine {
     };
   }
 
+  private getClampedEvDelta(category: MarketCategory, selection?: string): number {
+    const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
+    return this.clampNumber(Number(tuning.evDelta ?? 0), -0.012, 0.008);
+  }
+
   private getFilterSettings(category: MarketCategory, selection?: string): {
     minOdds: number;
     maxOdds: number;
@@ -334,9 +364,11 @@ export class ValueBettingEngine {
 
     const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
     const baseCoherence = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
+    const operationalMaxOdds = this.runtimeConfig.operational?.maxOdds ?? this.MAX_ODDS;
+    const applyMaxOddsToAllMarkets = this.runtimeConfig.operational?.applyMaxOddsToAllMarkets ?? true;
     return {
       minOdds: isShotsDisciplineCore ? 1.20 : this.MIN_ODDS,
-      maxOdds: isShotsDisciplineCore ? 15.00 : this.MAX_ODDS,
+      maxOdds: applyMaxOddsToAllMarkets ? operationalMaxOdds : (isShotsDisciplineCore ? 15.00 : operationalMaxOdds),
       coherenceRatio: this.clampNumber(baseCoherence + tuning.coherenceDelta, 0.45, 0.85),
     };
   }
@@ -467,10 +499,33 @@ export class ValueBettingEngine {
   }
 
   private minEvForCategory(category: MarketCategory, margin?: number, selection?: string): number {
-    const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
-    if (!isFinite(Number(margin))) return this.clampNumber(EV_THRESHOLDS[category] + tuning.evDelta, 0.001, 0.12);
+    const evDelta = this.getClampedEvDelta(category, selection);
+    if (!isFinite(Number(margin))) return this.clampNumber(EV_THRESHOLDS[category] + evDelta, 0.001, 0.12);
     const buffer = EV_MARGIN_BUFFERS[category] ?? 0.03;
-    return this.clampNumber(Math.max(0, Number(margin) + buffer) + tuning.evDelta, 0.001, 0.12);
+    return this.clampNumber(Math.max(0, Number(margin) + buffer) + evDelta, 0.001, 0.12);
+  }
+
+  getEffectiveEvThreshold(category: MarketCategory, margin?: number, selection?: string): number {
+    return this.minEvForCategory(category, margin, selection);
+  }
+
+  computeDynamicEvThreshold(
+    category: MarketCategory,
+    context: {
+      richnessScore?: number;
+      marketVariance?: number;
+      calibrationPenalty?: number;
+      baseThreshold?: number;
+    } = {}
+  ): number {
+    const baseThreshold = context.baseThreshold ?? EV_THRESHOLDS[category] ?? EV_THRESHOLDS.other;
+    if (!(this.runtimeConfig.dynamicEvThresholdEnabled ?? false)) return baseThreshold;
+
+    const richnessScore = this.clampNumber(context.richnessScore ?? 1, 0, 1);
+    const richnessMultiplier = 1 + (1 - richnessScore) * 1.2;
+    const varianceMultiplier = this.clampNumber(context.marketVariance ?? 1, 0.75, 2.5);
+    const calibrationPenalty = this.clampNumber(context.calibrationPenalty ?? 1, 1, 2.5);
+    return Number((baseThreshold * richnessMultiplier * varianceMultiplier * calibrationPenalty).toFixed(6));
   }
 
   private getCategoryRankingMultiplier(category: MarketCategory, selection?: string): number {
@@ -1196,7 +1251,12 @@ export class ValueBettingEngine {
      */
     const BASE_COMBO_CAP = this.MAX_STAKE_PERCENT * 0.6;  // 2.4%
     const nLegs = legs.length;
-    const MAX_COMBO_STAKE = Math.max(0.5, BASE_COMBO_CAP / Math.sqrt(nLegs));
+    const baseMaxComboStake = Math.max(0.5, BASE_COMBO_CAP / Math.sqrt(nLegs));
+    const covarianceRisk = this.computeComboCovarianceRisk(legs);
+    const comboRiskMode: ComboRiskMode = covarianceRisk.available ? 'covarianceMonteCarlo' : 'sqrtLegs';
+    const MAX_COMBO_STAKE = covarianceRisk.available
+      ? Math.max(0.5, baseMaxComboStake / Math.sqrt(Math.max(1, covarianceRisk.varianceMultiplier)))
+      : baseMaxComboStake;
     const stakePercent = this.clampNumber(
       quarterKelly * 100,
       this.MIN_STAKE_PERCENT,
@@ -1226,6 +1286,8 @@ export class ValueBettingEngine {
       warningCorrelation: hasDuplicateMatch
         ? `Attenzione: ${legs.filter((l) => matchIds.filter((id) => id === l.matchId).length > 1).length} gambe provengono dalla stessa partita — la probabilità combinata potrebbe essere sovrastimata perché i mercati sono correlati.`
         : undefined,
+      comboRiskMode,
+      returnVariance: covarianceRisk.available ? Number(covarianceRisk.returnVariance.toFixed(6)) : undefined,
     };
   }
 
@@ -1243,6 +1305,52 @@ export class ValueBettingEngine {
     const withFirst = this.generateCombinations(rest, size - 1).map((combo) => [first, ...combo]);
     const withoutFirst = this.generateCombinations(rest, size);
     return [...withFirst, ...withoutFirst];
+  }
+
+  /**
+   * Deterministic covariance proxy for combo stake scaling.
+   *
+   * Despite the legacy config name `covarianceMonteCarlo`, this method does not
+   * run random Monte Carlo simulation. It uses the configured pairwise
+   * correlation matrix to derive a variance multiplier and keeps results
+   * deterministic for repeatable backtests/tests.
+   */
+  private computeComboCovarianceRisk(legs: BetOpportunity[]): {
+    available: boolean;
+    varianceMultiplier: number;
+    returnVariance: number;
+  } {
+    if (this.runtimeConfig.comboRiskMode !== 'covarianceMonteCarlo') {
+      return { available: false, varianceMultiplier: 1, returnVariance: 0 };
+    }
+    const matrix = this.runtimeConfig.comboCorrelationMatrix ?? {};
+    const correlations: number[] = [];
+    for (let i = 0; i < legs.length; i++) {
+      for (let j = i + 1; j < legs.length; j++) {
+        const left = String(legs[i].marketCategory);
+        const right = String(legs[j].marketCategory);
+        const configured = matrix[`${left}|${right}`] ?? matrix[`${right}|${left}`];
+        if (Number.isFinite(configured)) {
+          correlations.push(this.clampNumber(Number(configured), -0.95, 0.95));
+        }
+      }
+    }
+    if (correlations.length === 0) {
+      return { available: false, varianceMultiplier: 1, returnVariance: 0 };
+    }
+
+    const avgCorrelation = correlations.reduce((sum, value) => sum + value, 0) / correlations.length;
+    const positiveCorrelation = Math.max(0, avgCorrelation);
+    const varianceMultiplier = this.clampNumber(1 + positiveCorrelation * (legs.length - 1), 0.65, 3.5);
+    const pCombo = legs.reduce((acc, leg) => acc * (leg.ourProbability / 100), 1);
+    const oddsCombo = legs.reduce((acc, leg) => acc * leg.bookmakerOdds, 1);
+    const meanReturn = pCombo * oddsCombo - 1;
+    const binaryReturnVariance = pCombo * (oddsCombo - 1) ** 2 + (1 - pCombo) - meanReturn ** 2;
+    return {
+      available: true,
+      varianceMultiplier,
+      returnVariance: Math.max(0, binaryReturnVariance * varianceMultiplier),
+    };
   }
 
   // ==================== UTILITY ====================
