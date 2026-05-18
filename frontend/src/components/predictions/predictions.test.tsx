@@ -55,9 +55,9 @@ describe('predictions UI components', () => {
       />
     );
 
-    expect(screen.getByText('Probabilita nostra').nextSibling?.textContent).toBe('N/D');
-    expect(screen.getByText('Probabilita implicita').nextSibling?.textContent).toBe('N/D');
-    expect(screen.getByText('Stake base').nextSibling?.textContent).toBe('N/D');
+    expect(screen.getByTestId('best-value-metric-probabilita-nostra').textContent).toBe('N/D');
+    expect(screen.getByTestId('best-value-metric-probabilita-implicita').textContent).toBe('N/D');
+    expect(screen.getByTestId('best-value-metric-stake-base').textContent).toBe('N/D');
     expect(screen.queryByText('0.0%')).toBeNull();
     expect(screen.queryByText('0.00%')).toBeNull();
   });

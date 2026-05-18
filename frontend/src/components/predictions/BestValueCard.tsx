@@ -109,7 +109,10 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
             <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 4 }}>
               {label}
             </div>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
+            <div
+              data-testid={`best-value-metric-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+              style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}
+            >
               {value}
             </div>
           </div>
