@@ -39,6 +39,29 @@ describe('predictions UI components', () => {
     expect(screen.getByText('xG combinati alti')).toBeTruthy();
   });
 
+  test('non mostra 0 percentuali quando le metriche della giocata sono assenti', () => {
+    render(
+      <BestValueCard
+        opportunity={{
+          selection: 'cards_under_45',
+          selectionLabel: 'Gialli Totali Under 4.5',
+          marketName: 'Gialli Totali',
+          bookmakerOdds: 1.6,
+          confidence: 'HIGH',
+          expectedValue: 21.3,
+          edge: 13.3,
+        }}
+        oddsBadge={{ label: 'Quote provider secondario', className: 'pr-badge-gold' }}
+      />
+    );
+
+    expect(screen.getByText('Probabilita nostra').nextSibling?.textContent).toBe('N/D');
+    expect(screen.getByText('Probabilita implicita').nextSibling?.textContent).toBe('N/D');
+    expect(screen.getByText('Stake base').nextSibling?.textContent).toBe('N/D');
+    expect(screen.queryByText('0.0%')).toBeNull();
+    expect(screen.queryByText('0.00%')).toBeNull();
+  });
+
   test('renderizza badge sorgente quote', () => {
     render(<OddsSourceBadge badge={{ label: 'Quote provider secondario', className: 'pr-badge-gold' }} testId="badge" />);
 

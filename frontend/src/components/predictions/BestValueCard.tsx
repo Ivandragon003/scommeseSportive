@@ -14,6 +14,18 @@ interface BestValueCardProps {
   emptyMessage?: string;
 }
 
+const formatMetricNumber = (
+  value: number | string | undefined,
+  digits: number,
+  suffix = '',
+  prefix = ''
+): string => {
+  if (value === null || value === undefined || value === '') return 'N/D';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 'N/D';
+  return `${prefix}${parsed.toFixed(digits)}${suffix}`;
+};
+
 const BestValueCard: React.FC<BestValueCardProps> = ({
   title = 'Pronostico Finale Consigliato',
   opportunity,
@@ -39,12 +51,12 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
 
   const reasons = Array.isArray(opportunity.humanReasons) ? opportunity.humanReasons : [];
   const metrics = [
-    ['Quota', Number(opportunity.bookmakerOdds ?? 0).toFixed(2)],
-    ['Probabilita nostra', `${Number(opportunity.ourProbability ?? 0).toFixed(1)}%`],
-    ['Probabilita implicita', `${Number(opportunity.impliedProbability ?? 0).toFixed(1)}%`],
-    ['EV', `+${Number(opportunity.expectedValue ?? 0).toFixed(1)}%`],
-    ['Edge', `+${Number(opportunity.edge ?? 0).toFixed(1)}%`],
-    ['Stake base', `${Number(opportunity.suggestedStakePercent ?? 0).toFixed(2)}%`],
+    ['Quota', formatMetricNumber(opportunity.bookmakerOdds, 2)],
+    ['Probabilita nostra', formatMetricNumber(opportunity.ourProbability, 1, '%')],
+    ['Probabilita implicita', formatMetricNumber(opportunity.impliedProbability, 1, '%')],
+    ['EV', formatMetricNumber(opportunity.expectedValue, 1, '%', '+')],
+    ['Edge', formatMetricNumber(opportunity.edge, 1, '%', '+')],
+    ['Stake base', formatMetricNumber(opportunity.suggestedStakePercent, 2, '%')],
   ];
 
   return (

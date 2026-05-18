@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
-const { createApiRouter, getBulkOddsRouteTimeoutMs } = require('../dist/api/routes.js');
+const { createApiRouter, getBulkOddsRouteTimeoutMs, getMatchOddsRouteTimeoutMs } = require('../dist/api/routes.js');
 const { OddsProviderCoordinator } = require('../dist/services/odds-provider/OddsProviderCoordinator.js');
 const {
   getConfiguredFallbackProviderName,
@@ -219,6 +219,18 @@ test('bulk odds route timeout lascia budget al fallback dopo timeout Eurobet', (
     assert.ok(
       getBulkOddsRouteTimeoutMs() > 60000,
       'route timeout must exceed a single provider timeout so fallback can complete'
+    );
+  });
+});
+
+test('match odds route timeout non taglia il coordinatore prima del provider fixture-scoped', () => {
+  withProviderEnv({
+    EUROBET_MATCH_TIMEOUT_MS: '25000',
+    ODDS_PROVIDER_MATCH_TIMEOUT_MS: '45000',
+  }, () => {
+    assert.ok(
+      getMatchOddsRouteTimeoutMs() > 45000,
+      'match route timeout must exceed fixture provider timeout so fallback can complete'
     );
   });
 });

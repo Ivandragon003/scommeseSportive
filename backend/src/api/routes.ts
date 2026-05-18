@@ -88,6 +88,8 @@ export const shouldUseEurobetCompetitionCache = (
 
 const DEFAULT_BULK_ODDS_ROUTE_TIMEOUT_MS = 120_000;
 const DEFAULT_BULK_ODDS_FALLBACK_GRACE_MS = 15_000;
+const DEFAULT_MATCH_ODDS_ROUTE_TIMEOUT_MS = 60_000;
+const DEFAULT_MATCH_ODDS_FALLBACK_GRACE_MS = 15_000;
 
 const parsePositiveIntEnvValue = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -103,6 +105,20 @@ export const getBulkOddsRouteTimeoutMs = (): number => {
   const fallbackGraceMs = parsePositiveIntEnvValue(
     'ODDS_BULK_FALLBACK_GRACE_MS',
     DEFAULT_BULK_ODDS_FALLBACK_GRACE_MS
+  );
+
+  return Math.max(configuredRouteTimeout, providerTimeout + fallbackGraceMs);
+};
+
+export const getMatchOddsRouteTimeoutMs = (): number => {
+  const configuredRouteTimeout = parsePositiveIntEnvValue(
+    'ODDS_MATCH_ROUTE_TIMEOUT_MS',
+    parsePositiveIntEnvValue('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_MATCH_ODDS_ROUTE_TIMEOUT_MS)
+  );
+  const providerTimeout = getProviderTimeoutMs('runtime', true);
+  const fallbackGraceMs = parsePositiveIntEnvValue(
+    'ODDS_MATCH_FALLBACK_GRACE_MS',
+    DEFAULT_MATCH_ODDS_FALLBACK_GRACE_MS
   );
 
   return Math.max(configuredRouteTimeout, providerTimeout + fallbackGraceMs);
@@ -2457,7 +2473,6 @@ const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
 const matchOddsInFlight = new Map<string, Promise<any>>();
 const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
 const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 60 * 1000;
-const MAX_MATCH_ODDS_ROUTE_TIMEOUT_MS = 60 * 1000;
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -2467,11 +2482,7 @@ const parsePositiveIntEnv = (name: string, fallback: number): number => {
 const getMatchOddsCacheTtlMs = (): number =>
   parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
 
-const getEurobetMatchTimeoutMs = (): number =>
-  Math.min(
-    parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS),
-    MAX_MATCH_ODDS_ROUTE_TIMEOUT_MS
-  );
+const getEurobetMatchTimeoutMs = (): number => getMatchOddsRouteTimeoutMs();
 
 const normalizeMatchOddsCachePart = (value: string): string =>
   String(value ?? '')
@@ -3842,6 +3853,7 @@ router.get('/scraper/odds/debug-config', (_req, res) => {
       EUROBET_MATCH_TIMEOUT_MS: parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS),
       routeMatchTimeoutMs: getEurobetMatchTimeoutMs(),
       ODDS_PROVIDER_MATCH_TIMEOUT_MS: getProviderTimeoutMs('runtime', true),
+      ODDS_MATCH_ROUTE_TIMEOUT_MS: getMatchOddsRouteTimeoutMs(),
       ODDS_EVENT_TIMEOUT_MS: parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', 60 * 1000),
       ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: getProviderTimeoutMs('runtime', false),
       ODDS_BULK_ROUTE_TIMEOUT_MS: getBulkOddsRouteTimeoutMs(),
