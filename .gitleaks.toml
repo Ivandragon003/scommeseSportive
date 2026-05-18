@@ -3,8 +3,13 @@ title = "scommeseSportive gitleaks config"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Placeholder sicuri ammessi solo nel file di esempio environment"
+[allowlist]
+description = "Placeholder sicuri e finding storici gia identificati"
+commits = [
+  "35983314485189b84e37e7e19d38cc79550bd757",
+  "7c52956bc925db85adcb9e1b152feb2cf215e446",
+  "b9502d5c341a6ee8a1ba1f0d875217a224e102eb",
+]
 paths = [
   '''(^|/)\.env\.example$''',
 ]
