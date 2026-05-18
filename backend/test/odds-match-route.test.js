@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
-const { createApiRouter } = require('../dist/api/routes.js');
+const { createApiRouter, getBulkOddsRouteTimeoutMs } = require('../dist/api/routes.js');
 const { OddsProviderCoordinator } = require('../dist/services/odds-provider/OddsProviderCoordinator.js');
 const {
   getConfiguredFallbackProviderName,
@@ -209,6 +209,17 @@ test('provider runtime usa Odds API quando Eurobet e skippato e chiave configura
   }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
     assert.equal(getConfiguredFallbackProviderName(), null);
+  });
+});
+
+test('bulk odds route timeout lascia budget al fallback dopo timeout Eurobet', () => {
+  withProviderEnv({
+    ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: '60000',
+  }, () => {
+    assert.ok(
+      getBulkOddsRouteTimeoutMs() > 60000,
+      'route timeout must exceed a single provider timeout so fallback can complete'
+    );
   });
 });
 

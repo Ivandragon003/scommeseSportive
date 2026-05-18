@@ -86,6 +86,28 @@ export const shouldUseEurobetCompetitionCache = (
   fixtures?: EurobetCompetitionFixtureScope[]
 ): boolean => !Array.isArray(fixtures) || fixtures.length === 0;
 
+const DEFAULT_BULK_ODDS_ROUTE_TIMEOUT_MS = 120_000;
+const DEFAULT_BULK_ODDS_FALLBACK_GRACE_MS = 15_000;
+
+const parsePositiveIntEnvValue = (name: string, fallback: number): number => {
+  const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+};
+
+export const getBulkOddsRouteTimeoutMs = (): number => {
+  const configuredRouteTimeout = parsePositiveIntEnvValue(
+    'ODDS_BULK_ROUTE_TIMEOUT_MS',
+    DEFAULT_BULK_ODDS_ROUTE_TIMEOUT_MS
+  );
+  const providerTimeout = getProviderTimeoutMs('runtime', false);
+  const fallbackGraceMs = parsePositiveIntEnvValue(
+    'ODDS_BULK_FALLBACK_GRACE_MS',
+    DEFAULT_BULK_ODDS_FALLBACK_GRACE_MS
+  );
+
+  return Math.max(configuredRouteTimeout, providerTimeout + fallbackGraceMs);
+};
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
@@ -2938,7 +2960,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         },
         { mergeMarkets: false, useFallback: true }
       ),
-      60_000,
+      getBulkOddsRouteTimeoutMs(),
       'Coordinated bulk odds lookup'
     );
 
@@ -3822,6 +3844,7 @@ router.get('/scraper/odds/debug-config', (_req, res) => {
       ODDS_PROVIDER_MATCH_TIMEOUT_MS: getProviderTimeoutMs('runtime', true),
       ODDS_EVENT_TIMEOUT_MS: parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', 60 * 1000),
       ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: getProviderTimeoutMs('runtime', false),
+      ODDS_BULK_ROUTE_TIMEOUT_MS: getBulkOddsRouteTimeoutMs(),
       EUROBET_BROWSER_HEADLESS: String(process.env.EUROBET_BROWSER_HEADLESS ?? 'true').trim().toLowerCase() !== 'false',
       EUROBET_PERSISTENT_PROFILE_ENABLED: String(process.env.EUROBET_PERSISTENT_PROFILE_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
       NODE_ENV: process.env.NODE_ENV ?? null,
