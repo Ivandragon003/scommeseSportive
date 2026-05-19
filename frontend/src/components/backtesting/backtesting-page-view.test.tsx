@@ -261,12 +261,21 @@ describe('BacktestingPageView', () => {
     expect(saveIndividualRuns.checked).toBe(true);
 
     fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
+    expect(screen.getByText(/Il walk-forward Top 5 puo richiedere alcuni minuti/i)).toBeTruthy();
+    expect(screen.queryByText(/Tuning pesi \+ Top 5 puo essere molto lento/i)).toBeNull();
+
+    const optimizeRankingWeights = screen.getByLabelText(/Ottimizza pesi ranking/i) as HTMLInputElement;
+    expect(optimizeRankingWeights.checked).toBe(false);
+    fireEvent.click(optimizeRankingWeights);
+    expect(screen.getByText(/Tuning pesi \+ Top 5 puo essere molto lento/i)).toBeTruthy();
+
     fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
     await waitFor(() => expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledTimes(1));
     expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledWith(expect.objectContaining({
       competition: 'TOP_5',
       saveIndividualRuns: true,
+      optimizeRankingWeights: true,
     }));
   });
 

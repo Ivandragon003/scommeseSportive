@@ -5,6 +5,10 @@ const API = axios.create({
   timeout: 30000,
 });
 
+export const LONG_BACKTEST_TIMEOUT_MS = 10 * 60 * 1000;
+export const WALK_FORWARD_TIMEOUT_MESSAGE =
+  'Il walk-forward Top 5 sta impiegando troppo tempo. Riduci max folds, disattiva il tuning pesi oppure riprova con un singolo campionato.';
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -43,6 +47,20 @@ const matchesCacheKey = (key: string, matcher: CacheMatcher) => {
   if (typeof matcher === 'string') return key.includes(matcher);
   if (matcher instanceof RegExp) return matcher.test(key);
   return matcher(key);
+};
+
+const rethrowWalkForwardBacktestError = (error: unknown): never => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const isTimeoutError = axios.isAxiosError(error) && (
+    error.code === 'ECONNABORTED' ||
+    message.toLowerCase().includes('timeout')
+  );
+
+  if (isTimeoutError) {
+    throw new Error(WALK_FORWARD_TIMEOUT_MESSAGE);
+  }
+
+  throw error;
 };
 
 export const invalidateApiCache = (matcher?: CacheMatcher) => {
@@ -271,10 +289,10 @@ export const runWalkForwardBacktest = (params: {
   compareBaseline?: boolean;
   optimizeRankingWeights?: boolean;
 }) =>
-  API.post<ApiResponse<any>>('/backtest/walk-forward', params).then(r => {
+  API.post<ApiResponse<any>>('/backtest/walk-forward', params, { timeout: LONG_BACKTEST_TIMEOUT_MS }).then(r => {
     invalidateApiCache((key) => key.includes('GET:/backtest/'));
     return r.data;
-  });
+  }).catch(rethrowWalkForwardBacktestError);
 
 export const getBacktestResults = (competition?: string, options?: ReadRequestOptions) =>
   cachedGet<any[]>('/backtest/results', { params: { competition } }, { cacheMs: CACHE_TTL.backtestResults, ...options });

@@ -90,6 +90,7 @@ const DEFAULT_BULK_ODDS_ROUTE_TIMEOUT_MS = 120_000;
 const DEFAULT_BULK_ODDS_FALLBACK_GRACE_MS = 15_000;
 const DEFAULT_MATCH_ODDS_ROUTE_TIMEOUT_MS = 60_000;
 const DEFAULT_MATCH_ODDS_FALLBACK_GRACE_MS = 15_000;
+const DEFAULT_BACKTEST_ROUTE_TIMEOUT_MS = 10 * 60 * 1000;
 
 const parsePositiveIntEnvValue = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -124,12 +125,21 @@ export const getMatchOddsRouteTimeoutMs = (): number => {
   return Math.max(configuredRouteTimeout, providerTimeout + fallbackGraceMs);
 };
 
+export const getBacktestRouteTimeoutMs = (): number =>
+  parsePositiveIntEnvValue('BACKTEST_ROUTE_TIMEOUT_MS', DEFAULT_BACKTEST_ROUTE_TIMEOUT_MS);
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
 const observability = deps.observability;
 const createOddsBundle = deps.createOddsProviderCoordinatorBundle ?? createOddsProviderCoordinatorBundle;
+
+const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
+  const timeoutMs = getBacktestRouteTimeoutMs();
+  req.setTimeout(timeoutMs);
+  res.setTimeout(timeoutMs);
+};
 
 async function buildStatsOverviewPayload() {
   const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
@@ -985,6 +995,7 @@ router.get('/bets/:userId', async (req: Request, res: Response) => {
 
 // ====== BACKTEST ======
 router.post('/backtest', async (req: Request, res: Response) => {
+  applyBacktestRouteTimeout(req, res);
   try {
     const result = await svc.runWalkForwardBacktest(
       req.body.competition,
@@ -1414,6 +1425,7 @@ router.post('/learning/reviews/sync', async (req: Request, res: Response) => {
 });
 
 router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
+  applyBacktestRouteTimeout(req, res);
   try {
     const result = await svc.runWalkForwardBacktest(
       req.body.competition,
