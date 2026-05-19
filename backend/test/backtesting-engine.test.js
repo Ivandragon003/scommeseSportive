@@ -83,50 +83,50 @@ function buildHistoricalOdds(matches) {
   return { odds, context };
 }
 
-test('BacktestingEngine keeps bet-level outputs and calibration available after model refactor', () => {
+function runOfficialWalkForward(engine, matches, odds, context, options = {}) {
+  return engine.runWalkForwardBacktest(matches, odds, {
+    initialTrainMatches: 30,
+    testWindowMatches: 8,
+    stepMatches: 5,
+    maxFolds: 3,
+    confidenceLevel: 'medium_and_above',
+    ...options,
+  }, context);
+}
+
+test('BacktestingEngine exposes only walk-forward as official validation flow', () => {
   const engine = new BacktestingEngine();
-  const matches = buildMatches();
-  const { odds, context } = buildHistoricalOdds(matches);
-
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context
-  );
-
-  assert.ok(result.totalMatches === matches.length);
-  assert.ok(result.trainingMatches > 0);
-  assert.ok(result.testMatches > 0);
-  assert.ok(Array.isArray(result.calibration));
-  assert.ok(Array.isArray(result.detailedBets));
-  assert.ok(result.betsPlaced >= 0);
-  assert.equal(result.detailedBets.length, result.betsPlaced);
-  assert.ok(result.marketBreakdown && typeof result.marketBreakdown === 'object');
+  assert.equal(typeof engine.runBacktest, 'undefined');
+  assert.equal(typeof engine.runWalkForwardBacktest, 'function');
 });
 
-test('BacktestingEngine computes CLV from Eurobet closing odds', () => {
+test('BacktestingEngine walk-forward keeps bet-level outputs and calibration available after model refactor', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, context);
 
-  assert.ok(result.betsPlaced > 0);
-  assert.equal(result.missingClosingOddsCount, 0);
-  assert.ok(result.averageClv > 0);
-  assert.ok(result.positiveClvRate > 0);
-  assert.ok(Object.keys(result.clvByMarket).length > 0);
-  assert.ok(Object.keys(result.clvByCompetition).length > 0);
+  assert.ok(result.totalMatches === matches.length);
+  assert.ok(result.totalFolds > 0);
+  assert.ok(result.folds.every((fold) => fold.trainMatches > 0));
+  assert.ok(result.folds.every((fold) => fold.testMatches > 0));
+  assert.ok(Array.isArray(result.detailedBets));
+  assert.ok(result.summary.totalBetsPlaced >= 0);
+  assert.equal(result.detailedBets.length, result.summary.totalBetsPlaced);
+});
+
+test('BacktestingEngine walk-forward computes CLV from Eurobet closing odds', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = runOfficialWalkForward(engine, matches, odds, context);
+
+  assert.ok(result.summary.totalBetsPlaced > 0);
+  assert.equal(result.detailedBets.every((bet) => bet.clvMissingReason === null), true);
+  assert.ok(result.folds.some((fold) => typeof fold.averageClv === 'number' && fold.averageClv > 0));
+  assert.ok(result.folds.some((fold) => typeof fold.positiveClvRate === 'number' && fold.positiveClvRate > 0));
 
   const betWithClv = result.detailedBets.find((bet) => typeof bet.clv === 'number');
   assert.ok(betWithClv);
@@ -137,7 +137,7 @@ test('BacktestingEngine computes CLV from Eurobet closing odds', () => {
   assert.equal(betWithClv.clvMissingReason, null);
 });
 
-test('BacktestingEngine marks CLV as missing without falsifying metrics when closing odds are unavailable', () => {
+test('BacktestingEngine walk-forward marks CLV as missing without falsifying metrics when closing odds are unavailable', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds } = buildHistoricalOdds(matches);
@@ -150,24 +150,16 @@ test('BacktestingEngine marks CLV as missing without falsifying metrics when clo
     }])
   );
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    contextWithoutClosing
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, contextWithoutClosing);
 
-  assert.ok(result.betsPlaced > 0);
-  assert.equal(result.averageClv, null);
-  assert.equal(result.positiveClvRate, null);
-  assert.equal(result.missingClosingOddsCount, result.betsPlaced);
+  assert.ok(result.summary.totalBetsPlaced > 0);
+  assert.equal(result.folds.every((fold) => fold.averageClv === null), true);
+  assert.equal(result.folds.every((fold) => fold.positiveClvRate === null), true);
   assert.equal(result.detailedBets.every((bet) => bet.clv === null), true);
   assert.equal(result.detailedBets.every((bet) => bet.clvMissingReason === 'missing_closing_odds'), true);
 });
 
-test('BacktestingEngine uses the live vig-removal value betting path with analysis context', () => {
+test('BacktestingEngine walk-forward uses the live vig-removal value betting path with analysis context', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
@@ -185,20 +177,13 @@ test('BacktestingEngine uses the live vig-removal value betting path with analys
     return original(probabilities, marketGroups, marketNames, analysisContext);
   };
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, context);
 
   assert.equal(usedCurrentPath, true);
-  assert.ok(result.betsPlaced >= 0);
+  assert.ok(result.summary.totalBetsPlaced >= 0);
 });
 
-test('BacktestingEngine separates real Eurobet odds and synthetic odds metrics', () => {
+test('BacktestingEngine walk-forward separates real Eurobet odds and synthetic odds metrics', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
@@ -210,33 +195,17 @@ test('BacktestingEngine separates real Eurobet odds and synthetic odds metrics',
     }
   }
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, context);
 
-  assert.ok(result.betsPlaced > 0);
-  assert.equal(result.roiTotal, Number(result.roi.toFixed(2)));
-  assert.equal(result.betsWithRealEurobetOdds + result.betsWithSyntheticOdds, result.betsPlaced);
-  assert.equal(
-    result.roiRealEurobetOdds,
-    result.stakedRealEurobetOdds > 0
-      ? Number(((result.profitRealEurobetOdds / result.stakedRealEurobetOdds) * 100).toFixed(2))
-      : null
-  );
-  assert.equal(
-    result.roiSyntheticOdds,
-    result.stakedSyntheticOdds > 0
-      ? Number(((result.profitSyntheticOdds / result.stakedSyntheticOdds) * 100).toFixed(2))
-      : null
-  );
+  const realBets = result.detailedBets.filter((bet) => bet.isRealEurobetOdds);
+  const syntheticBets = result.detailedBets.filter((bet) => bet.isSynthetic);
+  assert.ok(result.summary.totalBetsPlaced > 0);
+  assert.equal(realBets.length + syntheticBets.length, result.summary.totalBetsPlaced);
+  assert.ok(result.folds.every((fold) => typeof fold.betsWithRealEurobetOdds === 'number'));
+  assert.ok(result.folds.every((fold) => typeof fold.betsWithSyntheticOdds === 'number'));
 });
 
-test('BacktestingEngine rejects Eurobet closing snapshots captured after kickoff', () => {
+test('BacktestingEngine walk-forward rejects Eurobet closing snapshots captured after kickoff', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
@@ -248,17 +217,10 @@ test('BacktestingEngine rejects Eurobet closing snapshots captured after kickoff
     };
   }
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, context);
 
-  assert.ok(result.betsPlaced > 0);
-  assert.equal(result.averageClv, null);
+  assert.ok(result.summary.totalBetsPlaced > 0);
+  assert.equal(result.folds.every((fold) => fold.averageClv === null), true);
   assert.equal(result.detailedBets.every((bet) => bet.clv === null), true);
   assert.equal(
     result.detailedBets.every((bet) => bet.clvMissingReason === 'snapshot_after_kickoff_rejected'),
@@ -266,40 +228,26 @@ test('BacktestingEngine rejects Eurobet closing snapshots captured after kickoff
   );
 });
 
-test('BacktestingEngine can compare baseline and current value betting algorithms', () => {
+test('BacktestingEngine walk-forward can compare baseline and current value betting algorithms', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
 
-  const result = engine.runBacktest(
-    matches,
-    odds,
-    0.65,
-    'medium_and_above',
-    0,
-    context,
-    { compareBaseline: true }
-  );
+  const result = runOfficialWalkForward(engine, matches, odds, context, { compareBaseline: true });
 
-  assert.ok(result.algorithmComparison);
-  assert.equal(result.algorithmComparison.baselineResult.algorithmMode, 'baseline');
-  assert.equal(result.algorithmComparison.currentResult.algorithmMode, 'current');
-  for (const key of ['roi', 'netProfit', 'totalStaked', 'betsPlaced', 'winRate', 'averageOdds', 'averageEV', 'maxDrawdown', 'profitFactor']) {
-    assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison.baselineResult, key));
-    assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison.currentResult, key));
-  }
-  assert.ok(Number.isFinite(result.algorithmComparison.deltaROI));
-  assert.ok(Number.isFinite(result.algorithmComparison.deltaProfit));
-  assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison, 'deltaCLV'));
-  assert.ok(Number.isFinite(result.algorithmComparison.deltaDrawdown));
+  assert.ok(result.totalFolds > 0);
+  assert.equal(result.folds.every((fold) => typeof fold.baselineRoi === 'number'), true);
+  assert.equal(result.folds.every((fold) => typeof fold.currentRoi === 'number'), true);
+  assert.ok(Object.prototype.hasOwnProperty.call(result.summary, 'currentBeatsBaselineFolds'));
+  assert.ok(Object.prototype.hasOwnProperty.call(result.summary, 'baselineBeatsCurrentFolds'));
 });
 
-test('BacktestingEngine records algorithm version metadata on result and detailed bets', () => {
+test('BacktestingEngine walk-forward records algorithm version metadata on result and detailed bets', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
 
-  const result = engine.runBacktest(matches, odds, 0.65, 'medium_and_above', 0, context);
+  const result = runOfficialWalkForward(engine, matches, odds, context);
 
   assert.equal(result.algorithmVersion, 'value-engine-v4');
   assert.equal(result.rankingVersion, 'ranking-edge-novig-loggrowth-v2');
@@ -310,12 +258,12 @@ test('BacktestingEngine records algorithm version metadata on result and detaile
   assert.equal(result.detailedBets.every((bet) => bet.backtestEngineVersion === result.backtestEngineVersion), true);
 });
 
-test('BacktestingEngine enriches bet details with historical context diagnostics without future leakage', () => {
+test('BacktestingEngine walk-forward enriches bet details with historical context diagnostics without future leakage', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
 
-  const result = engine.runBacktest(matches, odds, 0.65, 'medium_and_above', 0, context);
+  const result = runOfficialWalkForward(engine, matches, odds, context);
   const firstBet = result.detailedBets[0];
 
   assert.ok(firstBet);

@@ -7,29 +7,52 @@ jest.mock('../../utils/api');
 
 const mockedApi = api as jest.Mocked<typeof api>;
 
-const buildClassicResult = (overrides: Record<string, any> = {}) => ({
+const buildWalkForwardResult = (overrides: Record<string, any> = {}) => ({
   resultId: 9,
-  kind: 'classic',
+  kind: 'walk_forward',
   competition: 'Serie A',
   seasonRange: '2025/2026',
-  roi: 12.4,
-  winRate: 58.3,
-  profitFactor: 1.46,
-  brierScore: 0.1842,
   totalMatches: 120,
-  trainingMatches: 84,
-  testMatches: 36,
-  betsPlaced: 18,
-  betsWon: 10,
-  averageOdds: 2.11,
-  sharpeRatio: 1.21,
-  maxDrawdown: 6.2,
-  recoveryFactor: 1.8,
-  historicalOddsCoverage: '87%',
-  netProfit: 128,
-  equityCurve: [],
-  monthlyStats: [],
-  calibration: [],
+  totalFolds: 3,
+  expandingWindow: true,
+  initialTrainMatches: 60,
+  testWindowMatches: 20,
+  stepMatches: 20,
+  folds: [
+    {
+      foldNumber: 1,
+      startDate: '2026-01-01T00:00:00.000Z',
+      endDate: '2026-01-31T00:00:00.000Z',
+      trainMatches: 60,
+      testMatches: 20,
+      betsPlaced: 18,
+      betsWon: 10,
+      roi: 12.4,
+      winRate: 58.3,
+      netProfit: 128,
+      totalStaked: 1000,
+      averageClv: 0.012,
+      positiveClvRate: 62,
+      betsWithRealEurobetOdds: 12,
+      betsWithSyntheticOdds: 6,
+    },
+  ],
+  summary: {
+    totalBetsPlaced: 18,
+    totalBetsWon: 10,
+    totalNetProfit: 128,
+    totalStaked: 1000,
+    roi: 12.4,
+    winRate: 58.3,
+    averageFoldROI: 12.4,
+    medianFoldROI: 12.4,
+    roiStdDev: 1.2,
+    positiveFoldRate: 66.7,
+    averageBrierScore: 0.1842,
+    averageLogLoss: 0.6221,
+    currentBeatsBaselineFolds: 2,
+    baselineBeatsCurrentFolds: 1,
+  },
   reportSnapshot: null,
   ...overrides,
 });
@@ -133,18 +156,17 @@ beforeEach(() => {
     data: [
       {
         id: 7,
-        kind: 'classic',
+        kind: 'walk_forward',
         competition: 'Serie A',
         season_range: '2025/2026',
         run_at: '2026-04-20T09:00:00.000Z',
       },
     ],
   } as any);
-  mockedApi.runBacktest.mockResolvedValue({ data: buildClassicResult() } as any);
-  mockedApi.runWalkForwardBacktest.mockResolvedValue({ data: null } as any);
+  mockedApi.runWalkForwardBacktest.mockResolvedValue({ data: buildWalkForwardResult() } as any);
   mockedApi.getBacktestResult.mockResolvedValue({
     data: {
-      result: buildClassicResult({ resultId: 7, roi: 9.8, netProfit: 94 }),
+      result: buildWalkForwardResult({ resultId: 7 }),
     },
   } as any);
   mockedApi.getBacktestReport.mockResolvedValue(reportPayload as any);
@@ -154,14 +176,18 @@ beforeEach(() => {
 });
 
 describe('BacktestingPageView', () => {
-  test('avvia un backtest e carica un run salvato', async () => {
+  test('avvia un walk-forward e carica un run salvato', async () => {
     render(<BacktestingPageView />);
 
     await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+    expect(screen.queryByLabelText(/Modalita/i)).toBeNull();
+    expect(screen.queryByText(/Backtest classico/i)).toBeNull();
+    expect(screen.queryByLabelText(/Train ratio/i)).toBeNull();
 
-    await waitFor(() => expect(mockedApi.runBacktest).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
+
+    await waitFor(() => expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
     await screen.findByRole('button', { name: /Reset filtri/i });
     expect(screen.getByText('Report Decisionale')).toBeTruthy();
@@ -208,11 +234,11 @@ describe('BacktestingPageView', () => {
 
     await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /Statistiche/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Stabilita/i }));
 
     expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(2);
@@ -235,10 +261,10 @@ describe('BacktestingPageView', () => {
     expect(saveIndividualRuns.checked).toBe(true);
 
     fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
-    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
-    await waitFor(() => expect(mockedApi.runBacktest).toHaveBeenCalledTimes(1));
-    expect(mockedApi.runBacktest).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledTimes(1));
+    expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledWith(expect.objectContaining({
       competition: 'TOP_5',
       saveIndividualRuns: true,
     }));
@@ -248,7 +274,7 @@ describe('BacktestingPageView', () => {
     render(<BacktestingPageView />);
 
     await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
     await screen.findByRole('button', { name: /Reset filtri/i });
     expect(screen.getByText(/ROI quote Eurobet reali/i)).toBeTruthy();
@@ -261,7 +287,7 @@ describe('BacktestingPageView', () => {
     render(<BacktestingPageView />);
 
     await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
     await screen.findByRole('button', { name: /Reset filtri/i });
     expect(screen.getByText(/value-engine-v4/i)).toBeTruthy();

@@ -6,12 +6,10 @@ import {
   getBacktestResult,
   getBacktestResults,
   pruneBacktestResults,
-  runBacktest,
   runWalkForwardBacktest,
 } from '../utils/api';
 import { getErrorMessage } from '../utils/errorUtils';
 
-type BacktestMode = 'classic' | 'walk_forward';
 type ConfidenceMode = 'high_only' | 'medium_and_above';
 
 const isWalkForwardResult = (value: any): boolean =>
@@ -25,10 +23,8 @@ interface BacktestReportFilters {
 }
 
 interface RunBacktestParams {
-  mode: BacktestMode;
   competition: string;
   season: string;
-  trainRatio: string;
   confidenceLevel: ConfidenceMode;
   initialTrainMatches: string;
   testWindowMatches: string;
@@ -120,30 +116,19 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
   const runValidation = useCallback(async (params: RunBacktestParams, filters?: BacktestReportFilters) => {
     setLoading(true);
     try {
-      const payload =
-        params.mode === 'classic'
-          ? await runBacktest({
-              competition: params.competition,
-              season: params.season || undefined,
-              trainRatio: Number(params.trainRatio),
-              confidenceLevel: params.confidenceLevel,
-              saveIndividualRuns: params.saveIndividualRuns,
-              compareBaseline: true,
-              optimizeRankingWeights: params.optimizeRankingWeights,
-            })
-          : await runWalkForwardBacktest({
-              competition: params.competition,
-              season: params.season || undefined,
-              initialTrainMatches: params.initialTrainMatches ? Number(params.initialTrainMatches) : undefined,
-              testWindowMatches: params.testWindowMatches ? Number(params.testWindowMatches) : undefined,
-              stepMatches: params.stepMatches ? Number(params.stepMatches) : undefined,
-              maxFolds: params.maxFolds ? Number(params.maxFolds) : undefined,
-              confidenceLevel: params.confidenceLevel,
-              expandingWindow: params.expandingWindow,
-              saveIndividualRuns: params.saveIndividualRuns,
-              compareBaseline: true,
-              optimizeRankingWeights: params.optimizeRankingWeights,
-            });
+      const payload = await runWalkForwardBacktest({
+        competition: params.competition,
+        season: params.season || undefined,
+        initialTrainMatches: params.initialTrainMatches ? Number(params.initialTrainMatches) : undefined,
+        testWindowMatches: params.testWindowMatches ? Number(params.testWindowMatches) : undefined,
+        stepMatches: params.stepMatches ? Number(params.stepMatches) : undefined,
+        maxFolds: params.maxFolds ? Number(params.maxFolds) : undefined,
+        confidenceLevel: params.confidenceLevel,
+        expandingWindow: params.expandingWindow,
+        saveIndividualRuns: params.saveIndividualRuns,
+        compareBaseline: true,
+        optimizeRankingWeights: params.optimizeRankingWeights,
+      });
 
       if (!payload.data) return null;
 

@@ -986,20 +986,33 @@ router.get('/bets/:userId', async (req: Request, res: Response) => {
 // ====== BACKTEST ======
 router.post('/backtest', async (req: Request, res: Response) => {
   try {
-    const result = await svc.runBacktest(
+    const result = await svc.runWalkForwardBacktest(
       req.body.competition,
       req.body.season,
       req.body.historicalOdds,
       {
-        trainRatio: req.body.trainRatio,
+        initialTrainMatches: req.body.initialTrainMatches,
+        testWindowMatches: req.body.testWindowMatches,
+        stepMatches: req.body.stepMatches,
         confidenceLevel: req.body.confidenceLevel,
+        expandingWindow: req.body.expandingWindow,
+        maxFolds: req.body.maxFolds,
         saveIndividualRuns: req.body.saveIndividualRuns === true,
         compareBaseline: req.body.compareBaseline !== false,
-        algorithmMode: req.body.algorithmMode,
         optimizeRankingWeights: req.body.optimizeRankingWeights === true,
       }
     );
-    res.json({ success: true, data: result });
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Link', '</api/backtest/walk-forward>; rel="successor-version"');
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        deprecatedEndpoint: '/backtest',
+        replacementEndpoint: '/backtest/walk-forward',
+        deprecationMessage: 'POST /backtest e deprecated: usa POST /backtest/walk-forward. Il risultato e walk-forward.',
+      },
+    });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
 

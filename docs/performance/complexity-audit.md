@@ -146,8 +146,8 @@ Nota: per Eurobet il baseline reale pre-patch era molto peggiore del legacy rico
 
 ### 5. Backtesting engine
 
-- Funzione: `runBacktest`
-- File: [BacktestingEngine.ts](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/backend/src/models/BacktestingEngine.ts)
+- Funzione: `runWalkForwardBacktest`
+- File: [BacktestingEngine.ts](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/backend/src/models/backtesting/BacktestingEngine.ts)
 - Input tipico: `100-1000` match + odds storiche
 - Complessità attuale: dominata da model fit + evaluation loop, circa `O(n log n + n*k)`
 - Perché può essere lenta:
@@ -246,7 +246,7 @@ Soglie indicative da tenere come target operativo:
 - matching fixture Eurobet su batch grande sintetico (`350` fixture, `1500` match): `avg < 120 ms`
 - singola fixture reale Eurobet su meeting di competizione: `p95 < 5 ms` lato matching puro
 - ricomputazione budget su `20k` bet: `avg < 5 ms`
-- `runBacktest` su `180` match: `avg < 250 ms`
+- `runWalkForwardBacktest` su `180` match: `avg < 250 ms`
 - frontend `DataManager`: nessun `sort/filter` principale ricostruito a ogni render non pertinente
 - frontend: nessuna chiamata API identica duplicata nello stesso caricamento pagina
 - `Predictions`: la doppia call `/api/predict` è ammessa solo perché la seconda cambia input e output atteso

@@ -257,22 +257,6 @@ export const settleBet = (betId: string, won: boolean, returnAmount?: number) =>
 export const getBets = (userId: string, status?: string, options?: ReadRequestOptions) =>
   cachedGet<any[]>(`/bets/${userId}`, { params: { status } }, { cacheMs: 0, ...options });
 
-// Backtesting
-export const runBacktest = (params: {
-  competition: string;
-  season?: string;
-  historicalOdds?: any;
-  trainRatio?: number;
-  confidenceLevel?: 'high_only' | 'medium_and_above';
-  saveIndividualRuns?: boolean;
-  compareBaseline?: boolean;
-  optimizeRankingWeights?: boolean;
-}) =>
-  API.post<ApiResponse<any>>('/backtest', params).then(r => {
-    invalidateApiCache((key) => key.includes('GET:/backtest/'));
-    return r.data;
-  });
-
 export const runWalkForwardBacktest = (params: {
   competition: string;
   season?: string;

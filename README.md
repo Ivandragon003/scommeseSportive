@@ -852,21 +852,23 @@ alpha = max(0.10, 1 / (1 + n/1000))
 p_final = alpha x p_raw + (1-alpha) x p_cal
 ```
 
-### 8. BACKTESTING ENGINE (aggiornato v4)
+### 8. WALK-FORWARD BACKTESTING ENGINE (aggiornato v4)
 
-#### 8.1 Holdout temporale duro (nuovo v4)
+Il progetto usa walk-forward come unica modalita ufficiale di validazione dell'algoritmo. Il vecchio backtest classico con split singolo train/test non e piu usato dalla UI e `POST /backtest` resta solo come alias deprecated verso `POST /backtest/walk-forward`.
 
-```
-runBacktest(matches, odds, trainRatio=0.7, confidenceLevel, temporalHoldoutMonths=0)
-```
+#### 8.1 Walk-forward validation
+Per ogni fold `k = 1..K`:
+- train: storico disponibile prima della finestra test
+- test: finestra temporale successiva
+- expanding window: il training cresce a ogni fold
+- rolling window: il training resta a dimensione fissa
 
-Con `temporalHoldoutMonths > 0`:
-- `cutoff = lastDate - temporalHoldoutMonths mesi`
-- `trainSet = matches con date < cutoff`
-- `testSet = matches con date >= cutoff` (mai visto nel fitting)
-- fallback a `trainRatio` se `trainSet < 30`
-
-Metrica chiave: confronto `edgeNoVig(testSet)` vs `edgeNoVig(trainSet)`.
+Metriche aggregate:
+- `medianFoldROI`
+- `roiStdDev`
+- `positiveFoldRate = count(ROI_k > 0)/K`
+- CLV medio e positive CLV rate su snapshot Eurobet reali
+- confronto baseline/current/tuned quando disponibile
 
 #### 8.2 Nuove metriche di monitoraggio (nuovo v4)
 
@@ -890,18 +892,6 @@ Metrica chiave: confronto `edgeNoVig(testSet)` vs `edgeNoVig(trainSet)`.
 | Recovery Factor | `netProfit / |MaxDD x initialBankroll|` |
 | Profit Factor | `sum(profit_won) / sum(|profit_lost|)` |
 
-#### 8.4 Walk-Forward Validation (invariato v3)
-Per ogni fold `k = 1..K`:
-- train: `match[0 .. splitPoint_k]`
-- test: `match[splitPoint_k .. splitPoint_k + testWindow]`
-- expanding window: train cresce a ogni fold
-- rolling window: train a dimensione fissa
-
-Metriche aggregate:
-- `medianFoldROI`
-- `roiStdDev`
-- `positiveFoldRate = count(ROI_k > 0)/K`
-
 ### 9. ADAPTIVE TUNING — Learning Reviews (invariato v3)
 
 ```
@@ -922,7 +912,7 @@ evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
 | homeAdvantagePerTeam | `DixonColesModel.ts` — parametro HA per squadra/stadio |
 | structuralBreaks | `DixonColesModel.ts` — penalita peso 0.25 pre-eventi strutturali |
 | bootstrapLambdas() | `DixonColesModel.ts` — bootstrap parametrico N=200, `uncertaintyFactor` |
-| Holdout temporale duro | `BacktestingEngine.ts` — `temporalHoldoutMonths` in `runBacktest()` |
+| Walk-forward ufficiale | `BacktestingEngine.ts` — validazione a fold temporali, unico flusso supportato |
 | Isotonic + bucket adattivi | `BacktestingEngine.ts` — PAV con bucket uniformi >=20 bet |
 | edgeNoVig + edgeDecay + rollingSharpe | `BacktestingEngine.ts` — metriche monitoraggio alpha |
 | MAX_COMBO_STAKE x 1/sqrt(n_legs) | `ValueBettingEngine.ts` — cap stake combinata scalato |

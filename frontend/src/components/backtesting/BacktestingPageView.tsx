@@ -4,12 +4,8 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -21,7 +17,6 @@ import { useToastState } from '../../hooks/useToastState';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useBacktestingData } from '../../hooks/useBacktestingData';
 
-type BacktestMode = 'classic' | 'walk_forward';
 type ConfidenceMode = 'high_only' | 'medium_and_above';
 
 const TOP_5_BACKTEST_KEY = 'TOP_5';
@@ -45,9 +40,7 @@ const formatDate = (value: string | Date | null | undefined) => {
 const BacktestingPageView: React.FC = () => {
   const [competition, setCompetition] = useState('Serie A');
   const [season, setSeason] = useState('');
-  const [mode, setMode] = useState<BacktestMode>('classic');
   const [confidenceLevel, setConfidenceLevel] = useState<ConfidenceMode>('medium_and_above');
-  const [trainRatio, setTrainRatio] = useState('0.70');
   const [initialTrainMatches, setInitialTrainMatches] = useState('');
   const [testWindowMatches, setTestWindowMatches] = useState('');
   const [stepMatches, setStepMatches] = useState('');
@@ -55,7 +48,7 @@ const BacktestingPageView: React.FC = () => {
   const [expandingWindow, setExpandingWindow] = useState(true);
   const [saveIndividualRuns, setSaveIndividualRuns] = useState(false);
   const [optimizeRankingWeights, setOptimizeRankingWeights] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('folds');
   const [pruneKeepLatest, setPruneKeepLatest] = useState('20');
   const [reportMarket, setReportMarket] = useState('');
   const [reportSource, setReportSource] = useState('');
@@ -96,10 +89,8 @@ const BacktestingPageView: React.FC = () => {
 
   const handleRun = async () => {
     const result = await runValidation({
-      mode,
       competition,
       season,
-      trainRatio,
       confidenceLevel,
       initialTrainMatches,
       testWindowMatches,
@@ -110,7 +101,7 @@ const BacktestingPageView: React.FC = () => {
       optimizeRankingWeights,
     }, reportFilters);
     if (result) {
-      setActiveTab(result.kind === 'walk_forward' || Array.isArray(result.folds) ? 'folds' : 'overview');
+      setActiveTab(result.kind === 'walk_forward' || Array.isArray(result.folds) ? 'folds' : 'stability');
     }
   };
 
@@ -121,7 +112,7 @@ const BacktestingPageView: React.FC = () => {
     }
   };
 
-  const classicResult = currentIsWalkForward ? null : currentResult;
+  const legacyClassicResult = currentResult && !currentIsWalkForward ? currentResult : null;
   const walkForwardResult = currentIsWalkForward ? currentResult : null;
   const reportMarketOptions = useMemo(() => backtestReport?.dataset?.availableMarkets ?? [], [backtestReport]);
   const reportSourceOptions = useMemo(() => backtestReport?.dataset?.availableSources ?? [], [backtestReport]);
@@ -164,12 +155,12 @@ const BacktestingPageView: React.FC = () => {
         {tutorialOpen && (
           <div className="fp-card-body" style={{ display: 'grid', gap: 12 }}>
             <div className="fp-alert fp-alert-info">
-              Procedura consigliata: avvia prima Top 5 campionati in modalita walk-forward, guarda ROI e CLV aggregati, poi entra nel dettaglio per campionato e confronta High only contro Medium and above.
+              Il sistema usa solo walk-forward: avvia prima Top 5 campionati, guarda ROI e CLV aggregati, poi entra nel dettaglio per campionato e confronta High only contro Medium and above.
             </div>
             <div className="fp-grid-2">
               <div>
                 <h3 style={{ marginTop: 0 }}>Scelte operative</h3>
-                <p>Backtest classico usa uno split train/test unico. Walk-forward simula finestre successive ed e piu utile per capire stabilita nel tempo.</p>
+                <p>Walk-forward simula finestre successive di training e test nel tempo. E il flusso ufficiale per ridurre overfitting e misurare stabilita reale.</p>
                 <p>Medium and above aumenta il campione e misura volume reale. High only e piu conservativo, ma puo essere troppo piccolo per giudizi rapidi.</p>
                 <p>Top 5 campionati esegue Serie A, Premier League, La Liga, Bundesliga e Ligue 1 separatamente, poi mostra aggregato e dettaglio.</p>
                 <p>Puoi scegliere se salvare anche i run singoli dei campionati: utile per storico dettagliato, meno utile se vuoi un archivio pulito.</p>
@@ -177,7 +168,7 @@ const BacktestingPageView: React.FC = () => {
               <div>
                 <h3 style={{ marginTop: 0 }}>Come leggere i numeri</h3>
                 <p>ROI e profit/loss dicono il risultato economico; win rate da solo non basta perche quote diverse hanno payout diversi.</p>
-                <p>Train ratio, initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
+                <p>Initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
                 <p>CLV positivo significa che la quota scelta era migliore della quota Eurobet di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
                 <p>Quote Eurobet reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
                 <p>Il tuning dei pesi va letto solo in walk-forward: se un peso produce ROI alto con poche bet o CLV negativo, e un segnale di overfitting e non va promosso in produzione.</p>
@@ -197,13 +188,6 @@ const BacktestingPageView: React.FC = () => {
               Il motore usa prima gli snapshot reali del bookmaker. Dove mancano, passa alle quote stimate dal modello.
             </div>
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label" htmlFor="backtest-mode">Modalita</label>
-                <select id="backtest-mode" className="fp-input" value={mode} onChange={(e) => setMode(e.target.value as BacktestMode)}>
-                  <option value="classic">Backtest classico</option>
-                  <option value="walk_forward">Walk-forward</option>
-                </select>
-              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-confidence">Confidence filter</label>
                 <select id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
@@ -236,43 +220,28 @@ const BacktestingPageView: React.FC = () => {
               </div>
             </div>
 
-            {mode === 'classic' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18, maxWidth: 280 }}>
-                <label className="fp-label">Train ratio</label>
-                <input
-                  aria-label="Train ratio"
-                  className="fp-input"
-                  value={trainRatio}
-                  onChange={(e) => setTrainRatio(e.target.value)}
-                  placeholder="0.70"
-                />
+            <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Initial train matches</label>
+                <input className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="auto" />
               </div>
-            ) : (
-              <>
-                <div className="fp-grid-2" style={{ marginBottom: 18 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label className="fp-label">Initial train matches</label>
-                    <input className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="auto" />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label className="fp-label">Test window matches</label>
-                    <input className="fp-input" value={testWindowMatches} onChange={(e) => setTestWindowMatches(e.target.value)} placeholder="auto" />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label className="fp-label">Step matches</label>
-                    <input className="fp-input" value={stepMatches} onChange={(e) => setStepMatches(e.target.value)} placeholder="auto" />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label className="fp-label">Max folds</label>
-                    <input className="fp-input" value={maxFolds} onChange={(e) => setMaxFolds(e.target.value)} placeholder="10" />
-                  </div>
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
-                  <input type="checkbox" checked={expandingWindow} onChange={(e) => setExpandingWindow(e.target.checked)} />
-                  Expanding window
-                </label>
-              </>
-            )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Test window matches</label>
+                <input className="fp-input" value={testWindowMatches} onChange={(e) => setTestWindowMatches(e.target.value)} placeholder="auto" />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Step matches</label>
+                <input className="fp-input" value={stepMatches} onChange={(e) => setStepMatches(e.target.value)} placeholder="auto" />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="fp-label">Max folds</label>
+                <input className="fp-input" value={maxFolds} onChange={(e) => setMaxFolds(e.target.value)} placeholder="10" />
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
+              <input type="checkbox" checked={expandingWindow} onChange={(e) => setExpandingWindow(e.target.checked)} />
+              Expanding window
+            </label>
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
               <input
@@ -312,9 +281,9 @@ const BacktestingPageView: React.FC = () => {
               className="fp-btn fp-btn-gold fp-btn-lg"
               onClick={handleRun}
               disabled={loading}
-              title={loading ? 'Backtest gia in esecuzione' : mode === 'classic' ? 'Avvia una validazione classica' : 'Avvia una validazione walk-forward'}
+              title={loading ? 'Walk-forward gia in esecuzione' : 'Avvia una validazione walk-forward'}
             >
-              {loading ? 'Esecuzione in corso…' : mode === 'classic' ? 'Avvia Backtest' : 'Avvia Walk-Forward'}
+              {loading ? 'Esecuzione in corso...' : 'Avvia Walk-forward'}
             </button>
           </div>
         </div>
@@ -341,7 +310,7 @@ const BacktestingPageView: React.FC = () => {
                     <tr key={row.id}>
                       <td>
                         <span className={`fp-badge ${row.kind === 'walk_forward' ? 'fp-badge-blue' : 'fp-badge-gold'}`}>
-                          {row.kind === 'walk_forward' ? 'Walk-Forward' : 'Classic'}
+                          {row.kind === 'walk_forward' ? 'Walk-Forward' : 'Legacy/classic'}
                         </span>
                       </td>
                       <td style={{ fontWeight: 600 }}>{row.competition}</td>
@@ -429,200 +398,10 @@ const BacktestingPageView: React.FC = () => {
         </div>
       </div>
 
-      {classicResult && (
-        <>
-          <div className="fp-grid-4" style={{ marginBottom: 16 }}>
-            {[
-              { label: 'ROI', value: `${classicResult.roi >= 0 ? '+' : ''}${formatPct(classicResult.roi, 2)}`, color: classicResult.roi >= 0 ? 'green' : 'red' },
-              { label: 'Win Rate', value: formatPct(classicResult.winRate, 1), color: 'blue' },
-              { label: 'Profit Factor', value: Number(classicResult.profitFactor ?? 0).toFixed(2), color: Number(classicResult.profitFactor ?? 0) > 1 ? 'green' : 'red' },
-              { label: 'Brier Score', value: Number(classicResult.brierScore ?? classicResult.brierScoreGoals ?? 0).toFixed(4), color: 'gold' },
-            ].map((item) => (
-              <div key={item.label} className={`fp-stat c-${item.color}`}>
-                <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
-                <div className="fp-stat-label">{item.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {classicResult.isTop5Aggregate && Array.isArray(classicResult.byCompetition) && (
-            <div className="fp-card" style={{ marginBottom: 20 }}>
-              <div className="fp-card-head">
-                <div className="fp-card-title">Dettaglio Top 5 campionati</div>
-                <span className="fp-badge fp-badge-blue">Aggregato + dettaglio separato</span>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="fp-table">
-                  <thead>
-                    <tr>
-                      <th>Campionato</th>
-                      <th>Bet</th>
-                      <th>ROI</th>
-                      <th>Win rate</th>
-                      <th>Profit/Loss</th>
-                      <th>CLV medio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {classicResult.byCompetition.map((row: any) => (
-                      <tr key={row.competition}>
-                        <td>{row.competition}</td>
-                        <td className="fp-mono">{row.betsPlaced}</td>
-                        <td className="fp-mono" style={{ color: Number(row.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPct(row.roi, 2)}</td>
-                        <td className="fp-mono">{formatPct(row.winRate, 1)}</td>
-                        <td className="fp-mono" style={{ color: Number(row.netProfit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(row.netProfit)}</td>
-                        <td className="fp-mono">{row.averageClv === null || row.averageClv === undefined ? '-' : formatPct(Number(row.averageClv) * 100, 2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          <div className="fp-tabs" style={{ marginBottom: 20 }}>
-            {[
-              { id: 'overview', label: 'Curva equity' },
-              { id: 'monthly', label: 'Performance mensile' },
-              { id: 'calibration', label: 'Calibrazione' },
-              { id: 'stats', label: 'Statistiche' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                className={`fp-tab${activeTab === tab.id ? ' active' : ''}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {activeTab === 'overview' && Array.isArray(classicResult.equityCurve) && classicResult.equityCurve.length > 0 && (
-            <div className="fp-card" style={{ marginBottom: 24 }}>
-              <div className="fp-card-head">
-                <div className="fp-card-title">Curva Equity</div>
-                <span className={`fp-badge ${classicResult.netProfit >= 0 ? 'fp-badge-green' : 'fp-badge-red'}`}>
-                  {classicResult.netProfit >= 0 ? '+' : ''}{formatMoney(classicResult.netProfit)}
-                </span>
-              </div>
-              <div style={{ padding: '24px 24px 8px' }}>
-                <ResponsiveContainer width="100%" height={340}>
-                  <LineChart data={classicResult.equityCurve}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="matchNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `EUR ${value}`} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(value: any) => [formatMoney(Number(value)), 'Bankroll']}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
-                    <ReferenceLine y={1000} stroke="var(--border-hover)" strokeDasharray="4 4" />
-                    <Line type="monotone" dataKey="bankroll" name="Bankroll" stroke="var(--blue)" strokeWidth={2.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'monthly' && Array.isArray(classicResult.monthlyStats) && classicResult.monthlyStats.length > 0 && (
-            <div className="fp-card" style={{ marginBottom: 24 }}>
-              <div className="fp-card-head">
-                <div className="fp-card-title">ROI Mensile</div>
-              </div>
-              <div style={{ padding: '24px 24px 8px' }}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={classicResult.monthlyStats}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(value: any) => [`${Number(value).toFixed(2)}%`, 'ROI']}
-                    />
-                    <ReferenceLine y={0} stroke="var(--border-hover)" />
-                    <Bar dataKey="roi" fill="var(--blue)" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'calibration' && Array.isArray(classicResult.calibration) && classicResult.calibration.length > 0 && (
-            <div className="fp-card" style={{ marginBottom: 24 }}>
-              <div className="fp-card-head">
-                <div className="fp-card-title">Calibrazione</div>
-              </div>
-              <div style={{ padding: '24px 24px 8px' }}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <ScatterChart>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="predictedAvg" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
-                    <YAxis dataKey="actualFrequency" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border-hover)', borderRadius: 12, fontSize: 12 }}
-                      formatter={(value: any) => [`${(Number(value) * 100).toFixed(1)}%`]}
-                    />
-                    <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="var(--blue)" strokeDasharray="4 4" />
-                    <Scatter data={classicResult.calibration.filter((bucket: any) => bucket.count > 0)} fill="var(--green)" />
-                  </ScatterChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'stats' && (
-            <div className="fp-grid-2" style={{ marginBottom: 24 }}>
-              <div className="fp-card">
-                <div className="fp-card-head">
-                  <div className="fp-card-title">Dataset</div>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="fp-table">
-                    <tbody>
-                      {[
-                        ['Partite totali', classicResult.totalMatches],
-                        ['Training', classicResult.trainingMatches],
-                        ['Test', classicResult.testMatches],
-                        ['Bet piazzate', classicResult.betsPlaced],
-                        ['Bet vinte', classicResult.betsWon],
-                        ['Quota media', Number(classicResult.averageOdds ?? 0).toFixed(2)],
-                      ].map(([label, value]) => (
-                        <tr key={String(label)}>
-                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
-                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div className="fp-card">
-                <div className="fp-card-head">
-                  <div className="fp-card-title">Metriche</div>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="fp-table">
-                    <tbody>
-                      {[
-                        ['ROI', formatPct(classicResult.roi, 2)],
-                        ['Win rate', formatPct(classicResult.winRate, 2)],
-                        ['Sharpe ratio', Number(classicResult.sharpeRatio ?? 0).toFixed(3)],
-                        ['Max drawdown', formatPct(classicResult.maxDrawdown, 2)],
-                        ['Recovery factor', Number(classicResult.recoveryFactor ?? 0).toFixed(2)],
-                        ['Historical odds coverage', classicResult.historicalOddsCoverage ?? '-'],
-                      ].map(([label, value]) => (
-                        <tr key={String(label)}>
-                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
-                          <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
+      {legacyClassicResult && (
+        <div className="fp-alert fp-alert-warning" style={{ marginBottom: 24 }}>
+          Run legacy/classic caricato dall'archivio. La validazione ufficiale ora usa solo walk-forward; usa il Report Decisionale sotto per leggere i dati storici disponibili.
+        </div>
       )}
 
       {walkForwardResult && (

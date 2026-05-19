@@ -73,7 +73,7 @@ test('statistical market can become final recommended pick when data reliability
   assert.equal(best.marketTier, 'SECONDARY');
 });
 
-test('Top 5 backtest preset exposes aggregate and per-competition detail', () => {
+test('Top 5 walk-forward preset exposes aggregate and per-competition detail', () => {
   assert.equal(TOP_5_BACKTEST_KEY, 'TOP_5');
   assert.deepEqual(TOP_5_COMPETITIONS, ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1']);
 
@@ -147,7 +147,7 @@ function buildRawBacktestMatches(competition) {
   return matches;
 }
 
-test('Top 5 backtest with saveIndividualRuns=false saves only aggregate run', async () => {
+test('Top 5 walk-forward with saveIndividualRuns=false saves only aggregate run', async () => {
   const savedRuns = [];
   const db = {
     getLearningReviews: async () => [],
@@ -160,13 +160,15 @@ test('Top 5 backtest with saveIndividualRuns=false saves only aggregate run', as
   };
   const service = new PredictionService(db);
 
-  const result = await service.runBacktest(TOP_5_BACKTEST_KEY, '2025-26', undefined, {
+  const result = await service.runWalkForwardBacktest(TOP_5_BACKTEST_KEY, '2025-26', undefined, {
     saveIndividualRuns: false,
     confidenceLevel: 'medium_and_above',
   });
 
   assert.equal(savedRuns.length, 1);
   assert.equal(savedRuns[0].competition, TOP_5_BACKTEST_KEY);
+  assert.equal(savedRuns[0].payload.kind, 'walk_forward');
+  assert.equal(result.kind, 'walk_forward');
   assert.equal(result.isTop5Aggregate, true);
   assert.equal(result.byCompetition.length, 5);
   assert.equal(result.competitionResults.length, 5);
