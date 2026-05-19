@@ -36,6 +36,7 @@ interface RunBacktestParams {
   maxFolds: string;
   expandingWindow: boolean;
   saveIndividualRuns: boolean;
+  optimizeRankingWeights: boolean;
 }
 
 interface UseBacktestingDataParams {
@@ -128,6 +129,7 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
               confidenceLevel: params.confidenceLevel,
               saveIndividualRuns: params.saveIndividualRuns,
               compareBaseline: true,
+              optimizeRankingWeights: params.optimizeRankingWeights,
             })
           : await runWalkForwardBacktest({
               competition: params.competition,
@@ -140,6 +142,7 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
               expandingWindow: params.expandingWindow,
               saveIndividualRuns: params.saveIndividualRuns,
               compareBaseline: true,
+              optimizeRankingWeights: params.optimizeRankingWeights,
             });
 
       if (!payload.data) return null;

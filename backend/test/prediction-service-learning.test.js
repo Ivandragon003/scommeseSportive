@@ -120,3 +120,56 @@ test('adaptive tuning profile learns from missed winners and penalizes wrong pic
   assert.ok(profile.selectionFamilies.home_win.rankingMultiplier > 1);
   assert.ok(profile.selectionFamilies.draw.wrongPickRate > 0);
 });
+
+test('CLV positive on a lost bet reduces learning penalty as good process bad result', () => {
+  const service = new PredictionService({});
+  const prediction = {
+    probabilities: { flatProbabilities: { homeWin: 0.52, draw: 0.25, awayWin: 0.23 } },
+    valueOpportunities: [],
+    bestValueOpportunity: {
+      selection: 'homeWin',
+      selectionLabel: 'Vittoria casa',
+      marketName: 'Esito Finale',
+      bookmakerOdds: 2.05,
+    },
+  };
+
+  const review = service.buildCompletedMatchLearningReview(
+    prediction,
+    { home_goals: 0, away_goals: 1 },
+    { homeWin: 2.05, draw: 3.2, awayWin: 3.8 },
+    { learningWeight: 1, clv: 0.04, clvMissingReason: null }
+  );
+
+  assert.equal(review.outcomeVsMarketAssessment, 'good_process_bad_result');
+  assert.equal(review.clvLearningSignal, 'positive_clv_lost');
+  assert.ok(review.clvAdjustedLearningWeight < 1);
+  assert.equal(review.learningWeight, review.clvAdjustedLearningWeight);
+});
+
+test('CLV negative on a won bet avoids over-rewarding bad process good result', () => {
+  const service = new PredictionService({});
+  const prediction = {
+    probabilities: { flatProbabilities: { homeWin: 0.52, draw: 0.25, awayWin: 0.23 } },
+    valueOpportunities: [],
+    bestValueOpportunity: {
+      selection: 'homeWin',
+      selectionLabel: 'Vittoria casa',
+      marketName: 'Esito Finale',
+      bookmakerOdds: 2.05,
+    },
+  };
+
+  const review = service.buildCompletedMatchLearningReview(
+    prediction,
+    { home_goals: 2, away_goals: 0 },
+    { homeWin: 2.05, draw: 3.2, awayWin: 3.8 },
+    { learningWeight: 1, clv: -0.035, clvMissingReason: null }
+  );
+
+  assert.equal(review.reviewType, 'model_confirmed');
+  assert.equal(review.outcomeVsMarketAssessment, 'bad_process_good_result');
+  assert.equal(review.clvLearningSignal, 'negative_clv_won');
+  assert.ok(review.clvAdjustedLearningWeight < 1);
+  assert.equal(review.learningWeight, review.clvAdjustedLearningWeight);
+});

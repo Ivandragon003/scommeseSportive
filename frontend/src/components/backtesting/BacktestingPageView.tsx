@@ -54,6 +54,7 @@ const BacktestingPageView: React.FC = () => {
   const [maxFolds, setMaxFolds] = useState('10');
   const [expandingWindow, setExpandingWindow] = useState(true);
   const [saveIndividualRuns, setSaveIndividualRuns] = useState(false);
+  const [optimizeRankingWeights, setOptimizeRankingWeights] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [pruneKeepLatest, setPruneKeepLatest] = useState('20');
   const [reportMarket, setReportMarket] = useState('');
@@ -106,6 +107,7 @@ const BacktestingPageView: React.FC = () => {
       maxFolds,
       expandingWindow,
       saveIndividualRuns,
+      optimizeRankingWeights,
     }, reportFilters);
     if (result) {
       setActiveTab(result.kind === 'walk_forward' || Array.isArray(result.folds) ? 'folds' : 'overview');
@@ -178,6 +180,7 @@ const BacktestingPageView: React.FC = () => {
                 <p>Train ratio, initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
                 <p>CLV positivo significa che la quota scelta era migliore della quota Eurobet di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
                 <p>Quote Eurobet reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
+                <p>Il tuning dei pesi va letto solo in walk-forward: se un peso produce ROI alto con poche bet o CLV negativo, e un segnale di overfitting e non va promosso in produzione.</p>
               </div>
             </div>
           </div>
@@ -284,6 +287,23 @@ const BacktestingPageView: React.FC = () => {
                 </span>
                 <span id="save-individual-runs-help" style={{ display: 'block', fontSize: 12 }}>
                   Per Top 5 mantiene in archivio anche Serie A, Premier League, La Liga, Bundesliga e Ligue 1 oltre al risultato aggregato.
+                </span>
+              </span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
+              <input
+                type="checkbox"
+                checked={optimizeRankingWeights}
+                onChange={(e) => setOptimizeRankingWeights(e.target.checked)}
+                aria-describedby="optimize-ranking-help"
+              />
+              <span>
+                <span style={{ display: 'block', color: 'var(--text-1)', fontWeight: 700 }}>
+                  Ottimizza pesi ranking in walk-forward
+                </span>
+                <span id="optimize-ranking-help" style={{ display: 'block', fontSize: 12 }}>
+                  Esegue una ricerca prudente sui pesi e segnala possibili fitting sul passato; non applica automaticamente i pesi in produzione.
                 </span>
               </span>
             </label>
@@ -888,6 +908,86 @@ const BacktestingPageView: React.FC = () => {
                   ))}
                 </div>
 
+                {(backtestReport.algorithmVersion || backtestReport.rankingVersion || backtestReport.rankingOptimization || backtestReport.walkForwardStability) && (
+                  <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+                    <div className="fp-card">
+                      <div className="fp-card-head">
+                        <div className="fp-card-title">Versione algoritmo</div>
+                        <span className="fp-badge fp-badge-gray">audit</span>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="fp-table">
+                          <tbody>
+                            {[
+                              ['Algorithm', backtestReport.algorithmVersion ?? currentResult?.algorithmVersion ?? '-'],
+                              ['Ranking', backtestReport.rankingVersion ?? currentResult?.rankingVersion ?? '-'],
+                              ['Backtest engine', backtestReport.backtestEngineVersion ?? currentResult?.backtestEngineVersion ?? '-'],
+                            ].map(([label, value]) => (
+                              <tr key={String(label)}>
+                                <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                                <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {backtestReport.rankingOptimization && (
+                      <div className="fp-card">
+                        <div className="fp-card-head">
+                          <div className="fp-card-title">Ottimizzazione ranking</div>
+                          <span className={`fp-badge ${backtestReport.rankingOptimization.overfittingRisk === 'HIGH' ? 'fp-badge-red' : backtestReport.rankingOptimization.overfittingRisk === 'MEDIUM' ? 'fp-badge-gold' : 'fp-badge-green'}`}>
+                            Rischio overfitting: {backtestReport.rankingOptimization.overfittingRisk ?? '-'}
+                          </span>
+                        </div>
+                        <div className="fp-card-body" style={{ display: 'grid', gap: 10 }}>
+                          <div className="fp-mono" style={{ fontSize: 12 }}>
+                            Best score: {Number(backtestReport.rankingOptimization.bestScore ?? 0).toFixed(2)}
+                          </div>
+                          {backtestReport.rankingOptimization.rationale && (
+                            <div style={{ color: 'var(--text-2)', fontSize: 13 }}>
+                              {backtestReport.rankingOptimization.rationale}
+                            </div>
+                          )}
+                          {Array.isArray(backtestReport.rankingOptimization.overfittingWarnings) && backtestReport.rankingOptimization.overfittingWarnings.length > 0 && (
+                            <div className="fp-alert fp-alert-warning">
+                              {backtestReport.rankingOptimization.overfittingWarnings.join(' ')}
+                            </div>
+                          )}
+                          {backtestReport.rankingOptimization.bestWeights && (
+                            <pre className="fp-mono" style={{ whiteSpace: 'pre-wrap', fontSize: 11, margin: 0, color: 'var(--text-2)' }}>
+                              {JSON.stringify(backtestReport.rankingOptimization.bestWeights.global ?? backtestReport.rankingOptimization.bestWeights, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {backtestReport.walkForwardStability && (
+                  <div className="fp-card" style={{ marginBottom: 18 }}>
+                    <div className="fp-card-head">
+                      <div className="fp-card-title">Walk-forward stability</div>
+                      <span className="fp-badge fp-badge-blue">fold stability</span>
+                    </div>
+                    <div className="fp-grid-4 fp-card-body">
+                      {[
+                        { label: 'Current batte baseline', value: backtestReport.walkForwardStability.currentBeatsBaselineFolds ?? 0, color: 'green' },
+                        { label: 'Baseline batte current', value: backtestReport.walkForwardStability.baselineBeatsCurrentFolds ?? 0, color: 'red' },
+                        { label: 'Varianza ROI', value: Number(backtestReport.walkForwardStability.roiVariance ?? 0).toFixed(2), color: 'gold' },
+                        { label: 'Varianza CLV', value: Number(backtestReport.walkForwardStability.clvVariance ?? 0).toFixed(6), color: 'blue' },
+                      ].map((item) => (
+                        <div key={item.label} className={`fp-stat c-${item.color}`}>
+                          <div className={`fp-stat-val c-${item.color}`}>{String(item.value)}</div>
+                          <div className="fp-stat-label">{item.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {backtestReport.oddsReliability && (
                   <div className="fp-card" style={{ marginBottom: 18 }}>
                     <div className="fp-card-head">
@@ -930,20 +1030,22 @@ const BacktestingPageView: React.FC = () => {
                             <th>Metrica</th>
                             <th>Baseline</th>
                             <th>Attuale</th>
+                            {backtestReport.algorithmComparison.tunedResult && <th>Tuned</th>}
                             <th>Delta</th>
                           </tr>
                         </thead>
                         <tbody>
                           {[
-                            ['ROI', formatPct(backtestReport.algorithmComparison.baselineResult?.roi, 2), formatPct(backtestReport.algorithmComparison.currentResult?.roi, 2), formatPct(backtestReport.algorithmComparison.deltaROI, 2)],
-                            ['Profitto', formatMoney(backtestReport.algorithmComparison.baselineResult?.netProfit), formatMoney(backtestReport.algorithmComparison.currentResult?.netProfit), formatMoney(backtestReport.algorithmComparison.deltaProfit)],
-                            ['CLV medio', backtestReport.algorithmComparison.baselineResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.baselineResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.currentResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.currentResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.deltaCLV === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.deltaCLV ?? 0) * 100, 2)],
-                            ['Drawdown', formatPct(backtestReport.algorithmComparison.baselineResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.currentResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.deltaDrawdown, 2)],
-                          ].map(([label, baseline, current, delta]) => (
+                            ['ROI', formatPct(backtestReport.algorithmComparison.baselineResult?.roi, 2), formatPct(backtestReport.algorithmComparison.currentResult?.roi, 2), backtestReport.algorithmComparison.tunedResult ? formatPct(backtestReport.algorithmComparison.tunedResult?.roi, 2) : null, formatPct(backtestReport.algorithmComparison.deltaROI, 2)],
+                            ['Profitto', formatMoney(backtestReport.algorithmComparison.baselineResult?.netProfit), formatMoney(backtestReport.algorithmComparison.currentResult?.netProfit), backtestReport.algorithmComparison.tunedResult ? formatMoney(backtestReport.algorithmComparison.tunedResult?.netProfit) : null, formatMoney(backtestReport.algorithmComparison.deltaProfit)],
+                            ['CLV medio', backtestReport.algorithmComparison.baselineResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.baselineResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.currentResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.currentResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.tunedResult ? (backtestReport.algorithmComparison.tunedResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.tunedResult?.averageClv ?? 0) * 100, 2)) : null, backtestReport.algorithmComparison.deltaCLV === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.deltaCLV ?? 0) * 100, 2)],
+                            ['Drawdown', formatPct(backtestReport.algorithmComparison.baselineResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.currentResult?.maxDrawdown, 2), backtestReport.algorithmComparison.tunedResult ? formatPct(backtestReport.algorithmComparison.tunedResult?.maxDrawdown, 2) : null, formatPct(backtestReport.algorithmComparison.deltaDrawdown, 2)],
+                          ].map(([label, baseline, current, tuned, delta]) => (
                             <tr key={label}>
                               <td>{label === 'ROI' ? 'Delta ROI' : label}</td>
                               <td className="fp-mono">{baseline}</td>
                               <td className="fp-mono">{current}</td>
+                              {backtestReport.algorithmComparison.tunedResult && <td className="fp-mono">{tuned}</td>}
                               <td className="fp-mono">{delta}</td>
                             </tr>
                           ))}

@@ -996,6 +996,7 @@ router.post('/backtest', async (req: Request, res: Response) => {
         saveIndividualRuns: req.body.saveIndividualRuns === true,
         compareBaseline: req.body.compareBaseline !== false,
         algorithmMode: req.body.algorithmMode,
+        optimizeRankingWeights: req.body.optimizeRankingWeights === true,
       }
     );
     res.json({ success: true, data: result });
@@ -1414,6 +1415,7 @@ router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
         maxFolds: req.body.maxFolds,
         saveIndividualRuns: req.body.saveIndividualRuns === true,
         compareBaseline: req.body.compareBaseline !== false,
+        optimizeRankingWeights: req.body.optimizeRankingWeights === true,
       }
     );
     res.json({ success: true, data: result });

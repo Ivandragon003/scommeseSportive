@@ -209,6 +209,14 @@ type BacktestReportSource = {
   stakedSyntheticOdds?: unknown;
   oddsReliabilityWarning?: unknown;
   algorithmComparison?: unknown;
+  algorithmVersion?: unknown;
+  rankingVersion?: unknown;
+  backtestEngineVersion?: unknown;
+  rankingWeightsUsed?: unknown;
+  rankingOptimization?: unknown;
+  overfittingRisk?: unknown;
+  overfittingWarnings?: unknown;
+  summary?: unknown;
 };
 
 type BacktestReport = {
@@ -254,6 +262,14 @@ type BacktestReport = {
   clv: ClvReportSection;
   oddsReliability: OddsReliabilitySection;
   algorithmComparison: unknown | null;
+  algorithmVersion: string | null;
+  rankingVersion: string | null;
+  backtestEngineVersion: string | null;
+  rankingWeightsUsed: unknown | null;
+  rankingOptimization: unknown | null;
+  overfittingRisk: string | null;
+  overfittingWarnings: string[];
+  walkForwardStability: unknown | null;
 };
 
 const DEFAULT_OPENING_BANKROLL = 1000;
@@ -1033,8 +1049,28 @@ export const buildBacktestReport = (
   const alerts = buildAlerts(probabilityBuckets, byEvBucket, byEdgeBucket, byConfidence, legacyData);
   const clv = buildClvReportSection(datasetIndex, filteredIndices, legacyData);
   const oddsReliability = buildOddsReliabilitySection(result, datasetIndex, filteredIndices, legacyData, summary);
+  const resultSummary = result.summary && typeof result.summary === 'object'
+    ? result.summary as Record<string, unknown>
+    : null;
 
   return {
+    algorithmVersion: typeof result.algorithmVersion === 'string' ? result.algorithmVersion : null,
+    rankingVersion: typeof result.rankingVersion === 'string' ? result.rankingVersion : null,
+    backtestEngineVersion: typeof result.backtestEngineVersion === 'string' ? result.backtestEngineVersion : null,
+    rankingWeightsUsed: result.rankingWeightsUsed ?? null,
+    rankingOptimization: result.rankingOptimization ?? null,
+    overfittingRisk: typeof result.overfittingRisk === 'string' ? result.overfittingRisk : null,
+    overfittingWarnings: Array.isArray(result.overfittingWarnings) ? result.overfittingWarnings.map(String) : [],
+    walkForwardStability: resultSummary
+      ? {
+          currentBeatsBaselineFolds: Number(resultSummary.currentBeatsBaselineFolds ?? 0),
+          baselineBeatsCurrentFolds: Number(resultSummary.baselineBeatsCurrentFolds ?? 0),
+          tunedBeatsCurrentFolds: Number(resultSummary.tunedBeatsCurrentFolds ?? 0),
+          roiVariance: Number(resultSummary.roiVariance ?? resultSummary.roiStdDev ?? 0),
+          clvVariance: Number(resultSummary.clvVariance ?? 0),
+          rankingStabilityScore: Number(resultSummary.rankingStabilityScore ?? 0),
+        }
+      : null,
     run: {
       kind: result?.kind === 'walk_forward' ? 'walk_forward' : 'classic',
       competition: String(result?.competition ?? 'all'),

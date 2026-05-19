@@ -37,6 +37,9 @@ const buildClassicResult = (overrides: Record<string, any> = {}) => ({
 const reportPayload = {
   data: {
     report: {
+      algorithmVersion: 'value-engine-v4',
+      rankingVersion: 'ranking-edge-novig-loggrowth-v2',
+      backtestEngineVersion: 'backtest-engine-v4',
       summary: {
         yieldPct: 5.4,
         roiPct: 12.4,
@@ -62,10 +65,28 @@ const reportPayload = {
       algorithmComparison: {
         baselineResult: { roi: 2.1, netProfit: 18, totalStaked: 600, betsPlaced: 16, winRate: 50, averageOdds: 2.05, averageEV: 5, averageClv: 0.004, positiveClvRate: 50, maxDrawdown: 7, profitFactor: 1.12 },
         currentResult: { roi: 5.4, netProfit: 35, totalStaked: 690, betsPlaced: 18, winRate: 58.3, averageOdds: 2.11, averageEV: 7.8, averageClv: 0.015, positiveClvRate: 62, maxDrawdown: 5.5, profitFactor: 1.46 },
+        tunedResult: { roi: 6.8, netProfit: 44, totalStaked: 700, betsPlaced: 19, winRate: 60, averageOdds: 2.08, averageEV: 8.1, averageClv: 0.019, positiveClvRate: 66, maxDrawdown: 5.1, profitFactor: 1.55 },
         deltaROI: 3.3,
         deltaProfit: 17,
         deltaCLV: 0.011,
         deltaDrawdown: -1.5,
+      },
+      rankingOptimization: {
+        bestScore: 14.2,
+        bestWeights: {
+          global: { edgeNoVig: 0.42, ev: 0.14, kelly: 0.12, confidence: 0.05, logGrowth: 0.18, riskPenalty: 0.5, uncertainty: 0.22, contextStrength: 0.08 },
+        },
+        overfittingRisk: 'MEDIUM',
+        overfittingWarnings: ['Campione quote Eurobet reali limitato.'],
+        rationale: 'Scelti pesi con CLV medio migliore e drawdown controllato.',
+      },
+      walkForwardStability: {
+        currentBeatsBaselineFolds: 3,
+        baselineBeatsCurrentFolds: 1,
+        tunedBeatsCurrentFolds: 2,
+        roiVariance: 4.2,
+        clvVariance: 0.00003,
+        rankingStabilityScore: 0.72,
       },
       alerts: [],
       calibration: {
@@ -234,5 +255,19 @@ describe('BacktestingPageView', () => {
     expect(screen.getByText(/ROI quote sintetiche/i)).toBeTruthy();
     expect(screen.getByText(/Baseline vs algoritmo attuale/i)).toBeTruthy();
     expect(screen.getByText(/Delta ROI/i)).toBeTruthy();
+  });
+
+  test('mostra versioni algoritmo, tuning ranking e warning overfitting', async () => {
+    render(<BacktestingPageView />);
+
+    await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+
+    await screen.findByRole('button', { name: /Reset filtri/i });
+    expect(screen.getByText(/value-engine-v4/i)).toBeTruthy();
+    expect(screen.getByText(/ranking-edge-novig-loggrowth-v2/i)).toBeTruthy();
+    expect(screen.getByText(/Ottimizzazione ranking/i)).toBeTruthy();
+    expect(screen.getByText(/Rischio overfitting/i)).toBeTruthy();
+    expect(screen.getByText(/Walk-forward stability/i)).toBeTruthy();
   });
 });

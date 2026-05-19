@@ -246,7 +246,25 @@ type ValueBettingRuntimeConfig = Partial<PredictionEngineConfig['valueBetting']>
   /** Legacy name: current behavior is deterministic covariance proxy scaling, not random Monte Carlo simulation. */
   comboRiskMode?: ComboRiskMode;
   comboCorrelationMatrix?: Record<string, number>;
+  rankingWeights?: RankingWeightsConfig;
 };
+
+export interface RankingWeightVector {
+  edgeNoVig: number;
+  edgeRaw: number;
+  ev: number;
+  kelly: number;
+  confidence: number;
+  logGrowth: number;
+  riskPenalty: number;
+  uncertainty: number;
+  contextStrength: number;
+}
+
+export interface RankingWeightsConfig {
+  global?: Partial<RankingWeightVector>;
+  byCategory?: Partial<Record<MarketCategory, Partial<RankingWeightVector>>>;
+}
 
 // ==================== SOGLIE EV PER CATEGORIA ====================
 
@@ -288,6 +306,71 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
   handicap:    0.02,
   exact_score: 0.05,
   other:       0.04,
+};
+
+const DEFAULT_RANKING_WEIGHTS: RankingWeightVector = {
+  edgeNoVig: 0.35,
+  edgeRaw: 0.04,
+  ev: 0.18,
+  kelly: 0.16,
+  confidence: 0.07,
+  logGrowth: 0.11,
+  riskPenalty: 0.35,
+  uncertainty: 0.09,
+  contextStrength: 0.06,
+};
+
+const DEFAULT_CATEGORY_RANKING_WEIGHTS: Partial<Record<MarketCategory, Partial<RankingWeightVector>>> = {
+  goal_1x2: {
+    edgeNoVig: 0.38,
+    ev: 0.16,
+    logGrowth: 0.12,
+    riskPenalty: 0.32,
+  },
+  goal_ou: {
+    edgeNoVig: 0.42,
+    ev: 0.14,
+    logGrowth: 0.16,
+    riskPenalty: 0.3,
+  },
+  shots: {
+    edgeNoVig: 0.34,
+    ev: 0.16,
+    confidence: 0.09,
+    riskPenalty: 0.42,
+    uncertainty: 0.16,
+    contextStrength: 0.1,
+  },
+  shots_ot: {
+    edgeNoVig: 0.34,
+    ev: 0.15,
+    confidence: 0.09,
+    riskPenalty: 0.45,
+    uncertainty: 0.18,
+    contextStrength: 0.1,
+  },
+  yellow_cards: {
+    edgeNoVig: 0.32,
+    ev: 0.13,
+    riskPenalty: 0.55,
+    uncertainty: 0.28,
+    contextStrength: 0.08,
+  },
+  handicap: {
+    edgeNoVig: 0.3,
+    ev: 0.1,
+    logGrowth: 0.1,
+    riskPenalty: 0.7,
+    uncertainty: 0.32,
+  },
+  exact_score: {
+    edgeNoVig: 0.28,
+    ev: 0.08,
+    kelly: 0.1,
+    logGrowth: 0.08,
+    riskPenalty: 0.85,
+    uncertainty: 0.38,
+  },
 };
 
 export class ValueBettingEngine {
@@ -333,6 +416,26 @@ export class ValueBettingEngine {
 
   getAdaptiveTuning(): AdaptiveEngineTuningProfile | null {
     return this.adaptiveTuningProfile;
+  }
+
+  setRankingWeights(config: RankingWeightsConfig | null | undefined): void {
+    this.runtimeConfig.rankingWeights = config ?? undefined;
+  }
+
+  getRankingWeightsConfig(): RankingWeightsConfig {
+    return {
+      global: { ...(this.runtimeConfig.rankingWeights?.global ?? {}) },
+      byCategory: { ...(this.runtimeConfig.rankingWeights?.byCategory ?? {}) },
+    };
+  }
+
+  getRankingWeightsForCategory(category: MarketCategory): RankingWeightVector {
+    return {
+      ...DEFAULT_RANKING_WEIGHTS,
+      ...(DEFAULT_CATEGORY_RANKING_WEIGHTS[category] ?? {}),
+      ...(this.runtimeConfig.rankingWeights?.global ?? {}),
+      ...(this.runtimeConfig.rankingWeights?.byCategory?.[category] ?? {}),
+    };
   }
 
   private getCategoryTuning(category: MarketCategory): AdaptiveCategoryTuning {
@@ -724,6 +827,7 @@ export class ValueBettingEngine {
     kelly: number;
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     odds: number;
+    category: MarketCategory;
     uncertaintyFactor: number;
     riskPenalty: number;
     contextStrength: number;
@@ -738,20 +842,22 @@ export class ValueBettingEngine {
     const reliabilityScore = 1 - input.uncertaintyFactor;
     const logGrowthScore = this.clampNumber((input.logGrowth + 0.01) / 0.04, 0, 1.5);
     const highOddsDrag = input.odds > this.MAX_ODDS ? (input.odds - this.MAX_ODDS) * 0.08 : 0;
+    const weights = this.getRankingWeightsForCategory(input.category);
 
     // Edge raw confronta la probabilita modello con la quota Eurobet grezza.
     // Edge no-vig confronta la stessa probabilita con la quota Eurobet pulita dal margine:
     // per il ranking finale pesa di piu perche misura meglio se stiamo battendo il mercato.
     const score =
-      edgeNoVigScore * 0.35 +
-      rawEdgeScore * 0.04 +
-      evScore * 0.18 +
-      kellyScore * 0.16 +
-      confidenceScore * 0.07 +
-      reliabilityScore * 0.09 +
-      logGrowthScore * 0.11 +
-      input.contextStrength * 0.06 -
-      input.riskPenalty * 0.35 -
+      edgeNoVigScore * weights.edgeNoVig +
+      rawEdgeScore * weights.edgeRaw +
+      evScore * weights.ev +
+      kellyScore * weights.kelly +
+      confidenceScore * weights.confidence +
+      reliabilityScore * weights.uncertainty +
+      logGrowthScore * weights.logGrowth +
+      input.contextStrength * weights.contextStrength -
+      input.riskPenalty * weights.riskPenalty -
+      input.uncertaintyFactor * weights.uncertainty -
       highOddsDrag;
 
     return Number((score * input.adaptiveRankMultiplier).toFixed(6));
@@ -1130,6 +1236,7 @@ export class ValueBettingEngine {
         kelly: this.kellyFraction(ourProb, odds),
         confidence: stake.confidence,
         odds,
+        category,
         uncertaintyFactor,
         riskPenalty,
         contextStrength,
@@ -1230,6 +1337,7 @@ export class ValueBettingEngine {
         kelly: this.kellyFraction(ourProb, odds),
         confidence: stake.confidence,
         odds,
+        category,
         uncertaintyFactor,
         riskPenalty,
         contextStrength,

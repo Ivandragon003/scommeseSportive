@@ -258,3 +258,89 @@ test('expected log growth prevents a very volatile high-EV price from automatica
   assert.ok(highRisk.riskPenalty > opportunities[0].riskPenalty);
   assert.ok(Number.isFinite(opportunities[0].logGrowth));
 });
+
+test('ranking weights support category-specific overrides with global fallback', () => {
+  const engine = new ValueBettingEngine({
+    rankingWeights: {
+      global: {
+        edgeNoVig: 0.5,
+        edgeRaw: 0.01,
+        ev: 0.12,
+        kelly: 0.1,
+        confidence: 0.05,
+        logGrowth: 0.18,
+        riskPenalty: 0.4,
+        uncertainty: 0.2,
+        contextStrength: 0.08,
+      },
+      byCategory: {
+        yellow_cards: {
+          riskPenalty: 0.8,
+          uncertainty: 0.45,
+        },
+        exact_score: {
+          riskPenalty: 1.1,
+          uncertainty: 0.6,
+          ev: 0.05,
+        },
+      },
+    },
+  });
+
+  const fallback = engine.getRankingWeightsForCategory('goal_ou');
+  const yellowCards = engine.getRankingWeightsForCategory('yellow_cards');
+  const exactScore = engine.getRankingWeightsForCategory('exact_score');
+
+  assert.equal(fallback.edgeNoVig, 0.5);
+  assert.equal(fallback.logGrowth, 0.18);
+  assert.equal(yellowCards.edgeNoVig, 0.5);
+  assert.ok(yellowCards.riskPenalty > fallback.riskPenalty);
+  assert.ok(exactScore.riskPenalty > yellowCards.riskPenalty);
+  assert.ok(exactScore.ev < fallback.ev);
+});
+
+test('custom category ranking weights penalize speculative exact score markets more than goal markets', () => {
+  const engine = new ValueBettingEngine({
+    rankingWeights: {
+      byCategory: {
+        exact_score: {
+          riskPenalty: 1.2,
+          uncertainty: 0.7,
+          ev: 0.04,
+        },
+      },
+    },
+  });
+
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      over25: 0.56,
+      under25: 0.44,
+      exact_2_1: 0.16,
+      exact_other: 0.84,
+    },
+    {
+      over25: { selection: 'over25', odds: 2.05, companions: [1.85] },
+      under25: { selection: 'under25', odds: 1.85, companions: [2.05] },
+      exact_2_1: { selection: 'exact_2_1', odds: 7.5, companions: [1.08] },
+      exact_other: { selection: 'exact_other', odds: 1.08, companions: [7.5] },
+    },
+    {
+      over25: 'Over 2.5',
+      exact_2_1: 'Risultato esatto 2-1',
+    },
+    {
+      richnessScore: 0.86,
+      teamSampleSize: { home: 28, away: 29 },
+      hasXg: true,
+      hasPlayerData: true,
+    }
+  );
+
+  const goal = opportunities.find((opp) => opp.selection === 'over25');
+  const exact = opportunities.find((opp) => opp.selection === 'exact_2_1');
+  assert.ok(goal);
+  assert.ok(exact);
+  assert.ok(exact.riskPenalty > goal.riskPenalty);
+  assert.ok(exact.rankingScore < goal.rankingScore);
+});

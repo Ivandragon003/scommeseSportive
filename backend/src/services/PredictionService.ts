@@ -17,6 +17,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { predictionConfig } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
+import {
+  ALGORITHM_VERSION,
+  BACKTEST_ENGINE_VERSION,
+  RANKING_VERSION,
+} from '../config/algorithmVersions';
 
 export const TOP_5_BACKTEST_KEY = 'TOP_5';
 export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
@@ -173,6 +178,9 @@ export interface BestValueOpportunityExplanation {
 }
 
 export interface PredictionResponse {
+  algorithmVersion: string;
+  rankingVersion: string;
+  backtestEngineVersion: string;
   matchId: string;
   competition?: string;
   homeTeam: string;
@@ -192,6 +200,9 @@ export interface CompletedMatchLearningReview {
   reviewType: 'model_confirmed' | 'ranking_error' | 'filter_rejection' | 'no_actionable_signal';
   reviewSource: 'historical_bookmaker_snapshot' | 'model_estimated_replay';
   learningWeight: number;
+  clvLearningSignal?: 'positive_clv_won' | 'positive_clv_lost' | 'negative_clv_won' | 'negative_clv_lost' | 'missing_clv';
+  clvAdjustedLearningWeight?: number;
+  outcomeVsMarketAssessment?: 'good_process_good_result' | 'good_process_bad_result' | 'bad_process_good_result' | 'bad_process_bad_result' | 'unknown_clv';
   headline: string;
   humanSummary: string;
   lessons: string[];
@@ -1014,6 +1025,9 @@ export class PredictionService {
     const modelConfidence = context.richnessScore;
 
     return {
+      algorithmVersion: ALGORITHM_VERSION,
+      rankingVersion: RANKING_VERSION,
+      backtestEngineVersion: BACKTEST_ENGINE_VERSION,
       matchId: request.matchId || uuidv4(),
       competition: request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined,
       homeTeam: homeTeam?.name || 'Home',
@@ -1292,6 +1306,56 @@ export class PredictionService {
     return lessons.slice(0, 4);
   }
 
+  private computeClvLearningAdjustment(
+    baseLearningWeight: number,
+    resultStatus: 'WON' | 'LOST' | 'VOID' | 'UNKNOWN',
+    clv?: number | null
+  ): Pick<CompletedMatchLearningReview, 'learningWeight' | 'clvLearningSignal' | 'clvAdjustedLearningWeight' | 'outcomeVsMarketAssessment'> {
+    if (resultStatus !== 'WON' && resultStatus !== 'LOST') {
+      return {
+        learningWeight: baseLearningWeight,
+        clvLearningSignal: 'missing_clv',
+        clvAdjustedLearningWeight: baseLearningWeight,
+        outcomeVsMarketAssessment: 'unknown_clv',
+      };
+    }
+
+    const clvValue = Number(clv);
+    if (!Number.isFinite(clvValue)) {
+      return {
+        learningWeight: baseLearningWeight,
+        clvLearningSignal: 'missing_clv',
+        clvAdjustedLearningWeight: baseLearningWeight,
+        outcomeVsMarketAssessment: 'unknown_clv',
+      };
+    }
+
+    const positiveClv = clvValue > 0;
+    const outcomeVsMarketAssessment =
+      positiveClv && resultStatus === 'WON' ? 'good_process_good_result' :
+      positiveClv && resultStatus === 'LOST' ? 'good_process_bad_result' :
+      resultStatus === 'WON' ? 'bad_process_good_result' :
+      'bad_process_bad_result';
+    const clvLearningSignal =
+      positiveClv && resultStatus === 'WON' ? 'positive_clv_won' :
+      positiveClv && resultStatus === 'LOST' ? 'positive_clv_lost' :
+      resultStatus === 'WON' ? 'negative_clv_won' :
+      'negative_clv_lost';
+    const multiplier =
+      outcomeVsMarketAssessment === 'good_process_good_result' ? 1 :
+      outcomeVsMarketAssessment === 'good_process_bad_result' ? 0.45 :
+      outcomeVsMarketAssessment === 'bad_process_good_result' ? 0.55 :
+      1;
+    const adjusted = Number(this.clamp(baseLearningWeight * multiplier, 0.15, 1).toFixed(3));
+
+    return {
+      learningWeight: adjusted,
+      clvLearningSignal,
+      clvAdjustedLearningWeight: adjusted,
+      outcomeVsMarketAssessment,
+    };
+  }
+
   buildCompletedMatchLearningReview(
     prediction: PredictionResponse,
     matchRow: any,
@@ -1299,6 +1363,8 @@ export class PredictionService {
     options?: {
       source?: 'historical_bookmaker_snapshot' | 'model_estimated_replay';
       learningWeight?: number;
+      clv?: number | null;
+      clvMissingReason?: string | null;
     }
   ): CompletedMatchLearningReview {
     const reviewSource = options?.source ?? 'historical_bookmaker_snapshot';
@@ -1313,6 +1379,11 @@ export class PredictionService {
     const recommendedResult = recommended
       ? this.evaluateSelectionForMatch(String(recommended.selection ?? ''), matchRow)
       : null;
+    const learningFields = this.computeClvLearningAdjustment(
+      learningWeight,
+      (recommendedResult?.status ?? 'UNKNOWN') as 'WON' | 'LOST' | 'VOID' | 'UNKNOWN',
+      options?.clvMissingReason ? null : options?.clv
+    );
     const marketNames = this.getMarketNames(Object.keys(prediction.probabilities?.flatProbabilities ?? {}));
 
     const winningSelections = Object.keys(bookmakerOdds ?? {})
@@ -1367,7 +1438,7 @@ export class PredictionService {
       return {
         reviewType: 'model_confirmed',
         reviewSource,
-        learningWeight,
+        ...learningFields,
         headline: 'Pronostico finale confermato',
         humanSummary: 'La selezione finale ha letto correttamente il match. Non c e un errore da correggere su questa partita.',
         lessons: [
@@ -1393,7 +1464,7 @@ export class PredictionService {
       return {
         reviewType: 'no_actionable_signal',
         reviewSource,
-        learningWeight,
+        ...learningFields,
         headline: 'Nessuna correzione chiara dal post-partita',
         humanSummary: 'Con i mercati effettivamente salvati per questa partita non emerge una linea vincente alternativa abbastanza leggibile da usarla come correzione affidabile.',
         lessons: [
@@ -1419,7 +1490,7 @@ export class PredictionService {
       return {
         reviewType: 'ranking_error',
         reviewSource,
-        learningWeight,
+        ...learningFields,
         headline: 'Linea vincente gia vista ma non scelta come finale',
         humanSummary: `${missedSelection.selectionLabel} aveva gia segnali utili, ma il ranking finale ha preferito ${recommendedSelection?.selectionLabel ?? 'un altra selezione'} e qui il match ha punito quella scelta.`,
         lessons: this.buildLearningLessonsFromDiagnostics(missed.diagnostics, true),
@@ -1431,7 +1502,7 @@ export class PredictionService {
     return {
       reviewType: 'filter_rejection',
       reviewSource,
-      learningWeight,
+      ...learningFields,
       headline: 'Linea vincente esclusa dai filtri del motore',
       humanSummary: `${missedSelection.selectionLabel} e risultata vincente sul campo, ma non e entrata tra le giocate perche i filtri interni non la consideravano abbastanza solida prima del match.`,
       lessons: this.buildLearningLessonsFromDiagnostics(missed.diagnostics, false),
@@ -2302,6 +2373,7 @@ export class PredictionService {
       saveIndividualRuns?: boolean;
       compareBaseline?: boolean;
       algorithmMode?: 'current' | 'baseline';
+      optimizeRankingWeights?: boolean;
     },
     persist = true
   ) {
@@ -2334,6 +2406,14 @@ export class PredictionService {
       compareBaseline: options?.compareBaseline !== false,
       algorithmMode: options?.algorithmMode ?? 'current',
     });
+    if (options?.optimizeRankingWeights === true) {
+      result.rankingOptimization = this.backtester.runRankingWeightSearch(matches, oddsMap, {
+        confidenceLevel,
+        maxFolds: 5,
+      }, oddsDetailMap);
+      result.overfittingRisk = result.rankingOptimization.overfittingRisk;
+      result.overfittingWarnings = result.rankingOptimization.overfittingWarnings;
+    }
     const payload: Record<string, any> = {
       kind: 'classic',
       competition,
@@ -2365,6 +2445,7 @@ export class PredictionService {
       saveIndividualRuns?: boolean;
       compareBaseline?: boolean;
       algorithmMode?: 'current' | 'baseline';
+      optimizeRankingWeights?: boolean;
     }
   ) {
     if (isTop5BacktestRequest(competition)) {
@@ -2387,6 +2468,7 @@ export class PredictionService {
       maxFolds?: number;
       saveIndividualRuns?: boolean;
       compareBaseline?: boolean;
+      optimizeRankingWeights?: boolean;
     },
     persist = true
   ): Promise<any> {
@@ -2416,6 +2498,12 @@ export class PredictionService {
     }, {} as Record<string, Record<string, number>>);
 
     const result = this.backtester.runWalkForwardBacktest(matches, oddsMap, options, oddsDetailMap);
+    if (options?.optimizeRankingWeights === true) {
+      result.rankingOptimization = this.backtester.runRankingWeightSearch(matches, oddsMap, {
+        confidenceLevel: options.confidenceLevel ?? 'medium_and_above',
+        maxFolds: Math.min(Number(options.maxFolds ?? 5), 5),
+      }, oddsDetailMap);
+    }
     const payload: WalkForwardBacktestResult & {
       kind: 'walk_forward';
       competition: string;
@@ -2456,6 +2544,7 @@ export class PredictionService {
       saveIndividualRuns?: boolean;
       compareBaseline?: boolean;
       algorithmMode?: 'current' | 'baseline';
+      optimizeRankingWeights?: boolean;
     }
   ) {
     const competitionResults: any[] = [];
@@ -2478,6 +2567,9 @@ export class PredictionService {
     }
 
     const top5Aggregate = buildTop5BacktestAggregate(competitionResults);
+    const rankingOptimizations = competitionResults
+      .map((result) => result?.rankingOptimization)
+      .filter(Boolean);
     const payload: Record<string, any> = {
       kind: 'classic',
       isTop5Aggregate: true,
@@ -2501,6 +2593,9 @@ export class PredictionService {
       winRate: top5Aggregate.winRate,
       averageClv: top5Aggregate.averageClv,
       positiveClvRate: top5Aggregate.positiveClvRate,
+      rankingOptimization: rankingOptimizations[0] ?? null,
+      overfittingRisk: rankingOptimizations.some((result) => result.overfittingRisk === 'HIGH') ? 'HIGH' : rankingOptimizations.some((result) => result.overfittingRisk === 'MEDIUM') ? 'MEDIUM' : null,
+      overfittingWarnings: rankingOptimizations.flatMap((result) => Array.isArray(result.overfittingWarnings) ? result.overfittingWarnings : []),
     };
     payload.reportSnapshot = buildBacktestReport(payload);
     const resultId = await this.db.saveBacktestResult(TOP_5_BACKTEST_KEY, season ?? 'all', payload);
@@ -2520,6 +2615,7 @@ export class PredictionService {
       maxFolds?: number;
       saveIndividualRuns?: boolean;
       compareBaseline?: boolean;
+      optimizeRankingWeights?: boolean;
     }
   ) {
     const competitionResults: any[] = [];
@@ -2542,6 +2638,9 @@ export class PredictionService {
     }
 
     const top5Aggregate = buildTop5BacktestAggregate(competitionResults);
+    const rankingOptimizations = competitionResults
+      .map((result) => result?.rankingOptimization)
+      .filter(Boolean);
     const payload: Record<string, any> = {
       kind: 'walk_forward',
       isTop5Aggregate: true,
@@ -2565,6 +2664,9 @@ export class PredictionService {
       winRate: top5Aggregate.winRate,
       averageClv: top5Aggregate.averageClv,
       positiveClvRate: top5Aggregate.positiveClvRate,
+      rankingOptimization: rankingOptimizations[0] ?? null,
+      overfittingRisk: rankingOptimizations.some((result) => result.overfittingRisk === 'HIGH') ? 'HIGH' : rankingOptimizations.some((result) => result.overfittingRisk === 'MEDIUM') ? 'MEDIUM' : null,
+      overfittingWarnings: rankingOptimizations.flatMap((result) => Array.isArray(result.overfittingWarnings) ? result.overfittingWarnings : []),
     };
     payload.reportSnapshot = buildBacktestReport(payload);
     const resultId = await this.db.saveBacktestResult(TOP_5_BACKTEST_KEY, season ?? 'all', payload);

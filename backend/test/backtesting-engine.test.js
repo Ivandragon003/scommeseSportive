@@ -293,3 +293,86 @@ test('BacktestingEngine can compare baseline and current value betting algorithm
   assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison, 'deltaCLV'));
   assert.ok(Number.isFinite(result.algorithmComparison.deltaDrawdown));
 });
+
+test('BacktestingEngine records algorithm version metadata on result and detailed bets', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = engine.runBacktest(matches, odds, 0.65, 'medium_and_above', 0, context);
+
+  assert.equal(result.algorithmVersion, 'value-engine-v4');
+  assert.equal(result.rankingVersion, 'ranking-edge-novig-loggrowth-v2');
+  assert.equal(result.backtestEngineVersion, 'backtest-engine-v4');
+  assert.ok(result.detailedBets.length > 0);
+  assert.equal(result.detailedBets.every((bet) => bet.algorithmVersion === result.algorithmVersion), true);
+  assert.equal(result.detailedBets.every((bet) => bet.rankingVersion === result.rankingVersion), true);
+  assert.equal(result.detailedBets.every((bet) => bet.backtestEngineVersion === result.backtestEngineVersion), true);
+});
+
+test('BacktestingEngine enriches bet details with historical context diagnostics without future leakage', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = engine.runBacktest(matches, odds, 0.65, 'medium_and_above', 0, context);
+  const firstBet = result.detailedBets[0];
+
+  assert.ok(firstBet);
+  assert.equal(firstBet.historicalContextUsed, true);
+  assert.ok(Number.isFinite(firstBet.contextCompletenessScore));
+  assert.ok(firstBet.contextCompletenessScore >= 0);
+  assert.ok(firstBet.contextCompletenessScore <= 1);
+  assert.ok(Array.isArray(firstBet.contextWarnings));
+});
+
+test('BacktestingEngine walk-forward exposes fold stability and algorithm metadata', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = engine.runWalkForwardBacktest(matches, odds, {
+    initialTrainMatches: 30,
+    testWindowMatches: 8,
+    stepMatches: 5,
+    maxFolds: 3,
+    compareBaseline: true,
+  }, context);
+
+  assert.ok(result.totalFolds > 0);
+  assert.equal(result.algorithmVersion, 'value-engine-v4');
+  assert.equal(result.rankingVersion, 'ranking-edge-novig-loggrowth-v2');
+  assert.ok(Number.isFinite(result.summary.roiVariance));
+  assert.ok(Object.prototype.hasOwnProperty.call(result.summary, 'currentBeatsBaselineFolds'));
+  assert.ok(Object.prototype.hasOwnProperty.call(result.summary, 'baselineBeatsCurrentFolds'));
+  assert.equal(result.folds.every((fold) => fold.algorithmVersion === result.algorithmVersion), true);
+  assert.equal(result.folds.every((fold) => typeof fold.averageClv !== 'undefined'), true);
+  assert.equal(result.folds.every((fold) => typeof fold.betsWithRealEurobetOdds === 'number'), true);
+});
+
+test('BacktestingEngine ranking weight search penalizes low-real-odds overfit candidates', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+  const sparseOdds = {};
+  const sparseContext = {};
+  for (const [index, match] of matches.entries()) {
+    if (index < 3) {
+      sparseOdds[match.matchId] = odds[match.matchId];
+      sparseContext[match.matchId] = context[match.matchId];
+    }
+  }
+
+  const result = engine.runRankingWeightSearch(matches, sparseOdds, {
+    minBetsPerFold: 5,
+    minRealEurobetBets: 30,
+    maxFolds: 3,
+  }, sparseContext);
+
+  assert.ok(result.bestWeights);
+  assert.ok(result.testedWeights.length >= 2);
+  assert.equal(result.overfittingRisk, 'HIGH');
+  assert.ok(result.overfittingWarnings.some((warning) => /quote Eurobet reali/i.test(warning)));
+  assert.ok(result.comparison.currentResult);
+  assert.ok(result.comparison.tunedResult);
+});

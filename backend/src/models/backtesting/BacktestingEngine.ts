@@ -34,11 +34,20 @@ import {
   MarketCategory,
   AdaptiveEngineTuningProfile,
   ValueAnalysisContext,
+  RankingWeightsConfig,
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
+import {
+  ALGORITHM_VERSION,
+  BACKTEST_ENGINE_VERSION,
+  RANKING_VERSION,
+} from '../../config/algorithmVersions';
 
 export interface BacktestResult {
+  algorithmVersion: string;
+  rankingVersion: string;
+  backtestEngineVersion: string;
   totalMatches: number;
   trainingMatches: number;
   testMatches: number;
@@ -115,6 +124,10 @@ export interface BacktestResult {
   clvByCompetition: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
   algorithmMode?: BacktestAlgorithmMode;
   algorithmComparison?: BacktestAlgorithmComparison | null;
+  rankingWeightsUsed?: RankingWeightsConfig;
+  rankingOptimization?: RankingWeightSearchResult | null;
+  overfittingRisk?: OverfittingRisk;
+  overfittingWarnings?: string[];
 }
 
 export type BacktestAlgorithmMode = 'current' | 'baseline';
@@ -142,6 +155,7 @@ export interface BacktestComparisonMetrics {
 export interface BacktestAlgorithmComparison {
   baselineResult: BacktestComparisonMetrics;
   currentResult: BacktestComparisonMetrics;
+  tunedResult?: BacktestComparisonMetrics;
   deltaROI: number;
   deltaProfit: number;
   deltaCLV: number | null;
@@ -216,6 +230,9 @@ export interface MonthlyStats {
 }
 
 export interface WalkForwardFoldSummary {
+  algorithmVersion: string;
+  rankingVersion: string;
+  backtestEngineVersion: string;
   foldNumber: number;
   trainMatches: number;
   testMatches: number;
@@ -227,11 +244,23 @@ export interface WalkForwardFoldSummary {
   netProfit: number;
   brierScore: number;
   logLoss: number;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+  maxDrawdown: number;
+  betsWithRealEurobetOdds: number;
+  betsWithSyntheticOdds: number;
+  baselineRoi?: number;
+  currentRoi?: number;
+  tunedRoi?: number;
+  foldWinner?: 'baseline' | 'current' | 'tuned' | 'none';
   startDate: Date;
   endDate: Date;
 }
 
 export interface WalkForwardBacktestResult {
+  algorithmVersion: string;
+  rankingVersion: string;
+  backtestEngineVersion: string;
   totalMatches: number;
   totalFolds: number;
   expandingWindow: boolean;
@@ -249,11 +278,64 @@ export interface WalkForwardBacktestResult {
     averageFoldROI: number;
     medianFoldROI: number;
     roiStdDev: number;
+    roiVariance: number;
+    clvVariance: number;
+    currentBeatsBaselineFolds: number;
+    baselineBeatsCurrentFolds: number;
+    tunedBeatsCurrentFolds: number;
+    rankingStabilityScore: number;
     positiveFoldRate: number;
     averageBrierScore: number;
     averageLogLoss: number;
   };
   detailedBets: BacktestBetDetail[];
+  rankingOptimization?: RankingWeightSearchResult | null;
+}
+
+export type OverfittingRisk = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface RankingWeightSearchCandidateResult {
+  name: string;
+  weights: RankingWeightsConfig;
+  score: number;
+  roiRealEurobetOdds: number | null;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+  maxDrawdown: number;
+  profitFactor: number;
+  betsPlaced: number;
+  betsWithRealEurobetOdds: number;
+  betsWithSyntheticOdds: number;
+  overfittingRisk: OverfittingRisk;
+  overfittingWarnings: string[];
+}
+
+export interface RankingWeightSearchResult {
+  bestWeights: RankingWeightsConfig;
+  testedWeights: RankingWeightSearchCandidateResult[];
+  bestScore: number;
+  comparison: {
+    baselineResult: BacktestComparisonMetrics;
+    currentResult: BacktestComparisonMetrics;
+    tunedResult: BacktestComparisonMetrics;
+    deltaROI: number;
+    deltaProfit: number;
+    deltaCLV: number | null;
+    deltaDrawdown: number;
+  };
+  overfittingRisk: OverfittingRisk;
+  overfittingWarnings: string[];
+  warning?: string | null;
+}
+
+export interface RankingWeightSearchOptions {
+  minBetsPerFold?: number;
+  minRealEurobetBets?: number;
+  maxAllowedDrawdown?: number;
+  minimumPositiveClvRate?: number;
+  maxFolds?: number;
+  confidenceLevel?: 'high_only' | 'medium_and_above';
+  candidateWeights?: Array<{ name: string; weights: RankingWeightsConfig }>;
 }
 
 export type BacktestOddsSource = 'odds_api' | 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
@@ -311,6 +393,12 @@ export interface BacktestBetDetail {
   logGrowth?: number;
   dynamicEvThreshold?: number;
   algorithmMode?: BacktestAlgorithmMode;
+  algorithmVersion?: string;
+  rankingVersion?: string;
+  backtestEngineVersion?: string;
+  contextCompletenessScore?: number;
+  historicalContextUsed?: boolean;
+  contextWarnings?: string[];
 }
 
 interface TestBet {
@@ -347,6 +435,16 @@ interface TestBet {
   logGrowth?: number;
   dynamicEvThreshold?: number;
   algorithmMode: BacktestAlgorithmMode;
+  contextCompletenessScore: number;
+  historicalContextUsed: boolean;
+  contextWarnings: string[];
+}
+
+interface BacktestValueContextDiagnostics {
+  context: ValueAnalysisContext;
+  contextCompletenessScore: number;
+  historicalContextUsed: boolean;
+  contextWarnings: string[];
 }
 
 export class BacktestingEngine {
@@ -686,18 +784,74 @@ export class BacktestingEngine {
 
   private buildBacktestValueAnalysisContext(
     match: MatchData,
+    historicalMatches: MatchData[],
     teamSamples: Map<string, number>,
     hasRealEurobetOdds: boolean
-  ): ValueAnalysisContext {
+  ): BacktestValueContextDiagnostics {
     const homeSample = teamSamples.get(match.homeTeamId) ?? 0;
     const awaySample = teamSamples.get(match.awayTeamId) ?? 0;
-    const hasXg = Number.isFinite(Number(match.homeXG)) && Number.isFinite(Number(match.awayXG));
-    const hasShots = Number.isFinite(Number(match.homeTotalShots)) && Number.isFinite(Number(match.awayTotalShots));
-    const hasShotsOnTarget = Number.isFinite(Number(match.homeShotsOnTarget)) && Number.isFinite(Number(match.awayShotsOnTarget));
-    const hasCards = Number.isFinite(Number(match.homeYellowCards)) && Number.isFinite(Number(match.awayYellowCards));
-    const hasRefereeData = Boolean(String(match.referee ?? '').trim());
+    const cutoffMs = match.date instanceof Date ? match.date.getTime() : Number.POSITIVE_INFINITY;
+    const prior = historicalMatches
+      .filter((row) => row.date instanceof Date && row.date.getTime() < cutoffMs)
+      .sort((left, right) => left.date.getTime() - right.date.getTime());
+    const homeHistory = prior.filter((row) => row.homeTeamId === match.homeTeamId || row.awayTeamId === match.homeTeamId);
+    const awayHistory = prior.filter((row) => row.homeTeamId === match.awayTeamId || row.awayTeamId === match.awayTeamId);
+    const recentHome = homeHistory.slice(-5);
+    const recentAway = awayHistory.slice(-5);
+    const hasXg = prior.some((row) => Number.isFinite(Number(row.homeXG)) && Number.isFinite(Number(row.awayXG)));
+    const hasShots = prior.some((row) => Number.isFinite(Number(row.homeTotalShots)) && Number.isFinite(Number(row.awayTotalShots)));
+    const hasShotsOnTarget = prior.some((row) => Number.isFinite(Number(row.homeShotsOnTarget)) && Number.isFinite(Number(row.awayShotsOnTarget)));
+    const hasCards = prior.some((row) => Number.isFinite(Number(row.homeYellowCards)) && Number.isFinite(Number(row.awayYellowCards)));
+    const hasRefereeData = prior.some((row) => Boolean(String(row.referee ?? '').trim()));
     const sampleStrength = this.clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
     const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
+    const contextWarnings: string[] = [];
+    if (homeHistory.length < 5) contextWarnings.push('insufficient_home_history');
+    if (awayHistory.length < 5) contextWarnings.push('insufficient_away_history');
+    if (!hasXg) contextWarnings.push('missing_recent_xg');
+    if (!hasRefereeData) contextWarnings.push('missing_referee_data');
+
+    const pointsPerMatch = (rows: MatchData[], teamId: string): number => {
+      if (!rows.length) return 1;
+      const points = rows.reduce((sum, row) => {
+        const isHome = row.homeTeamId === teamId;
+        const gf = isHome ? Number(row.homeGoals) : Number(row.awayGoals);
+        const ga = isHome ? Number(row.awayGoals) : Number(row.homeGoals);
+        if (!Number.isFinite(gf) || !Number.isFinite(ga)) return sum + 1;
+        if (gf > ga) return sum + 3;
+        if (gf === ga) return sum + 1;
+        return sum;
+      }, 0);
+      return points / rows.length;
+    };
+    const averageXgDiff = (rows: MatchData[], teamId: string): number => {
+      const valid = rows.filter((row) => Number.isFinite(Number(row.homeXG)) && Number.isFinite(Number(row.awayXG)));
+      if (!valid.length) return 0;
+      return valid.reduce((sum, row) => {
+        const isHome = row.homeTeamId === teamId;
+        const xgFor = isHome ? Number(row.homeXG) : Number(row.awayXG);
+        const xgAgainst = isHome ? Number(row.awayXG) : Number(row.homeXG);
+        return sum + xgFor - xgAgainst;
+      }, 0) / valid.length;
+    };
+    const lastMatch = (rows: MatchData[]): MatchData | undefined => rows[rows.length - 1];
+    const restDays = (rows: MatchData[]): number | null => {
+      const last = lastMatch(rows);
+      if (!last || !(match.date instanceof Date)) return null;
+      return (match.date.getTime() - last.date.getTime()) / (1000 * 60 * 60 * 24);
+    };
+    const recentLoad = (rows: MatchData[]): number => {
+      if (!(match.date instanceof Date)) return 0;
+      const startMs = match.date.getTime() - 14 * 24 * 60 * 60 * 1000;
+      return rows.filter((row) => row.date.getTime() >= startMs && row.date.getTime() < match.date.getTime()).length;
+    };
+
+    const formDelta = this.clamp(((pointsPerMatch(recentHome, match.homeTeamId) - pointsPerMatch(recentAway, match.awayTeamId)) / 3), -1, 1);
+    const xgDelta = this.clamp((averageXgDiff(recentHome, match.homeTeamId) - averageXgDiff(recentAway, match.awayTeamId)) / 2, -1, 1);
+    const homeRest = restDays(homeHistory);
+    const awayRest = restDays(awayHistory);
+    const restDelta = homeRest !== null && awayRest !== null ? this.clamp((homeRest - awayRest) / 7, -1, 1) : 0;
+    const scheduleLoadDelta = this.clamp((recentLoad(awayHistory) - recentLoad(homeHistory)) / 4, -1, 1);
     const richnessScore = this.clamp(
       0.2 + sampleStrength * 0.35 + statCompleteness * 0.35 + (hasRealEurobetOdds ? 0.1 : 0),
       0.15,
@@ -705,30 +859,38 @@ export class BacktestingEngine {
     );
 
     return {
-      richnessScore,
-      teamSampleSize: { home: homeSample, away: awaySample },
-      hasXg,
-      hasPlayerData: false,
-      hasRefereeData,
-      marketVariance: {
-        goal_1x2: 0.95,
-        goal_ou: 0.9,
-        shots: hasShots ? 1.15 : 1.45,
-        shots_ot: hasShotsOnTarget ? 1.2 : 1.55,
-        yellow_cards: hasCards && hasRefereeData ? 1.25 : 1.75,
-        fouls: 1.8,
-        corners: 1.6,
-        exact_score: 2.25,
-        handicap: 1.8,
-        other: 1.35,
+      context: {
+        richnessScore,
+        teamSampleSize: { home: homeSample, away: awaySample },
+        hasXg,
+        hasPlayerData: false,
+        hasRefereeData,
+        marketVariance: {
+          goal_1x2: 0.95,
+          goal_ou: 0.9,
+          shots: hasShots ? 1.15 : 1.45,
+          shots_ot: hasShotsOnTarget ? 1.2 : 1.55,
+          yellow_cards: hasCards && hasRefereeData ? 1.25 : 1.75,
+          fouls: 1.8,
+          corners: 1.6,
+          exact_score: 2.25,
+          handicap: 1.8,
+          other: 1.35,
+        },
+        analysisFactors: {
+          statSampleStrength: sampleStrength,
+          shotsReliability: hasShots ? this.clamp(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
+          disciplineReliability: hasCards ? this.clamp(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
+          competitiveness: this.clamp(0.5 + Math.abs(formDelta + xgDelta) * 0.08, 0.35, 0.75),
+          homeAdvantageIndex: 0.08,
+          formDelta: this.clamp((formDelta + xgDelta) / 2, -1, 1),
+          restDelta,
+          scheduleLoadDelta,
+        },
       },
-      analysisFactors: {
-        statSampleStrength: sampleStrength,
-        shotsReliability: hasShots ? this.clamp(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
-        disciplineReliability: hasCards ? this.clamp(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
-        competitiveness: 0.5,
-        homeAdvantageIndex: 0.08,
-      },
+      contextCompletenessScore: Number(richnessScore.toFixed(3)),
+      historicalContextUsed: prior.length > 0,
+      contextWarnings,
     };
   }
 
@@ -864,6 +1026,7 @@ export class BacktestingEngine {
     let bankroll = this.INITIAL_BANKROLL;
     let syntheticOddsMatchCount = 0;
     let realOddsMatchCount = 0;
+    const chronologicalHistory = [...trainMatches].sort((a, b) => a.date.getTime() - b.date.getTime());
     const equityCurve: EquityPoint[] = [
       { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
     ];
@@ -887,8 +1050,14 @@ export class BacktestingEngine {
       if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
 
       const marketGroups = this.engine.buildMarketGroups(odds);
-      const analysisContext = this.buildBacktestValueAnalysisContext(match, teamSamples, isRealEurobetOdds);
-      const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(probMap, marketGroups, marketNames, analysisContext);
+      const historicalRows = chronologicalHistory.filter((row) => row.date.getTime() < match.date.getTime());
+      const contextDiagnostics = this.buildBacktestValueAnalysisContext(match, historicalRows, teamSamples, isRealEurobetOdds);
+      const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(
+        probMap,
+        marketGroups,
+        marketNames,
+        contextDiagnostics.context
+      );
       const selected = this.selectOpportunities(allOpportunities, confidenceLevel, algorithmMode);
 
       for (const opp of selected) {
@@ -945,9 +1114,15 @@ export class BacktestingEngine {
           logGrowth: opp.logGrowth,
           dynamicEvThreshold: opp.dynamicEvThreshold,
           algorithmMode,
+          contextCompletenessScore: contextDiagnostics.contextCompletenessScore,
+          historicalContextUsed: contextDiagnostics.historicalContextUsed,
+          contextWarnings: contextDiagnostics.contextWarnings,
         });
       }
 
+      chronologicalHistory.push(match);
+      teamSamples.set(match.homeTeamId, (teamSamples.get(match.homeTeamId) ?? 0) + 1);
+      teamSamples.set(match.awayTeamId, (teamSamples.get(match.awayTeamId) ?? 0) + 1);
       equityCurve.push({
         date:          match.date,
         matchNumber:   i + 1,
@@ -1095,6 +1270,7 @@ export class BacktestingEngine {
       confidenceLevel?: 'high_only' | 'medium_and_above';
       expandingWindow?: boolean;
       maxFolds?: number;
+      compareBaseline?: boolean;
     },
     historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): WalkForwardBacktestResult {
@@ -1122,10 +1298,27 @@ export class BacktestingEngine {
         testMatches,
         historicalOdds,
         confidenceLevel,
-        historicalOddsContext
+        historicalOddsContext,
+        { algorithmMode: 'current' }
       );
+      const baselineResult = options?.compareBaseline
+        ? this.simulateBacktestScenario(
+            trainMatches,
+            testMatches,
+            historicalOdds,
+            confidenceLevel,
+            historicalOddsContext,
+            { algorithmMode: 'baseline' }
+          )
+        : null;
+      const foldWinner = baselineResult
+        ? (foldResult.roi > baselineResult.roi ? 'current' : baselineResult.roi > foldResult.roi ? 'baseline' : 'none')
+        : 'none';
       detailedBets.push(...foldResult.detailedBets);
       folds.push({
+        algorithmVersion: ALGORITHM_VERSION,
+        rankingVersion: RANKING_VERSION,
+        backtestEngineVersion: BACKTEST_ENGINE_VERSION,
         foldNumber: folds.length + 1,
         trainMatches: trainMatches.length,
         testMatches: testMatches.length,
@@ -1137,6 +1330,14 @@ export class BacktestingEngine {
         netProfit: Number(foldResult.netProfit.toFixed(2)),
         brierScore: Number(foldResult.brierScore.toFixed(4)),
         logLoss: Number(foldResult.logLoss.toFixed(4)),
+        averageClv: foldResult.averageClv,
+        positiveClvRate: foldResult.positiveClvRate,
+        maxDrawdown: Number(foldResult.maxDrawdown.toFixed(2)),
+        betsWithRealEurobetOdds: foldResult.betsWithRealEurobetOdds,
+        betsWithSyntheticOdds: foldResult.betsWithSyntheticOdds,
+        baselineRoi: baselineResult ? Number(baselineResult.roi.toFixed(2)) : undefined,
+        currentRoi: Number(foldResult.roi.toFixed(2)),
+        foldWinner,
         startDate: testMatches[0].date,
         endDate: testMatches[testMatches.length - 1].date,
       });
@@ -1156,10 +1357,28 @@ export class BacktestingEngine {
     const roiStdDev = foldRois.length > 0
       ? Math.sqrt(foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length)
       : 0;
+    const roiVariance = foldRois.length > 0
+      ? foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length
+      : 0;
+    const clvValues = folds
+      .map((fold) => fold.averageClv)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    const avgClv = clvValues.length ? clvValues.reduce((sum, value) => sum + value, 0) / clvValues.length : 0;
+    const clvVariance = clvValues.length
+      ? clvValues.reduce((sum, value) => sum + ((value - avgClv) ** 2), 0) / clvValues.length
+      : 0;
     const totalStaked = folds.reduce((sum, fold) => sum + fold.totalStaked, 0);
     const totalRoi = totalStaked > 0 ? (totalNetProfit / totalStaked) * 100 : averageFoldROI;
+    const currentBeatsBaselineFolds = folds.filter((fold) => fold.foldWinner === 'current').length;
+    const baselineBeatsCurrentFolds = folds.filter((fold) => fold.foldWinner === 'baseline').length;
+    const rankingStabilityScore = folds.length > 0
+      ? Number((currentBeatsBaselineFolds / folds.length).toFixed(3))
+      : 0;
 
     return {
+      algorithmVersion: ALGORITHM_VERSION,
+      rankingVersion: RANKING_VERSION,
+      backtestEngineVersion: BACKTEST_ENGINE_VERSION,
       totalMatches,
       totalFolds: folds.length,
       expandingWindow,
@@ -1177,11 +1396,272 @@ export class BacktestingEngine {
         averageFoldROI: Number(averageFoldROI.toFixed(2)),
         medianFoldROI: Number(medianFoldROI.toFixed(2)),
         roiStdDev: Number(roiStdDev.toFixed(2)),
+        roiVariance: Number(roiVariance.toFixed(4)),
+        clvVariance: Number(clvVariance.toFixed(8)),
+        currentBeatsBaselineFolds,
+        baselineBeatsCurrentFolds,
+        tunedBeatsCurrentFolds: 0,
+        rankingStabilityScore,
         positiveFoldRate: folds.length > 0 ? Number(((folds.filter((fold) => fold.roi > 0).length / folds.length) * 100).toFixed(2)) : 0,
         averageBrierScore: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.brierScore, 0) / folds.length).toFixed(4)) : 0,
         averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
       },
       detailedBets,
+    };
+  }
+
+  private defaultRankingWeightCandidates(): Array<{ name: string; weights: RankingWeightsConfig }> {
+    return [
+      {
+        name: 'current',
+        weights: this.engine.getRankingWeightsConfig(),
+      },
+      {
+        name: 'clv_stability',
+        weights: {
+          global: {
+            edgeNoVig: 0.42,
+            ev: 0.14,
+            kelly: 0.12,
+            confidence: 0.05,
+            logGrowth: 0.18,
+            riskPenalty: 0.5,
+            uncertainty: 0.22,
+            contextStrength: 0.08,
+          },
+          byCategory: {
+            goal_ou: { edgeNoVig: 0.48, logGrowth: 0.2, riskPenalty: 0.42 },
+            yellow_cards: { riskPenalty: 0.7, uncertainty: 0.35 },
+            exact_score: { riskPenalty: 1.05, uncertainty: 0.55, ev: 0.06 },
+            handicap: { riskPenalty: 0.85, uncertainty: 0.42 },
+          },
+        },
+      },
+      {
+        name: 'risk_conservative',
+        weights: {
+          global: {
+            edgeNoVig: 0.38,
+            ev: 0.12,
+            kelly: 0.1,
+            confidence: 0.06,
+            logGrowth: 0.14,
+            riskPenalty: 0.68,
+            uncertainty: 0.32,
+            contextStrength: 0.1,
+          },
+          byCategory: {
+            shots: { contextStrength: 0.14, uncertainty: 0.24 },
+            shots_ot: { contextStrength: 0.14, uncertainty: 0.26 },
+            yellow_cards: { riskPenalty: 0.82, uncertainty: 0.42 },
+            exact_score: { riskPenalty: 1.15, uncertainty: 0.65 },
+          },
+        },
+      },
+    ];
+  }
+
+  private assessOverfittingRisk(params: {
+    betsPlaced: number;
+    betsWithRealEurobetOdds: number;
+    betsWithSyntheticOdds: number;
+    roiRealEurobetOdds: number | null;
+    averageClv: number | null;
+    positiveClvRate: number | null;
+    maxDrawdown: number;
+    minBets: number;
+    minRealEurobetBets: number;
+    maxAllowedDrawdown: number;
+    minimumPositiveClvRate: number;
+  }): { risk: OverfittingRisk; warnings: string[] } {
+    const warnings: string[] = [];
+    if (params.betsPlaced < params.minBets) warnings.push(`Campione bet troppo piccolo: ${params.betsPlaced}/${params.minBets}.`);
+    if (params.betsWithRealEurobetOdds < params.minRealEurobetBets) {
+      warnings.push(`Campione quote Eurobet reali insufficiente: ${params.betsWithRealEurobetOdds}/${params.minRealEurobetBets}.`);
+    }
+    if (params.betsWithSyntheticOdds > params.betsWithRealEurobetOdds) {
+      warnings.push('La configurazione dipende troppo da quote sintetiche.');
+    }
+    if (params.maxDrawdown > params.maxAllowedDrawdown) {
+      warnings.push(`Drawdown oltre soglia: ${params.maxDrawdown.toFixed(2)}%/${params.maxAllowedDrawdown}%.`);
+    }
+    if (typeof params.averageClv === 'number' && params.averageClv < 0 && Number(params.roiRealEurobetOdds ?? 0) > 0) {
+      warnings.push('ROI positivo con CLV medio negativo: possibile fitting sul rumore degli esiti.');
+    }
+    if (typeof params.positiveClvRate === 'number' && params.positiveClvRate < params.minimumPositiveClvRate) {
+      warnings.push(`Positive CLV rate sotto soglia: ${params.positiveClvRate.toFixed(2)}%.`);
+    }
+    const risk: OverfittingRisk = params.betsWithRealEurobetOdds < params.minRealEurobetBets
+      ? 'HIGH'
+      : warnings.length >= 3 ? 'HIGH' : warnings.length >= 1 ? 'MEDIUM' : 'LOW';
+    return { risk, warnings };
+  }
+
+  private scoreRankingCandidate(
+    result: WalkForwardBacktestResult,
+    options: Required<Pick<RankingWeightSearchOptions, 'minBetsPerFold' | 'minRealEurobetBets' | 'maxAllowedDrawdown' | 'minimumPositiveClvRate'>>
+  ): RankingWeightSearchCandidateResult {
+    const realBets = result.detailedBets.filter((bet) => bet.isRealEurobetOdds);
+    const syntheticBets = result.detailedBets.filter((bet) => bet.isSynthetic);
+    const realStake = realBets.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
+    const realProfit = realBets.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
+    const roiRealEurobetOdds = realStake > 0 ? Number(((realProfit / realStake) * 100).toFixed(2)) : null;
+    const clvRows = realBets.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+    const averageClv = clvRows.length
+      ? Number((clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length).toFixed(6))
+      : null;
+    const positiveClvRate = clvRows.length
+      ? Number(((clvRows.filter((bet) => Number(bet.clv) > 0).length / clvRows.length) * 100).toFixed(2))
+      : null;
+    const maxDrawdown = result.folds.reduce((max, fold) => Math.max(max, Number(fold.maxDrawdown ?? 0)), 0);
+    const profitFactor = (() => {
+      const grossWin = result.detailedBets.filter((bet) => Number(bet.profit) > 0).reduce((sum, bet) => sum + Number(bet.profit), 0);
+      const grossLoss = Math.abs(result.detailedBets.filter((bet) => Number(bet.profit) <= 0).reduce((sum, bet) => sum + Number(bet.profit), 0));
+      return grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(4)) : grossWin > 0 ? Infinity : 0;
+    })();
+    const assessment = this.assessOverfittingRisk({
+      betsPlaced: result.detailedBets.length,
+      betsWithRealEurobetOdds: realBets.length,
+      betsWithSyntheticOdds: syntheticBets.length,
+      roiRealEurobetOdds,
+      averageClv,
+      positiveClvRate,
+      maxDrawdown,
+      minBets: options.minBetsPerFold * Math.max(1, result.totalFolds),
+      minRealEurobetBets: options.minRealEurobetBets,
+      maxAllowedDrawdown: options.maxAllowedDrawdown,
+      minimumPositiveClvRate: options.minimumPositiveClvRate,
+    });
+    const syntheticRatio = result.detailedBets.length > 0 ? syntheticBets.length / result.detailedBets.length : 1;
+    let score = 0;
+    score += Number(averageClv ?? 0) * 10000;
+    score += Number(positiveClvRate ?? 0) * 0.25;
+    score += Number(roiRealEurobetOdds ?? 0) * 0.35;
+    score += Number.isFinite(profitFactor) ? Math.min(profitFactor, 5) * 4 : 8;
+    score -= maxDrawdown * 0.4;
+    score -= syntheticRatio * 25;
+    if (realBets.length < options.minRealEurobetBets) score -= (options.minRealEurobetBets - realBets.length) * 1.5;
+    if (result.detailedBets.length < options.minBetsPerFold * Math.max(1, result.totalFolds)) score -= 20;
+
+    return {
+      name: 'candidate',
+      weights: {},
+      score: Number(score.toFixed(4)),
+      roiRealEurobetOdds,
+      averageClv,
+      positiveClvRate,
+      maxDrawdown: Number(maxDrawdown.toFixed(2)),
+      profitFactor,
+      betsPlaced: result.detailedBets.length,
+      betsWithRealEurobetOdds: realBets.length,
+      betsWithSyntheticOdds: syntheticBets.length,
+      overfittingRisk: assessment.risk,
+      overfittingWarnings: assessment.warnings,
+    };
+  }
+
+  runRankingWeightSearch(
+    matches: MatchData[],
+    historicalOdds: Record<string, Record<string, number>>,
+    options: RankingWeightSearchOptions = {},
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
+  ): RankingWeightSearchResult {
+    const originalWeights = this.engine.getRankingWeightsConfig();
+    const minBetsPerFold = Math.max(1, Number(options.minBetsPerFold ?? 8));
+    const minRealEurobetBets = Math.max(1, Number(options.minRealEurobetBets ?? 40));
+    const maxAllowedDrawdown = Math.max(1, Number(options.maxAllowedDrawdown ?? 35));
+    const minimumPositiveClvRate = Math.max(0, Number(options.minimumPositiveClvRate ?? 50));
+    const candidates = options.candidateWeights?.length
+      ? options.candidateWeights
+      : this.defaultRankingWeightCandidates();
+    const testedWeights: RankingWeightSearchCandidateResult[] = [];
+    let best: RankingWeightSearchCandidateResult | null = null;
+
+    try {
+      for (const candidate of candidates) {
+        this.engine.setRankingWeights(candidate.weights);
+        const result = this.runWalkForwardBacktest(matches, historicalOdds, {
+          confidenceLevel: options.confidenceLevel ?? 'medium_and_above',
+          maxFolds: options.maxFolds ?? 5,
+          compareBaseline: true,
+        }, historicalOddsContext);
+        const scored = this.scoreRankingCandidate(result, {
+          minBetsPerFold,
+          minRealEurobetBets,
+          maxAllowedDrawdown,
+          minimumPositiveClvRate,
+        });
+        scored.name = candidate.name;
+        scored.weights = candidate.weights;
+        testedWeights.push(scored);
+        if (!best || scored.score > best.score) best = scored;
+      }
+    } finally {
+      this.engine.setRankingWeights(originalWeights);
+    }
+
+    const currentCandidate = testedWeights.find((candidate) => candidate.name === 'current') ?? testedWeights[0];
+    const tunedCandidate = best ?? currentCandidate;
+    const comparison = {
+      baselineResult: {
+        algorithmMode: 'baseline' as const,
+        roi: 0,
+        netProfit: 0,
+        totalStaked: 0,
+        betsPlaced: 0,
+        winRate: 0,
+        averageOdds: 0,
+        averageEV: 0,
+        averageClv: null,
+        positiveClvRate: null,
+        maxDrawdown: 0,
+        profitFactor: 0,
+      },
+      currentResult: {
+        algorithmMode: 'current' as const,
+        roi: Number(currentCandidate?.roiRealEurobetOdds ?? 0),
+        netProfit: 0,
+        totalStaked: 0,
+        betsPlaced: currentCandidate?.betsPlaced ?? 0,
+        winRate: 0,
+        averageOdds: 0,
+        averageEV: 0,
+        averageClv: currentCandidate?.averageClv ?? null,
+        positiveClvRate: currentCandidate?.positiveClvRate ?? null,
+        maxDrawdown: currentCandidate?.maxDrawdown ?? 0,
+        profitFactor: currentCandidate?.profitFactor ?? 0,
+      },
+      tunedResult: {
+        algorithmMode: 'current' as const,
+        roi: Number(tunedCandidate?.roiRealEurobetOdds ?? 0),
+        netProfit: 0,
+        totalStaked: 0,
+        betsPlaced: tunedCandidate?.betsPlaced ?? 0,
+        winRate: 0,
+        averageOdds: 0,
+        averageEV: 0,
+        averageClv: tunedCandidate?.averageClv ?? null,
+        positiveClvRate: tunedCandidate?.positiveClvRate ?? null,
+        maxDrawdown: tunedCandidate?.maxDrawdown ?? 0,
+        profitFactor: tunedCandidate?.profitFactor ?? 0,
+      },
+      deltaROI: Number((Number(tunedCandidate?.roiRealEurobetOdds ?? 0) - Number(currentCandidate?.roiRealEurobetOdds ?? 0)).toFixed(2)),
+      deltaProfit: 0,
+      deltaCLV: tunedCandidate?.averageClv !== null && currentCandidate?.averageClv !== null
+        ? Number((Number(tunedCandidate?.averageClv ?? 0) - Number(currentCandidate?.averageClv ?? 0)).toFixed(6))
+        : null,
+      deltaDrawdown: Number((Number(tunedCandidate?.maxDrawdown ?? 0) - Number(currentCandidate?.maxDrawdown ?? 0)).toFixed(2)),
+    };
+    const overfittingWarnings = tunedCandidate?.overfittingWarnings ?? [];
+
+    return {
+      bestWeights: tunedCandidate?.weights ?? originalWeights,
+      testedWeights,
+      bestScore: Number((tunedCandidate?.score ?? 0).toFixed(4)),
+      comparison,
+      overfittingRisk: tunedCandidate?.overfittingRisk ?? 'HIGH',
+      overfittingWarnings,
+      warning: overfittingWarnings.length ? overfittingWarnings.join(' ') : null,
     };
   }
 
@@ -1629,6 +2109,9 @@ export class BacktestingEngine {
     const clvByCompetition = summarizeClv((bet) => String(bet.competition ?? 'unknown'));
 
     return {
+      algorithmVersion: ALGORITHM_VERSION,
+      rankingVersion: RANKING_VERSION,
+      backtestEngineVersion: BACKTEST_ENGINE_VERSION,
       totalMatches:    trainCount + testCount,
       trainingMatches: trainCount,
       testMatches:     testCount,
@@ -1662,7 +2145,11 @@ export class BacktestingEngine {
       recoveryFactor: maxDD>0 ? netProfit/(maxDD*this.INITIAL_BANKROLL) : 0,
       profitFactor,
       marketBreakdown,
+      rankingWeightsUsed: this.engine.getRankingWeightsConfig(),
       detailedBets: bets.map((bet) => ({
+        algorithmVersion: ALGORITHM_VERSION,
+        rankingVersion: RANKING_VERSION,
+        backtestEngineVersion: BACKTEST_ENGINE_VERSION,
         matchId: bet.matchId,
         matchDate: bet.matchDate.toISOString(),
         competition: bet.competition ?? null,
@@ -1699,6 +2186,9 @@ export class BacktestingEngine {
         logGrowth: typeof bet.logGrowth === 'number' ? Number(bet.logGrowth.toFixed(6)) : undefined,
         dynamicEvThreshold: typeof bet.dynamicEvThreshold === 'number' ? Number(bet.dynamicEvThreshold.toFixed(2)) : undefined,
         algorithmMode: bet.algorithmMode,
+        contextCompletenessScore: Number(bet.contextCompletenessScore.toFixed(3)),
+        historicalContextUsed: bet.historicalContextUsed,
+        contextWarnings: bet.contextWarnings,
       })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
@@ -1833,6 +2323,9 @@ export class BacktestingEngine {
 
   private emptyResult(trainCount: number, testCount: number): BacktestResult {
     return {
+      algorithmVersion: ALGORITHM_VERSION,
+      rankingVersion: RANKING_VERSION,
+      backtestEngineVersion: BACKTEST_ENGINE_VERSION,
       totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
       betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
       roi:0, roiRealEurobetOdds:null, roiSyntheticOdds:null, roiTotal:0,
@@ -1846,6 +2339,8 @@ export class BacktestingEngine {
       marketCalibration:{}, marketReports:{},
       averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
       algorithmMode:'current', algorithmComparison:null,
+      rankingWeightsUsed:this.engine.getRankingWeightsConfig(), rankingOptimization:null,
+      overfittingRisk:'LOW', overfittingWarnings:[],
     };
   }
 }
