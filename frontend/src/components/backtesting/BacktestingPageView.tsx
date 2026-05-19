@@ -114,6 +114,8 @@ const BacktestingPageView: React.FC = () => {
 
   const legacyClassicResult = currentResult && !currentIsWalkForward ? currentResult : null;
   const walkForwardResult = currentIsWalkForward ? currentResult : null;
+  const isTop5Competition = competition === TOP_5_BACKTEST_KEY;
+  const showTop5TuningWarning = isTop5Competition && optimizeRankingWeights;
   const reportMarketOptions = useMemo(() => backtestReport?.dataset?.availableMarkets ?? [], [backtestReport]);
   const reportSourceOptions = useMemo(() => backtestReport?.dataset?.availableSources ?? [], [backtestReport]);
 
@@ -187,6 +189,23 @@ const BacktestingPageView: React.FC = () => {
             <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
               Il motore usa prima gli snapshot reali del bookmaker. Dove mancano, passa alle quote stimate dal modello.
             </div>
+            {isTop5Competition && (
+              <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
+                Il walk-forward Top 5 puo richiedere alcuni minuti. Se va in timeout, riduci max folds oppure riprova con un singolo campionato.
+              </div>
+            )}
+            {showTop5TuningWarning && (
+              <div className="fp-alert fp-alert-warning" style={{ marginBottom: 18 }}>
+                Tuning pesi + Top 5 puo essere molto lento. Se va in timeout, riduci max folds, disattiva il tuning pesi oppure usa un singolo campionato.
+              </div>
+            )}
+            {loading && (
+              <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
+                {isTop5Competition
+                  ? 'Il walk-forward Top 5 puo richiedere alcuni minuti.'
+                  : 'Il walk-forward puo richiedere alcuni minuti.'}
+              </div>
+            )}
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-confidence">Confidence filter</label>
