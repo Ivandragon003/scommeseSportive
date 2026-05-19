@@ -264,6 +264,8 @@ export const runBacktest = (params: {
   historicalOdds?: any;
   trainRatio?: number;
   confidenceLevel?: 'high_only' | 'medium_and_above';
+  saveIndividualRuns?: boolean;
+  compareBaseline?: boolean;
 }) =>
   API.post<ApiResponse<any>>('/backtest', params).then(r => {
     invalidateApiCache((key) => key.includes('GET:/backtest/'));
@@ -280,6 +282,8 @@ export const runWalkForwardBacktest = (params: {
   confidenceLevel?: 'high_only' | 'medium_and_above';
   expandingWindow?: boolean;
   maxFolds?: number;
+  saveIndividualRuns?: boolean;
+  compareBaseline?: boolean;
 }) =>
   API.post<ApiResponse<any>>('/backtest/walk-forward', params).then(r => {
     invalidateApiCache((key) => key.includes('GET:/backtest/'));

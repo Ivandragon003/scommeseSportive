@@ -35,6 +35,7 @@ interface RunBacktestParams {
   stepMatches: string;
   maxFolds: string;
   expandingWindow: boolean;
+  saveIndividualRuns: boolean;
 }
 
 interface UseBacktestingDataParams {
@@ -125,6 +126,8 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
               season: params.season || undefined,
               trainRatio: Number(params.trainRatio),
               confidenceLevel: params.confidenceLevel,
+              saveIndividualRuns: params.saveIndividualRuns,
+              compareBaseline: true,
             })
           : await runWalkForwardBacktest({
               competition: params.competition,
@@ -135,6 +138,8 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
               maxFolds: params.maxFolds ? Number(params.maxFolds) : undefined,
               confidenceLevel: params.confidenceLevel,
               expandingWindow: params.expandingWindow,
+              saveIndividualRuns: params.saveIndividualRuns,
+              compareBaseline: true,
             });
 
       if (!payload.data) return null;

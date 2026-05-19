@@ -166,3 +166,130 @@ test('BacktestingEngine marks CLV as missing without falsifying metrics when clo
   assert.equal(result.detailedBets.every((bet) => bet.clv === null), true);
   assert.equal(result.detailedBets.every((bet) => bet.clvMissingReason === 'missing_closing_odds'), true);
 });
+
+test('BacktestingEngine uses the live vig-removal value betting path with analysis context', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+  let usedCurrentPath = false;
+
+  engine.engine.analyzeMarkets = () => {
+    throw new Error('legacy analyzeMarkets should not be used by current backtest');
+  };
+  const original = engine.engine.analyzeMarketsWithVigRemoval.bind(engine.engine);
+  engine.engine.analyzeMarketsWithVigRemoval = (probabilities, marketGroups, marketNames, analysisContext) => {
+    usedCurrentPath = true;
+    assert.ok(analysisContext);
+    assert.ok(Number.isFinite(Number(analysisContext.richnessScore)));
+    assert.ok(analysisContext.analysisFactors);
+    return original(probabilities, marketGroups, marketNames, analysisContext);
+  };
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    context
+  );
+
+  assert.equal(usedCurrentPath, true);
+  assert.ok(result.betsPlaced >= 0);
+});
+
+test('BacktestingEngine separates real Eurobet odds and synthetic odds metrics', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  for (const [index, match] of matches.entries()) {
+    if (index % 2 === 1) {
+      delete odds[match.matchId];
+      delete context[match.matchId];
+    }
+  }
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    context
+  );
+
+  assert.ok(result.betsPlaced > 0);
+  assert.equal(result.roiTotal, Number(result.roi.toFixed(2)));
+  assert.equal(result.betsWithRealEurobetOdds + result.betsWithSyntheticOdds, result.betsPlaced);
+  assert.equal(
+    result.roiRealEurobetOdds,
+    result.stakedRealEurobetOdds > 0
+      ? Number(((result.profitRealEurobetOdds / result.stakedRealEurobetOdds) * 100).toFixed(2))
+      : null
+  );
+  assert.equal(
+    result.roiSyntheticOdds,
+    result.stakedSyntheticOdds > 0
+      ? Number(((result.profitSyntheticOdds / result.stakedSyntheticOdds) * 100).toFixed(2))
+      : null
+  );
+});
+
+test('BacktestingEngine rejects Eurobet closing snapshots captured after kickoff', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  for (const match of matches) {
+    context[match.matchId] = {
+      ...context[match.matchId],
+      closingCapturedAt: new Date(match.date.getTime() + 60 * 60 * 1000).toISOString(),
+    };
+  }
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    context
+  );
+
+  assert.ok(result.betsPlaced > 0);
+  assert.equal(result.averageClv, null);
+  assert.equal(result.detailedBets.every((bet) => bet.clv === null), true);
+  assert.equal(
+    result.detailedBets.every((bet) => bet.clvMissingReason === 'snapshot_after_kickoff_rejected'),
+    true
+  );
+});
+
+test('BacktestingEngine can compare baseline and current value betting algorithms', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    context,
+    { compareBaseline: true }
+  );
+
+  assert.ok(result.algorithmComparison);
+  assert.equal(result.algorithmComparison.baselineResult.algorithmMode, 'baseline');
+  assert.equal(result.algorithmComparison.currentResult.algorithmMode, 'current');
+  for (const key of ['roi', 'netProfit', 'totalStaked', 'betsPlaced', 'winRate', 'averageOdds', 'averageEV', 'maxDrawdown', 'profitFactor']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison.baselineResult, key));
+    assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison.currentResult, key));
+  }
+  assert.ok(Number.isFinite(result.algorithmComparison.deltaROI));
+  assert.ok(Number.isFinite(result.algorithmComparison.deltaProfit));
+  assert.ok(Object.prototype.hasOwnProperty.call(result.algorithmComparison, 'deltaCLV'));
+  assert.ok(Number.isFinite(result.algorithmComparison.deltaDrawdown));
+});

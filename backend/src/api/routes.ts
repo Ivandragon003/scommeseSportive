@@ -993,6 +993,9 @@ router.post('/backtest', async (req: Request, res: Response) => {
       {
         trainRatio: req.body.trainRatio,
         confidenceLevel: req.body.confidenceLevel,
+        saveIndividualRuns: req.body.saveIndividualRuns === true,
+        compareBaseline: req.body.compareBaseline !== false,
+        algorithmMode: req.body.algorithmMode,
       }
     );
     res.json({ success: true, data: result });
@@ -1409,6 +1412,8 @@ router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
         confidenceLevel: req.body.confidenceLevel,
         expandingWindow: req.body.expandingWindow,
         maxFolds: req.body.maxFolds,
+        saveIndividualRuns: req.body.saveIndividualRuns === true,
+        compareBaseline: req.body.compareBaseline !== false,
       }
     );
     res.json({ success: true, data: result });

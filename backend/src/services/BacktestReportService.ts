@@ -55,6 +55,19 @@ type ClvReportSection = {
   byCompetition: ClvSegmentSummary[];
 };
 
+type OddsReliabilitySection = {
+  roiRealEurobetOdds: number | null;
+  roiSyntheticOdds: number | null;
+  roiTotal: number;
+  betsWithRealEurobetOdds: number;
+  betsWithSyntheticOdds: number;
+  profitRealEurobetOdds: number;
+  profitSyntheticOdds: number;
+  stakedRealEurobetOdds: number;
+  stakedSyntheticOdds: number;
+  warning: string | null;
+};
+
 type ProbabilityBucketSummary = SummaryMetrics & {
   key: string;
   label: string;
@@ -125,6 +138,8 @@ type NormalizedBacktestBet = {
   edge: number;
   clv: number | null;
   hasClv: boolean;
+  isRealEurobetOdds: boolean;
+  isSynthetic: boolean;
   won: boolean;
   probabilityBucketIndex: number;
   evBucketIndex: number;
@@ -183,6 +198,17 @@ type BacktestReportSource = {
   brierScore?: unknown;
   logLoss?: unknown;
   averageOdds?: unknown;
+  roiRealEurobetOdds?: unknown;
+  roiSyntheticOdds?: unknown;
+  roiTotal?: unknown;
+  betsWithRealEurobetOdds?: unknown;
+  betsWithSyntheticOdds?: unknown;
+  profitRealEurobetOdds?: unknown;
+  profitSyntheticOdds?: unknown;
+  stakedRealEurobetOdds?: unknown;
+  stakedSyntheticOdds?: unknown;
+  oddsReliabilityWarning?: unknown;
+  algorithmComparison?: unknown;
 };
 
 type BacktestReport = {
@@ -226,6 +252,8 @@ type BacktestReport = {
   };
   alerts: CalibrationAlert[];
   clv: ClvReportSection;
+  oddsReliability: OddsReliabilitySection;
+  algorithmComparison: unknown | null;
 };
 
 const DEFAULT_OPENING_BANKROLL = 1000;
@@ -275,6 +303,11 @@ const safePercent = (numerator: number, denominator: number): number =>
 const toFinite = (value: unknown, fallback = 0): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toNullableNumber = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const createSummaryAccumulator = (): SummaryAccumulator => ({
@@ -423,6 +456,8 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
     const clvRaw = typeof clvValue === 'number' ? clvValue : Number.NaN;
     const hasClv = Number.isFinite(clvRaw);
     const clv = hasClv ? clvRaw : null;
+    const isRealEurobetOdds = Boolean((rawBet as BacktestBetDetail).isRealEurobetOdds);
+    const isSynthetic = Boolean((rawBet as BacktestBetDetail).isSynthetic);
     const timestampCandidate = new Date(rawBet.matchDate).getTime();
     const timestampMs = Number.isNaN(timestampCandidate) ? null : timestampCandidate;
     const dateBucketKey = parseDateBucketKey(timestampMs);
@@ -464,6 +499,8 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
       edge,
       clv,
       hasClv,
+      isRealEurobetOdds,
+      isSynthetic,
       won: Boolean(rawBet.won),
       probabilityBucketIndex: resolveBucketIndex(probabilityRaw, PROBABILITY_BUCKETS),
       evBucketIndex: resolveBucketIndex(expectedValue, EV_BUCKETS),
@@ -796,6 +833,59 @@ const buildClvReportSection = (
   };
 };
 
+const buildOddsReliabilitySection = (
+  result: BacktestReportSource,
+  dataset: BacktestDatasetIndex,
+  filteredIndices: number[],
+  legacyData: boolean,
+  summary: SummaryMetrics
+): OddsReliabilitySection => {
+  if (legacyData) {
+    return {
+      roiRealEurobetOdds: toNullableNumber(result.roiRealEurobetOdds),
+      roiSyntheticOdds: toNullableNumber(result.roiSyntheticOdds),
+      roiTotal: toFinite(result.roiTotal),
+      betsWithRealEurobetOdds: toFinite(result.betsWithRealEurobetOdds),
+      betsWithSyntheticOdds: toFinite(result.betsWithSyntheticOdds),
+      profitRealEurobetOdds: toFinite(result.profitRealEurobetOdds),
+      profitSyntheticOdds: toFinite(result.profitSyntheticOdds),
+      stakedRealEurobetOdds: toFinite(result.stakedRealEurobetOdds),
+      stakedSyntheticOdds: toFinite(result.stakedSyntheticOdds),
+      warning: typeof result.oddsReliabilityWarning === 'string' ? result.oddsReliabilityWarning : null,
+    };
+  }
+
+  const rows = filteredIndices.map((index) => dataset.bets[index]);
+  const realRows = rows.filter((bet) => bet.isRealEurobetOdds);
+  const syntheticRows = rows.filter((bet) => bet.isSynthetic);
+  const summarize = (items: NormalizedBacktestBet[]) => {
+    const staked = items.reduce((sum, bet) => sum + bet.stake, 0);
+    const profit = items.reduce((sum, bet) => sum + bet.profit, 0);
+    return {
+      staked: Number(staked.toFixed(2)),
+      profit: Number(profit.toFixed(2)),
+      roi: staked > 0 ? Number(((profit / staked) * 100).toFixed(2)) : null,
+    };
+  };
+  const real = summarize(realRows);
+  const synthetic = summarize(syntheticRows);
+
+  return {
+    roiRealEurobetOdds: real.roi,
+    roiSyntheticOdds: synthetic.roi,
+    roiTotal: Number(summary.yieldPct.toFixed(2)),
+    betsWithRealEurobetOdds: realRows.length,
+    betsWithSyntheticOdds: syntheticRows.length,
+    profitRealEurobetOdds: real.profit,
+    profitSyntheticOdds: synthetic.profit,
+    stakedRealEurobetOdds: real.staked,
+    stakedSyntheticOdds: synthetic.staked,
+    warning: realRows.length === 0 && syntheticRows.length > 0
+      ? 'Risultato indicativo: basato su quote sintetiche'
+      : null,
+  };
+};
+
 const buildAlerts = (
   probabilityBuckets: ProbabilityBucketSummary[],
   evSegments: SegmentSummary[],
@@ -942,6 +1032,7 @@ export const buildBacktestReport = (
   const probabilityBuckets = legacyData ? [] : aggregatedSections?.probabilityBuckets ?? [];
   const alerts = buildAlerts(probabilityBuckets, byEvBucket, byEdgeBucket, byConfidence, legacyData);
   const clv = buildClvReportSection(datasetIndex, filteredIndices, legacyData);
+  const oddsReliability = buildOddsReliabilitySection(result, datasetIndex, filteredIndices, legacyData, summary);
 
   return {
     run: {
@@ -984,5 +1075,7 @@ export const buildBacktestReport = (
     },
     alerts,
     clv,
+    oddsReliability,
+    algorithmComparison: result.algorithmComparison ?? null,
   };
 };
