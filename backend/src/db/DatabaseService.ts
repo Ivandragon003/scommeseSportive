@@ -9,6 +9,7 @@ type HistoricalOddsDetail = {
   closingOdds?: Record<string, number>;
   closingCapturedAt?: string | null;
   closingSource?: string | null;
+  closingRejectedReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | 'snapshot_after_kickoff_rejected' | null;
   usedFallbackBookmaker: boolean;
   usedSyntheticOdds: boolean;
 };
@@ -1245,6 +1246,14 @@ export class DatabaseService {
           Number.isFinite(capturedMs) &&
           (!Number.isFinite(kickoffMs) || capturedMs <= kickoffMs);
       });
+      const hasRejectedAfterKickoff = !closingRow && matchRows.some((row) => {
+        const source = String(row.source ?? '').toLowerCase();
+        const capturedMs = new Date(String(row.captured_at ?? '')).getTime();
+        return source.includes('eurobet') &&
+          Number.isFinite(capturedMs) &&
+          Number.isFinite(kickoffMs) &&
+          capturedMs > kickoffMs;
+      });
       const closingOdds = closingRow
         ? normalizeOdds(closingRow.liveSelectedOdds ?? closingRow.eurobetOdds ?? closingRow.selectedOdds ?? {})
         : {};
@@ -1257,6 +1266,7 @@ export class DatabaseService {
         closingOdds,
         closingCapturedAt: closingRow ? String(closingRow.captured_at ?? '').trim() || null : null,
         closingSource: closingRow ? String(closingRow.source ?? '').trim() || null : null,
+        closingRejectedReason: hasRejectedAfterKickoff ? 'snapshot_after_kickoff_rejected' : null,
         usedFallbackBookmaker: Boolean(selectedRow.usedFallbackBookmaker),
         usedSyntheticOdds: Boolean(selectedRow.usedSyntheticOdds),
       };

@@ -109,3 +109,65 @@ test('Top 5 backtest preset exposes aggregate and per-competition detail', () =>
   assert.equal(aggregate.worstCompetition, 'Premier League');
   assert.equal(aggregate.byCompetition.length, 2);
 });
+
+function buildRawBacktestMatches(competition) {
+  const teams = ['A', 'B', 'C', 'D'];
+  const matches = [];
+  for (let index = 0; index < 64; index++) {
+    const home = teams[index % teams.length];
+    const away = teams[(index + 1) % teams.length];
+    const homeXG = 1.45 + (index % 3) * 0.08;
+    const awayXG = 0.95 + (index % 2) * 0.06;
+    matches.push({
+      match_id: `${competition}-${index}`,
+      home_team_id: `${competition}-${home}`,
+      away_team_id: `${competition}-${away}`,
+      date: new Date(Date.UTC(2025, 0, index + 1)).toISOString(),
+      home_goals: Math.round(homeXG),
+      away_goals: Math.round(awayXG),
+      home_xg: homeXG,
+      away_xg: awayXG,
+      home_shots_on_target: 4,
+      away_shots_on_target: 3,
+      home_shots: 13,
+      away_shots: 10,
+      home_possession: 54,
+      away_possession: 46,
+      home_fouls: 11,
+      away_fouls: 12,
+      home_yellow_cards: 2,
+      away_yellow_cards: 2,
+      home_red_cards: 0,
+      away_red_cards: 0,
+      referee: null,
+      competition,
+      season: '2025-26',
+    });
+  }
+  return matches;
+}
+
+test('Top 5 backtest with saveIndividualRuns=false saves only aggregate run', async () => {
+  const savedRuns = [];
+  const db = {
+    getLearningReviews: async () => [],
+    getMatches: async ({ competition }) => buildRawBacktestMatches(competition),
+    getHistoricalOddsDetailMap: async () => ({}),
+    saveBacktestResult: async (competition, season, payload) => {
+      savedRuns.push({ competition, season, payload });
+      return savedRuns.length;
+    },
+  };
+  const service = new PredictionService(db);
+
+  const result = await service.runBacktest(TOP_5_BACKTEST_KEY, '2025-26', undefined, {
+    saveIndividualRuns: false,
+    confidenceLevel: 'medium_and_above',
+  });
+
+  assert.equal(savedRuns.length, 1);
+  assert.equal(savedRuns[0].competition, TOP_5_BACKTEST_KEY);
+  assert.equal(result.isTop5Aggregate, true);
+  assert.equal(result.byCompetition.length, 5);
+  assert.equal(result.competitionResults.length, 5);
+});

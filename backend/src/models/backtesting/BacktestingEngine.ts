@@ -27,7 +27,14 @@
  */
 
 import { DixonColesModel, MatchData } from '../core/DixonColesModel';
-import { ValueBettingEngine, ComboBetOpportunity, MarketCategory, AdaptiveEngineTuningProfile } from '../value/ValueBettingEngine';
+import {
+  ValueBettingEngine,
+  BetOpportunity,
+  ComboBetOpportunity,
+  MarketCategory,
+  AdaptiveEngineTuningProfile,
+  ValueAnalysisContext,
+} from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
 
@@ -43,6 +50,16 @@ export interface BacktestResult {
   totalReturn: number;
   netProfit: number;
   roi: number;
+  roiRealEurobetOdds: number | null;
+  roiSyntheticOdds: number | null;
+  roiTotal: number;
+  betsWithRealEurobetOdds: number;
+  betsWithSyntheticOdds: number;
+  profitRealEurobetOdds: number;
+  profitSyntheticOdds: number;
+  stakedRealEurobetOdds: number;
+  stakedSyntheticOdds: number;
+  oddsReliabilityWarning?: string | null;
   winRate: number;
   averageOdds: number;
   averageEV: number;
@@ -96,6 +113,39 @@ export interface BacktestResult {
   missingClosingOddsCount: number;
   clvByMarket: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
   clvByCompetition: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
+  algorithmMode?: BacktestAlgorithmMode;
+  algorithmComparison?: BacktestAlgorithmComparison | null;
+}
+
+export type BacktestAlgorithmMode = 'current' | 'baseline';
+
+export interface BacktestRunOptions {
+  compareBaseline?: boolean;
+  algorithmMode?: BacktestAlgorithmMode;
+}
+
+export interface BacktestComparisonMetrics {
+  algorithmMode: BacktestAlgorithmMode;
+  roi: number;
+  netProfit: number;
+  totalStaked: number;
+  betsPlaced: number;
+  winRate: number;
+  averageOdds: number;
+  averageEV: number;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+  maxDrawdown: number;
+  profitFactor: number;
+}
+
+export interface BacktestAlgorithmComparison {
+  baselineResult: BacktestComparisonMetrics;
+  currentResult: BacktestComparisonMetrics;
+  deltaROI: number;
+  deltaProfit: number;
+  deltaCLV: number | null;
+  deltaDrawdown: number;
 }
 
 export interface MarketStats {
@@ -218,7 +268,13 @@ export interface HistoricalOddsContextEntry {
   closingSource?: string | null;
   usedFallbackBookmaker?: boolean;
   usedSyntheticOdds?: boolean;
+  closingRejectedReason?: ClvMissingReason | null;
 }
+
+export type ClvMissingReason =
+  | 'missing_closing_odds'
+  | 'non_eurobet_snapshot'
+  | 'snapshot_after_kickoff_rejected';
 
 export interface BacktestBetDetail {
   matchId: string;
@@ -247,7 +303,14 @@ export interface BacktestBetDetail {
   closingOddsCapturedAt?: string | null;
   closingSource?: string | null;
   clv?: number | null;
-  clvMissingReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | null;
+  clvMissingReason?: ClvMissingReason | null;
+  isRealEurobetOdds?: boolean;
+  uncertaintyFactor?: number;
+  riskPenalty?: number;
+  rankingScore?: number;
+  logGrowth?: number;
+  dynamicEvThreshold?: number;
+  algorithmMode?: BacktestAlgorithmMode;
 }
 
 interface TestBet {
@@ -269,6 +332,7 @@ interface TestBet {
   profit: number;
   /** true se la quota usata è sintetica (nessuna quota reale disponibile per la partita) */
   isSynthetic: boolean;
+  isRealEurobetOdds: boolean;
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
   oddsCapturedAt?: string | null;
@@ -276,7 +340,13 @@ interface TestBet {
   closingOddsCapturedAt?: string | null;
   closingSource?: string | null;
   clv?: number | null;
-  clvMissingReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | null;
+  clvMissingReason?: ClvMissingReason | null;
+  uncertaintyFactor?: number;
+  riskPenalty?: number;
+  rankingScore?: number;
+  logGrowth?: number;
+  dynamicEvThreshold?: number;
+  algorithmMode: BacktestAlgorithmMode;
 }
 
 export class BacktestingEngine {
@@ -601,6 +671,74 @@ export class BacktestingEngine {
     this.engine.setAdaptiveTuning(profile ?? null);
   }
 
+  private clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private buildTeamSampleSizes(trainMatches: MatchData[]): Map<string, number> {
+    const samples = new Map<string, number>();
+    for (const match of trainMatches) {
+      samples.set(match.homeTeamId, (samples.get(match.homeTeamId) ?? 0) + 1);
+      samples.set(match.awayTeamId, (samples.get(match.awayTeamId) ?? 0) + 1);
+    }
+    return samples;
+  }
+
+  private buildBacktestValueAnalysisContext(
+    match: MatchData,
+    teamSamples: Map<string, number>,
+    hasRealEurobetOdds: boolean
+  ): ValueAnalysisContext {
+    const homeSample = teamSamples.get(match.homeTeamId) ?? 0;
+    const awaySample = teamSamples.get(match.awayTeamId) ?? 0;
+    const hasXg = Number.isFinite(Number(match.homeXG)) && Number.isFinite(Number(match.awayXG));
+    const hasShots = Number.isFinite(Number(match.homeTotalShots)) && Number.isFinite(Number(match.awayTotalShots));
+    const hasShotsOnTarget = Number.isFinite(Number(match.homeShotsOnTarget)) && Number.isFinite(Number(match.awayShotsOnTarget));
+    const hasCards = Number.isFinite(Number(match.homeYellowCards)) && Number.isFinite(Number(match.awayYellowCards));
+    const hasRefereeData = Boolean(String(match.referee ?? '').trim());
+    const sampleStrength = this.clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
+    const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
+    const richnessScore = this.clamp(
+      0.2 + sampleStrength * 0.35 + statCompleteness * 0.35 + (hasRealEurobetOdds ? 0.1 : 0),
+      0.15,
+      0.95
+    );
+
+    return {
+      richnessScore,
+      teamSampleSize: { home: homeSample, away: awaySample },
+      hasXg,
+      hasPlayerData: false,
+      hasRefereeData,
+      marketVariance: {
+        goal_1x2: 0.95,
+        goal_ou: 0.9,
+        shots: hasShots ? 1.15 : 1.45,
+        shots_ot: hasShotsOnTarget ? 1.2 : 1.55,
+        yellow_cards: hasCards && hasRefereeData ? 1.25 : 1.75,
+        fouls: 1.8,
+        corners: 1.6,
+        exact_score: 2.25,
+        handicap: 1.8,
+        other: 1.35,
+      },
+      analysisFactors: {
+        statSampleStrength: sampleStrength,
+        shotsReliability: hasShots ? this.clamp(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
+        disciplineReliability: hasCards ? this.clamp(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
+        competitiveness: 0.5,
+        homeAdvantageIndex: 0.08,
+      },
+    };
+  }
+
+  private isRealEurobetOddsContext(context?: HistoricalOddsContextEntry): boolean {
+    const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
+    return selectedSource.includes('eurobet') &&
+      !context?.usedFallbackBookmaker &&
+      !context?.usedSyntheticOdds;
+  }
+
   private isEurobetClosingContext(context?: HistoricalOddsContextEntry): boolean {
     const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
     const closingSource = String(context?.closingSource ?? context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
@@ -609,14 +747,29 @@ export class BacktestingEngine {
 
   private resolveClosingOdds(
     context: HistoricalOddsContextEntry | undefined,
-    selection: string
-  ): { closingOdds: number | null; capturedAt: string | null; source: string | null; missingReason: 'missing_closing_odds' | 'non_eurobet_snapshot' | null } {
+    selection: string,
+    kickoffDate: Date
+  ): { closingOdds: number | null; capturedAt: string | null; source: string | null; missingReason: ClvMissingReason | null } {
     if (!context || !this.isEurobetClosingContext(context)) {
       return {
         closingOdds: null,
         capturedAt: context?.closingCapturedAt ?? null,
         source: context?.closingSource ?? context?.snapshotSource ?? null,
         missingReason: 'non_eurobet_snapshot',
+      };
+    }
+
+    const capturedMs = new Date(String(context.closingCapturedAt ?? '')).getTime();
+    const kickoffMs = kickoffDate.getTime();
+    if (
+      context.closingRejectedReason === 'snapshot_after_kickoff_rejected' ||
+      (Number.isFinite(capturedMs) && Number.isFinite(kickoffMs) && capturedMs > kickoffMs)
+    ) {
+      return {
+        closingOdds: null,
+        capturedAt: context.closingCapturedAt ?? null,
+        source: context.closingSource ?? context.snapshotSource ?? null,
+        missingReason: 'snapshot_after_kickoff_rejected',
       };
     }
 
@@ -638,14 +791,70 @@ export class BacktestingEngine {
     };
   }
 
+  private baselineScore(opp: BetOpportunity): number {
+    const ev = Number(opp.expectedValue ?? 0) / 100;
+    const edgeRaw = Number(opp.edge ?? 0) / 100;
+    const kelly = Number(opp.kellyFraction ?? 0) / 100;
+    const confidence = opp.confidence === 'HIGH' ? 1 : opp.confidence === 'MEDIUM' ? 0.65 : 0.25;
+    return ev * 0.3 + kelly * 0.35 + edgeRaw * 0.25 + confidence * 0.1;
+  }
+
+  private selectOpportunities(
+    opportunities: BetOpportunity[],
+    confidenceLevel: 'high_only' | 'medium_and_above',
+    algorithmMode: BacktestAlgorithmMode
+  ): BetOpportunity[] {
+    const ranked = algorithmMode === 'baseline'
+      ? [...opportunities].sort((left, right) => this.baselineScore(right) - this.baselineScore(left))
+      : opportunities;
+    return confidenceLevel === 'high_only'
+      ? this.engine.selectHighConfidence(ranked)
+      : this.engine.selectMediumAndAbove(ranked);
+  }
+
+  private pickComparisonMetrics(result: BacktestResult, algorithmMode: BacktestAlgorithmMode): BacktestComparisonMetrics {
+    return {
+      algorithmMode,
+      roi: Number(result.roi.toFixed(2)),
+      netProfit: Number(result.netProfit.toFixed(2)),
+      totalStaked: Number(result.totalStaked.toFixed(2)),
+      betsPlaced: result.betsPlaced,
+      winRate: Number(result.winRate.toFixed(2)),
+      averageOdds: Number(result.averageOdds.toFixed(2)),
+      averageEV: Number(result.averageEV.toFixed(2)),
+      averageClv: result.averageClv,
+      positiveClvRate: result.positiveClvRate,
+      maxDrawdown: Number(result.maxDrawdown.toFixed(2)),
+      profitFactor: Number.isFinite(result.profitFactor) ? Number(result.profitFactor.toFixed(3)) : result.profitFactor,
+    };
+  }
+
+  private buildAlgorithmComparison(baseline: BacktestResult, current: BacktestResult): BacktestAlgorithmComparison {
+    const baselineResult = this.pickComparisonMetrics(baseline, 'baseline');
+    const currentResult = this.pickComparisonMetrics(current, 'current');
+    return {
+      baselineResult,
+      currentResult,
+      deltaROI: Number((currentResult.roi - baselineResult.roi).toFixed(2)),
+      deltaProfit: Number((currentResult.netProfit - baselineResult.netProfit).toFixed(2)),
+      deltaCLV: currentResult.averageClv !== null && baselineResult.averageClv !== null
+        ? Number((currentResult.averageClv - baselineResult.averageClv).toFixed(6))
+        : null,
+      deltaDrawdown: Number((currentResult.maxDrawdown - baselineResult.maxDrawdown).toFixed(2)),
+    };
+  }
+
   private simulateBacktestScenario(
     trainMatches: MatchData[],
     testMatches: MatchData[],
     historicalOdds: Record<string, Record<string, number>>,
     confidenceLevel: 'high_only' | 'medium_and_above',
-    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {},
+    options: BacktestRunOptions = {}
   ): BacktestResult {
+    const algorithmMode: BacktestAlgorithmMode = options.algorithmMode ?? 'current';
     const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
+    const teamSamples = this.buildTeamSampleSizes(trainMatches);
 
     this.model.fitModel(trainMatches, teams);
 
@@ -673,13 +882,14 @@ export class BacktestingEngine {
       const odds        = historicalOdds[match.matchId]
         ?? this.generateSyntheticOdds(match.matchId, probMap);
       const oddsSource: BacktestOddsSource = oddsContext?.oddsSource ?? (hasRealOdds ? 'unknown' : 'synthetic');
+      const isRealEurobetOdds = hasRealOdds && this.isRealEurobetOddsContext(oddsContext);
 
       if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
 
-      const allOpportunities = this.engine.analyzeMarkets(probMap, odds, marketNames);
-      const selected = confidenceLevel === 'high_only'
-        ? this.engine.selectHighConfidence(allOpportunities)
-        : this.engine.selectMediumAndAbove(allOpportunities);
+      const marketGroups = this.engine.buildMarketGroups(odds);
+      const analysisContext = this.buildBacktestValueAnalysisContext(match, teamSamples, isRealEurobetOdds);
+      const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(probMap, marketGroups, marketNames, analysisContext);
+      const selected = this.selectOpportunities(allOpportunities, confidenceLevel, algorithmMode);
 
       for (const opp of selected) {
         const stakeAmount = (bankroll * opp.suggestedStakePercent) / 100;
@@ -696,7 +906,7 @@ export class BacktestingEngine {
         const won = outcome;
         const returnAmount = won ? stakeAmount * opp.bookmakerOdds : 0;
         const profit       = returnAmount - stakeAmount;
-        const closing = this.resolveClosingOdds(oddsContext, opp.selection);
+        const closing = this.resolveClosingOdds(oddsContext, opp.selection, match.date);
         const clv = closing.closingOdds && closing.closingOdds > 1
           ? opp.bookmakerOdds / closing.closingOdds - 1
           : null;
@@ -719,7 +929,8 @@ export class BacktestingEngine {
           confidence:      opp.confidence,
           won,
           profit,
-          isSynthetic:     !hasRealOdds,
+          isSynthetic:     !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+          isRealEurobetOdds,
           oddsSource,
           snapshotSource:  oddsContext?.snapshotSource ?? null,
           oddsCapturedAt:  oddsContext?.capturedAt ?? null,
@@ -728,6 +939,12 @@ export class BacktestingEngine {
           closingSource:   closing.source,
           clv,
           clvMissingReason: closing.missingReason,
+          uncertaintyFactor: opp.uncertaintyFactor,
+          riskPenalty: opp.riskPenalty,
+          rankingScore: algorithmMode === 'baseline' ? Number(this.baselineScore(opp).toFixed(6)) : opp.rankingScore,
+          logGrowth: opp.logGrowth,
+          dynamicEvThreshold: opp.dynamicEvThreshold,
+          algorithmMode,
         });
       }
 
@@ -759,7 +976,7 @@ export class BacktestingEngine {
       );
     }
 
-    return this.computeMetrics(
+    const result = this.computeMetrics(
       bets,
       equityCurve,
       trainMatches.length,
@@ -767,6 +984,8 @@ export class BacktestingEngine {
       attemptedByCategory,
       voidedByCategory
     );
+    result.algorithmMode = algorithmMode;
+    return result;
   }
 
   /**
@@ -800,7 +1019,8 @@ export class BacktestingEngine {
     trainRatio = 0.7,
     confidenceLevel: 'high_only' | 'medium_and_above' = 'medium_and_above',
     temporalHoldoutMonths = 0,
-    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
+    historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {},
+    options: BacktestRunOptions = {}
   ): BacktestResult {
     const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -841,13 +1061,26 @@ export class BacktestingEngine {
     }
 
     console.log(`[Backtest] Training: ${trainMatches.length} partite | Test: ${testMatches.length}`);
+    const algorithmMode = options.algorithmMode ?? 'current';
     const result = this.simulateBacktestScenario(
       trainMatches,
       testMatches,
       historicalOdds,
       confidenceLevel,
-      historicalOddsContext
+      historicalOddsContext,
+      { algorithmMode }
     );
+    if (options.compareBaseline && algorithmMode === 'current') {
+      const baseline = this.simulateBacktestScenario(
+        trainMatches,
+        testMatches,
+        historicalOdds,
+        confidenceLevel,
+        historicalOddsContext,
+        { algorithmMode: 'baseline' }
+      );
+      result.algorithmComparison = this.buildAlgorithmComparison(baseline, result);
+    }
     console.log(`[Backtest] Bet piazzate: ${result.betsPlaced} | ROI: ${result.roi.toFixed(2)}% | edgeNoVig: ${result.edgeNoVig.toFixed(4)}${result.usedSyntheticOddsOnly ? ' ⚠️ solo quote sintetiche' : ''}`);
     return result;
   }
@@ -1215,6 +1448,22 @@ export class BacktestingEngine {
     const totalStaked = bets.reduce((s,b) => s+b.stake, 0);
     const totalReturn = bets.reduce((s,b) => s+(b.won?b.stake*b.odds:0), 0);
     const netProfit   = totalReturn - totalStaked;
+    const realEurobetBets = bets.filter((bet) => bet.isRealEurobetOdds);
+    const syntheticBets = bets.filter((bet) => bet.isSynthetic);
+    const stakedRealEurobetOdds = realEurobetBets.reduce((sum, bet) => sum + bet.stake, 0);
+    const stakedSyntheticOdds = syntheticBets.reduce((sum, bet) => sum + bet.stake, 0);
+    const profitRealEurobetOdds = realEurobetBets.reduce((sum, bet) => sum + bet.profit, 0);
+    const profitSyntheticOdds = syntheticBets.reduce((sum, bet) => sum + bet.profit, 0);
+    const roiRealEurobetOdds = stakedRealEurobetOdds > 0
+      ? Number(((profitRealEurobetOdds / stakedRealEurobetOdds) * 100).toFixed(2))
+      : null;
+    const roiSyntheticOdds = stakedSyntheticOdds > 0
+      ? Number(((profitSyntheticOdds / stakedSyntheticOdds) * 100).toFixed(2))
+      : null;
+    const roiTotal = totalStaked > 0 ? Number(((netProfit / totalStaked) * 100).toFixed(2)) : 0;
+    const oddsReliabilityWarning = realEurobetBets.length === 0 && syntheticBets.length > 0
+      ? 'Risultato indicativo: basato su quote sintetiche'
+      : null;
     const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
     const totalAttempts = bets.length + totalVoided;
     const unevaluableRate = totalAttempts > 0 ? (totalVoided / totalAttempts) * 100 : 0;
@@ -1389,6 +1638,16 @@ export class BacktestingEngine {
       betsWon:         won.length,
       totalStaked, totalReturn, netProfit,
       roi:          totalStaked>0 ? (netProfit/totalStaked)*100 : 0,
+      roiRealEurobetOdds,
+      roiSyntheticOdds,
+      roiTotal,
+      betsWithRealEurobetOdds: realEurobetBets.length,
+      betsWithSyntheticOdds: syntheticBets.length,
+      profitRealEurobetOdds: Number(profitRealEurobetOdds.toFixed(2)),
+      profitSyntheticOdds: Number(profitSyntheticOdds.toFixed(2)),
+      stakedRealEurobetOdds: Number(stakedRealEurobetOdds.toFixed(2)),
+      stakedSyntheticOdds: Number(stakedSyntheticOdds.toFixed(2)),
+      oddsReliabilityWarning,
       winRate:      bets.length>0  ? (won.length/bets.length)*100 : 0,
       averageOdds:  bets.length > 0 ? bets.reduce((s,b)=>s+b.odds,0)/bets.length : 0,
       averageEV:    bets.length > 0 ? bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100 : 0,
@@ -1423,6 +1682,7 @@ export class BacktestingEngine {
         outcome: bet.won ? 'WON' : 'LOST',
         won: bet.won,
         isSynthetic: bet.isSynthetic,
+        isRealEurobetOdds: bet.isRealEurobetOdds,
         oddsSource: bet.oddsSource,
         snapshotSource: bet.snapshotSource ?? null,
         oddsCapturedAt: bet.oddsCapturedAt ?? null,
@@ -1433,6 +1693,12 @@ export class BacktestingEngine {
         closingSource: bet.closingSource ?? null,
         clv: typeof bet.clv === 'number' ? Number(bet.clv.toFixed(6)) : null,
         clvMissingReason: bet.clvMissingReason ?? null,
+        uncertaintyFactor: typeof bet.uncertaintyFactor === 'number' ? Number(bet.uncertaintyFactor.toFixed(3)) : undefined,
+        riskPenalty: typeof bet.riskPenalty === 'number' ? Number(bet.riskPenalty.toFixed(3)) : undefined,
+        rankingScore: typeof bet.rankingScore === 'number' ? Number(bet.rankingScore.toFixed(6)) : undefined,
+        logGrowth: typeof bet.logGrowth === 'number' ? Number(bet.logGrowth.toFixed(6)) : undefined,
+        dynamicEvThreshold: typeof bet.dynamicEvThreshold === 'number' ? Number(bet.dynamicEvThreshold.toFixed(2)) : undefined,
+        algorithmMode: bet.algorithmMode,
       })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
@@ -1569,12 +1835,17 @@ export class BacktestingEngine {
     return {
       totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
       betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
-      roi:0, winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0, weightedBrierScore:0, weightedLogLoss:0,
+      roi:0, roiRealEurobetOdds:null, roiSyntheticOdds:null, roiTotal:0,
+      betsWithRealEurobetOdds:0, betsWithSyntheticOdds:0,
+      profitRealEurobetOdds:0, profitSyntheticOdds:0, stakedRealEurobetOdds:0, stakedSyntheticOdds:0,
+      oddsReliabilityWarning:null,
+      winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0, weightedBrierScore:0, weightedLogLoss:0,
       calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, detailedBets:[], marketUnevaluableBreakdown:{},
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
       marketCalibration:{}, marketReports:{},
       averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
+      algorithmMode:'current', algorithmComparison:null,
     };
   }
 }

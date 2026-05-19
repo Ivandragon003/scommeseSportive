@@ -2292,19 +2292,19 @@ export class PredictionService {
     return matches;
   }
 
-  async runBacktest(
+  private async executeSingleBacktest(
     competition: string,
     season?: string,
     historicalOdds?: Record<string, Record<string, number>>,
     options?: {
       trainRatio?: number;
       confidenceLevel?: 'high_only' | 'medium_and_above';
-    }
+      saveIndividualRuns?: boolean;
+      compareBaseline?: boolean;
+      algorithmMode?: 'current' | 'baseline';
+    },
+    persist = true
   ) {
-    if (isTop5BacktestRequest(competition)) {
-      return this.runTop5Backtest(season, historicalOdds, options);
-    }
-
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
     const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
@@ -2330,21 +2330,48 @@ export class PredictionService {
       : 0.7;
     const confidenceLevel = options?.confidenceLevel ?? 'medium_and_above';
 
-    const result = this.backtester.runBacktest(matches, oddsMap, trainRatio, confidenceLevel, 0, oddsDetailMap);
+    const result = this.backtester.runBacktest(matches, oddsMap, trainRatio, confidenceLevel, 0, oddsDetailMap, {
+      compareBaseline: options?.compareBaseline !== false,
+      algorithmMode: options?.algorithmMode ?? 'current',
+    });
     const payload: Record<string, any> = {
       kind: 'classic',
       competition,
       season: season ?? 'all',
       trainRatio,
       confidenceLevel,
+      saveIndividualRuns: options?.saveIndividualRuns === true,
       adaptiveTuning,
       historicalOddsCoverage: Object.keys(oddsMap).length,
       ...result,
     };
     payload.reportSnapshot = buildBacktestReport(payload);
-    const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
-    payload.resultId = resultId;
+    if (persist) {
+      const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+      payload.resultId = resultId;
+    } else {
+      payload.resultId = 0;
+    }
     return payload;
+  }
+
+  async runBacktest(
+    competition: string,
+    season?: string,
+    historicalOdds?: Record<string, Record<string, number>>,
+    options?: {
+      trainRatio?: number;
+      confidenceLevel?: 'high_only' | 'medium_and_above';
+      saveIndividualRuns?: boolean;
+      compareBaseline?: boolean;
+      algorithmMode?: 'current' | 'baseline';
+    }
+  ) {
+    if (isTop5BacktestRequest(competition)) {
+      return this.runTop5Backtest(season, historicalOdds, options);
+    }
+
+    return this.executeSingleBacktest(competition, season, historicalOdds, options, true);
   }
 
   async runWalkForwardBacktest(
@@ -2358,7 +2385,10 @@ export class PredictionService {
       confidenceLevel?: 'high_only' | 'medium_and_above';
       expandingWindow?: boolean;
       maxFolds?: number;
-    }
+      saveIndividualRuns?: boolean;
+      compareBaseline?: boolean;
+    },
+    persist = true
   ): Promise<any> {
     if (isTop5BacktestRequest(competition)) {
       return this.runTop5WalkForwardBacktest(season, historicalOdds, options);
@@ -2408,8 +2438,12 @@ export class PredictionService {
       resultId: 0,
     };
     payload.reportSnapshot = buildBacktestReport(payload);
-    const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
-    payload.resultId = resultId;
+    if (persist) {
+      const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+      payload.resultId = resultId;
+    } else {
+      payload.resultId = 0;
+    }
     return payload;
   }
 
@@ -2419,14 +2453,18 @@ export class PredictionService {
     options?: {
       trainRatio?: number;
       confidenceLevel?: 'high_only' | 'medium_and_above';
+      saveIndividualRuns?: boolean;
+      compareBaseline?: boolean;
+      algorithmMode?: 'current' | 'baseline';
     }
   ) {
     const competitionResults: any[] = [];
     const competitionErrors: Array<{ competition: string; message: string }> = [];
+    const saveIndividualRuns = options?.saveIndividualRuns === true;
 
     for (const competition of TOP_5_COMPETITIONS) {
       try {
-        competitionResults.push(await this.runBacktest(competition, season, historicalOdds, options));
+        competitionResults.push(await this.executeSingleBacktest(competition, season, historicalOdds, options, saveIndividualRuns));
       } catch (error) {
         competitionErrors.push({
           competition,
@@ -2448,6 +2486,7 @@ export class PredictionService {
       season: season ?? 'all',
       confidenceLevel: options?.confidenceLevel ?? 'medium_and_above',
       trainRatio: Number.isFinite(Number(options?.trainRatio)) ? Number(options?.trainRatio) : 0.7,
+      saveIndividualRuns,
       top5Aggregate,
       aggregate: top5Aggregate,
       byCompetition: top5Aggregate.byCompetition,
@@ -2479,14 +2518,17 @@ export class PredictionService {
       confidenceLevel?: 'high_only' | 'medium_and_above';
       expandingWindow?: boolean;
       maxFolds?: number;
+      saveIndividualRuns?: boolean;
+      compareBaseline?: boolean;
     }
   ) {
     const competitionResults: any[] = [];
     const competitionErrors: Array<{ competition: string; message: string }> = [];
+    const saveIndividualRuns = options?.saveIndividualRuns === true;
 
     for (const competition of TOP_5_COMPETITIONS) {
       try {
-        competitionResults.push(await this.runWalkForwardBacktest(competition, season, historicalOdds, options));
+        competitionResults.push(await this.runWalkForwardBacktest(competition, season, historicalOdds, options, saveIndividualRuns));
       } catch (error) {
         competitionErrors.push({
           competition,
@@ -2507,6 +2549,7 @@ export class PredictionService {
       competitionLabel: 'Top 5 campionati',
       season: season ?? 'all',
       confidenceLevel: options?.confidenceLevel ?? 'medium_and_above',
+      saveIndividualRuns,
       expandingWindow: options?.expandingWindow !== false,
       top5Aggregate,
       aggregate: top5Aggregate,

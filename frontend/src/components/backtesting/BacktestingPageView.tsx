@@ -53,6 +53,7 @@ const BacktestingPageView: React.FC = () => {
   const [stepMatches, setStepMatches] = useState('');
   const [maxFolds, setMaxFolds] = useState('10');
   const [expandingWindow, setExpandingWindow] = useState(true);
+  const [saveIndividualRuns, setSaveIndividualRuns] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [pruneKeepLatest, setPruneKeepLatest] = useState('20');
   const [reportMarket, setReportMarket] = useState('');
@@ -104,6 +105,7 @@ const BacktestingPageView: React.FC = () => {
       stepMatches,
       maxFolds,
       expandingWindow,
+      saveIndividualRuns,
     }, reportFilters);
     if (result) {
       setActiveTab(result.kind === 'walk_forward' || Array.isArray(result.folds) ? 'folds' : 'overview');
@@ -168,12 +170,14 @@ const BacktestingPageView: React.FC = () => {
                 <p>Backtest classico usa uno split train/test unico. Walk-forward simula finestre successive ed e piu utile per capire stabilita nel tempo.</p>
                 <p>Medium and above aumenta il campione e misura volume reale. High only e piu conservativo, ma puo essere troppo piccolo per giudizi rapidi.</p>
                 <p>Top 5 campionati esegue Serie A, Premier League, La Liga, Bundesliga e Ligue 1 separatamente, poi mostra aggregato e dettaglio.</p>
+                <p>Puoi scegliere se salvare anche i run singoli dei campionati: utile per storico dettagliato, meno utile se vuoi un archivio pulito.</p>
               </div>
               <div>
                 <h3 style={{ marginTop: 0 }}>Come leggere i numeri</h3>
                 <p>ROI e profit/loss dicono il risultato economico; win rate da solo non basta perche quote diverse hanno payout diversi.</p>
                 <p>Train ratio, initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
                 <p>CLV positivo significa che la quota scelta era migliore della quota Eurobet di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
+                <p>Quote Eurobet reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
               </div>
             </div>
           </div>
@@ -266,6 +270,23 @@ const BacktestingPageView: React.FC = () => {
                 </label>
               </>
             )}
+
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
+              <input
+                type="checkbox"
+                checked={saveIndividualRuns}
+                onChange={(e) => setSaveIndividualRuns(e.target.checked)}
+                aria-describedby="save-individual-runs-help"
+              />
+              <span>
+                <span style={{ display: 'block', color: 'var(--text-1)', fontWeight: 700 }}>
+                  Salva anche i run singoli dei campionati
+                </span>
+                <span id="save-individual-runs-help" style={{ display: 'block', fontSize: 12 }}>
+                  Per Top 5 mantiene in archivio anche Serie A, Premier League, La Liga, Bundesliga e Ligue 1 oltre al risultato aggregato.
+                </span>
+              </span>
+            </label>
 
             <button
               className="fp-btn fp-btn-gold fp-btn-lg"
@@ -866,6 +887,71 @@ const BacktestingPageView: React.FC = () => {
                     </div>
                   ))}
                 </div>
+
+                {backtestReport.oddsReliability && (
+                  <div className="fp-card" style={{ marginBottom: 18 }}>
+                    <div className="fp-card-head">
+                      <div className="fp-card-title">Affidabilita quote</div>
+                      <span className="fp-badge fp-badge-blue">Eurobet vs sintetiche</span>
+                    </div>
+                    <div className="fp-card-body">
+                      {backtestReport.oddsReliability.warning && (
+                        <div className="fp-alert fp-alert-warning" style={{ marginBottom: 14 }}>
+                          {backtestReport.oddsReliability.warning}
+                        </div>
+                      )}
+                      <div className="fp-grid-4">
+                        {[
+                          { label: 'ROI quote Eurobet reali', value: backtestReport.oddsReliability.roiRealEurobetOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiRealEurobetOdds, 2), color: 'green' },
+                          { label: 'ROI quote sintetiche', value: backtestReport.oddsReliability.roiSyntheticOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiSyntheticOdds, 2), color: 'gold' },
+                          { label: 'ROI totale', value: formatPct(backtestReport.oddsReliability.roiTotal, 2), color: 'blue' },
+                          { label: 'Bet Eurobet / sintetiche', value: `${backtestReport.oddsReliability.betsWithRealEurobetOdds ?? 0} / ${backtestReport.oddsReliability.betsWithSyntheticOdds ?? 0}`, color: 'purple' },
+                        ].map((item) => (
+                          <div key={item.label} className={`fp-stat c-${item.color}`}>
+                            <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
+                            <div className="fp-stat-label">{item.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {backtestReport.algorithmComparison && (
+                  <div className="fp-card" style={{ marginBottom: 18 }}>
+                    <div className="fp-card-head">
+                      <div className="fp-card-title">Baseline vs algoritmo attuale</div>
+                      <span className="fp-badge fp-badge-gray">ranking</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="fp-table">
+                        <thead>
+                          <tr>
+                            <th>Metrica</th>
+                            <th>Baseline</th>
+                            <th>Attuale</th>
+                            <th>Delta</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            ['ROI', formatPct(backtestReport.algorithmComparison.baselineResult?.roi, 2), formatPct(backtestReport.algorithmComparison.currentResult?.roi, 2), formatPct(backtestReport.algorithmComparison.deltaROI, 2)],
+                            ['Profitto', formatMoney(backtestReport.algorithmComparison.baselineResult?.netProfit), formatMoney(backtestReport.algorithmComparison.currentResult?.netProfit), formatMoney(backtestReport.algorithmComparison.deltaProfit)],
+                            ['CLV medio', backtestReport.algorithmComparison.baselineResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.baselineResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.currentResult?.averageClv === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.currentResult?.averageClv ?? 0) * 100, 2), backtestReport.algorithmComparison.deltaCLV === null ? '-' : formatPct(Number(backtestReport.algorithmComparison.deltaCLV ?? 0) * 100, 2)],
+                            ['Drawdown', formatPct(backtestReport.algorithmComparison.baselineResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.currentResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.deltaDrawdown, 2)],
+                          ].map(([label, baseline, current, delta]) => (
+                            <tr key={label}>
+                              <td>{label === 'ROI' ? 'Delta ROI' : label}</td>
+                              <td className="fp-mono">{baseline}</td>
+                              <td className="fp-mono">{current}</td>
+                              <td className="fp-mono">{delta}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {Array.isArray(backtestReport.alerts) && backtestReport.alerts.length > 0 && (
                   <div style={{ marginBottom: 18 }}>

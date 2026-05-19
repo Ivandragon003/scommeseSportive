@@ -47,6 +47,26 @@ const reportPayload = {
         realizedEvPct: 5.2,
         evCapturePct: 66.7,
       },
+      oddsReliability: {
+        roiRealEurobetOdds: 8.2,
+        roiSyntheticOdds: -3.1,
+        roiTotal: 5.4,
+        betsWithRealEurobetOdds: 12,
+        betsWithSyntheticOdds: 6,
+        profitRealEurobetOdds: 41,
+        profitSyntheticOdds: -6,
+        stakedRealEurobetOdds: 500,
+        stakedSyntheticOdds: 190,
+        warning: null,
+      },
+      algorithmComparison: {
+        baselineResult: { roi: 2.1, netProfit: 18, totalStaked: 600, betsPlaced: 16, winRate: 50, averageOdds: 2.05, averageEV: 5, averageClv: 0.004, positiveClvRate: 50, maxDrawdown: 7, profitFactor: 1.12 },
+        currentResult: { roi: 5.4, netProfit: 35, totalStaked: 690, betsPlaced: 18, winRate: 58.3, averageOdds: 2.11, averageEV: 7.8, averageClv: 0.015, positiveClvRate: 62, maxDrawdown: 5.5, profitFactor: 1.46 },
+        deltaROI: 3.3,
+        deltaProfit: 17,
+        deltaCLV: 0.011,
+        deltaDrawdown: -1.5,
+      },
       alerts: [],
       calibration: {
         probabilityBuckets: [],
@@ -188,12 +208,31 @@ describe('BacktestingPageView', () => {
     expect(screen.getByText(/una bet persa puo comunque essere buona/i)).toBeTruthy();
 
     const competitionSelect = screen.getByLabelText(/Competizione/i) as HTMLSelectElement;
+    const saveIndividualRuns = screen.getByLabelText(/Salva anche i run singoli/i) as HTMLInputElement;
+    expect(saveIndividualRuns.checked).toBe(false);
+    fireEvent.click(saveIndividualRuns);
+    expect(saveIndividualRuns.checked).toBe(true);
+
     fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
     fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
 
     await waitFor(() => expect(mockedApi.runBacktest).toHaveBeenCalledTimes(1));
     expect(mockedApi.runBacktest).toHaveBeenCalledWith(expect.objectContaining({
       competition: 'TOP_5',
+      saveIndividualRuns: true,
     }));
+  });
+
+  test('mostra metriche real/synthetic e confronto algoritmo nel report', async () => {
+    render(<BacktestingPageView />);
+
+    await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+
+    await screen.findByRole('button', { name: /Reset filtri/i });
+    expect(screen.getByText(/ROI quote Eurobet reali/i)).toBeTruthy();
+    expect(screen.getByText(/ROI quote sintetiche/i)).toBeTruthy();
+    expect(screen.getByText(/Baseline vs algoritmo attuale/i)).toBeTruthy();
+    expect(screen.getByText(/Delta ROI/i)).toBeTruthy();
   });
 });
