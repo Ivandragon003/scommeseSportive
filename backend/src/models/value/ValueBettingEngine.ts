@@ -105,6 +105,12 @@ export interface BetOpportunity {
   isValueBet: boolean;
   edge: number;                     // vs implied raw
   edgeNoVig: number;                // vs implied senza vig
+  uncertaintyFactor?: number;
+  riskPenalty?: number;
+  rankingScore?: number;
+  logGrowth?: number;
+  dynamicEvThreshold?: number;
+  contextStrength?: number;
   /** matchId della partita di riferimento — usato per rilevare correlazione nelle combinate */
   matchId?: string;
 }
@@ -123,6 +129,32 @@ export type MarketCategory =
 
 export type MarketTier = 'CORE' | 'SECONDARY' | 'SPECULATIVE';
 export type SelectionFamily = string;
+
+export interface ValueAnalysisFactors {
+  homeAdvantageIndex?: number;
+  formDelta?: number;
+  motivationDelta?: number;
+  restDelta?: number;
+  scheduleLoadDelta?: number;
+  suspensionsDelta?: number;
+  disciplinaryDelta?: number;
+  atRiskPlayersDelta?: number;
+  competitiveness?: number;
+  statSampleStrength?: number;
+  shotsReliability?: number;
+  cornersReliability?: number;
+  disciplineReliability?: number;
+}
+
+export interface ValueAnalysisContext {
+  richnessScore?: number;
+  teamSampleSize?: { home?: number; away?: number };
+  hasXg?: boolean;
+  hasPlayerData?: boolean;
+  hasRefereeData?: boolean;
+  marketVariance?: Partial<Record<MarketCategory, number>>;
+  analysisFactors?: ValueAnalysisFactors;
+}
 
 export interface AdaptiveCategoryTuning {
   evDelta: number;
@@ -528,6 +560,203 @@ export class ValueBettingEngine {
     return Number((baseThreshold * richnessMultiplier * varianceMultiplier * calibrationPenalty).toFixed(6));
   }
 
+  private computeContextualEvThreshold(
+    category: MarketCategory,
+    baseThreshold: number,
+    odds: number,
+    context: ValueAnalysisContext = {},
+    uncertaintyFactor = 0,
+    contextStrength = 0
+  ): number {
+    const richness = this.clampNumber(context.richnessScore ?? 0.65, 0, 1);
+    const marketVariance = this.clampNumber(
+      context.marketVariance?.[category] ?? this.getDefaultMarketVariance(category),
+      0.75,
+      2.5
+    );
+
+    let threshold = baseThreshold;
+    threshold += (1 - richness) * 0.04;
+    threshold += Math.max(0, marketVariance - 1) * 0.015;
+    threshold += uncertaintyFactor * 0.018;
+
+    if (odds > this.MAX_ODDS) {
+      threshold += 0.035;
+      if (contextStrength >= 0.7) threshold -= 0.02;
+    } else if (odds >= 5) {
+      threshold += 0.012;
+      if (contextStrength >= 0.7) threshold -= 0.006;
+    }
+
+    if (category === 'goal_1x2' || category === 'goal_ou') threshold -= 0.004;
+    if (category === 'exact_score' || category === 'handicap') threshold += 0.015;
+    if (category === 'yellow_cards') threshold += 0.008;
+
+    return this.clampNumber(Number(threshold.toFixed(6)), 0.015, 0.16);
+  }
+
+  private getDefaultMarketVariance(category: MarketCategory): number {
+    if (category === 'goal_1x2' || category === 'goal_ou') return 0.85;
+    if (category === 'shots' || category === 'shots_ot') return 1.05;
+    if (category === 'yellow_cards') return 1.22;
+    if (category === 'exact_score' || category === 'handicap') return 1.55;
+    return 1.15;
+  }
+
+  private inferSelectionDirection(selection: string): number {
+    const key = String(selection ?? '').toLowerCase();
+    if (
+      key === 'homewin' ||
+      key === 'dnb_home' ||
+      key === 'double_chance_1x' ||
+      key.startsWith('hcp_home') ||
+      key.startsWith('team_home_') ||
+      key.startsWith('ahcp_home')
+    ) return 1;
+    if (
+      key === 'awaywin' ||
+      key === 'dnb_away' ||
+      key === 'double_chance_x2' ||
+      key.startsWith('hcp_away') ||
+      key.startsWith('team_away_') ||
+      key.startsWith('ahcp_away')
+    ) return -1;
+    return 0;
+  }
+
+  private computeContextStrength(selection: string, category: MarketCategory, context: ValueAnalysisContext = {}): number {
+    const factors = context.analysisFactors;
+    if (!factors) return 0.35;
+
+    const direction = this.inferSelectionDirection(selection);
+    const signedSignal =
+      Number(factors.homeAdvantageIndex ?? 0) * 0.8 +
+      Number(factors.formDelta ?? 0) * 0.7 +
+      Number(factors.motivationDelta ?? 0) * 0.9 +
+      Number(factors.restDelta ?? 0) * 0.5 +
+      Number(factors.scheduleLoadDelta ?? 0) * 0.35 +
+      Number(factors.suspensionsDelta ?? 0) * 0.45 +
+      Number(factors.disciplinaryDelta ?? 0) * 0.2 +
+      Number(factors.atRiskPlayersDelta ?? 0) * 0.25;
+
+    let score = 0.18 + this.clampNumber(Number(factors.competitiveness ?? 0.5), 0, 1) * 0.16;
+    if (direction !== 0) {
+      score += this.clampNumber(direction * signedSignal, -0.6, 1.4) / 1.5;
+    }
+
+    const key = String(selection ?? '').toLowerCase();
+    if (key.startsWith('over') || key.includes('_over_')) {
+      score += Math.max(0, Number(factors.formDelta ?? 0)) * 0.22;
+      score += Math.max(0, Number(factors.motivationDelta ?? 0)) * 0.18;
+    } else if (key.startsWith('under') || key.includes('_under_')) {
+      score += Math.max(0, -Number(factors.formDelta ?? 0)) * 0.18;
+    }
+
+    if (category === 'shots' || category === 'shots_ot') {
+      score += this.clampNumber(Number(factors.shotsReliability ?? 0), 0, 1) * 0.12;
+    } else if (category === 'yellow_cards') {
+      score += this.clampNumber(Number(factors.disciplineReliability ?? 0), 0, 1) * 0.1;
+    }
+
+    return this.clampNumber(score, 0, 1);
+  }
+
+  private computeUncertaintyFactor(category: MarketCategory, odds: number, context: ValueAnalysisContext = {}): number {
+    const richness = this.clampNumber(context.richnessScore ?? 0.6, 0, 1);
+    const homeSample = Number(context.teamSampleSize?.home ?? 18);
+    const awaySample = Number(context.teamSampleSize?.away ?? 18);
+    const sampleStrength = this.clampNumber(((homeSample + awaySample) / 2) / 30, 0, 1);
+
+    let dataQuality =
+      richness * 0.45 +
+      sampleStrength * 0.2 +
+      (context.hasXg === false ? 0 : 0.12) +
+      (context.hasPlayerData === false ? 0 : 0.08) +
+      (context.hasRefereeData === false ? 0 : 0.05);
+
+    const factors = context.analysisFactors;
+    if (category === 'shots' || category === 'shots_ot') {
+      dataQuality += this.clampNumber(Number(factors?.shotsReliability ?? factors?.statSampleStrength ?? 0.5), 0, 1) * 0.1;
+    } else if (category === 'yellow_cards') {
+      dataQuality += this.clampNumber(Number(factors?.disciplineReliability ?? 0.45), 0, 1) * 0.08;
+    } else {
+      dataQuality += 0.08;
+    }
+
+    let uncertainty = 1 - this.clampNumber(dataQuality, 0, 1);
+    if (category === 'shots' || category === 'shots_ot') uncertainty += 0.06;
+    if (category === 'yellow_cards') uncertainty += 0.12;
+    if (category === 'exact_score' || category === 'handicap') uncertainty += 0.18;
+    if (odds > this.MAX_ODDS) uncertainty += 0.12;
+    else if (odds >= 5) uncertainty += 0.06;
+
+    return this.clampNumber(Number(uncertainty.toFixed(3)), 0.04, 0.85);
+  }
+
+  private computeRiskPenalty(
+    category: MarketCategory,
+    odds: number,
+    uncertaintyFactor: number,
+    contextStrength: number
+  ): number {
+    let penalty = uncertaintyFactor * 0.35;
+    if (odds > this.MAX_ODDS) penalty += 0.22;
+    else if (odds >= 5) penalty += 0.1;
+    if (category === 'exact_score' || category === 'handicap') penalty += 0.12;
+    if (category === 'yellow_cards') penalty += 0.06;
+    penalty -= Math.max(0, contextStrength - 0.7) * 0.12;
+    return this.clampNumber(Number(penalty.toFixed(3)), 0, 0.65);
+  }
+
+  private computeExpectedLogGrowth(probability: number, decimalOdds: number, stakePercent: number): number {
+    const p = this.clampNumber(probability, 0.000001, 0.999999);
+    const stake = this.clampNumber(stakePercent / 100, 0, 0.99);
+    if (stake <= 0 || decimalOdds <= 1) return 0;
+    const winGrowth = 1 + stake * (decimalOdds - 1);
+    const lossGrowth = 1 - stake;
+    return p * Math.log(winGrowth) + (1 - p) * Math.log(lossGrowth);
+  }
+
+  private computeRankingScore(input: {
+    ev: number;
+    edgeRaw: number;
+    edgeNoVig: number;
+    kelly: number;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    odds: number;
+    uncertaintyFactor: number;
+    riskPenalty: number;
+    contextStrength: number;
+    logGrowth: number;
+    adaptiveRankMultiplier: number;
+  }): number {
+    const confidenceScore = input.confidence === 'HIGH' ? 1 : input.confidence === 'MEDIUM' ? 0.68 : 0.38;
+    const edgeNoVigScore = this.clampNumber(input.edgeNoVig / 0.1, -1, 2);
+    const rawEdgeScore = this.clampNumber(input.edgeRaw / 0.1, -1, 2);
+    const evScore = this.clampNumber(input.ev / 0.2, -1, 2);
+    const kellyScore = this.clampNumber(input.kelly / 0.04, 0, 1.5);
+    const reliabilityScore = 1 - input.uncertaintyFactor;
+    const logGrowthScore = this.clampNumber((input.logGrowth + 0.01) / 0.04, 0, 1.5);
+    const highOddsDrag = input.odds > this.MAX_ODDS ? (input.odds - this.MAX_ODDS) * 0.08 : 0;
+
+    // Edge raw confronta la probabilita modello con la quota Eurobet grezza.
+    // Edge no-vig confronta la stessa probabilita con la quota Eurobet pulita dal margine:
+    // per il ranking finale pesa di piu perche misura meglio se stiamo battendo il mercato.
+    const score =
+      edgeNoVigScore * 0.35 +
+      rawEdgeScore * 0.04 +
+      evScore * 0.18 +
+      kellyScore * 0.16 +
+      confidenceScore * 0.07 +
+      reliabilityScore * 0.09 +
+      logGrowthScore * 0.11 +
+      input.contextStrength * 0.06 -
+      input.riskPenalty * 0.35 -
+      highOddsDrag;
+
+    return Number((score * input.adaptiveRankMultiplier).toFixed(6));
+  }
+
   private getCategoryRankingMultiplier(category: MarketCategory, selection?: string): number {
     const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
     return this.clampNumber(tuning.rankingMultiplier, 0.85, 1.25);
@@ -704,14 +933,24 @@ export class ValueBettingEngine {
     ev: number,
     edgeNoVig: number,
     category: MarketCategory,
-    minEv: number
+    minEv: number,
+    contextStrength = 0,
+    selection?: string
   ): boolean {
     if (this.DISABLED_CATEGORIES.has(category)) return false;
 
-    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category);
+    const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category, selection);
 
     // 1. Range odds assoluto
-    if (odds < minOdds || odds > maxOdds) return false;
+    if (odds < minOdds) return false;
+    const highOddsContextException =
+      odds > maxOdds &&
+      odds <= Math.max(maxOdds, 12) &&
+      (category === 'goal_1x2' || category === 'goal_ou') &&
+      contextStrength >= 0.68 &&
+      ev >= minEv + 0.05 &&
+      edgeNoVig >= 0.035;
+    if (odds > maxOdds && !highOddsContextException) return false;
 
     // 2. EV minimo per categoria
     if (ev <= minEv) return false;
@@ -842,7 +1081,8 @@ export class ValueBettingEngine {
   analyzeMarkets(
     probabilities: Record<string, number>,
     bookmakerOdds: Record<string, number>,
-    marketNames: Record<string, string>
+    marketNames: Record<string, string>,
+    context: ValueAnalysisContext = {}
   ): BetOpportunity[] {
     const opportunities: BetOpportunity[] = [];
     const marginByCategory = this.computeCategoryMargins(bookmakerOdds);
@@ -859,11 +1099,43 @@ export class ValueBettingEngine {
       const ev         = this.computeExpectedValue(ourProb, odds);
       const edge       = ourProb - implied;
       const edgeNoVig  = edge; // senza companions, uguale all'edge raw
-      const minEv      = this.minEvForCategory(category, marginByCategory[category], key);
+      const baseMinEv  = this.minEvForCategory(category, marginByCategory[category], key);
+      const contextStrength = this.computeContextStrength(key, category, context);
+      const uncertaintyFactor = this.computeUncertaintyFactor(category, odds, context);
+      const minEv = this.computeContextualEvThreshold(
+        category,
+        baseMinEv,
+        odds,
+        context,
+        uncertaintyFactor,
+        contextStrength
+      );
 
-      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
-      const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
+      const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
+      const riskPenalty = this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength);
+      const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const stakePercent = Number(
+        Math.max(
+          this.MIN_STAKE_PERCENT,
+          Math.min(kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
+        ).toFixed(2)
+      );
+      const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
+      const rankingScore = this.computeRankingScore({
+        ev,
+        edgeRaw: edge,
+        edgeNoVig,
+        kelly: this.kellyFraction(ourProb, odds),
+        confidence: stake.confidence,
+        odds,
+        uncertaintyFactor,
+        riskPenalty,
+        contextStrength,
+        logGrowth,
+        adaptiveRankMultiplier,
+      });
 
       opportunities.push({
         marketName:              marketNames[key] ?? key,
@@ -879,14 +1151,24 @@ export class ValueBettingEngine {
         expectedValue:           parseFloat((ev         * 100).toFixed(2)),
         kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
-        confidence,
+        confidence:              stake.confidence,
         isValueBet:              true,
         edge:                    parseFloat((edge    * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
+        uncertaintyFactor:       Number(uncertaintyFactor.toFixed(3)),
+        riskPenalty:             Number(riskPenalty.toFixed(3)),
+        rankingScore,
+        logGrowth:               Number(logGrowth.toFixed(6)),
+        dynamicEvThreshold:      Number((minEv * 100).toFixed(2)),
+        contextStrength:         Number(contextStrength.toFixed(3)),
       });
     }
 
-    return opportunities.sort((a, b) => (b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) - (a.expectedValue * (a.adaptiveRankMultiplier ?? 1)));
+    return opportunities.sort(
+      (a, b) =>
+        Number(b.rankingScore ?? b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) -
+        Number(a.rankingScore ?? a.expectedValue * (a.adaptiveRankMultiplier ?? 1))
+    );
   }
 
   /**
@@ -896,7 +1178,8 @@ export class ValueBettingEngine {
   analyzeMarketsWithVigRemoval(
     probabilities: Record<string, number>,
     marketGroups: Record<string, MarketOddsGroup>,
-    marketNames: Record<string, string>
+    marketNames: Record<string, string>,
+    context: ValueAnalysisContext = {}
   ): BetOpportunity[] {
     const opportunities: BetOpportunity[] = [];
     const marginByCategory = this.computeCategoryMarginsFromGroups(marketGroups);
@@ -916,11 +1199,43 @@ export class ValueBettingEngine {
       const marketTier   = this.getMarketTier(category);
       const selectionFamily = this.getSelectionFamily(key);
       const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
-      const minEv        = this.minEvForCategory(category, marginByCategory[category], key);
+      const baseMinEv    = this.minEvForCategory(category, marginByCategory[category], key);
+      const contextStrength = this.computeContextStrength(key, category, context);
+      const uncertaintyFactor = this.computeUncertaintyFactor(category, odds, context);
+      const minEv        = this.computeContextualEvThreshold(
+        category,
+        baseMinEv,
+        odds,
+        context,
+        uncertaintyFactor,
+        contextStrength
+      );
 
-      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv)) continue;
+      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
-      const { stakePercent, confidence } = this.computeSuggestedStake(ourProb, odds, ev);
+      const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
+      const riskPenalty = this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength);
+      const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const stakePercent = Number(
+        Math.max(
+          this.MIN_STAKE_PERCENT,
+          Math.min(kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
+        ).toFixed(2)
+      );
+      const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
+      const rankingScore = this.computeRankingScore({
+        ev,
+        edgeRaw,
+        edgeNoVig,
+        kelly: this.kellyFraction(ourProb, odds),
+        confidence: stake.confidence,
+        odds,
+        uncertaintyFactor,
+        riskPenalty,
+        contextStrength,
+        logGrowth,
+        adaptiveRankMultiplier,
+      });
 
       opportunities.push({
         marketName:              marketNames[key] ?? key,
@@ -936,14 +1251,24 @@ export class ValueBettingEngine {
         expectedValue:           parseFloat((ev           * 100).toFixed(2)),
         kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
-        confidence,
+        confidence:              stake.confidence,
         isValueBet:              true,
         edge:                    parseFloat((edgeRaw   * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
+        uncertaintyFactor:       Number(uncertaintyFactor.toFixed(3)),
+        riskPenalty:             Number(riskPenalty.toFixed(3)),
+        rankingScore,
+        logGrowth:               Number(logGrowth.toFixed(6)),
+        dynamicEvThreshold:      Number((minEv * 100).toFixed(2)),
+        contextStrength:         Number(contextStrength.toFixed(3)),
       });
     }
 
-    return opportunities.sort((a, b) => (b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) - (a.expectedValue * (a.adaptiveRankMultiplier ?? 1)));
+    return opportunities.sort(
+      (a, b) =>
+        Number(b.rankingScore ?? b.expectedValue * (b.adaptiveRankMultiplier ?? 1)) -
+        Number(a.rankingScore ?? a.expectedValue * (a.adaptiveRankMultiplier ?? 1))
+    );
   }
 
   /**

@@ -64,7 +64,12 @@ const reportPayload = {
         legacyData: false,
       },
       clv: {
-        reason: 'Richiede quota al timestamp della raccomandazione.',
+        available: false,
+        reason: 'Richiede quota di chiusura Eurobet prima del kickoff.',
+        averageClv: null,
+        positiveClvRate: null,
+        betsWithClv: 0,
+        missingClosingOddsCount: 18,
       },
     },
   },
@@ -136,17 +141,18 @@ describe('BacktestingPageView', () => {
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
     await screen.findByRole('button', { name: /Reset filtri/i });
 
-    const comboboxes = screen.getAllByRole('combobox') as HTMLSelectElement[];
-    fireEvent.change(comboboxes[2], { target: { value: 'Totali Goal' } });
-    fireEvent.change(comboboxes[3], { target: { value: 'eurobet_scraper' } });
+    const marketSelect = screen.getByLabelText(/^Mercato$/i) as HTMLSelectElement;
+    const sourceSelect = screen.getByLabelText(/Sorgente quote/i) as HTMLSelectElement;
+    fireEvent.change(marketSelect, { target: { value: 'Totali Goal' } });
+    fireEvent.change(sourceSelect, { target: { value: 'eurobet_scraper' } });
 
-    await waitFor(() => expect(comboboxes[2].value).toBe('Totali Goal'));
-    await waitFor(() => expect(comboboxes[3].value).toBe('eurobet_scraper'));
+    await waitFor(() => expect(marketSelect.value).toBe('Totali Goal'));
+    await waitFor(() => expect(sourceSelect.value).toBe('eurobet_scraper'));
 
     fireEvent.click(screen.getByRole('button', { name: /Reset filtri/i }));
 
-    await waitFor(() => expect(comboboxes[2].value).toBe(''));
-    await waitFor(() => expect(comboboxes[3].value).toBe(''));
+    await waitFor(() => expect(marketSelect.value).toBe(''));
+    await waitFor(() => expect(sourceSelect.value).toBe(''));
 
     fireEvent.click(screen.getByRole('button', { name: /Elimina Run/i }));
 
@@ -169,5 +175,25 @@ describe('BacktestingPageView', () => {
 
     expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(2);
+  });
+
+  test('mostra tutorial Backtesting e invia il preset Top 5 campionati', async () => {
+    render(<BacktestingPageView />);
+
+    await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText(/CLV positivo/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Come usare il backtesting/i }));
+    expect(screen.getByText(/CLV positivo/i)).toBeTruthy();
+    expect(screen.getByText(/una bet persa puo comunque essere buona/i)).toBeTruthy();
+
+    const competitionSelect = screen.getByLabelText(/Competizione/i) as HTMLSelectElement;
+    fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
+    fireEvent.click(screen.getByRole('button', { name: /Avvia Backtest/i }));
+
+    await waitFor(() => expect(mockedApi.runBacktest).toHaveBeenCalledTimes(1));
+    expect(mockedApi.runBacktest).toHaveBeenCalledWith(expect.objectContaining({
+      competition: 'TOP_5',
+    }));
   });
 });

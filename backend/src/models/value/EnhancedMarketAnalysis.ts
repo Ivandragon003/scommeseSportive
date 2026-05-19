@@ -5,6 +5,7 @@ import {
   MarketCategory,
   AdaptiveCategoryTuning,
   AdaptiveEngineTuningProfile,
+  ValueAnalysisContext,
 } from './ValueBettingEngine';
 
 export interface EnhancedPredictionResponse {
@@ -82,8 +83,8 @@ export function applyIntraMatchCorrelationCap(
 
   return result.sort(
     (a, b) =>
-      Number(b.expectedValue ?? 0) * Number(b.adaptiveRankMultiplier ?? 1) -
-      Number(a.expectedValue ?? 0) * Number(a.adaptiveRankMultiplier ?? 1)
+      Number(b.rankingScore ?? Number(b.expectedValue ?? 0) * Number(b.adaptiveRankMultiplier ?? 1)) -
+      Number(a.rankingScore ?? Number(a.expectedValue ?? 0) * Number(a.adaptiveRankMultiplier ?? 1))
   );
 }
 
@@ -173,6 +174,7 @@ export function analyzeMarketsEnhanced(params: {
   engine: ValueBettingEngine;
   maxComboLegs?: number;
   minCombinedEV?: number;
+  analysisContext?: ValueAnalysisContext;
 }): {
   coreBets: BetOpportunity[];
   secondaryBets: BetOpportunity[];
@@ -191,6 +193,7 @@ export function analyzeMarketsEnhanced(params: {
     engine,
     maxComboLegs = 3,
     minCombinedEV = 0.08,
+    analysisContext,
   } = params;
 
   const calibratedProbs = applyCalibrationToFlatProbabilities(
@@ -250,7 +253,10 @@ export function analyzeMarketsEnhanced(params: {
   engine.setAdaptiveTuning(mergedProfile);
   try {
     allOpportunities = engine
-      .analyzeMarketsWithVigRemoval(calibratedProbs, marketGroups, marketNames)
+      .analyzeMarketsWithVigRemoval(calibratedProbs, marketGroups, marketNames, {
+        ...analysisContext,
+        richnessScore,
+      })
       .map((opp) => ({ ...opp, matchId: opp.matchId ?? matchId }));
   } finally {
     engine.setAdaptiveTuning(existingProfile);

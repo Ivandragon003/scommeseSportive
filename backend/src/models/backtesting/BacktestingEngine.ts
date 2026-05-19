@@ -91,6 +91,11 @@ export interface BacktestResult {
   usedSyntheticOddsOnly: boolean;
   marketCalibration?: Record<string, CalibrationBucket[]>;
   marketReports?: Record<string, MarketLevelReport>;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+  missingClosingOddsCount: number;
+  clvByMarket: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
+  clvByCompetition: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
 }
 
 export interface MarketStats {
@@ -208,6 +213,9 @@ export interface HistoricalOddsContextEntry {
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
   capturedAt?: string | null;
+  closingOdds?: Record<string, number>;
+  closingCapturedAt?: string | null;
+  closingSource?: string | null;
   usedFallbackBookmaker?: boolean;
   usedSyntheticOdds?: boolean;
 }
@@ -235,6 +243,11 @@ export interface BacktestBetDetail {
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
   oddsCapturedAt?: string | null;
+  closingOdds?: number | null;
+  closingOddsCapturedAt?: string | null;
+  closingSource?: string | null;
+  clv?: number | null;
+  clvMissingReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | null;
 }
 
 interface TestBet {
@@ -259,6 +272,11 @@ interface TestBet {
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
   oddsCapturedAt?: string | null;
+  closingOdds?: number | null;
+  closingOddsCapturedAt?: string | null;
+  closingSource?: string | null;
+  clv?: number | null;
+  clvMissingReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | null;
 }
 
 export class BacktestingEngine {
@@ -583,6 +601,43 @@ export class BacktestingEngine {
     this.engine.setAdaptiveTuning(profile ?? null);
   }
 
+  private isEurobetClosingContext(context?: HistoricalOddsContextEntry): boolean {
+    const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
+    const closingSource = String(context?.closingSource ?? context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
+    return selectedSource.includes('eurobet') && closingSource.includes('eurobet');
+  }
+
+  private resolveClosingOdds(
+    context: HistoricalOddsContextEntry | undefined,
+    selection: string
+  ): { closingOdds: number | null; capturedAt: string | null; source: string | null; missingReason: 'missing_closing_odds' | 'non_eurobet_snapshot' | null } {
+    if (!context || !this.isEurobetClosingContext(context)) {
+      return {
+        closingOdds: null,
+        capturedAt: context?.closingCapturedAt ?? null,
+        source: context?.closingSource ?? context?.snapshotSource ?? null,
+        missingReason: 'non_eurobet_snapshot',
+      };
+    }
+
+    const closingOdds = Number(context.closingOdds?.[selection]);
+    if (!Number.isFinite(closingOdds) || closingOdds <= 1) {
+      return {
+        closingOdds: null,
+        capturedAt: context.closingCapturedAt ?? null,
+        source: context.closingSource ?? context.snapshotSource ?? null,
+        missingReason: 'missing_closing_odds',
+      };
+    }
+
+    return {
+      closingOdds,
+      capturedAt: context.closingCapturedAt ?? null,
+      source: context.closingSource ?? context.snapshotSource ?? null,
+      missingReason: null,
+    };
+  }
+
   private simulateBacktestScenario(
     trainMatches: MatchData[],
     testMatches: MatchData[],
@@ -641,6 +696,10 @@ export class BacktestingEngine {
         const won = outcome;
         const returnAmount = won ? stakeAmount * opp.bookmakerOdds : 0;
         const profit       = returnAmount - stakeAmount;
+        const closing = this.resolveClosingOdds(oddsContext, opp.selection);
+        const clv = closing.closingOdds && closing.closingOdds > 1
+          ? opp.bookmakerOdds / closing.closingOdds - 1
+          : null;
 
         bankroll += profit;
         bets.push({
@@ -664,6 +723,11 @@ export class BacktestingEngine {
           oddsSource,
           snapshotSource:  oddsContext?.snapshotSource ?? null,
           oddsCapturedAt:  oddsContext?.capturedAt ?? null,
+          closingOdds:     closing.closingOdds,
+          closingOddsCapturedAt: closing.capturedAt,
+          closingSource:   closing.source,
+          clv,
+          clvMissingReason: closing.missingReason,
         });
       }
 
@@ -1286,6 +1350,34 @@ export class BacktestingEngine {
     }
     const marketCalibration = this.computeCalibrationByMarket(bets).byMarket;
     const marketReports = this.computeMarketLevelReports(bets, 'none');
+    const clvRows = bets.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+    const missingClosingOddsCount = bets.length - clvRows.length;
+    const averageClv = clvRows.length > 0
+      ? Number((clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length).toFixed(6))
+      : null;
+    const positiveClvRate = clvRows.length > 0
+      ? Number(((clvRows.filter((bet) => Number(bet.clv) > 0).length / clvRows.length) * 100).toFixed(2))
+      : null;
+    const summarizeClv = (keyFn: (bet: TestBet) => string | null): Record<string, { bets: number; averageClv: number; positiveClvRate: number }> => {
+      const grouped: Record<string, TestBet[]> = {};
+      for (const bet of clvRows) {
+        const key = keyFn(bet);
+        if (!key) continue;
+        (grouped[key] ??= []).push(bet);
+      }
+      return Object.fromEntries(
+        Object.entries(grouped).map(([key, rows]) => [
+          key,
+          {
+            bets: rows.length,
+            averageClv: Number((rows.reduce((sum, bet) => sum + Number(bet.clv), 0) / rows.length).toFixed(6)),
+            positiveClvRate: Number(((rows.filter((bet) => Number(bet.clv) > 0).length / rows.length) * 100).toFixed(2)),
+          },
+        ])
+      );
+    };
+    const clvByMarket = summarizeClv((bet) => String(bet.marketCategory ?? 'unknown'));
+    const clvByCompetition = summarizeClv((bet) => String(bet.competition ?? 'unknown'));
 
     return {
       totalMatches:    trainCount + testCount,
@@ -1334,6 +1426,13 @@ export class BacktestingEngine {
         oddsSource: bet.oddsSource,
         snapshotSource: bet.snapshotSource ?? null,
         oddsCapturedAt: bet.oddsCapturedAt ?? null,
+        closingOdds: typeof bet.clv === 'number' && bet.closingOdds
+          ? Number(bet.closingOdds.toFixed(2))
+          : null,
+        closingOddsCapturedAt: bet.closingOddsCapturedAt ?? null,
+        closingSource: bet.closingSource ?? null,
+        clv: typeof bet.clv === 'number' ? Number(bet.clv.toFixed(6)) : null,
+        clvMissingReason: bet.clvMissingReason ?? null,
       })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
@@ -1342,6 +1441,11 @@ export class BacktestingEngine {
       usedSyntheticOddsOnly,
       marketCalibration,
       marketReports,
+      averageClv,
+      positiveClvRate,
+      missingClosingOddsCount,
+      clvByMarket,
+      clvByCompetition,
     };
   }
 
@@ -1470,6 +1574,7 @@ export class BacktestingEngine {
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
       marketCalibration:{}, marketReports:{},
+      averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
     };
   }
 }
