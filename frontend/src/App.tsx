@@ -2,12 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
-  AlertTriangle,
-  CheckCircle2,
   Database,
   FlaskConical,
   LayoutDashboard,
-  Loader2,
   MoreHorizontal,
   RadioTower,
   RefreshCw,
@@ -21,12 +18,12 @@ import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
 import { getScraperStatus } from './utils/api';
+import ToastStack from './components/common/ToastStack';
+import { useToastState } from './hooks/useToastState';
 import './footpredictor.css';
 
-type SyncState = 'idle' | 'loading' | 'success' | 'error' | 'warning';
-
 const NAV_ITEMS = [
-  { path: '/', label: 'Dashboard', meta: 'stato sistema', icon: LayoutDashboard },
+  { path: '/', label: 'Dashboard', meta: 'accesso rapido', icon: LayoutDashboard },
   { path: '/predictions', label: 'Previsioni', meta: 'pick e quote', icon: Target },
   { path: '/budget', label: 'Budget', meta: 'bankroll e storico', icon: Wallet },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
@@ -54,73 +51,14 @@ const getInitialActiveUser = () => {
   return CONFIGURED_USERS[0] ?? DEFAULT_ACTIVE_USER;
 };
 
-const StatusIcon: React.FC<{ state: SyncState }> = ({ state }) => {
-  if (state === 'success') return <CheckCircle2 size={16} />;
-  if (state === 'error') return <AlertTriangle size={16} />;
-  if (state === 'warning') return <AlertTriangle size={16} />;
-  return <Loader2 size={16} className="fp-spin" />;
-};
-
-const formatSyncDateTime = (iso?: string | null) => {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString('it-IT', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
-const getSystemHealthFromRuns = (runs: any[]): { state: SyncState; label: string } => {
-  const latestByScheduler = new Map<string, any>();
-  for (const run of Array.isArray(runs) ? runs : []) {
-    const key = String(run?.schedulerName ?? '').trim();
-    if (!key || latestByScheduler.has(key)) continue;
-    latestByScheduler.set(key, run);
-  }
-
-  const understat = latestByScheduler.get('understat');
-  const learning = latestByScheduler.get('learning');
-  const odds = latestByScheduler.get('odds');
-  const coreRuns = [understat, learning].filter(Boolean);
-
-  if (coreRuns.length === 0 && !odds) {
-    return { state: 'loading', label: 'Sistema in attesa' };
-  }
-  if (coreRuns.some((run) => run?.success === false)) {
-    return { state: 'error', label: 'Sistema con errori' };
-  }
-  if (coreRuns.length < 2) {
-    return { state: 'warning', label: 'Sistema parziale' };
-  }
-  if (odds && odds?.success === false) {
-    return { state: 'warning', label: 'Sistema parziale' };
-  }
-  if (coreRuns.every((run) => run?.success === true)) {
-    return { state: 'success', label: 'Sistema OK' };
-  }
-  return { state: 'warning', label: 'Sistema parziale' };
-};
-
 interface AppShellProps {
   activeUser: string;
-  availableUsers: string[];
-  onChangeActiveUser: (nextUser: string) => void;
-  syncStatus: { state: SyncState; message: string };
-  systemHealth: { state: SyncState; label: string };
   statusRefreshing: boolean;
   onRefreshStatus: () => void;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
   activeUser,
-  availableUsers,
-  onChangeActiveUser,
-  syncStatus,
-  systemHealth,
   statusRefreshing,
   onRefreshStatus,
 }) => {
@@ -136,13 +74,6 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="app-shell">
-      <div className={`sync-banner sync-banner--${syncStatus.state}`}>
-        <div className="sync-banner__row">
-          <span className="sync-banner__label">Sync Notturna</span>
-          <span className="sync-banner__message">{syncStatus.message}</span>
-        </div>
-      </div>
-
       <header className="app-header">
         <div className="app-brand">
           <div className="app-brand-mark" aria-hidden="true">
@@ -155,57 +86,17 @@ export const AppShell: React.FC<AppShellProps> = ({
         </div>
 
         <div className="app-header-right">
-          {availableUsers.length > 1 ? (
-            <label className="app-user-picker">
-              <span className="app-user-picker__label">Workspace</span>
-              <select
-                className="app-user-picker__select"
-                value={activeUser}
-                onChange={(event) => onChangeActiveUser(event.target.value)}
-                aria-label="Workspace attivo"
-              >
-                {availableUsers.map((user) => (
-                  <option key={user} value={user}>
-                    {user}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <div className="app-user-chip">
-              <span className="app-user-chip__label">Workspace</span>
-              <strong className="app-user-chip__value" translate="no">{activeUser}</strong>
-            </div>
-          )}
           <button
             type="button"
             className="fp-btn fp-btn-ghost fp-btn-sm app-header-refresh"
             onClick={onRefreshStatus}
             disabled={statusRefreshing}
-            title={statusRefreshing ? 'Aggiornamento stato sistema in corso' : 'Ricarica stato sync e salute del sistema'}
-            aria-label={statusRefreshing ? 'Aggiornamento stato in corso' : 'Aggiorna stato sistema'}
+            title={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
+            aria-label={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
           >
             <RefreshCw size={14} className={statusRefreshing ? 'fp-spin' : ''} />
-            <span>{statusRefreshing ? 'Aggiorno…' : 'Aggiorna Sistema'}</span>
+            <span>{statusRefreshing ? 'Aggiorno...' : 'Aggiorna Sistema'}</span>
           </button>
-          <div className={`app-status-chip is-${systemHealth.state}`}>
-            <span className="app-status-dot" />
-            <StatusIcon state={systemHealth.state} />
-            <span>{systemHealth.label}</span>
-          </div>
-          <div className={`app-status-chip is-${syncStatus.state}`}>
-            <span className="app-status-dot" />
-            <StatusIcon state={syncStatus.state} />
-            <span>
-              {syncStatus.state === 'error'
-                ? 'Sync errore'
-                : syncStatus.state === 'success'
-                  ? 'Sync OK'
-                  : syncStatus.state === 'warning'
-                    ? 'Sync parziale'
-                    : 'Sync in corso'}
-            </span>
-          </div>
         </div>
       </header>
 
@@ -297,18 +188,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 };
 
 const App: React.FC = () => {
-  const [activeUser, setActiveUser] = useState(getInitialActiveUser);
-  const [syncStatus, setSyncStatus] = useState<{ state: SyncState; message: string }>({
-    state: 'loading',
-    message: 'Verifica stato sincronizzazione notturna...',
-  });
-  const [systemHealth, setSystemHealth] = useState<{ state: SyncState; label: string }>({
-    state: 'loading',
-    label: 'Sistema in attesa',
-  });
+  const [activeUser] = useState(getInitialActiveUser);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
+  const { toasts, showToast, dismissToast } = useToastState();
   const mountedRef = useRef(true);
-  const availableUsers = Array.from(new Set([...CONFIGURED_USERS, activeUser].filter(Boolean)));
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -317,76 +200,49 @@ const App: React.FC = () => {
   }, [activeUser]);
 
   const applyStatus = useCallback((statusPayload: any) => {
-      const scheduler = statusPayload?.data?.understatScheduler ?? null;
-      const lastUpdate = statusPayload?.data?.lastUpdate ?? null;
-      setSystemHealth(getSystemHealthFromRuns(statusPayload?.data?.recentSchedulerRuns ?? []));
-      if (statusPayload?.data?.isUpdating || scheduler?.running) {
-        const nextMessage = scheduler?.lastRunAt
-          ? `Sincronizzazione notturna Understat in corso. Avviata ${formatSyncDateTime(scheduler.lastRunAt) ?? 'di recente'}.`
-          : 'Sincronizzazione notturna Understat in corso...';
-        setSyncStatus({ state: 'loading', message: nextMessage });
-        return;
-      }
+    const scheduler = statusPayload?.data?.understatScheduler ?? null;
+    const lastUpdate = statusPayload?.data?.lastUpdate ?? null;
+    if (statusPayload?.data?.isUpdating || scheduler?.running) {
+      return;
+    }
 
-      if (lastUpdate?.success) {
-        const nextRun = formatSyncDateTime(scheduler?.nextRunAt);
-        setSyncStatus({
-          state: 'success',
-          message: nextRun
-            ? `${lastUpdate?.message || 'Dati aggiornati correttamente.'} Prossima sync: ${nextRun}.`
-            : lastUpdate?.message || 'Dati aggiornati correttamente.',
-        });
-        window.dispatchEvent(new Event('data-sync-complete'));
-        return;
-      }
+    if (lastUpdate?.success) {
+      window.dispatchEvent(new Event('data-sync-complete'));
+      return;
+    }
 
-      if (lastUpdate?.success === false) {
-        setSyncStatus({
-          state: 'error',
-          message: lastUpdate?.message || 'Ultima sincronizzazione non completata.',
-        });
-        window.dispatchEvent(new Event('data-sync-error'));
-        return;
-      }
-
-      const nextRun = formatSyncDateTime(scheduler?.nextRunAt);
-      if (scheduler?.enabled && nextRun) {
-        setSyncStatus({
-          state: 'success',
-          message: `Sync notturna programmata alle ${scheduler?.time ?? '01:00'}. Prossimo avvio: ${nextRun}.`,
-        });
-        return;
-      }
-
-      setSyncStatus({
-        state: 'success',
-        message: 'Sincronizzazione automatica non pianificata. Usa la pagina Scrapers per un refresh manuale.',
-      });
+    if (lastUpdate?.success === false) {
+      window.dispatchEvent(new Event('data-sync-error'));
+    }
   }, []);
 
   const refreshStatus = useCallback(async (options?: { silent?: boolean }) => {
-      const isSilent = options?.silent === true;
-      if (!isSilent && mountedRef.current) {
-        setStatusRefreshing(true);
+    const isSilent = options?.silent === true;
+    if (!isSilent && mountedRef.current) {
+      setStatusRefreshing(true);
+    }
+    try {
+      const statusPayload = await getScraperStatus();
+      if (!mountedRef.current) return;
+      applyStatus(statusPayload);
+      if (!isSilent) {
+        showToast({ tone: 'success', message: 'Sistema aggiornato' });
       }
-      try {
-        const statusPayload = await getScraperStatus();
-        if (!mountedRef.current) return;
-        applyStatus(statusPayload);
-      } catch (error: any) {
-        if (!mountedRef.current) return;
-        setSyncStatus({
-          state: 'error',
-          message: error?.response?.data?.error || error?.message || 'Impossibile leggere lo stato del sync automatico.',
+    } catch (error: any) {
+      if (!mountedRef.current) return;
+      if (!isSilent) {
+        showToast({
+          tone: 'error',
+          message: error?.response?.data?.error || error?.message || 'Errore aggiornamento',
         });
-        setSystemHealth({ state: 'error', label: 'Sistema non raggiungibile' });
-        window.dispatchEvent(new Event('data-sync-error'));
-      } finally {
-        if (!isSilent && mountedRef.current) {
-          setStatusRefreshing(false);
-        }
       }
-  }, [applyStatus]);
+      window.dispatchEvent(new Event('data-sync-error'));
+    } finally {
+      if (!isSilent && mountedRef.current) {
+        setStatusRefreshing(false);
+      }
+    }
+  }, [applyStatus, showToast]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -406,17 +262,16 @@ const App: React.FC = () => {
   }, [refreshStatus]);
 
   return (
-    <Router>
-      <AppShell
-        activeUser={activeUser}
-        availableUsers={availableUsers}
-        onChangeActiveUser={setActiveUser}
-        syncStatus={syncStatus}
-        systemHealth={systemHealth}
-        statusRefreshing={statusRefreshing}
-        onRefreshStatus={() => { void refreshStatus(); }}
-      />
-    </Router>
+    <>
+      <Router>
+        <AppShell
+          activeUser={activeUser}
+          statusRefreshing={statusRefreshing}
+          onRefreshStatus={() => { void refreshStatus(); }}
+        />
+      </Router>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+    </>
   );
 };
 
