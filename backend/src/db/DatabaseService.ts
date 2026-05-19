@@ -6,6 +6,9 @@ type HistoricalOddsDetail = {
   oddsSource: 'odds_api' | 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
   snapshotSource: string | null;
   capturedAt: string | null;
+  closingOdds?: Record<string, number>;
+  closingCapturedAt?: string | null;
+  closingSource?: string | null;
   usedFallbackBookmaker: boolean;
   usedSyntheticOdds: boolean;
 };
@@ -1208,26 +1211,55 @@ export class DatabaseService {
       .map((row) => this.parseOddsSnapshotRow(row))
       .filter(Boolean);
 
-    const out: Record<string, HistoricalOddsDetail> = {};
-    for (const row of rows) {
-      const matchId = String(row.match_id ?? '').trim();
-      if (!matchId || out[matchId]) continue;
-      const liveOdds = row.liveSelectedOdds ?? row.eurobetOdds ?? {};
+    const normalizeOdds = (value: unknown): Record<string, number> => {
       const normalized: Record<string, number> = {};
-      for (const [selection, odd] of Object.entries(liveOdds)) {
+      if (!value || typeof value !== 'object') return normalized;
+      for (const [selection, odd] of Object.entries(value as Record<string, unknown>)) {
         const n = Number(odd);
         if (Number.isFinite(n) && n > 1) normalized[selection] = Number(n.toFixed(2));
       }
-      if (Object.keys(normalized).length > 0) {
-        out[matchId] = {
-          odds: normalized,
-          oddsSource: this.classifyHistoricalOddsSource(row),
-          snapshotSource: String(row.source ?? '').trim() || null,
-          capturedAt: String(row.captured_at ?? '').trim() || null,
-          usedFallbackBookmaker: Boolean(row.usedFallbackBookmaker),
-          usedSyntheticOdds: Boolean(row.usedSyntheticOdds),
-        };
-      }
+      return normalized;
+    };
+
+    const rowsByMatch = new Map<string, any[]>();
+    for (const row of rows) {
+      const matchId = String(row.match_id ?? '').trim();
+      if (!matchId) continue;
+      const bucket = rowsByMatch.get(matchId) ?? [];
+      bucket.push(row);
+      rowsByMatch.set(matchId, bucket);
+    }
+
+    const out: Record<string, HistoricalOddsDetail> = {};
+    for (const [matchId, matchRows] of rowsByMatch) {
+      const selectedRow = matchRows[0];
+      const liveOdds = selectedRow.liveSelectedOdds ?? selectedRow.eurobetOdds ?? {};
+      const normalized = normalizeOdds(liveOdds);
+      if (Object.keys(normalized).length === 0) continue;
+
+      const kickoffMs = new Date(String(selectedRow.match_date ?? selectedRow.commence_time ?? '')).getTime();
+      const closingRow = matchRows.find((row) => {
+        const source = String(row.source ?? '').toLowerCase();
+        const capturedMs = new Date(String(row.captured_at ?? '')).getTime();
+        return source.includes('eurobet') &&
+          Number.isFinite(capturedMs) &&
+          (!Number.isFinite(kickoffMs) || capturedMs <= kickoffMs);
+      });
+      const closingOdds = closingRow
+        ? normalizeOdds(closingRow.liveSelectedOdds ?? closingRow.eurobetOdds ?? closingRow.selectedOdds ?? {})
+        : {};
+
+      out[matchId] = {
+        odds: normalized,
+        oddsSource: this.classifyHistoricalOddsSource(selectedRow),
+        snapshotSource: String(selectedRow.source ?? '').trim() || null,
+        capturedAt: String(selectedRow.captured_at ?? '').trim() || null,
+        closingOdds,
+        closingCapturedAt: closingRow ? String(closingRow.captured_at ?? '').trim() || null : null,
+        closingSource: closingRow ? String(closingRow.source ?? '').trim() || null : null,
+        usedFallbackBookmaker: Boolean(selectedRow.usedFallbackBookmaker),
+        usedSyntheticOdds: Boolean(selectedRow.usedSyntheticOdds),
+      };
     }
     return out;
   }

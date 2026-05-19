@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { PredictionService } = require('../dist/services/PredictionService.js');
+const {
+  PredictionService,
+  TOP_5_BACKTEST_KEY,
+  TOP_5_COMPETITIONS,
+  buildTop5BacktestAggregate,
+} = require('../dist/services/PredictionService.js');
 
 test('statistical market can become final recommended pick when data reliability is strong', () => {
   const service = new PredictionService({});
@@ -66,4 +71,41 @@ test('statistical market can become final recommended pick when data reliability
   assert.ok(best);
   assert.equal(best.selection, 'shots_total_over_23.5');
   assert.equal(best.marketTier, 'SECONDARY');
+});
+
+test('Top 5 backtest preset exposes aggregate and per-competition detail', () => {
+  assert.equal(TOP_5_BACKTEST_KEY, 'TOP_5');
+  assert.deepEqual(TOP_5_COMPETITIONS, ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1']);
+
+  const aggregate = buildTop5BacktestAggregate([
+    {
+      competition: 'Serie A',
+      betsPlaced: 10,
+      betsWon: 6,
+      totalStaked: 100,
+      netProfit: 12,
+      roi: 12,
+      averageClv: 0.018,
+      positiveClvRate: 60,
+    },
+    {
+      competition: 'Premier League',
+      betsPlaced: 8,
+      betsWon: 3,
+      totalStaked: 80,
+      netProfit: -10,
+      roi: -12.5,
+      averageClv: 0.004,
+      positiveClvRate: 37.5,
+    },
+  ]);
+
+  assert.equal(aggregate.totalBets, 18);
+  assert.equal(aggregate.winRate, 50);
+  assert.equal(aggregate.profitLoss, 2);
+  assert.equal(aggregate.roi, 1.11);
+  assert.equal(aggregate.averageClv, 0.012);
+  assert.equal(aggregate.bestCompetition, 'Serie A');
+  assert.equal(aggregate.worstCompetition, 'Premier League');
+  assert.equal(aggregate.byCompetition.length, 2);
 });

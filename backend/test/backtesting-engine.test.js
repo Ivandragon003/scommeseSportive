@@ -72,6 +72,11 @@ function buildHistoricalOdds(matches) {
       oddsSource: 'eurobet_scraper',
       snapshotSource: 'eurobet',
       capturedAt: new Date(Date.UTC(2025, 1, 1 + index)).toISOString(),
+      closingOdds: Object.fromEntries(
+        Object.entries(odds[match.matchId]).map(([selection, value]) => [selection, Number((value * 0.95).toFixed(2))])
+      ),
+      closingCapturedAt: new Date(Date.UTC(2025, 1, 1 + index, 18)).toISOString(),
+      closingSource: 'eurobet_scraper',
     };
   }
 
@@ -100,4 +105,64 @@ test('BacktestingEngine keeps bet-level outputs and calibration available after 
   assert.ok(result.betsPlaced >= 0);
   assert.equal(result.detailedBets.length, result.betsPlaced);
   assert.ok(result.marketBreakdown && typeof result.marketBreakdown === 'object');
+});
+
+test('BacktestingEngine computes CLV from Eurobet closing odds', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    context
+  );
+
+  assert.ok(result.betsPlaced > 0);
+  assert.equal(result.missingClosingOddsCount, 0);
+  assert.ok(result.averageClv > 0);
+  assert.ok(result.positiveClvRate > 0);
+  assert.ok(Object.keys(result.clvByMarket).length > 0);
+  assert.ok(Object.keys(result.clvByCompetition).length > 0);
+
+  const betWithClv = result.detailedBets.find((bet) => typeof bet.clv === 'number');
+  assert.ok(betWithClv);
+  assert.equal(
+    Number(betWithClv.clv.toFixed(6)),
+    Number((betWithClv.odds / betWithClv.closingOdds - 1).toFixed(6))
+  );
+  assert.equal(betWithClv.clvMissingReason, null);
+});
+
+test('BacktestingEngine marks CLV as missing without falsifying metrics when closing odds are unavailable', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds } = buildHistoricalOdds(matches);
+
+  const contextWithoutClosing = Object.fromEntries(
+    Object.keys(odds).map((matchId) => [matchId, {
+      oddsSource: 'eurobet_scraper',
+      snapshotSource: 'eurobet',
+      capturedAt: '2025-02-01T12:00:00.000Z',
+    }])
+  );
+
+  const result = engine.runBacktest(
+    matches,
+    odds,
+    0.65,
+    'medium_and_above',
+    0,
+    contextWithoutClosing
+  );
+
+  assert.ok(result.betsPlaced > 0);
+  assert.equal(result.averageClv, null);
+  assert.equal(result.positiveClvRate, null);
+  assert.equal(result.missingClosingOddsCount, result.betsPlaced);
+  assert.equal(result.detailedBets.every((bet) => bet.clv === null), true);
+  assert.equal(result.detailedBets.every((bet) => bet.clvMissingReason === 'missing_closing_odds'), true);
 });

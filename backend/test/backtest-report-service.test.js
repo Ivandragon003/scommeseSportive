@@ -210,3 +210,55 @@ test('buildBacktestReport segnala run legacy senza detailed bets', () => {
   assert.equal(report.summary.totalBets, 40);
   assert.equal(report.alerts[0].type, 'legacy_data');
 });
+
+test('buildBacktestReport calcola CLV aggregato e segmentato quando disponibile', () => {
+  const resultWithClv = {
+    kind: 'classic',
+    competition: 'Serie A',
+    season: '2025-26',
+    usedSyntheticOddsOnly: false,
+    detailedBets: [
+      {
+        ...sampleResult.detailedBets[0],
+        clv: 0.05,
+        closingOdds: 2.0,
+        closingOddsCapturedAt: '2026-01-10T19:30:00.000Z',
+        clvMissingReason: null,
+      },
+      {
+        ...sampleResult.detailedBets[1],
+        competition: 'Premier League',
+        clv: -0.02,
+        closingOdds: 1.94,
+        closingOddsCapturedAt: '2026-01-12T19:30:00.000Z',
+        clvMissingReason: null,
+      },
+      {
+        ...sampleResult.detailedBets[2],
+        clv: null,
+        closingOdds: null,
+        clvMissingReason: 'missing_closing_odds',
+      },
+    ],
+  };
+
+  const report = buildBacktestReport(resultWithClv);
+
+  assert.equal(report.clv.available, true);
+  assert.equal(report.clv.betsWithClv, 2);
+  assert.equal(report.clv.missingClosingOddsCount, 1);
+  assert.equal(report.clv.averageClv, 0.015);
+  assert.equal(report.clv.positiveClvRate, 50);
+  assert.equal(report.clv.byMarket.some((row) => row.key === 'goal_1x2'), true);
+  assert.equal(report.clv.byCompetition.some((row) => row.key === 'Premier League'), true);
+});
+
+test('buildBacktestReport does not fabricate CLV when closing odds are missing', () => {
+  const report = buildBacktestReport(sampleResult);
+
+  assert.equal(report.clv.available, false);
+  assert.equal(report.clv.averageClv, null);
+  assert.equal(report.clv.positiveClvRate, null);
+  assert.equal(report.clv.betsWithClv, 0);
+  assert.equal(report.clv.missingClosingOddsCount, sampleResult.detailedBets.length);
+});

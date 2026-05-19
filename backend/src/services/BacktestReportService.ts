@@ -33,6 +33,28 @@ type SegmentSummary = SummaryMetrics & {
   label: string;
 };
 
+type ClvSegmentSummary = {
+  key: string;
+  label: string;
+  bets: number;
+  averageClv: number;
+  averageClvPct: number;
+  positiveClvRate: number;
+};
+
+type ClvReportSection = {
+  status: 'available' | 'missing';
+  available: boolean;
+  reason: string;
+  averageClv: number | null;
+  averageClvPct: number | null;
+  positiveClvRate: number | null;
+  betsWithClv: number;
+  missingClosingOddsCount: number;
+  byMarket: ClvSegmentSummary[];
+  byCompetition: ClvSegmentSummary[];
+};
+
 type ProbabilityBucketSummary = SummaryMetrics & {
   key: string;
   label: string;
@@ -101,6 +123,8 @@ type NormalizedBacktestBet = {
   expectedValue: number;
   odds: number;
   edge: number;
+  clv: number | null;
+  hasClv: boolean;
   won: boolean;
   probabilityBucketIndex: number;
   evBucketIndex: number;
@@ -201,11 +225,7 @@ type BacktestReport = {
     probabilityBuckets: ProbabilityBucketSummary[];
   };
   alerts: CalibrationAlert[];
-  clv: {
-    status: 'todo';
-    available: false;
-    reason: string;
-  };
+  clv: ClvReportSection;
 };
 
 const DEFAULT_OPENING_BANKROLL = 1000;
@@ -399,6 +419,10 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
     const expectedValue = toFinite(rawBet.expectedValue);
     const edge = toFinite(rawBet.edge);
     const odds = toFinite(rawBet.odds);
+    const clvValue = (rawBet as BacktestBetDetail).clv;
+    const clvRaw = typeof clvValue === 'number' ? clvValue : Number.NaN;
+    const hasClv = Number.isFinite(clvRaw);
+    const clv = hasClv ? clvRaw : null;
     const timestampCandidate = new Date(rawBet.matchDate).getTime();
     const timestampMs = Number.isNaN(timestampCandidate) ? null : timestampCandidate;
     const dateBucketKey = parseDateBucketKey(timestampMs);
@@ -438,6 +462,8 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
       expectedValue,
       odds,
       edge,
+      clv,
+      hasClv,
       won: Boolean(rawBet.won),
       probabilityBucketIndex: resolveBucketIndex(probabilityRaw, PROBABILITY_BUCKETS),
       evBucketIndex: resolveBucketIndex(expectedValue, EV_BUCKETS),
@@ -690,6 +716,86 @@ const aggregateFilteredBets = (
   };
 };
 
+const buildClvReportSection = (
+  dataset: BacktestDatasetIndex,
+  filteredIndices: number[],
+  legacyData: boolean
+): ClvReportSection => {
+  if (legacyData) {
+    return {
+      status: 'missing',
+      available: false,
+      reason: 'Run legacy: mancano i dettagli bet-level e le quote di chiusura Eurobet.',
+      averageClv: null,
+      averageClvPct: null,
+      positiveClvRate: null,
+      betsWithClv: 0,
+      missingClosingOddsCount: 0,
+      byMarket: [],
+      byCompetition: [],
+    };
+  }
+
+  const rows = filteredIndices.map((index) => dataset.bets[index]);
+  const clvRows = rows.filter((bet) => bet.hasClv && bet.clv !== null);
+  const missingClosingOddsCount = rows.length - clvRows.length;
+
+  if (clvRows.length === 0) {
+    return {
+      status: 'missing',
+      available: false,
+      reason: 'Nessuna quota di chiusura Eurobet disponibile per le bet filtrate.',
+      averageClv: null,
+      averageClvPct: null,
+      positiveClvRate: null,
+      betsWithClv: 0,
+      missingClosingOddsCount,
+      byMarket: [],
+      byCompetition: [],
+    };
+  }
+
+  const averageClv = clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length;
+  const positiveClvRate = (clvRows.filter((bet) => Number(bet.clv) > 0).length / clvRows.length) * 100;
+  const buildSegments = (
+    keyFn: (bet: NormalizedBacktestBet) => { key: string; label: string }
+  ): ClvSegmentSummary[] => {
+    const grouped = new Map<string, { label: string; clvValues: number[] }>();
+    for (const bet of clvRows) {
+      const { key, label } = keyFn(bet);
+      const bucket = grouped.get(key) ?? { label, clvValues: [] };
+      bucket.clvValues.push(Number(bet.clv));
+      grouped.set(key, bucket);
+    }
+    return Array.from(grouped.entries())
+      .map(([key, bucket]) => {
+        const avg = bucket.clvValues.reduce((sum, value) => sum + value, 0) / bucket.clvValues.length;
+        return {
+          key,
+          label: bucket.label,
+          bets: bucket.clvValues.length,
+          averageClv: Number(avg.toFixed(6)),
+          averageClvPct: Number((avg * 100).toFixed(2)),
+          positiveClvRate: Number(((bucket.clvValues.filter((value) => value > 0).length / bucket.clvValues.length) * 100).toFixed(2)),
+        };
+      })
+      .sort((left, right) => right.bets - left.bets);
+  };
+
+  return {
+    status: 'available',
+    available: true,
+    reason: 'CLV calcolato come quota scelta Eurobet / ultima quota Eurobet prima del kickoff - 1.',
+    averageClv: Number(averageClv.toFixed(6)),
+    averageClvPct: Number((averageClv * 100).toFixed(2)),
+    positiveClvRate: Number(positiveClvRate.toFixed(2)),
+    betsWithClv: clvRows.length,
+    missingClosingOddsCount,
+    byMarket: buildSegments((bet) => ({ key: bet.marketCategoryKey, label: bet.marketCategoryLabel })),
+    byCompetition: buildSegments((bet) => ({ key: bet.competitionKey, label: bet.competitionLabel })),
+  };
+};
+
 const buildAlerts = (
   probabilityBuckets: ProbabilityBucketSummary[],
   evSegments: SegmentSummary[],
@@ -835,6 +941,7 @@ export const buildBacktestReport = (
   const byEdgeBucket = legacyData ? [] : aggregatedSections?.byEdgeBucket ?? [];
   const probabilityBuckets = legacyData ? [] : aggregatedSections?.probabilityBuckets ?? [];
   const alerts = buildAlerts(probabilityBuckets, byEvBucket, byEdgeBucket, byConfidence, legacyData);
+  const clv = buildClvReportSection(datasetIndex, filteredIndices, legacyData);
 
   return {
     run: {
@@ -876,10 +983,6 @@ export const buildBacktestReport = (
       probabilityBuckets,
     },
     alerts,
-    clv: {
-      status: 'todo',
-      available: false,
-      reason: 'Il backtest usa oggi l’ultimo snapshot archiviato per match. Senza una quota salvata al timestamp della raccomandazione la CLV sarebbe metodologicamente fuorviante.',
-    },
+    clv,
   };
 };

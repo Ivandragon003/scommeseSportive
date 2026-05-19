@@ -6,6 +6,7 @@ import {
   SelectionDiagnostics,
   AdaptiveEngineTuningProfile,
   MarketCategory,
+  ValueAnalysisContext,
 } from '../models/value/ValueBettingEngine';
 import {
   analyzeMarketsEnhanced,
@@ -16,6 +17,90 @@ import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { predictionConfig } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
+
+export const TOP_5_BACKTEST_KEY = 'TOP_5';
+export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
+
+export interface Top5CompetitionSummary {
+  competition: string;
+  betsPlaced: number;
+  betsWon: number;
+  totalStaked: number;
+  netProfit: number;
+  roi: number;
+  winRate: number;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+}
+
+export interface Top5BacktestAggregate {
+  totalBets: number;
+  winRate: number;
+  totalStaked: number;
+  profitLoss: number;
+  roi: number;
+  averageClv: number | null;
+  positiveClvRate: number | null;
+  bestCompetition: string | null;
+  worstCompetition: string | null;
+  byCompetition: Top5CompetitionSummary[];
+}
+
+export const isTop5BacktestRequest = (competition: string): boolean => {
+  const value = String(competition ?? '').trim().toLowerCase();
+  return value === TOP_5_BACKTEST_KEY.toLowerCase() || value === 'top 5' || value === 'top 5 campionati';
+};
+
+export function buildTop5BacktestAggregate(results: Array<Record<string, any>>): Top5BacktestAggregate {
+  const byCompetition: Top5CompetitionSummary[] = (results ?? []).map((result) => {
+    const betsPlaced = Number(result?.betsPlaced ?? result?.summary?.totalBetsPlaced ?? 0);
+    const betsWon = Number(result?.betsWon ?? result?.summary?.totalBetsWon ?? 0);
+    const totalStaked = Number(result?.totalStaked ?? result?.summary?.totalStaked ?? 0);
+    const netProfit = Number(result?.netProfit ?? result?.summary?.totalNetProfit ?? 0);
+    return {
+      competition: String(result?.competition ?? 'unknown'),
+      betsPlaced,
+      betsWon,
+      totalStaked,
+      netProfit,
+      roi: Number((totalStaked > 0 ? (netProfit / totalStaked) * 100 : Number(result?.roi ?? result?.summary?.roi ?? 0)).toFixed(2)),
+      winRate: Number((betsPlaced > 0 ? (betsWon / betsPlaced) * 100 : Number(result?.winRate ?? result?.summary?.winRate ?? 0)).toFixed(2)),
+      averageClv: Number.isFinite(Number(result?.averageClv)) ? Number(result.averageClv) : null,
+      positiveClvRate: Number.isFinite(Number(result?.positiveClvRate)) ? Number(result.positiveClvRate) : null,
+    };
+  });
+
+  const totalBets = byCompetition.reduce((sum, item) => sum + item.betsPlaced, 0);
+  const betsWon = byCompetition.reduce((sum, item) => sum + item.betsWon, 0);
+  const totalStaked = byCompetition.reduce((sum, item) => sum + item.totalStaked, 0);
+  const profitLoss = byCompetition.reduce((sum, item) => sum + item.netProfit, 0);
+  const clvRows = byCompetition.filter((item) => item.averageClv !== null);
+  const positiveClvRows = byCompetition.filter((item) => item.positiveClvRate !== null);
+  const ranked = [...byCompetition].sort((a, b) => b.roi - a.roi);
+
+  return {
+    totalBets,
+    winRate: Number((totalBets > 0 ? (betsWon / totalBets) * 100 : 0).toFixed(2)),
+    totalStaked: Number(totalStaked.toFixed(2)),
+    profitLoss: Number(profitLoss.toFixed(2)),
+    roi: Number((totalStaked > 0 ? (profitLoss / totalStaked) * 100 : 0).toFixed(2)),
+    averageClv: clvRows.length > 0
+      ? Number((
+        clvRows.reduce((sum, item) => sum + Number(item.averageClv) * item.betsPlaced, 0) /
+        Math.max(1, clvRows.reduce((sum, item) => sum + item.betsPlaced, 0))
+      ).toFixed(3))
+      : null,
+    positiveClvRate: positiveClvRows.length > 0
+      ? Number((
+        positiveClvRows.reduce((sum, item) => sum + Number(item.positiveClvRate) * item.betsPlaced, 0) /
+        Math.max(1, positiveClvRows.reduce((sum, item) => sum + item.betsPlaced, 0))
+      ).toFixed(2))
+      : null,
+    bestCompetition: ranked[0]?.competition ?? null,
+    worstCompetition: ranked[ranked.length - 1]?.competition ?? null,
+    byCompetition,
+  };
+}
 
 export interface PredictionRequest {
   homeTeamId: string;
@@ -70,8 +155,13 @@ export interface BestValueOpportunityExplanation {
   bookmakerOdds: number;
   expectedValue: number;
   edge: number;
+  edgeNoVig?: number;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   score: number;
+  uncertaintyFactor?: number;
+  riskPenalty?: number;
+  rankingScore?: number;
+  logGrowth?: number;
   humanSummary: string;
   humanReasons: string[];
   reasons: string[];
@@ -893,6 +983,18 @@ export class PredictionService {
       model,
       request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined
     );
+    const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
+    const analysisContext: ValueAnalysisContext = {
+      richnessScore: Number(context.richnessScore ?? 0.3),
+      analysisFactors: factors,
+      teamSampleSize: {
+        home: Number((homeTeam as any)?.matchesPlayed ?? (homeTeam as any)?.matches ?? homePlayers.length ?? 0),
+        away: Number((awayTeam as any)?.matchesPlayed ?? (awayTeam as any)?.matches ?? awayPlayers.length ?? 0),
+      },
+      hasXg: Number.isFinite(Number(context.homeXG)) && Number.isFinite(Number(context.awayXG)),
+      hasPlayerData: homePlayers.length > 0 || awayPlayers.length > 0,
+      hasRefereeData: Boolean(referee || (supp as any)?.referee || (supp as any)?.refereeProfile),
+    };
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
       marketGroups,
@@ -904,10 +1006,10 @@ export class PredictionService {
       engine: this.engine,
       maxComboLegs: 3,
       minCombinedEV: 0.08,
+      analysisContext,
     });
     const valueOpportunities = enhanced.allBets;
 
-    const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
     const modelConfidence = context.richnessScore;
 
@@ -1624,11 +1726,16 @@ export class PredictionService {
       return clampNum(weight, 0.82, 1.08);
     };
     const rankOpportunity = (o: BetOpportunity): number => {
+      if (Number.isFinite(Number(o.rankingScore))) {
+        return Number(o.rankingScore) * tierWeight(o);
+      }
       const ev = Number(o.expectedValue ?? 0) / 100;
       const edge = Number(o.edge ?? 0) / 100;
+      const edgeNoVig = Number(o.edgeNoVig ?? o.edge ?? 0) / 100;
       const conf = confidenceRank(o.confidence) / 3;
       const kelly = Number(o.kellyFraction ?? 0) / 100;
-      return ((kelly * 0.40) + (ev * 0.30) + (edge * 0.20) + (conf * 0.10))
+      const uncertainty = Number(o.uncertaintyFactor ?? 0);
+      return ((edgeNoVig * 0.34) + (ev * 0.22) + (kelly * 0.20) + (edge * 0.08) + (conf * 0.10) - (uncertainty * 0.06))
         * tierWeight(o)
         * Number((o as any).adaptiveRankMultiplier ?? 1);
     };
@@ -1687,13 +1794,15 @@ export class PredictionService {
     // Floor minimo assoluto per evitare di consigliare scommesse troppo deboli
     if (best.baseModelScore < 0.05) return null;
 
-    const implied = Number(100 / Math.max(1.01, Number(best.opp.bookmakerOdds ?? 0)));
-
     const reasons: string[] = [
       `EV +${Number(best.opp.expectedValue ?? 0).toFixed(2)}% (media opzioni +${avgEv.toFixed(2)}%).`,
-      `Edge +${Number(best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% vs P implicita ${implied.toFixed(2)}%.`,
+      `Edge no-vig +${Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% contro quota Eurobet pulita dal margine.`,
       `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
     ];
+
+    if (Number(best.opp.uncertaintyFactor ?? 0) >= 0.35) {
+      reasons.push(`Incertezza dati/modello elevata (${Number(best.opp.uncertaintyFactor ?? 0).toFixed(2)}): stake e ranking sono stati ridotti.`);
+    }
 
     if (best.contextualScore >= 0.05) {
       reasons.push('I fattori contestuali (campo/forma/obiettivi/assenze/disciplina) rafforzano la scelta.');
@@ -1713,8 +1822,13 @@ export class PredictionService {
       bookmakerOdds: Number(best.opp.bookmakerOdds ?? 0),
       expectedValue: Number(best.opp.expectedValue ?? 0),
       edge: Number(best.opp.edge ?? 0),
+      edgeNoVig: Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0),
       confidence: best.opp.confidence,
       score: Number(best.totalScore.toFixed(3)),
+      uncertaintyFactor: Number(best.opp.uncertaintyFactor ?? 0),
+      riskPenalty: Number(best.opp.riskPenalty ?? 0),
+      rankingScore: Number(best.opp.rankingScore ?? best.baseModelScore),
+      logGrowth: Number(best.opp.logGrowth ?? 0),
       humanSummary: human.humanSummary,
       humanReasons: human.humanReasons,
       reasons,
@@ -2187,6 +2301,10 @@ export class PredictionService {
       confidenceLevel?: 'high_only' | 'medium_and_above';
     }
   ) {
+    if (isTop5BacktestRequest(competition)) {
+      return this.runTop5Backtest(season, historicalOdds, options);
+    }
+
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
     const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
@@ -2241,16 +2359,11 @@ export class PredictionService {
       expandingWindow?: boolean;
       maxFolds?: number;
     }
-  ): Promise<WalkForwardBacktestResult & {
-    kind: 'walk_forward';
-    competition: string;
-    season: string;
-    confidenceLevel: 'high_only' | 'medium_and_above';
-    adaptiveTuning: AdaptiveEngineTuningProfile;
-    historicalOddsCoverage: number;
-    reportSnapshot: ReturnType<typeof buildBacktestReport>;
-    resultId: number;
-  }> {
+  ): Promise<any> {
+    if (isTop5BacktestRequest(competition)) {
+      return this.runTop5WalkForwardBacktest(season, historicalOdds, options);
+    }
+
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
     const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
@@ -2277,9 +2390,9 @@ export class PredictionService {
       kind: 'walk_forward';
       competition: string;
       season: string;
-      confidenceLevel: 'high_only' | 'medium_and_above';
-      adaptiveTuning: AdaptiveEngineTuningProfile;
-      historicalOddsCoverage: number;
+    confidenceLevel: 'high_only' | 'medium_and_above';
+    adaptiveTuning: AdaptiveEngineTuningProfile;
+    historicalOddsCoverage: number;
       reportSnapshot: ReturnType<typeof buildBacktestReport>;
       resultId: number;
     } = {
@@ -2296,6 +2409,122 @@ export class PredictionService {
     };
     payload.reportSnapshot = buildBacktestReport(payload);
     const resultId = await this.db.saveBacktestResult(competition, season ?? 'all', payload);
+    payload.resultId = resultId;
+    return payload;
+  }
+
+  private async runTop5Backtest(
+    season?: string,
+    historicalOdds?: Record<string, Record<string, number>>,
+    options?: {
+      trainRatio?: number;
+      confidenceLevel?: 'high_only' | 'medium_and_above';
+    }
+  ) {
+    const competitionResults: any[] = [];
+    const competitionErrors: Array<{ competition: string; message: string }> = [];
+
+    for (const competition of TOP_5_COMPETITIONS) {
+      try {
+        competitionResults.push(await this.runBacktest(competition, season, historicalOdds, options));
+      } catch (error) {
+        competitionErrors.push({
+          competition,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (competitionResults.length === 0) {
+      throw new Error(`Top 5 backtest non eseguibile: ${competitionErrors.map((item) => `${item.competition}: ${item.message}`).join(' | ')}`);
+    }
+
+    const top5Aggregate = buildTop5BacktestAggregate(competitionResults);
+    const payload: Record<string, any> = {
+      kind: 'classic',
+      isTop5Aggregate: true,
+      competition: TOP_5_BACKTEST_KEY,
+      competitionLabel: 'Top 5 campionati',
+      season: season ?? 'all',
+      confidenceLevel: options?.confidenceLevel ?? 'medium_and_above',
+      trainRatio: Number.isFinite(Number(options?.trainRatio)) ? Number(options?.trainRatio) : 0.7,
+      top5Aggregate,
+      aggregate: top5Aggregate,
+      byCompetition: top5Aggregate.byCompetition,
+      competitionResults,
+      competitionErrors,
+      detailedBets: competitionResults.flatMap((result) => Array.isArray(result?.detailedBets) ? result.detailedBets : []),
+      betsPlaced: top5Aggregate.totalBets,
+      betsWon: top5Aggregate.byCompetition.reduce((sum, item) => sum + item.betsWon, 0),
+      totalStaked: top5Aggregate.totalStaked,
+      netProfit: top5Aggregate.profitLoss,
+      roi: top5Aggregate.roi,
+      winRate: top5Aggregate.winRate,
+      averageClv: top5Aggregate.averageClv,
+      positiveClvRate: top5Aggregate.positiveClvRate,
+    };
+    payload.reportSnapshot = buildBacktestReport(payload);
+    const resultId = await this.db.saveBacktestResult(TOP_5_BACKTEST_KEY, season ?? 'all', payload);
+    payload.resultId = resultId;
+    return payload;
+  }
+
+  private async runTop5WalkForwardBacktest(
+    season?: string,
+    historicalOdds?: Record<string, Record<string, number>>,
+    options?: {
+      initialTrainMatches?: number;
+      testWindowMatches?: number;
+      stepMatches?: number;
+      confidenceLevel?: 'high_only' | 'medium_and_above';
+      expandingWindow?: boolean;
+      maxFolds?: number;
+    }
+  ) {
+    const competitionResults: any[] = [];
+    const competitionErrors: Array<{ competition: string; message: string }> = [];
+
+    for (const competition of TOP_5_COMPETITIONS) {
+      try {
+        competitionResults.push(await this.runWalkForwardBacktest(competition, season, historicalOdds, options));
+      } catch (error) {
+        competitionErrors.push({
+          competition,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (competitionResults.length === 0) {
+      throw new Error(`Top 5 walk-forward non eseguibile: ${competitionErrors.map((item) => `${item.competition}: ${item.message}`).join(' | ')}`);
+    }
+
+    const top5Aggregate = buildTop5BacktestAggregate(competitionResults);
+    const payload: Record<string, any> = {
+      kind: 'walk_forward',
+      isTop5Aggregate: true,
+      competition: TOP_5_BACKTEST_KEY,
+      competitionLabel: 'Top 5 campionati',
+      season: season ?? 'all',
+      confidenceLevel: options?.confidenceLevel ?? 'medium_and_above',
+      expandingWindow: options?.expandingWindow !== false,
+      top5Aggregate,
+      aggregate: top5Aggregate,
+      byCompetition: top5Aggregate.byCompetition,
+      competitionResults,
+      competitionErrors,
+      detailedBets: competitionResults.flatMap((result) => Array.isArray(result?.detailedBets) ? result.detailedBets : []),
+      betsPlaced: top5Aggregate.totalBets,
+      betsWon: top5Aggregate.byCompetition.reduce((sum, item) => sum + item.betsWon, 0),
+      totalStaked: top5Aggregate.totalStaked,
+      netProfit: top5Aggregate.profitLoss,
+      roi: top5Aggregate.roi,
+      winRate: top5Aggregate.winRate,
+      averageClv: top5Aggregate.averageClv,
+      positiveClvRate: top5Aggregate.positiveClvRate,
+    };
+    payload.reportSnapshot = buildBacktestReport(payload);
+    const resultId = await this.db.saveBacktestResult(TOP_5_BACKTEST_KEY, season ?? 'all', payload);
     payload.resultId = resultId;
     return payload;
   }

@@ -24,6 +24,16 @@ import { useBacktestingData } from '../../hooks/useBacktestingData';
 type BacktestMode = 'classic' | 'walk_forward';
 type ConfidenceMode = 'high_only' | 'medium_and_above';
 
+const TOP_5_BACKTEST_KEY = 'TOP_5';
+const COMPETITION_OPTIONS = [
+  { value: 'Serie A', label: 'Serie A' },
+  { value: 'Premier League', label: 'Premier League' },
+  { value: 'La Liga', label: 'La Liga' },
+  { value: 'Bundesliga', label: 'Bundesliga' },
+  { value: 'Ligue 1', label: 'Ligue 1' },
+  { value: TOP_5_BACKTEST_KEY, label: 'Top 5 campionati' },
+];
+
 const formatPct = (value: number | null | undefined, digits = 2) => `${Number(value ?? 0).toFixed(digits)}%`;
 const formatMoney = (value: number | null | undefined) => `EUR ${Number(value ?? 0).toFixed(2)}`;
 const formatDate = (value: string | Date | null | undefined) => {
@@ -49,6 +59,7 @@ const BacktestingPageView: React.FC = () => {
   const [reportSource, setReportSource] = useState('');
   const [reportDateFrom, setReportDateFrom] = useState('');
   const [reportDateTo, setReportDateTo] = useState('');
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
   const {
@@ -129,6 +140,46 @@ const BacktestingPageView: React.FC = () => {
         />
       )}
 
+      <div className="fp-card" style={{ marginBottom: 24 }}>
+        <div className="fp-card-head">
+          <div>
+            <div className="fp-card-title">Come usare il backtesting</div>
+            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
+              Guida operativa per leggere ROI, CLV e robustezza del modello senza giudicare poche partite.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="fp-btn fp-btn-ghost fp-btn-sm"
+            onClick={() => setTutorialOpen((open) => !open)}
+            aria-expanded={tutorialOpen}
+          >
+            {tutorialOpen ? 'Nascondi tutorial' : 'Come usare il backtesting'}
+          </button>
+        </div>
+        {tutorialOpen && (
+          <div className="fp-card-body" style={{ display: 'grid', gap: 12 }}>
+            <div className="fp-alert fp-alert-info">
+              Procedura consigliata: avvia prima Top 5 campionati in modalita walk-forward, guarda ROI e CLV aggregati, poi entra nel dettaglio per campionato e confronta High only contro Medium and above.
+            </div>
+            <div className="fp-grid-2">
+              <div>
+                <h3 style={{ marginTop: 0 }}>Scelte operative</h3>
+                <p>Backtest classico usa uno split train/test unico. Walk-forward simula finestre successive ed e piu utile per capire stabilita nel tempo.</p>
+                <p>Medium and above aumenta il campione e misura volume reale. High only e piu conservativo, ma puo essere troppo piccolo per giudizi rapidi.</p>
+                <p>Top 5 campionati esegue Serie A, Premier League, La Liga, Bundesliga e Ligue 1 separatamente, poi mostra aggregato e dettaglio.</p>
+              </div>
+              <div>
+                <h3 style={{ marginTop: 0 }}>Come leggere i numeri</h3>
+                <p>ROI e profit/loss dicono il risultato economico; win rate da solo non basta perche quote diverse hanno payout diversi.</p>
+                <p>Train ratio, initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
+                <p>CLV positivo significa che la quota scelta era migliore della quota Eurobet di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="fp-grid-2" style={{ marginBottom: 24 }}>
         <div className="fp-card">
           <div className="fp-card-head">
@@ -140,31 +191,36 @@ const BacktestingPageView: React.FC = () => {
             </div>
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Modalita</label>
-                <select className="fp-input" value={mode} onChange={(e) => setMode(e.target.value as BacktestMode)}>
+                <label className="fp-label" htmlFor="backtest-mode">Modalita</label>
+                <select id="backtest-mode" className="fp-input" value={mode} onChange={(e) => setMode(e.target.value as BacktestMode)}>
                   <option value="classic">Backtest classico</option>
                   <option value="walk_forward">Walk-forward</option>
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Confidence filter</label>
-                <select className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
+                <label className="fp-label" htmlFor="backtest-confidence">Confidence filter</label>
+                <select id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
                   <option value="medium_and_above">Medium and above</option>
                   <option value="high_only">High only</option>
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Competizione</label>
-                <input
+                <label className="fp-label" htmlFor="backtest-competition">Competizione</label>
+                <select
+                  id="backtest-competition"
                   className="fp-input"
                   value={competition}
                   onChange={(e) => setCompetition(e.target.value)}
-                  placeholder="es. Serie A"
-                />
+                >
+                  {COMPETITION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Stagione (opzionale)</label>
+                <label className="fp-label" htmlFor="backtest-season">Stagione (opzionale)</label>
                 <input
+                  id="backtest-season"
                   className="fp-input"
                   value={season}
                   onChange={(e) => setSeason(e.target.value)}
@@ -177,6 +233,7 @@ const BacktestingPageView: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18, maxWidth: 280 }}>
                 <label className="fp-label">Train ratio</label>
                 <input
+                  aria-label="Train ratio"
                   className="fp-input"
                   value={trainRatio}
                   onChange={(e) => setTrainRatio(e.target.value)}
@@ -347,6 +404,41 @@ const BacktestingPageView: React.FC = () => {
             ))}
           </div>
 
+          {classicResult.isTop5Aggregate && Array.isArray(classicResult.byCompetition) && (
+            <div className="fp-card" style={{ marginBottom: 20 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">Dettaglio Top 5 campionati</div>
+                <span className="fp-badge fp-badge-blue">Aggregato + dettaglio separato</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="fp-table">
+                  <thead>
+                    <tr>
+                      <th>Campionato</th>
+                      <th>Bet</th>
+                      <th>ROI</th>
+                      <th>Win rate</th>
+                      <th>Profit/Loss</th>
+                      <th>CLV medio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classicResult.byCompetition.map((row: any) => (
+                      <tr key={row.competition}>
+                        <td>{row.competition}</td>
+                        <td className="fp-mono">{row.betsPlaced}</td>
+                        <td className="fp-mono" style={{ color: Number(row.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPct(row.roi, 2)}</td>
+                        <td className="fp-mono">{formatPct(row.winRate, 1)}</td>
+                        <td className="fp-mono" style={{ color: Number(row.netProfit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(row.netProfit)}</td>
+                        <td className="fp-mono">{row.averageClv === null || row.averageClv === undefined ? '-' : formatPct(Number(row.averageClv) * 100, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="fp-tabs" style={{ marginBottom: 20 }}>
             {[
               { id: 'overview', label: 'Curva equity' },
@@ -508,6 +600,41 @@ const BacktestingPageView: React.FC = () => {
             ))}
           </div>
 
+          {walkForwardResult.isTop5Aggregate && Array.isArray(walkForwardResult.byCompetition) && (
+            <div className="fp-card" style={{ marginBottom: 20 }}>
+              <div className="fp-card-head">
+                <div className="fp-card-title">Dettaglio walk-forward Top 5</div>
+                <span className="fp-badge fp-badge-blue">Campionati separati</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="fp-table">
+                  <thead>
+                    <tr>
+                      <th>Campionato</th>
+                      <th>Bet</th>
+                      <th>ROI</th>
+                      <th>Win rate</th>
+                      <th>Profit/Loss</th>
+                      <th>CLV medio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {walkForwardResult.byCompetition.map((row: any) => (
+                      <tr key={row.competition}>
+                        <td>{row.competition}</td>
+                        <td className="fp-mono">{row.betsPlaced}</td>
+                        <td className="fp-mono" style={{ color: Number(row.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPct(row.roi, 2)}</td>
+                        <td className="fp-mono">{formatPct(row.winRate, 1)}</td>
+                        <td className="fp-mono" style={{ color: Number(row.netProfit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(row.netProfit)}</td>
+                        <td className="fp-mono">{row.averageClv === null || row.averageClv === undefined ? '-' : formatPct(Number(row.averageClv) * 100, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="fp-tabs" style={{ marginBottom: 20 }}>
             {[
               { id: 'folds', label: 'Folds' },
@@ -655,8 +782,8 @@ const BacktestingPageView: React.FC = () => {
           <div className="fp-card-body">
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Mercato</label>
-                <select className="fp-input" value={reportMarket} onChange={(e) => setReportMarket(e.target.value)}>
+                <label className="fp-label" htmlFor="backtest-report-market">Mercato</label>
+                <select id="backtest-report-market" className="fp-input" value={reportMarket} onChange={(e) => setReportMarket(e.target.value)}>
                   <option value="">Tutti</option>
                   {reportMarketOptions.map((option: string) => (
                     <option key={option} value={option}>{option}</option>
@@ -664,8 +791,8 @@ const BacktestingPageView: React.FC = () => {
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Sorgente quote</label>
-                <select className="fp-input" value={reportSource} onChange={(e) => setReportSource(e.target.value)}>
+                <label className="fp-label" htmlFor="backtest-report-source">Sorgente quote</label>
+                <select id="backtest-report-source" className="fp-input" value={reportSource} onChange={(e) => setReportSource(e.target.value)}>
                   <option value="">Tutte</option>
                   {reportSourceOptions.map((option: string) => (
                     <option key={option} value={option}>{option}</option>
@@ -859,8 +986,18 @@ const BacktestingPageView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="fp-alert fp-alert-info">
-                  CLV: non ancora disponibile in modo metodologicamente corretto. {backtestReport.clv?.reason}
+                <div className={`fp-alert ${backtestReport.clv?.available ? 'fp-alert-info' : 'fp-alert-warning'}`}>
+                  {backtestReport.clv?.available ? (
+                    <>
+                      CLV medio Eurobet: <strong>{formatPct(Number(backtestReport.clv.averageClv ?? 0) * 100, 2)}</strong>
+                      {' '}su {backtestReport.clv.betsWithClv} bet con quota di chiusura.
+                      {' '}CLV positivo: <strong>{formatPct(backtestReport.clv.positiveClvRate, 1)}</strong>.
+                    </>
+                  ) : (
+                    <>
+                      CLV non disponibile: {backtestReport.clv?.reason ?? 'mancano quote Eurobet di chiusura prima del kickoff.'}
+                    </>
+                  )}
                 </div>
               </>
             )}
