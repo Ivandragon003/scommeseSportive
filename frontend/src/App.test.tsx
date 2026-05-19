@@ -4,10 +4,6 @@ import App from './App';
 import * as api from './utils/api';
 
 jest.mock('./utils/api');
-jest.mock('./pages/Dashboard', () => ({
-  __esModule: true,
-  default: () => <div>Dashboard page</div>,
-}));
 jest.mock('./pages/Predictions', () => ({
   __esModule: true,
   default: () => <div>Predictions page</div>,
@@ -34,6 +30,7 @@ const mockedApi = api as jest.Mocked<typeof api>;
 beforeEach(() => {
   jest.resetAllMocks();
   window.localStorage.clear();
+  window.history.pushState({}, '', '/');
   mockedApi.getScraperStatus.mockResolvedValue({
     data: {
       isUpdating: false,
@@ -67,4 +64,31 @@ test('header principale mostra solo brand e aggiorna sistema, senza dettagli tec
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
   expect(await screen.findByText('Sistema aggiornato')).toBeTruthy();
+});
+
+test('la pagina iniziale apre Previsioni e la Dashboard non compare nella navigazione', async () => {
+  render(<App />);
+
+  expect(await screen.findByText('Predictions page')).toBeTruthy();
+
+  const sidebar = screen.getByLabelText('Navigazione principale');
+  expect(within(sidebar).queryByText('Dashboard')).toBeNull();
+  expect(within(sidebar).getByText('Previsioni')).toBeTruthy();
+  expect(within(sidebar).getByText('Budget')).toBeTruthy();
+  expect(within(sidebar).getByText('Backtest')).toBeTruthy();
+  expect(within(sidebar).getByText('Dati')).toBeTruthy();
+  expect(within(sidebar).getByText('Dati & Provider')).toBeTruthy();
+
+  const header = screen.getByRole('banner');
+  expect(within(header).getByRole('button', { name: /Aggiorna sistema/i })).toBeTruthy();
+});
+
+test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => {
+  window.history.pushState({}, '', '/dashboard');
+
+  render(<App />);
+
+  expect(await screen.findByText('Predictions page')).toBeTruthy();
+  expect(window.location.pathname).toBe('/predictions');
+  expect(screen.queryByText('Dashboard page')).toBeNull();
 });
