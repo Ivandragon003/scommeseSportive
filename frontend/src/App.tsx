@@ -1,17 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BrowserRouter as Router, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
   Database,
   FlaskConical,
-  LayoutDashboard,
   MoreHorizontal,
   RadioTower,
   RefreshCw,
   Target,
   Wallet,
 } from 'lucide-react';
-import Dashboard from './pages/Dashboard';
 import Predictions from './pages/Predictions';
 import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
@@ -23,7 +21,6 @@ import { useToastState } from './hooks/useToastState';
 import './footpredictor.css';
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Dashboard', meta: 'accesso rapido', icon: LayoutDashboard },
   { path: '/predictions', label: 'Previsioni', meta: 'pick e quote', icon: Target },
   { path: '/budget', label: 'Budget', meta: 'bankroll e storico', icon: Wallet },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
@@ -31,7 +28,7 @@ const NAV_ITEMS = [
   { path: '/scrapers', label: 'Dati & Provider', meta: 'pipeline dati e quote', icon: RadioTower },
 ];
 
-const MOBILE_PRIMARY_NAV_PATHS = ['/', '/predictions', '/budget'];
+const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/budget'];
 const MOBILE_PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const MOBILE_SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const ACTIVE_USER_STORAGE_KEY = 'footpredictor.activeUser';
@@ -120,7 +117,8 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         <main className={mainContentClass}>
           <Routes>
-            <Route path="/" element={<Dashboard activeUser={activeUser} />} />
+            <Route path="/" element={<Navigate to="/predictions" replace />} />
+            <Route path="/dashboard" element={<Navigate to="/predictions" replace />} />
             <Route path="/predictions" element={<Predictions activeUser={activeUser} />} />
             <Route path="/budget" element={<BudgetManager activeUser={activeUser} />} />
             <Route path="/backtest" element={<Backtesting />} />
