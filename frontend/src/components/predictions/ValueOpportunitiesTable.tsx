@@ -19,6 +19,22 @@ interface ValueOpportunitiesTableProps {
   onBet: (opportunity: BestValueOpportunity) => void;
 }
 
+const valueWarningLabel = (warning: string): string | null => {
+  switch (warning) {
+    case 'under_cards_close_to_line':
+      return 'Under cartellini fragile: previsione vicina alla linea';
+    case 'high_intensity_match':
+      return 'Partita ad alta intensita';
+    case 'missing_referee_data':
+    case 'low_referee_sample':
+      return 'Dati arbitro assenti o deboli';
+    case 'strict_referee_against_under_cards':
+      return 'Arbitro severo: Under penalizzato';
+    default:
+      return null;
+  }
+};
+
 const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   opportunities,
   bankroll,
@@ -77,6 +93,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
             const alreadyPlaced = placedBetKeySet.has(stakeKey);
             const isRecommendedReplaySelection =
               String(recommendedBetResult?.selection ?? '') === String(opportunity.selection ?? '');
+            const warningLabels = Array.from(
+              new Set((opportunity.dataWarnings ?? []).map(valueWarningLabel).filter(Boolean))
+            ) as string[];
 
             return (
               <div
@@ -119,6 +138,11 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                     </div>
                   ))}
                 </div>
+                {warningLabels.length > 0 && (
+                  <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
+                    {warningLabels.join(' - ')}
+                  </div>
+                )}
                 <div className="pr-vb-bottom">
                   <div className="pr-stake-wrap">
                     <span className="pr-stake-lbl">Puntata EUR</span>

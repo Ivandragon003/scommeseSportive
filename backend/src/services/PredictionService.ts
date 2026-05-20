@@ -160,6 +160,16 @@ export interface AnalysisFactors {
   shotsReliability: number;
   cornersReliability: number;
   disciplineReliability: number;
+  expectedCards?: number;
+  expectedFouls?: number;
+  refereeAvgYellow?: number;
+  refereeAvgFouls?: number;
+  refereeSampleSize?: number;
+  leagueAvgYellow?: number;
+  leagueAvgFouls?: number;
+  disciplinaryRiskScore?: number;
+  isDerby?: boolean;
+  highStakes?: boolean;
   notes: string[];
 }
 
@@ -1302,6 +1312,15 @@ export class PredictionService {
       hasXg: Number.isFinite(Number(context.homeXG)) && Number.isFinite(Number(context.awayXG)),
       hasPlayerData: homePlayers.length > 0 || awayPlayers.length > 0,
       hasRefereeData: Boolean(referee || (supp as any)?.referee || (supp as any)?.refereeProfile),
+      expectedCards: Number(probs.cards?.expectedTotalYellow ?? 0),
+      expectedFouls: Number(probs.fouls?.expectedTotalFouls ?? 0),
+      refereeAvgYellow: Number((referee as any)?.avg_yellow_cards_per_game ?? supp?.refereeStats?.avgYellow ?? 3.8),
+      refereeAvgFouls: Number((referee as any)?.avg_fouls_per_game ?? supp?.refereeStats?.avgFouls ?? 22.4),
+      refereeSampleSize: Number((referee as any)?.sample_size ?? (referee as any)?.games ?? supp?.refereeStats?.sampleSize ?? 0),
+      leagueAvgYellow: Number(supp?.leagueAvgYellow ?? 3.8),
+      leagueAvgFouls: Number(supp?.leagueAvgFouls ?? 22.4),
+      isDerby: Boolean(supp?.isDerby),
+      highStakes: Number(competitiveness ?? 0) >= 0.82,
     };
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
@@ -2079,6 +2098,15 @@ export class PredictionService {
       shotsReliability: Number(shotsReliability.toFixed(3)),
       cornersReliability: Number(cornersReliability.toFixed(3)),
       disciplineReliability: Number(disciplineReliability.toFixed(3)),
+      expectedCards: Number((probs.cards?.expectedTotalYellow ?? 0).toFixed(3)),
+      expectedFouls: Number((probs.fouls?.expectedTotalFouls ?? 0).toFixed(3)),
+      refereeAvgYellow: Number((supp?.refereeStats?.avgYellow ?? 3.8).toFixed(3)),
+      refereeAvgFouls: Number((supp?.refereeStats?.avgFouls ?? 22.4).toFixed(3)),
+      refereeSampleSize: Number(supp?.refereeStats?.sampleSize ?? 0),
+      leagueAvgYellow: Number((supp?.leagueAvgYellow ?? 3.8).toFixed(3)),
+      leagueAvgFouls: Number((supp?.leagueAvgFouls ?? 22.4).toFixed(3)),
+      isDerby: Boolean(supp?.isDerby),
+      highStakes: Number(competitiveness ?? 0) >= 0.82,
       notes,
     };
   }
