@@ -68,6 +68,17 @@ type OddsReliabilitySection = {
   warning: string | null;
 };
 
+type CardsDiagnosticsSection = {
+  roiYellowCardsOver: number | null;
+  roiYellowCardsUnder: number | null;
+  clvYellowCardsOver: number | null;
+  clvYellowCardsUnder: number | null;
+  averageLineErrorYellowCardsUnder: number | null;
+  missSeverityBreakdown: Record<string, number>;
+  underCardsCloseToLineCount: number;
+  underCardsFragilePickedCount: number;
+};
+
 type ProbabilityBucketSummary = SummaryMetrics & {
   key: string;
   label: string;
@@ -216,6 +227,14 @@ type BacktestReportSource = {
   rankingOptimization?: unknown;
   overfittingRisk?: unknown;
   overfittingWarnings?: unknown;
+  roiYellowCardsOver?: unknown;
+  roiYellowCardsUnder?: unknown;
+  clvYellowCardsOver?: unknown;
+  clvYellowCardsUnder?: unknown;
+  averageLineErrorYellowCardsUnder?: unknown;
+  missSeverityBreakdown?: unknown;
+  underCardsCloseToLineCount?: unknown;
+  underCardsFragilePickedCount?: unknown;
   summary?: unknown;
 };
 
@@ -261,6 +280,7 @@ type BacktestReport = {
   alerts: CalibrationAlert[];
   clv: ClvReportSection;
   oddsReliability: OddsReliabilitySection;
+  cardsDiagnostics: CardsDiagnosticsSection;
   algorithmComparison: unknown | null;
   algorithmVersion: string | null;
   rankingVersion: string | null;
@@ -1052,6 +1072,14 @@ export const buildBacktestReport = (
   const resultSummary = result.summary && typeof result.summary === 'object'
     ? result.summary as Record<string, unknown>
     : null;
+  const missSeverityBreakdown = result.missSeverityBreakdown && typeof result.missSeverityBreakdown === 'object'
+    ? Object.fromEntries(
+        Object.entries(result.missSeverityBreakdown as Record<string, unknown>).map(([key, value]) => [
+          key,
+          Number(toFinite(value)),
+        ])
+      )
+    : {};
 
   return {
     algorithmVersion: typeof result.algorithmVersion === 'string' ? result.algorithmVersion : null,
@@ -1112,6 +1140,18 @@ export const buildBacktestReport = (
     alerts,
     clv,
     oddsReliability,
+    cardsDiagnostics: {
+      roiYellowCardsOver: result.roiYellowCardsOver === null ? null : Number(toFinite(result.roiYellowCardsOver).toFixed(2)),
+      roiYellowCardsUnder: result.roiYellowCardsUnder === null ? null : Number(toFinite(result.roiYellowCardsUnder).toFixed(2)),
+      clvYellowCardsOver: result.clvYellowCardsOver === null ? null : Number(toFinite(result.clvYellowCardsOver).toFixed(6)),
+      clvYellowCardsUnder: result.clvYellowCardsUnder === null ? null : Number(toFinite(result.clvYellowCardsUnder).toFixed(6)),
+      averageLineErrorYellowCardsUnder: result.averageLineErrorYellowCardsUnder === null
+        ? null
+        : Number(toFinite(result.averageLineErrorYellowCardsUnder).toFixed(3)),
+      missSeverityBreakdown,
+      underCardsCloseToLineCount: Number(toFinite(result.underCardsCloseToLineCount)),
+      underCardsFragilePickedCount: Number(toFinite(result.underCardsFragilePickedCount)),
+    },
     algorithmComparison: result.algorithmComparison ?? null,
   };
 };

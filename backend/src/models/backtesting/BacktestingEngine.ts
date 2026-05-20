@@ -122,6 +122,14 @@ export interface BacktestResult {
   missingClosingOddsCount: number;
   clvByMarket: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
   clvByCompetition: Record<string, { bets: number; averageClv: number; positiveClvRate: number }>;
+  roiYellowCardsOver: number | null;
+  roiYellowCardsUnder: number | null;
+  clvYellowCardsOver: number | null;
+  clvYellowCardsUnder: number | null;
+  averageLineErrorYellowCardsUnder: number | null;
+  missSeverityBreakdown: Record<CardMissSeverity, number>;
+  underCardsCloseToLineCount: number;
+  underCardsFragilePickedCount: number;
   algorithmMode?: BacktestAlgorithmMode;
   algorithmComparison?: BacktestAlgorithmComparison | null;
   rankingWeightsUsed?: RankingWeightsConfig;
@@ -358,6 +366,14 @@ export type ClvMissingReason =
   | 'non_eurobet_snapshot'
   | 'snapshot_after_kickoff_rejected';
 
+export type CardMissSeverity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+export type OutcomeVsMarketAssessment =
+  | 'good_process_bad_result'
+  | 'bad_process_good_result'
+  | 'good_process_good_result'
+  | 'bad_process_bad_result'
+  | 'unknown_clv';
+
 export interface BacktestBetDetail {
   matchId: string;
   matchDate: string;
@@ -399,6 +415,11 @@ export interface BacktestBetDetail {
   contextCompletenessScore?: number;
   historicalContextUsed?: boolean;
   contextWarnings?: string[];
+  cardLineError?: number | null;
+  cardMissSeverity?: CardMissSeverity | null;
+  cardLearningAdjustment?: number | null;
+  outcomeVsMarketAssessment?: OutcomeVsMarketAssessment | null;
+  underCardsCloseToLine?: boolean;
 }
 
 interface TestBet {
@@ -438,6 +459,11 @@ interface TestBet {
   contextCompletenessScore: number;
   historicalContextUsed: boolean;
   contextWarnings: string[];
+  cardLineError: number | null;
+  cardMissSeverity: CardMissSeverity | null;
+  cardLearningAdjustment: number | null;
+  outcomeVsMarketAssessment: OutcomeVsMarketAssessment | null;
+  underCardsCloseToLine: boolean;
 }
 
 interface BacktestValueContextDiagnostics {
@@ -460,6 +486,90 @@ export class BacktestingEngine {
   constructor() {
     this.model  = new DixonColesModel();
     this.engine = new ValueBettingEngine();
+  }
+
+  assessCardLineLearning(input: {
+    selection: string;
+    actualCards: number | null | undefined;
+    clv?: number | null;
+    wasRecommendedTooCloseToLine?: boolean;
+  }): {
+    cardLineError: number | null;
+    cardMissSeverity: CardMissSeverity | null;
+    cardLearningAdjustment: number | null;
+    outcomeVsMarketAssessment: OutcomeVsMarketAssessment | null;
+  } {
+    const parsed = this.parseCardsSelection(input.selection);
+    const actualCards = Number(input.actualCards);
+    if (!parsed || !Number.isFinite(actualCards)) {
+      return {
+        cardLineError: null,
+        cardMissSeverity: null,
+        cardLearningAdjustment: null,
+        outcomeVsMarketAssessment: null,
+      };
+    }
+
+    const cardLineError = parsed.side === 'under'
+      ? Number((actualCards - parsed.line).toFixed(2))
+      : Number((parsed.line - actualCards).toFixed(2));
+    const won = parsed.side === 'under'
+      ? actualCards <= parsed.line
+      : actualCards > parsed.line;
+    const missDistance = Math.max(0, Math.abs(cardLineError));
+    const cardMissSeverity: CardMissSeverity = won
+      ? 'NONE'
+      : missDistance <= 0.5
+        ? 'LOW'
+        : missDistance <= 1.5
+          ? 'MEDIUM'
+          : 'HIGH';
+    const clv = typeof input.clv === 'number' && Number.isFinite(input.clv) ? input.clv : null;
+    const outcomeVsMarketAssessment = this.assessOutcomeVsMarket(won, clv);
+    const basePenalty = cardMissSeverity === 'NONE'
+      ? 0.12
+      : cardMissSeverity === 'LOW'
+        ? 0.45
+        : cardMissSeverity === 'MEDIUM'
+          ? 0.78
+          : 1.15;
+    const clvMultiplier = clv === null
+      ? 1
+      : won
+        ? (clv > 0 ? 0.65 : 0.9)
+        : (clv > 0 ? 0.55 : 1.25);
+    const closeToLineMultiplier = input.wasRecommendedTooCloseToLine ? 1.35 : 1;
+    const cardLearningAdjustment = Number((basePenalty * clvMultiplier * closeToLineMultiplier).toFixed(3));
+
+    return {
+      cardLineError,
+      cardMissSeverity,
+      cardLearningAdjustment,
+      outcomeVsMarketAssessment,
+    };
+  }
+
+  private assessOutcomeVsMarket(won: boolean, clv: number | null): OutcomeVsMarketAssessment {
+    if (clv === null || Math.abs(clv) < 0.000001) return 'unknown_clv';
+    if (won && clv > 0) return 'good_process_good_result';
+    if (!won && clv > 0) return 'good_process_bad_result';
+    if (won && clv < 0) return 'bad_process_good_result';
+    return 'bad_process_bad_result';
+  }
+
+  private parseCardsSelection(selection: string): { side: 'over' | 'under'; line: number } | null {
+    const raw = String(selection ?? '');
+    const snake = raw.match(/^(yellow|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+    if (snake) {
+      const line = Number(snake[3].replace(',', '.'));
+      return Number.isFinite(line) ? { side: snake[2].toLowerCase() as 'over' | 'under', line } : null;
+    }
+
+    const compact = raw.match(/^(yellow|cardstotal)(over|under)(\d+)$/i);
+    if (!compact) return null;
+    const lineRaw = compact[3];
+    const line = lineRaw.length >= 2 ? Number(lineRaw) / 10 : Number(lineRaw);
+    return Number.isFinite(line) ? { side: compact[2].toLowerCase() as 'over' | 'under', line } : null;
   }
 
   computeWeightedProbabilityMetrics(
@@ -1052,6 +1162,8 @@ export class BacktestingEngine {
       const marketGroups = this.engine.buildMarketGroups(odds);
       const historicalRows = chronologicalHistory.filter((row) => row.date.getTime() < match.date.getTime());
       const contextDiagnostics = this.buildBacktestValueAnalysisContext(match, historicalRows, teamSamples, isRealEurobetOdds);
+      contextDiagnostics.context.expectedCards = Number(probs.cards?.expectedTotalYellow ?? 0);
+      contextDiagnostics.context.expectedFouls = Number(probs.fouls?.expectedTotalFouls ?? 0);
       const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(
         probMap,
         marketGroups,
@@ -1079,6 +1191,13 @@ export class BacktestingEngine {
         const clv = closing.closingOdds && closing.closingOdds > 1
           ? opp.bookmakerOdds / closing.closingOdds - 1
           : null;
+        const underCardsCloseToLine = Boolean((opp.dataWarnings ?? []).includes('under_cards_close_to_line'));
+        const cardLearning = this.assessCardLineLearning({
+          selection: opp.selection,
+          actualCards: this.getActualCards(match),
+          clv,
+          wasRecommendedTooCloseToLine: underCardsCloseToLine,
+        });
 
         bankroll += profit;
         bets.push({
@@ -1117,6 +1236,11 @@ export class BacktestingEngine {
           contextCompletenessScore: contextDiagnostics.contextCompletenessScore,
           historicalContextUsed: contextDiagnostics.historicalContextUsed,
           contextWarnings: contextDiagnostics.contextWarnings,
+          cardLineError: cardLearning.cardLineError,
+          cardMissSeverity: cardLearning.cardMissSeverity,
+          cardLearningAdjustment: cardLearning.cardLearningAdjustment,
+          outcomeVsMarketAssessment: cardLearning.outcomeVsMarketAssessment,
+          underCardsCloseToLine,
         });
       }
 
@@ -1807,6 +1931,12 @@ export class BacktestingEngine {
     return this.evaluateBet(selection, match);
   }
 
+  private getActualCards(match: MatchData): number | null {
+    const home = Number(match.homeYellowCards);
+    const away = Number(match.awayYellowCards);
+    return Number.isFinite(home) && Number.isFinite(away) ? home + away : null;
+  }
+
   evaluateComboBetOpportunity(
     combo: ComboBetOpportunity,
     matchResults: Record<string, MatchData>
@@ -2013,6 +2143,35 @@ export class BacktestingEngine {
     };
     const clvByMarket = summarizeClv((bet) => String(bet.marketCategory ?? 'unknown'));
     const clvByCompetition = summarizeClv((bet) => String(bet.competition ?? 'unknown'));
+    const yellowCardBets = bets
+      .map((bet) => ({ bet, parsed: this.parseCardsSelection(bet.selection) }))
+      .filter((row): row is { bet: TestBet; parsed: { side: 'over' | 'under'; line: number } } =>
+        row.parsed !== null && row.bet.marketCategory === 'yellow_cards'
+      );
+    const yellowCardsOverBets = yellowCardBets.filter((row) => row.parsed.side === 'over').map((row) => row.bet);
+    const yellowCardsUnderBets = yellowCardBets.filter((row) => row.parsed.side === 'under').map((row) => row.bet);
+    const roiForBets = (rows: TestBet[]): number | null => {
+      const staked = rows.reduce((sum, bet) => sum + bet.stake, 0);
+      if (staked <= 0) return null;
+      const profit = rows.reduce((sum, bet) => sum + bet.profit, 0);
+      return Number(((profit / staked) * 100).toFixed(2));
+    };
+    const averageClvForBets = (rows: TestBet[]): number | null => {
+      const withClv = rows.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+      if (withClv.length === 0) return null;
+      return Number((withClv.reduce((sum, bet) => sum + Number(bet.clv), 0) / withClv.length).toFixed(6));
+    };
+    const underLineErrors = yellowCardsUnderBets
+      .map((bet) => bet.cardLineError)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    const missSeverityBreakdown: Record<CardMissSeverity, number> = { NONE: 0, LOW: 0, MEDIUM: 0, HIGH: 0 };
+    for (const bet of yellowCardsUnderBets) {
+      if (bet.cardMissSeverity) missSeverityBreakdown[bet.cardMissSeverity]++;
+    }
+    const underCardsCloseToLineCount = yellowCardsUnderBets.filter((bet) => bet.underCardsCloseToLine).length;
+    const underCardsFragilePickedCount = yellowCardsUnderBets.filter(
+      (bet) => bet.underCardsCloseToLine || bet.cardMissSeverity === 'LOW'
+    ).length;
 
     return {
       algorithmVersion: ALGORITHM_VERSION,
@@ -2095,6 +2254,13 @@ export class BacktestingEngine {
         contextCompletenessScore: Number(bet.contextCompletenessScore.toFixed(3)),
         historicalContextUsed: bet.historicalContextUsed,
         contextWarnings: bet.contextWarnings,
+        cardLineError: typeof bet.cardLineError === 'number' ? Number(bet.cardLineError.toFixed(2)) : null,
+        cardMissSeverity: bet.cardMissSeverity,
+        cardLearningAdjustment: typeof bet.cardLearningAdjustment === 'number'
+          ? Number(bet.cardLearningAdjustment.toFixed(3))
+          : null,
+        outcomeVsMarketAssessment: bet.outcomeVsMarketAssessment,
+        underCardsCloseToLine: bet.underCardsCloseToLine,
       })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
@@ -2108,6 +2274,16 @@ export class BacktestingEngine {
       missingClosingOddsCount,
       clvByMarket,
       clvByCompetition,
+      roiYellowCardsOver: roiForBets(yellowCardsOverBets),
+      roiYellowCardsUnder: roiForBets(yellowCardsUnderBets),
+      clvYellowCardsOver: averageClvForBets(yellowCardsOverBets),
+      clvYellowCardsUnder: averageClvForBets(yellowCardsUnderBets),
+      averageLineErrorYellowCardsUnder: underLineErrors.length > 0
+        ? Number((underLineErrors.reduce((sum, value) => sum + value, 0) / underLineErrors.length).toFixed(3))
+        : null,
+      missSeverityBreakdown,
+      underCardsCloseToLineCount,
+      underCardsFragilePickedCount,
     };
   }
 
@@ -2244,6 +2420,9 @@ export class BacktestingEngine {
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
       marketCalibration:{}, marketReports:{},
       averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
+      roiYellowCardsOver:null, roiYellowCardsUnder:null, clvYellowCardsOver:null, clvYellowCardsUnder:null,
+      averageLineErrorYellowCardsUnder:null, missSeverityBreakdown:{ NONE:0, LOW:0, MEDIUM:0, HIGH:0 },
+      underCardsCloseToLineCount:0, underCardsFragilePickedCount:0,
       algorithmMode:'current', algorithmComparison:null,
       rankingWeightsUsed:this.engine.getRankingWeightsConfig(), rankingOptimization:null,
       overfittingRisk:'LOW', overfittingWarnings:[],

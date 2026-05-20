@@ -113,6 +113,50 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/Finche il provider non espone il mercato/i)).toBeTruthy();
   });
 
+  test('mostra warning sintetici per Under cartellini fragili', () => {
+    const noop = () => undefined;
+    render(
+      <ValueOpportunitiesTable
+        opportunities={[
+          {
+            selection: 'yellow_under_5.5',
+            marketName: 'Gialli Totali Under 5.5',
+            marketCategory: 'yellow_cards',
+            bookmakerOdds: 1.72,
+            confidence: 'LOW',
+            marketTier: 'SECONDARY',
+            expectedValue: 12.2,
+            edge: 8.1,
+            ourProbability: 67,
+            impliedProbability: 58.1,
+            kellyFraction: 1.1,
+            suggestedStakePercent: 0.5,
+            dataWarnings: [
+              'under_cards_close_to_line',
+              'high_intensity_match',
+              'strict_referee_against_under_cards',
+            ],
+          },
+        ]}
+        bankroll={1000}
+        budgetReady
+        isReplayAnalysis={false}
+        oddsSource="eurobet"
+        placedBetKeySet={new Set()}
+        replayOutcomeTone="info"
+        stakes={{}}
+        getStakeKey={() => 'cards-under'}
+        getStakeValue={() => 0}
+        onStakeChange={noop}
+        onBet={noop}
+      />
+    );
+
+    expect(screen.getByText(/Under cartellini fragile/i)).toBeTruthy();
+    expect(screen.getByText(/Partita ad alta intensita/i)).toBeTruthy();
+    expect(screen.getByText(/Arbitro severo/i)).toBeTruthy();
+  });
+
   test('mostra la sezione Mercati giocatore con warning dati', () => {
     render(
       <PlayerPropsSection

@@ -324,3 +324,59 @@ test('BacktestingEngine ranking weight search penalizes low-real-odds overfit ca
   assert.ok(result.comparison.currentResult);
   assert.ok(result.comparison.tunedResult);
 });
+
+test('card line learning classifies half-card under misses as low severity', () => {
+  const engine = new BacktestingEngine();
+
+  const under55 = engine.assessCardLineLearning({
+    selection: 'yellow_under_5.5',
+    actualCards: 6,
+    clv: null,
+    wasRecommendedTooCloseToLine: false,
+  });
+  const under45 = engine.assessCardLineLearning({
+    selection: 'yellow_under_4.5',
+    actualCards: 5,
+    clv: null,
+    wasRecommendedTooCloseToLine: false,
+  });
+  const underHighMiss = engine.assessCardLineLearning({
+    selection: 'yellow_under_5.5',
+    actualCards: 8,
+    clv: null,
+    wasRecommendedTooCloseToLine: false,
+  });
+
+  assert.equal(under55.cardLineError, 0.5);
+  assert.equal(under55.cardMissSeverity, 'LOW');
+  assert.equal(under45.cardLineError, 0.5);
+  assert.equal(under45.cardMissSeverity, 'LOW');
+  assert.equal(underHighMiss.cardMissSeverity, 'HIGH');
+});
+
+test('card line learning weighs CLV and close-to-line under mistakes', () => {
+  const engine = new BacktestingEngine();
+
+  const positiveClv = engine.assessCardLineLearning({
+    selection: 'yellow_under_5.5',
+    actualCards: 6,
+    clv: 0.04,
+    wasRecommendedTooCloseToLine: false,
+  });
+  const negativeClv = engine.assessCardLineLearning({
+    selection: 'yellow_under_5.5',
+    actualCards: 6,
+    clv: -0.04,
+    wasRecommendedTooCloseToLine: false,
+  });
+  const closeToLine = engine.assessCardLineLearning({
+    selection: 'yellow_under_5.5',
+    actualCards: 6,
+    clv: -0.04,
+    wasRecommendedTooCloseToLine: true,
+  });
+
+  assert.equal(positiveClv.outcomeVsMarketAssessment, 'good_process_bad_result');
+  assert.ok(positiveClv.cardLearningAdjustment < negativeClv.cardLearningAdjustment);
+  assert.ok(closeToLine.cardLearningAdjustment > negativeClv.cardLearningAdjustment);
+});

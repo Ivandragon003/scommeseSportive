@@ -405,3 +405,173 @@ test('custom category ranking weights penalize speculative exact score markets m
   assert.ok(exact.riskPenalty > goal.riskPenalty);
   assert.ok(exact.rankingScore < goal.rankingScore);
 });
+
+test('under cartellini usa soglia EV piu alta degli over cartellini', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_over_4.5': 0.62,
+      'yellow_under_4.5': 0.62,
+    },
+    {
+      'yellow_over_4.5': { selection: 'yellow_over_4.5', odds: 2.0, companions: [2.0] },
+      'yellow_under_4.5': { selection: 'yellow_under_4.5', odds: 2.0, companions: [2.0] },
+    },
+    {
+      'yellow_over_4.5': 'Gialli Over 4.5',
+      'yellow_under_4.5': 'Gialli Under 4.5',
+    },
+    {
+      richnessScore: 0.9,
+      expectedCards: 3.2,
+      hasRefereeData: true,
+      analysisFactors: {
+        disciplineReliability: 0.86,
+        competitiveness: 0.45,
+      },
+    }
+  );
+
+  const over = opportunities.find((opp) => opp.selection === 'yellow_over_4.5');
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_4.5');
+  assert.ok(over);
+  assert.ok(under);
+  assert.ok(under.dynamicEvThreshold > over.dynamicEvThreshold);
+  assert.ok(under.suggestedStakePercent < over.suggestedStakePercent);
+});
+
+test('under cartellini vicino alla linea viene scartato come fragile', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_4.5': 0.68,
+      'yellow_over_4.5': 0.32,
+      'yellow_under_5.5': 0.70,
+      'yellow_over_5.5': 0.30,
+    },
+    {
+      'yellow_under_4.5': { selection: 'yellow_under_4.5', odds: 1.7, companions: [2.2] },
+      'yellow_over_4.5': { selection: 'yellow_over_4.5', odds: 2.2, companions: [1.7] },
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 1.62, companions: [2.35] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.35, companions: [1.62] },
+    },
+    {
+      'yellow_under_4.5': 'Gialli Under 4.5',
+      'yellow_under_5.5': 'Gialli Under 5.5',
+    },
+    {
+      richnessScore: 0.9,
+      expectedCardsByLine: {
+        '4.5': 4.2,
+        '5.5': 5.1,
+      },
+      hasRefereeData: true,
+      analysisFactors: {
+        disciplineReliability: 0.88,
+        competitiveness: 0.42,
+      },
+    }
+  );
+
+  assert.equal(opportunities.some((opp) => opp.selection === 'yellow_under_4.5'), false);
+  assert.equal(opportunities.some((opp) => opp.selection === 'yellow_under_5.5'), false);
+});
+
+test('under cartellini con margine ampio puo ancora passare ma con warning disciplinari sintetici', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_5.5': 0.72,
+      'yellow_over_5.5': 0.28,
+    },
+    {
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 1.75, companions: [2.12] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.12, companions: [1.75] },
+    },
+    {
+      'yellow_under_5.5': 'Gialli Under 5.5',
+    },
+    {
+      richnessScore: 0.9,
+      expectedCards: 4.1,
+      hasRefereeData: true,
+      analysisFactors: {
+        disciplineReliability: 0.88,
+        competitiveness: 0.4,
+      },
+    }
+  );
+
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
+  assert.ok(under);
+  assert.equal(under.marketCategory, 'yellow_cards');
+  assert.ok((under.dataWarnings ?? []).length === 0);
+});
+
+test('rischio disciplinare alto e arbitro severo penalizzano gli under cartellini', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_5.5': 0.74,
+      'yellow_over_5.5': 0.26,
+    },
+    {
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 1.72, companions: [2.18] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.18, companions: [1.72] },
+    },
+    {
+      'yellow_under_5.5': 'Gialli Under 5.5',
+    },
+    {
+      richnessScore: 0.88,
+      expectedCards: 4.2,
+      hasRefereeData: true,
+      refereeAvgYellow: 5.3,
+      refereeAvgFouls: 28,
+      refereeSampleSize: 18,
+      leagueAvgYellow: 3.8,
+      leagueAvgFouls: 22.4,
+      analysisFactors: {
+        disciplineReliability: 0.82,
+        competitiveness: 0.88,
+        disciplinaryDelta: 0.45,
+        atRiskPlayersDelta: 0.55,
+        scheduleLoadDelta: 0.45,
+      },
+    }
+  );
+
+  assert.equal(opportunities.some((opp) => opp.selection === 'yellow_under_5.5'), false);
+});
+
+test('assenza o campione basso arbitro abbassa confidence degli under cartellini', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_5.5': 0.76,
+      'yellow_over_5.5': 0.24,
+    },
+    {
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 1.7, companions: [2.2] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.2, companions: [1.7] },
+    },
+    {
+      'yellow_under_5.5': 'Gialli Under 5.5',
+    },
+    {
+      richnessScore: 0.86,
+      expectedCards: 4.0,
+      hasRefereeData: false,
+      refereeSampleSize: 0,
+      analysisFactors: {
+        disciplineReliability: 0.74,
+        competitiveness: 0.44,
+      },
+    }
+  );
+
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
+  assert.ok(under);
+  assert.notEqual(under.confidence, 'HIGH');
+  assert.ok((under.dataWarnings ?? []).includes('missing_referee_data'));
+});

@@ -262,3 +262,25 @@ test('buildBacktestReport does not fabricate CLV when closing odds are missing',
   assert.equal(report.clv.betsWithClv, 0);
   assert.equal(report.clv.missingClosingOddsCount, sampleResult.detailedBets.length);
 });
+
+test('buildBacktestReport espone diagnostica separata per over e under cartellini', () => {
+  const report = buildBacktestReport({
+    ...sampleResult,
+    roiYellowCardsOver: 4.2,
+    roiYellowCardsUnder: -7.5,
+    clvYellowCardsOver: 0.018,
+    clvYellowCardsUnder: -0.011,
+    averageLineErrorYellowCardsUnder: 0.5,
+    missSeverityBreakdown: { NONE: 2, LOW: 1, MEDIUM: 0, HIGH: 1 },
+    underCardsCloseToLineCount: 1,
+    underCardsFragilePickedCount: 2,
+  });
+
+  assert.equal(report.cardsDiagnostics.roiYellowCardsOver, 4.2);
+  assert.equal(report.cardsDiagnostics.roiYellowCardsUnder, -7.5);
+  assert.equal(report.cardsDiagnostics.clvYellowCardsUnder, -0.011);
+  assert.equal(report.cardsDiagnostics.averageLineErrorYellowCardsUnder, 0.5);
+  assert.equal(report.cardsDiagnostics.missSeverityBreakdown.LOW, 1);
+  assert.equal(report.cardsDiagnostics.underCardsCloseToLineCount, 1);
+  assert.equal(report.cardsDiagnostics.underCardsFragilePickedCount, 2);
+});
