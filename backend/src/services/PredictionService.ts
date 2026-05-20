@@ -225,6 +225,7 @@ export interface CompletedMatchLearningReview {
   clvLearningSignal?: 'positive_clv_won' | 'positive_clv_lost' | 'negative_clv_won' | 'negative_clv_lost' | 'missing_clv';
   clvAdjustedLearningWeight?: number;
   outcomeVsMarketAssessment?: 'good_process_good_result' | 'good_process_bad_result' | 'bad_process_good_result' | 'bad_process_bad_result' | 'unknown_clv';
+  clvProcessScore?: number;
   headline: string;
   humanSummary: string;
   lessons: string[];
@@ -674,7 +675,7 @@ export class PredictionService {
       const reviewType = String(row?.reviewType ?? review?.reviewType ?? 'no_actionable_signal');
       const reviewSource = String(review?.reviewSource ?? 'historical_bookmaker_snapshot');
       const weight = this.clamp(
-        Number(review?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
+        Number(review?.clvAdjustedLearningWeight ?? review?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
         0.15,
         1,
       );
@@ -1312,6 +1313,8 @@ export class PredictionService {
       hasXg: Number.isFinite(Number(context.homeXG)) && Number.isFinite(Number(context.awayXG)),
       hasPlayerData: homePlayers.length > 0 || awayPlayers.length > 0,
       hasRefereeData: Boolean(referee || (supp as any)?.referee || (supp as any)?.refereeProfile),
+      competition: request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined,
+      enableMarketBlending: true,
       expectedCards: Number(probs.cards?.expectedTotalYellow ?? 0),
       expectedFouls: Number(probs.fouls?.expectedTotalFouls ?? 0),
       refereeAvgYellow: Number((referee as any)?.avg_yellow_cards_per_game ?? supp?.refereeStats?.avgYellow ?? 3.8),
@@ -1639,13 +1642,14 @@ export class PredictionService {
     baseLearningWeight: number,
     resultStatus: 'WON' | 'LOST' | 'VOID' | 'UNKNOWN',
     clv?: number | null
-  ): Pick<CompletedMatchLearningReview, 'learningWeight' | 'clvLearningSignal' | 'clvAdjustedLearningWeight' | 'outcomeVsMarketAssessment'> {
+  ): Pick<CompletedMatchLearningReview, 'learningWeight' | 'clvLearningSignal' | 'clvAdjustedLearningWeight' | 'outcomeVsMarketAssessment' | 'clvProcessScore'> {
     if (resultStatus !== 'WON' && resultStatus !== 'LOST') {
       return {
         learningWeight: baseLearningWeight,
         clvLearningSignal: 'missing_clv',
         clvAdjustedLearningWeight: baseLearningWeight,
         outcomeVsMarketAssessment: 'unknown_clv',
+        clvProcessScore: 0,
       };
     }
 
@@ -1656,6 +1660,7 @@ export class PredictionService {
         clvLearningSignal: 'missing_clv',
         clvAdjustedLearningWeight: baseLearningWeight,
         outcomeVsMarketAssessment: 'unknown_clv',
+        clvProcessScore: 0,
       };
     }
 
@@ -1674,14 +1679,20 @@ export class PredictionService {
       outcomeVsMarketAssessment === 'good_process_good_result' ? 1 :
       outcomeVsMarketAssessment === 'good_process_bad_result' ? 0.45 :
       outcomeVsMarketAssessment === 'bad_process_good_result' ? 0.55 :
-      1;
+      1.25;
     const adjusted = Number(this.clamp(baseLearningWeight * multiplier, 0.15, 1).toFixed(3));
+    const clvProcessScore =
+      outcomeVsMarketAssessment === 'good_process_good_result' ? 1 :
+      outcomeVsMarketAssessment === 'good_process_bad_result' ? 0.45 :
+      outcomeVsMarketAssessment === 'bad_process_good_result' ? -0.35 :
+      -1;
 
     return {
       learningWeight: adjusted,
       clvLearningSignal,
       clvAdjustedLearningWeight: adjusted,
       outcomeVsMarketAssessment,
+      clvProcessScore,
     };
   }
 

@@ -284,3 +284,37 @@ test('buildBacktestReport espone diagnostica separata per over e under cartellin
   assert.equal(report.cardsDiagnostics.underCardsCloseToLineCount, 1);
   assert.equal(report.cardsDiagnostics.underCardsFragilePickedCount, 2);
 });
+
+test('buildBacktestReport espone diagnostica calibrazione e blending walk-forward', () => {
+  const report = buildBacktestReport({
+    ...sampleResult,
+    calibrationDiagnostics: {
+      global: { averageGap: -0.04, sampleSize: 80, reliability: 0.7 },
+      byMarket: {
+        yellow_cards_under: { averageGap: -0.08, sampleSize: 24, reliability: 0.52 },
+      },
+    },
+    blendedVsRawComparison: {
+      betsWithBlending: 3,
+      averageModelProbability: 0.61,
+      averageBlendedProbability: 0.57,
+      averageDelta: -0.04,
+      byMarket: {
+        goal_ou: {
+          bets: 1,
+          averageModelProbability: 0.62,
+          averageBlendedProbability: 0.59,
+          averageDelta: -0.03,
+        },
+      },
+    },
+    categoryOverfittingRisk: {
+      yellow_cards_under: 'HIGH',
+      goal_ou: 'LOW',
+    },
+  });
+
+  assert.equal(report.calibrationDiagnostics.byMarket.yellow_cards_under.averageGap, -0.08);
+  assert.equal(report.blendedVsRawComparison.betsWithBlending, 3);
+  assert.equal(report.categoryOverfittingRisk.yellow_cards_under, 'HIGH');
+});

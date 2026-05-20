@@ -157,6 +157,47 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/Arbitro severo/i)).toBeTruthy();
   });
 
+  test('mostra diagnostica sintetica per blending, edge no-vig e dati deboli', () => {
+    const noop = () => undefined;
+    render(
+      <ValueOpportunitiesTable
+        opportunities={[
+          {
+            selection: 'player_p1_sot_over_0_5',
+            marketName: 'Player Over 0.5 tiri in porta',
+            marketCategory: 'player_shots_ot',
+            bookmakerOdds: 2.05,
+            confidence: 'MEDIUM',
+            marketTier: 'SECONDARY',
+            expectedValue: 8.1,
+            edge: 3.5,
+            edgeNoVig: 5.1,
+            ourProbability: 54,
+            impliedProbability: 48.8,
+            kellyFraction: 0.8,
+            suggestedStakePercent: 0.5,
+            dataWarnings: ['data_quality_weak', 'market_blending_applied', 'positive_edge_no_vig'],
+          },
+        ]}
+        bankroll={1000}
+        budgetReady
+        isReplayAnalysis={false}
+        oddsSource="eurobet"
+        placedBetKeySet={new Set()}
+        replayOutcomeTone="info"
+        stakes={{}}
+        getStakeKey={() => 'diag'}
+        getStakeValue={() => 0}
+        onStakeChange={noop}
+        onBet={noop}
+      />
+    );
+
+    expect(screen.getByText(/Dati deboli/i)).toBeTruthy();
+    expect(screen.getByText(/Probabilita corretta dal mercato/i)).toBeTruthy();
+    expect(screen.getByText(/Buon edge no-vig/i)).toBeTruthy();
+  });
+
   test('mostra la sezione Mercati giocatore con warning dati', () => {
     render(
       <PlayerPropsSection

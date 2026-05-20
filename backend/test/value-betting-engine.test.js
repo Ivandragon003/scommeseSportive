@@ -505,7 +505,9 @@ test('under cartellini con margine ampio puo ancora passare ma con warning disci
   const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
   assert.ok(under);
   assert.equal(under.marketCategory, 'yellow_cards');
-  assert.ok((under.dataWarnings ?? []).length === 0);
+  assert.equal((under.dataWarnings ?? []).includes('under_cards_close_to_line'), false);
+  assert.equal((under.dataWarnings ?? []).includes('high_intensity_match'), false);
+  assert.equal((under.dataWarnings ?? []).includes('strict_referee_against_under_cards'), false);
 });
 
 test('rischio disciplinare alto e arbitro severo penalizzano gli under cartellini', () => {
@@ -574,4 +576,142 @@ test('assenza o campione basso arbitro abbassa confidence degli under cartellini
   assert.ok(under);
   assert.notEqual(under.confidence, 'HIGH');
   assert.ok((under.dataWarnings ?? []).includes('missing_referee_data'));
+});
+
+test('calibrazione per lato mercato corregge yellow_cards_under separatamente dagli over', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_5.5': 0.62,
+      'yellow_over_5.5': 0.62,
+    },
+    {
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 2.05, companions: [1.85] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.05, companions: [1.85] },
+    },
+    {
+      'yellow_under_5.5': 'Gialli Under 5.5',
+      'yellow_over_5.5': 'Gialli Over 5.5',
+    },
+    {
+      enableMarketBlending: false,
+      richnessScore: 0.9,
+      expectedCards: 4.2,
+      hasRefereeData: true,
+      marketCalibrationProfile: {
+        global: { predictedAvg: 0.62, actualHitRate: 0.60, sampleSize: 400, reliability: 0.8 },
+        byMarket: {
+          yellow_cards_under: { predictedAvg: 0.62, actualHitRate: 0.52, sampleSize: 140, reliability: 0.85 },
+          yellow_cards_over: { predictedAvg: 0.62, actualHitRate: 0.64, sampleSize: 140, reliability: 0.85 },
+        },
+      },
+      analysisFactors: {
+        disciplineReliability: 0.9,
+        competitiveness: 0.35,
+      },
+    }
+  );
+
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
+  const over = opportunities.find((opp) => opp.selection === 'yellow_over_5.5');
+  assert.ok(under);
+  assert.ok(over);
+  assert.equal(under.categoryCalibrationStatus, 'applied');
+  assert.equal(over.categoryCalibrationStatus, 'applied');
+  assert.ok(Number(under.calibratedProbability) < Number(under.modelProbability));
+  assert.ok(Number(over.calibratedProbability) > Number(over.modelProbability));
+});
+
+test('calibrazione per mercato usa fallback globale se il campione categoria e basso', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    { 'player_p1_shots_over_1_5': 0.72 },
+    { 'player_p1_shots_over_1_5': { selection: 'player_p1_shots_over_1_5', odds: 2.3, companions: [] } },
+    { 'player_p1_shots_over_1_5': 'Player Over 1.5 tiri' },
+    {
+      enableMarketBlending: false,
+      richnessScore: 0.65,
+      hasPlayerData: true,
+      marketCalibrationProfile: {
+        global: { predictedAvg: 0.72, actualHitRate: 0.70, sampleSize: 420, reliability: 0.8 },
+        byMarket: {
+          player_shots: { predictedAvg: 0.72, actualHitRate: 0.42, sampleSize: 8, reliability: 0.2 },
+        },
+      },
+    }
+  );
+
+  const prop = opportunities.find((opp) => opp.selection === 'player_p1_shots_over_1_5');
+  assert.ok(prop);
+  assert.equal(prop.categoryCalibrationStatus, 'global_fallback');
+  assert.ok(Math.abs(Number(prop.calibratedProbability) - Number(prop.modelProbability)) < 5);
+});
+
+test('blending modello mercato pesa il modello quando i dati sono forti', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    { over25: 0.62 },
+    { over25: { selection: 'over25', odds: 1.95, companions: [1.95] } },
+    { over25: 'Over 2.5' },
+    {
+      enableMarketBlending: true,
+      richnessScore: 0.95,
+      hasXg: true,
+      teamSampleSize: { home: 32, away: 32 },
+    }
+  );
+
+  const over = opportunities.find((opp) => opp.selection === 'over25');
+  assert.ok(over);
+  assert.ok(Number(over.modelWeight) > Number(over.marketWeight));
+  assert.ok(Number(over.blendedProbability) < Number(over.modelProbability));
+  assert.equal(over.ourProbability, over.blendedProbability);
+  assert.ok((over.dataWarnings ?? []).includes('market_blending_applied'));
+});
+
+test('blending prudente usa piu mercato con dati deboli e companion odds mancanti', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    { 'player_p1_sot_over_0_5': 0.78 },
+    { 'player_p1_sot_over_0_5': { selection: 'player_p1_sot_over_0_5', odds: 2.4, companions: [] } },
+    { 'player_p1_sot_over_0_5': 'Player Over 0.5 tiri in porta' },
+    {
+      enableMarketBlending: true,
+      richnessScore: 0.25,
+      hasPlayerData: false,
+      teamSampleSize: { home: 5, away: 5 },
+    }
+  );
+
+  const prop = opportunities.find((opp) => opp.selection === 'player_p1_sot_over_0_5');
+  assert.ok(prop);
+  assert.equal(prop.companionOddsAvailable, false);
+  assert.ok(Number(prop.marketWeight) >= Number(prop.modelWeight));
+  assert.ok(Number(prop.expectedValue) < 47.5);
+  assert.ok((prop.riskReasons ?? []).includes('Quote companion mancanti'));
+});
+
+test('ranking weights supportano override per competizione e categoria con fallback globale', () => {
+  const engine = new ValueBettingEngine();
+  engine.setRankingWeights({
+    global: { ev: 0.21 },
+    byCategory: {
+      yellow_cards: { riskPenalty: 0.61 },
+    },
+    byCompetition: {
+      'premier league': {
+        byCategory: {
+          yellow_cards: { edgeNoVig: 0.72, riskPenalty: 0.82 },
+        },
+      },
+    },
+  });
+
+  const premier = engine.getRankingWeightsForCategory('yellow_cards', { competition: 'Premier League' });
+  const serieA = engine.getRankingWeightsForCategory('yellow_cards', { competition: 'Serie A' });
+
+  assert.equal(premier.edgeNoVig, 0.72);
+  assert.equal(premier.riskPenalty, 0.82);
+  assert.equal(serieA.ev, 0.21);
+  assert.equal(serieA.riskPenalty, 0.61);
 });

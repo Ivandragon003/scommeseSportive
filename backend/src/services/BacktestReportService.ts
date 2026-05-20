@@ -235,6 +235,9 @@ type BacktestReportSource = {
   missSeverityBreakdown?: unknown;
   underCardsCloseToLineCount?: unknown;
   underCardsFragilePickedCount?: unknown;
+  calibrationDiagnostics?: unknown;
+  blendedVsRawComparison?: unknown;
+  categoryOverfittingRisk?: unknown;
   summary?: unknown;
 };
 
@@ -281,6 +284,9 @@ type BacktestReport = {
   clv: ClvReportSection;
   oddsReliability: OddsReliabilitySection;
   cardsDiagnostics: CardsDiagnosticsSection;
+  calibrationDiagnostics: unknown | null;
+  blendedVsRawComparison: unknown | null;
+  categoryOverfittingRisk: Record<string, string>;
   algorithmComparison: unknown | null;
   algorithmVersion: string | null;
   rankingVersion: string | null;
@@ -1080,6 +1086,14 @@ export const buildBacktestReport = (
         ])
       )
     : {};
+  const categoryOverfittingRisk = result.categoryOverfittingRisk && typeof result.categoryOverfittingRisk === 'object'
+    ? Object.fromEntries(
+        Object.entries(result.categoryOverfittingRisk as Record<string, unknown>).map(([key, value]) => [
+          key,
+          String(value),
+        ])
+      )
+    : {};
 
   return {
     algorithmVersion: typeof result.algorithmVersion === 'string' ? result.algorithmVersion : null,
@@ -1152,6 +1166,13 @@ export const buildBacktestReport = (
       underCardsCloseToLineCount: Number(toFinite(result.underCardsCloseToLineCount)),
       underCardsFragilePickedCount: Number(toFinite(result.underCardsFragilePickedCount)),
     },
+    calibrationDiagnostics: result.calibrationDiagnostics && typeof result.calibrationDiagnostics === 'object'
+      ? result.calibrationDiagnostics
+      : null,
+    blendedVsRawComparison: result.blendedVsRawComparison && typeof result.blendedVsRawComparison === 'object'
+      ? result.blendedVsRawComparison
+      : null,
+    categoryOverfittingRisk,
     algorithmComparison: result.algorithmComparison ?? null,
   };
 };

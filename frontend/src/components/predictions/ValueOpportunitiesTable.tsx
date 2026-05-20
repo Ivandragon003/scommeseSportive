@@ -30,6 +30,14 @@ const valueWarningLabel = (warning: string): string | null => {
       return 'Dati arbitro assenti o deboli';
     case 'strict_referee_against_under_cards':
       return 'Arbitro severo: Under penalizzato';
+    case 'data_quality_weak':
+      return 'Dati deboli';
+    case 'market_blending_applied':
+      return 'Probabilita corretta dal mercato';
+    case 'positive_edge_no_vig':
+      return 'Buon edge no-vig';
+    case 'market_calibration_applied':
+      return 'Calibrazione mercato applicata';
     default:
       return null;
   }

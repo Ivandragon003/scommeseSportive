@@ -173,3 +173,59 @@ test('CLV negative on a won bet avoids over-rewarding bad process good result', 
   assert.ok(review.clvAdjustedLearningWeight < 1);
   assert.equal(review.learningWeight, review.clvAdjustedLearningWeight);
 });
+
+test('CLV negative on a lost bet increases learning penalty and exposes process score', () => {
+  const service = new PredictionService({});
+  const prediction = {
+    probabilities: { flatProbabilities: { under25: 0.58, over25: 0.42 } },
+    valueOpportunities: [],
+    bestValueOpportunity: {
+      selection: 'under25',
+      selectionLabel: 'Under 2.5',
+      marketName: 'Goal Totali',
+      bookmakerOdds: 1.9,
+    },
+  };
+
+  const review = service.buildCompletedMatchLearningReview(
+    prediction,
+    { home_goals: 2, away_goals: 2 },
+    { under25: 1.9, over25: 2.0 },
+    { learningWeight: 0.7, clv: -0.06, clvMissingReason: null }
+  );
+
+  assert.equal(review.outcomeVsMarketAssessment, 'bad_process_bad_result');
+  assert.equal(review.clvLearningSignal, 'negative_clv_lost');
+  assert.ok(review.clvAdjustedLearningWeight > 0.7);
+  assert.ok(Number(review.clvProcessScore) < 0);
+});
+
+test('adaptive tuning usa clvAdjustedLearningWeight quando disponibile', async () => {
+  const service = new PredictionService({});
+
+  service.db.getLearningReviews = async () => [
+    {
+      reviewType: 'filter_rejection',
+      review: {
+        reviewType: 'filter_rejection',
+        reviewSource: 'historical_bookmaker_snapshot',
+        learningWeight: 1,
+        clvAdjustedLearningWeight: 0.2,
+        outcomeVsMarketAssessment: 'good_process_bad_result',
+        recommendedSelection: {
+          selection: 'yellow_under_5.5',
+          result: 'LOST',
+        },
+        missedWinningSelection: {
+          selection: 'yellow_over_5.5',
+        },
+      },
+    },
+  ];
+
+  const profile = await service.getAdaptiveTuningProfile('Premier League', true);
+
+  assert.ok(profile.selectionFamilies.cards_over);
+  assert.ok(profile.selectionFamilies.cards_over.sampleSize <= 0.25);
+  assert.ok(profile.categories.yellow_cards.sampleSize <= 0.5);
+});

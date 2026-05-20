@@ -298,6 +298,23 @@ test('BacktestingEngine walk-forward exposes fold stability and algorithm metada
   assert.equal(result.folds.every((fold) => typeof fold.betsWithRealEurobetOdds === 'number'), true);
 });
 
+test('BacktestingEngine walk-forward exposes calibration and blended probability diagnostics', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = runOfficialWalkForward(engine, matches, odds, context, {
+    maxFolds: 3,
+    compareBaseline: true,
+  });
+
+  assert.ok(result.calibrationDiagnostics);
+  assert.ok(result.blendedVsRawComparison);
+  assert.ok(result.categoryOverfittingRisk);
+  assert.ok(typeof result.blendedVsRawComparison.averageProbabilityShift === 'number');
+  assert.ok(Object.prototype.hasOwnProperty.call(result.calibrationDiagnostics, 'global'));
+});
+
 test('BacktestingEngine ranking weight search penalizes low-real-odds overfit candidates', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();

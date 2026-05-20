@@ -35,6 +35,8 @@ import {
   AdaptiveEngineTuningProfile,
   ValueAnalysisContext,
   RankingWeightsConfig,
+  MarketCalibrationProfile,
+  MarketCalibrationEntry,
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
@@ -117,6 +119,9 @@ export interface BacktestResult {
   usedSyntheticOddsOnly: boolean;
   marketCalibration?: Record<string, CalibrationBucket[]>;
   marketReports?: Record<string, MarketLevelReport>;
+  calibrationDiagnostics?: CalibrationDiagnostics;
+  blendedVsRawComparison?: BlendedVsRawComparison;
+  categoryOverfittingRisk?: Record<string, OverfittingRisk>;
   averageClv: number | null;
   positiveClvRate: number | null;
   missingClosingOddsCount: number;
@@ -198,6 +203,26 @@ export interface MarketLevelReport {
   edgeDecayByMonth: Array<{ year: number; month: number; edgeNoVig: number; bets: number }>;
   rollingSharpePeriods: Array<{ periodStart: number; periodEnd: number; sharpe: number }>;
   usedSyntheticOddsOnly: boolean;
+}
+
+export interface CalibrationDiagnostics {
+  global: {
+    sampleSize: number;
+    averageCalibrationGap: number;
+    reliability: number;
+  };
+  byMarket: Record<string, {
+    sampleSize: number;
+    averageCalibrationGap: number;
+    reliability: number;
+  }>;
+}
+
+export interface BlendedVsRawComparison {
+  betsWithBlendedProbability: number;
+  averageModelProbability: number | null;
+  averageBlendedProbability: number | null;
+  averageProbabilityShift: number;
 }
 
 interface MarketReportBet {
@@ -297,6 +322,9 @@ export interface WalkForwardBacktestResult {
     averageLogLoss: number;
   };
   detailedBets: BacktestBetDetail[];
+  calibrationDiagnostics?: CalibrationDiagnostics;
+  blendedVsRawComparison?: BlendedVsRawComparison;
+  categoryOverfittingRisk?: Record<string, OverfittingRisk>;
   rankingOptimization?: RankingWeightSearchResult | null;
 }
 
@@ -420,6 +448,15 @@ export interface BacktestBetDetail {
   cardLearningAdjustment?: number | null;
   outcomeVsMarketAssessment?: OutcomeVsMarketAssessment | null;
   underCardsCloseToLine?: boolean;
+  modelProbability?: number | null;
+  calibratedProbability?: number | null;
+  blendedProbability?: number | null;
+  marketProbabilityNoVig?: number | null;
+  modelWeight?: number | null;
+  marketWeight?: number | null;
+  categoryCalibrationStatus?: string | null;
+  dataQuality?: number | null;
+  companionOddsAvailable?: boolean | null;
 }
 
 interface TestBet {
@@ -464,6 +501,15 @@ interface TestBet {
   cardLearningAdjustment: number | null;
   outcomeVsMarketAssessment: OutcomeVsMarketAssessment | null;
   underCardsCloseToLine: boolean;
+  modelProbability: number | null;
+  calibratedProbability: number | null;
+  blendedProbability: number | null;
+  marketProbabilityNoVig: number | null;
+  modelWeight: number | null;
+  marketWeight: number | null;
+  categoryCalibrationStatus: string | null;
+  dataQuality: number | null;
+  companionOddsAvailable: boolean | null;
 }
 
 interface BacktestValueContextDiagnostics {
@@ -486,6 +532,11 @@ export class BacktestingEngine {
   constructor() {
     this.model  = new DixonColesModel();
     this.engine = new ValueBettingEngine();
+  }
+
+  private clampNumber(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
   }
 
   assessCardLineLearning(input: {
@@ -896,7 +947,8 @@ export class BacktestingEngine {
     match: MatchData,
     historicalMatches: MatchData[],
     teamSamples: Map<string, number>,
-    hasRealEurobetOdds: boolean
+    hasRealEurobetOdds: boolean,
+    marketCalibrationProfile?: MarketCalibrationProfile
   ): BacktestValueContextDiagnostics {
     const homeSample = teamSamples.get(match.homeTeamId) ?? 0;
     const awaySample = teamSamples.get(match.awayTeamId) ?? 0;
@@ -975,6 +1027,8 @@ export class BacktestingEngine {
         hasXg,
         hasPlayerData: false,
         hasRefereeData,
+        marketCalibrationProfile,
+        enableMarketCalibration: Boolean(marketCalibrationProfile),
         marketVariance: {
           goal_1x2: 0.95,
           goal_ou: 0.9,
@@ -1001,6 +1055,54 @@ export class BacktestingEngine {
       contextCompletenessScore: Number(richnessScore.toFixed(3)),
       historicalContextUsed: prior.length > 0,
       contextWarnings,
+    };
+  }
+
+  private buildCalibrationEntry(rows: Array<{ probability: number; won: boolean }>): MarketCalibrationEntry {
+    const predictedAvg = rows.reduce((sum, row) => sum + row.probability, 0) / rows.length;
+    const actualHitRate = rows.filter((row) => row.won).length / rows.length;
+    return {
+      predictedAvg: Number(predictedAvg.toFixed(6)),
+      actualHitRate: Number(actualHitRate.toFixed(6)),
+      sampleSize: rows.length,
+      reliability: Number(this.clampNumber(rows.length / 120, 0, 1).toFixed(3)),
+      calibrationGap: Number((actualHitRate - predictedAvg).toFixed(6)),
+    };
+  }
+
+  private buildTrainingMarketCalibrationProfile(trainMatches: MatchData[]): MarketCalibrationProfile | undefined {
+    const byMarketRows: Record<string, Array<{ probability: number; won: boolean }>> = {};
+    const globalRows: Array<{ probability: number; won: boolean }> = [];
+
+    for (const match of trainMatches) {
+      if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
+      const probs = this.model.computeFullProbabilities(
+        match.homeTeamId,
+        match.awayTeamId,
+        match.homeXG,
+        match.awayXG
+      );
+
+      for (const [selection, probability] of Object.entries(probs.flatProbabilities ?? {})) {
+        const numericProbability = Number(probability);
+        if (!Number.isFinite(numericProbability) || numericProbability <= 0 || numericProbability >= 1) continue;
+        const won = this.evaluateBetNullable(selection, match);
+        if (won === null) continue;
+        const category = this.engine.categorizeSelection(selection);
+        const calibrationKey = this.engine.getMarketCalibrationKey(selection, category);
+        const row = { probability: numericProbability, won };
+        globalRows.push(row);
+        (byMarketRows[calibrationKey] ??= []).push(row);
+      }
+    }
+
+    if (globalRows.length === 0) return undefined;
+
+    return {
+      global: this.buildCalibrationEntry(globalRows),
+      byMarket: Object.fromEntries(
+        Object.entries(byMarketRows).map(([market, rows]) => [market, this.buildCalibrationEntry(rows)])
+      ),
     };
   }
 
@@ -1129,6 +1231,7 @@ export class BacktestingEngine {
     const teamSamples = this.buildTeamSampleSizes(trainMatches);
 
     this.model.fitModel(trainMatches, teams);
+    const marketCalibrationProfile = this.buildTrainingMarketCalibrationProfile(trainMatches);
 
     const bets: TestBet[] = [];
     const attemptedByCategory: Record<string, number> = {};
@@ -1161,9 +1264,17 @@ export class BacktestingEngine {
 
       const marketGroups = this.engine.buildMarketGroups(odds);
       const historicalRows = chronologicalHistory.filter((row) => row.date.getTime() < match.date.getTime());
-      const contextDiagnostics = this.buildBacktestValueAnalysisContext(match, historicalRows, teamSamples, isRealEurobetOdds);
+      const contextDiagnostics = this.buildBacktestValueAnalysisContext(
+        match,
+        historicalRows,
+        teamSamples,
+        isRealEurobetOdds,
+        marketCalibrationProfile
+      );
       contextDiagnostics.context.expectedCards = Number(probs.cards?.expectedTotalYellow ?? 0);
       contextDiagnostics.context.expectedFouls = Number(probs.fouls?.expectedTotalFouls ?? 0);
+      contextDiagnostics.context.enableMarketBlending = true;
+      contextDiagnostics.context.competition = match.competition ?? undefined;
       const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(
         probMap,
         marketGroups,
@@ -1241,6 +1352,15 @@ export class BacktestingEngine {
           cardLearningAdjustment: cardLearning.cardLearningAdjustment,
           outcomeVsMarketAssessment: cardLearning.outcomeVsMarketAssessment,
           underCardsCloseToLine,
+          modelProbability: typeof opp.modelProbability === 'number' ? opp.modelProbability / 100 : null,
+          calibratedProbability: typeof opp.calibratedProbability === 'number' ? opp.calibratedProbability / 100 : null,
+          blendedProbability: typeof opp.blendedProbability === 'number' ? opp.blendedProbability / 100 : null,
+          marketProbabilityNoVig: typeof opp.marketProbabilityNoVig === 'number' ? opp.marketProbabilityNoVig / 100 : null,
+          modelWeight: typeof opp.modelWeight === 'number' ? opp.modelWeight : null,
+          marketWeight: typeof opp.marketWeight === 'number' ? opp.marketWeight : null,
+          categoryCalibrationStatus: opp.categoryCalibrationStatus ?? null,
+          dataQuality: typeof opp.dataQuality === 'number' ? opp.dataQuality : null,
+          companionOddsAvailable: typeof opp.companionOddsAvailable === 'boolean' ? opp.companionOddsAvailable : null,
         });
       }
 
@@ -1401,6 +1521,9 @@ export class BacktestingEngine {
     const rankingStabilityScore = folds.length > 0
       ? Number((currentBeatsBaselineFolds / folds.length).toFixed(3))
       : 0;
+    const calibrationDiagnostics = this.buildDetailedBetCalibrationDiagnostics(detailedBets);
+    const blendedVsRawComparison = this.buildDetailedBetBlendedComparison(detailedBets);
+    const categoryOverfittingRisk = this.buildDetailedBetCategoryOverfittingRisk(detailedBets);
 
     return {
       algorithmVersion: ALGORITHM_VERSION,
@@ -1434,7 +1557,77 @@ export class BacktestingEngine {
         averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
       },
       detailedBets,
+      calibrationDiagnostics,
+      blendedVsRawComparison,
+      categoryOverfittingRisk,
     };
+  }
+
+  private buildDetailedBetCalibrationDiagnostics(bets: BacktestBetDetail[]): CalibrationDiagnostics {
+    const summarize = (rows: BacktestBetDetail[]) => {
+      const valid = rows.filter((bet) => Number.isFinite(Number(bet.ourProbability)));
+      if (valid.length === 0) return { sampleSize: 0, averageCalibrationGap: 0, reliability: 0 };
+      const predicted = valid.reduce((sum, bet) => sum + Number(bet.ourProbability), 0) / valid.length;
+      const actual = valid.filter((bet) => bet.won).length / valid.length;
+      return {
+        sampleSize: valid.length,
+        averageCalibrationGap: Number(Math.abs(actual - predicted).toFixed(6)),
+        reliability: Number(this.clampNumber(valid.length / 120, 0, 1).toFixed(3)),
+      };
+    };
+    const byMarket: CalibrationDiagnostics['byMarket'] = {};
+    for (const bet of bets) {
+      const market = String(bet.marketCategory ?? 'other');
+      if (!byMarket[market]) byMarket[market] = { sampleSize: 0, averageCalibrationGap: 0, reliability: 0 };
+    }
+    for (const market of Object.keys(byMarket)) {
+      byMarket[market] = summarize(bets.filter((bet) => String(bet.marketCategory ?? 'other') === market));
+    }
+    return { global: summarize(bets), byMarket };
+  }
+
+  private buildDetailedBetBlendedComparison(bets: BacktestBetDetail[]): BlendedVsRawComparison {
+    const rows = bets.filter(
+      (bet) => typeof bet.modelProbability === 'number' && typeof bet.blendedProbability === 'number'
+    );
+    if (rows.length === 0) {
+      return {
+        betsWithBlendedProbability: 0,
+        averageModelProbability: null,
+        averageBlendedProbability: null,
+        averageProbabilityShift: 0,
+      };
+    }
+    return {
+      betsWithBlendedProbability: rows.length,
+      averageModelProbability: Number((rows.reduce((sum, bet) => sum + Number(bet.modelProbability), 0) / rows.length).toFixed(6)),
+      averageBlendedProbability: Number((rows.reduce((sum, bet) => sum + Number(bet.blendedProbability), 0) / rows.length).toFixed(6)),
+      averageProbabilityShift: Number((rows.reduce((sum, bet) => sum + Math.abs(Number(bet.blendedProbability) - Number(bet.modelProbability)), 0) / rows.length).toFixed(6)),
+    };
+  }
+
+  private buildDetailedBetCategoryOverfittingRisk(bets: BacktestBetDetail[]): Record<string, OverfittingRisk> {
+    const grouped: Record<string, BacktestBetDetail[]> = {};
+    for (const bet of bets) {
+      (grouped[String(bet.marketCategory ?? 'other')] ??= []).push(bet);
+    }
+    return Object.fromEntries(
+      Object.entries(grouped).map(([market, rows]) => {
+        const clvRows = rows.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+        const avgClv = clvRows.length > 0
+          ? clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length
+          : null;
+        const staked = rows.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
+        const profit = rows.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
+        const roi = staked > 0 ? (profit / staked) * 100 : 0;
+        const risk: OverfittingRisk = rows.length < 8 || (roi > 45 && Number(avgClv ?? 0) < 0)
+          ? 'HIGH'
+          : rows.length < 20
+            ? 'MEDIUM'
+            : 'LOW';
+        return [market, risk];
+      })
+    );
   }
 
   private defaultRankingWeightCandidates(): Array<{ name: string; weights: RankingWeightsConfig }> {
@@ -2172,6 +2365,57 @@ export class BacktestingEngine {
     const underCardsFragilePickedCount = yellowCardsUnderBets.filter(
       (bet) => bet.underCardsCloseToLine || bet.cardMissSeverity === 'LOW'
     ).length;
+    const calibrationSet = this.computeCalibrationByMarket(bets);
+    const averageGap = (buckets: CalibrationBucket[]): number =>
+      buckets.length > 0
+        ? Number((buckets.reduce((sum, bucket) => sum + Math.abs(bucket.actualFrequency - bucket.predictedAvg), 0) / buckets.length).toFixed(6))
+        : 0;
+    const calibrationDiagnostics: CalibrationDiagnostics = {
+      global: {
+        sampleSize: bets.length,
+        averageCalibrationGap: averageGap(calibrationSet.global),
+        reliability: Number(this.clampNumber(bets.length / 120, 0, 1).toFixed(3)),
+      },
+      byMarket: Object.fromEntries(
+        Object.entries(calibrationSet.byMarket).map(([market, buckets]) => {
+          const sampleSize = bets.filter((bet) => String(bet.marketCategory ?? 'other') === market).length;
+          return [
+            market,
+            {
+              sampleSize,
+              averageCalibrationGap: averageGap(buckets),
+              reliability: Number(this.clampNumber(sampleSize / 60, 0, 1).toFixed(3)),
+            },
+          ];
+        })
+      ),
+    };
+    const blendedRows = bets.filter(
+      (bet) => typeof bet.modelProbability === 'number' && typeof bet.blendedProbability === 'number'
+    );
+    const blendedVsRawComparison: BlendedVsRawComparison = {
+      betsWithBlendedProbability: blendedRows.length,
+      averageModelProbability: blendedRows.length > 0
+        ? Number((blendedRows.reduce((sum, bet) => sum + Number(bet.modelProbability), 0) / blendedRows.length).toFixed(6))
+        : null,
+      averageBlendedProbability: blendedRows.length > 0
+        ? Number((blendedRows.reduce((sum, bet) => sum + Number(bet.blendedProbability), 0) / blendedRows.length).toFixed(6))
+        : null,
+      averageProbabilityShift: blendedRows.length > 0
+        ? Number((blendedRows.reduce((sum, bet) => sum + Math.abs(Number(bet.blendedProbability) - Number(bet.modelProbability)), 0) / blendedRows.length).toFixed(6))
+        : 0,
+    };
+    const categoryOverfittingRisk: Record<string, OverfittingRisk> = {};
+    for (const [market, report] of Object.entries(marketReports)) {
+      const sampleSize = bets.filter((bet) => String(bet.marketCategory ?? 'other') === market).length;
+      const clvSummary = clvByMarket[market];
+      const suspiciousRoi = report.roi > 45 && (!clvSummary || clvSummary.averageClv < 0);
+      categoryOverfittingRisk[market] = sampleSize < 8 || suspiciousRoi
+        ? 'HIGH'
+        : sampleSize < 20 || report.maxDrawdown > 35
+          ? 'MEDIUM'
+          : 'LOW';
+    }
 
     return {
       algorithmVersion: ALGORITHM_VERSION,
@@ -2211,6 +2455,9 @@ export class BacktestingEngine {
       profitFactor,
       marketBreakdown,
       rankingWeightsUsed: this.engine.getRankingWeightsConfig(),
+      calibrationDiagnostics,
+      blendedVsRawComparison,
+      categoryOverfittingRisk,
       detailedBets: bets.map((bet) => ({
         algorithmVersion: ALGORITHM_VERSION,
         rankingVersion: RANKING_VERSION,
@@ -2261,6 +2508,15 @@ export class BacktestingEngine {
           : null,
         outcomeVsMarketAssessment: bet.outcomeVsMarketAssessment,
         underCardsCloseToLine: bet.underCardsCloseToLine,
+        modelProbability: typeof bet.modelProbability === 'number' ? Number(bet.modelProbability.toFixed(6)) : null,
+        calibratedProbability: typeof bet.calibratedProbability === 'number' ? Number(bet.calibratedProbability.toFixed(6)) : null,
+        blendedProbability: typeof bet.blendedProbability === 'number' ? Number(bet.blendedProbability.toFixed(6)) : null,
+        marketProbabilityNoVig: typeof bet.marketProbabilityNoVig === 'number' ? Number(bet.marketProbabilityNoVig.toFixed(6)) : null,
+        modelWeight: typeof bet.modelWeight === 'number' ? Number(bet.modelWeight.toFixed(3)) : null,
+        marketWeight: typeof bet.marketWeight === 'number' ? Number(bet.marketWeight.toFixed(3)) : null,
+        categoryCalibrationStatus: bet.categoryCalibrationStatus,
+        dataQuality: typeof bet.dataQuality === 'number' ? Number(bet.dataQuality.toFixed(3)) : null,
+        companionOddsAvailable: bet.companionOddsAvailable,
       })),
       marketUnevaluableBreakdown,
       edgeNoVig:              Number(edgeNoVig.toFixed(4)),
@@ -2419,6 +2675,9 @@ export class BacktestingEngine {
       sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
       edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
       marketCalibration:{}, marketReports:{},
+      calibrationDiagnostics:{ global:{ sampleSize:0, averageCalibrationGap:0, reliability:0 }, byMarket:{} },
+      blendedVsRawComparison:{ betsWithBlendedProbability:0, averageModelProbability:null, averageBlendedProbability:null, averageProbabilityShift:0 },
+      categoryOverfittingRisk:{},
       averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
       roiYellowCardsOver:null, roiYellowCardsUnder:null, clvYellowCardsOver:null, clvYellowCardsUnder:null,
       averageLineErrorYellowCardsUnder:null, missSeverityBreakdown:{ NONE:0, LOW:0, MEDIUM:0, HIGH:0 },

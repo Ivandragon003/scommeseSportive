@@ -105,6 +105,19 @@ export interface BetOpportunity {
   isValueBet: boolean;
   edge: number;                     // vs implied raw
   edgeNoVig: number;                // vs implied senza vig
+  modelProbability?: number;
+  calibratedProbability?: number;
+  blendedProbability?: number;
+  marketProbabilityNoVig?: number;
+  modelWeight?: number;
+  marketWeight?: number;
+  categoryCalibrationStatus?: 'none' | 'applied' | 'global_fallback' | 'insufficient_sample';
+  calibrationSampleSize?: number;
+  calibrationReliability?: number;
+  mainReason?: string;
+  riskReasons?: string[];
+  dataQuality?: number;
+  companionOddsAvailable?: boolean;
   uncertaintyFactor?: number;
   riskPenalty?: number;
   rankingScore?: number;
@@ -168,13 +181,34 @@ export interface ValueAnalysisFactors {
   highStakes?: boolean;
 }
 
+export interface MarketCalibrationEntry {
+  predictedAvg: number;
+  actualHitRate: number;
+  sampleSize: number;
+  reliability: number;
+  calibrationGap?: number;
+}
+
+export interface MarketCalibrationProfile {
+  global?: MarketCalibrationEntry;
+  byMarket?: Record<string, MarketCalibrationEntry>;
+  byCompetition?: Record<string, {
+    global?: MarketCalibrationEntry;
+    byMarket?: Record<string, MarketCalibrationEntry>;
+  }>;
+}
+
 export interface ValueAnalysisContext {
   richnessScore?: number;
+  competition?: string;
   teamSampleSize?: { home?: number; away?: number };
   hasXg?: boolean;
   hasPlayerData?: boolean;
   hasRefereeData?: boolean;
   marketVariance?: Partial<Record<MarketCategory, number>>;
+  marketCalibrationProfile?: MarketCalibrationProfile;
+  enableMarketCalibration?: boolean;
+  enableMarketBlending?: boolean;
   analysisFactors?: ValueAnalysisFactors;
   expectedCards?: number;
   expectedCardsByLine?: Record<string, number>;
@@ -297,6 +331,12 @@ export interface RankingWeightVector {
 export interface RankingWeightsConfig {
   global?: Partial<RankingWeightVector>;
   byCategory?: Partial<Record<MarketCategory, Partial<RankingWeightVector>>>;
+  bySelectionFamily?: Record<string, Partial<RankingWeightVector>>;
+  byCompetition?: Record<string, {
+    global?: Partial<RankingWeightVector>;
+    byCategory?: Partial<Record<MarketCategory, Partial<RankingWeightVector>>>;
+    bySelectionFamily?: Record<string, Partial<RankingWeightVector>>;
+  }>;
 }
 
 type UnderCardsGuard = {
@@ -508,15 +548,30 @@ export class ValueBettingEngine {
     return {
       global: { ...(this.runtimeConfig.rankingWeights?.global ?? {}) },
       byCategory: { ...(this.runtimeConfig.rankingWeights?.byCategory ?? {}) },
+      bySelectionFamily: { ...(this.runtimeConfig.rankingWeights?.bySelectionFamily ?? {}) },
+      byCompetition: { ...(this.runtimeConfig.rankingWeights?.byCompetition ?? {}) },
     };
   }
 
-  getRankingWeightsForCategory(category: MarketCategory): RankingWeightVector {
+  private normalizeCompetitionKey(competition?: string | null): string {
+    return String(competition ?? '').trim().toLowerCase();
+  }
+
+  getRankingWeightsForCategory(
+    category: MarketCategory,
+    scope: { competition?: string | null; selectionFamily?: string | null } = {}
+  ): RankingWeightVector {
+    const competitionConfig = this.runtimeConfig.rankingWeights?.byCompetition?.[this.normalizeCompetitionKey(scope.competition)];
+    const selectionFamily = String(scope.selectionFamily ?? '').trim();
     return {
       ...DEFAULT_RANKING_WEIGHTS,
       ...(DEFAULT_CATEGORY_RANKING_WEIGHTS[category] ?? {}),
       ...(this.runtimeConfig.rankingWeights?.global ?? {}),
       ...(this.runtimeConfig.rankingWeights?.byCategory?.[category] ?? {}),
+      ...(selectionFamily ? this.runtimeConfig.rankingWeights?.bySelectionFamily?.[selectionFamily] ?? {} : {}),
+      ...(competitionConfig?.global ?? {}),
+      ...(competitionConfig?.byCategory?.[category] ?? {}),
+      ...(selectionFamily ? competitionConfig?.bySelectionFamily?.[selectionFamily] ?? {} : {}),
     };
   }
 
@@ -918,6 +973,169 @@ export class ValueBettingEngine {
     return this.clampNumber(Number(penalty.toFixed(3)), 0, 0.65);
   }
 
+  getMarketCalibrationKey(selection: string, category: MarketCategory = this.categorizeSelection(selection)): string {
+    const key = String(selection ?? '').toLowerCase();
+    if (category === 'yellow_cards') {
+      if (key.includes('_under_') || /^yellowunder\d+$/i.test(key) || /^cardstotalunder\d+$/i.test(key)) return 'yellow_cards_under';
+      if (key.includes('_over_') || /^yellowover\d+$/i.test(key) || /^cardstotalover\d+$/i.test(key)) return 'yellow_cards_over';
+    }
+    return category;
+  }
+
+  private applyMarketCalibration(
+    rawProbability: number,
+    selection: string,
+    category: MarketCategory,
+    context: ValueAnalysisContext = {}
+  ): {
+    probability: number;
+    status: 'none' | 'applied' | 'global_fallback' | 'insufficient_sample';
+    sampleSize: number;
+    reliability: number;
+    calibrationGap: number;
+  } {
+    const profile = context.marketCalibrationProfile;
+    if (!profile || context.enableMarketCalibration === false) {
+      return { probability: rawProbability, status: 'none', sampleSize: 0, reliability: 0, calibrationGap: 0 };
+    }
+
+    const competitionKey = this.normalizeCompetitionKey(context.competition);
+    const competitionProfile = competitionKey ? profile.byCompetition?.[competitionKey] : undefined;
+    const marketKey = this.getMarketCalibrationKey(selection, category);
+    const categoryEntry =
+      competitionProfile?.byMarket?.[marketKey]
+      ?? profile.byMarket?.[marketKey]
+      ?? competitionProfile?.byMarket?.[category]
+      ?? profile.byMarket?.[category];
+    const globalEntry = competitionProfile?.global ?? profile.global;
+    const isReliable = (entry?: MarketCalibrationEntry) =>
+      Boolean(entry && Number(entry.sampleSize) >= 30 && Number(entry.reliability) >= 0.35);
+
+    let entry = categoryEntry;
+    let status: 'none' | 'applied' | 'global_fallback' | 'insufficient_sample' = 'applied';
+    if (!isReliable(entry)) {
+      if (isReliable(globalEntry)) {
+        entry = globalEntry;
+        status = 'global_fallback';
+      } else if (entry || globalEntry) {
+        const weak = entry ?? globalEntry!;
+        return {
+          probability: rawProbability,
+          status: 'insufficient_sample',
+          sampleSize: Number(weak.sampleSize ?? 0),
+          reliability: Number(weak.reliability ?? 0),
+          calibrationGap: Number(weak.calibrationGap ?? Number(weak.actualHitRate ?? 0) - Number(weak.predictedAvg ?? 0)),
+        };
+      } else {
+        return { probability: rawProbability, status: 'none', sampleSize: 0, reliability: 0, calibrationGap: 0 };
+      }
+    }
+
+    const sampleSize = Math.max(0, Number(entry?.sampleSize ?? 0));
+    const reliability = this.clampNumber(Number(entry?.reliability ?? 0), 0, 1);
+    const predictedAvg = this.clampNumber(Number(entry?.predictedAvg ?? rawProbability), 0.001, 0.999);
+    const actualHitRate = this.clampNumber(Number(entry?.actualHitRate ?? rawProbability), 0.001, 0.999);
+    const calibrationGap = Number((actualHitRate - predictedAvg).toFixed(6));
+    const sampleAlpha = this.clampNumber(sampleSize / 160, 0.08, 1);
+    const correctionWeight = this.clampNumber(sampleAlpha * reliability * (status === 'global_fallback' ? 0.45 : 0.85), 0.04, 0.85);
+    const corrected = this.clampNumber(rawProbability + calibrationGap * correctionWeight, 0.001, 0.999);
+
+    return {
+      probability: Number(corrected.toFixed(6)),
+      status,
+      sampleSize,
+      reliability: Number(reliability.toFixed(3)),
+      calibrationGap,
+    };
+  }
+
+  private computeDataQualityScore(
+    category: MarketCategory,
+    context: ValueAnalysisContext,
+    hasCompanionOdds: boolean,
+    uncertaintyFactor: number
+  ): number {
+    const richness = this.clampNumber(context.richnessScore ?? 0.6, 0, 1);
+    const sampleAvg = (Number(context.teamSampleSize?.home ?? 18) + Number(context.teamSampleSize?.away ?? 18)) / 2;
+    let quality = richness * 0.48 + this.clampNumber(sampleAvg / 30, 0, 1) * 0.22 + (1 - uncertaintyFactor) * 0.18;
+    if (context.hasXg !== false) quality += 0.04;
+    if (context.hasPlayerData !== false) quality += category.toString().startsWith('player_') ? 0.06 : 0.03;
+    if (context.hasRefereeData !== false) quality += category === 'yellow_cards' || category === 'player_yellow_cards' ? 0.05 : 0.02;
+    if (!hasCompanionOdds) quality -= 0.14;
+    if (category === 'player_shots_ot' || category === 'player_yellow_cards') quality -= 0.08;
+    if (category === 'exact_score' || category === 'handicap') quality -= 0.08;
+    return this.clampNumber(Number(quality.toFixed(3)), 0, 1);
+  }
+
+  private blendWithMarketProbability(
+    modelProbability: number,
+    marketProbabilityNoVig: number,
+    category: MarketCategory,
+    context: ValueAnalysisContext,
+    hasCompanionOdds: boolean,
+    uncertaintyFactor: number
+  ): {
+    probability: number;
+    modelWeight: number;
+    marketWeight: number;
+    dataQuality: number;
+    applied: boolean;
+  } {
+    if (context.enableMarketBlending !== true || !Number.isFinite(marketProbabilityNoVig) || marketProbabilityNoVig <= 0 || marketProbabilityNoVig >= 1) {
+      return { probability: modelProbability, modelWeight: 1, marketWeight: 0, dataQuality: 1 - uncertaintyFactor, applied: false };
+    }
+
+    const dataQuality = this.computeDataQualityScore(category, context, hasCompanionOdds, uncertaintyFactor);
+    let modelWeight = 0.50 + dataQuality * 0.35;
+    if (category === 'goal_1x2' || category === 'goal_ou') modelWeight += 0.04;
+    if (category === 'player_shots_ot' || category === 'player_yellow_cards') modelWeight -= 0.10;
+    if (!hasCompanionOdds) modelWeight -= 0.16;
+    modelWeight = this.clampNumber(modelWeight, 0.40, 0.84);
+    const marketWeight = 1 - modelWeight;
+    const probability = this.clampNumber(modelProbability * modelWeight + marketProbabilityNoVig * marketWeight, 0.001, 0.999);
+    return {
+      probability: Number(probability.toFixed(6)),
+      modelWeight: Number(modelWeight.toFixed(3)),
+      marketWeight: Number(marketWeight.toFixed(3)),
+      dataQuality,
+      applied: true,
+    };
+  }
+
+  private buildPickDiagnostics(input: {
+    selection: string;
+    category: MarketCategory;
+    edgeNoVig: number;
+    dataQuality: number;
+    calibrationStatus: string;
+    blendingApplied: boolean;
+    hasCompanionOdds: boolean;
+    warnings: string[];
+  }): { mainReason: string; riskReasons: string[]; warnings: string[] } {
+    const warnings = [...input.warnings];
+    const riskReasons: string[] = [];
+    if (input.edgeNoVig > 0.03) warnings.push('positive_edge_no_vig');
+    if (input.dataQuality < 0.5) {
+      warnings.push('data_quality_weak');
+      riskReasons.push('Dati deboli');
+    }
+    if (input.blendingApplied) warnings.push('market_blending_applied');
+    if (input.calibrationStatus === 'applied') warnings.push('market_calibration_applied');
+    if (!input.hasCompanionOdds) riskReasons.push('Quote companion mancanti');
+    if (input.category === 'yellow_cards' && this.isUnderCardsSelection(input.selection)) riskReasons.push('Mercato fragile');
+    const mainReason =
+      input.edgeNoVig > 0.03
+        ? 'Edge no-vig positivo'
+        : input.blendingApplied
+          ? 'Probabilita corretta dal mercato'
+          : 'Quota superiore alla probabilita stimata';
+    return {
+      mainReason,
+      riskReasons: Array.from(new Set(riskReasons)),
+      warnings: Array.from(new Set(warnings)),
+    };
+  }
+
   private computeExpectedLogGrowth(probability: number, decimalOdds: number, stakePercent: number): number {
     const p = this.clampNumber(probability, 0.000001, 0.999999);
     const stake = this.clampNumber(stakePercent / 100, 0, 0.99);
@@ -940,6 +1158,8 @@ export class ValueBettingEngine {
     contextStrength: number;
     logGrowth: number;
     adaptiveRankMultiplier: number;
+    selectionFamily?: string;
+    competition?: string;
   }): number {
     const confidenceScore = input.confidence === 'HIGH' ? 1 : input.confidence === 'MEDIUM' ? 0.68 : 0.38;
     const edgeNoVigScore = this.clampNumber(input.edgeNoVig / 0.1, -1, 2);
@@ -949,7 +1169,10 @@ export class ValueBettingEngine {
     const reliabilityScore = 1 - input.uncertaintyFactor;
     const logGrowthScore = this.clampNumber((input.logGrowth + 0.01) / 0.04, 0, 1.5);
     const highOddsDrag = input.odds > this.MAX_ODDS ? (input.odds - this.MAX_ODDS) * 0.08 : 0;
-    const weights = this.getRankingWeightsForCategory(input.category);
+    const weights = this.getRankingWeightsForCategory(input.category, {
+      competition: input.competition,
+      selectionFamily: input.selectionFamily,
+    });
 
     // Edge raw confronta la probabilita modello con la quota Eurobet grezza.
     // Edge no-vig confronta la stessa probabilita con la quota Eurobet pulita dal margine:
@@ -1623,10 +1846,7 @@ export class ValueBettingEngine {
       const { odds, companions } = group;
       const allOdds      = [odds, ...companions.filter(o => isFinite(o) && o > 1)];
       const impliedRaw   = this.impliedProbabilityFromOdds(odds);
-      const impliedNoVig = this.impliedProbabilityNoVig(odds, allOdds);
-      const ev           = this.computeExpectedValue(ourProb, odds);
-      const edgeRaw      = ourProb - impliedRaw;
-      const edgeNoVig    = ourProb - impliedNoVig;
+      const impliedNoVig = allOdds.length >= 2 ? this.impliedProbabilityNoVig(odds, allOdds) : impliedRaw;
       const category     = this.categorizeSelection(key);
       const marketTier   = this.getMarketTier(category);
       const selectionFamily = this.getSelectionFamily(key);
@@ -1639,6 +1859,20 @@ export class ValueBettingEngine {
         0.04,
         0.92
       );
+      const calibration = this.applyMarketCalibration(Number(ourProb), key, category, context);
+      const hasCompanionOdds = allOdds.length >= 2;
+      const blended = this.blendWithMarketProbability(
+        calibration.probability,
+        impliedNoVig,
+        category,
+        context,
+        hasCompanionOdds,
+        uncertaintyFactor
+      );
+      const effectiveProb = blended.probability;
+      const ev           = this.computeExpectedValue(effectiveProb, odds);
+      const edgeRaw      = effectiveProb - impliedRaw;
+      const edgeNoVig    = effectiveProb - impliedNoVig;
       const minEv        = this.computeContextualEvThreshold(
         category,
         baseMinEv,
@@ -1650,10 +1884,9 @@ export class ValueBettingEngine {
 
       if (underCardsGuard.reject) continue;
       if (edgeNoVig < underCardsGuard.minEdgeNoVig) continue;
-      if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
+      if (!this.passesFilters(effectiveProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
-      const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
-      const hasCompanionOdds = allOdds.length >= 2;
+      const stake = this.computeSuggestedStakeWithUncertainty(effectiveProb, odds, ev, uncertaintyFactor, 0.55);
       const stakeConfidence = this.capConfidence(
         this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds),
         underCardsGuard.maxConfidence
@@ -1663,7 +1896,7 @@ export class ValueBettingEngine {
         0,
         0.82
       );
-      const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const kellyPercent = this.kellyFraction(effectiveProb, odds) * 100;
       const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
@@ -1671,12 +1904,12 @@ export class ValueBettingEngine {
           Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7) * underCardsGuard.stakeMultiplier)
         ).toFixed(2)
       );
-      const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
+      const logGrowth = this.computeExpectedLogGrowth(effectiveProb, odds, stakePercent);
       const rankingScore = this.computeRankingScore({
         ev,
         edgeRaw,
         edgeNoVig,
-        kelly: this.kellyFraction(ourProb, odds),
+        kelly: this.kellyFraction(effectiveProb, odds),
         confidence: stakeConfidence,
         odds,
         category,
@@ -1685,6 +1918,18 @@ export class ValueBettingEngine {
         contextStrength,
         logGrowth,
         adaptiveRankMultiplier,
+        selectionFamily,
+        competition: context.competition,
+      });
+      const diagnostics = this.buildPickDiagnostics({
+        selection: key,
+        category,
+        edgeNoVig,
+        dataQuality: blended.dataQuality,
+        calibrationStatus: calibration.status,
+        blendingApplied: blended.applied,
+        hasCompanionOdds,
+        warnings: underCardsGuard.warnings,
       });
 
       opportunities.push({
@@ -1694,24 +1939,37 @@ export class ValueBettingEngine {
         marketTier,
         selectionFamily,
         adaptiveRankMultiplier,
-        ourProbability:          parseFloat((ourProb      * 100).toFixed(2)),
+        ourProbability:          parseFloat((effectiveProb * 100).toFixed(2)),
         bookmakerOdds:           odds,
         impliedProbability:      parseFloat((impliedRaw   * 100).toFixed(2)),
         impliedProbabilityNoVig: parseFloat((impliedNoVig * 100).toFixed(2)),
         expectedValue:           parseFloat((ev           * 100).toFixed(2)),
-        kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
+        kellyFraction:           parseFloat((this.kellyFraction(effectiveProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
         confidence:              stakeConfidence,
         isValueBet:              true,
         edge:                    parseFloat((edgeRaw   * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
+        modelProbability:        parseFloat((Number(ourProb) * 100).toFixed(2)),
+        calibratedProbability:   parseFloat((calibration.probability * 100).toFixed(2)),
+        blendedProbability:      parseFloat((effectiveProb * 100).toFixed(2)),
+        marketProbabilityNoVig:  parseFloat((impliedNoVig * 100).toFixed(2)),
+        modelWeight:             blended.modelWeight,
+        marketWeight:            blended.marketWeight,
+        categoryCalibrationStatus: calibration.status,
+        calibrationSampleSize:   calibration.sampleSize,
+        calibrationReliability:  calibration.reliability,
+        mainReason:              diagnostics.mainReason,
+        riskReasons:             diagnostics.riskReasons,
+        dataQuality:             blended.dataQuality,
+        companionOddsAvailable:  hasCompanionOdds,
         uncertaintyFactor:       Number(uncertaintyFactor.toFixed(3)),
         riskPenalty:             Number(riskPenalty.toFixed(3)),
         rankingScore,
         logGrowth:               Number(logGrowth.toFixed(6)),
         dynamicEvThreshold:      Number((minEv * 100).toFixed(2)),
         contextStrength:         Number(contextStrength.toFixed(3)),
-        dataWarnings:            underCardsGuard.warnings.length > 0 ? underCardsGuard.warnings : undefined,
+        dataWarnings:            diagnostics.warnings.length > 0 ? diagnostics.warnings : undefined,
         line:                    underCardsGuard.line ?? undefined,
       });
     }
