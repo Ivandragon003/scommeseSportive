@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import BestValueCard from './BestValueCard';
 import OddsSourceBadge from './OddsSourceBadge';
+import PlayerPropsSection from './PlayerPropsSection';
 import StakePlanner from './StakePlanner';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { BestValueOpportunity } from './predictionTypes';
@@ -110,5 +111,38 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/Provider secondario disponibile/i)).toBeTruthy();
     expect(screen.getByText(/Quote bookmaker non disponibili per questa partita/i)).toBeTruthy();
     expect(screen.getByText(/Finche il provider non espone il mercato/i)).toBeTruthy();
+  });
+
+  test('mostra la sezione Mercati giocatore con warning dati', () => {
+    render(
+      <PlayerPropsSection
+        bankroll={1000}
+        opportunities={[
+          {
+            selection: 'player_understat_player_123_shots_over_1_5',
+            marketName: 'Lautaro Martinez Over 1.5 tiri',
+            marketCategory: 'player_shots',
+            playerName: 'Lautaro Martinez',
+            teamName: 'Inter',
+            bookmakerOdds: 2.1,
+            ourProbability: 64,
+            expectedValue: 34.4,
+            edgeNoVig: 9.2,
+            suggestedStakePercent: 1.2,
+            confidence: 'MEDIUM',
+            expectedMinutes: 78,
+            sampleSize: 18,
+            dataWarnings: ['missing_under_price'],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('Mercati giocatore')).toBeTruthy();
+    expect(screen.getByText('Tiri')).toBeTruthy();
+    expect(screen.getByText('Lautaro Martinez')).toBeTruthy();
+    expect(screen.getByText(/Inter - Lautaro Martinez Over 1.5 tiri/)).toBeTruthy();
+    expect(screen.getByText(/manca quota opposta/)).toBeTruthy();
+    expect(screen.getByText(/EUR 12.00/)).toBeTruthy();
   });
 });

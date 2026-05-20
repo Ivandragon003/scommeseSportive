@@ -88,6 +88,67 @@ test('adaptive tuning can promote a specific selection family without affecting 
   assert.equal(underDiagnostics.adaptiveRankMultiplier, 1);
 });
 
+test('player prop selections are categorized and staked more prudently', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      player_understat_player_10_shots_over_1_5: 0.64,
+      player_understat_player_10_shots_under_1_5: 0.36,
+      player_understat_player_10_sot_over_0_5: 0.52,
+      player_understat_player_10_sot_under_0_5: 0.48,
+    },
+    {
+      player_understat_player_10_shots_over_1_5: {
+        selection: 'player_understat_player_10_shots_over_1_5',
+        odds: 2.1,
+        companions: [1.78],
+      },
+      player_understat_player_10_shots_under_1_5: {
+        selection: 'player_understat_player_10_shots_under_1_5',
+        odds: 1.78,
+        companions: [2.1],
+      },
+      player_understat_player_10_sot_over_0_5: {
+        selection: 'player_understat_player_10_sot_over_0_5',
+        odds: 2.25,
+        companions: [1.68],
+      },
+      player_understat_player_10_sot_under_0_5: {
+        selection: 'player_understat_player_10_sot_under_0_5',
+        odds: 1.68,
+        companions: [2.25],
+      },
+    },
+    {
+      player_understat_player_10_shots_over_1_5: 'Lautaro Martinez Over 1.5 tiri',
+      player_understat_player_10_sot_over_0_5: 'Lautaro Martinez Over 0.5 tiri in porta',
+    },
+    {
+      richnessScore: 0.9,
+      teamSampleSize: { home: 30, away: 30 },
+      hasXg: true,
+      hasPlayerData: true,
+      hasRefereeData: true,
+      analysisFactors: {
+        shotsReliability: 0.9,
+        disciplineReliability: 0.7,
+        statSampleStrength: 0.9,
+        competitiveness: 0.7,
+      },
+    }
+  );
+
+  const shots = opportunities.find((opp) => opp.selection === 'player_understat_player_10_shots_over_1_5');
+  const sot = opportunities.find((opp) => opp.selection === 'player_understat_player_10_sot_over_0_5');
+  assert.ok(shots);
+  assert.ok(sot);
+  assert.equal(engine.categorizeSelection(shots.selection), 'player_shots');
+  assert.equal(engine.categorizeSelection(sot.selection), 'player_shots_ot');
+  assert.ok(shots.suggestedStakePercent <= 1.5);
+  assert.ok(sot.suggestedStakePercent <= 1.0);
+  assert.ok(shots.uncertaintyFactor > 0);
+});
+
 test('ranking prioritizes edgeNoVig over raw EV when bookmaker margin changes the signal quality', () => {
   const engine = new ValueBettingEngine();
   const opportunities = engine.analyzeMarketsWithVigRemoval(

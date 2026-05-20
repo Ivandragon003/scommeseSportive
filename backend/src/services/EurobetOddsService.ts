@@ -2586,16 +2586,21 @@ export class EurobetOddsService {
 
   private resolveMarketKey(combinedDescription: string): string | null {
     const compact = combinedDescription.replace(/\s+/g, '');
+    const isPlayerMarket =
+      compact.includes('giocatore') ||
+      compact.includes('calciatore') ||
+      compact.includes('player') ||
+      compact.includes('singolo');
 
     if (compact === '1x2' || compact.startsWith('1x2match') || compact.startsWith('scommessetop1x2')) return 'h2h';
     if (compact.includes('ggng')) return 'btts';
     if (compact === 'dc' || compact.includes('doppiachance')) return 'double_chance';
     if (compact.includes('drawnobet') || compact.includes('rimborso')) return 'draw_no_bet';
 
-    if (compact.includes('tiriinporta') || compact.includes('shotsontarget')) return 'shots_on_target';
-    if (compact.includes('tiri') || compact.includes('shots')) return 'shots';
+    if (compact.includes('tiriinporta') || compact.includes('shotsontarget')) return isPlayerMarket ? 'player_shots_on_target' : 'shots_on_target';
+    if (compact.includes('tiri') || compact.includes('shots')) return isPlayerMarket ? 'player_shots' : 'shots';
     if (compact.includes('corner')) return 'corners';
-    if (compact.includes('cartell') || compact.includes('ammon') || compact.includes('giall') || compact.includes('cards')) return 'cards';
+    if (compact.includes('cartell') || compact.includes('ammon') || compact.includes('giall') || compact.includes('cards')) return isPlayerMarket ? 'player_yellow_cards' : 'cards';
     if (compact.includes('falli') || compact.includes('fouls')) return 'fouls';
 
     if (compact.includes('uogoal') || compact.includes('underovergoal')) return 'totals';
@@ -2645,10 +2650,21 @@ export class EurobetOddsService {
       : compact.includes('under')
         ? 'Under'
         : null;
-    if (!overUnder) return null;
+    const playerName = this.extractPlayerNameFromOdd(odd, overUnder);
+    if (!overUnder && marketKey !== 'player_yellow_cards') return null;
 
     const point = line ?? this.extractLineFromOdd(odd);
-    if (!Number.isFinite(point)) return null;
+    if (!Number.isFinite(point) && marketKey !== 'player_yellow_cards') return null;
+
+    if (marketKey === 'player_shots' || marketKey === 'player_shots_on_target') {
+      if (!overUnder || !playerName || !Number.isFinite(point)) return null;
+      return { name: overUnder, price, point, description: playerName };
+    }
+    if (marketKey === 'player_yellow_cards') {
+      const isYes = compact.includes('si') || compact.includes('yes') || compact.includes('cartell') || compact.includes('ammon') || compact.includes('giall');
+      if (!playerName || (!overUnder && !isYes)) return null;
+      return { name: overUnder ?? 'Over', price, point: Number.isFinite(point) ? point : 0.5, description: playerName };
+    }
 
     if (marketKey === 'totals') {
       return { name: overUnder, price, point, description: 'Goals' };
@@ -2670,6 +2686,20 @@ export class EurobetOddsService {
     }
 
     return null;
+  }
+
+  private extractPlayerNameFromOdd(odd: EurobetOdd, side: string | null): string {
+    const rawParts = [odd.boxTitle, odd.oddDescription]
+      .map((part) => String(part ?? '').trim())
+      .filter(Boolean);
+    const raw = rawParts.join(' ');
+    const cleaned = raw
+      .replace(/\b(over|under|si|s[ìi]|yes|no)\b/gi, ' ')
+      .replace(/\b\d+(?:[.,]\d+)?\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleaned) return cleaned;
+    return rawParts.find((part) => side ? !new RegExp(`^${side}$`, 'i').test(part) : true) ?? '';
   }
 
   private parsePrice(raw: unknown): number | null {
@@ -2982,7 +3012,9 @@ export class EurobetOddsService {
       if (!playerKey) return null;
       const domain = market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
         ? 'player_sot'
-        : 'player_shots';
+        : market.includes('yellow') || market.includes('card')
+          ? 'player_yellow'
+          : 'player_shots';
       return `${domain}_${playerKey}_${nameLower}_${lineRaw}`;
     }
 

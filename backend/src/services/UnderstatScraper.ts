@@ -188,6 +188,17 @@ export class UnderstatScraper {
     throw new Error(`Stagione Understat non valida: ${season}`);
   }
 
+  private parseUnderstatMatchDate(value: string): Date {
+    const raw = String(value ?? '').trim();
+    const hasExplicitTimezone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(raw);
+    const isNaiveDateTime = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw);
+    const normalized = isNaiveDateTime && !hasExplicitTimezone
+      ? `${raw.replace(' ', 'T')}Z`
+      : raw;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? new Date(raw) : parsed;
+  }
+
   private resolveCompetition(competition: string): CompetitionConfig {
     const cfg = UnderstatScraper.COMPETITIONS[String(competition ?? '').trim()];
     if (!cfg) throw new Error(`Competizione Understat non supportata: ${competition}`);
@@ -428,7 +439,7 @@ export class UnderstatScraper {
       awayTeamId: match.awayTeamId,
       homeTeamName: match.homeTeamName,
       awayTeamName: match.awayTeamName,
-      date: new Date(match.date),
+      date: this.parseUnderstatMatchDate(match.date),
       homeGoals: match.homeGoals,
       awayGoals: match.awayGoals,
       homeXG: match.homeXG,

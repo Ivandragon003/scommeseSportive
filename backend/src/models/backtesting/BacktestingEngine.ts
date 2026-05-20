@@ -1778,6 +1778,9 @@ export class BacktestingEngine {
 
   private evaluateBetNullable(selection: string, match: MatchData): boolean | null {
     const s = String(selection ?? '').toLowerCase();
+    if (/^player_.+_(shots|sot|yellow)_(over|under)_/i.test(s)) {
+      return null;
+    }
     const requiresShots =
       /^shots(over|under)\d+$/i.test(s) ||
       /^shotshome(over|under)\d+$/i.test(s) ||

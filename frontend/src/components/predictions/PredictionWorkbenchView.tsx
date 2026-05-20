@@ -5,6 +5,7 @@ import OddsSourceBadge from './OddsSourceBadge';
 import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
 import ShotsSection from './ShotsSection';
+import PlayerPropsSection from './PlayerPropsSection';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { DistChart, ProbBar } from './PredictionStatPrimitives';
 import { formatCompactOuKey, fmtN, fmtPct, fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
@@ -325,6 +326,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     sp,
     pp,
     vb,
+    playerValueOpportunities,
     bestValueOpp,
     analysisFactors,
     methodology,
@@ -828,6 +830,14 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       </div>
                     </div>
                   ))
+                )}
+
+                {/* PLAYER PROPS */}
+                {tab==='playerProps' && (
+                  <PlayerPropsSection
+                    opportunities={playerValueOpportunities}
+                    bankroll={bankroll}
+                  />
                 )}
 
                 {/* STRATEGY */}

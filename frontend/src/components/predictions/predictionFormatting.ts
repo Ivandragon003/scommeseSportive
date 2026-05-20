@@ -80,6 +80,16 @@ const marketLabel = (key: string) => {
     const side = playerStats[3].toLowerCase() === 'over' ? 'Over' : 'Under';
     return `${domain} ${prettySlug(playerStats[2])} ${side} ${prettyLine(playerStats[4])}`;
   }
+  const standardPlayerStats = key.match(/^player_(.+)_(shots|sot|yellow)_(over|under)_([0-9]+(?:_[0-9]+)?)$/i);
+  if (standardPlayerStats) {
+    const domainMap: Record<string, string> = {
+      shots: 'Tiri Giocatore',
+      sot: 'Tiri in Porta Giocatore',
+      yellow: 'Cartellino Giocatore',
+    };
+    const side = standardPlayerStats[3].toLowerCase() === 'over' ? 'Over' : 'Under';
+    return `${domainMap[standardPlayerStats[2].toLowerCase()] ?? 'Mercato Giocatore'} ${prettySlug(standardPlayerStats[1])} ${side} ${prettyLine(standardPlayerStats[4].replace('_', '.'))}`;
+  }
   return key.replace(/_/g, ' ');
 };
 

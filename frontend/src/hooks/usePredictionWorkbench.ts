@@ -29,6 +29,8 @@ export interface PredictionWorkbenchViewModel {
   sp: any;
   pp: any[];
   vb: BestValueOpportunityModel[];
+  matchValueOpportunities: BestValueOpportunityModel[];
+  playerValueOpportunities: BestValueOpportunityModel[];
   bestValueOpp: BestValueOpportunityModel | null;
   analysisFactors: any;
   methodology: any;
@@ -133,13 +135,26 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     () => predictionAnalysis.pred?.valueOpportunities ?? [],
     [predictionAnalysis.pred?.valueOpportunities]
   );
+  const isPlayerPropOpportunity = useCallback((opportunity: BestValueOpportunityModel): boolean => {
+    const category = String(opportunity.marketCategory ?? opportunity.marketType ?? '').toLowerCase();
+    const selection = String(opportunity.selection ?? '').toLowerCase();
+    return category.startsWith('player_') || /^player_.+_(shots|sot|yellow)_(over|under)_/.test(selection);
+  }, []);
+  const playerValueOpportunities = useMemo<BestValueOpportunityModel[]>(
+    () => vb.filter(isPlayerPropOpportunity),
+    [isPlayerPropOpportunity, vb]
+  );
+  const matchValueOpportunities = useMemo<BestValueOpportunityModel[]>(
+    () => vb.filter((opportunity) => !isPlayerPropOpportunity(opportunity)),
+    [isPlayerPropOpportunity, vb]
+  );
   const bestValueOpp = (predictionAnalysis.pred?.bestValueOpportunity ?? null) as BestValueOpportunityModel | null;
   const analysisFactors = predictionAnalysis.pred?.analysisFactors ?? predictionAnalysis.pred?.methodology?.contextualFactors ?? null;
   const methodology = predictionAnalysis.pred?.methodology ?? {};
 
   const vbRanked = useMemo<BestValueOpportunityModel[]>(
-    () => [...vb].sort((left, right) => rankOpportunity(right) - rankOpportunity(left)),
-    [vb]
+    () => [...matchValueOpportunities].sort((left, right) => rankOpportunity(right) - rankOpportunity(left)),
+    [matchValueOpportunities]
   );
 
   const allOddsEntries = useMemo(
@@ -235,10 +250,11 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     { id: 'fouls', label: 'Falli' },
     { id: 'shots', label: 'Tiri' },
     { id: 'players', label: 'Giocatori', count: pp.length },
+    { id: 'playerProps', label: 'Mercati giocatore', count: playerValueOpportunities.length },
     { id: 'strategy', label: 'Pronostico Finale' },
     { id: 'method', label: 'Algoritmo' },
     { id: 'value', label: 'Scommesse', count: vb.length },
-  ], [allOddsEntries.length, pp.length, vb.length]);
+  ], [allOddsEntries.length, playerValueOpportunities.length, pp.length, vb.length]);
 
   return {
     activeUser,
@@ -254,6 +270,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     sp,
     pp,
     vb,
+    matchValueOpportunities,
+    playerValueOpportunities,
     bestValueOpp,
     analysisFactors,
     methodology,

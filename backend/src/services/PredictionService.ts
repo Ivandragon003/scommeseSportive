@@ -17,6 +17,17 @@ import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { predictionConfig } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
+import { PlayerCardsModel, PlayerCardRole } from '../models/markets/PlayerCardsModel';
+import {
+  buildPlayerPropSelectionKey,
+  formatPlayerPropLine,
+  isPlayerPropSelection,
+  normalizePlayerNameForProp,
+  parseLegacyPlayerPropOddsKey,
+  parsePlayerPropSelectionKey,
+  PlayerPropMarketType,
+  PlayerPropSide,
+} from './playerProps';
 import {
   ALGORITHM_VERSION,
   BACKTEST_ENGINE_VERSION,
@@ -190,6 +201,7 @@ export interface PredictionResponse {
   comboBets?: ComboBetOpportunity[];
   speculativeOpportunities?: BetOpportunity[];
   bestValueOpportunity?: BestValueOpportunityExplanation | null;
+  playerPropWarnings?: string[];
   analysisFactors?: AnalysisFactors;
   modelConfidence: number;
   richnessScore?: number;
@@ -236,6 +248,26 @@ type BudgetBetSummary = {
   wonCount: number;
   winRate: number;
   roi: number;
+};
+
+type PlayerPropDiagnostics = {
+  playerId: string;
+  playerName: string;
+  teamName?: string;
+  marketType: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards';
+  line: number;
+  expectedMinutes: number;
+  sampleSize: number;
+  playerConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  dataWarnings: string[];
+};
+
+type PlayerPropBuildResult = {
+  odds: Record<string, number>;
+  probabilities: Record<string, number>;
+  marketNames: Record<string, string>;
+  diagnostics: Record<string, PlayerPropDiagnostics>;
+  warnings: string[];
 };
 
 // Exported for narrow smoke tests so key normalization/enrichment stays type-safe and refactor-safe.
@@ -358,6 +390,7 @@ export class PredictionService {
   private backtester: BacktestingEngine;
   private db: DatabaseService;
   private contextBuilder: PredictionContextBuilder;
+  private playerCardsModel: PlayerCardsModel;
   private adaptiveTuningCache: Map<string, { expiresAt: number; profile: AdaptiveEngineTuningProfile }> = new Map();
   private calibrationCache: Map<string, {
     expiresAt: number;
@@ -370,6 +403,7 @@ export class PredictionService {
     this.engine = new ValueBettingEngine();
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
+    this.playerCardsModel = new PlayerCardsModel();
   }
 
   private clamp(v: number, min: number, max: number): number {
@@ -839,6 +873,254 @@ export class PredictionService {
     return out;
   }
 
+  private getPlayerRowId(player: any): string {
+    return String(player?.player_id ?? player?.playerId ?? '').trim();
+  }
+
+  private getPlayerExpectedMinutes(player: any): number {
+    const explicit = Number(player?.avg_minutes ?? player?.avgMinutes);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const total = Number(player?.minutes_total ?? player?.minutesTotal);
+    const games = Number(player?.games_played ?? player?.gamesPlayed);
+    if (Number.isFinite(total) && Number.isFinite(games) && games > 0) return total / games;
+    return 0;
+  }
+
+  private getPlayerSampleSize(player: any): number {
+    const games = Number(player?.games_played ?? player?.gamesPlayed);
+    return Number.isFinite(games) ? Math.max(0, games) : 0;
+  }
+
+  private mapPositionToCardRole(positionCode: string): PlayerCardRole {
+    const code = String(positionCode ?? '').toUpperCase();
+    if (code === 'GK') return 'goalkeeper';
+    if (code === 'FW' || code === 'ST' || code === 'CF') return 'forward';
+    if (code === 'LW' || code === 'RW' || code === 'WF') return 'winger';
+    if (code === 'AM' || code === 'CAM') return 'attacking_midfielder';
+    if (code === 'MF' || code === 'CM' || code === 'DM') return 'midfielder';
+    if (code === 'LB' || code === 'RB' || code === 'WB') return 'fullback';
+    if (code === 'DF' || code === 'CB') return 'centreback';
+    return 'unknown';
+  }
+
+  private probabilityOverLine(expected: number, line: number): number {
+    if (!Number.isFinite(expected) || expected <= 0) return 0;
+    const maxCount = Math.max(20, Math.ceil(expected + 8 * Math.sqrt(expected)));
+    const threshold = Math.floor(line);
+    let cumulative = 0;
+    let pmf = Math.exp(-expected);
+    for (let k = 0; k <= Math.min(threshold, maxCount); k++) {
+      if (k === 0) {
+        cumulative += pmf;
+      } else {
+        pmf *= expected / k;
+        cumulative += pmf;
+      }
+    }
+    return this.clamp(1 - cumulative, 0, 1);
+  }
+
+  private playerPropMarketType(marketType: PlayerPropMarketType): PlayerPropDiagnostics['marketType'] {
+    if (marketType === 'shots') return 'player_shots';
+    if (marketType === 'sot') return 'player_shots_ot';
+    return 'player_yellow_cards';
+  }
+
+  private playerPropMarketLabel(
+    playerName: string,
+    marketType: PlayerPropMarketType,
+    side: PlayerPropSide,
+    line: number,
+  ): string {
+    const sideLabel = side === 'over' ? 'Over' : 'Under';
+    const lineLabel = formatPlayerPropLine(line);
+    if (marketType === 'shots') return `${playerName} ${sideLabel} ${lineLabel} tiri`;
+    if (marketType === 'sot') return `${playerName} ${sideLabel} ${lineLabel} tiri in porta`;
+    return `${playerName} cartellino ${sideLabel} ${lineLabel}`;
+  }
+
+  private buildPlayerPropMarkets(params: {
+    odds: Record<string, number>;
+    homePlayers: any[];
+    awayPlayers: any[];
+    probabilities: FullMatchProbabilities;
+    homeTeamName: string;
+    awayTeamName: string;
+    referee: any;
+  }): PlayerPropBuildResult {
+    const players = [
+      ...(params.homePlayers ?? []).map((player) => ({ row: player, teamName: params.homeTeamName })),
+      ...(params.awayPlayers ?? []).map((player) => ({ row: player, teamName: params.awayTeamName })),
+    ].filter(({ row }) => this.getPlayerRowId(row));
+
+    const byId = new Map<string, { row: any; teamName: string }>();
+    const bySlug = new Map<string, Array<{ row: any; teamName: string }>>();
+    for (const entry of players) {
+      const id = this.getPlayerRowId(entry.row);
+      const slug = normalizePlayerNameForProp(String(entry.row?.name ?? entry.row?.playerName ?? ''));
+      byId.set(id, entry);
+      const list = bySlug.get(slug) ?? [];
+      list.push(entry);
+      bySlug.set(slug, list);
+    }
+
+    const playerShots = [
+      ...(params.probabilities.playerShots?.home ?? []),
+      ...(params.probabilities.playerShots?.away ?? []),
+    ];
+    const shotsByPlayerId = new Map(playerShots.map((prediction) => [String(prediction.playerId), prediction]));
+    const odds: Record<string, number> = {};
+    const probabilities: Record<string, number> = {};
+    const marketNames: Record<string, string> = {};
+    const diagnostics: Record<string, PlayerPropDiagnostics> = {};
+    const warnings: string[] = [];
+
+    const registerMappedOdd = (
+      originalKey: string,
+    ): { key: string; player: { row: any; teamName: string }; marketType: PlayerPropMarketType; side: PlayerPropSide; line: number } | null => {
+      const standard = parsePlayerPropSelectionKey(originalKey);
+      if (standard) {
+        const player = byId.get(standard.playerId);
+        if (!player) {
+          warnings.push(`player_match_missing:${standard.playerId}`);
+          return null;
+        }
+        return { key: originalKey, player, marketType: standard.marketType, side: standard.side, line: standard.line };
+      }
+
+      const legacy = parseLegacyPlayerPropOddsKey(originalKey);
+      if (!legacy) return null;
+      const matches = bySlug.get(legacy.playerSlug) ?? [];
+      if (matches.length === 0) {
+        warnings.push(`player_match_missing:${legacy.playerSlug}`);
+        return null;
+      }
+      if (matches.length > 1) {
+        warnings.push(`player_match_ambiguous:${legacy.playerSlug}`);
+        return null;
+      }
+      const playerId = this.getPlayerRowId(matches[0].row);
+      return {
+        key: buildPlayerPropSelectionKey(playerId, legacy.marketType, legacy.side, legacy.line),
+        player: matches[0],
+        marketType: legacy.marketType,
+        side: legacy.side,
+        line: legacy.line,
+      };
+    };
+
+    for (const [key, rawOdd] of Object.entries(params.odds ?? {})) {
+      const odd = Number(rawOdd);
+      if (!Number.isFinite(odd) || odd <= 1) continue;
+      const mapped = registerMappedOdd(key);
+      if (!mapped) continue;
+      odds[mapped.key] = Number(odd.toFixed(2));
+    }
+
+    const hasCompanion = (key: string): boolean => {
+      const parsed = parsePlayerPropSelectionKey(key);
+      if (!parsed) return false;
+      const opposite = buildPlayerPropSelectionKey(
+        parsed.playerId,
+        parsed.marketType,
+        parsed.side === 'over' ? 'under' : 'over',
+        parsed.line,
+      );
+      return Number.isFinite(odds[opposite]) && odds[opposite] > 1;
+    };
+
+    for (const [key] of Object.entries(odds)) {
+      const parsed = parsePlayerPropSelectionKey(key);
+      if (!parsed) continue;
+      const player = byId.get(parsed.playerId);
+      if (!player) continue;
+      const expectedMinutes = this.getPlayerExpectedMinutes(player.row);
+      const sampleSize = this.getPlayerSampleSize(player.row);
+      const dataWarnings: string[] = [];
+      if (sampleSize < 5 || expectedMinutes < 45) {
+        warnings.push(`player_prop_skipped_low_data:${parsed.playerId}:${parsed.marketType}`);
+        continue;
+      }
+      if (sampleSize < 8) dataWarnings.push('low_player_sample');
+      if (expectedMinutes < 65) dataWarnings.push('uncertain_minutes');
+      if (!hasCompanion(key)) dataWarnings.push('missing_under_price');
+
+      let probability: number | null = null;
+      if (parsed.marketType === 'shots' || parsed.marketType === 'sot') {
+        const shotPrediction = shotsByPlayerId.get(parsed.playerId);
+        if (!shotPrediction) {
+          dataWarnings.push('missing_player_event_data');
+          continue;
+        }
+        const over =
+          parsed.marketType === 'shots'
+            ? parsed.line <= 0.5
+              ? shotPrediction.prob1PlusShots
+              : parsed.line <= 1.5
+                ? shotPrediction.prob2PlusShots
+                : parsed.line <= 2.5
+                  ? shotPrediction.prob3PlusShots
+                  : this.probabilityOverLine(shotPrediction.expectedShots, parsed.line)
+            : parsed.line <= 0.5
+              ? shotPrediction.prob1PlusShotsOT
+              : this.probabilityOverLine(shotPrediction.expectedShotsOnTarget, parsed.line);
+        probability = parsed.side === 'over' ? over : 1 - over;
+      } else if (parsed.marketType === 'yellow') {
+        const role = this.mapPositionToCardRole(String(player.row?.position_code ?? player.row?.positionCode ?? 'MF'));
+        const teamExpectedYellows = player.teamName === params.homeTeamName
+          ? Number(params.probabilities.cards?.expectedHomeYellow ?? 1.8)
+          : Number(params.probabilities.cards?.expectedAwayYellow ?? 1.8);
+        const prediction = this.playerCardsModel.predictPlayerYellowCards({
+          playerId: parsed.playerId,
+          playerName: String(player.row?.name ?? player.row?.playerName ?? parsed.playerId),
+          role,
+          playerYellowCards: Number(player.row?.yellow_cards_total ?? player.row?.yellowCardsTotal ?? 0),
+          playerMinutes: Number(player.row?.minutes_total ?? player.row?.minutesTotal ?? 0),
+          expectedMinutes,
+          teamExpectedYellows: Number.isFinite(teamExpectedYellows) ? teamExpectedYellows : 1.8,
+          leagueAvgTeamYellows: 1.9,
+          refereeYellowAvg: Number(params.referee?.avg_yellow_cards_per_game ?? params.referee?.avgYellowCardsPerGame ?? 3.8),
+          leagueAvgRefereeYellow: 3.8,
+          refereeCoverage: Number(params.referee?.total_games ?? params.referee?.totalGames ?? 0),
+        });
+        if (!params.referee) dataWarnings.push('missing_referee_data');
+        const over = parsed.line <= 0.5 ? prediction.probabilityYellowOver0_5 : this.probabilityOverLine(prediction.expectedPlayerYellows, parsed.line);
+        probability = parsed.side === 'over' ? over : 1 - over;
+      }
+
+      if (!Number.isFinite(Number(probability)) || probability === null || probability <= 0 || probability >= 1) continue;
+
+      const playerName = String(player.row?.name ?? player.row?.playerName ?? parsed.playerId);
+      const confidenceScore =
+        0.28 +
+        this.clamp(sampleSize / 20, 0, 1) * 0.32 +
+        this.clamp(expectedMinutes / 90, 0, 1) * 0.28 +
+        (hasCompanion(key) ? 0.12 : 0);
+      const playerConfidence: PlayerPropDiagnostics['playerConfidence'] =
+        parsed.marketType === 'yellow' || confidenceScore < 0.55
+          ? 'LOW'
+          : confidenceScore >= 0.78 && dataWarnings.length === 0
+            ? 'HIGH'
+            : 'MEDIUM';
+
+      probabilities[key] = Number(Number(probability).toFixed(6));
+      marketNames[key] = this.playerPropMarketLabel(playerName, parsed.marketType, parsed.side, parsed.line);
+      diagnostics[key] = {
+        playerId: parsed.playerId,
+        playerName,
+        teamName: player.teamName,
+        marketType: this.playerPropMarketType(parsed.marketType),
+        line: Number(formatPlayerPropLine(parsed.line)),
+        expectedMinutes: Number(expectedMinutes.toFixed(1)),
+        sampleSize,
+        playerConfidence,
+        dataWarnings,
+      };
+    }
+
+    return { odds, probabilities, marketNames, diagnostics, warnings: [...new Set(warnings)] };
+  }
+
   private async getModel(competition: string = 'default'): Promise<DixonColesModel> {
     if (!this.models.has(competition)) {
       const saved = await this.db.getLatestModelParams(competition);
@@ -984,11 +1266,26 @@ export class PredictionService {
     if (probs.corners) probs.corners.overUnder = {};
     probs.flatProbabilities = this.dropUnavailableUnderstatMarkets(probs.flatProbabilities);
 
-    // Allinea le chiavi delle quote
-    const normalizedOdds = this.normalizeBookmakerOdds(request.bookmakerOdds || {});
+    // Allinea le chiavi delle quote. Le player props vengono valutate solo se esiste
+    // una quota Eurobet corrispondente e il matching giocatore e non ambiguo.
+    const normalizedOddsBase = this.normalizeBookmakerOdds(request.bookmakerOdds || {});
+    const playerPropMarkets = this.buildPlayerPropMarkets({
+      odds: normalizedOddsBase,
+      homePlayers,
+      awayPlayers,
+      probabilities: probs,
+      homeTeamName: homeTeam?.name || 'Home',
+      awayTeamName: awayTeam?.name || 'Away',
+      referee,
+    });
+    Object.assign(probs.flatProbabilities, playerPropMarkets.probabilities);
+    const normalizedOdds = { ...normalizedOddsBase, ...playerPropMarkets.odds };
     const alignedOdds = this.alignOddsKeys(normalizedOdds);
 
-    const marketNames = this.getMarketNames(Object.keys(probs.flatProbabilities));
+    const marketNames = {
+      ...this.getMarketNames(Object.keys(probs.flatProbabilities)),
+      ...playerPropMarkets.marketNames,
+    };
     const marketGroups = this.engine.buildMarketGroups(alignedOdds);
     const calibrationProfile = await this.getCalibrationProfile(
       model,
@@ -1019,7 +1316,10 @@ export class PredictionService {
       minCombinedEV: 0.08,
       analysisContext,
     });
-    const valueOpportunities = enhanced.allBets;
+    const valueOpportunities = enhanced.allBets.map((opportunity) => {
+      const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
+      return diagnostic ? { ...opportunity, ...diagnostic } : opportunity;
+    });
 
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
     const modelConfidence = context.richnessScore;
@@ -1037,6 +1337,7 @@ export class PredictionService {
       comboBets: enhanced.comboBets,
       speculativeOpportunities: enhanced.speculativeBets,
       bestValueOpportunity: bestValue,
+      playerPropWarnings: playerPropMarkets.warnings,
       analysisFactors: factors,
       modelConfidence,
       richnessScore: Number(context.richnessScore ?? 0),
@@ -1080,6 +1381,15 @@ export class PredictionService {
     };
 
     const dynamicName = (selection: string): string | null => {
+      const playerProp = parsePlayerPropSelectionKey(selection);
+      if (playerProp) {
+        const side = playerProp.side === 'over' ? 'Over' : 'Under';
+        const line = formatPlayerPropLine(playerProp.line);
+        if (playerProp.marketType === 'shots') return `Giocatore ${playerProp.playerId} ${side} ${line} tiri`;
+        if (playerProp.marketType === 'sot') return `Giocatore ${playerProp.playerId} ${side} ${line} tiri in porta`;
+        return `Giocatore ${playerProp.playerId} cartellino ${side} ${line}`;
+      }
+
       const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total|corners)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
       if (m) {
         const labels: Record<string, string> = {
@@ -1778,6 +2088,11 @@ export class PredictionService {
     factors: AnalysisFactors
   ): BestValueOpportunityExplanation | null {
     if (!Array.isArray(opportunities) || opportunities.length === 0) return null;
+    const primaryOpportunities = opportunities.filter((opportunity) => {
+      const category = String(opportunity.marketCategory ?? '');
+      return !category.startsWith('player_') && !isPlayerPropSelection(opportunity.selection);
+    });
+    if (primaryOpportunities.length === 0) return null;
 
     const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
     const confidenceRank = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3 : c === 'MEDIUM' ? 2 : 1;
@@ -1810,9 +2125,9 @@ export class PredictionService {
         * tierWeight(o)
         * Number((o as any).adaptiveRankMultiplier ?? 1);
     };
-    const avgEv = opportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / opportunities.length;
+    const avgEv = primaryOpportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / primaryOpportunities.length;
 
-    const scored = opportunities.map((opp) => {
+    const scored = primaryOpportunities.map((opp) => {
       const direction = this.inferSelectionDirection(opp.selection);
       const prob = Number(opp.ourProbability ?? 0);
       const odds = Number(opp.bookmakerOdds ?? 0);

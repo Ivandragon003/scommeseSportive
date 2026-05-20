@@ -111,6 +111,15 @@ export interface BetOpportunity {
   logGrowth?: number;
   dynamicEvThreshold?: number;
   contextStrength?: number;
+  playerId?: string;
+  playerName?: string;
+  teamName?: string;
+  marketType?: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards';
+  line?: number;
+  expectedMinutes?: number;
+  sampleSize?: number;
+  playerConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  dataWarnings?: string[];
   /** matchId della partita di riferimento — usato per rilevare correlazione nelle combinate */
   matchId?: string;
 }
@@ -122,6 +131,9 @@ export type MarketCategory =
   | 'shots_ot'       // tiri in porta
   | 'corners'        // angoli totali
   | 'yellow_cards'   // cartellini gialli
+  | 'player_shots'   // tiri singolo calciatore
+  | 'player_shots_ot' // tiri in porta singolo calciatore
+  | 'player_yellow_cards' // giallo singolo calciatore
   | 'fouls'          // falli
   | 'exact_score'    // risultato esatto
   | 'handicap'       // handicap europeo e asiatico
@@ -289,6 +301,9 @@ const EV_THRESHOLDS: Record<MarketCategory, number> = {
   shots_ot:    0.040,   // 4.0%
   corners:     0.120,   // disattivato nel flusso attivo (Understat-only)
   yellow_cards: 0.045,  // 4.5%
+  player_shots: 0.060,
+  player_shots_ot: 0.070,
+  player_yellow_cards: 0.075,
   fouls:       0.120,   // disattivato nel flusso attivo (Understat-only)
   exact_score: 0.050,
   handicap:    0.050,
@@ -301,6 +316,9 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
   shots:       0.03,
   corners:     0.03,
   yellow_cards: 0.025,
+  player_shots: 0.035,
+  player_shots_ot: 0.040,
+  player_yellow_cards: 0.045,
   fouls:       0.03,
   shots_ot:    0.03,
   handicap:    0.02,
@@ -355,6 +373,33 @@ const DEFAULT_CATEGORY_RANKING_WEIGHTS: Partial<Record<MarketCategory, Partial<R
     riskPenalty: 0.55,
     uncertainty: 0.28,
     contextStrength: 0.08,
+  },
+  player_shots: {
+    edgeNoVig: 0.36,
+    ev: 0.14,
+    confidence: 0.08,
+    logGrowth: 0.12,
+    riskPenalty: 0.52,
+    uncertainty: 0.24,
+    contextStrength: 0.08,
+  },
+  player_shots_ot: {
+    edgeNoVig: 0.36,
+    ev: 0.12,
+    confidence: 0.07,
+    logGrowth: 0.11,
+    riskPenalty: 0.62,
+    uncertainty: 0.30,
+    contextStrength: 0.06,
+  },
+  player_yellow_cards: {
+    edgeNoVig: 0.34,
+    ev: 0.11,
+    confidence: 0.06,
+    logGrowth: 0.10,
+    riskPenalty: 0.70,
+    uncertainty: 0.34,
+    contextStrength: 0.06,
   },
   handicap: {
     edgeNoVig: 0.3,
@@ -495,7 +540,10 @@ export class ValueBettingEngine {
       category === 'shots_ot' ||
       category === 'corners' ||
       category === 'fouls' ||
-      category === 'yellow_cards';
+      category === 'yellow_cards' ||
+      category === 'player_shots' ||
+      category === 'player_shots_ot' ||
+      category === 'player_yellow_cards';
 
     const tuning = selection ? this.getCombinedTuning(category, selection) : this.getCategoryTuning(category);
     const baseCoherence = isShotsDisciplineCore ? 0.55 : this.COHERENCE_RATIO;
@@ -503,14 +551,16 @@ export class ValueBettingEngine {
     const applyMaxOddsToAllMarkets = this.runtimeConfig.operational?.applyMaxOddsToAllMarkets ?? true;
     return {
       minOdds: isShotsDisciplineCore ? 1.20 : this.MIN_ODDS,
-      maxOdds: applyMaxOddsToAllMarkets ? operationalMaxOdds : (isShotsDisciplineCore ? 15.00 : operationalMaxOdds),
+      maxOdds: category === 'player_shots' || category === 'player_shots_ot' || category === 'player_yellow_cards'
+        ? Math.min(operationalMaxOdds, 7.5)
+        : applyMaxOddsToAllMarkets ? operationalMaxOdds : (isShotsDisciplineCore ? 15.00 : operationalMaxOdds),
       coherenceRatio: this.clampNumber(baseCoherence + tuning.coherenceDelta, 0.45, 0.85),
     };
   }
 
   getMarketTier(category: MarketCategory): MarketTier {
     if (category === 'goal_1x2' || category === 'goal_ou') return 'CORE';
-    if (category === 'shots' || category === 'shots_ot' || category === 'corners' || category === 'yellow_cards' || category === 'fouls')
+    if (category === 'shots' || category === 'shots_ot' || category === 'corners' || category === 'yellow_cards' || category === 'fouls' || category === 'player_shots')
       return 'SECONDARY';
     return 'SPECULATIVE';
   }
@@ -531,6 +581,9 @@ export class ValueBettingEngine {
     if (/^team_home_(over|under)_/.test(s)) return s.includes('_over_') ? 'team_home_goal_over' : 'team_home_goal_under';
     if (/^team_away_(over|under)_/.test(s)) return s.includes('_over_') ? 'team_away_goal_over' : 'team_away_goal_under';
     if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s)) return s.startsWith('over') ? 'goal_over' : 'goal_under';
+    if (/^player_.+_shots_(over|under)_/.test(s)) return s.includes('_under_') ? 'player_shots_under' : 'player_shots_over';
+    if (/^player_.+_sot_(over|under)_/.test(s)) return s.includes('_under_') ? 'player_shots_ot_under' : 'player_shots_ot_over';
+    if (/^player_.+_yellow_(over|under)_/.test(s)) return s.includes('_under_') ? 'player_yellow_under' : 'player_yellow_over';
     if (/^shots_total_(over|under)_/.test(s) || /^shots(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_total_under' : 'shots_total_over';
     if (/^shots_home_(over|under)_/.test(s) || /^shotshome(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_home_under' : 'shots_home_over';
     if (/^shots_away_(over|under)_/.test(s) || /^shotsaway(over|under)\d+$/i.test(s)) return s.includes('under') ? 'shots_away_under' : 'shots_away_over';
@@ -564,6 +617,11 @@ export class ValueBettingEngine {
       return 'goal_ou';
     if (/^team_(home|away)_(over|under)/.test(s))
       return 'goal_ou';
+
+    // Player props Eurobet normalizzate: player_{playerId}_{market}_{side}_{line}
+    if (/^player_.+_shots_(over|under)_/.test(s)) return 'player_shots';
+    if (/^player_.+_sot_(over|under)_/.test(s)) return 'player_shots_ot';
+    if (/^player_.+_yellow_(over|under)_/.test(s)) return 'player_yellow_cards';
 
     // Handicap
     if (s.startsWith('hcp_') || s.startsWith('ahcp_') || s.startsWith('asian_'))
@@ -692,6 +750,9 @@ export class ValueBettingEngine {
     }
 
     if (category === 'goal_1x2' || category === 'goal_ou') threshold -= 0.004;
+    if (category === 'player_shots') threshold += 0.010;
+    if (category === 'player_shots_ot') threshold += 0.016;
+    if (category === 'player_yellow_cards') threshold += 0.020;
     if (category === 'exact_score' || category === 'handicap') threshold += 0.015;
     if (category === 'yellow_cards') threshold += 0.008;
 
@@ -702,6 +763,9 @@ export class ValueBettingEngine {
     if (category === 'goal_1x2' || category === 'goal_ou') return 0.85;
     if (category === 'shots' || category === 'shots_ot') return 1.05;
     if (category === 'yellow_cards') return 1.22;
+    if (category === 'player_shots') return 1.30;
+    if (category === 'player_shots_ot') return 1.45;
+    if (category === 'player_yellow_cards') return 1.55;
     if (category === 'exact_score' || category === 'handicap') return 1.55;
     return 1.15;
   }
@@ -755,9 +819,9 @@ export class ValueBettingEngine {
       score += Math.max(0, -Number(factors.formDelta ?? 0)) * 0.18;
     }
 
-    if (category === 'shots' || category === 'shots_ot') {
+    if (category === 'shots' || category === 'shots_ot' || category === 'player_shots' || category === 'player_shots_ot') {
       score += this.clampNumber(Number(factors.shotsReliability ?? 0), 0, 1) * 0.12;
-    } else if (category === 'yellow_cards') {
+    } else if (category === 'yellow_cards' || category === 'player_yellow_cards') {
       score += this.clampNumber(Number(factors.disciplineReliability ?? 0), 0, 1) * 0.1;
     }
 
@@ -778,9 +842,9 @@ export class ValueBettingEngine {
       (context.hasRefereeData === false ? 0 : 0.05);
 
     const factors = context.analysisFactors;
-    if (category === 'shots' || category === 'shots_ot') {
+    if (category === 'shots' || category === 'shots_ot' || category === 'player_shots' || category === 'player_shots_ot') {
       dataQuality += this.clampNumber(Number(factors?.shotsReliability ?? factors?.statSampleStrength ?? 0.5), 0, 1) * 0.1;
-    } else if (category === 'yellow_cards') {
+    } else if (category === 'yellow_cards' || category === 'player_yellow_cards') {
       dataQuality += this.clampNumber(Number(factors?.disciplineReliability ?? 0.45), 0, 1) * 0.08;
     } else {
       dataQuality += 0.08;
@@ -789,6 +853,9 @@ export class ValueBettingEngine {
     let uncertainty = 1 - this.clampNumber(dataQuality, 0, 1);
     if (category === 'shots' || category === 'shots_ot') uncertainty += 0.06;
     if (category === 'yellow_cards') uncertainty += 0.12;
+    if (category === 'player_shots') uncertainty += 0.16;
+    if (category === 'player_shots_ot') uncertainty += 0.22;
+    if (category === 'player_yellow_cards') uncertainty += 0.25;
     if (category === 'exact_score' || category === 'handicap') uncertainty += 0.18;
     if (odds > this.MAX_ODDS) uncertainty += 0.12;
     else if (odds >= 5) uncertainty += 0.06;
@@ -807,6 +874,9 @@ export class ValueBettingEngine {
     else if (odds >= 5) penalty += 0.1;
     if (category === 'exact_score' || category === 'handicap') penalty += 0.12;
     if (category === 'yellow_cards') penalty += 0.06;
+    if (category === 'player_shots') penalty += 0.10;
+    if (category === 'player_shots_ot') penalty += 0.15;
+    if (category === 'player_yellow_cards') penalty += 0.18;
     penalty -= Math.max(0, contextStrength - 0.7) * 0.12;
     return this.clampNumber(Number(penalty.toFixed(3)), 0, 0.65);
   }
@@ -1016,6 +1086,27 @@ export class ValueBettingEngine {
     return { stakePercent, confidence };
   }
 
+  private isPlayerPropCategory(category: MarketCategory): boolean {
+    return category === 'player_shots' || category === 'player_shots_ot' || category === 'player_yellow_cards';
+  }
+
+  private getStakeCapForCategory(category: MarketCategory): number {
+    if (category === 'player_shots') return 1.5;
+    if (category === 'player_shots_ot' || category === 'player_yellow_cards') return 1.0;
+    return this.MAX_STAKE_PERCENT;
+  }
+
+  private capConfidenceForMarket(
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW',
+    category: MarketCategory,
+    hasCompanionOdds: boolean,
+  ): 'HIGH' | 'MEDIUM' | 'LOW' {
+    if (!this.isPlayerPropCategory(category)) return confidence;
+    if (category === 'player_yellow_cards') return confidence === 'LOW' ? 'LOW' : 'MEDIUM';
+    if (!hasCompanionOdds && confidence === 'HIGH') return 'MEDIUM';
+    return confidence;
+  }
+
   // ==================== FILTRI ADATTATIVI v3 ====================
 
   /**
@@ -1220,12 +1311,14 @@ export class ValueBettingEngine {
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
       const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
+      const stakeConfidence = this.capConfidenceForMarket(stake.confidence, category, false);
       const riskPenalty = this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength);
       const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
           this.MIN_STAKE_PERCENT,
-          Math.min(kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
+          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
         ).toFixed(2)
       );
       const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
@@ -1234,7 +1327,7 @@ export class ValueBettingEngine {
         edgeRaw: edge,
         edgeNoVig,
         kelly: this.kellyFraction(ourProb, odds),
-        confidence: stake.confidence,
+        confidence: stakeConfidence,
         odds,
         category,
         uncertaintyFactor,
@@ -1258,7 +1351,7 @@ export class ValueBettingEngine {
         expectedValue:           parseFloat((ev         * 100).toFixed(2)),
         kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
-        confidence:              stake.confidence,
+        confidence:              stakeConfidence,
         isValueBet:              true,
         edge:                    parseFloat((edge    * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
@@ -1321,12 +1414,15 @@ export class ValueBettingEngine {
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
       const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
+      const hasCompanionOdds = allOdds.length >= 2;
+      const stakeConfidence = this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds);
       const riskPenalty = this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength);
       const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
           this.MIN_STAKE_PERCENT,
-          Math.min(kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
+          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7))
         ).toFixed(2)
       );
       const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
@@ -1335,7 +1431,7 @@ export class ValueBettingEngine {
         edgeRaw,
         edgeNoVig,
         kelly: this.kellyFraction(ourProb, odds),
-        confidence: stake.confidence,
+        confidence: stakeConfidence,
         odds,
         category,
         uncertaintyFactor,
@@ -1359,7 +1455,7 @@ export class ValueBettingEngine {
         expectedValue:           parseFloat((ev           * 100).toFixed(2)),
         kellyFraction:           parseFloat((this.kellyFraction(ourProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
-        confidence:              stake.confidence,
+        confidence:              stakeConfidence,
         isValueBet:              true,
         edge:                    parseFloat((edgeRaw   * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),

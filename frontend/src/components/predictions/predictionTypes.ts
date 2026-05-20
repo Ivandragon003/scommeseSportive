@@ -8,6 +8,7 @@ export interface OddsSourceBadgeInfo {
 export interface BestValueOpportunity {
   selection: string;
   marketName: string;
+  marketCategory?: string;
   selectionLabel?: string;
   bookmakerOdds?: number | string;
   confidence?: string;
@@ -20,6 +21,16 @@ export interface BestValueOpportunity {
   impliedProbability?: number | string;
   kellyFraction?: number | string;
   suggestedStakePercent?: number | string;
+  edgeNoVig?: number | string;
+  playerId?: string;
+  playerName?: string;
+  teamName?: string;
+  marketType?: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards' | string;
+  line?: number | string;
+  expectedMinutes?: number | string;
+  sampleSize?: number | string;
+  playerConfidence?: string;
+  dataWarnings?: string[];
 }
 
 export interface RecommendedBetResult {

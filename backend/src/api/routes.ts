@@ -891,6 +891,7 @@ function formatPrediction(pred: any): any {
     comboBets,
     speculativeOpportunities,
     bestValueOpportunity,
+    playerPropWarnings: pred.playerPropWarnings ?? [],
     analysisFactors: pred.analysisFactors ?? null,
 
     probabilities: probs,

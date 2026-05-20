@@ -1,4 +1,9 @@
 import { OddsSourceBadgeInfo } from './predictionTypes';
+import {
+  formatMatchDate,
+  formatMatchDateTime,
+  getMatchDayKey,
+} from '../../utils/dateTime';
 
 export const currentSeason = () => {
   const now = new Date();
@@ -10,14 +15,8 @@ export const currentSeason = () => {
 
 export const formatKickoff = (value?: string) => {
   if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('it-IT', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+  const formatted = formatMatchDateTime(value);
+  return formatted === 'Data da definire' ? String(value) : formatted;
 };
 
 const normalizeCompetition = (value?: string) =>
@@ -31,21 +30,15 @@ const normalizeCompetition = (value?: string) =>
 export const isSerieA = (value?: string) => normalizeCompetition(value) === 'serie a';
 
 export const dateToDayKey = (value?: string) => {
-  if (!value) return 'unknown';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'unknown';
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return getMatchDayKey(value);
 };
 
 export const formatDayLabel = (key: string) => {
   if (key === 'unknown') return 'Data sconosciuta';
-  const date = new Date(`${key}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return key;
-  const label = new Intl.DateTimeFormat('it-IT', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-  }).format(date);
+  const [year, month, day] = key.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return key;
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const label = formatMatchDate(date);
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
 
