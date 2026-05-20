@@ -232,24 +232,27 @@ export const matchFixturesToMatches = (
 
   for (const fixture of fixtures) {
     const scoredCandidates = available
-      .map((candidate) => scoreFixtureCandidate(candidate, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime))
-      .sort((a, b) => b.score - a.score);
-    const bestIndex = findBestMatchIndex(available, fixture, threshold);
-    if (bestIndex === -1) {
+      .map((candidate, index) => ({
+        index,
+        score: scoreFixtureCandidate(candidate, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime),
+      }))
+      .sort((a, b) => b.score.score - a.score.score);
+    const best = scoredCandidates[0] ?? null;
+    if (!best || best.score.score < threshold) {
       missingFixtures.push(fixture);
       diagnostics.push({
         requestedFixture: fixture,
         matched: false,
         candidateCount: available.length,
-        bestScore: scoredCandidates[0]?.score ?? 0,
-        candidates: scoredCandidates.slice(0, 8),
-        warnings: Array.from(new Set(scoredCandidates.flatMap((candidate) => candidate.warnings))),
+        bestScore: best?.score.score ?? 0,
+        candidates: scoredCandidates.slice(0, 8).map((candidate) => candidate.score),
+        warnings: Array.from(new Set(scoredCandidates.flatMap((candidate) => candidate.score.warnings))),
       });
       continue;
     }
 
-    const matched = available[bestIndex];
-    const matchedScore = scoreFixtureCandidate(matched, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime);
+    const matched = available[best.index];
+    const matchedScore = best.score;
     matchedMatches.push(matched);
     diagnostics.push({
       requestedFixture: fixture,
@@ -257,10 +260,10 @@ export const matchFixturesToMatches = (
       candidateCount: available.length,
       bestScore: matchedScore.score,
       matchedCandidate: matchedScore.candidate,
-      candidates: scoredCandidates.slice(0, 8),
+      candidates: scoredCandidates.slice(0, 8).map((candidate) => candidate.score),
       warnings: matchedScore.warnings,
     });
-    available.splice(bestIndex, 1);
+    available.splice(best.index, 1);
   }
 
   return { matchedMatches, missingFixtures, diagnostics };
