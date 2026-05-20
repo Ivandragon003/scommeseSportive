@@ -3,7 +3,6 @@ node_modules/
 **/node_modules/
 
 
-
 # Build artifacts
 dist/
 build/
@@ -26,6 +25,7 @@ temp/
 backend/data/
 data/
 .playwright/
+.playwright-mcp/
 backend/.playwright/
 backend/.tmp-fbref-profile/
 backend/tmp_script_*.js
