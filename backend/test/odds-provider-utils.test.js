@@ -91,3 +91,57 @@ test('matchFixturesToMatches scarta candidati fuori finestra temporale', () => {
   assert.equal(missingFixtures.length, 1);
   assert.equal(diagnostics[0].candidates[0].reason, 'kickoff_outside_36h_window');
 });
+
+test('matchFixturesToMatches sceglie il candidato con orario vicino invece dello stesso match nel giorno sbagliato', () => {
+  const { matchedMatches, missingFixtures, diagnostics } = matchFixturesToMatches(
+    [
+      {
+        homeTeam: 'Fiorentina',
+        awayTeam: 'Atalanta',
+        commenceTime: '2026-05-22T18:45:00.000Z',
+      },
+    ],
+    [
+      buildMatch({
+        matchId: 'wrong_day',
+        homeTeam: 'Fiorentina',
+        awayTeam: 'Atalanta',
+        commenceTime: '2026-05-23T13:00:00.000Z',
+      }),
+      buildMatch({
+        matchId: 'correct_time',
+        homeTeam: 'Fiorentina',
+        awayTeam: 'Atalanta',
+        commenceTime: '2026-05-22T18:45:00.000Z',
+      }),
+    ]
+  );
+
+  assert.equal(matchedMatches.length, 1);
+  assert.equal(missingFixtures.length, 0);
+  assert.equal(matchedMatches[0].matchId, 'correct_time');
+  assert.equal(diagnostics[0].matchedCandidate.matchId, 'correct_time');
+  assert.ok(diagnostics[0].candidates[0].score > diagnostics[0].candidates[1].score);
+});
+
+test('matchFixturesToMatches segnala warning quando manca commenceTime e fa fallback sui nomi', () => {
+  const { matchedMatches, diagnostics } = matchFixturesToMatches(
+    [
+      {
+        homeTeam: 'Inter',
+        awayTeam: 'Milan',
+        commenceTime: null,
+      },
+    ],
+    [
+      buildMatch({
+        homeTeam: 'Internazionale',
+        awayTeam: 'AC Milan',
+        commenceTime: '2026-04-25T18:45:00.000Z',
+      }),
+    ]
+  );
+
+  assert.equal(matchedMatches.length, 1);
+  assert.ok(diagnostics[0].warnings.includes('missing_commence_time_for_fixture_matching'));
+});

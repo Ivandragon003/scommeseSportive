@@ -42,6 +42,7 @@ type SofaScoreRefereeStats = {
 
 type SofaScoreSupplementalStats = {
   eventId: number;
+  canonicalKickoffIso: string | null;
   homePossession: number | null;
   awayPossession: number | null;
   homeFouls: number | null;
@@ -60,6 +61,7 @@ type SofaScoreSyncSummary = {
   skippedNoEvent: number;
   skippedNoStats: number;
   errors: number;
+  correctedKickoffs: number;
   updatedMatchIds: string[];
   errorSamples: string[];
 };
@@ -182,6 +184,37 @@ export class SofaScoreSupplementalScraper {
     return SofaScoreSupplementalScraper.toNumber(item?.[side]);
   }
 
+  private static getRomeDateKey(value: string | number | Date): string | null {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Rome',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    return year && month && day ? `${year}-${month}-${day}` : null;
+  }
+
+  private static getNearbyRomeDateKeys(dateIso: string): string[] {
+    const baseTs = new Date(String(dateIso ?? '')).getTime();
+    if (!Number.isFinite(baseTs)) {
+      const fallback = String(dateIso ?? '').slice(0, 10);
+      return fallback ? [fallback] : [];
+    }
+
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    return Array.from(new Set(
+      [0, -1, 1]
+        .map((delta) => SofaScoreSupplementalScraper.getRomeDateKey(baseTs + delta * oneDayMs))
+        .filter((key): key is string => Boolean(key))
+    ));
+  }
+
   private async ensurePage(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.page;
 
@@ -238,7 +271,7 @@ export class SofaScoreSupplementalScraper {
   }
 
   private async getScheduledEvents(dateIso: string): Promise<SofaScoreEventSummary[]> {
-    const key = String(dateIso ?? '').slice(0, 10);
+    const key = SofaScoreSupplementalScraper.getRomeDateKey(dateIso) ?? String(dateIso ?? '').slice(0, 10);
     if (!key) return [];
     const cached = this.scheduledEventsCache.get(key);
     if (cached) return cached;
@@ -263,6 +296,18 @@ export class SofaScoreSupplementalScraper {
     return mapped;
   }
 
+  private async getScheduledEventsAroundMatchDate(dateIso: string): Promise<SofaScoreEventSummary[]> {
+    const keys = SofaScoreSupplementalScraper.getNearbyRomeDateKeys(dateIso);
+    const byId = new Map<number, SofaScoreEventSummary>();
+    for (const key of keys) {
+      const events = await this.getScheduledEvents(`${key}T12:00:00.000Z`);
+      for (const event of events) {
+        byId.set(event.id, event);
+      }
+    }
+    return Array.from(byId.values());
+  }
+
   private findMatchingEvent(row: MatchLikeRow, events: SofaScoreEventSummary[]): SofaScoreEventSummary | null {
     const targetHome = SofaScoreSupplementalScraper.normalizeTeamName(String(row.home_team_name ?? row.home_team_id ?? ''));
     const targetAway = SofaScoreSupplementalScraper.normalizeTeamName(String(row.away_team_name ?? row.away_team_id ?? ''));
@@ -279,6 +324,7 @@ export class SofaScoreSupplementalScraper {
       SofaScoreSupplementalScraper.normalizeCompetitionName(event.competition) === targetCompetition
     );
     const pool = sameCompetition.length > 0 ? sameCompetition : candidates;
+    if (pool.length > 1) return null;
 
     return pool
       .slice()
@@ -290,7 +336,7 @@ export class SofaScoreSupplementalScraper {
   }
 
   private async fetchSupplementalForMatch(row: MatchLikeRow): Promise<SofaScoreSupplementalStats | null> {
-    const events = await this.getScheduledEvents(row.date);
+    const events = await this.getScheduledEventsAroundMatchDate(row.date);
     const eventSummary = this.findMatchingEvent(row, events);
     if (!eventSummary) return null;
 
@@ -317,6 +363,9 @@ export class SofaScoreSupplementalScraper {
 
     return {
       eventId: eventSummary.id,
+      canonicalKickoffIso: Number.isFinite(eventSummary.startTimestamp)
+        ? new Date(eventSummary.startTimestamp * 1_000).toISOString()
+        : null,
       homePossession,
       awayPossession,
       homeFouls,
@@ -340,6 +389,7 @@ export class SofaScoreSupplementalScraper {
       skippedNoEvent: 0,
       skippedNoStats: 0,
       errors: 0,
+      correctedKickoffs: 0,
       updatedMatchIds: [],
       errorSamples: [],
     };
@@ -377,17 +427,31 @@ export class SofaScoreSupplementalScraper {
           || (supplemental.homeCorners !== null && supplemental.homeCorners !== Number(row.home_corners ?? NaN))
           || (supplemental.awayCorners !== null && supplemental.awayCorners !== Number(row.away_corners ?? NaN))
         );
+        const currentKickoffMs = new Date(String(row.date ?? '')).getTime();
+        const canonicalKickoffMs = new Date(String(supplemental.canonicalKickoffIso ?? '')).getTime();
+        const kickoffChanged = Number.isFinite(currentKickoffMs)
+          && Number.isFinite(canonicalKickoffMs)
+          && Math.abs(canonicalKickoffMs - currentKickoffMs) > 5 * 60 * 1_000;
 
-        if (!refereeChanged && !statsChanged) {
+        if (!refereeChanged && !statsChanged && !kickoffChanged) {
           if (!hasMatchStats && !supplemental.referee) summary.skippedNoStats += 1;
           continue;
         }
 
         summary.updatedMatches += 1;
         summary.updatedMatchIds.push(String(row.match_id));
+        if (kickoffChanged) {
+          summary.correctedKickoffs += 1;
+          console.info('[SofaScore] correcting_match_kickoff_from_sofascore', {
+            matchId: row.match_id,
+            previousKickoff: row.date,
+            canonicalKickoffIso: supplemental.canonicalKickoffIso,
+          });
+        }
 
         const updatedRow: MatchLikeRow = {
           ...row,
+          date: kickoffChanged ? String(supplemental.canonicalKickoffIso) : row.date,
           home_possession: supplemental.homePossession ?? row.home_possession ?? null,
           away_possession: supplemental.awayPossession ?? row.away_possession ?? null,
           home_fouls: supplemental.homeFouls ?? row.home_fouls ?? null,

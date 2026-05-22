@@ -89,7 +89,7 @@ jobs:
 
       - name: Upload Eurobet smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: eurobet-smoke-artifacts
           path: |

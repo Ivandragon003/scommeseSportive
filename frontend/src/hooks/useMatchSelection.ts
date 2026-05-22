@@ -5,6 +5,7 @@ import {
   dateToDayKey,
   formatDayLabel,
 } from '../components/predictions/predictionWorkbenchUtils';
+import { parseMatchDateValue } from '../utils/dateTime';
 
 export type MatchMode = 'upcoming' | 'recent';
 
@@ -114,7 +115,8 @@ export function useMatchSelection() {
     for (const match of visibleMatches) {
       const key = dateToDayKey(match.date);
       const bucket = grouped.get(key) ?? [];
-      const timestamp = new Date(match.date).getTime();
+      const parsedDate = parseMatchDateValue(match.date);
+      const timestamp = parsedDate?.getTime() ?? Number.NaN;
       bucket.push({
         ...match,
         __ts: Number.isFinite(timestamp) ? timestamp : 0,

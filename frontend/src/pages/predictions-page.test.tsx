@@ -157,6 +157,12 @@ describe('Predictions page', () => {
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
+      matchId: 'match_1',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: matchRow.date,
+    }));
 
     fireEvent.click(screen.getByRole('button', { name: /Pronostico Finale/i }));
 

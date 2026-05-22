@@ -338,6 +338,8 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.providerMatchId, 'event_123');
     assert.equal(json.data.matchedHomeTeam, 'Inter');
     assert.equal(json.data.matchedAwayTeam, 'Milan');
+    assert.equal(json.data.commenceTime, '2026-04-25T18:45:00.000Z');
+    assert.equal(json.data.match.commenceTime, '2026-04-25T18:45:00.000Z');
     assert.ok(requests[0].markets.includes('double_chance'));
     assert.ok(requests[0].markets.includes('draw_no_bet'));
     assert.ok(requests[0].markets.includes('alternate_totals'));
@@ -354,9 +356,72 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(snapshots[0].matchId, 'understat_match_1');
     assert.equal(snapshots[0].oddsProviderMatchId, 'event_123');
     assert.equal(snapshots[0].source, 'odds_api');
+    assert.equal(snapshots[0].commenceTime, '2026-04-25T18:45:00.000Z');
     assert.deepEqual(snapshots[0].selectedOdds, selectedOdds);
     assert.deepEqual(snapshots[0].liveSelectedOdds, selectedOdds);
     assert.equal(snapshots[0].usedFallbackBookmaker, false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('/scraper/odds/match usa commenceTime richiesto se il provider non lo espone', async () => {
+  const snapshots = [];
+  const providerMatch = {
+    ...buildOddsApiMatch(),
+    commenceTime: undefined,
+  };
+  const selectedOdds = { homeWin: 1.91, draw: 3.45, awayWin: 4.2 };
+  const coordinator = {
+    async getOddsForFixtures() {
+      return {
+        primaryProvider: 'odds_api',
+        fetchedAt: fixedFetchedAt,
+        fallbackReason: null,
+        providerHealth: {
+          odds_api: {
+            provider: 'odds_api',
+            status: 'healthy',
+            checkedAt: fixedFetchedAt,
+          },
+        },
+        providerRuntime: { odds_api: { remainingRequests: 499, fetchDetails: { candidateCount: 1 } } },
+        isMerged: false,
+        warnings: [],
+        matches: [
+          {
+            match: providerMatch,
+            providerMatches: { odds_api: providerMatch },
+            oddsSource: 'odds_api',
+            fallbackReason: null,
+            providerHealth: {},
+            fetchedAt: fixedFetchedAt,
+            isMerged: false,
+            marketSources: { h2h: ['odds_api'] },
+            bestOddsByProvider: { odds_api: selectedOdds },
+            bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
+            marginsByProvider: { odds_api: {} },
+          },
+        ],
+      };
+    },
+  };
+
+  const server = await startRouter({ coordinator, snapshots });
+  try {
+    const { status, json } = await postMatchOdds(server.baseUrl, {
+      matchId: 'understat_match_1',
+      competition: 'Serie A',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-25T18:45:00.000Z',
+    });
+
+    assert.equal(status, 200);
+    assert.equal(json.data.found, true);
+    assert.equal(json.data.commenceTime, '2026-04-25T18:45:00.000Z');
+    assert.equal(json.data.match.commenceTime, '2026-04-25T18:45:00.000Z');
+    assert.equal(snapshots[0].commenceTime, '2026-04-25T18:45:00.000Z');
   } finally {
     await server.close();
   }

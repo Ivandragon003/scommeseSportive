@@ -123,6 +123,10 @@ export const scoreFixtureCandidate = (
   const timeDiffHours = getTimeDiffHours(candidate, commenceTime);
   const warnings: string[] = [];
 
+  if (!commenceTime) {
+    warnings.push('missing_commence_time_for_fixture_matching');
+  }
+
   if (swappedTeamScore >= Math.max(straightTeamScore + 0.25, 1.65)) {
     warnings.push('home_away_inverted_candidate');
   }

@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload backend CI logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: backend-ci-logs
           path: ci-logs/backend
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload frontend CI logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-ci-logs
           path: ci-logs/frontend

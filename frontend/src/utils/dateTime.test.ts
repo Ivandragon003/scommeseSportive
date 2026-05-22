@@ -1,4 +1,4 @@
-import { formatMatchTime, getMatchDayKey } from './dateTime';
+import { formatMatchDateTime, formatMatchTime, getMatchDayKey } from './dateTime';
 
 describe('dateTime match formatting', () => {
   test('mostra un ISO UTC in timezone Europe/Rome durante ora legale', () => {
@@ -15,5 +15,13 @@ describe('dateTime match formatting', () => {
 
   test('genera day key secondo Europe/Rome', () => {
     expect(getMatchDayKey('2026-05-19T22:30:00Z')).toBe('2026-05-20');
+  });
+
+  test('mostra Fiorentina-Atalanta nel giorno italiano corretto alle 20:45', () => {
+    const kickoff = '2026-05-22T18:45:00Z';
+
+    expect(formatMatchTime(kickoff)).toBe('20:45');
+    expect(getMatchDayKey(kickoff)).toBe('2026-05-22');
+    expect(formatMatchDateTime(kickoff)).toContain('20:45');
   });
 });

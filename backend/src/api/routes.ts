@@ -2949,13 +2949,59 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
 
     const {
       competition = 'Serie A',
-      markets = ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'],
+      markets = [
+        'h2h',
+        'h2h_3_way',
+        'totals',
+        'alternate_totals',
+        'spreads',
+        'alternate_spreads',
+        'btts',
+        'double_chance',
+        'draw_no_bet',
+        'team_totals',
+        'alternate_team_totals',
+        'alternate_totals_corners',
+        'alternate_spreads_corners',
+        'alternate_totals_cards',
+        'alternate_spreads_cards',
+        'player_shots',
+        'player_shots_on_target',
+        'shots',
+        'shots_on_target',
+        'corners',
+        'cards',
+        'fouls',
+      ],
     } = req.body;
 
     const normalizedMarkets =
       Array.isArray(markets) && markets.length > 0
         ? markets.map((m: unknown) => String(m)).filter(Boolean)
-        : ['h2h', 'totals', 'spreads', 'alternate_totals', 'btts', 'double_chance', 'draw_no_bet'];
+        : [
+          'h2h',
+          'h2h_3_way',
+          'totals',
+          'alternate_totals',
+          'spreads',
+          'alternate_spreads',
+          'btts',
+          'double_chance',
+          'draw_no_bet',
+          'team_totals',
+          'alternate_team_totals',
+          'alternate_totals_corners',
+          'alternate_spreads_corners',
+          'alternate_totals_cards',
+          'alternate_spreads_cards',
+          'player_shots',
+          'player_shots_on_target',
+          'shots',
+          'shots_on_target',
+          'corners',
+          'cards',
+          'fouls',
+        ];
     const {
       coordinator,
       primaryProviderName,
@@ -2995,14 +3041,20 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
             new Set([
               ...normalizedMarkets,
               'alternate_totals',
+              'alternate_spreads',
               'btts',
               'double_chance',
               'draw_no_bet',
+              'alternate_totals_corners',
+              'alternate_spreads_corners',
+              'corners',
+              'cards',
+              'fouls',
             ])
           ),
-          includeExtendedGroups: false,
+          includeExtendedGroups: true,
         },
-        { mergeMarkets: false, useFallback: true }
+        { mergeMarkets: true, useFallback: true }
       ),
       getBulkOddsRouteTimeoutMs(),
       'Coordinated bulk odds lookup'
@@ -3463,6 +3515,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const providerHealth = coordination.providerHealth;
       const marketCount = coordinatedMatch ? countMatchMarkets(coordinatedMatch.match) : 0;
       const responseMatch = coordinatedMatch?.match ?? null;
+      const resolvedCommenceTime = responseMatch?.commenceTime ?? requestedFixture.commenceTime ?? null;
       const confidenceScore = responseMatch
         ? Number(matchScore(responseMatch, String(homeTeam), String(awayTeam), commenceTime ? String(commenceTime) : undefined).toFixed(3))
         : 0;
@@ -3610,7 +3663,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           competition: String(competition),
           homeTeamName: responseMatch.homeTeam,
           awayTeamName: responseMatch.awayTeam,
-          commenceTime: responseMatch.commenceTime,
+          commenceTime: resolvedCommenceTime,
           source,
           selectedOdds,
           liveSelectedOdds,
@@ -3664,7 +3717,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         metadata: {
           homeTeam: responseMatch.homeTeam,
           awayTeam: responseMatch.awayTeam,
-          commenceTime: responseMatch.commenceTime,
+          commenceTime: resolvedCommenceTime,
           remainingRequests: coordination.providerRuntime.odds_api?.remainingRequests ?? null,
           requestedMarkets: finalMarketsRequested,
           historicalSnapshotSaved,
@@ -3716,12 +3769,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         match: {
           homeTeam: responseMatch.homeTeam,
           awayTeam: responseMatch.awayTeam,
-          commenceTime: responseMatch.commenceTime,
+          commenceTime: resolvedCommenceTime,
         },
         providerMatchId: oddsProviderMatchId,
         matchedHomeTeam: responseMatch.homeTeam,
         matchedAwayTeam: responseMatch.awayTeam,
-        commenceTime: responseMatch.commenceTime,
+        commenceTime: resolvedCommenceTime,
         historicalSnapshotSaved,
         snapshotMatchId,
         confidenceScore,
