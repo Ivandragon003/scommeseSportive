@@ -3390,8 +3390,6 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const eventAdditionalMarkets = [
         'alternate_totals',
         'alternate_spreads',
-        'alternate_totals_corners',
-        'alternate_spreads_corners',
         'alternate_totals_cards',
         'alternate_spreads_cards',
         'team_totals',
@@ -3403,9 +3401,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         'player_shots_on_target',
         'shots',
         'shots_on_target',
-        'corners',
         'cards',
-        'fouls',
       ];
       const requestedMarkets = Array.from(new Set([...preferredMarkets, ...fallbackMarkets, ...eventAdditionalMarkets]));
       console.info('[Odds/match] Starting lookup', {
@@ -3415,7 +3411,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         primaryProvider: primaryProviderName,
         fallbackProvider: fallbackProviderName,
         timeoutMs: matchTimeoutMs,
-        includeExtendedGroups: true,
+        includeExtendedGroups: false,
         marketsRequested: requestedMarkets,
       });
       const coordination = await withTimeout(
@@ -3430,9 +3426,9 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
             markets: preferredMarkets,
             fallbackMarkets,
             extraEventMarkets: eventAdditionalMarkets,
-            includeExtendedGroups: true,
+            includeExtendedGroups: false,
           },
-          { mergeMarkets: true, useFallback: true }
+          { mergeMarkets: false, useFallback: false }
         ),
         matchTimeoutMs,
         'Coordinated match odds lookup'
@@ -3555,7 +3551,6 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         primaryProviderName,
         ...String(coordinatedMatch.oddsSource ?? '').split('+').filter(Boolean),
         'odds_api',
-        'eurobet',
       ]));
       const selectedProvider = providerPriority.find((providerName) =>
         Object.keys(sanitizeOddsMap(coordinatedMatch.bestOddsByProvider[providerName] ?? {})).length > 0
@@ -3567,11 +3562,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const estimatedOdds: Record<string, number> = {};
       const usedFallbackBookmaker = Boolean(selectedProvider && selectedProvider !== primaryProviderName);
       const usedSyntheticOdds = false;
-      const source = selectedProvider === 'eurobet'
-        ? 'eurobet'
-        : selectedProvider === 'odds_api'
-          ? 'odds_api'
-          : 'unavailable';
+      const source = selectedProvider === 'odds_api' ? 'odds_api' : 'unavailable';
       const fallbackOdds: Record<string, number> = usedFallbackBookmaker ? selectedOdds : {};
       const oddsCoverage = summarizeOddsCoverage(
         selectedOdds,
@@ -3716,12 +3707,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         match: {
           homeTeam: responseMatch.homeTeam,
           awayTeam: responseMatch.awayTeam,
-          commenceTime: responseMatch.commenceTime,
+          commenceTime: null,
         },
         providerMatchId: oddsProviderMatchId,
         matchedHomeTeam: responseMatch.homeTeam,
         matchedAwayTeam: responseMatch.awayTeam,
-        commenceTime: responseMatch.commenceTime,
+        commenceTime: null,
         historicalSnapshotSaved,
         snapshotMatchId,
         confidenceScore,

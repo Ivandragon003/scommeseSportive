@@ -69,7 +69,7 @@ export function useOddsForMatch() {
       competition: competition || 'Serie A',
       homeTeam: homeName,
       awayTeam: awayName,
-      commenceTime: String(match.date ?? ''),
+      commenceTime: null,
     })
       .then((response) => ({ response, errorMessage: null as string | null }))
       .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));

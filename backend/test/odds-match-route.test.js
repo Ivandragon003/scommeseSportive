@@ -173,21 +173,21 @@ const createRouteProvider = (name, options = {}) => ({
   async close() {},
 });
 
-test('provider runtime defaulta a Eurobet quando Eurobet non e skippato e Odds API non e configurata', () => {
+test('provider runtime defaulta a Odds API', () => {
   withProviderEnv({ SKIP_EUROBET_SCRAPER: 'false' }, () => {
-    assert.equal(getConfiguredPrimaryProviderName(), 'eurobet');
+    assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
     assert.equal(getConfiguredFallbackProviderName(), null);
   });
 });
 
-test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=eurobet', () => {
+test('provider runtime ignora ODDS_PRIMARY_PROVIDER=eurobet e resta su Odds API', () => {
   withProviderEnv({
     ODDS_PRIMARY_PROVIDER: 'eurobet',
     SKIP_EUROBET_SCRAPER: 'false',
     ODDS_API_KEY: 'configured',
   }, () => {
-    assert.equal(getConfiguredPrimaryProviderName(), 'eurobet');
-    assert.equal(getConfiguredFallbackProviderName(), 'odds_api');
+    assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
+    assert.equal(getConfiguredFallbackProviderName(), null);
   });
 });
 
@@ -198,7 +198,7 @@ test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=odds_api', () => {
     ODDS_API_KEY: 'configured',
   }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
-    assert.equal(getConfiguredFallbackProviderName(), 'eurobet');
+    assert.equal(getConfiguredFallbackProviderName(), null);
   });
 });
 
@@ -345,10 +345,8 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.ok(requests[0].fallbackMarkets.includes('totals'));
     assert.ok(requests[0].extraEventMarkets.includes('player_shots'));
     assert.ok(requests[0].extraEventMarkets.includes('shots_on_target'));
-    assert.ok(requests[0].extraEventMarkets.includes('corners'));
     assert.ok(requests[0].extraEventMarkets.includes('cards'));
-    assert.ok(requests[0].extraEventMarkets.includes('fouls'));
-    assert.equal(requests[0].includeExtendedGroups, true);
+    assert.equal(requests[0].includeExtendedGroups, false);
 
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0].matchId, 'understat_match_1');
@@ -557,7 +555,7 @@ test('/scraper/odds/match risponde found=false dopo timeout primario senza fallb
   }, async () => {
     const snapshots = [];
     const calls = { count: 0 };
-    const provider = createRouteProvider('eurobet', {
+    const provider = createRouteProvider('odds_api', {
       calls,
       firstNeverResolves: true,
       matchesAfterFirst: [buildOddsApiMatch()],
@@ -567,9 +565,9 @@ test('/scraper/odds/match risponde found=false dopo timeout primario senza fallb
       coordinator,
       snapshots,
       bundleOverrides: {
-        primaryProviderName: 'eurobet',
+        primaryProviderName: 'odds_api',
         fallbackProviderName: null,
-        skipEurobet: false,
+        skipEurobet: true,
       },
     });
     const body = {
@@ -587,12 +585,12 @@ test('/scraper/odds/match risponde found=false dopo timeout primario senza fallb
       assert.equal(first.status, 200);
       assert.equal(first.json.success, true);
       assert.equal(first.json.data.found, false);
-      assert.match(first.json.data.warnings.join(' '), /Provider eurobet timeout after 25ms/i);
-      assert.equal(first.json.data.primaryProvider, 'eurobet');
+      assert.match(first.json.data.warnings.join(' '), /Provider odds_api timeout after 25ms/i);
+      assert.equal(first.json.data.primaryProvider, 'odds_api');
       assert.equal(first.json.data.fallbackProvider, null);
       assert.equal(second.status, 200);
       assert.equal(second.json.data.found, true);
-      assert.equal(second.json.data.source, 'eurobet');
+      assert.equal(second.json.data.source, 'odds_api');
       assert.equal(calls.count, 2);
       assert.equal(snapshots.length, 1);
     } finally {
@@ -604,7 +602,7 @@ test('/scraper/odds/match risponde found=false dopo timeout primario senza fallb
 test('/scraper/odds/debug-config espone configurazione runtime senza segreti', async () => {
   await withProviderEnv({
     ODDS_API_KEY: 'super-secret-key',
-    ODDS_PRIMARY_PROVIDER: 'eurobet',
+    ODDS_PRIMARY_PROVIDER: 'odds_api',
     SKIP_EUROBET_SCRAPER: 'false',
     EUROBET_MATCH_TIMEOUT_MS: '180000',
     ODDS_PROVIDER_MATCH_TIMEOUT_MS: '45000',
@@ -618,10 +616,10 @@ test('/scraper/odds/debug-config espone configurazione runtime senza segreti', a
       coordinator,
       snapshots,
       bundleOverrides: {
-        primaryProviderName: 'eurobet',
-        fallbackProviderName: 'odds_api',
+        primaryProviderName: 'odds_api',
+        fallbackProviderName: null,
         apiKey: 'super-secret-key',
-        skipEurobet: false,
+        skipEurobet: true,
       },
     });
 
@@ -632,10 +630,10 @@ test('/scraper/odds/debug-config espone configurazione runtime senza segreti', a
       assert.equal(status, 200);
       assert.equal(json.success, true);
       assert.equal(json.data.hasOddsApiKey, true);
-      assert.equal(json.data.ODDS_PRIMARY_PROVIDER, 'eurobet');
-      assert.equal(json.data.SKIP_EUROBET_SCRAPER, false);
-      assert.equal(json.data.primaryProvider, 'eurobet');
-      assert.equal(json.data.fallbackProvider, 'odds_api');
+      assert.equal(json.data.ODDS_PRIMARY_PROVIDER, 'odds_api');
+      assert.equal(json.data.SKIP_EUROBET_SCRAPER, true);
+      assert.equal(json.data.primaryProvider, 'odds_api');
+      assert.equal(json.data.fallbackProvider, null);
       assert.equal(json.data.EUROBET_MATCH_TIMEOUT_MS, 180000);
       assert.equal(json.data.ODDS_PROVIDER_MATCH_TIMEOUT_MS, 45000);
       assert.equal(json.data.ODDS_EVENT_TIMEOUT_MS, 60000);
