@@ -1,7 +1,7 @@
 import { OddsSourceBadgeInfo } from './predictionTypes';
 import {
   formatMatchDate,
-  formatMatchDateTime,
+  formatMatchTime,
   getMatchDayKey,
 } from '../../utils/dateTime';
 
@@ -15,8 +15,10 @@ export const currentSeason = () => {
 
 export const formatKickoff = (value?: string) => {
   if (!value) return '-';
-  const formatted = formatMatchDateTime(value);
-  return formatted === 'Data da definire' ? String(value) : formatted;
+  const date = formatMatchDate(value);
+  const time = formatMatchTime(value);
+  if (date === 'Data da definire' || time === '--') return '-';
+  return `${date}, ${time}`;
 };
 
 const normalizeCompetition = (value?: string) =>
@@ -51,7 +53,6 @@ export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): O
       : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
   }
   if (prediction?.oddsSource === 'odds_api') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
-  if (prediction?.oddsSource === 'eurobet' || prediction?.oddsSource === 'eurobet_scraper') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
   if (prediction?.oddsSource === 'fallback_provider') return { label: 'Quote provider secondario', className: 'pr-badge-gold' };
   if (prediction?.oddsSource === 'eurobet_unavailable' || prediction?.oddsSource === 'odds_unavailable' || prediction?.oddsSource === 'unavailable') return { label: 'Quote bookmaker non disponibili', className: 'pr-badge-gray' };
   return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
@@ -87,10 +88,10 @@ export const buildBetKey = (matchId: string, selection: string, marketName: stri
 
 export const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: string | null) => {
   if (!prediction) return prediction;
-  if (oddsSource === 'odds_api' || oddsSource === 'eurobet' || oddsSource === 'eurobet_scraper') {
+  if (oddsSource === 'odds_api') {
     return {
       ...prediction,
-      oddsSource: oddsSource === 'odds_api' ? 'odds_api' : 'eurobet',
+      oddsSource: 'odds_api',
       usedSyntheticOdds: false,
       usedFallbackBookmaker: false,
     };

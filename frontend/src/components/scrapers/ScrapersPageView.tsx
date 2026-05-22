@@ -261,7 +261,7 @@ export default function ScrapersPageView() {
         <div style={{ marginBottom: 32 }}>
           <h1 className="fp-page-title fp-gradient-green">Dati e Provider</h1>
           <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-            Due pipeline separate: dati match da Understat e quote da Eurobet con fallback tecnico solo interno
+            Due pipeline separate: dati match da Understat e quote da Odds API
           </p>
         </div>
 
@@ -636,14 +636,11 @@ export default function ScrapersPageView() {
                     <div style={{ maxHeight: 360, overflowY: 'auto' }}>
                       {oddsMatches.map((match: any, index: number) => (
                         <div
-                          key={`${match.homeTeam}-${match.awayTeam}-${match.commenceTime}-${index}`}
+                          key={`${match.homeTeam}-${match.awayTeam}-${index}`}
                           className="sc-result-row"
                           style={{ padding: '12px 16px' }}
                         >
                           <strong style={{ fontSize: 13 }}>{match.homeTeam} — {match.awayTeam}</strong>
-                          <span style={{ color: 'var(--text-2)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>
-                            {formatDate(String(match.commenceTime ?? ''))}
-                          </span>
                         </div>
                       ))}
                     </div>

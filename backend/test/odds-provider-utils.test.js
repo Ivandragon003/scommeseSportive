@@ -69,7 +69,7 @@ test('matchFixturesToMatches riduce falsi positivi: home/away invertite non veng
   assert.ok(diagnostics[0].warnings.includes('home_away_inverted_candidate'));
 });
 
-test('matchFixturesToMatches scarta candidati fuori finestra temporale', () => {
+test('matchFixturesToMatches non dipende dall orario kickoff per il matching', () => {
   const { matchedMatches, missingFixtures, diagnostics } = matchFixturesToMatches(
     [
       {
@@ -87,9 +87,9 @@ test('matchFixturesToMatches scarta candidati fuori finestra temporale', () => {
     ]
   );
 
-  assert.equal(matchedMatches.length, 0);
-  assert.equal(missingFixtures.length, 1);
-  assert.equal(diagnostics[0].candidates[0].reason, 'kickoff_outside_36h_window');
+  assert.equal(matchedMatches.length, 1);
+  assert.equal(missingFixtures.length, 0);
+  assert.equal(diagnostics[0].matched, true);
 });
 
 test('matchFixturesToMatches sceglie il candidato con orario vicino invece dello stesso match nel giorno sbagliato', () => {

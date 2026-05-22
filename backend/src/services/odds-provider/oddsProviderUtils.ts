@@ -1,8 +1,6 @@
 import { BookmakerOdds, MarketOdds, OddsMatch } from '../OddsApiService';
 import { OddsProviderFixture } from './OddsProvider';
 
-const MAX_FIXTURE_MATCH_WINDOW_HOURS = 36;
-
 const TEAM_ALIAS_GROUPS: string[][] = [
   ['inter', 'internazionale', 'inter milan', 'fc internazionale milano', 'internazionale milano'],
   ['milan', 'ac milan', 'a c milan'],
@@ -86,14 +84,6 @@ export const teamSimilarity = (a: string, b: string): number => {
   return inter / Math.max(at.size, bt.size);
 };
 
-const getTimeDiffHours = (candidate: OddsMatch, commenceTime?: string | null): number | null => {
-  if (!commenceTime) return null;
-  const targetTs = new Date(commenceTime).getTime();
-  const candTs = new Date(candidate.commenceTime).getTime();
-  if (Number.isNaN(targetTs) || Number.isNaN(candTs)) return null;
-  return Math.abs(targetTs - candTs) / (1000 * 60 * 60);
-};
-
 export type FixtureCandidateScore = {
   candidate: {
     matchId: string;
@@ -120,7 +110,7 @@ export const scoreFixtureCandidate = (
   const straightTeamScore = homeScore + awayScore;
   const swappedTeamScore = teamSimilarity(homeTeam, candidate.awayTeam)
     + teamSimilarity(awayTeam, candidate.homeTeam);
-  const timeDiffHours = getTimeDiffHours(candidate, commenceTime);
+  const timeDiffHours: number | null = null;
   const warnings: string[] = [];
 
   if (!commenceTime) {
@@ -131,30 +121,7 @@ export const scoreFixtureCandidate = (
     warnings.push('home_away_inverted_candidate');
   }
 
-  if (timeDiffHours !== null && timeDiffHours > MAX_FIXTURE_MATCH_WINDOW_HOURS) {
-    return {
-      candidate: {
-        matchId: String(candidate.matchId ?? ''),
-        homeTeam: candidate.homeTeam,
-        awayTeam: candidate.awayTeam,
-        commenceTime: candidate.commenceTime,
-      },
-      score: 0,
-      straightTeamScore,
-      swappedTeamScore,
-      timeDiffHours,
-      reason: 'kickoff_outside_36h_window',
-      warnings,
-    };
-  }
-
   let score = straightTeamScore;
-  if (timeDiffHours !== null) {
-    if (timeDiffHours <= 1.5) score += 0.5;
-    else if (timeDiffHours <= 4) score += 0.35;
-    else if (timeDiffHours <= 12) score += 0.2;
-    else score += 0.05;
-  }
 
   if (homeScore >= 0.98 && awayScore >= 0.98) {
     score += 0.15;
@@ -235,13 +202,17 @@ export const matchFixturesToMatches = (
   const diagnostics: FixtureMatchDiagnostic[] = [];
 
   for (const fixture of fixtures) {
-    const scoredCandidates = available
-      .map((candidate, index) => ({
-        index,
-        score: scoreFixtureCandidate(candidate, fixture.homeTeam, fixture.awayTeam, fixture.commenceTime),
-      }))
-      .sort((a, b) => b.score.score - a.score.score);
-    const best = scoredCandidates[0] ?? null;
+    const scoredCandidates: Array<{ index: number; score: FixtureCandidateScore }> = [];
+    let best: { index: number; score: FixtureCandidateScore } | null = null;
+    for (let index = 0; index < available.length; index += 1) {
+      const score = scoreFixtureCandidate(available[index], fixture.homeTeam, fixture.awayTeam, fixture.commenceTime);
+      const row = { index, score };
+      scoredCandidates.push(row);
+      if (!best || score.score > best.score.score) {
+        best = row;
+      }
+    }
+    scoredCandidates.sort((a, b) => b.score.score - a.score.score);
     if (!best || best.score.score < threshold) {
       missingFixtures.push(fixture);
       diagnostics.push({

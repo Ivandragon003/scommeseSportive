@@ -63,7 +63,7 @@ const S = `
 .pr-match-row:hover { background:var(--surface2); }
 .pr-match-row.active { background:var(--blue-dim) !important; border-left:2px solid var(--blue); padding-left:14px; }
 .pr-match-row.loading-row { opacity:.5; pointer-events:none; }
-.pr-match-time { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:32px; flex-shrink:0; text-align:center; }
+.pr-match-time { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:40px; flex-shrink:0; text-align:center; }
 .pr-match-teams { flex:1; min-width:0; }
 .pr-match-home, .pr-match-away { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
 .pr-match-away { color:var(--text-2); font-weight:600; }

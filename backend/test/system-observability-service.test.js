@@ -141,7 +141,6 @@ test('SystemObservabilityService costruisce provider health con Odds API primari
       warnings: [],
       providerHealth: {
         odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:01.000Z', message: 'provider operativo' },
-        eurobet: { status: 'not_checked', checkedAt: '2026-04-16T10:00:00.000Z' },
       },
       startedAt: '2026-04-16T10:00:00.000Z',
       endedAt: '2026-04-16T10:00:09.000Z',
@@ -151,7 +150,7 @@ test('SystemObservabilityService costruisce provider health con Odds API primari
 
     assert.equal(payload.primaryProvider, 'odds_api');
     assert.equal(payload.activeProvider, 'odds_api');
-    assert.equal(payload.status, 'healthy');
+    assert.equal(payload.status, 'degraded');
     assert.equal(payload.fallbackReason, null);
     assert.equal(payload.providerHealth.odds_api.status, 'healthy');
   } finally {
