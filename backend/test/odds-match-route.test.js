@@ -40,7 +40,7 @@ const buildOddsApiMatch = () => ({
   ],
 });
 
-const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots }) => {
+const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots, dbOverrides = {}, kickoffSyncService = null }) => {
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
@@ -49,6 +49,10 @@ const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots }) => 
         snapshots.push(snapshot);
       },
       findMatchByTeams: async () => null,
+      getMatchById: async () => null,
+      updateMatchKickoff: async () => undefined,
+      getUpcomingMatches: async () => [],
+      ...dbOverrides,
     },
     svc: {},
     createOddsProviderCoordinatorBundle: () => ({
@@ -58,6 +62,9 @@ const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots }) => 
       apiKey: 'test-odds-api-key',
       ...bundleOverrides,
     }),
+    ...(kickoffSyncService
+      ? { createOddsApiKickoffSyncService: () => kickoffSyncService }
+      : {}),
   }));
 
   const server = app.listen(0);
@@ -486,9 +493,172 @@ test('/scraper/odds/match ritorna diagnostica quando Odds API non trova la fixtu
     assert.equal(json.data.selectedOddsCount, 0);
     assert.equal(json.data.candidateCount, 2);
     assert.equal(json.data.requestedFixture.homeTeam, 'Inter');
-    assert.match(json.data.message, /Quote bookmaker non trovate/i);
+    assert.match(json.data.message, /Quote non trovate/i);
     assert.match(json.data.warnings.join(' '), /Fixture non trovate/i);
     assert.equal(snapshots.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test('/scraper/odds/match ritenta una volta dopo sync kickoff se il primo matching e fuori finestra 36h', async () => {
+  const snapshots = [];
+  const selectedOdds = { homeWin: 1.91, draw: 3.45, awayWin: 4.2 };
+  const calls = [];
+  const oddsMatch = {
+    ...buildOddsApiMatch(),
+    commenceTime: '2026-05-23T16:00:00.000Z',
+  };
+  const coordinator = {
+    async getOddsForFixtures(request) {
+      calls.push(request);
+      if (calls.length === 1) {
+        return {
+          primaryProvider: 'odds_api',
+          fetchedAt: fixedFetchedAt,
+          fallbackReason: 'Copertura parziale Odds API sulle fixture richieste',
+          providerHealth: {
+            odds_api: {
+              provider: 'odds_api',
+              status: 'degraded',
+              checkedAt: fixedFetchedAt,
+            },
+          },
+          providerRuntime: {
+            odds_api: {
+              remainingRequests: 498,
+              fetchDetails: {
+                candidateCount: 1,
+                matchesReceived: 1,
+                fixtureDiagnostics: [
+                  {
+                    matched: false,
+                    candidateCount: 1,
+                    bestScore: 0,
+                    warnings: [],
+                    candidates: [
+                      {
+                        candidate: {
+                          matchId: 'odds_event_123',
+                          homeTeam: 'Inter',
+                          awayTeam: 'Milan',
+                          commenceTime: '2026-05-23T16:00:00.000Z',
+                        },
+                        score: 0,
+                        straightTeamScore: 2,
+                        timeDiffHours: 792,
+                        reason: 'kickoff_outside_36h_window',
+                        warnings: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          isMerged: false,
+          warnings: ['Fixture non trovate in Odds API: 1/1'],
+          matches: [],
+        };
+      }
+
+      return {
+        primaryProvider: 'odds_api',
+        fetchedAt: fixedFetchedAt,
+        fallbackReason: null,
+        providerHealth: {
+          odds_api: {
+            provider: 'odds_api',
+            status: 'healthy',
+            checkedAt: fixedFetchedAt,
+          },
+        },
+        providerRuntime: {
+          odds_api: {
+            remainingRequests: 497,
+            fetchDetails: { candidateCount: 1, matchesReceived: 1 },
+          },
+        },
+        isMerged: false,
+        warnings: [],
+        matches: [
+          {
+            match: oddsMatch,
+            providerMatches: { odds_api: oddsMatch },
+            oddsSource: 'odds_api',
+            fallbackReason: null,
+            providerHealth: {},
+            fetchedAt: fixedFetchedAt,
+            isMerged: false,
+            marketSources: { h2h: ['odds_api'] },
+            bestOddsByProvider: { odds_api: selectedOdds },
+            bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
+            marginsByProvider: { odds_api: {} },
+          },
+        ],
+      };
+    },
+  };
+  let syncCalls = 0;
+  let getMatchCalls = 0;
+  const kickoffSyncService = {
+    async syncSingleMatchKickoffFromOddsApi() {
+      syncCalls += 1;
+      return {
+        corrected: true,
+        correction: {
+          matchId: 'understat_match_wrong_kickoff',
+          oldDate: '2026-04-20T16:00:00.000Z',
+          newDate: '2026-05-23T16:00:00.000Z',
+          homeTeam: 'Inter',
+          awayTeam: 'Milan',
+          providerMatchId: 'odds_event_123',
+        },
+        warnings: ['kickoff_outside_36h_window_corrected:understat_match_wrong_kickoff'],
+      };
+    },
+    async syncUpcomingKickoffsFromOddsApi() {
+      throw new Error('not used in this test');
+    },
+  };
+  const server = await startRouter({
+    coordinator,
+    snapshots,
+    kickoffSyncService,
+    dbOverrides: {
+      async getMatchById() {
+        getMatchCalls += 1;
+        return {
+          match_id: 'understat_match_wrong_kickoff',
+          home_team_name: 'Inter',
+          away_team_name: 'Milan',
+          competition: 'Serie A',
+          date: getMatchCalls === 1 ? '2026-04-20T16:00:00.000Z' : '2026-05-23T16:00:00.000Z',
+        };
+      },
+    },
+  });
+
+  try {
+    const { status, json } = await postMatchOdds(server.baseUrl, {
+      matchId: 'understat_match_wrong_kickoff',
+      competition: 'Serie A',
+      homeTeam: 'Inter',
+      awayTeam: 'Milan',
+      commenceTime: '2026-04-20T16:00:00.000Z',
+    });
+
+    assert.equal(status, 200);
+    assert.equal(json.data.found, true);
+    assert.deepEqual(json.data.selectedOdds, selectedOdds);
+    assert.equal(json.data.commenceTime, '2026-05-23T16:00:00.000Z');
+    assert.equal(calls.length, 2);
+    assert.equal(syncCalls, 1);
+    assert.equal(calls[0].fixtures[0].commenceTime, '2026-04-20T16:00:00.000Z');
+    assert.equal(calls[1].fixtures[0].commenceTime, '2026-05-23T16:00:00.000Z');
+    assert.ok(json.data.warnings.includes('retry_after_kickoff_sync'));
+    assert.ok(json.data.warnings.includes('kickoff_corrected_before_odds_lookup'));
+    assert.equal(snapshots.length, 1);
   } finally {
     await server.close();
   }

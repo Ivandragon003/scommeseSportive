@@ -42,6 +42,9 @@ beforeEach(() => {
       ],
     },
   } as any);
+  mockedApi.syncUpcomingKickoffs.mockResolvedValue({
+    data: { corrected: 0 },
+  } as any);
 });
 
 test('header principale mostra solo brand e aggiorna sistema, senza dettagli tecnici sempre visibili', async () => {
@@ -59,11 +62,27 @@ test('header principale mostra solo brand e aggiorna sistema, senza dettagli tec
   expect(within(header).queryByText(/Sync OK/i)).toBeNull();
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1));
+  expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(0);
 
   fireEvent.click(within(header).getByRole('button', { name: /Aggiorna sistema/i }));
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({ mode: 'top5', limit: 160 }));
   expect(await screen.findByText('Sistema aggiornato')).toBeTruthy();
+});
+
+test('Aggiorna Sistema mostra quanti kickoff calendario sono stati corretti', async () => {
+  mockedApi.syncUpcomingKickoffs.mockResolvedValueOnce({
+    data: { corrected: 2 },
+  } as any);
+
+  render(<App />);
+
+  const header = screen.getByRole('banner');
+  fireEvent.click(within(header).getByRole('button', { name: /Aggiorna sistema/i }));
+
+  await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText('Calendario aggiornato: 2 kickoff corretti')).toBeTruthy();
 });
 
 test('la pagina iniziale apre Previsioni e la Dashboard non compare nella navigazione', async () => {

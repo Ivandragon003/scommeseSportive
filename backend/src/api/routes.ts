@@ -27,6 +27,10 @@ export type ApiRouterDependencies = {
   svc?: PredictionService;
   observability?: SystemObservabilityService;
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
+  createOddsApiKickoffSyncService?: (db: DatabaseService) => Pick<
+    OddsApiKickoffSyncService,
+    'syncUpcomingKickoffsFromOddsApi' | 'syncSingleMatchKickoffFromOddsApi'
+  >;
 };
 
 export type OddsCompetitionFixtureScope = {
@@ -132,6 +136,8 @@ const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
 const observability = deps.observability;
 const createOddsBundle = deps.createOddsProviderCoordinatorBundle ?? createOddsProviderCoordinatorBundle;
+const createKickoffSyncService = deps.createOddsApiKickoffSyncService
+  ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
 
 const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
   const timeoutMs = getBacktestRouteTimeoutMs();
@@ -2715,6 +2721,29 @@ const shouldCacheMatchOddsPayload = (payload: any): boolean => {
   return Object.keys(sanitizeOddsMap(payload?.selectedOdds ?? {})).length > 0;
 };
 
+const hasKickoffMismatchDiagnostic = (coordination: any): boolean => {
+  const runtimeDetails = coordination?.providerRuntime?.odds_api?.fetchDetails ?? {};
+  const fixtureDiagnostics = Array.isArray(runtimeDetails.fixtureDiagnostics)
+    ? runtimeDetails.fixtureDiagnostics
+    : [];
+  const warnings = [
+    ...(Array.isArray(coordination?.warnings) ? coordination.warnings : []),
+    ...fixtureDiagnostics.flatMap((diagnostic: any) => Array.isArray(diagnostic?.warnings) ? diagnostic.warnings : []),
+  ].map((warning: unknown) => String(warning));
+  if (warnings.some((warning) => warning.includes('missing_commence_time_for_fixture_matching'))) return false;
+
+  return fixtureDiagnostics.some((diagnostic: any) => {
+    const candidates = Array.isArray(diagnostic?.candidates) ? diagnostic.candidates : [];
+    return candidates.some((candidate: any) => {
+      const reason = String(candidate?.reason ?? '');
+      const straightTeamScore = Number(candidate?.straightTeamScore ?? 0);
+      const timeDiffHours = Number(candidate?.timeDiffHours ?? 0);
+      return reason === 'kickoff_outside_36h_window'
+        || (straightTeamScore >= 1.75 && Number.isFinite(timeDiffHours) && timeDiffHours > 36);
+    });
+  });
+};
+
 const flattenProviderComparisons = (
   input: Record<string, Record<string, Record<string, number>>>
 ): Record<string, Record<string, number>> =>
@@ -3366,7 +3395,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         primaryProviderName,
         fallbackProviderName,
       } = oddsBundle;
-      const requestedFixture = {
+      let requestedFixture = {
         competition: String(competition),
         homeTeam: String(homeTeam),
         awayTeam: String(awayTeam),
@@ -3421,14 +3450,14 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         includeExtendedGroups: false,
         marketsRequested: requestedMarkets,
       });
-      const coordination = await withTimeout(
+      const runFixtureLookup = (fixtureCommenceTime: string | null) => withTimeout(
         coordinator.getOddsForFixtures(
           {
             competition: String(competition),
             fixtures: [{
               homeTeam: String(homeTeam),
               awayTeam: String(awayTeam),
-              commenceTime: commenceTime ? String(commenceTime) : null,
+              commenceTime: fixtureCommenceTime,
             }],
             markets: preferredMarkets,
             fallbackMarkets,
@@ -3440,6 +3469,39 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         matchTimeoutMs,
         'Coordinated match odds lookup'
       );
+
+      let coordination = await runFixtureLookup(requestedFixture.commenceTime);
+      const retryWarnings: string[] = [];
+
+      if (
+        !coordination.matches?.[0]
+        && String(matchId ?? '').trim()
+        && hasKickoffMismatchDiagnostic(coordination)
+      ) {
+        const dbMatch = await db.getMatchById(String(matchId).trim());
+        if (dbMatch) {
+          const syncService = createKickoffSyncService(db);
+          const syncResult = await syncService.syncSingleMatchKickoffFromOddsApi(dbMatch, {
+            competition: String(competition),
+          });
+
+          if (syncResult.corrected && syncResult.correction?.newDate) {
+            const reloadedMatch = await db.getMatchById(String(matchId).trim());
+            const reloadedTimestamp = Date.parse(String(reloadedMatch?.date ?? ''));
+            const correctedCommenceTime = Number.isFinite(reloadedTimestamp)
+              ? new Date(reloadedTimestamp).toISOString()
+              : syncResult.correction.newDate;
+            requestedFixture = {
+              ...requestedFixture,
+              commenceTime: correctedCommenceTime,
+            };
+            retryWarnings.push('retry_after_kickoff_sync', 'kickoff_corrected_before_odds_lookup');
+            coordination = await runFixtureLookup(requestedFixture.commenceTime);
+          } else if (syncResult.skippedReason) {
+            retryWarnings.push(`kickoff_sync_skipped:${syncResult.skippedReason}`);
+          }
+        }
+      }
 
       const coordinatedMatch = coordination.matches[0] ?? null;
       const primaryRuntime = coordination.providerRuntime[primaryProviderName] ?? {};
@@ -3473,6 +3535,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       if (!coordinatedMatch) {
         const diagnosticWarnings = Array.from(new Set([
           ...coordination.warnings,
+          ...retryWarnings,
           ...((firstFixtureDiagnostic?.warnings ?? []) as string[]),
         ].filter(Boolean)));
         await observability?.recordProviderRun({
@@ -3507,7 +3570,9 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         });
         return {
           found: false,
-          message: 'Quote bookmaker non trovate per questa partita.',
+          message: diagnosticWarnings.some((warning) => String(warning).includes('kickoff_outside_36h_window'))
+            ? 'Quote non trovate: kickoff calendario non allineato o fixture non disponibile su Odds API.'
+            : 'Quote non trovate: Odds API non espone ancora questa partita oppure la fixture non e disponibile.',
           source: primaryProviderName,
           oddsSource: 'unavailable',
           primaryProvider: primaryProviderName,
@@ -3635,8 +3700,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         success: Object.keys(selectedOdds).length > 0,
         fallbackUsed,
         fallbackReason: coordinatedMatch.fallbackReason ?? coordination.fallbackReason,
-        warningCount: coordination.warnings.length,
-        warnings: coordination.warnings,
+        warningCount: Array.from(new Set([...coordination.warnings, ...retryWarnings])).length,
+        warnings: Array.from(new Set([...coordination.warnings, ...retryWarnings])),
         errorCategory,
         providerHealth,
         metadata: {
@@ -3699,7 +3764,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         snapshotMatchId,
         confidenceScore,
         remainingRequests: coordination.providerRuntime.odds_api?.remainingRequests ?? null,
-        warnings: coordination.warnings,
+        warnings: Array.from(new Set([...coordination.warnings, ...retryWarnings])),
         marketSources: coordinatedMatch.marketSources,
         candidateCount,
         requestedFixture,
@@ -3823,12 +3888,33 @@ router.post('/system/sync-upcoming-kickoffs', async (req: Request, res: Response
       });
     }
 
-    const competition = String(req.body?.competition ?? req.query?.competition ?? 'Serie A').trim() || 'Serie A';
+    const mode = String(req.body?.mode ?? req.query?.mode ?? 'single').trim().toLowerCase();
+    const rawCompetition = String(req.body?.competition ?? req.query?.competition ?? 'Serie A').trim() || 'Serie A';
+    const competitions = (mode === 'top5' || rawCompetition === 'TOP_5')
+      ? UnderstatScraper.getTop5Competitions()
+      : [rawCompetition];
     const season = String(req.body?.season ?? req.query?.season ?? '').trim() || undefined;
     const limitRaw = Number(req.body?.limit ?? req.query?.limit ?? 160);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(Math.trunc(limitRaw), 500)) : 160;
-    const syncService = new OddsApiKickoffSyncService(db);
-    const data = await syncService.syncUpcomingKickoffsFromOddsApi({ competition, season, limit });
+    const syncService = createKickoffSyncService(db);
+    const results = [];
+    for (const competition of competitions) {
+      results.push(await syncService.syncUpcomingKickoffsFromOddsApi({ competition, season, limit }));
+    }
+    const data = {
+      mode: competitions.length > 1 ? 'top5' : 'single',
+      competition: competitions.length === 1 ? competitions[0] : 'TOP_5',
+      checked: results.reduce((sum, item) => sum + Number(item.checked ?? 0), 0),
+      providerEvents: results.reduce((sum, item) => sum + Number(item.providerEvents ?? 0), 0),
+      corrected: results.reduce((sum, item) => sum + Number(item.corrected ?? 0), 0),
+      skippedAmbiguous: results.reduce((sum, item) => sum + Number(item.skippedAmbiguous ?? 0), 0),
+      skippedNoMatch: results.reduce((sum, item) => sum + Number(item.skippedNoMatch ?? 0), 0),
+      skippedInverted: results.reduce((sum, item) => sum + Number(item.skippedInverted ?? 0), 0),
+      skippedSmallDiff: results.reduce((sum, item) => sum + Number(item.skippedSmallDiff ?? 0), 0),
+      corrections: results.flatMap((item) => item.corrections ?? []),
+      warnings: results.flatMap((item) => item.warnings ?? []),
+      byCompetition: results,
+    };
 
     res.json({ success: true, data });
   } catch (error: any) {

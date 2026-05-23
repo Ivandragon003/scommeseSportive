@@ -15,7 +15,7 @@ import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
-import { getScraperStatus } from './utils/api';
+import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import './footpredictor.css';
@@ -220,11 +220,36 @@ const App: React.FC = () => {
       setStatusRefreshing(true);
     }
     try {
-      const statusPayload = await getScraperStatus();
+      const statusPayload = await getScraperStatus({ force: !isSilent });
+      let kickoffCorrected = 0;
+      let kickoffSyncWarning: string | null = null;
+      if (!isSilent) {
+        try {
+          const kickoffPayload = await syncUpcomingKickoffs({ mode: 'top5', limit: 160 });
+          kickoffCorrected = Number(kickoffPayload?.data?.corrected ?? 0);
+          window.dispatchEvent(new Event('data-sync-complete'));
+        } catch (kickoffError: any) {
+          kickoffSyncWarning = kickoffError?.response?.data?.error
+            || kickoffError?.message
+            || 'Sync calendario non riuscito';
+        }
+      }
       if (!mountedRef.current) return;
       applyStatus(statusPayload);
       if (!isSilent) {
-        showToast({ tone: 'success', message: 'Sistema aggiornato' });
+        if (kickoffSyncWarning) {
+          showToast({
+            tone: 'warning',
+            message: `Sistema aggiornato. Sync calendario non riuscito: ${kickoffSyncWarning}`,
+          });
+        } else {
+          showToast({
+            tone: 'success',
+            message: kickoffCorrected > 0
+              ? `Calendario aggiornato: ${kickoffCorrected} kickoff corretti`
+              : 'Sistema aggiornato',
+          });
+        }
       }
     } catch (error: any) {
       if (!mountedRef.current) return;

@@ -1504,13 +1504,19 @@ export class DatabaseService {
     };
   }
 
-  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
+  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string }): Promise<any[]> {
+    const parsedNow = Date.parse(String(filters?.nowIso ?? ''));
+    const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const toleranceMs = 5 * 60 * 1000;
     let q = `
       SELECT *
       FROM matches
-      WHERE datetime(date) >= datetime('now')
+      WHERE datetime(date) >= datetime(?)
+        AND home_goals IS NULL
+        AND away_goals IS NULL
     `;
-    const params: any[] = [];
+    const params: any[] = [nowIso];
 
     if (filters?.competition) {
       q += ' AND competition = ?';
@@ -1542,10 +1548,22 @@ export class DatabaseService {
     const safeLimit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
       : 380;
+    const queryLimit = Math.max(safeLimit, Math.min(safeLimit * 4, 2000));
     q += ' ORDER BY datetime(date) ASC LIMIT ?';
-    params.push(safeLimit);
+    params.push(queryLimit);
 
-    return this.all(q, params);
+    const rows = await this.all(q, params);
+    return rows
+      .map((row) => ({ row, timestamp: Date.parse(String(row?.date ?? '')) }))
+      .filter(({ row, timestamp }) =>
+        Number.isFinite(timestamp)
+        && timestamp >= nowMs - toleranceMs
+        && row?.home_goals === null
+        && row?.away_goals === null
+      )
+      .sort((left, right) => left.timestamp - right.timestamp)
+      .slice(0, safeLimit)
+      .map(({ row }) => row);
   }
 
   async updateMatchKickoff(matchId: string, kickoffIso: string): Promise<void> {

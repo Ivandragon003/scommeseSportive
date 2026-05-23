@@ -55,6 +55,19 @@ test('OddsApiKickoffSyncService corregge Bologna-Inter se Odds API espone kickof
   assert.equal(result.corrections[0].newDate, '2026-05-23T16:00:00.000Z');
 });
 
+test('OddsApiKickoffSyncService corregge anche se la data DB e fuori dalla finestra 36h', async () => {
+  const { service, updates } = createHarness({
+    dbMatches: [buildDbMatch({ date: '2026-04-20T13:00:00.000Z' })],
+    providerMatches: [buildOddsMatch({ commenceTime: '2026-05-23T16:00:00.000Z' })],
+  });
+
+  const result = await service.syncUpcomingKickoffsFromOddsApi({ competition: 'Serie A' });
+
+  assert.equal(result.corrected, 1);
+  assert.deepEqual(updates, [{ matchId: 'match_bologna_inter', kickoffIso: '2026-05-23T16:00:00.000Z' }]);
+  assert.ok(result.warnings.some((warning) => warning.includes('kickoff_outside_36h_window_corrected')));
+});
+
 test('OddsApiKickoffSyncService non corregge un match ambiguo', async () => {
   const { service, updates } = createHarness({
     dbMatches: [buildDbMatch()],

@@ -8,6 +8,7 @@ import {
 import { parseMatchDateValue } from '../utils/dateTime';
 
 export type MatchMode = 'upcoming' | 'recent';
+const UPCOMING_TOLERANCE_MS = 5 * 60 * 1000;
 
 export function useMatchSelection() {
   const [teams, setTeams] = useState<any[]>([]);
@@ -105,10 +106,16 @@ export function useMatchSelection() {
     [teams]
   );
 
-  const visibleMatches = useMemo(
-    () => (matchMode === 'recent' ? recentMatches : upcoming),
-    [matchMode, recentMatches, upcoming]
-  );
+  const visibleMatches = useMemo(() => {
+    if (matchMode === 'recent') return recentMatches;
+    const nowMs = Date.now();
+    return upcoming.filter((match) => {
+      const parsedDate = parseMatchDateValue(match?.date);
+      if (!parsedDate) return true;
+      const timestamp = parsedDate?.getTime() ?? Number.NaN;
+      return Number.isFinite(timestamp) && timestamp >= nowMs - UPCOMING_TOLERANCE_MS;
+    });
+  }, [matchMode, recentMatches, upcoming]);
 
   const groupedMatches = useMemo(() => {
     const grouped = new Map<string, Array<any & { __ts: number }>>();

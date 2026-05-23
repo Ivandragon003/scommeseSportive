@@ -379,6 +379,27 @@ export const runUnderstatImport = (params?: {
 export const getScraperStatus = (options?: ReadRequestOptions) =>
   cachedGet<any>('/scraper/status', undefined, { cacheMs: CACHE_TTL.scraperStatus, ...options });
 
+export const syncUpcomingKickoffs = (params?: {
+  mode?: 'single' | 'top5';
+  competition?: string;
+  season?: string;
+  limit?: number;
+}) =>
+  API.post<ApiResponse<any>>('/system/sync-upcoming-kickoffs', {
+    mode: params?.mode ?? 'top5',
+    competition: params?.competition,
+    season: params?.season,
+    limit: params?.limit ?? 160,
+  }, { timeout: 120000 }).then(r => {
+    invalidateApiCache((key) =>
+      key.includes('GET:/matches/upcoming') ||
+      key.includes('GET:/matches/matchdays') ||
+      key.includes('GET:/system/provider-health') ||
+      key.includes('GET:/system/health')
+    );
+    return r.data;
+  });
+
 export const getOddsSnapshotStatus = (options?: ReadRequestOptions) =>
   cachedGet<any>('/scraper/odds/status', { timeout: 120000 }, { cacheMs: CACHE_TTL.oddsSnapshotStatus, ...options });
 

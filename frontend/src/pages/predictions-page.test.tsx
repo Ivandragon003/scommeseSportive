@@ -14,7 +14,7 @@ const matchRow = {
   home_team_name: 'Inter',
   away_team_name: 'Milan',
   competition: 'Serie A',
-  date: '2026-04-25T18:45:00.000Z',
+  date: '2026-05-23T16:00:00.000Z',
   home_goals: null,
   away_goals: null,
 };
@@ -114,7 +114,12 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-05-23T08:00:00.000Z').getTime());
   setupBaseMocks();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('Predictions page', () => {
@@ -171,6 +176,28 @@ describe('Predictions page', () => {
     expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quote bookmaker');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
     expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
+  });
+
+  test('il calendario upcoming ignora partite passate di aprile e parte dalle future', async () => {
+    mockedApi.getUpcomingMatches.mockResolvedValue({
+      data: [
+        {
+          ...matchRow,
+          match_id: 'old_match',
+          home_team_name: 'Juventus',
+          away_team_name: 'Roma',
+          date: '2026-04-20T18:45:00.000Z',
+        },
+        matchRow,
+      ],
+    } as any);
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    expect(await screen.findByText('Inter')).toBeTruthy();
+    expect(screen.queryByText('Juventus')).toBeNull();
   });
 
   test('passa commenceTime null al lookup quote solo se la partita non ha data', async () => {
