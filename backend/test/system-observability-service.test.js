@@ -23,10 +23,10 @@ test('SystemObservabilityService registra provider run e aggiorna snapshot', asy
   await svc.recordProviderRun({
     requestId: 'req_1',
     runId: 'run_1',
-    provider: 'eurobet',
+    provider: 'odds_api',
     competition: 'Serie A',
-    meetingAlias: 'it-serie-a',
-    sourceUsed: 'eurobet',
+    meetingAlias: null,
+    sourceUsed: 'odds_api',
     matchCount: 10,
     marketCount: 42,
     fixtureCount: 10,
@@ -37,14 +37,14 @@ test('SystemObservabilityService registra provider run e aggiorna snapshot', asy
     fallbackUsed: false,
     warnings: [],
     providerHealth: {
-      eurobet: { status: 'healthy', checkedAt: '2026-04-16T10:00:00.000Z' },
+      odds_api: { status: 'healthy', checkedAt: '2026-04-16T10:00:00.000Z' },
     },
     startedAt: '2026-04-16T10:00:00.000Z',
     endedAt: '2026-04-16T10:00:14.000Z',
   });
 
   const snapshot = svc.getLastProviderSnapshot();
-  assert.equal(snapshot.provider, 'eurobet');
+  assert.equal(snapshot.provider, 'odds_api');
   assert.equal(snapshot.matchCount, 10);
   assert.equal(snapshot.marketCount, 42);
   assert.equal(db.savedRuns.length, 1);
@@ -56,8 +56,8 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
     {
       runId: 1,
       runType: 'provider_fetch',
-      component: 'eurobet_provider',
-      provider: 'eurobet',
+      component: 'odds_api_provider',
+      provider: 'odds_api',
       matchCount: 8,
       marketCount: 32,
       fixtureCount: 10,
@@ -67,15 +67,15 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
       warningCount: 0,
       errorCategory: null,
       warnings: [],
-      metadata: { providerHealth: { eurobet: { status: 'healthy' } } },
+      metadata: { providerHealth: { odds_api: { status: 'healthy' } } },
       startedAt: '2026-04-16T10:00:00.000Z',
       endedAt: '2026-04-16T10:00:12.000Z',
     },
     {
       runId: 2,
       runType: 'provider_fetch',
-      component: 'eurobet_provider',
-      provider: 'eurobet',
+      component: 'odds_api_provider',
+      provider: 'odds_api',
       matchCount: 4,
       marketCount: 10,
       fixtureCount: 10,
@@ -83,9 +83,9 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
       success: true,
       fallbackUsed: true,
       warningCount: 1,
-      errorCategory: 'meeting_json_failed',
-      warnings: ['fallback attivo'],
-      metadata: { providerHealth: { eurobet: { status: 'unhealthy' }, odds_api: { status: 'healthy' } } },
+      errorCategory: 'provider_degraded',
+      warnings: ['provider degradato'],
+      metadata: { providerHealth: { odds_api: { status: 'degraded' } } },
       startedAt: '2026-04-16T09:00:00.000Z',
       endedAt: '2026-04-16T09:00:18.000Z',
     },
@@ -105,21 +105,19 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
 
   const metrics = await svc.getMetricsPayload();
 
-  assert.equal(metrics.provider.eurobetSuccessRatePct, 50);
+  assert.equal(metrics.provider.oddsApiSuccessRatePct, 100);
   assert.equal(metrics.provider.fallbackRatePct, 50);
   assert.equal(metrics.provider.fixtureMatchRatePct, 60);
   assert.equal(metrics.provider.avgScrapeLatencyMs, 15000);
   assert.equal(metrics.sync.successRatePct, 100);
-  assert.equal(metrics.trends.topErrorCategories[0].category, 'meeting_json_failed');
+  assert.equal(metrics.trends.topErrorCategories[0].category, 'provider_degraded');
 });
 
 test('SystemObservabilityService costruisce provider health con Odds API primario', async () => {
   const previousPrimary = process.env.ODDS_PRIMARY_PROVIDER;
   const previousKey = process.env.ODDS_API_KEY;
-  const previousSkip = process.env.SKIP_EUROBET_SCRAPER;
   process.env.ODDS_PRIMARY_PROVIDER = 'odds_api';
   process.env.ODDS_API_KEY = 'configured';
-  process.env.SKIP_EUROBET_SCRAPER = 'false';
   const db = createDbStub();
   const svc = new SystemObservabilityService(db);
 
@@ -150,7 +148,7 @@ test('SystemObservabilityService costruisce provider health con Odds API primari
 
     assert.equal(payload.primaryProvider, 'odds_api');
     assert.equal(payload.activeProvider, 'odds_api');
-    assert.equal(payload.status, 'degraded');
+    assert.equal(payload.status, 'healthy');
     assert.equal(payload.fallbackReason, null);
     assert.equal(payload.providerHealth.odds_api.status, 'healthy');
   } finally {
@@ -158,8 +156,6 @@ test('SystemObservabilityService costruisce provider health con Odds API primari
     else process.env.ODDS_PRIMARY_PROVIDER = previousPrimary;
     if (previousKey === undefined) delete process.env.ODDS_API_KEY;
     else process.env.ODDS_API_KEY = previousKey;
-    if (previousSkip === undefined) delete process.env.SKIP_EUROBET_SCRAPER;
-    else process.env.SKIP_EUROBET_SCRAPER = previousSkip;
   }
 });
 
@@ -168,8 +164,8 @@ test('SystemObservabilityService costruisce recent runs combinando system e sche
     {
       runId: 11,
       runType: 'provider_fetch',
-      component: 'eurobet_provider',
-      provider: 'eurobet',
+      component: 'odds_api_provider',
+      provider: 'odds_api',
       success: true,
       warningCount: 0,
       startedAt: '2026-04-16T10:00:00.000Z',
@@ -177,7 +173,7 @@ test('SystemObservabilityService costruisce recent runs combinando system e sche
       durationMs: 10000,
       errorCategory: null,
       matchCount: 10,
-      sourceUsed: 'eurobet',
+      sourceUsed: 'odds_api',
       warnings: [],
       metadata: {},
     },

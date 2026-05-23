@@ -3,13 +3,11 @@ import { NormalizedProviderHealth } from '../../utils/systemObservability';
 
 type ProviderStatusSummaryProps = {
   providerHealth: NormalizedProviderHealth;
-  showSmoke?: boolean;
   testId?: string;
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
-  eurobet: 'Eurobet',
-  odds_api: 'Provider secondario',
+  odds_api: 'Odds API',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,9 +33,7 @@ const formatProviderName = (provider: string | null | undefined): string => {
 
 const formatOddsSource = (source: string | null | undefined): string => {
   if (!source) return 'n/d';
-  if (source === 'eurobet+odds_api') return 'Eurobet + provider secondario';
-  if (source === 'eurobet') return 'Eurobet';
-  if (source === 'odds_api') return 'Provider secondario';
+  if (source === 'odds_api') return 'Odds API';
   if (source === 'unavailable') return 'Non disponibile';
   return source;
 };
@@ -49,17 +45,8 @@ const formatDateTime = (value?: string | null): string => {
   return parsed.toLocaleString('it-IT');
 };
 
-const formatDuration = (value?: number | null): string => {
-  if (value === null || value === undefined || value <= 0) return 'n/d';
-  const totalSeconds = Math.round(value / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : `${seconds}s`;
-};
-
 const ProviderStatusSummary: React.FC<ProviderStatusSummaryProps> = ({
   providerHealth,
-  showSmoke = true,
   testId = 'provider-status-summary',
 }) => (
   <div data-testid={testId} style={{ display: 'grid', gap: 12 }}>
@@ -119,15 +106,6 @@ const ProviderStatusSummary: React.FC<ProviderStatusSummaryProps> = ({
     {providerHealth.fallbackReason && (
       <div className="fp-alert fp-alert-warning" data-testid={`${testId}-fallback-warning`}>
         Fallback attivo: {providerHealth.fallbackReason}
-      </div>
-    )}
-
-    {showSmoke && providerHealth.lastSmokeRun && (
-      <div className="fp-alert fp-alert-info" data-testid={`${testId}-smoke-run`}>
-        Smoke Eurobet: <strong>{providerHealth.lastSmokeRun.severity}</strong>
-        {' | '}ultima esecuzione {formatDateTime(providerHealth.lastSmokeRun.generatedAt)}
-        {' | '}durata {formatDuration(providerHealth.lastSmokeRun.durationMs)}
-        {providerHealth.lastSmokeRun.errorCategory ? ` | errore ${providerHealth.lastSmokeRun.errorCategory}` : ''}
       </div>
     )}
   </div>

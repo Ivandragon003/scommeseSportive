@@ -36,7 +36,7 @@ const PlayerPropsSection: React.FC<PlayerPropsSectionProps> = ({ opportunities, 
   if (opportunities.length === 0) {
     return (
       <div className="pr-info">
-        Nessun mercato giocatore giocabile con quote Eurobet e dati sufficienti per questa partita.
+        Nessun mercato giocatore giocabile con quote bookmaker e dati sufficienti per questa partita.
       </div>
     );
   }
@@ -53,7 +53,7 @@ const PlayerPropsSection: React.FC<PlayerPropsSectionProps> = ({ opportunities, 
       <div className="pr-card-head">
         <div>
           <div className="pr-card-title">Mercati giocatore</div>
-          <div className="pr-muted">Solo player props con quota Eurobet, matching giocatore chiaro e stake prudente.</div>
+          <div className="pr-muted">Solo player props con quota bookmaker, matching giocatore chiaro e stake prudente.</div>
         </div>
       </div>
       <div className="pr-card-body">
@@ -80,7 +80,7 @@ const PlayerPropsSection: React.FC<PlayerPropsSectionProps> = ({ opportunities, 
                       </div>
                       <table className="fp-table" style={{ marginTop: 10 }}>
                         <tbody>
-                          <tr><td>Quota Eurobet</td><td className="fp-mono" style={{ textAlign: 'right' }}>{fmtNumber(opportunity.bookmakerOdds)}</td></tr>
+                          <tr><td>Quota bookmaker</td><td className="fp-mono" style={{ textAlign: 'right' }}>{fmtNumber(opportunity.bookmakerOdds)}</td></tr>
                           <tr><td>Probabilita nostra</td><td className="fp-mono" style={{ textAlign: 'right' }}>{fmtNumber(opportunity.ourProbability)}%</td></tr>
                           <tr><td>EV</td><td className="fp-mono" style={{ textAlign: 'right' }}>{fmtNumber(opportunity.expectedValue)}%</td></tr>
                           <tr><td>Edge no-vig</td><td className="fp-mono" style={{ textAlign: 'right' }}>{fmtNumber(opportunity.edgeNoVig ?? opportunity.edge)}%</td></tr>

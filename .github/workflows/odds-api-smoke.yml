@@ -1,0 +1,116 @@
+name: Odds API Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition:
+        description: Competizione da verificare su Odds API
+        required: false
+        default: Serie A
+      verbose:
+        description: Stampa log diagnostici aggiuntivi
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  odds-api-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY || secrets.THE_ODDS_API_KEY }}
+      SMOKE_COMPETITION: ${{ inputs.competition }}
+      SMOKE_VERBOSE: ${{ inputs.verbose }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Run Odds API smoke
+        run: |
+          mkdir -p artifacts
+          node <<'NODE'
+          const fs = require('fs');
+          const { OddsApiService } = require('./dist/services/OddsApiService.js');
+
+          const reportFile = 'artifacts/odds-api-smoke-report.json';
+          const logFile = 'artifacts/odds-api-smoke.log';
+          const competition = process.env.SMOKE_COMPETITION || 'Serie A';
+          const verbose = String(process.env.SMOKE_VERBOSE || '').toLowerCase() === 'true';
+          const startedAt = Date.now();
+
+          const writeReport = (report, exitCode = 0) => {
+            fs.writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`);
+            fs.writeFileSync(logFile, [
+              `competition=${report.competition}`,
+              `source=${report.source}`,
+              `matchesFound=${report.matchesFound}`,
+              `durationMs=${report.durationMs}`,
+              `errorCategory=${report.errorCategory || ''}`,
+              ...(report.warnings || []).map((warning) => `warning=${warning}`),
+            ].join('\n') + '\n');
+            process.exit(exitCode);
+          };
+
+          if (!process.env.ODDS_API_KEY) {
+            writeReport({
+              success: false,
+              competition,
+              source: 'odds_api',
+              matchesFound: 0,
+              durationMs: Date.now() - startedAt,
+              errorCategory: 'missing_api_key',
+              warnings: ['ODDS_API_KEY non configurata nei GitHub Secrets.'],
+            }, 1);
+          }
+
+          (async () => {
+            const service = new OddsApiService(process.env.ODDS_API_KEY);
+            const matches = await service.getOdds(competition, ['h2h']);
+            const warnings = [];
+            if (matches.length === 0) warnings.push('Odds API non ha restituito eventi per la competizione richiesta.');
+            if (verbose) console.log(JSON.stringify(matches.slice(0, 3), null, 2));
+            writeReport({
+              success: matches.length > 0,
+              competition,
+              source: 'odds_api',
+              matchesFound: matches.length,
+              durationMs: Date.now() - startedAt,
+              errorCategory: matches.length > 0 ? null : 'no_provider_events',
+              warnings,
+            }, matches.length > 0 ? 0 : 1);
+          })().catch((error) => {
+            writeReport({
+              success: false,
+              competition,
+              source: 'odds_api',
+              matchesFound: 0,
+              durationMs: Date.now() - startedAt,
+              errorCategory: 'odds_api_smoke_failed',
+              warnings: [error?.message || String(error)],
+            }, 1);
+          });
+          NODE
+
+      - name: Upload Odds API smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: odds-api-smoke-artifacts
+          path: |
+            backend/artifacts/odds-api-smoke-report.json
+            backend/artifacts/odds-api-smoke.log

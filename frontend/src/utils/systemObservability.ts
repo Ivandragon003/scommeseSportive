@@ -17,26 +17,11 @@ export type NormalizedProviderHealth = {
   warningCount: number;
   isMerged: boolean;
   freshnessMinutes: number | null;
-  lastSmokeRun: {
-    origin: string;
-    competition: string;
-    generatedAt: string | null;
-    freshnessMinutes: number | null;
-    severity: string;
-    success: boolean;
-    errorCategory: string | null;
-    sourceUsed: string | null;
-    matchesFound: number;
-    matchesWithBaseOdds: number;
-    matchesWithExtendedGroups: number;
-    durationMs: number | null;
-    warnings: string[];
-  } | null;
 };
 
 export type NormalizedSystemMetrics = {
   provider: {
-    eurobetSuccessRatePct: number;
+    oddsApiSuccessRatePct: number;
     fallbackRatePct: number;
     fixtureMatchRatePct: number;
     avgScrapeLatencyMs: number | null;
@@ -111,23 +96,6 @@ const record = (value: unknown): Record<string, any> =>
 export const normalizeProviderHealth = (payload: any): NormalizedProviderHealth => {
   const data = record(payload?.data ?? payload);
   const providerHealth = record(data.providerHealth);
-  const lastSmokeRun = data.lastSmokeRun && typeof data.lastSmokeRun === 'object'
-    ? {
-      origin: String(data.lastSmokeRun.origin ?? 'local_artifact'),
-      competition: String(data.lastSmokeRun.competition ?? ''),
-      generatedAt: data.lastSmokeRun.generatedAt ? String(data.lastSmokeRun.generatedAt) : null,
-      freshnessMinutes: nullableNum(data.lastSmokeRun.freshnessMinutes),
-      severity: String(data.lastSmokeRun.severity ?? 'unknown'),
-      success: Boolean(data.lastSmokeRun.success),
-      errorCategory: data.lastSmokeRun.errorCategory ? String(data.lastSmokeRun.errorCategory) : null,
-      sourceUsed: data.lastSmokeRun.sourceUsed ? String(data.lastSmokeRun.sourceUsed) : null,
-      matchesFound: num(data.lastSmokeRun.matchesFound),
-      matchesWithBaseOdds: num(data.lastSmokeRun.matchesWithBaseOdds),
-      matchesWithExtendedGroups: num(data.lastSmokeRun.matchesWithExtendedGroups),
-      durationMs: nullableNum(data.lastSmokeRun.durationMs),
-      warnings: Array.isArray(data.lastSmokeRun.warnings) ? data.lastSmokeRun.warnings.map(String) : [],
-    }
-    : null;
   const normalizedProviderHealth = Object.fromEntries(
     Object.entries(providerHealth).map(([key, provider]) => [
       key,
@@ -141,7 +109,7 @@ export const normalizeProviderHealth = (payload: any): NormalizedProviderHealth 
 
   return {
     status: String(data.status ?? 'unknown'),
-    primaryProvider: String(data.primaryProvider ?? 'eurobet'),
+    primaryProvider: String(data.primaryProvider ?? 'odds_api'),
     fallbackProvider: data.fallbackProvider ? String(data.fallbackProvider) : null,
     activeProvider: data.activeProvider ? String(data.activeProvider) : null,
     oddsSource: data.oddsSource ? String(data.oddsSource) : null,
@@ -158,7 +126,6 @@ export const normalizeProviderHealth = (payload: any): NormalizedProviderHealth 
     warningCount: num(data.warningCount),
     isMerged: Boolean(data.isMerged),
     freshnessMinutes: nullableNum(data.freshnessMinutes),
-    lastSmokeRun,
   };
 };
 
@@ -179,7 +146,7 @@ export const normalizeSystemMetrics = (payload: any): NormalizedSystemMetrics =>
 
   return {
     provider: {
-      eurobetSuccessRatePct: num(provider.eurobetSuccessRatePct),
+      oddsApiSuccessRatePct: num(provider.oddsApiSuccessRatePct),
       fallbackRatePct: num(provider.fallbackRatePct),
       fixtureMatchRatePct: num(provider.fixtureMatchRatePct),
       avgScrapeLatencyMs: nullableNum(provider.avgScrapeLatencyMs),

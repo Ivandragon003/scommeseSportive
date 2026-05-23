@@ -1278,7 +1278,7 @@ export class PredictionService {
     probs.flatProbabilities = this.dropUnavailableUnderstatMarkets(probs.flatProbabilities);
 
     // Allinea le chiavi delle quote. Le player props vengono valutate solo se esiste
-    // una quota Eurobet corrispondente e il matching giocatore e non ambiguo.
+    // una quota bookmaker corrispondente e il matching giocatore e non ambiguo.
     const normalizedOddsBase = this.normalizeBookmakerOdds(request.bookmakerOdds || {});
     const playerPropMarkets = this.buildPlayerPropMarkets({
       odds: normalizedOddsBase,
@@ -2221,7 +2221,7 @@ export class PredictionService {
 
     const reasons: string[] = [
       `EV +${Number(best.opp.expectedValue ?? 0).toFixed(2)}% (media opzioni +${avgEv.toFixed(2)}%).`,
-      `Edge no-vig +${Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% contro quota Eurobet pulita dal margine.`,
+      `Edge no-vig +${Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% contro quota bookmaker pulita dal margine.`,
       `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
     ];
 
@@ -2638,7 +2638,7 @@ export class PredictionService {
   ) {
     const normalizedStake = Number(stake);
     if (!Number.isFinite(normalizedStake) || normalizedStake <= 0) throw new Error('Importo puntata non valido');
-    if (normalizedStake < 1) throw new Error('Puntata minima Eurobet: 1 EUR');
+    if (normalizedStake < 1) throw new Error('Puntata minima bookmaker: 1 EUR');
     if (!Number.isFinite(Number(odds)) || Number(odds) <= 1) throw new Error('Quota non valida');
 
     await this.syncPendingBets(userId);

@@ -457,7 +457,7 @@ export class OddsProviderCoordinator {
         .filter(([, match]) => Boolean(match))
         .map(([providerName, match]) => [
           providerName,
-          this.getProvider(providerName)?.extractBestOdds(match as OddsMatch, providerName === 'eurobet' ? 'eurobet' : undefined) ?? {},
+          this.getProvider(providerName)?.extractBestOdds(match as OddsMatch) ?? {},
         ])
     );
 

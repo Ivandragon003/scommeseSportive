@@ -1,28 +1,28 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  buildEurobetCompetitionCacheKey,
-  shouldUseEurobetCompetitionCache,
+  buildOddsCompetitionCacheKey,
+  shouldUseOddsCompetitionCache,
 } = require('../dist/api/routes.js');
 
-test('Eurobet cache key bulk resta stabile per richieste competition-wide', () => {
-  const first = buildEurobetCompetitionCacheKey({
+test('Odds API cache key bulk resta stabile per richieste competition-wide', () => {
+  const first = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: false,
   });
-  const second = buildEurobetCompetitionCacheKey({
+  const second = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: false,
     fixtures: [],
   });
 
   assert.equal(first, second);
-  assert.equal(shouldUseEurobetCompetitionCache(undefined), true);
-  assert.equal(shouldUseEurobetCompetitionCache([]), true);
+  assert.equal(shouldUseOddsCompetitionCache(undefined), true);
+  assert.equal(shouldUseOddsCompetitionCache([]), true);
 });
 
-test('Eurobet fixture signature distingue match diversi della stessa competizione', () => {
-  const first = buildEurobetCompetitionCacheKey({
+test('Odds API fixture signature distingue match diversi della stessa competizione', () => {
+  const first = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: false,
     fixtures: [
@@ -34,7 +34,7 @@ test('Eurobet fixture signature distingue match diversi della stessa competizion
     ],
   });
 
-  const second = buildEurobetCompetitionCacheKey({
+  const second = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: false,
     fixtures: [
@@ -47,7 +47,7 @@ test('Eurobet fixture signature distingue match diversi della stessa competizion
   });
 
   assert.notEqual(first, second);
-  assert.equal(shouldUseEurobetCompetitionCache([
+  assert.equal(shouldUseOddsCompetitionCache([
     {
       homeTeam: 'Inter',
       awayTeam: 'Milan',
@@ -56,8 +56,8 @@ test('Eurobet fixture signature distingue match diversi della stessa competizion
   ]), false);
 });
 
-test('Eurobet fixture signature normalizza il commenceTime per evitare chiavi instabili', () => {
-  const first = buildEurobetCompetitionCacheKey({
+test('Odds API fixture signature normalizza il commenceTime per evitare chiavi instabili', () => {
+  const first = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: true,
     fixtures: [
@@ -69,7 +69,7 @@ test('Eurobet fixture signature normalizza il commenceTime per evitare chiavi in
     ],
   });
 
-  const second = buildEurobetCompetitionCacheKey({
+  const second = buildOddsCompetitionCacheKey({
     competition: 'Serie A',
     includeExtendedGroups: true,
     fixtures: [

@@ -59,7 +59,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   onStakeChange,
   onBet,
 }) => {
-  const oddsUnavailable = oddsSource === 'eurobet_unavailable' || oddsSource === 'odds_unavailable' || oddsSource === 'unavailable';
+  const oddsUnavailable = oddsSource === 'odds_unavailable' || oddsSource === 'unavailable';
   const emptyMessage =
     oddsUnavailable
       ? 'Quote bookmaker non disponibili per questa partita.'

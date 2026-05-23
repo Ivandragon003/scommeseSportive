@@ -171,8 +171,8 @@ const BacktestingPageView: React.FC = () => {
                 <h3 style={{ marginTop: 0 }}>Come leggere i numeri</h3>
                 <p>ROI e profit/loss dicono il risultato economico; win rate da solo non basta perche quote diverse hanno payout diversi.</p>
                 <p>Initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
-                <p>CLV positivo significa che la quota scelta era migliore della quota Eurobet di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
-                <p>Quote Eurobet reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
+                <p>CLV positivo significa che la quota scelta era migliore della quota bookmaker di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
+                <p>Quote bookmaker reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
                 <p>Il tuning dei pesi va letto solo in walk-forward: se un peso produce ROI alto con poche bet o CLV negativo, e un segnale di overfitting e non va promosso in produzione.</p>
               </div>
             </div>
@@ -790,7 +790,7 @@ const BacktestingPageView: React.FC = () => {
                   <div className="fp-card" style={{ marginBottom: 18 }}>
                     <div className="fp-card-head">
                       <div className="fp-card-title">Affidabilita quote</div>
-                      <span className="fp-badge fp-badge-blue">Eurobet vs sintetiche</span>
+                      <span className="fp-badge fp-badge-blue">Quote reali vs sintetiche</span>
                     </div>
                     <div className="fp-card-body">
                       {backtestReport.oddsReliability.warning && (
@@ -800,10 +800,10 @@ const BacktestingPageView: React.FC = () => {
                       )}
                       <div className="fp-grid-4">
                         {[
-                          { label: 'ROI quote Eurobet reali', value: backtestReport.oddsReliability.roiRealEurobetOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiRealEurobetOdds, 2), color: 'green' },
+                          { label: 'ROI quote bookmaker reali', value: backtestReport.oddsReliability.roiRealEurobetOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiRealEurobetOdds, 2), color: 'green' },
                           { label: 'ROI quote sintetiche', value: backtestReport.oddsReliability.roiSyntheticOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiSyntheticOdds, 2), color: 'gold' },
                           { label: 'ROI totale', value: formatPct(backtestReport.oddsReliability.roiTotal, 2), color: 'blue' },
-                          { label: 'Bet Eurobet / sintetiche', value: `${backtestReport.oddsReliability.betsWithRealEurobetOdds ?? 0} / ${backtestReport.oddsReliability.betsWithSyntheticOdds ?? 0}`, color: 'purple' },
+                          { label: 'Bet reali / sintetiche', value: `${backtestReport.oddsReliability.betsWithRealEurobetOdds ?? 0} / ${backtestReport.oddsReliability.betsWithSyntheticOdds ?? 0}`, color: 'purple' },
                         ].map((item) => (
                           <div key={item.label} className={`fp-stat c-${item.color}`}>
                             <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
@@ -975,13 +975,13 @@ const BacktestingPageView: React.FC = () => {
                 <div className={`fp-alert ${backtestReport.clv?.available ? 'fp-alert-info' : 'fp-alert-warning'}`}>
                   {backtestReport.clv?.available ? (
                     <>
-                      CLV medio Eurobet: <strong>{formatPct(Number(backtestReport.clv.averageClv ?? 0) * 100, 2)}</strong>
+                      CLV medio bookmaker: <strong>{formatPct(Number(backtestReport.clv.averageClv ?? 0) * 100, 2)}</strong>
                       {' '}su {backtestReport.clv.betsWithClv} bet con quota di chiusura.
                       {' '}CLV positivo: <strong>{formatPct(backtestReport.clv.positiveClvRate, 1)}</strong>.
                     </>
                   ) : (
                     <>
-                      CLV non disponibile: {backtestReport.clv?.reason ?? 'mancano quote Eurobet di chiusura prima del kickoff.'}
+                      CLV non disponibile: {backtestReport.clv?.reason ?? 'mancano quote bookmaker di chiusura prima del kickoff.'}
                     </>
                   )}
                 </div>

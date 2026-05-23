@@ -56,7 +56,6 @@ const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots }) => 
       primaryProviderName: 'odds_api',
       fallbackProviderName: null,
       apiKey: 'test-odds-api-key',
-      skipEurobet: true,
       ...bundleOverrides,
     }),
   }));
@@ -91,7 +90,7 @@ const getJson = async (baseUrl, path) => {
 };
 
 const withProviderEnv = (nextEnv, fn) => {
-  const keys = ['ODDS_API_KEY', 'THE_ODDS_API_KEY', 'ODDS_PRIMARY_PROVIDER', 'SKIP_EUROBET_SCRAPER'];
+  const keys = ['ODDS_API_KEY', 'THE_ODDS_API_KEY', 'ODDS_PRIMARY_PROVIDER'];
   for (const key of Object.keys(nextEnv)) {
     if (!keys.includes(key)) keys.push(key);
   }
@@ -174,16 +173,15 @@ const createRouteProvider = (name, options = {}) => ({
 });
 
 test('provider runtime defaulta a Odds API', () => {
-  withProviderEnv({ SKIP_EUROBET_SCRAPER: 'false' }, () => {
+  withProviderEnv({}, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
     assert.equal(getConfiguredFallbackProviderName(), null);
   });
 });
 
-test('provider runtime ignora ODDS_PRIMARY_PROVIDER=eurobet e resta su Odds API', () => {
+test('provider runtime ignora provider primari non supportati e resta su Odds API', () => {
   withProviderEnv({
-    ODDS_PRIMARY_PROVIDER: 'eurobet',
-    SKIP_EUROBET_SCRAPER: 'false',
+    ODDS_PRIMARY_PROVIDER: 'legacy_provider',
     ODDS_API_KEY: 'configured',
   }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
@@ -194,7 +192,6 @@ test('provider runtime ignora ODDS_PRIMARY_PROVIDER=eurobet e resta su Odds API'
 test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=odds_api', () => {
   withProviderEnv({
     ODDS_PRIMARY_PROVIDER: 'odds_api',
-    SKIP_EUROBET_SCRAPER: 'false',
     ODDS_API_KEY: 'configured',
   }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
@@ -202,9 +199,8 @@ test('provider runtime rispetta ODDS_PRIMARY_PROVIDER=odds_api', () => {
   });
 });
 
-test('provider runtime usa Odds API quando Eurobet e skippato e chiave configurata', () => {
+test('provider runtime usa Odds API quando la chiave e configurata', () => {
   withProviderEnv({
-    SKIP_EUROBET_SCRAPER: 'true',
     ODDS_API_KEY: 'configured',
   }, () => {
     assert.equal(getConfiguredPrimaryProviderName(), 'odds_api');
@@ -212,7 +208,7 @@ test('provider runtime usa Odds API quando Eurobet e skippato e chiave configura
   });
 });
 
-test('bulk odds route timeout lascia budget al fallback dopo timeout Eurobet', () => {
+test('bulk odds route timeout lascia budget al provider dopo timeout configurato', () => {
   withProviderEnv({
     ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: '60000',
   }, () => {
@@ -225,7 +221,6 @@ test('bulk odds route timeout lascia budget al fallback dopo timeout Eurobet', (
 
 test('match odds route timeout non taglia il coordinatore prima del provider fixture-scoped', () => {
   withProviderEnv({
-    EUROBET_MATCH_TIMEOUT_MS: '25000',
     ODDS_PROVIDER_MATCH_TIMEOUT_MS: '45000',
   }, () => {
     assert.ok(
@@ -277,14 +272,6 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
             match: oddsMatch,
             providerMatches: {
               odds_api: oddsMatch,
-              eurobet: {
-                ...oddsMatch,
-                matchId: 'eurobet_event_456',
-                eventAlias: 'calcio/it-serie-a/inter-milan',
-                meetingAlias: 'it-serie-a',
-                loadedGroupAliases: ['base', 'statistiche-partita'],
-                unavailableGroupAliases: ['speciali-partita'],
-              },
             },
             oddsSource: 'odds_api',
             fallbackReason: null,
@@ -298,7 +285,7 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
             fetchedAt: fixedFetchedAt,
             isMerged: false,
             marketSources: { h2h: ['odds_api'], totals: ['odds_api'] },
-            bestOddsByProvider: { odds_api: selectedOdds, eurobet: { homeWin: 1.9 } },
+            bestOddsByProvider: { odds_api: selectedOdds },
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },
@@ -328,12 +315,10 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.ok(json.data.timeoutMs >= 45000);
     assert.equal(json.data.providerHealth.odds_api.status, 'healthy');
     assert.deepEqual(json.data.warnings, []);
-    assert.deepEqual(json.data.loadedGroupAliases, ['base', 'statistiche-partita']);
-    assert.deepEqual(json.data.unavailableGroupAliases, ['speciali-partita']);
     assert.equal(json.data.marketCount, 2);
     assert.equal(json.data.selectedOddsCount, 5);
-    assert.equal(json.data.eurobetOddsCount, 1);
     assert.deepEqual(json.data.selectedOdds, selectedOdds);
+    assert.deepEqual(json.data.oddsApiOdds, selectedOdds);
     assert.deepEqual(json.data.fallbackOdds, {});
     assert.equal(json.data.providerMatchId, 'event_123');
     assert.equal(json.data.matchedHomeTeam, 'Inter');
@@ -497,11 +482,8 @@ test('/scraper/odds/match ritorna diagnostica quando Odds API non trova la fixtu
     assert.equal(json.data.selectedProvider, null);
     assert.ok(json.data.timeoutMs >= 45000);
     assert.equal(json.data.providerHealth.odds_api.status, 'degraded');
-    assert.deepEqual(json.data.loadedGroupAliases, []);
-    assert.deepEqual(json.data.unavailableGroupAliases, []);
     assert.equal(json.data.marketCount, 0);
     assert.equal(json.data.selectedOddsCount, 0);
-    assert.equal(json.data.eurobetOddsCount, 0);
     assert.equal(json.data.candidateCount, 2);
     assert.equal(json.data.requestedFixture.homeTeam, 'Inter');
     assert.match(json.data.message, /Quote bookmaker non trovate/i);
@@ -616,7 +598,7 @@ test('/scraper/odds/match non salva in cache una risposta found=false', async ()
 test('/scraper/odds/match risponde found=false dopo timeout primario senza fallback e non cachea', async () => {
   await withProviderEnv({
     ODDS_PROVIDER_MATCH_TIMEOUT_MS: '25',
-    EUROBET_MATCH_TIMEOUT_MS: '1000',
+    ODDS_MATCH_ROUTE_TIMEOUT_MS: '1000',
   }, async () => {
     const snapshots = [];
     const calls = { count: 0 };
@@ -632,7 +614,6 @@ test('/scraper/odds/match risponde found=false dopo timeout primario senza fallb
       bundleOverrides: {
         primaryProviderName: 'odds_api',
         fallbackProviderName: null,
-        skipEurobet: true,
       },
     });
     const body = {
@@ -668,12 +649,8 @@ test('/scraper/odds/debug-config espone configurazione runtime senza segreti', a
   await withProviderEnv({
     ODDS_API_KEY: 'super-secret-key',
     ODDS_PRIMARY_PROVIDER: 'odds_api',
-    SKIP_EUROBET_SCRAPER: 'false',
-    EUROBET_MATCH_TIMEOUT_MS: '180000',
     ODDS_PROVIDER_MATCH_TIMEOUT_MS: '45000',
     ODDS_EVENT_TIMEOUT_MS: '60000',
-    EUROBET_BROWSER_HEADLESS: 'true',
-    EUROBET_PERSISTENT_PROFILE_ENABLED: 'true',
   }, async () => {
     const snapshots = [];
     const coordinator = { async getOddsForFixtures() { return { matches: [] }; } };
@@ -684,7 +661,6 @@ test('/scraper/odds/debug-config espone configurazione runtime senza segreti', a
         primaryProviderName: 'odds_api',
         fallbackProviderName: null,
         apiKey: 'super-secret-key',
-        skipEurobet: true,
       },
     });
 
@@ -696,10 +672,8 @@ test('/scraper/odds/debug-config espone configurazione runtime senza segreti', a
       assert.equal(json.success, true);
       assert.equal(json.data.hasOddsApiKey, true);
       assert.equal(json.data.ODDS_PRIMARY_PROVIDER, 'odds_api');
-      assert.equal(json.data.SKIP_EUROBET_SCRAPER, true);
       assert.equal(json.data.primaryProvider, 'odds_api');
       assert.equal(json.data.fallbackProvider, null);
-      assert.equal(json.data.EUROBET_MATCH_TIMEOUT_MS, 180000);
       assert.equal(json.data.ODDS_PROVIDER_MATCH_TIMEOUT_MS, 45000);
       assert.equal(json.data.ODDS_EVENT_TIMEOUT_MS, 60000);
       assert.equal(serialized.includes('super-secret-key'), false);

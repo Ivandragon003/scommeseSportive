@@ -710,7 +710,7 @@ export class ValueBettingEngine {
     if (/^team_(home|away)_(over|under)/.test(s))
       return 'goal_ou';
 
-    // Player props Eurobet normalizzate: player_{playerId}_{market}_{side}_{line}
+    // Player props bookmaker normalizzate: player_{playerId}_{market}_{side}_{line}
     if (/^player_.+_shots_(over|under)_/.test(s)) return 'player_shots';
     if (/^player_.+_sot_(over|under)_/.test(s)) return 'player_shots_ot';
     if (/^player_.+_yellow_(over|under)_/.test(s)) return 'player_yellow_cards';
@@ -1174,8 +1174,8 @@ export class ValueBettingEngine {
       selectionFamily: input.selectionFamily,
     });
 
-    // Edge raw confronta la probabilita modello con la quota Eurobet grezza.
-    // Edge no-vig confronta la stessa probabilita con la quota Eurobet pulita dal margine:
+    // Edge raw confronta la probabilita modello con la quota bookmaker grezza.
+    // Edge no-vig confronta la stessa probabilita con la quota bookmaker pulita dal margine:
     // per il ranking finale pesa di piu perche misura meglio se stiamo battendo il mercato.
     const score =
       edgeNoVigScore * weights.edgeNoVig +

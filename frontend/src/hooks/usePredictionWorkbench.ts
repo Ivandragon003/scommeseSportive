@@ -184,7 +184,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
         ? 'Quote stimate dal modello: trattale come supporto analitico, non come prezzo bookmaker verificato.'
         : predictionAnalysis.pred?.oddsSource === 'fallback_provider'
           ? 'Provider secondario attivo: verifica la quota prima di eseguirla.'
-          : ['eurobet_unavailable', 'odds_unavailable', 'unavailable'].includes(String(predictionAnalysis.pred?.oddsSource ?? ''))
+          : ['odds_unavailable', 'unavailable'].includes(String(predictionAnalysis.pred?.oddsSource ?? ''))
             ? 'Il provider quote non ha esposto quote operative per questo match.'
             : null;
 

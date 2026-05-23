@@ -7,8 +7,7 @@ test('PredictionEngineConfig exposes v4 defaults and operational alignment', () 
   assert.equal(predictionEngineConfig.dixonColes.dynamicTeamStrengths.enableDynamicTeamStrengths, false);
   assert.equal(predictionEngineConfig.dixonColes.temporalWeights.currentSeasonDecay, 0.002);
   assert.equal(predictionEngineConfig.valueBetting.operational.maxOdds, 8.0);
-  assert.equal(predictionEngineConfig.operational.primaryOddsProvider, 'eurobet');
-  assert.equal(predictionEngineConfig.operational.skipEurobetScraper, false);
+  assert.equal(predictionEngineConfig.operational.primaryOddsProvider, 'odds_api');
   assert.equal(predictionEngineConfig.operational.sofascoreSupplementalEnabled, false);
   assert.equal(predictionEngineConfig.operational.understatOnlyMarkets.cornersEnabled, false);
   assert.equal(predictionEngineConfig.operational.understatOnlyMarkets.foulsEnabled, false);

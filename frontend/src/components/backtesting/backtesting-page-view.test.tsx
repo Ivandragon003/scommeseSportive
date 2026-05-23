@@ -100,7 +100,7 @@ const reportPayload = {
           global: { edgeNoVig: 0.42, ev: 0.14, kelly: 0.12, confidence: 0.05, logGrowth: 0.18, riskPenalty: 0.5, uncertainty: 0.22, contextStrength: 0.08 },
         },
         overfittingRisk: 'MEDIUM',
-        overfittingWarnings: ['Campione quote Eurobet reali limitato.'],
+        overfittingWarnings: ['Campione quote bookmaker reali limitato.'],
         rationale: 'Scelti pesi con CLV medio migliore e drawdown controllato.',
       },
       walkForwardStability: {
@@ -124,12 +124,12 @@ const reportPayload = {
       dataset: {
         filteredBets: 18,
         availableMarkets: ['Totali Goal'],
-        availableSources: ['eurobet_scraper'],
+        availableSources: ['odds_api'],
         legacyData: false,
       },
       clv: {
         available: false,
-        reason: 'Richiede quota di chiusura Eurobet prima del kickoff.',
+        reason: 'Richiede quota di chiusura bookmaker prima del kickoff.',
         averageClv: null,
         positiveClvRate: null,
         betsWithClv: 0,
@@ -211,10 +211,10 @@ describe('BacktestingPageView', () => {
     const marketSelect = screen.getByLabelText(/^Mercato$/i) as HTMLSelectElement;
     const sourceSelect = screen.getByLabelText(/Sorgente quote/i) as HTMLSelectElement;
     fireEvent.change(marketSelect, { target: { value: 'Totali Goal' } });
-    fireEvent.change(sourceSelect, { target: { value: 'eurobet_scraper' } });
+    fireEvent.change(sourceSelect, { target: { value: 'odds_api' } });
 
     await waitFor(() => expect(marketSelect.value).toBe('Totali Goal'));
-    await waitFor(() => expect(sourceSelect.value).toBe('eurobet_scraper'));
+    await waitFor(() => expect(sourceSelect.value).toBe('odds_api'));
 
     fireEvent.click(screen.getByRole('button', { name: /Reset filtri/i }));
 
@@ -286,7 +286,7 @@ describe('BacktestingPageView', () => {
     fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
     await screen.findByRole('button', { name: /Reset filtri/i });
-    expect(screen.getByText(/ROI quote Eurobet reali/i)).toBeTruthy();
+    expect(screen.getByText(/ROI quote bookmaker reali/i)).toBeTruthy();
     expect(screen.getByText(/ROI quote sintetiche/i)).toBeTruthy();
     expect(screen.getByText(/Baseline vs algoritmo attuale/i)).toBeTruthy();
     expect(screen.getByText(/Delta ROI/i)).toBeTruthy();

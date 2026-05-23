@@ -304,7 +304,7 @@ football-predictor/
 |---|---|---|
 | Dati calcistici | Understat | Fonte ufficiale attiva per squadre, partite, giocatori, xG e tiri |
 | Quote utente | The Odds API | Fonte primaria stabile per importare e mostrare quote bookmaker reali |
-| Fallback tecnici quote | Eurobet / diagnostica provider | Ammessi se configurati, con provenance esplicita e senza bloccare la visualizzazione Odds API |
+| Fallback tecnici quote | Nessuno nel runtime corrente | Il progetto e Odds API only: se Odds API non trova la partita, non vengono mostrate quote |
 
 ### Formato JSON Import
 
@@ -385,9 +385,9 @@ prior empiriche Serie A.
 
 L'endpoint `/api/scraper/odds/match` richiede mercati `h2h`, `totals`, `spreads`.
 The Odds API e il provider primario quando `ODDS_API_KEY` o `THE_ODDS_API_KEY` e configurata.
-Se `spreads` non e disponibile, il backend ritenta con `h2h`, `totals`. Eurobet puo restare
-fallback opzionale o diagnostico, ma non deve bloccare la visualizzazione delle quote bookmaker
-quando Odds API trova la partita.
+Se `spreads` non e disponibile, il backend ritenta con `h2h`, `totals`. Il matching fixture
+usa anche `commenceTime`, cosi eventi con gli stessi nomi squadra ma kickoff diverso non vengono
+associati per errore.
 
 ### Pipeline di scelta "miglior quota valore"
 
@@ -867,7 +867,7 @@ Metriche aggregate:
 - `medianFoldROI`
 - `roiStdDev`
 - `positiveFoldRate = count(ROI_k > 0)/K`
-- CLV medio e positive CLV rate su snapshot Eurobet reali
+- CLV medio e positive CLV rate su snapshot bookmaker reali
 - confronto baseline/current/tuned quando disponibile
 
 #### 8.2 Nuove metriche di monitoraggio (nuovo v4)
@@ -997,7 +997,7 @@ Servizi previsti:
 
 - Il file `.env` nella root e la sola sorgente di verita locale.
 - Backend:
-  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `SKIP_EUROBET_SCRAPER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `EUROBET_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
 - Frontend:
   nessun segreto runtime richiesto in locale; `FRONTEND_PORT` serve per Docker.
 
@@ -1006,12 +1006,11 @@ Configurazione quote raccomandata:
 ```dotenv
 ODDS_API_KEY=your-odds-api-key
 ODDS_PRIMARY_PROVIDER=odds_api
-SKIP_EUROBET_SCRAPER=true
 ODDS_SNAPSHOT_SCHEDULER_ENABLED=true
 ODDS_SNAPSHOT_RUN_ON_BOOT=true
 ```
 
-Eurobet resta utilizzabile solo se lo abiliti esplicitamente, ad esempio con `ODDS_PRIMARY_PROVIDER=eurobet` e `SKIP_EUROBET_SCRAPER=false`.
+Il runtime quote e Odds API only. `ODDS_PRIMARY_PROVIDER` deve restare `odds_api`.
 
 ### Docker
 
@@ -1038,48 +1037,25 @@ Compatibilita preservata:
 - CI generale: [`.github/workflows/ci.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/ci.yml)
 - Nightly sync: [`.github/workflows/nightly-sync.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/nightly-sync.yml)
 - Secret scan: [`.github/workflows/secret-scan.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/secret-scan.yml)
-- Eurobet smoke manuale: [`.github/workflows/eurobet-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/eurobet-smoke.yml)
+- Odds API smoke manuale: [`.github/workflows/odds-api-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/odds-api-smoke.yml)
 
 Per GitHub Actions e deploy usa solo GitHub Secrets o variabili ambiente del runtime:
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 - `ODDS_API_KEY`
 
-### Smoke Eurobet
+### Smoke Odds API
 
-Controllo locale rapido:
-
-```powershell
-cd backend
-npm run smoke:eurobet -- --competition "Serie A" --verbose
-```
-
-Con fixture specifiche:
-
-```powershell
-cd backend
-npm run smoke:eurobet -- --competition "Serie A" --fixture "Inter|Milan|2026-04-20T18:45:00Z" --include-extended-groups
-```
-
-I report prodotti dallo smoke (`backend/artifacts/*.json`, `backend/artifacts/*.log`) sono artifact runtime locali o di GitHub Actions:
-- non devono essere committati
-- il workflow [`.github/workflows/eurobet-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/eurobet-smoke.yml) continua a caricarli come artifact scaricabili
-- se serve un esempio stabile per documentazione, usa [docs/examples/eurobet-smoke-report.example.json](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/examples/eurobet-smoke-report.example.json)
+Il controllo manuale gira da GitHub Actions tramite [`.github/workflows/odds-api-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/odds-api-smoke.yml) e carica report/log come artifact.
+Richiede `ODDS_API_KEY` nei GitHub Secrets.
 
 ### Troubleshooting
 
-- Playwright/Chromium:
+- Playwright/Chromium per SofaScore supplemental:
 
 ```powershell
 cd backend
 npx playwright install --with-deps chromium
-```
-
-- Debug Eurobet con browser visibile:
-
-```powershell
-cd backend
-npm run dev:eurobet-headed
 ```
 
 - Porte:

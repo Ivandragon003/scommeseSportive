@@ -84,7 +84,7 @@ export function useBetPlacement({
       showToast({
         tone: 'warning',
         title: 'Stake non valido',
-        message: 'Puntata minima Eurobet: 1 EUR.',
+        message: 'Puntata minima bookmaker: 1 EUR.',
       });
       return;
     }

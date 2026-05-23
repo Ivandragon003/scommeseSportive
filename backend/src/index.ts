@@ -8,7 +8,6 @@ import {
   getConfiguredFallbackProviderName,
   getConfiguredOddsApiKey,
   getConfiguredPrimaryProviderName,
-  isEurobetScraperSkipped,
 } from './services/odds-provider/providerRuntimeConfig';
 import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoordinator';
 import { PredictionService } from './services/PredictionService';
@@ -203,13 +202,10 @@ const logOddsRuntimeConfig = (): void => {
   console.info('[odds-config] Runtime providers', {
     primaryProvider: getConfiguredPrimaryProviderName(),
     fallbackProvider: getConfiguredFallbackProviderName(),
-    skipEurobet: isEurobetScraperSkipped(),
     hasOddsApiKey: Boolean(getConfiguredOddsApiKey()),
-    eurobetMatchTimeoutMs: parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', 60_000),
+    matchRouteTimeoutMs: parsePositiveIntEnv('ODDS_MATCH_ROUTE_TIMEOUT_MS', 60_000),
     providerMatchTimeoutMs: getProviderTimeoutMs('runtime', true),
     providerCompetitionTimeoutMs: getProviderTimeoutMs('runtime', false),
-    eurobetBrowserHeadless: String(process.env.EUROBET_BROWSER_HEADLESS ?? 'true').trim().toLowerCase() !== 'false',
-    eurobetPersistentProfileEnabled: String(process.env.EUROBET_PERSISTENT_PROFILE_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
     nodeEnv: process.env.NODE_ENV ?? null,
   });
 };
@@ -490,7 +486,7 @@ async function persistSchedulerRun(entry: {
   await observability.recordSyncRun({
     runId: observability.createRunId(component),
     component,
-    provider: entry.schedulerName === 'odds' ? 'eurobet' : entry.schedulerName,
+    provider: entry.schedulerName === 'odds' ? 'odds_api' : entry.schedulerName,
     durationMs: entry.durationMs,
     success: entry.success,
     errorCategory: entry.success ? null : 'sync_failed',

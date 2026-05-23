@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { getOddsForMatch, getPrediction } from '../utils/api';
-import { sanitizePredictionForEurobetOnly } from '../components/predictions/predictionWorkbenchUtils';
+import { sanitizePredictionForBookmakerOdds } from '../components/predictions/predictionWorkbenchUtils';
 
 interface FetchPredictionWithOddsInput {
   competition: string;
@@ -69,7 +69,7 @@ export function useOddsForMatch() {
       competition: competition || 'Serie A',
       homeTeam: homeName,
       awayTeam: awayName,
-      commenceTime: null,
+      commenceTime: match?.date ? String(match.date) : null,
     })
       .then((response) => ({ response, errorMessage: null as string | null }))
       .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));
@@ -78,7 +78,7 @@ export function useOddsForMatch() {
     const basePrediction = basePredictionResponse.data ?? null;
 
     if (basePrediction && onBasePrediction) {
-      onBasePrediction(sanitizePredictionForEurobetOnly(basePrediction));
+      onBasePrediction(sanitizePredictionForBookmakerOdds(basePrediction));
     }
 
     const oddsResult = await oddsPromise;
@@ -122,7 +122,7 @@ export function useOddsForMatch() {
         bookmakerOdds: providerOdds,
       });
       if (enriched.data) {
-        finalPrediction = sanitizePredictionForEurobetOnly(
+        finalPrediction = sanitizePredictionForBookmakerOdds(
           enriched.data,
           usedFallbackProvider ? 'fallback_provider' : (payload.source ?? 'odds_api')
         );
@@ -140,20 +140,20 @@ export function useOddsForMatch() {
         bookmakerOdds: fallbackOdds,
       });
       if (enriched.data) {
-        finalPrediction = sanitizePredictionForEurobetOnly(enriched.data, 'fallback_provider');
+        finalPrediction = sanitizePredictionForBookmakerOdds(enriched.data, 'fallback_provider');
       }
     } else if (oddsResult.errorMessage) {
       oddsMessage = `Errore quote: ${oddsResult.errorMessage}`;
       oddsTone = 'danger';
-      finalPrediction = sanitizePredictionForEurobetOnly(finalPrediction, 'odds_unavailable');
+      finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, 'odds_unavailable');
     } else {
       oddsMessage = payload.message ?? 'Quote bookmaker non disponibili per questa partita.';
       oddsTone = 'warning';
-      finalPrediction = sanitizePredictionForEurobetOnly(finalPrediction, payload.source ?? 'odds_unavailable');
+      finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, payload.source ?? 'odds_unavailable');
     }
 
     if (finalPrediction) {
-      finalPrediction = sanitizePredictionForEurobetOnly(
+      finalPrediction = sanitizePredictionForBookmakerOdds(
         finalPrediction,
         finalPrediction?.usedFallbackBookmaker ? 'fallback_provider' : (payload.source ?? finalPrediction?.oddsSource ?? null)
       );

@@ -173,6 +173,30 @@ describe('Predictions page', () => {
     expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
   });
 
+  test('passa commenceTime null al lookup quote solo se la partita non ha data', async () => {
+    mockedApi.getUpcomingMatches.mockResolvedValue({
+      data: [{ ...matchRow, date: undefined }],
+    } as any);
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
+      data: {
+        found: false,
+        source: 'odds_unavailable',
+        message: 'Quote bookmaker non disponibili per questa partita.',
+      },
+    } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByText('Inter'));
+
+    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
+      matchId: 'match_1',
+      commenceTime: null,
+    }));
+  });
+
   test('mostra warning quando il provider fallback viene usato', async () => {
     mockedApi.getPrediction
       .mockResolvedValueOnce({ data: buildPrediction() } as any)

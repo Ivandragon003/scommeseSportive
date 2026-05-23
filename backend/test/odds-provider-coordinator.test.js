@@ -103,36 +103,36 @@ const withEnv = async (nextEnv, fn) => {
   }
 };
 
-test('OddsProviderCoordinator usa Eurobet come primario quando e sano', async () => {
-  const eurobet = createProvider('eurobet', {
-    competitionMatches: [buildMatch({ bookmakers: [{ bookmakerKey: 'eurobet', bookmakerName: 'Eurobet', markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Inter', price: 1.91 }, { name: 'Draw', price: 3.4 }, { name: 'Milan', price: 4.0 }] }] }] })],
+test('OddsProviderCoordinator usa il provider primario quando e sano', async () => {
+  const primary = createProvider('primary_provider', {
+    competitionMatches: [buildMatch({ bookmakers: [{ bookmakerKey: 'primary_book', bookmakerName: 'PrimaryBook', markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Inter', price: 1.91 }, { name: 'Draw', price: 3.4 }, { name: 'Milan', price: 4.0 }] }] }] })],
   });
   const fallback = createProvider('odds_api', {
     competitionMatches: [buildMatch({ matchId: 'match_2' })],
     runtime: { remainingRequests: 321 },
   });
 
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
   const result = await coordinator.getCompetitionOdds({ competition: 'Serie A' }, { mergeMarkets: false, useFallback: true });
 
   assert.equal(result.matches.length, 1);
-  assert.equal(result.matches[0].oddsSource, 'eurobet');
+  assert.equal(result.matches[0].oddsSource, 'primary_provider');
   assert.equal(result.matches[0].isMerged, false);
   assert.equal(result.matches[0].fallbackReason, null);
-  assert.equal(result.providerHealth.eurobet.status, 'healthy');
+  assert.equal(result.providerHealth.primary_provider.status, 'healthy');
   assert.equal(result.providerHealth.odds_api.status, 'not_checked');
 });
 
-test('OddsProviderCoordinator attiva il fallback quando Eurobet fallisce', async () => {
-  const eurobet = createProvider('eurobet', {
-    fixtureError: 'Eurobet scraping failed',
+test('OddsProviderCoordinator attiva il fallback quando il provider primario fallisce', async () => {
+  const primary = createProvider('primary_provider', {
+    fixtureError: 'Primary provider failed',
   });
   const fallback = createProvider('odds_api', {
     fixtureMatches: [buildMatch({ bookmakers: [{ bookmakerKey: 'codere_it', bookmakerName: 'Codere', markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Inter', price: 1.95 }, { name: 'Draw', price: 3.5 }, { name: 'Milan', price: 4.2 }] }] }] })],
     runtime: { remainingRequests: 210 },
   });
 
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
   const result = await coordinator.getOddsForFixtures({
     competition: 'Serie A',
     fixtures: [{ homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-04-20T18:45:00Z' }],
@@ -140,15 +140,15 @@ test('OddsProviderCoordinator attiva il fallback quando Eurobet fallisce', async
 
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].oddsSource, 'odds_api');
-  assert.match(result.matches[0].fallbackReason, /Provider primario eurobet/i);
-  assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
+  assert.match(result.matches[0].fallbackReason, /Provider primario primary_provider/i);
+  assert.equal(result.providerHealth.primary_provider.status, 'unhealthy');
   assert.equal(result.providerHealth.odds_api.status, 'healthy');
   assert.equal(result.providerRuntime.odds_api.remainingRequests, 210);
 });
 
 test('OddsProviderCoordinator manda in timeout il provider primario e attiva il fallback fixture-scoped', async () => {
   await withEnv({ ODDS_PROVIDER_MATCH_TIMEOUT_MS: '25' }, async () => {
-    const eurobet = createProvider('eurobet', {
+    const primary = createProvider('primary_provider', {
       neverResolveFixture: true,
     });
     const fallback = createProvider('odds_api', {
@@ -168,7 +168,7 @@ test('OddsProviderCoordinator manda in timeout il provider primario e attiva il 
       })],
     });
 
-    const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+    const coordinator = new OddsProviderCoordinator(primary, fallback);
     const result = await Promise.race([
       coordinator.getOddsForFixtures({
         competition: 'Serie A',
@@ -179,20 +179,20 @@ test('OddsProviderCoordinator manda in timeout il provider primario e attiva il 
 
     assert.equal(result.matches.length, 1);
     assert.equal(result.matches[0].oddsSource, 'odds_api');
-    assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
-    assert.match(result.providerHealth.eurobet.message, /Provider eurobet timeout after 25ms/i);
+    assert.equal(result.providerHealth.primary_provider.status, 'unhealthy');
+    assert.match(result.providerHealth.primary_provider.message, /Provider primary_provider timeout after 25ms/i);
     assert.equal(result.providerHealth.odds_api.status, 'healthy');
-    assert.match(result.warnings.join(' '), /Provider eurobet timeout after 25ms/i);
+    assert.match(result.warnings.join(' '), /Provider primary_provider timeout after 25ms/i);
   });
 });
 
 test('OddsProviderCoordinator mergea copertura mercati parziale e mantiene provenance', async () => {
-  const eurobet = createProvider('eurobet', {
+  const primary = createProvider('primary_provider', {
     fixtureMatches: [
       buildMatch({
         bookmakers: [{
-          bookmakerKey: 'eurobet',
-          bookmakerName: 'Eurobet',
+          bookmakerKey: 'primary_book',
+          bookmakerName: 'PrimaryBook',
           markets: [{
             marketKey: 'h2h',
             outcomes: [
@@ -223,7 +223,7 @@ test('OddsProviderCoordinator mergea copertura mercati parziale e mantiene prove
     ],
   });
 
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
   const result = await coordinator.getOddsForFixtures({
     competition: 'Serie A',
     fixtures: [{ homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-04-20T18:45:00Z' }],
@@ -231,10 +231,10 @@ test('OddsProviderCoordinator mergea copertura mercati parziale e mantiene prove
 
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].isMerged, true);
-  assert.equal(result.matches[0].oddsSource, 'eurobet+odds_api');
-  assert.deepEqual(result.matches[0].marketSources.h2h, ['eurobet']);
+  assert.equal(result.matches[0].oddsSource, 'primary_provider+odds_api');
+  assert.deepEqual(result.matches[0].marketSources.h2h, ['primary_provider']);
   assert.deepEqual(result.matches[0].marketSources.totals, ['odds_api']);
-  assert.equal(result.matches[0].bestOddsByProvider.eurobet.homeWin, 1.9);
+  assert.equal(result.matches[0].bestOddsByProvider.primary_provider.homeWin, 1.9);
   assert.equal(result.matches[0].bestOddsByProvider.odds_api.over25, 1.83);
 });
 
@@ -252,14 +252,14 @@ test('OddsProviderCoordinator mergea senza duplicare outcome identici sullo stes
     }],
   };
 
-  const eurobet = createProvider('eurobet', {
+  const primary = createProvider('primary_provider', {
     fixtureMatches: [buildMatch({ bookmakers: [sharedBookmaker] })],
   });
   const fallback = createProvider('odds_api', {
     fixtureMatches: [buildMatch({ bookmakers: [sharedBookmaker] })],
   });
 
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
   const result = await coordinator.getOddsForFixtures({
     competition: 'Serie A',
     fixtures: [{ homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-04-20T18:45:00Z' }],
@@ -270,40 +270,40 @@ test('OddsProviderCoordinator mergea senza duplicare outcome identici sullo stes
   assert.equal(result.matches[0].match.bookmakers[0].markets[0].outcomes.length, 3);
 });
 
-test('OddsProviderCoordinator espone health check healthy con Eurobet attivo', async () => {
-  const eurobet = createProvider('eurobet', { healthStatus: 'healthy' });
+test('OddsProviderCoordinator espone health check healthy con provider primario attivo', async () => {
+  const primary = createProvider('primary_provider', { healthStatus: 'healthy' });
   const fallback = createProvider('odds_api', { healthStatus: 'healthy' });
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
 
   const result = await coordinator.healthCheck({ competition: 'Serie A' });
 
   assert.equal(result.status, 'healthy');
-  assert.equal(result.primaryProvider, 'eurobet');
-  assert.equal(result.activeProvider, 'eurobet');
-  assert.equal(result.oddsSource, 'eurobet');
+  assert.equal(result.primaryProvider, 'primary_provider');
+  assert.equal(result.activeProvider, 'primary_provider');
+  assert.equal(result.oddsSource, 'primary_provider');
   assert.equal(result.fallbackReason, null);
-  assert.equal(result.providerHealth.eurobet.status, 'healthy');
+  assert.equal(result.providerHealth.primary_provider.status, 'healthy');
   assert.equal(result.providerHealth.odds_api.status, 'healthy');
 });
 
-test('OddsProviderCoordinator espone health check degraded con Eurobet degradato ma attivo', async () => {
-  const eurobet = createProvider('eurobet', { healthStatus: 'degraded' });
+test('OddsProviderCoordinator espone health check degraded con primario degradato ma attivo', async () => {
+  const primary = createProvider('primary_provider', { healthStatus: 'degraded' });
   const fallback = createProvider('odds_api', { healthStatus: 'healthy' });
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
 
   const result = await coordinator.healthCheck({ competition: 'Serie A' });
 
   assert.equal(result.status, 'degraded');
-  assert.equal(result.activeProvider, 'eurobet');
-  assert.equal(result.oddsSource, 'eurobet');
+  assert.equal(result.activeProvider, 'primary_provider');
+  assert.equal(result.oddsSource, 'primary_provider');
   assert.equal(result.fallbackReason, null);
-  assert.equal(result.providerHealth.eurobet.status, 'degraded');
+  assert.equal(result.providerHealth.primary_provider.status, 'degraded');
 });
 
-test('OddsProviderCoordinator espone health check con fallback attivo quando Eurobet e giu', async () => {
-  const eurobet = createProvider('eurobet', { healthStatus: 'unhealthy' });
+test('OddsProviderCoordinator espone health check con fallback attivo quando il primario e giu', async () => {
+  const primary = createProvider('primary_provider', { healthStatus: 'unhealthy' });
   const fallback = createProvider('odds_api', { healthStatus: 'healthy' });
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
 
   const result = await coordinator.healthCheck({ competition: 'Serie A' });
 
@@ -311,14 +311,14 @@ test('OddsProviderCoordinator espone health check con fallback attivo quando Eur
   assert.equal(result.activeProvider, 'odds_api');
   assert.equal(result.oddsSource, 'odds_api');
   assert.match(result.fallbackReason, /fallback odds_api attivo/i);
-  assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
+  assert.equal(result.providerHealth.primary_provider.status, 'unhealthy');
   assert.equal(result.providerHealth.odds_api.status, 'healthy');
 });
 
 test('OddsProviderCoordinator espone provider unavailable quando nessun provider e operativo', async () => {
-  const eurobet = createProvider('eurobet', { healthStatus: 'unhealthy' });
+  const primary = createProvider('primary_provider', { healthStatus: 'unhealthy' });
   const fallback = createProvider('odds_api', { healthStatus: 'disabled' });
-  const coordinator = new OddsProviderCoordinator(eurobet, fallback);
+  const coordinator = new OddsProviderCoordinator(primary, fallback);
 
   const result = await coordinator.healthCheck({ competition: 'Serie A' });
 
@@ -326,6 +326,6 @@ test('OddsProviderCoordinator espone provider unavailable quando nessun provider
   assert.equal(result.activeProvider, null);
   assert.equal(result.oddsSource, null);
   assert.match(result.fallbackReason, /non operativo/i);
-  assert.equal(result.providerHealth.eurobet.status, 'unhealthy');
+  assert.equal(result.providerHealth.primary_provider.status, 'unhealthy');
   assert.equal(result.providerHealth.odds_api.status, 'disabled');
 });

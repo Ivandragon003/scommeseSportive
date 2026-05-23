@@ -24,4 +24,11 @@ describe('dateTime match formatting', () => {
     expect(getMatchDayKey(kickoff)).toBe('2026-05-22');
     expect(formatMatchDateTime(kickoff)).toContain('20:45');
   });
+
+  test('mostra un kickoff 16:00 UTC alle 18:00 italiane senza slittare al giorno dopo', () => {
+    const kickoff = '2026-05-23T16:00:00Z';
+
+    expect(formatMatchTime(kickoff)).toBe('18:00');
+    expect(getMatchDayKey(kickoff)).toBe('2026-05-23');
+  });
 });
