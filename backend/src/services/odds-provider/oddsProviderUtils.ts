@@ -1,6 +1,8 @@
 import { BookmakerOdds, MarketOdds, OddsMatch } from '../OddsApiService';
 import { OddsProviderFixture } from './OddsProvider';
 
+export const MAX_FIXTURE_MATCH_WINDOW_HOURS = 36;
+
 const TEAM_ALIAS_GROUPS: string[][] = [
   ['inter', 'internazionale', 'inter milan', 'fc internazionale milano', 'internazionale milano'],
   ['milan', 'ac milan', 'a c milan'],
@@ -99,6 +101,14 @@ export type FixtureCandidateScore = {
   warnings: string[];
 };
 
+export const getTimeDiffHours = (candidate: OddsMatch, commenceTime?: string | null): number | null => {
+  if (!commenceTime || !candidate.commenceTime) return null;
+  const targetTs = Date.parse(String(commenceTime));
+  const candidateTs = Date.parse(String(candidate.commenceTime));
+  if (!Number.isFinite(targetTs) || !Number.isFinite(candidateTs)) return null;
+  return Math.abs(targetTs - candidateTs) / (1000 * 60 * 60);
+};
+
 export const scoreFixtureCandidate = (
   candidate: OddsMatch,
   homeTeam: string,
@@ -110,7 +120,7 @@ export const scoreFixtureCandidate = (
   const straightTeamScore = homeScore + awayScore;
   const swappedTeamScore = teamSimilarity(homeTeam, candidate.awayTeam)
     + teamSimilarity(awayTeam, candidate.homeTeam);
-  const timeDiffHours: number | null = null;
+  const timeDiffHours = getTimeDiffHours(candidate, commenceTime);
   const warnings: string[] = [];
 
   if (!commenceTime) {
@@ -122,16 +132,30 @@ export const scoreFixtureCandidate = (
   }
 
   let score = straightTeamScore;
-
-  if (homeScore >= 0.98 && awayScore >= 0.98) {
-    score += 0.15;
-  }
-
-  const reason = straightTeamScore >= 1.9
+  let reason = straightTeamScore >= 1.9
     ? 'team_pair_exact_or_alias'
     : straightTeamScore >= 1.5
       ? 'team_pair_fuzzy'
       : 'team_pair_weak';
+
+  if (timeDiffHours !== null) {
+    if (timeDiffHours > MAX_FIXTURE_MATCH_WINDOW_HOURS) {
+      score = 0;
+      reason = 'kickoff_outside_36h_window';
+    } else if (timeDiffHours <= 1.5) {
+      score += 0.5;
+    } else if (timeDiffHours <= 4) {
+      score += 0.35;
+    } else if (timeDiffHours <= 12) {
+      score += 0.2;
+    } else {
+      score += 0.05;
+    }
+  }
+
+  if (reason !== 'kickoff_outside_36h_window' && homeScore >= 0.98 && awayScore >= 0.98) {
+    score += 0.15;
+  }
 
   return {
     candidate: {

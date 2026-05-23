@@ -165,10 +165,8 @@ export interface PredictionEngineConfig {
     evDeltaMax: number;
   };
   operational: {
-    /** Primary user-visible odds provider. Default Eurobet per project rules. */
-    primaryOddsProvider: 'eurobet';
-    /** Default false: Eurobet scraper must not be skipped operationally. */
-    skipEurobetScraper: boolean;
+    /** Primary user-visible odds provider. */
+    primaryOddsProvider: 'odds_api';
     /** Default false: Sofascore supplemental flow remains disabled. */
     sofascoreSupplementalEnabled: boolean;
     /** Understat-only market switches; fallback markets stay disabled in value filtering. */
@@ -271,8 +269,7 @@ export const predictionEngineConfig: PredictionEngineConfig = {
     evDeltaMax: 0.008,
   },
   operational: {
-    primaryOddsProvider: 'eurobet',
-    skipEurobetScraper: false,
+    primaryOddsProvider: 'odds_api',
     sofascoreSupplementalEnabled: false,
     understatOnlyMarkets: {
       cornersEnabled: false,

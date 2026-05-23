@@ -6,8 +6,6 @@ export type RuntimeOddsProviderName = 'odds_api';
 export const getConfiguredOddsApiKey = (): string =>
   String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? '').trim();
 
-export const isEurobetScraperSkipped = (): boolean => true;
-
 const getExplicitPrimaryProviderName = (): RuntimeOddsProviderName | null => {
   const value = String(process.env.ODDS_PRIMARY_PROVIDER ?? '').trim().toLowerCase();
   if (value === 'odds_api' || value === 'the_odds_api' || value === 'the-odds-api') return 'odds_api';
@@ -27,7 +25,6 @@ export type OddsProviderCoordinatorBundle = {
   primaryProviderName: RuntimeOddsProviderName;
   fallbackProviderName: RuntimeOddsProviderName | null;
   apiKey: string;
-  skipEurobet: boolean;
 };
 
 export const createOddsProviderCoordinatorBundle = (): OddsProviderCoordinatorBundle => {
@@ -42,6 +39,5 @@ export const createOddsProviderCoordinatorBundle = (): OddsProviderCoordinatorBu
     primaryProviderName,
     fallbackProviderName,
     apiKey,
-    skipEurobet: true,
   };
 };

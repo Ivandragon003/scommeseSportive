@@ -141,7 +141,7 @@ describe('predictions UI components', () => {
         bankroll={1000}
         budgetReady
         isReplayAnalysis={false}
-        oddsSource="eurobet"
+        oddsSource="odds_api"
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
         stakes={{}}
@@ -182,7 +182,7 @@ describe('predictions UI components', () => {
         bankroll={1000}
         budgetReady
         isReplayAnalysis={false}
-        oddsSource="eurobet"
+        oddsSource="odds_api"
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
         stakes={{}}

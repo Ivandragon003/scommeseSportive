@@ -216,7 +216,7 @@ export default function ScrapersPageView() {
   const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
   const effectiveProviderHealth = providerHealth ?? {
     status: 'unknown',
-    primaryProvider: 'eurobet',
+    primaryProvider: 'odds_api',
     fallbackProvider: null,
     activeProvider: null,
     oddsSource: null,
@@ -229,7 +229,6 @@ export default function ScrapersPageView() {
     warnings: [],
     warningCount: 0,
     isMerged: false,
-    lastSmokeRun: null,
   };
   const effectiveSystemMetrics = systemMetrics ?? {
     provider: {
@@ -301,7 +300,7 @@ export default function ScrapersPageView() {
               <div>
                 <div className="fp-card-title">Pipeline quote</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>
-                  Eurobet primario, con fallback tecnico e smoke per diagnosi.
+                  Quote bookmaker caricate da Odds API.
                 </div>
               </div>
               <span className={`fp-badge ${getPipelineTone(quotePipelineStatus)}`}>
@@ -319,10 +318,6 @@ export default function ScrapersPageView() {
                   <strong className="fp-meta-value">
                     {effectiveProviderHealth.freshnessMinutes !== null ? `${effectiveProviderHealth.freshnessMinutes}m` : 'n/d'}
                   </strong>
-                </div>
-                <div className="fp-meta-row">
-                  <span className="fp-meta-label">Ultimo smoke</span>
-                  <strong className="fp-meta-value">{formatFullDate(effectiveProviderHealth.lastSmokeRun?.generatedAt)}</strong>
                 </div>
               </div>
             </div>
@@ -530,11 +525,11 @@ export default function ScrapersPageView() {
               <div>
                 <div className="fp-card-title">📈 Provider quote</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                  Eurobet resta il provider primario. Il provider secondario viene usato solo come fallback tecnico e diagnostico.
+                  Odds API è il provider quote runtime. Il matching usa anche kickoff e nomi squadra.
                 </div>
               </div>
               <span className={`fp-badge ${remainingReq !== null && remainingReq > 100 ? 'fp-badge-green' : remainingReq !== null ? 'fp-badge-gold' : 'fp-badge-gray'}`}>
-                {remainingReq !== null ? `${remainingReq}/500 richieste fallback` : 'Fallback requests: n/d'}
+                {remainingReq !== null ? `${remainingReq}/500 richieste Odds API` : 'Richieste Odds API: n/d'}
               </span>
             </div>
             <div className="fp-card-body">

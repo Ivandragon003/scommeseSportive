@@ -200,8 +200,6 @@ export const getOddsForMatch = (params: {
 }) =>
   API.post<ApiResponse<any>>('/scraper/odds/match', params, { timeout: 240000 }).then(r => r.data);
 
-export const getEurobetOddsForMatch = getOddsForMatch;
-
 export const createMatch = (match: any) =>
   API.post<ApiResponse<any>>('/matches', match).then(r => r.data);
 

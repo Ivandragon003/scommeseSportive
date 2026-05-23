@@ -54,7 +54,7 @@ export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): O
   }
   if (prediction?.oddsSource === 'odds_api') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
   if (prediction?.oddsSource === 'fallback_provider') return { label: 'Quote provider secondario', className: 'pr-badge-gold' };
-  if (prediction?.oddsSource === 'eurobet_unavailable' || prediction?.oddsSource === 'odds_unavailable' || prediction?.oddsSource === 'unavailable') return { label: 'Quote bookmaker non disponibili', className: 'pr-badge-gray' };
+  if (prediction?.oddsSource === 'odds_unavailable' || prediction?.oddsSource === 'unavailable') return { label: 'Quote bookmaker non disponibili', className: 'pr-badge-gray' };
   return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
 };
 
@@ -86,7 +86,7 @@ export const formatMarketKey = (market: string): string => {
 export const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
   `${String(matchId ?? '')}::${String(selection ?? '')}::${String(marketName ?? '')}`;
 
-export const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: string | null) => {
+export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?: string | null) => {
   if (!prediction) return prediction;
   if (oddsSource === 'odds_api') {
     return {
@@ -113,6 +113,7 @@ export const sanitizePredictionForEurobetOnly = (prediction: any, oddsSource?: s
     bestValueOpportunity: null,
   };
 };
+
 
 export const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
   { term: 'Quota', meaning: 'Prezzo bookmaker decimale della selezione (es. 2.10).' },

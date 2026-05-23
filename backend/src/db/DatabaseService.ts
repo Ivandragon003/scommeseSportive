@@ -1548,6 +1548,19 @@ export class DatabaseService {
     return this.all(q, params);
   }
 
+  async updateMatchKickoff(matchId: string, kickoffIso: string): Promise<void> {
+    const id = String(matchId ?? '').trim();
+    const timestamp = Date.parse(String(kickoffIso ?? ''));
+    if (!id || !Number.isFinite(timestamp)) {
+      throw new Error('Invalid matchId or kickoffIso for updateMatchKickoff');
+    }
+
+    await this.run(
+      'UPDATE matches SET date = ? WHERE match_id = ?',
+      [new Date(timestamp).toISOString(), id]
+    );
+  }
+
   async getRecentCompletedMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
     let q = `
       SELECT *

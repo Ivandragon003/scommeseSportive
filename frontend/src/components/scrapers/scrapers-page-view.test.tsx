@@ -9,37 +9,21 @@ const mockedApi = api as jest.Mocked<typeof api>;
 
 const providerHealthPayload = {
   data: {
-    status: 'degraded',
-    primaryProvider: 'eurobet',
-    fallbackProvider: 'odds_api',
+    status: 'healthy',
+    primaryProvider: 'odds_api',
+    fallbackProvider: null,
     activeProvider: 'odds_api',
     oddsSource: 'odds_api',
-    fallbackReason: 'Eurobet degradato, fallback attivo',
+    fallbackReason: null,
     providerHealth: {
-      eurobet: { status: 'unhealthy', checkedAt: '2026-04-22T09:00:00.000Z', message: 'html_or_captcha' },
       odds_api: { status: 'healthy', checkedAt: '2026-04-22T09:00:05.000Z', message: null },
     },
     fetchedAt: '2026-04-22T09:02:00.000Z',
     matchesWithBaseOdds: 4,
     matchesWithExtendedGroups: 1,
     freshnessMinutes: 6,
-    warnings: ['fallback attivo'],
-    warningCount: 1,
-    lastSmokeRun: {
-      origin: 'local_artifact',
-      competition: 'Serie A',
-      generatedAt: '2026-04-22T09:05:00.000Z',
-      freshnessMinutes: 3,
-      severity: 'degraded',
-      success: true,
-      errorCategory: 'html_or_captcha',
-      sourceUsed: 'meeting-json',
-      matchesFound: 4,
-      matchesWithBaseOdds: 4,
-      matchesWithExtendedGroups: 1,
-      durationMs: 22000,
-      warnings: ['fallback attivo'],
-    },
+    warnings: [],
+    warningCount: 0,
   },
 };
 
@@ -100,8 +84,8 @@ beforeEach(() => {
     } as any);
   mockedApi.getSystemHealth.mockResolvedValue({
     data: {
-      status: 'degraded',
-      issues: [{ scope: 'providers', severity: 'warning', message: 'Fallback tecnico attivo' }],
+      status: 'healthy',
+      issues: [],
     },
   } as any);
   mockedApi.getProviderHealth.mockResolvedValue(providerHealthPayload as any);
@@ -163,7 +147,7 @@ describe('ScrapersPageView', () => {
     });
   });
 
-  test('mostra provider degraded e consente scaricare quote live dal tab provider quote', async () => {
+  test('mostra provider Odds API e consente scaricare quote live dal tab provider quote', async () => {
     render(<ScrapersPageView />);
 
     await screen.findByText(/Download da Understat/i);
@@ -173,7 +157,6 @@ describe('ScrapersPageView', () => {
     await screen.findByText(/Scarica quote provider/i);
     expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
     expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('provider-status-summary-provider-eurobet').textContent).toContain('Errore');
     expect(screen.getByTestId('provider-status-summary-provider-odds_api').textContent).toContain('OK');
 
     fireEvent.click(screen.getByRole('button', { name: /Scarica quote provider/i }));

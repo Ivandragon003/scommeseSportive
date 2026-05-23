@@ -1,5 +1,4 @@
 import { DatabaseService } from '../db/DatabaseService';
-import { readLastEurobetSmokeRun } from './EurobetSmokeArtifactsService';
 import { getConfiguredFallbackProviderName, getConfiguredPrimaryProviderName } from './odds-provider/providerRuntimeConfig';
 
 type StructuredLogLevel = 'info' | 'warn' | 'error';
@@ -277,20 +276,11 @@ export class SystemObservabilityService {
 
   async getProviderHealthPayload(): Promise<Record<string, unknown>> {
     const snapshot = this.lastProviderSnapshot ?? await this.loadLatestProviderSnapshot();
-    const lastSmokeRun = readLastEurobetSmokeRun();
     const primaryProvider = getConfiguredPrimaryProviderName();
     const providerHealth = {
       ...(snapshot?.providerHealth ?? {}),
     };
-    if (!providerHealth.eurobet && lastSmokeRun) {
-      providerHealth.eurobet = {
-        provider: 'eurobet',
-        status: this.mapSmokeSeverityToStatus(lastSmokeRun.severity),
-        checkedAt: lastSmokeRun.generatedAt,
-        message: lastSmokeRun.errorCategory ?? lastSmokeRun.warnings[0] ?? 'Smoke Eurobet disponibile',
-      };
-    }
-    const fallbackProvider = getConfiguredFallbackProviderName() ?? (providerHealth.odds_api ? 'odds_api' : null);
+    const fallbackProvider = getConfiguredFallbackProviderName();
 
     const activeProvider = this.deriveActiveProvider(snapshot, primaryProvider, fallbackProvider);
     const primaryStatus = String(providerHealth[primaryProvider]?.status ?? 'unknown');
@@ -298,15 +288,13 @@ export class SystemObservabilityService {
       activeProvider === fallbackProvider && fallbackProvider
         ? 'degraded'
         : primaryStatus === 'healthy'
-          ? 'healthy'
-          : primaryStatus === 'degraded'
-            ? 'degraded'
-            : !snapshot && lastSmokeRun
-              ? this.mapSmokeSeverityToStatus(lastSmokeRun.severity)
-              : primaryStatus === 'unknown'
-                ? 'unknown'
-                : 'unhealthy';
-    const fetchedAt = snapshot?.fetchedAt ?? lastSmokeRun?.generatedAt ?? null;
+        ? 'healthy'
+        : primaryStatus === 'degraded'
+          ? 'degraded'
+          : primaryStatus === 'unknown'
+            ? 'unknown'
+            : 'unhealthy';
+    const fetchedAt = snapshot?.fetchedAt ?? null;
 
     return {
       status: overallStatus,
@@ -322,12 +310,11 @@ export class SystemObservabilityService {
       matchesWithExtendedGroups: snapshot?.matchesWithExtendedGroups ?? 0,
       marketCount: snapshot?.marketCount ?? 0,
       durationMs: snapshot?.durationMs ?? null,
-      errorCategory: snapshot?.errorCategory ?? lastSmokeRun?.errorCategory ?? null,
+      errorCategory: snapshot?.errorCategory ?? null,
       warnings: snapshot?.warnings ?? [],
       warningCount: snapshot?.warningCount ?? 0,
       isMerged: snapshot?.sourceUsed?.includes('+') ?? false,
       freshnessMinutes: minutesSince(fetchedAt),
-      lastSmokeRun,
     };
   }
 
@@ -335,12 +322,12 @@ export class SystemObservabilityService {
     const recentRuns = await this.db.listRecentSystemRuns(MAX_RECENT_RUNS);
     const providerRuns = recentRuns.filter((run) => run.runType === 'provider_fetch');
     const syncRuns = recentRuns.filter((run) => run.runType === 'sync');
-    const eurobetObservedRuns = providerRuns.filter((run) => {
+    const oddsApiObservedRuns = providerRuns.filter((run) => {
       const providerHealth = run?.metadata?.providerHealth ?? {};
-      return run.provider === 'eurobet' || providerHealth.eurobet !== undefined;
+      return run.provider === 'odds_api' || providerHealth.odds_api !== undefined;
     });
-    const eurobetSuccessfulRuns = eurobetObservedRuns.filter((run) => {
-      const status = run?.metadata?.providerHealth?.eurobet?.status;
+    const oddsApiSuccessfulRuns = oddsApiObservedRuns.filter((run) => {
+      const status = run?.metadata?.providerHealth?.odds_api?.status;
       if (status) return status === 'healthy' || status === 'degraded';
       return run.success === true && run.fallbackUsed === false;
     });
@@ -377,7 +364,7 @@ export class SystemObservabilityService {
     return {
       generatedAt: nowIso(),
       provider: {
-        eurobetSuccessRatePct: percent(eurobetSuccessfulRuns.length, eurobetObservedRuns.length),
+        oddsApiSuccessRatePct: percent(oddsApiSuccessfulRuns.length, oddsApiObservedRuns.length),
         fallbackRatePct: percent(providerRuns.filter((run) => Boolean(run.fallbackUsed)).length, providerRuns.length),
         fixtureMatchRatePct: percent(matchedFixtures, requestedFixtures),
         avgScrapeLatencyMs: avgScrapeLatency === null ? null : Math.round(avgScrapeLatency),
@@ -553,17 +540,9 @@ export class SystemObservabilityService {
     }
     if (sourceUsed.includes('+')) return primaryProvider;
     if (sourceUsed === 'odds_api') return 'odds_api';
-    if (sourceUsed === 'eurobet') return 'eurobet';
     if (sourceUsed === fallbackProvider) return fallbackProvider;
     if (sourceUsed === primaryProvider) return primaryProvider;
     return snapshot?.fallbackUsed && fallbackProvider ? fallbackProvider : primaryProvider;
-  }
-
-  private mapSmokeSeverityToStatus(severity?: string | null): string {
-    if (severity === 'healthy') return 'healthy';
-    if (severity === 'degraded') return 'degraded';
-    if (severity === 'failed') return 'unhealthy';
-    return 'unknown';
   }
 
   private async loadLatestProviderSnapshot(): Promise<ProviderSnapshot | null> {
@@ -574,7 +553,7 @@ export class SystemObservabilityService {
     return {
       runId: run.externalRunId ?? String(run.runId ?? ''),
       requestId: run.requestId ?? null,
-      provider: run.provider ?? 'eurobet',
+      provider: run.provider ?? 'odds_api',
       competition: run.competition ?? null,
       meetingAlias: run.meetingAlias ?? null,
       sourceUsed: run.sourceUsed ?? null,

@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const { performance } = require('node:perf_hooks');
 
 const { buildBacktestReport } = require('../dist/services/BacktestReportService.js');
-const { EurobetOddsService } = require('../dist/services/EurobetOddsService.js');
 const { PredictionService, summarizeBudgetBetsInternal } = require('../dist/services/PredictionService.js');
 const { BacktestingEngine } = require('../dist/models/backtesting/BacktestingEngine.js');
 const { DixonColesModel } = require('../dist/models/core/DixonColesModel.js');
@@ -34,8 +33,8 @@ const LEGACY_PROBABILITY_BUCKETS = Array.from({ length: 10 }, (_, index) => ({
 function legacyNormalizeSource(value) {
   const source = String(value ?? '').trim().toLowerCase();
   if (!source) return 'unknown';
-  if (source.includes('eurobet')) return 'eurobet_scraper';
-  if (source.includes('fallback') || source.includes('odds_api')) return 'fallback';
+  if (source.includes('odds_api')) return 'odds_api';
+  if (source.includes('fallback')) return 'fallback';
   if (source.includes('synthetic') || source.includes('model_estimated')) return 'synthetic';
   return source;
 }
@@ -374,7 +373,7 @@ async function runBenchmark(name, inputCount, iterations, task) {
 function createBacktestDetailedBets(count) {
   const competitions = ['Serie A', 'Premier League', 'La Liga'];
   const markets = ['goal_1x2', 'goal_ou', 'shots', 'cards'];
-  const sources = ['eurobet_scraper', 'fallback', 'synthetic'];
+  const sources = ['odds_api', 'fallback', 'synthetic'];
   const confidences = ['HIGH', 'MEDIUM', 'LOW'];
   const bets = [];
 
@@ -422,43 +421,6 @@ function createBacktestReportFilterCycle() {
     { dateFrom: '2026-03-01T00:00:00.000Z', dateTo: '2026-04-30T23:59:59.000Z' },
     { market: 'goal_ou', source: 'synthetic', dateFrom: '2026-02-01T00:00:00.000Z', dateTo: '2026-05-30T23:59:59.000Z' },
   ];
-}
-
-function createEurobetMatch(index) {
-  const day = 10 + (index % 15);
-  const hour = 12 + (index % 8);
-  const minute = index % 2 === 0 ? '00' : '30';
-  return {
-    matchId: `eurobet_${index}`,
-    meetingAlias: 'it-serie-a',
-    eventAlias: `team-${index}-team-${index + 1}-202604${String(day).padStart(2, '0')}${String(hour).padStart(2, '0')}${minute}`,
-    homeTeam: index % 5 === 0 ? `Internazionale ${index}` : `Team ${index}`,
-    awayTeam: index % 7 === 0 ? `AC Milan ${index + 1}` : `Team ${index + 1}`,
-    commenceTime: new Date(Date.UTC(2026, 3, day, hour, minute === '00' ? 0 : 30)).toISOString(),
-    bookmakers: [],
-    availableGroupAliases: [],
-    loadedGroupAliases: ['base'],
-    unavailableGroupAliases: [],
-  };
-}
-
-function createEurobetFixture(index, match) {
-  return {
-    homeTeam: match.homeTeam.replace('Internazionale', 'Inter').replace('AC Milan', 'Milan'),
-    awayTeam: match.awayTeam.replace('Internazionale', 'Inter').replace('AC Milan', 'Milan'),
-    commenceTime: new Date(new Date(match.commenceTime).getTime() + ((index % 5) - 2) * 60 * 60 * 1000).toISOString(),
-  };
-}
-
-function createEurobetBenchmarkDataset(fixtureCount) {
-  const matchCount = Math.max(fixtureCount * 6, fixtureCount + 20);
-  const matches = Array.from({ length: matchCount }, (_, index) => createEurobetMatch(index));
-  const fixtures = Array.from({ length: fixtureCount }, (_, index) => createEurobetFixture(index, matches[index * 3]));
-  return {
-    competitionKey: 'it-serie-a',
-    matches,
-    fixtures,
-  };
 }
 
 function createBacktestMatches(count) {
@@ -548,56 +510,6 @@ function createBudgetBets(count) {
       profit,
     };
   });
-}
-
-function legacyMatchFixturesToCompetitionMatches(service, fixtures, matches) {
-  const available = [...matches];
-  const matchedMatches = [];
-  const missingFixtures = [];
-
-  for (const fixture of fixtures) {
-    let bestIndex = -1;
-    let bestScore = -1;
-
-    available.forEach((match, index) => {
-      const score = service.scoreFixtureMatch(fixture, match);
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = index;
-      }
-    });
-
-    if (bestIndex === -1) {
-      missingFixtures.push(fixture);
-      continue;
-    }
-
-    matchedMatches.push(available[bestIndex]);
-    available.splice(bestIndex, 1);
-  }
-
-  return { matchedMatches, missingFixtures };
-}
-
-function runEurobetMatchingWithComparisonCount(service, matcher) {
-  const originalScoreFixtureMatch = service.scoreFixtureMatch;
-  let comparisons = 0;
-
-  service.scoreFixtureMatch = function scoreFixtureMatchProxy(...args) {
-    comparisons += 1;
-    return originalScoreFixtureMatch.apply(this, args);
-  };
-
-  try {
-    const result = matcher();
-    return {
-      matched: result.matchedMatches.length,
-      missing: result.missingFixtures.length,
-      comparisons,
-    };
-  } finally {
-    service.scoreFixtureMatch = originalScoreFixtureMatch;
-  }
 }
 
 function legacySummarizeBudgetBets(allBets) {
@@ -740,29 +652,6 @@ async function main() {
         buildBacktestReport(reportInput, filters);
       }
     }));
-  }
-
-  const eurobetService = new EurobetOddsService();
-  const eurobetPlans = [
-    { fixtures: 10, iterations: 16 },
-    { fixtures: 100, iterations: 8 },
-    { fixtures: 1000, iterations: 3 },
-  ];
-
-  for (const plan of eurobetPlans) {
-    const dataset = createEurobetBenchmarkDataset(plan.fixtures);
-    benchmarks.push(await runBenchmark(`eurobet-fixture-matching-legacy-${plan.fixtures}`, plan.fixtures, plan.iterations, async () =>
-      runEurobetMatchingWithComparisonCount(
-        eurobetService,
-        () => legacyMatchFixturesToCompetitionMatches(eurobetService, dataset.fixtures, dataset.matches)
-      )
-    ));
-    benchmarks.push(await runBenchmark(`eurobet-fixture-matching-${plan.fixtures}`, plan.fixtures, plan.iterations, async () =>
-      runEurobetMatchingWithComparisonCount(
-        eurobetService,
-        () => eurobetService.matchFixturesToCompetitionMatches(dataset.fixtures, dataset.matches, dataset.competitionKey)
-      )
-    ));
   }
 
   const backtester = new BacktestingEngine();

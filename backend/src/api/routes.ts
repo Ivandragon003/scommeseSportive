@@ -1,8 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService } from '../db/DatabaseService';
-import { EurobetOddsMatch, EurobetOddsService } from '../services/EurobetOddsService';
-import { EurobetSmokeRunSummary, readLastEurobetSmokeRun } from '../services/EurobetSmokeArtifactsService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
 import {
@@ -10,10 +8,10 @@ import {
   getConfiguredOddsApiKey,
   getConfiguredFallbackProviderName,
   getConfiguredPrimaryProviderName,
-  isEurobetScraperSkipped,
   OddsProviderCoordinatorBundle,
 } from '../services/odds-provider/providerRuntimeConfig';
 import { getProviderTimeoutMs } from '../services/odds-provider/OddsProviderCoordinator';
+import { OddsApiKickoffSyncService } from '../services/OddsApiKickoffSyncService';
 import { SofaScoreSupplementalScraper } from '../services/SofaScoreSupplementalScraper';
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
@@ -31,13 +29,13 @@ export type ApiRouterDependencies = {
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
 };
 
-export type EurobetCompetitionFixtureScope = {
+export type OddsCompetitionFixtureScope = {
   homeTeam: string;
   awayTeam: string;
   commenceTime?: string | null;
 };
 
-const normalizeEurobetCompetitionCachePart = (value: string): string =>
+const normalizeOddsCompetitionCachePart = (value: string): string =>
   String(value ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -45,7 +43,7 @@ const normalizeEurobetCompetitionCachePart = (value: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-const normalizeEurobetFixtureCommenceTime = (value?: string | null): string => {
+const normalizeOddsFixtureCommenceTime = (value?: string | null): string => {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
   const timestamp = Date.parse(raw);
@@ -55,35 +53,35 @@ const normalizeEurobetFixtureCommenceTime = (value?: string | null): string => {
   return raw;
 };
 
-const buildEurobetFixtureSignature = (fixtures?: EurobetCompetitionFixtureScope[]): string => {
+const buildOddsFixtureSignature = (fixtures?: OddsCompetitionFixtureScope[]): string => {
   if (!Array.isArray(fixtures) || fixtures.length === 0) return 'all';
 
   return fixtures
     .map((fixture) => [
-      normalizeEurobetCompetitionCachePart(String(fixture.homeTeam ?? '')),
-      normalizeEurobetCompetitionCachePart(String(fixture.awayTeam ?? '')),
-      normalizeEurobetCompetitionCachePart(normalizeEurobetFixtureCommenceTime(fixture.commenceTime)),
+      normalizeOddsCompetitionCachePart(String(fixture.homeTeam ?? '')),
+      normalizeOddsCompetitionCachePart(String(fixture.awayTeam ?? '')),
+      normalizeOddsCompetitionCachePart(normalizeOddsFixtureCommenceTime(fixture.commenceTime)),
     ].join('__'))
     .sort()
     .join('|');
 };
 
-export const buildEurobetCompetitionCacheKey = (input: {
+export const buildOddsCompetitionCacheKey = (input: {
   competition: string;
   includeExtendedGroups?: boolean;
-  fixtures?: EurobetCompetitionFixtureScope[];
+  fixtures?: OddsCompetitionFixtureScope[];
 }): string => {
   const fixtureScoped = Array.isArray(input.fixtures) && input.fixtures.length > 0;
   return [
-    normalizeEurobetCompetitionCachePart(String(input.competition ?? '')),
+    normalizeOddsCompetitionCachePart(String(input.competition ?? '')),
     input.includeExtendedGroups ? 'extended' : 'base',
     fixtureScoped ? 'fixtures' : 'bulk',
-    buildEurobetFixtureSignature(input.fixtures),
+    buildOddsFixtureSignature(input.fixtures),
   ].join('::');
 };
 
-export const shouldUseEurobetCompetitionCache = (
-  fixtures?: EurobetCompetitionFixtureScope[]
+export const shouldUseOddsCompetitionCache = (
+  fixtures?: OddsCompetitionFixtureScope[]
 ): boolean => !Array.isArray(fixtures) || fixtures.length === 0;
 
 const DEFAULT_BULK_ODDS_ROUTE_TIMEOUT_MS = 120_000;
@@ -114,7 +112,7 @@ export const getBulkOddsRouteTimeoutMs = (): number => {
 export const getMatchOddsRouteTimeoutMs = (): number => {
   const configuredRouteTimeout = parsePositiveIntEnvValue(
     'ODDS_MATCH_ROUTE_TIMEOUT_MS',
-    parsePositiveIntEnvValue('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_MATCH_ODDS_ROUTE_TIMEOUT_MS)
+    DEFAULT_MATCH_ODDS_ROUTE_TIMEOUT_MS
   );
   const providerTimeout = getProviderTimeoutMs('runtime', true);
   const fallbackGraceMs = parsePositiveIntEnvValue(
@@ -2496,7 +2494,6 @@ type OddsRuntimeState = {
   providerHealth: Record<string, any>;
   isMerged: boolean;
   freshnessMinutes: number | null;
-  lastSmokeRun: EurobetSmokeRunSummary | null;
   warningCount: number;
   errorCategory: string | null;
   lastDurationMs: number | null;
@@ -2505,7 +2502,6 @@ type OddsRuntimeState = {
 const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
 const matchOddsInFlight = new Map<string, Promise<any>>();
 const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
-const DEFAULT_EUROBET_MATCH_TIMEOUT_MS = 60 * 1000;
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -2514,8 +2510,6 @@ const parsePositiveIntEnv = (name: string, fallback: number): number => {
 
 const getMatchOddsCacheTtlMs = (): number =>
   parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
-
-const getEurobetMatchTimeoutMs = (): number => getMatchOddsRouteTimeoutMs();
 
 const normalizeMatchOddsCachePart = (value: string): string =>
   String(value ?? '')
@@ -2585,7 +2579,6 @@ let oddsRuntimeState: OddsRuntimeState = {
   providerHealth: {},
   isMerged: false,
   freshnessMinutes: null,
-  lastSmokeRun: readLastEurobetSmokeRun(),
   warningCount: 0,
   errorCategory: null,
   lastDurationMs: null,
@@ -2636,24 +2629,12 @@ const detectProviderErrorCategory = (
   return null;
 };
 
-const getPrimaryEurobetMatch = (matches: CoordinatedOddsMatch[]): EurobetOddsMatch | null => {
-  for (const entry of matches) {
-    const eurobetMatch = entry.providerMatches.eurobet as EurobetOddsMatch | undefined;
-    if (eurobetMatch?.meetingAlias) return eurobetMatch;
-  }
-  return null;
-};
-
 const countMatchesWithBaseOdds = (matches: CoordinatedOddsMatch[]): number =>
   matches.filter((entry) =>
     Object.values(entry.bestOddsByProvider ?? {}).some((odds) => Object.keys(odds ?? {}).length > 0)
   ).length;
 
-const countMatchesWithExtendedGroups = (matches: CoordinatedOddsMatch[]): number =>
-  matches.filter((entry) => {
-    const eurobetMatch = entry.providerMatches.eurobet as EurobetOddsMatch | undefined;
-    return Boolean(eurobetMatch?.loadedGroupAliases?.some((alias) => alias !== 'base'));
-  }).length;
+const countMatchesWithExtendedGroups = (_matches: CoordinatedOddsMatch[]): number => 0;
 
 const normalizeTeamForOdds = (name: string): string => {
   const aliases: Record<string, string> = {
@@ -2746,12 +2727,12 @@ const flattenProviderMargins = (
 
 const summarizeOddsCoverage = (
   liveSelectedOdds: Record<string, number>,
-  eurobetOdds: Record<string, number>,
+  providerOdds: Record<string, number>,
   estimatedOdds: Record<string, number>
 ): {
-  eurobetPresent: boolean;
+  providerOddsPresent: boolean;
   liveDomains: Record<string, number>;
-  eurobetDomains: Record<string, number>;
+  providerDomains: Record<string, number>;
   syntheticDomains: Record<string, number>;
   providerNotes: string[];
 } => {
@@ -2771,9 +2752,9 @@ const summarizeOddsCoverage = (
     }, {} as Record<string, number>);
 
   return {
-    eurobetPresent: Object.keys(eurobetOdds ?? {}).length > 0,
+    providerOddsPresent: Object.keys(providerOdds ?? {}).length > 0,
     liveDomains: countDomains(liveSelectedOdds),
-    eurobetDomains: countDomains(eurobetOdds),
+    providerDomains: countDomains(providerOdds),
     syntheticDomains: countDomains(estimatedOdds),
     providerNotes: [
       'La copertura dei mercati dipende dal provider configurato e dal singolo evento.',
@@ -2799,7 +2780,7 @@ const persistOddsSnapshot = async (input: {
   source: string;
   selectedOdds?: Record<string, number>;
   liveSelectedOdds?: Record<string, number>;
-  eurobetOdds?: Record<string, number>;
+  legacyOdds?: Record<string, number>;
   estimatedOdds?: Record<string, number>;
   fallbackOdds?: Record<string, number>;
   allBookmakerOdds?: Record<string, Record<string, number>>;
@@ -2809,8 +2790,8 @@ const persistOddsSnapshot = async (input: {
   confidenceScore?: number;
 }): Promise<{ saved: boolean; matchId: string | null }> => {
   const liveSelectedOdds = sanitizeOddsMap(input.liveSelectedOdds ?? {});
-  const eurobetOdds = sanitizeOddsMap(input.eurobetOdds ?? {});
-  if (Object.keys(liveSelectedOdds).length === 0 && Object.keys(eurobetOdds).length === 0) {
+  const legacyOdds = sanitizeOddsMap(input.legacyOdds ?? {});
+  if (Object.keys(liveSelectedOdds).length === 0 && Object.keys(legacyOdds).length === 0) {
     return { saved: false, matchId: null };
   }
 
@@ -2836,7 +2817,7 @@ const persistOddsSnapshot = async (input: {
     source: input.source,
     selectedOdds: sanitizeOddsMap(input.selectedOdds ?? {}),
     liveSelectedOdds,
-    eurobetOdds,
+    eurobetOdds: legacyOdds,
     estimatedOdds: sanitizeOddsMap(input.estimatedOdds ?? {}),
     fallbackOdds: sanitizeOddsMap(input.fallbackOdds ?? {}),
     allBookmakerOdds: input.allBookmakerOdds ?? {},
@@ -3007,7 +2988,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       primaryProviderName,
       fallbackProviderName,
       apiKey,
-      skipEurobet,
     } = createOddsBundle();
     if (primaryProviderName === 'odds_api' && !apiKey) {
       return res.status(503).json({
@@ -3016,26 +2996,11 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       });
     }
 
-    const eurobetFixtures = !skipEurobet
-      ? (
-        await db.getUpcomingMatches({
-          competition: String(competition),
-          limit: 40,
-        })
-      )
-        .map((match: any) => ({
-          homeTeam: String(match.home_team_name ?? ''),
-          awayTeam: String(match.away_team_name ?? ''),
-          commenceTime: match.date ? String(match.date) : null,
-        }))
-        .filter((match: any) => match.homeTeam && match.awayTeam)
-      : [];
-
     const coordination = await withTimeout(
       coordinator.getCompetitionOdds(
         {
           competition: String(competition),
-          fixtures: eurobetFixtures,
+          fixtures: [],
           markets: normalizedMarkets,
           fallbackMarkets: Array.from(
             new Set([
@@ -3060,7 +3025,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       'Coordinated bulk odds lookup'
     );
 
-    const primaryEurobetMatch = getPrimaryEurobetMatch(coordination.matches);
     const matchesWithBaseOdds = countMatchesWithBaseOdds(coordination.matches);
     const matchesWithExtendedGroups = countMatchesWithExtendedGroups(coordination.matches);
     const errorCategory = detectProviderErrorCategory(
@@ -3082,11 +3046,11 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         runId,
         provider: primaryProviderName,
         competition: String(competition),
-        meetingAlias: primaryEurobetMatch?.meetingAlias ?? null,
+        meetingAlias: null,
         sourceUsed,
         matchCount: 0,
         marketCount,
-        fixtureCount: eurobetFixtures.length,
+        fixtureCount: 0,
         matchesWithBaseOdds,
         matchesWithExtendedGroups,
         durationMs,
@@ -3114,7 +3078,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     }
 
     const enriched = coordination.matches.map((entry: CoordinatedOddsMatch) => {
-      const eurobetOdds = sanitizeOddsMap(entry.bestOddsByProvider.eurobet ?? {});
       const primaryOdds = sanitizeOddsMap(entry.bestOddsByProvider[primaryProviderName] ?? {});
       const fallbackBestOdds = fallbackProviderName
         ? sanitizeOddsMap(entry.bestOddsByProvider[fallbackProviderName] ?? {})
@@ -3131,7 +3094,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         homeTeam: entry.match.homeTeam,
         awayTeam: entry.match.awayTeam,
         commenceTime: entry.match.commenceTime,
-        eurobetOdds,
+        oddsApiOdds: sanitizeOddsMap(entry.bestOddsByProvider.odds_api ?? {}),
         bestOdds,
         bookmakerComparison: flattenProviderComparisons(entry.bookmakerComparisonByProvider),
         margins: flattenProviderMargins(entry.marginsByProvider),
@@ -3149,7 +3112,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     let savedSnapshots = 0;
     for (const entry of coordination.matches) {
       try {
-        const eurobetOdds = sanitizeOddsMap(entry.bestOddsByProvider.eurobet ?? {});
         const primaryOdds = sanitizeOddsMap(entry.bestOddsByProvider[primaryProviderName] ?? {});
         const fallbackBestOdds = fallbackProviderName
           ? sanitizeOddsMap(entry.bestOddsByProvider[fallbackProviderName] ?? {})
@@ -3160,9 +3122,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
             ? fallbackProviderName
             : null;
         const liveSelectedOdds = selectedProvider === primaryProviderName ? primaryOdds : fallbackBestOdds;
-        const eurobetMatch = entry.providerMatches.eurobet as EurobetOddsMatch | undefined;
-        const oddsProviderMatchId = eurobetMatch?.eventAlias
-          ?? String(entry.match.matchId ?? '').replace(/^odds_/, '');
+        const oddsProviderMatchId = String(entry.match.matchId ?? '').replace(/^odds_/, '');
         const usedFallbackBookmaker = Boolean(selectedProvider && selectedProvider !== primaryProviderName);
         const snapshot = await persistOddsSnapshot({
           oddsProviderMatchId,
@@ -3173,7 +3133,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
           source: selectedProvider ?? entry.oddsSource,
           selectedOdds: liveSelectedOdds,
           liveSelectedOdds,
-          eurobetOdds,
+          legacyOdds: {},
           estimatedOdds: {},
           fallbackOdds: usedFallbackBookmaker ? liveSelectedOdds : {},
           allBookmakerOdds: flattenProviderComparisons(entry.bookmakerComparisonByProvider),
@@ -3210,7 +3170,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       providerHealth: coordination.providerHealth,
       isMerged: coordination.isMerged,
       freshnessMinutes: minutesSince(coordination.fetchedAt),
-      lastSmokeRun: readLastEurobetSmokeRun(),
       warningCount: coordination.warnings.length,
       errorCategory,
       lastDurationMs: durationMs,
@@ -3225,11 +3184,11 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       runId,
       provider: primaryProviderName,
       competition: String(competition),
-      meetingAlias: primaryEurobetMatch?.meetingAlias ?? null,
+      meetingAlias: null,
       sourceUsed,
       matchCount: coordination.matches.length,
       marketCount,
-      fixtureCount: eurobetFixtures.length,
+      fixtureCount: 0,
       matchesWithBaseOdds,
       matchesWithExtendedGroups,
       durationMs,
@@ -3269,7 +3228,6 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         fetchedAt: coordination.fetchedAt,
         isMerged: coordination.isMerged,
         freshnessMinutes: oddsRuntimeState.freshnessMinutes,
-        lastSmokeRun: oddsRuntimeState.lastSmokeRun,
         warnings: coordination.warnings,
       },
     });
@@ -3364,7 +3322,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
     }
 
     const oddsBundle = createOddsBundle();
-    const matchTimeoutMs = getEurobetMatchTimeoutMs();
+    const matchTimeoutMs = getMatchOddsRouteTimeoutMs();
     if (oddsBundle.primaryProviderName === 'odds_api' && !oddsBundle.apiKey) {
       return res.status(503).json({
         success: false,
@@ -3378,11 +3336,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           activeProvider: null,
           selectedProvider: null,
           timeoutMs: matchTimeoutMs,
-          loadedGroupAliases: [],
-          unavailableGroupAliases: [],
           marketCount: 0,
           selectedOddsCount: 0,
-          eurobetOddsCount: 0,
           fallbackReason: 'ODDS_API_KEY non configurata',
           providerHealth: {
             odds_api: {
@@ -3487,7 +3442,6 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       );
 
       const coordinatedMatch = coordination.matches[0] ?? null;
-      const primaryEurobetMatch = getPrimaryEurobetMatch(coordination.matches);
       const primaryRuntime = coordination.providerRuntime[primaryProviderName] ?? {};
       const primaryFetchDetails = (primaryRuntime.fetchDetails ?? {}) as Record<string, any>;
       const fixtureDiagnostics = Array.isArray(primaryFetchDetails.fixtureDiagnostics)
@@ -3526,7 +3480,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           runId,
           provider: primaryProviderName,
           competition: String(competition),
-          meetingAlias: primaryEurobetMatch?.meetingAlias ?? null,
+          meetingAlias: null,
           sourceUsed: primaryProviderName,
           matchCount: 0,
           marketCount,
@@ -3566,16 +3520,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           fetchedAt: coordination.fetchedAt,
           isMerged: coordination.isMerged,
           freshnessMinutes: minutesSince(coordination.fetchedAt),
-          lastSmokeRun: readLastEurobetSmokeRun(),
           selectedOdds: {},
-          eurobetOdds: {},
+          oddsApiOdds: {},
           fallbackOdds: {},
           allBookmakerOdds: {},
-          loadedGroupAliases: [],
-          unavailableGroupAliases: [],
           marketCount,
           selectedOddsCount: 0,
-          eurobetOddsCount: 0,
           oddsCoverage: summarizeOddsCoverage({}, {}, {}),
           usedFallbackBookmaker: false,
           usedSyntheticOdds: false,
@@ -3594,12 +3544,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         };
       }
 
-      const eurobetMatch = coordinatedMatch.providerMatches.eurobet as EurobetOddsMatch | undefined;
-      const eurobetOdds = coordinatedMatch.bestOddsByProvider.eurobet ?? {};
       const oddsApiOdds = coordinatedMatch.bestOddsByProvider.odds_api ?? {};
-      const sanitizedEurobetOdds = sanitizeOddsMap(eurobetOdds);
-      const loadedGroupAliases = Array.isArray(eurobetMatch?.loadedGroupAliases) ? eurobetMatch.loadedGroupAliases : [];
-      const unavailableGroupAliases = Array.isArray(eurobetMatch?.unavailableGroupAliases) ? eurobetMatch.unavailableGroupAliases : [];
       const providerPriority = Array.from(new Set([
         primaryProviderName,
         ...String(coordinatedMatch.oddsSource ?? '').split('+').filter(Boolean),
@@ -3619,14 +3564,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const fallbackOdds: Record<string, number> = usedFallbackBookmaker ? selectedOdds : {};
       const oddsCoverage = summarizeOddsCoverage(
         selectedOdds,
-        sanitizedEurobetOdds,
+        {},
         estimatedOdds
       );
-      const eurobetRequested = eurobetMatch
-        ? ['eurobet_event_base', ...loadedGroupAliases.filter((alias) => alias !== 'base').map((alias) => `eurobet:${alias}`)]
-        : [];
       const finalMarketsRequested = Array.from(new Set([
-        ...eurobetRequested,
         ...preferredMarkets,
         ...fallbackMarkets,
         ...eventAdditionalMarkets,
@@ -3640,10 +3581,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const selectedProviderMatch = selectedProvider
         ? coordinatedMatch.providerMatches[selectedProvider] as OddsMatch | undefined
         : undefined;
-      const eurobetProviderMatchId = eurobetMatch?.eventAlias ?? String(selectedProviderMatch?.matchId ?? '');
-      const oddsProviderMatchId = selectedProvider === 'eurobet'
-        ? (eurobetProviderMatchId || null)
-        : (String(selectedProviderMatch?.matchId ?? '').replace(/^odds_/, '') || null);
+      const oddsProviderMatchId = String(selectedProviderMatch?.matchId ?? '').replace(/^odds_/, '') || null;
 
       let historicalSnapshotSaved = false;
       let snapshotMatchId: string | null = null;
@@ -3658,7 +3596,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           source,
           selectedOdds,
           liveSelectedOdds,
-          eurobetOdds,
+          legacyOdds: {},
           estimatedOdds,
           fallbackOdds,
           allBookmakerOdds,
@@ -3677,20 +3615,16 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       if (usedFallbackBookmaker && selectedProvider) {
         providerNotes.push(`Quote caricate da provider secondario (${selectedProvider}) per indisponibilita del primario.`);
       }
-      if (eurobetMatch?.unavailableGroupAliases?.includes('statistiche-partita')) {
-        providerNotes.push('Eurobet ha restituito i mercati base, ma il gruppo statistiche partita non era disponibile in questa sessione di scraping.');
-      }
       const sourceUsed = source;
       const fallbackUsed = usedFallbackBookmaker || Boolean(coordinatedMatch.fallbackReason ?? coordination.fallbackReason);
       const selectedOddsCount = Object.keys(selectedOdds).length;
-      const eurobetOddsCount = Object.keys(sanitizedEurobetOdds).length;
 
       await observability?.recordProviderRun({
         requestId,
         runId,
         provider: primaryProviderName,
         competition: String(competition),
-        meetingAlias: primaryEurobetMatch?.meetingAlias ?? null,
+        meetingAlias: null,
         sourceUsed,
         matchCount: 1,
         marketCount,
@@ -3741,17 +3675,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         fetchedAt: coordinatedMatch.fetchedAt,
         isMerged: coordinatedMatch.isMerged,
         freshnessMinutes: minutesSince(coordinatedMatch.fetchedAt),
-        lastSmokeRun: readLastEurobetSmokeRun(),
         selectedOdds,
-        eurobetOdds: sanitizedEurobetOdds,
         oddsApiOdds: sanitizeOddsMap(oddsApiOdds),
         fallbackOdds,
         allBookmakerOdds,
-        loadedGroupAliases,
-        unavailableGroupAliases,
         marketCount,
         selectedOddsCount,
-        eurobetOddsCount,
         oddsCoverage: {
           ...oddsCoverage,
           providerNotes,
@@ -3760,12 +3689,12 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         match: {
           homeTeam: responseMatch.homeTeam,
           awayTeam: responseMatch.awayTeam,
-          commenceTime: responseMatch.commenceTime,
+          commenceTime: resolvedCommenceTime,
         },
         providerMatchId: oddsProviderMatchId,
         matchedHomeTeam: responseMatch.homeTeam,
         matchedAwayTeam: responseMatch.awayTeam,
-        commenceTime: responseMatch.commenceTime,
+        commenceTime: resolvedCommenceTime,
         historicalSnapshotSaved,
         snapshotMatchId,
         confidenceScore,
@@ -3799,7 +3728,6 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       found: Boolean(payload?.found),
       source: payload?.source ?? payload?.oddsSource ?? 'unavailable',
       selectedOddsCount: Object.keys(sanitizeOddsMap(payload?.selectedOdds ?? {})).length,
-      eurobetOddsCount: Object.keys(sanitizeOddsMap(payload?.eurobetOdds ?? {})).length,
       warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
       durationMs: Date.now() - routeStartedAtMs,
     });
@@ -3818,11 +3746,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       },
       primaryProvider: getConfiguredPrimaryProviderName(),
       fallbackProvider: getConfiguredFallbackProviderName(),
-      timeoutMs: getEurobetMatchTimeoutMs(),
+      timeoutMs: getMatchOddsRouteTimeoutMs(),
       found: false,
       source: 'unavailable',
       selectedOddsCount: 0,
-      eurobetOddsCount: 0,
       warnings: errorWarnings,
       durationMs: Date.now() - routeStartedAtMs,
       error: errorMessage,
@@ -3867,14 +3794,11 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         fallbackProvider: getConfiguredFallbackProviderName(),
         activeProvider: null,
         selectedProvider: null,
-        timeoutMs: getEurobetMatchTimeoutMs(),
+        timeoutMs: getMatchOddsRouteTimeoutMs(),
         providerHealth: {},
         warnings: errorWarnings,
-        loadedGroupAliases: [],
-        unavailableGroupAliases: [],
         marketCount: 0,
         selectedOddsCount: 0,
-        eurobetOddsCount: 0,
         message: `Errore quote: ${errorMessage}`,
       },
     });
@@ -3890,15 +3814,39 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/system/sync-upcoming-kickoffs', async (req: Request, res: Response) => {
+  try {
+    if (!getConfiguredOddsApiKey()) {
+      return res.status(503).json({
+        success: false,
+        error: 'ODDS_API_KEY non configurata: impossibile correggere i kickoff da Odds API.',
+      });
+    }
+
+    const competition = String(req.body?.competition ?? req.query?.competition ?? 'Serie A').trim() || 'Serie A';
+    const season = String(req.body?.season ?? req.query?.season ?? '').trim() || undefined;
+    const limitRaw = Number(req.body?.limit ?? req.query?.limit ?? 160);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(Math.trunc(limitRaw), 500)) : 160;
+    const syncService = new OddsApiKickoffSyncService(db);
+    const data = await syncService.syncUpcomingKickoffsFromOddsApi({ competition, season, limit });
+
+    res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('[OddsApi] Errore sync kickoff upcoming:', error?.message ?? error);
+    res.status(500).json({
+      success: false,
+      error: error?.message ?? 'Errore sync kickoff upcoming',
+    });
+  }
+});
+
 router.get('/scraper/odds/status', (_req, res) => {
-  const lastSmokeRun = readLastEurobetSmokeRun();
   res.json({
     success: true,
     data: {
       ...oddsRuntimeState,
       primaryProvider: oddsRuntimeState.primaryProvider || getConfiguredPrimaryProviderName(),
       freshnessMinutes: oddsRuntimeState.fetchedAt ? minutesSince(oddsRuntimeState.fetchedAt) : oddsRuntimeState.freshnessMinutes,
-      lastSmokeRun,
     },
   });
 });
@@ -3907,13 +3855,13 @@ router.get('/scraper/odds/info', (_req, res) => {
   res.json({
     success: true,
     data: {
-      competitions: EurobetOddsService.getSupportedCompetitions(),
-      bookmakers: ['eurobet', ...OddsApiService.getSupportedBookmakers()],
+      competitions: OddsApiService.getSupportedCompetitions(),
+      bookmakers: OddsApiService.getSupportedBookmakers(),
       freePlanLimit: 500,
       registrationUrl: 'https://the-odds-api.com',
       primaryProvider: getConfiguredPrimaryProviderName(),
       fallbackProvider: getConfiguredFallbackProviderName(),
-      note: 'Eurobet e il provider primario di default quando SKIP_EUROBET_SCRAPER=false. Usa ODDS_PRIMARY_PROVIDER=odds_api o SKIP_EUROBET_SCRAPER=true per rendere Odds API primario.',
+      note: 'Il progetto usa Odds API come unico provider quote runtime.',
     }
   });
 });
@@ -3923,19 +3871,15 @@ router.get('/scraper/odds/debug-config', (_req, res) => {
     success: true,
     data: {
       ODDS_PRIMARY_PROVIDER: String(process.env.ODDS_PRIMARY_PROVIDER ?? '').trim() || null,
-      SKIP_EUROBET_SCRAPER: isEurobetScraperSkipped(),
       hasOddsApiKey: Boolean(getConfiguredOddsApiKey()),
       primaryProvider: getConfiguredPrimaryProviderName(),
       fallbackProvider: getConfiguredFallbackProviderName(),
-      EUROBET_MATCH_TIMEOUT_MS: parsePositiveIntEnv('EUROBET_MATCH_TIMEOUT_MS', DEFAULT_EUROBET_MATCH_TIMEOUT_MS),
-      routeMatchTimeoutMs: getEurobetMatchTimeoutMs(),
+      routeMatchTimeoutMs: getMatchOddsRouteTimeoutMs(),
       ODDS_PROVIDER_MATCH_TIMEOUT_MS: getProviderTimeoutMs('runtime', true),
       ODDS_MATCH_ROUTE_TIMEOUT_MS: getMatchOddsRouteTimeoutMs(),
-      ODDS_EVENT_TIMEOUT_MS: parsePositiveIntEnv('ODDS_EVENT_TIMEOUT_MS', 60 * 1000),
+      ODDS_EVENT_TIMEOUT_MS: parsePositiveIntEnvValue('ODDS_EVENT_TIMEOUT_MS', 60 * 1000),
       ODDS_PROVIDER_COMPETITION_TIMEOUT_MS: getProviderTimeoutMs('runtime', false),
       ODDS_BULK_ROUTE_TIMEOUT_MS: getBulkOddsRouteTimeoutMs(),
-      EUROBET_BROWSER_HEADLESS: String(process.env.EUROBET_BROWSER_HEADLESS ?? 'true').trim().toLowerCase() !== 'false',
-      EUROBET_PERSISTENT_PROFILE_ENABLED: String(process.env.EUROBET_PERSISTENT_PROFILE_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
       NODE_ENV: process.env.NODE_ENV ?? null,
     },
   });
