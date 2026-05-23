@@ -49,4 +49,24 @@ describe('backtesting API timeout', () => {
       .rejects
       .toThrow(WALK_FORWARD_TIMEOUT_MESSAGE);
   });
+
+  test('syncUpcomingKickoffs usa endpoint calendario e invalida cache upcoming', async () => {
+    const { getUpcomingMatches, invalidateApiCache, syncUpcomingKickoffs } = await import('./api');
+    invalidateApiCache();
+    mockGet
+      .mockResolvedValueOnce({ data: { success: true, data: [{ match_id: 'first' }] } })
+      .mockResolvedValueOnce({ data: { success: true, data: [{ match_id: 'second' }] } });
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { corrected: 1 } } });
+
+    await getUpcomingMatches({ competition: 'Serie A' });
+    await syncUpcomingKickoffs({ mode: 'top5', season: '2025/2026', limit: 160 });
+    await getUpcomingMatches({ competition: 'Serie A' });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/system/sync-upcoming-kickoffs',
+      expect.objectContaining({ mode: 'top5', season: '2025/2026', limit: 160 }),
+      expect.objectContaining({ timeout: 120000 })
+    );
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
 });

@@ -67,7 +67,11 @@ test('header principale mostra solo brand e aggiorna sistema, senza dettagli tec
   fireEvent.click(within(header).getByRole('button', { name: /Aggiorna sistema/i }));
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({ mode: 'top5', limit: 160 }));
+  await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({
+    mode: 'top5',
+    season: expect.stringMatching(/^\d{4}\/\d{4}$/),
+    limit: 160,
+  }));
   expect(await screen.findByText('Sistema aggiornato')).toBeTruthy();
 });
 

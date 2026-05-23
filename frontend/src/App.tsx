@@ -18,6 +18,7 @@ import Scrapers from './pages/Scrapers';
 import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
+import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
 import './footpredictor.css';
 
 const NAV_ITEMS = [
@@ -225,7 +226,7 @@ const App: React.FC = () => {
       let kickoffSyncWarning: string | null = null;
       if (!isSilent) {
         try {
-          const kickoffPayload = await syncUpcomingKickoffs({ mode: 'top5', limit: 160 });
+          const kickoffPayload = await syncUpcomingKickoffs({ mode: 'top5', season: currentSeason(), limit: 160 });
           kickoffCorrected = Number(kickoffPayload?.data?.corrected ?? 0);
           window.dispatchEvent(new Event('data-sync-complete'));
         } catch (kickoffError: any) {

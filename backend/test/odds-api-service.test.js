@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const axios = require('axios');
 const { OddsApiService } = require('../dist/services/OddsApiService.js');
 
 test('compareBookmakers keeps non-h2h soccer markets such as corners and cards', () => {
@@ -120,4 +121,48 @@ test('extractBestOdds maps extended statistical and player markets without colla
   assert.equal(odds['fouls_over_22.5'], 1.92);
   assert.equal(odds['player_shots_lautaro_martinez_over_1.5'], 2.1);
   assert.equal(odds['player_shots_rafael_leao_over_1.5'], 2.35);
+});
+
+test('getScores normalizza eventi scores senza quote per correzione calendario', async () => {
+  const originalGet = axios.get;
+  axios.get = async (url, config) => {
+    assert.match(url, /\/sports\/soccer_italy_serie_a\/scores\/$/);
+    assert.equal(config.params.apiKey, 'test-key');
+    assert.equal(config.params.daysFrom, '3');
+    assert.equal(config.params.dateFormat, 'iso');
+
+    return {
+      headers: { 'x-requests-remaining': '321' },
+      data: [
+        {
+          id: 'bologna_inter',
+          home_team: 'Bologna',
+          away_team: 'Inter',
+          commence_time: '2026-05-23T16:00:00Z',
+          completed: true,
+          scores: [
+            { name: 'Bologna', score: '1' },
+            { name: 'Inter', score: '2' },
+          ],
+        },
+      ],
+    };
+  };
+
+  try {
+    const service = new OddsApiService('test-key');
+    const scores = await service.getScores('Serie A', 3);
+
+    assert.equal(scores.length, 1);
+    assert.equal(scores[0].matchId, 'scores_bologna_inter');
+    assert.equal(scores[0].homeTeam, 'Bologna');
+    assert.equal(scores[0].awayTeam, 'Inter');
+    assert.equal(scores[0].commenceTime, '2026-05-23T16:00:00Z');
+    assert.equal(scores[0].completed, true);
+    assert.equal(scores[0].live, false);
+    assert.deepEqual(scores[0].bookmakers, []);
+    assert.equal(service.getRemainingRequests(), 321);
+  } finally {
+    axios.get = originalGet;
+  }
 });

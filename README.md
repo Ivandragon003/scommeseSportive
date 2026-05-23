@@ -939,9 +939,9 @@ evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
 - In `docker-compose.yml` e `docker-compose.prod.yml` il runtime deve leggere i valori solo da variabili ambiente interpolate, non da file committati con valori reali.
 - `.env.example` deve contenere solo placeholder sicuri.
 
-### Secret scan automatico
+### Secret scan locale
 
-- Il repository esegue uno scan automatico su `push` e `pull_request` tramite [`.github/workflows/secret-scan.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/secret-scan.yml).
+- Il workflow GitHub Actions di Secret Scan e stato rimosso: non blocca piu `push` e `pull_request`.
 - La configurazione Gitleaks sta in [`.gitleaks.toml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.gitleaks.toml).
 - Lo scan locale richiede `gitleaks` installato sulla macchina oppure Docker disponibile.
 - Lo scan locale equivalente e:
@@ -954,7 +954,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\security\run-secret-scan.ps1 
 
 1. revoca o ruota subito la credenziale compromessa
 2. aggiorna GitHub Secrets, variabili ambiente locali e ambiente di deploy
-3. riesegui lo scan locale e quello CI
+3. riesegui lo scan locale se usi Gitleaks in sviluppo
 4. valuta la bonifica history seguendo [docs/security/history-cleanup.md](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/security/history-cleanup.md)
 5. registra data, impatto e credenziali ruotate nel changelog operativo interno
 
@@ -1036,7 +1036,6 @@ Compatibilita preservata:
 
 - CI generale: [`.github/workflows/ci.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/ci.yml)
 - Nightly sync: [`.github/workflows/nightly-sync.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/nightly-sync.yml)
-- Secret scan: [`.github/workflows/secret-scan.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/secret-scan.yml)
 - Odds API smoke manuale: [`.github/workflows/odds-api-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/odds-api-smoke.yml)
 
 Per GitHub Actions e deploy usa solo GitHub Secrets o variabili ambiente del runtime:

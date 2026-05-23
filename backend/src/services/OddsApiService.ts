@@ -32,6 +32,10 @@ export interface OddsMatch {
   awayTeam: string;
   commenceTime: string;       // ISO datetime UTC
   bookmakers: BookmakerOdds[];
+  completed?: boolean;
+  live?: boolean;
+  scores?: Array<{ name: string; score: string | null }>;
+  source?: 'odds' | 'scores';
 }
 
 export interface BookmakerOdds {
@@ -204,6 +208,31 @@ export class OddsApiService {
     return this.parseSingleEventResponse(response.data);
   }
 
+  async getScores(competition: string, daysFrom = 3): Promise<OddsMatch[]> {
+    const sportKey = OddsApiService.SPORT_KEYS[competition];
+    if (!sportKey) {
+      throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(OddsApiService.SPORT_KEYS).join(', ')}`);
+    }
+
+    const safeDaysFrom = Math.max(1, Math.min(Math.trunc(Number(daysFrom) || 3), 3));
+    const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/scores/`, {
+      params: {
+        apiKey: this.apiKey,
+        daysFrom: String(safeDaysFrom),
+        dateFormat: 'iso',
+      },
+      timeout: 15000,
+    });
+
+    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
+    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
+    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
+      this.remainingRequests = parsedRemaining;
+    }
+
+    return this.parseScoresResponse(response.data);
+  }
+
   private parseOddsResponse(data: any[]): OddsMatch[] {
     if (!Array.isArray(data)) return [];
 
@@ -212,6 +241,7 @@ export class OddsApiService {
       homeTeam: event.home_team,
       awayTeam: event.away_team,
       commenceTime: event.commence_time,
+      source: 'odds',
       bookmakers: (event.bookmakers ?? []).map((bm: any) => ({
         bookmakerKey: bm.key,
         bookmakerName: bm.title,
@@ -237,6 +267,7 @@ export class OddsApiService {
       homeTeam: event.home_team,
       awayTeam: event.away_team,
       commenceTime: event.commence_time,
+      source: 'odds',
       bookmakers: (event.bookmakers ?? []).map((bm: any) => ({
         bookmakerKey: bm.key,
         bookmakerName: bm.title,
@@ -251,6 +282,35 @@ export class OddsApiService {
         })),
       })),
     };
+  }
+
+  private parseScoresResponse(data: any[]): OddsMatch[] {
+    if (!Array.isArray(data)) return [];
+
+    return data
+      .filter((event) => event && typeof event === 'object')
+      .map((event) => {
+        const scores = Array.isArray(event.scores)
+          ? event.scores.map((score: any) => ({
+            name: String(score?.name ?? ''),
+            score: score?.score === null || score?.score === undefined ? null : String(score.score),
+          }))
+          : [];
+        const completed = Boolean(event.completed);
+
+        return {
+          matchId: `scores_${event.id}`,
+          homeTeam: String(event.home_team ?? ''),
+          awayTeam: String(event.away_team ?? ''),
+          commenceTime: String(event.commence_time ?? ''),
+          completed,
+          live: Boolean(event.live ?? (!completed && scores.length > 0)),
+          scores,
+          source: 'scores' as const,
+          bookmakers: [],
+        };
+      })
+      .filter((event) => event.homeTeam && event.awayTeam && event.commenceTime);
   }
 
   private formatLineKey(point: unknown): string {

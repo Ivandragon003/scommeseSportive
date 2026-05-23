@@ -8,6 +8,8 @@ const buildDbMatch = (overrides = {}) => ({
   away_team_name: overrides.away_team_name ?? 'Inter',
   date: overrides.date ?? '2026-05-24T13:00:00.000Z',
   competition: overrides.competition ?? 'Serie A',
+  home_goals: overrides.home_goals ?? null,
+  away_goals: overrides.away_goals ?? null,
 });
 
 const buildOddsMatch = (overrides = {}) => ({
@@ -18,7 +20,7 @@ const buildOddsMatch = (overrides = {}) => ({
   bookmakers: [],
 });
 
-const createHarness = ({ dbMatches, providerMatches }) => {
+const createHarness = ({ dbMatches, providerMatches, providerScores }) => {
   const updates = [];
   const db = {
     async getUpcomingMatches() {
@@ -31,6 +33,9 @@ const createHarness = ({ dbMatches, providerMatches }) => {
   const oddsApi = {
     async getOdds() {
       return providerMatches;
+    },
+    async getScores() {
+      return providerScores ?? [];
     },
   };
   return {
@@ -66,6 +71,41 @@ test('OddsApiKickoffSyncService corregge anche se la data DB e fuori dalla fines
   assert.equal(result.corrected, 1);
   assert.deepEqual(updates, [{ matchId: 'match_bologna_inter', kickoffIso: '2026-05-23T16:00:00.000Z' }]);
   assert.ok(result.warnings.some((warning) => warning.includes('kickoff_outside_36h_window_corrected')));
+});
+
+test('OddsApiKickoffSyncService usa scores se odds non contiene una partita gia iniziata o conclusa', async () => {
+  const { service, updates } = createHarness({
+    dbMatches: [buildDbMatch({ date: '2026-05-24T13:00:00.000Z' })],
+    providerMatches: [],
+    providerScores: [
+      buildOddsMatch({
+        matchId: 'scores_bologna_inter',
+        commenceTime: '2026-05-23T16:00:00.000Z',
+      }),
+    ],
+  });
+
+  const result = await service.syncUpcomingKickoffsFromOddsApi({ competition: 'Serie A' });
+
+  assert.equal(result.providerEvents, 1);
+  assert.equal(result.corrected, 1);
+  assert.deepEqual(updates, [{ matchId: 'match_bologna_inter', kickoffIso: '2026-05-23T16:00:00.000Z' }]);
+  assert.equal(result.corrections[0].providerMatchId, 'scores_bologna_inter');
+});
+
+test('getUpcomingMatches non mostrerebbe piu una partita corretta a kickoff gia passato', async () => {
+  const { DatabaseService } = require('../dist/db/DatabaseService.js');
+  const db = Object.create(DatabaseService.prototype);
+  db.all = async () => [
+    buildDbMatch({ date: '2026-05-23T16:00:00.000Z' }),
+  ];
+
+  const rows = await db.getUpcomingMatches({
+    nowIso: '2026-05-23T16:05:01.000Z',
+    limit: 10,
+  });
+
+  assert.deepEqual(rows, []);
 });
 
 test('OddsApiKickoffSyncService non corregge un match ambiguo', async () => {

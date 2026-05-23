@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Predictions from './Predictions';
 import * as api from '../utils/api';
 
@@ -198,6 +198,22 @@ describe('Predictions page', () => {
 
     expect(await screen.findByText('Inter')).toBeTruthy();
     expect(screen.queryByText('Juventus')).toBeNull();
+  });
+
+  test('quando il sistema segnala sync completato ricarica le partite upcoming', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    await screen.findByText('Inter');
+    expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(new Event('data-sync-complete'));
+    });
+
+    await waitFor(() => expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(2));
   });
 
   test('passa commenceTime null al lookup quote solo se la partita non ha data', async () => {

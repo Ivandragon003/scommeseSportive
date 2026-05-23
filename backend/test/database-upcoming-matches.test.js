@@ -52,13 +52,13 @@ test('getUpcomingMatches filtra da nowIso, scarta passate/invalide e ordina in m
     competition: 'Serie A',
     season: '2025/2026',
     limit: 2,
-    nowIso: '2026-05-23T08:00:00.000Z',
+    nowIso: '2026-05-23T10:00:00.000Z',
   });
 
   assert.match(calls[0].sql, /datetime\(date\) >= datetime\(\?\)/);
   assert.match(calls[0].sql, /home_goals IS NULL/);
   assert.match(calls[0].sql, /away_goals IS NULL/);
-  assert.equal(calls[0].params[0], '2026-05-23T08:00:00.000Z');
+  assert.equal(calls[0].params[0], '2026-05-23T10:00:00.000Z');
   assert.deepEqual(rows.map((row) => row.match_id), ['future_early', 'future_late']);
 });
 
@@ -80,7 +80,7 @@ test('getUpcomingMatches non include match gia completati anche se futuri nella 
 
   const rows = await db.getUpcomingMatches({
     limit: 10,
-    nowIso: '2026-05-23T08:00:00.000Z',
+    nowIso: '2026-05-23T10:00:00.000Z',
   });
 
   assert.deepEqual(rows.map((row) => row.match_id), ['valid_future']);

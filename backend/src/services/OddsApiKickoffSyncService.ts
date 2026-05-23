@@ -1,6 +1,7 @@
 import { DatabaseService } from '../db/DatabaseService';
 import { OddsApiService } from './OddsApiService';
 import { scoreFixtureCandidate } from './odds-provider/oddsProviderUtils';
+import type { OddsMatch } from './OddsApiService';
 
 type UpcomingMatchRow = {
   match_id: string;
@@ -47,6 +48,7 @@ export type OddsApiSingleKickoffSyncResult = {
 };
 
 type KickoffSyncDb = Pick<DatabaseService, 'getUpcomingMatches' | 'updateMatchKickoff'>;
+type OddsApiKickoffProvider = Pick<OddsApiService, 'getOdds'> & Partial<Pick<OddsApiService, 'getScores'>>;
 
 const MIN_MATCH_SCORE = 1.8;
 const AMBIGUOUS_SCORE_DELTA = 0.15;
@@ -60,12 +62,89 @@ const toIsoOrNull = (value?: string | null): string | null => {
 export class OddsApiKickoffSyncService {
   constructor(
     private readonly db: KickoffSyncDb,
-    private readonly oddsApiService: Pick<OddsApiService, 'getOdds'> | null = null
+    private readonly oddsApiService: OddsApiKickoffProvider | null = null
   ) {}
+
+  private eventKey(event: OddsMatch): string {
+    const home = String(event.homeTeam ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const away = String(event.awayTeam ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const timestamp = Date.parse(String(event.commenceTime ?? ''));
+    const kickoff = Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : String(event.commenceTime ?? '');
+    return `${home}__${away}__${kickoff}`;
+  }
+
+  private mergeProviderEvents(oddsEvents: OddsMatch[], scoreEvents: OddsMatch[]): OddsMatch[] {
+    const byId = new Map<string, OddsMatch>();
+    const byKey = new Map<string, string>();
+
+    const add = (event: OddsMatch, preferred: boolean) => {
+      const id = String(event.matchId ?? '').trim();
+      const key = this.eventKey(event);
+      const existingId = (id && byId.has(id)) ? id : byKey.get(key);
+      if (existingId) {
+        const existing = byId.get(existingId);
+        if (existing && (preferred || existing.source !== 'odds')) {
+          byId.set(existingId, event);
+          byKey.set(key, existingId);
+        }
+        return;
+      }
+
+      const resolvedId = id || key;
+      byId.set(resolvedId, event);
+      byKey.set(key, resolvedId);
+    };
+
+    for (const event of scoreEvents) add(event, false);
+    for (const event of oddsEvents) add(event, true);
+    return Array.from(byId.values());
+  }
+
+  private async loadProviderKickoffEvents(
+    service: OddsApiKickoffProvider,
+    competition: string
+  ): Promise<{ events: OddsMatch[]; warnings: string[] }> {
+    const warnings: string[] = [];
+    let oddsEvents: OddsMatch[] = [];
+    let scoreEvents: OddsMatch[] = [];
+
+    try {
+      oddsEvents = await service.getOdds(competition, ['h2h']);
+    } catch (error: any) {
+      warnings.push(`odds_events_failed:${error?.message ?? String(error)}`);
+    }
+
+    if (typeof service.getScores === 'function') {
+      try {
+        scoreEvents = await service.getScores(competition, 3);
+      } catch (error: any) {
+        warnings.push(`scores_events_failed:${error?.message ?? String(error)}`);
+      }
+    }
+
+    if (oddsEvents.length === 0 && scoreEvents.length === 0 && warnings.length > 0) {
+      throw new Error(warnings.join(' | '));
+    }
+
+    return {
+      events: this.mergeProviderEvents(oddsEvents, scoreEvents),
+      warnings,
+    };
+  }
 
   private buildCorrectionDecision(
     row: UpcomingMatchRow,
-    providerMatches: Awaited<ReturnType<OddsApiService['getOdds']>>
+    providerMatches: OddsMatch[]
   ): OddsApiSingleKickoffSyncResult {
     const matchId = String(row.match_id ?? '').trim();
     const homeTeam = String(row.home_team_name ?? '').trim();
@@ -139,8 +218,9 @@ export class OddsApiKickoffSyncService {
   ): Promise<OddsApiSingleKickoffSyncResult> {
     const competition = String(options.competition ?? match?.competition ?? '').trim() || 'Serie A';
     const service = this.oddsApiService ?? new OddsApiService(String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? ''));
-    const providerMatches = await service.getOdds(competition, ['h2h']);
+    const { events: providerMatches, warnings } = await this.loadProviderKickoffEvents(service, competition);
     const decision = this.buildCorrectionDecision(match, providerMatches);
+    decision.warnings.push(...warnings);
 
     if (decision.corrected && decision.correction) {
       await this.db.updateMatchKickoff(decision.correction.matchId, decision.correction.newDate);
@@ -178,7 +258,8 @@ export class OddsApiKickoffSyncService {
       season: options.season,
       limit: options.limit ?? 160,
     }) as UpcomingMatchRow[];
-    const providerMatches = await service.getOdds(competition, ['h2h']);
+    const { events: providerMatches, warnings: providerWarnings } = await this.loadProviderKickoffEvents(service, competition);
+    result.warnings.push(...providerWarnings);
 
     result.checked = upcoming.length;
     result.providerEvents = providerMatches.length;
