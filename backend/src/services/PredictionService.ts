@@ -6,8 +6,8 @@ import {
   SelectionDiagnostics,
   AdaptiveEngineTuningProfile,
   MarketCategory,
-  SlateSelectionOptions,
-  SlateSelectionResult,
+  SingleMatchBetDecision,
+  SingleMatchBetStatus,
   ValueAnalysisContext,
 } from '../models/value/ValueBettingEngine';
 import {
@@ -197,6 +197,11 @@ export interface BestValueOpportunityExplanation {
   mainReason?: string;
   slateStatus?: 'recommended' | 'skipped' | 'not_evaluated';
   slateSkipReason?: string;
+  bestBetStatus?: SingleMatchBetStatus;
+  bestBetReason?: string;
+  bestBetDecision?: SingleMatchBetDecision;
+  bestBetAlternatives?: SingleMatchBetDecision['comparedAlternatives'];
+  riskAdjustedBestScore?: number;
   humanSummary: string;
   humanReasons: string[];
   reasons: string[];
@@ -205,6 +210,15 @@ export interface BestValueOpportunityExplanation {
     contextualScore: number;
     totalScore: number;
   };
+}
+
+interface BestSingleMatchExplanationResult {
+  bestValueOpportunity: BestValueOpportunityExplanation | null;
+  bestBetDecision: SingleMatchBetDecision;
+  bestBetAlternatives: SingleMatchBetDecision['comparedAlternatives'];
+  bestBetStatus: SingleMatchBetStatus;
+  bestBetReason: string;
+  riskAdjustedBestScore: number;
 }
 
 export interface PredictionResponse {
@@ -220,6 +234,11 @@ export interface PredictionResponse {
   comboBets?: ComboBetOpportunity[];
   speculativeOpportunities?: BetOpportunity[];
   bestValueOpportunity?: BestValueOpportunityExplanation | null;
+  bestBetDecision?: SingleMatchBetDecision;
+  bestBetAlternatives?: SingleMatchBetDecision['comparedAlternatives'];
+  bestBetStatus?: SingleMatchBetStatus;
+  bestBetReason?: string;
+  riskAdjustedBestScore?: number;
   playerPropWarnings?: string[];
   analysisFactors?: AnalysisFactors;
   modelConfidence: number;
@@ -424,13 +443,6 @@ export class PredictionService {
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
     this.playerCardsModel = new PlayerCardsModel();
-  }
-
-  selectRecommendedSlateBets(
-    opportunities: BetOpportunity[],
-    options: SlateSelectionOptions = {}
-  ): SlateSelectionResult {
-    return this.engine.selectRecommendedSlateBets(opportunities, options);
   }
 
   private clamp(v: number, min: number, max: number): number {
@@ -1375,7 +1387,12 @@ export class PredictionService {
       valueOpportunities,
       comboBets: enhanced.comboBets,
       speculativeOpportunities: enhanced.speculativeBets,
-      bestValueOpportunity: bestValue,
+      bestValueOpportunity: bestValue.bestValueOpportunity,
+      bestBetDecision: bestValue.bestBetDecision,
+      bestBetAlternatives: bestValue.bestBetAlternatives,
+      bestBetStatus: bestValue.bestBetStatus,
+      bestBetReason: bestValue.bestBetReason,
+      riskAdjustedBestScore: bestValue.riskAdjustedBestScore,
       playerPropWarnings: playerPropMarkets.warnings,
       analysisFactors: factors,
       modelConfidence,
@@ -2142,22 +2159,39 @@ export class PredictionService {
   private computeBestValueOpportunity(
     opportunities: BetOpportunity[],
     factors: AnalysisFactors
-  ): BestValueOpportunityExplanation | null {
-    if (!Array.isArray(opportunities) || opportunities.length === 0) return null;
+  ): BestSingleMatchExplanationResult {
+    const emptyDecision: SingleMatchBetDecision = {
+      status: 'NO_BET',
+      reason: 'Match da saltare: nessuna value opportunity disponibile.',
+      riskAdjustedScore: 0,
+      rejectedReasons: ['nessuna_value_opportunity'],
+      comparedAlternatives: [],
+    };
+    if (!Array.isArray(opportunities) || opportunities.length === 0) {
+      return {
+        bestValueOpportunity: null,
+        bestBetDecision: emptyDecision,
+        bestBetAlternatives: [],
+        bestBetStatus: 'NO_BET',
+        bestBetReason: emptyDecision.reason,
+        riskAdjustedBestScore: 0,
+      };
+    }
+
     const primaryOpportunities = opportunities.filter((opportunity) => {
       const category = String(opportunity.marketCategory ?? '');
       return !category.startsWith('player_') && !isPlayerPropSelection(opportunity.selection);
     });
-    if (primaryOpportunities.length === 0) return null;
-    const slateFiltered = this.engine.selectRecommendedSlateBets(primaryOpportunities, {
-      maxBets: 1,
-      maxCardsBets: 1,
-      maxFragileUnderBets: 1,
-      maxLowConfidence: 0,
-      minRankingScore: 0.12,
-    });
-    const candidateOpportunities = slateFiltered.recommended.length > 0 ? slateFiltered.recommended : [];
-    if (candidateOpportunities.length === 0) return null;
+    if (primaryOpportunities.length === 0) {
+      return {
+        bestValueOpportunity: null,
+        bestBetDecision: emptyDecision,
+        bestBetAlternatives: [],
+        bestBetStatus: 'NO_BET',
+        bestBetReason: emptyDecision.reason,
+        riskAdjustedBestScore: 0,
+      };
+    }
 
     const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
     const confidenceRank = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3 : c === 'MEDIUM' ? 2 : 1;
@@ -2192,7 +2226,12 @@ export class PredictionService {
     };
     const avgEv = primaryOpportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / primaryOpportunities.length;
 
-    const scored = candidateOpportunities.map((opp) => {
+    const selectionResult = this.engine.selectBestSingleMatchBet(primaryOpportunities, {
+      analysisFactors: factors,
+      minRiskAdjustedScore: 0.14,
+    });
+
+    const scored = primaryOpportunities.map((opp) => {
       const direction = this.inferSelectionDirection(opp.selection);
       const prob = Number(opp.ourProbability ?? 0);
       const odds = Number(opp.bookmakerOdds ?? 0);
@@ -2240,14 +2279,27 @@ export class PredictionService {
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
-    const best = scored[0];
+    const analyticalBest = scored[0];
+    const selectedOpportunity = selectionResult.bestBet;
 
-    // Floor minimo assoluto per evitare di consigliare scommesse troppo deboli
-    if (best.baseModelScore < 0.05) return null;
+    if (!selectedOpportunity) {
+      const decision = selectionResult.decision;
+      return {
+        bestValueOpportunity: null,
+        bestBetDecision: decision,
+        bestBetAlternatives: decision.comparedAlternatives,
+        bestBetStatus: decision.status,
+        bestBetReason: decision.reason,
+        riskAdjustedBestScore: decision.riskAdjustedScore,
+      };
+    }
+
+    const best = scored.find((entry) => entry.opp.selection === selectedOpportunity.selection) ?? analyticalBest;
 
     const reasons: string[] = [
       `EV +${Number(best.opp.expectedValue ?? 0).toFixed(2)}% (media opzioni +${avgEv.toFixed(2)}%).`,
       `Edge no-vig +${Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0).toFixed(2)}%: P modello ${Number(best.opp.ourProbability ?? 0).toFixed(2)}% contro quota bookmaker pulita dal margine.`,
+      `Score risk-adjusted ${Number(selectionResult.decision.riskAdjustedScore ?? 0).toFixed(2)}: ranking corretto per rischio, incertezza e fragilita del mercato.`,
       `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
     ];
 
@@ -2265,7 +2317,7 @@ export class PredictionService {
 
     const human = this.buildHumanBestPickExplanation(best.opp, factors);
 
-    return {
+    const explanation: BestValueOpportunityExplanation = {
       selection: best.opp.selection,
       selectionLabel: human.selectionLabel,
       marketName: best.opp.marketName,
@@ -2287,6 +2339,11 @@ export class PredictionService {
       mainReason: best.opp.mainReason,
       slateStatus: best.opp.slateStatus ?? 'recommended',
       slateSkipReason: best.opp.slateSkipReason,
+      bestBetStatus: selectionResult.decision.status,
+      bestBetReason: selectionResult.decision.reason,
+      bestBetDecision: selectionResult.decision,
+      bestBetAlternatives: selectionResult.decision.comparedAlternatives,
+      riskAdjustedBestScore: selectionResult.decision.riskAdjustedScore,
       humanSummary: human.humanSummary,
       humanReasons: human.humanReasons,
       reasons,
@@ -2295,6 +2352,15 @@ export class PredictionService {
         contextualScore: Number(best.contextualScore.toFixed(3)),
         totalScore: Number(best.totalScore.toFixed(3)),
       },
+    };
+
+    return {
+      bestValueOpportunity: explanation,
+      bestBetDecision: selectionResult.decision,
+      bestBetAlternatives: selectionResult.decision.comparedAlternatives,
+      bestBetStatus: selectionResult.decision.status,
+      bestBetReason: selectionResult.decision.reason,
+      riskAdjustedBestScore: selectionResult.decision.riskAdjustedScore,
     };
   }
   // ==================== BUDGET ====================

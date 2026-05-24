@@ -391,6 +391,40 @@ export interface SlateSelectionResult {
   };
 }
 
+export type SingleMatchBetStatus = 'PLAYABLE' | 'PRUDENT' | 'NO_BET';
+
+export interface SingleMatchBetComparedAlternative {
+  selection: string;
+  marketName: string;
+  marketCategory: MarketCategory;
+  family: string;
+  bookmakerOdds: number;
+  expectedValue: number;
+  edgeNoVig: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  riskAdjustedScore: number;
+  reason: string;
+}
+
+export interface SingleMatchBetDecision {
+  status: SingleMatchBetStatus;
+  reason: string;
+  riskAdjustedScore: number;
+  rejectedReasons: string[];
+  comparedAlternatives: SingleMatchBetComparedAlternative[];
+}
+
+export interface SingleMatchBetSelectionResult {
+  bestBet: BetOpportunity | null;
+  analyticalBest: BetOpportunity | null;
+  alternatives: BetOpportunity[];
+  decision: SingleMatchBetDecision;
+}
+
+export interface SingleMatchBetSelectionContext extends ValueAnalysisContext {
+  minRiskAdjustedScore?: number;
+}
+
 // ==================== SOGLIE EV PER CATEGORIA ====================
 
 /**
@@ -2363,6 +2397,264 @@ export class ValueBettingEngine {
     const uncertaintyPenalty = Number(opportunity.uncertaintyFactor ?? 0) * 0.10;
     const edgeBonus = Number(opportunity.edgeNoVig ?? opportunity.edge ?? 0) / 100 * 0.35;
     return Number((base + confidenceBonus + edgeBonus - riskPenalty - uncertaintyPenalty).toFixed(6));
+  }
+
+  private getSingleMatchFamily(opportunity: BetOpportunity): string {
+    const selection = String(opportunity.selection ?? '').toLowerCase();
+    const family = String(opportunity.selectionFamily ?? this.getSelectionFamily(opportunity.selection));
+    const category = opportunity.marketCategory ?? this.categorizeSelection(opportunity.selection);
+
+    if (['homewin', 'dnb_home', 'double_chance_1x'].includes(selection) || family === 'home_win' || family === 'dnb_home') {
+      return 'home_side';
+    }
+    if (['awaywin', 'dnb_away', 'double_chance_x2'].includes(selection) || family === 'away_win' || family === 'dnb_away') {
+      return 'away_side';
+    }
+    if (selection === 'draw' || family === 'draw' || selection === 'double_chance_12') return 'draw_side';
+    if (category === 'goal_over' || family === 'goal_over') return 'goal_over';
+    if (category === 'goal_under' || family === 'goal_under') return 'goal_under';
+    if (category === 'btts_yes' || family === 'btts_yes') return 'btts_yes';
+    if (category === 'btts_no' || family === 'btts_no') return 'btts_no';
+    if (category === 'yellow_cards' || family === 'cards_over' || family === 'cards_under') {
+      return family === 'cards_under' || selection.includes('under') ? 'cards_under' : 'cards_over';
+    }
+    if (category === 'player_shots' || category === 'player_shots_ot' || category === 'player_yellow_cards') return 'player_props';
+    if (category === 'handicap') return selection.includes('away') ? 'away_side' : 'home_side';
+    return family || category;
+  }
+
+  private getSingleMatchFragilityPenalty(opportunity: BetOpportunity): number {
+    const category = opportunity.marketCategory ?? this.categorizeSelection(opportunity.selection);
+    const family = this.getSingleMatchFamily(opportunity);
+    const warningSet = new Set((opportunity.dataWarnings ?? []).map((warning) => String(warning)));
+    let penalty = 0;
+
+    if (category === 'btts_no') penalty += 0.11;
+    else if (category === 'goal_under') penalty += 0.1;
+    else if (category === 'yellow_cards') penalty += 0.13;
+    else if (category === 'player_shots' || category === 'player_shots_ot' || category === 'player_yellow_cards') penalty += 0.16;
+    else if (category === 'exact_score') penalty += 0.22;
+    else if (category === 'handicap') penalty += 0.09;
+    else if (category === 'btts_yes') penalty += 0.04;
+    else if (category === 'goal_over' || category === 'goal_1x2') penalty += 0.02;
+
+    if (family === 'cards_under' || family === 'cards_over') penalty += 0.04;
+    if (warningSet.has('under_goals_close_to_line')) penalty += 0.12;
+    if (warningSet.has('btts_no_fragile') || warningSet.has('both_teams_goal_risk')) penalty += 0.12;
+    if (warningSet.has('under_cards_close_to_line') || warningSet.has('over_cards_close_to_line')) penalty += 0.14;
+    if (warningSet.has('high_intensity_match') || warningSet.has('strict_referee_against_under_cards')) penalty += 0.05;
+
+    return this.clampNumber(penalty, 0, 0.32);
+  }
+
+  private getSingleMatchMissingDataPenalty(opportunity: BetOpportunity): number {
+    const warnings = (opportunity.dataWarnings ?? []).map((warning) => String(warning));
+    const riskyWarnings = warnings.filter((warning) =>
+      /missing|low_|uncertain|weak|ambiguous|sample|referee|companion/i.test(warning)
+    );
+    const companionPenalty = opportunity.companionOddsAvailable === false ? 0.04 : 0;
+    return this.clampNumber(riskyWarnings.length * 0.035 + companionPenalty, 0, 0.16);
+  }
+
+  private getHighOddsPenalty(opportunity: BetOpportunity): number {
+    const odds = Number(opportunity.bookmakerOdds ?? 0);
+    if (!Number.isFinite(odds) || odds <= 4.5) return 0;
+    if (odds >= 8) return 0.18;
+    return this.clampNumber((odds - 4.5) * 0.04, 0, 0.16);
+  }
+
+  private computeRiskAdjustedBestScore(opportunity: BetOpportunity): number {
+    const base = Number.isFinite(Number(opportunity.rankingScore))
+      ? Number(opportunity.rankingScore)
+      : Number(opportunity.expectedValue ?? 0) / 100;
+    const edgeNoVig = Number(opportunity.edgeNoVig ?? opportunity.edge ?? 0);
+    const ev = Number(opportunity.expectedValue ?? 0);
+    const confidenceBonus = opportunity.confidence === 'HIGH' ? 0.08 : opportunity.confidence === 'MEDIUM' ? 0.03 : -0.14;
+    const score =
+      base +
+      this.clampNumber(edgeNoVig / 100, -0.2, 0.3) * 0.45 +
+      this.clampNumber(ev / 100, -0.2, 0.3) * 0.3 +
+      confidenceBonus -
+      Number(opportunity.riskPenalty ?? 0) * 0.22 -
+      Number(opportunity.uncertaintyFactor ?? 0) * 0.16 -
+      this.getSingleMatchFragilityPenalty(opportunity) -
+      this.getHighOddsPenalty(opportunity) -
+      this.getSingleMatchMissingDataPenalty(opportunity);
+
+    return Number(score.toFixed(6));
+  }
+
+  private isOperationalSingleMatchCandidate(opportunity: BetOpportunity, score: number, minScore: number): boolean {
+    const edgeNoVig = Number(opportunity.edgeNoVig ?? opportunity.edge ?? 0);
+    const ev = Number(opportunity.expectedValue ?? 0);
+    if (opportunity.isValueBet === false) return false;
+    if (!Number.isFinite(Number(opportunity.bookmakerOdds)) || Number(opportunity.bookmakerOdds) <= 1.01) return false;
+    if (edgeNoVig <= 0 || ev <= 0) return false;
+    if (score < minScore) return false;
+    if (opportunity.confidence === 'LOW') {
+      return score >= minScore + 0.1 && edgeNoVig >= 8 && ev >= 12;
+    }
+    return true;
+  }
+
+  private buildSingleMatchRejectedReasons(opportunity: BetOpportunity, score: number, minScore: number): string[] {
+    const reasons: string[] = [];
+    if (score < minScore) reasons.push('risk_adjusted_score_basso');
+    if (opportunity.confidence === 'LOW') reasons.push('confidence_low');
+    if (Number(opportunity.edgeNoVig ?? opportunity.edge ?? 0) <= 0) reasons.push('edge_no_vig_insufficiente');
+    if (Number(opportunity.expectedValue ?? 0) <= 0) reasons.push('ev_insufficiente');
+    if (this.getSingleMatchFragilityPenalty(opportunity) >= 0.12) reasons.push('mercato_fragile');
+    if (this.getSingleMatchMissingDataPenalty(opportunity) >= 0.07) reasons.push('dati_deboli_o_mancanti');
+    return Array.from(new Set(reasons));
+  }
+
+  private canAggressiveBeatProtected(aggressive: BetOpportunity, protectedPick: BetOpportunity): boolean {
+    if (aggressive.confidence === 'LOW') return false;
+    const aggressiveScore = this.computeRiskAdjustedBestScore(aggressive);
+    const protectedScore = this.computeRiskAdjustedBestScore(protectedPick);
+    const edgeDiff = Number(aggressive.edgeNoVig ?? aggressive.edge ?? 0) - Number(protectedPick.edgeNoVig ?? protectedPick.edge ?? 0);
+    const evDiff = Number(aggressive.expectedValue ?? 0) - Number(protectedPick.expectedValue ?? 0);
+    return aggressiveScore >= protectedScore + 0.08 || edgeDiff >= 2.5 || evDiff >= 4;
+  }
+
+  private chooseFamilyRepresentative(scored: Array<{ opportunity: BetOpportunity; score: number }>): { opportunity: BetOpportunity; score: number } {
+    const bySelection = new Map(scored.map((entry) => [String(entry.opportunity.selection ?? '').toLowerCase(), entry]));
+    for (const [aggressiveKey, protectedKeys] of [
+      ['awaywin', ['dnb_away', 'double_chance_x2']],
+      ['homewin', ['dnb_home', 'double_chance_1x']],
+    ] as Array<[string, string[]]>) {
+      const aggressive = bySelection.get(aggressiveKey);
+      if (!aggressive) continue;
+      const protectedCandidates = protectedKeys
+        .map((key) => bySelection.get(key))
+        .filter((entry): entry is { opportunity: BetOpportunity; score: number } => Boolean(entry))
+        .sort((a, b) => b.score - a.score);
+      const protectedPick = protectedCandidates[0];
+      if (protectedPick && !this.canAggressiveBeatProtected(aggressive.opportunity, protectedPick.opportunity)) {
+        return protectedPick;
+      }
+    }
+
+    return [...scored].sort((a, b) => b.score - a.score)[0];
+  }
+
+  private buildSingleMatchComparedAlternatives(
+    scored: Array<{ opportunity: BetOpportunity; score: number; family: string }>,
+    bestSelection?: string | null
+  ): SingleMatchBetComparedAlternative[] {
+    return scored
+      .filter((entry) => String(entry.opportunity.selection) !== String(bestSelection ?? ''))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map((entry) => ({
+        selection: entry.opportunity.selection,
+        marketName: entry.opportunity.marketName,
+        marketCategory: entry.opportunity.marketCategory,
+        family: entry.family,
+        bookmakerOdds: Number(entry.opportunity.bookmakerOdds ?? 0),
+        expectedValue: Number(entry.opportunity.expectedValue ?? 0),
+        edgeNoVig: Number(entry.opportunity.edgeNoVig ?? entry.opportunity.edge ?? 0),
+        confidence: entry.opportunity.confidence,
+        riskAdjustedScore: Number(entry.score.toFixed(3)),
+        reason: this.buildSingleMatchRejectedReasons(entry.opportunity, entry.score, 0.14)[0] ?? 'alternativa_valutata',
+      }));
+  }
+
+  private buildSingleMatchReason(bestBet: BetOpportunity | null, status: SingleMatchBetStatus, rejectedReasons: string[]): string {
+    if (!bestBet) {
+      if (rejectedReasons.includes('mercato_fragile')) return 'Match da saltare: mercato fragile e score risk-adjusted insufficiente.';
+      if (rejectedReasons.includes('confidence_low')) return 'Match da saltare: confidence troppo bassa per una giocata operativa.';
+      return 'Match da saltare: nessuna opportunita supera il filtro risk-adjusted.';
+    }
+
+    const selection = String(bestBet.selection ?? '').toLowerCase();
+    if (selection === 'dnb_home' || selection === 'dnb_away' || selection.startsWith('double_chance_')) {
+      return 'Scelta prudente: protegge il pareggio.';
+    }
+    if (selection === 'homewin' || selection === 'awaywin') {
+      return 'Scelta aggressiva: quota piu alta, ma perde in caso di pareggio.';
+    }
+    if (status === 'PRUDENT') return 'Giocata prudente: edge positivo ma rischio o fragilita richiedono stake contenuto.';
+    return 'Edge no-vig e score risk-adjusted positivi rispetto alle alternative del match.';
+  }
+
+  selectBestSingleMatchBet(
+    opportunities: BetOpportunity[],
+    context: SingleMatchBetSelectionContext = {}
+  ): SingleMatchBetSelectionResult {
+    const minScore = Number(context.minRiskAdjustedScore ?? 0.14);
+    const candidates = (opportunities ?? [])
+      .filter((opportunity) => opportunity && opportunity.isValueBet !== false)
+      .map((opportunity) => ({
+        opportunity,
+        score: this.computeRiskAdjustedBestScore(opportunity),
+        family: this.getSingleMatchFamily(opportunity),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const analyticalBest = candidates[0]?.opportunity ?? null;
+    if (candidates.length === 0) {
+      return {
+        bestBet: null,
+        analyticalBest: null,
+        alternatives: [],
+        decision: {
+          status: 'NO_BET',
+          reason: 'Match da saltare: nessuna value opportunity disponibile.',
+          riskAdjustedScore: 0,
+          rejectedReasons: ['nessuna_value_opportunity'],
+          comparedAlternatives: [],
+        },
+      };
+    }
+
+    const byFamily = new Map<string, Array<{ opportunity: BetOpportunity; score: number }>>();
+    for (const entry of candidates) {
+      const bucket = byFamily.get(entry.family) ?? [];
+      bucket.push({ opportunity: entry.opportunity, score: entry.score });
+      byFamily.set(entry.family, bucket);
+    }
+
+    const familyRepresentatives = Array.from(byFamily.entries())
+      .map(([family, entries]) => {
+        const representative = this.chooseFamilyRepresentative(entries);
+        return { ...representative, family };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const operational = familyRepresentatives.find((entry) =>
+      this.isOperationalSingleMatchCandidate(entry.opportunity, entry.score, minScore)
+    ) ?? null;
+    const bestBet = operational?.opportunity ?? null;
+    const bestScore = operational?.score ?? candidates[0].score;
+    const rejectedReasons = bestBet
+      ? []
+      : this.buildSingleMatchRejectedReasons(candidates[0].opportunity, candidates[0].score, minScore);
+    const status: SingleMatchBetStatus = bestBet
+      ? bestScore >= minScore + 0.08 && bestBet.confidence === 'HIGH'
+        ? 'PLAYABLE'
+        : 'PRUDENT'
+      : 'NO_BET';
+    const comparedAlternatives = this.buildSingleMatchComparedAlternatives(
+      familyRepresentatives,
+      bestBet?.selection ?? null
+    );
+
+    return {
+      bestBet,
+      analyticalBest,
+      alternatives: familyRepresentatives
+        .filter((entry) => String(entry.opportunity.selection) !== String(bestBet?.selection ?? ''))
+        .slice(0, 5)
+        .map((entry) => entry.opportunity),
+      decision: {
+        status,
+        reason: this.buildSingleMatchReason(bestBet, status, rejectedReasons),
+        riskAdjustedScore: Number(bestScore.toFixed(3)),
+        rejectedReasons,
+        comparedAlternatives,
+      },
+    };
   }
 
   private isCardsOpportunity(opportunity: BetOpportunity): boolean {

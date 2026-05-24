@@ -5,6 +5,27 @@ export interface OddsSourceBadgeInfo {
   className: string;
 }
 
+export interface BestBetAlternative {
+  selection: string;
+  marketName?: string;
+  marketCategory?: string;
+  family?: string;
+  bookmakerOdds?: number | string;
+  expectedValue?: number | string;
+  edgeNoVig?: number | string;
+  confidence?: string;
+  riskAdjustedScore?: number | string;
+  reason?: string;
+}
+
+export interface BestBetDecision {
+  status?: 'PLAYABLE' | 'PRUDENT' | 'NO_BET' | string;
+  reason?: string;
+  riskAdjustedScore?: number | string;
+  rejectedReasons?: string[];
+  comparedAlternatives?: BestBetAlternative[];
+}
+
 export interface BestValueOpportunity {
   selection: string;
   marketName: string;
@@ -45,6 +66,11 @@ export interface BestValueOpportunity {
   sampleSize?: number | string;
   playerConfidence?: string;
   dataWarnings?: string[];
+  bestBetStatus?: 'PLAYABLE' | 'PRUDENT' | 'NO_BET' | string;
+  bestBetReason?: string;
+  bestBetDecision?: BestBetDecision;
+  bestBetAlternatives?: BestBetAlternative[];
+  riskAdjustedBestScore?: number | string;
   slateStatus?: 'recommended' | 'skipped' | 'not_evaluated' | string;
   slateSkipReason?: string;
   slateDiagnostics?: {
@@ -60,28 +86,6 @@ export interface BestValueOpportunity {
   match?: string;
   competition?: string;
   commenceTime?: string | null;
-}
-
-export interface DailySlateSkippedMatch {
-  matchId?: string;
-  homeTeam?: string;
-  awayTeam?: string;
-  match?: string;
-  competition?: string;
-  commenceTime?: string | null;
-  reason?: string;
-  message?: string;
-}
-
-export interface DailySlateResponse {
-  competition: string;
-  date: string;
-  generatedAt: string;
-  recommended: BestValueOpportunity[];
-  skipped: BestValueOpportunity[];
-  diagnostics: Record<string, any>;
-  matchesAnalyzed: number;
-  matchesSkipped: DailySlateSkippedMatch[];
 }
 
 export interface RecommendedBetResult {

@@ -103,18 +103,6 @@ const setupBaseMocks = () => {
   } as any);
   mockedApi.getBets.mockResolvedValue({ data: [] } as any);
   mockedApi.placeBet.mockResolvedValue({ data: { bet_id: 'bet_1' } } as any);
-  mockedApi.getDailySlate.mockResolvedValue({
-    data: {
-      competition: 'Serie A',
-      date: '2026-05-23',
-      generatedAt: '2026-05-23T10:00:00.000Z',
-      recommended: [],
-      skipped: [],
-      diagnostics: {},
-      matchesAnalyzed: 1,
-      matchesSkipped: [],
-    },
-  } as any);
 };
 
 beforeAll(() => {
@@ -151,6 +139,7 @@ describe('Predictions page', () => {
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
+    expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
   });
 
   test('seleziona la partita, carica quote e mostra best value e stake planner', async () => {
@@ -180,19 +169,54 @@ describe('Predictions page', () => {
       awayTeam: 'Milan',
       commenceTime: matchRow.date,
     }));
-    await waitFor(() => expect(mockedApi.getDailySlate).toHaveBeenCalledWith(expect.objectContaining({
-      competition: 'Serie A',
-      date: matchRow.date,
-      maxBets: 4,
-    })));
-
     fireEvent.click(screen.getByRole('button', { name: /Pronostico Finale/i }));
 
     await screen.findByTestId('best-value-card');
+    expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
     expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quote bookmaker');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
     expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
+    expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
+  });
+
+  test('mostra match da saltare quando non c e una best bet operativa', async () => {
+    mockedApi.getPrediction.mockResolvedValue({
+      data: buildPrediction({
+        bestValueOpportunity: null,
+        bestBetStatus: 'NO_BET',
+        bestBetReason: 'Match da saltare: rischio troppo alto.',
+        bestBetAlternatives: [
+          {
+            selection: 'dnb_away',
+            marketName: 'Draw No Bet - Ospite',
+            expectedValue: 5.1,
+            edgeNoVig: 2.8,
+            riskAdjustedScore: 0.1,
+            confidence: 'MEDIUM',
+            reason: 'risk_adjusted_score_basso',
+          },
+        ],
+      }),
+    } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
+      data: {
+        found: false,
+        source: 'odds_unavailable',
+        message: 'Quote bookmaker non disponibili per questa partita.',
+      },
+    } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByText('Inter'));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
+
+    expect(await screen.findByText('Match da saltare')).toBeTruthy();
+    expect(screen.getByText(/rischio troppo alto/i)).toBeTruthy();
+    expect(screen.getByText(/Alternative valutate/i)).toBeTruthy();
   });
 
   test('il calendario upcoming ignora partite passate di aprile e parte dalle future', async () => {

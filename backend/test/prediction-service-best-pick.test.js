@@ -66,9 +66,11 @@ test('statistical market can become final recommended pick when data reliability
     notes: [],
   };
 
-  const best = service.computeBestValueOpportunity(opportunities, factors);
+  const result = service.computeBestValueOpportunity(opportunities, factors);
+  const best = result.bestValueOpportunity;
 
   assert.ok(best);
+  assert.equal(result.bestBetStatus, 'PLAYABLE');
   assert.equal(best.selection, 'shots_total_over_23.5');
   assert.equal(best.marketTier, 'SECONDARY');
 });

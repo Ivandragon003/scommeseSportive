@@ -1,7 +1,6 @@
 import React, { useRef } from 'react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
-import DailySlatePanel from './DailySlatePanel';
 import OddsSourceBadge from './OddsSourceBadge';
 import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
@@ -347,10 +346,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     maxExposureAmount,
     suggestedTotalStake,
     exposureRatio,
-    dailySlate,
-    dailySlateLoading,
-    dailySlateError,
-    refreshDailySlate,
     oppStakeKey,
     oppStakeValue,
     tabs: TABS,
@@ -551,7 +546,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               <div style={{ margin: '0 20px 16px' }}>
                 <div className="pr-card" style={{ borderColor: 'var(--blue-border)', boxShadow: '0 12px 28px rgba(29, 78, 216, 0.12)' }}>
                   <div className="pr-card-head">
-                    <div className="pr-card-title">Migliore opportunita del match</div>
+                    <div className="pr-card-title">Migliore giocata del match</div>
                     <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                       {bestValueOpp?.marketTier && (
                         <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
@@ -567,6 +562,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         opportunity={bestValueOpp as BestValueOpportunityModel | null}
                         oddsBadge={oddsReliabilityBadge}
                         oddsWarning={oddsSourceWarning}
+                        bestBetStatus={pred.bestBetStatus}
+                        bestBetReason={pred.bestBetReason}
+                        bestBetAlternatives={pred.bestBetAlternatives}
+                        emptyMessage="Match da saltare: la migliore opportunita analitica non supera i filtri risk-adjusted."
                         recommendedBetResult={
                           recommendedBetResult
                             ? {
@@ -588,12 +587,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                           maxExposurePct={maxExposurePct}
                           maxExposureAmount={maxExposureAmount}
                           exposureRatio={exposureRatio}
-                        />
-                        <DailySlatePanel
-                          slate={dailySlate}
-                          loading={dailySlateLoading}
-                          error={dailySlateError}
-                          onRefresh={refreshDailySlate}
                         />
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                           <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>

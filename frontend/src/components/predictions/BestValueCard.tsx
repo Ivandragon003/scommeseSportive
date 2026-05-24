@@ -1,7 +1,7 @@
 import React from 'react';
 import OddsSourceBadge from './OddsSourceBadge';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
-import { BestValueOpportunity, OddsSourceBadgeInfo, RecommendedBetResult, ReplayTone } from './predictionTypes';
+import { BestBetAlternative, BestValueOpportunity, OddsSourceBadgeInfo, RecommendedBetResult, ReplayTone } from './predictionTypes';
 
 interface BestValueCardProps {
   title?: string;
@@ -12,6 +12,9 @@ interface BestValueCardProps {
   replayTone?: ReplayTone;
   showConfidence?: boolean;
   emptyMessage?: string;
+  bestBetStatus?: string | null;
+  bestBetReason?: string | null;
+  bestBetAlternatives?: BestBetAlternative[];
 }
 
 const formatMetricNumber = (
@@ -27,7 +30,7 @@ const formatMetricNumber = (
 };
 
 const BestValueCard: React.FC<BestValueCardProps> = ({
-  title = 'Pronostico Finale Consigliato',
+  title = 'Migliore giocata del match',
   opportunity,
   oddsBadge,
   oddsWarning,
@@ -35,7 +38,52 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   replayTone = 'info',
   showConfidence = true,
   emptyMessage = 'Nessun pronostico finale consigliato: per questa partita non c e una giocata abbastanza solida.',
+  bestBetStatus,
+  bestBetReason,
+  bestBetAlternatives,
 }) => {
+  const resolvedAlternatives =
+    bestBetAlternatives ??
+    opportunity?.bestBetAlternatives ??
+    opportunity?.bestBetDecision?.comparedAlternatives ??
+    [];
+
+  const renderAlternatives = (alternatives: BestBetAlternative[]) => {
+    if (!Array.isArray(alternatives) || alternatives.length === 0) return null;
+    return (
+      <div style={{ marginTop: 14 }}>
+        <strong>Alternative valutate</strong>
+        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+          {alternatives.slice(0, 4).map((alternative) => (
+            <div
+              key={`${alternative.selection}_${alternative.marketName ?? ''}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(140px, 1.2fr) repeat(3, minmax(70px, .6fr))',
+                gap: 8,
+                alignItems: 'center',
+                padding: '8px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 9,
+                background: 'var(--surface)',
+              }}
+            >
+              <span style={{ fontWeight: 800, color: 'var(--text)' }}>{fmtSelection(alternative.selection)}</span>
+              <span style={{ fontFamily: 'DM Mono, monospace' }}>EV {formatMetricNumber(alternative.expectedValue, 1, '%', '+')}</span>
+              <span style={{ fontFamily: 'DM Mono, monospace' }}>Edge {formatMetricNumber(alternative.edgeNoVig, 1, '%', '+')}</span>
+              <span style={{ fontFamily: 'DM Mono, monospace' }}>Score {formatMetricNumber(alternative.riskAdjustedScore, 2)}</span>
+              {alternative.reason && (
+                <span style={{ gridColumn: '1 / -1', color: 'var(--text-2)', fontSize: 11 }}>
+                  {alternative.reason.replace(/_/g, ' ')}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (!opportunity) {
     return (
       <section aria-label={title} data-testid="best-value-card">
@@ -44,11 +92,26 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
             {oddsWarning}
           </div>
         )}
-        <div className="pr-info">{emptyMessage}</div>
+        <div className="pr-alert pr-alert-warning">
+          <strong>Match da saltare</strong>
+          <br />
+          {bestBetReason ?? emptyMessage}
+        </div>
+        {renderAlternatives(resolvedAlternatives)}
       </section>
     );
   }
 
+  const resolvedStatus =
+    bestBetStatus ??
+    opportunity.bestBetStatus ??
+    opportunity.bestBetDecision?.status ??
+    null;
+  const resolvedReason =
+    bestBetReason ??
+    opportunity.bestBetReason ??
+    opportunity.bestBetDecision?.reason ??
+    null;
   const reasons = Array.isArray(opportunity.humanReasons) ? opportunity.humanReasons : [];
   const warnings = Array.isArray(opportunity.dataWarnings) ? opportunity.dataWarnings.slice(0, 4) : [];
   const riskReasons = Array.isArray(opportunity.riskReasons) ? opportunity.riskReasons.slice(0, 3) : [];
@@ -58,8 +121,18 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
     ['Probabilita implicita', formatMetricNumber(opportunity.impliedProbability, 1, '%')],
     ['EV', formatMetricNumber(opportunity.expectedValue, 1, '%', '+')],
     ['Edge', formatMetricNumber(opportunity.edge, 1, '%', '+')],
+    ['Edge no-vig', formatMetricNumber(opportunity.edgeNoVig, 1, '%', '+')],
+    ['Score rischio', formatMetricNumber(opportunity.riskAdjustedBestScore ?? opportunity.bestBetDecision?.riskAdjustedScore, 2)],
     ['Stake base', formatMetricNumber(opportunity.suggestedStakePercent, 2, '%')],
   ];
+  const statusClass =
+    resolvedStatus === 'PLAYABLE'
+      ? 'pr-badge-green'
+      : resolvedStatus === 'PRUDENT'
+        ? 'pr-badge-gold'
+        : resolvedStatus === 'NO_BET'
+          ? 'pr-badge-gray'
+          : 'pr-badge-blue';
 
   return (
     <section
@@ -72,7 +145,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-2)' }}>
-              Migliore opportunita del match
+              Migliore giocata del match
             </div>
             <strong style={{ display: 'block', marginTop: 6, fontSize: 22, lineHeight: 1.15, color: 'var(--text)' }}>
               {opportunity.selectionLabel ?? fmtSelection(opportunity.selection)}
@@ -83,6 +156,11 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
+            {resolvedStatus && (
+              <span className={`pr-badge ${statusClass}`}>
+                {resolvedStatus}
+              </span>
+            )}
             {showConfidence && opportunity.confidence && (
               <span className={`pr-badge ${opportunity.confidence === 'HIGH' ? 'pr-badge-green' : opportunity.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
                 {opportunity.confidence}
@@ -143,6 +221,12 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
           )}
         </div>
 
+        {resolvedReason && (
+          <div className={`pr-alert pr-alert-${resolvedStatus === 'PLAYABLE' ? 'success' : 'warning'}`} style={{ marginTop: 0, marginBottom: 12 }}>
+            {resolvedReason}
+          </div>
+        )}
+
         {(warnings.length > 0 || riskReasons.length > 0) && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {riskReasons.map((reason) => (
@@ -178,6 +262,8 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
             </ul>
           </div>
         )}
+
+        {renderAlternatives(resolvedAlternatives)}
 
         {oddsWarning && (
           <div className="pr-alert pr-alert-warning" style={{ marginTop: 12, marginBottom: 0 }}>

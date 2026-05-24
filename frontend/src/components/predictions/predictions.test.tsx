@@ -1,7 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import BestValueCard from './BestValueCard';
-import DailySlatePanel from './DailySlatePanel';
 import OddsSourceBadge from './OddsSourceBadge';
 import PlayerPropsSection from './PlayerPropsSection';
 import StakePlanner from './StakePlanner';
@@ -39,6 +38,34 @@ describe('predictions UI components', () => {
     expect(screen.getByText('Quota')).toBeTruthy();
     expect(screen.getByText('2.15')).toBeTruthy();
     expect(screen.getByText('xG combinati alti')).toBeTruthy();
+  });
+
+  test('mostra match da saltare e alternative valutate quando non c e best bet operativa', () => {
+    render(
+      <BestValueCard
+        opportunity={null}
+        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
+        bestBetStatus="NO_BET"
+        bestBetReason="Match da saltare: rischio troppo alto."
+        bestBetAlternatives={[
+          {
+            selection: 'dnb_away',
+            marketName: 'Draw No Bet - Ospite',
+            expectedValue: 5.2,
+            edgeNoVig: 3.1,
+            riskAdjustedScore: 0.11,
+            confidence: 'MEDIUM',
+            reason: 'risk_adjusted_score_basso',
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('Match da saltare')).toBeTruthy();
+    expect(screen.getByText(/rischio troppo alto/i)).toBeTruthy();
+    expect(screen.getByText('Alternative valutate')).toBeTruthy();
+    expect(screen.getByText('Draw No Bet Ospite')).toBeTruthy();
+    expect(screen.getByText(/risk adjusted score basso/i)).toBeTruthy();
   });
 
   test('non mostra 0 percentuali quando le metriche della giocata sono assenti', () => {
@@ -304,73 +331,4 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/EUR 12.00/)).toBeTruthy();
   });
 
-  test('mostra Consigli giornata con pick recommended e motivi di skip', () => {
-    render(
-      <DailySlatePanel
-        slate={{
-          competition: 'La Liga',
-          date: '2026-05-23',
-          generatedAt: '2026-05-23T10:00:00.000Z',
-          matchesAnalyzed: 9,
-          diagnostics: {},
-          recommended: [
-            {
-              ...opportunity,
-              matchId: 'm1',
-              match: 'Valencia - Betis',
-              homeTeam: 'Valencia',
-              awayTeam: 'Betis',
-              marketCategory: 'goal_over',
-              edgeNoVig: 6.4,
-              rankingScore: 0.22,
-              slateDiagnostics: { slateRank: 0.31, slatePosition: 1 },
-            },
-          ],
-          skipped: [
-            {
-              ...opportunity,
-              matchId: 'm2',
-              match: 'Girona - Elche',
-              homeTeam: 'Girona',
-              awayTeam: 'Elche',
-              slateSkipReason: 'skippedBecauseDailyUnderCap',
-            },
-          ],
-          matchesSkipped: [
-            {
-              matchId: 'm3',
-              match: 'Celta Vigo - Siviglia',
-              reason: 'quota_non_disponibile',
-            },
-          ],
-        }}
-      />
-    );
-
-    expect(screen.getByText('Consigli giornata')).toBeTruthy();
-    expect(screen.getByText(/Valencia - Betis/)).toBeTruthy();
-    expect(screen.getByText(/Edge no-vig/)).toBeTruthy();
-    expect(screen.getByText(/Girona - Elche: cap Under\/No Goal raggiunto/)).toBeTruthy();
-    expect(screen.getByText(/Celta Vigo - Siviglia: quota non disponibile/)).toBeTruthy();
-  });
-
-  test('mostra empty state quando non ci sono pick giornata solide', () => {
-    render(
-      <DailySlatePanel
-        slate={{
-          competition: 'Serie A',
-          date: '2026-05-23',
-          generatedAt: '2026-05-23T10:00:00.000Z',
-          matchesAnalyzed: 5,
-          diagnostics: {},
-          recommended: [],
-          skipped: [],
-          matchesSkipped: [],
-        }}
-      />
-    );
-
-    expect(screen.getByText('Consigli giornata')).toBeTruthy();
-    expect(screen.getByText(/Nessuna giocata abbastanza solida oggi/i)).toBeTruthy();
-  });
 });

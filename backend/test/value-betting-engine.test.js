@@ -954,3 +954,133 @@ test('selectRecommendedSlateBets seleziona meno bet, applica cap e non forza ogn
   assert.ok(result.skipped.some((opp) => opp.slateSkipReason === 'skippedBecauseCorrelation'));
   assert.ok(result.skipped.some((opp) => opp.slateSkipReason === 'skippedBecauseLowConfidence'));
 });
+
+test('selectBestSingleMatchBet preferisce DNB a 1X2 quando il vantaggio aggressivo non e netto', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = [
+    makeSingleMatchOpp('awayWin', '1X2 - Vittoria Ospite', 'goal_1x2', {
+      expectedValue: 9,
+      edgeNoVig: 8,
+      rankingScore: 0.34,
+      bookmakerOdds: 2.6,
+    }),
+    makeSingleMatchOpp('dnb_away', 'Draw No Bet - Ospite', 'goal_1x2', {
+      expectedValue: 8,
+      edgeNoVig: 7,
+      rankingScore: 0.31,
+      bookmakerOdds: 1.9,
+    }),
+  ];
+
+  const result = engine.selectBestSingleMatchBet(opportunities);
+
+  assert.equal(result.bestBet.selection, 'dnb_away');
+  assert.equal(result.decision.status, 'PRUDENT');
+  assert.match(result.decision.reason, /protegge il pareggio/i);
+});
+
+test('selectBestSingleMatchBet sceglie 1X2 se supera DNB in modo netto', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = [
+    makeSingleMatchOpp('awayWin', '1X2 - Vittoria Ospite', 'goal_1x2', {
+      expectedValue: 14,
+      edgeNoVig: 12,
+      rankingScore: 0.43,
+      bookmakerOdds: 2.75,
+    }),
+    makeSingleMatchOpp('dnb_away', 'Draw No Bet - Ospite', 'goal_1x2', {
+      expectedValue: 8,
+      edgeNoVig: 7,
+      rankingScore: 0.31,
+      bookmakerOdds: 1.9,
+    }),
+  ];
+
+  const result = engine.selectBestSingleMatchBet(opportunities);
+
+  assert.equal(result.bestBet.selection, 'awayWin');
+  assert.match(result.decision.reason, /Scelta aggressiva/i);
+});
+
+test('selectBestSingleMatchBet non rende operativa una pick LOW confidence debole', () => {
+  const engine = new ValueBettingEngine();
+  const result = engine.selectBestSingleMatchBet([
+    makeSingleMatchOpp('homeWin', '1X2 - Vittoria Casa', 'goal_1x2', {
+      confidence: 'LOW',
+      expectedValue: 9,
+      edgeNoVig: 6,
+      rankingScore: 0.4,
+    }),
+  ]);
+
+  assert.equal(result.bestBet, null);
+  assert.equal(result.decision.status, 'NO_BET');
+  assert.ok(result.decision.rejectedReasons.includes('confidence_low'));
+});
+
+test('selectBestSingleMatchBet scarta mercati fragili quando lo score risk-adjusted non basta', () => {
+  const engine = new ValueBettingEngine();
+
+  const noGoal = engine.selectBestSingleMatchBet([
+    makeSingleMatchOpp('bttsNo', 'Goal/Goal - No', 'btts_no', {
+      dataWarnings: ['btts_no_fragile', 'both_teams_goal_risk'],
+      rankingScore: 0.19,
+    }),
+  ]);
+  assert.equal(noGoal.bestBet, null);
+  assert.equal(noGoal.decision.status, 'NO_BET');
+
+  const underGoal = engine.selectBestSingleMatchBet([
+    makeSingleMatchOpp('under25', 'Under 2.5 Goal', 'goal_under', {
+      dataWarnings: ['under_goals_close_to_line'],
+      rankingScore: 0.2,
+    }),
+  ]);
+  assert.equal(underGoal.bestBet, null);
+  assert.equal(underGoal.decision.status, 'NO_BET');
+
+  const cards = engine.selectBestSingleMatchBet([
+    makeSingleMatchOpp('yellow_over_3.5', 'Over 3.5 cartellini', 'yellow_cards', {
+      dataWarnings: ['over_cards_close_to_line'],
+      rankingScore: 0.24,
+    }),
+  ]);
+  assert.equal(cards.bestBet, null);
+  assert.equal(cards.decision.status, 'NO_BET');
+});
+
+test('selectBestSingleMatchBet ritorna NO_BET se non ci sono opportunita', () => {
+  const engine = new ValueBettingEngine();
+  const result = engine.selectBestSingleMatchBet([]);
+
+  assert.equal(result.bestBet, null);
+  assert.equal(result.decision.status, 'NO_BET');
+  assert.ok(result.decision.rejectedReasons.includes('nessuna_value_opportunity'));
+});
+
+function makeSingleMatchOpp(selection, marketName, category, extra = {}) {
+  return {
+    marketName,
+    selection,
+    matchId: 'single-match-test',
+    marketCategory: category,
+    marketTier: category === 'goal_1x2' ? 'CORE' : 'SECONDARY',
+    ourProbability: 60,
+    bookmakerOdds: 1.95,
+    impliedProbability: 51.28,
+    impliedProbabilityNoVig: 50,
+    expectedValue: 10,
+    kellyFraction: 2,
+    suggestedStakePercent: 1,
+    confidence: 'MEDIUM',
+    isValueBet: true,
+    edge: 8,
+    edgeNoVig: 9,
+    rankingScore: 0.32,
+    riskPenalty: 0.12,
+    uncertaintyFactor: 0.16,
+    dataWarnings: [],
+    riskReasons: [],
+    ...extra,
+  };
+}
