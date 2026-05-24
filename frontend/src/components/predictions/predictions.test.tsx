@@ -40,13 +40,33 @@ describe('predictions UI components', () => {
     expect(screen.getByText('xG combinati alti')).toBeTruthy();
   });
 
-  test('mostra match da saltare e alternative valutate quando non c e best bet operativa', () => {
+  test('mostra NO_MARKET solo quando non ci sono quote o probabilita sufficienti', () => {
     render(
       <BestValueCard
         opportunity={null}
         oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
-        bestBetStatus="NO_BET"
-        bestBetReason="Match da saltare: rischio troppo alto."
+        bestBetStatus="NO_MARKET"
+        bestBetReason="Quote o probabilita insufficienti per scegliere una giocata."
+      />
+    );
+
+    expect(screen.getByText('NO_MARKET')).toBeTruthy();
+    expect(screen.getByText(/Quote o probabilita insufficienti/i)).toBeTruthy();
+    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
+  });
+
+  test('mostra SPECULATIVE e alternative quando la migliore giocata e debole ma valutabile', () => {
+    render(
+      <BestValueCard
+        opportunity={{
+          ...opportunity,
+          confidence: 'LOW',
+          bestBetStatus: 'SPECULATIVE',
+          bestBetReason: 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.',
+          riskAdjustedBestScore: 0.08,
+          edgeNoVig: 1.2,
+        }}
+        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
         bestBetAlternatives={[
           {
             selection: 'dnb_away',
@@ -61,11 +81,12 @@ describe('predictions UI components', () => {
       />
     );
 
-    expect(screen.getByText('Match da saltare')).toBeTruthy();
-    expect(screen.getByText(/rischio troppo alto/i)).toBeTruthy();
+    expect(screen.getByText('SPECULATIVE')).toBeTruthy();
+    expect(screen.getByText(/Migliore giocata disponibile/i)).toBeTruthy();
     expect(screen.getByText('Alternative valutate')).toBeTruthy();
     expect(screen.getByText('Draw No Bet Ospite')).toBeTruthy();
     expect(screen.getByText(/risk adjusted score basso/i)).toBeTruthy();
+    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
   test('non mostra 0 percentuali quando le metriche della giocata sono assenti', () => {

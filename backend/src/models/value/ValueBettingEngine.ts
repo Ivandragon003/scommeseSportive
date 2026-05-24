@@ -133,6 +133,8 @@ export interface BetOpportunity {
   sampleSize?: number;
   playerConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
   dataWarnings?: string[];
+  rejectionCodes?: string[];
+  rejectionReasons?: string[];
   slateStatus?: 'recommended' | 'skipped' | 'not_evaluated';
   slateSkipReason?: string;
   slateDiagnostics?: {
@@ -391,7 +393,7 @@ export interface SlateSelectionResult {
   };
 }
 
-export type SingleMatchBetStatus = 'PLAYABLE' | 'PRUDENT' | 'NO_BET';
+export type SingleMatchBetStatus = 'PLAYABLE' | 'PRUDENT' | 'SPECULATIVE' | 'NO_MARKET' | 'NO_BET';
 
 export interface SingleMatchBetComparedAlternative {
   selection: string;
@@ -2361,6 +2363,177 @@ export class ValueBettingEngine {
     );
   }
 
+  buildSingleMatchCandidateBoard(
+    probabilities: Record<string, number>,
+    marketGroups: Record<string, MarketOddsGroup>,
+    marketNames: Record<string, string>,
+    context: ValueAnalysisContext = {}
+  ): BetOpportunity[] {
+    const candidates: BetOpportunity[] = [];
+    const marginByCategory = this.computeCategoryMarginsFromGroups(marketGroups);
+
+    for (const [key, rawProbability] of Object.entries(probabilities ?? {})) {
+      const group = marketGroups[key];
+      const rawProb = Number(rawProbability);
+      if (!group || !Number.isFinite(rawProb) || rawProb <= 0 || rawProb >= 1) continue;
+
+      const odds = Number(group.odds);
+      if (!Number.isFinite(odds) || odds <= 1) continue;
+
+      const companions = (group.companions ?? []).filter((value) => Number.isFinite(value) && value > 1);
+      const allOdds = [odds, ...companions];
+      const category = this.categorizeSelection(key);
+      const marketTier = this.getMarketTier(category);
+      const selectionFamily = this.getSelectionFamily(key);
+      const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
+      const selectionGuard = this.computeSelectionRiskGuard(key, category, context);
+      const impliedRaw = this.impliedProbabilityFromOdds(odds);
+      const impliedNoVig = allOdds.length >= 2 ? this.impliedProbabilityNoVig(odds, allOdds) : impliedRaw;
+      const baseMinEv = this.minEvForCategory(category, marginByCategory[category], key);
+      const contextStrength = this.computeContextStrength(key, category, context);
+      const uncertaintyFactor = this.clampNumber(
+        this.computeUncertaintyFactor(category, odds, context) + selectionGuard.uncertaintyBump,
+        0.04,
+        0.92
+      );
+      const calibration = this.applyMarketCalibration(rawProb, key, category, context);
+      const hasCompanionOdds = allOdds.length >= 2;
+      const blended = this.blendWithMarketProbability(
+        calibration.probability,
+        impliedNoVig,
+        category,
+        context,
+        hasCompanionOdds,
+        uncertaintyFactor
+      );
+      const effectiveProb = blended.probability;
+      const ev = this.computeExpectedValue(effectiveProb, odds);
+      const edgeRaw = effectiveProb - impliedRaw;
+      const edgeNoVig = effectiveProb - impliedNoVig;
+      const minEv = this.computeContextualEvThreshold(
+        category,
+        baseMinEv,
+        odds,
+        context,
+        uncertaintyFactor,
+        contextStrength
+      ) + selectionGuard.evThresholdBump;
+      const rejectionCodes: string[] = [];
+      const rejectionReasons: string[] = [];
+      const addRejection = (code: string, reason: string) => {
+        if (rejectionCodes.includes(code)) return;
+        rejectionCodes.push(code);
+        rejectionReasons.push(reason);
+      };
+
+      if (selectionGuard.reject) addRejection('selection_risk_guard', 'Mercato fragile: guardia rischio attiva.');
+      if (edgeNoVig < selectionGuard.minEdgeNoVig) addRejection('edge_no_vig_below_guard', 'Edge no-vig sotto soglia prudenziale del mercato.');
+      if (!this.passesFilters(effectiveProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) {
+        if (ev <= minEv) addRejection('ev_below_threshold', 'EV sotto soglia categoria.');
+        if (edgeNoVig <= 0) addRejection('edge_no_vig_non_positive', 'Edge no-vig non positivo.');
+        if (this.kellyFraction(effectiveProb, odds) <= 0) addRejection('kelly_non_positive', 'Kelly nullo o negativo.');
+        const { minOdds, maxOdds, coherenceRatio } = this.getFilterSettings(category, key);
+        if (odds < minOdds || odds > maxOdds) addRejection('odds_out_of_range', 'Quota fuori range operativo.');
+        if (effectiveProb < impliedRaw * coherenceRatio) addRejection('coherence_too_low', 'Probabilita modello troppo lontana dal mercato.');
+      }
+
+      const stake = this.computeSuggestedStakeWithUncertainty(effectiveProb, odds, ev, uncertaintyFactor, 0.55);
+      const stakeConfidence = this.capConfidence(
+        this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds),
+        selectionGuard.maxConfidence
+      );
+      const riskPenalty = this.clampNumber(
+        this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + selectionGuard.riskPenaltyBump,
+        0,
+        0.82
+      );
+      const kelly = this.kellyFraction(effectiveProb, odds);
+      const categoryStakeCap = this.getStakeCapForCategory(category);
+      const stakePercent = Number(
+        Math.max(
+          this.MIN_STAKE_PERCENT,
+          Math.min(categoryStakeCap, kelly * 100, stake.stakePercent * (1 - riskPenalty * 0.7) * selectionGuard.stakeMultiplier)
+        ).toFixed(2)
+      );
+      const logGrowth = this.computeExpectedLogGrowth(effectiveProb, odds, stakePercent);
+      const rankingScore = this.computeRankingScore({
+        ev,
+        edgeRaw,
+        edgeNoVig,
+        kelly,
+        confidence: stakeConfidence,
+        odds,
+        category,
+        uncertaintyFactor,
+        riskPenalty,
+        contextStrength,
+        logGrowth,
+        adaptiveRankMultiplier,
+        selectionFamily,
+        competition: context.competition,
+      });
+      const diagnostics = this.buildPickDiagnostics({
+        selection: key,
+        category,
+        edgeNoVig,
+        dataQuality: blended.dataQuality,
+        calibrationStatus: calibration.status,
+        blendingApplied: blended.applied,
+        hasCompanionOdds,
+        warnings: selectionGuard.warnings,
+      });
+
+      candidates.push({
+        marketName: marketNames[key] ?? key,
+        selection: key,
+        marketCategory: category,
+        marketTier,
+        selectionFamily,
+        adaptiveRankMultiplier,
+        ourProbability: parseFloat((effectiveProb * 100).toFixed(2)),
+        bookmakerOdds: odds,
+        impliedProbability: parseFloat((impliedRaw * 100).toFixed(2)),
+        impliedProbabilityNoVig: parseFloat((impliedNoVig * 100).toFixed(2)),
+        expectedValue: parseFloat((ev * 100).toFixed(2)),
+        kellyFraction: parseFloat((kelly * 100).toFixed(2)),
+        suggestedStakePercent: stakePercent,
+        confidence: stakeConfidence,
+        isValueBet: rejectionCodes.length === 0,
+        edge: parseFloat((edgeRaw * 100).toFixed(2)),
+        edgeNoVig: parseFloat((edgeNoVig * 100).toFixed(2)),
+        modelProbability: parseFloat((rawProb * 100).toFixed(2)),
+        calibratedProbability: parseFloat((calibration.probability * 100).toFixed(2)),
+        blendedProbability: parseFloat((effectiveProb * 100).toFixed(2)),
+        marketProbabilityNoVig: parseFloat((impliedNoVig * 100).toFixed(2)),
+        modelWeight: blended.modelWeight,
+        marketWeight: blended.marketWeight,
+        categoryCalibrationStatus: calibration.status,
+        calibrationSampleSize: calibration.sampleSize,
+        calibrationReliability: calibration.reliability,
+        mainReason: diagnostics.mainReason,
+        riskReasons: diagnostics.riskReasons,
+        dataQuality: blended.dataQuality,
+        companionOddsAvailable: hasCompanionOdds,
+        uncertaintyFactor: Number(uncertaintyFactor.toFixed(3)),
+        riskPenalty: Number(riskPenalty.toFixed(3)),
+        rankingScore,
+        logGrowth: Number(logGrowth.toFixed(6)),
+        dynamicEvThreshold: Number((minEv * 100).toFixed(2)),
+        contextStrength: Number(contextStrength.toFixed(3)),
+        dataWarnings: Array.from(new Set([
+          ...diagnostics.warnings,
+          ...selectionGuard.warnings,
+          ...rejectionCodes,
+        ])),
+        rejectionCodes,
+        rejectionReasons,
+        line: selectionGuard.line ?? undefined,
+      });
+    }
+
+    return candidates.sort((a, b) => this.computeRiskAdjustedBestScore(b) - this.computeRiskAdjustedBestScore(a));
+  }
+
   /**
    * Stima volume bet atteso per partita (utile per capire se si è nel
    * range target 150-400/stagione su 38 partite per squadra top di lega).
@@ -2421,6 +2594,12 @@ export class ValueBettingEngine {
     if (category === 'player_shots' || category === 'player_shots_ot' || category === 'player_yellow_cards') return 'player_props';
     if (category === 'handicap') return selection.includes('away') ? 'away_side' : 'home_side';
     return family || category;
+  }
+
+  private getSingleMatchStatus(score: number): SingleMatchBetStatus {
+    if (score >= 0.22) return 'PLAYABLE';
+    if (score >= 0.12) return 'PRUDENT';
+    return 'SPECULATIVE';
   }
 
   private getSingleMatchFragilityPenalty(opportunity: BetOpportunity): number {
@@ -2560,11 +2739,9 @@ export class ValueBettingEngine {
       }));
   }
 
-  private buildSingleMatchReason(bestBet: BetOpportunity | null, status: SingleMatchBetStatus, rejectedReasons: string[]): string {
+  private buildSingleMatchReason(bestBet: BetOpportunity | null, status: SingleMatchBetStatus): string {
     if (!bestBet) {
-      if (rejectedReasons.includes('mercato_fragile')) return 'Match da saltare: mercato fragile e score risk-adjusted insufficiente.';
-      if (rejectedReasons.includes('confidence_low')) return 'Match da saltare: confidence troppo bassa per una giocata operativa.';
-      return 'Match da saltare: nessuna opportunita supera il filtro risk-adjusted.';
+      return 'Quote o probabilita insufficienti per scegliere una giocata.';
     }
 
     const selection = String(bestBet.selection ?? '').toLowerCase();
@@ -2574,8 +2751,9 @@ export class ValueBettingEngine {
     if (selection === 'homewin' || selection === 'awaywin') {
       return 'Scelta aggressiva: quota piu alta, ma perde in caso di pareggio.';
     }
+    if (status === 'SPECULATIVE') return 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.';
     if (status === 'PRUDENT') return 'Giocata prudente: edge positivo ma rischio o fragilita richiedono stake contenuto.';
-    return 'Edge no-vig e score risk-adjusted positivi rispetto alle alternative del match.';
+    return 'Giocata principale del match.';
   }
 
   selectBestSingleMatchBet(
@@ -2584,7 +2762,13 @@ export class ValueBettingEngine {
   ): SingleMatchBetSelectionResult {
     const minScore = Number(context.minRiskAdjustedScore ?? 0.14);
     const candidates = (opportunities ?? [])
-      .filter((opportunity) => opportunity && opportunity.isValueBet !== false)
+      .filter((opportunity) =>
+        opportunity &&
+        Number.isFinite(Number(opportunity.bookmakerOdds)) &&
+        Number(opportunity.bookmakerOdds) > 1 &&
+        Number.isFinite(Number(opportunity.ourProbability)) &&
+        Number(opportunity.ourProbability) > 0
+      )
       .map((opportunity) => ({
         opportunity,
         score: this.computeRiskAdjustedBestScore(opportunity),
@@ -2599,10 +2783,10 @@ export class ValueBettingEngine {
         analyticalBest: null,
         alternatives: [],
         decision: {
-          status: 'NO_BET',
-          reason: 'Match da saltare: nessuna value opportunity disponibile.',
+          status: 'NO_MARKET',
+          reason: 'Quote o probabilita insufficienti per scegliere una giocata.',
           riskAdjustedScore: 0,
-          rejectedReasons: ['nessuna_value_opportunity'],
+          rejectedReasons: ['no_market_available'],
           comparedAlternatives: [],
         },
       };
@@ -2625,16 +2809,13 @@ export class ValueBettingEngine {
     const operational = familyRepresentatives.find((entry) =>
       this.isOperationalSingleMatchCandidate(entry.opportunity, entry.score, minScore)
     ) ?? null;
-    const bestBet = operational?.opportunity ?? null;
-    const bestScore = operational?.score ?? candidates[0].score;
-    const rejectedReasons = bestBet
+    const bestEntry = operational ?? familyRepresentatives[0];
+    const bestBet = bestEntry.opportunity;
+    const bestScore = bestEntry.score;
+    const rejectedReasons = operational
       ? []
-      : this.buildSingleMatchRejectedReasons(candidates[0].opportunity, candidates[0].score, minScore);
-    const status: SingleMatchBetStatus = bestBet
-      ? bestScore >= minScore + 0.08 && bestBet.confidence === 'HIGH'
-        ? 'PLAYABLE'
-        : 'PRUDENT'
-      : 'NO_BET';
+      : this.buildSingleMatchRejectedReasons(bestEntry.opportunity, bestEntry.score, minScore);
+    const status = operational ? this.getSingleMatchStatus(bestScore) : 'SPECULATIVE';
     const comparedAlternatives = this.buildSingleMatchComparedAlternatives(
       familyRepresentatives,
       bestBet?.selection ?? null
@@ -2649,7 +2830,7 @@ export class ValueBettingEngine {
         .map((entry) => entry.opportunity),
       decision: {
         status,
-        reason: this.buildSingleMatchReason(bestBet, status, rejectedReasons),
+        reason: this.buildSingleMatchReason(bestBet, status),
         riskAdjustedScore: Number(bestScore.toFixed(3)),
         rejectedReasons,
         comparedAlternatives,

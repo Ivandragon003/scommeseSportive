@@ -565,7 +565,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         bestBetStatus={pred.bestBetStatus}
                         bestBetReason={pred.bestBetReason}
                         bestBetAlternatives={pred.bestBetAlternatives}
-                        emptyMessage="Match da saltare: la migliore opportunita analitica non supera i filtri risk-adjusted."
+                        emptyMessage="Quote o probabilita insufficienti per scegliere una giocata."
                         recommendedBetResult={
                           recommendedBetResult
                             ? {

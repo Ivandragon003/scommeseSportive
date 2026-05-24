@@ -37,6 +37,7 @@ import {
   RankingWeightsConfig,
   MarketCalibrationProfile,
   MarketCalibrationEntry,
+  SingleMatchBetStatus,
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
@@ -141,6 +142,7 @@ export interface BacktestResult {
   rankingOptimization?: RankingWeightSearchResult | null;
   overfittingRisk?: OverfittingRisk;
   overfittingWarnings?: string[];
+  singleBestAlways?: SingleBestAlwaysMetrics;
 }
 
 export type BacktestAlgorithmMode = 'current' | 'baseline';
@@ -173,6 +175,28 @@ export interface BacktestAlgorithmComparison {
   deltaProfit: number;
   deltaCLV: number | null;
   deltaDrawdown: number;
+}
+
+export interface SingleBestAlwaysMetrics {
+  roi: number;
+  winRate: number;
+  totalBets: number;
+  totalStaked: number;
+  netProfit: number;
+  maxDrawdown: number;
+  roiByCategory: Record<string, number>;
+  roiByStatus: Record<string, number>;
+  totalByStatus: Record<string, number>;
+  speculativePicks: number;
+  roiSpeculative: number | null;
+  roiPlayable: number | null;
+  roiPrudent: number | null;
+  comparisonWithPrudentSelector: {
+    prudentSelectorBets: number;
+    singleBestAlwaysBets: number;
+    deltaBets: number;
+    deltaRoi: number;
+  };
 }
 
 export interface MarketStats {
@@ -286,6 +310,7 @@ export interface WalkForwardFoldSummary {
   currentRoi?: number;
   tunedRoi?: number;
   foldWinner?: 'baseline' | 'current' | 'tuned' | 'none';
+  singleBestAlways?: SingleBestAlwaysMetrics;
   startDate: Date;
   endDate: Date;
 }
@@ -510,6 +535,7 @@ interface TestBet {
   categoryCalibrationStatus: string | null;
   dataQuality: number | null;
   companionOddsAvailable: boolean | null;
+  singleBestStatus?: SingleMatchBetStatus;
 }
 
 interface BacktestValueContextDiagnostics {
@@ -1234,14 +1260,19 @@ export class BacktestingEngine {
     const marketCalibrationProfile = this.buildTrainingMarketCalibrationProfile(trainMatches);
 
     const bets: TestBet[] = [];
+    const singleBestAlwaysBets: TestBet[] = [];
     const attemptedByCategory: Record<string, number> = {};
     const voidedByCategory: Record<string, number> = {};
     let bankroll = this.INITIAL_BANKROLL;
+    let singleBestBankroll = this.INITIAL_BANKROLL;
     let syntheticOddsMatchCount = 0;
     let realOddsMatchCount = 0;
     const chronologicalHistory = [...trainMatches].sort((a, b) => a.date.getTime() - b.date.getTime());
     const equityCurve: EquityPoint[] = [
       { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
+    ];
+    const singleBestAlwaysEquity: EquityPoint[] = [
+      { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll: singleBestBankroll, profit: 0, cumulativeROI: 0 }
     ];
 
     for (let i = 0; i < testMatches.length; i++) {
@@ -1282,7 +1313,96 @@ export class BacktestingEngine {
         marketNames,
         contextDiagnostics.context
       );
+      const singleBestCandidates = this.engine.buildSingleMatchCandidateBoard(
+        probMap,
+        marketGroups,
+        marketNames,
+        contextDiagnostics.context
+      );
       const selected = this.selectOpportunities(allOpportunities, confidenceLevel, algorithmMode);
+      const singleBestSelection = this.engine.selectBestSingleMatchBet(
+        singleBestCandidates.length > 0 ? singleBestCandidates : allOpportunities,
+        contextDiagnostics.context
+      );
+      const singleBestOpp = singleBestSelection.bestBet;
+
+      if (singleBestOpp) {
+        const outcome = this.evaluateBetNullable(singleBestOpp.selection, match);
+        if (outcome !== null) {
+          const stakeAmount = Math.max(
+            0.5,
+            Math.min(singleBestBankroll * 0.04, (singleBestBankroll * Number(singleBestOpp.suggestedStakePercent ?? 0)) / 100)
+          );
+          const won = outcome;
+          const returnAmount = won ? stakeAmount * singleBestOpp.bookmakerOdds : 0;
+          const profit = returnAmount - stakeAmount;
+          const closing = this.resolveClosingOdds(oddsContext, singleBestOpp.selection, match.date);
+          const clv = closing.closingOdds && closing.closingOdds > 1
+            ? singleBestOpp.bookmakerOdds / closing.closingOdds - 1
+            : null;
+          const underCardsCloseToLine = Boolean((singleBestOpp.dataWarnings ?? []).includes('under_cards_close_to_line'));
+          const cardLearning = this.assessCardLineLearning({
+            selection: singleBestOpp.selection,
+            actualCards: this.getActualCards(match),
+            clv,
+            wasRecommendedTooCloseToLine: underCardsCloseToLine,
+          });
+
+          singleBestBankroll += profit;
+          singleBestAlwaysBets.push({
+            matchId: match.matchId,
+            matchDate: match.date,
+            competition: match.competition ?? null,
+            season: match.season ?? null,
+            market: singleBestOpp.marketName,
+            marketCategory: singleBestOpp.marketCategory,
+            selection: singleBestOpp.selection,
+            odds: singleBestOpp.bookmakerOdds,
+            stake: stakeAmount,
+            ourProb: singleBestOpp.ourProbability / 100,
+            ev: singleBestOpp.expectedValue / 100,
+            edge: singleBestOpp.edge / 100,
+            edgeNoVig: singleBestOpp.edgeNoVig / 100,
+            confidence: singleBestOpp.confidence,
+            won,
+            profit,
+            isSynthetic: !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+            isRealEurobetOdds,
+            oddsSource,
+            snapshotSource: oddsContext?.snapshotSource ?? null,
+            oddsCapturedAt: oddsContext?.capturedAt ?? null,
+            closingOdds: closing.closingOdds,
+            closingOddsCapturedAt: closing.capturedAt,
+            closingSource: closing.source,
+            clv,
+            clvMissingReason: closing.missingReason,
+            uncertaintyFactor: singleBestOpp.uncertaintyFactor,
+            riskPenalty: singleBestOpp.riskPenalty,
+            rankingScore: singleBestOpp.rankingScore,
+            logGrowth: singleBestOpp.logGrowth,
+            dynamicEvThreshold: singleBestOpp.dynamicEvThreshold,
+            algorithmMode,
+            contextCompletenessScore: contextDiagnostics.contextCompletenessScore,
+            historicalContextUsed: contextDiagnostics.historicalContextUsed,
+            contextWarnings: contextDiagnostics.contextWarnings,
+            cardLineError: cardLearning.cardLineError,
+            cardMissSeverity: cardLearning.cardMissSeverity,
+            cardLearningAdjustment: cardLearning.cardLearningAdjustment,
+            outcomeVsMarketAssessment: cardLearning.outcomeVsMarketAssessment,
+            underCardsCloseToLine,
+            modelProbability: typeof singleBestOpp.modelProbability === 'number' ? singleBestOpp.modelProbability / 100 : null,
+            calibratedProbability: typeof singleBestOpp.calibratedProbability === 'number' ? singleBestOpp.calibratedProbability / 100 : null,
+            blendedProbability: typeof singleBestOpp.blendedProbability === 'number' ? singleBestOpp.blendedProbability / 100 : null,
+            marketProbabilityNoVig: typeof singleBestOpp.marketProbabilityNoVig === 'number' ? singleBestOpp.marketProbabilityNoVig / 100 : null,
+            modelWeight: typeof singleBestOpp.modelWeight === 'number' ? singleBestOpp.modelWeight : null,
+            marketWeight: typeof singleBestOpp.marketWeight === 'number' ? singleBestOpp.marketWeight : null,
+            categoryCalibrationStatus: singleBestOpp.categoryCalibrationStatus ?? null,
+            dataQuality: typeof singleBestOpp.dataQuality === 'number' ? singleBestOpp.dataQuality : null,
+            companionOddsAvailable: typeof singleBestOpp.companionOddsAvailable === 'boolean' ? singleBestOpp.companionOddsAvailable : null,
+            singleBestStatus: singleBestSelection.decision.status,
+          });
+        }
+      }
 
       for (const opp of selected) {
         const stakeAmount = (bankroll * opp.suggestedStakePercent) / 100;
@@ -1375,6 +1495,13 @@ export class BacktestingEngine {
         profit:        bankroll - this.INITIAL_BANKROLL,
         cumulativeROI: ((bankroll - this.INITIAL_BANKROLL) / this.INITIAL_BANKROLL) * 100,
       });
+      singleBestAlwaysEquity.push({
+        date: match.date,
+        matchNumber: i + 1,
+        bankroll: singleBestBankroll,
+        profit: singleBestBankroll - this.INITIAL_BANKROLL,
+        cumulativeROI: ((singleBestBankroll - this.INITIAL_BANKROLL) / this.INITIAL_BANKROLL) * 100,
+      });
     }
 
     const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
@@ -1402,7 +1529,9 @@ export class BacktestingEngine {
       trainMatches.length,
       testMatches.length,
       attemptedByCategory,
-      voidedByCategory
+      voidedByCategory,
+      singleBestAlwaysBets,
+      singleBestAlwaysEquity
     );
     result.algorithmMode = algorithmMode;
     return result;
@@ -1486,6 +1615,7 @@ export class BacktestingEngine {
         baselineRoi: baselineResult ? Number(baselineResult.roi.toFixed(2)) : undefined,
         currentRoi: Number(foldResult.roi.toFixed(2)),
         foldWinner,
+        singleBestAlways: foldResult.singleBestAlways,
         startDate: testMatches[0].date,
         endDate: testMatches[testMatches.length - 1].date,
       });
@@ -2148,11 +2278,76 @@ export class BacktestingEngine {
 
   // ==================== METRICHE ====================
 
+  private buildSingleBestAlwaysMetrics(
+    bets: TestBet[],
+    equity: EquityPoint[],
+    prudentSelectorBets: number,
+    prudentSelectorRoi: number
+  ): SingleBestAlwaysMetrics {
+    const totalStaked = bets.reduce((sum, bet) => sum + bet.stake, 0);
+    const netProfit = bets.reduce((sum, bet) => sum + bet.profit, 0);
+    const betsWon = bets.filter((bet) => bet.won).length;
+    const roi = totalStaked > 0 ? Number(((netProfit / totalStaked) * 100).toFixed(2)) : 0;
+    let peak = this.INITIAL_BANKROLL;
+    let maxDrawdown = 0;
+    for (const point of equity) {
+      if (point.bankroll > peak) peak = point.bankroll;
+      const drawdown = peak > 0 ? (peak - point.bankroll) / peak : 0;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+    const roiFor = (rows: TestBet[]): number | null => {
+      const staked = rows.reduce((sum, bet) => sum + bet.stake, 0);
+      if (staked <= 0) return null;
+      const profit = rows.reduce((sum, bet) => sum + bet.profit, 0);
+      return Number(((profit / staked) * 100).toFixed(2));
+    };
+    const groupRoi = (keyFn: (bet: TestBet) => string | undefined): Record<string, number> => {
+      const grouped: Record<string, TestBet[]> = {};
+      for (const bet of bets) {
+        const key = keyFn(bet);
+        if (!key) continue;
+        (grouped[key] ??= []).push(bet);
+      }
+      return Object.fromEntries(
+        Object.entries(grouped).map(([key, rows]) => [key, roiFor(rows) ?? 0])
+      );
+    };
+    const totalByStatus: Record<string, number> = {};
+    for (const bet of bets) {
+      const status = String(bet.singleBestStatus ?? 'UNKNOWN');
+      totalByStatus[status] = (totalByStatus[status] ?? 0) + 1;
+    }
+
+    return {
+      roi,
+      winRate: bets.length > 0 ? Number(((betsWon / bets.length) * 100).toFixed(2)) : 0,
+      totalBets: bets.length,
+      totalStaked: Number(totalStaked.toFixed(2)),
+      netProfit: Number(netProfit.toFixed(2)),
+      maxDrawdown: Number((maxDrawdown * 100).toFixed(2)),
+      roiByCategory: groupRoi((bet) => String(bet.marketCategory ?? 'unknown')),
+      roiByStatus: groupRoi((bet) => String(bet.singleBestStatus ?? 'UNKNOWN')),
+      totalByStatus,
+      speculativePicks: totalByStatus.SPECULATIVE ?? 0,
+      roiSpeculative: roiFor(bets.filter((bet) => bet.singleBestStatus === 'SPECULATIVE')),
+      roiPlayable: roiFor(bets.filter((bet) => bet.singleBestStatus === 'PLAYABLE')),
+      roiPrudent: roiFor(bets.filter((bet) => bet.singleBestStatus === 'PRUDENT')),
+      comparisonWithPrudentSelector: {
+        prudentSelectorBets,
+        singleBestAlwaysBets: bets.length,
+        deltaBets: bets.length - prudentSelectorBets,
+        deltaRoi: Number((roi - prudentSelectorRoi).toFixed(2)),
+      },
+    };
+  }
+
   private computeMetrics(
     bets: TestBet[], equity: EquityPoint[],
     trainCount: number, testCount: number,
     attemptedByCategory: Record<string, number> = {},
     voidedByCategory: Record<string, number> = {},
+    singleBestAlwaysBets: TestBet[] = [],
+    singleBestAlwaysEquity: EquityPoint[] = [],
   ): BacktestResult {
     const won         = bets.filter(b => b.won);
     const totalStaked = bets.reduce((s,b) => s+b.stake, 0);
@@ -2541,6 +2736,12 @@ export class BacktestingEngine {
       missSeverityBreakdown,
       underCardsCloseToLineCount,
       underCardsFragilePickedCount,
+      singleBestAlways: this.buildSingleBestAlwaysMetrics(
+        singleBestAlwaysBets,
+        singleBestAlwaysEquity.length > 0 ? singleBestAlwaysEquity : equity,
+        bets.length,
+        roiTotal
+      ),
     };
   }
 

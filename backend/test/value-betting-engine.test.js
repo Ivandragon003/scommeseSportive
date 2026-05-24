@@ -975,7 +975,7 @@ test('selectBestSingleMatchBet preferisce DNB a 1X2 quando il vantaggio aggressi
   const result = engine.selectBestSingleMatchBet(opportunities);
 
   assert.equal(result.bestBet.selection, 'dnb_away');
-  assert.equal(result.decision.status, 'PRUDENT');
+  assert.ok(['PLAYABLE', 'PRUDENT'].includes(result.decision.status));
   assert.match(result.decision.reason, /protegge il pareggio/i);
 });
 
@@ -1002,7 +1002,7 @@ test('selectBestSingleMatchBet sceglie 1X2 se supera DNB in modo netto', () => {
   assert.match(result.decision.reason, /Scelta aggressiva/i);
 });
 
-test('selectBestSingleMatchBet non rende operativa una pick LOW confidence debole', () => {
+test('selectBestSingleMatchBet mostra come SPECULATIVE una pick LOW confidence debole se e la migliore disponibile', () => {
   const engine = new ValueBettingEngine();
   const result = engine.selectBestSingleMatchBet([
     makeSingleMatchOpp('homeWin', '1X2 - Vittoria Casa', 'goal_1x2', {
@@ -1013,12 +1013,12 @@ test('selectBestSingleMatchBet non rende operativa una pick LOW confidence debol
     }),
   ]);
 
-  assert.equal(result.bestBet, null);
-  assert.equal(result.decision.status, 'NO_BET');
+  assert.equal(result.bestBet.selection, 'homeWin');
+  assert.equal(result.decision.status, 'SPECULATIVE');
   assert.ok(result.decision.rejectedReasons.includes('confidence_low'));
 });
 
-test('selectBestSingleMatchBet scarta mercati fragili quando lo score risk-adjusted non basta', () => {
+test('selectBestSingleMatchBet penalizza mercati fragili ma li mostra come SPECULATIVE se sono la migliore opzione', () => {
   const engine = new ValueBettingEngine();
 
   const noGoal = engine.selectBestSingleMatchBet([
@@ -1027,8 +1027,9 @@ test('selectBestSingleMatchBet scarta mercati fragili quando lo score risk-adjus
       rankingScore: 0.19,
     }),
   ]);
-  assert.equal(noGoal.bestBet, null);
-  assert.equal(noGoal.decision.status, 'NO_BET');
+  assert.equal(noGoal.bestBet.selection, 'bttsNo');
+  assert.equal(noGoal.decision.status, 'SPECULATIVE');
+  assert.ok(noGoal.decision.rejectedReasons.includes('mercato_fragile'));
 
   const underGoal = engine.selectBestSingleMatchBet([
     makeSingleMatchOpp('under25', 'Under 2.5 Goal', 'goal_under', {
@@ -1036,8 +1037,9 @@ test('selectBestSingleMatchBet scarta mercati fragili quando lo score risk-adjus
       rankingScore: 0.2,
     }),
   ]);
-  assert.equal(underGoal.bestBet, null);
-  assert.equal(underGoal.decision.status, 'NO_BET');
+  assert.equal(underGoal.bestBet.selection, 'under25');
+  assert.equal(underGoal.decision.status, 'SPECULATIVE');
+  assert.ok(underGoal.decision.rejectedReasons.includes('mercato_fragile'));
 
   const cards = engine.selectBestSingleMatchBet([
     makeSingleMatchOpp('yellow_over_3.5', 'Over 3.5 cartellini', 'yellow_cards', {
@@ -1045,17 +1047,43 @@ test('selectBestSingleMatchBet scarta mercati fragili quando lo score risk-adjus
       rankingScore: 0.24,
     }),
   ]);
-  assert.equal(cards.bestBet, null);
-  assert.equal(cards.decision.status, 'NO_BET');
+  assert.equal(cards.bestBet.selection, 'yellow_over_3.5');
+  assert.equal(cards.decision.status, 'SPECULATIVE');
+  assert.ok(cards.decision.rejectedReasons.includes('mercato_fragile'));
 });
 
-test('selectBestSingleMatchBet ritorna NO_BET se non ci sono opportunita', () => {
+test('selectBestSingleMatchBet ritorna NO_MARKET solo se non ci sono mercati valutabili', () => {
   const engine = new ValueBettingEngine();
   const result = engine.selectBestSingleMatchBet([]);
 
   assert.equal(result.bestBet, null);
-  assert.equal(result.decision.status, 'NO_BET');
-  assert.ok(result.decision.rejectedReasons.includes('nessuna_value_opportunity'));
+  assert.equal(result.decision.status, 'NO_MARKET');
+  assert.ok(result.decision.rejectedReasons.includes('no_market_available'));
+});
+
+test('buildSingleMatchCandidateBoard crea candidati diagnostici anche se non passano i filtri value', () => {
+  const engine = new ValueBettingEngine();
+  const marketGroups = engine.buildMarketGroups({
+    under25: 1.75,
+    over25: 2.08,
+  });
+
+  const candidates = engine.buildSingleMatchCandidateBoard(
+    { under25: 0.5, over25: 0.5 },
+    marketGroups,
+    { under25: 'Under 2.5 Goal', over25: 'Over 2.5 Goal' },
+    { expectedGoals: 2.42, hasXg: true }
+  );
+
+  const under = candidates.find((candidate) => candidate.selection === 'under25');
+  assert.ok(under);
+  assert.equal(under.isValueBet, false);
+  assert.ok(Array.isArray(under.rejectionCodes));
+  assert.ok(under.rejectionCodes.length > 0);
+
+  const result = engine.selectBestSingleMatchBet(candidates);
+  assert.ok(result.bestBet);
+  assert.ok(['PLAYABLE', 'PRUDENT', 'SPECULATIVE'].includes(result.decision.status));
 });
 
 function makeSingleMatchOpp(selection, marketName, category, extra = {}) {

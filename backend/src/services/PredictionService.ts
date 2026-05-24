@@ -193,6 +193,8 @@ export interface BestValueOpportunityExplanation {
   rankingScore?: number;
   logGrowth?: number;
   dataWarnings?: string[];
+  rejectionCodes?: string[];
+  rejectionReasons?: string[];
   riskReasons?: string[];
   mainReason?: string;
   slateStatus?: 'recommended' | 'skipped' | 'not_evaluated';
@@ -1371,8 +1373,17 @@ export class PredictionService {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
       return diagnostic ? { ...opportunity, ...diagnostic } : opportunity;
     });
+    const singleMatchCandidateBoard = this.engine.buildSingleMatchCandidateBoard(
+      probs.flatProbabilities,
+      marketGroups,
+      marketNames,
+      analysisContext
+    ).map((opportunity) => {
+      const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
+      return diagnostic ? { ...opportunity, ...diagnostic } : opportunity;
+    });
 
-    const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors);
+    const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors, singleMatchCandidateBoard);
     const modelConfidence = context.richnessScore;
 
     return {
@@ -2158,36 +2169,31 @@ export class PredictionService {
 
   private computeBestValueOpportunity(
     opportunities: BetOpportunity[],
-    factors: AnalysisFactors
+    factors: AnalysisFactors,
+    candidateBoard: BetOpportunity[] = []
   ): BestSingleMatchExplanationResult {
     const emptyDecision: SingleMatchBetDecision = {
-      status: 'NO_BET',
-      reason: 'Match da saltare: nessuna value opportunity disponibile.',
+      status: 'NO_MARKET',
+      reason: 'Quote o probabilita insufficienti per scegliere una giocata.',
       riskAdjustedScore: 0,
-      rejectedReasons: ['nessuna_value_opportunity'],
+      rejectedReasons: ['no_market_available'],
       comparedAlternatives: [],
     };
-    if (!Array.isArray(opportunities) || opportunities.length === 0) {
-      return {
-        bestValueOpportunity: null,
-        bestBetDecision: emptyDecision,
-        bestBetAlternatives: [],
-        bestBetStatus: 'NO_BET',
-        bestBetReason: emptyDecision.reason,
-        riskAdjustedBestScore: 0,
-      };
-    }
-
-    const primaryOpportunities = opportunities.filter((opportunity) => {
+    const primaryOpportunities = (opportunities ?? []).filter((opportunity) => {
       const category = String(opportunity.marketCategory ?? '');
       return !category.startsWith('player_') && !isPlayerPropSelection(opportunity.selection);
     });
-    if (primaryOpportunities.length === 0) {
+    const primaryCandidateBoard = (candidateBoard ?? []).filter((opportunity) => {
+      const category = String(opportunity.marketCategory ?? '');
+      return !category.startsWith('player_') && !isPlayerPropSelection(opportunity.selection);
+    });
+    const candidateSource = primaryOpportunities.length > 0 ? primaryOpportunities : primaryCandidateBoard;
+    if (candidateSource.length === 0) {
       return {
         bestValueOpportunity: null,
         bestBetDecision: emptyDecision,
         bestBetAlternatives: [],
-        bestBetStatus: 'NO_BET',
+        bestBetStatus: 'NO_MARKET',
         bestBetReason: emptyDecision.reason,
         riskAdjustedBestScore: 0,
       };
@@ -2224,14 +2230,14 @@ export class PredictionService {
         * tierWeight(o)
         * Number((o as any).adaptiveRankMultiplier ?? 1);
     };
-    const avgEv = primaryOpportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / primaryOpportunities.length;
+    const avgEv = candidateSource.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / candidateSource.length;
 
-    const selectionResult = this.engine.selectBestSingleMatchBet(primaryOpportunities, {
+    const selectionResult = this.engine.selectBestSingleMatchBet(candidateSource, {
       analysisFactors: factors,
       minRiskAdjustedScore: 0.14,
     });
 
-    const scored = primaryOpportunities.map((opp) => {
+    const scored = candidateSource.map((opp) => {
       const direction = this.inferSelectionDirection(opp.selection);
       const prob = Number(opp.ourProbability ?? 0);
       const odds = Number(opp.bookmakerOdds ?? 0);
@@ -2295,6 +2301,7 @@ export class PredictionService {
     }
 
     const best = scored.find((entry) => entry.opp.selection === selectedOpportunity.selection) ?? analyticalBest;
+    const isDiagnosticFallback = best.opp.isValueBet === false;
 
     const reasons: string[] = [
       `EV +${Number(best.opp.expectedValue ?? 0).toFixed(2)}% (media opzioni +${avgEv.toFixed(2)}%).`,
@@ -2302,6 +2309,10 @@ export class PredictionService {
       `Score risk-adjusted ${Number(selectionResult.decision.riskAdjustedScore ?? 0).toFixed(2)}: ranking corretto per rischio, incertezza e fragilita del mercato.`,
       `Stake Kelly frazionale suggerito: ${Number(best.opp.suggestedStakePercent ?? 0).toFixed(2)}% bankroll.`,
     ];
+
+    if (isDiagnosticFallback) {
+      reasons.push('Questa e la migliore giocata disponibile tra i mercati quotati, ma non superava tutti i filtri value: trattala come SPECULATIVE.');
+    }
 
     if (Number(best.opp.uncertaintyFactor ?? 0) >= 0.35) {
       reasons.push(`Incertezza dati/modello elevata (${Number(best.opp.uncertaintyFactor ?? 0).toFixed(2)}): stake e ranking sono stati ridotti.`);
@@ -2335,6 +2346,8 @@ export class PredictionService {
       rankingScore: Number(best.opp.rankingScore ?? best.baseModelScore),
       logGrowth: Number(best.opp.logGrowth ?? 0),
       dataWarnings: best.opp.dataWarnings ?? [],
+      rejectionCodes: best.opp.rejectionCodes ?? [],
+      rejectionReasons: best.opp.rejectionReasons ?? [],
       riskReasons: best.opp.riskReasons ?? [],
       mainReason: best.opp.mainReason,
       slateStatus: best.opp.slateStatus ?? 'recommended',

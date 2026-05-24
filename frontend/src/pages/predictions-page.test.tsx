@@ -180,12 +180,19 @@ describe('Predictions page', () => {
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
   });
 
-  test('mostra match da saltare quando non c e una best bet operativa', async () => {
+  test('mostra SPECULATIVE quando la migliore giocata e debole ma valutabile', async () => {
     mockedApi.getPrediction.mockResolvedValue({
       data: buildPrediction({
-        bestValueOpportunity: null,
-        bestBetStatus: 'NO_BET',
-        bestBetReason: 'Match da saltare: rischio troppo alto.',
+        bestValueOpportunity: {
+          ...valueOpportunity,
+          confidence: 'LOW',
+          bestBetStatus: 'SPECULATIVE',
+          bestBetReason: 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.',
+          riskAdjustedBestScore: 0.08,
+          edgeNoVig: 1.4,
+        },
+        bestBetStatus: 'SPECULATIVE',
+        bestBetReason: 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.',
         bestBetAlternatives: [
           {
             selection: 'dnb_away',
@@ -197,6 +204,41 @@ describe('Predictions page', () => {
             reason: 'risk_adjusted_score_basso',
           },
         ],
+      }),
+    } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
+      data: {
+        found: true,
+        source: 'odds_api',
+        primaryProvider: 'odds_api',
+        selectedOdds: { over25: 2.1 },
+        marketsRequested: ['totals'],
+        message: 'Quote bookmaker caricate correttamente.',
+      },
+    } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByText('Inter'));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
+
+    expect(await screen.findByText('SPECULATIVE')).toBeTruthy();
+    expect(screen.getByText(/Migliore giocata disponibile/i)).toBeTruthy();
+    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
+    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
+    expect(screen.getByText(/Alternative valutate/i)).toBeTruthy();
+  });
+
+  test('mostra NO_MARKET solo quando mancano quote o probabilita valutabili', async () => {
+    mockedApi.getPrediction.mockResolvedValue({
+      data: buildPrediction({
+        valueOpportunities: [],
+        bestValueOpportunity: null,
+        bestBetStatus: 'NO_MARKET',
+        bestBetReason: 'Quote o probabilita insufficienti per scegliere una giocata.',
+        bestBetAlternatives: [],
       }),
     } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({
@@ -214,9 +256,9 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
 
-    expect(await screen.findByText('Match da saltare')).toBeTruthy();
-    expect(screen.getByText(/rischio troppo alto/i)).toBeTruthy();
-    expect(screen.getByText(/Alternative valutate/i)).toBeTruthy();
+    expect(await screen.findByText('NO_MARKET')).toBeTruthy();
+    expect(screen.getByText(/Quote o probabilita insufficienti/i)).toBeTruthy();
+    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
   test('il calendario upcoming ignora partite passate di aprile e parte dalle future', async () => {

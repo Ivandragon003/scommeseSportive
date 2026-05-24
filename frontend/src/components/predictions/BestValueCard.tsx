@@ -37,7 +37,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   recommendedBetResult,
   replayTone = 'info',
   showConfidence = true,
-  emptyMessage = 'Nessun pronostico finale consigliato: per questa partita non c e una giocata abbastanza solida.',
+  emptyMessage = 'Quote o probabilita insufficienti per scegliere una giocata.',
   bestBetStatus,
   bestBetReason,
   bestBetAlternatives,
@@ -93,7 +93,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
           </div>
         )}
         <div className="pr-alert pr-alert-warning">
-          <strong>Match da saltare</strong>
+          <strong>NO_MARKET</strong>
           <br />
           {bestBetReason ?? emptyMessage}
         </div>
@@ -130,7 +130,9 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
       ? 'pr-badge-green'
       : resolvedStatus === 'PRUDENT'
         ? 'pr-badge-gold'
-        : resolvedStatus === 'NO_BET'
+        : resolvedStatus === 'SPECULATIVE'
+          ? 'pr-badge-gold'
+          : resolvedStatus === 'NO_MARKET'
           ? 'pr-badge-gray'
           : 'pr-badge-blue';
 
@@ -222,7 +224,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
         </div>
 
         {resolvedReason && (
-          <div className={`pr-alert pr-alert-${resolvedStatus === 'PLAYABLE' ? 'success' : 'warning'}`} style={{ marginTop: 0, marginBottom: 12 }}>
+          <div className={`pr-alert pr-alert-${resolvedStatus === 'PLAYABLE' ? 'success' : resolvedStatus === 'NO_MARKET' ? 'info' : 'warning'}`} style={{ marginTop: 0, marginBottom: 12 }}>
             {resolvedReason}
           </div>
         )}

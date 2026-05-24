@@ -116,6 +116,25 @@ test('BacktestingEngine walk-forward keeps bet-level outputs and calibration ava
   assert.equal(result.detailedBets.length, result.summary.totalBetsPlaced);
 });
 
+test('BacktestingEngine walk-forward exposes singleBestAlways metrics per fold', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  const result = runOfficialWalkForward(engine, matches, odds, context);
+  const foldWithMetrics = result.folds.find((fold) => fold.singleBestAlways);
+
+  assert.ok(foldWithMetrics);
+  assert.ok(foldWithMetrics.singleBestAlways.totalBets > 0);
+  assert.equal(typeof foldWithMetrics.singleBestAlways.roi, 'number');
+  assert.equal(typeof foldWithMetrics.singleBestAlways.winRate, 'number');
+  assert.ok(Object.keys(foldWithMetrics.singleBestAlways.roiByCategory).length > 0);
+  assert.equal(typeof foldWithMetrics.singleBestAlways.comparisonWithPrudentSelector.deltaBets, 'number');
+  assert.ok(Object.prototype.hasOwnProperty.call(foldWithMetrics.singleBestAlways.totalByStatus, 'PLAYABLE')
+    || Object.prototype.hasOwnProperty.call(foldWithMetrics.singleBestAlways.totalByStatus, 'PRUDENT')
+    || Object.prototype.hasOwnProperty.call(foldWithMetrics.singleBestAlways.totalByStatus, 'SPECULATIVE'));
+});
+
 test('BacktestingEngine walk-forward computes CLV from Eurobet closing odds', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();

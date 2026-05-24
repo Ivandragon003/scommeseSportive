@@ -903,7 +903,7 @@ function formatPrediction(pred: any): any {
     bestValueOpportunity,
     bestBetDecision: pred.bestBetDecision ?? bestValueOpportunity?.bestBetDecision ?? null,
     bestBetAlternatives: pred.bestBetAlternatives ?? bestValueOpportunity?.bestBetAlternatives ?? [],
-    bestBetStatus: pred.bestBetStatus ?? bestValueOpportunity?.bestBetStatus ?? (bestValueOpportunity ? 'PLAYABLE' : 'NO_BET'),
+    bestBetStatus: pred.bestBetStatus ?? bestValueOpportunity?.bestBetStatus ?? (bestValueOpportunity ? 'PLAYABLE' : 'NO_MARKET'),
     bestBetReason: pred.bestBetReason ?? bestValueOpportunity?.bestBetReason ?? null,
     riskAdjustedBestScore: roundN(Number(pred.riskAdjustedBestScore ?? bestValueOpportunity?.riskAdjustedBestScore ?? 0), 3),
     playerPropWarnings: pred.playerPropWarnings ?? [],

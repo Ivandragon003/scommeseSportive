@@ -19,7 +19,7 @@ export interface BestBetAlternative {
 }
 
 export interface BestBetDecision {
-  status?: 'PLAYABLE' | 'PRUDENT' | 'NO_BET' | string;
+  status?: 'PLAYABLE' | 'PRUDENT' | 'SPECULATIVE' | 'NO_MARKET' | string;
   reason?: string;
   riskAdjustedScore?: number | string;
   rejectedReasons?: string[];
@@ -66,7 +66,9 @@ export interface BestValueOpportunity {
   sampleSize?: number | string;
   playerConfidence?: string;
   dataWarnings?: string[];
-  bestBetStatus?: 'PLAYABLE' | 'PRUDENT' | 'NO_BET' | string;
+  rejectionCodes?: string[];
+  rejectionReasons?: string[];
+  bestBetStatus?: 'PLAYABLE' | 'PRUDENT' | 'SPECULATIVE' | 'NO_MARKET' | string;
   bestBetReason?: string;
   bestBetDecision?: BestBetDecision;
   bestBetAlternatives?: BestBetAlternative[];
