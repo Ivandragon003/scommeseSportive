@@ -227,6 +227,18 @@ export const getPrediction = (request: {
 }) =>
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
 
+export const getDailySlate = (request: {
+  competition: string;
+  date: string;
+  season?: string;
+  limit?: number;
+  maxBets?: number;
+  maxCardsBets?: number;
+  maxFragileUnderBets?: number;
+  maxLowConfidence?: number;
+}) =>
+  API.post<ApiResponse<any>>('/predictions/daily-slate', request, { timeout: 180000 }).then(r => r.data);
+
 export const replayPlayedMatchPrediction = (matchId: string) =>
   API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
 

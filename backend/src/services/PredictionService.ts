@@ -6,6 +6,8 @@ import {
   SelectionDiagnostics,
   AdaptiveEngineTuningProfile,
   MarketCategory,
+  SlateSelectionOptions,
+  SlateSelectionResult,
   ValueAnalysisContext,
 } from '../models/value/ValueBettingEngine';
 import {
@@ -422,6 +424,13 @@ export class PredictionService {
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
     this.playerCardsModel = new PlayerCardsModel();
+  }
+
+  selectRecommendedSlateBets(
+    opportunities: BetOpportunity[],
+    options: SlateSelectionOptions = {}
+  ): SlateSelectionResult {
+    return this.engine.selectRecommendedSlateBets(opportunities, options);
   }
 
   private clamp(v: number, min: number, max: number): number {

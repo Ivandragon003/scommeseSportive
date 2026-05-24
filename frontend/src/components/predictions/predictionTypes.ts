@@ -31,6 +31,7 @@ export interface BestValueOpportunity {
   mainReason?: string;
   riskReasons?: string[];
   dataQuality?: number | string;
+  rankingScore?: number | string;
   companionOddsAvailable?: boolean;
   categoryCalibrationStatus?: 'none' | 'applied' | 'global_fallback' | 'insufficient_sample' | string;
   calibrationSampleSize?: number | string;
@@ -46,6 +47,41 @@ export interface BestValueOpportunity {
   dataWarnings?: string[];
   slateStatus?: 'recommended' | 'skipped' | 'not_evaluated' | string;
   slateSkipReason?: string;
+  slateDiagnostics?: {
+    reasonCode?: string;
+    categoryCap?: number;
+    categoryCount?: number;
+    slateRank?: number;
+    slatePosition?: number;
+  };
+  matchId?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  match?: string;
+  competition?: string;
+  commenceTime?: string | null;
+}
+
+export interface DailySlateSkippedMatch {
+  matchId?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  match?: string;
+  competition?: string;
+  commenceTime?: string | null;
+  reason?: string;
+  message?: string;
+}
+
+export interface DailySlateResponse {
+  competition: string;
+  date: string;
+  generatedAt: string;
+  recommended: BestValueOpportunity[];
+  skipped: BestValueOpportunity[];
+  diagnostics: Record<string, any>;
+  matchesAnalyzed: number;
+  matchesSkipped: DailySlateSkippedMatch[];
 }
 
 export interface RecommendedBetResult {
