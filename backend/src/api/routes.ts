@@ -411,12 +411,313 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
 });
 
 // ====== PREDICT ======
+const DAILY_SLATE_TIME_ZONE = 'Europe/Rome';
+
+const formatDayKeyInTimeZone = (value: unknown, timeZone = DAILY_SLATE_TIME_ZONE): string => {
+  const raw = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const parsed = raw ? new Date(raw) : new Date();
+  if (Number.isNaN(parsed.getTime())) return '';
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(parsed);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
+const parseBoundedInt = (value: unknown, fallback: number, min: number, max: number): number => {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const getMatchHomeName = (match: any): string =>
+  String(match?.home_team_name ?? match?.homeTeam ?? match?.home_team_id ?? '').trim();
+
+const getMatchAwayName = (match: any): string =>
+  String(match?.away_team_name ?? match?.awayTeam ?? match?.away_team_id ?? '').trim();
+
+const getMatchId = (match: any): string => String(match?.match_id ?? match?.matchId ?? '').trim();
+
+const getDailySlateFixtureMarkets = () => {
+  const preferredMarkets = [
+    'h2h',
+    'h2h_3_way',
+    'totals',
+    'alternate_totals',
+    'spreads',
+    'alternate_spreads',
+    'btts',
+    'double_chance',
+    'draw_no_bet',
+    'team_totals',
+    'alternate_team_totals',
+  ];
+  const fallbackMarkets = [
+    'h2h',
+    'totals',
+    'alternate_totals',
+    'btts',
+    'double_chance',
+    'draw_no_bet',
+  ];
+  const extraEventMarkets = [
+    'alternate_totals',
+    'alternate_spreads',
+    'alternate_totals_cards',
+    'alternate_spreads_cards',
+    'team_totals',
+    'alternate_team_totals',
+    'btts',
+    'double_chance',
+    'draw_no_bet',
+    'player_shots',
+    'player_shots_on_target',
+    'shots',
+    'shots_on_target',
+    'cards',
+  ];
+  return { preferredMarkets, fallbackMarkets, extraEventMarkets };
+};
+
+const toDailySlateOpportunity = (opportunity: any): Record<string, any> => ({
+  ...opportunity,
+  bookmakerOdds: Number(opportunity?.bookmakerOdds ?? 0),
+  ourProbability: Number(opportunity?.ourProbability ?? 0),
+  expectedValue: Number(opportunity?.expectedValue ?? 0),
+  edge: Number(opportunity?.edge ?? 0),
+  edgeNoVig: Number(opportunity?.edgeNoVig ?? opportunity?.edge ?? 0),
+  kellyFraction: Number(opportunity?.kellyFraction ?? 0),
+  suggestedStakePercent: Number(opportunity?.suggestedStakePercent ?? 0),
+  rankingScore: Number(opportunity?.rankingScore ?? 0),
+});
+
+const selectOddsEntryForMatch = (
+  entries: CoordinatedOddsMatch[],
+  match: any,
+  usedIndexes: Set<number>,
+  primaryProviderName: string
+): { entry: CoordinatedOddsMatch | null; selectedOdds: Record<string, number>; score: number } => {
+  let bestIndex = -1;
+  let bestScore = 0;
+  const homeTeam = getMatchHomeName(match);
+  const awayTeam = getMatchAwayName(match);
+  const commenceTime = match?.date ? String(match.date) : undefined;
+
+  entries.forEach((entry, index) => {
+    if (usedIndexes.has(index)) return;
+    const score = matchScore(entry.match, homeTeam, awayTeam, commenceTime);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  if (bestIndex < 0 || bestScore < 1.7) {
+    return { entry: null, selectedOdds: {}, score: bestScore };
+  }
+
+  usedIndexes.add(bestIndex);
+  const entry = entries[bestIndex];
+  const primaryOdds = sanitizeOddsMap(entry.bestOddsByProvider[primaryProviderName] ?? {});
+  const oddsApiOdds = sanitizeOddsMap(entry.bestOddsByProvider.odds_api ?? {});
+  const selectedOdds = Object.keys(primaryOdds).length > 0 ? primaryOdds : oddsApiOdds;
+
+  return { entry, selectedOdds, score: bestScore };
+};
+
 router.post('/predict', async (req: Request, res: Response) => {
   try {
     const pred = await svc.predict(req.body);
     res.json({ success: true, data: formatPrediction(pred) });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
 });
+
+const handleDailySlate = async (req: Request, res: Response) => {
+  try {
+    const input = req.method === 'GET' ? req.query : (req.body ?? {});
+    const competition = String(input.competition ?? 'Serie A').trim() || 'Serie A';
+    const season = String(input.season ?? '').trim() || undefined;
+    const requestedDayKey = formatDayKeyInTimeZone(input.date ?? new Date().toISOString());
+    const limit = parseBoundedInt(input.limit, 80, 1, 160);
+    const maxBets = parseBoundedInt(input.maxBets, 4, 0, 8);
+    const maxCardsBets = parseBoundedInt(input.maxCardsBets, 2, 0, maxBets || 1);
+    const maxFragileUnderBets = parseBoundedInt(input.maxFragileUnderBets, 1, 0, maxBets || 1);
+    const maxLowConfidence = parseBoundedInt(input.maxLowConfidence, 0, 0, 2);
+    const minRankingScoreRaw = Number(input.minRankingScore ?? 0.12);
+    const minRankingScore = Number.isFinite(minRankingScoreRaw) ? Math.max(0, minRankingScoreRaw) : 0.12;
+    const generatedAt = new Date().toISOString();
+
+    if (!requestedDayKey) {
+      return res.status(400).json({ success: false, error: 'date non valida per Consigli giornata.' });
+    }
+
+    const upcoming = await db.getUpcomingMatches({
+      competition,
+      season,
+      limit: Math.max(limit * 4, 160),
+    });
+    const dailyMatches = (upcoming ?? [])
+      .filter((match: any) => formatDayKeyInTimeZone(match?.date) === requestedDayKey)
+      .slice(0, limit);
+
+    const matchesSkipped: Array<Record<string, any>> = [];
+    const allOpportunities: any[] = [];
+    const oddsWarnings: string[] = [];
+    const oddsByMatchId = new Map<string, Record<string, number>>();
+    const oddsMetaByMatchId = new Map<string, Record<string, any>>();
+
+    const oddsBundle = createOddsBundle();
+    if (oddsBundle.primaryProviderName === 'odds_api' && !oddsBundle.apiKey) {
+      oddsWarnings.push('ODDS_API_KEY non configurata');
+    } else if (dailyMatches.length > 0) {
+      const { preferredMarkets, fallbackMarkets, extraEventMarkets } = getDailySlateFixtureMarkets();
+      const coordination = await oddsBundle.coordinator.getOddsForFixtures(
+        {
+          competition,
+          fixtures: dailyMatches.map((match: any) => ({
+            homeTeam: getMatchHomeName(match),
+            awayTeam: getMatchAwayName(match),
+            commenceTime: match?.date ? String(match.date) : null,
+          })),
+          markets: preferredMarkets,
+          fallbackMarkets,
+          extraEventMarkets,
+          includeExtendedGroups: false,
+        },
+        { mergeMarkets: true, useFallback: true }
+      );
+      oddsWarnings.push(...coordination.warnings);
+
+      const usedOddsEntries = new Set<number>();
+      for (const match of dailyMatches) {
+        const matchId = getMatchId(match);
+        const selected = selectOddsEntryForMatch(
+          coordination.matches,
+          match,
+          usedOddsEntries,
+          oddsBundle.primaryProviderName
+        );
+        if (Object.keys(selected.selectedOdds).length > 0) {
+          oddsByMatchId.set(matchId, selected.selectedOdds);
+          oddsMetaByMatchId.set(matchId, {
+            providerMatchId: selected.entry?.match.matchId ?? null,
+            matchedHomeTeam: selected.entry?.match.homeTeam ?? null,
+            matchedAwayTeam: selected.entry?.match.awayTeam ?? null,
+            commenceTime: selected.entry?.match.commenceTime ?? match?.date ?? null,
+            oddsMatchScore: Number(selected.score.toFixed(3)),
+            oddsSource: selected.entry?.oddsSource ?? oddsBundle.primaryProviderName,
+          });
+        }
+      }
+    }
+
+    for (const match of dailyMatches) {
+      const matchId = getMatchId(match);
+      const homeTeamId = String(match?.home_team_id ?? match?.homeTeamId ?? '').trim();
+      const awayTeamId = String(match?.away_team_id ?? match?.awayTeamId ?? '').trim();
+      const homeTeam = getMatchHomeName(match);
+      const awayTeam = getMatchAwayName(match);
+      const matchSummary = {
+        matchId,
+        homeTeam,
+        awayTeam,
+        match: `${homeTeam} - ${awayTeam}`,
+        competition: String(match?.competition ?? competition),
+        commenceTime: match?.date ?? null,
+      };
+
+      if (!homeTeamId || !awayTeamId || !matchId) {
+        matchesSkipped.push({ ...matchSummary, reason: 'match_data_incomplete' });
+        continue;
+      }
+
+      const bookmakerOdds = oddsByMatchId.get(matchId) ?? {};
+      if (Object.keys(bookmakerOdds).length === 0) {
+        matchesSkipped.push({ ...matchSummary, reason: 'quota_non_disponibile' });
+        continue;
+      }
+
+      try {
+        const prediction = await svc.predict({
+          homeTeamId,
+          awayTeamId,
+          matchId,
+          competition: String(match?.competition ?? competition),
+          bookmakerOdds,
+        });
+        const opportunities = (prediction.valueOpportunities ?? [])
+          .filter((opportunity: any) =>
+            Number.isFinite(Number(opportunity?.bookmakerOdds)) &&
+            Number(opportunity?.bookmakerOdds) > 1
+          )
+          .map((opportunity: any) => ({
+            ...opportunity,
+            ...matchSummary,
+            ...(oddsMetaByMatchId.get(matchId) ?? {}),
+            matchId,
+          }));
+
+        if (opportunities.length === 0) {
+          matchesSkipped.push({ ...matchSummary, reason: 'nessuna_value_opportunity' });
+          continue;
+        }
+
+        allOpportunities.push(...opportunities);
+      } catch (error: any) {
+        matchesSkipped.push({
+          ...matchSummary,
+          reason: 'prediction_failed',
+          message: error?.message ?? String(error),
+        });
+      }
+    }
+
+    const slate = svc.selectRecommendedSlateBets(allOpportunities, {
+      maxBets,
+      maxCardsBets,
+      maxFragileUnderBets,
+      maxLowConfidence,
+      minRankingScore,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        competition,
+        date: requestedDayKey,
+        generatedAt,
+        recommended: slate.recommended.map(toDailySlateOpportunity),
+        skipped: slate.skipped.map(toDailySlateOpportunity),
+        diagnostics: {
+          ...slate.diagnostics,
+          oddsWarnings: Array.from(new Set(oddsWarnings.filter(Boolean))),
+          matchesOnDate: dailyMatches.length,
+          oddsMatched: oddsByMatchId.size,
+          minRankingScore,
+          maxBets,
+          maxCardsBets,
+          maxFragileUnderBets,
+          maxLowConfidence,
+        },
+        matchesAnalyzed: dailyMatches.length - matchesSkipped.filter((entry) =>
+          ['match_data_incomplete', 'quota_non_disponibile', 'prediction_failed'].includes(String(entry.reason))
+        ).length,
+        matchesSkipped,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message ?? String(e) });
+  }
+};
+
+router.get('/predictions/daily-slate', handleDailySlate);
+router.post('/predictions/daily-slate', handleDailySlate);
 
 router.post('/predict/replay', async (req: Request, res: Response) => {
   try {

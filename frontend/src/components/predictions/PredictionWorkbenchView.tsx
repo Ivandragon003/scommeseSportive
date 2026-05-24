@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
+import DailySlatePanel from './DailySlatePanel';
 import OddsSourceBadge from './OddsSourceBadge';
 import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
@@ -346,6 +347,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     maxExposureAmount,
     suggestedTotalStake,
     exposureRatio,
+    dailySlate,
+    dailySlateLoading,
+    dailySlateError,
+    refreshDailySlate,
     oppStakeKey,
     oppStakeValue,
     tabs: TABS,
@@ -584,12 +589,12 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                           maxExposureAmount={maxExposureAmount}
                           exposureRatio={exposureRatio}
                         />
-                        <div className="pr-info" style={{ marginTop: 12 }}>
-                          <strong>Consigli giornata</strong><br />
-                          {bestValueOpp
-                            ? 'Questa opportunita passa il filtro prudente del match. In una giornata completa il sistema deve comunque limitarsi alle migliori 2-4 pick globali, senza forzare una bet per partita.'
-                            : 'Match da saltare: edge insufficiente o mercato fragile. Non c e una giocata abbastanza solida per la giornata.'}
-                        </div>
+                        <DailySlatePanel
+                          slate={dailySlate}
+                          loading={dailySlateLoading}
+                          error={dailySlateError}
+                          onRefresh={refreshDailySlate}
+                        />
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                           <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
                             Apri confronto mercati

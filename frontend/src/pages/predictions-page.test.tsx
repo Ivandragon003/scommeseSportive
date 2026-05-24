@@ -103,6 +103,18 @@ const setupBaseMocks = () => {
   } as any);
   mockedApi.getBets.mockResolvedValue({ data: [] } as any);
   mockedApi.placeBet.mockResolvedValue({ data: { bet_id: 'bet_1' } } as any);
+  mockedApi.getDailySlate.mockResolvedValue({
+    data: {
+      competition: 'Serie A',
+      date: '2026-05-23',
+      generatedAt: '2026-05-23T10:00:00.000Z',
+      recommended: [],
+      skipped: [],
+      diagnostics: {},
+      matchesAnalyzed: 1,
+      matchesSkipped: [],
+    },
+  } as any);
 };
 
 beforeAll(() => {
@@ -168,6 +180,11 @@ describe('Predictions page', () => {
       awayTeam: 'Milan',
       commenceTime: matchRow.date,
     }));
+    await waitFor(() => expect(mockedApi.getDailySlate).toHaveBeenCalledWith(expect.objectContaining({
+      competition: 'Serie A',
+      date: matchRow.date,
+      maxBets: 4,
+    })));
 
     fireEvent.click(screen.getByRole('button', { name: /Pronostico Finale/i }));
 

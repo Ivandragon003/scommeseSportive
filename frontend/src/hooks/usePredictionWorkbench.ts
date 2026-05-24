@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo } from 'react';
-import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  BestValueOpportunity as BestValueOpportunityModel,
+  DailySlateResponse,
+} from '../components/predictions/predictionTypes';
 import {
   buildBetKey,
   buildOddsReliabilityBadge,
@@ -14,6 +17,7 @@ import { useUserBudget } from './useUserBudget';
 import { useMatchSelection } from './useMatchSelection';
 import { usePredictionAnalysis } from './usePredictionAnalysis';
 import { useBetPlacement } from './useBetPlacement';
+import { getDailySlate } from '../utils/api';
 
 export interface PredictionWorkbenchViewModel {
   activeUser: string;
@@ -52,6 +56,10 @@ export interface PredictionWorkbenchViewModel {
   finalRecommendedChoice: (BestValueOpportunityModel & { suggestedStakeAmount: number }) | null;
   suggestedTotalStake: number;
   exposureRatio: number;
+  dailySlate: DailySlateResponse | null;
+  dailySlateLoading: boolean;
+  dailySlateError: string | null;
+  refreshDailySlate: () => Promise<void>;
   oppStakeKey: (opportunity: BestValueOpportunityModel) => string;
   oppStakeValue: (opportunity: BestValueOpportunityModel) => number;
   tabs: Array<{ id: string; label: string; count?: number }>;
@@ -63,6 +71,9 @@ export interface PredictionWorkbenchViewModel {
 export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchViewModel {
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
+  const [dailySlate, setDailySlate] = useState<DailySlateResponse | null>(null);
+  const [dailySlateLoading, setDailySlateLoading] = useState(false);
+  const [dailySlateError, setDailySlateError] = useState<string | null>(null);
   const userBudget = useUserBudget(activeUser);
   const matchSelection = useMatchSelection();
   const predictionAnalysis = usePredictionAnalysis({
@@ -229,6 +240,51 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
   const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
 
+  const dailySlateDate = matchSelection.activeMatchRow?.date
+    ? String(matchSelection.activeMatchRow.date)
+    : null;
+  const dailySlateCompetition = String(
+    matchSelection.activeMatchRow?.competition ?? matchSelection.competition ?? ''
+  ).trim();
+
+  const refreshDailySlate = useCallback(async () => {
+    if (matchSelection.matchMode !== 'upcoming' || !dailySlateDate || !dailySlateCompetition) {
+      setDailySlate(null);
+      setDailySlateError(null);
+      return;
+    }
+
+    setDailySlateLoading(true);
+    setDailySlateError(null);
+    try {
+      const response = await getDailySlate({
+        competition: dailySlateCompetition,
+        season: matchSelection.season || currentSeason(),
+        date: dailySlateDate,
+        limit: 80,
+        maxBets: 4,
+        maxCardsBets: 2,
+        maxFragileUnderBets: 1,
+        maxLowConfidence: 0,
+      });
+      setDailySlate((response.data ?? null) as DailySlateResponse | null);
+    } catch (error: any) {
+      setDailySlate(null);
+      setDailySlateError(error?.response?.data?.error ?? error?.message ?? 'Consigli giornata non disponibili.');
+    } finally {
+      setDailySlateLoading(false);
+    }
+  }, [
+    dailySlateCompetition,
+    dailySlateDate,
+    matchSelection.matchMode,
+    matchSelection.season,
+  ]);
+
+  useEffect(() => {
+    void refreshDailySlate();
+  }, [refreshDailySlate]);
+
   const oppStakeKey = useCallback((opportunity: BestValueOpportunityModel) =>
     buildBetKey(currentMatchId, String(opportunity.selection ?? ''), String(opportunity.marketName ?? '')),
   [currentMatchId]);
@@ -293,6 +349,10 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     finalRecommendedChoice,
     suggestedTotalStake,
     exposureRatio,
+    dailySlate,
+    dailySlateLoading,
+    dailySlateError,
+    refreshDailySlate,
     oppStakeKey,
     oppStakeValue,
     tabs,
