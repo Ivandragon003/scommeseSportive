@@ -133,13 +133,26 @@ export interface BetOpportunity {
   sampleSize?: number;
   playerConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
   dataWarnings?: string[];
+  slateStatus?: 'recommended' | 'skipped' | 'not_evaluated';
+  slateSkipReason?: string;
+  slateDiagnostics?: {
+    reasonCode?: string;
+    categoryCap?: number;
+    categoryCount?: number;
+    slateRank?: number;
+    slatePosition?: number;
+  };
   /** matchId della partita di riferimento — usato per rilevare correlazione nelle combinate */
   matchId?: string;
 }
 
 export type MarketCategory =
-  | 'goal_1x2'       // homeWin, draw, awayWin, btts, bttsNo, dnb
-  | 'goal_ou'        // over/under 0.5 - 4.5
+  | 'goal_1x2'       // homeWin, draw, awayWin, dnb
+  | 'btts_yes'       // Goal/Goal - Si
+  | 'btts_no'        // Goal/Goal - No
+  | 'goal_over'      // over goal 0.5 - 4.5
+  | 'goal_under'     // under goal 0.5 - 4.5
+  | 'goal_ou'        // team totals / fallback legacy
   | 'shots'          // tiri squadra e totali
   | 'shots_ot'       // tiri in porta
   | 'corners'        // angoli totali
@@ -210,6 +223,7 @@ export interface ValueAnalysisContext {
   enableMarketCalibration?: boolean;
   enableMarketBlending?: boolean;
   analysisFactors?: ValueAnalysisFactors;
+  expectedGoals?: number;
   expectedCards?: number;
   expectedCardsByLine?: Record<string, number>;
   expectedFouls?: number;
@@ -355,6 +369,28 @@ type UnderCardsGuard = {
   maxConfidence?: 'MEDIUM' | 'LOW';
 };
 
+export interface SlateSelectionOptions {
+  maxBets?: number;
+  maxLowConfidence?: number;
+  maxCardsBets?: number;
+  maxFragileUnderBets?: number;
+  minRankingScore?: number;
+}
+
+export interface SlateSelectionResult {
+  recommended: BetOpportunity[];
+  skipped: BetOpportunity[];
+  diagnostics: {
+    totalInput: number;
+    selected: number;
+    skippedBecauseWeakSlateRank: number;
+    skippedBecauseDailyCardCap: number;
+    skippedBecauseDailyUnderCap: number;
+    skippedBecauseCorrelation: number;
+    skippedBecauseLowConfidence: number;
+  };
+}
+
 // ==================== SOGLIE EV PER CATEGORIA ====================
 
 /**
@@ -373,7 +409,11 @@ type UnderCardsGuard = {
  */
 const EV_THRESHOLDS: Record<MarketCategory, number> = {
   goal_1x2:    0.030,   // 3.0%
-  goal_ou:     0.025,   // 2.5%
+  btts_yes:    0.034,
+  btts_no:     0.055,
+  goal_over:   0.028,
+  goal_under:  0.045,
+  goal_ou:     0.025,   // legacy team totals
   shots:       0.040,   // 4.0%
   shots_ot:    0.040,   // 4.0%
   corners:     0.120,   // disattivato nel flusso attivo (Understat-only)
@@ -389,6 +429,10 @@ const EV_THRESHOLDS: Record<MarketCategory, number> = {
 
 const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
   goal_1x2:    0.02,
+  btts_yes:    0.025,
+  btts_no:     0.04,
+  goal_over:   0.025,
+  goal_under:  0.035,
   goal_ou:     0.02,
   shots:       0.03,
   corners:     0.03,
@@ -421,6 +465,32 @@ const DEFAULT_CATEGORY_RANKING_WEIGHTS: Partial<Record<MarketCategory, Partial<R
     ev: 0.16,
     logGrowth: 0.12,
     riskPenalty: 0.32,
+  },
+  btts_yes: {
+    edgeNoVig: 0.38,
+    ev: 0.15,
+    logGrowth: 0.13,
+    riskPenalty: 0.34,
+  },
+  btts_no: {
+    edgeNoVig: 0.44,
+    ev: 0.11,
+    logGrowth: 0.12,
+    riskPenalty: 0.55,
+    uncertainty: 0.18,
+  },
+  goal_over: {
+    edgeNoVig: 0.42,
+    ev: 0.14,
+    logGrowth: 0.16,
+    riskPenalty: 0.31,
+  },
+  goal_under: {
+    edgeNoVig: 0.45,
+    ev: 0.12,
+    logGrowth: 0.14,
+    riskPenalty: 0.48,
+    uncertainty: 0.16,
   },
   goal_ou: {
     edgeNoVig: 0.42,
@@ -651,7 +721,8 @@ export class ValueBettingEngine {
   }
 
   getMarketTier(category: MarketCategory): MarketTier {
-    if (category === 'goal_1x2' || category === 'goal_ou') return 'CORE';
+    if (category === 'goal_1x2' || category === 'goal_over' || category === 'goal_ou' || category === 'btts_yes') return 'CORE';
+    if (category === 'goal_under' || category === 'btts_no') return 'SECONDARY';
     if (category === 'shots' || category === 'shots_ot' || category === 'corners' || category === 'yellow_cards' || category === 'fouls' || category === 'player_shots')
       return 'SECONDARY';
     return 'SPECULATIVE';
@@ -700,13 +771,17 @@ export class ValueBettingEngine {
     const s = String(selection ?? '').toLowerCase();
 
     // 1X2 e derivati
-    if (['homewin','draw','awaywin','btts','bttsno','dnb_home','dnb_away',
+    if (s === 'btts') return 'btts_yes';
+    if (s === 'bttsno') return 'btts_no';
+    if (['homewin','draw','awaywin','dnb_home','dnb_away',
          'double_chance_1x','double_chance_x2','double_chance_12'].includes(s))
       return 'goal_1x2';
 
     // Goal over/under
-    if (/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s))
-      return 'goal_ou';
+    if (/^over(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s))
+      return 'goal_over';
+    if (/^under(0[5]|1[5]|2[5]|3[5]|4[5])$/.test(s))
+      return 'goal_under';
     if (/^team_(home|away)_(over|under)/.test(s))
       return 'goal_ou';
 
@@ -841,7 +916,9 @@ export class ValueBettingEngine {
       if (contextStrength >= 0.7) threshold -= 0.006;
     }
 
-    if (category === 'goal_1x2' || category === 'goal_ou') threshold -= 0.004;
+    if (category === 'goal_1x2' || category === 'goal_over' || category === 'goal_ou' || category === 'btts_yes') threshold -= 0.004;
+    if (category === 'goal_under') threshold += 0.010;
+    if (category === 'btts_no') threshold += 0.014;
     if (category === 'player_shots') threshold += 0.010;
     if (category === 'player_shots_ot') threshold += 0.016;
     if (category === 'player_yellow_cards') threshold += 0.020;
@@ -852,7 +929,9 @@ export class ValueBettingEngine {
   }
 
   private getDefaultMarketVariance(category: MarketCategory): number {
-    if (category === 'goal_1x2' || category === 'goal_ou') return 0.85;
+    if (category === 'goal_1x2' || category === 'goal_over' || category === 'goal_ou' || category === 'btts_yes') return 0.85;
+    if (category === 'goal_under') return 1.05;
+    if (category === 'btts_no') return 1.15;
     if (category === 'shots' || category === 'shots_ot') return 1.05;
     if (category === 'yellow_cards') return 1.22;
     if (category === 'player_shots') return 1.30;
@@ -938,11 +1017,15 @@ export class ValueBettingEngine {
       dataQuality += this.clampNumber(Number(factors?.shotsReliability ?? factors?.statSampleStrength ?? 0.5), 0, 1) * 0.1;
     } else if (category === 'yellow_cards' || category === 'player_yellow_cards') {
       dataQuality += this.clampNumber(Number(factors?.disciplineReliability ?? 0.45), 0, 1) * 0.08;
+    } else if (category === 'goal_under' || category === 'btts_no') {
+      dataQuality += 0.04;
     } else {
       dataQuality += 0.08;
     }
 
     let uncertainty = 1 - this.clampNumber(dataQuality, 0, 1);
+    if (category === 'goal_under') uncertainty += 0.05;
+    if (category === 'btts_no') uncertainty += 0.08;
     if (category === 'shots' || category === 'shots_ot') uncertainty += 0.06;
     if (category === 'yellow_cards') uncertainty += 0.12;
     if (category === 'player_shots') uncertainty += 0.16;
@@ -964,6 +1047,8 @@ export class ValueBettingEngine {
     let penalty = uncertaintyFactor * 0.35;
     if (odds > this.MAX_ODDS) penalty += 0.22;
     else if (odds >= 5) penalty += 0.1;
+    if (category === 'goal_under') penalty += 0.05;
+    if (category === 'btts_no') penalty += 0.08;
     if (category === 'exact_score' || category === 'handicap') penalty += 0.12;
     if (category === 'yellow_cards') penalty += 0.06;
     if (category === 'player_shots') penalty += 0.10;
@@ -975,6 +1060,10 @@ export class ValueBettingEngine {
 
   getMarketCalibrationKey(selection: string, category: MarketCategory = this.categorizeSelection(selection)): string {
     const key = String(selection ?? '').toLowerCase();
+    if (category === 'btts_yes') return 'btts_yes';
+    if (category === 'btts_no') return 'btts_no';
+    if (category === 'goal_over') return 'goal_over';
+    if (category === 'goal_under') return 'goal_under';
     if (category === 'yellow_cards') {
       if (key.includes('_under_') || /^yellowunder\d+$/i.test(key) || /^cardstotalunder\d+$/i.test(key)) return 'yellow_cards_under';
       if (key.includes('_over_') || /^yellowover\d+$/i.test(key) || /^cardstotalover\d+$/i.test(key)) return 'yellow_cards_over';
@@ -1087,7 +1176,8 @@ export class ValueBettingEngine {
 
     const dataQuality = this.computeDataQualityScore(category, context, hasCompanionOdds, uncertaintyFactor);
     let modelWeight = 0.50 + dataQuality * 0.35;
-    if (category === 'goal_1x2' || category === 'goal_ou') modelWeight += 0.04;
+    if (category === 'goal_1x2' || category === 'goal_over' || category === 'goal_ou' || category === 'btts_yes') modelWeight += 0.04;
+    if (category === 'goal_under' || category === 'btts_no') modelWeight -= 0.04;
     if (category === 'player_shots_ot' || category === 'player_yellow_cards') modelWeight -= 0.10;
     if (!hasCompanionOdds) modelWeight -= 0.16;
     modelWeight = this.clampNumber(modelWeight, 0.40, 0.84);
@@ -1122,7 +1212,13 @@ export class ValueBettingEngine {
     if (input.blendingApplied) warnings.push('market_blending_applied');
     if (input.calibrationStatus === 'applied') warnings.push('market_calibration_applied');
     if (!input.hasCompanionOdds) riskReasons.push('Quote companion mancanti');
-    if (input.category === 'yellow_cards' && this.isUnderCardsSelection(input.selection)) riskReasons.push('Mercato fragile');
+    if (
+      (input.category === 'yellow_cards' && (this.isUnderCardsSelection(input.selection) || this.isOverCardsSelection(input.selection))) ||
+      input.category === 'goal_under' ||
+      input.category === 'btts_no'
+    ) {
+      riskReasons.push('Mercato fragile');
+    }
     const mainReason =
       input.edgeNoVig > 0.03
         ? 'Edge no-vig positivo'
@@ -1364,18 +1460,38 @@ export class ValueBettingEngine {
       || /^cardstotalunder\d+$/i.test(s);
   }
 
+  private isOverCardsSelection(selection: string): boolean {
+    const s = String(selection ?? '').toLowerCase();
+    return /^yellow_over_/.test(s)
+      || /^cards_total_over_/.test(s)
+      || /^yellowover\d+$/i.test(s)
+      || /^cardstotalover\d+$/i.test(s);
+  }
+
   private parseCardsLine(selection: string): number | null {
     const s = String(selection ?? '').toLowerCase();
-    const snake = s.match(/^(yellow|cards_total)_under_([0-9]+(?:[.,][0-9]+)?)$/i);
+    const snake = s.match(/^(yellow|cards_total)_(?:over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
     if (snake) {
       const parsed = Number(snake[2].replace(',', '.'));
       return Number.isFinite(parsed) ? parsed : null;
     }
 
-    const compact = s.match(/^(yellow|cardstotal)under(\d+)$/i);
+    const compact = s.match(/^(yellow|cardstotal)(?:over|under)(\d+)$/i);
     if (!compact) return null;
     const raw = compact[2];
     const parsed = raw.length >= 2 ? Number(raw) / 10 : Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private isGoalUnderSelection(selection: string): boolean {
+    return /^under(0[5]|1[5]|2[5]|3[5]|4[5])$/i.test(String(selection ?? ''));
+  }
+
+  private parseGoalLine(selection: string): number | null {
+    const match = String(selection ?? '').toLowerCase().match(/^(?:over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/);
+    if (!match) return null;
+    const raw = match[1];
+    const parsed = Number(raw) / 10;
     return Number.isFinite(parsed) ? parsed : null;
   }
 
@@ -1402,6 +1518,19 @@ export class ValueBettingEngine {
     if (line <= 4.5) return 0.7;
     if (line <= 5.5) return 0.9;
     return 1.0;
+  }
+
+  private requiredOverCardsBuffer(line: number | null): number {
+    if (line === null) return 0.8;
+    if (line <= 2.5) return 0.6;
+    if (line <= 3.5) return 0.8;
+    return 0.85;
+  }
+
+  private requiredUnderGoalsBuffer(line: number | null): number {
+    if (line === null) return 0.35;
+    if (line <= 2.5) return 0.45;
+    return 0.5;
   }
 
   private computeDisciplinaryRiskScore(context: ValueAnalysisContext = {}): number {
@@ -1484,6 +1613,7 @@ export class ValueBettingEngine {
       || this.clampNumber(Number(factors.competitiveness ?? 0), 0, 1) >= 0.78
       || Boolean(context.isDerby || factors.isDerby || context.highStakes || factors.highStakes);
 
+    if (expectedCards === null) warnings.push('missing_expected_cards');
     if (distanceToLine !== null && distanceToLine < requiredBuffer) warnings.push('under_cards_close_to_line');
     if (context.hasRefereeData === false) warnings.push('missing_referee_data');
     if (Number.isFinite(refereeSample) && refereeSample > 0 && refereeSample < 12) warnings.push('low_referee_sample');
@@ -1491,7 +1621,7 @@ export class ValueBettingEngine {
     if (highIntensity) warnings.push('high_intensity_match');
 
     const closePenalty = distanceToLine === null
-      ? 0.006
+      ? 0.014
       : Math.max(0, requiredBuffer - distanceToLine) * 0.04;
     const refereePenalty =
       (context.hasRefereeData === false ? 0.010 : 0)
@@ -1500,10 +1630,11 @@ export class ValueBettingEngine {
     const intensityPenalty = highIntensity ? 0.012 : 0;
     const reject =
       (distanceToLine !== null && distanceToLine < requiredBuffer)
+      || disciplinaryRiskScore >= 0.78
       || (strictReferee && highIntensity && disciplinaryRiskScore >= 0.58);
 
     const maxConfidence =
-      warnings.includes('missing_referee_data') || warnings.includes('under_cards_close_to_line')
+      warnings.includes('missing_expected_cards') || warnings.includes('missing_referee_data') || warnings.includes('under_cards_close_to_line')
         ? 'LOW'
         : warnings.length > 0
           ? 'MEDIUM'
@@ -1524,6 +1655,221 @@ export class ValueBettingEngine {
       stakeMultiplier: this.clampNumber(0.78 - disciplinaryRiskScore * 0.32 - (warnings.length > 0 ? 0.12 : 0), 0.35, 0.78),
       maxConfidence,
     };
+  }
+
+  private computeOverCardsGuard(selection: string, category: MarketCategory, context: ValueAnalysisContext = {}): UnderCardsGuard {
+    const isOverCards = category === 'yellow_cards' && this.isOverCardsSelection(selection);
+    if (!isOverCards) {
+      return {
+        isUnderCards: false,
+        line: null,
+        expectedCards: null,
+        distanceToLine: null,
+        disciplinaryRiskScore: 0,
+        warnings: [],
+        reject: false,
+        minEdgeNoVig: 0,
+        evThresholdBump: 0,
+        uncertaintyBump: 0,
+        riskPenaltyBump: 0,
+        stakeMultiplier: 1,
+      };
+    }
+
+    const warnings: string[] = [];
+    const factors = context.analysisFactors ?? {};
+    const line = this.parseCardsLine(selection);
+    const expectedCards = this.expectedCardsForLine(line, context);
+    const distanceToLine = line !== null && expectedCards !== null ? expectedCards - line : null;
+    const requiredBuffer = this.requiredOverCardsBuffer(line);
+    const disciplinaryRiskScore = this.computeDisciplinaryRiskScore(context);
+    const refereeSample = Number(context.refereeSampleSize ?? factors.refereeSampleSize);
+    const leagueYellow = Math.max(0.1, Number(context.leagueAvgYellow ?? factors.leagueAvgYellow ?? 3.8));
+    const leagueFouls = Math.max(1, Number(context.leagueAvgFouls ?? factors.leagueAvgFouls ?? 22.4));
+    const refereeYellow = Number(context.refereeAvgYellow ?? factors.refereeAvgYellow);
+    const refereeFouls = Number(context.refereeAvgFouls ?? factors.refereeAvgFouls);
+    const lenientReferee =
+      (Number.isFinite(refereeYellow) && refereeYellow < leagueYellow * 0.92)
+      || (Number.isFinite(refereeFouls) && refereeFouls < leagueFouls * 0.92);
+
+    if (expectedCards === null) warnings.push('missing_expected_cards');
+    if (distanceToLine !== null && distanceToLine < requiredBuffer) warnings.push('over_cards_close_to_line');
+    if (disciplinaryRiskScore < 0.38) warnings.push('low_disciplinary_risk_for_over_cards');
+    if (context.hasRefereeData === false) warnings.push('missing_referee_data');
+    if (Number.isFinite(refereeSample) && refereeSample > 0 && refereeSample < 12) warnings.push('low_referee_sample');
+    if (lenientReferee) warnings.push('lenient_referee_against_over_cards');
+
+    const closePenalty = distanceToLine === null
+      ? 0.014
+      : Math.max(0, requiredBuffer - distanceToLine) * 0.045;
+    const refereePenalty =
+      (context.hasRefereeData === false ? 0.010 : 0)
+      + (Number.isFinite(refereeSample) && refereeSample > 0 && refereeSample < 12 ? 0.006 : 0)
+      + (lenientReferee ? 0.012 : 0);
+    const lowRiskPenalty = disciplinaryRiskScore < 0.38 ? (0.38 - disciplinaryRiskScore) * 0.045 : 0;
+    const reject =
+      (distanceToLine !== null && distanceToLine < requiredBuffer)
+      || (disciplinaryRiskScore < 0.30 && lenientReferee);
+    const maxConfidence =
+      warnings.includes('missing_expected_cards') || warnings.includes('missing_referee_data') || warnings.includes('over_cards_close_to_line')
+        ? 'LOW'
+        : warnings.length > 0
+          ? 'MEDIUM'
+          : undefined;
+
+    return {
+      isUnderCards: false,
+      line,
+      expectedCards,
+      distanceToLine,
+      disciplinaryRiskScore,
+      warnings: Array.from(new Set(warnings)),
+      reject,
+      minEdgeNoVig: this.clampNumber(0.018 + (1 - disciplinaryRiskScore) * 0.028 + (lenientReferee ? 0.012 : 0), 0.018, 0.075),
+      evThresholdBump: this.clampNumber(0.014 + closePenalty + refereePenalty + lowRiskPenalty, 0.014, 0.075),
+      uncertaintyBump: this.clampNumber(0.04 + (1 - disciplinaryRiskScore) * 0.10 + (warnings.length > 0 ? 0.04 : 0), 0.04, 0.24),
+      riskPenaltyBump: this.clampNumber(0.05 + (1 - disciplinaryRiskScore) * 0.14 + (lenientReferee ? 0.06 : 0), 0.05, 0.30),
+      stakeMultiplier: this.clampNumber(0.80 - (1 - disciplinaryRiskScore) * 0.24 - (warnings.length > 0 ? 0.12 : 0), 0.40, 0.80),
+      maxConfidence,
+    };
+  }
+
+  private emptySelectionGuard(): UnderCardsGuard {
+    return {
+      isUnderCards: false,
+      line: null,
+      expectedCards: null,
+      distanceToLine: null,
+      disciplinaryRiskScore: 0,
+      warnings: [],
+      reject: false,
+      minEdgeNoVig: 0,
+      evThresholdBump: 0,
+      uncertaintyBump: 0,
+      riskPenaltyBump: 0,
+      stakeMultiplier: 1,
+    };
+  }
+
+  private computeFragileGoalGuard(selection: string, category: MarketCategory, context: ValueAnalysisContext = {}): UnderCardsGuard {
+    const key = String(selection ?? '').toLowerCase();
+    const warnings: string[] = [];
+
+    if (category !== 'goal_under' && category !== 'btts_no') {
+      return this.emptySelectionGuard();
+    }
+
+    const factors = context.analysisFactors ?? {};
+    const formAttackRisk = Math.max(0, Number(factors.formDelta ?? 0));
+    const bttsRisk =
+      this.clampNumber(Number(factors.competitiveness ?? 0.5), 0, 1) * 0.28 +
+      Math.max(0, Number(factors.motivationDelta ?? 0)) * 0.18 +
+      Math.max(0, Number(factors.suspensionsDelta ?? 0)) * 0.08 +
+      formAttackRisk * 0.22;
+    const hasWeakXg = context.hasXg === false || (Number(context.richnessScore ?? 0.6) < 0.45);
+
+    let reject = false;
+    let evThresholdBump = category === 'btts_no' ? 0.018 : 0.012;
+    let uncertaintyBump = category === 'btts_no' ? 0.07 : 0.05;
+    let riskPenaltyBump = category === 'btts_no' ? 0.10 : 0.07;
+    let stakeMultiplier = category === 'btts_no' ? 0.74 : 0.80;
+    let minEdgeNoVig = category === 'btts_no' ? 0.026 : 0.020;
+
+    if (category === 'goal_under' && this.isGoalUnderSelection(selection)) {
+      const line = this.parseGoalLine(selection);
+      const goalExpectation = Number(context.expectedGoals);
+      const resolvedExpectedGoals = Number.isFinite(goalExpectation) ? goalExpectation : null;
+      const distanceToLine = line !== null && resolvedExpectedGoals !== null ? line - resolvedExpectedGoals : null;
+      const requiredBuffer = this.requiredUnderGoalsBuffer(line);
+
+      if (distanceToLine !== null && distanceToLine < requiredBuffer) warnings.push('under_goals_close_to_line');
+      if (hasWeakXg) warnings.push('weak_xg_data_for_under');
+      if (bttsRisk >= 0.34) warnings.push('btts_risk_against_under');
+      if (distanceToLine !== null && distanceToLine < requiredBuffer) reject = true;
+      if (distanceToLine === null && key === 'under25') {
+        evThresholdBump += 0.006;
+        uncertaintyBump += 0.03;
+      }
+    }
+
+    if (category === 'btts_no') {
+      warnings.push('btts_no_fragile');
+      if (bttsRisk >= 0.30) warnings.push('both_teams_goal_risk');
+      if (hasWeakXg) warnings.push('low_clean_sheet_confidence');
+      if (bttsRisk >= 0.42) reject = true;
+    }
+
+    if (hasWeakXg) {
+      evThresholdBump += 0.008;
+      uncertaintyBump += 0.035;
+      riskPenaltyBump += 0.035;
+      stakeMultiplier -= 0.10;
+    }
+    if (bttsRisk >= 0.34) {
+      evThresholdBump += 0.012;
+      uncertaintyBump += 0.035;
+      riskPenaltyBump += 0.05;
+      stakeMultiplier -= 0.10;
+      minEdgeNoVig += 0.01;
+    }
+
+    return {
+      isUnderCards: false,
+      line: this.parseGoalLine(selection),
+      expectedCards: null,
+      distanceToLine: null,
+      disciplinaryRiskScore: 0,
+      warnings: Array.from(new Set(warnings)),
+      reject,
+      minEdgeNoVig: this.clampNumber(minEdgeNoVig, 0.018, 0.07),
+      evThresholdBump: this.clampNumber(evThresholdBump, 0.010, 0.075),
+      uncertaintyBump: this.clampNumber(uncertaintyBump, 0.03, 0.22),
+      riskPenaltyBump: this.clampNumber(riskPenaltyBump, 0.04, 0.30),
+      stakeMultiplier: this.clampNumber(stakeMultiplier, 0.42, 0.82),
+      maxConfidence: warnings.length > 0 ? (hasWeakXg || reject ? 'LOW' : 'MEDIUM') : undefined,
+    };
+  }
+
+  private combineSelectionGuards(...guards: UnderCardsGuard[]): UnderCardsGuard {
+    const active = guards.filter((guard) =>
+      guard.reject
+      || guard.warnings.length > 0
+      || guard.evThresholdBump > 0
+      || guard.uncertaintyBump > 0
+      || guard.riskPenaltyBump > 0
+      || guard.stakeMultiplier < 1
+    );
+    if (active.length === 0) return this.emptySelectionGuard();
+
+    const maxConfidence = active.some((guard) => guard.maxConfidence === 'LOW')
+      ? 'LOW'
+      : active.some((guard) => guard.maxConfidence === 'MEDIUM')
+        ? 'MEDIUM'
+        : undefined;
+
+    return {
+      isUnderCards: active.some((guard) => guard.isUnderCards),
+      line: active.find((guard) => guard.line !== null)?.line ?? null,
+      expectedCards: active.find((guard) => guard.expectedCards !== null)?.expectedCards ?? null,
+      distanceToLine: active.find((guard) => guard.distanceToLine !== null)?.distanceToLine ?? null,
+      disciplinaryRiskScore: Math.max(...active.map((guard) => guard.disciplinaryRiskScore)),
+      warnings: Array.from(new Set(active.flatMap((guard) => guard.warnings))),
+      reject: active.some((guard) => guard.reject),
+      minEdgeNoVig: Math.max(...active.map((guard) => guard.minEdgeNoVig)),
+      evThresholdBump: active.reduce((sum, guard) => sum + guard.evThresholdBump, 0),
+      uncertaintyBump: active.reduce((sum, guard) => sum + guard.uncertaintyBump, 0),
+      riskPenaltyBump: active.reduce((sum, guard) => sum + guard.riskPenaltyBump, 0),
+      stakeMultiplier: active.reduce((multiplier, guard) => multiplier * guard.stakeMultiplier, 1),
+      maxConfidence,
+    };
+  }
+
+  private computeSelectionRiskGuard(selection: string, category: MarketCategory, context: ValueAnalysisContext = {}): UnderCardsGuard {
+    return this.combineSelectionGuards(
+      this.computeUnderCardsGuard(selection, category, context),
+      this.computeOverCardsGuard(selection, category, context),
+      this.computeFragileGoalGuard(selection, category, context)
+    );
   }
 
   private capConfidence(
@@ -1731,7 +2077,7 @@ export class ValueBettingEngine {
       const marketTier = this.getMarketTier(category);
       const selectionFamily = this.getSelectionFamily(key);
       const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
-      const underCardsGuard = this.computeUnderCardsGuard(key, category, context);
+      const selectionGuard = this.computeSelectionRiskGuard(key, category, context);
       const implied    = this.impliedProbabilityFromOdds(odds);
       const ev         = this.computeExpectedValue(ourProb, odds);
       const edge       = ourProb - implied;
@@ -1739,7 +2085,7 @@ export class ValueBettingEngine {
       const baseMinEv  = this.minEvForCategory(category, marginByCategory[category], key);
       const contextStrength = this.computeContextStrength(key, category, context);
       const uncertaintyFactor = this.clampNumber(
-        this.computeUncertaintyFactor(category, odds, context) + underCardsGuard.uncertaintyBump,
+        this.computeUncertaintyFactor(category, odds, context) + selectionGuard.uncertaintyBump,
         0.04,
         0.92
       );
@@ -1750,19 +2096,19 @@ export class ValueBettingEngine {
         context,
         uncertaintyFactor,
         contextStrength
-      ) + underCardsGuard.evThresholdBump;
+      ) + selectionGuard.evThresholdBump;
 
-      if (underCardsGuard.reject) continue;
-      if (edgeNoVig < underCardsGuard.minEdgeNoVig) continue;
+      if (selectionGuard.reject) continue;
+      if (edgeNoVig < selectionGuard.minEdgeNoVig) continue;
       if (!this.passesFilters(ourProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
       const stake = this.computeSuggestedStakeWithUncertainty(ourProb, odds, ev, uncertaintyFactor, 0.55);
       const stakeConfidence = this.capConfidence(
         this.capConfidenceForMarket(stake.confidence, category, false),
-        underCardsGuard.maxConfidence
+        selectionGuard.maxConfidence
       );
       const riskPenalty = this.clampNumber(
-        this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + underCardsGuard.riskPenaltyBump,
+        this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + selectionGuard.riskPenaltyBump,
         0,
         0.82
       );
@@ -1771,7 +2117,7 @@ export class ValueBettingEngine {
       const stakePercent = Number(
         Math.max(
           this.MIN_STAKE_PERCENT,
-          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7) * underCardsGuard.stakeMultiplier)
+          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7) * selectionGuard.stakeMultiplier)
         ).toFixed(2)
       );
       const logGrowth = this.computeExpectedLogGrowth(ourProb, odds, stakePercent);
@@ -1814,8 +2160,8 @@ export class ValueBettingEngine {
         logGrowth:               Number(logGrowth.toFixed(6)),
         dynamicEvThreshold:      Number((minEv * 100).toFixed(2)),
         contextStrength:         Number(contextStrength.toFixed(3)),
-        dataWarnings:            underCardsGuard.warnings.length > 0 ? underCardsGuard.warnings : undefined,
-        line:                    underCardsGuard.line ?? undefined,
+        dataWarnings:            selectionGuard.warnings.length > 0 ? selectionGuard.warnings : undefined,
+        line:                    selectionGuard.line ?? undefined,
       });
     }
 
@@ -1851,11 +2197,11 @@ export class ValueBettingEngine {
       const marketTier   = this.getMarketTier(category);
       const selectionFamily = this.getSelectionFamily(key);
       const adaptiveRankMultiplier = this.getCategoryRankingMultiplier(category, key);
-      const underCardsGuard = this.computeUnderCardsGuard(key, category, context);
+      const selectionGuard = this.computeSelectionRiskGuard(key, category, context);
       const baseMinEv    = this.minEvForCategory(category, marginByCategory[category], key);
       const contextStrength = this.computeContextStrength(key, category, context);
       const uncertaintyFactor = this.clampNumber(
-        this.computeUncertaintyFactor(category, odds, context) + underCardsGuard.uncertaintyBump,
+        this.computeUncertaintyFactor(category, odds, context) + selectionGuard.uncertaintyBump,
         0.04,
         0.92
       );
@@ -1880,19 +2226,19 @@ export class ValueBettingEngine {
         context,
         uncertaintyFactor,
         contextStrength
-      ) + underCardsGuard.evThresholdBump;
+      ) + selectionGuard.evThresholdBump;
 
-      if (underCardsGuard.reject) continue;
-      if (edgeNoVig < underCardsGuard.minEdgeNoVig) continue;
+      if (selectionGuard.reject) continue;
+      if (edgeNoVig < selectionGuard.minEdgeNoVig) continue;
       if (!this.passesFilters(effectiveProb, odds, ev, edgeNoVig, category, minEv, contextStrength, key)) continue;
 
       const stake = this.computeSuggestedStakeWithUncertainty(effectiveProb, odds, ev, uncertaintyFactor, 0.55);
       const stakeConfidence = this.capConfidence(
         this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds),
-        underCardsGuard.maxConfidence
+        selectionGuard.maxConfidence
       );
       const riskPenalty = this.clampNumber(
-        this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + underCardsGuard.riskPenaltyBump,
+        this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + selectionGuard.riskPenaltyBump,
         0,
         0.82
       );
@@ -1901,7 +2247,7 @@ export class ValueBettingEngine {
       const stakePercent = Number(
         Math.max(
           this.MIN_STAKE_PERCENT,
-          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7) * underCardsGuard.stakeMultiplier)
+          Math.min(categoryStakeCap, kellyPercent, stake.stakePercent * (1 - riskPenalty * 0.7) * selectionGuard.stakeMultiplier)
         ).toFixed(2)
       );
       const logGrowth = this.computeExpectedLogGrowth(effectiveProb, odds, stakePercent);
@@ -1929,7 +2275,7 @@ export class ValueBettingEngine {
         calibrationStatus: calibration.status,
         blendingApplied: blended.applied,
         hasCompanionOdds,
-        warnings: underCardsGuard.warnings,
+        warnings: selectionGuard.warnings,
       });
 
       opportunities.push({
@@ -1970,7 +2316,7 @@ export class ValueBettingEngine {
         dynamicEvThreshold:      Number((minEv * 100).toFixed(2)),
         contextStrength:         Number(contextStrength.toFixed(3)),
         dataWarnings:            diagnostics.warnings.length > 0 ? diagnostics.warnings : undefined,
-        line:                    underCardsGuard.line ?? undefined,
+        line:                    selectionGuard.line ?? undefined,
       });
     }
 
@@ -2008,6 +2354,131 @@ export class ValueBettingEngine {
    */
   selectMediumAndAbove(opportunities: BetOpportunity[]): BetOpportunity[] {
     return opportunities.filter(o => o.confidence === 'HIGH' || o.confidence === 'MEDIUM');
+  }
+
+  private slateRank(opportunity: BetOpportunity): number {
+    const base = Number(opportunity.rankingScore ?? Number(opportunity.expectedValue ?? 0) / 100);
+    const confidenceBonus = opportunity.confidence === 'HIGH' ? 0.08 : opportunity.confidence === 'MEDIUM' ? 0.02 : -0.08;
+    const riskPenalty = Number(opportunity.riskPenalty ?? 0) * 0.18;
+    const uncertaintyPenalty = Number(opportunity.uncertaintyFactor ?? 0) * 0.10;
+    const edgeBonus = Number(opportunity.edgeNoVig ?? opportunity.edge ?? 0) / 100 * 0.35;
+    return Number((base + confidenceBonus + edgeBonus - riskPenalty - uncertaintyPenalty).toFixed(6));
+  }
+
+  private isCardsOpportunity(opportunity: BetOpportunity): boolean {
+    return opportunity.marketCategory === 'yellow_cards' || this.getSelectionFamily(opportunity.selection).startsWith('cards_');
+  }
+
+  private isFragileUnderOpportunity(opportunity: BetOpportunity): boolean {
+    const family = this.getSelectionFamily(opportunity.selection);
+    return opportunity.marketCategory === 'goal_under'
+      || opportunity.marketCategory === 'btts_no'
+      || family === 'goal_under'
+      || family === 'btts_no';
+  }
+
+  private markSlateSkipped(opportunity: BetOpportunity, reasonCode: string, slateRank: number, extra: Partial<BetOpportunity['slateDiagnostics']> = {}): BetOpportunity {
+    const warnings = Array.from(new Set([...(opportunity.dataWarnings ?? []), reasonCode]));
+    return {
+      ...opportunity,
+      dataWarnings: warnings,
+      slateStatus: 'skipped',
+      slateSkipReason: reasonCode,
+      slateDiagnostics: {
+        reasonCode,
+        slateRank,
+        ...extra,
+      },
+    };
+  }
+
+  selectRecommendedSlateBets(
+    opportunities: BetOpportunity[],
+    options: SlateSelectionOptions = {}
+  ): SlateSelectionResult {
+    const maxBets = Math.max(1, Math.min(8, Number(options.maxBets ?? 4)));
+    const maxLowConfidence = Math.max(0, Math.min(2, Number(options.maxLowConfidence ?? 0)));
+    const maxCardsBets = Math.max(0, Math.min(maxBets, Number(options.maxCardsBets ?? 2)));
+    const maxFragileUnderBets = Math.max(0, Math.min(maxBets, Number(options.maxFragileUnderBets ?? 1)));
+    const minRankingScore = Number(options.minRankingScore ?? 0.12);
+
+    const diagnostics = {
+      totalInput: Array.isArray(opportunities) ? opportunities.length : 0,
+      selected: 0,
+      skippedBecauseWeakSlateRank: 0,
+      skippedBecauseDailyCardCap: 0,
+      skippedBecauseDailyUnderCap: 0,
+      skippedBecauseCorrelation: 0,
+      skippedBecauseLowConfidence: 0,
+    };
+
+    const recommended: BetOpportunity[] = [];
+    const skipped: BetOpportunity[] = [];
+    const usedMatches = new Set<string>();
+    let lowConfidenceCount = 0;
+    let cardsCount = 0;
+    let fragileUnderCount = 0;
+
+    const candidates = [...(opportunities ?? [])]
+      .filter((opportunity) => opportunity && opportunity.isValueBet !== false)
+      .sort((left, right) => this.slateRank(right) - this.slateRank(left));
+
+    for (const opportunity of candidates) {
+      const slateRank = this.slateRank(opportunity);
+      const matchId = String(opportunity.matchId ?? '').trim();
+      const isCards = this.isCardsOpportunity(opportunity);
+      const isFragileUnder = this.isFragileUnderOpportunity(opportunity);
+
+      if (recommended.length >= maxBets) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseWeakSlateRank', slateRank));
+        diagnostics.skippedBecauseWeakSlateRank++;
+        continue;
+      }
+      if (slateRank < minRankingScore) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseWeakSlateRank', slateRank));
+        diagnostics.skippedBecauseWeakSlateRank++;
+        continue;
+      }
+      if (opportunity.confidence === 'LOW' && lowConfidenceCount >= maxLowConfidence) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseLowConfidence', slateRank));
+        diagnostics.skippedBecauseLowConfidence++;
+        continue;
+      }
+      if (isCards && cardsCount >= maxCardsBets) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseDailyCardCap', slateRank, {
+          categoryCap: maxCardsBets,
+          categoryCount: cardsCount,
+        }));
+        diagnostics.skippedBecauseDailyCardCap++;
+        continue;
+      }
+      if (isFragileUnder && fragileUnderCount >= maxFragileUnderBets) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseDailyUnderCap', slateRank, {
+          categoryCap: maxFragileUnderBets,
+          categoryCount: fragileUnderCount,
+        }));
+        diagnostics.skippedBecauseDailyUnderCap++;
+        continue;
+      }
+      if (matchId && usedMatches.has(matchId)) {
+        skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseCorrelation', slateRank));
+        diagnostics.skippedBecauseCorrelation++;
+        continue;
+      }
+
+      if (opportunity.confidence === 'LOW') lowConfidenceCount++;
+      if (isCards) cardsCount++;
+      if (isFragileUnder) fragileUnderCount++;
+      if (matchId) usedMatches.add(matchId);
+      recommended.push({
+        ...opportunity,
+        slateStatus: 'recommended',
+        slateDiagnostics: { slateRank, slatePosition: recommended.length + 1 },
+      });
+    }
+
+    diagnostics.selected = recommended.length;
+    return { recommended, skipped, diagnostics };
   }
 
   // ==================== MARKET GROUPS ====================

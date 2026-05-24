@@ -205,6 +205,10 @@ export function analyzeMarketsEnhanced(params: {
 
   const baseThresholds: Partial<Record<MarketCategory, number>> = {
     goal_1x2: 0.030,
+    btts_yes: 0.034,
+    btts_no: 0.055,
+    goal_over: 0.028,
+    goal_under: 0.045,
     goal_ou: 0.025,
     shots: 0.005,
     shots_ot: 0.005,

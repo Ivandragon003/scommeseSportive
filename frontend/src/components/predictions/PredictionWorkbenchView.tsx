@@ -546,7 +546,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               <div style={{ margin: '0 20px 16px' }}>
                 <div className="pr-card" style={{ borderColor: 'var(--blue-border)', boxShadow: '0 12px 28px rgba(29, 78, 216, 0.12)' }}>
                   <div className="pr-card-head">
-                    <div className="pr-card-title">Migliore giocata</div>
+                    <div className="pr-card-title">Migliore opportunita del match</div>
                     <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                       {bestValueOpp?.marketTier && (
                         <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
@@ -585,8 +585,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                           exposureRatio={exposureRatio}
                         />
                         <div className="pr-info" style={{ marginTop: 12 }}>
-                          <strong>Nota operativa</strong><br />
-                          Questa e l'unica giocata da portare in alto nella decisione finale. Le altre selezioni restano disponibili solo come confronto nei tab sotto.
+                          <strong>Consigli giornata</strong><br />
+                          {bestValueOpp
+                            ? 'Questa opportunita passa il filtro prudente del match. In una giornata completa il sistema deve comunque limitarsi alle migliori 2-4 pick globali, senza forzare una bet per partita.'
+                            : 'Match da saltare: edge insufficiente o mercato fragile. Non c e una giocata abbastanza solida per la giornata.'}
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                           <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>

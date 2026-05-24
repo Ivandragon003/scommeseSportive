@@ -1273,6 +1273,7 @@ export class BacktestingEngine {
       );
       contextDiagnostics.context.expectedCards = Number(probs.cards?.expectedTotalYellow ?? 0);
       contextDiagnostics.context.expectedFouls = Number(probs.fouls?.expectedTotalFouls ?? 0);
+      contextDiagnostics.context.expectedGoals = Number(probs.lambdaHome ?? 0) + Number(probs.lambdaAway ?? 0);
       contextDiagnostics.context.enableMarketBlending = true;
       contextDiagnostics.context.competition = match.competition ?? undefined;
       const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(

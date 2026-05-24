@@ -157,6 +157,78 @@ describe('predictions UI components', () => {
     expect(screen.getByText(/Arbitro severo/i)).toBeTruthy();
   });
 
+  test('mostra warning sintetici per Over cartellini, Under goal e No Goal fragili', () => {
+    const noop = () => undefined;
+    render(
+      <ValueOpportunitiesTable
+        opportunities={[
+          {
+            selection: 'yellow_over_3.5',
+            marketName: 'Gialli Totali Over 3.5',
+            marketCategory: 'yellow_cards',
+            bookmakerOdds: 1.9,
+            confidence: 'LOW',
+            marketTier: 'SECONDARY',
+            expectedValue: 12.2,
+            edge: 8.1,
+            ourProbability: 67,
+            impliedProbability: 58.1,
+            kellyFraction: 1.1,
+            suggestedStakePercent: 0.5,
+            dataWarnings: ['over_cards_close_to_line', 'low_disciplinary_risk_for_over_cards'],
+          },
+          {
+            selection: 'under25',
+            marketName: 'Under 2.5 Goal',
+            marketCategory: 'goal_under',
+            bookmakerOdds: 1.85,
+            confidence: 'LOW',
+            marketTier: 'CORE',
+            expectedValue: 8,
+            edge: 5,
+            ourProbability: 61,
+            impliedProbability: 54,
+            kellyFraction: 0.8,
+            suggestedStakePercent: 0.4,
+            dataWarnings: ['under_goals_close_to_line'],
+          },
+          {
+            selection: 'bttsNo',
+            marketName: 'Goal/Goal - No',
+            marketCategory: 'btts_no',
+            bookmakerOdds: 2.05,
+            confidence: 'LOW',
+            marketTier: 'SECONDARY',
+            expectedValue: 9,
+            edge: 6,
+            ourProbability: 60,
+            impliedProbability: 49,
+            kellyFraction: 0.9,
+            suggestedStakePercent: 0.45,
+            dataWarnings: ['btts_no_fragile', 'both_teams_goal_risk'],
+          },
+        ]}
+        bankroll={1000}
+        budgetReady
+        isReplayAnalysis={false}
+        oddsSource="odds_api"
+        placedBetKeySet={new Set()}
+        replayOutcomeTone="info"
+        stakes={{}}
+        getStakeKey={(opportunity) => String(opportunity.selection)}
+        getStakeValue={() => 0}
+        onStakeChange={noop}
+        onBet={noop}
+      />
+    );
+
+    expect(screen.getByText(/Over cartellini fragile/i)).toBeTruthy();
+    expect(screen.getByText(/Partita poco disciplinare/i)).toBeTruthy();
+    expect(screen.getByText(/Under goal fragile/i)).toBeTruthy();
+    expect(screen.getByText(/No Goal fragile/i)).toBeTruthy();
+    expect(screen.getByText(/Rischio goal per entrambe/i)).toBeTruthy();
+  });
+
   test('mostra diagnostica sintetica per blending, edge no-vig e dati deboli', () => {
     const noop = () => undefined;
     render(

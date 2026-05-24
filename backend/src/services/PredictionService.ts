@@ -184,10 +184,17 @@ export interface BestValueOpportunityExplanation {
   edgeNoVig?: number;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   score: number;
+  marketCategory?: string;
+  selectionFamily?: string;
   uncertaintyFactor?: number;
   riskPenalty?: number;
   rankingScore?: number;
   logGrowth?: number;
+  dataWarnings?: string[];
+  riskReasons?: string[];
+  mainReason?: string;
+  slateStatus?: 'recommended' | 'skipped' | 'not_evaluated';
+  slateSkipReason?: string;
   humanSummary: string;
   humanReasons: string[];
   reasons: string[];
@@ -1315,6 +1322,7 @@ export class PredictionService {
       hasRefereeData: Boolean(referee || (supp as any)?.referee || (supp as any)?.refereeProfile),
       competition: request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined,
       enableMarketBlending: true,
+      expectedGoals: Number(probs.lambdaHome ?? 0) + Number(probs.lambdaAway ?? 0),
       expectedCards: Number(probs.cards?.expectedTotalYellow ?? 0),
       expectedFouls: Number(probs.fouls?.expectedTotalFouls ?? 0),
       refereeAvgYellow: Number((referee as any)?.avg_yellow_cards_per_game ?? supp?.refereeStats?.avgYellow ?? 3.8),
@@ -2132,6 +2140,15 @@ export class PredictionService {
       return !category.startsWith('player_') && !isPlayerPropSelection(opportunity.selection);
     });
     if (primaryOpportunities.length === 0) return null;
+    const slateFiltered = this.engine.selectRecommendedSlateBets(primaryOpportunities, {
+      maxBets: 1,
+      maxCardsBets: 1,
+      maxFragileUnderBets: 1,
+      maxLowConfidence: 0,
+      minRankingScore: 0.12,
+    });
+    const candidateOpportunities = slateFiltered.recommended.length > 0 ? slateFiltered.recommended : [];
+    if (candidateOpportunities.length === 0) return null;
 
     const clampNum = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
     const confidenceRank = (c: BetOpportunity['confidence']) => c === 'HIGH' ? 3 : c === 'MEDIUM' ? 2 : 1;
@@ -2166,7 +2183,7 @@ export class PredictionService {
     };
     const avgEv = primaryOpportunities.reduce((s, o) => s + Number(o.expectedValue ?? 0), 0) / primaryOpportunities.length;
 
-    const scored = primaryOpportunities.map((opp) => {
+    const scored = candidateOpportunities.map((opp) => {
       const direction = this.inferSelectionDirection(opp.selection);
       const prob = Number(opp.ourProbability ?? 0);
       const odds = Number(opp.bookmakerOdds ?? 0);
@@ -2243,6 +2260,8 @@ export class PredictionService {
       selection: best.opp.selection,
       selectionLabel: human.selectionLabel,
       marketName: best.opp.marketName,
+      marketCategory: String(best.opp.marketCategory ?? ''),
+      selectionFamily: String(best.opp.selectionFamily ?? ''),
       marketTier: String((best.opp as any).marketTier ?? 'SECONDARY'),
       bookmakerOdds: Number(best.opp.bookmakerOdds ?? 0),
       expectedValue: Number(best.opp.expectedValue ?? 0),
@@ -2254,6 +2273,11 @@ export class PredictionService {
       riskPenalty: Number(best.opp.riskPenalty ?? 0),
       rankingScore: Number(best.opp.rankingScore ?? best.baseModelScore),
       logGrowth: Number(best.opp.logGrowth ?? 0),
+      dataWarnings: best.opp.dataWarnings ?? [],
+      riskReasons: best.opp.riskReasons ?? [],
+      mainReason: best.opp.mainReason,
+      slateStatus: best.opp.slateStatus ?? 'recommended',
+      slateSkipReason: best.opp.slateSkipReason,
       humanSummary: human.humanSummary,
       humanReasons: human.humanReasons,
       reasons,

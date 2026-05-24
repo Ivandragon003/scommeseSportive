@@ -410,21 +410,25 @@ test('under cartellini usa soglia EV piu alta degli over cartellini', () => {
   const engine = new ValueBettingEngine();
   const opportunities = engine.analyzeMarketsWithVigRemoval(
     {
-      'yellow_over_4.5': 0.62,
-      'yellow_under_4.5': 0.62,
+      'yellow_over_3.5': 0.62,
+      'yellow_under_5.5': 0.62,
     },
     {
-      'yellow_over_4.5': { selection: 'yellow_over_4.5', odds: 2.0, companions: [2.0] },
-      'yellow_under_4.5': { selection: 'yellow_under_4.5', odds: 2.0, companions: [2.0] },
+      'yellow_over_3.5': { selection: 'yellow_over_3.5', odds: 2.0, companions: [2.0] },
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 2.0, companions: [2.0] },
     },
     {
-      'yellow_over_4.5': 'Gialli Over 4.5',
-      'yellow_under_4.5': 'Gialli Under 4.5',
+      'yellow_over_3.5': 'Gialli Over 3.5',
+      'yellow_under_5.5': 'Gialli Under 5.5',
     },
     {
       richnessScore: 0.9,
-      expectedCards: 3.2,
+      expectedCardsByLine: {
+        '3.5': 4.6,
+        '5.5': 4.1,
+      },
       hasRefereeData: true,
+      disciplinaryRiskScore: 0.5,
       analysisFactors: {
         disciplineReliability: 0.86,
         competitiveness: 0.45,
@@ -432,8 +436,8 @@ test('under cartellini usa soglia EV piu alta degli over cartellini', () => {
     }
   );
 
-  const over = opportunities.find((opp) => opp.selection === 'yellow_over_4.5');
-  const under = opportunities.find((opp) => opp.selection === 'yellow_under_4.5');
+  const over = opportunities.find((opp) => opp.selection === 'yellow_over_3.5');
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
   assert.ok(over);
   assert.ok(under);
   assert.ok(under.dynamicEvThreshold > over.dynamicEvThreshold);
@@ -583,20 +587,23 @@ test('calibrazione per lato mercato corregge yellow_cards_under separatamente da
   const opportunities = engine.analyzeMarketsWithVigRemoval(
     {
       'yellow_under_5.5': 0.62,
-      'yellow_over_5.5': 0.62,
+      'yellow_over_4.5': 0.62,
     },
     {
       'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 2.05, companions: [1.85] },
-      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.05, companions: [1.85] },
+      'yellow_over_4.5': { selection: 'yellow_over_4.5', odds: 2.05, companions: [1.85] },
     },
     {
       'yellow_under_5.5': 'Gialli Under 5.5',
-      'yellow_over_5.5': 'Gialli Over 5.5',
+      'yellow_over_4.5': 'Gialli Over 4.5',
     },
     {
       enableMarketBlending: false,
       richnessScore: 0.9,
-      expectedCards: 4.2,
+      expectedCardsByLine: {
+        '5.5': 4.2,
+        '4.5': 5.6,
+      },
       hasRefereeData: true,
       marketCalibrationProfile: {
         global: { predictedAvg: 0.62, actualHitRate: 0.60, sampleSize: 400, reliability: 0.8 },
@@ -613,7 +620,7 @@ test('calibrazione per lato mercato corregge yellow_cards_under separatamente da
   );
 
   const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
-  const over = opportunities.find((opp) => opp.selection === 'yellow_over_5.5');
+  const over = opportunities.find((opp) => opp.selection === 'yellow_over_4.5');
   assert.ok(under);
   assert.ok(over);
   assert.equal(under.categoryCalibrationStatus, 'applied');
@@ -714,4 +721,236 @@ test('ranking weights supportano override per competizione e categoria con fallb
   assert.equal(premier.riskPenalty, 0.82);
   assert.equal(serieA.ev, 0.21);
   assert.equal(serieA.riskPenalty, 0.61);
+});
+
+test('over cartellini vicino alla linea viene scartato come fragile', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_over_3.5': 0.68,
+      'yellow_under_3.5': 0.32,
+      'yellow_over_2.5': 0.70,
+      'yellow_under_2.5': 0.30,
+    },
+    {
+      'yellow_over_3.5': { selection: 'yellow_over_3.5', odds: 1.9, companions: [1.95] },
+      'yellow_under_3.5': { selection: 'yellow_under_3.5', odds: 1.95, companions: [1.9] },
+      'yellow_over_2.5': { selection: 'yellow_over_2.5', odds: 1.75, companions: [2.15] },
+      'yellow_under_2.5': { selection: 'yellow_under_2.5', odds: 2.15, companions: [1.75] },
+    },
+    {
+      'yellow_over_3.5': 'Gialli Over 3.5',
+      'yellow_over_2.5': 'Gialli Over 2.5',
+    },
+    {
+      richnessScore: 0.88,
+      expectedCardsByLine: {
+        '3.5': 3.8,
+        '2.5': 2.7,
+      },
+      hasRefereeData: true,
+      refereeAvgYellow: 3.2,
+      refereeAvgFouls: 20,
+      refereeSampleSize: 20,
+      leagueAvgYellow: 3.8,
+      leagueAvgFouls: 22.4,
+      disciplinaryRiskScore: 0.32,
+      analysisFactors: {
+        disciplineReliability: 0.82,
+        competitiveness: 0.45,
+      },
+    }
+  );
+
+  assert.equal(opportunities.some((opp) => opp.selection === 'yellow_over_3.5'), false);
+  assert.equal(opportunities.some((opp) => opp.selection === 'yellow_over_2.5'), false);
+});
+
+test('over cartellini puo passare solo con margine disciplinare forte', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_over_3.5': 0.72,
+      'yellow_under_3.5': 0.28,
+    },
+    {
+      'yellow_over_3.5': { selection: 'yellow_over_3.5', odds: 1.92, companions: [1.94] },
+      'yellow_under_3.5': { selection: 'yellow_under_3.5', odds: 1.94, companions: [1.92] },
+    },
+    { 'yellow_over_3.5': 'Gialli Over 3.5' },
+    {
+      richnessScore: 0.9,
+      expectedCards: 4.7,
+      hasRefereeData: true,
+      refereeAvgYellow: 4.7,
+      refereeAvgFouls: 27,
+      refereeSampleSize: 24,
+      leagueAvgYellow: 3.8,
+      leagueAvgFouls: 22.4,
+      disciplinaryRiskScore: 0.72,
+      analysisFactors: {
+        disciplineReliability: 0.9,
+        competitiveness: 0.78,
+      },
+    }
+  );
+
+  const over = opportunities.find((opp) => opp.selection === 'yellow_over_3.5');
+  assert.ok(over);
+  assert.equal((over.dataWarnings ?? []).includes('over_cards_close_to_line'), false);
+});
+
+test('under cartellini senza expectedCards non puo essere HIGH', () => {
+  const engine = new ValueBettingEngine();
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    {
+      'yellow_under_5.5': 0.80,
+      'yellow_over_5.5': 0.20,
+    },
+    {
+      'yellow_under_5.5': { selection: 'yellow_under_5.5', odds: 1.62, companions: [2.4] },
+      'yellow_over_5.5': { selection: 'yellow_over_5.5', odds: 2.4, companions: [1.62] },
+    },
+    { 'yellow_under_5.5': 'Gialli Under 5.5' },
+    {
+      richnessScore: 0.72,
+      hasRefereeData: false,
+      analysisFactors: {
+        disciplineReliability: 0.55,
+        competitiveness: 0.42,
+      },
+    }
+  );
+
+  const under = opportunities.find((opp) => opp.selection === 'yellow_under_5.5');
+  assert.ok(under);
+  assert.equal(under.confidence, 'LOW');
+  assert.ok((under.dataWarnings ?? []).includes('missing_expected_cards'));
+});
+
+test('bttsNo ha categoria separata e viene penalizzato con rischio goal entrambe alto', () => {
+  const engine = new ValueBettingEngine();
+  assert.equal(engine.categorizeSelection('bttsNo'), 'btts_no');
+
+  const opportunities = engine.analyzeMarketsWithVigRemoval(
+    { bttsNo: 0.64, btts: 0.36 },
+    {
+      bttsNo: { selection: 'bttsNo', odds: 2.05, companions: [1.78] },
+      btts: { selection: 'btts', odds: 1.78, companions: [2.05] },
+    },
+    { bttsNo: 'Goal/Goal - No' },
+    {
+      richnessScore: 0.86,
+      expectedGoals: 2.7,
+      hasXg: true,
+      analysisFactors: {
+        formDelta: 0.65,
+        motivationDelta: 0.45,
+        competitiveness: 0.82,
+        statSampleStrength: 0.84,
+        shotsReliability: 0.7,
+        cornersReliability: 0.4,
+        disciplineReliability: 0.5,
+      },
+    }
+  );
+
+  assert.equal(opportunities.some((opp) => opp.selection === 'bttsNo'), false);
+});
+
+test('under 2.5 vicino agli expected goals viene scartato, con margine ampio puo passare', () => {
+  const engine = new ValueBettingEngine();
+  const fragile = engine.analyzeMarketsWithVigRemoval(
+    { under25: 0.66, over25: 0.34 },
+    {
+      under25: { selection: 'under25', odds: 1.85, companions: [2.05] },
+      over25: { selection: 'over25', odds: 2.05, companions: [1.85] },
+    },
+    { under25: 'Under 2.5 Goal' },
+    {
+      richnessScore: 0.86,
+      expectedGoals: 2.35,
+      hasXg: true,
+      analysisFactors: {
+        formDelta: 0.1,
+        competitiveness: 0.55,
+        statSampleStrength: 0.82,
+        shotsReliability: 0.72,
+        cornersReliability: 0.4,
+        disciplineReliability: 0.5,
+      },
+    }
+  );
+  assert.equal(fragile.some((opp) => opp.selection === 'under25'), false);
+
+  const solid = engine.analyzeMarketsWithVigRemoval(
+    { under25: 0.70, over25: 0.30 },
+    {
+      under25: { selection: 'under25', odds: 1.82, companions: [2.1] },
+      over25: { selection: 'over25', odds: 2.1, companions: [1.82] },
+    },
+    { under25: 'Under 2.5 Goal' },
+    {
+      richnessScore: 0.9,
+      expectedGoals: 1.85,
+      hasXg: true,
+      analysisFactors: {
+        formDelta: -0.2,
+        competitiveness: 0.45,
+        statSampleStrength: 0.9,
+        shotsReliability: 0.76,
+        cornersReliability: 0.4,
+        disciplineReliability: 0.5,
+      },
+    }
+  );
+  assert.ok(solid.some((opp) => opp.selection === 'under25'));
+});
+
+test('selectRecommendedSlateBets seleziona meno bet, applica cap e non forza ogni match', () => {
+  const engine = new ValueBettingEngine();
+  const makeOpp = (selection, matchId, category, confidence, rankingScore, extra = {}) => ({
+    marketName: selection,
+    selection,
+    matchId,
+    marketCategory: category,
+    marketTier: category === 'yellow_cards' ? 'SECONDARY' : 'CORE',
+    ourProbability: 62,
+    bookmakerOdds: 1.9,
+    impliedProbability: 52,
+    impliedProbabilityNoVig: 50,
+    expectedValue: 14,
+    kellyFraction: 3,
+    suggestedStakePercent: 1,
+    confidence,
+    isValueBet: true,
+    edge: 10,
+    edgeNoVig: 12,
+    rankingScore,
+    riskPenalty: 0.2,
+    uncertaintyFactor: 0.18,
+    ...extra,
+  });
+  const result = engine.selectRecommendedSlateBets([
+    makeOpp('over25', 'm1', 'goal_over', 'HIGH', 0.42),
+    makeOpp('homeWin', 'm6', 'goal_1x2', 'LOW', 0.58),
+    makeOpp('yellow_over_3.5', 'm2', 'yellow_cards', 'MEDIUM', 0.38),
+    makeOpp('yellow_under_5.5', 'm3', 'yellow_cards', 'MEDIUM', 0.37),
+    makeOpp('under25', 'm4', 'goal_under', 'MEDIUM', 0.36),
+    makeOpp('bttsNo', 'm5', 'btts_no', 'MEDIUM', 0.35),
+    makeOpp('over15', 'm1', 'goal_over', 'HIGH', 0.34),
+  ], {
+    maxBets: 4,
+    maxCardsBets: 1,
+    maxFragileUnderBets: 1,
+    maxLowConfidence: 0,
+    minRankingScore: 0.12,
+  });
+
+  assert.equal(result.recommended.length, 3);
+  assert.ok(result.recommended.length < 7);
+  assert.equal(result.recommended.filter((opp) => opp.marketCategory === 'yellow_cards').length, 1);
+  assert.equal(result.recommended.filter((opp) => opp.marketCategory === 'goal_under' || opp.marketCategory === 'btts_no').length, 1);
+  assert.ok(result.skipped.some((opp) => opp.slateSkipReason === 'skippedBecauseCorrelation'));
+  assert.ok(result.skipped.some((opp) => opp.slateSkipReason === 'skippedBecauseLowConfidence'));
 });

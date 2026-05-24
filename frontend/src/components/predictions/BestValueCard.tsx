@@ -50,6 +50,8 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   }
 
   const reasons = Array.isArray(opportunity.humanReasons) ? opportunity.humanReasons : [];
+  const warnings = Array.isArray(opportunity.dataWarnings) ? opportunity.dataWarnings.slice(0, 4) : [];
+  const riskReasons = Array.isArray(opportunity.riskReasons) ? opportunity.riskReasons.slice(0, 3) : [];
   const metrics = [
     ['Quota', formatMetricNumber(opportunity.bookmakerOdds, 2)],
     ['Probabilita nostra', formatMetricNumber(opportunity.ourProbability, 1, '%')],
@@ -70,7 +72,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-2)' }}>
-              Migliore giocata
+              Migliore opportunita del match
             </div>
             <strong style={{ display: 'block', marginTop: 6, fontSize: 22, lineHeight: 1.15, color: 'var(--text)' }}>
               {opportunity.selectionLabel ?? fmtSelection(opportunity.selection)}
@@ -140,6 +142,31 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
             </span>
           )}
         </div>
+
+        {(warnings.length > 0 || riskReasons.length > 0) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {riskReasons.map((reason) => (
+              <span key={`risk_${reason}`} className="pr-badge pr-badge-gold">{reason}</span>
+            ))}
+            {warnings.map((warning) => (
+              <span key={`warning_${warning}`} className="pr-badge pr-badge-gold">
+                {warning === 'over_cards_close_to_line'
+                  ? 'Over cartellini fragile'
+                  : warning === 'under_cards_close_to_line'
+                    ? 'Under cartellini fragile'
+                    : warning === 'under_goals_close_to_line'
+                      ? 'Under goal vicino alla linea'
+                      : warning === 'btts_no_fragile'
+                        ? 'No Goal fragile'
+                        : warning === 'missing_referee_data'
+                          ? 'Dati arbitro assenti'
+                          : warning === 'low_disciplinary_risk_for_over_cards'
+                            ? 'Rischio cartellini basso'
+                            : warning.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        )}
 
         {reasons.length > 0 && (
           <div style={{ marginTop: 0 }}>

@@ -23,6 +23,20 @@ const valueWarningLabel = (warning: string): string | null => {
   switch (warning) {
     case 'under_cards_close_to_line':
       return 'Under cartellini fragile: previsione vicina alla linea';
+    case 'over_cards_close_to_line':
+      return 'Over cartellini fragile: previsione vicina alla linea';
+    case 'low_disciplinary_risk_for_over_cards':
+      return 'Partita poco disciplinare: Over cartellini penalizzato';
+    case 'lenient_referee_against_over_cards':
+      return 'Arbitro permissivo: Over cartellini penalizzato';
+    case 'under_goals_close_to_line':
+      return 'Under goal fragile: expected goals vicini alla linea';
+    case 'btts_no_fragile':
+      return 'No Goal fragile';
+    case 'both_teams_goal_risk':
+      return 'Rischio goal per entrambe';
+    case 'weak_xg_data_for_under':
+      return 'Dati xG deboli per Under';
     case 'high_intensity_match':
       return 'Partita ad alta intensita';
     case 'missing_referee_data':

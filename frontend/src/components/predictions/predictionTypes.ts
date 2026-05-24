@@ -44,6 +44,8 @@ export interface BestValueOpportunity {
   sampleSize?: number | string;
   playerConfidence?: string;
   dataWarnings?: string[];
+  slateStatus?: 'recommended' | 'skipped' | 'not_evaluated' | string;
+  slateSkipReason?: string;
 }
 
 export interface RecommendedBetResult {
