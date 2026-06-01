@@ -2,6 +2,8 @@
 // The DB is injected (dependency inversion) so the logic is testable in
 // isolation and no longer lives in the route layer. No behavior change.
 
+import { numOrNull } from '../utils/dataHelpers';
+
 export interface RefereeDerivedStatsDb {
   getMatches(filters: {
     competition?: string;
@@ -31,13 +33,6 @@ export interface RefereeDerivedStatsResult {
   refereesDetected: number;
   refereesUpdated: number;
   matchesConsidered: number;
-}
-
-// Local copy of the small numeric coercion helper used by the route layer.
-function numOrNull(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export async function rebuildRefereeDerivedStats(

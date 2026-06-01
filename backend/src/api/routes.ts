@@ -19,6 +19,7 @@ import { UnderstatScraper } from '../services/UnderstatScraper';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { recomputeTeamAveragesForMatchRows } from '../services/TeamAveragesService';
+import { numOrNull, parseRawJson, normalizeShotResult, safePct } from '../utils/dataHelpers';
 
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   2,
@@ -661,30 +662,6 @@ function getExternalSchedulerRunMeta(req: Request, expectedSchedulerName: string
     trigger: String(candidate.trigger ?? 'external').trim() || 'external',
     startedAt,
   };
-}
-
-function numOrNull(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseRawJson(value: unknown): any | null {
-  if (typeof value !== 'string' || value.trim().length === 0) return null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeShotResult(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '');
-}
-
-function safePct(numerator: number, denominator: number): number {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  return numerator / denominator;
 }
 
 async function rebuildPlayerDerivedStats(options?: {
