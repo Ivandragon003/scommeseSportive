@@ -1,0 +1,661 @@
+{
+  "matchId": "m_123",
+  "competition": "Serie A",
+  "homeTeam": "Inter",
+  "awayTeam": "Milan",
+  "lambdaHome": 1.634,
+  "lambdaAway": 1.219,
+  "modelConfidence": 0.7123,
+  "richnessScore": 0.6555,
+  "computedAt": "2026-05-01T12:00:00.000Z",
+  "goalProbabilities": {
+    "homeWin": 0.512345,
+    "draw": 0.241111,
+    "awayWin": 0.246544,
+    "btts": 0.55,
+    "over05": 0.93,
+    "over15": 0.74,
+    "over25": 0.49,
+    "over35": 0.27,
+    "over45": 0.13,
+    "under15": 0.26,
+    "under25": 0.51,
+    "under35": 0.73,
+    "under45": 0.87,
+    "exactScore": {
+      "1-0": 0.11,
+      "2-1": 0.09
+    },
+    "handicap": {
+      "home_minus1": 0.33
+    },
+    "asianHandicap": {
+      "home_minus0_5": 0.51
+    }
+  },
+  "cardsPrediction": {
+    "totalYellow": {
+      "expected": 4.321,
+      "variance": 5.827,
+      "distribution": {
+        "0": 0.0245633423401488,
+        "1": 0.0787102271348667,
+        "2": 0.13627870179495125,
+        "3": 0.16904068525738508,
+        "4": 0.16817986267801335,
+        "5": 0.14255086490951224,
+        "6": 0.10682917487558195,
+        "7": 0.07256574802709936,
+        "8": 0.04547423887751045,
+        "9": 0.0266363747401495,
+        "10": 0.014730276839882612,
+        "11": 0.007751544804535262,
+        "12": 0.003906113805739741,
+        "13": 0.0018945819085731557,
+        "14": 0.0008882620060505297
+      }
+    },
+    "totalRed": {
+      "expected": 0.09,
+      "probAtLeastOne": 0.0861,
+      "distribution": {
+        "0": 0.9139312269973293,
+        "1": 0.08225381042975967,
+        "2": 0.003701421469339182,
+        "3": 0.00011104264408017564,
+        "4": 0.0000024984594918039562
+      }
+    },
+    "overUnder": {
+      "over35": 0.611,
+      "under35": 0.389,
+      "over45": 0.402,
+      "under45": 0.598
+    },
+    "homeYellow": {
+      "expected": 2.111,
+      "over15": 0.6008,
+      "over25": 0.3505,
+      "over35": 0.1757
+    },
+    "awayYellow": {
+      "expected": 2.21,
+      "over15": 0.6237,
+      "over25": 0.3749,
+      "over35": 0.1942
+    },
+    "totalCardsWeighted": {
+      "expected": 4.41,
+      "over35": 0.7,
+      "over45": 0.5,
+      "over55": 0.31,
+      "over65": 0.17
+    },
+    "confidenceLevel": 0.712
+  },
+  "foulsPrediction": {
+    "totalFouls": {
+      "expected": 22.5,
+      "variance": 60.852,
+      "distribution": {
+        "0": 0.000001982337360798055,
+        "1": 0.000016491714178067896,
+        "2": 0.00007379695630101824,
+        "3": 0.00023565414617131829,
+        "4": 0.0006015121588196488,
+        "5": 0.0013041187981131786,
+        "6": 0.0024931682905104872,
+        "7": 0.004309918773511445,
+        "8": 0.00685874678767846,
+        "9": 0.010182453214200509,
+        "10": 0.014246877816507506,
+        "11": 0.01893779022209554,
+        "12": 0.0240700905133779,
+        "13": 0.02940689791227153,
+        "14": 0.03468460648116006,
+        "15": 0.03963955026418283,
+        "16": 0.04403237857602301,
+        "17": 0.047667280811413165,
+        "18": 0.05040447760870744,
+        "19": 0.05216562476973714,
+        "20": 0.05293276631047007,
+        "21": 0.05274213209806771,
+        "22": 0.05167439603954983,
+        "23": 0.04984304185035202,
+        "24": 0.04738230343967351,
+        "25": 0.0444358408728357,
+        "26": 0.04114695672290736,
+        "27": 0.037650810073248484,
+        "28": 0.03406878522534336,
+        "29": 0.030504939538194647,
+        "30": 0.02704429513680315,
+        "31": 0.02375264739583705,
+        "32": 0.02067752786691167,
+        "33": 0.017849966760588316,
+        "34": 0.015286736239604096,
+        "35": 0.012992808232460178,
+        "36": 0.010963819271789361,
+        "37": 0.009188392712446704,
+        "38": 0.007650220823166692,
+        "39": 0.006329853040499885,
+        "40": 0.005206171145705472,
+        "41": 0.0042575574649240545,
+        "42": 0.00346277933071553,
+        "43": 0.002801623300598448,
+        "44": 0.0022553174583694988,
+        "45": 0.0018067809330354848,
+        "46": 0.0014407378101388727,
+        "47": 0.001143728924909049,
+        "48": 0.0009040504369685588,
+        "49": 0.000711643201112291,
+        "50": 0.0005579521904519102
+      }
+    },
+    "overUnder": {
+      "over215": 0.55,
+      "under215": 0.45
+    },
+    "homeFouls": {
+      "expected": 11.1
+    },
+    "awayFouls": {
+      "expected": 11.4
+    }
+  },
+  "shotsPrediction": {
+    "home": {
+      "totalShots": {
+        "expected": 13.2,
+        "variance": 9.1,
+        "distribution": {
+          "10": 0.2,
+          "13": 0.3,
+          "16": 0.2
+        }
+      },
+      "shotsOnTarget": {
+        "expected": 4.8,
+        "variance": 3.2,
+        "distribution": {
+          "0": 0.008230102448901152,
+          "1": 0.03950449175472553,
+          "2": 0.09481078021134116,
+          "3": 0.15169724833814596,
+          "4": 0.18203669800577554,
+          "5": 0.17475523008554386,
+          "6": 0.13980418406843498,
+          "7": 0.09586572621835526,
+          "8": 0.05751943573101328,
+          "9": 0.03067703238987366,
+          "10": 0.014724975547139401,
+          "11": 0.006425443875115388,
+          "12": 0.0025701775500461526,
+          "13": 0.0009489886338631923,
+          "14": 0.0003253675316102374,
+          "15": 0.00010411761011527634
+        }
+      }
+    },
+    "away": {
+      "totalShots": {
+        "expected": 10.7,
+        "variance": 8.4,
+        "distribution": {
+          "0": 0.00002254613377404529,
+          "1": 0.00024124363138228446,
+          "2": 0.001290653427895221,
+          "3": 0.004603330559492963,
+          "4": 0.012313909246643686,
+          "5": 0.026351765787817356,
+          "6": 0.046993982321607695,
+          "7": 0.07183365869160015,
+          "8": 0.09607751850001528,
+          "9": 0.1142254942166845,
+          "10": 0.12222127881185264,
+          "11": 0.11888797120789314,
+          "12": 0.10600844099370527,
+          "13": 0.08725310143328015,
+          "14": 0.06668629895257834,
+          "15": 0.04756955991950601,
+          "16": 0.031812143196169616,
+          "17": 0.020022937188177135,
+          "18": 0.011902523772972075,
+          "19": 0.006703000230042178,
+          "20": 0.0035861051230725647,
+          "21": 0.0018272059436607957,
+          "22": 0.0008886865271441103,
+          "23": 0.0004134324278453033,
+          "24": 0.0001843219574143663,
+          "25": 0.00007888979777334827
+        }
+      },
+      "shotsOnTarget": {
+        "expected": 3.9,
+        "variance": 2.7,
+        "distribution": {
+          "0": 0.02024198390607365,
+          "1": 0.07894373723368724,
+          "2": 0.15394028760568992,
+          "3": 0.20012237388739712,
+          "4": 0.19511931454021245,
+          "5": 0.152193065341365,
+          "6": 0.09892549247188731,
+          "7": 0.05511563152005138,
+          "8": 0.02686887036602508,
+          "9": 0.011643177158610836,
+          "10": 0.004540839091858235,
+          "11": 0.0016099338598406494,
+          "12": 0.0005232285044482128,
+          "13": 0.00015696855133446333,
+          "14": 0.00004372695358602904,
+          "15": 0.000011369007932367605
+        }
+      }
+    },
+    "combined": {
+      "totalShots": {
+        "expected": 23.9,
+        "variance": 17.5
+      },
+      "overUnder": {
+        "over235": 0.4812,
+        "under235": 0.5188,
+        "over255": 0.371,
+        "under255": 0.629
+      },
+      "totalOnTarget": {
+        "expected": 8.7,
+        "variance": 5.9
+      },
+      "onTargetOverUnder": {
+        "over75": 0.6398,
+        "over95": 0.3731,
+        "over115": 0.1689,
+        "under75": 0.3602,
+        "under95": 0.6269,
+        "under115": 0.8311
+      }
+    }
+  },
+  "cornersPrediction": {
+    "totalCorners": {
+      "expected": 9.6
+    },
+    "homeCorners": {
+      "expected": 5.2
+    },
+    "awayCorners": {
+      "expected": 4.4
+    },
+    "overUnder": {
+      "over85": 0.61,
+      "under85": 0.39
+    }
+  },
+  "playerShotsPredictions": [
+    {
+      "playerId": "p1",
+      "playerName": "Lautaro",
+      "teamId": "inter",
+      "position": "FW",
+      "expectedShots": 3.4,
+      "expectedOnTarget": 1.6,
+      "shotDistribution": {
+        "0": 0.033652340070618965,
+        "1": 0.11441795624010447,
+        "2": 0.1945105256081774,
+        "3": 0.2204452623559346,
+        "4": 0.1873784730025447,
+        "5": 0.12741736164172987,
+        "6": 0.07220317159698028,
+        "7": 0.035070111918533195,
+        "8": 0.014904797565376632
+      },
+      "onTargetDistribution": {
+        "0": 0.20216656425956794,
+        "1": 0.3234665028153088,
+        "2": 0.25877320225224676,
+        "3": 0.13801237453453175,
+        "4": 0.05520494981381279,
+        "5": 0.01766558394042002,
+        "6": 0.004710822384112005
+      },
+      "markets": {
+        "over05shots": 0.92,
+        "over15shots": 0.71,
+        "over25shots": 0.45,
+        "over35shots": 0.4416,
+        "over05onTarget": 0.74,
+        "over15onTarget": 0.4751,
+        "over25onTarget": 0.2166,
+        "zeroShots": 0.08
+      },
+      "confidenceLevel": 0.712,
+      "sampleSize": 20
+    },
+    {
+      "playerId": "away_0",
+      "playerName": "Leao",
+      "teamId": "away",
+      "position": "UNK",
+      "expectedShots": 2.8,
+      "expectedOnTarget": 1.2,
+      "shotDistribution": {
+        "0": 0.06095836120288202,
+        "1": 0.17068341136806964,
+        "2": 0.23895677591529724,
+        "3": 0.2230263241876109,
+        "4": 0.1561184269313279,
+        "5": 0.08742631908154327,
+        "6": 0.04079894890472018,
+        "7": 0.016319579561888044,
+        "8": 0.005711852846660825
+      },
+      "onTargetDistribution": {
+        "0": 0.3012698645297876,
+        "1": 0.36152383743574523,
+        "2": 0.21691430246144688,
+        "3": 0.08676572098457887,
+        "4": 0.026029716295373696,
+        "5": 0.006247131910889663,
+        "6": 0.0012494263821779322
+      },
+      "markets": {
+        "over05shots": 0.85,
+        "over15shots": 0,
+        "over25shots": 0,
+        "over35shots": 0.3081,
+        "over05onTarget": 0,
+        "over15onTarget": 0.3374,
+        "over25onTarget": 0.1205,
+        "zeroShots": 0.15
+      },
+      "confidenceLevel": 0.712,
+      "sampleSize": 18
+    }
+  ],
+  "valueOpportunities": [
+    {
+      "marketName": "1X2",
+      "selection": "home",
+      "bookmakerOdds": 2.05,
+      "ourProbability": 0.51,
+      "impliedProbability": 0.49,
+      "expectedValue": 0.05,
+      "edge": 0.02,
+      "kellyFraction": 0.03,
+      "suggestedStakePercent": 1.4
+    }
+  ],
+  "comboBets": [
+    {
+      "combinedOdds": 3.21,
+      "combinedProbability": 0.346,
+      "combinedEV": 0.11,
+      "kellyFraction": 0.051,
+      "suggestedStakePercent": 2.1,
+      "legs": [
+        {
+          "selection": "home",
+          "ourProbability": 0.51,
+          "impliedProbability": 0.48,
+          "expectedValue": 0.05,
+          "kellyFraction": 0.03,
+          "suggestedStakePercent": 1.2
+        },
+        {
+          "selection": "over15",
+          "ourProbability": 0.74,
+          "impliedProbability": 0.7,
+          "expectedValue": 0.04,
+          "kellyFraction": 0.02,
+          "suggestedStakePercent": 0.9
+        }
+      ]
+    }
+  ],
+  "speculativeOpportunities": [
+    {
+      "marketName": "cards",
+      "selection": "over45",
+      "bookmakerOdds": 2.4,
+      "ourProbability": 0.41,
+      "impliedProbability": 0.42,
+      "expectedValue": -0.02,
+      "edge": -0.01,
+      "kellyFraction": 0,
+      "suggestedStakePercent": 0
+    }
+  ],
+  "bestValueOpportunity": {
+    "marketName": "1X2",
+    "selection": "home",
+    "bookmakerOdds": 2.05,
+    "expectedValue": 0.05,
+    "edge": 0.02,
+    "edgeNoVig": 0.02,
+    "score": 0.731,
+    "factorBreakdown": {
+      "baseModelScore": 0.512,
+      "contextualScore": 0.219,
+      "totalScore": 0.731
+    },
+    "reasons": [
+      "edge positivo",
+      "forma casa"
+    ],
+    "riskAdjustedBestScore": 0.444,
+    "bestBetStatus": "PLAYABLE",
+    "bestBetReason": "valore solido su 1X2",
+    "bestBetDecision": "PLACE",
+    "bestBetAlternatives": [
+      {
+        "selection": "over15",
+        "score": 0.61
+      }
+    ]
+  },
+  "bestBetDecision": "PLACE",
+  "bestBetAlternatives": [
+    {
+      "selection": "over15",
+      "score": 0.61
+    }
+  ],
+  "bestBetStatus": "PLAYABLE",
+  "bestBetReason": "valore solido su 1X2",
+  "riskAdjustedBestScore": 0.444,
+  "playerPropWarnings": [
+    "campione ridotto per Leao"
+  ],
+  "analysisFactors": {
+    "competitiveness": 0.62,
+    "formHome": 0.7
+  },
+  "probabilities": {
+    "homeWin": 0.512345,
+    "draw": 0.241111,
+    "awayWin": 0.246544,
+    "btts": 0.55,
+    "over05": 0.93,
+    "over15": 0.74,
+    "over25": 0.49,
+    "over35": 0.27,
+    "over45": 0.13,
+    "under15": 0.26,
+    "under25": 0.51,
+    "under35": 0.73,
+    "under45": 0.87,
+    "lambdaHome": 1.63421,
+    "lambdaAway": 1.21887,
+    "exactScore": {
+      "1-0": 0.11,
+      "2-1": 0.09
+    },
+    "handicap": {
+      "home_minus1": 0.33
+    },
+    "asianHandicap": {
+      "home_minus0_5": 0.51
+    },
+    "shotsTotal": {
+      "23.5": {
+        "over": 0.481234,
+        "under": 0.518766
+      },
+      "25.5": {
+        "over": 0.371,
+        "under": 0.629
+      }
+    },
+    "cards": {
+      "expectedTotalYellow": 4.321,
+      "expectedHomeYellow": 2.111,
+      "expectedAwayYellow": 2.21,
+      "expectedHomeRed": 0.05,
+      "expectedAwayRed": 0.04,
+      "expectedTotalCards": 4.41,
+      "negBinParams": {
+        "r": 12.4
+      },
+      "overUnderYellow": {
+        "3.5": {
+          "over": 0.611,
+          "under": 0.389
+        },
+        "4.5": {
+          "over": 0.402,
+          "under": 0.598
+        }
+      },
+      "overUnderTotal": {
+        "3.5": {
+          "over": 0.7
+        },
+        "4.5": {
+          "over": 0.5
+        },
+        "5.5": {
+          "over": 0.31
+        },
+        "6.5": {
+          "over": 0.17
+        }
+      }
+    },
+    "fouls": {
+      "expectedTotalFouls": 22.5,
+      "expectedHomeFouls": 11.1,
+      "expectedAwayFouls": 11.4,
+      "negBinParams": {
+        "r": 13.2
+      },
+      "overUnder": {
+        "21.5": {
+          "over": 0.55,
+          "under": 0.45
+        }
+      }
+    },
+    "corners": {
+      "expectedTotalCorners": 9.6,
+      "expectedHomeCorners": 5.2,
+      "expectedAwayCorners": 4.4,
+      "overUnder": {
+        "8.5": {
+          "over": 0.61,
+          "under": 0.39
+        }
+      }
+    },
+    "shotsHome": {
+      "expected": 13.2,
+      "totalShots": {
+        "expected": 13.2,
+        "variance": 9.1,
+        "distribution": {
+          "10": 0.2,
+          "13": 0.3,
+          "16": 0.2
+        }
+      },
+      "shotsOnTarget": {
+        "expected": 4.8,
+        "variance": 3.2
+      }
+    },
+    "shotsAway": {
+      "expected": 10.7,
+      "totalShots": {
+        "expected": 10.7,
+        "variance": 8.4
+      },
+      "shotsOnTarget": {
+        "expected": 3.9,
+        "variance": 2.7
+      }
+    },
+    "playerShots": {
+      "home": [
+        {
+          "playerId": "p1",
+          "playerName": "Lautaro",
+          "teamId": "inter",
+          "positionCode": "FW",
+          "expectedShots": 3.4,
+          "expectedShotsOnTarget": 1.6,
+          "prob1PlusShots": 0.92,
+          "prob2PlusShots": 0.71,
+          "prob3PlusShots": 0.45,
+          "prob1PlusShotsOT": 0.74,
+          "sampleSize": 20
+        }
+      ],
+      "away": [
+        {
+          "name": "Leao",
+          "expectedShots": 2.8,
+          "expectedShotsOnTarget": 1.2,
+          "prob1PlusShots": 0.85,
+          "sampleSize": 18
+        }
+      ]
+    }
+  },
+  "methodology": {
+    "models": {
+      "goals": "Dixon-Coles (Poisson bivariata con correzione rho)",
+      "shots": "Binomiale Negativa",
+      "cards": "Binomiale Negativa + fattore arbitro",
+      "fouls": "Binomiale Negativa + correzione possesso",
+      "players": "Gerarchico (quota giocatore su tiri squadra)",
+      "valueBetting": "Expected Value + Kelly frazionale"
+    },
+    "formulas": {
+      "impliedProbability": "p_imp = 1 / quota_decimale",
+      "expectedValue": "EV = p_nostra * quota_decimale - 1",
+      "edge": "edge = p_nostra - p_imp",
+      "kelly": "f* = (b*p - q)/b, stake = 0.25 * f* (limiti min/max)"
+    },
+    "thresholds": {
+      "minEvPercent": 2,
+      "minOdds": 1.3,
+      "maxOdds": 15,
+      "maxStakePercent": 5
+    },
+    "runtime": {
+      "lambdaHome": 1.634,
+      "lambdaAway": 1.219,
+      "totalShotsExpected": 23.9,
+      "totalOnTargetExpected": 8.7,
+      "totalYellowExpected": 4.32,
+      "totalFoulsExpected": 22.5,
+      "cardsDispersionR": 12.4,
+      "foulsDispersionR": 13.2
+    },
+    "contextualFactors": {
+      "competitiveness": 0.62,
+      "formHome": 0.7
+    }
+  }
+}
