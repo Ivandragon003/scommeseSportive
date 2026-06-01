@@ -542,6 +542,7 @@ function roundN(v: number, n = 3): number {
 }
 
 function poissonPMF(k: number, lambda: number): number {
+  if (k < 0) return 0;
   if (!isFinite(lambda) || lambda <= 0) return k === 0 ? 1 : 0;
   let p = Math.exp(-lambda);
   for (let i = 1; i <= k; i++) p *= lambda / i;
@@ -569,6 +570,7 @@ function poissonDistribution(lambda: number, maxK: number): Record<number, numbe
 }
 
 function negBinPMF(k: number, mu: number, r: number): number {
+  if (k < 0) return 0;
   if (!isFinite(mu) || !isFinite(r) || mu <= 0 || r <= 0) return k === 0 ? 1 : 0;
   const p = r / (r + mu);
   let combLog = 0;
