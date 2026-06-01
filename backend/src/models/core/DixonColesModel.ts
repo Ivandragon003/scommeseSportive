@@ -69,18 +69,6 @@ export class NoDependence implements ScoreDependenceModel {
   }
 }
 
-export class SarmanovLikeDependence implements ScoreDependenceModel {
-  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number {
-    return new ClassicDixonColesDependence().correction(i, j, lambdaHome, lambdaAway, rho);
-  }
-}
-
-export class MarCoLikeDependence implements ScoreDependenceModel {
-  correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number {
-    return new ClassicDixonColesDependence().correction(i, j, lambdaHome, lambdaAway, rho);
-  }
-}
-
 export interface DixonColesRuntimeOptions {
   scoreDependenceModel?: ScoreDependenceModel;
 }
