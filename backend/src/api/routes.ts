@@ -16,6 +16,7 @@ import { SofaScoreSupplementalScraper } from '../services/SofaScoreSupplementalS
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
 import { UnderstatScraper } from '../services/UnderstatScraper';
+import { poissonPMF, negBinPMF } from '../models/utils/MathUtils';
 
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   2,
@@ -541,14 +542,6 @@ function roundN(v: number, n = 3): number {
   return parseFloat(x.toFixed(n));
 }
 
-function poissonPMF(k: number, lambda: number): number {
-  if (k < 0) return 0;
-  if (!isFinite(lambda) || lambda <= 0) return k === 0 ? 1 : 0;
-  let p = Math.exp(-lambda);
-  for (let i = 1; i <= k; i++) p *= lambda / i;
-  return isFinite(p) ? p : 0;
-}
-
 function poissonOver(line: number, lambda: number): number {
   let cdf = 0;
   const maxK = Math.max(12, Math.ceil(lambda + 8 * Math.sqrt(Math.max(0.1, lambda))));
@@ -567,17 +560,6 @@ function poissonDistribution(lambda: number, maxK: number): Record<number, numbe
   if (sum <= 0) return { 0: 1 };
   for (let k = 0; k <= maxK; k++) out[k] = out[k] / sum;
   return out;
-}
-
-function negBinPMF(k: number, mu: number, r: number): number {
-  if (k < 0) return 0;
-  if (!isFinite(mu) || !isFinite(r) || mu <= 0 || r <= 0) return k === 0 ? 1 : 0;
-  const p = r / (r + mu);
-  let combLog = 0;
-  for (let i = 0; i < k; i++) combLog += Math.log(r + i) - Math.log(i + 1);
-  const logP = combLog + r * Math.log(p) + k * Math.log(1 - p);
-  const val = Math.exp(logP);
-  return isFinite(val) ? val : 0;
 }
 
 function negBinDistribution(mu: number, r: number, maxK: number): Record<number, number> {
