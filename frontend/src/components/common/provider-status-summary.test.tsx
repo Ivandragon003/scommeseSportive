@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import ProviderStatusSummary from './ProviderStatusSummary';
 import { NormalizedProviderHealth } from '../../utils/systemObservability';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import BacktestingPageView from './BacktestingPageView';
 import * as api from '../../utils/api';
