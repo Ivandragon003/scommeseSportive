@@ -1212,38 +1212,6 @@ export class BacktestingEngine {
       : this.engine.selectMediumAndAbove(ranked);
   }
 
-  private pickComparisonMetrics(result: BacktestResult, algorithmMode: BacktestAlgorithmMode): BacktestComparisonMetrics {
-    return {
-      algorithmMode,
-      roi: Number(result.roi.toFixed(2)),
-      netProfit: Number(result.netProfit.toFixed(2)),
-      totalStaked: Number(result.totalStaked.toFixed(2)),
-      betsPlaced: result.betsPlaced,
-      winRate: Number(result.winRate.toFixed(2)),
-      averageOdds: Number(result.averageOdds.toFixed(2)),
-      averageEV: Number(result.averageEV.toFixed(2)),
-      averageClv: result.averageClv,
-      positiveClvRate: result.positiveClvRate,
-      maxDrawdown: Number(result.maxDrawdown.toFixed(2)),
-      profitFactor: Number.isFinite(result.profitFactor) ? Number(result.profitFactor.toFixed(3)) : result.profitFactor,
-    };
-  }
-
-  private buildAlgorithmComparison(baseline: BacktestResult, current: BacktestResult): BacktestAlgorithmComparison {
-    const baselineResult = this.pickComparisonMetrics(baseline, 'baseline');
-    const currentResult = this.pickComparisonMetrics(current, 'current');
-    return {
-      baselineResult,
-      currentResult,
-      deltaROI: Number((currentResult.roi - baselineResult.roi).toFixed(2)),
-      deltaProfit: Number((currentResult.netProfit - baselineResult.netProfit).toFixed(2)),
-      deltaCLV: currentResult.averageClv !== null && baselineResult.averageClv !== null
-        ? Number((currentResult.averageClv - baselineResult.averageClv).toFixed(6))
-        : null,
-      deltaDrawdown: Number((currentResult.maxDrawdown - baselineResult.maxDrawdown).toFixed(2)),
-    };
-  }
-
   private simulateBacktestScenario(
     trainMatches: MatchData[],
     testMatches: MatchData[],
@@ -2148,7 +2116,7 @@ export class BacktestingEngine {
     }
 
     // Metodo riutilizzabile per Over/Under su valore numerico
-    const evalOU = (val: number | undefined, key: string, overPrefix: string, underPrefix: string): boolean | null => {
+    const evalOU = (val: number | undefined, overPrefix: string, underPrefix: string): boolean | null => {
       if (val === undefined) return null;
       if (selection.startsWith(overPrefix)) {
         const line = parseFloat(this.lineFromKey(selection, overPrefix));
@@ -2164,33 +2132,33 @@ export class BacktestingEngine {
     // --- Tiri totali ---
     const totalShots = match.homeTotalShots !== undefined && match.awayTotalShots !== undefined
       ? match.homeTotalShots + match.awayTotalShots : undefined;
-    let res = evalOU(totalShots, selection, 'shotsOver', 'shotsUnder');
+    let res = evalOU(totalShots, 'shotsOver', 'shotsUnder');
     if (res !== null && !selection.includes('Home') && !selection.includes('Away') && !selection.includes('OT')) return res;
 
     // --- Tiri casa ---
-    res = evalOU(match.homeTotalShots, selection, 'shotsHomeOver', 'shotsHomeUnder');
+    res = evalOU(match.homeTotalShots, 'shotsHomeOver', 'shotsHomeUnder');
     if (res !== null) return res;
 
     // --- Tiri ospite ---
-    res = evalOU(match.awayTotalShots, selection, 'shotsAwayOver', 'shotsAwayUnder');
+    res = evalOU(match.awayTotalShots, 'shotsAwayOver', 'shotsAwayUnder');
     if (res !== null) return res;
 
     // --- Tiri in porta totali ---
     const totalSOT = match.homeShotsOnTarget !== undefined && match.awayShotsOnTarget !== undefined
       ? match.homeShotsOnTarget + match.awayShotsOnTarget : undefined;
-    res = evalOU(totalSOT, selection, 'shotsOTOver', 'shotsOTUnder');
+    res = evalOU(totalSOT, 'shotsOTOver', 'shotsOTUnder');
     if (res !== null) return res;
 
     // --- Cartellini gialli totali ---
     const totalYellow = match.homeYellowCards !== undefined && match.awayYellowCards !== undefined
       ? match.homeYellowCards + match.awayYellowCards : undefined;
-    res = evalOU(totalYellow, selection, 'yellowOver', 'yellowUnder');
+    res = evalOU(totalYellow, 'yellowOver', 'yellowUnder');
     if (res !== null) return res;
 
     // --- Falli totali ---
     const totalFouls = match.homeFouls !== undefined && match.awayFouls !== undefined
       ? match.homeFouls + match.awayFouls : undefined;
-    res = evalOU(totalFouls, selection, 'foulsOver', 'foulsUnder');
+    res = evalOU(totalFouls, 'foulsOver', 'foulsUnder');
     if (res !== null) return res;
     // --- Formati snake_case bookmaker (shots_total_over_235, ecc.) ---
     const prefixed = selection.match(
@@ -2861,33 +2829,5 @@ export class BacktestingEngine {
     }).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
   }
 
-  private emptyResult(trainCount: number, testCount: number): BacktestResult {
-    return {
-      algorithmVersion: ALGORITHM_VERSION,
-      rankingVersion: RANKING_VERSION,
-      backtestEngineVersion: BACKTEST_ENGINE_VERSION,
-      totalMatches:trainCount+testCount, trainingMatches:trainCount, testMatches:testCount,
-      betsPlaced:0, voidedBets:0, unevaluableRate:0, betsWon:0, totalStaked:0, totalReturn:0, netProfit:0,
-      roi:0, roiRealEurobetOdds:null, roiSyntheticOdds:null, roiTotal:0,
-      betsWithRealEurobetOdds:0, betsWithSyntheticOdds:0,
-      profitRealEurobetOdds:0, profitSyntheticOdds:0, stakedRealEurobetOdds:0, stakedSyntheticOdds:0,
-      oddsReliabilityWarning:null,
-      winRate:0, averageOdds:0, averageEV:0, brierScore:0, logLoss:0, weightedBrierScore:0, weightedLogLoss:0,
-      calibration:[], equityCurve:[], monthlyStats:[], marketBreakdown:{}, detailedBets:[], marketUnevaluableBreakdown:{},
-      sharpeRatio:0, maxDrawdown:0, recoveryFactor:0, profitFactor:0,
-      edgeNoVig:0, edgeDecayByMonth:[], rollingSharpePeriods:[], usedSyntheticOddsOnly:true,
-      marketCalibration:{}, marketReports:{},
-      calibrationDiagnostics:{ global:{ sampleSize:0, averageCalibrationGap:0, reliability:0 }, byMarket:{} },
-      blendedVsRawComparison:{ betsWithBlendedProbability:0, averageModelProbability:null, averageBlendedProbability:null, averageProbabilityShift:0 },
-      categoryOverfittingRisk:{},
-      averageClv:null, positiveClvRate:null, missingClosingOddsCount:0, clvByMarket:{}, clvByCompetition:{},
-      roiYellowCardsOver:null, roiYellowCardsUnder:null, clvYellowCardsOver:null, clvYellowCardsUnder:null,
-      averageLineErrorYellowCardsUnder:null, missSeverityBreakdown:{ NONE:0, LOW:0, MEDIUM:0, HIGH:0 },
-      underCardsCloseToLineCount:0, underCardsFragilePickedCount:0,
-      algorithmMode:'current', algorithmComparison:null,
-      rankingWeightsUsed:this.engine.getRankingWeightsConfig(), rankingOptimization:null,
-      overfittingRisk:'LOW', overfittingWarnings:[],
-    };
-  }
 }
 

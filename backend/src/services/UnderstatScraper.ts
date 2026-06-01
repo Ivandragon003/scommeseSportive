@@ -253,7 +253,7 @@ export class UnderstatScraper {
     return out;
   }
 
-  private buildPlayerStats(side: 'h' | 'a', rosters: Record<string, any>, shots: any[]): UnderstatPlayerMatchStat[] {
+  private buildPlayerStats(rosters: Record<string, any>, shots: any[]): UnderstatPlayerMatchStat[] {
     const onTargetByPlayer = this.buildShotsOnTargetMap(shots);
     return Object.values(rosters ?? {}).map((entry: any) => {
       const sourcePlayerId = this.toNumber(entry?.player_id ?? entry?.id);
@@ -284,8 +284,8 @@ export class UnderstatScraper {
     const awayShots = Array.isArray(payload?.shots?.a) ? payload.shots.a : [];
     const homeRosters = payload?.rosters?.h ?? {};
     const awayRosters = payload?.rosters?.a ?? {};
-    const homePlayers = this.buildPlayerStats('h', homeRosters, homeShots);
-    const awayPlayers = this.buildPlayerStats('a', awayRosters, awayShots);
+    const homePlayers = this.buildPlayerStats(homeRosters, homeShots);
+    const awayPlayers = this.buildPlayerStats(awayRosters, awayShots);
 
     return {
       ...match,

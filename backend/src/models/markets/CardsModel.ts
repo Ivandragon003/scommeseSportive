@@ -1,5 +1,4 @@
 import {
-  negBinOver as computeNegBinOver,
   negBinPMF as computeNegBinPMF,
   poissonPMF as computePoissonPMF,
 } from '../utils/MathUtils';
@@ -115,26 +114,6 @@ export class CardsModel {
 
   private poissonPMF(k: number, lambda: number): number {
     return computePoissonPMF(k, lambda);
-  }
-
-  /**
-   * CDF NegBin con early exit per efficienza.
-   */
-  private negBinCDF(kMax: number, mu: number, r: number): number {
-    let cdf = 0;
-    const limit = Math.min(kMax, Math.ceil(mu + 10 * Math.sqrt(mu + mu * mu / Math.max(r, 0.1))));
-    for (let k = 0; k <= limit; k++) {
-      cdf += this.negBinPMF(k, mu, r);
-      if (cdf >= 1 - 1e-10) break;
-    }
-    return Math.min(1, cdf);
-  }
-
-  /**
-   * P(X > threshold).
-   */
-  private negBinOver(threshold: number, mu: number, r: number): number {
-    return computeNegBinOver(threshold, mu, r);
   }
 
   /**
