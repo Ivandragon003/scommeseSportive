@@ -292,6 +292,3 @@ export class OddsApiKickoffSyncService {
     return result;
   }
 }
-
-export const buildOddsApiKickoffSyncService = (db: KickoffSyncDb): OddsApiKickoffSyncService =>
-  new OddsApiKickoffSyncService(db);
