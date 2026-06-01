@@ -18,6 +18,7 @@ import { SystemObservabilityService } from '../services/SystemObservabilityServi
 import { UnderstatScraper } from '../services/UnderstatScraper';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
+import { recomputeTeamAveragesForMatchRows } from '../services/TeamAveragesService';
 
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   2,
@@ -1147,23 +1148,6 @@ const rankSofaScoreCandidates = (rows: any[]): any[] => {
   return [...completed, ...upcoming];
 };
 
-async function recomputeTeamAveragesForMatchRows(rows: Array<{ home_team_id?: string | null; away_team_id?: string | null }>): Promise<number> {
-  const teamIds = Array.from(
-    new Set(
-      rows.flatMap((row) => [
-        String(row?.home_team_id ?? '').trim(),
-        String(row?.away_team_id ?? '').trim(),
-      ]).filter(Boolean)
-    )
-  );
-  let recomputed = 0;
-  for (const teamId of teamIds) {
-    await db.recomputeTeamAverages(teamId);
-    recomputed += 1;
-  }
-  return recomputed;
-}
-
 router.get('/stats/understat/team-season', async (req: Request, res: Response) => {
   try {
     const competition = String(req.query.competition ?? '').trim();
@@ -1270,7 +1254,7 @@ router.post('/scraper/sofascore/supplemental', async (req: Request, res: Respons
       const updatedRows = selected.filter((row) => syncSummary.updatedMatchIds.includes(String(row.match_id)));
       const updatedCompletedRows = updatedRows.filter((row) => isCompletedMatchRow(row));
       const teamsRecomputed = updatedCompletedRows.length > 0
-        ? await recomputeTeamAveragesForMatchRows(updatedCompletedRows)
+        ? await recomputeTeamAveragesForMatchRows(db, updatedCompletedRows)
         : 0;
 
       return res.json({
