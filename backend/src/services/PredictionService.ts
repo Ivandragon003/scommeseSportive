@@ -12,11 +12,16 @@ import {
 } from '../models/value/ValueBettingEngine';
 import {
   analyzeMarketsEnhanced,
+  FamilyCalibrationCurve,
 } from '../models/value/EnhancedMarketAnalysis';
+import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
+import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
+import { AdaptiveTuningService } from './AdaptiveTuningService';
+import { clamp } from '../models/utils/MathUtils';
 import { predictionConfig } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
 import { PlayerCardsModel, PlayerCardRole } from '../models/markets/PlayerCardsModel';
@@ -432,11 +437,14 @@ export class PredictionService {
   private db: DatabaseService;
   private contextBuilder: PredictionContextBuilder;
   private playerCardsModel: PlayerCardsModel;
+  private adaptiveTuningService: AdaptiveTuningService;
   private adaptiveTuningCache: Map<string, { expiresAt: number; profile: AdaptiveEngineTuningProfile }> = new Map();
   private calibrationCache: Map<string, {
     expiresAt: number;
     points: Array<{ x: number; y: number }>;
     observations: number;
+    byFamily: Record<string, FamilyCalibrationCurve>;
+    blendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
   }> = new Map();
 
   constructor(db: DatabaseService) {
@@ -445,11 +453,7 @@ export class PredictionService {
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
     this.playerCardsModel = new PlayerCardsModel();
-  }
-
-  private clamp(v: number, min: number, max: number): number {
-    if (!isFinite(v)) return min;
-    return Math.max(min, Math.min(max, v));
+    this.adaptiveTuningService = new AdaptiveTuningService();
   }
 
   private normalizeReplayOdds(input?: Record<string, number>): Record<string, number> {
@@ -517,6 +521,25 @@ export class PredictionService {
       return side === 'over' ? total > line : total <= line;
     }
 
+    // Totali match dei mercati statistici (linee .5: l'ultima cifra è il decimale)
+    const mStat = lower.match(/^(shotsot|shots|yellow|fouls|corners)(over|under)(\d{2,3})$/);
+    if (mStat) {
+      const statColumns: Record<string, [string, string]> = {
+        shots: ['home_shots', 'away_shots'],
+        shotsot: ['home_shots_on_target', 'away_shots_on_target'],
+        yellow: ['home_yellow_cards', 'away_yellow_cards'],
+        fouls: ['home_fouls', 'away_fouls'],
+        corners: ['home_corners', 'away_corners'],
+      };
+      const [homeCol, awayCol] = statColumns[mStat[1]];
+      const homeVal = Number(row?.[homeCol]);
+      const awayVal = Number(row?.[awayCol]);
+      if (!Number.isFinite(homeVal) || !Number.isFinite(awayVal) || homeVal < 0 || awayVal < 0) return null;
+      const statLine = Number(mStat[3]) / 10;
+      const statTotal = homeVal + awayVal;
+      return mStat[2] === 'over' ? statTotal > statLine : statTotal < statLine;
+    }
+
     return null;
   }
 
@@ -524,12 +547,22 @@ export class PredictionService {
     model: DixonColesModel,
     competition?: string,
     forceRefresh = false
-  ): Promise<{ calibrationPoints: Array<{ x: number; y: number }>; nObservations: number }> {
+  ): Promise<{
+    calibrationPoints: Array<{ x: number; y: number }>;
+    nObservations: number;
+    byFamily: Record<string, FamilyCalibrationCurve>;
+    learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
+  }> {
     const cacheKey = this.getCalibrationCacheKey(competition);
     const now = Date.now();
     const cached = this.calibrationCache.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAt > now) {
-      return { calibrationPoints: cached.points, nObservations: cached.observations };
+      return {
+        calibrationPoints: cached.points,
+        nObservations: cached.observations,
+        byFamily: cached.byFamily,
+        learnedBlendWeights: cached.blendWeights,
+      };
     }
 
     const rows = await this.db.getMatches({ competition });
@@ -543,9 +576,33 @@ export class PredictionService {
       .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 450);
 
+    // Odds storiche archiviate (per apprendere i pesi modello↔mercato).
+    // Assenti nei db di test o senza archivio: si procede senza campioni.
+    let historicalOdds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }> = {};
+    if (predictionEngineConfig.marketBlending.enableLearnedBlendWeights) {
+      try {
+        if (typeof (this.db as any).getHistoricalOddsDetailMap === 'function') {
+          historicalOdds = await this.db.getHistoricalOddsDetailMap({ competition });
+        }
+      } catch {
+        historicalOdds = {};
+      }
+    }
+
+    // ---- Passata 1: replay del modello sui match completati -> coppie (prob, esito) ----
     const predicted: number[] = [];
     const observed: number[] = [];
-    const trackSelections = ['homeWin', 'draw', 'awayWin', 'over25', 'under25', 'btts'];
+    const familyPairs = new Map<string, { predicted: number[]; observed: number[] }>();
+    const replaySamples: Array<{ matchId: string; selection: string; family: string; raw: number; outcome: 0 | 1 }> = [];
+
+    const coreSelections = [
+      'homeWin', 'draw', 'awayWin',
+      'over15', 'under15', 'over25', 'under25', 'over35', 'under35',
+      'btts', 'bttsNo',
+      'double_chance_1x', 'double_chance_x2', 'double_chance_12',
+      'dnb_home', 'dnb_away',
+    ];
+    const statKeyPattern = /^(shotsOT|shots|yellow|fouls|corners)(Over|Under)\d{2,3}$/;
 
     for (const row of completedRows) {
       const probs = model.computeFullProbabilities(
@@ -554,34 +611,118 @@ export class PredictionService {
         Number.isFinite(Number(row.home_xg)) ? Number(row.home_xg) : undefined,
         Number.isFinite(Number(row.away_xg)) ? Number(row.away_xg) : undefined
       );
+      const flat: Record<string, number> = probs.flatProbabilities ?? {};
+      this.enrichFlatProbabilities(flat);
 
-      for (const selection of trackSelections) {
-        const raw = Number(probs.flatProbabilities?.[selection]);
+      const trackKeys = new Set<string>(coreSelections);
+      for (const key of Object.keys(flat)) {
+        if (statKeyPattern.test(key)) trackKeys.add(key);
+      }
+
+      for (const selection of trackKeys) {
+        const raw = Number(flat[selection]);
         const outcome = this.didSelectionWinInRow(selection, row);
         if (!Number.isFinite(raw) || raw <= 0 || raw >= 1 || outcome === null) continue;
+        const outcomeBit: 0 | 1 = outcome ? 1 : 0;
+        const family = this.engine.categorizeSelection(selection);
+
         predicted.push(raw);
-        observed.push(outcome ? 1 : 0);
+        observed.push(outcomeBit);
+        const bucket = familyPairs.get(family) ?? { predicted: [], observed: [] };
+        bucket.predicted.push(raw);
+        bucket.observed.push(outcomeBit);
+        familyPairs.set(family, bucket);
+        replaySamples.push({
+          matchId: String(row.match_id ?? ''),
+          selection,
+          family,
+          raw,
+          outcome: outcomeBit,
+        });
       }
     }
 
+    // ---- Fit isotonico: curva globale + curve per famiglia di mercato ----
     const { calibrationPoints } = this.engine.fitIsotonicCalibration(predicted, observed);
-    const result = {
-      calibrationPoints,
-      nObservations: predicted.length,
-    };
+    const nObservations = predicted.length;
+
+    const byFamily: Record<string, FamilyCalibrationCurve> = {};
+    if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+      for (const [family, bucket] of familyPairs.entries()) {
+        if (bucket.predicted.length < predictionEngineConfig.calibration.perFamilyMinSamples) continue;
+        const fit = this.engine.fitIsotonicCalibration(bucket.predicted, bucket.observed);
+        // Una curva con soli estremi (0,0)-(1,1) è degenere: meglio il fallback globale
+        if (fit.calibrationPoints.length < 3) continue;
+        byFamily[family] = {
+          points: fit.calibrationPoints,
+          nObservations: bucket.predicted.length,
+        };
+      }
+    }
+
+    // ---- Passata 2: campioni di blending con probabilità CALIBRATE ----
+    // Replica il flusso live (calibrazione -> blending) così il peso appreso
+    // corregge il residuo dopo calibrazione, non anche il bias già corretto.
+    const blendSamples: BlendLearningSample[] = [];
+    if (Object.keys(historicalOdds).length > 0) {
+      const groupsByMatch = new Map<string, ReturnType<ValueBettingEngine['buildMarketGroups']>>();
+      for (const sample of replaySamples) {
+        const detail = historicalOdds[sample.matchId];
+        if (!detail) continue;
+
+        let groups = groupsByMatch.get(sample.matchId);
+        if (!groups) {
+          const oddsRecord = Object.keys(detail.closingOdds ?? {}).length > 0 ? detail.closingOdds! : detail.odds;
+          groups = this.engine.buildMarketGroups(oddsRecord);
+          groupsByMatch.set(sample.matchId, groups);
+        }
+
+        const group = groups[sample.selection];
+        if (!group) continue;
+        const marketProb = noVigProbability(group.odds, group.companions);
+        if (marketProb === null) continue;
+
+        const familyCurve = byFamily[sample.family];
+        const calibratedProb = familyCurve
+          ? this.engine.calibrate(sample.raw, familyCurve.points, familyCurve.nObservations)
+          : this.engine.calibrate(sample.raw, calibrationPoints, nObservations);
+
+        blendSamples.push({
+          category: sample.family,
+          modelProb: calibratedProb,
+          marketProbNoVig: marketProb,
+          outcome: sample.outcome,
+        });
+      }
+    }
+
+    const learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }> = {};
+    if (predictionEngineConfig.marketBlending.enableLearnedBlendWeights && blendSamples.length > 0) {
+      const learned = learnBlendWeights(blendSamples);
+      for (const [category, entry] of Object.entries(learned)) {
+        learnedBlendWeights[category] = {
+          modelWeight: entry.modelWeight,
+          sampleSize: entry.sampleSize,
+        };
+      }
+    }
+
+    const result = { calibrationPoints, nObservations, byFamily, learnedBlendWeights };
 
     this.calibrationCache.set(cacheKey, {
       expiresAt: now + (6 * 60 * 60 * 1000),
-      points: result.calibrationPoints,
-      observations: result.nObservations,
+      points: calibrationPoints,
+      observations: nObservations,
+      byFamily,
+      blendWeights: learnedBlendWeights,
     });
 
     return result;
   }
 
   private probabilityToOdds(probability: number, overround = 0.06): number {
-    const p = this.clamp(Number(probability) || 0, 0.02, 0.96);
-    const implied = this.clamp(p * (1 + overround), 0.02, 0.985);
+    const p = clamp(Number(probability) || 0, 0.02, 0.96);
+    const implied = clamp(p * (1 + overround), 0.02, 0.985);
     return Number((1 / implied).toFixed(2));
   }
 
@@ -660,51 +801,11 @@ export class PredictionService {
       target.set(normalizedKey, bucket);
     };
 
-    const buildTuning = (
-      bucket: ReturnType<typeof createBucket>,
-      scope: 'category' | 'family',
-    ) => {
-      const total = Math.max(0.15, Number(bucket.totalWeight ?? 0));
-      const confidenceScale = this.clamp(total / (scope === 'family' ? 8 : 12), 0.2, 1);
-      const rankingErrorRate = bucket.rankingErrors / total;
-      const filterRejectionRate = bucket.filterRejections / total;
-      const confirmationRate = bucket.confirmations / total;
-      const wrongPickRate = bucket.wrongPicks / total;
-
-      const rawEvDelta =
-        (-filterRejectionRate * (scope === 'family' ? 0.018 : 0.010)) +
-        (-rankingErrorRate * (scope === 'family' ? 0.004 : 0.002)) +
-        (confirmationRate * 0.002) +
-        (wrongPickRate * (scope === 'family' ? 0.010 : 0.004));
-      const rawCoherenceDelta =
-        (-filterRejectionRate * (scope === 'family' ? 0.10 : 0.06)) +
-        (-rankingErrorRate * (scope === 'family' ? 0.02 : 0.015)) +
-        (confirmationRate * 0.01) +
-        (wrongPickRate * (scope === 'family' ? 0.05 : 0.02));
-      const rawRankingMultiplier =
-        1 +
-        (rankingErrorRate * (scope === 'family' ? 0.26 : 0.14)) +
-        (confirmationRate * (scope === 'family' ? 0.04 : 0.05)) -
-        (filterRejectionRate * 0.03) -
-        (wrongPickRate * (scope === 'family' ? 0.18 : 0.10));
-
-      return {
-        evDelta: Number(this.clamp(rawEvDelta * confidenceScale, scope === 'family' ? -0.02 : -0.012, scope === 'family' ? 0.012 : 0.008).toFixed(4)),
-        coherenceDelta: Number(this.clamp(rawCoherenceDelta * confidenceScale, scope === 'family' ? -0.12 : -0.08, scope === 'family' ? 0.05 : 0.03).toFixed(4)),
-        rankingMultiplier: Number(this.clamp(1 + ((rawRankingMultiplier - 1) * confidenceScale), scope === 'family' ? 0.85 : 0.9, scope === 'family' ? 1.25 : 1.18).toFixed(3)),
-        sampleSize: Number(total.toFixed(2)),
-        rankingErrorRate: Number((rankingErrorRate * 100).toFixed(2)),
-        filterRejectionRate: Number((filterRejectionRate * 100).toFixed(2)),
-        confirmationRate: Number((confirmationRate * 100).toFixed(2)),
-        wrongPickRate: Number((wrongPickRate * 100).toFixed(2)),
-      };
-    };
-
     for (const row of reviews) {
       const review = row?.review ?? {};
       const reviewType = String(row?.reviewType ?? review?.reviewType ?? 'no_actionable_signal');
       const reviewSource = String(review?.reviewSource ?? 'historical_bookmaker_snapshot');
-      const weight = this.clamp(
+      const weight = clamp(
         Number(review?.clvAdjustedLearningWeight ?? review?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
         0.15,
         1,
@@ -734,11 +835,11 @@ export class PredictionService {
     }
 
     for (const [category, bucket] of categories.entries()) {
-      profile.categories[category] = buildTuning(bucket, 'category');
+      profile.categories[category] = this.adaptiveTuningService.buildTuning(bucket, 'category');
     }
 
     for (const [selectionFamily, bucket] of selectionFamilies.entries()) {
-      profile.selectionFamilies![selectionFamily] = buildTuning(bucket, 'family');
+      profile.selectionFamilies![selectionFamily] = this.adaptiveTuningService.buildTuning(bucket, 'family');
     }
 
     this.adaptiveTuningCache.set(cacheKey, {
@@ -761,24 +862,24 @@ export class PredictionService {
 
     for (const [team, value] of Object.entries(raw?.attackParams ?? {})) {
       const n = Number(value);
-      attackParams[team] = isFinite(n) ? this.clamp(n, -3.5, 3.5) : 0;
+      attackParams[team] = isFinite(n) ? clamp(n, -3.5, 3.5) : 0;
     }
 
     for (const [team, value] of Object.entries(raw?.defenceParams ?? {})) {
       const n = Number(value);
-      defenceParams[team] = isFinite(n) ? this.clamp(n, -3.5, 3.5) : 0;
+      defenceParams[team] = isFinite(n) ? clamp(n, -3.5, 3.5) : 0;
     }
 
     return {
       attackParams,
       defenceParams,
-      homeAdvantage: this.clamp(
+      homeAdvantage: clamp(
         Number(raw?.homeAdvantage ?? 0.25) * predictionConfig.model.homeAdvantageScale,
         -0.8,
         1.2
       ),
-      rho: this.clamp(Number(raw?.rho ?? -0.13), -0.5, 0.0),
-      tau: this.clamp(Number(raw?.tau ?? 0.0065), 0.0001, 0.05),
+      rho: clamp(Number(raw?.rho ?? -0.13), -0.5, 0.0),
+      tau: clamp(Number(raw?.tau ?? 0.0065), 0.0001, 0.05),
     };
   }
 
@@ -786,7 +887,7 @@ export class PredictionService {
     const rawHomeAdvantage = Number(params?.homeAdvantage ?? 0.25);
     return {
       ...params,
-      homeAdvantage: this.clamp(
+      homeAdvantage: clamp(
         rawHomeAdvantage * predictionConfig.model.homeAdvantageScale,
         -0.8,
         1.2
@@ -958,7 +1059,7 @@ export class PredictionService {
         cumulative += pmf;
       }
     }
-    return this.clamp(1 - cumulative, 0, 1);
+    return clamp(1 - cumulative, 0, 1);
   }
 
   private playerPropMarketType(marketType: PlayerPropMarketType): PlayerPropDiagnostics['marketType'] {
@@ -1134,8 +1235,8 @@ export class PredictionService {
       const playerName = String(player.row?.name ?? player.row?.playerName ?? parsed.playerId);
       const confidenceScore =
         0.28 +
-        this.clamp(sampleSize / 20, 0, 1) * 0.32 +
-        this.clamp(expectedMinutes / 90, 0, 1) * 0.28 +
+        clamp(sampleSize / 20, 0, 1) * 0.32 +
+        clamp(expectedMinutes / 90, 0, 1) * 0.28 +
         (hasCompanion(key) ? 0.12 : 0);
       const playerConfidence: PlayerPropDiagnostics['playerConfidence'] =
         parsed.marketType === 'yellow' || confidenceScore < 0.55
@@ -1355,6 +1456,7 @@ export class PredictionService {
       leagueAvgFouls: Number(supp?.leagueAvgFouls ?? 22.4),
       isDerby: Boolean(supp?.isDerby),
       highStakes: Number(competitiveness ?? 0) >= 0.82,
+      learnedBlendWeights: calibrationProfile.learnedBlendWeights,
     };
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
@@ -1364,6 +1466,7 @@ export class PredictionService {
       richnessScore: Number(context.richnessScore ?? 0.3),
       calibrationPoints: calibrationProfile.calibrationPoints,
       nCalibrationObs: calibrationProfile.nObservations,
+      calibrationByFamily: calibrationProfile.byFamily,
       engine: this.engine,
       maxComboLegs: 3,
       minCombinedEV: 0.08,
@@ -1725,7 +1828,7 @@ export class PredictionService {
       outcomeVsMarketAssessment === 'good_process_bad_result' ? 0.45 :
       outcomeVsMarketAssessment === 'bad_process_good_result' ? 0.55 :
       1.25;
-    const adjusted = Number(this.clamp(baseLearningWeight * multiplier, 0.15, 1).toFixed(3));
+    const adjusted = Number(clamp(baseLearningWeight * multiplier, 0.15, 1).toFixed(3));
     const clvProcessScore =
       outcomeVsMarketAssessment === 'good_process_good_result' ? 1 :
       outcomeVsMarketAssessment === 'good_process_bad_result' ? 0.45 :
@@ -1754,7 +1857,7 @@ export class PredictionService {
   ): CompletedMatchLearningReview {
     const reviewSource = options?.source ?? 'historical_bookmaker_snapshot';
     const learningWeight = Number(
-      this.clamp(
+      clamp(
         Number(options?.learningWeight ?? (reviewSource === 'historical_bookmaker_snapshot' ? 1 : 0.35)),
         0.15,
         1,
@@ -2030,34 +2133,34 @@ export class PredictionService {
     competitiveness: number,
     supp?: SupplementaryData
   ): AnalysisFactors {
-    const homeAdvantageIndex = this.clamp((Number(probs.lambdaHome ?? 0) - Number(probs.lambdaAway ?? 0)) / 2, -1, 1);
+    const homeAdvantageIndex = clamp((Number(probs.lambdaHome ?? 0) - Number(probs.lambdaAway ?? 0)) / 2, -1, 1);
 
     const homeStrength = Number(homeTeam?.attack_strength ?? 0) - Number(homeTeam?.defence_strength ?? 0);
     const awayStrength = Number(awayTeam?.attack_strength ?? 0) - Number(awayTeam?.defence_strength ?? 0);
-    const inferredFormDelta = this.clamp((homeStrength - awayStrength) / 2, -1, 1);
+    const inferredFormDelta = clamp((homeStrength - awayStrength) / 2, -1, 1);
 
     const hasExplicitForm =
       request.homeFormIndex !== undefined || request.awayFormIndex !== undefined;
-    const explicitFormDelta = this.clamp(
+    const explicitFormDelta = clamp(
       Number(request.homeFormIndex ?? 0.5) - Number(request.awayFormIndex ?? 0.5),
       -1,
       1
     );
     const formDelta = hasExplicitForm
-      ? this.clamp((explicitFormDelta * 0.7) + (inferredFormDelta * 0.3), -1, 1)
+      ? clamp((explicitFormDelta * 0.7) + (inferredFormDelta * 0.3), -1, 1)
       : inferredFormDelta;
 
-    const motivationDelta = this.clamp(
+    const motivationDelta = clamp(
       Number(request.homeObjectiveIndex ?? 0.5) - Number(request.awayObjectiveIndex ?? 0.5),
       -1,
       1
     );
-    const restDelta = this.clamp(
+    const restDelta = clamp(
       (Number(request.homeRestDays ?? 6) - Number(request.awayRestDays ?? 6)) / 10,
       -1,
       1
     );
-    const scheduleLoadDelta = this.clamp(
+    const scheduleLoadDelta = clamp(
       (Number(request.awayRecentMatchesCount ?? 0) - Number(request.homeRecentMatchesCount ?? 0)) / 4,
       -1,
       1
@@ -2065,15 +2168,15 @@ export class PredictionService {
 
     const homeSuspImpact = Number(request.homeSuspensions ?? 0) + Number(request.homeKeyAbsences ?? 0) * 1.25;
     const awaySuspImpact = Number(request.awaySuspensions ?? 0) + Number(request.awayKeyAbsences ?? 0) * 1.25;
-    const suspensionsDelta = this.clamp((awaySuspImpact - homeSuspImpact) / 6, -1, 1);
+    const suspensionsDelta = clamp((awaySuspImpact - homeSuspImpact) / 6, -1, 1);
 
     const homeDisciplineRisk = Number(request.homeRecentRedCards ?? 0);
     const awayDisciplineRisk = Number(request.awayRecentRedCards ?? 0);
-    const disciplinaryDelta = this.clamp((awayDisciplineRisk - homeDisciplineRisk) / 4, -1, 1);
+    const disciplinaryDelta = clamp((awayDisciplineRisk - homeDisciplineRisk) / 4, -1, 1);
 
     const homeAtRisk = Number(request.homeDiffidati ?? 0);
     const awayAtRisk = Number(request.awayDiffidati ?? 0);
-    const atRiskPlayersDelta = this.clamp((awayAtRisk - homeAtRisk) / 8, -1, 1);
+    const atRiskPlayersDelta = clamp((awayAtRisk - homeAtRisk) / 8, -1, 1);
 
     const averageFinite = (...values: Array<number | undefined>): number | null => {
       const valid = values
@@ -2087,7 +2190,7 @@ export class PredictionService {
     const awaySample = Number(supp?.awayTeamStats?.sampleSize ?? 0);
     const minSample = Math.max(0, Math.min(homeSample, awaySample));
     const sampleFloor = Math.max(1, predictionConfig.markets.minSampleSizePerTeam);
-    const statSampleStrength = this.clamp((minSample - sampleFloor) / 12, 0, 1);
+    const statSampleStrength = clamp((minSample - sampleFloor) / 12, 0, 1);
 
     const avgShotVariance = averageFinite(
       supp?.homeTeamStats?.varShots,
@@ -2098,14 +2201,14 @@ export class PredictionService {
     const shotStability =
       avgShotVariance === null
         ? 0.72
-        : this.clamp(1 - (avgShotVariance / 42), 0.45, 1);
-    const shotsReliability = this.clamp(
+        : clamp(1 - (avgShotVariance / 42), 0.45, 1);
+    const shotsReliability = clamp(
       (statSampleStrength * 0.7) + (shotStability * 0.3),
       0,
       1,
     );
 
-    const cornersReliability = this.clamp(
+    const cornersReliability = clamp(
       (statSampleStrength * 0.8) + 0.2,
       0,
       1,
@@ -2120,8 +2223,8 @@ export class PredictionService {
     const disciplineStability =
       avgDisciplineVariance === null
         ? 0.68
-        : this.clamp(1 - (avgDisciplineVariance / 55), 0.4, 1);
-    const disciplineReliability = this.clamp(
+        : clamp(1 - (avgDisciplineVariance / 55), 0.4, 1);
+    const disciplineReliability = clamp(
       (statSampleStrength * 0.65) + (disciplineStability * 0.35),
       0,
       1,

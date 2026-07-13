@@ -8,23 +8,17 @@ import {
   ValueAnalysisContext,
 } from './ValueBettingEngine';
 
-export interface EnhancedPredictionResponse {
-  matchId: string;
-  homeTeam: string;
-  awayTeam: string;
-  valueOpportunities: BetOpportunity[];
-  comboBets: ComboBetOpportunity[];
-  speculativeOpportunities: BetOpportunity[];
-  modelConfidence: number;
-  richnessScore: number;
-  computedAt: Date;
+export interface FamilyCalibrationCurve {
+  points: Array<{ x: number; y: number }>;
+  nObservations: number;
 }
 
 export function applyCalibrationToFlatProbabilities(
   flatProbabilities: Record<string, number>,
   calibrationPoints: Array<{ x: number; y: number }>,
   nObservations: number,
-  engine: ValueBettingEngine
+  engine: ValueBettingEngine,
+  calibrationByFamily?: Record<string, FamilyCalibrationCurve>
 ): Record<string, number> {
   const calibrated: Record<string, number> = {};
 
@@ -33,7 +27,14 @@ export function applyCalibrationToFlatProbabilities(
       calibrated[key] = rawProb;
       continue;
     }
-    calibrated[key] = engine.calibrate(rawProb, calibrationPoints, nObservations);
+    // Curva specifica della famiglia di mercato se disponibile e affidabile,
+    // altrimenti fallback alla curva globale.
+    const familyCurve = calibrationByFamily?.[engine.categorizeSelection(key)];
+    if (familyCurve && familyCurve.points.length >= 2) {
+      calibrated[key] = engine.calibrate(rawProb, familyCurve.points, familyCurve.nObservations);
+    } else {
+      calibrated[key] = engine.calibrate(rawProb, calibrationPoints, nObservations);
+    }
   }
 
   return calibrated;
@@ -171,6 +172,7 @@ export function analyzeMarketsEnhanced(params: {
   richnessScore: number;
   calibrationPoints: Array<{ x: number; y: number }>;
   nCalibrationObs: number;
+  calibrationByFamily?: Record<string, FamilyCalibrationCurve>;
   engine: ValueBettingEngine;
   maxComboLegs?: number;
   minCombinedEV?: number;
@@ -190,6 +192,7 @@ export function analyzeMarketsEnhanced(params: {
     richnessScore,
     calibrationPoints,
     nCalibrationObs,
+    calibrationByFamily,
     engine,
     maxComboLegs = 3,
     minCombinedEV = 0.08,
@@ -200,7 +203,8 @@ export function analyzeMarketsEnhanced(params: {
     flatProbabilities,
     calibrationPoints,
     nCalibrationObs,
-    engine
+    engine,
+    calibrationByFamily
   );
 
   const baseThresholds: Partial<Record<MarketCategory, number>> = {

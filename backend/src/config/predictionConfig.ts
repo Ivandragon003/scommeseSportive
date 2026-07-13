@@ -1,13 +1,10 @@
+import { clamp } from '../models/utils/MathUtils';
+
 const readNumberEnv = (name: string, fallback: number): number => {
   const raw = process.env[name];
   if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const clamp = (value: number, min: number, max: number): number => {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
 };
 
 export const predictionConfig = {
@@ -30,5 +27,3 @@ export const predictionConfig = {
     minCombinedSampleSize: Math.max(2, Math.round(readNumberEnv('MODEL_MARKET_MIN_COMBINED_SAMPLE', 20))),
   },
 };
-
-export type PredictionConfig = typeof predictionConfig;

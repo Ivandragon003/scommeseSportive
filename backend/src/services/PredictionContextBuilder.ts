@@ -1,5 +1,6 @@
 import { SupplementaryData } from '../models/core/DixonColesModel';
 import { PlayerShotsData } from '../models/markets/SpecializedModels';
+import { clamp } from '../models/utils/MathUtils';
 import { predictionConfig } from '../config/predictionConfig';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 
@@ -130,10 +131,6 @@ export interface LearnedContextWeights {
 }
 
 export class PredictionContextBuilder {
-  private clamp(value: number, min: number, max: number): number {
-    if (!Number.isFinite(value)) return min;
-    return Math.max(min, Math.min(max, value));
-  }
 
   private toFiniteNumber(value: unknown): number | undefined {
     const parsed = Number(value);
@@ -143,7 +140,7 @@ export class PredictionContextBuilder {
   private normalizeFormIndex(value: unknown): number {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 0.5;
-    return this.clamp(parsed, 0, 1);
+    return clamp(parsed, 0, 1);
   }
 
   private parseJson(value: unknown): Record<string, any> | null {
@@ -217,22 +214,22 @@ export class PredictionContextBuilder {
     request: ContextualPredictionInput,
     competitiveness: number
   ): NonNullable<SupplementaryData['contextAdjustments']> {
-    const formDelta = this.clamp(
+    const formDelta = clamp(
       Number(request.homeFormIndex ?? 0.5) - Number(request.awayFormIndex ?? 0.5),
       -1,
       1,
     );
-    const motivationDelta = this.clamp(
+    const motivationDelta = clamp(
       Number(request.homeObjectiveIndex ?? 0.5) - Number(request.awayObjectiveIndex ?? 0.5),
       -1,
       1,
     );
-    const restDelta = this.clamp(
+    const restDelta = clamp(
       (Number(request.homeRestDays ?? 6) - Number(request.awayRestDays ?? 6)) / 10,
       -1,
       1,
     );
-    const scheduleLoadDelta = this.clamp(
+    const scheduleLoadDelta = clamp(
       (Number(request.awayRecentMatchesCount ?? 0) - Number(request.homeRecentMatchesCount ?? 0)) / 4,
       -1,
       1,
@@ -266,17 +263,17 @@ export class PredictionContextBuilder {
     const homeAbsenceDivisor = homeDepth * ABSENCE_IMPACT_RATE;
     const awayAbsenceDivisor = awayDepth * ABSENCE_IMPACT_RATE;
     // Delta normalizzato: positivo = home ha meno assenze (vantaggio home)
-    const absencesDelta = this.clamp(
+    const absencesDelta = clamp(
       awayAbsenceLoad / awayAbsenceDivisor - homeAbsenceLoad / homeAbsenceDivisor,
       -1, 1
     );
 
-    const disciplineDelta = this.clamp(
+    const disciplineDelta = clamp(
       Number(request.awayRecentRedCards ?? 0) - Number(request.homeRecentRedCards ?? 0),
       -1,
       1,
     );
-    const atRiskTotal = this.clamp(
+    const atRiskTotal = clamp(
       (Number(request.homeDiffidati ?? 0) + Number(request.awayDiffidati ?? 0)) / 10,
       0,
       1,
@@ -337,29 +334,29 @@ export class PredictionContextBuilder {
     //   base_away = 1 + (awayFormIndex − 0.5) × 0.08
     //
     // Questo evita che una forma alta di entrambe si "cancelli" nel delta.
-    const homeFormAbs = this.clamp((Number(request.homeFormIndex ?? 0.5) - 0.5) * 0.08, -0.04, 0.04);
-    const awayFormAbs = this.clamp((Number(request.awayFormIndex ?? 0.5) - 0.5) * 0.08, -0.04, 0.04);
+    const homeFormAbs = clamp((Number(request.homeFormIndex ?? 0.5) - 0.5) * 0.08, -0.04, 0.04);
+    const awayFormAbs = clamp((Number(request.awayFormIndex ?? 0.5) - 0.5) * 0.08, -0.04, 0.04);
 
     // Bias differenziale puro (esclude la forma assoluta già catturata sopra)
     const pureGoalBias = goalBias - formDelta * predictionConfig.model.contextWeights.form * 0.5;
     const pureShotBias = shotBias - formDelta * predictionConfig.model.contextWeights.form * 0.75 * 0.5;
 
     return {
-      homeGoalMultiplier: this.clamp(1 + homeFormAbs + pureGoalBias, 0.72, 1.35),
-      awayGoalMultiplier: this.clamp(1 + awayFormAbs - pureGoalBias, 0.72, 1.35),
-      homeShotMultiplier: this.clamp(1 + homeFormAbs * 0.8 + pureShotBias, 0.75, 1.30),
-      awayShotMultiplier: this.clamp(1 + awayFormAbs * 0.8 - pureShotBias, 0.75, 1.30),
-      yellowCardMultiplier: this.clamp(
+      homeGoalMultiplier: clamp(1 + homeFormAbs + pureGoalBias, 0.72, 1.35),
+      awayGoalMultiplier: clamp(1 + awayFormAbs - pureGoalBias, 0.72, 1.35),
+      homeShotMultiplier: clamp(1 + homeFormAbs * 0.8 + pureShotBias, 0.75, 1.30),
+      awayShotMultiplier: clamp(1 + awayFormAbs * 0.8 - pureShotBias, 0.75, 1.30),
+      yellowCardMultiplier: clamp(
         1 + competitiveness * 0.08 + atRiskTotal * 0.04 + Math.abs(disciplineDelta) * 0.05 + Math.abs(scheduleLoadDelta) * 0.03,
         0.9,
         1.35,
       ),
-      foulMultiplier: this.clamp(
+      foulMultiplier: clamp(
         1 + competitiveness * 0.05 + atRiskTotal * 0.03 + Math.abs(disciplineDelta) * 0.04 + Math.abs(scheduleLoadDelta) * 0.025,
         0.92,
         1.25,
       ),
-      homePossessionShift: this.clamp(
+      homePossessionShift: clamp(
         formDelta * 0.03 + motivationDelta * 0.015 + absencesDelta * 0.02,
         -0.08,
         0.08,
@@ -401,7 +398,7 @@ export class PredictionContextBuilder {
     });
     if (rows.length < minSamples) return fallback(rows.length, 0);
 
-    const trainRatio = this.clamp(Number(options.trainRatio ?? 0.70), 0.50, 0.85);
+    const trainRatio = clamp(Number(options.trainRatio ?? 0.70), 0.50, 0.85);
     const split = Math.max(1, Math.min(rows.length - 1, Math.floor(rows.length * trainRatio)));
     const train = rows.slice(0, split);
     const validation = rows.slice(split);
@@ -428,14 +425,14 @@ export class PredictionContextBuilder {
       w_formAbsenceInteraction: 'formAbsenceInteraction',
     };
     const candidateScales = [0.60, 0.85, 1.00, 1.15, 1.40];
-    const sigmoid = (x: number) => 1 / (1 + Math.exp(-this.clamp(x, -8, 8)));
+    const sigmoid = (x: number) => 1 / (1 + Math.exp(-clamp(x, -8, 8)));
     const logLossFor = (weights: typeof defaults, data: ContextWeightTrainingRow[]) => {
       return -data.reduce((sum, row) => {
         const linear = featureKeys.reduce((acc, key) => {
-          const feature = this.clamp(Number(row.features?.[featureMap[key]] ?? 0), -1, 1);
+          const feature = clamp(Number(row.features?.[featureMap[key]] ?? 0), -1, 1);
           return acc + feature * weights[key];
         }, 0);
-        const p = this.clamp(sigmoid(linear), 1e-6, 1 - 1e-6);
+        const p = clamp(sigmoid(linear), 1e-6, 1 - 1e-6);
         const y = Number(row.outcome) > 0 ? 1 : 0;
         return sum + y * Math.log(p) + (1 - y) * Math.log(1 - p);
       }, 0) / Math.max(1, data.length);
@@ -475,8 +472,8 @@ export class PredictionContextBuilder {
     };
     const competitiveness =
       normalizedRequest.competitiveness !== undefined
-        ? this.clamp(Number(normalizedRequest.competitiveness), 0, 1)
-        : this.clamp(
+        ? clamp(Number(normalizedRequest.competitiveness), 0, 1)
+        : clamp(
             0.30 +
             (normalizedRequest.isDerby ? 0.35 : 0) +
             (normalizedRequest.isHighStakes ? 0.20 : 0),
@@ -513,7 +510,7 @@ export class PredictionContextBuilder {
     // riflette l'incertezza genuina quando mancano statistiche di supporto.
     // Il ceiling rimane 0.93: con sample largo + xg + player data + arbitro
     // si raggiunge ~0.91, lasciando 0.02 di margine per scenari futuri.
-    const richnessScore = this.clamp(
+    const richnessScore = clamp(
       0.30 +
       Math.min(1, sampleBase / 24) * 0.32 +
       (hasBothXg ? 0.12 : 0) +

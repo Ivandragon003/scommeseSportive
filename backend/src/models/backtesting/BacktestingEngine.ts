@@ -40,6 +40,7 @@ import {
   SingleMatchBetStatus,
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
+import { clamp } from '../utils/MathUtils';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
 import {
   ALGORITHM_VERSION,
@@ -956,10 +957,6 @@ export class BacktestingEngine {
     this.engine.setAdaptiveTuning(profile ?? null);
   }
 
-  private clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
-  }
-
   private buildTeamSampleSizes(trainMatches: MatchData[]): Map<string, number> {
     const samples = new Map<string, number>();
     for (const match of trainMatches) {
@@ -991,7 +988,7 @@ export class BacktestingEngine {
     const hasShotsOnTarget = prior.some((row) => Number.isFinite(Number(row.homeShotsOnTarget)) && Number.isFinite(Number(row.awayShotsOnTarget)));
     const hasCards = prior.some((row) => Number.isFinite(Number(row.homeYellowCards)) && Number.isFinite(Number(row.awayYellowCards)));
     const hasRefereeData = prior.some((row) => Boolean(String(row.referee ?? '').trim()));
-    const sampleStrength = this.clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
+    const sampleStrength = clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
     const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
     const contextWarnings: string[] = [];
     if (homeHistory.length < 5) contextWarnings.push('insufficient_home_history');
@@ -1034,13 +1031,13 @@ export class BacktestingEngine {
       return rows.filter((row) => row.date.getTime() >= startMs && row.date.getTime() < match.date.getTime()).length;
     };
 
-    const formDelta = this.clamp(((pointsPerMatch(recentHome, match.homeTeamId) - pointsPerMatch(recentAway, match.awayTeamId)) / 3), -1, 1);
-    const xgDelta = this.clamp((averageXgDiff(recentHome, match.homeTeamId) - averageXgDiff(recentAway, match.awayTeamId)) / 2, -1, 1);
+    const formDelta = clamp(((pointsPerMatch(recentHome, match.homeTeamId) - pointsPerMatch(recentAway, match.awayTeamId)) / 3), -1, 1);
+    const xgDelta = clamp((averageXgDiff(recentHome, match.homeTeamId) - averageXgDiff(recentAway, match.awayTeamId)) / 2, -1, 1);
     const homeRest = restDays(homeHistory);
     const awayRest = restDays(awayHistory);
-    const restDelta = homeRest !== null && awayRest !== null ? this.clamp((homeRest - awayRest) / 7, -1, 1) : 0;
-    const scheduleLoadDelta = this.clamp((recentLoad(awayHistory) - recentLoad(homeHistory)) / 4, -1, 1);
-    const richnessScore = this.clamp(
+    const restDelta = homeRest !== null && awayRest !== null ? clamp((homeRest - awayRest) / 7, -1, 1) : 0;
+    const scheduleLoadDelta = clamp((recentLoad(awayHistory) - recentLoad(homeHistory)) / 4, -1, 1);
+    const richnessScore = clamp(
       0.2 + sampleStrength * 0.35 + statCompleteness * 0.35 + (hasRealEurobetOdds ? 0.1 : 0),
       0.15,
       0.95
@@ -1069,11 +1066,11 @@ export class BacktestingEngine {
         },
         analysisFactors: {
           statSampleStrength: sampleStrength,
-          shotsReliability: hasShots ? this.clamp(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
-          disciplineReliability: hasCards ? this.clamp(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
-          competitiveness: this.clamp(0.5 + Math.abs(formDelta + xgDelta) * 0.08, 0.35, 0.75),
+          shotsReliability: hasShots ? clamp(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
+          disciplineReliability: hasCards ? clamp(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
+          competitiveness: clamp(0.5 + Math.abs(formDelta + xgDelta) * 0.08, 0.35, 0.75),
           homeAdvantageIndex: 0.08,
-          formDelta: this.clamp((formDelta + xgDelta) / 2, -1, 1),
+          formDelta: clamp((formDelta + xgDelta) / 2, -1, 1),
           restDelta,
           scheduleLoadDelta,
         },

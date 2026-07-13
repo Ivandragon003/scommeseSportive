@@ -270,7 +270,6 @@ football-predictor/
 │   │   ├── models/
 │   │   │   ├── DixonColesModel.ts      # Core algoritmo statistico
 │   │   │   ├── SpecializedModels.ts    # NegBin per tiri/cartellini/falli
-│   │   │   ├── CardsModel.ts           # Modello cartellini standalone
 │   │   │   ├── ValueBettingEngine.ts   # EV + Kelly + vig removal + calibrazione
 │   │   │   └── BacktestingEngine.ts    # Validazione su dati storici
 │   │   ├── services/

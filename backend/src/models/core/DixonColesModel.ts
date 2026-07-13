@@ -48,6 +48,7 @@ import {
   NegBinParams,
 } from '../markets/SpecializedModels';
 import { BootstrapMode, predictionEngineConfig } from '../../config/PredictionEngineConfig';
+import { clamp } from '../utils/MathUtils';
 
 export interface ScoreDependenceModel {
   correction(i: number, j: number, lambdaHome: number, lambdaAway: number, rho: number): number;
@@ -71,13 +72,6 @@ export class NoDependence implements ScoreDependenceModel {
 
 export interface DixonColesRuntimeOptions {
   scoreDependenceModel?: ScoreDependenceModel;
-}
-
-export interface TeamStrength {
-  teamId: string;
-  name: string;
-  attackParam: number;
-  defenceParam: number;
 }
 
 export interface MatchData {
@@ -281,13 +275,9 @@ export class DixonColesModel {
 
   // ==================== UTILITY NUMERICA ====================
 
-  private clamp(v: number, min: number, max: number): number {
-    if (!isFinite(v)) return min;
-    return Math.min(max, Math.max(min, v));
-  }
 
   private safeExp(x: number): number {
-    return Math.exp(this.clamp(x, -10, 10));
+    return Math.exp(clamp(x, -10, 10));
   }
 
   private safeProb(p: number): number {
@@ -330,10 +320,10 @@ export class DixonColesModel {
     homeId: string, awayId: string,
     homeXG?: number, awayXG?: number
   ): { lambdaHome: number; lambdaAway: number } {
-    const aH = this.safeExp(this.clamp(this.params.attackParams[homeId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
-    const dA = this.safeExp(-this.clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
-    const aA = this.safeExp(this.clamp(this.params.attackParams[awayId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
-    const dH = this.safeExp(-this.clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const aH = this.safeExp(clamp(this.params.attackParams[homeId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dA = this.safeExp(-clamp(this.params.defenceParams[awayId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const aA = this.safeExp(clamp(this.params.attackParams[awayId]  ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
+    const dH = this.safeExp(-clamp(this.params.defenceParams[homeId] ?? 0, -this.PARAM_BOUND, this.PARAM_BOUND));
 
     // Usa il vantaggio casa per-squadra se disponibile, altrimenti il globale.
     const ha = this.params.homeAdvantagePerTeam?.[homeId] ?? this.params.homeAdvantage;
@@ -350,8 +340,8 @@ export class DixonColesModel {
     if (!isFinite(lA) || lA <= 0) lA = 1.05;
 
     return {
-      lambdaHome: this.clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX),
-      lambdaAway: this.clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX),
+      lambdaHome: clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX),
+      lambdaAway: clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX),
     };
   }
 
@@ -400,12 +390,12 @@ export class DixonColesModel {
   ): FullMatchProbabilities {
     const context = supp?.contextAdjustments ?? {};
     const baseMatrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
-    const adjustedLambdaHome = this.clamp(
+    const adjustedLambdaHome = clamp(
       baseMatrix.lambdaHome * (context.homeGoalMultiplier ?? 1),
       this.LAMBDA_MIN,
       this.LAMBDA_MAX,
     );
-    const adjustedLambdaAway = this.clamp(
+    const adjustedLambdaAway = clamp(
       baseMatrix.lambdaAway * (context.awayGoalMultiplier ?? 1),
       this.LAMBDA_MIN,
       this.LAMBDA_MAX,
@@ -556,19 +546,19 @@ export class DixonColesModel {
       const raw = Number(value);
       if (!Number.isFinite(raw)) return undefined;
       const normalized = raw > 1 ? raw / 100 : raw;
-      return this.clamp(normalized, 0.3, 0.7);
+      return clamp(normalized, 0.3, 0.7);
     };
     const homePossRatio = toPossessionRatio(hs.avgPossession);
     const awayPossRatio = toPossessionRatio(as_.avgPossession);
     const historicalHomePoss = homePossRatio !== undefined
       ? homePossRatio
       : awayPossRatio !== undefined
-        ? this.clamp(1 - awayPossRatio, 0.3, 0.7)
+        ? clamp(1 - awayPossRatio, 0.3, 0.7)
         : undefined;
     const estimatedHomePossBase = historicalHomePoss !== undefined
       ? (historicalHomePoss * 0.65) + (inferredHomePoss * 0.35)
       : inferredHomePoss;
-    const estimatedHomePoss = this.clamp(
+    const estimatedHomePoss = clamp(
       estimatedHomePossBase + (context.homePossessionShift ?? 0),
       0.3,
       0.7,
@@ -949,6 +939,14 @@ export class DixonColesModel {
        */
       structuralBreakPenalty?: number;
       enableAutomaticStructuralBreakDetection?: boolean;
+      /**
+       * xgBlendWeight: peso dell'xG nello pseudo-goal usato dal fit
+       * (quasi-likelihood). 0 = solo goal reali (comportamento storico),
+       * 0.6 = default consigliato. Se undefined usa la config globale.
+       * Il blend riduce il rumore della finalizzazione: un 3-0 con xG 0.8
+       * non gonfia più l'attacco come tre goal "meritati".
+       */
+      xgBlendWeight?: number;
     } = {}
   ): ModelParams {
     for (const t of teams) {
@@ -992,6 +990,33 @@ export class DixonColesModel {
       }
     }
 
+    // Pseudo-goal per il fit: blend goal reali / xG (quasi-likelihood).
+    // La correzione tau/rho resta sui goal interi reali: modella la
+    // dipendenza nei punteggi bassi effettivi, non negli expected.
+    const xgBlendConfig = predictionEngineConfig.dixonColes.xgBlend;
+    const xgBlendWeight = clamp(
+      opts.xgBlendWeight ?? (xgBlendConfig.enableXgBlend ? xgBlendConfig.xgWeight : 0),
+      0,
+      1
+    );
+    const effectiveGoals = validMatches.map(m => {
+      const hx = Number(m.homeXG);
+      const ax = Number(m.awayXG);
+      if (
+        xgBlendWeight <= 0 ||
+        !Number.isFinite(hx) || !Number.isFinite(ax) ||
+        hx < 0 || ax < 0
+      ) {
+        return { x: m.homeGoals!, y: m.awayGoals! };
+      }
+      const cappedHx = Math.min(hx, xgBlendConfig.maxXgValue);
+      const cappedAx = Math.min(ax, xgBlendConfig.maxXgValue);
+      return {
+        x: (1 - xgBlendWeight) * m.homeGoals! + xgBlendWeight * cappedHx,
+        y: (1 - xgBlendWeight) * m.awayGoals! + xgBlendWeight * cappedAx,
+      };
+    });
+
     // Pre-calcola i pesi una volta sola — immutabili durante il fitting.
     // Applica structuralBreakPenalty alle partite pre-evento strutturale.
     const weights = validMatches.map(m => {
@@ -1017,6 +1042,9 @@ export class DixonColesModel {
         ? (this.params.homeAdvantagePerTeam[homeId] ?? this.params.homeAdvantage)
         : this.params.homeAdvantage;
 
+    // Quasi-log-likelihood Poisson sui pseudo-goal (il termine log k! è
+    // costante nei parametri, quindi ometterlo non cambia la convergenza).
+    // La componente tau usa i goal interi reali.
     const logLikelihood = (): number => {
       let ll = 0;
       for (let i = 0; i < validMatches.length; i++) {
@@ -1025,10 +1053,13 @@ export class DixonColesModel {
         if (w <= 0) continue;
         const lH  = this.safeExp((this.params.attackParams[m.homeTeamId]??0) - (this.params.defenceParams[m.awayTeamId]??0) + getHA(m.homeTeamId));
         const lA  = this.safeExp((this.params.attackParams[m.awayTeamId]??0) - (this.params.defenceParams[m.homeTeamId]??0));
-        const x = m.homeGoals!, y = m.awayGoals!;
-        const pBase = this.poissonPMF(x, lH) * this.poissonPMF(y, lA);
-        const tauC  = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
-        if (pBase > 0) ll += w * Math.log(Math.max(1e-12, pBase * tauC));
+        const { x: effX, y: effY } = effectiveGoals[i];
+        const tauC  = Math.max(1e-8, this.tauCorrection(m.homeGoals!, m.awayGoals!, lH, lA, this.params.rho));
+        ll += w * (
+          effX * Math.log(Math.max(1e-12, lH)) - lH +
+          effY * Math.log(Math.max(1e-12, lA)) - lA +
+          Math.log(tauC)
+        );
       }
       return ll;
     };
@@ -1110,8 +1141,8 @@ export class DixonColesModel {
           (this.params.attackParams[m.awayTeamId]??0) -
           (this.params.defenceParams[m.homeTeamId]??0)
         );
-        const x = m.homeGoals!, y = m.awayGoals!;
-        const errH = x - lH, errA = y - lA;
+        const { x: effX, y: effY } = effectiveGoals[i];
+        const errH = effX - lH, errA = effY - lA;
 
         gA[m.homeTeamId] += w * errH;  gD[m.awayTeamId] += w * (-errH);
         gA[m.awayTeamId] += w * errA;  gD[m.homeTeamId] += w * (-errA);
@@ -1121,8 +1152,9 @@ export class DixonColesModel {
           gHAPerTeam[m.homeTeamId] = (gHAPerTeam[m.homeTeamId] ?? 0) + w * errH;
         }
 
-        const tauC = Math.max(1e-8, this.tauCorrection(x, y, lH, lA, this.params.rho));
-        const dTau = this.tauDerivative(x, y, lH, lA);
+        const intX = m.homeGoals!, intY = m.awayGoals!;
+        const tauC = Math.max(1e-8, this.tauCorrection(intX, intY, lH, lA, this.params.rho));
+        const dTau = this.tauDerivative(intX, intY, lH, lA);
         if (isFinite(dTau)) gRho += w * (dTau / tauC);
       }
 
@@ -1148,7 +1180,7 @@ export class DixonColesModel {
         m1A[t] = β1 * m1A[t] + (1 - β1) * gA[t];
         m2A[t] = β2 * m2A[t] + (1 - β2) * gA[t] * gA[t];
         const stepA = lr * (m1A[t] / bc1) / (Math.sqrt(m2A[t] / bc2) + ε);
-        this.params.attackParams[t] = this.clamp(
+        this.params.attackParams[t] = clamp(
           (this.params.attackParams[t] ?? 0) + stepA,
           -this.PARAM_BOUND, this.PARAM_BOUND
         );
@@ -1157,7 +1189,7 @@ export class DixonColesModel {
         m1D[t] = β1 * m1D[t] + (1 - β1) * gD[t];
         m2D[t] = β2 * m2D[t] + (1 - β2) * gD[t] * gD[t];
         const stepD = lr * (m1D[t] / bc1) / (Math.sqrt(m2D[t] / bc2) + ε);
-        this.params.defenceParams[t] = this.clamp(
+        this.params.defenceParams[t] = clamp(
           (this.params.defenceParams[t] ?? 0) + stepD,
           -this.PARAM_BOUND, this.PARAM_BOUND
         );
@@ -1167,7 +1199,7 @@ export class DixonColesModel {
           m1HAPt[t] = β1 * m1HAPt[t] + (1 - β1) * gHAPerTeam[t];
           m2HAPt[t] = β2 * m2HAPt[t] + (1 - β2) * gHAPerTeam[t] * gHAPerTeam[t];
           const stepHAPt = lr * (m1HAPt[t] / bc1) / (Math.sqrt(m2HAPt[t] / bc2) + ε);
-          this.params.homeAdvantagePerTeam[t] = this.clamp(
+          this.params.homeAdvantagePerTeam[t] = clamp(
             (this.params.homeAdvantagePerTeam[t] ?? this.params.homeAdvantage) + stepHAPt,
             -0.5, 0.8
           );
@@ -1178,7 +1210,7 @@ export class DixonColesModel {
       m1HA = β1 * m1HA + (1 - β1) * gHAnorm;
       m2HA = β2 * m2HA + (1 - β2) * gHAnorm * gHAnorm;
       const stepHA = lr * (m1HA / bc1) / (Math.sqrt(m2HA / bc2) + ε);
-      this.params.homeAdvantage = this.clamp(
+      this.params.homeAdvantage = clamp(
         this.params.homeAdvantage + stepHA,
         -0.8, 1.2
       );
@@ -1187,7 +1219,7 @@ export class DixonColesModel {
       m1Rho = β1 * m1Rho + (1 - β1) * gRhoNorm;
       m2Rho = β2 * m2Rho + (1 - β2) * gRhoNorm * gRhoNorm;
       const stepRho = lr * (m1Rho / bc1) / (Math.sqrt(m2Rho / bc2) + ε);
-      this.params.rho = this.clamp(this.params.rho + stepRho, -0.5, 0.0);
+      this.params.rho = clamp(this.params.rho + stepRho, -0.5, 0.0);
 
       // ---- criterio di arresto ----
       // Adam converge più velocemente: tolleranza più stretta (1e-7 vs 1e-6)
@@ -1269,7 +1301,7 @@ export class DixonColesModel {
       const defenceShift = before.defence - after.defence;
       const attackScore = Math.abs(attackShift) / Math.max(0.35, Math.abs(before.attack));
       const defenceScore = Math.abs(defenceShift) / Math.max(0.35, Math.abs(before.defence));
-      const confidence = this.clamp(Math.max(attackScore, defenceScore) / 1.4, 0, 1);
+      const confidence = clamp(Math.max(attackScore, defenceScore) / 1.4, 0, 1);
       if (confidence < minConfidence) continue;
 
       const breakType = Math.abs(attackScore - defenceScore) < 0.20
@@ -1280,7 +1312,7 @@ export class DixonColesModel {
         date: sorted[split].date,
         confidence: Number(confidence.toFixed(3)),
         breakType,
-        suggestedWeightMultiplier: Number(this.clamp(1 - confidence * 0.75, 0.15, 0.75).toFixed(3)),
+        suggestedWeightMultiplier: Number(clamp(1 - confidence * 0.75, 0.15, 0.75).toFixed(3)),
         metrics: {
           attackShift: Number(attackShift.toFixed(3)),
           defenceShift: Number(defenceShift.toFixed(3)),
@@ -1338,14 +1370,14 @@ export class DixonColesModel {
           const currD = fitted.defenceParams[team] ?? 0;
           smoothingPenalty += ((currA - prevA) ** 2) / (sigmaAttack * sigmaAttack);
           smoothingPenalty += ((currD - prevD) ** 2) / (sigmaDefence * sigmaDefence);
-          fitted.attackParams[team] = this.clamp(smoothValue(currA, prevA, sigmaAttack), -this.PARAM_BOUND, this.PARAM_BOUND);
-          fitted.defenceParams[team] = this.clamp(smoothValue(currD, prevD, sigmaDefence), -this.PARAM_BOUND, this.PARAM_BOUND);
+          fitted.attackParams[team] = clamp(smoothValue(currA, prevA, sigmaAttack), -this.PARAM_BOUND, this.PARAM_BOUND);
+          fitted.defenceParams[team] = clamp(smoothValue(currD, prevD, sigmaDefence), -this.PARAM_BOUND, this.PARAM_BOUND);
 
           if (options.enablePerTeamHomeAdvantage) {
             const prevHA = previousParams.homeAdvantagePerTeam[team] ?? previousParams.homeAdvantage;
             const currHA = fitted.homeAdvantagePerTeam[team] ?? fitted.homeAdvantage;
             smoothingPenalty += ((currHA - prevHA) ** 2) / (sigmaHA * sigmaHA);
-            fitted.homeAdvantagePerTeam[team] = this.clamp(smoothValue(currHA, prevHA, sigmaHA), -0.5, 0.8);
+            fitted.homeAdvantagePerTeam[team] = clamp(smoothValue(currHA, prevHA, sigmaHA), -0.5, 0.8);
           }
         }
       }
@@ -1471,7 +1503,7 @@ export class DixonColesModel {
           const outcome = match.homeGoals! > match.awayGoals!
             ? 'homeWin'
             : match.homeGoals! === match.awayGoals! ? 'draw' : 'awayWin';
-          const p = this.clamp(Number((probs as any)[outcome] ?? 0), 1e-8, 1 - 1e-8);
+          const p = clamp(Number((probs as any)[outcome] ?? 0), 1e-8, 1 - 1e-8);
           if (objective === 'brierScore') {
             foldScore += (1 - p) ** 2;
           } else if (objective === 'edgeNoVig' && odds?.[match.matchId]?.[outcome]) {
@@ -1660,17 +1692,17 @@ export class DixonColesModel {
       const shock4 = mode === 'paramNoise' ? randn() : deterministicShock(i + 3);
       const shock5 = mode === 'paramNoise' ? randn() : deterministicShock(i + 4);
       // Perturbazione gaussiana dei parametri
-      const aH = this.clamp(baseAH + shock * sigmaAttackHome,  -this.PARAM_BOUND, this.PARAM_BOUND);
-      const dH = this.clamp(baseDH + shock2 * sigmaDefenceHome, -this.PARAM_BOUND, this.PARAM_BOUND);
-      const aA = this.clamp(baseAA + shock3 * sigmaAttackAway,  -this.PARAM_BOUND, this.PARAM_BOUND);
-      const dA = this.clamp(baseDA + shock4 * sigmaDefenceAway, -this.PARAM_BOUND, this.PARAM_BOUND);
-      const ha = this.clamp(baseHA + shock5 * sigmaHA,          -0.8, 1.2);
+      const aH = clamp(baseAH + shock * sigmaAttackHome,  -this.PARAM_BOUND, this.PARAM_BOUND);
+      const dH = clamp(baseDH + shock2 * sigmaDefenceHome, -this.PARAM_BOUND, this.PARAM_BOUND);
+      const aA = clamp(baseAA + shock3 * sigmaAttackAway,  -this.PARAM_BOUND, this.PARAM_BOUND);
+      const dA = clamp(baseDA + shock4 * sigmaDefenceAway, -this.PARAM_BOUND, this.PARAM_BOUND);
+      const ha = clamp(baseHA + shock5 * sigmaHA,          -0.8, 1.2);
 
       const lH = this.safeExp(aH - dA + ha);
       const lA = this.safeExp(aA - dH);
 
-      lambdaHomeSamples.push(this.clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX));
-      lambdaAwaySamples.push(this.clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX));
+      lambdaHomeSamples.push(clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX));
+      lambdaAwaySamples.push(clamp(lA, this.LAMBDA_MIN, this.LAMBDA_MAX));
     }
 
     const mean  = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;

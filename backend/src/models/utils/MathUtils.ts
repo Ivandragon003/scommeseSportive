@@ -1,3 +1,8 @@
+export function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
 export function logGamma(x: number): number {
   if (!Number.isFinite(x) || x <= 0) return Infinity;
   if (x < 0.5) {

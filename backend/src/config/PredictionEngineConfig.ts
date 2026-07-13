@@ -61,6 +61,14 @@ export interface PredictionEngineConfig {
       /** CV reference for uncertaintyFactor. Recommended range 0.10-0.50; fallback 0.25. */
       uncertaintyCvReference: number;
     };
+    xgBlend: {
+      /** Default true. When true, fitModel maximizes a quasi-likelihood on blended pseudo-goals (xgWeight*xG + (1-xgWeight)*goals) for matches with valid xG. */
+      enableXgBlend: boolean;
+      /** Weight of xG in the blended pseudo-goal. Recommended range 0.30-0.80; fallback 0.60. */
+      xgWeight: number;
+      /** Sanity cap for a single-match xG value. Recommended range 4-10; fallback 8. */
+      maxXgValue: number;
+    };
   };
   specializedModels: {
     /** Relative tolerance for Poisson vs NegBin selection. Recommended range 0.05-1.00; fallback 0.50. */
@@ -151,6 +159,18 @@ export interface PredictionEngineConfig {
     desiredBuckets: number;
     /** Minimum bucket size floor. Recommended range 10-100; fallback 20. */
     minBucketSize: number;
+    /** Default true. Fits a separate isotonic curve per market family (per competition) with global fallback. */
+    enablePerFamilyCalibration: boolean;
+    /** Minimum (prediction, outcome) pairs required to trust a family-specific curve. Recommended range 60-400; fallback 120. */
+    perFamilyMinSamples: number;
+  };
+  marketBlending: {
+    /** Default true. Learns per-category model-vs-market blend weights from historical odds+outcomes (log-loss grid search). */
+    enableLearnedBlendWeights: boolean;
+    /** Minimum samples per category before a learned weight is applied. Recommended range 40-300; fallback 80. */
+    learnedBlendMinSamples: number;
+    /** Maximum deviation of the learned weight from the heuristic weight. Recommended range 0.05-0.30; fallback 0.18. */
+    learnedBlendMaxShift: number;
   };
   backtesting: {
     /** Weight mode for probability metrics. none preserves legacy unweighted metrics. */
@@ -203,6 +223,11 @@ export const predictionEngineConfig: PredictionEngineConfig = {
       bootstrapMode: 'paramNoise',
       bootstrapSamples: 200,
       uncertaintyCvReference: 0.25,
+    },
+    xgBlend: {
+      enableXgBlend: true,
+      xgWeight: 0.60,
+      maxXgValue: 8,
     },
   },
   specializedModels: {
@@ -259,6 +284,13 @@ export const predictionEngineConfig: PredictionEngineConfig = {
   calibration: {
     desiredBuckets: 10,
     minBucketSize: 20,
+    enablePerFamilyCalibration: true,
+    perFamilyMinSamples: 120,
+  },
+  marketBlending: {
+    enableLearnedBlendWeights: true,
+    learnedBlendMinSamples: 80,
+    learnedBlendMaxShift: 0.18,
   },
   backtesting: {
     metricWeightMode: 'none',

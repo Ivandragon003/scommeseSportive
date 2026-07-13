@@ -17,6 +17,7 @@ import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
 import { UnderstatScraper } from '../services/UnderstatScraper';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
+import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { recomputeTeamAveragesForMatchRows } from '../services/TeamAveragesService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
@@ -1952,7 +1953,6 @@ const matchScore = (candidate: OddsMatch, homeTeam: string, awayTeam: string, co
   return score;
 };
 
-const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
 const probabilityToOdds = (probability: number, overround = 0.06): number => {
   const p = clamp(Number(probability) || 0, 0.02, 0.96);

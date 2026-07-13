@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SpecializedModels } = require('../dist/models/markets/SpecializedModels.js');
-const { CardsModel, FoulsModel } = require('../dist/models/markets/CardsModel.js');
 const { ShotsModel } = require('../dist/models/markets/ShotsModel.js');
 
 test('SpecializedModels keeps shots, cards and fouls distributions coherent', () => {
@@ -68,86 +67,12 @@ test('SpecializedModels keeps shots, cards and fouls distributions coherent', ()
   assert.ok(fouls.overUnder['17.5'].over >= fouls.overUnder['29.5'].over);
 });
 
-test('CardsModel and FoulsModel preserve standalone market-model invariants', () => {
-  const cardsModel = new CardsModel();
-  const foulsModel = new FoulsModel();
-
-  const homeProfile = cardsModel.estimateTeamProfile(
-    'HOME',
-    [{ yellowCards: 2 }, { yellowCards: 3 }, { yellowCards: 2 }, { yellowCards: 4 }],
-    [{ yellowCards: 1 }, { yellowCards: 2 }, { yellowCards: 2 }]
-  );
-  const awayProfile = cardsModel.estimateTeamProfile(
-    'AWAY',
-    [{ yellowCards: 1 }, { yellowCards: 2 }, { yellowCards: 1 }],
-    [{ yellowCards: 2 }, { yellowCards: 3 }, { yellowCards: 2 }, { yellowCards: 4 }]
-  );
-
-  const cardsPrediction = cardsModel.predictCards(homeProfile, awayProfile, {
-    name: 'Ref',
-    avgYellowPerGame: 4.6,
-    avgRedPerGame: 0.2,
-    avgFoulsPerGame: 24.1,
-    stdYellow: 1.1,
-    totalGames: 24,
-    yellowRateHighStakes: 5.1,
-    yellowRateDerby: 5.4,
-  }, {
-    isDerby: true,
-    isHighStakes: true,
-  });
-
-  assert.ok(cardsPrediction.totalYellow.expected > 0);
-  assert.ok(cardsPrediction.overUnder.over25 >= cardsPrediction.overUnder.over55);
-  assert.ok(cardsPrediction.confidenceLevel > 0);
-
-  const foulsPrediction = foulsModel.predictFouls(12.9, 13.7, 19.8, 22.4, 24.3, 22.5, 0.57);
-  assert.ok(foulsPrediction.totalFouls.expected > 0);
-  assert.ok(foulsPrediction.overUnder.over175 >= foulsPrediction.overUnder.over295);
-});
-
-test('ShotsModel preserves ZIP fitting and player/team shot monotonicity', () => {
+test('ShotsModel preserves ZIP fitting and player shot monotonicity', () => {
   const shotsModel = new ShotsModel();
 
   const fit = shotsModel.fitZIPParameters([0, 0, 1, 2, 0, 3, 1, 0, 2, 1]);
   assert.ok(fit.pi >= 0 && fit.pi <= 1);
   assert.ok(fit.lambda > 0);
-
-  const teamPrediction = shotsModel.predictTeamShots(
-    {
-      teamId: 'HOME',
-      avgShotsHome: 15.1,
-      avgShotsAway: 12.4,
-      avgShotsOnTargetHome: 5.8,
-      avgShotsOnTargetAway: 4.4,
-      varianceShotsHome: 22.4,
-      varianceShotsAway: 18.2,
-      avgPossessionHome: 55,
-      avgPossessionAway: 51,
-      onTargetRateHome: 0.38,
-      onTargetRateAway: 0.34,
-    },
-    {
-      teamId: 'AWAY',
-      avgShotsHome: 13.2,
-      avgShotsAway: 10.8,
-      avgShotsOnTargetHome: 4.9,
-      avgShotsOnTargetAway: 3.8,
-      varianceShotsHome: 18.1,
-      varianceShotsAway: 16.5,
-      avgPossessionHome: 52,
-      avgPossessionAway: 47,
-      onTargetRateHome: 0.36,
-      onTargetRateAway: 0.33,
-    },
-    1.06,
-    0.96,
-    1.0,
-    1.03
-  );
-
-  assert.ok(teamPrediction.combined.totalShots.expected > 0);
-  assert.ok(teamPrediction.combined.overUnder.over195 >= teamPrediction.combined.overUnder.over285);
 
   const playerPrediction = shotsModel.predictPlayerShots({
     playerId: 'p1',

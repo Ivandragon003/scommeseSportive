@@ -224,6 +224,12 @@ export interface ValueAnalysisContext {
   marketCalibrationProfile?: MarketCalibrationProfile;
   enableMarketCalibration?: boolean;
   enableMarketBlending?: boolean;
+  /**
+   * Pesi modello↔mercato appresi dallo storico (per MarketCategory).
+   * Quando presenti e con campione sufficiente, correggono il peso
+   * euristico entro learnedBlendMaxShift.
+   */
+  learnedBlendWeights?: Record<string, { modelWeight: number; sampleSize: number }>;
   analysisFactors?: ValueAnalysisFactors;
   expectedGoals?: number;
   expectedCards?: number;
@@ -1205,9 +1211,10 @@ export class ValueBettingEngine {
     marketWeight: number;
     dataQuality: number;
     applied: boolean;
+    learnedWeightApplied: boolean;
   } {
     if (context.enableMarketBlending !== true || !Number.isFinite(marketProbabilityNoVig) || marketProbabilityNoVig <= 0 || marketProbabilityNoVig >= 1) {
-      return { probability: modelProbability, modelWeight: 1, marketWeight: 0, dataQuality: 1 - uncertaintyFactor, applied: false };
+      return { probability: modelProbability, modelWeight: 1, marketWeight: 0, dataQuality: 1 - uncertaintyFactor, applied: false, learnedWeightApplied: false };
     }
 
     const dataQuality = this.computeDataQualityScore(category, context, hasCompanionOdds, uncertaintyFactor);
@@ -1216,6 +1223,26 @@ export class ValueBettingEngine {
     if (category === 'goal_under' || category === 'btts_no') modelWeight -= 0.04;
     if (category === 'player_shots_ot' || category === 'player_yellow_cards') modelWeight -= 0.10;
     if (!hasCompanionOdds) modelWeight -= 0.16;
+
+    // Peso appreso dallo storico: corregge l'euristica entro maxShift,
+    // senza mai uscire dai bound globali. L'euristica resta il prior.
+    let learnedWeightApplied = false;
+    const learned = context.learnedBlendWeights?.[category];
+    if (
+      predictionEngineConfig.marketBlending.enableLearnedBlendWeights &&
+      learned &&
+      Number(learned.sampleSize) >= predictionEngineConfig.marketBlending.learnedBlendMinSamples &&
+      Number.isFinite(Number(learned.modelWeight))
+    ) {
+      const maxShift = predictionEngineConfig.marketBlending.learnedBlendMaxShift;
+      modelWeight = this.clampNumber(
+        Number(learned.modelWeight),
+        modelWeight - maxShift,
+        modelWeight + maxShift
+      );
+      learnedWeightApplied = true;
+    }
+
     modelWeight = this.clampNumber(modelWeight, 0.40, 0.84);
     const marketWeight = 1 - modelWeight;
     const probability = this.clampNumber(modelProbability * modelWeight + marketProbabilityNoVig * marketWeight, 0.001, 0.999);
@@ -1225,6 +1252,7 @@ export class ValueBettingEngine {
       marketWeight: Number(marketWeight.toFixed(3)),
       dataQuality,
       applied: true,
+      learnedWeightApplied,
     };
   }
 
@@ -1235,6 +1263,7 @@ export class ValueBettingEngine {
     dataQuality: number;
     calibrationStatus: string;
     blendingApplied: boolean;
+    learnedBlendApplied?: boolean;
     hasCompanionOdds: boolean;
     warnings: string[];
   }): { mainReason: string; riskReasons: string[]; warnings: string[] } {
@@ -1246,6 +1275,7 @@ export class ValueBettingEngine {
       riskReasons.push('Dati deboli');
     }
     if (input.blendingApplied) warnings.push('market_blending_applied');
+    if (input.learnedBlendApplied) warnings.push('learned_blend_weight_applied');
     if (input.calibrationStatus === 'applied') warnings.push('market_calibration_applied');
     if (!input.hasCompanionOdds) riskReasons.push('Quote companion mancanti');
     if (
@@ -2310,6 +2340,7 @@ export class ValueBettingEngine {
         dataQuality: blended.dataQuality,
         calibrationStatus: calibration.status,
         blendingApplied: blended.applied,
+        learnedBlendApplied: blended.learnedWeightApplied,
         hasCompanionOdds,
         warnings: selectionGuard.warnings,
       });
@@ -2479,6 +2510,7 @@ export class ValueBettingEngine {
         dataQuality: blended.dataQuality,
         calibrationStatus: calibration.status,
         blendingApplied: blended.applied,
+        learnedBlendApplied: blended.learnedWeightApplied,
         hasCompanionOdds,
         warnings: selectionGuard.warnings,
       });

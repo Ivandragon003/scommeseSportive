@@ -1,22 +1,17 @@
 import {
+  clamp,
   negBinPMF as computeNegBinPMF,
   poissonPMF as computePoissonPMF,
 } from '../utils/MathUtils';
 import { predictionEngineConfig, PlayerShotsDistribution } from '../../config/PredictionEngineConfig';
 
 /**
- * ShotsModel — Modello Tiri a Livello Squadra e Giocatore
+ * ShotsModel — Modello Tiri a Livello Giocatore
  *
- * DUE LIVELLI DISTINTI:
- *
- * LIVELLO SQUADRA:
- * I tiri totali di una squadra seguono una Poisson abbastanza bene
- * (meno overdispersion dei cartellini). Media Serie A: ~12 tiri/squadra/partita.
- * Modello: Poisson con intensità dipendente da:
- *   - Forza offensiva squadra (da Dixon-Coles)
- *   - Stile di gioco (possesso alto → più tiri)
- *   - Avversario (difesa chiusa → meno tiri)
- *   - Vantaggio campo
+ * NOTA: la predizione tiri a livello squadra vive in SpecializedModels
+ * (computeShotsDistribution), che è il percorso usato dal runtime.
+ * Questo modulo copre il livello giocatore (v4), non ancora collegato
+ * al flusso di predizione principale.
  *
  * LIVELLO GIOCATORE (Zero-Inflated Poisson — ZIP):
  * I tiri di un singolo giocatore in una partita hanno una struttura
@@ -38,10 +33,8 @@ import { predictionEngineConfig, PlayerShotsDistribution } from '../../config/Pr
  * Parametri stimati per ogni giocatore da dati storici con MLE.
  *
  * MERCATI SUPPORTATI:
- * - Over/Under tiri squadra (totale e in porta)
  * - Tiri specifici giocatore (Over 0.5, 1.5, 2.5, 3.5)
  * - Tiri in porta giocatore (Over 0.5, 1.5)
- * - Primo tiratore della partita (molto speculativo, bassa confidenza)
  */
 
 export interface PlayerShotProfile {
@@ -67,53 +60,6 @@ export interface PlayerShotProfile {
   // Metadati stima
   sampleSize: number;
   lastUpdated: Date;
-}
-
-export interface TeamShotProfile {
-  teamId: string;
-  avgShotsHome: number;
-  avgShotsAway: number;
-  avgShotsOnTargetHome: number;
-  avgShotsOnTargetAway: number;
-  varianceShotsHome: number;
-  varianceShotsAway: number;
-  // Stile di gioco
-  avgPossessionHome: number;
-  avgPossessionAway: number;
-  // Conversione: P(tiro → tiro in porta) storico
-  onTargetRateHome: number;
-  onTargetRateAway: number;
-}
-
-export interface TeamShotsPrediction {
-  home: {
-    totalShots: { expected: number; variance: number; distribution: Record<number, number> };
-    shotsOnTarget: { expected: number; distribution: Record<number, number> };
-    overUnder: {
-      shots: { over85: number; over105: number; over125: number; over145: number; over165: number };
-      onTarget: { over25: number; over35: number; over45: number; over55: number; over65: number };
-    };
-  };
-  away: {
-    totalShots: { expected: number; variance: number; distribution: Record<number, number> };
-    shotsOnTarget: { expected: number; distribution: Record<number, number> };
-    overUnder: {
-      shots: { over55: number; over75: number; over95: number; over115: number; over135: number };
-      onTarget: { over15: number; over25: number; over35: number; over45: number; over55: number };
-    };
-  };
-  combined: {
-    totalShots: { expected: number };
-    overUnder: {
-      over195: number; over225: number; over255: number; over285: number;
-      under195: number; under225: number; under255: number; under285: number;
-    };
-    totalOnTarget: { expected: number };
-    onTargetOverUnder: {
-      over75: number; over95: number; over115: number;
-      under75: number; under95: number; under115: number;
-    };
-  };
 }
 
 export interface PlayerShotPrediction {
@@ -254,11 +200,6 @@ export class ShotsModel {
     return computeNegBinPMF(k, mu, r);
   }
 
-  private clamp(value: number, min: number, max: number): number {
-    if (!Number.isFinite(value)) return min;
-    return Math.max(min, Math.min(max, value));
-  }
-
   private normalizeDistribution(dist: number[]): number[] {
     const total = dist.reduce((sum, value) => sum + Math.max(0, value), 0);
     if (total <= 1e-12) return dist.map((_, index) => index === 0 ? 1 : 0);
@@ -282,7 +223,7 @@ export class ShotsModel {
 
   private binomialPMF(k: number, n: number, p: number): number {
     if (k < 0 || k > n) return 0;
-    const pp = this.clamp(p, 1e-9, 1 - 1e-9);
+    const pp = clamp(p, 1e-9, 1 - 1e-9);
     const logComb = this.logFactorial(n) - this.logFactorial(k) - this.logFactorial(n - k);
     return Math.exp(logComb + k * Math.log(pp) + (n - k) * Math.log(1 - pp));
   }
@@ -460,7 +401,7 @@ export class ShotsModel {
     asOf?: Date;
     decayPerDay?: number;
   }): MinutesDistributionEstimate {
-    const expectedMinutes = this.clamp(params.expectedMinutes, 1, 90);
+    const expectedMinutes = clamp(params.expectedMinutes, 1, 90);
     const minutesUncertainty = params.minutesUncertainty ?? 0.15;
     const triangular = (): MinutesDistributionEstimate => {
       const minMins = expectedMinutes * (1 - minutesUncertainty);
@@ -496,7 +437,7 @@ export class ShotsModel {
       const ageDays = obs.date instanceof Date
         ? Math.max(0, (asOf.getTime() - obs.date.getTime()) / (1000 * 60 * 60 * 24))
         : 0;
-      return { minutes: this.clamp(obs.minutes, 0, 90), weight: Math.exp(-decayPerDay * ageDays) };
+      return { minutes: clamp(obs.minutes, 0, 90), weight: Math.exp(-decayPerDay * ageDays) };
     });
     const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
     if (totalWeight <= 0) return triangular();
@@ -526,133 +467,6 @@ export class ShotsModel {
       minutesFactor: Number((mean / 90).toFixed(6)),
       varianceFactor: Number((variance / (90 * 90)).toFixed(6)),
       sampleSize: observations.length,
-    };
-  }
-
-  /**
-   * Predizione tiri per squadra
-   * Usiamo Binomiale Negativa (lieve overdispersion nei tiri squadra)
-   */
-  predictTeamShots(
-    homeProfile: TeamShotProfile,
-    awayProfile: TeamShotProfile,
-    attackMultiplierHome: number = 1.0,  // da Dixon-Coles (forza offensiva relativa)
-    attackMultiplierAway: number = 1.0,
-    defenceMultiplierHome: number = 1.0, // impatto difesa avversaria
-    defenceMultiplierAway: number = 1.0
-  ): TeamShotsPrediction {
-    // Media aggiustata per forza relativa delle squadre
-    const muHome = Math.max(3, homeProfile.avgShotsHome * attackMultiplierHome * defenceMultiplierAway);
-    const muAway = Math.max(3, awayProfile.avgShotsAway * attackMultiplierAway * defenceMultiplierHome);
-
-    // r dai dati: r = μ²/(σ²-μ), con floor a 5 (evita overdispersion eccessiva)
-    const rHome = Math.max(5, homeProfile.varianceShotsHome > muHome
-      ? (muHome * muHome) / (homeProfile.varianceShotsHome - muHome) : 20);
-    const rAway = Math.max(5, homeProfile.varianceShotsAway > muAway
-      ? (muAway * muAway) / (homeProfile.varianceShotsAway - muAway) : 20);
-
-    const maxKHome = Math.ceil(muHome * 3 + 10);
-    const maxKAway = Math.ceil(muAway * 3 + 10);
-
-    // Distribuzione tiri totali
-    const distHomeShots = Array.from({ length: maxKHome }, (_, k) => this.negBinPMF(k, muHome, rHome));
-    const distAwayShots = Array.from({ length: maxKAway }, (_, k) => this.negBinPMF(k, muAway, rAway));
-
-    // Tiri in porta: modello condizionale
-    // SOT = totale × tasso_in_porta, ma non linearmente — usiamo Binomiale condizionale
-    const muHomSOT = muHome * homeProfile.onTargetRateHome;
-    const muAwaSOT = muAway * awayProfile.onTargetRateAway;
-    const rHomSOT = Math.max(3, (muHomSOT * muHomSOT) / Math.max(0.01, muHomSOT * 0.4));
-    const rAwaSOT = Math.max(3, (muAwaSOT * muAwaSOT) / Math.max(0.01, muAwaSOT * 0.4));
-
-    const distHomeSOT = Array.from({ length: 20 }, (_, k) => this.negBinPMF(k, muHomSOT, rHomSOT));
-    const distAwaySOT = Array.from({ length: 20 }, (_, k) => this.negBinPMF(k, muAwaSOT, rAwaSOT));
-
-    // Distribuzione convoluta per totali
-    const combineShots = (d1: number[], d2: number[]) => {
-      const res = new Array(d1.length + d2.length - 1).fill(0);
-      for (let i = 0; i < d1.length; i++)
-        for (let j = 0; j < d2.length; j++)
-          res[i + j] += d1[i] * d2[j];
-      return res;
-    };
-
-    const distTotalShots = combineShots(distHomeShots, distAwayShots);
-    const distTotalSOT = combineShots(distHomeSOT, distAwaySOT);
-
-    const normShots = distTotalShots.map(p => p / Math.max(1e-10, distTotalShots.reduce((s, v) => s + v, 0)));
-    const normSOT = distTotalSOT.map(p => p / Math.max(1e-10, distTotalSOT.reduce((s, v) => s + v, 0)));
-
-    const cdfShots = (t: number) => normShots.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfSOT = (t: number) => normSOT.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfHomeSh = (t: number) => distHomeShots.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfAwaySh = (t: number) => distAwayShots.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfHomeSOT = (t: number) => distHomeSOT.reduce((s, p, k) => k > t ? s + p : s, 0);
-    const cdfAwaySOT = (t: number) => distAwaySOT.reduce((s, p, k) => k > t ? s + p : s, 0);
-
-    const fmt = (n: number) => parseFloat(n.toFixed(4));
-
-    return {
-      home: {
-        totalShots: {
-          expected: parseFloat(muHome.toFixed(2)),
-          variance: parseFloat((muHome + muHome ** 2 / rHome).toFixed(2)),
-          distribution: Object.fromEntries(distHomeShots.slice(0, 25).map((p, k) => [k, parseFloat(p.toFixed(4))]))
-        },
-        shotsOnTarget: {
-          expected: parseFloat(muHomSOT.toFixed(2)),
-          distribution: Object.fromEntries(distHomeSOT.slice(0, 15).map((p, k) => [k, parseFloat(p.toFixed(4))]))
-        },
-        overUnder: {
-          shots: {
-            over85: fmt(cdfHomeSh(8.5)), over105: fmt(cdfHomeSh(10.5)),
-            over125: fmt(cdfHomeSh(12.5)), over145: fmt(cdfHomeSh(14.5)),
-            over165: fmt(cdfHomeSh(16.5))
-          },
-          onTarget: {
-            over25: fmt(cdfHomeSOT(2.5)), over35: fmt(cdfHomeSOT(3.5)),
-            over45: fmt(cdfHomeSOT(4.5)), over55: fmt(cdfHomeSOT(5.5)),
-            over65: fmt(cdfHomeSOT(6.5))
-          }
-        }
-      },
-      away: {
-        totalShots: {
-          expected: parseFloat(muAway.toFixed(2)),
-          variance: parseFloat((muAway + muAway ** 2 / rAway).toFixed(2)),
-          distribution: Object.fromEntries(distAwayShots.slice(0, 25).map((p, k) => [k, parseFloat(p.toFixed(4))]))
-        },
-        shotsOnTarget: {
-          expected: parseFloat(muAwaSOT.toFixed(2)),
-          distribution: Object.fromEntries(distAwaySOT.slice(0, 15).map((p, k) => [k, parseFloat(p.toFixed(4))]))
-        },
-        overUnder: {
-          shots: {
-            over55: fmt(cdfAwaySh(5.5)), over75: fmt(cdfAwaySh(7.5)),
-            over95: fmt(cdfAwaySh(9.5)), over115: fmt(cdfAwaySh(11.5)),
-            over135: fmt(cdfAwaySh(13.5))
-          },
-          onTarget: {
-            over15: fmt(cdfAwaySOT(1.5)), over25: fmt(cdfAwaySOT(2.5)),
-            over35: fmt(cdfAwaySOT(3.5)), over45: fmt(cdfAwaySOT(4.5)),
-            over55: fmt(cdfAwaySOT(5.5))
-          }
-        }
-      },
-      combined: {
-        totalShots: { expected: parseFloat((muHome + muAway).toFixed(2)) },
-        overUnder: {
-          over195: fmt(cdfShots(19.5)), over225: fmt(cdfShots(22.5)),
-          over255: fmt(cdfShots(25.5)), over285: fmt(cdfShots(28.5)),
-          under195: fmt(1 - cdfShots(19.5)), under225: fmt(1 - cdfShots(22.5)),
-          under255: fmt(1 - cdfShots(25.5)), under285: fmt(1 - cdfShots(28.5)),
-        },
-        totalOnTarget: { expected: parseFloat((muHomSOT + muAwaSOT).toFixed(2)) },
-        onTargetOverUnder: {
-          over75: fmt(cdfSOT(7.5)), over95: fmt(cdfSOT(9.5)), over115: fmt(cdfSOT(11.5)),
-          under75: fmt(1 - cdfSOT(7.5)), under95: fmt(1 - cdfSOT(9.5)), under115: fmt(1 - cdfSOT(11.5)),
-        }
-      }
     };
   }
 
@@ -814,21 +628,21 @@ export class ShotsModel {
     });
     const minutesFactor = minutes.minutesFactor;
     const locationMult = options.isHome ? profile.homeMultiplier : 1;
-    const leagueAccuracy = this.clamp(options.leagueAvgShotAccuracy ?? 0.34, 0.10, 0.65);
-    const sampleWeight = this.clamp(profile.sampleSize / 25, 0, 1);
-    const rawAccuracy = this.clamp(options.historicalShotAccuracy ?? leagueAccuracy, 0.05, 0.85);
+    const leagueAccuracy = clamp(options.leagueAvgShotAccuracy ?? 0.34, 0.10, 0.65);
+    const sampleWeight = clamp(profile.sampleSize / 25, 0, 1);
+    const rawAccuracy = clamp(options.historicalShotAccuracy ?? leagueAccuracy, 0.05, 0.85);
     const shrinkedAccuracy = sampleWeight * rawAccuracy + (1 - sampleWeight) * leagueAccuracy;
-    const accuracyMultiplier = this.clamp(shrinkedAccuracy / leagueAccuracy, 0.75, 1.25);
+    const accuracyMultiplier = clamp(shrinkedAccuracy / leagueAccuracy, 0.75, 1.25);
 
     const leagueTeamSot = Math.max(0.5, options.leagueAvgTeamShotsOnTarget ?? 4.5);
     const teamSotMultiplier = options.teamShotsOnTargetMean
-      ? this.clamp(1 + 0.30 * ((options.teamShotsOnTargetMean / leagueTeamSot) - 1), 0.75, 1.25)
+      ? clamp(1 + 0.30 * ((options.teamShotsOnTargetMean / leagueTeamSot) - 1), 0.75, 1.25)
       : 1;
     const opponentSotMultiplier = options.opponentShotsOnTargetAllowed
-      ? this.clamp(1 + 0.20 * ((options.opponentShotsOnTargetAllowed / leagueTeamSot) - 1), 0.80, 1.20)
+      ? clamp(1 + 0.20 * ((options.opponentShotsOnTargetAllowed / leagueTeamSot) - 1), 0.80, 1.20)
       : 1;
 
-    const pi = this.clamp(
+    const pi = clamp(
       profile.onTargetPi + (1 - minutesFactor) * 0.28 + Math.sqrt(Math.max(0, minutes.varianceFactor)) * 0.30,
       0.001,
       options.isLikelyStarter === false ? 0.97 : 0.99,
@@ -844,7 +658,7 @@ export class ShotsModel {
       : this.generateZIPDistribution(pi, mu, 8);
     const dist = this.normalizeDistribution(rawDist);
     const expectedValue = (1 - pi) * mu;
-    const confidence = this.clamp(
+    const confidence = clamp(
       0.25 + Math.min(0.45, profile.sampleSize / 60) + (minutes.modeUsed === 'empirical' ? 0.12 : 0) + (options.teamShotsOnTargetMean ? 0.08 : 0),
       0.10,
       0.92,
@@ -910,16 +724,16 @@ export class ShotsModel {
         return {
           ...obs,
           weight: Math.exp(-decayPerDay * ageDays),
-          share: this.clamp(obs.playerShots / Math.max(1, obs.teamShots), 0, 1),
+          share: clamp(obs.playerShots / Math.max(1, obs.teamShots), 0, 1),
         };
       });
 
     const weightedPlayerShots = observations.reduce((sum, obs) => sum + obs.playerShots * obs.weight, 0);
     const weightedTeamShots = observations.reduce((sum, obs) => sum + obs.teamShots * obs.weight, 0);
     const tauRaw = weightedTeamShots > 0 ? weightedPlayerShots / weightedTeamShots : rolePrior;
-    const sampleWeight = this.clamp(observations.length / 8, 0, 1);
-    const minutesMultiplier = this.clamp((covariates.expectedMinutes ?? 90) / 90, 0.10, 1.05);
-    const tau = this.clamp((sampleWeight * tauRaw + (1 - sampleWeight) * rolePrior) * minutesMultiplier, 0.001, 0.65);
+    const sampleWeight = clamp(observations.length / 8, 0, 1);
+    const minutesMultiplier = clamp((covariates.expectedMinutes ?? 90) / 90, 0.10, 1.05);
+    const tau = clamp((sampleWeight * tauRaw + (1 - sampleWeight) * rolePrior) * minutesMultiplier, 0.001, 0.65);
 
     const muTeam = Math.max(0.1, teamShotsDistribution.mean);
     const dispersion = Math.max(0.5, teamShotsDistribution.dispersion ?? 12);
@@ -938,7 +752,7 @@ export class ShotsModel {
     const baselineShareVariance = Math.max(1e-4, tau * (1 - tau) / Math.max(1, observations.length));
     const useBetaBinomial = Boolean(covariates.useBetaBinomial) && observations.length >= 4 && shareVariance > baselineShareVariance * 1.5;
     const concentration = useBetaBinomial
-      ? this.clamp((tau * (1 - tau)) / Math.max(1e-4, shareVariance) - 1, 2, 80)
+      ? clamp((tau * (1 - tau)) / Math.max(1e-4, shareVariance) - 1, 2, 80)
       : 0;
     const alpha = Math.max(0.05, tau * concentration);
     const beta = Math.max(0.05, (1 - tau) * concentration);
@@ -954,7 +768,7 @@ export class ShotsModel {
     }
     const dist = this.normalizeDistribution(playerDist);
     const expectedShots = dist.reduce((sum, p, k) => sum + p * k, 0);
-    const confidence = this.clamp(0.25 + sampleWeight * 0.45 + Math.min(0.15, weightedTeamShots / 300), 0.10, 0.90);
+    const confidence = clamp(0.25 + sampleWeight * 0.45 + Math.min(0.15, weightedTeamShots / 300), 0.10, 0.90);
 
     return {
       expectedShots: Number(expectedShots.toFixed(3)),
