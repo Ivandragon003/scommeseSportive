@@ -143,12 +143,26 @@ export interface PredictionEngineConfig {
     dynamicKellyMaxFraction: number;
     /** Enables dynamic EV thresholds when explicit context is provided. */
     dynamicEvThresholdEnabled: boolean;
+    bootstrapUncertainty: {
+      /** Default true. Feeds DixonColesModel.bootstrapLambdas uncertainty into the stake/risk pipeline. */
+      enableBootstrapUncertainty: boolean;
+      /** Additive weight of the bootstrap uncertainty inside uncertaintyFactor. Recommended range 0.10-0.60; fallback 0.35. */
+      uncertaintyWeight: number;
+    };
     operational: {
       /** MAX_ODDS operational cap. Recommended range 3.00-20.00; fallback 8.00. */
       maxOdds: number;
       /** When true, applies MAX_ODDS to every active market including shots/cards. */
       applyMaxOddsToAllMarkets: boolean;
     };
+  };
+  lineupXg: {
+    /** Default true. Adjusts team xG inputs from player-level absences passed in the prediction request. */
+    enableLineupXgAdjustment: boolean;
+    /** Fraction of an absent player's xG that the replacement is assumed to produce. Recommended range 0.40-0.85; fallback 0.60. */
+    replacementRatio: number;
+    /** Maximum total xG reduction per team from absences. Recommended range 0.08-0.30; fallback 0.18. */
+    maxXgReduction: number;
   };
   comboBetting: {
     /** Risk mode. covarianceMonteCarlo uses deterministic covariance proxy scaling; no random simulation is performed. */
@@ -273,10 +287,19 @@ export const predictionEngineConfig: PredictionEngineConfig = {
     dynamicKellyMinFraction: 0.10,
     dynamicKellyMaxFraction: 0.50,
     dynamicEvThresholdEnabled: false,
+    bootstrapUncertainty: {
+      enableBootstrapUncertainty: true,
+      uncertaintyWeight: 0.35,
+    },
     operational: {
       maxOdds: 8.00,
       applyMaxOddsToAllMarkets: true,
     },
+  },
+  lineupXg: {
+    enableLineupXgAdjustment: true,
+    replacementRatio: 0.60,
+    maxXgReduction: 0.18,
   },
   comboBetting: {
     comboRiskMode: 'sqrtLegs',

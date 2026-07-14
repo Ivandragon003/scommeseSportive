@@ -15,6 +15,7 @@ import {
   FamilyCalibrationCurve,
 } from '../models/value/EnhancedMarketAnalysis';
 import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
+import { computeLineupXgAdjustment, LineupXgAdjustment } from './LineupXgAdjustmentService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
@@ -151,6 +152,13 @@ export interface PredictionRequest {
   awayDiffidati?: number;
   homeKeyAbsences?: number;
   awayKeyAbsences?: number;
+  /**
+   * Giocatori assenti (player_id o nome, case-insensitive) per
+   * l'aggiustamento xG da formazione (n.4). Vengono incrociati con la
+   * tabella players della squadra.
+   */
+  homeAbsentPlayers?: string[];
+  awayAbsentPlayers?: string[];
 }
 
 export interface AnalysisFactors {
@@ -250,6 +258,10 @@ export interface PredictionResponse {
   analysisFactors?: AnalysisFactors;
   modelConfidence: number;
   richnessScore?: number;
+  /** Incertezza dei parametri del modello (0-1) dal bootstrap (n.7). */
+  modelUncertainty?: number;
+  /** Correzioni xG applicate dalle assenze player-level (n.4); presente solo se richieste. */
+  lineupXgAdjustments?: { home: LineupXgAdjustment; away: LineupXgAdjustment };
   computedAt: Date;
 }
 
@@ -1379,11 +1391,34 @@ export class PredictionService {
 
     const supp: SupplementaryData = context.supplementaryData;
     const competitiveness = context.competitiveness;
+
+    // n.4 — Assenze player-level -> correzione dell'xG squadra.
+    // Il segnale generico homeKeyAbsences (conteggio) resta nel context
+    // builder; qui la lista nominale dei giocatori assenti riduce l'xG
+    // atteso in proporzione alla quota di xG che producono di solito.
+    const hasAbsenceRequest =
+      (request.homeAbsentPlayers?.length ?? 0) > 0 ||
+      (request.awayAbsentPlayers?.length ?? 0) > 0;
+    let lineupXgAdjustments: { home: LineupXgAdjustment; away: LineupXgAdjustment } | undefined;
+    let effectiveHomeXG = context.homeXG;
+    let effectiveAwayXG = context.awayXG;
+    if (predictionEngineConfig.lineupXg.enableLineupXgAdjustment && hasAbsenceRequest) {
+      const homeAdjustment = computeLineupXgAdjustment(homePlayers, request.homeAbsentPlayers);
+      const awayAdjustment = computeLineupXgAdjustment(awayPlayers, request.awayAbsentPlayers);
+      lineupXgAdjustments = { home: homeAdjustment, away: awayAdjustment };
+      if (Number.isFinite(Number(effectiveHomeXG))) {
+        effectiveHomeXG = Number((Number(effectiveHomeXG) * homeAdjustment.multiplier).toFixed(4));
+      }
+      if (Number.isFinite(Number(effectiveAwayXG))) {
+        effectiveAwayXG = Number((Number(effectiveAwayXG) * awayAdjustment.multiplier).toFixed(4));
+      }
+    }
+
     const probs = model.computeFullProbabilities(
       request.homeTeamId,
       request.awayTeamId,
-      context.homeXG,
-      context.awayXG,
+      effectiveHomeXG,
+      effectiveAwayXG,
       supp,
     );
 
@@ -1434,12 +1469,34 @@ export class PredictionService {
       request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined
     );
     const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
+    const homeSampleSize = Number((homeTeam as any)?.matchesPlayed ?? (homeTeam as any)?.matches ?? homePlayers.length ?? 0);
+    const awaySampleSize = Number((awayTeam as any)?.matchesPlayed ?? (awayTeam as any)?.matches ?? awayPlayers.length ?? 0);
+
+    // n.7 — Incertezza dei parametri dal bootstrap del modello: alimenta
+    // uncertaintyFactor (stake, risk penalty, Kelly dinamico) nell'engine.
+    let modelUncertainty: number | undefined;
+    if (predictionEngineConfig.valueBetting.bootstrapUncertainty.enableBootstrapUncertainty) {
+      try {
+        const bootstrap = model.bootstrapLambdas(request.homeTeamId, request.awayTeamId, {
+          matchCounts: {
+            [request.homeTeamId]: homeSampleSize,
+            [request.awayTeamId]: awaySampleSize,
+          },
+        });
+        if (Number.isFinite(Number(bootstrap?.uncertaintyFactor))) {
+          modelUncertainty = clamp(Number(bootstrap.uncertaintyFactor), 0, 1);
+        }
+      } catch {
+        modelUncertainty = undefined;
+      }
+    }
+
     const analysisContext: ValueAnalysisContext = {
       richnessScore: Number(context.richnessScore ?? 0.3),
       analysisFactors: factors,
       teamSampleSize: {
-        home: Number((homeTeam as any)?.matchesPlayed ?? (homeTeam as any)?.matches ?? homePlayers.length ?? 0),
-        away: Number((awayTeam as any)?.matchesPlayed ?? (awayTeam as any)?.matches ?? awayPlayers.length ?? 0),
+        home: homeSampleSize,
+        away: awaySampleSize,
       },
       hasXg: Number.isFinite(Number(context.homeXG)) && Number.isFinite(Number(context.awayXG)),
       hasPlayerData: homePlayers.length > 0 || awayPlayers.length > 0,
@@ -1457,6 +1514,7 @@ export class PredictionService {
       isDerby: Boolean(supp?.isDerby),
       highStakes: Number(competitiveness ?? 0) >= 0.82,
       learnedBlendWeights: calibrationProfile.learnedBlendWeights,
+      modelUncertainty,
     };
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
@@ -1511,6 +1569,8 @@ export class PredictionService {
       analysisFactors: factors,
       modelConfidence,
       richnessScore: Number(context.richnessScore ?? 0),
+      modelUncertainty,
+      lineupXgAdjustments,
       computedAt: new Date(),
     };
   }

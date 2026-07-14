@@ -230,6 +230,13 @@ export interface ValueAnalysisContext {
    * euristico entro learnedBlendMaxShift.
    */
   learnedBlendWeights?: Record<string, { modelWeight: number; sampleSize: number }>;
+  /**
+   * Incertezza dei parametri del modello (0-1) da
+   * DixonColesModel.bootstrapLambdas().uncertaintyFactor: 0 = lambda ben
+   * determinati, 1 = pochi dati / parametri instabili. Alza uncertaintyFactor
+   * e riduce stake/Kelly su tutte le selezioni del match.
+   */
+  modelUncertainty?: number;
   analysisFactors?: ValueAnalysisFactors;
   expectedGoals?: number;
   expectedCards?: number;
@@ -1066,6 +1073,19 @@ export class ValueBettingEngine {
     }
 
     let uncertainty = 1 - this.clampNumber(dataQuality, 0, 1);
+
+    // Incertezza dei parametri dal bootstrap del modello (n.7): additiva,
+    // pesata da config. Assente nel context -> comportamento invariato.
+    const bootstrapConfig = this.runtimeConfig.bootstrapUncertainty
+      ?? predictionEngineConfig.valueBetting.bootstrapUncertainty;
+    if (
+      bootstrapConfig?.enableBootstrapUncertainty !== false &&
+      Number.isFinite(Number(context.modelUncertainty))
+    ) {
+      uncertainty += this.clampNumber(Number(context.modelUncertainty), 0, 1)
+        * this.clampNumber(Number(bootstrapConfig?.uncertaintyWeight ?? 0.35), 0, 1);
+    }
+
     if (category === 'goal_under') uncertainty += 0.05;
     if (category === 'btts_no') uncertainty += 0.08;
     if (category === 'shots' || category === 'shots_ot') uncertainty += 0.06;
@@ -1421,13 +1441,36 @@ export class ValueBettingEngine {
 
   // ==================== KELLY CRITERION ====================
 
-  kellyFraction(probability: number, decimalOdds: number): number {
+  kellyFraction(probability: number, decimalOdds: number, uncertaintyFactor?: number): number {
     if (!isFinite(probability) || probability <= 0 || probability >= 1) return 0;
     if (!isFinite(decimalOdds) || decimalOdds <= 1) return 0;
     const b = decimalOdds - 1;
     const fullKelly = (b * probability - (1 - probability)) / b;
     if (fullKelly <= 0) return 0;
-    return Math.min(fullKelly * this.KELLY_FRACTION, this.MAX_STAKE_PERCENT / 100);
+    return Math.min(fullKelly * this.resolveKellyFraction(uncertaintyFactor), this.MAX_STAKE_PERCENT / 100);
+  }
+
+  /**
+   * Frazione di Kelly effettiva (n.7).
+   * - kellyMode 'quarter' (default): 0.25 fisso, comportamento storico.
+   * - kellyMode 'dynamic': la frazione scala linearmente con l'incertezza
+   *   del modello — dynamicKellyMaxFraction con parametri stabili (u=0),
+   *   dynamicKellyMinFraction con parametri instabili (u=1, bootstrap CV alto).
+   *   Senza uncertaintyFactor si resta sul quarter Kelly.
+   */
+  private resolveKellyFraction(uncertaintyFactor?: number): number {
+    if (
+      this.runtimeConfig.kellyMode === 'dynamic' &&
+      Number.isFinite(Number(uncertaintyFactor))
+    ) {
+      const minFraction = Number(this.runtimeConfig.dynamicKellyMinFraction ?? 0.10);
+      const maxFraction = Number(this.runtimeConfig.dynamicKellyMaxFraction ?? 0.50);
+      const lower = Math.min(minFraction, maxFraction);
+      const upper = Math.max(minFraction, maxFraction);
+      const uncertainty = this.clampNumber(Number(uncertaintyFactor), 0, 1);
+      return this.clampNumber(maxFraction - (maxFraction - minFraction) * uncertainty, lower, upper);
+    }
+    return this.KELLY_FRACTION;
   }
 
   /**
@@ -1469,7 +1512,7 @@ export class ValueBettingEngine {
     uncertaintyFactor = 0,
     uncertaintyPenalty = 0.5
   ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW'; uncertaintyDiscount: number } {
-    const kelly = this.kellyFraction(probability, decimalOdds) * 100;
+    const kelly = this.kellyFraction(probability, decimalOdds, uncertaintyFactor) * 100;
 
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     if      (ev >= 0.08 && kelly >= 1.5) confidence = 'HIGH';
@@ -2178,7 +2221,7 @@ export class ValueBettingEngine {
         0,
         0.82
       );
-      const kellyPercent = this.kellyFraction(ourProb, odds) * 100;
+      const kellyPercent = this.kellyFraction(ourProb, odds, uncertaintyFactor) * 100;
       const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
@@ -2308,7 +2351,7 @@ export class ValueBettingEngine {
         0,
         0.82
       );
-      const kellyPercent = this.kellyFraction(effectiveProb, odds) * 100;
+      const kellyPercent = this.kellyFraction(effectiveProb, odds, uncertaintyFactor) * 100;
       const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
@@ -2478,7 +2521,7 @@ export class ValueBettingEngine {
         0,
         0.82
       );
-      const kelly = this.kellyFraction(effectiveProb, odds);
+      const kelly = this.kellyFraction(effectiveProb, odds, uncertaintyFactor);
       const categoryStakeCap = this.getStakeCapForCategory(category);
       const stakePercent = Number(
         Math.max(
