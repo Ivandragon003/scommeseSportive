@@ -240,7 +240,10 @@ export const predictionEngineConfig: PredictionEngineConfig = {
     },
     xgBlend: {
       enableXgBlend: true,
-      xgWeight: 0.60,
+      // 0.80: ottimo empirico (plateau 0.75-0.85) da backtest walk-forward OOS
+      // 2026-07 su 5 leghe/~3500 partite (−0.11% logLoss, ECE cal 0.0060→0.0041
+      // vs 0.60 precedente). Oltre 0.85 la logLoss ririsale.
+      xgWeight: 0.80,
       maxXgValue: 8,
     },
   },

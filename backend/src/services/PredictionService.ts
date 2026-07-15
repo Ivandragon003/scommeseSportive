@@ -882,6 +882,15 @@ export class PredictionService {
       defenceParams[team] = isFinite(n) ? clamp(n, -3.5, 3.5) : 0;
     }
 
+    const rawLevel = raw?.levelCorrection;
+    const levelCorrection =
+      rawLevel && Number.isFinite(Number(rawLevel.home)) && Number.isFinite(Number(rawLevel.away))
+        ? {
+            home: clamp(Number(rawLevel.home), 0.85, 1.35),
+            away: clamp(Number(rawLevel.away), 0.85, 1.35),
+          }
+        : undefined;
+
     return {
       attackParams,
       defenceParams,
@@ -892,6 +901,7 @@ export class PredictionService {
       ),
       rho: clamp(Number(raw?.rho ?? -0.13), -0.5, 0.0),
       tau: clamp(Number(raw?.tau ?? 0.0065), 0.0001, 0.05),
+      ...(levelCorrection ? { levelCorrection } : {}),
     };
   }
 

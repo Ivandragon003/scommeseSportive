@@ -119,6 +119,22 @@ export interface ModelParams {
    * Default: {} → il parametro globale homeAdvantage viene usato per tutti.
    */
   homeAdvantagePerTeam: Record<string, number>;
+  /**
+   * levelCorrection: fattore di ri-livellamento per-lega del livello di λ,
+   * stimato a fit-time come c = Σ(goal reali) / Σ(λ strutturale) sul training.
+   *
+   * Il modello Dixon-Coles sottostima strutturalmente il livello totale dei
+   * goal (interazione tra correzione τ con ρ<0 e i gradienti att/def stimati sul
+   * Poisson marginale). Backtest walk-forward OOS 2026-07: il bias NON è
+   * universale ma per-lega (Serie A/Liga ~1.05-1.10, Premier/Bundesliga
+   * ~1.25-1.32). Applicato in computeExpectedGoals scala λ verso il livello
+   * reale: −1.44% logLoss sul raw, azzera il bias residuo sui totali dopo
+   * calibrazione (over2.5 calibration-in-the-large z 6.3→0), neutro sul betting
+   * (dove il blending col mercato già ri-livella).
+   *
+   * Default: assente → nessuna correzione (fattore 1.0).
+   */
+  levelCorrection?: { home: number; away: number };
 }
 
 export interface ScoreMatrix {
@@ -338,6 +354,15 @@ export class DixonColesModel {
 
     if (!isFinite(lH) || lH <= 0) lH = 1.35;
     if (!isFinite(lA) || lA <= 0) lA = 1.05;
+
+    // Ri-livellamento per-lega del bias di livello di λ (vedi ModelParams.levelCorrection).
+    const lc = this.params.levelCorrection;
+    if (lc) {
+      const cH = Number(lc.home);
+      const cA = Number(lc.away);
+      if (Number.isFinite(cH) && cH > 0) lH *= cH;
+      if (Number.isFinite(cA) && cA > 0) lA *= cA;
+    }
 
     return {
       lambdaHome: clamp(lH, this.LAMBDA_MIN, this.LAMBDA_MAX),
@@ -977,6 +1002,7 @@ export class DixonColesModel {
       });
       if (snapshots.length > 0) {
         this.params = { ...snapshots[snapshots.length - 1].params };
+        this.assignLevelCorrection(validMatches, enablePerTeamHomeAdvantage);
         return this.params;
       }
     }
@@ -1240,7 +1266,36 @@ export class DixonColesModel {
       this.params.defenceParams[t] = (this.params.defenceParams[t]??0) - avgD;
     }
 
+    this.assignLevelCorrection(validMatches, enablePerTeamHomeAdvantage);
+
     return this.params;
+  }
+
+  /**
+   * Stima e memorizza levelCorrection = Σ(goal reali)/Σ(λ strutturale) sul
+   * training, separatamente per casa e trasferta. λ è calcolata come in
+   * computeExpectedGoals (pre-tau, pre-xG blend) così il fattore corregge
+   * esattamente il livello che il predict poi scala. Clamp prudente [0.85,1.35]:
+   * il bias osservato OOS è ~1.04-1.32, valori fuori range indicano dati sporchi.
+   */
+  private assignLevelCorrection(validMatches: MatchData[], enablePerTeamHomeAdvantage: boolean): void {
+    let sumRealH = 0, sumRealA = 0, sumLamH = 0, sumLamA = 0;
+    for (const m of validMatches) {
+      if (m.homeGoals === undefined || m.awayGoals === undefined) continue;
+      const ha = enablePerTeamHomeAdvantage
+        ? (this.params.homeAdvantagePerTeam[m.homeTeamId] ?? this.params.homeAdvantage)
+        : this.params.homeAdvantage;
+      const lH = this.safeExp((this.params.attackParams[m.homeTeamId] ?? 0) - (this.params.defenceParams[m.awayTeamId] ?? 0) + ha);
+      const lA = this.safeExp((this.params.attackParams[m.awayTeamId] ?? 0) - (this.params.defenceParams[m.homeTeamId] ?? 0));
+      if (!isFinite(lH) || !isFinite(lA)) continue;
+      sumRealH += m.homeGoals; sumRealA += m.awayGoals;
+      sumLamH += lH; sumLamA += lA;
+    }
+    if (sumLamH <= 0 || sumLamA <= 0) return;
+    this.params.levelCorrection = {
+      home: clamp(sumRealH / sumLamH, 0.85, 1.35),
+      away: clamp(sumRealA / sumLamA, 0.85, 1.35),
+    };
   }
 
   detectStructuralBreaks(
