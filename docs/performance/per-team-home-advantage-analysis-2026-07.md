@@ -120,3 +120,44 @@ Raccomandazione: **non** implementare l'HA per-squadra. Se si vuole inseguire il
 3. **HA ibrido (globale + w·δ_team)**: il guadagno apparente è bias di livello (gshift lo replica al 98%); la specificità per-squadra è non significativa (t=−0.71). NO-GO.
 
 Nessuna modifica al codice di produzione. `enablePerTeamHomeAdvantage` resta disponibile ma non collegato.
+
+---
+
+# Rifacimento con campione raddoppiato (4 stagioni) — 2026-07-15
+
+Obiezione legittima: con ~19 gare casa/squadra/stagione la stima di δ_team è rumorosa e il benchmark è debole. Sono state importate 2 stagioni aggiuntive (Understat 2022/23 + 2023/24, top-5) portando il dataset a **4 stagioni (~7.000 partite, ~74 gare casa/squadra)**. Test rifatti con `MIN_TRAIN=760` (train minimo ~2 stagioni). Le stime per-squadra sono ora affidabili (Atlético ×1.61 vs media Liga ×1.35 su 74 gare; Milan ×1.07 su 74 gare).
+
+## Per-squadra puro (fit congiunto) — NO-GO rafforzato
+
+| Mercato | Δ logLoss raw | Δ logLoss cal |
+|---|---|---|
+| 1X2 | −0.02% | −0.05% |
+| Over/Under | +0.10% | −0.01% |
+| Tutti | +0.05% | −0.04% |
+
+Paired t-test 1X2 (n=3.282 match): **t=−0.256** (era −0.52 con 2 stagioni → ancora più vicino a zero), 51.7% coin-flip. **Con il campione doppio l'effetto non emerge: non era un problema di rumore campionario.** La varianza tra squadre è reale (std 0.085) ma catturarla esplicitamente non migliora le previsioni.
+
+## Ibrido (globale + w·δ_team) — scomposizione confermata
+
+δ̄ medio pesato = **+0.186** (bias di livello di λ_home confermato, coerente con l'analisi separata sul bias di livello).
+
+| Schema | ALL logLoss Δ% | OU Δ% | 1X2 Δ% | Significatività |
+|---|---|---|---|---|
+| w=1.00 (livello+specificità) | −1.86% | −3.07% | +0.59% | ALL t=−7.07 |
+| **gshift=1.00 (solo livello)** | **−1.75%** | −3.04% | +0.91% | — |
+| **centered=1.00 (solo specificità)** | **−0.14%** | −0.10% | −0.31% | ALL t=−1.20 (NS); 1X2 t=−2.51 |
+
+`gshift` (shift uniforme) replica di nuovo quasi tutto il guadagno (−1.75% su −1.86% ALL; −3.04% su −3.07% OU). **Il grande miglioramento resta bias di livello, non home advantage per-squadra.**
+
+### Novità con il campione doppio (sfumatura onesta)
+
+La componente per-squadra pura (`centered`) sull'**1X2** passa da −0.28% t=−1.66 (2 stagioni, non significativo) a **−0.31% t=−2.51 (4 stagioni, appena significativo)**. Con più dati un micro-segnale per-squadra sull'1X2 diventa rilevabile. **Ma:**
+- l'effetto è **minuscolo** (−0.31% log-loss su un solo mercato);
+- su **ALL** resta non significativo (t=−1.20) e su **over/under** è nullo (−0.10%);
+- t=−2.51 su un singolo mercato, dopo aver testato molti schemi/mercati, è debole in ottica multiple-testing.
+
+## Verdetto finale (4 stagioni)
+
+**NO-GO confermato.** Il campione raddoppiato non ribalta la conclusione, anzi la irrobustisce: il per-squadra puro non migliora nulla (t=−0.256), e il guadagno apparente dell'ibrido è per il 94% bias di livello (già gestito in produzione da calibrazione + blending, cfr. `lambda-level-bias-analysis`). L'unico segnale per-squadra reale — un micro-effetto sull'1X2 (−0.31%) — è troppo piccolo per giustificare l'aggiunta di 20+ parametri e il rischio di varianza extra sugli altri mercati. Nessuna modifica al codice.
+
+Nota: il dataset ampliato (4 stagioni) resta nel DB ed è comunque utile per calibrazione e backtest futuri.
