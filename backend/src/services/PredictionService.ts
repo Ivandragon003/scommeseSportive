@@ -1,4 +1,6 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
+import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
+import { blendGoalProbabilities } from './ProbabilityEnsembleService';
 import {
   ValueBettingEngine,
   BetOpportunity,
@@ -444,6 +446,8 @@ export function summarizeBudgetBetsInternal(allBets: any[]): BudgetBetSummary {
 
 export class PredictionService {
   private models: Map<string, DixonColesModel> = new Map();
+  /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */
+  private poissonModels: Map<string, PoissonXgModel | null> = new Map();
   private engine: ValueBettingEngine;
   private backtester: BacktestingEngine;
   private db: DatabaseService;
@@ -616,6 +620,10 @@ export class PredictionService {
     ];
     const statKeyPattern = /^(shotsOT|shots|yellow|fouls|corners)(Over|Under)\d{2,3}$/;
 
+    // Stesso partner Poisson-xG usato al predict live: la calibrazione va fittata
+    // sulle probabilità GIÀ blendate, altrimenti le curve risultano disallineate.
+    const ensemblePoisson = await this.ensurePoissonModel(competition);
+
     for (const row of completedRows) {
       const probs = model.computeFullProbabilities(
         String(row.home_team_id),
@@ -623,7 +631,12 @@ export class PredictionService {
         Number.isFinite(Number(row.home_xg)) ? Number(row.home_xg) : undefined,
         Number.isFinite(Number(row.away_xg)) ? Number(row.away_xg) : undefined
       );
-      const flat: Record<string, number> = probs.flatProbabilities ?? {};
+      const flat: Record<string, number> = this.applyEnsembleBlend(
+        probs.flatProbabilities ?? {},
+        ensemblePoisson,
+        String(row.home_team_id),
+        String(row.away_team_id),
+      );
       this.enrichFlatProbabilities(flat);
 
       const trackKeys = new Set<string>(coreSelections);
@@ -1292,11 +1305,72 @@ export class PredictionService {
         const model = new DixonColesModel();
         model.setParams(this.sanitizeModelParams(saved.params));
         this.models.set(competition, model);
+        this.poissonModels.set(competition, this.buildPoissonModel(saved.params));
       } else {
         this.models.set(competition, new DixonColesModel());
+        this.poissonModels.set(competition, null);
       }
     }
     return this.models.get(competition)!;
+  }
+
+  /**
+   * Modello Poisson-xG per l'ensemble, ricostruito dai parametri salvati
+   * (`poissonXg` nel blob model_params). null se assente (blob pre-ensemble)
+   * → il blending diventa un no-op retrocompatibile. Carica da DB se non in cache,
+   * così replay-calibrazione e predizione live usano SEMPRE lo stesso partner.
+   */
+  private async ensurePoissonModel(competition: string = 'default'): Promise<PoissonXgModel | null> {
+    if (this.poissonModels.has(competition)) return this.poissonModels.get(competition) ?? null;
+    const saved = await this.db.getLatestModelParams(competition);
+    const built = saved ? this.buildPoissonModel(saved.params) : null;
+    this.poissonModels.set(competition, built);
+    return built;
+  }
+
+  /** Estrae e valida i parametri Poisson-xG da un blob model_params salvato. */
+  private buildPoissonModel(rawParams: any): PoissonXgModel | null {
+    const raw = rawParams?.poissonXg;
+    if (!raw || typeof raw !== 'object') return null;
+    const leagueXG = Number(raw.leagueXG);
+    const homeAdv = Number(raw.homeAdv);
+    const levelScale = Number(raw.levelScale);
+    if (![leagueXG, homeAdv, levelScale].every((v) => Number.isFinite(v) && v > 0)) return null;
+    const coerceRates = (obj: any): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const [team, value] of Object.entries(obj ?? {})) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) out[team] = clamp(n, 0.1, 5);
+      }
+      return out;
+    };
+    const attackRate = coerceRates(raw.attackRate);
+    const defRate = coerceRates(raw.defRate);
+    if (Object.keys(attackRate).length === 0 || Object.keys(defRate).length === 0) return null;
+    const params: PoissonXgParams = {
+      leagueXG: clamp(leagueXG, 0.3, 4),
+      homeAdv: clamp(homeAdv, 0.8, 1.4),
+      levelScale: clamp(levelScale, 0.5, 2),
+      attackRate,
+      defRate,
+    };
+    return new PoissonXgModel(params);
+  }
+
+  /**
+   * Applica l'ensemble DC + Poisson-xG ai mercati goal di un flat di probabilità,
+   * PRIMA della calibrazione. No-op se disabilitato o se manca il modello Poisson.
+   */
+  private applyEnsembleBlend(
+    flat: Record<string, number>,
+    poisson: PoissonXgModel | null,
+    homeTeamId: string,
+    awayTeamId: string,
+  ): Record<string, number> {
+    const cfg = predictionEngineConfig.ensemble;
+    if (!cfg.enabled || !poisson || !poisson.hasParams()) return flat;
+    const poissonProbs = poisson.computeGoalProbabilities(homeTeamId, awayTeamId);
+    return blendGoalProbabilities(flat, poissonProbs, cfg);
   }
 
   async fitModelForCompetition(competition: string, season?: string, fromDate?: string, toDate?: string) {
@@ -1316,8 +1390,15 @@ export class PredictionService {
     const teams = [...new Set(matches.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
     const model = new DixonColesModel();
     const fittedParams = model.fitModel(matches, teams);
-    const params = this.applyHomeAdvantageScale(fittedParams);
-    model.setParams(params);
+    const scaledParams = this.applyHomeAdvantageScale(fittedParams);
+    model.setParams(scaledParams);
+
+    // Ensemble: fit del modello Poisson-xG partner sugli stessi match; i suoi
+    // parametri viaggiano nello stesso blob model_params sotto la chiave `poissonXg`
+    // (persistenza condivisa, logica separata — vedi PoissonXgModel/ProbabilityEnsembleService).
+    const poissonModel = new PoissonXgModel();
+    const poissonParams = poissonModel.fit(matches);
+    const params: any = { ...scaledParams, poissonXg: poissonParams };
 
     // Aggiorna parametri nel DB e ricalcola medie statistiche
     for (const teamId of teams) {
@@ -1336,6 +1417,7 @@ export class PredictionService {
     const logLikelihood = this.computeLL(model, matches);
     await this.db.saveModelParams(competition, season ?? 'all', params, matches.length, logLikelihood);
     this.models.set(competition, model);
+    this.poissonModels.set(competition, poissonModel);
 
     return { matchesUsed: matches.length, logLikelihood, teams: teams.length };
   }
@@ -1432,6 +1514,15 @@ export class PredictionService {
       supp,
     );
 
+    // Ensemble DC + Poisson-xG sui mercati goal, PRIMA della calibrazione.
+    // Stessa competizione usata per il profilo di calibrazione (sotto), così le
+    // curve vengono applicate esattamente alle probabilità blendate.
+    const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;
+    const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');
+    probs.flatProbabilities = this.applyEnsembleBlend(
+      probs.flatProbabilities, ensemblePoisson, request.homeTeamId, request.awayTeamId,
+    );
+
     const statsMarketsEnabled = this.shouldEnableStatMarkets(supp);
     if (!statsMarketsEnabled) {
       probs.shotsTotal = {};
@@ -1476,7 +1567,7 @@ export class PredictionService {
     const marketGroups = this.engine.buildMarketGroups(alignedOdds);
     const calibrationProfile = await this.getCalibrationProfile(
       model,
-      request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined
+      ensembleCompetition
     );
     const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
     const homeSampleSize = Number((homeTeam as any)?.matchesPlayed ?? (homeTeam as any)?.matches ?? homePlayers.length ?? 0);
