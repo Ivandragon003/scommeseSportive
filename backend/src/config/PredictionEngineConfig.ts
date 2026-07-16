@@ -186,6 +186,23 @@ export interface PredictionEngineConfig {
     /** Maximum deviation of the learned weight from the heuristic weight. Recommended range 0.05-0.30; fallback 0.18. */
     learnedBlendMaxShift: number;
   };
+  ensemble: {
+    /** Default true. Blends Dixon-Coles goal-market probabilities with an independent Poisson-xG model BEFORE per-family calibration. Backward-compatible: no-op if the fitted model lacks Poisson-xG params. */
+    enabled: boolean;
+    /**
+     * Peso del modello Poisson-xG nel blend, per famiglia di mercato goal:
+     *   p = (1 - w) * p_DixonColes + w * p_PoissonXg
+     * Ogni famiglia ricade su `default` se non specificata. Predisposto per pesi
+     * distinti (1X2 / Over-Under / BTTS); da backtest OOS 2026-07 l'ottimo è ~0.5
+     * per tutte. Recommended range 0.00-0.65; fallback 0.50.
+     */
+    weights: {
+      default: number;
+      oneXTwo?: number;
+      overUnder?: number;
+      btts?: number;
+    };
+  };
   backtesting: {
     /** Weight mode for probability metrics. none preserves legacy unweighted metrics. */
     metricWeightMode: MetricWeightMode;
@@ -317,6 +334,10 @@ export const predictionEngineConfig: PredictionEngineConfig = {
     enableLearnedBlendWeights: true,
     learnedBlendMinSamples: 80,
     learnedBlendMaxShift: 0.18,
+  },
+  ensemble: {
+    enabled: true,
+    weights: { default: 0.5, oneXTwo: 0.5, overUnder: 0.5, btts: 0.5 },
   },
   backtesting: {
     metricWeightMode: 'none',
