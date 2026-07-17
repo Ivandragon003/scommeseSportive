@@ -88,29 +88,46 @@ Sono priorita del progetto:
 - `double chance`
 - `draw no bet`
 - `goal / over-under`
+- `btts`
 - `shots`
 - `shots on target`
-- `cards / yellow cards` se il dato e supportato in modo coerente dal flusso attivo
+- `yellow cards over/under` (mercato attivo: dato gialli coperto ~50% dei match, modello squadra e giocatore implementati)
+- `exact score`
+- `handicap` (europeo e asiatico)
+- **scommesse singole sui giocatori** (`player props`): tiri giocatore, tiri in porta giocatore, gialli giocatore. Valutate quando esiste una quota bookmaker corrispondente e il matching giocatore non e ambiguo (`playerProps.ts`, `PredictionService.buildPlayerPropMarkets`).
+
+### Mercato voluto ma bloccato sulla copertura dati
+
+- `fouls` — **il proprietario vuole questo mercato**, ma con la fonte attuale NON e attivabile in modo affidabile: i falli reali sono presenti solo nell'1-2% dei match Understat (verificato su 7.082 partite). Attivarlo ora significherebbe girare su default inventati e mostrare Over/Under falli non fondati sul dato.
+  - Condizione per attivarlo: abilitare una fonte supplementare che copra i falli per-partita (es. `SofaScoreSupplementalScraper`, oggi disattivato, oppure FBref), poi ricalcolare le medie per-lega e validare in backtest.
+  - Fino ad allora `fouls` resta fuori dal ranking value, ma NON perche non lo si voglia: e un blocco tecnico da rimuovere quando arriva il dato.
 
 ### Mercati da non riattivare automaticamente
 
-Non riattivare senza fonte unica coerente:
-- `fouls`
-- `corners`
+- `corners` — stesso limite dei falli (dato reale ~1-2%). Non riattivare senza fonte unica coerente che copra i corner per-partita.
 
-Motivo:
+Motivo del blocco falli/corner:
 - in configurazione `Understat-only` questi dati non sono coperti come totali reali affidabili
-- quindi non devono essere rimessi nel ranking o mostrati come mercati forti solo per "riempire" la UI
+- quindi non devono essere rimessi nel ranking o mostrati come mercati forti solo per "riempire" la UI, finche non esiste una fonte dati che li copra
 
 ## 6. Regole prediction e UX
 
 ### Pronostico finale
 
 Per ogni partita deve esserci:
-- una sola giocata finale consigliata
+- una sola giocata finale consigliata **sui mercati squadra** (1X2, over/under, gialli, ecc.)
 - motivazione breve, leggibile e umana
 
-Non trasformare il prodotto in una lista caotica di pick equivalenti.
+Non trasformare il prodotto in una lista caotica di pick equivalenti sui mercati squadra.
+
+### Scommesse singole sui giocatori
+
+Le `player props` (tiri, tiri in porta, gialli giocatore) sono una categoria **distinta** dal pronostico squadra e possono essere mostrate come singole giocate sui giocatori, quando:
+- esiste una quota bookmaker corrispondente per quel giocatore/mercato/linea
+- il matching del giocatore non e ambiguo
+- il campione dati del giocatore e sufficiente (vedi filtri in `buildPlayerPropMarkets`)
+
+Queste NON contano come "seconda giocata squadra": vivono in una sezione player dedicata. Vanno comunque presentate in modo ordinato (le migliori per confidenza/EV), non come lista indiscriminata di tutti i giocatori.
 
 ### Schermate interne
 
