@@ -256,4 +256,24 @@ Implicazione: ogni lavoro su falli/corner/arbitro è **speculativo** finché non
 | `config/predictionConfig.ts` | override da env (homeAdvantageScale, context weights, min sample) |
 ```
 
+## 16. Appendice — servizi operativi e infrastrutturali
+
+Componenti non-modello (plumbing), elencati per completezza. Non contengono formule predittive.
+
+| File | Ruolo |
+|---|---|
+| `services/OddsApiService.ts`, `odds-provider/OddsApiProvider.ts`, `OddsProvider.ts`, `OddsProviderCoordinator.ts`, `oddsProviderUtils.ts`, `providerRuntimeConfig.ts` | Recupero e normalizzazione quote (The Odds API/Eurobet), coordinamento provider, config runtime |
+| `services/OddsApiKickoffSyncService.ts` | Sincronizza gli orari di kickoff con le quote |
+| `services/playerProps.ts` | Parsing/normalizzazione delle chiavi mercato player prop (`player_<id>_<market>_<side>_<line>`) |
+| `services/BacktestReportService.ts` | Formattazione dei report di backtest |
+| `services/SystemObservabilityService.ts` | Osservabilità/telemetria delle run |
+| `services/UnderstatScraper.ts`, `SofaScoreSupplementalScraper.ts` | Scraping dati calcio (SofaScore disattivato) |
+| `db/DatabaseService.ts` | Accesso libSQL/Turso, schema, medie squadra con decay, snapshot quote |
+| `config/algorithmVersions.ts` | Versioning degli algoritmi |
+| `api/routes.ts`, `api/predictionPayloadFormatter.ts` | Layer HTTP: endpoint e formattazione payload di predizione |
+
+Con questa appendice il formulario copre **tutti** i file sorgente del backend: strato modello (§2–5), dati (§5b), contesto/value/calibrazione (§6–12), realtà dati (§13), pipeline (§14) e infrastruttura (§16).
+
+---
+
 *Documento generato da revisione diretta del codice `main` (Luglio 2026). Le percentuali di miglioramento provengono dai backtest walk-forward OOS in `docs/performance/`.*
