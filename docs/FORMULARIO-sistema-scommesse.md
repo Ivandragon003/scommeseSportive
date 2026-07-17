@@ -17,7 +17,9 @@ Per le idee valutate e **scartate** (e il perché) vedere il documento compagno 
 
 ## 1. Configurazione tipizzata
 
-File: `backend/src/config/PredictionEngineConfig.ts` — espone `predictionEngineConfig`. Default backward-compatible; le logiche che cambiano il comportamento storico sono opt-in.
+Due file di configurazione:
+- `backend/src/config/PredictionEngineConfig.ts` — `predictionEngineConfig` (tabella sotto). Default backward-compatible; logiche che cambiano il comportamento storico opt-in.
+- `backend/src/config/predictionConfig.ts` — `predictionConfig`, override da **variabili d'ambiente**: `model.homeAdvantageScale` (default 0.5, moltiplica l'HA salvato in `sanitizeModelParams`), `model.contextWeights` (form 0.12 / motivation 0.06 / absences 0.05 / discipline 0.03), `markets.minSampleSizePerTeam` (8) / `minCombinedSampleSize` (20) — sotto queste soglie i mercati statistici vengono disattivati per quel match.
 
 Valori chiave attuali:
 
@@ -45,7 +47,10 @@ File: `backend/src/models/core/DixonColesModel.ts`.
 λ_home = exp(attack_home − defence_away + HA_home)
 λ_away = exp(attack_away − defence_home)
 ```
-`HA_home` usa `homeAdvantagePerTeam[home]` se abilitato (opt-in), altrimenti `homeAdvantage` globale (default 0.10). I `contextAdjustments` (home/awayGoalMultiplier) moltiplicano le λ quando presenti.
+`HA_home` usa `homeAdvantagePerTeam[home]` se abilitato (opt-in), altrimenti `homeAdvantage` globale (default 0.10). I `contextAdjustments` (home/awayGoalMultiplier) moltiplicano le λ quando presenti. Se al predict vengono passati xG pre-partita (>0), si applica anche un blend `λ = 0.6·λ + 0.4·xG` (usato solo quando l'xG è fornito; non in backtest per evitare lookahead).
+
+### 2.1b Mercati derivati dalla score matrix
+Da `computeFullProbabilities`: 1X2, BTTS, Over/Under 0.5–4.5, **exact score** (`exact_H-A`), **handicap europeo** (`hcp_home±X`), **asian handicap** (linee −1.75…+1.75, con rimborso/mezzo sul push), doppia chance e DNB (derivati dal 1X2). Tutti coerenti con la stessa matrice.
 
 ### 2.2 🆕 Correzione bias di livello per-lega (`levelCorrection`)
 Il DC sottostima il livello totale dei goal in misura **eterogenea per lega**. A fit-time si stima, per casa e trasferta separatamente:
@@ -117,6 +122,7 @@ NegBin: Var[X] = μ + μ²/r
   ```
   Prima era `− 0` (refuso): valeva 1.22 su una partita media e 1.43 sui derby su OGNI match → aspettativa gialli sovrastimata del +26%. Col fix: neutro sulla partita media, ±22% agli estremi, bias +26%→+3.6%. Sul mercato Over gialli: logLoss cal −2.98%, ECE 0.0728→0.0279.
 - Rossi: Poisson, fattore arbitro più smorzato. Card points = μ_gialli + 2·(λ_rossi).
+- **Correzione gialli↔falli (post-hoc in DixonColesModel):** `yellowFoulsCorrFactor = (falliAttesi/leagueAvgFouls)^0.7 · (0.7 + 0.3·refStrictness)`, applicata a `expectedTotalYellow` e alle O/U gialli quando |fattore−1|>0.02. ⚠️ Inerte in produzione (falli 1–2%).
 
 ### 4.3 Falli / Corner / Tiri
 - **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. ⚠️ gira su default (dato falli 1–2%).
@@ -128,6 +134,15 @@ NegBin: Var[X] = μ + μ²/r
 - **Tiri/SOT giocatore (runtime):** `SpecializedModels.computePlayerShotsPredictions()` — Dirichlet-multinomiale su medie aggregate, shrinkage share verso prior di ruolo (FW 0.20, MF 0.12, DF 0.05, GK 0.01), r per giocatore via Dirichlet. Output: expectedShots, prob 1+/2+/3+, SOT.
 - **Gialli giocatore:** `PlayerCardsModel.predictPlayerYellowCards()` — ZIP. `rate = weight·rawRate + (1−weight)·rolePrior`, moltiplicatori arbitro (smorzato per coverage) e ambiente-squadra `clamp(1 + 0.25·(teamExpYellows/leagueAvg − 1), 0.80, 1.25)`; zero-inflation da minuti.
 - ⚠️ **`ShotsModel.ts` (v4: ZIP/ZINB, gerarchico team→player, distribuzione minuti, SOT separato) esiste ma NON è collegato al runtime**: manca una tabella `player_match_stats` (il DB ha solo aggregati). Il runtime usa il Dirichlet aggregato sopra.
+
+## 5b. Costruzione degli input (data layer)
+
+Le medie che alimentano i modelli sopra non sono grezze: vengono aggregate da servizi dedicati.
+
+- **Medie squadra** (`DatabaseService.recomputeTeamAverages` / `TeamAveragesService.ts`): tiri, tiri in porta, gialli, rossi, falli, corner, xG, possesso per squadra, con **decadimento temporale esponenziale** `peso = exp(−DECAY_PER_DAY·(oggi−data))`, `DECAY_PER_DAY = 0.005/giorno` (half-life ≈ 139 giorni). Alimenta `homeTeamStats`/`awayTeamStats` (`avgYellowCards`, `avgShots`, `avgFouls`, `avgHomeCorners`, `sampleSize`, `varShots`…).
+- **Stats giocatore** (`PlayerDerivedStatsService.ts`): ricostruite dalle rose in `raw_json` — `avg_xg_per_game`, `shots_per90`, `shotShareOfTeam`, `yellow_cards_total`, `minutes_total`, `gamesPlayed`. Alimentano i mercati player e il lineup xG adjustment.
+- **Stats arbitro** (`RefereeDerivedStatsService.ts`): `avgYellow`, `avgFouls`, `avgRed`, `games`, `dispersionYellow`. ⚠️ Copertura arbitro 1–2% → quasi sempre assenti al predict.
+- **Ingestione:** `UnderstatScraper.ts` (dati calcio), `OddsApiService`/`odds-provider/*` (quote), `SofaScoreSupplementalScraper.ts` (disattivato).
 
 ## 6. Context builder
 
@@ -171,6 +186,7 @@ Soglie EV base (`EV_THRESHOLDS`): goal_1x2 3.0% · btts_yes 3.4% · btts_no 5.5%
 kelly = (p·(odds−1) − (1−p)) / (odds−1)     stake = quarterKelly · confidence
 computeSuggestedStakeWithUncertainty: riduce lo stake in funzione di uncertaintyFactor (peso 0.35)
 ```
+`kellyMode='dynamic'` (opt-in): la frazione Kelly scala linearmente con l'incertezza del modello tra `dynamicKellyMaxFraction=0.50` (parametri stabili, u=0) e `dynamicKellyMinFraction=0.10` (instabili, bootstrap CV alto). `computeDynamicEvThreshold` (opt-in) modula la soglia via richnessMultiplier / varianceMultiplier / calibrationPenalty.
 `getEffectiveEvThreshold(cat) = baseThreshold + evDelta` (adaptive tuning, §12).
 
 ## 10. Combo / multi-bet
@@ -233,6 +249,11 @@ Implicazione: ogni lavoro su falli/corner/arbitro è **speculativo** finché non
 | `models/value/ValueBettingEngine.ts` | EV/edge, market blend, Kelly, combo, soglie |
 | `models/backtesting/BacktestingEngine.ts` | metriche, calibrazione, market reports |
 | `services/AdaptiveTuningService.ts` | evDelta |
+| `services/TeamAveragesService.ts` + `db/DatabaseService.ts` | medie squadra con decay esponenziale |
+| `services/PlayerDerivedStatsService.ts` | stats giocatore da raw_json |
+| `services/RefereeDerivedStatsService.ts` | stats arbitro |
+| `services/UnderstatScraper.ts`, `services/odds-provider/*`, `OddsApiService.ts` | ingestione dati e quote |
+| `config/predictionConfig.ts` | override da env (homeAdvantageScale, context weights, min sample) |
 ```
 
 *Documento generato da revisione diretta del codice `main` (Luglio 2026). Le percentuali di miglioramento provengono dai backtest walk-forward OOS in `docs/performance/`.*
