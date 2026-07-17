@@ -2,8 +2,11 @@ name: Nightly Sync
 
 on:
   schedule:
-    - cron: '0 23 * * *'
-    - cron: '0 0 * * *'
+    # Obiettivo: 03:00 ora di Roma (partite finite, dati completi).
+    # Due trigger per coprire ora legale/solare; il gate EXPECTED_LOCAL_HOUR
+    # in nightly-sync.sh fa girare solo quello che cade davvero alle 03:00 Roma.
+    - cron: '0 1 * * *'   # 03:00 Roma d'estate (UTC+2)
+    - cron: '0 2 * * *'   # 03:00 Roma d'inverno (UTC+1)
   workflow_dispatch:
 
 permissions:
@@ -20,7 +23,7 @@ jobs:
     env:
       TZ: Europe/Rome
       SYNC_TIMEZONE: Europe/Rome
-      EXPECTED_LOCAL_HOUR: '01'
+      EXPECTED_LOCAL_HOUR: '03'
       PORT: '3001'
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
