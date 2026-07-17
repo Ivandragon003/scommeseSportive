@@ -544,9 +544,13 @@ export class SpecializedModels {
    *    Aggiungiamo un piccolo boost se l'arbitro è sotto i falli rispetto
    *    alla media (= gioca più fisico senza punire → più cartellini finali).
    *
-   * 4. COMPETITIVENESS con curva sigmoidale invece di lineare:
-   *    compFactor = 1 + max_boost * sigmoid(competitiveness * 6 - 3)
-   *    Questo evita che un competitiveness=0.99 produca un boost irrealistico.
+   * 4. COMPETITIVENESS con curva sigmoidale CENTRATA invece di lineare:
+   *    compFactor = 1 + max_boost * (2*sigmoid(competitiveness * 8 - 4) - 1)
+   *    Neutra (1.0) per una partita media (competitiveness=0.5), +max_boost sui
+   *    derby equilibratissimi, -max_boost sui match sbilanciati. Essere centrata
+   *    è essenziale: competitiveness è valorizzata su OGNI partita, quindi un
+   *    fattore non centrato introdurrebbe un bias sistematico sul livello dei
+   *    cartellini (vedi BUGFIX 2026-07 in computeCardsDistribution).
    *
    * 5. Shrinkage verso la media di lega per squadre con pochi dati.
    */
@@ -582,11 +586,23 @@ export class SpecializedModels {
       foulsBonus = 1 + (foulRatio - 1) * 0.35;
     }
 
-    // --- Competitiveness: curva sigmoidale (evita boost estremi) ---
-    // sigmoid(x) = 1 / (1 + exp(-x))
-    // Boost max empirico +22% (derby storici)
+    // --- Competitiveness: curva sigmoidale CENTRATA (evita boost estremi) ---
+    // sigmoid(x) = 1 / (1 + exp(-x));  s(x) = 2*sigmoid(x) - 1 ∈ (-1, 1)
+    //
+    // Il fattore deve essere NEUTRO (≈1.0) per una partita media e spostarsi
+    // simmetricamente: +22% max sui derby equilibratissimi, -22% sui match
+    // sbilanciati (dove si fischia e si ammonisce meno).
+    //
+    // BUGFIX 2026-07: qui c'era `- 0` al posto di `- 1` (refuso: `- 0` è
+    // codice inerte che ha senso solo come `- 1`). Con `- 0` il fattore valeva
+    // 1.22 per una partita MEDIA (comp=0.5) e fino a 1.43 sui derby, cioè il
+    // doppio del +22% dichiarato. Poiché competitiveness è sempre valorizzata
+    // (floor 0.25 in DixonColesModel), il boost si applicava a OGNI partita:
+    // misurato su 5 campionati, i gialli attesi risultavano sovrastimati del
+    // +24÷32% rispetto ai realizzati, gonfiando sistematicamente gli Over.
+    // Con la correzione il bias scende a +1.4÷8.2%.
     const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
-    const compBoost = 0.22 * (2 * sigmoid(data.competitiveness * 8 - 4) - 0);
+    const compBoost = 0.22 * (2 * sigmoid(data.competitiveness * 8 - 4) - 1);
     const compFactor = 1.0 + compBoost;
 
     // --- Expected gialli ---
