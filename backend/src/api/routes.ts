@@ -21,6 +21,13 @@ import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { recomputeTeamAveragesForMatchRows } from '../services/TeamAveragesService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
+import {
+  syncFootballData,
+  createLibsqlFootballDataDb,
+  pruneOldSeasons,
+  currentSeasonStartYear,
+  FOOTBALL_DATA_LEAGUE_CODES,
+} from '../services/FootballDataService';
 
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   2,
@@ -412,6 +419,43 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
       ...playerStats,
       ...refereeStats,
     });
+  } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ====== FOOTBALL-DATA.CO.UK (stats supplementari: falli, corner, tiri, cartellini, arbitro) ======
+// Fonte HTTP/CSV stabile che completa i campi non coperti da Understat. Scrittura
+// non distruttiva (COALESCE: riempie solo i NULL). Understat resta primaria.
+router.post('/scraper/football-data', async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const now = new Date();
+    // Default: stagione corrente + precedente (per catturare stat aggiunte in ritardo).
+    const cur = currentSeasonStartYear(now);
+    const seasonStartYears: number[] = Array.isArray(body.seasonStartYears) && body.seasonStartYears.length > 0
+      ? body.seasonStartYears.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y))
+      : [cur, cur - 1];
+    const competitions: string[] = Array.isArray(body.competitions) && body.competitions.length > 0
+      ? body.competitions
+      : Object.keys(FOOTBALL_DATA_LEAGUE_CODES);
+
+    const client = (db as any).db;
+    const fdDb = createLibsqlFootballDataDb(client);
+    const sync = await syncFootballData(fdDb, { competitions, seasonStartYears });
+
+    // Retention: tiene solo le N stagioni più recenti (default 4) per contenere il raw_json.
+    const keepSeasons = Math.max(1, Number(body.keepSeasons ?? 4));
+    const prune = body.prune === false
+      ? { seasonsKept: [], seasonsDeleted: [], matchesDeleted: 0, oddsDeleted: 0 }
+      : await pruneOldSeasons(client, keepSeasons);
+
+    // Ricalcolo medie (ora che i dati supplementari ci sono).
+    let teamsUpdated = 0;
+    if (body.recomputeAverages !== false) {
+      const teams = await db.getTeams(undefined as any);
+      for (const t of teams) { await db.recomputeTeamAverages(t.team_id); teamsUpdated++; }
+    }
+
+    res.json({ success: true, sync, prune, teamsUpdated });
   } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
 

@@ -40,9 +40,17 @@ Non introdurre:
 
 ### Regola principale
 
-`Understat` e la sola fonte dati attiva del progetto per dati calcistici.
+`Understat` e la fonte dati PRIMARIA del progetto per dati calcistici.
 
-Questo significa che squadre, partite, giocatori, xG, tiri, cartellini e storico match devono essere letti da `Understat`.
+Questo significa che squadre, partite, giocatori, xG, tiri e storico match nascono da `Understat`.
+
+### Fonte supplementare (dal 2026-07)
+
+`football-data.co.uk` e una fonte **supplementare** HTTP/CSV (no browser, no API key), usata SOLO per riempire i campi che Understat copre male o per niente: falli, corner, tiri, tiri in porta, cartellini, arbitro (Referee solo Premier League). Regole:
+- riempie solo i campi NULL via COALESCE: NON sovrascrive mai i dati Understat
+- una riga CSV = una partita; il matching e per data + nomi squadra (mappa alias in `FootballDataService.ts`)
+- si aggiorna nella nightly (solo stagione corrente) — vedi `FootballDataService`
+- ha sostituito lo scraper `SofaScore` (Playwright) per questi campi; l'unico dato non coperto e il possesso
 
 ### Fonti disattivate
 
@@ -96,19 +104,13 @@ Sono priorita del progetto:
 - `handicap` (europeo e asiatico)
 - **scommesse singole sui giocatori** (`player props`): tiri giocatore, tiri in porta giocatore, gialli giocatore. Valutate quando esiste una quota bookmaker corrispondente e il matching giocatore non e ambiguo (`playerProps.ts`, `PredictionService.buildPlayerPropMarkets`).
 
-### Mercato voluto ma bloccato sulla copertura dati
+### Falli e corner — dato ora disponibile (2026-07)
 
-- `fouls` — **il proprietario vuole questo mercato**, ma con la fonte attuale NON e attivabile in modo affidabile: i falli reali sono presenti solo nell'1-2% dei match Understat (verificato su 7.082 partite). Attivarlo ora significherebbe girare su default inventati e mostrare Over/Under falli non fondati sul dato.
-  - Condizione per attivarlo: abilitare una fonte supplementare che copra i falli per-partita (es. `SofaScoreSupplementalScraper`, oggi disattivato, oppure FBref), poi ricalcolare le medie per-lega e validare in backtest.
-  - Fino ad allora `fouls` resta fuori dal ranking value, ma NON perche non lo si voglia: e un blocco tecnico da rimuovere quando arriva il dato.
+- `fouls` e `corners` — **voluti dal proprietario**. Il blocco storico era la copertura dati (falli/corner all'1-2% su Understat). **Risolto:** ora sono coperti a ~100% su tutte e 4 le stagioni via **football-data.co.uk** (fonte HTTP/CSV supplementare, vedi §3).
+  - Prima di mostrarli come mercati forti in UI: **validare i modelli falli/corner in backtest** con i dati reali (come fatto per i cartellini). Attivarli nel filtro value solo dopo esito positivo.
+  - Understat resta primaria: football-data riempie solo i campi NULL (COALESCE), non sovrascrive.
 
-### Mercati da non riattivare automaticamente
-
-- `corners` — stesso limite dei falli (dato reale ~1-2%). Non riattivare senza fonte unica coerente che copra i corner per-partita.
-
-Motivo del blocco falli/corner:
-- in configurazione `Understat-only` questi dati non sono coperti come totali reali affidabili
-- quindi non devono essere rimessi nel ranking o mostrati come mercati forti solo per "riempire" la UI, finche non esiste una fonte dati che li copra
+Regola generale: non mostrare un mercato come "forte" solo per riempire la UI se il modello non e stato validato sul dato reale.
 
 ## 6. Regole prediction e UX
 
