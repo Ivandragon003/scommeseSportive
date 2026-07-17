@@ -1,7 +1,7 @@
 # Parametro per-campionato leagueAvgYellow (gialli) — analisi go/no-go (Luglio 2026)
 
 Data: 2026-07-17
-Esito: **NO-GO — non implementato.** Il parametro per-lega, benché teoricamente più accurato, peggiora le predizioni sul mercato cartellini (raw +0.38%, p=0.016 nella direzione opposta) perché rimuove una compensazione fortuita del `3.8` globale.
+Esito: **NO-GO — non implementato.** Il parametro per-lega, benché teoricamente più accurato, peggiora le predizioni sul mercato cartellini (raw +0.38%, p=0.016 nella direzione opposta). Nell'attuale modello e nell'attuale pipeline il valore globale `3.8` produce risultati migliori; non abbiamo dimostrato *perché*, quindi non gli attribuiamo una causa.
 
 ## Contesto
 
@@ -30,12 +30,14 @@ Medie rolling usate: Serie A 3.55 · Premier 3.68 · La Liga 4.13 · Bundesliga 
 
 **Per linea:** 2.5 +0.72% · 3.5 +0.67% · 4.5 +0.36% · 5.5 −0.01% · 6.5 −0.40%. Peggiora sulle linee basse/centrali, neutro sulle alte.
 
-## Diagnosi
+## Osservazioni (senza attribuire cause non dimostrate)
 
-Il `3.8` globale è più alto delle medie reali di 4 leghe su 5. Dopo il bugfix il modello sottostima lievemente i gialli (−1.4%); il `3.8`, come bersaglio di shrinkage un po' alto, tira su le previsioni dei team con pochi dati e **compensa** quella sottostima residua. Sostituirlo con la media reale (più bassa) abbassa le previsioni e peggiora la sottostima. Anche La Liga (media 4.13 > 3.8) peggiora: lì il modello era già in lieve sovrastima e alzare il bersaglio la aggrava.
+Fatti misurati: il `3.8` globale è più alto delle medie rolling reali in 4 leghe su 5; dopo il bugfix il modello mostra una lieve sottostima dei gialli (−1.4% sull'aspettativa); passando al valore per-lega (più basso in 4/5) le previsioni si abbassano e il logLoss peggiora in tutte le leghe. Anche La Liga (media 4.13 > 3.8) peggiora, pur alzando il bersaglio.
 
-**Lezione:** un parametro teoricamente più corretto non è automaticamente migliore — conta come interagisce con i bias residui dell'intera pipeline. Solo la validazione full-pipeline lo rivela.
+Una spiegazione **plausibile** è che il `3.8`, come bersaglio di shrinkage, interagisca con i bias residui del modello in modo da produrre previsioni più vicine al reale; ma **non l'abbiamo dimostrato**. Potrebbe essere una proprietà stabile del modello oppure un effetto specifico di questo dataset. Ci limitiamo al fatto osservato: **nell'attuale modello e nell'attuale pipeline il valore globale produce risultati migliori.**
+
+**Lezione:** un parametro teoricamente più corretto non è automaticamente migliore nella pipeline completa. Solo la validazione end-to-end lo rivela — la causa va eventualmente indagata a parte, non assunta.
 
 ## Decisione
 
-**Non implementato.** Il valore globale 3.8 resta la scelta migliore per i cartellini. Falli e corner restano fuori discussione per mancanza di copertura dati (vedi `data-coverage-gaps` / memoria).
+**Non implementato.** Nell'attuale modello e pipeline il valore globale 3.8 produce risultati migliori sui cartellini; non modifichiamo il codice sulla base di un parametro teoricamente più corretto quando il backtest completo dice il contrario. Falli e corner restano fuori discussione per mancanza di copertura dati (vedi `data-coverage-gaps` / memoria).
