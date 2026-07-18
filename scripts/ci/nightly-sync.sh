@@ -11,9 +11,8 @@ EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-01}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
-# SofaScore supplementare DISMESSO: falli/corner/tiri/cartellini/arbitro ora da
-# football-data.co.uk (fonte HTTP/CSV stabile, vedi step piu' sotto).
-SOFASCORE_SUPPLEMENTAL_ENABLED="false"
+# SofaScore RIMOSSO: falli/corner/tiri/cartellini/arbitro ora da football-data.co.uk
+# (fonte HTTP/CSV stabile, vedi step piu' sotto).
 FOOTBALL_DATA_KEEP_SEASONS="${FOOTBALL_DATA_KEEP_SEASONS:-4}"
 FOOTBALL_DATA_TIMEOUT_SECONDS="${FOOTBALL_DATA_TIMEOUT_SECONDS:-900}"
 UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
@@ -120,7 +119,7 @@ done
 echo "Running Understat sync..."
 post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
-  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"includeSofaScoreSupplemental\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
 echo "Running football-data.co.uk supplemental sync (fouls/corners/shots/cards/referee) + season retention..."

@@ -12,14 +12,12 @@ import {
 } from '../services/odds-provider/providerRuntimeConfig';
 import { getProviderTimeoutMs } from '../services/odds-provider/OddsProviderCoordinator';
 import { OddsApiKickoffSyncService } from '../services/OddsApiKickoffSyncService';
-import { SofaScoreSupplementalScraper } from '../services/SofaScoreSupplementalScraper';
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
 import { UnderstatScraper } from '../services/UnderstatScraper';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
-import { recomputeTeamAveragesForMatchRows } from '../services/TeamAveragesService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
 import {
   syncFootballData,
@@ -911,15 +909,7 @@ let understatActiveImportMeta: {
   includeMatchDetails: boolean;
   forceRefresh: boolean;
   importPlayers: boolean;
-  includeSofaScoreSupplemental?: boolean;
-  sofaScoreSupplementalLimit?: number;
 } | null = null;
-const SOFASCORE_SUPPLEMENTAL_ENABLED =
-  String(process.env.SOFASCORE_SUPPLEMENTAL_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
-const SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN = Math.max(
-  0,
-  Math.min(Number(process.env.SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN ?? 80) || 80, 500)
-);
 
 const canonicalUnderstatTeamName = (name: string): string =>
   ({
@@ -936,33 +926,6 @@ const canonicalUnderstatTeamName = (name: string): string =>
     olympique_marseille: 'marseille',
     olympique_lyonnais: 'lyon',
   } as Record<string, string>)[UnderstatScraper.normalizeTeamName(name)] ?? UnderstatScraper.normalizeTeamName(name);
-
-const isCompletedMatchRow = (row: any): boolean =>
-  row?.home_goals !== null && row?.home_goals !== undefined
-  && row?.away_goals !== null && row?.away_goals !== undefined;
-
-const needsSofaScoreSupplemental = (row: any): boolean => {
-  if (!row) return true;
-  const hasReferee = typeof row?.referee === 'string' && row.referee.trim().length > 0;
-  if (!isCompletedMatchRow(row)) return !hasReferee;
-  return !hasReferee
-    || row?.home_possession === null || row?.home_possession === undefined
-    || row?.away_possession === null || row?.away_possession === undefined
-    || row?.home_fouls === null || row?.home_fouls === undefined
-    || row?.away_fouls === null || row?.away_fouls === undefined
-    || row?.home_corners === null || row?.home_corners === undefined
-    || row?.away_corners === null || row?.away_corners === undefined;
-};
-
-const rankSofaScoreCandidates = (rows: any[]): any[] => {
-  const completed = rows
-    .filter((row) => isCompletedMatchRow(row))
-    .sort((a, b) => new Date(String(b?.date ?? '')).getTime() - new Date(String(a?.date ?? '')).getTime());
-  const upcoming = rows
-    .filter((row) => !isCompletedMatchRow(row))
-    .sort((a, b) => new Date(String(a?.date ?? '')).getTime() - new Date(String(b?.date ?? '')).getTime());
-  return [...completed, ...upcoming];
-};
 
 router.get('/stats/understat/team-season', async (req: Request, res: Response) => {
   try {
@@ -1019,81 +982,9 @@ router.get('/scraper/understat/info', async (_req, res) => {
       dbLastImport: dbStatus,
       importInProgress: understatImportInProgress,
       activeImport: understatActiveImportMeta,
-      note: 'Understat resta la fonte primaria per squadre, partite e giocatori. SofaScore completa possesso, falli, corner e arbitro sui match che ne sono privi.',
+      note: 'Understat resta la fonte primaria per squadre, partite e giocatori. football-data.co.uk completa falli, corner, tiri, cartellini e arbitro (vedi /scraper/football-data).',
     },
   });
-});
-
-router.post('/scraper/sofascore/supplemental', async (req: Request, res: Response) => {
-  req.setTimeout(60 * 60 * 1000);
-  res.setTimeout(60 * 60 * 1000);
-
-  const enabled = req.body?.enabled === undefined
-    ? SOFASCORE_SUPPLEMENTAL_ENABLED
-    : Boolean(req.body?.enabled);
-  if (!enabled) {
-    return res.status(503).json({
-      success: false,
-      error: 'Sync supplementare SofaScore disabilitata.',
-    });
-  }
-
-  const competition = String(req.body?.competition ?? '').trim() || undefined;
-  const season = String(req.body?.season ?? '').trim() || undefined;
-  const limit = Math.max(
-    1,
-    Math.min(Number(req.body?.limit ?? SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN) || SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN, 500)
-  );
-  const onlyMissing = req.body?.onlyMissing === undefined ? true : Boolean(req.body.onlyMissing);
-
-  try {
-    const pool = await db.getMatches({ competition, season });
-    const filtered = onlyMissing ? pool.filter((row) => needsSofaScoreSupplemental(row)) : pool;
-    const selected = rankSofaScoreCandidates(filtered).slice(0, limit);
-
-    if (selected.length === 0) {
-      return res.json({
-        success: true,
-        data: {
-          source: 'sofascore_supplemental',
-          enabled: true,
-          poolMatches: pool.length,
-          selectedMatches: 0,
-          message: 'Nessun match da completare con SofaScore.',
-        },
-      });
-    }
-
-    const scraper = new SofaScoreSupplementalScraper();
-    try {
-      const syncSummary = await scraper.applyToDatabase(db, selected);
-      const updatedRows = selected.filter((row) => syncSummary.updatedMatchIds.includes(String(row.match_id)));
-      const updatedCompletedRows = updatedRows.filter((row) => isCompletedMatchRow(row));
-      const teamsRecomputed = updatedCompletedRows.length > 0
-        ? await recomputeTeamAveragesForMatchRows(db, updatedCompletedRows)
-        : 0;
-
-      return res.json({
-        success: true,
-        data: {
-          source: 'sofascore_supplemental',
-          enabled: true,
-          competition: competition ?? 'all',
-          season: season ?? 'all',
-          poolMatches: pool.length,
-          selectedMatches: selected.length,
-          deferredMatches: Math.max(0, filtered.length - selected.length),
-          updatedCompletedMatches: updatedCompletedRows.length,
-          teamsRecomputed,
-          ...syncSummary,
-        },
-      });
-    } finally {
-      await scraper.close().catch(() => undefined);
-    }
-  } catch (e: any) {
-    return res.status(500).json({ success: false, error: e.message });
-  }
 });
 
 async function runUnderstatImport(req: Request, res: Response) {
@@ -1130,23 +1021,7 @@ async function runUnderstatImport(req: Request, res: Response) {
       importPlayers = true,
       includeMatchDetails = true,
       forceRefresh = false,
-      includeSofaScoreSupplemental: includeSofaScoreSupplementalRaw,
-      sofaScoreSupplementalLimit: sofaScoreSupplementalLimitRaw,
     } = req.body ?? {};
-
-    const includeSofaScoreSupplemental = includeSofaScoreSupplementalRaw === undefined
-      ? SOFASCORE_SUPPLEMENTAL_ENABLED
-      : Boolean(includeSofaScoreSupplementalRaw);
-    const sofaScoreSupplementalLimit = Math.max(
-      0,
-      Math.min(
-        Number(
-          sofaScoreSupplementalLimitRaw
-          ?? SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN
-        ) || SOFASCORE_SUPPLEMENTAL_MAX_MATCHES_PER_RUN,
-        500
-      )
-    );
 
     const competitionsToRun: string[] = mode === 'top5'
       ? UnderstatScraper.getTop5Competitions()
@@ -1166,8 +1041,6 @@ async function runUnderstatImport(req: Request, res: Response) {
       includeMatchDetails: Boolean(includeMatchDetails),
       forceRefresh: Boolean(forceRefresh),
       importPlayers: Boolean(importPlayers),
-      includeSofaScoreSupplemental,
-      sofaScoreSupplementalLimit,
     };
 
     const hasMissingAdvancedStats = (matchRow: any): boolean => {
@@ -1216,7 +1089,6 @@ async function runUnderstatImport(req: Request, res: Response) {
     let totalSkipped = 0;
     let totalNew = 0;
     let totalUpcomingImported = 0;
-    const sofaScoreCandidateMap = new Map<string, any>();
     const competitionActivity: Record<string, {
       playedTouched: number;
       fixturesTouched: number;
@@ -1411,33 +1283,6 @@ async function runUnderstatImport(req: Request, res: Response) {
               else importedUpcoming++;
             }
 
-            if (includeSofaScoreSupplemental && sofaScoreSupplementalLimit > 0) {
-              const sofaScoreCandidate = {
-                match_id: String(internalizedMatch.matchId),
-                home_team_id: String(homeTeam.team_id),
-                away_team_id: String(awayTeam.team_id),
-                home_team_name: String(internalizedMatch.homeTeamName ?? homeTeam.name ?? ''),
-                away_team_name: String(internalizedMatch.awayTeamName ?? awayTeam.name ?? ''),
-                date: String(internalizedMatch.date),
-                home_goals: futureFixture ? null : internalizedMatch.homeGoals ?? null,
-                away_goals: futureFixture ? null : internalizedMatch.awayGoals ?? null,
-                home_possession: existingRow?.home_possession ?? null,
-                away_possession: existingRow?.away_possession ?? null,
-                home_fouls: existingRow?.home_fouls ?? null,
-                away_fouls: existingRow?.away_fouls ?? null,
-                home_corners: existingRow?.home_corners ?? null,
-                away_corners: existingRow?.away_corners ?? null,
-                referee: existingRow?.referee ?? null,
-                competition: competitionName,
-                season,
-                source: 'understat',
-                source_match_id: internalizedMatch.sourceMatchId ?? existingRow?.source_match_id ?? null,
-              };
-              if (needsSofaScoreSupplemental(sofaScoreCandidate)) {
-                sofaScoreCandidateMap.set(String(sofaScoreCandidate.match_id), sofaScoreCandidate);
-              }
-            }
-
             if (importPlayers && isPlayed && !futureFixture) {
               for (const player of internalizedMatch.playerStats) {
                 const agg = playersAgg.get(player.playerId) ?? {
@@ -1525,92 +1370,12 @@ async function runUnderstatImport(req: Request, res: Response) {
       }
     }
 
-    const sofaScoreCandidatePool = includeSofaScoreSupplemental
-      ? rankSofaScoreCandidates(Array.from(sofaScoreCandidateMap.values()))
-      : [];
-    let sofaScoreSupplemental: {
-      enabled: boolean;
-      candidateMatches: number;
-      selectedMatches: number;
-      deferredMatches: number;
-      considered: number;
-      matchedEvents: number;
-      updatedMatches: number;
-      updatedCompletedMatches: number;
-      updatedReferees: number;
-      skippedNoEvent: number;
-      skippedNoStats: number;
-      errors: number;
-      errorSamples: string[];
-      message: string;
-    } = {
-      enabled: includeSofaScoreSupplemental,
-      candidateMatches: sofaScoreCandidatePool.length,
-      selectedMatches: 0,
-      deferredMatches: 0,
-      considered: 0,
-      matchedEvents: 0,
-      updatedMatches: 0,
-      updatedCompletedMatches: 0,
-      updatedReferees: 0,
-      skippedNoEvent: 0,
-      skippedNoStats: 0,
-      errors: 0,
-      errorSamples: [],
-      message: includeSofaScoreSupplemental
-        ? 'Supplementazione SofaScore in attesa.'
-        : 'Supplementazione SofaScore disabilitata.',
-    };
-    let sofaScoreUpdatedCompletedRows: any[] = [];
-
-    if (includeSofaScoreSupplemental && sofaScoreSupplementalLimit > 0 && sofaScoreCandidatePool.length > 0) {
-      const selectedSofaScoreRows = sofaScoreCandidatePool.slice(0, sofaScoreSupplementalLimit);
-      const sofaScoreScraper = new SofaScoreSupplementalScraper();
-      sofaScoreSupplemental.selectedMatches = selectedSofaScoreRows.length;
-      sofaScoreSupplemental.deferredMatches = Math.max(0, sofaScoreCandidatePool.length - selectedSofaScoreRows.length);
-      try {
-        const syncSummary = await sofaScoreScraper.applyToDatabase(db, selectedSofaScoreRows);
-        const updatedRows = selectedSofaScoreRows.filter((row) => syncSummary.updatedMatchIds.includes(String(row.match_id)));
-        sofaScoreUpdatedCompletedRows = updatedRows.filter((row) => isCompletedMatchRow(row));
-        sofaScoreSupplemental = {
-          ...sofaScoreSupplemental,
-          considered: syncSummary.considered,
-          matchedEvents: syncSummary.matchedEvents,
-          updatedMatches: syncSummary.updatedMatches,
-          updatedCompletedMatches: sofaScoreUpdatedCompletedRows.length,
-          updatedReferees: syncSummary.updatedReferees,
-          skippedNoEvent: syncSummary.skippedNoEvent,
-          skippedNoStats: syncSummary.skippedNoStats,
-          errors: syncSummary.errors,
-          errorSamples: syncSummary.errorSamples,
-          message: syncSummary.updatedMatches > 0
-            ? `SofaScore ha completato ${syncSummary.updatedMatches} match e aggiornato ${syncSummary.updatedReferees} arbitri.`
-            : 'SofaScore non ha trovato nuovi campi da completare nei match selezionati.',
-        };
-      } catch (sofaScoreError: any) {
-        console.warn('[sofascore] Supplementazione post-Understat non riuscita:', sofaScoreError?.message ?? sofaScoreError);
-        sofaScoreSupplemental = {
-          ...sofaScoreSupplemental,
-          errors: 1,
-          errorSamples: [sofaScoreError?.message ?? 'errore sconosciuto'],
-          message: 'Import Understat completato, ma la supplementazione SofaScore non e riuscita.',
-        };
-      } finally {
-        await sofaScoreScraper.close().catch(() => undefined);
-      }
-    } else if (includeSofaScoreSupplemental && sofaScoreCandidatePool.length === 0) {
-      sofaScoreSupplemental.message = 'Nessun match della sessione richiede completamento da SofaScore.';
-    }
-
     const competitionsNeedingPostProcessing = Array.from(
-      new Set([
-        ...competitionsToRun.filter((comp) =>
+      new Set(
+        competitionsToRun.filter((comp) =>
           forceRefresh || (competitionActivity[comp]?.playedTouched ?? 0) > 0
-        ),
-        ...sofaScoreUpdatedCompletedRows
-          .map((row) => String(row?.competition ?? '').trim())
-          .filter(Boolean),
-      ])
+        )
+      )
     );
 
     let teamsRecomputed = 0;
@@ -1749,7 +1514,6 @@ async function runUnderstatImport(req: Request, res: Response) {
         refereesDerivedDetected,
         refereesDerivedUpdated,
         refereeMatchesConsidered,
-        sofaScoreSupplemental,
         deletedMatchesByCompetition,
         autoModelFit,
         postProcessingCompetitions: competitionsNeedingPostProcessing,
@@ -1758,8 +1522,8 @@ async function runUnderstatImport(req: Request, res: Response) {
         isUpToDate: totalNew === 0,
         forceRefresh,
         message: totalNew === 0
-          ? `DB gia aggiornato da Understat. ${sofaScoreSupplemental.message}`
-          : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori. ${sofaScoreSupplemental.message}`,
+          ? 'DB gia aggiornato da Understat.'
+          : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       },
     };

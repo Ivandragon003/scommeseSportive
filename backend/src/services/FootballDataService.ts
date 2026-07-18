@@ -112,7 +112,8 @@ const numOrNull = (v: string | undefined): number | null => {
 export function parseFootballDataCsv(text: string): FootballDataRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) return [];
-  const header = lines[0].replace(/^﻿/, '').split(',');
+  const first = lines[0].charCodeAt(0) === 0xFEFF ? lines[0].slice(1) : lines[0];
+  const header = first.split(',');
   const col = (name: string) => header.indexOf(name);
   const iDate = col('Date'), iHome = col('HomeTeam'), iAway = col('AwayTeam');
   if (iDate < 0 || iHome < 0 || iAway < 0) return [];
