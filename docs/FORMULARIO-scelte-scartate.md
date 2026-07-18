@@ -21,13 +21,17 @@ Metodo comune: misurazione sull'**intera pipeline di produzione** (fit → ensem
 | **Parametro per-lega `leagueAvgYellow`** (3.8 → media reale) | logLoss raw +0.38% (peggio) | **p=0.016 direzione opposta** | Nell'attuale modello/pipeline il 3.8 globale produce risultati migliori sui gialli (causa non dimostrata) | `per-league-yellow-param-2026-07.md` |
 | **Vantaggio casa per-squadra** | nessun guadagno OOS | — | Il bias è di livello totale, non casa-specifico → risolto da `levelCorrection` | `per-team-home-advantage-analysis-2026-07.md` |
 
-## B. Interventi bloccati per dati insufficienti
+## B. Interventi ex-bloccati per dati — ora SBLOCCATI (football-data.co.uk, 2026-07)
 
-| Intervento | Motivo | Sblocco |
+L'integrazione di **football-data.co.uk** ha portato falli/corner/tiri/cartellini a ~100% (§13 formulario). I seguenti interventi non sono più bloccati e sono ora **testabili**:
+
+| Intervento | Stato | Note |
 |---|---|---|
-| **Corner concessi** (modello dedicato vs proxy) | Corner reali nell'1–2% dei match: impossibile tarare/validare | nuova fonte dati (SofaScore/FBref) |
-| **Parametri per-lega falli e corner** | Falli/corner all'1–2%: nessun dato per stimare i default | nuova fonte dati |
-| **Refactor effetto arbitro** (triplo conteggio) | Arbitro nell'1–2%: il codice quasi mai si attiva → refactor senza impatto né validabile | nuova fonte dati |
+| **Modello falli / corner** | ✅ dati disponibili, da validare full-pipeline | Backtest preliminare (dati reali): livello ottimo (bias falli +0.8%, corner −0.1%); dispersione grezza da tarare/calibrare. Non ancora attivati nel filtro value |
+| **Parametri per-lega falli e corner** | testabile | ora c'è il dato per stimare i default per-lega |
+| **Refactor effetto arbitro** | parziale | arbitro coperto solo per la Premier (~22%); fuori Premier resta neutro |
+
+Ancora scoperti: **possesso** (~1%, nessuna fonte HTTP stabile) e **arbitro fuori Premier**.
 
 Dettaglio copertura in §13 del formulario e nella memoria di progetto (`data-coverage-gaps`).
 

@@ -12,7 +12,7 @@ Per le idee valutate e **scartate** (e il perché) vedere il documento compagno 
 - Stack: React frontend · Node.js + Express + TypeScript backend · libSQL/Turso · Docker · modular monolith.
 - Fonte dati calcio: **Understat** (rose, tiri, xG per-match nel `raw_json`). FotMob/Transfermarkt/FBref non attivi.
 - Fonte quote: **Eurobet / The Odds API**. Quote sintetiche solo per diagnostica/backtest.
-- Mercati value attivi: `goal_1x2`, `goal_ou`, `btts`, `shots`, `shots_ot`, `yellow_cards`, `exact_score`, `handicap`. **Corners e fouls disattivati** dal filtro value (dati reali presenti solo nell'1–2% dei match — vedi §13).
+- Mercati value attivi: `goal_1x2`, `goal_ou`, `btts`, `shots`, `shots_ot`, `yellow_cards`, `exact_score`, `handicap`, player props. **Corners e fouls** hanno ora i dati reali (~100% via football-data.co.uk, §13) ma restano fuori dal filtro value finché i modelli non sono validati in backtest.
 - `maxOdds = 8.00`, `applyMaxOddsToAllMarkets = true`, `sofascoreSupplementalEnabled = false`.
 
 ## 1. Configurazione tipizzata
@@ -115,18 +115,18 @@ NegBin: Var[X] = μ + μ²/r
 ```
 μ_giallo_squadra = shrinkToLeague(avgYellow_team, leagueAvgYellow/2, n, 15) · refFactor · foulsBonus · compFactor
 ```
-- `refFactor`, `foulsBonus`: fattori arbitro, **neutri in produzione** (arbitro/falli presenti nell'1–2% dei match → default = media lega).
+- `refFactor`, `foulsBonus`: fattori arbitro. L'arbitro è coperto solo per la Premier (~22% globale, football-data ha Referee solo per E0) → per le altre leghe resta neutro (default = media lega). I falli invece ora sono ~100%.
 - 🆕 **`compFactor` (BUGFIX 2026-07):** curva sigmoidale **centrata**
   ```
   compFactor = 1 + 0.22·(2·sigmoid(competitiveness·8 − 4) − 1)
   ```
   Prima era `− 0` (refuso): valeva 1.22 su una partita media e 1.43 sui derby su OGNI match → aspettativa gialli sovrastimata del +26%. Col fix: neutro sulla partita media, ±22% agli estremi, bias +26%→+3.6%. Sul mercato Over gialli: logLoss cal −2.98%, ECE 0.0728→0.0279.
 - Rossi: Poisson, fattore arbitro più smorzato. Card points = μ_gialli + 2·(λ_rossi).
-- **Correzione gialli↔falli (post-hoc in DixonColesModel):** `yellowFoulsCorrFactor = (falliAttesi/leagueAvgFouls)^0.7 · (0.7 + 0.3·refStrictness)`, applicata a `expectedTotalYellow` e alle O/U gialli quando |fattore−1|>0.02. ⚠️ Inerte in produzione (falli 1–2%).
+- **Correzione gialli↔falli (post-hoc in DixonColesModel):** `yellowFoulsCorrFactor = (falliAttesi/leagueAvgFouls)^0.7 · (0.7 + 0.3·refStrictness)`, applicata a `expectedTotalYellow` e alle O/U gialli quando |fattore−1|>0.02. 🆕 Ora attiva (falli ~100% via football-data).
 
 ### 4.3 Falli / Corner / Tiri
-- **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. ⚠️ gira su default (dato falli 1–2%).
-- **Corner:** NegBin, proxy `avgCornersFor·0.6 + avgCornersAgainst·0.4`. ⚠️ gira su default (dato corner 1–2%).
+- **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. 🆕 Ora su **dati reali** (~100%). Backtest: livello ottimo (bias +0.8%), dispersione grezza un po' larga (da tarare/calibrare) — validare full-pipeline prima di attivare.
+- **Corner:** NegBin, proxy `avgCornersFor·0.6 + avgCornersAgainst·0.4`. 🆕 Ora su **dati reali** (~100%). Backtest: bias −0.1%, ECE 0.021.
 - **Tiri:** NegBin per squadra e totale, con `SERIE_A_SHOT_GOAL_RATIO = 11.0` per il blend λ→tiri impliciti (α=0.35).
 
 ## 5. Mercati per giocatore
@@ -141,8 +141,9 @@ Le medie che alimentano i modelli sopra non sono grezze: vengono aggregate da se
 
 - **Medie squadra** (`DatabaseService.recomputeTeamAverages` / `TeamAveragesService.ts`): tiri, tiri in porta, gialli, rossi, falli, corner, xG, possesso per squadra, con **decadimento temporale esponenziale** `peso = exp(−DECAY_PER_DAY·(oggi−data))`, `DECAY_PER_DAY = 0.005/giorno` (half-life ≈ 139 giorni). Alimenta `homeTeamStats`/`awayTeamStats` (`avgYellowCards`, `avgShots`, `avgFouls`, `avgHomeCorners`, `sampleSize`, `varShots`…).
 - **Stats giocatore** (`PlayerDerivedStatsService.ts`): ricostruite dalle rose in `raw_json` — `avg_xg_per_game`, `shots_per90`, `shotShareOfTeam`, `yellow_cards_total`, `minutes_total`, `gamesPlayed`. Alimentano i mercati player e il lineup xG adjustment.
-- **Stats arbitro** (`RefereeDerivedStatsService.ts`): `avgYellow`, `avgFouls`, `avgRed`, `games`, `dispersionYellow`. ⚠️ Copertura arbitro 1–2% → quasi sempre assenti al predict.
-- **Ingestione:** `UnderstatScraper.ts` (dati calcio), `OddsApiService`/`odds-provider/*` (quote), `SofaScoreSupplementalScraper.ts` (disattivato).
+- **Stats arbitro** (`RefereeDerivedStatsService.ts`): `avgYellow`, `avgFouls`, `avgRed`, `games`, `dispersionYellow`. Copertura arbitro ~22% (football-data ha Referee solo per la Premier).
+- 🆕 **Fonte supplementare** (`FootballDataService.ts`): football-data.co.uk (HTTP/CSV) riempie via COALESCE (solo i NULL) falli, corner, tiri, tiri in porta, cartellini, arbitro — portandoli a ~100%. Matching per data+squadre (alias map, 99.7%). Retention `pruneOldSeasons` (4 stagioni). Ha sostituito lo scraper SofaScore (rimosso).
+- **Ingestione:** `UnderstatScraper.ts` (dati calcio, HTTP/axios), `FootballDataService.ts` (stats supplementari, HTTP/CSV), `OddsApiService`/`odds-provider/*` (quote). Aggiornamento notturno alle **03:00 ora di Roma**.
 
 ## 6. Context builder
 
@@ -208,17 +209,20 @@ rawEvDelta = −filterRejectionRate·0.010 − rankingErrorRate·0.002 + confirm
 confidenceScale = clamp(totalWeight/12, 0.2, 1.0)     evDelta = clamp(rawEvDelta·confidenceScale, −0.012, +0.008)
 ```
 
-## 13. 🆕 Realtà della copertura dati (importante)
+## 13. Copertura dati (dopo integrazione football-data.co.uk)
 
-Misurata su 7.082 match completati (5 leghe):
+Misurata su 7.082 match completati, 4 stagioni (5 leghe):
 
-| dato | copertura | conseguenza |
+| dato | copertura | note |
 |---|---|---|
-| gialli, rossi, tiri, tiri in porta, xG | ~50–100% | mercati goal/tiri/gialli affidabili |
-| falli, corner, possesso, arbitro | **1–2%** | modelli falli/corner girano su default; effetto arbitro quasi mai attivo |
+| goal, xG | 100% | Understat |
+| tiri, tiri in porta, gialli, rossi | ~100% 🆕 | Understat + football-data (prima ~49%) |
+| **falli, corner** | **~100%** 🆕 | football-data (prima 1–2%) → modelli backtestabili |
+| arbitro | ~22% | football-data ha Referee solo per la Premier |
+| possesso | ~1% | nessuna fonte HTTP lo copre |
 | rose per-partita (raw_json) | 100% | assenze ricostruibili |
 
-Implicazione: ogni lavoro su falli/corner/arbitro è **speculativo** finché non si abilita una nuova fonte dati (`SofaScoreSupplementalScraper`, oggi disattivato, o FBref).
+Il gap storico (falli/corner all'1–2%) è **risolto** da football-data.co.uk (§5b). Restano scoperti solo **possesso** (nessuna fonte stabile) e **arbitro fuori Premier**.
 
 ## 14. Pipeline di predizione (ordine reale)
 
@@ -267,7 +271,8 @@ Componenti non-modello (plumbing), elencati per completezza. Non contengono form
 | `services/playerProps.ts` | Parsing/normalizzazione delle chiavi mercato player prop (`player_<id>_<market>_<side>_<line>`) |
 | `services/BacktestReportService.ts` | Formattazione dei report di backtest |
 | `services/SystemObservabilityService.ts` | Osservabilità/telemetria delle run |
-| `services/UnderstatScraper.ts`, `SofaScoreSupplementalScraper.ts` | Scraping dati calcio (SofaScore disattivato) |
+| `services/UnderstatScraper.ts` | dati calcio Understat (HTTP/axios) |
+| `services/FootballDataService.ts` 🆕 | stats supplementari football-data.co.uk + retention stagioni |
 | `db/DatabaseService.ts` | Accesso libSQL/Turso, schema, medie squadra con decay, snapshot quote |
 | `config/algorithmVersions.ts` | Versioning degli algoritmi |
 | `api/routes.ts`, `api/predictionPayloadFormatter.ts` | Layer HTTP: endpoint e formattazione payload di predizione |
