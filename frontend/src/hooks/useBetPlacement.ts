@@ -107,7 +107,7 @@ export function useBetPlacement({
       await loadUserContext();
       showToast({
         tone: 'success',
-        title: 'Bet registrata',
+        title: 'Giocata registrata',
         message: `Registrata ${opportunity.selectionLabel ?? opportunity.selection} a quota ${Number(opportunity.bookmakerOdds ?? 0).toFixed(2)}.`,
       });
     } catch (error) {

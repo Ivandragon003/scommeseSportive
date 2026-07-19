@@ -1,17 +1,17 @@
 import React, { useRef } from 'react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
-import OddsSourceBadge from './OddsSourceBadge';
 import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
 import ShotsSection from './ShotsSection';
 import PlayerPropsSection from './PlayerPropsSection';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { DistChart, ProbBar } from './PredictionStatPrimitives';
-import { formatCompactOuKey, fmtN, fmtPct, fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
+import { formatCompactOuKey, fmtN, fmtPct, fmtSelection } from './predictionFormatting';
 import { BestValueOpportunity as BestValueOpportunityModel } from './predictionTypes';
 import { currentSeason, formatKickoff, isSerieA, formatMarketKey as fmtMarketKey, VALUE_LEGEND } from './predictionWorkbenchUtils';
 import type { PredictionWorkbenchViewModel } from '../../hooks/usePredictionWorkbench';
+import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 
 interface PredictionWorkbenchViewProps {
   vm: PredictionWorkbenchViewModel;
@@ -19,8 +19,6 @@ interface PredictionWorkbenchViewProps {
 
 /*  STYLES  */
 const S = `
-@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=DM+Mono:wght@400;500&display=swap');
-
 .pr {
   display:flex;
   height:100%;
@@ -63,11 +61,11 @@ const S = `
 .pr-match-row:hover { background:var(--surface2); }
 .pr-match-row.active { background:var(--blue-dim) !important; border-left:2px solid var(--blue); padding-left:14px; }
 .pr-match-row.loading-row { opacity:.5; pointer-events:none; }
-.pr-match-time { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:40px; flex-shrink:0; text-align:center; }
+.pr-match-time { font-family:var(--font-mono); font-size:10px; color:var(--text-3); width:40px; flex-shrink:0; text-align:center; }
 .pr-match-teams { flex:1; min-width:0; }
 .pr-match-home, .pr-match-away { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
 .pr-match-away { color:var(--text-2); font-weight:600; }
-.pr-match-md { font-family:'DM Mono',monospace; font-size:9px; color:var(--text-3); margin-top:2px; }
+.pr-match-md { font-family:var(--font-mono); font-size:9px; color:var(--text-3); margin-top:2px; }
 .pr-match-comp { font-size:9px; font-weight:700; color:var(--text-3); text-transform:uppercase; letter-spacing:.8px; flex-shrink:0; max-width:60px; text-align:right; }
 .pr-match-vb {
   position:absolute; right:12px; top:50%; transform:translateY(-50%);
@@ -93,8 +91,8 @@ const S = `
   padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
 }
 .pr-results-match { font-size:15px; font-weight:800; letter-spacing:-.3px; }
-.pr-results-meta { font-size:11px; color:var(--text-2); font-family:'DM Mono',monospace; margin-top:2px; }
-.pr-odds-status { font-size:11px; padding:4px 12px; border-radius:20px; }
+.pr-results-meta { font-size:11px; color:var(--text-2); font-family:var(--font-mono); margin-top:2px; }
+.pr-odds-status { font-size:11px; padding:4px 10px; border-radius:var(--radius-xs); }
 .pr-odds-status.info    { background:var(--blue-dim);  color:var(--blue);  }
 .pr-odds-status.success { background:var(--green-dim); color:var(--green); }
 .pr-odds-status.warning { background:var(--gold-dim);  color:var(--gold);  }
@@ -109,26 +107,21 @@ const S = `
   align-items:center; gap:16px;
   position:relative; overflow:hidden;
 }
-.pr-hero::before {
-  content:''; position:absolute; inset:0;
-  background:radial-gradient(ellipse at 50% 0%, rgba(76,201,240,0.06) 0%, transparent 65%);
-  pointer-events:none;
-}
 .pr-hero-team { display:flex; flex-direction:column; gap:5px; }
 .pr-hero-team.right { text-align:right; align-items:flex-end; }
 .pr-hero-name { font-size:16px; font-weight:800; letter-spacing:-.3px; }
 .pr-hero-lambda {
   display:inline-flex; align-items:center; gap:4px;
   background:var(--surface2); border:1px solid var(--border);
-  border-radius:20px; padding:3px 10px;
-  font-family:'DM Mono',monospace; font-size:11px; color:var(--text-2);
+  border-radius:var(--radius-xs); padding:3px 8px;
+  font-family:var(--font-mono); font-size:11px; color:var(--text-2);
 }
 .pr-hero-center { text-align:center; }
 .pr-hero-vs { font-size:11px; font-weight:800; color:var(--text-3); letter-spacing:3px; margin-bottom:6px; }
 .pr-confidence {
   background:var(--blue-dim); border:1px solid var(--blue-border);
-  border-radius:20px; padding:4px 12px;
-  font-size:11px; color:var(--blue); font-family:'DM Mono',monospace;
+  border-radius:var(--radius-xs); padding:4px 10px;
+  font-size:11px; color:var(--blue); font-family:var(--font-mono);
 }
 
 /* KPI ROW */
@@ -137,7 +130,7 @@ const S = `
   background:var(--surface2); border:1px solid var(--border);
   border-radius:var(--radius-sm); padding:12px 14px; text-align:center;
 }
-.pr-kpi-val { font-family:'DM Mono',monospace; font-size:20px; font-weight:700; }
+.pr-kpi-val { font-family:var(--font-mono); font-size:20px; font-weight:700; }
 .pr-kpi-lbl { font-size:9px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-2); font-weight:700; margin-top:3px; }
 
 /* TABS */
@@ -152,7 +145,7 @@ const S = `
 .pr-tab:hover { color:var(--text); background:var(--surface3); border-color:var(--border); }
 .pr-tab.active { background:var(--surface3); color:var(--text); border-color:var(--border-hover); }
 .pr-tab-pill {
-  display:inline-flex; background:var(--green-dim); color:var(--green);
+  display:inline-flex; background:var(--primary-dim); color:var(--primary);
   border-radius:10px; padding:1px 6px; font-size:9px; margin-left:4px;
 }
 
@@ -166,7 +159,7 @@ const S = `
 .pr-prob-fill {
   height:100%; border-radius:100px;
   display:flex; align-items:center; justify-content:flex-end;
-  padding-right:8px; font-size:10px; font-family:'DM Mono',monospace;
+  padding-right:8px; font-size:10px; font-family:var(--font-mono);
   font-weight:500; color:#000; transition:width .5s cubic-bezier(.4,0,.2,1); min-width:40px;
 }
 
@@ -183,20 +176,20 @@ const S = `
   border-radius:10px; padding:12px 8px; text-align:center;
   transition:all var(--transition);
 }
-.pr-score-cell:hover { transform:translateY(-2px); border-color:var(--border-hover); }
+.pr-score-cell:hover { border-color:var(--border-hover); }
 .pr-score-cell.hot { border-color:var(--blue-border); background:var(--blue-dim); }
-.pr-score-cell.warm { border-color:var(--green-border); background:var(--green-dim); }
-.pr-score-val { font-size:18px; font-weight:800; font-family:'DM Mono',monospace; }
-.pr-score-pct { font-size:10px; font-family:'DM Mono',monospace; color:var(--blue); margin-top:2px; }
+.pr-score-cell.warm { border-color:var(--border-hover); background:var(--surface3); }
+.pr-score-val { font-size:18px; font-weight:800; font-family:var(--font-mono); }
+.pr-score-pct { font-size:10px; font-family:var(--font-mono); color:var(--blue); margin-top:2px; }
 
 /* CHART */
 .pr-chart-head { display:flex; justify-content:space-between; margin-bottom:6px; font-size:11px; color:var(--text-2); }
-.pr-chart-head strong { color:var(--text); font-family:'DM Mono',monospace; }
+.pr-chart-head strong { color:var(--text); font-family:var(--font-mono); }
 
 /* AH GRID */
 .pr-ah-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px; margin-top:10px; }
 .pr-ah-cell { display:flex; justify-content:space-between; align-items:center; background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:7px 12px; font-size:12px; }
-.pr-ah-cell strong { font-family:'DM Mono',monospace; }
+.pr-ah-cell strong { font-family:var(--font-mono); }
 
 /* VALUE BETS */
 .pr-vb {
@@ -212,14 +205,14 @@ const S = `
   padding:14px 18px; border-bottom:1px solid var(--border);
 }
 .pr-vb-market { font-size:14px; font-weight:800; margin-bottom:6px; }
-.pr-vb-market-sub { font-size:11px; color:var(--text-2); font-family:'DM Mono',monospace; }
-.pr-vb-ev-num { font-family:'DM Mono',monospace; font-size:20px; font-weight:700; color:var(--green); }
+.pr-vb-market-sub { font-size:11px; color:var(--text-2); font-family:var(--font-mono); }
+.pr-vb-ev-num { font-family:var(--font-mono); font-size:20px; font-weight:700; color:var(--green); }
 .pr-vb-ev-lbl { font-size:9px; color:var(--text-2); letter-spacing:1px; text-align:right; }
 .pr-vb-stats { display:grid; grid-template-columns:repeat(5,1fr); border-bottom:1px solid var(--border); }
 .pr-vb-stat { padding:10px 14px; border-right:1px solid var(--border); }
 .pr-vb-stat:last-child { border-right:none; }
 .pr-vb-stat-lbl { font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--text-3); font-weight:700; margin-bottom:3px; }
-.pr-vb-stat-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:600; }
+.pr-vb-stat-val { font-family:var(--font-mono); font-size:13px; font-weight:600; }
 .pr-vb-bottom {
   display:flex; justify-content:space-between; align-items:center;
   padding:10px 18px; background:var(--surface2); gap:12px;
@@ -228,16 +221,16 @@ const S = `
 .pr-stake-lbl { font-size:11px; color:var(--text-2); }
 .pr-stake-input {
   background:var(--surface); border:1px solid var(--border); border-radius:7px;
-  padding:7px 12px; color:var(--text); font-family:'DM Mono',monospace;
+  padding:7px 12px; color:var(--text); font-family:var(--font-mono);
   font-size:13px; width:90px; outline:none; transition:border-color var(--transition);
 }
-.pr-stake-input:focus { border-color:var(--green); }
-.pr-suggest { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; display:flex; flex-direction:column; line-height:1.35; }
+.pr-stake-input:focus { border-color:var(--primary); }
+.pr-suggest { font-size:10px; color:var(--text-3); font-family:var(--font-mono); display:flex; flex-direction:column; line-height:1.35; }
 
 /* BADGES / ALERTS inline */
 .pr-badge {
-  display:inline-flex; align-items:center; font-family:'DM Mono',monospace;
-  font-size:9px; font-weight:600; padding:2px 9px; border-radius:20px; border:1px solid transparent;
+  display:inline-flex; align-items:center; font-family:var(--font-mono);
+  font-size:9px; font-weight:600; padding:2px 8px; border-radius:var(--radius-xs); border:1px solid transparent;
 }
 .pr-badge-green  { background:var(--green-dim);  color:var(--green);  border-color:var(--green-border); }
 .pr-badge-blue   { background:var(--blue-dim);   color:var(--blue);   border-color:var(--blue-border);  }
@@ -245,7 +238,7 @@ const S = `
 .pr-badge-gray   { background:var(--surface3); color:var(--text-2); border-color:var(--border); }
 .pr-badge-purple { background:var(--purple-dim); color:var(--purple); border-color:var(--purple-border); }
 
-.pr-alert { padding:10px 14px; border-radius:10px; font-size:12px; line-height:1.6; margin-bottom:12px; }
+.pr-alert { padding:10px 14px; border-radius:var(--radius-sm); font-size:12px; line-height:1.6; margin-bottom:12px; }
 .pr-alert-info    { background:var(--blue-dim);  border:1px solid var(--blue-border);  color:var(--blue);  }
 .pr-alert-success { background:var(--green-dim); border:1px solid var(--green-border); color:var(--green); }
 .pr-alert-warning { background:var(--gold-dim);  border:1px solid var(--gold-border);  color:var(--gold);  }
@@ -264,14 +257,14 @@ const S = `
 }
 .pr-odds-cell.best { border-color:var(--green-border); background:var(--green-dim); }
 .pr-odds-name { font-size:12px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.pr-odds-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:700; color:var(--text); }
+.pr-odds-val { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text); }
 .pr-legend-grid { display:grid; grid-template-columns:1fr; gap:6px; }
 .pr-legend-row {
   display:grid; grid-template-columns:170px 1fr; gap:10px;
   padding:8px 10px; border:1px solid var(--border); border-radius:8px;
   background:var(--surface2);
 }
-.pr-legend-term { font-family:'DM Mono',monospace; font-size:11px; color:var(--text); font-weight:700; }
+.pr-legend-term { font-family:var(--font-mono); font-size:11px; color:var(--text); font-weight:700; }
 .pr-legend-meaning { font-size:11px; color:var(--text-2); }
 
 /* SPINNER */
@@ -285,7 +278,7 @@ const S = `
 .pr-player-head { display:flex; justify-content:space-between; align-items:flex-start; }
 .pr-player-name { font-size:15px; font-weight:800; margin-bottom:3px; }
 .pr-player-meta { font-size:11px; color:var(--text-2); }
-.pr-player-xg-val { font-size:22px; font-weight:800; font-family:'DM Mono',monospace; color:var(--blue); text-align:right; }
+.pr-player-xg-val { font-size:22px; font-weight:800; font-family:var(--font-mono); color:var(--blue); text-align:right; }
 .pr-player-xg-lbl { font-size:10px; color:var(--text-2); text-align:right; }
 
 /* INFO BOX */
@@ -295,11 +288,33 @@ const S = `
 /* INPUT/SELECT small */
 .pr-select-sm, .pr-input-sm {
   background:var(--surface2); border:1px solid var(--border); border-radius:8px;
-  padding:8px 12px; color:var(--text); font-family:'DM Mono',monospace; font-size:12px;
+  padding:8px 12px; color:var(--text); font-family:var(--font-mono); font-size:12px;
   width:100%; outline:none; transition:border-color var(--transition);
 }
 .pr-select-sm:focus, .pr-input-sm:focus { border-color:var(--blue); }
 .pr-select-sm { appearance:none; cursor:pointer; }
+
+.pr-decision-layout { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(260px,.55fr); gap:14px; margin:0 20px 16px; align-items:start; }
+.pr-decision-report {
+  background:var(--surface); border:1px solid var(--primary-border); border-left:4px solid var(--primary);
+  border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
+}
+.pr-decision-report.is-empty { border-color:var(--border); border-left-color:var(--text-3); padding:18px; }
+.pr-decision-report__head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px; }
+.pr-decision-report__eyebrow { color:var(--text-3); font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.pr-decision-report__title { display:block; margin-top:5px; color:var(--text); font-size:22px; line-height:1.2; }
+.pr-decision-report__summary { margin:8px 0 0; color:var(--text-2); }
+.pr-decision-report__badges { display:flex; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+.pr-decision-report__metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:0; border-block:1px solid var(--border); background:var(--surface2); }
+.pr-decision-report__metric { padding:12px 14px; border-right:1px solid var(--border); }
+.pr-decision-report__metric:last-child { border-right:0; }
+.pr-decision-report__metric dt { color:var(--text-3); font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.pr-decision-report__metric dd { margin:4px 0 0; color:var(--text); font-family:var(--font-mono); font-size:14px; font-weight:700; }
+.pr-decision-report__body { padding:16px 18px 18px; }
+.pr-decision-report__market { display:flex; justify-content:space-between; gap:14px; padding-bottom:12px; color:var(--text-2); }
+.pr-decision-report__market strong { color:var(--text); }
+.pr-decision-report__risks, .pr-decision-report__reasons { margin-top:12px; color:var(--text-2); }
+.pr-decision-report__risks ul, .pr-decision-report__reasons ul { margin:7px 0 0 18px; padding:0; }
 
 @media (max-width:900px) {
   .pr { flex-direction:column; height:auto; overflow:visible; }
@@ -308,6 +323,8 @@ const S = `
   .pr-right { min-height:400px; }
   .pr-g2 { grid-template-columns:1fr; }
   .pr-vb-stats { grid-template-columns:repeat(2,1fr); }
+  .pr-decision-layout { grid-template-columns:1fr; }
+  .pr-decision-report__metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 `;
 
@@ -405,7 +422,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               </button>
             </div>
             {autoSyncMsg && (
-              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
                 {autoSyncMsg}
               </div>
             )}
@@ -492,8 +509,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                   ? 'Apri una partita gia giocata per verificare il pronostico finale consigliato.'
                   : 'Clicca su una partita nel pannello di sinistra per analizzarla.'}<br />
                 {matchMode === 'recent'
-                  ? 'Il replay usa prima lo snapshot storico del bookmaker; se manca, passa alle quote stimate dal modello.'
-                  : 'Le quote vengono caricate automaticamente.'}
+                  ? 'Il replay mostra una quota soltanto quando è disponibile uno snapshot Eurobet storico.'
+                  : 'Le quote Eurobet vengono caricate automaticamente quando disponibili.'}
               </div>
             </div>
           ) : loading && !pred ? (
@@ -509,7 +526,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 <div>
                   <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
                   <div className="pr-results-meta">
-                    {pred.competition} | lambda {pred.lambdaHome} - {pred.lambdaAway}
+                    {pred.competition} | gol attesi {pred.lambdaHome} - {pred.lambdaAway}
                     {actualMatch?.actualScore ? ` | finale ${actualMatch.actualScore}` : ''}
                   </div>
                 </div>
@@ -543,61 +560,43 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 }
               />
 
-              <div style={{ margin: '0 20px 16px' }}>
-                <div className="pr-card" style={{ borderColor: 'var(--blue-border)', boxShadow: '0 12px 28px rgba(29, 78, 216, 0.12)' }}>
-                  <div className="pr-card-head">
-                    <div className="pr-card-title">Migliore giocata del match</div>
-                    <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                      {bestValueOpp?.marketTier && (
-                        <span className={`pr-badge ${marketTierBadgeClass(bestValueOpp.marketTier)}`}>
-                          {marketTierLabel(bestValueOpp.marketTier)}
-                        </span>
-                      )}
-                      <OddsSourceBadge badge={oddsReliabilityBadge} />
-                    </div>
-                  </div>
-                  <div className="pr-card-body">
-                    <div className="pr-g2">
-                      <BestValueCard
-                        opportunity={bestValueOpp as BestValueOpportunityModel | null}
-                        oddsBadge={oddsReliabilityBadge}
-                        oddsWarning={oddsSourceWarning}
-                        bestBetStatus={pred.bestBetStatus}
-                        bestBetReason={pred.bestBetReason}
-                        bestBetAlternatives={pred.bestBetAlternatives}
-                        emptyMessage="Quote o probabilita insufficienti per scegliere una giocata."
-                        recommendedBetResult={
-                          recommendedBetResult
-                            ? {
-                                ...recommendedBetResult,
-                                reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
-                              }
-                            : null
+              <div className="pr-decision-layout">
+                <BestValueCard
+                  opportunity={bestValueOpp as BestValueOpportunityModel | null}
+                  oddsBadge={oddsReliabilityBadge}
+                  oddsWarning={oddsSourceWarning}
+                  bestBetStatus={pred.bestBetStatus}
+                  bestBetReason={pred.bestBetReason}
+                  emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
+                  recommendedBetResult={
+                    recommendedBetResult
+                      ? {
+                          ...recommendedBetResult,
+                          reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
                         }
-                        replayTone={replayOutcomeTone}
-                        showConfidence={false}
-                      />
-                      <div>
-                        <StakePlanner
-                          isReplayAnalysis={isReplayAnalysis}
-                          actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
-                          actualScore={actualMatch?.actualScore ?? '-'}
-                          bankroll={bankroll}
-                          suggestedTotalStake={suggestedTotalStake}
-                          maxExposurePct={maxExposurePct}
-                          maxExposureAmount={maxExposureAmount}
-                          exposureRatio={exposureRatio}
-                        />
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                          <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
-                            Apri confronto mercati
-                          </button>
-                          <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setTab('strategy')}>
-                            Apri criterio operativo
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                      : null
+                  }
+                  replayTone={replayOutcomeTone}
+                  showConfidence={false}
+                />
+                <div>
+                  <StakePlanner
+                    isReplayAnalysis={isReplayAnalysis}
+                    actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
+                    actualScore={actualMatch?.actualScore ?? '-'}
+                    bankroll={bankroll}
+                    suggestedTotalStake={suggestedTotalStake}
+                    maxExposurePct={maxExposurePct}
+                    maxExposureAmount={maxExposureAmount}
+                    exposureRatio={exposureRatio}
+                  />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                    <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
+                      Approfondisci i mercati
+                    </button>
+                    <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setTab('strategy')}>
+                      Come viene scelto
+                    </button>
                   </div>
                 </div>
               </div>
@@ -632,7 +631,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     <div className="pr-card">
                       <div className="pr-card-head"><div className="pr-card-title">Goal / Over-Under</div></div>
                       <div className="pr-card-body">
-                        <ProbBar label="Goal/Goal" value={gp.btts} color="var(--green)" />
+                        <ProbBar label="Goal/Goal" value={gp.btts} color="var(--primary-hover)" />
                         <ProbBar label="No GG" value={gp.bttsNo ?? (1-gp.btts)} color="var(--text-3)" />
                         <div style={{borderTop:'1px solid var(--border)',margin:'10px 0'}} />
                         {[['Over 0.5',gp.over05,'var(--blue)'],['Over 1.5',gp.over15,'var(--blue)'],['Over 2.5',gp.over25,'var(--blue)'],['Over 3.5',gp.over35,'var(--gold)'],['Over 4.5',gp.over45,'var(--red)']].map(([l,v,c]) => (
@@ -776,7 +775,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     <div className="pr-card-head">
                       <div className="pr-card-title">Falli - Binomiale Negativa</div>
                       <div style={{display:'flex',gap:4}}>
-                        <span className="pr-badge pr-badge-purple">M {fmtN(fp.totalFouls.expected)}</span>
+                        <span className="pr-badge pr-badge-blue">M {fmtN(fp.totalFouls.expected)}</span>
                         <span className="pr-badge pr-badge-gray">Var {fmtN(fp.totalFouls.variance)}</span>
                       </div>
                     </div>
@@ -784,10 +783,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       <div className="pr-info" style={{marginBottom:14}}>
                         Casa: <strong>{fmtN(fp.homeFouls.expected)}</strong> | Ospite: <strong>{fmtN(fp.awayFouls.expected)}</strong> | Var/media: <strong>{fmtN(fp.totalFouls.variance/fp.totalFouls.expected,2)}x</strong>
                       </div>
-                      <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--purple)" />
+                      <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--primary-hover)" />
                       <div className="pr-g2">
                         {Object.entries(fp.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                          <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={v as number} color="var(--purple)" />
+                          <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={v as number} color="var(--primary-hover)" />
                         ))}
                       </div>
                     </div>
@@ -824,7 +823,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                           <div>
                             <ProbBar label=">=1 tiro" value={p.markets.over05shots} color="var(--blue)" />
                             <ProbBar label=">=2 tiri" value={p.markets.over15shots} color="var(--blue)" />
-                            <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--green)" />
+                            <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--primary-hover)" />
                           </div>
                         </div>
                       </div>
@@ -939,7 +938,9 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         <div className="pr-legend-grid">
                           {VALUE_LEGEND.map((row) => (
                             <div className="pr-legend-row" key={row.term}>
-                              <div className="pr-legend-term">{row.term}</div>
+                              <div className="pr-legend-term">
+                                {row.termId ? <GlossaryTerm termId={row.termId}>{row.term}</GlossaryTerm> : row.term}
+                              </div>
                               <div className="pr-legend-meaning">{row.meaning}</div>
                             </div>
                           ))}

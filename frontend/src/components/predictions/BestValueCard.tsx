@@ -1,7 +1,13 @@
 import React from 'react';
 import OddsSourceBadge from './OddsSourceBadge';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
-import { BestBetAlternative, BestValueOpportunity, OddsSourceBadgeInfo, RecommendedBetResult, ReplayTone } from './predictionTypes';
+import {
+  BestBetAlternative,
+  BestValueOpportunity,
+  OddsSourceBadgeInfo,
+  RecommendedBetResult,
+  ReplayTone,
+} from './predictionTypes';
 
 interface BestValueCardProps {
   title?: string;
@@ -20,13 +26,25 @@ interface BestValueCardProps {
 const formatMetricNumber = (
   value: number | string | undefined,
   digits: number,
-  suffix = '',
-  prefix = ''
+  suffix = ''
 ): string => {
   if (value === null || value === undefined || value === '') return 'N/D';
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 'N/D';
-  return `${prefix}${parsed.toFixed(digits)}${suffix}`;
+  return `${parsed.toFixed(digits)}${suffix}`;
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  PLAYABLE: 'Giocata consigliata',
+  PRUDENT: 'Approccio prudente',
+  SPECULATIVE: 'Rischio elevato',
+  NO_MARKET: 'Nessuna giocata consigliata',
+};
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  HIGH: 'Alta',
+  MEDIUM: 'Media',
+  LOW: 'Bassa',
 };
 
 const BestValueCard: React.FC<BestValueCardProps> = ({
@@ -37,227 +55,158 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   recommendedBetResult,
   replayTone = 'info',
   showConfidence = true,
-  emptyMessage = 'Quote o probabilita insufficienti per scegliere una giocata.',
+  emptyMessage = 'Quote o probabilità insufficienti per scegliere una giocata.',
   bestBetStatus,
   bestBetReason,
-  bestBetAlternatives,
 }) => {
-  const resolvedAlternatives =
-    bestBetAlternatives ??
-    opportunity?.bestBetAlternatives ??
-    opportunity?.bestBetDecision?.comparedAlternatives ??
-    [];
-
-  const renderAlternatives = (alternatives: BestBetAlternative[]) => {
-    if (!Array.isArray(alternatives) || alternatives.length === 0) return null;
-    return (
-      <div style={{ marginTop: 14 }}>
-        <strong>Alternative valutate</strong>
-        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-          {alternatives.slice(0, 4).map((alternative) => (
-            <div
-              key={`${alternative.selection}_${alternative.marketName ?? ''}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(140px, 1.2fr) repeat(3, minmax(70px, .6fr))',
-                gap: 8,
-                alignItems: 'center',
-                padding: '8px 10px',
-                border: '1px solid var(--border)',
-                borderRadius: 9,
-                background: 'var(--surface)',
-              }}
-            >
-              <span style={{ fontWeight: 800, color: 'var(--text)' }}>{fmtSelection(alternative.selection)}</span>
-              <span style={{ fontFamily: 'DM Mono, monospace' }}>EV {formatMetricNumber(alternative.expectedValue, 1, '%', '+')}</span>
-              <span style={{ fontFamily: 'DM Mono, monospace' }}>Edge {formatMetricNumber(alternative.edgeNoVig, 1, '%', '+')}</span>
-              <span style={{ fontFamily: 'DM Mono, monospace' }}>Score {formatMetricNumber(alternative.riskAdjustedScore, 2)}</span>
-              {alternative.reason && (
-                <span style={{ gridColumn: '1 / -1', color: 'var(--text-2)', fontSize: 11 }}>
-                  {alternative.reason.replace(/_/g, ' ')}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   if (!opportunity) {
     return (
-      <section aria-label={title} data-testid="best-value-card">
-        {oddsWarning && (
-          <div className="pr-alert pr-alert-warning" style={{ marginBottom: 12 }}>
-            {oddsWarning}
+      <section aria-label={title} data-testid="best-value-card" className="pr-decision-report is-empty">
+        <div className="pr-decision-report__head">
+          <div>
+            <div className="pr-decision-report__eyebrow">{title}</div>
+            <strong className="pr-decision-report__title">Nessuna giocata consigliata</strong>
           </div>
-        )}
-        <div className="pr-alert pr-alert-warning">
-          <strong>NO_MARKET</strong>
-          <br />
-          {bestBetReason ?? emptyMessage}
+          <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
         </div>
-        {renderAlternatives(resolvedAlternatives)}
+        <p className="pr-decision-report__summary">{bestBetReason ?? emptyMessage}</p>
+        {oddsWarning && <div className="pr-alert pr-alert-warning">{oddsWarning}</div>}
       </section>
     );
   }
 
   const resolvedStatus =
-    bestBetStatus ??
-    opportunity.bestBetStatus ??
-    opportunity.bestBetDecision?.status ??
-    null;
+    bestBetStatus
+    ?? opportunity.bestBetStatus
+    ?? opportunity.bestBetDecision?.status
+    ?? null;
   const resolvedReason =
-    bestBetReason ??
-    opportunity.bestBetReason ??
-    opportunity.bestBetDecision?.reason ??
-    null;
+    bestBetReason
+    ?? opportunity.bestBetReason
+    ?? opportunity.bestBetDecision?.reason
+    ?? null;
   const reasons = Array.isArray(opportunity.humanReasons) ? opportunity.humanReasons : [];
   const warnings = Array.isArray(opportunity.dataWarnings) ? opportunity.dataWarnings.slice(0, 4) : [];
   const riskReasons = Array.isArray(opportunity.riskReasons) ? opportunity.riskReasons.slice(0, 3) : [];
+  const confidenceLabel = CONFIDENCE_LABELS[String(opportunity.confidence ?? '')] ?? 'Non disponibile';
   const metrics = [
-    ['Quota', formatMetricNumber(opportunity.bookmakerOdds, 2)],
-    ['Probabilita nostra', formatMetricNumber(opportunity.ourProbability, 1, '%')],
-    ['Probabilita implicita', formatMetricNumber(opportunity.impliedProbability, 1, '%')],
-    ['EV', formatMetricNumber(opportunity.expectedValue, 1, '%', '+')],
-    ['Edge', formatMetricNumber(opportunity.edge, 1, '%', '+')],
-    ['Edge no-vig', formatMetricNumber(opportunity.edgeNoVig, 1, '%', '+')],
-    ['Score rischio', formatMetricNumber(opportunity.riskAdjustedBestScore ?? opportunity.bestBetDecision?.riskAdjustedScore, 2)],
-    ['Stake base', formatMetricNumber(opportunity.suggestedStakePercent, 2, '%')],
+    {
+      id: 'quota-eurobet',
+      label: 'Quota Eurobet',
+      value: formatMetricNumber(opportunity.bookmakerOdds, 2),
+    },
+    {
+      id: 'probabilita-stimata',
+      label: 'Probabilità stimata',
+      value: formatMetricNumber(opportunity.ourProbability, 1, '%'),
+    },
+    {
+      id: 'affidabilita',
+      label: 'Affidabilità',
+      value: confidenceLabel,
+    },
+    {
+      id: 'puntata-suggerita',
+      label: 'Puntata suggerita',
+      value: formatMetricNumber(opportunity.suggestedStakePercent, 2, '% bankroll'),
+    },
   ];
   const statusClass =
     resolvedStatus === 'PLAYABLE'
       ? 'pr-badge-green'
-      : resolvedStatus === 'PRUDENT'
-        ? 'pr-badge-gold'
-        : resolvedStatus === 'SPECULATIVE'
-          ? 'pr-badge-gold'
-          : resolvedStatus === 'NO_MARKET'
-          ? 'pr-badge-gray'
-          : 'pr-badge-blue';
+      : resolvedStatus === 'NO_MARKET'
+        ? 'pr-badge-gray'
+        : 'pr-badge-gold';
 
   return (
     <section
-      className="pr-info"
+      className="pr-decision-report"
       aria-label={title}
       data-testid="best-value-card"
-      style={{ padding: 0, overflow: 'hidden' }}
     >
-      <div style={{ padding: '18px 18px 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-2)' }}>
-              Migliore giocata del match
-            </div>
-            <strong style={{ display: 'block', marginTop: 6, fontSize: 22, lineHeight: 1.15, color: 'var(--text)' }}>
-              {opportunity.selectionLabel ?? fmtSelection(opportunity.selection)}
-            </strong>
-            <div style={{ marginTop: 8, color: 'var(--text-2)' }}>
-              {opportunity.humanSummary ?? 'Questa e la giocata finale consigliata per la lettura complessiva del match.'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
-            {resolvedStatus && (
-              <span className={`pr-badge ${statusClass}`}>
-                {resolvedStatus}
-              </span>
-            )}
-            {showConfidence && opportunity.confidence && (
-              <span className={`pr-badge ${opportunity.confidence === 'HIGH' ? 'pr-badge-green' : opportunity.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
-                {opportunity.confidence}
-              </span>
-            )}
-            <span className={`pr-badge ${marketTierBadgeClass(opportunity.marketTier)}`}>
-              {marketTierLabel(opportunity.marketTier)}
+      <div className="pr-decision-report__head">
+        <div>
+          <div className="pr-decision-report__eyebrow">{title}</div>
+          <strong className="pr-decision-report__title">
+            {opportunity.selectionLabel ?? fmtSelection(opportunity.selection)}
+          </strong>
+          <p className="pr-decision-report__summary">
+            {opportunity.humanSummary ?? 'Questa è la sola giocata finale proposta per il match.'}
+          </p>
+        </div>
+        <div className="pr-decision-report__badges">
+          <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
+          {resolvedStatus && (
+            <span className={`pr-badge ${statusClass}`}>
+              {STATUS_LABELS[resolvedStatus] ?? resolvedStatus}
             </span>
-          </div>
+          )}
+          {showConfidence && opportunity.confidence && (
+            <span className={`pr-badge ${
+              opportunity.confidence === 'HIGH'
+                ? 'pr-badge-green'
+                : opportunity.confidence === 'MEDIUM'
+                  ? 'pr-badge-blue'
+                  : 'pr-badge-gold'
+            }`}>
+              Affidabilità {confidenceLabel.toLowerCase()}
+            </span>
+          )}
+          <span className={`pr-badge ${marketTierBadgeClass(opportunity.marketTier)}`}>
+            {marketTierLabel(opportunity.marketTier)}
+          </span>
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 1,
-          marginTop: 16,
-          background: 'var(--border)',
-          borderTop: '1px solid var(--border)',
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        {metrics.map(([label, value]) => (
-          <div key={label} style={{ background: 'var(--surface)', padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 4 }}>
-              {label}
-            </div>
-            <div
-              data-testid={`best-value-metric-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-              style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}
-            >
-              {value}
-            </div>
+      <dl className="pr-decision-report__metrics">
+        {metrics.map(({ id, label, value }) => (
+          <div key={id} className="pr-decision-report__metric">
+            <dt>{label}</dt>
+            <dd data-testid={`best-value-metric-${id}`}>{value}</dd>
           </div>
         ))}
-      </div>
+      </dl>
 
-      <div style={{ padding: 18 }}>
+      <div className="pr-decision-report__body">
         {recommendedBetResult && (
-          <div className={`pr-alert pr-alert-${replayTone}`} style={{ marginTop: 0, marginBottom: 12 }}>
+          <div className={`pr-alert pr-alert-${replayTone}`}>
             <strong>{recommendedBetResult.status}</strong>
-            {recommendedBetResult.reason ? (
-              <>
-                <br />
-                {recommendedBetResult.reason}
-              </>
-            ) : null}
+            {recommendedBetResult.reason ? <><br />{recommendedBetResult.reason}</> : null}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-          <span className="pr-badge pr-badge-blue">{opportunity.marketName}</span>
-          {!showConfidence && opportunity.confidence && (
-            <span className={`pr-badge ${opportunity.confidence === 'HIGH' ? 'pr-badge-green' : opportunity.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}>
-              Confidenza {opportunity.confidence}
-            </span>
-          )}
+        <div className="pr-decision-report__market">
+          <span>Mercato</span>
+          <strong>{opportunity.marketName}</strong>
         </div>
 
         {resolvedReason && (
-          <div className={`pr-alert pr-alert-${resolvedStatus === 'PLAYABLE' ? 'success' : resolvedStatus === 'NO_MARKET' ? 'info' : 'warning'}`} style={{ marginTop: 0, marginBottom: 12 }}>
+          <div className={`pr-alert pr-alert-${
+            resolvedStatus === 'PLAYABLE'
+              ? 'success'
+              : resolvedStatus === 'NO_MARKET'
+                ? 'info'
+                : 'warning'
+          }`}>
             {resolvedReason}
           </div>
         )}
 
         {(warnings.length > 0 || riskReasons.length > 0) && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            {riskReasons.map((reason) => (
-              <span key={`risk_${reason}`} className="pr-badge pr-badge-gold">{reason}</span>
-            ))}
-            {warnings.map((warning) => (
-              <span key={`warning_${warning}`} className="pr-badge pr-badge-gold">
-                {warning === 'over_cards_close_to_line'
-                  ? 'Over cartellini fragile'
-                  : warning === 'under_cards_close_to_line'
-                    ? 'Under cartellini fragile'
-                    : warning === 'under_goals_close_to_line'
-                      ? 'Under goal vicino alla linea'
-                      : warning === 'btts_no_fragile'
-                        ? 'No Goal fragile'
-                        : warning === 'missing_referee_data'
-                          ? 'Dati arbitro assenti'
-                          : warning === 'low_disciplinary_risk_for_over_cards'
-                            ? 'Rischio cartellini basso'
-                            : warning.replace(/_/g, ' ')}
-              </span>
-            ))}
+          <div className="pr-decision-report__risks" aria-label="Rischi e limiti">
+            <strong>Rischi e limiti</strong>
+            <ul>
+              {[...riskReasons, ...warnings].map((warning) => (
+                <li key={warning}>{warning.replace(/_/g, ' ')}</li>
+              ))}
+            </ul>
           </div>
         )}
 
         {reasons.length > 0 && (
-          <div style={{ marginTop: 0 }}>
-            <strong>Motivi della pick</strong>
-            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+          <div className="pr-decision-report__reasons">
+            <strong>Perché viene proposta</strong>
+            <ul>
               {reasons.map((reason, index) => (
                 <li key={`${opportunity.selection}_reason_${index}`}>{reason}</li>
               ))}
@@ -265,13 +214,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
           </div>
         )}
 
-        {renderAlternatives(resolvedAlternatives)}
-
-        {oddsWarning && (
-          <div className="pr-alert pr-alert-warning" style={{ marginTop: 12, marginBottom: 0 }}>
-            {oddsWarning}
-          </div>
-        )}
+        {oddsWarning && <div className="pr-alert pr-alert-warning">{oddsWarning}</div>}
       </div>
     </section>
   );

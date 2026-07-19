@@ -109,10 +109,15 @@ export function useOddsForMatch() {
       return acc;
     }, {} as Record<string, string>);
 
-    if (Object.keys(providerOdds).length > 0) {
+    const hasVerifiedEurobetOdds =
+      Object.keys(providerOdds).length > 0
+      && source === 'odds_api'
+      && !usedFallbackProvider;
+
+    if (hasVerifiedEurobetOdds) {
       appliedOdds = stringifyOdds(providerOdds);
-      oddsMessage = payload.message ?? 'Quote bookmaker caricate.';
-      oddsTone = usedFallbackProvider ? 'warning' : 'success';
+      oddsMessage = payload.message ?? 'Quote Eurobet caricate.';
+      oddsTone = 'success';
 
       const enriched = await getPrediction({
         homeTeamId: homeId,
@@ -124,30 +129,19 @@ export function useOddsForMatch() {
       if (enriched.data) {
         finalPrediction = sanitizePredictionForBookmakerOdds(
           enriched.data,
-          usedFallbackProvider ? 'fallback_provider' : (payload.source ?? 'odds_api')
+          'odds_api'
         );
       }
-    } else if (Object.keys(fallbackOdds).length > 0) {
-      appliedOdds = stringifyOdds(fallbackOdds);
-      oddsMessage = 'Quote provider primario non disponibili: mostro quote provider secondario per analisi.';
+    } else if (Object.keys(providerOdds).length > 0 || Object.keys(fallbackOdds).length > 0) {
+      oddsMessage = 'Quota Eurobet non disponibile. Le quote di fallback restano interne e non vengono mostrate.';
       oddsTone = 'warning';
-
-      const enriched = await getPrediction({
-        homeTeamId: homeId,
-        awayTeamId: awayId,
-        matchId: resolvedMatchId,
-        competition: competition || undefined,
-        bookmakerOdds: fallbackOdds,
-      });
-      if (enriched.data) {
-        finalPrediction = sanitizePredictionForBookmakerOdds(enriched.data, 'fallback_provider');
-      }
+      finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, 'fallback_provider');
     } else if (oddsResult.errorMessage) {
       oddsMessage = `Errore quote: ${oddsResult.errorMessage}`;
       oddsTone = 'danger';
       finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, 'odds_unavailable');
     } else {
-      oddsMessage = payload.message ?? 'Quote bookmaker non disponibili per questa partita.';
+      oddsMessage = payload.message ?? 'Quota Eurobet non disponibile per questa partita.';
       oddsTone = 'warning';
       finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, payload.source ?? 'odds_unavailable');
     }

@@ -73,11 +73,13 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   onStakeChange,
   onBet,
 }) => {
-  const oddsUnavailable = oddsSource === 'odds_unavailable' || oddsSource === 'unavailable';
+  const hasVerifiedEurobetOdds = oddsSource === 'odds_api';
+  const visibleOpportunities = hasVerifiedEurobetOdds ? opportunities : [];
+  const oddsUnavailable = !hasVerifiedEurobetOdds;
   const emptyMessage =
     oddsUnavailable
-      ? 'Quote bookmaker non disponibili per questa partita.'
-      : 'Nessuna scommessa con EV positivo trovata.';
+      ? 'Quota Eurobet non disponibile per questa partita.'
+      : 'Nessuna giocata supera i criteri operativi.';
 
   return (
     <div data-testid="value-opportunities-table">
@@ -89,25 +91,25 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
         </div>
       )}
 
-      {opportunities.length === 0 ? (
+      {visibleOpportunities.length === 0 ? (
         <div className="pr-info" style={{ textAlign: 'center', padding: '32px 0' }}>
           {emptyMessage}
           <br />
           <span style={{ color: 'var(--text-3)', fontSize: 11 }}>
             {oddsUnavailable
-              ? 'Finche il provider non espone il mercato, il sistema non propone una giocata finale con quota utente.'
-              : 'Quote bookmaker non disponibili oppure edge insufficiente (>2%).'}
+              ? 'Le quote di fallback restano interne: il sistema non mostra prezzi alternativi e non abilita la registrazione.'
+              : 'La quota è disponibile, ma probabilità, rischio o margine non giustificano una puntata.'}
           </span>
         </div>
       ) : (
         <>
           <div className="pr-alert pr-alert-success">
-            OK <strong>{opportunities.length}</strong> scommesse EV positivo (soglia &gt;2%)
+            <strong>{visibleOpportunities.length}</strong> selezioni superano i criteri di confronto
           </div>
           <div className="pr-alert pr-alert-info">
             Confronto completo mercati: la migliore giocata resta quella evidenziata in alto. Qui sotto vedi solo alternative e confronto operativo.
           </div>
-          {opportunities.map((opportunity) => {
+          {visibleOpportunities.map((opportunity) => {
             const stakeKey = getStakeKey(opportunity);
             const currentStake = getStakeValue(opportunity);
             const currentStakePct = bankroll > 0 ? (currentStake / bankroll) * 100 : 0;
@@ -200,7 +202,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                   ) : alreadyPlaced ? (
                     <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
                   ) : (
-                    <button className="fp-btn fp-btn-green fp-btn-sm" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
+                    <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
                       Scommetti -&gt;
                     </button>
                   )}

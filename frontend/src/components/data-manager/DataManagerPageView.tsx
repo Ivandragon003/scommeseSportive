@@ -33,11 +33,10 @@ const localStyles = `
 
   .dm-title {
     font-size: clamp(28px,4vw,40px); font-weight: 800; letter-spacing: -1.5px; line-height: 1;
-    background: linear-gradient(135deg, var(--text) 18%, var(--blue) 58%, var(--purple));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    color: var(--text);
     margin-bottom: 8px;
   }
-  .dm-subtitle { font-size: 12px; color: var(--text-2); font-family: 'DM Mono',monospace; margin-bottom: 36px; }
+  .dm-subtitle { font-size: 13px; color: var(--text-2); margin-bottom: 30px; }
 
   /* TABS wrapper - sovrascrive fp-tabs per aggiungere margin */
   .dm-tabs-wrap { margin-bottom: 24px; }
@@ -47,10 +46,10 @@ const localStyles = `
   .dm-step {
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 20px; position: relative;
-    transition: border-color var(--transition), background var(--transition), transform var(--transition);
+    transition: border-color var(--transition), background var(--transition);
   }
-  .dm-step:hover { border-color: var(--border-hover); background: var(--surface3); transform: translateY(-2px); }
-  .dm-step-num  { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--purple); margin-bottom: 10px; font-family: 'DM Mono',monospace; }
+  .dm-step:hover { border-color: var(--border-hover); background: var(--surface3); }
+  .dm-step-num  { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--primary); margin-bottom: 10px; font-family: var(--font-mono); }
   .dm-step-title{ font-size: 15px; font-weight: 700; margin-bottom: 6px; }
   .dm-step-desc { font-size: 12px; color: var(--text-2); line-height: 1.55; }
   .dm-step-arrow{
@@ -66,7 +65,7 @@ const localStyles = `
   .dm-filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 140px; }
 
   /* MATCHES table specifics */
-  .dm-score { font-family: 'DM Mono',monospace; font-weight: 700; font-size: 14px; }
+  .dm-score { font-family: var(--font-mono); font-weight: 700; font-size: 14px; }
   .dm-comp-tag {
     display: inline-block; background: var(--surface2); border: 1px solid var(--border);
     border-radius: var(--radius-pill); padding: 2px 12px; font-size: 11px; color: var(--text-2);
@@ -97,7 +96,7 @@ const localStyles = `
     background: transparent; color: var(--text-2); cursor: pointer; transition: all var(--transition);
   }
   .dm-scope-tab:hover:not(.active) { color: var(--text); background: var(--surface3); border-color: var(--border-hover); }
-  .dm-scope-tab.active { background: var(--purple-dim); border-color: var(--purple-border); color: var(--purple); }
+  .dm-scope-tab.active { background: var(--primary-dim); border-color: var(--primary-border); color: var(--primary); }
 
   /* RECORD BOXES */
   .dm-record { display: flex; gap: 10px; margin-bottom: 20px; }
@@ -105,7 +104,7 @@ const localStyles = `
   .dm-rec-box.w { background: var(--green-dim); border: 1px solid var(--green-border); }
   .dm-rec-box.d { background: var(--blue-dim);  border: 1px solid var(--blue-border); }
   .dm-rec-box.l { background: var(--red-dim);   border: 1px solid var(--red-border); }
-  .dm-rec-val  { font-size: 26px; font-weight: 800; font-family: 'DM Mono',monospace; }
+  .dm-rec-val  { font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
   .dm-rec-val.w { color: var(--green); }
   .dm-rec-val.d { color: var(--blue);  }
   .dm-rec-val.l { color: var(--red);   }
@@ -125,7 +124,7 @@ const localStyles = `
   .dm-stats-table tr:hover { background: var(--surface3); }
   .dm-stats-table td { padding: 10px 16px; font-size: 13px; }
   .dm-stats-table td:first-child { color: var(--text-2); font-size: 12px; }
-  .dm-stats-table td:last-child  { font-family: 'DM Mono',monospace; font-weight: 500; text-align: right; color: var(--text); }
+  .dm-stats-table td:last-child  { font-family: var(--font-mono); font-weight: 500; text-align: right; color: var(--text); }
 
   /* PLAYERS HEAD */
   .dm-players-head { padding: 16px 0 12px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); margin-top: 4px; }
@@ -156,7 +155,7 @@ const localStyles = `
   /* IMPORT */
   .dm-textarea {
     background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-    padding: 14px 16px; color: var(--text); font-family: 'DM Mono',monospace; font-size: 12px;
+    padding: 14px 16px; color: var(--text); font-family: var(--font-mono); font-size: 12px;
     width: 100%; height: 210px; resize: vertical; outline: none; line-height: 1.65;
     transition: border-color var(--transition), background var(--transition);
   }
@@ -166,7 +165,7 @@ const localStyles = `
   .dm-import-hint code {
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: 4px; padding: 1px 6px;
-    font-family: 'DM Mono',monospace; font-size: 11px; color: var(--blue);
+    font-family: var(--font-mono); font-size: 11px; color: var(--blue);
   }
 
   .dm-overview-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-top: 16px; }
@@ -189,7 +188,7 @@ const localStyles = `
   .dm-qual-key { color: var(--text-2); font-size: 12px; }
   .dm-qual-track { height: 7px; border-radius: 20px; background: var(--surface3); overflow: hidden; }
   .dm-qual-fill { height: 100%; border-radius: 20px; background: var(--blue); }
-  .dm-qual-val { font-family: 'DM Mono',monospace; font-size: 11px; color: var(--text); min-width: 48px; text-align: right; }
+  .dm-qual-val { font-family: var(--font-mono); font-size: 11px; color: var(--text); min-width: 48px; text-align: right; }
   .dm-top5-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
   .dm-league-card {
     background: var(--surface2);
@@ -199,7 +198,7 @@ const localStyles = `
   }
   .dm-league-head { font-size: 11px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
   .dm-league-kpi { font-size: 11px; color: var(--text-2); margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
-  .dm-league-kpi strong { color: var(--text); font-family: 'DM Mono',monospace; font-weight: 700; }
+  .dm-league-kpi strong { color: var(--text); font-family: var(--font-mono); font-weight: 700; }
   .dm-check-badge {
     display: inline-flex;
     align-items: center;
@@ -207,7 +206,7 @@ const localStyles = `
     font-size: 10px;
     padding: 3px 10px;
     border: 1px solid var(--border);
-    font-family: 'DM Mono',monospace;
+    font-family: var(--font-mono);
     margin-left: 8px;
   }
   .dm-check-badge.ok { background: var(--green-dim); color: var(--green); border-color: var(--green-border); }
@@ -582,11 +581,11 @@ const DataManagerPageView: React.FC = () => {
   const top5Leagues = statsOverview?.leagues ?? [];
 
   const TABS = [
-    { id: 'overview', label: ' Overview' },
-    { id: 'matches',  label: ` Partite${matches.length ? ` (${matches.length})` : ''}` },
-    { id: 'teams',    label: ` Squadre${teams.length ? ` (${teams.length})` : ''}` },
-    { id: 'model',    label: ' Modello AI' },
-    { id: 'import',   label: ' Import JSON' },
+    { id: 'overview', label: 'Panoramica' },
+    { id: 'matches',  label: `Partite${matches.length ? ` (${matches.length})` : ''}` },
+    { id: 'teams',    label: `Squadre${teams.length ? ` (${teams.length})` : ''}` },
+    { id: 'model',    label: 'Modello statistico' },
+    { id: 'import',   label: 'Import JSON' },
   ];
 
   return (
@@ -595,19 +594,20 @@ const DataManagerPageView: React.FC = () => {
       <div className="dm-wrap">
 
         {/* HEADER */}
-        <div className="dm-title">Gestione Dati</div>
-        <div className="dm-subtitle">Database storico partite  Addestramento Dixon-Coles</div>
+        <h1 className="dm-title">Gestione dati</h1>
+        <div className="dm-subtitle">
+          Copertura, qualità e manutenzione dello storico usato dal modello statistico.
+        </div>
 
         {/* STAT GRID  usa classi globali */}
         <div className="fp-grid-4" style={{ marginBottom: 28 }}>
           {[
-            { icon: '', val: loading ? '' : matches.length,                          label: 'Partite',       c: 'blue'   },
-            { icon: '', val: loading ? '' : teams.length,                            label: 'Squadre',       c: 'purple' },
-            { icon: '', val: loading ? '' : competitions.length,                     label: 'Campionati',    c: 'gold'   },
-            { icon: '', val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
-          ].map(({ icon, val, label, c }) => (
+            { val: loading ? '' : matches.length,                          label: 'Partite',       c: 'blue'   },
+            { val: loading ? '' : teams.length,                            label: 'Squadre',       c: 'blue'   },
+            { val: loading ? '' : competitions.length,                     label: 'Campionati',    c: 'blue'   },
+            { val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
+          ].map(({ val, label, c }) => (
             <div key={label} className={`fp-stat c-${c}`}>
-              <span className="fp-stat-icon">{icon}</span>
               <div className={`fp-stat-val c-${c}`}>{val}</div>
               <div className="fp-stat-label">{label}</div>
             </div>
@@ -616,9 +616,15 @@ const DataManagerPageView: React.FC = () => {
 
         {/* TABS */}
         <div className="dm-tabs-wrap">
-          <div className="fp-tabs">
+          <div className="fp-tabs" role="tablist" aria-label="Sezioni gestione dati">
             {TABS.map(t => (
-              <button key={t.id} className={`fp-tab${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
+              <button
+                key={t.id}
+                className={`fp-tab${activeTab === t.id ? ' active' : ''}`}
+                onClick={() => setActiveTab(t.id)}
+                role="tab"
+                aria-selected={activeTab === t.id}
+              >
                 {t.label}
               </button>
             ))}
@@ -629,14 +635,14 @@ const DataManagerPageView: React.FC = () => {
         {activeTab === 'overview' && (
           <>
             <div className="fp-card">
-              <div className="fp-card-head"><div className="fp-card-title">Flusso Consigliato</div></div>
+              <div className="fp-card-head"><div className="fp-card-title">Flusso consigliato</div></div>
               <div className="fp-card-body">
                 <div className="dm-steps">
                   {[
-                    { n: '01', title: 'Importa Dati',     desc: 'Importa i dati Understat tramite Dati Automatici o manualmente via JSON.' },
-                    { n: '02', title: 'Ricalcola Medie',  desc: 'Aggiorna le medie statistiche per ogni squadra (tiri, xG e cartellini).' },
-                    { n: '03', title: 'Addestra Modello', desc: 'Esegui il fit Dixon-Coles per calibrare attack e defence strength.' },
-                    { n: '04', title: 'Analizza Partite', desc: 'Vai in Previsioni per calcolare probabilita, quote e value bet.' },
+                    { n: '01', title: 'Importa dati',     desc: 'Importa Understat come fonte primaria e integra soltanto i valori mancanti ammessi.' },
+                    { n: '02', title: 'Verifica copertura', desc: 'Controlla completezza, stagioni disponibili e campi mancanti prima del calcolo.' },
+                    { n: '03', title: 'Aggiorna il modello', desc: 'Ricalcola medie e parametri Dixon-Coles sui dati disponibili.' },
+                    { n: '04', title: 'Analizza partite', desc: 'Vai in Previsioni per consultare la singola giocata finale consigliata.' },
                   ].map(({ n: num, title, desc }, i, arr) => (
                     <div key={num} className="dm-step">
                       <div className="dm-step-num">Step {num}</div>
@@ -664,7 +670,7 @@ const DataManagerPageView: React.FC = () => {
                     <div style={{ display: 'flex', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
                       <span className="fp-badge fp-badge-blue">Match: {statsOverview?.coverage?.totals?.totalMatches ?? 0}</span>
                       <span className="fp-badge fp-badge-green">Completi: {statsOverview?.coverage?.totals?.completedMatches ?? 0}</span>
-                      <span className="fp-badge fp-badge-gray">Upcoming: {statsOverview?.coverage?.totals?.upcomingMatches ?? 0}</span>
+                      <span className="fp-badge fp-badge-gray">In programma: {statsOverview?.coverage?.totals?.upcomingMatches ?? 0}</span>
                     </div>
                     {qualityRows.map((row) => (
                       <div key={row.key} className="dm-qual-row">
@@ -706,7 +712,8 @@ const DataManagerPageView: React.FC = () => {
                   </div>
                 </div>
                 <div className="fp-alert fp-alert-info" style={{ marginTop: 12 }}>
-                  Il database giocatori dedicato e gia presente (tabella players) e alimenta il modello player props in Previsioni.
+                  Le statistiche giocatore sono opzionali e alimentano i mercati dedicati, separati
+                  dalla giocata principale di squadra.
                 </div>
               </div>
             </div>
@@ -728,7 +735,10 @@ const DataManagerPageView: React.FC = () => {
                         <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals ?? 0, 2)}</strong></div>
                         <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards ?? 0, 2)}</strong></div>
                         <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots ?? 0, 2)}</strong></div>
-                        <div className="dm-league-kpi"><span>xG coverage</span><strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong></div>
+                        <div className="dm-league-kpi">
+                          <span>Copertura xG</span>
+                          <strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong>
+                        </div>
                         <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>
                       </div>
                     ))}
@@ -752,8 +762,13 @@ const DataManagerPageView: React.FC = () => {
                 { label: 'Anno',       value: yearFilter,         set: setYearFilter,        opts: years,        ph: 'Tutti' },
               ].map(({ label, value, set, opts, ph }) => (
                 <div key={label} className="dm-filter-group">
-                  <label className="fp-label">{label}</label>
-                  <select className="fp-select" value={value} onChange={e => set(e.target.value)}>
+                  <label className="fp-label" htmlFor={`data-filter-${normalizeKey(label)}`}>{label}</label>
+                  <select
+                    id={`data-filter-${normalizeKey(label)}`}
+                    className="fp-select"
+                    value={value}
+                    onChange={e => set(e.target.value)}
+                  >
                     <option value="">{ph}</option>
                     {opts.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
@@ -766,7 +781,14 @@ const DataManagerPageView: React.FC = () => {
               <div style={{ overflowX: 'auto' }}>
                 <table className="fp-table">
                   <thead>
-                    <tr><th>Data</th><th>Casa</th><th style={{ textAlign: 'center' }}>Ris.</th><th>Ospite</th><th>xG</th><th>Campionato</th></tr>
+                    <tr>
+                      <th>Data</th>
+                      <th>Casa</th>
+                      <th style={{ textAlign: 'center' }}>Ris.</th>
+                      <th>Ospite</th>
+                      <th>xG</th>
+                      <th>Campionato</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {filteredMatches.slice(0, 80).map((m: any) => (
@@ -796,14 +818,27 @@ const DataManagerPageView: React.FC = () => {
           <div className="fp-card">
             <div className="fp-card-head">
               <div className="fp-card-title"> Squadre ({filteredTeams.length})</div>
-              <span className="fp-badge fp-badge-purple">Clicca per stats complete</span>
+              <span className="fp-badge fp-badge-blue">Clicca per stats complete</span>
             </div>
 
             {competitions.length > 1 && (
               <div className="dm-comp-pills">
-                <button className={`fp-pill-btn${!competitionFilter ? ' active' : ''}`} onClick={() => setCompetitionFilter('')}>Tutte</button>
+                <button
+                  className={`fp-pill-btn${!competitionFilter ? ' active' : ''}`}
+                  onClick={() => setCompetitionFilter('')}
+                  aria-pressed={!competitionFilter}
+                >
+                  Tutte
+                </button>
                 {competitions.map(c => (
-                  <button key={c} className={`fp-pill-btn${competitionFilter === c ? ' active' : ''}`} onClick={() => setCompetitionFilter(c)}>{c}</button>
+                  <button
+                    key={c}
+                    className={`fp-pill-btn${competitionFilter === c ? ' active' : ''}`}
+                    onClick={() => setCompetitionFilter(c)}
+                    aria-pressed={competitionFilter === c}
+                  >
+                    {c}
+                  </button>
                 ))}
               </div>
             )}
@@ -838,7 +873,14 @@ const DataManagerPageView: React.FC = () => {
                       { id: 'previous' as TeamScope, label: 'Precedenti' },
                       { id: 'total'    as TeamScope, label: 'Totale' },
                     ] as const).map(({ id, label }) => (
-                      <button key={id} className={`dm-scope-tab${scope === id ? ' active' : ''}`} onClick={() => setScope(id)}>{label}</button>
+                      <button
+                        key={id}
+                        className={`dm-scope-tab${scope === id ? ' active' : ''}`}
+                        onClick={() => setScope(id)}
+                        aria-pressed={scope === id}
+                      >
+                        {label}
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -857,7 +899,7 @@ const DataManagerPageView: React.FC = () => {
 
                 <div className="dm-stats-grid">
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head understat">Stats Match Importate (Understat)</div>
+                    <div className="dm-stats-head understat">Statistiche partite importate</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -890,12 +932,13 @@ const DataManagerPageView: React.FC = () => {
                       </tbody>
                     </table>
                     <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
-                      Questo pannello usa lo storico match importato da Understat. Il modello usa la stessa fonte dati, senza mix con altre sorgenti.
+                      Understat resta la fonte primaria. football-data.co.uk può completare solo
+                      campi assenti compatibili, senza sovrascrivere i valori già importati.
                     </div>
                   </div>
 
                   <div className="dm-stats-panel">
-                    <div className="dm-stats-head model">Statistiche Squadra e Modello</div>
+                    <div className="dm-stats-head model">Statistiche squadra e modello</div>
                     <table className="dm-stats-table">
                       <tbody>
                         {[
@@ -933,19 +976,29 @@ const DataManagerPageView: React.FC = () => {
                   <div style={{ overflowX: 'auto' }}>
                     <table className="fp-table">
                       <thead>
-                        <tr><th>Nome</th><th>Ruolo</th><th>PG</th><th>Tiri/G</th><th>Tiri in porta (OT)/G</th><th>xG/G</th><th>xGOT/G</th><th>Gol</th><th>Shot share</th></tr>
+                        <tr>
+                          <th>Nome</th>
+                          <th>Ruolo</th>
+                          <th>PG</th>
+                          <th>Tiri/G</th>
+                          <th>Tiri in porta/G</th>
+                          <th>xG/G</th>
+                          <th>xGOT/G</th>
+                          <th>Gol</th>
+                          <th>Quota tiri squadra</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {players.map((p: any) => (
                           <tr key={p.player_id}>
                             <td style={{ fontWeight: 700 }}>{p.name}</td>
-                            <td><span className="fp-badge fp-badge-purple">{p.position_code}</span></td>
+                            <td><span className="fp-badge fp-badge-blue">{p.position_code}</span></td>
                             <td className="fp-mono">{p.games_played ?? 0}</td>
                             <td className="fp-mono">{n(p.avg_shots_per_game, 2)}</td>
                             <td className="fp-mono">{n(p.avg_shots_on_target_per_game, 2)}</td>
                             <td className="fp-mono">{n(p.avg_xg_per_game, 3)}</td>
                             <td className="fp-mono">{n(p.avg_xgot_per_game, 3)}</td>
-                            <td className="fp-mono" style={{ color: 'var(--green)', fontWeight: 700 }}>{p.total_goals ?? 0}</td>
+                            <td className="fp-mono" style={{ color: 'var(--primary)', fontWeight: 700 }}>{p.total_goals ?? 0}</td>
                             <td className="fp-mono" style={{ color: 'var(--text-2)' }}>{n((Number(p.shot_share_of_team) || 0) * 100, 1)}%</td>
                           </tr>
                         ))}
@@ -962,7 +1015,7 @@ const DataManagerPageView: React.FC = () => {
         {activeTab === 'model' && (
           <div>
             <div className="fp-card" style={{ marginBottom: 16 }}>
-              <div className="fp-card-head"><div className="fp-card-title">Pipeline Modello</div></div>
+              <div className="fp-card-head"><div className="fp-card-title">Pipeline modello</div></div>
               <div className="fp-card-body">
                 <div className="fp-alert fp-alert-info">
                   Dopo ogni import Understat il sistema esegue automaticamente:
@@ -970,7 +1023,7 @@ const DataManagerPageView: React.FC = () => {
                 </div>
                 <div className="dm-model-grid" style={{ marginTop: 12 }}>
                   <div className="fp-card">
-                    <div className="fp-card-head"><div className="fp-card-title">Ricalcolo Medie</div></div>
+                    <div className="fp-card-head"><div className="fp-card-title">Ricalcolo medie</div></div>
                     <div className="fp-card-body">
                       <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, margin: 0 }}>
                         Automatico su import: aggiorna tiri, xG, cartellini e fattore difensivo per squadra.
@@ -978,7 +1031,7 @@ const DataManagerPageView: React.FC = () => {
                     </div>
                   </div>
                   <div className="fp-card">
-                    <div className="fp-card-head"><div className="fp-card-title">Fit Modello</div></div>
+                    <div className="fp-card-head"><div className="fp-card-title">Calibrazione modello</div></div>
                     <div className="fp-card-body">
                       <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, margin: 0 }}>
                         Automatico su import: aggiorna parametri attack/defence e salva i parametri modello più recenti.
@@ -994,18 +1047,18 @@ const DataManagerPageView: React.FC = () => {
         {/*  IMPORT  */}
         {activeTab === 'import' && (
           <div className="fp-card">
-            <div className="fp-card-head"><div className="fp-card-title"> Import Manuale JSON</div></div>
+            <div className="fp-card-head"><div className="fp-card-title">Import manuale JSON</div></div>
             <div className="fp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dm-form-group">
-                <label className="fp-label">Array JSON Partite</label>
-                <textarea className="dm-textarea" value={importJson} onChange={e => setImportJson(e.target.value)}
+                <label className="fp-label" htmlFor="data-import-json">Array JSON partite</label>
+                <textarea id="data-import-json" className="dm-textarea" value={importJson} onChange={e => setImportJson(e.target.value)}
                   placeholder={'[\n  {\n    "home_team": "...",\n    "away_team": "...",\n    "home_goals": 2,\n    "away_goals": 1,\n    "date": "2024-12-01",\n    "competition": "Serie A"\n  }\n]'} />
               </div>
               <div className="dm-import-hint">
                 Accetta un array JSON o un oggetto con chiave <code>matches</code>. Campi obbligatori: <code>home_team</code>, <code>away_team</code>, <code>home_goals</code>, <code>away_goals</code>, <code>date</code>, <code>competition</code>.
               </div>
-              <button className="dm-action-btn purple" style={{ maxWidth: 280 }} onClick={handleBulkImport} disabled={!importJson}>
-                 Importa Dati
+              <button className="dm-action-btn blue" style={{ maxWidth: 280 }} onClick={handleBulkImport} disabled={!importJson}>
+                 Importa dati
               </button>
               {importResult && (
                 <div className={`dm-result ${importResult.success ? 'ok' : 'err'}`}>

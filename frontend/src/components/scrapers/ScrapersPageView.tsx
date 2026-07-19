@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import ProviderStatusSummary from '../common/ProviderStatusSummary';
 import {
+  runFootballDataSync,
   runOddsSnapshot,
   runUnderstatImport,
 } from '../../utils/api';
@@ -21,16 +22,16 @@ const localStyles = `
     font-family: var(--font-sans);
   }
   .sc-comp:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface3); }
-  .sc-comp.on  { background: var(--blue-dim); color: var(--blue); border-color: var(--blue-border); box-shadow: 0 0 10px rgba(76,201,240,0.12); }
+  .sc-comp.on  { background: var(--primary-dim); color: var(--primary); border-color: var(--primary-border); }
   .sc-year-grid { display: flex; gap: 12px; }
   .sc-year {
     flex: 1; padding: 16px 10px; border-radius: var(--radius);
     border: 1px solid var(--border); background: var(--surface2);
     cursor: pointer; text-align: center; transition: all var(--transition);
   }
-  .sc-year:hover { border-color: var(--border-hover); background: var(--surface3); transform: translateY(-3px); }
-  .sc-year.on  { border-color: var(--blue-border); background: var(--blue-dim); box-shadow: 0 0 14px rgba(76,201,240,0.12); }
-  .sc-year-num { font-size: 26px; font-weight: 800; color: var(--blue); display: block; font-family: 'DM Mono', monospace; }
+  .sc-year:hover { border-color: var(--border-hover); background: var(--surface3); }
+  .sc-year.on  { border-color: var(--primary-border); background: var(--primary-dim); }
+  .sc-year-num { font-size: 26px; font-weight: 800; color: var(--primary); display: block; font-family: var(--font-mono); }
   .sc-year-lbl { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-top: 3px; }
   .sc-big-btn {
     width: 100%; padding: 16px; border-radius: var(--radius-sm);
@@ -42,7 +43,7 @@ const localStyles = `
   }
   .sc-big-btn:hover:not(:disabled) {
     background: var(--blue-hover); border-color: var(--blue);
-    transform: translateY(-2px); box-shadow: var(--shadow-glow-blue);
+    border-color: var(--blue);
   }
   .sc-big-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
   .sc-result-row {
@@ -95,6 +96,23 @@ const formatDuration = (totalSec: number) => {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 };
 
+const formatMilliseconds = (milliseconds: number) => {
+  if (milliseconds < 1000) return `${Math.round(milliseconds)} ms`;
+  return `${(milliseconds / 1000).toFixed(1)} s`;
+};
+
+const formatFreshness = (minutes: number | null | undefined) => {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return 'n/d';
+  if (minutes < 60) return `${Math.max(0, Math.round(minutes))} min`;
+  if (minutes < 1440) return `${(minutes / 60).toFixed(1)} h`;
+  return `${(minutes / 1440).toFixed(1)} gg`;
+};
+
+const getSeasonStartYears = (count: number, now = new Date()) => {
+  const currentStart = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  return Array.from({ length: Math.max(1, count) }, (_, index) => currentStart - index);
+};
+
 const getPipelineTone = (status: 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'unknown') => {
   if (status === 'healthy') return 'fp-badge-green';
   if (status === 'degraded') return 'fp-badge-gold';
@@ -131,7 +149,6 @@ export default function ScrapersPageView() {
   const [yearsBack, setYearsBack] = useState(1);
   const [includeMatchDetails, setIncludeMatchDetails] = useState(true);
   const [importPlayers, setImportPlayers] = useState(true);
-  const [includeSofaScoreSupplemental, setIncludeSofaScoreSupplemental] = useState(true);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [understatLoading, setUnderstatLoading] = useState(false);
   const [understatStartedAt, setUnderstatStartedAt] = useState<number | null>(null);
@@ -139,6 +156,9 @@ export default function ScrapersPageView() {
   const [activeUnderstatMode, setActiveUnderstatMode] = useState<UnderstatMode>('single');
   const [understatResult, setUnderstatResult] = useState<any>(null);
   const [understatError, setUnderstatError] = useState<string | null>(null);
+  const [footballDataLoading, setFootballDataLoading] = useState(false);
+  const [footballDataResult, setFootballDataResult] = useState<any>(null);
+  const [footballDataError, setFootballDataError] = useState<string | null>(null);
 
   const [oddsLoading, setOddsLoading] = useState(false);
   const [providerCheckLoading, setProviderCheckLoading] = useState(false);
@@ -167,7 +187,6 @@ export default function ScrapersPageView() {
         yearsBack,
         importPlayers,
         includeMatchDetails,
-        includeSofaScoreSupplemental,
         forceRefresh,
       });
       setUnderstatResult(res.data ?? null);
@@ -176,6 +195,26 @@ export default function ScrapersPageView() {
     }
     setUnderstatLoading(false);
     setUnderstatStartedAt(null);
+  };
+
+  const handleFootballData = async () => {
+    setFootballDataLoading(true);
+    setFootballDataError(null);
+    setFootballDataResult(null);
+    try {
+      const result = await runFootballDataSync({
+        competitions: [competition],
+        seasonStartYears: getSeasonStartYears(yearsBack),
+        keepSeasons: 4,
+        prune: true,
+        recomputeAverages: true,
+      });
+      setFootballDataResult(result);
+    } catch (error: any) {
+      setFootballDataError(error.response?.data?.error ?? error.message);
+    } finally {
+      setFootballDataLoading(false);
+    }
   };
 
   const handleOdds = async () => {
@@ -213,7 +252,6 @@ export default function ScrapersPageView() {
   const lastUpdateSucceeded = Boolean(scraperStatus?.lastUpdate && scraperStatus?.lastUpdate?.success === true);
   const understatScheduler = scraperStatus?.understatScheduler ?? null;
   const oddsScheduler = scraperStatus?.oddsSnapshotScheduler ?? null;
-  const learningScheduler = scraperStatus?.learningReviewScheduler ?? null;
   const effectiveProviderHealth = providerHealth ?? {
     status: 'unknown',
     primaryProvider: 'odds_api',
@@ -258,9 +296,9 @@ export default function ScrapersPageView() {
       <style>{localStyles}</style>
       <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
         <div style={{ marginBottom: 32 }}>
-          <h1 className="fp-page-title fp-gradient-green">Dati e Provider</h1>
-          <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-            Due pipeline separate: dati match da Understat e quote da Odds API
+          <h1 className="fp-page-title fp-gradient-blue">Dati e Provider</h1>
+          <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0 }}>
+            Stato operativo delle fonti dati, integrazioni e quote usate dall’applicazione.
           </p>
         </div>
 
@@ -270,7 +308,7 @@ export default function ScrapersPageView() {
               <div>
                 <div className="fp-card-title">Pipeline dati Understat</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>
-                  Import match e statistiche base per le analisi.
+                  Import partite e statistiche di base per le analisi.
                 </div>
               </div>
               <span className={`fp-badge ${getPipelineTone(understatPipelineStatus)}`}>
@@ -284,7 +322,7 @@ export default function ScrapersPageView() {
                   <strong className="fp-meta-value">{formatFullDate(scraperStatus?.lastUpdate?.at)}</strong>
                 </div>
                 <div className="fp-meta-row">
-                  <span className="fp-meta-label">Prossimo run</span>
+                  <span className="fp-meta-label">Prossima esecuzione</span>
                   <strong className="fp-meta-value">{formatFullDate(understatScheduler?.nextRunAt)}</strong>
                 </div>
                 <div className="fp-meta-row">
@@ -300,7 +338,7 @@ export default function ScrapersPageView() {
               <div>
                 <div className="fp-card-title">Pipeline quote</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>
-                  Quote bookmaker caricate da Odds API.
+                  Stato tecnico del provider quote configurato.
                 </div>
               </div>
               <span className={`fp-badge ${getPipelineTone(quotePipelineStatus)}`}>
@@ -314,9 +352,9 @@ export default function ScrapersPageView() {
                   <strong className="fp-meta-value">{effectiveProviderHealth.activeProvider ?? 'n/d'}</strong>
                 </div>
                 <div className="fp-meta-row">
-                  <span className="fp-meta-label">Freshness</span>
+                  <span className="fp-meta-label">Freschezza dei dati</span>
                   <strong className="fp-meta-value">
-                    {effectiveProviderHealth.freshnessMinutes !== null ? `${effectiveProviderHealth.freshnessMinutes}m` : 'n/d'}
+                    {formatFreshness(effectiveProviderHealth.freshnessMinutes)}
                   </strong>
                 </div>
               </div>
@@ -325,11 +363,8 @@ export default function ScrapersPageView() {
         </div>
 
         {scraperStatus && (
-          <div className="fp-card" style={{ marginBottom: 24, padding: 16, background: 'var(--bg-1)' }}>
+          <div className="fp-card" style={{ marginBottom: 24, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ fontSize: 18 }}>
-                {scraperStatus.isUpdating ? '⏳' : lastUpdateFailed ? '⚠️' : '✅'}
-              </div>
               <div>
                 <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>
                   {scraperStatus.isUpdating
@@ -346,37 +381,42 @@ export default function ScrapersPageView() {
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                  Sync notturna: {understatScheduler?.enabled
-                    ? `ogni giorno alle ${understatScheduler?.time ?? '01:00'} | prossimo run ${formatFullDate(understatScheduler?.nextRunAt)}`
+                  Aggiornamento notturno: {understatScheduler?.enabled
+                    ? `ogni giorno alle ${understatScheduler?.time ?? '01:00'} | prossima esecuzione ${formatFullDate(understatScheduler?.nextRunAt)}`
                     : 'disabilitata'}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
                   Provider quote: {oddsScheduler?.enabled
-                    ? `alle ${oddsScheduler?.time ?? '02:15'} | prossimo run ${formatFullDate(oddsScheduler?.nextRunAt)}`
+                    ? `alle ${oddsScheduler?.time ?? '02:15'} | prossima esecuzione ${formatFullDate(oddsScheduler?.nextRunAt)}`
                     : 'disabilitato'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                  Learning review: {learningScheduler?.enabled
-                    ? `alle ${learningScheduler?.time ?? '03:00'} | prossimo run ${formatFullDate(learningScheduler?.nextRunAt)}`
-                    : 'disabilitata'}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
                   Provider quote: primario {effectiveProviderHealth.primaryProvider}
                   {' | '}attivo {effectiveProviderHealth.activeProvider ?? 'n/d'}
-                  {' | '}freshness {effectiveProviderHealth.freshnessMinutes ?? 'n/d'}m
+                  {' | '}freschezza {formatFreshness(effectiveProviderHealth.freshnessMinutes)}
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        <div className="fp-tabs" style={{ marginBottom: 24 }}>
-          <button className={`fp-tab${activeTab === 'understat' ? ' active' : ''}`} onClick={() => setActiveTab('understat')}>
-            📊 Understat
+        <div className="fp-tabs" style={{ marginBottom: 24 }} role="tablist" aria-label="Strumenti di aggiornamento dati">
+          <button
+            className={`fp-tab${activeTab === 'understat' ? ' active' : ''}`}
+            onClick={() => setActiveTab('understat')}
+            role="tab"
+            aria-selected={activeTab === 'understat'}
+          >
+            Understat
             <span className="fp-badge fp-badge-green" style={{ fontSize: 10, marginLeft: 6 }}>Fonte primaria</span>
           </button>
-          <button className={`fp-tab${activeTab === 'odds' ? ' active' : ''}`} onClick={() => setActiveTab('odds')}>
-            📈 Provider quote
+          <button
+            className={`fp-tab${activeTab === 'odds' ? ' active' : ''}`}
+            onClick={() => setActiveTab('odds')}
+            role="tab"
+            aria-selected={activeTab === 'odds'}
+          >
+            Provider quote
           </button>
         </div>
 
@@ -384,9 +424,9 @@ export default function ScrapersPageView() {
           <div className="fp-card">
             <div className="fp-card-head">
               <div>
-                <div className="fp-card-title">📥 Download da Understat</div>
+                <div className="fp-card-title">Aggiornamento da Understat</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                  Match, xG, tiri, cartellini e giocatori da Understat. SofaScore completa possesso, falli, corner e arbitro solo dove mancanti.
+                  Understat resta la fonte primaria per partite, xG, tiri e giocatori.
                 </div>
               </div>
             </div>
@@ -395,7 +435,12 @@ export default function ScrapersPageView() {
                 <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Campionato</label>
                 <div className="sc-comp-grid">
                   {COMPETITIONS.map((item) => (
-                    <button key={item} className={`sc-comp${competition === item ? ' on' : ''}`} onClick={() => setCompetition(item)}>
+                    <button
+                      key={item}
+                      className={`sc-comp${competition === item ? ' on' : ''}`}
+                      onClick={() => setCompetition(item)}
+                      aria-pressed={competition === item}
+                    >
                       {item}
                     </button>
                   ))}
@@ -406,7 +451,12 @@ export default function ScrapersPageView() {
                 <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Stagioni da scaricare</label>
                 <div className="sc-year-grid">
                   {[1, 2, 3].map((value) => (
-                    <button key={value} className={`sc-year${yearsBack === value ? ' on' : ''}`} onClick={() => setYearsBack(value)}>
+                    <button
+                      key={value}
+                      className={`sc-year${yearsBack === value ? ' on' : ''}`}
+                      onClick={() => setYearsBack(value)}
+                      aria-pressed={yearsBack === value}
+                    >
                       <span className="sc-year-num">{value}</span>
                       <span className="sc-year-lbl">{value === 1 ? 'stagione' : 'stagioni'}</span>
                     </button>
@@ -424,25 +474,21 @@ export default function ScrapersPageView() {
                   <input type="checkbox" checked={importPlayers} onChange={(e) => setImportPlayers(e.target.checked)} />
                   Aggiorna anche statistiche giocatori
                 </label>
-                <label className="sc-check">
-                  <input type="checkbox" checked={includeSofaScoreSupplemental} onChange={(e) => setIncludeSofaScoreSupplemental(e.target.checked)} />
-                  Completa referee, possesso, falli e corner con SofaScore
-                </label>
                 <label className="sc-check" style={{ marginBottom: 0 }}>
                   <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} />
                   Forza refresh completo
                 </label>
                 <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>
-                  Understat non viene sostituito: SofaScore integra solo i campi mancanti e non tocca xG, tiri o risultati.
+                  L’import non riattiva fonti legacy e mantiene Understat come origine primaria.
                 </div>
               </div>
 
               <div style={{ display: 'grid', gap: 10 }}>
                 <button className="sc-big-btn" onClick={() => handleUnderstat('single')} disabled={understatLoading}>
-                  {understatLoading ? '⏳ Download in corso...' : `⬇ Scarica solo ${competition}`}
+                  {understatLoading ? 'Download in corso...' : `Scarica solo ${competition}`}
                 </button>
                 <button className="sc-big-btn" onClick={() => handleUnderstat('top5')} disabled={understatLoading}>
-                  {understatLoading ? '⏳ Download in corso...' : '⬇ Scarica Top-5 insieme'}
+                  {understatLoading ? 'Download in corso...' : 'Scarica Top-5 insieme'}
                 </button>
               </div>
 
@@ -455,7 +501,7 @@ export default function ScrapersPageView() {
 
               {understatError && (
                 <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>
-                  ⚠ Errore: {understatError}
+                  Errore: {understatError}
                 </div>
               )}
 
@@ -465,8 +511,8 @@ export default function ScrapersPageView() {
                     {understatResult.alreadyRunning || understatResult.inProgress
                       ? 'Import già in corso'
                       : understatResult.isUpToDate
-                        ? '✓ Database già aggiornato'
-                        : '✓ Import completato con successo'}
+                        ? 'Database già aggiornato'
+                        : 'Import completato con successo'}
                   </div>
                   {understatResult.message && (
                     <div style={{ marginBottom: 12, color: 'inherit', opacity: 0.82 }}>
@@ -481,9 +527,6 @@ export default function ScrapersPageView() {
                     ['Nuove partite importate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.newMatchesImported],
                     ['Partite future importate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.upcomingMatchesImported],
                     ['Partite aggiornate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.existingMatchesUpdated],
-                    ['Match completati con SofaScore', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedMatches],
-                    ['Match chiusi per medie squadra', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedCompletedMatches],
-                    ['Arbitri aggiornati da SofaScore', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.sofaScoreSupplemental?.updatedReferees],
                     ['Squadre create', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.teamsCreated],
                     ['Giocatori aggiornati', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.playersUpdated],
                     ['Squadre ricalcolate', understatResult.alreadyRunning || understatResult.inProgress ? undefined : understatResult.teamsRecomputed],
@@ -496,6 +539,60 @@ export default function ScrapersPageView() {
                 </div>
               )}
 
+              <section className="fp-info" style={{ marginTop: 18 }} aria-labelledby="football-data-title">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                  <div>
+                    <h2 id="football-data-title" style={{ margin: 0, fontSize: 15 }}>
+                      Integrazione campi mancanti
+                    </h2>
+                    <p style={{ margin: '5px 0 0', color: 'var(--text-2)' }}>
+                      football-data.co.uk completa solo valori assenti per tiri, tiri in porta,
+                      falli, corner, cartellini e arbitro. I dati Understat esistenti non vengono
+                      sovrascritti.
+                    </p>
+                  </div>
+                  <span className="fp-badge fp-badge-gray">Fonte supplementare</span>
+                </div>
+                <button
+                  className="fp-btn fp-btn-ghost"
+                  style={{ marginTop: 14 }}
+                  onClick={handleFootballData}
+                  disabled={footballDataLoading || understatLoading}
+                >
+                  {footballDataLoading ? 'Integrazione in corso...' : 'Integra statistiche mancanti'}
+                </button>
+
+                {footballDataError && (
+                  <div className="fp-alert fp-alert-danger" style={{ marginTop: 12 }}>
+                    Integrazione non completata: {footballDataError}
+                  </div>
+                )}
+
+                {footballDataResult && (
+                  <div className="fp-alert fp-alert-success" style={{ marginTop: 12 }}>
+                    <strong>Integrazione completata</strong>
+                    <div className="fp-meta-list" style={{ marginTop: 10 }}>
+                      <div className="fp-meta-row">
+                        <span className="fp-meta-label">Righe CSV lette</span>
+                        <span className="fp-meta-value">{footballDataResult.sync?.csvRows ?? 0}</span>
+                      </div>
+                      <div className="fp-meta-row">
+                        <span className="fp-meta-label">Partite abbinate</span>
+                        <span className="fp-meta-value">{footballDataResult.sync?.matched ?? 0}</span>
+                      </div>
+                      <div className="fp-meta-row">
+                        <span className="fp-meta-label">Partite integrate</span>
+                        <span className="fp-meta-value">{footballDataResult.sync?.updated ?? 0}</span>
+                      </div>
+                      <div className="fp-meta-row">
+                        <span className="fp-meta-label">Squadre ricalcolate</span>
+                        <span className="fp-meta-value">{footballDataResult.teamsUpdated ?? 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+
               {understatInfo && (
                 <div className="fp-card" style={{ marginTop: 16, background: 'var(--surface2)' }}>
                   <div className="fp-card-head">
@@ -505,7 +602,7 @@ export default function ScrapersPageView() {
                     {[
                       ['Campionati supportati', Array.isArray(understatInfo.competitions) ? understatInfo.competitions.join(', ') : 'n/d'],
                       ['Ultimi import nel DB', understatInfo.dbLastImport ? Object.entries(understatInfo.dbLastImport).map(([key, value]) => `${key}: ${String(value)}`).join(' | ') : 'n/d'],
-                      ['Note', understatInfo.note ?? 'n/d'],
+                      ['Note', 'Understat resta la fonte primaria; football-data.co.uk integra soltanto campi mancanti compatibili.'],
                     ].map(([label, value]) => (
                       <div key={String(label)} className="sc-result-row">
                         <span style={{ color: 'var(--text-2)' }}>{label}</span>
@@ -523,7 +620,7 @@ export default function ScrapersPageView() {
           <div className="fp-card">
             <div className="fp-card-head">
               <div>
-                <div className="fp-card-title">📈 Provider quote</div>
+                <div className="fp-card-title">Provider quote</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
                   Odds API è il provider quote runtime. Il matching usa anche kickoff e nomi squadra.
                 </div>
@@ -533,6 +630,10 @@ export default function ScrapersPageView() {
               </span>
             </div>
             <div className="fp-card-body">
+              <div className="fp-alert fp-alert-info" style={{ marginBottom: 16 }}>
+                Le quote tecniche di fallback possono supportare il processo interno, ma la UI delle
+                previsioni mostra una quota solo quando è disponibile la fonte Eurobet prevista dal prodotto.
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <div className="fp-stat c-blue">
                   <div className="fp-stat-val c-blue">
@@ -548,30 +649,30 @@ export default function ScrapersPageView() {
                 </div>
                 <div className="fp-stat c-gold">
                   <div className="fp-stat-val c-gold">
-                    {effectiveProviderHealth.freshnessMinutes !== null ? `${effectiveProviderHealth.freshnessMinutes}m` : 'n/d'}
+                    {formatFreshness(effectiveProviderHealth.freshnessMinutes)}
                   </div>
-                  <div className="fp-stat-label">Freshness Provider</div>
+                  <div className="fp-stat-label">Freschezza provider</div>
                 </div>
                 <div className="fp-stat c-green">
                   <div className="fp-stat-val c-green">
                     {effectiveSystemMetrics.provider.avgScrapeLatencyMs !== null
-                      ? formatDuration(effectiveSystemMetrics.provider.avgScrapeLatencyMs)
+                      ? formatMilliseconds(effectiveSystemMetrics.provider.avgScrapeLatencyMs)
                       : 'n/d'}
                   </div>
                   <div className="fp-stat-label">Latenza Media</div>
                 </div>
                 <div className="fp-stat c-red">
                   <div className="fp-stat-val c-red">{effectiveSystemMetrics.trends.errorRuns}</div>
-                  <div className="fp-stat-label">Run in Errore</div>
+                  <div className="fp-stat-label">Esecuzioni con errore</div>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 <button className="sc-big-btn" onClick={handleOdds} disabled={oddsLoading}>
-                  {oddsLoading ? '⏳ Scaricamento provider...' : '⬇ Scarica quote provider'}
+                  {oddsLoading ? 'Scaricamento provider...' : 'Scarica quote provider'}
                 </button>
                 <button className="sc-big-btn" onClick={handleVerifyProvider} disabled={providerCheckLoading}>
-                  {providerCheckLoading ? '⏳ Verifica provider...' : '🩺 Verifica provider'}
+                  {providerCheckLoading ? 'Verifica provider...' : 'Verifica provider'}
                 </button>
               </div>
 
@@ -580,7 +681,7 @@ export default function ScrapersPageView() {
               </div>
 
               {oddsLastUpdatedAt && (
-                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)', fontFamily: 'DM Mono, monospace' }}>
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
                   Ultimo aggiornamento: <strong style={{ color: 'var(--text)' }}>{formatDate(oddsLastUpdatedAt)}</strong>
                 </div>
               )}
@@ -600,20 +701,20 @@ export default function ScrapersPageView() {
 
               {providerCheckError && (
                 <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>
-                  ⚠ {providerCheckError}
+                  Verifica non completata: {providerCheckError}
                 </div>
               )}
 
               {oddsError && (
                 <div className="fp-alert fp-alert-danger" style={{ marginTop: 16 }}>
-                  ⚠ {oddsError}
+                  Aggiornamento non completato: {oddsError}
                 </div>
               )}
 
               {!oddsError && !oddsLoading && oddsMatches.length > 0 && (
                 <>
                   <div className="fp-alert fp-alert-success" style={{ marginTop: 16 }}>
-                    ✓ Quote provider aggiornate: <strong>{oddsMatches.length}</strong> partite trovate.
+                    Quote provider aggiornate: <strong>{oddsMatches.length}</strong> partite trovate.
                   </div>
                   <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
                     <div style={{

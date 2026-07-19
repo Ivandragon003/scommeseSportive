@@ -69,4 +69,31 @@ describe('backtesting API timeout', () => {
     );
     expect(mockGet).toHaveBeenCalledTimes(2);
   });
+
+  test('runFootballDataSync usa il contratto supplementare frontend-only', async () => {
+    const { runFootballDataSync } = await import('./api');
+    mockPost.mockResolvedValueOnce({
+      data: { success: true, sync: { matchesUpdated: 12 }, prune: {}, teamsUpdated: 4 },
+    });
+
+    await runFootballDataSync({
+      competitions: ['Serie A'],
+      seasonStartYears: [2025, 2024],
+      keepSeasons: 4,
+      prune: true,
+      recomputeAverages: true,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/scraper/football-data',
+      {
+        competitions: ['Serie A'],
+        seasonStartYears: [2025, 2024],
+        keepSeasons: 4,
+        prune: true,
+        recomputeAverages: true,
+      },
+      expect.objectContaining({ timeout: 3600000 })
+    );
+  });
 });

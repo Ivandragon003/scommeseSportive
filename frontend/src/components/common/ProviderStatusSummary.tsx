@@ -83,7 +83,7 @@ const ProviderStatusSummary: React.FC<ProviderStatusSummaryProps> = ({
       {[
         ['Sorgente quote', formatOddsSource(providerHealth.oddsSource)],
         ['Ultimo fetch', formatDateTime(providerHealth.fetchedAt)],
-        ['Freshness', providerHealth.freshnessMinutes === null ? 'n/d' : `${providerHealth.freshnessMinutes}m`],
+        ['Freschezza', providerHealth.freshnessMinutes === null ? 'n/d' : `${providerHealth.freshnessMinutes}m`],
         ['Match con quota base', String(providerHealth.matchesWithBaseOdds)],
         ['Match con gruppi estesi', String(providerHealth.matchesWithExtendedGroups)],
       ].map(([label, value]) => (

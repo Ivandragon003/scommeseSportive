@@ -4,6 +4,7 @@ import { getBets, getBudget } from '../utils/api';
 export function useBudgetManagerData(activeUser: string) {
   const [budget, setBudget] = useState<any>(null);
   const [bets, setBets] = useState<any[]>([]);
+  const [summaryBets, setSummaryBets] = useState<any[]>([]);
   const [filter, setFilter] = useState('');
   const [loadingBudget, setLoadingBudget] = useState(true);
   const [loadingBets, setLoadingBets] = useState(true);
@@ -24,7 +25,9 @@ export function useBudgetManagerData(activeUser: string) {
     setLoadingBets(true);
     try {
       const betsRes = await getBets(activeUser, filter || undefined, options);
-      setBets(betsRes.data ?? []);
+      const nextBets = betsRes.data ?? [];
+      setBets(nextBets);
+      if (!filter) setSummaryBets(nextBets);
     } catch {
       setBets([]);
     } finally {
@@ -52,7 +55,7 @@ export function useBudgetManagerData(activeUser: string) {
     let lossesCount = 0;
     let voidCount = 0;
 
-    for (const bet of bets) {
+    for (const bet of summaryBets) {
       const status = String(bet?.status ?? '');
       if (status === 'PENDING') {
         pending.push(bet);
@@ -76,7 +79,7 @@ export function useBudgetManagerData(activeUser: string) {
       lossesCount,
       voidCount,
     };
-  }, [bets]);
+  }, [summaryBets]);
 
   return {
     budget,

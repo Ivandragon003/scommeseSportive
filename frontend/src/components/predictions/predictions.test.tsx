@@ -5,6 +5,7 @@ import PlayerPropsSection from './PlayerPropsSection';
 import StakePlanner from './StakePlanner';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { BestValueOpportunity } from './predictionTypes';
+import { buildOddsReliabilityBadge, sanitizePredictionForBookmakerOdds } from './predictionWorkbenchUtils';
 
 const opportunity: BestValueOpportunity = {
   selection: 'over25',
@@ -28,33 +29,39 @@ describe('predictions UI components', () => {
     render(
       <BestValueCard
         opportunity={opportunity}
-        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
       />
     );
 
     expect(screen.getByTestId('best-value-card')).toBeTruthy();
     expect(screen.getByText('Over 2.5 Goal')).toBeTruthy();
-    expect(screen.getByText('Quota')).toBeTruthy();
+    expect(screen.getByText('Quota Eurobet')).toBeTruthy();
     expect(screen.getByText('2.15')).toBeTruthy();
+    expect(screen.getByText('Probabilità stimata')).toBeTruthy();
+    expect(screen.getByText('Affidabilità')).toBeTruthy();
+    expect(screen.getByText('Puntata suggerita')).toBeTruthy();
     expect(screen.getByText('xG combinati alti')).toBeTruthy();
+    expect(screen.queryByText('EV')).toBeNull();
+    expect(screen.queryByText('Edge')).toBeNull();
+    expect(screen.queryByText('Score rischio')).toBeNull();
   });
 
   test('mostra NO_MARKET solo quando non ci sono quote o probabilita sufficienti', () => {
     render(
       <BestValueCard
         opportunity={null}
-        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
         bestBetStatus="NO_MARKET"
         bestBetReason="Quote o probabilita insufficienti per scegliere una giocata."
       />
     );
 
-    expect(screen.getByText('NO_MARKET')).toBeTruthy();
+    expect(screen.getByText('Nessuna giocata consigliata')).toBeTruthy();
     expect(screen.getByText(/Quote o probabilita insufficienti/i)).toBeTruthy();
     expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
-  test('mostra SPECULATIVE e alternative quando la migliore giocata e debole ma valutabile', () => {
+  test('traduce SPECULATIVE e non porta le alternative tecniche nel consiglio principale', () => {
     render(
       <BestValueCard
         opportunity={{
@@ -65,7 +72,7 @@ describe('predictions UI components', () => {
           riskAdjustedBestScore: 0.08,
           edgeNoVig: 1.2,
         }}
-        oddsBadge={{ label: 'Quote bookmaker', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
         bestBetAlternatives={[
           {
             selection: 'dnb_away',
@@ -80,11 +87,10 @@ describe('predictions UI components', () => {
       />
     );
 
-    expect(screen.getByText('SPECULATIVE')).toBeTruthy();
+    expect(screen.getByText('Rischio elevato')).toBeTruthy();
     expect(screen.getByText(/Migliore giocata disponibile/i)).toBeTruthy();
-    expect(screen.getByText('Alternative valutate')).toBeTruthy();
-    expect(screen.getByText('Draw No Bet Ospite')).toBeTruthy();
-    expect(screen.getByText(/risk adjusted score basso/i)).toBeTruthy();
+    expect(screen.queryByText('Alternative valutate')).toBeNull();
+    expect(screen.queryByText('Draw No Bet Ospite')).toBeNull();
     expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
@@ -100,23 +106,22 @@ describe('predictions UI components', () => {
           expectedValue: 21.3,
           edge: 13.3,
         }}
-        oddsBadge={{ label: 'Quote provider secondario', className: 'pr-badge-gold' }}
+        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
       />
     );
 
-    expect(screen.getByTestId('best-value-metric-probabilita-nostra').textContent).toBe('N/D');
-    expect(screen.getByTestId('best-value-metric-probabilita-implicita').textContent).toBe('N/D');
-    expect(screen.getByTestId('best-value-metric-stake-base').textContent).toBe('N/D');
+    expect(screen.getByTestId('best-value-metric-probabilita-stimata').textContent).toBe('N/D');
+    expect(screen.getByTestId('best-value-metric-puntata-suggerita').textContent).toBe('N/D');
     expect(screen.queryByText('0.0%')).toBeNull();
     expect(screen.queryByText('0.00%')).toBeNull();
   });
 
   test('renderizza badge sorgente quote', () => {
-    render(<OddsSourceBadge badge={{ label: 'Quote provider secondario', className: 'pr-badge-gold' }} testId="badge" />);
+    render(<OddsSourceBadge badge={{ label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' }} testId="badge" />);
 
     const badge = screen.getByTestId('badge');
     expect(badge).toBeTruthy();
-    expect(badge.textContent).toBe('Quote provider secondario');
+    expect(badge.textContent).toBe('Quota Eurobet non disponibile');
   });
 
   test('mostra stake suggerito sul bankroll', () => {
@@ -157,8 +162,51 @@ describe('predictions UI components', () => {
     );
 
     expect(screen.getByText(/Provider secondario disponibile/i)).toBeTruthy();
-    expect(screen.getByText(/Quote bookmaker non disponibili per questa partita/i)).toBeTruthy();
-    expect(screen.getByText(/Finche il provider non espone il mercato/i)).toBeTruthy();
+    expect(screen.getByText(/Quota Eurobet non disponibile per questa partita/i)).toBeTruthy();
+    expect(screen.getByText(/quote di fallback restano interne/i)).toBeTruthy();
+  });
+
+  test('non mostra quote fallback né abilita la registrazione della giocata', () => {
+    const noop = () => undefined;
+    render(
+      <ValueOpportunitiesTable
+        opportunities={[opportunity]}
+        bankroll={1000}
+        budgetReady
+        isReplayAnalysis={false}
+        oddsSource="fallback_provider"
+        placedBetKeySet={new Set()}
+        replayOutcomeTone="info"
+        stakes={{}}
+        getStakeKey={() => 'fallback'}
+        getStakeValue={() => 0}
+        onStakeChange={noop}
+        onBet={noop}
+      />
+    );
+
+    expect(screen.getByText(/Quota Eurobet non disponibile/i)).toBeTruthy();
+    expect(screen.queryByText('2.15')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
+  });
+
+  test('sanitizza qualunque sorgente non Eurobet e usa badge prudenti', () => {
+    const prediction = {
+      valueOpportunities: [opportunity],
+      bestValueOpportunity: opportunity,
+      bestBetStatus: 'PLAYABLE',
+    };
+
+    expect(sanitizePredictionForBookmakerOdds(prediction, 'fallback_provider')).toEqual(
+      expect.objectContaining({
+        oddsSource: 'fallback_provider',
+        valueOpportunities: [],
+        bestValueOpportunity: null,
+        bestBetStatus: 'NO_MARKET',
+      })
+    );
+    expect(buildOddsReliabilityBadge({ oddsSource: 'odds_api' }, false).label).toBe('Quota Eurobet verificata');
+    expect(buildOddsReliabilityBadge({ oddsSource: 'fallback_provider' }, false).label).toBe('Quota Eurobet non disponibile');
   });
 
   test('mostra warning sintetici per Under cartellini fragili', () => {

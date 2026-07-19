@@ -173,7 +173,7 @@ describe('Predictions page', () => {
     await screen.findByTestId('best-value-card');
     expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quote bookmaker');
+    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota Eurobet verificata');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
     expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
@@ -223,11 +223,11 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
 
-    expect(await screen.findByText('SPECULATIVE')).toBeTruthy();
+    expect(await screen.findByText('Rischio elevato')).toBeTruthy();
     expect(screen.getByText(/Migliore giocata disponibile/i)).toBeTruthy();
     expect(screen.queryByText(/Match da saltare/i)).toBeNull();
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByText(/Alternative valutate/i)).toBeTruthy();
+    expect(screen.queryByText(/Alternative valutate/i)).toBeNull();
   });
 
   test('mostra NO_MARKET solo quando mancano quote o probabilita valutabili', async () => {
@@ -255,8 +255,8 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
 
-    expect(await screen.findByText('NO_MARKET')).toBeTruthy();
-    expect(screen.getByText(/Quote o probabilita insufficienti/i)).toBeTruthy();
+    expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
+    expect(screen.getAllByText(/Quota Eurobet non disponibile/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
@@ -323,9 +323,7 @@ describe('Predictions page', () => {
   });
 
   test('mostra warning quando il provider fallback viene usato', async () => {
-    mockedApi.getPrediction
-      .mockResolvedValueOnce({ data: buildPrediction() } as any)
-      .mockResolvedValueOnce({ data: buildPrediction() } as any);
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: false,
@@ -339,14 +337,16 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByText('Inter'));
 
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/Quote provider primario non disponibili: mostro quote provider secondario per analisi\./i)).toBeTruthy();
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    expect((await screen.findAllByText(/Quota Eurobet non disponibile/i)).length).toBeGreaterThan(0);
+    expect(screen.queryByText('2.06')).toBeNull();
 
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Provider secondario attivo: verifica la quota prima di eseguirla.');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota Eurobet non disponibile');
     });
+    expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
   });
 
   test('gestisce provider unavailable senza proporre una quota utente', async () => {
@@ -368,7 +368,7 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quote bookmaker non disponibili per questa partita.');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota Eurobet non disponibile per questa partita.');
     });
   });
 

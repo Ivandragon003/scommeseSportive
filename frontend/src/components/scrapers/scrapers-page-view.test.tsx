@@ -108,6 +108,12 @@ beforeEach(() => {
       existingMatchesUpdated: 8,
     },
   } as any);
+  mockedApi.runFootballDataSync.mockResolvedValue({
+    success: true,
+    sync: { matchesUpdated: 9, rowsDownloaded: 120 },
+    prune: { matchesDeleted: 0 },
+    teamsUpdated: 4,
+  } as any);
   mockedApi.runOddsSnapshot.mockResolvedValue({
     data: {
       matches: [
@@ -124,10 +130,30 @@ beforeEach(() => {
 });
 
 describe('ScrapersPageView', () => {
+  test('usa football-data per integrare i campi mancanti e non espone sorgenti legacy', async () => {
+    render(<ScrapersPageView />);
+
+    await screen.findByText(/Aggiornamento da Understat/i);
+
+    expect(screen.queryByText(/SofaScore/i)).toBeNull();
+    expect(screen.queryByText(/Learning review/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Integra statistiche mancanti/i }));
+
+    await waitFor(() => expect(mockedApi.runFootballDataSync).toHaveBeenCalledTimes(1));
+    expect(mockedApi.runFootballDataSync).toHaveBeenCalledWith(expect.objectContaining({
+      competitions: ['Serie A'],
+      seasonStartYears: expect.any(Array),
+      prune: true,
+      recomputeAverages: true,
+    }));
+    expect(await screen.findByText(/Integrazione completata/i)).toBeTruthy();
+  });
+
   test('mantiene il tab Understat operativo e scarica il campionato selezionato', async () => {
     render(<ScrapersPageView />);
 
-    await screen.findByText(/Download da Understat/i);
+    await screen.findByText(/Aggiornamento da Understat/i);
 
     expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
@@ -149,9 +175,9 @@ describe('ScrapersPageView', () => {
   test('mostra provider Odds API e consente scaricare quote live dal tab provider quote', async () => {
     render(<ScrapersPageView />);
 
-    await screen.findByText(/Download da Understat/i);
+    await screen.findByText(/Aggiornamento da Understat/i);
 
-    fireEvent.click(screen.getByRole('button', { name: /Provider quote/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
 
     await screen.findByText(/Scarica quote provider/i);
     expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
@@ -167,7 +193,7 @@ describe('ScrapersPageView', () => {
   test('cambio tab non rilancia il fetch iniziale e verifica provider chiama solo gli endpoint necessari', async () => {
     render(<ScrapersPageView />);
 
-    await screen.findByText(/Download da Understat/i);
+    await screen.findByText(/Aggiornamento da Understat/i);
 
     expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
@@ -175,14 +201,14 @@ describe('ScrapersPageView', () => {
     expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1);
     expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Provider quote/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Understat/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Understat/i }));
 
     expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
     expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Provider quote/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
     fireEvent.click(screen.getByRole('button', { name: /Verifica provider/i }));
 
     await waitFor(() => expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(2));

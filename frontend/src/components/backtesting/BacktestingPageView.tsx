@@ -16,6 +16,7 @@ import ErrorBanner from '../common/ErrorBanner';
 import { useToastState } from '../../hooks/useToastState';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useBacktestingData } from '../../hooks/useBacktestingData';
+import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 
 type ConfidenceMode = 'high_only' | 'medium_and_above';
 
@@ -36,6 +37,8 @@ const formatDate = (value: string | Date | null | undefined) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('it-IT');
 };
+const formatSeasonRange = (value: unknown) =>
+  String(value ?? '').trim().toLocaleLowerCase('it') === 'all' ? 'Tutte' : String(value ?? '-');
 
 const BacktestingPageView: React.FC = () => {
   const [competition, setCompetition] = useState('Serie A');
@@ -123,9 +126,9 @@ const BacktestingPageView: React.FC = () => {
     <>
       <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
         <div style={{ marginBottom: 32 }}>
-        <h1 className="fp-page-title fp-gradient-gold">Backtesting e Validazione</h1>
-        <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'DM Mono, monospace' }}>
-          Validazione del modello separata dalla manutenzione run, con priorita alle quote storiche archiviate
+        <h1 className="fp-page-title fp-gradient-blue">Backtesting e Validazione</h1>
+        <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0 }}>
+          Configura, esegui e interpreta la validazione temporale del modello senza confonderla con la manutenzione.
         </p>
       </div>
 
@@ -157,23 +160,23 @@ const BacktestingPageView: React.FC = () => {
         {tutorialOpen && (
           <div className="fp-card-body" style={{ display: 'grid', gap: 12 }}>
             <div className="fp-alert fp-alert-info">
-              Il sistema usa solo walk-forward: avvia prima Top 5 campionati, guarda ROI e CLV aggregati, poi entra nel dettaglio per campionato e confronta High only contro Medium and above.
+              Il sistema usa solo la validazione walk-forward: avvia prima i Top 5 campionati, guarda ROI e CLV aggregati, poi entra nel dettaglio per campionato e confronta “Solo alta” con “Alta e media”.
             </div>
             <div className="fp-grid-2">
               <div>
                 <h3 style={{ marginTop: 0 }}>Scelte operative</h3>
-                <p>Walk-forward simula finestre successive di training e test nel tempo. E il flusso ufficiale per ridurre overfitting e misurare stabilita reale.</p>
-                <p>Medium and above aumenta il campione e misura volume reale. High only e piu conservativo, ma puo essere troppo piccolo per giudizi rapidi.</p>
+                <p><GlossaryTerm termId="walk-forward">Walk-forward</GlossaryTerm> simula finestre successive di addestramento e test nel tempo. È il flusso ufficiale per ridurre l’overfitting e misurare la stabilità reale.</p>
+                <p>“Alta e media” aumenta il campione e misura un volume più realistico. “Solo alta” è più conservativo, ma può produrre un campione troppo piccolo.</p>
                 <p>Top 5 campionati esegue Serie A, Premier League, La Liga, Bundesliga e Ligue 1 separatamente, poi mostra aggregato e dettaglio.</p>
-                <p>Puoi scegliere se salvare anche i run singoli dei campionati: utile per storico dettagliato, meno utile se vuoi un archivio pulito.</p>
+                <p>Puoi scegliere se salvare anche le esecuzioni dei singoli campionati: utile per uno storico dettagliato, meno utile se vuoi un archivio pulito.</p>
               </div>
               <div>
                 <h3 style={{ marginTop: 0 }}>Come leggere i numeri</h3>
-                <p>ROI e profit/loss dicono il risultato economico; win rate da solo non basta perche quote diverse hanno payout diversi.</p>
-                <p>Initial train matches, test window matches, step matches ed expanding window controllano quanta storia entra nel training e quanto spesso il modello viene rivalutato.</p>
-                <p>CLV positivo significa che la quota scelta era migliore della quota bookmaker di chiusura. Una bet persa puo comunque essere buona se ha CLV positivo; non giudicare il modello su poche giocate.</p>
-                <p>Quote bookmaker reali e quote sintetiche non vanno mischiate: se il run usa solo sintetiche, il risultato e indicativo. Il confronto baseline vs algoritmo attuale serve a capire se le nuove penalita di rischio migliorano davvero.</p>
-                <p>Il tuning dei pesi va letto solo in walk-forward: se un peso produce ROI alto con poche bet o CLV negativo, e un segnale di overfitting e non va promosso in produzione.</p>
+                <p><GlossaryTerm termId="roi">ROI</GlossaryTerm> e profitto/perdita descrivono il risultato economico; il <GlossaryTerm termId="win-rate">win rate</GlossaryTerm> da solo non basta perché quote diverse hanno ritorni diversi.</p>
+                <p>Le partite iniziali di addestramento, la finestra di test, il passo e la finestra crescente controllano quanta storia entra nel modello e quanto spesso viene rivalutato.</p>
+                <p>Un <GlossaryTerm termId="clv">CLV</GlossaryTerm> positivo indica che la quota ottenuta era migliore della quota di chiusura. Una giocata persa può comunque avere un buon CLV; non giudicare il modello su poche giocate.</p>
+                <p>Quote bookmaker reali e quote sintetiche non vanno mischiate: se l’esecuzione usa solo quote sintetiche, il risultato è indicativo. Il confronto tra baseline e algoritmo attuale mostra se le penalità di rischio migliorano davvero.</p>
+                <p>L’ottimizzazione dei pesi va letta solo in walk-forward: un ROI alto su poche giocate o con CLV negativo può indicare overfitting e non va promosso in produzione.</p>
               </div>
             </div>
           </div>
@@ -191,12 +194,12 @@ const BacktestingPageView: React.FC = () => {
             </div>
             {isTop5Competition && (
               <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
-                Il walk-forward Top 5 puo richiedere alcuni minuti. Se va in timeout, riduci max folds oppure riprova con un singolo campionato.
+                Il walk-forward Top 5 può richiedere alcuni minuti. Se scade il tempo, riduci il numero massimo di fold oppure riprova con un singolo campionato.
               </div>
             )}
             {showTop5TuningWarning && (
               <div className="fp-alert fp-alert-warning" style={{ marginBottom: 18 }}>
-                Tuning pesi + Top 5 puo essere molto lento. Se va in timeout, riduci max folds, disattiva il tuning pesi oppure usa un singolo campionato.
+                Ottimizzazione pesi + Top 5 può essere molto lenta. Se scade il tempo, riduci il numero massimo di fold, disattiva l’ottimizzazione oppure usa un singolo campionato.
               </div>
             )}
             {loading && (
@@ -208,10 +211,10 @@ const BacktestingPageView: React.FC = () => {
             )}
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label" htmlFor="backtest-confidence">Confidence filter</label>
+                <label className="fp-label" htmlFor="backtest-confidence">Filtro affidabilità</label>
                 <select id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
-                  <option value="medium_and_above">Medium and above</option>
-                  <option value="high_only">High only</option>
+                  <option value="medium_and_above">Alta e media</option>
+                  <option value="high_only">Solo alta</option>
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -241,25 +244,32 @@ const BacktestingPageView: React.FC = () => {
 
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Initial train matches</label>
-                <input className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="auto" />
+                <label className="fp-label" htmlFor="backtest-initial-train">Partite iniziali di addestramento</label>
+                <input id="backtest-initial-train" className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="Automatico" aria-describedby="backtest-initial-train-help" />
+                <small id="backtest-initial-train-help" className="fp-section-text">Storico minimo usato prima della prima verifica.</small>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Test window matches</label>
-                <input className="fp-input" value={testWindowMatches} onChange={(e) => setTestWindowMatches(e.target.value)} placeholder="auto" />
+                <label className="fp-label" htmlFor="backtest-test-window">Partite per finestra di test</label>
+                <input id="backtest-test-window" className="fp-input" value={testWindowMatches} onChange={(e) => setTestWindowMatches(e.target.value)} placeholder="Automatico" aria-describedby="backtest-test-window-help" />
+                <small id="backtest-test-window-help" className="fp-section-text">Partite future su cui viene misurato ogni ciclo.</small>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Step matches</label>
-                <input className="fp-input" value={stepMatches} onChange={(e) => setStepMatches(e.target.value)} placeholder="auto" />
+                <label className="fp-label" htmlFor="backtest-step">Passo tra finestre</label>
+                <input id="backtest-step" className="fp-input" value={stepMatches} onChange={(e) => setStepMatches(e.target.value)} placeholder="Automatico" aria-describedby="backtest-step-help" />
+                <small id="backtest-step-help" className="fp-section-text">Numero di partite prima di spostare la finestra.</small>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Max folds</label>
-                <input className="fp-input" value={maxFolds} onChange={(e) => setMaxFolds(e.target.value)} placeholder="10" />
+                <label className="fp-label" htmlFor="backtest-max-folds">Numero massimo di fold</label>
+                <input id="backtest-max-folds" className="fp-input" value={maxFolds} onChange={(e) => setMaxFolds(e.target.value)} placeholder="10" aria-describedby="backtest-max-folds-help" />
+                <small id="backtest-max-folds-help" className="fp-section-text">Limita i cicli per controllare durata e volume del test.</small>
               </div>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
               <input type="checkbox" checked={expandingWindow} onChange={(e) => setExpandingWindow(e.target.checked)} />
-              Expanding window
+              <span>
+                <strong style={{ color: 'var(--text)' }}>Finestra di addestramento crescente</strong>
+                <span style={{ display: 'block', fontSize: 12 }}>Mantiene tutta la storia precedente invece di usare solo una finestra mobile.</span>
+              </span>
             </label>
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
@@ -271,7 +281,7 @@ const BacktestingPageView: React.FC = () => {
               />
               <span>
                 <span style={{ display: 'block', color: 'var(--text-1)', fontWeight: 700 }}>
-                  Salva anche i run singoli dei campionati
+                  Salva anche le esecuzioni dei singoli campionati
                 </span>
                 <span id="save-individual-runs-help" style={{ display: 'block', fontSize: 12 }}>
                   Per Top 5 mantiene in archivio anche Serie A, Premier League, La Liga, Bundesliga e Ligue 1 oltre al risultato aggregato.
@@ -310,8 +320,8 @@ const BacktestingPageView: React.FC = () => {
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="fp-card">
             <div className="fp-card-head">
-              <div className="fp-card-title">Archivio Run</div>
-              <span className="fp-badge fp-badge-gray">{results.length} run</span>
+              <div className="fp-card-title">Archivio esecuzioni</div>
+              <span className="fp-badge fp-badge-gray">{results.length} esecuzioni</span>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table className="fp-table">
@@ -329,28 +339,28 @@ const BacktestingPageView: React.FC = () => {
                     <tr key={row.id}>
                       <td>
                         <span className={`fp-badge ${row.kind === 'walk_forward' ? 'fp-badge-blue' : 'fp-badge-gold'}`}>
-                          {row.kind === 'walk_forward' ? 'Walk-Forward' : 'Legacy/classic'}
+                          {row.kind === 'walk_forward' ? 'Walk-forward' : 'Validazione storica'}
                         </span>
                       </td>
                       <td style={{ fontWeight: 600 }}>{row.competition}</td>
-                      <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{row.season_range}</td>
+                      <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{formatSeasonRange(row.season_range)}</td>
                       <td className="fp-mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>{formatDate(row.run_at)}</td>
                       <td style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         <button
                           className="fp-btn fp-btn-ghost fp-btn-sm"
                           onClick={() => void handleLoadHistorical(row.id)}
                           disabled={maintenanceLoading}
-                          title={maintenanceLoading ? 'Attendi il completamento della manutenzione run' : 'Apri questo run'}
+                          title={maintenanceLoading ? 'Attendi il completamento della manutenzione' : 'Apri questa esecuzione'}
                         >
-                          Apri Run
+                          Apri
                         </button>
                         <button
                           className="fp-btn fp-btn-ghost fp-btn-sm"
                           onClick={() => handleDeleteRun(Number(row.id))}
                           disabled={maintenanceLoading}
-                          title={maintenanceLoading ? 'Attendi il completamento della manutenzione run' : 'Elimina questo run'}
+                          title={maintenanceLoading ? 'Attendi il completamento della manutenzione' : 'Elimina questa esecuzione'}
                         >
-                          Elimina Run
+                          Elimina
                         </button>
                       </td>
                     </tr>
@@ -358,7 +368,7 @@ const BacktestingPageView: React.FC = () => {
                   {results.length === 0 && (
                     <tr>
                       <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-3)' }}>
-                        Nessun run salvato
+                        Nessuna esecuzione salvata
                       </td>
                     </tr>
                   )}
@@ -370,7 +380,7 @@ const BacktestingPageView: React.FC = () => {
           <div className="fp-card" style={{ borderColor: 'var(--red-border)', background: 'color-mix(in srgb, white 88%, var(--red-dim))' }}>
             <div className="fp-card-head">
               <div>
-                <div className="fp-card-title">Manutenzione run</div>
+                <div className="fp-card-title">Manutenzione esecuzioni</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
                   Azioni distruttive e pruning. Usa il filtro competizione a sinistra per limitare l’ambito.
                 </div>
@@ -379,7 +389,7 @@ const BacktestingPageView: React.FC = () => {
             </div>
             <div className="fp-card-body" style={{ display: 'grid', gap: 12 }}>
               <div className="fp-alert fp-alert-warning">
-                Elimina o riduci i run solo quando serve davvero. Le operazioni non sono reversibili.
+                Elimina o riduci le esecuzioni solo quando serve davvero. Le operazioni non sono reversibili.
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
@@ -390,13 +400,13 @@ const BacktestingPageView: React.FC = () => {
                   value={pruneKeepLatest}
                   onChange={(e) => setPruneKeepLatest(e.target.value)}
                   placeholder="20"
-                  aria-label="Numero di run da mantenere"
+                  aria-label="Numero di esecuzioni da mantenere"
                 />
                 <button
                   className="fp-btn fp-btn-ghost fp-btn-sm"
                   onClick={() => void handlePruneRuns(pruneKeepLatest, competition)}
                   disabled={maintenanceLoading}
-                  title={maintenanceLoading ? 'Manutenzione run gia in corso' : 'Mantieni solo gli ultimi N run'}
+                  title={maintenanceLoading ? 'Manutenzione già in corso' : 'Mantieni solo le ultime N esecuzioni'}
                 >
                   Mantieni ultimi N
                 </button>
@@ -404,13 +414,13 @@ const BacktestingPageView: React.FC = () => {
                   className="fp-btn fp-btn-red fp-btn-sm"
                   onClick={() => void handleDeleteAllRuns(competition)}
                   disabled={maintenanceLoading}
-                  title={maintenanceLoading ? 'Manutenzione run gia in corso' : 'Elimina tutti i run salvati'}
+                  title={maintenanceLoading ? 'Manutenzione già in corso' : 'Elimina tutte le esecuzioni salvate'}
                 >
-                  Svuota archivio run
+                  Svuota archivio
                 </button>
               </div>
               <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
-                Mantieni ultimi N: conserva solo i run piu recenti nel perimetro selezionato.
+                Mantieni ultime N: conserva solo le esecuzioni più recenti nel perimetro selezionato.
               </div>
             </div>
           </div>
@@ -419,7 +429,7 @@ const BacktestingPageView: React.FC = () => {
 
       {legacyClassicResult && (
         <div className="fp-alert fp-alert-warning" style={{ marginBottom: 24 }}>
-          Run legacy/classic caricato dall'archivio. La validazione ufficiale ora usa solo walk-forward; usa il Report Decisionale sotto per leggere i dati storici disponibili.
+          Esecuzione legacy/classic caricata dall’archivio. La validazione ufficiale usa ora solo walk-forward; consulta il report decisionale sotto per leggere i dati storici disponibili.
         </div>
       )}
 
@@ -427,7 +437,7 @@ const BacktestingPageView: React.FC = () => {
         <>
           <div className="fp-grid-4" style={{ marginBottom: 16 }}>
             {[
-              { label: 'Fold totali', value: walkForwardResult.totalFolds ?? 0, color: 'blue' },
+              { label: 'Finestre totali (fold)', value: walkForwardResult.totalFolds ?? 0, color: 'blue' },
               { label: 'ROI aggregato', value: `${walkForwardResult.summary?.roi >= 0 ? '+' : ''}${formatPct(walkForwardResult.summary?.roi, 2)}`, color: (walkForwardResult.summary?.roi ?? 0) >= 0 ? 'green' : 'red' },
               { label: 'Fold positivi', value: formatPct(walkForwardResult.summary?.positiveFoldRate ?? 0, 1), color: 'gold' },
               { label: 'ROI std dev', value: formatPct(walkForwardResult.summary?.roiStdDev ?? 0, 2), color: 'purple' },
@@ -450,10 +460,10 @@ const BacktestingPageView: React.FC = () => {
                   <thead>
                     <tr>
                       <th>Campionato</th>
-                      <th>Bet</th>
+                      <th>Giocate</th>
                       <th>ROI</th>
-                      <th>Win rate</th>
-                      <th>Profit/Loss</th>
+                      <th>Percentuale di vittorie</th>
+                      <th>Profitto/perdita</th>
                       <th>CLV medio</th>
                     </tr>
                   </thead>
@@ -474,15 +484,17 @@ const BacktestingPageView: React.FC = () => {
             </div>
           )}
 
-          <div className="fp-tabs" style={{ marginBottom: 20 }}>
+          <div className="fp-tabs" style={{ marginBottom: 20 }} role="tablist" aria-label="Risultati walk-forward">
             {[
-              { id: 'folds', label: 'Folds' },
-              { id: 'stability', label: 'Stabilita' },
+              { id: 'folds', label: 'Finestre' },
+              { id: 'stability', label: 'Stabilità' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 className={`fp-tab${activeTab === tab.id ? ' active' : ''}`}
                 onClick={() => setActiveTab(tab.id)}
+                role="tab"
+                aria-selected={activeTab === tab.id}
               >
                 {tab.label}
               </button>
@@ -492,9 +504,9 @@ const BacktestingPageView: React.FC = () => {
           {activeTab === 'folds' && Array.isArray(walkForwardResult.folds) && (
             <div className="fp-card" style={{ marginBottom: 24 }}>
               <div className="fp-card-head">
-                <div className="fp-card-title">Risultati per fold</div>
+                <div className="fp-card-title">Risultati per finestra</div>
                 <span className="fp-badge fp-badge-blue">
-                  {walkForwardResult.expandingWindow ? 'Expanding window' : 'Rolling window'}
+                  {walkForwardResult.expandingWindow ? 'Finestra crescente' : 'Finestra mobile'}
                 </span>
               </div>
               <div style={{ padding: '24px 24px 8px' }}>
@@ -516,13 +528,13 @@ const BacktestingPageView: React.FC = () => {
                 <table className="fp-table">
                   <thead>
                     <tr>
-                      <th>Fold</th>
-                      <th>Range</th>
-                      <th>Train</th>
+                      <th>Finestra</th>
+                      <th>Periodo</th>
+                      <th>Addestramento</th>
                       <th>Test</th>
-                      <th>Bet</th>
+                      <th>Giocate</th>
                       <th>ROI</th>
-                      <th>Win rate</th>
+                      <th>Percentuale di vittorie</th>
                       <th>Profitto</th>
                     </tr>
                   </thead>
@@ -560,9 +572,9 @@ const BacktestingPageView: React.FC = () => {
                     <tbody>
                       {[
                         ['Match totali', walkForwardResult.totalMatches],
-                        ['Fold totali', walkForwardResult.totalFolds],
-                        ['Bet piazzate', walkForwardResult.summary?.totalBetsPlaced ?? 0],
-                        ['Bet vinte', walkForwardResult.summary?.totalBetsWon ?? 0],
+                        ['Finestre totali (fold)', walkForwardResult.totalFolds],
+                        ['Giocate registrate', walkForwardResult.summary?.totalBetsPlaced ?? 0],
+                        ['Giocate vinte', walkForwardResult.summary?.totalBetsWon ?? 0],
                         ['Puntato', formatMoney(walkForwardResult.summary?.totalStaked)],
                         ['Profitto netto', `${(walkForwardResult.summary?.totalNetProfit ?? 0) >= 0 ? '+' : ''}${formatMoney(walkForwardResult.summary?.totalNetProfit)}`],
                       ].map(([label, value]) => (
@@ -577,7 +589,7 @@ const BacktestingPageView: React.FC = () => {
               </div>
               <div className="fp-card">
                 <div className="fp-card-head">
-                  <div className="fp-card-title">Stabilita</div>
+                  <div className="fp-card-title">Stabilità</div>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="fp-table">
@@ -591,7 +603,13 @@ const BacktestingPageView: React.FC = () => {
                         ['Log loss medio', Number(walkForwardResult.summary?.averageLogLoss ?? 0).toFixed(4)],
                       ].map(([label, value]) => (
                         <tr key={String(label)}>
-                          <td style={{ color: 'var(--text-2)' }}>{label}</td>
+                          <td style={{ color: 'var(--text-2)' }}>
+                            {label === 'Brier medio' ? (
+                              <GlossaryTerm termId="brier-score">Brier score medio</GlossaryTerm>
+                            ) : label === 'Log loss medio' ? (
+                              <GlossaryTerm termId="log-loss">Log loss medio</GlossaryTerm>
+                            ) : label}
+                          </td>
                           <td className="fp-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{String(value)}</td>
                         </tr>
                       ))}
@@ -607,13 +625,13 @@ const BacktestingPageView: React.FC = () => {
       {(currentResult || backtestReport || reportError) && (
         <div className="fp-card" style={{ marginBottom: 24 }}>
           <div className="fp-card-head">
-            <div className="fp-card-title">Report Decisionale</div>
+            <div className="fp-card-title">Report decisionale</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {backtestReport?.dataset?.legacyData ? (
-                <span className="fp-badge fp-badge-red">Run legacy</span>
+                <span className="fp-badge fp-badge-red">Esecuzione legacy</span>
               ) : (
                 <span className="fp-badge fp-badge-blue">
-                  {backtestReport?.dataset?.filteredBets ?? 0} bet filtrate
+                  {backtestReport?.dataset?.filteredBets ?? 0} giocate filtrate
                 </span>
               )}
             </div>
@@ -639,12 +657,12 @@ const BacktestingPageView: React.FC = () => {
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Data da</label>
-                <input className="fp-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} />
+                <label className="fp-label" htmlFor="backtest-report-date-from">Data da</label>
+                <input id="backtest-report-date-from" className="fp-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label className="fp-label">Data a</label>
-                <input className="fp-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} />
+                <label className="fp-label" htmlFor="backtest-report-date-to">Data a</label>
+                <input id="backtest-report-date-to" className="fp-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} />
               </div>
             </div>
 
@@ -690,16 +708,16 @@ const BacktestingPageView: React.FC = () => {
               <>
                 <div className="fp-grid-4" style={{ marginBottom: 18 }}>
                   {[
-                    { label: 'Yield', value: formatPct(backtestReport.summary?.yieldPct, 2), color: (backtestReport.summary?.yieldPct ?? 0) >= 0 ? 'green' : 'red' },
-                    { label: 'ROI bankroll', value: formatPct(backtestReport.summary?.roiPct, 2), color: (backtestReport.summary?.roiPct ?? 0) >= 0 ? 'green' : 'red' },
-                    { label: 'Hit rate', value: formatPct(backtestReport.summary?.hitRatePct, 2), color: 'blue' },
-                    { label: 'Brier score', value: Number(backtestReport.summary?.brierScore ?? 0).toFixed(4), color: 'gold' },
-                    { label: 'Log loss', value: Number(backtestReport.summary?.logLoss ?? 0).toFixed(4), color: 'purple' },
-                    { label: 'EV atteso', value: formatPct(backtestReport.summary?.expectedEvPct, 2), color: 'blue' },
-                    { label: 'EV realizzato', value: formatPct(backtestReport.summary?.realizedEvPct, 2), color: (backtestReport.summary?.realizedEvPct ?? 0) >= 0 ? 'green' : 'red' },
-                    { label: 'Capture EV', value: backtestReport.summary?.evCapturePct === null ? '-' : formatPct(backtestReport.summary?.evCapturePct, 1), color: 'gold' },
+                    { id: 'yield', label: <GlossaryTerm termId="yield">Yield</GlossaryTerm>, value: formatPct(backtestReport.summary?.yieldPct, 2), color: (backtestReport.summary?.yieldPct ?? 0) >= 0 ? 'green' : 'red' },
+                    { id: 'roi', label: <GlossaryTerm termId="roi">ROI bankroll</GlossaryTerm>, value: formatPct(backtestReport.summary?.roiPct, 2), color: (backtestReport.summary?.roiPct ?? 0) >= 0 ? 'green' : 'red' },
+                    { id: 'win-rate', label: <GlossaryTerm termId="win-rate">Percentuale di vittorie</GlossaryTerm>, value: formatPct(backtestReport.summary?.hitRatePct, 2), color: 'blue' },
+                    { id: 'brier', label: <GlossaryTerm termId="brier-score">Brier score</GlossaryTerm>, value: Number(backtestReport.summary?.brierScore ?? 0).toFixed(4), color: 'gold' },
+                    { id: 'log-loss', label: <GlossaryTerm termId="log-loss">Log loss</GlossaryTerm>, value: Number(backtestReport.summary?.logLoss ?? 0).toFixed(4), color: 'purple' },
+                    { id: 'expected-ev', label: <GlossaryTerm termId="expected-value">EV atteso</GlossaryTerm>, value: formatPct(backtestReport.summary?.expectedEvPct, 2), color: 'blue' },
+                    { id: 'realized-ev', label: 'EV realizzato', value: formatPct(backtestReport.summary?.realizedEvPct, 2), color: (backtestReport.summary?.realizedEvPct ?? 0) >= 0 ? 'green' : 'red' },
+                    { id: 'ev-capture', label: 'Quota di EV realizzato', value: backtestReport.summary?.evCapturePct === null ? '-' : formatPct(backtestReport.summary?.evCapturePct, 1), color: 'gold' },
                   ].map((item) => (
-                    <div key={item.label} className={`fp-stat c-${item.color}`}>
+                    <div key={item.id} className={`fp-stat c-${item.color}`}>
                       <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
                       <div className="fp-stat-label">{item.label}</div>
                     </div>
@@ -717,9 +735,9 @@ const BacktestingPageView: React.FC = () => {
                         <table className="fp-table">
                           <tbody>
                             {[
-                              ['Algorithm', backtestReport.algorithmVersion ?? currentResult?.algorithmVersion ?? '-'],
+                              ['Algoritmo', backtestReport.algorithmVersion ?? currentResult?.algorithmVersion ?? '-'],
                               ['Ranking', backtestReport.rankingVersion ?? currentResult?.rankingVersion ?? '-'],
-                              ['Backtest engine', backtestReport.backtestEngineVersion ?? currentResult?.backtestEngineVersion ?? '-'],
+                              ['Motore backtest', backtestReport.backtestEngineVersion ?? currentResult?.backtestEngineVersion ?? '-'],
                             ].map(([label, value]) => (
                               <tr key={String(label)}>
                                 <td style={{ color: 'var(--text-2)' }}>{label}</td>
@@ -736,12 +754,20 @@ const BacktestingPageView: React.FC = () => {
                         <div className="fp-card-head">
                           <div className="fp-card-title">Ottimizzazione ranking</div>
                           <span className={`fp-badge ${backtestReport.rankingOptimization.overfittingRisk === 'HIGH' ? 'fp-badge-red' : backtestReport.rankingOptimization.overfittingRisk === 'MEDIUM' ? 'fp-badge-gold' : 'fp-badge-green'}`}>
-                            Rischio overfitting: {backtestReport.rankingOptimization.overfittingRisk ?? '-'}
+                            Rischio overfitting: {
+                              backtestReport.rankingOptimization.overfittingRisk === 'HIGH'
+                                ? 'alto'
+                                : backtestReport.rankingOptimization.overfittingRisk === 'MEDIUM'
+                                  ? 'medio'
+                                  : backtestReport.rankingOptimization.overfittingRisk === 'LOW'
+                                    ? 'basso'
+                                    : '-'
+                            }
                           </span>
                         </div>
                         <div className="fp-card-body" style={{ display: 'grid', gap: 10 }}>
                           <div className="fp-mono" style={{ fontSize: 12 }}>
-                            Best score: {Number(backtestReport.rankingOptimization.bestScore ?? 0).toFixed(2)}
+                            Punteggio migliore: {Number(backtestReport.rankingOptimization.bestScore ?? 0).toFixed(2)}
                           </div>
                           {backtestReport.rankingOptimization.rationale && (
                             <div style={{ color: 'var(--text-2)', fontSize: 13 }}>
@@ -767,13 +793,13 @@ const BacktestingPageView: React.FC = () => {
                 {backtestReport.walkForwardStability && (
                   <div className="fp-card" style={{ marginBottom: 18 }}>
                     <div className="fp-card-head">
-                      <div className="fp-card-title">Walk-forward stability</div>
-                      <span className="fp-badge fp-badge-blue">fold stability</span>
+                      <div className="fp-card-title">Stabilità walk-forward</div>
+                      <span className="fp-badge fp-badge-blue">stabilità delle finestre</span>
                     </div>
                     <div className="fp-grid-4 fp-card-body">
                       {[
-                        { label: 'Current batte baseline', value: backtestReport.walkForwardStability.currentBeatsBaselineFolds ?? 0, color: 'green' },
-                        { label: 'Baseline batte current', value: backtestReport.walkForwardStability.baselineBeatsCurrentFolds ?? 0, color: 'red' },
+                        { label: 'Modello attuale migliore della baseline', value: backtestReport.walkForwardStability.currentBeatsBaselineFolds ?? 0, color: 'green' },
+                        { label: 'Baseline migliore del modello attuale', value: backtestReport.walkForwardStability.baselineBeatsCurrentFolds ?? 0, color: 'red' },
                         { label: 'Varianza ROI', value: Number(backtestReport.walkForwardStability.roiVariance ?? 0).toFixed(2), color: 'gold' },
                         { label: 'Varianza CLV', value: Number(backtestReport.walkForwardStability.clvVariance ?? 0).toFixed(6), color: 'blue' },
                       ].map((item) => (
@@ -789,7 +815,7 @@ const BacktestingPageView: React.FC = () => {
                 {backtestReport.oddsReliability && (
                   <div className="fp-card" style={{ marginBottom: 18 }}>
                     <div className="fp-card-head">
-                      <div className="fp-card-title">Affidabilita quote</div>
+                      <div className="fp-card-title">Affidabilità quote</div>
                       <span className="fp-badge fp-badge-blue">Quote reali vs sintetiche</span>
                     </div>
                     <div className="fp-card-body">
@@ -803,7 +829,7 @@ const BacktestingPageView: React.FC = () => {
                           { label: 'ROI quote bookmaker reali', value: backtestReport.oddsReliability.roiRealEurobetOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiRealEurobetOdds, 2), color: 'green' },
                           { label: 'ROI quote sintetiche', value: backtestReport.oddsReliability.roiSyntheticOdds === null ? '-' : formatPct(backtestReport.oddsReliability.roiSyntheticOdds, 2), color: 'gold' },
                           { label: 'ROI totale', value: formatPct(backtestReport.oddsReliability.roiTotal, 2), color: 'blue' },
-                          { label: 'Bet reali / sintetiche', value: `${backtestReport.oddsReliability.betsWithRealEurobetOdds ?? 0} / ${backtestReport.oddsReliability.betsWithSyntheticOdds ?? 0}`, color: 'purple' },
+                          { label: 'Giocate reali / sintetiche', value: `${backtestReport.oddsReliability.betsWithRealEurobetOdds ?? 0} / ${backtestReport.oddsReliability.betsWithSyntheticOdds ?? 0}`, color: 'purple' },
                         ].map((item) => (
                           <div key={item.label} className={`fp-stat c-${item.color}`}>
                             <div className={`fp-stat-val c-${item.color}`}>{item.value}</div>
@@ -828,7 +854,7 @@ const BacktestingPageView: React.FC = () => {
                             <th>Metrica</th>
                             <th>Baseline</th>
                             <th>Attuale</th>
-                            {backtestReport.algorithmComparison.tunedResult && <th>Tuned</th>}
+                            {backtestReport.algorithmComparison.tunedResult && <th>Ottimizzato</th>}
                             <th>Delta</th>
                           </tr>
                         </thead>
@@ -840,7 +866,11 @@ const BacktestingPageView: React.FC = () => {
                             ['Drawdown', formatPct(backtestReport.algorithmComparison.baselineResult?.maxDrawdown, 2), formatPct(backtestReport.algorithmComparison.currentResult?.maxDrawdown, 2), backtestReport.algorithmComparison.tunedResult ? formatPct(backtestReport.algorithmComparison.tunedResult?.maxDrawdown, 2) : null, formatPct(backtestReport.algorithmComparison.deltaDrawdown, 2)],
                           ].map(([label, baseline, current, tuned, delta]) => (
                             <tr key={label}>
-                              <td>{label === 'ROI' ? 'Delta ROI' : label}</td>
+                              <td>
+                                {label === 'ROI' ? 'Delta ROI' : label === 'Drawdown' ? (
+                                  <GlossaryTerm termId="drawdown">Drawdown</GlossaryTerm>
+                                ) : label}
+                              </td>
                               <td className="fp-mono">{baseline}</td>
                               <td className="fp-mono">{current}</td>
                               {backtestReport.algorithmComparison.tunedResult && <td className="fp-mono">{tuned}</td>}
@@ -870,7 +900,7 @@ const BacktestingPageView: React.FC = () => {
                 <div className="fp-grid-2" style={{ marginBottom: 24 }}>
                   <div className="fp-card">
                     <div className="fp-card-head">
-                      <div className="fp-card-title">Bucket Probabilità</div>
+                      <div className="fp-card-title">Fasce di probabilità</div>
                     </div>
                     <div style={{ padding: '24px 24px 8px' }}>
                       <ResponsiveContainer width="100%" height={300}>
@@ -892,7 +922,9 @@ const BacktestingPageView: React.FC = () => {
 
                   <div className="fp-card">
                     <div className="fp-card-head">
-                      <div className="fp-card-title">Yield per Sorgente</div>
+                      <div className="fp-card-title">
+                        <GlossaryTerm termId="yield">Yield</GlossaryTerm> per sorgente
+                      </div>
                     </div>
                     <div style={{ padding: '24px 24px 8px' }}>
                       <ResponsiveContainer width="100%" height={300}>
@@ -922,9 +954,9 @@ const BacktestingPageView: React.FC = () => {
                         <thead>
                           <tr>
                             <th>Mercato</th>
-                            <th>Bet</th>
-                            <th>Yield</th>
-                            <th>Hit rate</th>
+                            <th>Giocate</th>
+                            <th><GlossaryTerm termId="yield">Yield</GlossaryTerm></th>
+                            <th>Percentuale di vittorie</th>
                             <th>EV atteso</th>
                           </tr>
                         </thead>
@@ -945,16 +977,16 @@ const BacktestingPageView: React.FC = () => {
 
                   <div className="fp-card">
                     <div className="fp-card-head">
-                      <div className="fp-card-title">Bucket EV / Edge / Confidence</div>
+                      <div className="fp-card-title">Gruppi per EV, edge e affidabilità</div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <table className="fp-table">
                         <thead>
                           <tr>
-                            <th>Bucket</th>
-                            <th>Bet</th>
-                            <th>Yield</th>
-                            <th>Hit rate</th>
+                            <th>Fascia</th>
+                            <th>Giocate</th>
+                            <th><GlossaryTerm termId="yield">Yield</GlossaryTerm></th>
+                            <th>Percentuale di vittorie</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -976,7 +1008,7 @@ const BacktestingPageView: React.FC = () => {
                   {backtestReport.clv?.available ? (
                     <>
                       CLV medio bookmaker: <strong>{formatPct(Number(backtestReport.clv.averageClv ?? 0) * 100, 2)}</strong>
-                      {' '}su {backtestReport.clv.betsWithClv} bet con quota di chiusura.
+                      {' '}su {backtestReport.clv.betsWithClv} giocate con quota di chiusura.
                       {' '}CLV positivo: <strong>{formatPct(backtestReport.clv.positiveClvRate, 1)}</strong>.
                     </>
                   ) : (

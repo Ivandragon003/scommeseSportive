@@ -149,8 +149,8 @@ export const fmtSelection = (selection: string): string => {
   if (selection === 'double_chance_1x') return 'Double Chance 1X';
   if (selection === 'double_chance_x2') return 'Double Chance X2';
   if (selection === 'double_chance_12') return 'Double Chance 12';
-  if (selection === 'dnb_home') return 'Draw No Bet Casa';
-  if (selection === 'dnb_away') return 'Draw No Bet Ospite';
+  if (selection === 'dnb_home') return 'Pareggio non conta (DNB) · Casa';
+  if (selection === 'dnb_away') return 'Pareggio non conta (DNB) · Ospite';
   if (selection.startsWith('hcp_home')) return `Handicap Casa ${selection.replace('hcp_home', '')}`;
   if (selection.startsWith('hcp_away')) return `Handicap Ospite ${selection.replace('hcp_away', '')}`;
   if (selection.startsWith('ahcp_away_')) {

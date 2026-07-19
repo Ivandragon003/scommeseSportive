@@ -106,8 +106,8 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
     } catch (error) {
       showToast({
         tone: 'error',
-        title: 'Run non caricato',
-        message: getErrorMessage(error, 'Errore caricamento run'),
+        title: 'Esecuzione non caricata',
+        message: getErrorMessage(error, 'Errore durante il caricamento dell’esecuzione'),
       });
       return null;
     }
@@ -156,9 +156,9 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
 
   const handleDeleteRun = useCallback(async (id: number) => {
     const confirmed = await confirm({
-      title: 'Eliminare questo run?',
-      message: `Eliminare il run #${id}?`,
-      confirmLabel: 'Elimina run',
+      title: 'Eliminare questa esecuzione?',
+      message: `Eliminare l’esecuzione #${id}?`,
+      confirmLabel: 'Elimina esecuzione',
       tone: 'danger',
     });
     if (!confirmed) return;
@@ -176,7 +176,7 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
       showToast({
         tone: 'error',
         title: 'Eliminazione fallita',
-        message: getErrorMessage(error, 'Errore eliminazione run'),
+        message: getErrorMessage(error, 'Errore durante l’eliminazione dell’esecuzione'),
       });
     } finally {
       setMaintenanceLoading(false);
@@ -186,10 +186,10 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
   const handleDeleteAllRuns = useCallback(async (competition: string) => {
     const scope = competition.trim();
     const confirmMsg = scope
-      ? `Eliminare tutti i run di backtest per ${scope}?`
-      : 'Eliminare tutti i run di backtest salvati?';
+      ? `Eliminare tutte le esecuzioni di backtest per ${scope}?`
+      : 'Eliminare tutte le esecuzioni di backtest salvate?';
     const confirmed = await confirm({
-      title: 'Eliminare tutti i run?',
+      title: 'Eliminare tutte le esecuzioni?',
       message: confirmMsg,
       confirmLabel: 'Elimina tutti',
       tone: 'danger',
@@ -201,8 +201,8 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
       const res = await deleteBacktestResults(scope || undefined);
       showToast({
         tone: 'success',
-        title: 'Run eliminati',
-        message: `Run eliminati: ${res.data?.deletedCount ?? 0}`,
+        title: 'Esecuzioni eliminate',
+        message: `Esecuzioni eliminate: ${res.data?.deletedCount ?? 0}`,
       });
       setCurrentResult(null);
       setCurrentResultId(null);
@@ -232,12 +232,12 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
 
     const scope = competition.trim();
     const confirmMsg = scope
-      ? `Mantieni solo gli ultimi ${Math.floor(keepLatest)} run per ${scope}?`
-      : `Mantieni solo gli ultimi ${Math.floor(keepLatest)} run globali?`;
+      ? `Mantieni solo le ultime ${Math.floor(keepLatest)} esecuzioni per ${scope}?`
+      : `Mantieni solo le ultime ${Math.floor(keepLatest)} esecuzioni globali?`;
     const confirmed = await confirm({
-      title: 'Applicare prune ai run?',
+      title: 'Ridurre lo storico delle esecuzioni?',
       message: confirmMsg,
-      confirmLabel: 'Applica prune',
+      confirmLabel: 'Riduci storico',
       tone: 'warning',
     });
     if (!confirmed) return;
@@ -247,15 +247,15 @@ export function useBacktestingData({ confirm, showToast }: UseBacktestingDataPar
       const res = await pruneBacktestResults(Math.floor(keepLatest), scope || undefined);
       showToast({
         tone: 'success',
-        title: 'Prune completato',
-        message: `Run eliminati: ${res.data?.deletedCount ?? 0}`,
+        title: 'Riduzione completata',
+        message: `Esecuzioni eliminate: ${res.data?.deletedCount ?? 0}`,
       });
       await loadResults({ force: true });
     } catch (error) {
       showToast({
         tone: 'error',
-        title: 'Prune fallito',
-        message: getErrorMessage(error, 'Errore prune backtest'),
+        title: 'Riduzione non completata',
+        message: getErrorMessage(error, 'Errore durante la riduzione dello storico'),
       });
     } finally {
       setMaintenanceLoading(false);

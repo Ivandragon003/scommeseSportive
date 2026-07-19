@@ -95,8 +95,11 @@ test('la pagina iniziale apre Previsioni e la Dashboard non compare nella naviga
 
   const sidebar = screen.getByLabelText('Navigazione principale');
   expect(within(sidebar).queryByText('Dashboard')).toBeNull();
+  expect(within(sidebar).getByText('Analisi')).toBeTruthy();
+  expect(within(sidebar).getByText('Strumenti avanzati')).toBeTruthy();
   expect(within(sidebar).getByText('Previsioni')).toBeTruthy();
   expect(within(sidebar).getByText('Budget')).toBeTruthy();
+  expect(within(sidebar).getByText('Glossario')).toBeTruthy();
   expect(within(sidebar).getByText('Backtest')).toBeTruthy();
   expect(within(sidebar).getByText('Dati')).toBeTruthy();
   expect(within(sidebar).getByText('Dati & Provider')).toBeTruthy();
@@ -113,4 +116,40 @@ test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => 
   expect(await screen.findByText('Predictions page')).toBeTruthy();
   expect(window.location.pathname).toBe('/predictions');
   expect(screen.queryByText('Dashboard page')).toBeNull();
+});
+
+test('apre la pagina Glossario dalla navigazione principale', async () => {
+  render(<App />);
+
+  const sidebar = screen.getByLabelText('Navigazione principale');
+  fireEvent.click(within(sidebar).getByText('Glossario'));
+
+  expect(await screen.findByRole('heading', { name: 'Glossario' })).toBeTruthy();
+  expect(screen.getByRole('searchbox', { name: /Cerca nel glossario/i })).toBeTruthy();
+  expect(window.location.pathname).toBe('/glossary');
+});
+
+test('il comando nell header apre il glossario rapido', async () => {
+  render(<App />);
+
+  const header = screen.getByRole('banner');
+  fireEvent.click(within(header).getByRole('button', { name: /Apri glossario rapido/i }));
+
+  expect(await screen.findByRole('dialog', { name: /Glossario rapido/i })).toBeTruthy();
+});
+
+test('il menu mobile avanzato si comporta come dialog e restituisce il focus alla chiusura', async () => {
+  render(<App />);
+
+  const trigger = screen.getByRole('button', { name: /Apri altre sezioni/i });
+  fireEvent.click(trigger);
+
+  const dialog = await screen.findByRole('dialog', { name: /Altre sezioni/i });
+  expect(within(dialog).getByRole('link', { name: /Backtest/i })).toBeTruthy();
+  expect(within(dialog).getByRole('button', { name: /Chiudi menu altre sezioni/i }).matches(':focus')).toBe(true);
+
+  fireEvent.keyDown(document, { key: 'Escape' });
+
+  expect(screen.queryByRole('dialog', { name: /Altre sezioni/i })).toBeNull();
+  expect(trigger.matches(':focus')).toBe(true);
 });

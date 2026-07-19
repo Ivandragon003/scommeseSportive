@@ -13,7 +13,7 @@ const ShotsSection: React.FC<ShotsSectionProps> = ({ homeTeam, awayTeam, shotsPr
   <div>
     <div className="pr-g2">
       {[
-        { team: homeTeam, data: shotsPrediction.home, shotsColor: 'var(--blue)', onTargetColor: 'var(--green)' },
+        { team: homeTeam, data: shotsPrediction.home, shotsColor: 'var(--blue)', onTargetColor: 'var(--primary-hover)' },
         { team: awayTeam, data: shotsPrediction.away, shotsColor: 'var(--red)', onTargetColor: 'var(--gold)' },
       ].map((team) => (
         <div className="pr-card" key={team.team}>
@@ -56,7 +56,7 @@ const ShotsSection: React.FC<ShotsSectionProps> = ({ homeTeam, awayTeam, shotsPr
             {Object.entries(shotsPrediction.combined.onTargetOverUnder)
               .filter(([key]) => key.startsWith('over'))
               .map(([key, value]) => (
-                <ProbBar key={key} label={`Over ${formatCompactOuKey(key)} in porta`} value={value} color="var(--green)" />
+                <ProbBar key={key} label={`Over ${formatCompactOuKey(key)} in porta`} value={value} color="var(--primary-hover)" />
               ))}
           </div>
         </div>

@@ -95,6 +95,26 @@ describe('BudgetManager', () => {
     expect(screen.getByText(/Napoli vs Lazio/i)).toBeTruthy();
   });
 
+  test('distingue bankroll iniziale, disponibile, capitale esposto e interpreta il ROI', async () => {
+    mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+    mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+
+    render(<BudgetManager activeUser="user1" />);
+
+    await screen.findByText(/Storico scommesse/i);
+
+    expect(screen.getByTestId('budget-initial').textContent).toContain('EUR 1000.00');
+    expect(screen.getByTestId('budget-available').textContent).toContain('EUR 760.00');
+    expect(screen.getByTestId('budget-exposure').textContent).toContain('EUR 20.00');
+    expect(screen.getByTestId('budget-profit').textContent).toContain('EUR 3.50');
+    expect(screen.getByTestId('budget-roi').textContent).toContain('9.20%');
+    expect(screen.getByText(/ROI positivo, da leggere insieme a 2 scommesse concluse/i)).toBeTruthy();
+    expect(screen.getByText('Vinte: 1')).toBeTruthy();
+    expect(screen.getByText('Perse: 1')).toBeTruthy();
+    expect(screen.getByText('Annullate: 0')).toBeTruthy();
+    expect(screen.getByText('Pendenti: 1')).toBeTruthy();
+  });
+
   test('al mount non fa doppio fetch e il filtro storico ricarica solo le scommesse', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
@@ -110,5 +130,22 @@ describe('BudgetManager', () => {
 
     await waitFor(() => expect(mockedApi.getBets).toHaveBeenCalledTimes(2));
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
+  });
+
+  test('traduce i mercati legacy e non espone i codici tecnici nello storico', async () => {
+    mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+    mockedApi.getBets.mockResolvedValue({
+      data: [{
+        ...betsPayload[1],
+        market_name: 'Draw No Bet - Casa',
+        selection: 'dnb_home',
+      }],
+    } as any);
+
+    render(<BudgetManager activeUser="user1" />);
+
+    expect(await screen.findByText('Pareggio non conta (DNB) - Casa')).toBeTruthy();
+    expect(screen.queryByText('Draw No Bet - Casa')).toBeNull();
+    expect(screen.queryByText('dnb_home')).toBeNull();
   });
 });

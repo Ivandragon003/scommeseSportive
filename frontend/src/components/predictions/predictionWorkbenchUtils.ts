@@ -49,13 +49,13 @@ export const confidenceRank = (value?: string): number => (value === 'HIGH' ? 3 
 export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): OddsSourceBadgeInfo => {
   if (isReplay) {
     return prediction?.oddsReplaySource === 'historical_bookmaker_snapshot'
-      ? { label: 'Snapshot bookmaker reale', className: 'pr-badge-green' }
-      : { label: 'Replay su quote modello', className: 'pr-badge-gold' };
+      ? { label: 'Snapshot Eurobet storico', className: 'pr-badge-green' }
+      : { label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' };
   }
-  if (prediction?.oddsSource === 'odds_api') return { label: 'Quote bookmaker', className: 'pr-badge-green' };
-  if (prediction?.oddsSource === 'fallback_provider') return { label: 'Quote provider secondario', className: 'pr-badge-gold' };
-  if (prediction?.oddsSource === 'odds_unavailable' || prediction?.oddsSource === 'unavailable') return { label: 'Quote bookmaker non disponibili', className: 'pr-badge-gray' };
-  return { label: 'Fonte quote n/d', className: 'pr-badge-gray' };
+  if (prediction?.oddsSource === 'odds_api') {
+    return { label: 'Quota Eurobet verificata', className: 'pr-badge-green' };
+  }
+  return { label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' };
 };
 
 export const rankOpportunity = (opportunity: any): number => {
@@ -71,7 +71,7 @@ export const formatMarketKey = (market: string): string => {
   if (key === 'h2h') return '1X2';
   if (key === 'h2h_3_way') return '1X2 (3-way)';
   if (key === 'double_chance') return 'Double Chance';
-  if (key === 'draw_no_bet') return 'Draw No Bet';
+  if (key === 'draw_no_bet') return 'Pareggio non conta (DNB)';
   if (key === 'btts') return 'Goal/No Goal';
   if (key === 'totals') return 'Totali Goal';
   if (key === 'team_totals') return 'Team Totals';
@@ -96,36 +96,28 @@ export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?:
       usedFallbackBookmaker: false,
     };
   }
-  if (oddsSource === 'fallback_provider') {
-    return {
-      ...prediction,
-      oddsSource: 'fallback_provider',
-      usedSyntheticOdds: false,
-      usedFallbackBookmaker: true,
-    };
-  }
+  const resolvedSource = oddsSource ?? 'odds_unavailable';
   return {
     ...prediction,
-    oddsSource: oddsSource ?? 'odds_unavailable',
+    oddsSource: resolvedSource,
     usedSyntheticOdds: false,
-    usedFallbackBookmaker: false,
+    usedFallbackBookmaker: resolvedSource === 'fallback_provider',
     valueOpportunities: [],
     bestValueOpportunity: null,
+    bestBetStatus: 'NO_MARKET',
+    bestBetReason: 'Quota Eurobet non disponibile: nessuna giocata operativa proposta.',
+    bestBetAlternatives: [],
   };
 };
 
 
-export const VALUE_LEGEND: Array<{ term: string; meaning: string }> = [
-  { term: 'Quota', meaning: 'Prezzo bookmaker decimale della selezione (es. 2.10).' },
-  { term: 'P. Nostra', meaning: 'Probabilita stimata dal modello per quella selezione.' },
-  { term: 'P. Implicita', meaning: 'Probabilita del bookmaker: 1 / quota.' },
-  { term: 'EV', meaning: 'Valore atteso: EV = p_model * quota - 1. Se > 0, la quota e teoricamente di valore.' },
-  { term: 'Edge', meaning: 'Vantaggio stimato: p_model - p_implicita.' },
-  { term: 'Kelly 1/4', meaning: 'Percentuale consigliata di stake sul bankroll con Kelly frazionale (25%).' },
-  { term: 'Base modello', meaning: 'Punteggio basato su EV, edge, Kelly e confidenza.' },
-  { term: 'Contesto', meaning: 'Correzione con fattori match: campo, forma, obiettivi, assenze, espulsioni, diffidati.' },
-  { term: 'Score totale', meaning: 'Base modello + Contesto. Il piu alto e la miglior giocata proposta.' },
-  { term: 'Home advantage', meaning: 'Vantaggio campo: >0 favorisce casa, <0 favorisce ospite.' },
-  { term: 'Form delta', meaning: 'Differenza forma recente: >0 casa meglio, <0 ospite meglio.' },
-  { term: 'Motivation delta', meaning: 'Differenza obiettivi/motivazione: >0 casa piu motivata.' },
+export const VALUE_LEGEND: Array<{ term: string; meaning: string; termId?: string }> = [
+  { term: 'Quota', termId: 'decimal-odds', meaning: 'Prezzo decimale Eurobet della selezione (es. 2.10).' },
+  { term: 'Probabilità stimata', termId: 'model-probability', meaning: 'Probabilità attribuita dal modello alla selezione.' },
+  { term: 'Probabilità implicita', termId: 'implied-probability', meaning: 'Probabilità ricavata dalla quota: 1 / quota.' },
+  { term: 'EV', termId: 'expected-value', meaning: 'Valore atteso della giocata, da valutare insieme a rischio e campione.' },
+  { term: 'Edge', termId: 'edge', meaning: 'Differenza tra probabilità del modello e probabilità di mercato.' },
+  { term: 'Kelly 1/4', termId: 'fractional-kelly', meaning: 'Quota prudente del bankroll calcolata con Kelly frazionale.' },
+  { term: 'Affidabilità', termId: 'confidence', meaning: 'Solidità dei dati e del segnale; non è una garanzia di vincita.' },
+  { term: 'Qualità dei dati', termId: 'data-quality', meaning: 'Copertura, freschezza e coerenza dei dati disponibili.' },
 ];

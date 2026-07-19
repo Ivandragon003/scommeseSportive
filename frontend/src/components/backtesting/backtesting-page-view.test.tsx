@@ -175,6 +175,27 @@ beforeEach(() => {
 });
 
 describe('BacktestingPageView', () => {
+  test('presenta configurazione walk-forward interamente in italiano', async () => {
+    render(<BacktestingPageView />);
+
+    await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByLabelText(/Filtro affidabilità/i)).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Alta e media' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Solo alta' })).toBeTruthy();
+    expect(screen.getByLabelText(/Partite iniziali di addestramento/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Partite per finestra di test/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Passo tra finestre/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Numero massimo di fold/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Finestra di addestramento crescente/i)).toBeTruthy();
+
+    expect(screen.queryByText('Confidence filter')).toBeNull();
+    expect(screen.queryByText('Initial train matches')).toBeNull();
+    expect(screen.queryByText('Test window matches')).toBeNull();
+    expect(screen.queryByText('Step matches')).toBeNull();
+    expect(screen.queryByText('Expanding window')).toBeNull();
+  });
+
   test('avvia un walk-forward e carica un run salvato', async () => {
     render(<BacktestingPageView />);
 
@@ -189,9 +210,9 @@ describe('BacktestingPageView', () => {
     await waitFor(() => expect(mockedApi.runWalkForwardBacktest).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
     await screen.findByRole('button', { name: /Reset filtri/i });
-    expect(screen.getByText('Report Decisionale')).toBeTruthy();
+    expect(screen.getByText(/Report decisionale/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /Apri Run/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Apri$/i }));
 
     await waitFor(() => expect(mockedApi.getBacktestResult).toHaveBeenCalledWith(7, { force: true }));
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(2));
@@ -200,9 +221,9 @@ describe('BacktestingPageView', () => {
   test('protegge eliminazione run con conferma e resetta i filtri report', async () => {
     render(<BacktestingPageView />);
 
-    await screen.findByRole('button', { name: /Apri Run/i });
+    await screen.findByRole('button', { name: /^Apri$/i });
 
-    fireEvent.click(screen.getByRole('button', { name: /Apri Run/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Apri$/i }));
     await waitFor(() => expect(mockedApi.getBacktestResult).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
     await screen.findByRole('button', { name: /Reset filtri/i });
@@ -220,10 +241,10 @@ describe('BacktestingPageView', () => {
     await waitFor(() => expect(marketSelect.value).toBe(''));
     await waitFor(() => expect(sourceSelect.value).toBe(''));
 
-    fireEvent.click(screen.getByRole('button', { name: /Elimina Run/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Elimina$/i }));
 
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: /Elimina run/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /Elimina esecuzione/i }));
 
     await waitFor(() => expect(mockedApi.deleteBacktestResult).toHaveBeenCalledWith(7));
   });
@@ -237,7 +258,7 @@ describe('BacktestingPageView', () => {
 
     await waitFor(() => expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /Stabilita/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Stabilit/i }));
 
     expect(mockedApi.getBacktestReport).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(2);
@@ -250,23 +271,23 @@ describe('BacktestingPageView', () => {
 
     expect(screen.queryByText(/CLV positivo/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Come usare il backtesting/i }));
-    expect(screen.getByText(/CLV positivo/i)).toBeTruthy();
-    expect(screen.getByText(/una bet persa puo comunque essere buona/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Spiega CLV/i })).toBeTruthy();
+    expect(screen.getByText(/Una giocata persa può comunque avere un buon CLV/i)).toBeTruthy();
 
     const competitionSelect = screen.getByLabelText(/Competizione/i) as HTMLSelectElement;
-    const saveIndividualRuns = screen.getByLabelText(/Salva anche i run singoli/i) as HTMLInputElement;
+    const saveIndividualRuns = screen.getByLabelText(/Salva anche le esecuzioni dei singoli/i) as HTMLInputElement;
     expect(saveIndividualRuns.checked).toBe(false);
     fireEvent.click(saveIndividualRuns);
     expect(saveIndividualRuns.checked).toBe(true);
 
     fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
-    expect(screen.getByText(/Il walk-forward Top 5 puo richiedere alcuni minuti/i)).toBeTruthy();
-    expect(screen.queryByText(/Tuning pesi \+ Top 5 puo essere molto lento/i)).toBeNull();
+    expect(screen.getByText(/Il walk-forward Top 5 può richiedere alcuni minuti/i)).toBeTruthy();
+    expect(screen.queryByText(/Ottimizzazione pesi \+ Top 5 può essere molto lenta/i)).toBeNull();
 
     const optimizeRankingWeights = screen.getByLabelText(/Ottimizza pesi ranking/i) as HTMLInputElement;
     expect(optimizeRankingWeights.checked).toBe(false);
     fireEvent.click(optimizeRankingWeights);
-    expect(screen.getByText(/Tuning pesi \+ Top 5 puo essere molto lento/i)).toBeTruthy();
+    expect(screen.getByText(/Ottimizzazione pesi \+ Top 5 può essere molto lenta/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Avvia Walk-forward/i }));
 
@@ -302,6 +323,6 @@ describe('BacktestingPageView', () => {
     expect(screen.getByText(/ranking-edge-novig-loggrowth-v2/i)).toBeTruthy();
     expect(screen.getByText(/Ottimizzazione ranking/i)).toBeTruthy();
     expect(screen.getByText(/Rischio overfitting/i)).toBeTruthy();
-    expect(screen.getByText(/Walk-forward stability/i)).toBeTruthy();
+    expect(screen.getByText(/Stabilità walk-forward/i)).toBeTruthy();
   });
 });

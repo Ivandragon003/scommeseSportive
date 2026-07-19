@@ -4,6 +4,7 @@ import {
   Activity,
   Database,
   FlaskConical,
+  HelpCircle,
   MoreHorizontal,
   RadioTower,
   RefreshCw,
@@ -15,21 +16,28 @@ import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
+import GlossaryPage from './features/glossary/GlossaryPage';
+import { GlossaryProvider } from './features/glossary/GlossaryProvider';
 import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
 import './footpredictor.css';
 
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   { path: '/predictions', label: 'Previsioni', meta: 'pick e quote', icon: Target },
   { path: '/budget', label: 'Budget', meta: 'bankroll e storico', icon: Wallet },
+  { path: '/glossary', label: 'Glossario', meta: 'termini e interpretazione', icon: HelpCircle },
+];
+
+const ADVANCED_NAV_ITEMS = [
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
   { path: '/data', label: 'Dati', meta: 'squadre e modelli', icon: Database },
   { path: '/scrapers', label: 'Dati & Provider', meta: 'pipeline dati e quote', icon: RadioTower },
 ];
 
-const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/budget'];
+const NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...ADVANCED_NAV_ITEMS];
+const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/budget', '/glossary'];
 const MOBILE_PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const MOBILE_SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const ACTIVE_USER_STORAGE_KEY = 'footpredictor.activeUser';
@@ -64,11 +72,56 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isWorkbench = location.pathname === '/predictions';
   const mainContentClass = isWorkbench ? 'main-content main-content--workbench' : 'main-content main-content--scroll';
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileMoreSheetRef = useRef<HTMLDivElement>(null);
+  const mobileMoreCloseRef = useRef<HTMLButtonElement>(null);
   const isMoreSectionActive = MOBILE_SECONDARY_NAV_ITEMS.some(({ path }) => location.pathname === path);
 
   useEffect(() => {
     setMobileMoreOpen(false);
   }, [location.pathname]);
+
+  const closeMobileMore = useCallback((restoreFocus = true) => {
+    setMobileMoreOpen(false);
+    if (restoreFocus) {
+      mobileMoreTriggerRef.current?.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return undefined;
+
+    mobileMoreCloseRef.current?.focus();
+    const sheet = mobileMoreSheetRef.current;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMobileMore();
+        return;
+      }
+
+      if (event.key !== 'Tab' || !sheet) return;
+
+      const focusable = Array.from(
+        sheet.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [closeMobileMore, mobileMoreOpen]);
 
   return (
     <div className="app-shell">
@@ -86,6 +139,16 @@ export const AppShell: React.FC<AppShellProps> = ({
         <div className="app-header-right">
           <button
             type="button"
+            className="fp-btn fp-btn-ghost fp-btn-sm app-header-glossary"
+            onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}
+            title="Apri glossario rapido"
+            aria-label="Apri glossario rapido"
+          >
+            <HelpCircle size={15} />
+            <span>Glossario</span>
+          </button>
+          <button
+            type="button"
             className="fp-btn fp-btn-ghost fp-btn-sm app-header-refresh"
             onClick={onRefreshStatus}
             disabled={statusRefreshing}
@@ -100,10 +163,24 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       <div className="app-layout">
         <aside className="sidebar" aria-label="Navigazione principale">
-          <div className="sidebar-section-title">Workspace</div>
-          <nav className="sidebar-nav">
-            {NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
+          <div className="sidebar-section-title">Analisi</div>
+          <nav className="sidebar-nav" aria-label="Analisi">
+            {PRIMARY_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
               <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+                <span className="nav-icon-wrap" aria-hidden="true">
+                  <Icon size={18} />
+                </span>
+                <span className="nav-copy">
+                  <span className="nav-label">{label}</span>
+                  <span className="nav-meta">{meta}</span>
+                </span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="sidebar-section-title sidebar-section-title--advanced">Strumenti avanzati</div>
+          <nav className="sidebar-nav" aria-label="Strumenti avanzati">
+            {ADVANCED_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
+              <NavLink key={path} to={path} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
                 <span className="nav-icon-wrap" aria-hidden="true">
                   <Icon size={18} />
                 </span>
@@ -122,6 +199,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             <Route path="/dashboard" element={<Navigate to="/predictions" replace />} />
             <Route path="/predictions" element={<Predictions activeUser={activeUser} />} />
             <Route path="/budget" element={<BudgetManager activeUser={activeUser} />} />
+            <Route path="/glossary" element={<GlossaryPage />} />
             <Route path="/backtest" element={<Backtesting />} />
             <Route path="/data" element={<DataManager />} />
             <Route path="/scrapers" element={<Scrapers />} />
@@ -137,25 +215,40 @@ export const AppShell: React.FC<AppShellProps> = ({
           </NavLink>
         ))}
         <button
+          ref={mobileMoreTriggerRef}
           type="button"
           className={`mobile-nav-item mobile-nav-item--toggle${mobileMoreOpen || isMoreSectionActive ? ' active' : ''}`}
-          onClick={() => setMobileMoreOpen((current) => !current)}
+          onClick={() => {
+            if (mobileMoreOpen) {
+              closeMobileMore();
+            } else {
+              setMobileMoreOpen(true);
+            }
+          }}
           aria-expanded={mobileMoreOpen}
           aria-controls="mobile-more-menu"
-          aria-label="Apri altre sezioni"
+          aria-label={mobileMoreOpen ? 'Chiudi altre sezioni' : 'Apri altre sezioni'}
         >
           <MoreHorizontal size={18} />
           <span>Altro</span>
         </button>
       </nav>
       {mobileMoreOpen && (
-        <div className="mobile-more-sheet" id="mobile-more-menu">
+        <div
+          ref={mobileMoreSheetRef}
+          className="mobile-more-sheet"
+          id="mobile-more-menu"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-more-title"
+        >
           <div className="mobile-more-sheet__header">
-            <span>Altre Sezioni</span>
+            <h2 id="mobile-more-title">Altre sezioni</h2>
             <button
+              ref={mobileMoreCloseRef}
               type="button"
               className="fp-btn fp-btn-ghost fp-btn-sm"
-              onClick={() => setMobileMoreOpen(false)}
+              onClick={() => closeMobileMore()}
               aria-label="Chiudi menu altre sezioni"
             >
               Chiudi
@@ -168,7 +261,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                 to={path}
                 end={path === '/'}
                 className={({ isActive }) => `mobile-more-link${isActive ? ' active' : ''}`}
-                onClick={() => setMobileMoreOpen(false)}
+                onClick={() => closeMobileMore(false)}
               >
                 <span className="mobile-more-link__icon" aria-hidden="true">
                   <Icon size={18} />
@@ -287,12 +380,14 @@ const App: React.FC = () => {
 
   return (
     <>
-      <Router>
-        <AppShell
-          activeUser={activeUser}
-          statusRefreshing={statusRefreshing}
-          onRefreshStatus={() => { void refreshStatus(); }}
-        />
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <GlossaryProvider>
+          <AppShell
+            activeUser={activeUser}
+            statusRefreshing={statusRefreshing}
+            onRefreshStatus={() => { void refreshStatus(); }}
+          />
+        </GlossaryProvider>
       </Router>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </>
@@ -300,4 +395,10 @@ const App: React.FC = () => {
 };
 
 export default App;
-export { NAV_ITEMS, MOBILE_PRIMARY_NAV_ITEMS, MOBILE_SECONDARY_NAV_ITEMS };
+export {
+  NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  ADVANCED_NAV_ITEMS,
+  MOBILE_PRIMARY_NAV_ITEMS,
+  MOBILE_SECONDARY_NAV_ITEMS,
+};

@@ -353,8 +353,6 @@ export const runUnderstatImport = (params?: {
   importPlayers?: boolean;
   includeMatchDetails?: boolean;
   forceRefresh?: boolean;
-  includeSofaScoreSupplemental?: boolean;
-  sofaScoreSupplementalLimit?: number;
 }) =>
   API.post<ApiResponse<any>>('/scraper/understat', {
     mode: params?.mode ?? 'top5',
@@ -365,8 +363,6 @@ export const runUnderstatImport = (params?: {
     importPlayers: params?.importPlayers ?? true,
     includeMatchDetails: params?.includeMatchDetails ?? true,
     forceRefresh: params?.forceRefresh ?? false,
-    includeSofaScoreSupplemental: params?.includeSofaScoreSupplemental ?? true,
-    sofaScoreSupplementalLimit: params?.sofaScoreSupplementalLimit,
   }, { timeout: 3600000 }).then(r => {
     invalidateApiCache((key) =>
       key.includes('GET:/scraper/') ||
@@ -436,20 +432,27 @@ export const getSystemMetrics = (options?: ReadRequestOptions) =>
 export const getRecentSystemRuns = (limit = 20, options?: ReadRequestOptions) =>
   cachedGet<any>('/system/recent-runs', { params: { limit } }, { cacheMs: CACHE_TTL.recentRuns, ...options });
 
-export const runSofaScoreSupplemental = (params?: {
-  competition?: string;
-  season?: string;
-  limit?: number;
-  onlyMissing?: boolean;
-  enabled?: boolean;
+export const runFootballDataSync = (params?: {
+  competitions?: string[];
+  seasonStartYears?: number[];
+  keepSeasons?: number;
+  prune?: boolean;
+  recomputeAverages?: boolean;
 }) =>
-  API.post<ApiResponse<any>>('/scraper/sofascore/supplemental', {
-    competition: params?.competition,
-    season: params?.season,
-    limit: params?.limit,
-    onlyMissing: params?.onlyMissing ?? true,
-    enabled: params?.enabled,
-  }, { timeout: 3600000 }).then(r => r.data);
+  API.post<ApiResponse<any>>('/scraper/football-data', {
+    competitions: params?.competitions,
+    seasonStartYears: params?.seasonStartYears,
+    keepSeasons: params?.keepSeasons ?? 4,
+    prune: params?.prune ?? true,
+    recomputeAverages: params?.recomputeAverages ?? true,
+  }, { timeout: 3600000 }).then(r => {
+    invalidateApiCache((key) =>
+      key.includes('GET:/matches')
+      || key.includes('GET:/stats/')
+      || key.includes('GET:/teams')
+    );
+    return r.data;
+  });
 
 // Health
 export const healthCheck = () =>

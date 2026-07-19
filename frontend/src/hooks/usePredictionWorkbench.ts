@@ -178,15 +178,11 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const oddsSourceWarning =
     isReplayAnalysis
       ? (predictionAnalysis.pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
-          ? 'Replay costruito su snapshot bookmaker storico.'
-          : 'Replay costruito su quote modello: utile per analisi, non come riferimento operativo.')
-      : predictionAnalysis.pred?.usedSyntheticOdds
-        ? 'Quote stimate dal modello: trattale come supporto analitico, non come prezzo bookmaker verificato.'
-        : predictionAnalysis.pred?.oddsSource === 'fallback_provider'
-          ? 'Provider secondario attivo: verifica la quota prima di eseguirla.'
-          : ['odds_unavailable', 'unavailable'].includes(String(predictionAnalysis.pred?.oddsSource ?? ''))
-            ? 'Il provider quote non ha esposto quote operative per questo match.'
-            : null;
+          ? 'Replay costruito su snapshot Eurobet storico.'
+          : 'Quota Eurobet storica non disponibile: il replay non espone prezzi stimati o di altri provider.')
+      : predictionAnalysis.pred?.oddsSource !== 'odds_api'
+        ? 'Quota Eurobet non disponibile: nessuna quota fallback viene mostrata e non è possibile registrare la giocata.'
+        : null;
 
   const replayOutcomeTone =
     recommendedBetResult?.status === 'WON'

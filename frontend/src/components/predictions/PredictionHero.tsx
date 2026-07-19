@@ -1,4 +1,5 @@
 import React from 'react';
+import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 import { fmtPct } from './predictionFormatting';
 import { GoalProbabilitiesSummary, ReplayTone } from './predictionTypes';
 
@@ -35,16 +36,22 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
     <div className="pr-hero">
       <div className="pr-hero-team">
         <div className="pr-hero-name">{homeTeam}</div>
-        <div className="pr-hero-lambda">lambda = {lambdaHome}</div>
+        <div className="pr-hero-lambda">
+          <GlossaryTerm termId="lambda">Gol attesi</GlossaryTerm> {lambdaHome}
+        </div>
       </div>
       <div className="pr-hero-center">
         <div className="pr-hero-vs">VS</div>
-        <div className="pr-confidence">{(modelConfidence * 100).toFixed(0)}% conf.</div>
+        <div className="pr-confidence">
+          <GlossaryTerm termId="confidence">Affidabilità</GlossaryTerm> {(modelConfidence * 100).toFixed(0)}%
+        </div>
         {actualScore && <div className="pr-hero-lambda" style={{ marginTop: 8 }}>finale {actualScore}</div>}
       </div>
       <div className="pr-hero-team right">
         <div className="pr-hero-name">{awayTeam}</div>
-        <div className="pr-hero-lambda">lambda = {lambdaAway}</div>
+        <div className="pr-hero-lambda">
+          <GlossaryTerm termId="lambda">Gol attesi</GlossaryTerm> {lambdaAway}
+        </div>
       </div>
     </div>
     {goalProbabilities && (
