@@ -481,10 +481,17 @@ export class DixonColesModel {
     // --- Shots (NegBin) ---
     const hs  = supp?.homeTeamStats ?? {} as any;
     const as_ = supp?.awayTeamStats ?? {} as any;
-    const SERIE_A_SHOT_GOAL_RATIO = 11.0; // shots totali / goal
+    // Ratio tiri-totali/goal per stimare i tiri impliciti dai λ.
+    // Valore empirico misurato sul DB (7076 match, 4 stagioni, 5 leghe):
+    // 8.23 (Bundesliga) – 9.84 (Serie A), media ~9.0. Il precedente 11.0
+    // sovrastimava i tiri impliciti in tutte le leghe.
+    // Validazione selection-independent (I1-on, logLoss/Brier/ECE su TUTTE le
+    // linee tiri di tutti i match test, 4 stagioni): 9.0 migliora logLoss,
+    // Brier ed ECE in 5/5 leghe (sign test p≈0.031; ECE ~dimezzato).
+    const SHOT_GOAL_RATIO = 9.0; // tiri totali / goal (media cross-lega empirica)
     const alpha = 0.35; // peso prior lambda
-    const impliedShotsHome = matrix.lambdaHome * SERIE_A_SHOT_GOAL_RATIO;
-    const impliedShotsAway = matrix.lambdaAway * SERIE_A_SHOT_GOAL_RATIO;
+    const impliedShotsHome = matrix.lambdaHome * SHOT_GOAL_RATIO;
+    const impliedShotsAway = matrix.lambdaAway * SHOT_GOAL_RATIO;
     const blendedHomeShotsBase = (1 - alpha) * (hs.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsHome;
     const blendedAwayShotsBase = (1 - alpha) * (as_.avgShots ?? SERIE_A_DEFAULTS.avgShots) + alpha * impliedShotsAway;
     const blendedHomeShots = blendedHomeShotsBase * (context.homeShotMultiplier ?? 1);
