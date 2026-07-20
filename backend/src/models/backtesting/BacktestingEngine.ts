@@ -26,7 +26,7 @@
  *    di ROI/win-rate per evitare penalizzazioni silenziose nel backtest.
  */
 
-import { DixonColesModel, MatchData } from '../core/DixonColesModel';
+import { DixonColesModel, MatchData, SupplementaryData } from '../core/DixonColesModel';
 import {
   ValueBettingEngine,
   BetOpportunity,
@@ -151,6 +151,13 @@ export type BacktestAlgorithmMode = 'current' | 'baseline';
 export interface BacktestRunOptions {
   compareBaseline?: boolean;
   algorithmMode?: BacktestAlgorithmMode;
+  /**
+   * I1 (2026-07): se true (default), il backtest costruisce i dati
+   * supplementari (medie squadra/arbitro) as-of-date dal solo passato e li
+   * passa al modello, replicando la pipeline di produzione. Se false, il
+   * modello gira sui default (comportamento legacy pre-I1) — utile per A/B.
+   */
+  asOfSupplementaryData?: boolean;
 }
 
 export interface BacktestComparisonMetrics {
@@ -1093,17 +1100,22 @@ export class BacktestingEngine {
     };
   }
 
-  private buildTrainingMarketCalibrationProfile(trainMatches: MatchData[]): MarketCalibrationProfile | undefined {
+  private buildTrainingMarketCalibrationProfile(
+    trainMatches: MatchData[],
+    asOfSupp = false,
+  ): MarketCalibrationProfile | undefined {
     const byMarketRows: Record<string, Array<{ probability: number; won: boolean }>> = {};
     const globalRows: Array<{ probability: number; won: boolean }> = [];
 
     for (const match of trainMatches) {
       if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
+      const supp = asOfSupp ? this.buildAsOfSupp(match, trainMatches) : undefined;
       const probs = this.model.computeFullProbabilities(
         match.homeTeamId,
         match.awayTeamId,
         match.homeXG,
-        match.awayXG
+        match.awayXG,
+        supp,
       );
 
       for (const [selection, probability] of Object.entries(probs.flatProbabilities ?? {})) {
@@ -1209,6 +1221,190 @@ export class BacktestingEngine {
       : this.engine.selectMediumAndAbove(ranked);
   }
 
+  // ==================== I1: DATI SUPPLEMENTARI AS-OF-DATE ====================
+  // Replica in-memory la costruzione di `supp` di produzione (recomputeTeamAverages
+  // + PredictionContextBuilder.buildTeamStats) ma aggregando SOLO i match con
+  // date < data della partita, per evitare qualsiasi leakage. Vedi design I1.
+  private readonly ASOF_DECAY_PER_DAY = 0.005; // identico a recomputeTeamAverages
+  private readonly ASOF_LEAGUE_SHOTS_CONCEDED = 12.1; // identico a recomputeTeamAverages
+
+  private asOfWeight(asOfMs: number, matchMs: number): number {
+    const days = Math.max(0, (asOfMs - matchMs) / 86400000);
+    return Math.exp(-this.ASOF_DECAY_PER_DAY * days);
+  }
+
+  /**
+   * Aggregati per venue di UNA squadra sui soli match con date < asOfMs.
+   * Medie decadute (come produzione), varianza NON decaduta (E[X²]-E[X]²,
+   * come le colonne var_* di recomputeTeamAverages), sampleSize per venue.
+   */
+  private computeAsOfTeamRecord(teamId: string, asOfMs: number, past: MatchData[]) {
+    const wsum = () => ({ v: 0, w: 0 });
+    const add = (a: { v: number; w: number }, value: number | undefined, weight: number) => {
+      if (value !== undefined && value !== null && Number.isFinite(value)) { a.v += value * weight; a.w += weight; }
+    };
+    const mean = (a: { v: number; w: number }): number | undefined => (a.w > 0 ? a.v / a.w : undefined);
+    const popVar = (arr: number[]): number | undefined => {
+      if (arr.length < 2) return undefined;
+      const m = arr.reduce((s, x) => s + x, 0) / arr.length;
+      return Math.max(0, arr.reduce((s, x) => s + (x - m) * (x - m), 0) / arr.length);
+    };
+
+    const h = { shots: wsum(), sot: wsum(), corn: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
+    const a = { shots: wsum(), sot: wsum(), corn: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
+    const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
+    const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
+
+    for (const m of past) {
+      const w = this.asOfWeight(asOfMs, m.date.getTime());
+      if (m.homeTeamId === teamId) {
+        h.w += w; h.n += 1;
+        add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w); add(h.corn, undefined, w);
+        add(h.poss, m.homePossession, w); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
+        add(h.foul, m.homeFouls, w); add(h.conc, m.awayTotalShots, w);
+        if (Number.isFinite(Number(m.homeTotalShots))) hv.shots.push(Number(m.homeTotalShots));
+        if (Number.isFinite(Number(m.homeShotsOnTarget))) hv.sot.push(Number(m.homeShotsOnTarget));
+        if (Number.isFinite(Number(m.homeYellowCards))) hv.yel.push(Number(m.homeYellowCards));
+        if (Number.isFinite(Number(m.homeFouls))) hv.foul.push(Number(m.homeFouls));
+      } else if (m.awayTeamId === teamId) {
+        a.w += w; a.n += 1;
+        add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w); add(a.corn, undefined, w);
+        add(a.poss, m.awayPossession, w); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
+        add(a.foul, m.awayFouls, w); add(a.conc, m.homeTotalShots, w);
+        if (Number.isFinite(Number(m.awayTotalShots))) av.shots.push(Number(m.awayTotalShots));
+        if (Number.isFinite(Number(m.awayShotsOnTarget))) av.sot.push(Number(m.awayShotsOnTarget));
+        if (Number.isFinite(Number(m.awayYellowCards))) av.yel.push(Number(m.awayYellowCards));
+        if (Number.isFinite(Number(m.awayFouls))) av.foul.push(Number(m.awayFouls));
+      }
+    }
+    // Corner per venue: MatchData non porta i corner separati per squadra oltre
+    // home/away; li ricaviamo dai campi corner della partita.
+    for (const m of past) {
+      const w = this.asOfWeight(asOfMs, m.date.getTime());
+      if (m.homeTeamId === teamId) add(h.corn, (m as any).homeCorners, w);
+      else if (m.awayTeamId === teamId) add(a.corn, (m as any).awayCorners, w);
+    }
+
+    // avg combinati (yellow/red/fouls/conceded) pesati per venue-weight, come produzione.
+    const totW = h.w + a.w;
+    const combine = (hh: { v: number; w: number }, aa: { v: number; w: number }): number | undefined => {
+      const mh = mean(hh); const ma = mean(aa);
+      if (mh === undefined && ma === undefined) return undefined;
+      if (totW <= 0) return mh ?? ma;
+      return ((mh ?? ma ?? 0) * h.w + (ma ?? mh ?? 0) * a.w) / totW;
+    };
+    const avgConcededAll = combine(h.conc, a.conc);
+    const suppression = avgConcededAll !== undefined ? avgConcededAll / this.ASOF_LEAGUE_SHOTS_CONCEDED : undefined;
+
+    return {
+      homeN: h.n, awayN: a.n,
+      avgHomeShots: mean(h.shots), avgAwayShots: mean(a.shots),
+      avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
+      avgHomeCorners: mean(h.corn), avgAwayCorners: mean(a.corn),
+      avgHomePoss: mean(h.poss), avgAwayPoss: mean(a.poss),
+      avgYellow: combine(h.yel, a.yel), avgRed: combine(h.red, a.red), avgFouls: combine(h.foul, a.foul),
+      suppression,
+      varHomeShots: popVar(hv.shots), varAwayShots: popVar(av.shots),
+      varHomeSot: popVar(hv.sot), varAwaySot: popVar(av.sot),
+      varHomeYellow: popVar(hv.yel), varAwayYellow: popVar(av.yel),
+      varHomeFouls: popVar(hv.foul), varAwayFouls: popVar(av.foul),
+    };
+  }
+
+  /** Medie arbitro (semplici, non decadute) sui match passati con lo stesso arbitro. */
+  private computeAsOfRefereeRecord(refereeName: string | undefined, past: MatchData[]) {
+    const name = String(refereeName ?? '').trim();
+    if (!name) return undefined;
+    let nY = 0, nF = 0, nR = 0, sumY = 0, sumF = 0, sumR = 0, games = 0;
+    for (const m of past) {
+      if (String(m.referee ?? '').trim() !== name) continue;
+      games += 1;
+      const y = Number(m.homeYellowCards) + Number(m.awayYellowCards);
+      const f = Number(m.homeFouls) + Number(m.awayFouls);
+      const r = Number(m.homeRedCards) + Number(m.awayRedCards);
+      if (Number.isFinite(y)) { sumY += y; nY += 1; }
+      if (Number.isFinite(f)) { sumF += f; nF += 1; }
+      if (Number.isFinite(r)) { sumR += r; nR += 1; }
+    }
+    if (games === 0) return undefined;
+    return {
+      avgYellow: nY > 0 ? sumY / nY : undefined,
+      avgRed: nR > 0 ? sumR / nR : undefined,
+      avgFouls: nF > 0 ? sumF / nF : undefined,
+      sampleSize: games,
+    };
+  }
+
+  /**
+   * Costruisce `supp` as-of-date per una partita. `history` è l'insieme di
+   * match da cui aggregare; il filtro strettamente-precedente e la guardia
+   * anti-leakage garantiscono che nessun dato della partita o futuro entri.
+   */
+  private buildAsOfSupp(match: MatchData, history: MatchData[]): SupplementaryData | undefined {
+    const asOfMs = match.date.getTime();
+    const past = history.filter((m) =>
+      m.date.getTime() < asOfMs && m.homeGoals !== undefined && m.awayGoals !== undefined && m.matchId !== match.matchId);
+    if (past.length === 0) return undefined;
+    // Guardia hard anti-leakage: nessun match incluso puo essere >= asOf.
+    for (const m of past) {
+      if (m.date.getTime() >= asOfMs) {
+        throw new Error(`[I1 leakage] match ${m.matchId} @${m.date.toISOString()} >= asOf ${match.date.toISOString()}`);
+      }
+    }
+    const hRec = this.computeAsOfTeamRecord(match.homeTeamId, asOfMs, past);
+    const aRec = this.computeAsOfTeamRecord(match.awayTeamId, asOfMs, past);
+    const refRec = this.computeAsOfRefereeRecord(match.referee, past);
+
+    const homeStats = hRec.homeN > 0 || hRec.awayN > 0 ? {
+      avgShots: hRec.avgHomeShots ?? 12.1,
+      avgShotsOT: hRec.avgHomeShotsOT ?? 4.8,
+      avgYellowCards: hRec.avgYellow ?? 1.9,
+      avgRedCards: hRec.avgRed ?? 0.11,
+      avgFouls: hRec.avgFouls ?? 11.2,
+      shotsSuppression: hRec.suppression ?? 1.0,
+      avgHomeCorners: hRec.avgHomeCorners,
+      avgAwayCorners: hRec.avgAwayCorners,
+      avgPossession: hRec.avgHomePoss,
+      varShots: hRec.varHomeShots,
+      varShotsOT: hRec.varHomeSot,
+      varYellowCards: hRec.varHomeYellow,
+      varFouls: hRec.varHomeFouls,
+      sampleSize: hRec.homeN,
+    } : undefined;
+    const awayStats = aRec.homeN > 0 || aRec.awayN > 0 ? {
+      avgShots: aRec.avgAwayShots ?? 10.4,
+      avgShotsOT: aRec.avgAwayShotsOT ?? 3.9,
+      avgYellowCards: aRec.avgYellow ?? 1.9,
+      avgRedCards: aRec.avgRed ?? 0.11,
+      avgFouls: aRec.avgFouls ?? 11.2,
+      shotsSuppression: aRec.suppression ?? 1.0,
+      avgHomeCorners: aRec.avgHomeCorners,
+      avgAwayCorners: aRec.avgAwayCorners,
+      avgPossession: aRec.avgAwayPoss,
+      varShots: aRec.varAwayShots,
+      varShotsOT: aRec.varAwaySot,
+      varYellowCards: aRec.varAwayYellow,
+      varFouls: aRec.varAwayFouls,
+      sampleSize: aRec.awayN,
+    } : undefined;
+
+    if (!homeStats && !awayStats && !refRec) return undefined;
+    return {
+      homeTeamStats: homeStats,
+      awayTeamStats: awayStats,
+      refereeStats: refRec ? {
+        avgYellow: refRec.avgYellow ?? 3.8,
+        avgRed: refRec.avgRed ?? 0.22,
+        avgFouls: refRec.avgFouls ?? 22.4,
+        sampleSize: refRec.sampleSize,
+      } : undefined,
+      // Volutamente null (vedi design I1): competitiveness/isDerby (derivati da λ
+      // dal modello), contextAdjustments (feature request non nello storico),
+      // leagueAvg* e homeAdvantageShots (la produzione stessa li lascia default),
+      // homePlayers/awayPlayers (fuori scope I1).
+    };
+  }
+
   private simulateBacktestScenario(
     trainMatches: MatchData[],
     testMatches: MatchData[],
@@ -1218,11 +1414,16 @@ export class BacktestingEngine {
     options: BacktestRunOptions = {}
   ): BacktestResult {
     const algorithmMode: BacktestAlgorithmMode = options.algorithmMode ?? 'current';
+    // I1: default ON. Il backtest costruisce `supp` as-of-date come la produzione.
+    const asOfSupp = options.asOfSupplementaryData !== false;
     const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
     const teamSamples = this.buildTeamSampleSizes(trainMatches);
+    // Storico as-of per le predizioni di test: train + test, filtrato per date < D
+    // dentro buildAsOfSupp (che esclude anche la partita stessa e ogni futura).
+    const asOfHistory = asOfSupp ? [...trainMatches, ...testMatches] : [];
 
     this.model.fitModel(trainMatches, teams);
-    const marketCalibrationProfile = this.buildTrainingMarketCalibrationProfile(trainMatches);
+    const marketCalibrationProfile = this.buildTrainingMarketCalibrationProfile(trainMatches, asOfSupp);
 
     const bets: TestBet[] = [];
     const singleBestAlwaysBets: TestBet[] = [];
@@ -1244,8 +1445,9 @@ export class BacktestingEngine {
       const match = testMatches[i];
       if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
 
+      const suppAsOf = asOfSupp ? this.buildAsOfSupp(match, asOfHistory) : undefined;
       const probs = this.model.computeFullProbabilities(
-        match.homeTeamId, match.awayTeamId, match.homeXG, match.awayXG
+        match.homeTeamId, match.awayTeamId, match.homeXG, match.awayXG, suppAsOf
       );
       const probMap     = probs.flatProbabilities;
       const marketNames = this.buildMarketNames(probMap);
@@ -1513,9 +1715,11 @@ export class BacktestingEngine {
       expandingWindow?: boolean;
       maxFolds?: number;
       compareBaseline?: boolean;
+      asOfSupplementaryData?: boolean;
     },
     historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): WalkForwardBacktestResult {
+    const asOfSupplementaryData = options?.asOfSupplementaryData !== false;
     const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
     const totalMatches = sorted.length;
     const initialTrainMatches = Math.max(30, Math.min(Number(options?.initialTrainMatches ?? Math.floor(totalMatches * 0.55)), totalMatches - 10));
@@ -1541,7 +1745,7 @@ export class BacktestingEngine {
         historicalOdds,
         confidenceLevel,
         historicalOddsContext,
-        { algorithmMode: 'current' }
+        { algorithmMode: 'current', asOfSupplementaryData }
       );
       const baselineResult = options?.compareBaseline
         ? this.simulateBacktestScenario(
@@ -1550,7 +1754,7 @@ export class BacktestingEngine {
             historicalOdds,
             confidenceLevel,
             historicalOddsContext,
-            { algorithmMode: 'baseline' }
+            { algorithmMode: 'baseline', asOfSupplementaryData }
           )
         : null;
       const foldWinner = baselineResult
