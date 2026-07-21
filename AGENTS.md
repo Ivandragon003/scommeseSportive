@@ -67,15 +67,23 @@ Se trovi file o riferimenti legacy:
 
 ## 4. Regole quote
 
-### Fonte quote lato utente
+### Fonte quote lato utente (aggiornato 2026-07)
 
-`Eurobet` e la fonte primaria delle quote mostrate all'utente.
+**Le quote possono provenire da piu bookmaker.** La precedente regola "Eurobet-only"
+e superata: il proprietario gioca su piu operatori (`Eurobet`, `888`, ecc.) e
+sceglie lui su quale piazzare, dato che le differenze di quota tra bookmaker sono
+tipicamente di pochi centesimi (salvo casi rari).
 
 Regole bloccate:
-- se la quota `Eurobet` esiste, puo essere mostrata
-- se la quota `Eurobet` non esiste, non va mostrata nessuna quota su quella giocata
-- non mostrare all'utente quote da fallback alternativi come se fossero Eurobet
-- non mostrare quote stimate dal modello come quote bookmaker utente
+- **e ammesso mostrare quote da piu bookmaker reali**, purche sia sempre indicato
+  **quale bookmaker** ha espresso quella quota
+- **mai attribuire a un bookmaker una quota che non ha espresso**: la provenienza
+  deve essere veritiera e tracciata (`source` nello snapshot)
+- **mai mostrare come quota bookmaker una quota stimata o completata dal modello**
+  (es. sorgenti `*_plus_model_completion` o quote sintetiche): queste restano
+  esclusivamente interne. Usarle per calcolare il value sarebbe circolare
+- se per una giocata non esiste **nessuna** quota bookmaker reale, non va mostrata
+  nessuna quota per quella giocata
 
 ### Fallback tecnici
 
@@ -84,8 +92,9 @@ Sono ammessi fallback tecnici interni solo se servono a:
 - completare logica interna
 - salvare diagnostica o snapshot
 
-Ma lato UI:
-- la quota utente deve restare Eurobet-only
+Lato UI:
+- sono ammesse quote di piu bookmaker reali, sempre con la fonte dichiarata
+- **non** sono ammesse quote sintetiche o completate dal modello
 
 ## 5. Mercati supportati
 
@@ -106,9 +115,12 @@ Sono priorita del progetto:
 
 ### Falli e corner — dato ora disponibile (2026-07)
 
-- `fouls` e `corners` — **voluti dal proprietario**. Il blocco storico era la copertura dati (falli/corner all'1-2% su Understat). **Risolto:** ora sono coperti a ~100% su tutte e 4 le stagioni via **football-data.co.uk** (fonte HTTP/CSV supplementare, vedi §3).
-  - Prima di mostrarli come mercati forti in UI: **validare i modelli falli/corner in backtest** con i dati reali (come fatto per i cartellini). Attivarli nel filtro value solo dopo esito positivo.
-  - Understat resta primaria: football-data riempie solo i campi NULL (COALESCE), non sovrascrive.
+- `fouls` e `corners` — **voluti dal proprietario**, che li gioca abitualmente. Il blocco storico era la copertura del **dato statistico** (falli/corner all'1-2% su Understat). **Risolto:** ora coperti a ~100% su tutte e 4 le stagioni via **football-data.co.uk** (§3). Understat resta primaria: football-data riempie solo i campi NULL (COALESCE).
+- **Situazione QUOTE (verificata live sul provider, 2026-07):**
+  - **Corner: ottenibili.** Le chiavi valide di the-odds-api sono `alternate_totals_corners` e `alternate_spreads_corners`. Il codice chiedeva `'corners'`, chiave **inesistente** ("Invalid markets") — per questo non arrivavano mai quote corner. Corretto in `routes.ts` (`eventAdditionalMarkets`).
+  - **Falli: NON ottenibili da the-odds-api.** Tutte le varianti (`fouls`, `totals_fouls`, `alternate_totals_fouls`) restituiscono "Invalid markets". Per attivare il mercato falli servirebbe **un'altra fonte quote**. Finche non esiste, il mercato falli resta non attivabile per assenza di quote reali (le uniche presenti sono `*_plus_model_completion`, cioe generate dal modello: **non utilizzabili**, sarebbe circolare).
+  - Attenzione: `'shots'`, `'shots_on_target'`, `'cards'` sono anch'esse chiavi **non valide**; le equivalenti valide sono `alternate_totals_cards`, `alternate_spreads_cards`, `player_shots`, `player_shots_on_target`.
+- Prima di mostrare corner/falli come mercati forti in UI: **validare i modelli in backtest di mercato** con quote reali (come fatto per i cartellini) e sbloccarli nel filtro value (`DISABLED_CATEGORIES` in `ValueBettingEngine`, piu la soglia EV oggi a 0.120). Attivarli solo dopo esito positivo.
 
 Regola generale: non mostrare un mercato come "forte" solo per riempire la UI se il modello non e stato validato sul dato reale.
 

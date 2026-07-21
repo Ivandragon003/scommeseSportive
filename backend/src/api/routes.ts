@@ -2500,6 +2500,16 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         'shots',
         'shots_on_target',
         'cards',
+        // Corner: mercato realmente giocato ma finora mai ottenuto perche' il
+        // codice chiedeva la chiave 'corners', che the-odds-api NON riconosce
+        // (verificato live 2026-07: "Invalid markets: corners"). Le chiavi
+        // valide sono queste due. Il fetch per-evento degrada singolarmente,
+        // quindi aggiungerle e' sicuro.
+        'alternate_totals_corners',
+        'alternate_spreads_corners',
+        // NOTA: i FALLI non sono ottenibili da the-odds-api in nessuna forma
+        // (verificato live: 'fouls', 'totals_fouls', 'alternate_totals_fouls'
+        // restituiscono tutti "Invalid markets"). Servirebbe un'altra fonte.
       ];
       const requestedMarkets = Array.from(new Set([...preferredMarkets, ...fallbackMarkets, ...eventAdditionalMarkets]));
       console.info('[Odds/match] Starting lookup', {
