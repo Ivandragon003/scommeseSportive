@@ -2012,6 +2012,37 @@ const marketOverround = (selectionKey: string): number => {
   return 0.045;
 };
 
+/**
+ * Mercati richiesti di default dalla rotta bulk `/scraper/odds`.
+ * Contiene SOLO chiavi valide di the-odds-api (verificate live 2026-07).
+ * Escluse perche' inesistenti sul provider: 'shots', 'shots_on_target',
+ * 'cards', 'corners', 'fouls' — restituivano "Invalid markets" a ogni giro.
+ * NB: i mercati "additional" (alternate_*, player_*, btts, ecc.) sono serviti
+ * dall'endpoint per-evento; sull'endpoint di competizione il provider degrada
+ * automaticamente sul set featured (h2h/totals/spreads).
+ */
+const DEFAULT_BULK_ODDS_MARKETS: string[] = [
+  'h2h',
+  'h2h_3_way',
+  'totals',
+  'alternate_totals',
+  'spreads',
+  'alternate_spreads',
+  'btts',
+  'double_chance',
+  'draw_no_bet',
+  'team_totals',
+  'alternate_team_totals',
+  'alternate_totals_corners',
+  'alternate_spreads_corners',
+  'alternate_team_totals_corners',
+  'corners_1x2',
+  'alternate_totals_cards',
+  'alternate_spreads_cards',
+  'player_shots',
+  'player_shots_on_target',
+];
+
 router.post('/scraper/odds', async (req: Request, res: Response) => {
   try {
     const startedAtMs = Date.now();
@@ -2019,61 +2050,21 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     const requestId = String(res.locals?.requestId ?? '');
     const runId = observability?.createRunId('odds_bulk') ?? `odds_bulk_${startedAtMs}`;
 
+    // NB: 'shots', 'shots_on_target', 'corners', 'cards', 'fouls' NON sono
+    // chiavi valide di the-odds-api (verificato live 2026-07: "Invalid
+    // markets") e sono state rimosse: generavano solo richieste destinate a
+    // fallire. Le equivalenti valide sono alternate_totals_cards,
+    // alternate_*_corners, player_shots, player_shots_on_target.
+    // I falli non esistono come mercato sul provider (vedi AGENTS.md §5).
     const {
       competition = 'Serie A',
-      markets = [
-        'h2h',
-        'h2h_3_way',
-        'totals',
-        'alternate_totals',
-        'spreads',
-        'alternate_spreads',
-        'btts',
-        'double_chance',
-        'draw_no_bet',
-        'team_totals',
-        'alternate_team_totals',
-        'alternate_totals_corners',
-        'alternate_spreads_corners',
-        'alternate_totals_cards',
-        'alternate_spreads_cards',
-        'player_shots',
-        'player_shots_on_target',
-        'shots',
-        'shots_on_target',
-        'corners',
-        'cards',
-        'fouls',
-      ],
+      markets = [...DEFAULT_BULK_ODDS_MARKETS],
     } = req.body;
 
     const normalizedMarkets =
       Array.isArray(markets) && markets.length > 0
         ? markets.map((m: unknown) => String(m)).filter(Boolean)
-        : [
-          'h2h',
-          'h2h_3_way',
-          'totals',
-          'alternate_totals',
-          'spreads',
-          'alternate_spreads',
-          'btts',
-          'double_chance',
-          'draw_no_bet',
-          'team_totals',
-          'alternate_team_totals',
-          'alternate_totals_corners',
-          'alternate_spreads_corners',
-          'alternate_totals_cards',
-          'alternate_spreads_cards',
-          'player_shots',
-          'player_shots_on_target',
-          'shots',
-          'shots_on_target',
-          'corners',
-          'cards',
-          'fouls',
-        ];
+        : [...DEFAULT_BULK_ODDS_MARKETS];
     const {
       coordinator,
       primaryProviderName,
@@ -2103,9 +2094,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
               'draw_no_bet',
               'alternate_totals_corners',
               'alternate_spreads_corners',
-              'corners',
-              'cards',
-              'fouls',
+              'alternate_totals_cards',
             ])
           ),
           includeExtendedGroups: true,
@@ -2497,14 +2486,15 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         'draw_no_bet',
         'player_shots',
         'player_shots_on_target',
-        'shots',
-        'shots_on_target',
-        'cards',
+        // Rimosse 'shots', 'shots_on_target', 'cards': NON sono chiavi valide di
+        // the-odds-api (verificato live 2026-07, "Invalid markets") e ogni giro
+        // produceva richieste destinate a fallire. Gli equivalenti validi sono
+        // player_shots / player_shots_on_target e alternate_*_cards, gia' qui.
+        //
         // Corner: mercato realmente giocato ma finora mai ottenuto perche' il
-        // codice chiedeva la chiave 'corners', che the-odds-api NON riconosce
-        // (verificato live 2026-07: "Invalid markets: corners"). Le chiavi
-        // valide sono queste due. Il fetch per-evento degrada singolarmente,
-        // quindi aggiungerle e' sicuro.
+        // codice chiedeva la chiave 'corners', anch'essa inesistente. Le chiavi
+        // valide sono le quattro qui sotto. Il fetch per-evento degrada
+        // singolarmente, quindi aggiungerle e' sicuro.
         'alternate_totals_corners',
         'alternate_spreads_corners',
         'alternate_team_totals_corners',

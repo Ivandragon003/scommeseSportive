@@ -337,9 +337,20 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.ok(requests[0].markets.includes('alternate_totals'));
     assert.ok(requests[0].fallbackMarkets.includes('h2h'));
     assert.ok(requests[0].fallbackMarkets.includes('totals'));
+    // Solo chiavi VALIDE di the-odds-api (verificate live 2026-07).
     assert.ok(requests[0].extraEventMarkets.includes('player_shots'));
-    assert.ok(requests[0].extraEventMarkets.includes('shots_on_target'));
-    assert.ok(requests[0].extraEventMarkets.includes('cards'));
+    assert.ok(requests[0].extraEventMarkets.includes('player_shots_on_target'));
+    assert.ok(requests[0].extraEventMarkets.includes('alternate_totals_cards'));
+    // Corner: prima non venivano mai richiesti (si usava 'corners', inesistente).
+    assert.ok(requests[0].extraEventMarkets.includes('alternate_totals_corners'));
+    assert.ok(requests[0].extraEventMarkets.includes('alternate_spreads_corners'));
+    // Chiavi inesistenti sul provider: non devono piu' essere richieste.
+    for (const invalid of ['shots', 'shots_on_target', 'cards', 'corners', 'fouls']) {
+      assert.ok(
+        !requests[0].extraEventMarkets.includes(invalid),
+        `il mercato '${invalid}' non e' una chiave valida di the-odds-api e non va richiesto`
+      );
+    }
     assert.equal(requests[0].includeExtendedGroups, false);
 
     assert.equal(snapshots.length, 1);
