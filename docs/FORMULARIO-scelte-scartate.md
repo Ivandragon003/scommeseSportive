@@ -35,6 +35,27 @@ Ancora scoperti: **possesso** (~1%, nessuna fonte HTTP stabile) e **arbitro fuor
 
 Dettaglio copertura in §13 del formulario e nella memoria di progetto (`data-coverage-gaps`).
 
+### B-bis. Filone CORNER — archiviato come BLOCCATO (2026-07-18)
+
+**Il blocco non è nel modello né nel codice: sono le quote.** Verifica empirica su **4.472 `odds_snapshots` reali** di produzione:
+
+| Verifica | Esito |
+|---|---|
+| Il provider richiede i corner? | **Mai**: `markets_requested_json` è sempre `["h2h","totals","spreads"]` |
+| Copertura corner (qualsiasi book) | ~1,5% (68/4.472) |
+| Copertura corner **Eurobet** | **0,3% (7/2.253), e malformate** (`corners_over_1/2`, non linee valide) |
+| Quote corner mostrabili all'utente (regola Eurobet-only) | **~0%** |
+
+Con la regola Eurobet-only di `AGENTS.md`, non esiste quota corner da mostrare: sbloccare `DISABLED_CATEGORIES`, il provider e il modello **non produrrebbe alcuna giocata**. the-odds-api non offre mercati corner sul calcio in modo sistematico.
+
+**Catena di dipendenze corner** (da riprendere solo se cambia la fonte quote): [1] quote Eurobet corner *(esterna, BLOCCANTE)* → [2] provider richiede market corner → [3] non svuotare `probs.corners.overUnder` (`PredictionService` ~1544) → [4] `dropUnavailableUnderstatMarkets` (~975) → [5] `DISABLED_CATEGORIES` (`ValueBettingEngine` ~627) → [6] soglia EV corner 0.120 → ~0.05 → [7] backtest di mercato positivo (AGENTS.md) → [8] calibrazione cold-start → [9] termine difensivo (B2).
+
+> ⚠️ Attenzione: il flag di config `understatOnlyMarkets.cornersEnabled` **non è letto da nessuna parte** — è un interruttore morto. I blocchi reali sono hardcoded nei punti [3][4][5].
+
+**B2 — termine difensivo corner: SCARTATO (bloccato su dipendenza esterna).**
+Fatto dimostrato: il termine difensivo 0.4 di `computeCornersDistribution` è **inerte** — `muHome` dipende solo dai corner della squadra di casa, perché il campo "concessi" è alimentato con i corner *battuti* dall'avversario. Sostituendolo con i corner **concessi reali** (as-of, pipeline I1, metrica selection-independent) il modello migliora: logLoss 5/5 leghe (Serie A 0.558→0.526, Premier 0.594→0.558, La Liga 0.551→0.532, Bundesliga 0.592→0.558, Ligue 1 0.582→0.549), Brier 5/5, sign test p≈0.031; ECE già basso (~0.02–0.03) e misto.
+**Scartato comunque**: miglioramento reale ma **senza percorso di impatto in produzione** (nessuna quota corner), e richiederebbe di propagare un nuovo campo "corner concessi" in `recomputeTeamAverages` + `buildTeamStats` + `buildAsOfSupp`. Da riprendere solo insieme all'intero pacchetto corner, se le quote diventeranno disponibili.
+
 ## C. Parti volutamente semplificate nel modello (design, non bug)
 
 Ereditate dalla v4.1 e ancora valide:
@@ -56,7 +77,9 @@ Ereditate dalla v4.1 e ancora valide:
 3. **Regole metodologiche apprese** (da applicare a ogni valutazione futura):
    - misurare sempre sulla **pipeline completa** con lo stack già attivo, mai sul modello isolato (Recent Form sembrava −0.50% da sola, era −0.02% nella pipeline);
    - separare il **fatto misurato** dall'**ipotesi sulla causa**: non presentare la seconda come conclusione senza una prova dedicata;
-   - non implementare un parametro "teoricamente più corretto" se il backtest completo dice il contrario.
+   - non implementare un parametro "teoricamente più corretto" se il backtest completo dice il contrario;
+   - **usare metriche selection-independent** per confrontare varianti di modello: il `logLoss`/`Brier` del backtest è calcolato solo sulle **bet selezionate**, e config diverse selezionano bet diverse → il confronto è confuso. Va misurato su *tutte* le predizioni (tutte le linee, tutti i match). Il caso `SHOT_GOAL_RATIO` lo mostra: sulla metrica confusa il valore migliore sembrava *peggiorare*, su quella corretta migliora in 5/5 leghe;
+   - **verificare la disponibilità delle quote PRIMA di lavorare su un mercato**: il filone corner aveva modello sano e dati statistici al 100%, ma quote Eurobet ~0% → lavoro inutilizzabile. La copertura quote è una precondizione, non un dettaglio finale.
 4. **Unico margine reale rimasto:** mercato **marcatore anytime** — nuova funzionalità (dati pronti: 2.934 giocatori con xG), non un miglioramento del modello esistente. Da valutare separatamente.
 
 Per la tabella sintetica di tutti gli interventi (implementati + scartati) vedere [`performance/model-improvements-summary.md`](performance/model-improvements-summary.md).
