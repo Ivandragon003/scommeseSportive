@@ -2507,9 +2507,16 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         // quindi aggiungerle e' sicuro.
         'alternate_totals_corners',
         'alternate_spreads_corners',
+        'alternate_team_totals_corners',
+        'corners_1x2',
         // NOTA: i FALLI non sono ottenibili da the-odds-api in nessuna forma
         // (verificato live: 'fouls', 'totals_fouls', 'alternate_totals_fouls'
-        // restituiscono tutti "Invalid markets"). Servirebbe un'altra fonte.
+        // restituiscono "Invalid markets"; confermato dalla doc ufficiale dei
+        // mercati, che per il calcio elenca corner e cartellini ma NON i falli).
+        // Ricerca alternative 2026-07: nessun provider con free tier reale
+        // documenta i falli sul calcio; le opzioni che li potrebbero avere sono
+        // a pagamento con prezzo su richiesta (vietate da AGENTS.md §2).
+        // Il mercato falli resta quindi non attivabile per assenza di quote.
       ];
       const requestedMarkets = Array.from(new Set([...preferredMarkets, ...fallbackMarkets, ...eventAdditionalMarkets]));
       console.info('[Odds/match] Starting lookup', {
