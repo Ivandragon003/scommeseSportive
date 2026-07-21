@@ -29,6 +29,16 @@ Walk-forward su medie squadra rolling (anti-lookahead), 5 campionati, 6.683 matc
 
 ## Aggiornamento 2026-07-18
 
-- **Corner: filone ARCHIVIATO come bloccato.** Non per il modello (sano, vedi sopra) ma per le **quote**: su 4.472 `odds_snapshots` reali la copertura corner Eurobet è **0,3% e malformata** (~0% utilizzabile) e il provider non richiede mai i mercati corner. Con la regola Eurobet-only non esiste giocata mostrabile. Dettaglio e catena di dipendenze in [`../FORMULARIO-scelte-scartate.md`](../FORMULARIO-scelte-scartate.md) §B-bis.
-- **Falli: ancora aperti.** La copertura quote falli non è stata verificata empiricamente: prima di ogni lavoro sul modello falli va fatta la stessa verifica fatta per i corner (quote reali nella pipeline), altrimenti si rischia di ottimizzare un mercato non servibile.
+**Entrambi i mercati restano non attivabili: mancano le quote, non il modello.** Verifica empirica su 4.472 `odds_snapshots` reali, misurando la presenza di **prezzi bookmaker reali** (`source=odds_api`) — non la copertura Eurobet, che è ~0,27% anche per i mercati attivi e quindi non discrimina:
+
+| Mercato | snapshot con quote | da bookmaker reale | bet giocate |
+|---|---|---|---|
+| tiri *(attivo)* | 153 | 123 | 2 |
+| gialli *(attivo)* | 148 | 118 | 18 |
+| corner | 68 | **37** | 0 |
+| **falli** | 30 | **0** | 0 |
+
+- **Falli: copertura reale ≈ 0.** Nessuno snapshot con prezzi bookmaker puri; 22 dei 30 sono `*_plus_model_completion`, cioè quote **completate dal modello** — calcolarci sopra il value sarebbe circolare.
+- **Corner: ~0,8%**, un terzo dei mercati attivi. Non zero, ma volume irrilevante.
+- Dettaglio e catena di dipendenze in [`../FORMULARIO-scelte-scartate.md`](../FORMULARIO-scelte-scartate.md) §B-bis.
 - Nota infrastrutturale: fino a I1 (2026-07-18) il backtest **non passava `supp` al modello**, quindi i mercati falli/corner giravano sui default e i corner non venivano nemmeno calcolati. Ogni misura precedente su questi mercati va riletta alla luce di [`backtest-asof-supp-i1-2026-07.md`](backtest-asof-supp-i1-2026-07.md).

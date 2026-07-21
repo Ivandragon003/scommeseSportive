@@ -35,20 +35,25 @@ Ancora scoperti: **possesso** (~1%, nessuna fonte HTTP stabile) e **arbitro fuor
 
 Dettaglio copertura in §13 del formulario e nella memoria di progetto (`data-coverage-gaps`).
 
-### B-bis. Filone CORNER — archiviato come BLOCCATO (2026-07-18)
+### B-bis. Mercati CORNER e FALLI — copertura quote insufficiente (2026-07-18)
 
-**Il blocco non è nel modello né nel codice: sono le quote.** Verifica empirica su **4.472 `odds_snapshots` reali** di produzione:
+**Il blocco non è nel modello né nel codice: sono le quote.** Verifica empirica su **4.472 `odds_snapshots` reali** di produzione.
 
-| Verifica | Esito |
-|---|---|
-| Il provider richiede i corner? | **Mai**: `markets_requested_json` è sempre `["h2h","totals","spreads"]` |
-| Copertura corner (qualsiasi book) | ~1,5% (68/4.472) |
-| Copertura corner **Eurobet** | **0,3% (7/2.253), e malformate** (`corners_over_1/2`, non linee valide) |
-| Quote corner mostrabili all'utente (regola Eurobet-only) | **~0%** |
+> **Criterio corretto.** Una prima analisi aveva usato la copertura *Eurobet* come criterio: **sbagliato**. La copertura Eurobet dei mercati stat è ~0,27% *identica* per tiri e gialli, che però sono mercati **attivi e realmente giocati**. Il criterio operativo valido è la presenza di **prezzi bookmaker reali** (`source=odds_api`), perché è da lì che arrivano di fatto le quote dei mercati stat serviti.
 
-Con la regola Eurobet-only di `AGENTS.md`, non esiste quota corner da mostrare: sbloccare `DISABLED_CATEGORIES`, il provider e il modello **non produrrebbe alcuna giocata**. the-odds-api non offre mercati corner sul calcio in modo sistematico.
+| Mercato | snapshot con quote | di cui da bookmaker reale (`odds_api`) | bet realmente giocate |
+|---|---|---|---|
+| tiri *(attivo)* | 153 | **123** | 2 (shotsOT) |
+| gialli *(attivo)* | 148 | **118** | **18** |
+| corner | 68 | **37** | 0 (disabilitato) |
+| **falli** | 30 | **0** | 0 (disabilitato) |
 
-**Catena di dipendenze corner** (da riprendere solo se cambia la fonte quote): [1] quote Eurobet corner *(esterna, BLOCCANTE)* → [2] provider richiede market corner → [3] non svuotare `probs.corners.overUnder` (`PredictionService` ~1544) → [4] `dropUnavailableUnderstatMarkets` (~975) → [5] `DISABLED_CATEGORIES` (`ValueBettingEngine` ~627) → [6] soglia EV corner 0.120 → ~0.05 → [7] backtest di mercato positivo (AGENTS.md) → [8] calibrazione cold-start → [9] termine difensivo (B2).
+- **Falli — il caso peggiore:** zero snapshot con prezzi bookmaker reali. Dei 30, ben 22 sono `the_odds_api_plus_model_completion`, cioè quote **completate dal modello stesso**: usarle per calcolare value sarebbe **circolare**. Copertura reale ≈ 0.
+- **Corner:** 37 snapshot con prezzi reali su tutto lo storico (~0,8%, circa **un terzo** dei mercati attivi). Non zero, ma volume praticamente irrilevante: anche sbloccando tutto si otterrebbero pochissime giocate.
+- Il provider non richiede mai questi mercati: `markets_requested_json` è sempre `["h2h","totals","spreads"]`.
+- Nota di conformità: le 18 bet gialli servite sono prezzate con `source=odds_api` e `eurobet_odds_json` **senza** gialli. I mercati stat, di fatto, **non passano da Eurobet** — da chiarire rispetto alla regola Eurobet-only di `AGENTS.md`.
+
+**Catena di dipendenze corner/falli** (da riprendere solo se cambia la fonte quote): [1] quote bookmaker reali per il mercato *(esterna, BLOCCANTE: corner ~0,8%, falli ~0%)* → [2] provider richiede market corner/falli → [3] non svuotare `probs.corners.overUnder` (`PredictionService` ~1544) → [4] `dropUnavailableUnderstatMarkets` (~975) → [5] `DISABLED_CATEGORIES` (`ValueBettingEngine` ~627) → [6] soglia EV corner 0.120 → ~0.05 → [7] backtest di mercato positivo (AGENTS.md) → [8] calibrazione cold-start → [9] termine difensivo (B2).
 
 > ⚠️ Attenzione: il flag di config `understatOnlyMarkets.cornersEnabled` **non è letto da nessuna parte** — è un interruttore morto. I blocchi reali sono hardcoded nei punti [3][4][5].
 
@@ -79,7 +84,8 @@ Ereditate dalla v4.1 e ancora valide:
    - separare il **fatto misurato** dall'**ipotesi sulla causa**: non presentare la seconda come conclusione senza una prova dedicata;
    - non implementare un parametro "teoricamente più corretto" se il backtest completo dice il contrario;
    - **usare metriche selection-independent** per confrontare varianti di modello: il `logLoss`/`Brier` del backtest è calcolato solo sulle **bet selezionate**, e config diverse selezionano bet diverse → il confronto è confuso. Va misurato su *tutte* le predizioni (tutte le linee, tutti i match). Il caso `SHOT_GOAL_RATIO` lo mostra: sulla metrica confusa il valore migliore sembrava *peggiorare*, su quella corretta migliora in 5/5 leghe;
-   - **verificare la disponibilità delle quote PRIMA di lavorare su un mercato**: il filone corner aveva modello sano e dati statistici al 100%, ma quote Eurobet ~0% → lavoro inutilizzabile. La copertura quote è una precondizione, non un dettaglio finale.
+   - **verificare la disponibilità delle quote PRIMA di lavorare su un mercato**: corner e falli hanno modello sano e dati statistici al 100%, ma quote bookmaker reali ~0,8% e ~0% → lavoro inutilizzabile. La copertura quote è una precondizione, non un dettaglio finale;
+   - **misurare la copertura sulla colonna giusta**: la prima analisi corner usò la copertura *Eurobet*, che è ~0,27% anche per i mercati **attivi** (tiri, gialli) → criterio non discriminante. Conta la presenza di **prezzi bookmaker reali** (`source=odds_api`), ed escludere le quote `*_plus_model_completion` (generate dal modello: usarle per il value è circolare).
 4. **Unico margine reale rimasto:** mercato **marcatore anytime** — nuova funzionalità (dati pronti: 2.934 giocatori con xG), non un miglioramento del modello esistente. Da valutare separatamente.
 
 Per la tabella sintetica di tutti gli interventi (implementati + scartati) vedere [`performance/model-improvements-summary.md`](performance/model-improvements-summary.md).
