@@ -218,11 +218,6 @@ export interface PredictionEngineConfig {
   operational: {
     /** Primary user-visible odds provider. */
     primaryOddsProvider: 'odds_api';
-    /** Understat-only market switches; fallback markets stay disabled in value filtering. */
-    understatOnlyMarkets: {
-      cornersEnabled: boolean;
-      foulsEnabled: boolean;
-    };
   };
 }
 
@@ -347,9 +342,5 @@ export const predictionEngineConfig: PredictionEngineConfig = {
   },
   operational: {
     primaryOddsProvider: 'odds_api',
-    understatOnlyMarkets: {
-      cornersEnabled: false,
-      foulsEnabled: false,
-    },
   },
 };

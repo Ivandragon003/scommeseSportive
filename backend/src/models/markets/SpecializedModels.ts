@@ -94,7 +94,6 @@ export interface CardsModelData {
   awayTeamAvgRed: number;
   refereeAvgYellow: number;
   refereeAvgRed: number;
-  refereeAvgTotal: number;
   leagueAvgYellow: number;
   competitiveness: number;
   // NUOVO: sample size per stabilità stime

@@ -527,7 +527,6 @@ export class DixonColesModel {
       awayTeamAvgRed:     as_.avgRedCards    ?? SERIE_A_DEFAULTS.avgRedCards,
       refereeAvgYellow:   ref.avgYellow      ?? SERIE_A_DEFAULTS.refereeAvgYellow,
       refereeAvgRed:      ref.avgRed         ?? SERIE_A_DEFAULTS.refereeAvgRed,
-      refereeAvgTotal:    (ref.avgYellow ?? 3.8) + (ref.avgRed ?? 0.22) * 2,
       leagueAvgYellow:    supp?.leagueAvgYellow ?? SERIE_A_DEFAULTS.leagueAvgYellow,
       competitiveness:    derivedCompetitiveness,
       homeTeamVarYellow:  hs.varYellowCards,

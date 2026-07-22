@@ -13,7 +13,6 @@ function neutralCards(competitiveness, teamAvgYellow = 1.9) {
     awayTeamAvgRed: 0.11,
     refereeAvgYellow: 3.8,
     refereeAvgRed: 0.22,
-    refereeAvgTotal: 3.8,
     leagueAvgYellow: 3.8,
     competitiveness,
     homeTeamSampleSize: 40,

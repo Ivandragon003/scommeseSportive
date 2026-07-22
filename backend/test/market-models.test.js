@@ -35,7 +35,6 @@ test('SpecializedModels keeps shots, cards and fouls distributions coherent', ()
     awayTeamAvgRed: 0.12,
     refereeAvgYellow: 4.9,
     refereeAvgRed: 0.22,
-    refereeAvgTotal: 5.34,
     leagueAvgYellow: 4.2,
     competitiveness: 0.78,
     homeTeamSampleSize: 20,
