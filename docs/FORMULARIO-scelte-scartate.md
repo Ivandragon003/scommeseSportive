@@ -88,4 +88,14 @@ Ereditate dalla v4.1 e ancora valide:
    - **misurare la copertura sulla colonna giusta**: la prima analisi corner usò la copertura *Eurobet*, che è ~0,27% anche per i mercati **attivi** (tiri, gialli) → criterio non discriminante. Conta la presenza di **prezzi bookmaker reali** (`source=odds_api`), ed escludere le quote `*_plus_model_completion` (generate dal modello: usarle per il value è circolare).
 4. **Unico margine reale rimasto:** mercato **marcatore anytime** — nuova funzionalità (dati pronti: 2.934 giocatori con xG), non un miglioramento del modello esistente. Da valutare separatamente.
 
+## F. Capitolo "ottimizzazione del modello" — CHIUSO (2026-07-18)
+
+Dopo tutti i GO/NO-GO/BLOCCATI documentati, **non resta alcun intervento sul modello esistente con elevata probabilità di miglioramento significativo**. Decisione e motivazione completa in [`performance/model-optimization-status-2026-07.md`](performance/model-optimization-status-2026-07.md).
+
+- **Mercati goal:** saturi (ECE 0.0019, 5+ NO-GO consecutivi).
+- **Gialli/tiri** (unici mercati non-goal serviti): gialli già corretti e sottili; tiri col ratio corretto. Unico residuo modellistico = **calibrazione/dispersione tiri** (ECE grezzo 0.06-0.12), confidenza **media** (rischio assorbimento dalla pipeline, come Recent Form) — è l'ultimo esperimento opzionale, non "alta probabilità".
+- **Corner/falli/possesso:** bloccati a monte (quote/fonte dati), non dal modello.
+
+**Da qui in poi: solo nuove funzionalità o infrastruttura.** Priorità: (1) ingest quote storiche di chiusura → sblocca ROI/CLV (oggi 96% quote sintetiche, non validabili); (2) `player_match_stats` → marcatore anytime + player v4; (3) collegare dati già calcolati ma inutilizzati (con cautela: Recent Form è NO-GO, riposo/calendario non testati); (4) igiene dati (`xgot`, metriche giocatore archiviate); (5) mercati 1°/2° tempo; (6) riattivazione corner se arrivano quote.
+
 Per la tabella sintetica di tutti gli interventi (implementati + scartati) vedere [`performance/model-improvements-summary.md`](performance/model-improvements-summary.md).

@@ -124,6 +124,14 @@ Sono priorita del progetto:
 
 Regola generale: non mostrare un mercato come "forte" solo per riempire la UI se il modello non e stato validato sul dato reale.
 
+### Direzione di lavoro (aggiornato 2026-07)
+
+Il capitolo **"ottimizzazione del modello" e considerato CHIUSO**: dopo tutti i GO/NO-GO/BLOCCATI documentati non resta alcun intervento sul modello esistente con elevata probabilita di miglioramento significativo (mercati goal saturi con ECE 0.0019; 5+ feature NO-GO consecutive; gialli/tiri gia corretti; corner/falli/possesso bloccati a monte dalle quote o dalla fonte dati). Motivazione completa in `docs/performance/model-optimization-status-2026-07.md`.
+
+- **Non proporre nuove micro-ottimizzazioni del modello goal** senza un'ipotesi sostanzialmente nuova e una metrica non gia testata.
+- Unico esperimento modellistico ancora aperto (confidenza MEDIA, opzionale): **calibrazione/dispersione del mercato tiri** (ECE grezzo 0.06-0.12). Da validare selection-independent sulla pipeline completa; GO solo se sopravvive a calibrazione+blending su >=4/5 leghe.
+- **Da qui in poi il lavoro e su nuove funzionalita o infrastruttura**, in quest'ordine di valore: (1) ingest quote storiche di chiusura (sblocca ROI/CLV, oggi 96% quote sintetiche non validabili); (2) `player_match_stats` → marcatore anytime + player v4; (3) collegamento dati gia calcolati ma inutilizzati (con cautela: Recent Form e NO-GO, riposo/calendario non testati); (4) igiene dati (`xgot` mal nominato, metriche giocatore archiviate e mai lette); (5) mercati 1o/2o tempo; (6) riattivazione corner se le quote si popolano a stagione iniziata.
+
 ## 6. Regole prediction e UX
 
 ### Pronostico finale
