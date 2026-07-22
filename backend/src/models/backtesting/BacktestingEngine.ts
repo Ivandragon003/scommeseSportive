@@ -1250,8 +1250,14 @@ export class BacktestingEngine {
       return Math.max(0, arr.reduce((s, x) => s + (x - m) * (x - m), 0) / arr.length);
     };
 
-    const h = { shots: wsum(), sot: wsum(), corn: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
-    const a = { shots: wsum(), sot: wsum(), corn: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
+    // NB: i CORNER non sono aggregati qui. MatchData non porta i corner (e
+    // loadBacktestMatches non li mappa), quindi le medie corner as-of sarebbero
+    // sempre undefined nel backtest reale. In piu' i corner sono disabilitati
+    // (DISABLED_CATEGORIES) e rimossi dalle flatProbabilities. Quando il mercato
+    // corner verra' riattivato, l'aggregazione corner va aggiunta insieme al
+    // campo su MatchData e alla mappatura in loadBacktestMatches.
+    const h = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
+    const a = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
     const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
     const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
 
@@ -1259,7 +1265,7 @@ export class BacktestingEngine {
       const w = this.asOfWeight(asOfMs, m.date.getTime());
       if (m.homeTeamId === teamId) {
         h.w += w; h.n += 1;
-        add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w); add(h.corn, undefined, w);
+        add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w);
         add(h.poss, m.homePossession, w); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
         add(h.foul, m.homeFouls, w); add(h.conc, m.awayTotalShots, w);
         if (Number.isFinite(Number(m.homeTotalShots))) hv.shots.push(Number(m.homeTotalShots));
@@ -1268,7 +1274,7 @@ export class BacktestingEngine {
         if (Number.isFinite(Number(m.homeFouls))) hv.foul.push(Number(m.homeFouls));
       } else if (m.awayTeamId === teamId) {
         a.w += w; a.n += 1;
-        add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w); add(a.corn, undefined, w);
+        add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w);
         add(a.poss, m.awayPossession, w); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
         add(a.foul, m.awayFouls, w); add(a.conc, m.homeTotalShots, w);
         if (Number.isFinite(Number(m.awayTotalShots))) av.shots.push(Number(m.awayTotalShots));
@@ -1276,13 +1282,6 @@ export class BacktestingEngine {
         if (Number.isFinite(Number(m.awayYellowCards))) av.yel.push(Number(m.awayYellowCards));
         if (Number.isFinite(Number(m.awayFouls))) av.foul.push(Number(m.awayFouls));
       }
-    }
-    // Corner per venue: MatchData non porta i corner separati per squadra oltre
-    // home/away; li ricaviamo dai campi corner della partita.
-    for (const m of past) {
-      const w = this.asOfWeight(asOfMs, m.date.getTime());
-      if (m.homeTeamId === teamId) add(h.corn, (m as any).homeCorners, w);
-      else if (m.awayTeamId === teamId) add(a.corn, (m as any).awayCorners, w);
     }
 
     // avg combinati (yellow/red/fouls/conceded) pesati per venue-weight, come produzione.
@@ -1300,7 +1299,6 @@ export class BacktestingEngine {
       homeN: h.n, awayN: a.n,
       avgHomeShots: mean(h.shots), avgAwayShots: mean(a.shots),
       avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
-      avgHomeCorners: mean(h.corn), avgAwayCorners: mean(a.corn),
       avgHomePoss: mean(h.poss), avgAwayPoss: mean(a.poss),
       avgYellow: combine(h.yel, a.yel), avgRed: combine(h.red, a.red), avgFouls: combine(h.foul, a.foul),
       suppression,
@@ -1362,8 +1360,6 @@ export class BacktestingEngine {
       avgRedCards: hRec.avgRed ?? 0.11,
       avgFouls: hRec.avgFouls ?? 11.2,
       shotsSuppression: hRec.suppression ?? 1.0,
-      avgHomeCorners: hRec.avgHomeCorners,
-      avgAwayCorners: hRec.avgAwayCorners,
       avgPossession: hRec.avgHomePoss,
       varShots: hRec.varHomeShots,
       varShotsOT: hRec.varHomeSot,
@@ -1378,8 +1374,6 @@ export class BacktestingEngine {
       avgRedCards: aRec.avgRed ?? 0.11,
       avgFouls: aRec.avgFouls ?? 11.2,
       shotsSuppression: aRec.suppression ?? 1.0,
-      avgHomeCorners: aRec.avgHomeCorners,
-      avgAwayCorners: aRec.avgAwayCorners,
       avgPossession: aRec.avgAwayPoss,
       varShots: aRec.varAwayShots,
       varShotsOT: aRec.varAwaySot,

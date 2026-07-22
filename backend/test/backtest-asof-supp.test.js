@@ -58,10 +58,13 @@ test('buildAsOfSupp ignora la partita stessa e quelle future (anti-leakage)', ()
   // La media deve stare dentro il range dei soli valori passati [10, 20].
   assert.ok(supp.homeTeamStats.avgShots >= 10 && supp.homeTeamStats.avgShots <= 20,
     `avgShots ${supp.homeTeamStats.avgShots} deve stare in [10,20]: i 999 non devono entrare`);
-  assert.ok(supp.homeTeamStats.avgHomeCorners >= 4 && supp.homeTeamStats.avgHomeCorners <= 6,
-    'avgHomeCorners deve usare solo i corner passati');
+  // I gialli combinati devono restare dentro il range dei valori passati [1, 3].
+  assert.ok(supp.homeTeamStats.avgYellowCards >= 1 && supp.homeTeamStats.avgYellowCards <= 3,
+    'avgYellowCards deve usare solo i valori passati, non i 99 della partita/futuro');
   // sampleSize: solo le 2 partite casalinghe precedenti.
   assert.equal(supp.homeTeamStats.sampleSize, 2);
+  // I corner NON sono aggregati as-of (MatchData non li porta): il campo resta assente.
+  assert.equal(supp.homeTeamStats.avgHomeCorners, undefined);
 });
 
 test('buildAsOfSupp restituisce undefined se non esiste storico precedente', () => {
