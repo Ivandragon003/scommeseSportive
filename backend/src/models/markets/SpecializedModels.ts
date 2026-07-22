@@ -950,40 +950,4 @@ export class SpecializedModels {
     };
   }
 
-  // ==================== UTILITY PUBBLICHE ====================
-
-  /**
-   * Stima NegBin da osservazioni con metodo dei momenti.
-   * Aggiunto: correzione di Bessel (divisione per n-1 per la varianza).
-   */
-  fitNegBinFromObservations(observations: number[]): NegBinParams {
-    if (observations.length < 5) return { mu: 3.8, r: 12 };
-    const n = observations.length;
-    const mu = observations.reduce((s, x) => s + x, 0) / n;
-    // Varianza corretta di Bessel
-    const variance = n > 1
-      ? observations.reduce((s, x) => s + (x - mu) ** 2, 0) / (n - 1)
-      : mu;
-    const r = this.estimateDispersion(mu, variance);
-    return { mu, r };
-  }
-
-  /**
-   * Over/Under con intervallo di confidenza (±10% sulla media).
-   */
-  overUnderWithConfidence(
-    line: number,
-    params: NegBinParams,
-    paramUncertainty = 0.10
-  ): { over: number; under: number; overLow: number; overHigh: number } {
-    const over = this.negBinOver(line, params.mu, params.r);
-    const overLow = this.negBinOver(line, params.mu * (1 - paramUncertainty), params.r);
-    const overHigh = this.negBinOver(line, params.mu * (1 + paramUncertainty), params.r);
-    return {
-      over: parseFloat(over.toFixed(6)),
-      under: parseFloat((1 - over).toFixed(6)),
-      overLow: parseFloat(overLow.toFixed(6)),
-      overHigh: parseFloat(overHigh.toFixed(6)),
-    };
-  }
 }
