@@ -47,6 +47,16 @@ import {
 export const TOP_5_BACKTEST_KEY = 'TOP_5';
 export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
 
+/**
+ * Chiave di mercato statistico prefissata: `<domain>_<over|under>_<linea>`.
+ * Gruppi: [1]=domain, [2]=side, [3]=linea. Case-insensitive, linea con `.` o `,`.
+ * Estratta da 3 letterali identici (l'ordine delle alternative e' irrilevante:
+ * i prefissi sono distinti). NB: esiste un 4o uso in getActualStatOutcome piu'
+ * stretto di proposito (solo `.`, case-sensitive) su input gia' normalizzato:
+ * NON usa questa costante per non allargarne il comportamento.
+ */
+const STAT_MARKET_KEY_RE = /^(shots_total|shots_home|shots_away|sot_total|corners|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i;
+
 export interface Top5CompetitionSummary {
   competition: string;
   betsPlaced: number;
@@ -363,9 +373,7 @@ export function alignOddsKeysInternal(odds: Record<string, number>): Record<stri
   for (const [key, val] of Object.entries(odds)) {
     if (!Number.isFinite(val) || val <= 1) continue;
 
-    const m = key.match(
-      /^(shots_total|shots_home|shots_away|sot_total|corners|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i
-    );
+    const m = key.match(STAT_MARKET_KEY_RE);
     if (m) {
       const domain = domainMap[m[1].toLowerCase()] ?? m[1];
       const side = m[2].charAt(0).toUpperCase() + m[2].slice(1);
@@ -1029,7 +1037,7 @@ export class PredictionService {
       }
 
       // Mercati dinamici: shots_total_over_235 -> shots_total_over_23.5
-      const prefixed = k.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total|corners)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      const prefixed = k.match(STAT_MARKET_KEY_RE);
       if (prefixed) {
         const prefix = prefixed[1].toLowerCase();
         const side = prefixed[2].toLowerCase();
@@ -1721,7 +1729,7 @@ export class PredictionService {
         return `Giocatore ${playerProp.playerId} cartellino ${side} ${line}`;
       }
 
-      const m = selection.match(/^(shots_total|shots_home|shots_away|fouls|yellow|cards_total|sot_total|corners)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+      const m = selection.match(STAT_MARKET_KEY_RE);
       if (m) {
         const labels: Record<string, string> = {
           shots_total: 'Tiri Totali', shots_home: 'Tiri Casa', shots_away: 'Tiri Ospite',
