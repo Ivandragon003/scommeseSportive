@@ -216,6 +216,22 @@ export class SpecializedModels {
   }
 
   /**
+   * Tabella Over/Under NegBin per un insieme di linee: { "line": { over, under } }.
+   * Estratto da 4 definizioni locali identiche (tiri, cartellini, falli, corner).
+   */
+  private makeNegBinOverUnder(mu: number, r: number, lines: number[]): Record<string, { over: number; under: number }> {
+    const result: Record<string, { over: number; under: number }> = {};
+    for (const line of lines) {
+      const over = this.negBinOver(line, mu, r);
+      result[`${line}`] = {
+        over: parseFloat(over.toFixed(6)),
+        under: parseFloat((1 - over).toFixed(6)),
+      };
+    }
+    return result;
+  }
+
+  /**
    * Stima r dal metodo dei momenti: r = mu²/(var - mu).
    * Se var <= mu il dato è equidisperso → usa r grande (quasi-Poisson).
    *
@@ -453,14 +469,6 @@ export class SpecializedModels {
     };
 
     // --- Over/Under strutturato legacy (per DixonColesModel.ts) ---
-    const makeOU = (mu: number, r: number, lines: number[]): Record<string, { over: number; under: number }> => {
-      const result: Record<string, { over: number; under: number }> = {};
-      for (const line of lines) {
-        const over = this.negBinOver(line, mu, r);
-        result[`${line}`] = { over: parseFloat(over.toFixed(6)), under: parseFloat((1 - over).toFixed(6)) };
-      }
-      return result;
-    };
 
     // --- Over/Under flat per frontend (chiave: "over" + digits senza ".") ---
     const makeFlatOU = (mu: number, r: number, lines: number[]): Record<string, number> => {
@@ -496,7 +504,7 @@ export class SpecializedModels {
         teamId: '',
         expectedTotalShots: parseFloat(muHome.toFixed(3)),
         expectedShotsOnTarget: parseFloat(muHomeOT.toFixed(3)),
-        overUnder: makeOU(muHome, rHome, shotsLines),
+        overUnder: this.makeNegBinOverUnder(muHome, rHome, shotsLines),
         negBinParams: { mu: muHome, r: rHome },
         // Nuovi (frontend)
         totalShots: { expected: parseFloat(muHome.toFixed(3)), variance: parseFloat(varHomeEff.toFixed(3)), distribution: makeDist(muHome, rHome) },
@@ -507,14 +515,14 @@ export class SpecializedModels {
         teamId: '',
         expectedTotalShots: parseFloat(muAway.toFixed(3)),
         expectedShotsOnTarget: parseFloat(muAwayOT.toFixed(3)),
-        overUnder: makeOU(muAway, rAway, shotsLines),
+        overUnder: this.makeNegBinOverUnder(muAway, rAway, shotsLines),
         negBinParams: { mu: muAway, r: rAway },
         // Nuovi (frontend)
         totalShots: { expected: parseFloat(muAway.toFixed(3)), variance: parseFloat(varAwayEff.toFixed(3)), distribution: makeDist(muAway, rAway) },
         shotsOnTarget: { expected: parseFloat(muAwayOT.toFixed(3)), variance: parseFloat(varAwayOTEff.toFixed(3)), distribution: makeDist(muAwayOT, rAwayOT) },
       },
       // Legacy total (usato da DixonColesModel.ts riga ~419)
-      total: makeOU(muTotal, rTotal, totalShotsLines),
+      total: this.makeNegBinOverUnder(muTotal, rTotal, totalShotsLines),
       combined: {
         totalShots: { expected: parseFloat(muTotal.toFixed(3)), variance: parseFloat(varTotal.toFixed(3)) },
         totalOnTarget: { expected: parseFloat(muTotalOT.toFixed(3)), variance: parseFloat(varTotalOT.toFixed(3)) },
@@ -644,17 +652,6 @@ export class SpecializedModels {
     ];
     const cardPointsLines = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5];
 
-    const makeOU = (mu: number, r: number, lines: number[]) => {
-      const result: Record<string, { over: number; under: number }> = {};
-      for (const line of lines) {
-        const over = this.negBinOver(line, mu, r);
-        result[`${line}`] = {
-          over: parseFloat(over.toFixed(6)),
-          under: parseFloat((1 - over).toFixed(6)),
-        };
-      }
-      return result;
-    };
 
     return {
       expectedHomeYellow: parseFloat(muHomeYellow.toFixed(4)),
@@ -663,8 +660,8 @@ export class SpecializedModels {
       expectedHomeRed: parseFloat(lambdaHomeRed.toFixed(4)),
       expectedAwayRed: parseFloat(lambdaAwayRed.toFixed(4)),
       expectedTotalCards: parseFloat(muTotalCardPoints.toFixed(4)),
-      overUnderYellow: makeOU(muTotalYellow, rYellow, yellowLines),
-      overUnderTotal: makeOU(muTotalCardPoints, rCardPoints, cardPointsLines),
+      overUnderYellow: this.makeNegBinOverUnder(muTotalYellow, rYellow, yellowLines),
+      overUnderTotal: this.makeNegBinOverUnder(muTotalCardPoints, rCardPoints, cardPointsLines),
       negBinParams: { mu: muTotalYellow, r: rYellow },
     };
   }
@@ -748,23 +745,12 @@ export class SpecializedModels {
       23.5, 24.5, 25.5, 26.5, 29.5, 32.5, 35.5
     ];
 
-    const makeOU = (mu: number, r: number, lines: number[]) => {
-      const result: Record<string, { over: number; under: number }> = {};
-      for (const line of lines) {
-        const over = this.negBinOver(line, mu, r);
-        result[`${line}`] = {
-          over: parseFloat(over.toFixed(6)),
-          under: parseFloat((1 - over).toFixed(6)),
-        };
-      }
-      return result;
-    };
 
     return {
       expectedHomeFouls: parseFloat(muHomeFouls.toFixed(4)),
       expectedAwayFouls: parseFloat(muAwayFouls.toFixed(4)),
       expectedTotalFouls: parseFloat(muTotal.toFixed(4)),
-      overUnder: makeOU(muTotal, rTotal, foulsLines),
+      overUnder: this.makeNegBinOverUnder(muTotal, rTotal, foulsLines),
       negBinParams: { mu: muTotal, r: rTotal },
     };
   }
@@ -928,23 +914,12 @@ export class SpecializedModels {
 
     const cornerLines = [6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5];
 
-    const makeOU = (mu: number, r: number, lines: number[]) => {
-      const result: Record<string, { over: number; under: number }> = {};
-      for (const line of lines) {
-        const over = this.negBinOver(line, mu, r);
-        result[`${line}`] = {
-          over: parseFloat(over.toFixed(6)),
-          under: parseFloat((1 - over).toFixed(6)),
-        };
-      }
-      return result;
-    };
 
     return {
       expectedHomeCorners: parseFloat(muHome.toFixed(3)),
       expectedAwayCorners: parseFloat(muAway.toFixed(3)),
       expectedTotalCorners: parseFloat(muTotal.toFixed(3)),
-      overUnder: makeOU(muTotal, rTotal, cornerLines),
+      overUnder: this.makeNegBinOverUnder(muTotal, rTotal, cornerLines),
       negBinParams: { mu: muTotal, r: rTotal },
     };
   }
