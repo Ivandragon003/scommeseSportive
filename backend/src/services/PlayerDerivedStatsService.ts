@@ -52,6 +52,7 @@ export async function rebuildPlayerDerivedStats(
     positionCode: string;
     games: Set<string>;
     minutesTotal: number;
+    teamShotsInPlayedGames: number;
     shots: number;
     shotsOnTarget: number;
     goals: number;
@@ -62,7 +63,6 @@ export async function rebuildPlayerDerivedStats(
     rawSamples: Record<string, unknown>[];
   };
 
-  const teamShotsTotals = new Map<string, number>();
   const playersAgg = new Map<string, PlayerAgg>();
   const playedMatches = matches.filter((m: any) => m.home_goals !== null && m.away_goals !== null);
   const playersMarkedUnavailable = await db.markPlayersUnavailable(normalizedCompetition || undefined);
@@ -95,7 +95,8 @@ export async function rebuildPlayerDerivedStats(
     rosterEntries: Record<string, any>,
     shots: any[],
     teamId: string,
-    matchId: string
+    matchId: string,
+    teamMatchShots: number
   ) => {
     const onTargetByPlayer = buildOnTargetMap(shots);
     for (const entry of Object.values(rosterEntries ?? {})) {
@@ -114,6 +115,7 @@ export async function rebuildPlayerDerivedStats(
         positionCode: String((entry as any)?.position ?? 'MF').trim().split(/\s+/)[0] || 'MF',
         games: new Set<string>(),
         minutesTotal: 0,
+        teamShotsInPlayedGames: 0,
         shots: 0,
         shotsOnTarget: 0,
         goals: 0,
@@ -124,6 +126,11 @@ export async function rebuildPlayerDerivedStats(
         rawSamples: [],
       };
       current.teamId = teamId;
+      // A4: accumula i tiri squadra della partita solo se il giocatore non e'
+      // gia' stato contato per questo match (una entry per giocatore/partita).
+      if (!current.games.has(matchId)) {
+        current.teamShotsInPlayedGames += Math.max(0, Number(teamMatchShots) || 0);
+      }
       current.games.add(matchId);
       current.minutesTotal += Number(numOrNull((entry as any)?.time) ?? 0);
       current.shots += Number(numOrNull((entry as any)?.shots) ?? 0);
@@ -153,8 +160,6 @@ export async function rebuildPlayerDerivedStats(
 
     const homeShots = numOrNull(match.home_shots);
     const awayShots = numOrNull(match.away_shots);
-    if (homeShots !== null) teamShotsTotals.set(homeTeamId, (teamShotsTotals.get(homeTeamId) ?? 0) + homeShots);
-    if (awayShots !== null) teamShotsTotals.set(awayTeamId, (teamShotsTotals.get(awayTeamId) ?? 0) + awayShots);
 
     const raw = parseRawJson(match.raw_json);
     const homeRosters = raw?.details?.rosters?.h ?? {};
@@ -163,15 +168,23 @@ export async function rebuildPlayerDerivedStats(
     const awayShotsDetail = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : [];
     if (homeShotsDetail.length > 0 || awayShotsDetail.length > 0) matchesWithShotmap++;
 
-    ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id));
-    ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id));
+    // A4: tiri squadra della SINGOLA partita (fallback alla lunghezza dello
+    // shotmap se la colonna e' NULL), per il denominatore della shot share.
+    const homeMatchShots = Number(homeShots ?? homeShotsDetail.length);
+    const awayMatchShots = Number(awayShots ?? awayShotsDetail.length);
+
+    ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id), homeMatchShots);
+    ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id), awayMatchShots);
   }
 
   let playersUpdated = 0;
   for (const [, player] of playersAgg) {
     const games = Math.max(1, player.games.size);
     const minutesBase = player.minutesTotal > 0 ? player.minutesTotal : games * 90;
-    const teamShotsTotal = Math.max(1, Number(teamShotsTotals.get(player.teamId) ?? 0));
+    // A4: denominatore = tiri squadra nelle SOLE gare giocate dal giocatore
+    // (prima: tiri squadra su TUTTE le partite del periodo, che deprimeva la
+    // share di chi aveva saltato gare per infortunio/rotazione).
+    const teamShotsInGames = Math.max(1, player.teamShotsInPlayedGames);
 
     await db.upsertPlayer({
       playerId: player.playerId,
@@ -196,7 +209,7 @@ export async function rebuildPlayerDerivedStats(
       yellowCardsTotal: player.yellowCards,
       redCardsTotal: player.redCards,
       cardsPer90: minutesBase > 0 ? ((player.yellowCards + player.redCards) / minutesBase) * 90 : 0,
-      shotShareOfTeam: player.shots / teamShotsTotal,
+      shotShareOfTeam: player.shots / teamShotsInGames,
       gamesPlayed: games,
       isAvailable: true,
       statsJson: JSON.stringify({

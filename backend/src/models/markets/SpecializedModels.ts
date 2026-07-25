@@ -790,14 +790,32 @@ export class SpecializedModels {
       GK: { share: 0.01, priorN: 20 },
     };
 
-    const starters = players.filter(
+    const outfield = players.filter(
       (p) => p.isStarter && p.positionCode !== 'GK'
     );
 
-    if (starters.length === 0) return [];
+    if (outfield.length === 0) return [];
+
+    // A3 (2026-07): senza formazioni ufficiali, l'XI probabile viene
+    // approssimato dagli 11 giocatori di movimento piu' coinvolti al tiro.
+    // Prima si normalizzava su TUTTA la rosa disponibile (~25 giocatori, perche'
+    // il flag isStarter non e' popolato): lo shrinkage verso il prior di ruolo
+    // assegnava una share artificiale (~0.05-0.20) anche ai panchinari con 0
+    // tiri osservati, e la successiva normalizzazione a somma 1 sottraeva quota
+    // ai titolari reali, deprimendo i loro tiri attesi del 40-60%. Restringere
+    // all'XI elimina la diluizione; i props dei subentranti restano comunque
+    // filtrati a valle (sample/minuti in buildPlayerPropMarkets).
+    const LIKELY_XI_OUTFIELD = 11;
+    const likelyXI = outfield.length > LIKELY_XI_OUTFIELD
+      ? [...outfield]
+          .sort((a, b) =>
+            (b.shotShareOfTeam - a.shotShareOfTeam) ||
+            (b.avgShotsPerGame - a.avgShotsPerGame))
+          .slice(0, LIKELY_XI_OUTFIELD)
+      : outfield;
 
     // --- Shrinkage delle share verso prior di ruolo ---
-    const adjustedShares = starters.map((p) => {
+    const adjustedShares = likelyXI.map((p) => {
       const prior = positionPriors[p.positionCode] ?? positionPriors['MF'];
       const n = Math.max(0, p.gamesPlayed);
       // Bayesian update: share_adj = (n * share_obs + priorN * share_prior) / (n + priorN)
