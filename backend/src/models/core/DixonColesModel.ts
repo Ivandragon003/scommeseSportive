@@ -458,14 +458,25 @@ export class DixonColesModel {
     for (let h = 0; h <= 6; h++) for (let a = 0; a <= 6; a++)
       exactScore[`${h}-${a}`] = p[Math.min(h, N)][Math.min(a, N)];
 
-    // Handicap europeo
+    // Handicap europeo (3 vie: vittoria / push / sconfitta)
+    // A7 (2026-07): la probabilità away veniva posta a `1 - hw`. Sulle linee
+    // INTERE l'handicap ha un esito di pareggio (push, stake reso) quando la
+    // squadra sfavorita perde/vince di ESATTAMENTE la linea: il complemento
+    // scaricava quella massa tutta sull'away, sovrastimando `away-1`/`away-2`.
+    // Ora la probabilità away è calcolata con la sua disuguaglianza stretta,
+    // simmetrica a home, così il push resta escluso da entrambi i lati e la
+    // stima combacia con la regolazione del backtest (a - h + lineAway > 0).
+    // Sulle linee .5 non c'è push → aw === 1 - hw, nessun cambiamento.
     const handicap: Record<string, number> = {};
     for (const line of [-2.5,-2,-1.5,-1,-0.5,0.5,1,1.5,2,2.5]) {
       let hw = 0;
-      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++)
+      let aw = 0;
+      for (let h = 0; h <= N; h++) for (let a = 0; a <= N; a++) {
         if (h - a + line > 0) hw += p[h][a];
+        if (a - h - line > 0) aw += p[h][a]; // lineAway = -line
+      }
       handicap[`home${line > 0 ? '+' : ''}${line}`] = hw;
-      handicap[`away${(-line) > 0 ? '+' : ''}${-line}`] = 1 - hw;
+      handicap[`away${(-line) > 0 ? '+' : ''}${-line}`] = aw;
     }
 
     // Asian handicap
