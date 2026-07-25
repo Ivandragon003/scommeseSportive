@@ -202,6 +202,7 @@ export interface SupplementaryData {
     shotsSuppression: number;
     avgHomeCorners?: number;
     avgAwayCorners?: number;
+    avgCornersConceded?: number; // corner concessi nel venue (home concede a casa, away in trasferta)
     avgPossession?: number;
     // Varianza per r dinamico in SpecializedModels
     varShots?: number;
@@ -219,6 +220,7 @@ export interface SupplementaryData {
     shotsSuppression: number;
     avgHomeCorners?: number;
     avgAwayCorners?: number;
+    avgCornersConceded?: number;
     avgPossession?: number;
     varShots?: number;
     varShotsOT?: number;
@@ -650,11 +652,20 @@ export class DixonColesModel {
     // --- Corners ---
     let cornersResult: ReturnType<SpecializedModels['computeCornersDistribution']> | null = null;
     if (hs.avgHomeCorners !== undefined && as_.avgAwayCorners !== undefined) {
+      // A2 (2026-07): il termine difensivo usa i corner CONCESSI
+      // (avgCornersConceded), non i corner FATTI dall'altra squadra. Prima qui
+      // si passava il "for" avversario negli slot "against": nel mix
+      // 0.6·for + 0.4·against di computeCornersDistribution i due contributi 0.4
+      // si annullavano esattamente e muTotal collassava sulla pura somma delle
+      // medie, azzerando ogni effetto avversario. Con i concessi (home concede a
+      // casa, away concede in trasferta) il termine difensivo torna informativo.
+      const homeCornersConceded = hs.avgCornersConceded ?? 4.5; // casa concede ~ media away-for
+      const awayCornersConceded = as_.avgCornersConceded ?? 5.5; // trasferta concede ~ media home-for
       const cornersData = {
         homeTeamAvgCornersFor:     hs.avgHomeCorners     ?? 5.5,
-        homeTeamAvgCornersAgainst: as_.avgAwayCorners    ?? 4.5,
+        homeTeamAvgCornersAgainst: homeCornersConceded,
         awayTeamAvgCornersFor:     as_.avgAwayCorners    ?? 4.5,
-        awayTeamAvgCornersAgainst: hs.avgHomeCorners     ?? 5.5,
+        awayTeamAvgCornersAgainst: awayCornersConceded,
         homeTeamSampleSize:        hs.sampleSize,
         awayTeamSampleSize:        as_.sampleSize,
       };

@@ -77,6 +77,7 @@ type VenueKey = 'home' | 'away';
 type TeamVenueStats = {
   sampleSize?: number;
   avgPossession?: number;
+  avgCornersConceded?: number;
   varShots?: number;
   varShotsOT?: number;
   varYellowCards?: number;
@@ -174,6 +175,7 @@ export class PredictionContextBuilder {
     return {
       sampleSize: this.toFiniteNumber(venueNode?.sampleSize ?? venueNode?.games ?? venueNode?.matches),
       avgPossession: this.toFiniteNumber(venueNode?.avgPossession ?? venueNode?.possession),
+      avgCornersConceded: this.toFiniteNumber(venueNode?.avgCornersConceded ?? venueNode?.cornersConceded),
       varShots: this.toFiniteNumber(venueNode?.varShots),
       varShotsOT: this.toFiniteNumber(venueNode?.varShotsOT ?? venueNode?.varShotsOnTarget),
       varYellowCards: this.toFiniteNumber(venueNode?.varYellowCards ?? venueNode?.varYellow),
@@ -201,6 +203,7 @@ export class PredictionContextBuilder {
       shotsSuppression: Number(teamRow?.shots_suppression ?? 1.0),
       avgHomeCorners: this.toFiniteNumber(teamRow?.avg_home_corners ?? 5.5),
       avgAwayCorners: this.toFiniteNumber(teamRow?.avg_away_corners ?? 4.5),
+      avgCornersConceded: venueStats.avgCornersConceded,
       avgPossession: venueStats.avgPossession,
       varShots: venueStats.varShots,
       varShotsOT: venueStats.varShotsOT,

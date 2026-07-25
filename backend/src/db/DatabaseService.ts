@@ -1846,6 +1846,8 @@ export class DatabaseService {
         NULLIF(SUM(CASE WHEN home_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN home_corners IS NOT NULL THEN home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN home_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners,
+        SUM(CASE WHEN away_corners IS NOT NULL THEN away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN away_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners_conceded,
         AVG(home_possession * 1.0) AS avg_possession,
         AVG(home_shots * home_shots * 1.0) - AVG(home_shots * 1.0) * AVG(home_shots * 1.0) AS var_shots,
         AVG(home_shots_on_target * home_shots_on_target * 1.0) - AVG(home_shots_on_target * 1.0) * AVG(home_shots_on_target * 1.0) AS var_shots_ot,
@@ -1876,6 +1878,8 @@ export class DatabaseService {
         NULLIF(SUM(CASE WHEN away_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN away_corners IS NOT NULL THEN away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN away_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners,
+        SUM(CASE WHEN home_corners IS NOT NULL THEN home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN home_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners_conceded,
         AVG(away_possession * 1.0) AS avg_possession,
         AVG(away_shots * away_shots * 1.0) - AVG(away_shots * 1.0) * AVG(away_shots * 1.0) AS var_shots,
         AVG(away_shots_on_target * away_shots_on_target * 1.0) - AVG(away_shots_on_target * 1.0) * AVG(away_shots_on_target * 1.0) AS var_shots_ot,
@@ -2001,6 +2005,7 @@ export class DatabaseService {
       home: {
         sampleSize: homeN,
         avgPossession: safeAvgOrNull(homeRows?.avg_possession),
+        avgCornersConceded: safeAvgOrNull(homeRows?.avg_corners_conceded),
         varShots: safeVarianceOrNull(homeRows?.var_shots),
         varShotsOT: safeVarianceOrNull(homeRows?.var_shots_ot),
         varYellowCards: safeVarianceOrNull(homeRows?.var_yellow),
@@ -2009,6 +2014,7 @@ export class DatabaseService {
       away: {
         sampleSize: awayN,
         avgPossession: safeAvgOrNull(awayRows?.avg_possession),
+        avgCornersConceded: safeAvgOrNull(awayRows?.avg_corners_conceded),
         varShots: safeVarianceOrNull(awayRows?.var_shots),
         varShotsOT: safeVarianceOrNull(awayRows?.var_shots_ot),
         varYellowCards: safeVarianceOrNull(awayRows?.var_yellow),
