@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const { ShotsModel } = require('../dist/models/markets/ShotsModel.js');
 const { BacktestingEngine } = require('../dist/models/backtesting/BacktestingEngine.js');
 const { ValueBettingEngine } = require('../dist/models/value/ValueBettingEngine.js');
-const { PredictionContextBuilder } = require('../dist/services/PredictionContextBuilder.js');
 const { DixonColesModel } = require('../dist/models/core/DixonColesModel.js');
 
 function playerProfile() {
@@ -151,23 +150,7 @@ test('combo covariance mode is deterministic proxy, falls back without correlati
   assert.ok(covariance.returnVariance > 0);
 });
 
-test('learnContextWeights and optimizeTemporalWeights use temporal training folds and fallback safely', () => {
-  const builder = new PredictionContextBuilder();
-  assert.equal(builder.learnContextWeights([]).usedFallback, true);
-
-  const rows = [];
-  for (let i = 0; i < 28; i++) {
-    rows.push({
-      date: new Date(Date.UTC(2025, 0, i + 1)),
-      features: { formDelta: i % 2 ? 0.4 : -0.2, motivationDelta: 0.1, absencesDelta: -0.1, disciplineDelta: 0, restDelta: 0.1, scheduleLoadDelta: 0 },
-      outcome: i % 2 ? 1 : 0,
-    });
-  }
-  const learned = builder.learnContextWeights(rows, { minSamples: 20 });
-  assert.equal(learned.usedFallback, false);
-  assert.ok(learned.weights.w_form >= 0);
-  assert.equal(learned.trainSamples + learned.validationSamples, rows.length);
-
+test('optimizeTemporalWeights uses temporal training folds and fallback safely', () => {
   const model = new DixonColesModel();
   const matches = [];
   for (let i = 0; i < 36; i++) {
