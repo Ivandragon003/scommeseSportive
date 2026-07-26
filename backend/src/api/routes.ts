@@ -2041,6 +2041,7 @@ const DEFAULT_BULK_ODDS_MARKETS: string[] = [
   'alternate_spreads_cards',
   'player_shots',
   'player_shots_on_target',
+  'player_goal_scorer_anytime',
 ];
 
 router.post('/scraper/odds', async (req: Request, res: Response) => {

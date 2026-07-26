@@ -1,4 +1,4 @@
-export type PlayerPropMarketType = 'shots' | 'sot' | 'yellow';
+export type PlayerPropMarketType = 'shots' | 'sot' | 'yellow' | 'goals';
 export type PlayerPropSide = 'over' | 'under';
 
 export interface PlayerPropSelection {
@@ -29,6 +29,12 @@ const MARKET_ALIASES: Record<string, PlayerPropMarketType> = {
   yellow_cards: 'yellow',
   cartellini: 'yellow',
   gialli: 'yellow',
+  goals: 'goals',
+  goal: 'goals',
+  scorer: 'goals',
+  goalscorer: 'goals',
+  anytime: 'goals',
+  marcatore: 'goals',
 };
 
 export function normalizePlayerNameForProp(value: string): string {
@@ -70,7 +76,7 @@ export function buildPlayerPropSelectionKey(
 }
 
 export function parsePlayerPropSelectionKey(selection: string): PlayerPropSelection | null {
-  const match = String(selection ?? '').match(/^player_(.+)_(shots|sot|yellow)_(over|under)_([0-9]+(?:_[0-9]+)?)$/i);
+  const match = String(selection ?? '').match(/^player_(.+)_(shots|sot|yellow|goals)_(over|under)_([0-9]+(?:_[0-9]+)?)$/i);
   if (!match) return null;
   const line = playerPropKeyToLine(match[4]);
   if (!Number.isFinite(line)) return null;
@@ -84,7 +90,7 @@ export function parsePlayerPropSelectionKey(selection: string): PlayerPropSelect
 }
 
 export function parseLegacyPlayerPropOddsKey(selection: string): LegacyPlayerPropSelection | null {
-  const match = String(selection ?? '').match(/^player_(shots|shot|sot|shots_on_target|yellow|yellow_cards)_(.+)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/i);
+  const match = String(selection ?? '').match(/^player_(shots|shot|sot|shots_on_target|yellow|yellow_cards|goals|goal|scorer|goalscorer|anytime|marcatore)_(.+)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/i);
   if (!match) return null;
   const marketType = MARKET_ALIASES[match[1].toLowerCase()];
   const line = playerPropKeyToLine(match[4]);

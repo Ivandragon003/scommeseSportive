@@ -26,6 +26,11 @@ export const predictionConfig = {
     minSampleSizePerTeam: Math.max(1, Math.round(readNumberEnv('MODEL_MARKET_MIN_SAMPLE', 8))),
     minCombinedSampleSize: Math.max(2, Math.round(readNumberEnv('MODEL_MARKET_MIN_COMBINED_SAMPLE', 20))),
   },
+  playerGoals: {
+    // Marcatore anytime (E5): shrink su lambda=xG/90 per la lieve sovrastima
+    // misurata in validazione as-of (9.4% pred vs 8.3% reale). 1.0 = nessuno shrink.
+    xgShrink: clamp(readNumberEnv('PLAYER_GOALS_XG_SHRINK', 0.88), 0.5, 1.0),
+  },
 };
 
 /**

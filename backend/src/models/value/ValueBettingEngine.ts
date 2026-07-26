@@ -127,7 +127,7 @@ export interface BetOpportunity {
   playerId?: string;
   playerName?: string;
   teamName?: string;
-  marketType?: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards';
+  marketType?: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards' | 'player_goals';
   line?: number;
   expectedMinutes?: number;
   sampleSize?: number;
@@ -162,6 +162,7 @@ export type MarketCategory =
   | 'player_shots'   // tiri singolo calciatore
   | 'player_shots_ot' // tiri in porta singolo calciatore
   | 'player_yellow_cards' // giallo singolo calciatore
+  | 'player_goals'   // marcatore anytime (singolo calciatore)
   | 'fouls'          // falli
   | 'exact_score'    // risultato esatto
   | 'handicap'       // handicap europeo e asiatico
@@ -470,6 +471,7 @@ const EV_THRESHOLDS: Record<MarketCategory, number> = {
   player_shots: 0.060,
   player_shots_ot: 0.070,
   player_yellow_cards: 0.075,
+  player_goals: 0.070,  // marcatore anytime
   fouls:       0.120,   // disattivato nel flusso attivo (Understat-only)
   exact_score: 0.050,
   handicap:    0.050,
@@ -489,6 +491,7 @@ const EV_MARGIN_BUFFERS: Record<MarketCategory, number> = {
   player_shots: 0.035,
   player_shots_ot: 0.040,
   player_yellow_cards: 0.045,
+  player_goals: 0.040,
   fouls:       0.03,
   shots_ot:    0.03,
   handicap:    0.02,
@@ -838,6 +841,7 @@ export class ValueBettingEngine {
     if (/^player_.+_shots_(over|under)_/.test(s)) return 'player_shots';
     if (/^player_.+_sot_(over|under)_/.test(s)) return 'player_shots_ot';
     if (/^player_.+_yellow_(over|under)_/.test(s)) return 'player_yellow_cards';
+    if (/^player_.+_goals_(over|under)_/.test(s)) return 'player_goals';
 
     // Handicap
     if (s.startsWith('hcp_') || s.startsWith('ahcp_') || s.startsWith('asian_'))

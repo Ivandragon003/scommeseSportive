@@ -424,6 +424,17 @@ export class OddsApiService {
       return null;
     }
 
+    // Marcatore anytime (Yes/No): il giocatore e' nel name, oppure name=Yes/No
+    // con il giocatore nella description. "Yes" = segna (over 0.5 goal).
+    if (market === 'player_goal_scorer_anytime') {
+      const isYesNo = nameLower === 'yes' || nameLower === 'no';
+      const player = isYesNo ? (outcome.description || desc) : (name || outcome.description);
+      const playerKey = slug(player);
+      if (!playerKey) return null;
+      const side = nameLower === 'no' ? 'under' : 'over';
+      return `player_goals_${playerKey}_${side}_0.5`;
+    }
+
     if (market.startsWith('player_') && (nameLower === 'over' || nameLower === 'under')) {
       const playerKey = slug(desc || outcome.description || name);
       if (!playerKey) return null;

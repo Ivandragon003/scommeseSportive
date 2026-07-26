@@ -324,7 +324,7 @@ type PlayerPropDiagnostics = {
   playerId: string;
   playerName: string;
   teamName?: string;
-  marketType: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards';
+  marketType: 'player_shots' | 'player_shots_ot' | 'player_yellow_cards' | 'player_goals';
   line: number;
   expectedMinutes: number;
   sampleSize: number;
@@ -1108,6 +1108,7 @@ export class PredictionService {
   private playerPropMarketType(marketType: PlayerPropMarketType): PlayerPropDiagnostics['marketType'] {
     if (marketType === 'shots') return 'player_shots';
     if (marketType === 'sot') return 'player_shots_ot';
+    if (marketType === 'goals') return 'player_goals';
     return 'player_yellow_cards';
   }
 
@@ -1121,6 +1122,7 @@ export class PredictionService {
     const lineLabel = formatPlayerPropLine(line);
     if (marketType === 'shots') return `${playerName} ${sideLabel} ${lineLabel} tiri`;
     if (marketType === 'sot') return `${playerName} ${sideLabel} ${lineLabel} tiri in porta`;
+    if (marketType === 'goals') return side === 'over' ? `${playerName} marcatore` : `${playerName} non segna`;
     return `${playerName} cartellino ${sideLabel} ${lineLabel}`;
   }
 
@@ -1273,6 +1275,20 @@ export class PredictionService {
         });
         if (!params.referee) dataWarnings.push('missing_referee_data');
         const over = parsed.line <= 0.5 ? prediction.probabilityYellowOver0_5 : this.probabilityOverLine(prediction.expectedPlayerYellows, parsed.line);
+        probability = parsed.side === 'over' ? over : 1 - over;
+      } else if (parsed.marketType === 'goals') {
+        // E5 — marcatore anytime: P(segna >=1) = 1 - e^(-lambda), lambda da xG/90.
+        // Validato as-of su tutte le stagioni (ECE 0.013; xG/90 batte goals/90).
+        // Shrink empirico ~0.88 per la lieve sovrastima (9.4% pred vs 8.3% reale).
+        const xgPer90 = Number(player.row?.xg_per90 ?? player.row?.xgPer90 ?? 0);
+        if (!Number.isFinite(xgPer90) || xgPer90 <= 0) {
+          dataWarnings.push('missing_player_xg');
+          continue;
+        }
+        const lambda = xgPer90 * clamp(expectedMinutes / 90, 0, 1.1) * predictionConfig.playerGoals.xgShrink;
+        const scores = 1 - Math.exp(-Math.max(0, lambda));
+        // anytime = over 0.5; eventuali linee superiori via Poisson
+        const over = parsed.line <= 0.5 ? scores : this.probabilityOverLine(lambda, parsed.line);
         probability = parsed.side === 'over' ? over : 1 - over;
       }
 
