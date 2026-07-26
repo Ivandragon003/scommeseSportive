@@ -216,6 +216,15 @@ cap = MAX_STAKE·0.6 = 2.4%     MAX_COMBO_STAKE(n) = max(0.5%, 2.4%/√n)     (c
 
 File: `backend/src/models/backtesting/BacktestingEngine.ts`. Metriche: ROI, Win Rate, Brier, LogLoss, Sharpe, Max Drawdown, Recovery/Profit Factor; weighted (`metricWeightMode`: none/stake/inverseOdds/marketVariance); `edgeNoVig`, `edgeDecayByMonth`, `rollingSharpe`, calibrazione globale e per-mercato, `marketReports`. `runBacktest()` con temporal holdout + fallback trainRatio.
 
+🆕 **Quote reali per ROI/CLV (2026-07, ingest closing odds):** oltre agli
+snapshot Eurobet, il backtest usa ora le quote di mercato **football-data**
+(apertura+chiusura, 1X2 + O/U 2.5) salvate in `matches.fd_odds_json` dalla sync
+notturna. `getFootballDataHistoricalOddsMap` le espone; `runWalkForwardBacktest`
+fa `{ ...footballData, ...eurobet }` (Eurobet reale prevale, football-data riempie
+i buchi). Il CLV accetta closing `football_data` (`isTrustedClosingContext`).
+Copertura quote reali ~75% dei match (era ~4% sintetico). Validato su dati reali:
+banca-favorito 1X2 ROI −1.32%, CLV favorito −0.16% (range atteso col margine).
+
 ## 12. Adaptive tuning
 
 File: `backend/src/services/AdaptiveTuningService.ts`.
