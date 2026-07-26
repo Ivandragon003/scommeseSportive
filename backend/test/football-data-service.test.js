@@ -57,6 +57,23 @@ test('parseFootballDataCsv: estrae i campi supplementari e converte la data', ()
   assert.equal(rows[1].awayRed, 1);
 });
 
+test('parseFootballDataCsv: estrae quote apertura (Avg) e chiusura (AvgC) + fallback B365', () => {
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,AvgH,AvgD,AvgA,Avg>2.5,Avg<2.5,AvgCH,AvgCD,AvgCA,AvgC>2.5,AvgC<2.5',
+    'I1,17/08/2024,Genoa,Inter,2,2,4.20,3.60,1.85,2.05,1.80,4.50,3.70,1.78,2.10,1.75',
+  ].join('\n');
+  const r = parseFootballDataCsv(csv)[0];
+  assert.equal(r.oddsHome, 4.20); assert.equal(r.oddsDraw, 3.60); assert.equal(r.oddsAway, 1.85);
+  assert.equal(r.oddsOver25, 2.05); assert.equal(r.oddsUnder25, 1.80);
+  assert.equal(r.closingHome, 4.50); assert.equal(r.closingAway, 1.78); assert.equal(r.closingOver25, 2.10);
+
+  // fallback B365 quando Avg assente; quote assenti -> null
+  const csv2 = ['Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,B365H,B365D,B365A', 'E0,01/09/2024,Arsenal,Chelsea,2,1,1.50,4.0,7.0'].join('\n');
+  const r2 = parseFootballDataCsv(csv2)[0];
+  assert.equal(r2.oddsHome, 1.50); assert.equal(r2.oddsAway, 7.0);
+  assert.equal(r2.closingHome, null); assert.equal(r2.oddsOver25, null);
+});
+
 test('parseFootballDataCsv: header senza colonne minime -> vuoto', () => {
   assert.deepEqual(parseFootballDataCsv('Foo,Bar\n1,2'), []);
   assert.deepEqual(parseFootballDataCsv(''), []);

@@ -98,6 +98,18 @@ export interface FootballDataRow {
   homeRed: number | null;
   awayRed: number | null;
   referee: string | null;
+  // Quote di mercato (media bookmaker). Apertura = Avg*/B365*, chiusura = AvgC*/B365C*.
+  // La "C" nel nome football-data.co.uk = Closing. Servono per backtest ROI/CLV reale.
+  oddsHome: number | null;
+  oddsDraw: number | null;
+  oddsAway: number | null;
+  oddsOver25: number | null;
+  oddsUnder25: number | null;
+  closingHome: number | null;
+  closingDraw: number | null;
+  closingAway: number | null;
+  closingOver25: number | null;
+  closingUnder25: number | null;
 }
 
 const numOrNull = (v: string | undefined): number | null => {
@@ -121,6 +133,16 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
   const iHF = col('HF'), iAF = col('AF'), iHC = col('HC'), iAC = col('AC');
   const iHY = col('HY'), iAY = col('AY'), iHR = col('HR'), iAR = col('AR');
   const iRef = col('Referee');
+  // Quote: prima colonna presente tra i candidati (media mercato, poi Bet365).
+  const firstCol = (...names: string[]): number => {
+    for (const n of names) { const idx = header.indexOf(n); if (idx >= 0) return idx; }
+    return -1;
+  };
+  const iOH = firstCol('AvgH', 'BbAvH', 'B365H'), iOD = firstCol('AvgD', 'BbAvD', 'B365D'), iOA = firstCol('AvgA', 'BbAvA', 'B365A');
+  const iOv = firstCol('Avg>2.5', 'BbAv>2.5', 'B365>2.5'), iUn = firstCol('Avg<2.5', 'BbAv<2.5', 'B365<2.5');
+  const iCH = firstCol('AvgCH', 'B365CH'), iCD = firstCol('AvgCD', 'B365CD'), iCA = firstCol('AvgCA', 'B365CA');
+  const iCOv = firstCol('AvgC>2.5', 'B365C>2.5'), iCUn = firstCol('AvgC<2.5', 'B365C<2.5');
+  const pick = (c: string[], i: number): number | null => (i >= 0 ? numOrNull(c[i]) : null);
 
   const out: FootballDataRow[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -142,6 +164,10 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
       homeYellow: numOrNull(c[iHY]), awayYellow: numOrNull(c[iAY]),
       homeRed: numOrNull(c[iHR]), awayRed: numOrNull(c[iAR]),
       referee: iRef >= 0 ? (c[iRef]?.trim() || null) : null,
+      oddsHome: pick(c, iOH), oddsDraw: pick(c, iOD), oddsAway: pick(c, iOA),
+      oddsOver25: pick(c, iOv), oddsUnder25: pick(c, iUn),
+      closingHome: pick(c, iCH), closingDraw: pick(c, iCD), closingAway: pick(c, iCA),
+      closingOver25: pick(c, iCOv), closingUnder25: pick(c, iCUn),
     });
   }
   return out;
