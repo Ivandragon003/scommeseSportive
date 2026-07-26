@@ -203,6 +203,7 @@ export interface SupplementaryData {
     avgHomeCorners?: number;
     avgAwayCorners?: number;
     avgCornersConceded?: number; // corner concessi nel venue (home concede a casa, away in trasferta)
+    avgFoulsDrawn?: number;      // falli subiti/match (per il termine avversario D1 sui gialli)
     avgPossession?: number;
     // Varianza per r dinamico in SpecializedModels
     varShots?: number;
@@ -221,6 +222,7 @@ export interface SupplementaryData {
     avgHomeCorners?: number;
     avgAwayCorners?: number;
     avgCornersConceded?: number;
+    avgFoulsDrawn?: number;
     avgPossession?: number;
     varShots?: number;
     varShotsOT?: number;
@@ -638,26 +640,55 @@ export class DixonColesModel {
       }
     }
 
-    // --- Correzione gialli in funzione dei falli attesi ---
+    // --- D1 (2026-07): termine avversario per-squadra sui gialli ---
+    // Sostituisce la vecchia correzione `yellowFoulsCorrFactor` (fattore
+    // simmetrico sui falli TOTALI attesi × (0.7+0.3·refStrictness)), che
+    // risultava mal calibrata sui cartellini: con arbitro assente (~98% fuori
+    // Premier) applicava uno shrink ×0.85 a ogni partita, gonfiando l'ECE a
+    // 0.07–0.11. Il nuovo termine e' per-squadra e asimmetrico: i gialli di una
+    // squadra crescono con i falli SUBITI dall'avversario (fouls_drawn), cioe'
+    // quanto l'avversario "provoca". Validato in backtest di calibrazione as-of
+    // su tutte le stagioni (settlement booking points): +1.45% logLoss e ECE
+    // ~−78% vs produzione, 4/5 leghe (unica marginale in negativo La Liga).
     const leagueAvgFouls = supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls;
-    const foulsRatio = fouls.expectedTotalFouls / Math.max(1, leagueAvgFouls);
-    const foulEffect = Math.pow(foulsRatio, 0.7);
-    const refStrictness = ref.avgYellow !== undefined
-      ? Math.min(1, Math.max(0, ref.avgYellow / Math.max(0.1, SERIE_A_DEFAULTS.refereeAvgYellow)))
-      : 0.5;
-    const yellowFoulsCorrFactor = foulEffect * (0.7 + 0.3 * refStrictness);
-    const adjustedYellowMu = cards.expectedTotalYellow * yellowFoulsCorrFactor;
-    if (Math.abs(yellowFoulsCorrFactor - 1) > 0.02) {
+    const leagueFoulsDrawnPerTeam = Math.max(1, leagueAvgFouls / 2);
+    const clampInduction = (x: number) => Math.max(0.7, Math.min(1.4, x));
+    const inductionByAway = Number.isFinite(as_.avgFoulsDrawn) && (as_.avgFoulsDrawn as number) > 0
+      ? clampInduction((as_.avgFoulsDrawn as number) / leagueFoulsDrawnPerTeam) : 1;
+    const inductionByHome = Number.isFinite(hs.avgFoulsDrawn) && (hs.avgFoulsDrawn as number) > 0
+      ? clampInduction((hs.avgFoulsDrawn as number) / leagueFoulsDrawnPerTeam) : 1;
+    if (Math.abs(inductionByAway - 1) > 0.02 || Math.abs(inductionByHome - 1) > 0.02) {
+      const adjHomeYellow = cards.expectedHomeYellow * inductionByAway;
+      const adjAwayYellow = cards.expectedAwayYellow * inductionByHome;
+      const adjTotalYellow = adjHomeYellow + adjAwayYellow;
+      const yellowDelta = adjTotalYellow - cards.expectedTotalYellow;
       const rYellow = cards.negBinParams.r;
+
       const yellowLines = [0.5,1.5,2.5,3.5,4.5,5.5,6.5,7.5,8.5,9.5];
       for (const line of yellowLines) {
-        const over = this.specialized.negBinOver(line, adjustedYellowMu, rYellow);
+        const over = this.specialized.negBinOver(line, adjTotalYellow, rYellow);
         cards.overUnderYellow[`${line}`] = {
           over: parseFloat(over.toFixed(6)),
           under: parseFloat((1 - over).toFixed(6)),
         };
       }
-      cards.expectedTotalYellow = parseFloat(adjustedYellowMu.toFixed(4));
+
+      // Il termine avversario si propaga anche ai booking points (mercato
+      // cartellini totali): i rossi restano, si sposta solo la parte gialli.
+      const adjCardPoints = cards.expectedTotalCards + yellowDelta;
+      const rCardPoints = Math.max(3, rYellow * 0.82);
+      for (const line of Object.keys(cards.overUnderTotal ?? {})) {
+        const over = this.specialized.negBinOver(Number(line), adjCardPoints, rCardPoints);
+        cards.overUnderTotal[line] = {
+          over: parseFloat(over.toFixed(6)),
+          under: parseFloat((1 - over).toFixed(6)),
+        };
+      }
+
+      cards.expectedHomeYellow = parseFloat(adjHomeYellow.toFixed(4));
+      cards.expectedAwayYellow = parseFloat(adjAwayYellow.toFixed(4));
+      cards.expectedTotalYellow = parseFloat(adjTotalYellow.toFixed(4));
+      cards.expectedTotalCards = parseFloat(adjCardPoints.toFixed(4));
     }
 
     // --- Corners ---

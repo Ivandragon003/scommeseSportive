@@ -185,6 +185,8 @@ export class PredictionContextBuilder {
 
   private buildTeamStats(teamRow: any, venue: VenueKey) {
     const venueStats = this.readVenueStats(teamRow, venue);
+    const json = this.parseJson(teamRow?.team_stats_json);
+    const foulsDrawnPerMatch = this.toFiniteNumber(json?.computed?.rates?.foulsDrawnPerMatch);
 
     return {
       avgShots: Number(
@@ -204,6 +206,7 @@ export class PredictionContextBuilder {
       avgHomeCorners: this.toFiniteNumber(teamRow?.avg_home_corners ?? 5.5),
       avgAwayCorners: this.toFiniteNumber(teamRow?.avg_away_corners ?? 4.5),
       avgCornersConceded: venueStats.avgCornersConceded,
+      avgFoulsDrawn: foulsDrawnPerMatch,
       avgPossession: venueStats.avgPossession,
       varShots: venueStats.varShots,
       varShotsOT: venueStats.varShotsOT,

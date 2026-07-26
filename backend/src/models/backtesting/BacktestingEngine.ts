@@ -1257,8 +1257,8 @@ export class BacktestingEngine {
     // (DISABLED_CATEGORIES) e rimossi dalle flatProbabilities. Quando il mercato
     // corner verra' riattivato, l'aggregazione corner va aggiunta insieme al
     // campo su MatchData e alla mappatura in loadBacktestMatches.
-    const h = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
-    const a = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), conc: wsum(), w: 0, n: 0 };
+    const h = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
+    const a = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
     const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
     const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
 
@@ -1268,7 +1268,7 @@ export class BacktestingEngine {
         h.w += w; h.n += 1;
         add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w);
         add(h.poss, m.homePossession, w); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
-        add(h.foul, m.homeFouls, w); add(h.conc, m.awayTotalShots, w);
+        add(h.foul, m.homeFouls, w); add(h.fdrawn, m.awayFouls, w); add(h.conc, m.awayTotalShots, w);
         if (Number.isFinite(Number(m.homeTotalShots))) hv.shots.push(Number(m.homeTotalShots));
         if (Number.isFinite(Number(m.homeShotsOnTarget))) hv.sot.push(Number(m.homeShotsOnTarget));
         if (Number.isFinite(Number(m.homeYellowCards))) hv.yel.push(Number(m.homeYellowCards));
@@ -1277,7 +1277,7 @@ export class BacktestingEngine {
         a.w += w; a.n += 1;
         add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w);
         add(a.poss, m.awayPossession, w); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
-        add(a.foul, m.awayFouls, w); add(a.conc, m.homeTotalShots, w);
+        add(a.foul, m.awayFouls, w); add(a.fdrawn, m.homeFouls, w); add(a.conc, m.homeTotalShots, w);
         if (Number.isFinite(Number(m.awayTotalShots))) av.shots.push(Number(m.awayTotalShots));
         if (Number.isFinite(Number(m.awayShotsOnTarget))) av.sot.push(Number(m.awayShotsOnTarget));
         if (Number.isFinite(Number(m.awayYellowCards))) av.yel.push(Number(m.awayYellowCards));
@@ -1302,6 +1302,7 @@ export class BacktestingEngine {
       avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
       avgHomePoss: mean(h.poss), avgAwayPoss: mean(a.poss),
       avgYellow: combine(h.yel, a.yel), avgRed: combine(h.red, a.red), avgFouls: combine(h.foul, a.foul),
+      avgFoulsDrawn: combine(h.fdrawn, a.fdrawn),
       suppression,
       varHomeShots: popVar(hv.shots), varAwayShots: popVar(av.shots),
       varHomeSot: popVar(hv.sot), varAwaySot: popVar(av.sot),
@@ -1360,6 +1361,7 @@ export class BacktestingEngine {
       avgYellowCards: hRec.avgYellow ?? 1.9,
       avgRedCards: hRec.avgRed ?? 0.11,
       avgFouls: hRec.avgFouls ?? 11.2,
+      avgFoulsDrawn: hRec.avgFoulsDrawn,
       shotsSuppression: hRec.suppression ?? 1.0,
       avgPossession: hRec.avgHomePoss,
       varShots: hRec.varHomeShots,
@@ -1374,6 +1376,7 @@ export class BacktestingEngine {
       avgYellowCards: aRec.avgYellow ?? 1.9,
       avgRedCards: aRec.avgRed ?? 0.11,
       avgFouls: aRec.avgFouls ?? 11.2,
+      avgFoulsDrawn: aRec.avgFoulsDrawn,
       shotsSuppression: aRec.suppression ?? 1.0,
       avgPossession: aRec.avgAwayPoss,
       varShots: aRec.varAwayShots,
