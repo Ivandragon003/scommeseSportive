@@ -1149,10 +1149,13 @@ export class BacktestingEngine {
       !context?.usedSyntheticOdds;
   }
 
-  private isEurobetClosingContext(context?: HistoricalOddsContextEntry): boolean {
+  private isTrustedClosingContext(context?: HistoricalOddsContextEntry): boolean {
     const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
     const closingSource = String(context?.closingSource ?? context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
-    return selectedSource.includes('eurobet') && closingSource.includes('eurobet');
+    // Closing affidabile per il CLV: Eurobet (quote lato utente) o football-data
+    // (media mercato di chiusura, source `football_data`, stage 3 ingest closing odds).
+    const trusted = (s: string) => s.includes('eurobet') || s.includes('football_data');
+    return trusted(selectedSource) && trusted(closingSource);
   }
 
   private resolveClosingOdds(
@@ -1160,7 +1163,7 @@ export class BacktestingEngine {
     selection: string,
     kickoffDate: Date
   ): { closingOdds: number | null; capturedAt: string | null; source: string | null; missingReason: ClvMissingReason | null } {
-    if (!context || !this.isEurobetClosingContext(context)) {
+    if (!context || !this.isTrustedClosingContext(context)) {
       return {
         closingOdds: null,
         capturedAt: context?.closingCapturedAt ?? null,

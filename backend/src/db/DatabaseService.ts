@@ -1276,6 +1276,60 @@ export class DatabaseService {
     return out;
   }
 
+  /**
+   * Quote di mercato football-data (apertura+chiusura) da matches.fd_odds_json,
+   * nel formato HistoricalOddsDetail per il backtest. Apertura = quota "giocata"
+   * (`odds`), chiusura = `closingOdds` (source `football_data`). Copre 1X2 + O/U
+   * 2.5. Usato come fallback dove non c'e' uno snapshot Eurobet reale.
+   */
+  async getFootballDataHistoricalOddsMap(filters?: { competition?: string; season?: string }): Promise<Record<string, HistoricalOddsDetail>> {
+    let q = `SELECT match_id, fd_odds_json FROM matches
+      WHERE fd_odds_json IS NOT NULL AND home_goals IS NOT NULL AND away_goals IS NOT NULL`;
+    const params: any[] = [];
+    if (filters?.competition) { q += ' AND competition = ?'; params.push(filters.competition); }
+    if (filters?.season) {
+      const s = filters.season.trim();
+      if (s) {
+        const variants = Array.from(new Set([s, s.replace('/', '-'), s.replace('-', '/')]));
+        q += ` AND season IN (${variants.map(() => '?').join(', ')})`;
+        params.push(...variants);
+      }
+    }
+    const norm = (v: unknown): Record<string, number> => {
+      const out: Record<string, number> = {};
+      if (v && typeof v === 'object') {
+        for (const [k, o] of Object.entries(v as Record<string, unknown>)) {
+          const n = Number(o);
+          if (Number.isFinite(n) && n > 1) out[k] = Number(n.toFixed(2));
+        }
+      }
+      return out;
+    };
+    const out: Record<string, HistoricalOddsDetail> = {};
+    for (const row of await this.all(q, params)) {
+      const matchId = String(row.match_id ?? '').trim();
+      if (!matchId) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(String(row.fd_odds_json)); } catch { continue; }
+      const opening = norm(parsed?.opening);
+      const closing = norm(parsed?.closing);
+      if (Object.keys(opening).length === 0) continue;
+      out[matchId] = {
+        odds: opening,
+        oddsSource: 'unknown',
+        snapshotSource: 'football_data',
+        capturedAt: null,
+        closingOdds: closing,
+        closingCapturedAt: null,
+        closingSource: Object.keys(closing).length > 0 ? 'football_data' : null,
+        closingRejectedReason: Object.keys(closing).length > 0 ? null : 'missing_closing_odds',
+        usedFallbackBookmaker: false,
+        usedSyntheticOdds: false,
+      };
+    }
+    return out;
+  }
+
   async getOddsArchiveStats(filters?: { competition?: string }): Promise<any> {
     const rows = await this.getOddsSnapshots({ competition: filters?.competition });
     const totalSnapshots = rows.length;

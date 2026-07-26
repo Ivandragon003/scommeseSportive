@@ -3146,20 +3146,28 @@ export class PredictionService {
 
     const matches = await this.loadBacktestMatches(competition, season);
     const adaptiveTuning = await this.applyAdaptiveTuning(competition);
-    const oddsDetailMap: Record<string, HistoricalOddsContextEntry> =
-      historicalOdds && Object.keys(historicalOdds).length > 0
-        ? Object.entries(historicalOdds).reduce((acc, [matchId, odds]) => {
-          acc[matchId] = {
-            odds,
-            oddsSource: 'unknown',
-            snapshotSource: null,
-            capturedAt: null,
-            usedFallbackBookmaker: false,
-            usedSyntheticOdds: false,
-          };
-          return acc;
-        }, {} as Record<string, HistoricalOddsContextEntry>)
-        : await this.db.getHistoricalOddsDetailMap({ competition, season });
+    let oddsDetailMap: Record<string, HistoricalOddsContextEntry>;
+    if (historicalOdds && Object.keys(historicalOdds).length > 0) {
+      oddsDetailMap = Object.entries(historicalOdds).reduce((acc, [matchId, odds]) => {
+        acc[matchId] = {
+          odds,
+          oddsSource: 'unknown',
+          snapshotSource: null,
+          capturedAt: null,
+          usedFallbackBookmaker: false,
+          usedSyntheticOdds: false,
+        };
+        return acc;
+      }, {} as Record<string, HistoricalOddsContextEntry>);
+    } else {
+      const eurobet = await this.db.getHistoricalOddsDetailMap({ competition, season });
+      const footballData = typeof (this.db as any).getFootballDataHistoricalOddsMap === 'function'
+        ? await this.db.getFootballDataHistoricalOddsMap({ competition, season })
+        : {};
+      // Eurobet reale prevale dove presente; football-data (1X2 + O/U 2.5)
+      // riempie i buchi → sblocca ROI/CLV reale sui mercati goal (stage 3).
+      oddsDetailMap = { ...footballData, ...eurobet } as Record<string, HistoricalOddsContextEntry>;
+    }
     const oddsMap = Object.entries(oddsDetailMap).reduce((acc, [matchId, detail]) => {
       acc[matchId] = detail.odds;
       return acc;
