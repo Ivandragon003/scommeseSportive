@@ -428,6 +428,8 @@ export class DatabaseService {
       { table: 'teams', column: 'red_cards', type: 'INTEGER' },
       { table: 'teams', column: 'double_yellows', type: 'INTEGER' },
       { table: 'teams', column: 'corners', type: 'INTEGER' },
+      // Quote di mercato football-data (apertura+chiusura) per il backtest ROI/CLV reale.
+      { table: 'matches', column: 'fd_odds_json', type: 'TEXT' },
     ];
 
     const byTable = new Map<string, Array<{ column: string; type: string }>>();

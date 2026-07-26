@@ -10,6 +10,7 @@ const {
   currentSeasonStartYear,
   seasonLabel,
   pruneOldSeasons,
+  buildMarketOddsJson,
 } = require('../dist/services/FootballDataService.js');
 
 test('seasonToFootballDataCode: anno inizio -> codice football-data', () => {
@@ -90,6 +91,7 @@ test('parseFootballDataCsv: gestisce colonne statistiche mancanti (null)', () =>
 
 test('syncFootballData: matcha per data+squadre e riempie solo i NULL (DB fake)', async () => {
   const filled = [];
+  const oddsSaved = [];
   const fakeDb = {
     async getMatchesForCompetition() {
       return [
@@ -100,6 +102,10 @@ test('syncFootballData: matcha per data+squadre e riempie solo i NULL (DB fake)'
     async fillSupplementalStats(matchId, row) {
       filled.push({ matchId, hf: row.homeFouls });
       return true;
+    },
+    async saveMarketOdds(matchId, row) {
+      oddsSaved.push({ matchId, home: row.oddsHome, closingHome: row.closingHome });
+      return row.oddsHome != null || row.closingHome != null;
     },
   };
   const csv = [
@@ -116,6 +122,18 @@ test('syncFootballData: matcha per data+squadre e riempie solo i NULL (DB fake)'
   assert.equal(summary.matched, 2, 'devono matchare m1 e m2');
   assert.equal(summary.updated, 2);
   assert.deepEqual(filled.map((f) => f.matchId).sort(), ['m1', 'm2']);
+});
+
+test('buildMarketOddsJson: apertura+chiusura nel formato motore, scarta quote invalide', () => {
+  const row = {
+    oddsHome: 4.20, oddsDraw: 3.60, oddsAway: 1.85, oddsOver25: 2.05, oddsUnder25: 1.80,
+    closingHome: 4.50, closingDraw: 3.70, closingAway: 1.78, closingOver25: null, closingUnder25: 1.0,
+  };
+  const out = buildMarketOddsJson(row);
+  assert.deepEqual(out.opening, { homeWin: 4.20, draw: 3.60, awayWin: 1.85, over25: 2.05, under25: 1.80 });
+  assert.deepEqual(out.closing, { homeWin: 4.50, draw: 3.70, awayWin: 1.78 }); // over25 null e under25<=1 scartati
+  // nessuna quota -> null
+  assert.equal(buildMarketOddsJson({ oddsHome: null, closingHome: null }), null);
 });
 
 test('FOOTBALL_DATA_LEAGUE_CODES: copre le 5 leghe', () => {

@@ -190,6 +190,8 @@ export interface FootballDataDb {
   getMatchesForCompetition(competition: string): Promise<FootballDataDbMatch[]>;
   /** Riempie SOLO i campi NULL del match (COALESCE existing-wins). Ritorna true se una riga è stata toccata. */
   fillSupplementalStats(matchId: string, row: FootballDataRow): Promise<boolean>;
+  /** Salva le quote di mercato (apertura+chiusura) in matches.fd_odds_json. Idempotente. Ritorna true se scritte. */
+  saveMarketOdds(matchId: string, row: FootballDataRow): Promise<boolean>;
 }
 
 export interface FootballDataFetcher {
@@ -214,8 +216,29 @@ export interface FootballDataSyncSummary {
   csvRows: number;
   matched: number;
   updated: number;
+  oddsWritten: number;
   unmatchedTeams: string[];
-  perCompetition: Record<string, { csvRows: number; matched: number; updated: number }>;
+  perCompetition: Record<string, { csvRows: number; matched: number; updated: number; oddsWritten: number }>;
+}
+
+/**
+ * Estrae le quote di mercato (apertura+chiusura) da una riga CSV nel formato del
+ * motore. Ritorna null se nessuna quota valida. Chiavi: homeWin/draw/awayWin, over25/under25.
+ */
+export function buildMarketOddsJson(
+  row: FootballDataRow
+): { opening: Record<string, number>; closing: Record<string, number> } | null {
+  const clean = (o: Record<string, number | null>): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(o)) {
+      if (v != null && Number.isFinite(v) && (v as number) > 1) out[k] = Number(v);
+    }
+    return out;
+  };
+  const opening = clean({ homeWin: row.oddsHome, draw: row.oddsDraw, awayWin: row.oddsAway, over25: row.oddsOver25, under25: row.oddsUnder25 });
+  const closing = clean({ homeWin: row.closingHome, draw: row.closingDraw, awayWin: row.closingAway, over25: row.closingOver25, under25: row.closingUnder25 });
+  if (Object.keys(opening).length === 0 && Object.keys(closing).length === 0) return null;
+  return { opening, closing };
 }
 
 /**
@@ -230,7 +253,7 @@ export async function syncFootballData(
   const seasons = options.seasonStartYears ?? [2024, 2025];
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
 
-  const summary: FootballDataSyncSummary = { csvRows: 0, matched: 0, updated: 0, unmatchedTeams: [], perCompetition: {} };
+  const summary: FootballDataSyncSummary = { csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, unmatchedTeams: [], perCompetition: {} };
   const unmatched = new Set<string>();
 
   for (const competition of competitions) {
@@ -246,7 +269,7 @@ export async function syncFootballData(
       dbTeams.add(canonicalTeamName(m.away_team_name ?? ''));
     }
 
-    const perComp = { csvRows: 0, matched: 0, updated: 0 };
+    const perComp = { csvRows: 0, matched: 0, updated: 0, oddsWritten: 0 };
     for (const seasonStart of seasons) {
       const csv = await fetcher(leagueCode, seasonToFootballDataCode(seasonStart));
       if (!csv) continue;
@@ -262,12 +285,15 @@ export async function syncFootballData(
         perComp.matched += 1;
         const changed = await db.fillSupplementalStats(hit.match_id, row);
         if (changed) perComp.updated += 1;
+        const oddsSaved = await db.saveMarketOdds(hit.match_id, row);
+        if (oddsSaved) perComp.oddsWritten += 1;
       }
     }
     summary.perCompetition[competition] = perComp;
     summary.csvRows += perComp.csvRows;
     summary.matched += perComp.matched;
     summary.updated += perComp.updated;
+    summary.oddsWritten += perComp.oddsWritten;
   }
   summary.unmatchedTeams = [...unmatched].sort();
   return summary;
@@ -324,6 +350,17 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
           hy: row.homeYellow, ay: row.awayYellow, hr: row.homeRed, ar: row.awayRed,
           ref: row.referee, id: matchId,
         },
+      });
+      return Number(res.rowsAffected ?? 0) > 0;
+    },
+    async saveMarketOdds(matchId: string, row: FootballDataRow) {
+      const payload = buildMarketOddsJson(row);
+      if (!payload) return false;
+      // Idempotente: sovrascrive con gli stessi valori a ogni run (le quote di un
+      // match concluso sono finali). Scrittura additiva (colonna dedicata).
+      const res = await client.execute({
+        sql: `UPDATE matches SET fd_odds_json = :json WHERE match_id = :id`,
+        args: { json: JSON.stringify(payload), id: matchId },
       });
       return Number(res.rowsAffected ?? 0) > 0;
     },
