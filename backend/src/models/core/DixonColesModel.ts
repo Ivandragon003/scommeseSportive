@@ -770,6 +770,15 @@ export class DixonColesModel {
         ])
       ),
 
+      // Cartellini totali / booking points (giallo=1, rosso=2) — B4.
+      // Metrica del mercato bookmaker `alternate_totals_cards` (vedi bookingPoints).
+      ...Object.fromEntries(
+        Object.entries(cards.overUnderTotal ?? {}).flatMap(([line, { over, under }]) => [
+          [`cardsTotalOver${fmtLine(line)}`,  over],
+          [`cardsTotalUnder${fmtLine(line)}`, under],
+        ])
+      ),
+
       // Falli
       ...Object.fromEntries(
         Object.entries(fouls.overUnder).flatMap(([line, { over, under }]) => [

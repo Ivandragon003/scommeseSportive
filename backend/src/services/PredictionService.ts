@@ -995,11 +995,11 @@ export class PredictionService {
 
     const out: Record<string, number> = {};
     const aliasMap: Record<string, string> = {
-      cards_over35: 'yellow_over_3.5',
-      cards_over45: 'yellow_over_4.5',
-      cards_over55: 'yellow_over_5.5',
-      cards_under35: 'yellow_under_3.5',
-      cards_under45: 'yellow_under_4.5',
+      cards_over35: 'cards_total_over_3.5',
+      cards_over45: 'cards_total_over_4.5',
+      cards_over55: 'cards_total_over_5.5',
+      cards_under35: 'cards_total_under_3.5',
+      cards_under45: 'cards_total_under_4.5',
       dnb_home_win: 'dnb_home',
       dnb_away_win: 'dnb_away',
       doublechance_1x: 'double_chance_1x',

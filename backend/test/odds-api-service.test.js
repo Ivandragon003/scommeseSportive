@@ -48,12 +48,12 @@ test('compareBookmakers keeps non-h2h soccer markets such as corners and cards',
   assert.equal(eurobetOdds.homeWin, 1.95);
   assert.equal(eurobetOdds['corners_over_9.5'], 1.88);
   assert.equal(eurobetOdds['corners_under_9.5'], 1.92);
-  assert.equal(eurobetOdds['yellow_over_4.5'], 1.83);
-  assert.equal(eurobetOdds['yellow_under_4.5'], 1.97);
+  assert.equal(eurobetOdds['cards_total_over_4.5'], 1.83);
+  assert.equal(eurobetOdds['cards_total_under_4.5'], 1.97);
 
   assert.equal(comparison.Eurobet.homeWin, 1.95);
   assert.equal(comparison.Eurobet['corners_over_9.5'], 1.88);
-  assert.equal(comparison.Eurobet['yellow_over_4.5'], 1.83);
+  assert.equal(comparison.Eurobet['cards_total_over_4.5'], 1.83);
 });
 
 test('extractBestOdds maps extended statistical and player markets without collapsing selections', () => {
@@ -117,7 +117,7 @@ test('extractBestOdds maps extended statistical and player markets without colla
   assert.equal(odds['shots_total_under_25.5'], 1.9);
   assert.equal(odds['sot_total_over_8.5'], 1.85);
   assert.equal(odds['corners_over_9.5'], 1.8);
-  assert.equal(odds['yellow_over_4.5'], 1.77);
+  assert.equal(odds['cards_total_over_4.5'], 1.77);
   assert.equal(odds['fouls_over_22.5'], 1.92);
   assert.equal(odds['player_shots_lautaro_martinez_over_1.5'], 2.1);
   assert.equal(odds['player_shots_rafael_leao_over_1.5'], 2.35);

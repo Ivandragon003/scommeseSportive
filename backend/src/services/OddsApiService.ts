@@ -376,17 +376,22 @@ export class OddsApiService {
     const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
     const compactLine = lineRaw.replace('.', '');
 
-    const domainFromContext = (): 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow' | null => {
+    const domainFromContext = (): 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow' | 'cards_total' | null => {
       const probe = `${market} ${nameLower} ${desc.toLowerCase()}`.replace(/[^a-z0-9\s]/g, ' ');
       if (/\bshots?\s+on\s+target\b|\bon\s+target\b|\bsot\b/.test(probe)) return 'sot_total';
       if (/\bshots?\b/.test(probe)) return 'shots_total';
       if (/\bcorners?\b|\bcorner\s+kicks?\b/.test(probe)) return 'corners';
       if (/\bfouls?\b/.test(probe)) return 'fouls';
-      if (/\byellow\b|\bcards?\b|\bbookings?\b/.test(probe)) return 'yellow';
+      // Mercato "yellow cards" esplicito -> gialli; "cards"/"bookings"/totali ->
+      // booking points (giallo=1, rosso=2). the-odds-api espone solo il totale
+      // (`alternate_totals_cards`, "Total Cards / Bookings"), quindi in pratica
+      // ricade su cards_total.
+      if (/\byellow\b/.test(probe)) return 'yellow';
+      if (/\bcards?\b|\bbookings?\b/.test(probe)) return 'cards_total';
       return null;
     };
 
-    const scopeStatDomain = (domain: 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow'): string => {
+    const scopeStatDomain = (domain: 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow' | 'cards_total'): string => {
       if (domain === 'shots_total') {
         if (hasHomeContext) return 'shots_home';
         if (hasAwayContext) return 'shots_away';
@@ -479,7 +484,9 @@ export class OddsApiService {
           ? 'corners'
         : market.includes('shots')
           ? 'shots_total'
-          : market.includes('cards') || market.includes('yellow')
+          : market.includes('cards')
+            ? 'cards_total'
+          : market.includes('yellow')
             ? 'yellow'
             : 'fouls');
       return `${scopeStatDomain(domain)}_${nameLower}_${lineRaw}`;

@@ -41,6 +41,7 @@ import {
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { clamp } from '../utils/MathUtils';
+import { bookingPoints } from '../../utils/dataHelpers';
 import { MetricWeightMode } from '../../config/PredictionEngineConfig';
 import {
   ALGORITHM_VERSION,
@@ -2242,6 +2243,10 @@ export class BacktestingEngine {
         names[key] = `Gialli Over ${this.lineFromKey(key, 'yellowOver')}`;
       else if (key.startsWith('yellowUnder'))
         names[key] = `Gialli Under ${this.lineFromKey(key, 'yellowUnder')}`;
+      else if (key.startsWith('cardsTotalOver'))
+        names[key] = `Cartellini Over ${this.lineFromKey(key, 'cardsTotalOver')}`;
+      else if (key.startsWith('cardsTotalUnder'))
+        names[key] = `Cartellini Under ${this.lineFromKey(key, 'cardsTotalUnder')}`;
       else if (key.startsWith('foulsOver'))
         names[key] = `Falli Over ${this.lineFromKey(key, 'foulsOver')}`;
       else if (key.startsWith('foulsUnder'))
@@ -2350,6 +2355,16 @@ export class BacktestingEngine {
     res = evalOU(totalYellow, 'yellowOver', 'yellowUnder');
     if (res !== null) return res;
 
+    // --- Cartellini totali / booking points (giallo=1, rosso=2) ---
+    // Metrica del mercato bookmaker `alternate_totals_cards`. Prima cards_total
+    // veniva regolato sui soli gialli (sottostima sistematica: ignorava i rossi).
+    const totalRed = match.homeRedCards !== undefined && match.awayRedCards !== undefined
+      ? Number(match.homeRedCards) + Number(match.awayRedCards) : undefined;
+    const totalBookingPoints = totalYellow !== undefined && totalRed !== undefined
+      ? bookingPoints(totalYellow, totalRed) : undefined;
+    res = evalOU(totalBookingPoints, 'cardsTotalOver', 'cardsTotalUnder');
+    if (res !== null) return res;
+
     // --- Falli totali ---
     const totalFouls = match.homeFouls !== undefined && match.awayFouls !== undefined
       ? match.homeFouls + match.awayFouls : undefined;
@@ -2374,8 +2389,10 @@ export class BacktestingEngine {
         actual = match.awayTotalShots;
       } else if (domain === 'sot_total') {
         actual = totalSOT;
-      } else if (domain === 'yellow' || domain === 'cards_total') {
+      } else if (domain === 'yellow') {
         actual = totalYellow;
+      } else if (domain === 'cards_total') {
+        actual = totalBookingPoints;
       } else if (domain === 'fouls') {
         actual = totalFouls;
       }

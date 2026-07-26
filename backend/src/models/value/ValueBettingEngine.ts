@@ -3068,6 +3068,8 @@ export class ValueBettingEngine {
     }
     for (const l of ['05','15','25','35','45','55','65','75','85'])
       pair(`yellowOver${l}`, `yellowUnder${l}`);
+    for (const l of ['15','25','35','45','55','65','75','85','95'])
+      pair(`cardsTotalOver${l}`, `cardsTotalUnder${l}`);
     for (const l of ['125','145','175','205','235','265','295','325','355'])
       pair(`foulsOver${l}`, `foulsUnder${l}`);
 
