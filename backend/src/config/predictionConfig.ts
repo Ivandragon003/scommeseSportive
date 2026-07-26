@@ -27,3 +27,31 @@ export const predictionConfig = {
     minCombinedSampleSize: Math.max(2, Math.round(readNumberEnv('MODEL_MARKET_MIN_COMBINED_SAMPLE', 20))),
   },
 };
+
+/**
+ * Media gialli/match per lega (empirica, 4 stagioni su DB, 2026-07). Usata SOLO
+ * dal modello cartellino GIOCATORE (B6): prima usava le costanti hardcoded
+ * leagueAvgTeamYellows=1.9 / leagueAvgRefereeYellow=3.8, che sovrastimavano il
+ * moltiplicatore-disciplina in La Liga (reale 4.58/match, non 3.8) e lo
+ * sottostimavano in Ligue 1. NON usata dal modello squadra (il parametro
+ * per-lega li' e' documentato NO-GO). Aggiornare rigirando la query per-lega.
+ */
+export const LEAGUE_AVG_YELLOW_PER_MATCH: Record<string, number> = {
+  'La Liga': 4.58,
+  'Serie A': 4.01,
+  'Bundesliga': 3.90,
+  'Premier League': 3.89,
+  'Ligue 1': 3.61,
+};
+
+export const DEFAULT_LEAGUE_AVG_YELLOW_PER_MATCH = 3.9;
+
+export function resolveLeagueAvgYellowPerMatch(competition?: string | null): number {
+  const key = String(competition ?? '').trim();
+  if (key && LEAGUE_AVG_YELLOW_PER_MATCH[key] !== undefined) return LEAGUE_AVG_YELLOW_PER_MATCH[key];
+  const lower = key.toLowerCase();
+  for (const [name, value] of Object.entries(LEAGUE_AVG_YELLOW_PER_MATCH)) {
+    if (name.toLowerCase() === lower) return value;
+  }
+  return DEFAULT_LEAGUE_AVG_YELLOW_PER_MATCH;
+}

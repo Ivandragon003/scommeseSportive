@@ -25,7 +25,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { AdaptiveTuningService } from './AdaptiveTuningService';
 import { clamp } from '../models/utils/MathUtils';
-import { predictionConfig } from '../config/predictionConfig';
+import { predictionConfig, resolveLeagueAvgYellowPerMatch } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
 import { PlayerCardsModel, PlayerCardRole } from '../models/markets/PlayerCardsModel';
 import {
@@ -1132,6 +1132,7 @@ export class PredictionService {
     homeTeamName: string;
     awayTeamName: string;
     referee: any;
+    leagueAvgYellowPerMatch: number;
   }): PlayerPropBuildResult {
     const players = [
       ...(params.homePlayers ?? []).map((player) => ({ row: player, teamName: params.homeTeamName })),
@@ -1263,9 +1264,11 @@ export class PredictionService {
           playerMinutes: Number(player.row?.minutes_total ?? player.row?.minutesTotal ?? 0),
           expectedMinutes,
           teamExpectedYellows: Number.isFinite(teamExpectedYellows) ? teamExpectedYellows : 1.8,
-          leagueAvgTeamYellows: 1.9,
-          refereeYellowAvg: Number(params.referee?.avg_yellow_cards_per_game ?? params.referee?.avgYellowCardsPerGame ?? 3.8),
-          leagueAvgRefereeYellow: 3.8,
+          // B6: baseline per-lega (era hardcoded 1.9 / 3.8). leagueAvgYellowPerMatch
+          // e' il totale gialli/match della lega; /2 = media per squadra.
+          leagueAvgTeamYellows: params.leagueAvgYellowPerMatch / 2,
+          refereeYellowAvg: Number(params.referee?.avg_yellow_cards_per_game ?? params.referee?.avgYellowCardsPerGame ?? params.leagueAvgYellowPerMatch),
+          leagueAvgRefereeYellow: params.leagueAvgYellowPerMatch,
           refereeCoverage: Number(params.referee?.total_games ?? params.referee?.totalGames ?? 0),
         });
         if (!params.referee) dataWarnings.push('missing_referee_data');
@@ -1563,6 +1566,9 @@ export class PredictionService {
       homeTeamName: homeTeam?.name || 'Home',
       awayTeamName: awayTeam?.name || 'Away',
       referee,
+      leagueAvgYellowPerMatch: resolveLeagueAvgYellowPerMatch(
+        request.competition ?? homeTeam?.competition ?? awayTeam?.competition,
+      ),
     });
     Object.assign(probs.flatProbabilities, playerPropMarkets.probabilities);
     const normalizedOdds = { ...normalizedOddsBase, ...playerPropMarkets.odds };
