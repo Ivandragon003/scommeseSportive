@@ -1,7 +1,9 @@
 # Formulario del sistema — Football Prediction & Value Betting Engine
 
-**Versione 5.0 — allineata al codice `main` (Luglio 2026).**
+**Versione 5.1 — allineata al codice `main` (2026-07-26, batch audit A1–A7 + B4/B6 + D1 + E5).**
 Sostituisce `FormularioSistemaScommesse_v4_allineato.docx` (v4.1, maggio 2026), che era indietro di un intero ciclo di lavoro. Questo documento descrive **ciò che il codice fa davvero oggi**, con i valori di configurazione reali. Le voci nuove rispetto alla v4.1 sono marcate 🆕; il codice presente ma non collegato al runtime è marcato ⚠️.
+
+Aggiornamenti v5.1 (report in [`docs/performance/`](performance/)): A1 segno difesa tiri, A2 corner concessi, A3/A4 share tiri giocatore, A6/B4 booking points, A7 handicap 3 vie, B6 baseline gialli per-lega, D1 termine avversario gialli, E5 marcatore anytime. Scartati: B1, D2, D3, D5.
 
 Per le idee valutate e **scartate** (e il perché) vedere il documento compagno [`FORMULARIO-scelte-scartate.md`](FORMULARIO-scelte-scartate.md) e i report in [`docs/performance/`](performance/).
 
@@ -121,26 +123,39 @@ NegBin: Var[X] = μ + μ²/r
   compFactor = 1 + 0.22·(2·sigmoid(competitiveness·8 − 4) − 1)
   ```
   Prima era `− 0` (refuso): valeva 1.22 su una partita media e 1.43 sui derby su OGNI match → aspettativa gialli sovrastimata del +26%. Col fix: neutro sulla partita media, ±22% agli estremi, bias +26%→+3.6%. Sul mercato Over gialli: logLoss cal −2.98%, ECE 0.0728→0.0279.
-- Rossi: Poisson, fattore arbitro più smorzato. Card points = μ_gialli + 2·(λ_rossi).
-- **Correzione gialli↔falli (post-hoc in DixonColesModel):** `yellowFoulsCorrFactor = (falliAttesi/leagueAvgFouls)^0.7 · (0.7 + 0.3·refStrictness)`, applicata a `expectedTotalYellow` e alle O/U gialli quando |fattore−1|>0.02. 🆕 Ora attiva (falli ~100% via football-data).
+- Rossi: Poisson, fattore arbitro più smorzato.
+- 🆕 **Booking points / mercato "cartellini totali" (A6/B4, 2026-07):** `bookingPoints = gialli + 2·rossi` (giallo=1, rosso=2; helper in `dataHelpers`). Le quote provider `alternate_totals_cards` sono "Total Cards", NON gialli: il modello ora **espone** `cardsTotalOver/Under` in `flatProbabilities` e il backtest regola `cards_total` sui booking points. La formula resta `gialli + 2·rossi` (NON "solo rossi diretti"): Understat codifica ogni espulsione — diretta o doppia ammonizione — come `0 gialli + 1 rosso`, quindi la formula coincide col settlement bookmaker. Impatto: base settlement +9.6%, 4.2–6.3% di esiti cambiano sulle linee comuni.
+- 🆕 **Termine avversario D1 (2026-07) — sostituisce `yellowFoulsCorrFactor`:** i gialli di una squadra crescono con i falli SUBITI dall'avversario (`fouls_drawn`):
+  ```
+  induzione_avv = clamp(oppFoulsDrawnPerMatch / (leagueAvgFouls/2), 0.7, 1.4)
+  μ_giallo_casa ·= induzione(away) ;  μ_giallo_osp ·= induzione(home)   (propagato anche ai card points)
+  ```
+  La vecchia `yellowFoulsCorrFactor` (fattore simmetrico sui falli totali × (0.7+0.3·refStrictness)) era mal calibrata (shrink ×0.85 ad arbitro assente → ECE 0.07–0.11 fuori Premier). Validato as-of tutte le stagioni: +1.45% logLoss, ECE ~−78%, 4/5 leghe. Confronto empirico: `fouls_drawn` (opz.2) batte "cartellini indotti" (opz.1). Split casa/trasferta gialli (B1) e correlazione casa/ospite (D2) testati e NO-GO.
 
 ### 4.3 Falli / Corner / Tiri
-- **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. 🆕 Ora su **dati reali** (~100%). Backtest: livello ottimo (bias +0.8%), dispersione grezza un po' larga (da tarare/calibrare) — validare full-pipeline prima di attivare.
-- **Corner:** NegBin, proxy `avgCornersFor·0.6 + avgCornersAgainst·0.4`. 🆕 Ora su **dati reali** (~100%). Backtest: bias −0.1%, ECE 0.021.
-- **Tiri:** NegBin per squadra e totale, con `SERIE_A_SHOT_GOAL_RATIO = 11.0` per il blend λ→tiri impliciti (α=0.35).
+- **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. 🆕 Ora su **dati reali** (~100%). Mercato non attivabile (nessuna quota provider).
+- **Corner:** NegBin, `μ = avgCornersFor·0.6 + avgCornersAgainst·0.4`. 🆕 **A2 (2026-07):** lo slot `avgCornersAgainst` ora usa i corner **CONCESSI** venue-aware (`avgCornersConceded`, aggregato con decay in `team_stats_json.computed`), non i corner FATTI dell'avversario — prima i due termini 0.4 si annullavano e `μ_tot` collassava sulla somma delle medie (termine difensivo inerte). Mercato ancora `DISABLED` (quote corner assenti).
+- 🆕 **Tiri (A1, 2026-07) — segno difesa avversaria corretto:**
+  ```
+  μ_tiri_casa = blendHome · homeAdv · max(0.5, awayShotsSuppression)     ← MOLTIPLICA (era: divideva)
+  μ_tiri_osp  = blendAway · max(0.5, homeShotsSuppression)               (già corretto)
+  ```
+  `shotsSuppression = tiri concessi / media lega` (>1 = difesa debole): i tiri di casa devono crescere contro una difesa ospite debole. Prima `μ_casa` **divideva** (segno invertito) → tiri casa in calo contro le difese peggiori; corretto in moltiplicazione, simmetrico a `μ_osp` (corregge anche la direzione dei tiri-in-porta di casa). Validato as-of: **tiri totali −10.96% logLoss, tiri casa −7.34%, ECE totali 0.14→0.10** (il bug più impattante dell'audit).
+- **Tiri — blend λ→tiri impliciti:** `SHOT_GOAL_RATIO = 9.0` (media cross-lega empirica; era 11.0), α=0.35. Nota D5 (NO-GO): non forzare il rate tiri-in-porta a scalare col volume blended (peggiora la calibrazione SOT).
 
 ## 5. Mercati per giocatore
 
-- **Tiri/SOT giocatore (runtime):** `SpecializedModels.computePlayerShotsPredictions()` — Dirichlet-multinomiale su medie aggregate, shrinkage share verso prior di ruolo (FW 0.20, MF 0.12, DF 0.05, GK 0.01), r per giocatore via Dirichlet. Output: expectedShots, prob 1+/2+/3+, SOT.
-- **Gialli giocatore:** `PlayerCardsModel.predictPlayerYellowCards()` — ZIP. `rate = weight·rawRate + (1−weight)·rolePrior`, moltiplicatori arbitro (smorzato per coverage) e ambiente-squadra `clamp(1 + 0.25·(teamExpYellows/leagueAvg − 1), 0.80, 1.25)`; zero-inflation da minuti.
-- ⚠️ **`ShotsModel.ts` (v4: ZIP/ZINB, gerarchico team→player, distribuzione minuti, SOT separato) esiste ma NON è collegato al runtime**: manca una tabella `player_match_stats` (il DB ha solo aggregati). Il runtime usa il Dirichlet aggregato sopra.
+- **Tiri/SOT giocatore (runtime):** `SpecializedModels.computePlayerShotsPredictions()` — Dirichlet-multinomiale, shrinkage share verso prior di ruolo (FW 0.20, MF 0.12, DF 0.05, GK 0.01), r per giocatore via Dirichlet. 🆕 **A3 (2026-07):** l'allocazione è normalizzata sugli **11 di movimento più coinvolti al tiro** (XI probabile), non su tutta la rosa (~25) — prima lo shrinkage gonfiava i panchinari e la normalizzazione a somma 1 deprimeva i titolari (bomber da 1.15 a 2.75 tiri attesi). Output: expectedShots, prob 1+/2+/3+, SOT.
+- 🆕 **Marcatore anytime (E5, 2026-07):** `P(segna ≥1) = 1 − e^(−λ)`, `λ = xg_per90 · min(minuti_attesi/90, 1.1) · shrink(0.88)`. Chiave provider `player_goal_scorer_anytime` → prop `goals` (over 0.5). Validato as-of (85.894 osservazioni, ECE 0.013): xG/90 batte nettamente goals/90; difesa avversaria irrilevante; shrink 0.88 per la lieve sovrastima. Config `playerGoals.xgShrink`.
+- **Gialli giocatore:** `PlayerCardsModel.predictPlayerYellowCards()` — ZIP. `rate = weight·rawRate + (1−weight)·rolePrior`, moltiplicatori arbitro e ambiente-squadra `clamp(1 + 0.25·(teamExpYellows/leagueAvg − 1), 0.80, 1.25)`; zero-inflation da minuti. 🆕 **B6 (2026-07):** `leagueAvgTeamYellows`/`leagueAvgRefereeYellow` non più hardcoded (1.9/3.8) ma **per-lega** (`resolveLeagueAvgYellowPerMatch`: La Liga 4.58 … Ligue 1 3.61); solo modello giocatore (il per-lega sul modello squadra è NO-GO).
+- ⚠️ **`ShotsModel.ts` (v4: ZIP/ZINB, gerarchico, distribuzione minuti) esiste ma NON è collegato al runtime**: manca `player_match_stats` (il DB ha solo aggregati). Il runtime usa il Dirichlet aggregato. Anche il marcatore anytime gira sugli aggregati `xg_per90`.
 
 ## 5b. Costruzione degli input (data layer)
 
 Le medie che alimentano i modelli sopra non sono grezze: vengono aggregate da servizi dedicati.
 
 - **Medie squadra** (`DatabaseService.recomputeTeamAverages` / `TeamAveragesService.ts`): tiri, tiri in porta, gialli, rossi, falli, corner, xG, possesso per squadra, con **decadimento temporale esponenziale** `peso = exp(−DECAY_PER_DAY·(oggi−data))`, `DECAY_PER_DAY = 0.005/giorno` (half-life ≈ 139 giorni). Alimenta `homeTeamStats`/`awayTeamStats` (`avgYellowCards`, `avgShots`, `avgFouls`, `avgHomeCorners`, `sampleSize`, `varShots`…).
-- **Stats giocatore** (`PlayerDerivedStatsService.ts`): ricostruite dalle rose in `raw_json` — `avg_xg_per_game`, `shots_per90`, `shotShareOfTeam`, `yellow_cards_total`, `minutes_total`, `gamesPlayed`. Alimentano i mercati player e il lineup xG adjustment.
+- **Stats giocatore** (`PlayerDerivedStatsService.ts`): ricostruite dalle rose in `raw_json` — `avg_xg_per_game`, `xg_per90`, `shots_per90`, `shotShareOfTeam`, `yellow_cards_total`, `minutes_total`, `gamesPlayed`. Alimentano i mercati player (tiri, marcatore anytime) e il lineup xG adjustment. 🆕 **A4 (2026-07):** `shotShareOfTeam` = tiri giocatore / tiri squadra nelle **sole gare giocate** dal giocatore (prima: su tutte le gare del periodo → share depressa per chi saltava partite).
 - **Stats arbitro** (`RefereeDerivedStatsService.ts`): `avgYellow`, `avgFouls`, `avgRed`, `games`, `dispersionYellow`. Copertura arbitro ~22% (football-data ha Referee solo per la Premier).
 - 🆕 **Fonte supplementare** (`FootballDataService.ts`): football-data.co.uk (HTTP/CSV) riempie via COALESCE (solo i NULL) falli, corner, tiri, tiri in porta, cartellini, arbitro — portandoli a ~100%. Matching per data+squadre (alias map, 99.7%). Retention `pruneOldSeasons` (4 stagioni). Ha sostituito lo scraper SofaScore (rimosso).
 - **Ingestione:** `UnderstatScraper.ts` (dati calcio, HTTP/axios), `FootballDataService.ts` (stats supplementari, HTTP/CSV), `OddsApiService`/`odds-provider/*` (quote). Aggiornamento notturno alle **03:00 ora di Roma**.

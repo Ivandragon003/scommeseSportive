@@ -18,8 +18,12 @@ Metodo comune: misurazione sull'**intera pipeline di produzione** (fit → ensem
 | **Calibrazione per tipo di squadra (forti/deboli)** | logLoss cal −0.02/−0.03% | **p=0.35–0.48** | Stratificare frammenta i campioni; ECE peggiora. Calibrazione già saturata dall'ensemble | `player-adjustment-strength-calibration-2026-07.md` |
 | **Player Adjustment (assenze) — algoritmo attuale** | logLoss cal +0.01% (peggio) | **p=0.90** | Il DC cattura già le assenze via risultati recenti | `player-adjustment-strength-calibration-2026-07.md` |
 | **Player Adjustment (assenze) — avanzato (att/dif + ruoli)** | logLoss cal −0.02% | **p=0.57** | Segnale reale (54% match con ≥1 assente) ma non migliora le predizioni | `player-adjustment-strength-calibration-2026-07.md` |
-| **Parametro per-lega `leagueAvgYellow`** (3.8 → media reale) | logLoss raw +0.38% (peggio) | **p=0.016 direzione opposta** | Nell'attuale modello/pipeline il 3.8 globale produce risultati migliori sui gialli (causa non dimostrata) | `per-league-yellow-param-2026-07.md` |
+| **Parametro per-lega `leagueAvgYellow`** — **modello SQUADRA** (3.8 → media reale) | logLoss raw +0.38% (peggio) | **p=0.016 direzione opposta** | Nell'attuale modello/pipeline il 3.8 globale produce risultati migliori sui gialli squadra (causa non dimostrata). NB: sul modello **GIOCATORE** il per-lega è invece GO — vedi B6 nel formulario | `per-league-yellow-param-2026-07.md` |
 | **Vantaggio casa per-squadra** | nessun guadagno OOS | — | Il bias è di livello totale, non casa-specifico → risolto da `levelCorrection` | `per-team-home-advantage-analysis-2026-07.md` |
+| **B1 — split casa/trasferta gialli** | logLoss cal +0.25% (peggio) | 5/5 leghe peggiori | Dimezza il campione, il rumore supera il segnale casa/trasferta | `cards-opponent-bundle-b1-d1-d2-2026-07.md` |
+| **D2 — correlazione casa/ospite gialli** | logLoss ALL −0.04% (rumore) | incoerente (aiuta 2, peggiora 3 leghe) | L'overdispersion NegBin cattura già le code; la correlazione (ρ reale 0.18) doppia-conta | `cards-opponent-bundle-b1-d1-d2-2026-07.md` |
+| **D5 — rate tiri-in-porta scalato col blend** | logLoss SOT −1.22% (peggio) | — | Il volume blended si cancella nei SOT; forzarlo aggiunge rumore. Meglio l'accuratezza grezza | `shots-ot-d5-reds-d3-2026-07.md` |
+| **D3 — baseline rossi per-lega** | non misurabile (<0.1 card points) | — | Fattore rossi-arbitro attivo solo in Premier su rossi rari; plumbing per guadagno nullo | `shots-ot-d5-reds-d3-2026-07.md` |
 
 ## B. Interventi ex-bloccati per dati — ora SBLOCCATI (football-data.co.uk, 2026-07)
 
