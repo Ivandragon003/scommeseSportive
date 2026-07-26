@@ -427,7 +427,14 @@ export class SpecializedModels {
     const nAway = data.awayTeamSampleSize ?? 20;
 
     // --- Expected shots ---
-    const muHome = Math.max(3, data.homeTeamAvgShots * data.homeAdvantageShots / Math.max(0.5, data.awayTeamShotsSuppression));
+    // A1 (2026-07): shotsSuppression = tiri concessi / media lega, quindi >1 =
+    // difesa DEBOLE. I tiri di casa devono CRESCERE contro una difesa ospite
+    // debole: qui si divideva per awayTeamShotsSuppression (segno invertito, i
+    // tiri di casa calavano contro le difese peggiori), mentre muAway
+    // moltiplicava correttamente. Corretto in moltiplicazione, simmetrico a
+    // muAway. Validato in calibrazione as-of (tutte le stagioni): tiri totali
+    // −10.96% logLoss, tiri casa −7.34%, ECE totali 0.14→0.10.
+    const muHome = Math.max(3, data.homeTeamAvgShots * data.homeAdvantageShots * Math.max(0.5, data.awayTeamShotsSuppression));
     const muAway = Math.max(3, data.awayTeamAvgShots * Math.max(0.5, data.homeTeamShotsSuppression));
 
     const homeOTRate = Math.min(0.65, (data.homeTeamAvgShotsOT / Math.max(1, data.homeTeamAvgShots)) / Math.max(0.7, data.awayTeamShotsSuppression ** 0.5));
