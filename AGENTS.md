@@ -108,7 +108,7 @@ Sono priorita del progetto:
 - `btts`
 - `shots`
 - `shots on target`
-- `yellow cards over/under` (mercato attivo: dato gialli coperto ~50% dei match, modello squadra e giocatore implementati)
+- `cartellini totali over/under` (mercato attivo). **Aggiornato 2026-07 (A6/B4):** le quote `alternate_totals_cards` del provider sono "Total Cards / Bookings", non gialli. Il modello ora espone e confronta i **booking points** (`cardsTotalOver/Under` = giallo 1, rosso 2; helper `bookingPoints` in `dataHelpers`), e il backtest regola `cards_total` su `gialli + 2·rossi`. Understat codifica ogni espulsione come `0 gialli + 1 rosso`, quindi la formula `gialli + 2·rossi` è corretta e NON va cambiata in "solo rossi diretti". Modello squadra e giocatore implementati; baseline gialli per-lega nel modello giocatore (B6).
 - `exact score`
 - `handicap` (europeo e asiatico)
 - **scommesse singole sui giocatori** (`player props`): tiri giocatore, tiri in porta giocatore, gialli giocatore. Valutate quando esiste una quota bookmaker corrispondente e il matching giocatore non e ambiguo (`playerProps.ts`, `PredictionService.buildPlayerPropMarkets`).
