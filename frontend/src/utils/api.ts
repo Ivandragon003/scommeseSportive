@@ -1,7 +1,9 @@
 import axios, { AxiosRequestConfig } from 'axios';
 
 const API = axios.create({
-  baseURL: '/api',
+  // In produzione il frontend è un servizio separato dal backend. CRA
+  // sostituisce REACT_APP_* durante la build; in locale resta il proxy /api.
+  baseURL: (process.env.REACT_APP_API_URL || '/api').replace(/\/$/, ''),
   timeout: 30000,
 });
 
