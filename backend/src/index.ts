@@ -210,7 +210,22 @@ const logOddsRuntimeConfig = (): void => {
   });
 };
 
-app.use(cors({ origin: 'http://localhost:3000' }));
+const configuredCorsOrigins = String(process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = new Set(['http://localhost:3000', ...configuredCorsOrigins]);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Le richieste server-to-server non hanno Origin e devono restare consentite.
+    if (!origin || allowedCorsOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS origin non autorizzata: ${origin}`));
+  },
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
