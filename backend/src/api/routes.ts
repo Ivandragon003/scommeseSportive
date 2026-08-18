@@ -273,6 +273,7 @@ router.get('/matches/upcoming', async (req: Request, res: Response) => {
     const matches = await db.getUpcomingMatches({
       competition: req.query.competition as string | undefined,
       season: req.query.season as string | undefined,
+      untilIso: req.query.untilIso as string | undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
     });
     res.json({ success: true, data: matches, count: matches.length });
@@ -644,6 +645,197 @@ router.get('/bets/:userId', async (req: Request, res: Response) => {
     res.json({ success: true, data: await svc.getBets(req.params.userId, req.query.status as string) });
   }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ====== AUTOMATED INTERNAL BET CARD ======
+// This endpoint is intended for the nightly GitHub Actions runner. It deliberately
+// reuses the public odds/prediction/bet paths so the automation behaves exactly like
+// the UI button, while querying the DB first and never scanning an entire league.
+router.post('/automation/place-valid-bets', async (req: Request, res: Response) => {
+  const configuredToken = String(process.env.AUTO_BET_AUTOMATION_TOKEN ?? '').trim();
+  const suppliedToken = String(req.header('x-automation-token') ?? '').trim();
+  const remoteAddress = String(req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
+  const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1';
+  if ((configuredToken && suppliedToken !== configuredToken) || (!configuredToken && !isLoopback)) {
+    return res.status(401).json({ success: false, error: 'Automazione non autorizzata.' });
+  }
+
+  try {
+  const enabled = String(process.env.AUTO_BET_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+  const dryRun = req.body?.dryRun === true || String(process.env.AUTO_BET_DRY_RUN ?? 'false').trim().toLowerCase() === 'true';
+  if (!enabled && !dryRun) {
+    return res.status(409).json({ success: false, error: 'AUTO_BET_ENABLED=false: automazione disattivata.' });
+  }
+
+  const userId = String(req.body?.userId ?? process.env.AUTO_BET_USER_ID ?? 'user1').trim() || 'user1';
+  const windowHoursRaw = Number(req.body?.windowHours ?? process.env.AUTO_BET_WINDOW_HOURS ?? 24);
+  const windowHours = Number.isFinite(windowHoursRaw) ? Math.max(1, Math.min(windowHoursRaw, 48)) : 24;
+  const maxMatchesRaw = Number(req.body?.maxMatches ?? process.env.AUTO_BET_MAX_MATCHES ?? 100);
+  const maxMatches = Number.isFinite(maxMatchesRaw) ? Math.max(1, Math.min(Math.trunc(maxMatchesRaw), 200)) : 100;
+  const maxSnapshotAgeHoursRaw = Number(process.env.AUTO_BET_MAX_SNAPSHOT_AGE_HOURS ?? 36);
+  const maxSnapshotAgeHours = Number.isFinite(maxSnapshotAgeHoursRaw) ? Math.max(1, Math.min(maxSnapshotAgeHoursRaw, 168)) : 36;
+  const apiBase = String(req.body?.apiBase ?? `http://127.0.0.1:${process.env.PORT ?? 3001}/api`).replace(/\/$/, '');
+  const now = new Date();
+  const until = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
+  const matches = await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: until.toISOString(), limit: maxMatches });
+  const results: any[] = [];
+  let simulatedAvailableBudget: number | null = null;
+
+  const callApi = async (path: string, body: any) => {
+    const response = await fetch(`${apiBase}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) {
+      throw new Error(String(payload?.error ?? `HTTP ${response.status}`));
+    }
+    return payload?.data ?? payload;
+  };
+
+  for (const match of matches) {
+    const matchId = String(match.match_id ?? '').trim();
+    const homeTeam = String(match.home_team_name ?? '').trim();
+    const awayTeam = String(match.away_team_name ?? '').trim();
+    const competition = String(match.competition ?? '').trim();
+    const matchDate = String(match.date ?? '').trim();
+    const base = { matchId, homeTeam, awayTeam, competition, matchDate };
+    if (!matchId || !homeTeam || !awayTeam) {
+      results.push({ ...base, status: 'skipped', reason: 'fixture_incompleta' });
+      continue;
+    }
+
+    try {
+      let oddsData: any = await db.getLatestOddsSnapshotForMatch(matchId);
+      const snapshotAgeMs = oddsData?.captured_at ? Date.now() - Date.parse(String(oddsData.captured_at)) : Infinity;
+      const snapshotUsable = oddsData
+        && String(oddsData.source ?? '').trim() === 'odds_api'
+        && !oddsData.usedSyntheticOdds
+        && Object.keys(oddsData.liveSelectedOdds ?? oddsData.selectedOdds ?? {}).length > 0
+        && Number.isFinite(snapshotAgeMs)
+        && snapshotAgeMs <= maxSnapshotAgeHours * 60 * 60 * 1000;
+
+      if (!snapshotUsable) {
+        oddsData = await callApi('/scraper/odds/match', {
+          matchId,
+          competition,
+          homeTeam,
+          awayTeam,
+          commenceTime: matchDate,
+        });
+      }
+
+      const odds = oddsData?.liveSelectedOdds ?? oddsData?.selectedOdds ?? {};
+      const realOdds = String(oddsData?.source ?? '').trim() === 'odds_api'
+        && oddsData?.usedSyntheticOdds !== true
+        && Object.keys(odds).length > 0;
+      if (!realOdds) {
+        results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_disponibile' });
+        continue;
+      }
+
+      const prediction = await callApi('/predict', {
+        homeTeamId: String(match.home_team_id),
+        awayTeamId: String(match.away_team_id),
+        matchId,
+        competition,
+        bookmakerOdds: odds,
+      });
+      const opportunities = Array.isArray(prediction?.valueOpportunities)
+        ? prediction.valueOpportunities
+        : (prediction?.bestValueOpportunity ? [prediction.bestValueOpportunity] : []);
+      if (opportunities.length === 0) {
+        results.push({ ...base, status: 'skipped', reason: 'nessuna_giocata_valida' });
+        continue;
+      }
+
+      for (const opportunity of opportunities) {
+        const betStatus = String(opportunity?.bestBetStatus ?? prediction?.bestBetStatus ?? 'VALUE').toUpperCase();
+        const bookmakerOdds = Number(opportunity?.bookmakerOdds);
+        if (!opportunity || !Number.isFinite(bookmakerOdds) || bookmakerOdds <= 1) {
+          results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_valida', selection: opportunity?.selection ?? null });
+          continue;
+        }
+
+        const currentBudget = await svc.getBudget(userId);
+        const availableBudget = dryRun
+          ? (simulatedAvailableBudget ?? Number(currentBudget?.available_budget ?? 0))
+          : Number(currentBudget?.available_budget ?? 0);
+        if (!Number.isFinite(availableBudget) || availableBudget <= 0) {
+          results.push({ ...base, status: 'skipped', reason: 'budget_non_disponibile', selection: opportunity.selection });
+          continue;
+        }
+        if (simulatedAvailableBudget === null) simulatedAvailableBudget = availableBudget;
+        const suggestedStakePercent = Number(opportunity.suggestedStakePercent ?? 0);
+        if (!Number.isFinite(suggestedStakePercent) || suggestedStakePercent <= 0) {
+          results.push({ ...base, status: 'skipped', reason: 'percentuale_stake_non_valida', selection: opportunity.selection });
+          continue;
+        }
+        const calculatedStake = Math.max(1, Number((availableBudget * suggestedStakePercent / 100).toFixed(2)));
+
+        const betPayload = {
+          userId,
+          matchId,
+          marketName: String(opportunity.marketName ?? ''),
+          selection: String(opportunity.selection ?? ''),
+          odds: bookmakerOdds,
+          stake: calculatedStake,
+          ourProbability: Number(opportunity.ourProbability ?? 0) / 100,
+          expectedValue: Number(opportunity.expectedValue ?? 0) / 100,
+          homeTeamName: homeTeam,
+          awayTeamName: awayTeam,
+          competition,
+          matchDate,
+        };
+        if (dryRun) {
+          simulatedAvailableBudget = Number((availableBudget - calculatedStake).toFixed(2));
+          results.push({ ...base, status: 'dry_run', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake });
+          continue;
+        }
+
+        try {
+          const placed = await svc.placeBet(
+            betPayload.userId,
+            betPayload.matchId,
+            betPayload.marketName,
+            betPayload.selection,
+            betPayload.odds,
+            betPayload.stake,
+            betPayload.ourProbability,
+            betPayload.expectedValue,
+            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate }
+          );
+          results.push({ ...base, status: 'placed', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, betId: placed?.bet?.betId ?? null });
+        } catch (error: any) {
+          results.push({ ...base, status: 'skipped', reason: String(error?.message ?? error), selection: betPayload.selection });
+        }
+      }
+    } catch (error: any) {
+      results.push({ ...base, status: 'skipped', reason: String(error?.message ?? error) });
+    }
+  }
+
+  return res.json({
+    success: true,
+    data: {
+      enabled,
+      dryRun,
+      userId,
+      windowHours,
+      from: now.toISOString(),
+      until: until.toISOString(),
+      candidates: matches.length,
+      placed: results.filter((item) => item.status === 'placed').length,
+      dryRunCount: results.filter((item) => item.status === 'dry_run').length,
+      skipped: results.filter((item) => item.status === 'skipped').length,
+      results,
+    },
+  });
+  } catch (error: any) {
+    console.error('[Automation] Errore creazione giocate:', error?.message ?? error);
+    return res.status(500).json({ success: false, error: error?.message ?? 'Errore automazione giocate.' });
+  }
 });
 
 // ====== BACKTEST ======

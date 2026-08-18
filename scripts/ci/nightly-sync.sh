@@ -123,10 +123,12 @@ post_json \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
 
 echo "Running football-data.co.uk supplemental sync (fouls/corners/shots/cards/referee) + season retention..."
-post_json \
+if ! post_json \
   "http://127.0.0.1:$PORT/api/scraper/football-data" \
   "{\"keepSeasons\":$FOOTBALL_DATA_KEEP_SEASONS,\"recomputeAverages\":true}" \
-  "$FOOTBALL_DATA_TIMEOUT_SECONDS"
+  "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
+  echo "Warning: supplemental football-data sync failed; continuing with the primary Understat data."
+fi
 
 if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
@@ -143,6 +145,12 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
 fi
+
+echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
+post_json \
+  "http://127.0.0.1:$PORT/api/automation/place-valid-bets" \
+  "{\"userId\":\"${AUTO_BET_USER_ID:-user1}\",\"windowHours\":${AUTO_BET_WINDOW_HOURS:-24},\"maxMatches\":${AUTO_BET_MAX_MATCHES:-100}}" \
+  "${AUTO_BET_TIMEOUT_SECONDS:-3600}"
 
 echo "Running learning review sync..."
 post_json \
