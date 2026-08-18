@@ -1560,7 +1560,7 @@ export class DatabaseService {
     };
   }
 
-  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string }): Promise<any[]> {
+  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string; untilIso?: string }): Promise<any[]> {
     const parsedNow = Date.parse(String(filters?.nowIso ?? ''));
     const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -1573,6 +1573,12 @@ export class DatabaseService {
         AND away_goals IS NULL
     `;
     const params: any[] = [nowIso];
+
+    const parsedUntil = Date.parse(String(filters?.untilIso ?? ''));
+    if (Number.isFinite(parsedUntil)) {
+      q += ' AND datetime(date) <= datetime(?)';
+      params.push(new Date(parsedUntil).toISOString());
+    }
 
     if (filters?.competition) {
       q += ' AND competition = ?';

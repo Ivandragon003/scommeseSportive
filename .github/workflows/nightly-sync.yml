@@ -35,6 +35,11 @@ jobs:
       LEARNING_SYNC_TIMEOUT_SECONDS: '1800'
       ODDS_SYNC_TIMEOUT_SECONDS: '1800'
       FINAL_STATUS_TIMEOUT_SECONDS: '120'
+      AUTO_BET_ENABLED: 'true'
+      AUTO_BET_DRY_RUN: 'false'
+      AUTO_BET_USER_ID: 'user1'
+      AUTO_BET_WINDOW_HOURS: '24'
+      AUTO_BET_MAX_MATCHES: '100'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
