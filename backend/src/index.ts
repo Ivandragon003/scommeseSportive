@@ -214,7 +214,11 @@ const configuredCorsOrigins = String(process.env.CORS_ORIGIN ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const allowedCorsOrigins = new Set(['http://localhost:3000', ...configuredCorsOrigins]);
+const allowedCorsOrigins = new Set([
+  'http://localhost:3000',
+  'https://scommese-sportive-frontend.hostless.site',
+  ...configuredCorsOrigins,
+]);
 
 app.use(cors({
   origin: (origin, callback) => {
