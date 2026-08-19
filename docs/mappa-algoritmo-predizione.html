@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Dal dato alla giocata — mappa interattiva dell'algoritmo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f9fe;
+      --surface: #ffffff;
+      --surface-2: #f8fbff;
+      --surface-3: #edf5fc;
+      --border: #d5e2ee;
+      --border-strong: #a9bfd3;
+      --text: #132238;
+      --muted: #51657a;
+      --soft: #718399;
+      --primary: #1677c8;
+      --primary-strong: #0f5fa8;
+      --primary-dim: #eaf4ff;
+      --green: #1f6b4f;
+      --green-dim: #edf5f0;
+      --gold: #8a5b13;
+      --gold-dim: #faf4e8;
+      --red: #a83b32;
+      --red-dim: #fbefed;
+      --focus: rgba(22, 119, 200, 0.34);
+      --shadow: 0 14px 36px rgba(19, 34, 56, 0.1);
+      --radius: 14px;
+      --font-sans: Aptos, "Segoe UI", Arial, sans-serif;
+      --font-mono: Consolas, "SFMono-Regular", monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #091521;
+        --surface: #101f2e;
+        --surface-2: #132638;
+        --surface-3: #183149;
+        --border: #29445c;
+        --border-strong: #436681;
+        --text: #edf6ff;
+        --muted: #b2c4d5;
+        --soft: #91a9bd;
+        --primary: #58a9e8;
+        --primary-strong: #85c6f4;
+        --primary-dim: #173a55;
+        --green: #71c9a7;
+        --green-dim: #173b31;
+        --gold: #efc775;
+        --gold-dim: #3b301b;
+        --red: #f39a91;
+        --red-dim: #442622;
+        --focus: rgba(88, 169, 232, 0.44);
+        --shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px),
+        var(--bg);
+      background-size: 48px 48px;
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+    }
+
+    button, a { font: inherit; }
+
+    a { color: var(--primary-strong); }
+
+    a:hover { text-decoration-thickness: 2px; }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    .page-shell {
+      width: min(1500px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .masthead {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(290px, 0.7fr);
+      gap: 28px;
+      align-items: end;
+      padding: clamp(24px, 4vw, 52px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow,
+    .phase-kicker,
+    .detail-kicker,
+    .snapshot-time {
+      margin: 0;
+      color: var(--primary-strong);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 12px 0 16px;
+      font-size: clamp(2.15rem, 5vw, 5.3rem);
+      font-weight: 750;
+      letter-spacing: -0.055em;
+      line-height: 0.95;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.5vw, 1.18rem);
+    }
+
+    .snapshot {
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-left: 5px solid var(--primary);
+      background: var(--surface-2);
+    }
+
+    .snapshot h2 {
+      margin: 6px 0 10px;
+      font-size: clamp(1.55rem, 3vw, 2.35rem);
+      line-height: 1;
+    }
+
+    .snapshot p { margin: 0; color: var(--muted); }
+
+    .snapshot-score {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .snapshot-score div {
+      padding: 11px 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      text-align: center;
+    }
+
+    .snapshot-score strong { display: block; font-size: 1.05rem; }
+    .snapshot-score span { color: var(--soft); font-size: 0.72rem; text-transform: uppercase; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(330px, 0.8fr);
+      gap: 20px;
+      margin-top: 20px;
+      align-items: start;
+    }
+
+    .map-panel,
+    .detail-panel,
+    .notes {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .map-panel { padding: clamp(18px, 3vw, 34px); }
+
+    .map-heading {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px 24px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    .map-heading h2 { margin: 4px 0 0; font-size: clamp(1.45rem, 3vw, 2.3rem); }
+
+    .progress-label { color: var(--muted); font-family: var(--font-mono); font-size: 0.82rem; }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .phase {
+      position: relative;
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .phase:first-child { border-radius: 12px 3px 3px 12px; }
+    .phase:last-child { border-radius: 3px 12px 12px 3px; }
+
+    .phase:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      z-index: 3;
+      top: 50%;
+      right: -22px;
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--primary);
+      font-weight: 800;
+      transform: translateY(-50%);
+    }
+
+    .phase h3 { margin: 4px 0 15px; font-size: 1.05rem; }
+
+    .station-list {
+      position: relative;
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .station-list::before {
+      content: "";
+      position: absolute;
+      top: 18px;
+      bottom: 18px;
+      left: 18px;
+      width: 2px;
+      background: var(--border-strong);
+    }
+
+    .station { position: relative; }
+
+    .station button {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 10px 11px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .station button:hover { border-color: var(--primary); transform: translateY(-1px); }
+
+    .station button.is-complete {
+      border-color: color-mix(in srgb, var(--green) 44%, var(--border));
+      background: var(--green-dim);
+    }
+
+    .station button[aria-current="step"] {
+      border-color: var(--primary);
+      background: var(--primary-dim);
+      box-shadow: inset 4px 0 0 var(--primary);
+    }
+
+    .station-number {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--border-strong);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    [aria-current="step"] .station-number {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+
+    .is-complete .station-number { border-color: var(--green); color: var(--green); }
+    .station-name { font-size: 0.86rem; font-weight: 700; line-height: 1.2; }
+
+    .map-help {
+      margin: 18px 0 0;
+      color: var(--soft);
+      font-size: 0.8rem;
+    }
+
+    .detail-panel {
+      position: sticky;
+      top: 18px;
+      overflow: hidden;
+    }
+
+    .detail-top {
+      min-height: 370px;
+      padding: clamp(22px, 3vw, 32px);
+    }
+
+    .detail-top h2 {
+      margin: 8px 0 12px;
+      font-size: clamp(1.65rem, 3vw, 2.5rem);
+      letter-spacing: -0.035em;
+      line-height: 1.05;
+    }
+
+    .detail-summary { margin: 0 0 20px; color: var(--muted); }
+
+    .formula {
+      margin: 18px 0;
+      padding: 14px;
+      overflow-wrap: anywhere;
+      border-left: 4px solid var(--primary);
+      background: var(--surface-3);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+
+    .evidence {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .evidence li {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .evidence strong { color: var(--text); text-align: right; }
+
+    .detail-nav {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .detail-nav button {
+      min-height: 44px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .detail-nav button:last-child { border-color: var(--primary); background: var(--primary); color: white; }
+    .detail-nav button:disabled { cursor: not-allowed; opacity: 0.42; }
+
+    .notes {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 28px;
+      margin-top: 20px;
+      padding: clamp(22px, 3vw, 34px);
+    }
+
+    .notes h2 { margin: 0 0 10px; font-size: 1.35rem; }
+    .notes p { margin: 0; color: var(--muted); }
+    .notes ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); }
+    .notes li + li { margin-top: 7px; }
+
+    .verdict {
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--green) 44%, var(--border));
+      background: var(--green-dim);
+    }
+
+    .verdict span { color: var(--green); font-family: var(--font-mono); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
+    .verdict strong { display: block; margin: 6px 0 3px; font-size: 1.35rem; }
+    .verdict small { color: var(--muted); }
+
+    noscript {
+      display: block;
+      margin: 16px auto;
+      padding: 12px;
+      width: min(900px, calc(100% - 32px));
+      background: var(--red-dim);
+      color: var(--red);
+      text-align: center;
+    }
+
+    @media (max-width: 1120px) {
+      .masthead, .workspace { grid-template-columns: 1fr; }
+      .detail-panel { position: static; }
+      .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .phase:nth-child(2)::after { display: none; }
+      .phase { border-radius: 8px !important; }
+    }
+
+    @media (max-width: 680px) {
+      .page-shell { width: min(100% - 20px, 1500px); padding-top: 10px; }
+      .masthead { padding: 22px 18px; }
+      h1 { font-size: clamp(2.25rem, 15vw, 4rem); }
+      .snapshot-score { grid-template-columns: 1fr; }
+      .pipeline, .notes { grid-template-columns: 1fr; }
+      .phase:not(:last-child)::after { display: none; }
+      .phase { padding: 13px; }
+      .detail-top { min-height: 0; }
+      .evidence li { display: grid; gap: 2px; }
+      .evidence strong { text-align: left; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <noscript>Questa mappa richiede JavaScript per cambiare passaggio. Tutti i dati restano incorporati nel file.</noscript>
+  <main class="page-shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">FootPredictor · dossier tecnico interattivo</p>
+        <h1>Dal dato alla giocata.</h1>
+        <p class="lede">Undici stazioni trasformano statistiche calcistiche e quote bookmaker in una sola proposta finale. Seleziona un nodo per vedere cosa entra, quale calcolo avviene e cosa ne esce.</p>
+      </div>
+      <aside class="snapshot" aria-label="Partita usata nell'esempio">
+        <p class="snapshot-time">Snapshot · 19 agosto 2026, 23:37 CEST</p>
+        <h2>Inter–Monza</h2>
+        <p>Serie A · 22 agosto 2026, 18:30. La prima gara elencata nel calendario ufficiale della giornata.</p>
+        <div class="snapshot-score" aria-label="Probabilità uno x due">
+          <div><strong>65,91%</strong><span>Inter</span></div>
+          <div><strong>19,55%</strong><span>Pareggio</span></div>
+          <div><strong>14,54%</strong><span>Monza</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <div class="workspace">
+      <section class="map-panel" aria-labelledby="map-title">
+        <div class="map-heading">
+          <div>
+            <p class="eyebrow">Mappa del percorso</p>
+            <h2 id="map-title">Dati → decisione</h2>
+          </div>
+          <span class="progress-label" id="progress-label">Passaggio 1 di 11</span>
+        </div>
+
+        <ol class="pipeline" aria-label="Passaggi dell'algoritmo">
+          <li class="phase">
+            <p class="phase-kicker">Zona 01</p>
+            <h3>Raccolta</h3>
+            <ol class="station-list">
+              <li class="station"><button type="button" data-step="1" aria-current="step"><span class="station-number">01</span><span class="station-name">Fonti e snapshot</span></button></li>
+              <li class="station"><button type="button" data-step="2"><span class="station-number">02</span><span class="station-name">Memoria temporale</span></button></li>
+              <li class="station"><button type="button" data-step="3"><span class="station-number">03</span><span class="station-name">Contesto partita</span></button></li>
+            </ol>
+          </li>
+          <li class="phase">
+            <p class="phase-kicker">Zona 02</p>
+            <h3>Modellazione</h3>
+            <ol class="station-list">
+              <li class="station"><button type="button" data-step="4"><span class="station-number">04</span><span class="station-name">Gol attesi</span></button></li>
+              <li class="station"><button type="button" data-step="5"><span class="station-number">05</span><span class="station-name">Matrice risultati</span></button></li>
+              <li class="station"><button type="button" data-step="6"><span class="station-number">06</span><span class="station-name">Mercati specializzati</span></button></li>
+              <li class="station"><button type="button" data-step="7"><span class="station-number">07</span><span class="station-name">Ensemble</span></button></li>
+            </ol>
+          </li>
+          <li class="phase">
+            <p class="phase-kicker">Zona 03</p>
+            <h3>Confronto</h3>
+            <ol class="station-list">
+              <li class="station"><button type="button" data-step="8"><span class="station-number">08</span><span class="station-name">Calibrazione</span></button></li>
+              <li class="station"><button type="button" data-step="9"><span class="station-number">09</span><span class="station-name">Mercato senza margine</span></button></li>
+            </ol>
+          </li>
+          <li class="phase">
+            <p class="phase-kicker">Zona 04</p>
+            <h3>Decisione</h3>
+            <ol class="station-list">
+              <li class="station"><button type="button" data-step="10"><span class="station-number">10</span><span class="station-name">Valore e rischio</span></button></li>
+              <li class="station"><button type="button" data-step="11"><span class="station-number">11</span><span class="station-name">Una sola giocata</span></button></li>
+            </ol>
+          </li>
+        </ol>
+        <p class="map-help">Suggerimento: usa Tab per entrare nella mappa; poi Freccia sinistra/destra, Home o Fine per spostarti tra i passaggi.</p>
+      </section>
+
+      <aside class="detail-panel" aria-labelledby="detail-title" aria-live="polite">
+        <div class="detail-top">
+          <p class="detail-kicker" id="detail-kicker">Passaggio 01 · Raccolta</p>
+          <h2 id="detail-title">Fonti e snapshot</h2>
+          <p class="detail-summary" id="detail-summary"></p>
+          <div class="formula" id="detail-formula"></div>
+          <ul class="evidence" id="detail-evidence"></ul>
+        </div>
+        <nav class="detail-nav" aria-label="Navigazione tra i passaggi">
+          <button type="button" id="previous-step">← Precedente</button>
+          <button type="button" id="next-step">Successivo →</button>
+        </nav>
+      </aside>
+    </div>
+
+    <section class="notes" aria-labelledby="notes-title">
+      <div>
+        <h2 id="notes-title">Come leggere l’esempio</h2>
+        <p>È una fotografia del sistema, non una promessa sul risultato. Le quote cambiano, i dati possono aggiornarsi e una probabilità alta non elimina l’incertezza.</p>
+        <ul>
+          <li><a href="https://images.legaseriea.it/image/private/fl_attachment/prd/czailts3apyt3kuxjran.pdf" target="_blank" rel="noreferrer">Calendario ufficiale Lega Serie A 2026/27</a></li>
+          <li><a href="FORMULARIO-sistema-scommesse.md">Formulario tecnico del progetto</a></li>
+          <li><a href="../backend/src/services/PredictionService.ts">Servizio di prediction</a> e <a href="../backend/src/models/core/DixonColesModel.ts">modello Dixon–Coles</a></li>
+        </ul>
+      </div>
+      <div class="verdict">
+        <span>Esito della pipeline nello snapshot</span>
+        <strong>BTTS Sì @ 2,52</strong>
+        <small>Probabilità finale 51,28% · EV +29,22% · stake suggerito 2,37% · stato PLAYABLE</small>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const steps = [
+      {
+        phase: 'Raccolta',
+        title: 'Fonti e snapshot',
+        summary: 'La pipeline parte da dati reali e separa nettamente statistiche calcistiche e quote. Understat resta la fonte primaria; football-data.co.uk completa solo campi mancanti, senza sovrascriverli.',
+        formula: 'Understat ⊕ COALESCE(football-data.co.uk) ⊕ quote reali',
+        evidence: [['Fixture', 'Inter–Monza · 22/08/2026'], ['Quote 1X2', '1,22 · 6,40 · 13,00'], ['Altri mercati', 'O2.5 1,59 · BTTS Sì 2,52']]
+      },
+      {
+        phase: 'Raccolta',
+        title: 'Memoria temporale',
+        summary: 'Le partite recenti pesano più di quelle lontane. Il decadimento esponenziale evita che una stagione vecchia conti quanto l’ultima settimana, senza buttare via lo storico.',
+        formula: 'peso(giorni) = e^(−0,005 × giorni) · emivita ≈ 139 giorni',
+        evidence: [['Effetto', 'più peso alla forma recente'], ['Storico', 'resta disponibile'], ['Campione', 'forza statistica = 1,00']]
+      },
+      {
+        phase: 'Raccolta',
+        title: 'Contesto partita',
+        summary: 'Il modello costruisce il contesto pre-match: fattore campo, forma, giorni di riposo, assenze, competitività e affidabilità delle statistiche disponibili.',
+        formula: 'contesto = campo + forma + riposo + assenze + arbitro + qualità dati',
+        evidence: [['Vantaggio casa', '0,621'], ['Delta forma', '+0,25 Inter'], ['Delta riposo', '−1 giorno'], ['Ricchezza dati', '0,74']]
+      },
+      {
+        phase: 'Modellazione',
+        title: 'Gol attesi con Dixon–Coles',
+        summary: 'Un modello Dixon–Coles stima la forza offensiva e difensiva delle squadre. Gli xG pesano nel fit, mentre la correzione tau tratta la dipendenza dei punteggi bassi.',
+        formula: 'λ casa = 2,129 · λ trasferta = 0,887 · P(x,y) = Poisson(x;λh) × Poisson(y;λa) × τ',
+        evidence: [['Gol attesi Inter', '2,129'], ['Gol attesi Monza', '0,887'], ['Gol totali attesi', '3,016']]
+      },
+      {
+        phase: 'Modellazione',
+        title: 'Matrice dei risultati',
+        summary: 'Le probabilità di ogni punteggio vengono normalizzate e aggregate nei mercati: 1X2, over/under, BTTS, risultato esatto, handicap, doppia chance e draw-no-bet.',
+        formula: 'P(mercato) = Σ P(punteggi compatibili con il mercato)',
+        evidence: [['1X2', '65,91% · 19,55% · 14,54%'], ['Over 2,5', '58,04%'], ['BTTS grezzo', '51,82%'], ['Top score', '2–0 · 11,10%']]
+      },
+      {
+        phase: 'Modellazione',
+        title: 'Mercati specializzati',
+        summary: 'Conteggi come tiri, cartellini e corner usano modelli dedicati e filtri di disponibilità. Le giocate sui giocatori restano separate e non vengono proposte se il matching è incompleto o ambiguo.',
+        formula: 'mercato attivo ⇔ dato coperto ∧ modello valido ∧ quota corrispondente',
+        evidence: [['Affidabilità tiri', '0,912'], ['Affidabilità corner', '1,000'], ['Cartellini attesi', '2,778'], ['Player props', 'nessuna: matching incompleto']]
+      },
+      {
+        phase: 'Modellazione',
+        title: 'Ensemble dei modelli',
+        summary: 'Per le famiglie legate ai gol, la stima Dixon–Coles viene combinata con una seconda lettura Poisson/xG. L’accordo fra modelli riduce la dipendenza da una singola ipotesi.',
+        formula: 'P ensemble = 0,50 × P Dixon–Coles + 0,50 × P Poisson/xG',
+        evidence: [['Peso Dixon–Coles', '50%'], ['Peso Poisson/xG', '50%'], ['Uscita BTTS', '51,82% prima della calibrazione']]
+      },
+      {
+        phase: 'Confronto',
+        title: 'Calibrazione isotona',
+        summary: 'La probabilità grezza viene corretta usando il comportamento storico del modello. Lo scopo non è rendere il numero più ottimista, ma far sì che valori simili corrispondano più spesso a frequenze osservate simili.',
+        formula: '51,82% grezzo → calibrazione isotona → 56,48%',
+        evidence: [['Prima', '51,82%'], ['Dopo', '56,48%'], ['Metodo', 'mappatura monotona appresa dallo storico']]
+      },
+      {
+        phase: 'Confronto',
+        title: 'Mercato senza margine',
+        summary: 'La quota viene trasformata in probabilità implicita e depurata dal margine del bookmaker. Modello e mercato vengono poi miscelati in base alla qualità informativa disponibile.',
+        formula: 'P finale = 0,717 × 56,48% + 0,283 × 38,08% = 51,28%',
+        evidence: [['Quota BTTS Sì', '2,52'], ['Mercato no-vig', '38,08%'], ['Peso modello', '71,7%'], ['Peso mercato', '28,3%']]
+      },
+      {
+        phase: 'Decisione',
+        title: 'Valore, rischio e stake',
+        summary: 'Una quota interessante deve superare soglie dinamiche di edge ed EV. Incertezza, qualità dati e penalità di rischio riducono l’aggressività; lo stake deriva da un Kelly frazionario.',
+        formula: 'EV = 51,28% × 2,52 − 1 = +29,22% · stake suggerito = 2,37%',
+        evidence: [['Edge no-vig', '+13,20 punti'], ['Soglia EV', '9,16%'], ['Incertezza', '0,568'], ['Penalità rischio', '0,199']]
+      },
+      {
+        phase: 'Decisione',
+        title: 'Una sola giocata finale',
+        summary: 'Le opportunità ammissibili vengono ordinate per punteggio corretto per il rischio. Per i mercati squadra la UI riceve una sola scelta, così il consiglio resta leggibile e non diventa una lista indiscriminata.',
+        formula: 'migliore opportunità valida → BTTS Sì @ 2,52 · stato PLAYABLE',
+        evidence: [['Probabilità finale', '51,28%'], ['EV', '+29,22%'], ['Stake', '2,37%'], ['Ranking score', '1,004']]
+      }
+    ];
+
+    const controls = [...document.querySelectorAll('[data-step]')];
+    const progressLabel = document.getElementById('progress-label');
+    const kicker = document.getElementById('detail-kicker');
+    const title = document.getElementById('detail-title');
+    const summary = document.getElementById('detail-summary');
+    const formula = document.getElementById('detail-formula');
+    const evidence = document.getElementById('detail-evidence');
+    const previous = document.getElementById('previous-step');
+    const next = document.getElementById('next-step');
+    let activeIndex = 0;
+
+    function selectStep(index, moveFocus = false) {
+      activeIndex = Math.max(0, Math.min(steps.length - 1, index));
+      const step = steps[activeIndex];
+
+      controls.forEach((control, controlIndex) => {
+        if (controlIndex === activeIndex) {
+          control.setAttribute('aria-current', 'step');
+        } else {
+          control.removeAttribute('aria-current');
+        }
+        control.classList.toggle('is-complete', controlIndex < activeIndex);
+      });
+
+      progressLabel.textContent = `Passaggio ${activeIndex + 1} di ${steps.length}`;
+      kicker.textContent = `Passaggio ${String(activeIndex + 1).padStart(2, '0')} · ${step.phase}`;
+      title.textContent = step.title;
+      summary.textContent = step.summary;
+      formula.textContent = step.formula;
+      evidence.replaceChildren(...step.evidence.map(([label, value]) => {
+        const item = document.createElement('li');
+        const labelNode = document.createElement('span');
+        const valueNode = document.createElement('strong');
+        labelNode.textContent = label;
+        valueNode.textContent = value;
+        item.append(labelNode, valueNode);
+        return item;
+      }));
+
+      previous.disabled = activeIndex === 0;
+      next.disabled = activeIndex === steps.length - 1;
+      if (moveFocus) controls[activeIndex].focus();
+    }
+
+    controls.forEach((control, index) => {
+      control.addEventListener('click', () => selectStep(index));
+      control.addEventListener('keydown', (event) => {
+        const keyMap = {
+          ArrowRight: activeIndex + 1,
+          ArrowDown: activeIndex + 1,
+          ArrowLeft: activeIndex - 1,
+          ArrowUp: activeIndex - 1,
+          Home: 0,
+          End: steps.length - 1
+        };
+        if (Object.hasOwn(keyMap, event.key)) {
+          event.preventDefault();
+          selectStep(keyMap[event.key], true);
+        }
+      });
+    });
+
+    previous.addEventListener('click', () => selectStep(activeIndex - 1));
+    next.addEventListener('click', () => selectStep(activeIndex + 1));
+    selectStep(0);
+  </script>
+</body>
+</html>
