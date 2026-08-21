@@ -118,6 +118,7 @@ export interface BetOpportunity {
   riskReasons?: string[];
   dataQuality?: number;
   companionOddsAvailable?: boolean;
+  evReason?: 'computed' | 'computed_reduced_missing_complement' | 'computed_insufficient_complement' | 'missing_odds' | 'invalid_odds' | 'synthetic_odds' | 'stale_odds' | 'unsupported_market' | 'calculation_error';
   uncertaintyFactor?: number;
   riskPenalty?: number;
   rankingScore?: number;
@@ -2840,13 +2841,24 @@ export class ValueBettingEngine {
     context: SingleMatchBetSelectionContext = {}
   ): SingleMatchBetSelectionResult {
     const minScore = Number(context.minRiskAdjustedScore ?? 0.14);
+    const excludedReasons = new Set<BetOpportunity['evReason']>([
+      'computed_insufficient_complement',
+      'missing_odds',
+      'invalid_odds',
+      'synthetic_odds',
+      'stale_odds',
+      'unsupported_market',
+      'calculation_error',
+    ]);
     const candidates = (opportunities ?? [])
       .filter((opportunity) =>
         opportunity &&
         Number.isFinite(Number(opportunity.bookmakerOdds)) &&
         Number(opportunity.bookmakerOdds) > 1 &&
         Number.isFinite(Number(opportunity.ourProbability)) &&
-        Number(opportunity.ourProbability) > 0
+        Number(opportunity.ourProbability) > 0 &&
+        Number(opportunity.expectedValue ?? 0) > 0 &&
+        !excludedReasons.has(opportunity.evReason)
       )
       .map((opportunity) => ({
         opportunity,
