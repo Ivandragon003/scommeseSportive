@@ -44,6 +44,24 @@ import {
   RANKING_VERSION,
 } from '../config/algorithmVersions';
 
+export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationSample: number): any {
+  const ev = Number(opportunity.expectedValue ?? 0);
+  const rawSampleSize = opportunity.calibrationSampleSize;
+  const sampleSize = Number(rawSampleSize);
+  const sampleUnknown = rawSampleSize === null || rawSampleSize === undefined || !Number.isFinite(sampleSize);
+  const insufficientSample = opportunity.categoryCalibrationStatus === 'insufficient_sample'
+    || sampleUnknown
+    || sampleSize < minimumCalibrationSample;
+  const warnings = new Set<string>(opportunity.dataWarnings ?? []);
+  if (insufficientSample) warnings.add('calibration_sample_insufficient');
+  return {
+    ...opportunity,
+    confidence: insufficientSample ? 'LOW' : opportunity.confidence,
+    isValueBet: ev <= 0 ? false : opportunity.isValueBet,
+    dataWarnings: Array.from(warnings),
+  };
+}
+
 export const TOP_5_BACKTEST_KEY = 'TOP_5';
 export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
 
@@ -1725,21 +1743,11 @@ export class PredictionService {
     const anomalousEvPercent = Math.max(0, Number(process.env.PREDICTION_ANOMALOUS_EV_PERCENT ?? 15));
     const applyPrudentialGate = (opportunity: any): any => {
       const ev = Number(opportunity.expectedValue ?? 0);
-      const sampleSize = Number(opportunity.calibrationSampleSize);
-      const insufficientSample = opportunity.categoryCalibrationStatus === 'insufficient_sample'
-        || (Number.isFinite(sampleSize) && sampleSize < minimumCalibrationSample);
       const anomaly = ev > anomalousEvPercent;
-      const warnings = new Set<string>(opportunity.dataWarnings ?? []);
-      if (insufficientSample) warnings.add('calibration_sample_insufficient');
+      const gated = applyCalibrationSampleGate(opportunity, minimumCalibrationSample);
+      const warnings = new Set<string>(gated.dataWarnings ?? []);
       if (anomaly) warnings.add('anomalous_ev_requires_review');
-      return {
-        ...opportunity,
-        // Defensive gate: it caps confidence but deliberately does not alter
-        // the HIGH/MEDIUM/LOW thresholds. Fase 5 remains blocked pending OOS validation.
-        confidence: insufficientSample ? 'LOW' : opportunity.confidence,
-        isValueBet: ev <= 0 ? false : opportunity.isValueBet,
-        dataWarnings: Array.from(warnings),
-      };
+      return { ...gated, dataWarnings: Array.from(warnings) };
     };
     const valueOpportunities = enhanced.allBets.map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];

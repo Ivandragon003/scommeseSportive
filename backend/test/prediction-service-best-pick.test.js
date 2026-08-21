@@ -2,10 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   PredictionService,
+  applyCalibrationSampleGate,
   TOP_5_BACKTEST_KEY,
   TOP_5_COMPETITIONS,
   buildTop5BacktestAggregate,
 } = require('../dist/services/PredictionService.js');
+
+test('should not promote to MEDIUM when calibration sample size is unknown (regression: high-odds market with null sample)', () => {
+  const gated = applyCalibrationSampleGate({
+    selection: 'dnb_away',
+    bookmakerOdds: 5.4,
+    expectedValue: 25.79,
+    kellyFraction: 1.47,
+    confidence: 'MEDIUM',
+    isValueBet: true,
+    calibrationSampleSize: null,
+  }, 30);
+
+  assert.equal(gated.confidence, 'LOW');
+  assert.equal(gated.isValueBet, true);
+  assert.ok(gated.dataWarnings.includes('calibration_sample_insufficient'));
+});
 
 test('statistical market can become final recommended pick when data reliability is strong', () => {
   const service = new PredictionService({});
