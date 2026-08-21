@@ -33,15 +33,17 @@ const predictionColumns = `
   has_configurable_thresholds INTEGER NOT NULL DEFAULT 0
 `;
 
-async function createPredictionDatabase() {
+async function createPredictionDatabase({ applyTriggers = true } = {}) {
   const db = createClient({ url: 'file::memory:' });
   await db.execute(`CREATE TABLE predictions (${predictionColumns})`);
-  for (const statement of PREDICTION_IMMUTABILITY_STATEMENTS) await db.execute(statement);
   await db.execute({
     sql: `INSERT INTO predictions (prediction_id, match_id, market, selection, raw_probability)
           VALUES (?, ?, ?, ?, ?)`,
     args: ['prediction-1', 'match-1', 'dnb', 'away', 0.55],
   });
+  if (applyTriggers) {
+    for (const statement of PREDICTION_IMMUTABILITY_STATEMENTS) await db.execute(statement);
+  }
   return db;
 }
 
@@ -75,4 +77,19 @@ test('prediction records allow exactly one pending to settled result transition'
     db.execute(`UPDATE predictions SET settled_at = '2026-08-21T13:00:00Z' WHERE prediction_id = 'prediction-1'`),
     /immutable/i,
   );
+});
+
+test('pending prediction created before trigger installation can still settle', async () => {
+  const db = await createPredictionDatabase({ applyTriggers: false });
+  for (const statement of PREDICTION_IMMUTABILITY_STATEMENTS) await db.execute(statement);
+
+  await db.execute(`
+    UPDATE predictions
+    SET result = 'win', settled_at = '2026-08-21T12:00:00Z'
+    WHERE prediction_id = 'prediction-1'
+  `);
+
+  const result = await db.execute(`SELECT result, settled_at FROM predictions WHERE prediction_id = 'prediction-1'`);
+  assert.equal(result.rows[0].result, 'win');
+  assert.equal(result.rows[0].settled_at, '2026-08-21T12:00:00Z');
 });
