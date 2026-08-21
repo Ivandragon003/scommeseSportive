@@ -1727,9 +1727,9 @@ export class PredictionService {
             isPromotedToBet: false,
             loggingFlags: {
               hasFullMarketLogging: true,
-              hasImmutabilityEnforced: false,
+              hasImmutabilityEnforced: true,
               hasGenericVoidHandling: true,
-              hasConfigurableThresholds: false,
+              hasConfigurableThresholds: true,
             },
           };
         });

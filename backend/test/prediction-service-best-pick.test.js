@@ -31,6 +31,8 @@ test('generic settlement marks DNB draw and Asian handicap push as VOID', () => 
 
   assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', draw)?.status, 'VOID');
   assert.equal(service.evaluateSelectionAgainstMatch('ahcp_away_1', handicapPush)?.status, 'VOID');
+  assert.equal(service.evaluateSelectionAgainstMatch('team_home_over_2', { home_goals: 2, away_goals: 0 })?.status, 'VOID');
+  assert.equal(service.evaluateSelectionAgainstMatch('team_home_over_2.5', { home_goals: 2, away_goals: 0 })?.status, 'LOST');
   assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', { home_goals: 0, away_goals: 1 })?.status, 'WON');
 });
 
