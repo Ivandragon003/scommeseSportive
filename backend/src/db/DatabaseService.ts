@@ -285,6 +285,35 @@ export class DatabaseService {
         confidence_score REAL,
         captured_at TEXT DEFAULT (datetime('now'))
       )`,
+      `CREATE TABLE IF NOT EXISTS predictions (
+        prediction_id TEXT PRIMARY KEY,
+        match_id TEXT NOT NULL,
+        market TEXT NOT NULL,
+        selection TEXT NOT NULL,
+        raw_probability REAL NOT NULL,
+        calibrated_probability REAL,
+        model_version TEXT,
+        source TEXT,
+        odds_at_prediction REAL,
+        implied_probability REAL,
+        novig_probability REAL,
+        has_complementary_odds INTEGER NOT NULL DEFAULT 0,
+        ev REAL,
+        ev_reason TEXT,
+        kelly REAL,
+        confidence_computed TEXT,
+        snapshot_type TEXT NOT NULL DEFAULT 'update',
+        sample_size_at_time INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        is_promoted_to_bet INTEGER NOT NULL DEFAULT 0,
+        result TEXT NOT NULL DEFAULT 'pending',
+        settled_at TEXT,
+        supersedes_prediction_id TEXT,
+        has_full_market_logging INTEGER NOT NULL DEFAULT 0,
+        has_immutability_enforced INTEGER NOT NULL DEFAULT 0,
+        has_generic_void_handling INTEGER NOT NULL DEFAULT 0,
+        has_configurable_thresholds INTEGER NOT NULL DEFAULT 0
+      )`,
       `CREATE TABLE IF NOT EXISTS learning_reviews (
         match_id TEXT PRIMARY KEY,
         competition TEXT,
@@ -333,6 +362,8 @@ export class DatabaseService {
       )`,
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
+      'CREATE INDEX IF NOT EXISTS idx_predictions_match_market ON predictions(match_id, market, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_predictions_result ON predictions(result, market, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_status ON bets(status)',
@@ -430,6 +461,11 @@ export class DatabaseService {
       { table: 'teams', column: 'corners', type: 'INTEGER' },
       // Quote di mercato football-data (apertura+chiusura) per il backtest ROI/CLV reale.
       { table: 'matches', column: 'fd_odds_json', type: 'TEXT' },
+      { table: 'predictions', column: 'ev_reason', type: 'TEXT' },
+      { table: 'predictions', column: 'has_full_market_logging', type: 'INTEGER NOT NULL DEFAULT 0' },
+      { table: 'predictions', column: 'has_immutability_enforced', type: 'INTEGER NOT NULL DEFAULT 0' },
+      { table: 'predictions', column: 'has_generic_void_handling', type: 'INTEGER NOT NULL DEFAULT 0' },
+      { table: 'predictions', column: 'has_configurable_thresholds', type: 'INTEGER NOT NULL DEFAULT 0' },
     ];
 
     const byTable = new Map<string, Array<{ column: string; type: string }>>();
@@ -2376,6 +2412,64 @@ export class DatabaseService {
 
   async getBet(betId: string): Promise<any | null> {
     return this.get('SELECT * FROM bets WHERE bet_id = ?', [betId]);
+  }
+
+  /** Append-only audit trail. Existing prediction rows are never updated or replaced. */
+  async appendPredictions(rows: Array<Record<string, any>>): Promise<void> {
+    for (const row of rows) {
+      await this.run(
+        `INSERT INTO predictions (
+          prediction_id, match_id, market, selection, raw_probability, calibrated_probability,
+          model_version, source, odds_at_prediction, implied_probability, novig_probability,
+          has_complementary_odds, ev, ev_reason, kelly, confidence_computed, snapshot_type,
+          sample_size_at_time, created_at, is_promoted_to_bet, result, settled_at, supersedes_prediction_id,
+          has_full_market_logging, has_immutability_enforced, has_generic_void_handling, has_configurable_thresholds
+        ) VALUES (
+          :predictionId, :matchId, :market, :selection, :rawProbability, :calibratedProbability,
+          :modelVersion, :source, :oddsAtPrediction, :impliedProbability, :novigProbability,
+          :hasComplementaryOdds, :ev, :evReason, :kelly, :confidenceComputed, :snapshotType,
+          :sampleSizeAtTime, :createdAt, :isPromotedToBet, 'pending', NULL, :supersedesPredictionId,
+          :hasFullMarketLogging, :hasImmutabilityEnforced, :hasGenericVoidHandling, :hasConfigurableThresholds
+        )`,
+        {
+          predictionId: String(row.predictionId),
+          matchId: String(row.matchId),
+          market: String(row.market),
+          selection: String(row.selection),
+          rawProbability: Number(row.rawProbability ?? 0),
+          calibratedProbability: row.calibratedProbability == null ? null : Number(row.calibratedProbability),
+          modelVersion: row.modelVersion ?? null,
+          source: row.source ?? null,
+          oddsAtPrediction: row.oddsAtPrediction == null ? null : Number(row.oddsAtPrediction),
+          impliedProbability: row.impliedProbability == null ? null : Number(row.impliedProbability),
+          novigProbability: row.novigProbability == null ? null : Number(row.novigProbability),
+          hasComplementaryOdds: row.hasComplementaryOdds ? 1 : 0,
+          ev: row.ev == null ? null : Number(row.ev),
+          evReason: row.evReason ?? null,
+          kelly: row.kelly == null ? null : Number(row.kelly),
+          confidenceComputed: row.confidenceComputed ?? null,
+          snapshotType: row.snapshotType ?? 'update',
+          sampleSizeAtTime: row.sampleSizeAtTime == null ? null : Number(row.sampleSizeAtTime),
+          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : (row.createdAt ?? new Date().toISOString()),
+          isPromotedToBet: row.isPromotedToBet ? 1 : 0,
+          supersedesPredictionId: row.supersedesPredictionId ?? null,
+          hasFullMarketLogging: row.loggingFlags?.hasFullMarketLogging ? 1 : 0,
+          hasImmutabilityEnforced: row.loggingFlags?.hasImmutabilityEnforced ? 1 : 0,
+          hasGenericVoidHandling: row.loggingFlags?.hasGenericVoidHandling ? 1 : 0,
+          hasConfigurableThresholds: row.loggingFlags?.hasConfigurableThresholds ? 1 : 0,
+        }
+      );
+    }
+  }
+
+  async getPredictionCounts(): Promise<any[]> {
+    return this.all(`
+      SELECT market, snapshot_type, COUNT(*) AS predictions,
+        SUM(CASE WHEN result IN ('win','loss','void') THEN 1 ELSE 0 END) AS settled,
+        SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS wins,
+        SUM(CASE WHEN result = 'void' THEN 1 ELSE 0 END) AS voids
+      FROM predictions GROUP BY market, snapshot_type ORDER BY market, snapshot_type
+    `);
   }
 
   // ==================== BACKTEST ====================

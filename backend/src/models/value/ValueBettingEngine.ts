@@ -1517,6 +1517,9 @@ export class ValueBettingEngine {
     uncertaintyFactor = 0,
     uncertaintyPenalty = 0.5
   ): { stakePercent: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW'; uncertaintyDiscount: number } {
+    // NON MODIFICARE le soglie HIGH/MEDIUM/LOW senza backtest OOS validato
+    // e approvazione esplicita. Le misure difensive per campioni insufficienti
+    // sono applicate a valle in PredictionService.
     const kelly = this.kellyFraction(probability, decimalOdds, uncertaintyFactor) * 100;
 
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -2321,6 +2324,7 @@ export class ValueBettingEngine {
       );
       const calibration = this.applyMarketCalibration(Number(ourProb), key, category, context);
       const hasCompanionOdds = allOdds.length >= 2;
+      const evReason = this.deriveEvReason(key, category, companions.filter(o => isFinite(o) && o > 1).length);
       const blended = this.blendWithMarketProbability(
         calibration.probability,
         impliedNoVig,
@@ -2351,6 +2355,9 @@ export class ValueBettingEngine {
         this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds),
         selectionGuard.maxConfidence
       );
+      const effectiveConfidence = evReason === 'computed_reduced_missing_complement' || evReason === 'computed_insufficient_complement'
+        ? 'LOW'
+        : stakeConfidence;
       const riskPenalty = this.clampNumber(
         this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + selectionGuard.riskPenaltyBump,
         0,
@@ -2407,8 +2414,8 @@ export class ValueBettingEngine {
         expectedValue:           parseFloat((ev           * 100).toFixed(2)),
         kellyFraction:           parseFloat((this.kellyFraction(effectiveProb, odds) * 100).toFixed(2)),
         suggestedStakePercent:   stakePercent,
-        confidence:              stakeConfidence,
-        isValueBet:              true,
+        confidence:              effectiveConfidence,
+        isValueBet:              evReason !== 'computed_insufficient_complement',
         edge:                    parseFloat((edgeRaw   * 100).toFixed(2)),
         edgeNoVig:               parseFloat((edgeNoVig * 100).toFixed(2)),
         modelProbability:        parseFloat((Number(ourProb) * 100).toFixed(2)),
@@ -2424,6 +2431,7 @@ export class ValueBettingEngine {
         riskReasons:             diagnostics.riskReasons,
         dataQuality:             blended.dataQuality,
         companionOddsAvailable:  hasCompanionOdds,
+        evReason,
         uncertaintyFactor:       Number(uncertaintyFactor.toFixed(3)),
         riskPenalty:             Number(riskPenalty.toFixed(3)),
         rankingScore,
@@ -2477,6 +2485,7 @@ export class ValueBettingEngine {
       );
       const calibration = this.applyMarketCalibration(rawProb, key, category, context);
       const hasCompanionOdds = allOdds.length >= 2;
+      const evReason = this.deriveEvReason(key, category, companions.length);
       const blended = this.blendWithMarketProbability(
         calibration.probability,
         impliedNoVig,
@@ -2521,6 +2530,9 @@ export class ValueBettingEngine {
         this.capConfidenceForMarket(stake.confidence, category, hasCompanionOdds),
         selectionGuard.maxConfidence
       );
+      const effectiveConfidence = evReason === 'computed_reduced_missing_complement' || evReason === 'computed_insufficient_complement'
+        ? 'LOW'
+        : stakeConfidence;
       const riskPenalty = this.clampNumber(
         this.computeRiskPenalty(category, odds, uncertaintyFactor, contextStrength) + selectionGuard.riskPenaltyBump,
         0,
@@ -2577,8 +2589,8 @@ export class ValueBettingEngine {
         expectedValue: parseFloat((ev * 100).toFixed(2)),
         kellyFraction: parseFloat((kelly * 100).toFixed(2)),
         suggestedStakePercent: stakePercent,
-        confidence: stakeConfidence,
-        isValueBet: rejectionCodes.length === 0,
+        confidence: effectiveConfidence,
+        isValueBet: rejectionCodes.length === 0 && evReason !== 'computed_insufficient_complement',
         edge: parseFloat((edgeRaw * 100).toFixed(2)),
         edgeNoVig: parseFloat((edgeNoVig * 100).toFixed(2)),
         modelProbability: parseFloat((rawProb * 100).toFixed(2)),
@@ -2594,6 +2606,7 @@ export class ValueBettingEngine {
         riskReasons: diagnostics.riskReasons,
         dataQuality: blended.dataQuality,
         companionOddsAvailable: hasCompanionOdds,
+        evReason,
         uncertaintyFactor: Number(uncertaintyFactor.toFixed(3)),
         riskPenalty: Number(riskPenalty.toFixed(3)),
         rankingScore,
@@ -2713,6 +2726,27 @@ export class ValueBettingEngine {
     );
     const companionPenalty = opportunity.companionOddsAvailable === false ? 0.04 : 0;
     return this.clampNumber(riskyWarnings.length * 0.035 + companionPenalty, 0, 0.16);
+  }
+
+  private getComplementRequirement(selection: string, category: MarketCategory): { required: number; structural: boolean } {
+    const key = String(selection ?? '').toLowerCase();
+    if (key === 'dnb_home' || key === 'dnb_away' || category === 'btts_yes' || category === 'btts_no') return { required: 1, structural: true };
+    if (category === 'goal_1x2' || key.startsWith('hcp_')) return { required: 2, structural: true };
+    if (category === 'goal_over' || category === 'goal_under' || category === 'goal_ou' || category === 'shots' || category === 'shots_ot' || category === 'yellow_cards' || category === 'corners') return { required: 1, structural: true };
+    return { required: 0, structural: false };
+  }
+
+  private deriveEvReason(selection: string, category: MarketCategory, companionCount: number): BetOpportunity['evReason'] {
+    const requirement = this.getComplementRequirement(selection, category);
+    if (!requirement.structural) return 'computed_reduced_missing_complement';
+    if (companionCount >= requirement.required) return 'computed';
+    if (requirement.required >= 2 && companionCount === 0) return 'computed_insufficient_complement';
+    return 'computed_reduced_missing_complement';
+  }
+
+  /** Public wrapper used by the pre-filter prediction audit. */
+  getPredictionEvReason(selection: string, category: MarketCategory, companionCount: number): BetOpportunity['evReason'] {
+    return this.deriveEvReason(selection, category, companionCount);
   }
 
   private getHighOddsPenalty(opportunity: BetOpportunity): number {

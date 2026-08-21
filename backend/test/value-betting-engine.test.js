@@ -251,6 +251,32 @@ test('weak data increases uncertainty and reduces stake and ranking', () => {
   assert.ok(weak.rankingScore < strong.rankingScore);
 });
 
+test('complementary-odds policy caps partial markets at LOW and excludes insufficient 1X2 complements', () => {
+  const engine = new ValueBettingEngine();
+  const context = { richnessScore: 0.95, hasXg: true, teamSampleSize: { home: 30, away: 30 } };
+
+  const partialDnb = engine.analyzeMarketsWithVigRemoval(
+    { dnb_away: 0.30 },
+    { dnb_away: { selection: 'dnb_away', odds: 4.0, companions: [] } },
+    { dnb_away: 'Draw No Bet - Ospite' },
+    context
+  ).find((opp) => opp.selection === 'dnb_away');
+  assert.ok(partialDnb);
+  assert.equal(partialDnb.evReason, 'computed_reduced_missing_complement');
+  assert.equal(partialDnb.confidence, 'LOW');
+
+  const insufficientOneX2 = engine.analyzeMarketsWithVigRemoval(
+    { awayWin: 0.30 },
+    { awayWin: { selection: 'awayWin', odds: 4.0, companions: [] } },
+    { awayWin: '1X2 - Vittoria Ospite' },
+    context
+  ).find((opp) => opp.selection === 'awayWin');
+  assert.ok(insufficientOneX2);
+  assert.equal(insufficientOneX2.evReason, 'computed_insufficient_complement');
+  assert.equal(insufficientOneX2.confidence, 'LOW');
+  assert.equal(insufficientOneX2.isValueBet, false);
+});
+
 test('dynamic EV threshold is stricter when richnessScore is low', () => {
   const engine = new ValueBettingEngine();
   const probabilities = { over25: 0.522, under25: 0.478 };
