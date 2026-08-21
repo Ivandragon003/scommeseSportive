@@ -1661,9 +1661,89 @@ export class PredictionService {
       minCombinedEV: 0.08,
       analysisContext,
     });
+
+    // Step 1: audit universale pre-filtro. Registriamo ogni probabilita del
+    // catalogo calcolato, non solo le opportunita sopravvissute ai filtri.
+    // EV/Kelly sono calcolati solo con una quota reale valida; senza quota
+    // restano NULL e il motivo e' esplicito. Non usiamo quote sintetiche.
+    if (request.matchId) {
+      try {
+        const auditOdds = request.bookmakerOdds ?? {};
+        const auditGroups = this.engine.buildMarketGroups(auditOdds);
+        const auditRows = Object.entries(probs.flatProbabilities ?? {}).map(([selection, probability]) => {
+          const rawProbability = Number(probability);
+          const category = this.engine.categorizeSelection(selection);
+          const group = auditGroups[selection];
+          const odds = Number(group?.odds ?? auditOdds[selection]);
+          const validOdds = Number.isFinite(odds) && odds > 1;
+          const companions = (group?.companions ?? []).filter((value: number) => Number.isFinite(value) && value > 1);
+          const evReason = validOdds
+            ? this.engine.getPredictionEvReason(selection, category, companions.length)
+            : 'missing_odds';
+          const ev = validOdds && rawProbability > 0 && rawProbability < 1
+            ? this.engine.computeExpectedValue(rawProbability, odds)
+            : null;
+          const kelly = ev != null ? this.engine.kellyFraction(rawProbability, odds) : null;
+          const implied = validOdds ? this.engine.impliedProbabilityFromOdds(odds) : null;
+          return {
+            predictionId: uuidv4(),
+            matchId: request.matchId,
+            market: category,
+            selection,
+            rawProbability,
+            calibratedProbability: null,
+            modelVersion: ALGORITHM_VERSION,
+            source: 'unknown',
+            oddsAtPrediction: validOdds ? odds : null,
+            impliedProbability: implied,
+            novigProbability: companions.length > 0 && validOdds
+              ? this.engine.impliedProbabilityNoVig(odds, [odds, ...companions])
+              : null,
+            hasComplementaryOdds: companions.length > 0,
+            ev: ev == null ? null : Number(ev),
+            evReason,
+            kelly: kelly == null ? null : Number(kelly),
+            confidenceComputed: null,
+            snapshotType: 'update',
+            sampleSizeAtTime: null,
+            isPromotedToBet: false,
+            loggingFlags: {
+              hasFullMarketLogging: true,
+              hasImmutabilityEnforced: false,
+              hasGenericVoidHandling: false,
+              hasConfigurableThresholds: false,
+            },
+          };
+        });
+        await this.db.appendPredictions(auditRows);
+      } catch (error: any) {
+        console.warn('[PredictionAudit] Impossibile archiviare il catalogo pre-filtro:', error?.message ?? error);
+      }
+    }
+
+    const minimumCalibrationSample = Math.max(1, Number(process.env.PREDICTION_MIN_CALIBRATION_SAMPLE ?? 30));
+    const anomalousEvPercent = Math.max(0, Number(process.env.PREDICTION_ANOMALOUS_EV_PERCENT ?? 15));
+    const applyPrudentialGate = (opportunity: any): any => {
+      const ev = Number(opportunity.expectedValue ?? 0);
+      const sampleSize = Number(opportunity.calibrationSampleSize);
+      const insufficientSample = opportunity.categoryCalibrationStatus === 'insufficient_sample'
+        || (Number.isFinite(sampleSize) && sampleSize < minimumCalibrationSample);
+      const anomaly = ev > anomalousEvPercent;
+      const warnings = new Set<string>(opportunity.dataWarnings ?? []);
+      if (insufficientSample) warnings.add('calibration_sample_insufficient');
+      if (anomaly) warnings.add('anomalous_ev_requires_review');
+      return {
+        ...opportunity,
+        // Defensive gate: it caps confidence but deliberately does not alter
+        // the HIGH/MEDIUM/LOW thresholds. Fase 5 remains blocked pending OOS validation.
+        confidence: insufficientSample ? 'LOW' : opportunity.confidence,
+        isValueBet: ev <= 0 ? false : opportunity.isValueBet,
+        dataWarnings: Array.from(warnings),
+      };
+    };
     const valueOpportunities = enhanced.allBets.map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
-      return diagnostic ? { ...opportunity, ...diagnostic } : opportunity;
+      return applyPrudentialGate(diagnostic ? { ...opportunity, ...diagnostic } : opportunity);
     });
     const singleMatchCandidateBoard = this.engine.buildSingleMatchCandidateBoard(
       probs.flatProbabilities,
@@ -1672,7 +1752,7 @@ export class PredictionService {
       analysisContext
     ).map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
-      return diagnostic ? { ...opportunity, ...diagnostic } : opportunity;
+      return applyPrudentialGate(diagnostic ? { ...opportunity, ...diagnostic } : opportunity);
     });
 
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors, singleMatchCandidateBoard);
