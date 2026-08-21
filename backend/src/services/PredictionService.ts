@@ -1728,7 +1728,7 @@ export class PredictionService {
             loggingFlags: {
               hasFullMarketLogging: true,
               hasImmutabilityEnforced: false,
-              hasGenericVoidHandling: false,
+              hasGenericVoidHandling: true,
               hasConfigurableThresholds: false,
             },
           };
@@ -2986,6 +2986,25 @@ export class PredictionService {
     return this.evaluateSelectionForMatch(selection, matchRow);
   }
 
+  async settlePendingPredictionsForMatch(matchId: string, matchRow: any): Promise<{ settled: number; unresolved: number }> {
+    const pending = await this.db.getPendingPredictions(matchId);
+    let settled = 0;
+    let unresolved = 0;
+
+    for (const prediction of pending) {
+      const decision = this.evaluateSelectionForMatch(String(prediction.selection ?? ''), matchRow);
+      if (!decision) {
+        unresolved++;
+        continue;
+      }
+      const result = decision.status === 'WON' ? 'win' : decision.status === 'LOST' ? 'loss' : 'void';
+      await this.db.settlePrediction(String(prediction.prediction_id), result);
+      settled++;
+    }
+
+    return { settled, unresolved };
+  }
+
   private async resolvePlayedMatchForBet(bet: any): Promise<any | null> {
     const byId = await this.db.getMatchById(String(bet?.match_id ?? ''));
     if (byId && byId.home_goals !== null && byId.away_goals !== null) return byId;
@@ -3091,6 +3110,8 @@ export class PredictionService {
         unresolved++;
         continue;
       }
+
+      await this.settlePendingPredictionsForMatch(String(bet.match_id), matchRow);
 
       const decision = this.evaluateSelectionForMatch(String(bet.selection ?? ''), matchRow);
       if (!decision) {
