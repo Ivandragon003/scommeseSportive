@@ -7,7 +7,8 @@ BACKEND_LOG="$ROOT_DIR/backend-nightly-sync.log"
 
 PORT="${PORT:-3001}"
 SYNC_TIMEZONE="${SYNC_TIMEZONE:-Europe/Rome}"
-EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-01}"
+EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-03}"
+SCHEDULE_CRON="${SCHEDULE_CRON:-}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
@@ -66,10 +67,31 @@ get_json() {
 }
 
 if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" ]]; then
-  CURRENT_LOCAL_HOUR="$(TZ="$SYNC_TIMEZONE" date +%H)"
-  if [[ "$CURRENT_LOCAL_HOUR" != "$EXPECTED_LOCAL_HOUR" ]]; then
-    echo "Skip scheduled run: local hour in $SYNC_TIMEZONE is $CURRENT_LOCAL_HOUR, expected $EXPECTED_LOCAL_HOUR."
-    exit 0
+  # GitHub Actions puo avviare il cron con ritardo. Controllare solo l'ora
+  # locale farebbe saltare il run valido; usare invece il cron originale,
+  # che resta disponibile in github.event.schedule anche dopo il ritardo.
+  if [[ -n "$SCHEDULE_CRON" ]]; then
+    CURRENT_OFFSET="$(TZ="$SYNC_TIMEZONE" date +%z)"
+    case "$CURRENT_OFFSET" in
+      +0200) EXPECTED_SCHEDULE_CRON="0 1 * * *" ;;
+      +0100) EXPECTED_SCHEDULE_CRON="0 2 * * *" ;;
+      *)
+        echo "Skip scheduled run: unsupported $SYNC_TIMEZONE UTC offset '$CURRENT_OFFSET'."
+        exit 0
+        ;;
+    esac
+
+    if [[ "$SCHEDULE_CRON" != "$EXPECTED_SCHEDULE_CRON" ]]; then
+      echo "Skip scheduled run: cron '$SCHEDULE_CRON' is not the active $SYNC_TIMEZONE cron '$EXPECTED_SCHEDULE_CRON' (offset $CURRENT_OFFSET)."
+      exit 0
+    fi
+  else
+    # Fallback per esecuzioni esterne che non espongono github.event.schedule.
+    CURRENT_LOCAL_HOUR="$(TZ="$SYNC_TIMEZONE" date +%H)"
+    if [[ "$CURRENT_LOCAL_HOUR" != "$EXPECTED_LOCAL_HOUR" ]]; then
+      echo "Skip scheduled run: local hour in $SYNC_TIMEZONE is $CURRENT_LOCAL_HOUR, expected $EXPECTED_LOCAL_HOUR."
+      exit 0
+    fi
   fi
 fi
 

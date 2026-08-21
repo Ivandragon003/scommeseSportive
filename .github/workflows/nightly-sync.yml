@@ -24,6 +24,9 @@ jobs:
       TZ: Europe/Rome
       SYNC_TIMEZONE: Europe/Rome
       EXPECTED_LOCAL_HOUR: '03'
+      # github.event.schedule identifica quale dei due cron ha avviato il run,
+      # anche quando GitHub Actions lo esegue in ritardo.
+      SCHEDULE_CRON: ${{ github.event.schedule }}
       PORT: '3001'
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
