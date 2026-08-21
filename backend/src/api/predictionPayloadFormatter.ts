@@ -202,9 +202,21 @@ export function formatPrediction(pred: any): any {
   const bestValueOpportunity = pred.bestValueOpportunity
     ? {
       ...pred.bestValueOpportunity,
+      ...(pred.bestValueOpportunity.ourProbability !== undefined
+        ? { ourProbability: roundN(Number(pred.bestValueOpportunity.ourProbability), 2) }
+        : {}),
+      ...(pred.bestValueOpportunity.impliedProbability !== undefined
+        ? { impliedProbability: roundN(Number(pred.bestValueOpportunity.impliedProbability), 2) }
+        : {}),
       expectedValue: roundN(Number(pred.bestValueOpportunity.expectedValue ?? 0), 2),
       edge: roundN(Number(pred.bestValueOpportunity.edge ?? 0), 2),
       edgeNoVig: roundN(Number(pred.bestValueOpportunity.edgeNoVig ?? pred.bestValueOpportunity.edge ?? 0), 2),
+      ...(pred.bestValueOpportunity.kellyFraction !== undefined
+        ? { kellyFraction: roundN(Number(pred.bestValueOpportunity.kellyFraction), 2) }
+        : {}),
+      ...(pred.bestValueOpportunity.suggestedStakePercent !== undefined
+        ? { suggestedStakePercent: roundN(Number(pred.bestValueOpportunity.suggestedStakePercent), 2) }
+        : {}),
       score: roundN(Number(pred.bestValueOpportunity.score ?? 0), 3),
       riskAdjustedBestScore: roundN(Number(pred.bestValueOpportunity.riskAdjustedBestScore ?? pred.riskAdjustedBestScore ?? 0), 3),
       bestBetStatus: pred.bestBetStatus ?? pred.bestValueOpportunity.bestBetStatus ?? null,

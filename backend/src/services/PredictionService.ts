@@ -224,9 +224,13 @@ export interface BestValueOpportunityExplanation {
   marketName: string;
   marketTier: string;
   bookmakerOdds: number;
+  ourProbability: number;
+  impliedProbability: number;
   expectedValue: number;
   edge: number;
   edgeNoVig?: number;
+  kellyFraction: number;
+  suggestedStakePercent: number;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   score: number;
   marketCategory?: string;
@@ -2718,9 +2722,13 @@ export class PredictionService {
       selectionFamily: String(best.opp.selectionFamily ?? ''),
       marketTier: String((best.opp as any).marketTier ?? 'SECONDARY'),
       bookmakerOdds: Number(best.opp.bookmakerOdds ?? 0),
+      ourProbability: Number(best.opp.ourProbability ?? 0),
+      impliedProbability: Number(best.opp.impliedProbability ?? 0),
       expectedValue: Number(best.opp.expectedValue ?? 0),
       edge: Number(best.opp.edge ?? 0),
       edgeNoVig: Number(best.opp.edgeNoVig ?? best.opp.edge ?? 0),
+      kellyFraction: Number(best.opp.kellyFraction ?? 0),
+      suggestedStakePercent: Number(best.opp.suggestedStakePercent ?? 0),
       confidence: best.opp.confidence,
       score: Number(best.totalScore.toFixed(3)),
       uncertaintyFactor: Number(best.opp.uncertaintyFactor ?? 0),
