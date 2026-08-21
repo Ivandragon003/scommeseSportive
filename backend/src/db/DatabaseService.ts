@@ -14,6 +14,53 @@ type HistoricalOddsDetail = {
   usedSyntheticOdds: boolean;
 };
 
+/**
+ * Prediction records are immutable evidence. The only allowed mutation is the
+ * single settlement transition from pending to a final result.
+ */
+export const PREDICTION_IMMUTABILITY_STATEMENTS = [
+  `CREATE TRIGGER IF NOT EXISTS predictions_immutable_update
+   BEFORE UPDATE ON predictions
+   BEGIN
+     SELECT CASE WHEN NOT (
+       OLD.result = 'pending'
+       AND NEW.result IN ('win', 'loss', 'void')
+       AND OLD.settled_at IS NULL
+       AND NEW.settled_at IS NOT NULL
+       AND NEW.prediction_id IS OLD.prediction_id
+       AND NEW.match_id IS OLD.match_id
+       AND NEW.market IS OLD.market
+       AND NEW.selection IS OLD.selection
+       AND NEW.raw_probability IS OLD.raw_probability
+       AND NEW.calibrated_probability IS OLD.calibrated_probability
+       AND NEW.model_version IS OLD.model_version
+       AND NEW.source IS OLD.source
+       AND NEW.odds_at_prediction IS OLD.odds_at_prediction
+       AND NEW.implied_probability IS OLD.implied_probability
+       AND NEW.novig_probability IS OLD.novig_probability
+       AND NEW.has_complementary_odds IS OLD.has_complementary_odds
+       AND NEW.ev IS OLD.ev
+       AND NEW.ev_reason IS OLD.ev_reason
+       AND NEW.kelly IS OLD.kelly
+       AND NEW.confidence_computed IS OLD.confidence_computed
+       AND NEW.snapshot_type IS OLD.snapshot_type
+       AND NEW.sample_size_at_time IS OLD.sample_size_at_time
+       AND NEW.created_at IS OLD.created_at
+       AND NEW.is_promoted_to_bet IS OLD.is_promoted_to_bet
+       AND NEW.supersedes_prediction_id IS OLD.supersedes_prediction_id
+       AND NEW.has_full_market_logging IS OLD.has_full_market_logging
+       AND NEW.has_immutability_enforced IS OLD.has_immutability_enforced
+       AND NEW.has_generic_void_handling IS OLD.has_generic_void_handling
+       AND NEW.has_configurable_thresholds IS OLD.has_configurable_thresholds
+     ) THEN RAISE(ABORT, 'predictions are immutable; only pending to final result is allowed') END;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS predictions_immutable_delete
+   BEFORE DELETE ON predictions
+   BEGIN
+     SELECT RAISE(ABORT, 'predictions are append-only; delete is not allowed');
+   END`,
+];
+
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
   private static optionalColumnsCheckPromise: Promise<void> | null = null;
@@ -374,6 +421,7 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_system_runs_type_started ON system_runs(run_type, started_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_system_runs_component_started ON system_runs(component, started_at DESC)',
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
+      ...PREDICTION_IMMUTABILITY_STATEMENTS,
     ];
 
     await this.executeBatch(statements, true);
