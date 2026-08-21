@@ -1,4 +1,6 @@
 import { createClient } from '@libsql/client';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 type SqlArgs = Record<string, any> | any[];
 type HistoricalOddsDetail = {
@@ -144,8 +146,43 @@ export class DatabaseService {
 
   private async initialize(): Promise<void> {
     await this.execute('PRAGMA foreign_keys = ON', undefined, true);
+    await this.runVersionedMigrations();
     await this.initSchema();
     await this.ensureOptionalColumnsOnce();
+  }
+
+  private async runVersionedMigrations(): Promise<void> {
+    await this.execute(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+        version TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      undefined,
+      true,
+    );
+
+    const migrationsDirectory = join(__dirname, '../../migrations');
+    const migrations = readdirSync(migrationsDirectory)
+      .filter((file) => /^\d+_.+\.sql$/i.test(file))
+      .sort();
+
+    for (const filename of migrations) {
+      const applied = await this.execute(
+        'SELECT version FROM schema_migrations WHERE version = ?',
+        [filename],
+        true,
+      );
+      if ((applied.rows ?? []).length > 0) continue;
+
+      const sql = readFileSync(join(migrationsDirectory, filename), 'utf8').trim();
+      if (!sql) continue;
+      await this.execute(sql, undefined, true);
+      await this.execute(
+        'INSERT INTO schema_migrations (version) VALUES (?)',
+        [filename],
+        true,
+      );
+    }
   }
 
   private parseJsonObject(value: unknown): Record<string, any> {
