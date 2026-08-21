@@ -1018,6 +1018,25 @@ test('selectBestSingleMatchBet mostra come SPECULATIVE una pick LOW confidence d
   assert.ok(result.decision.rejectedReasons.includes('confidence_low'));
 });
 
+test('selectBestSingleMatchBet non promuove un mercato escluso con EV alto rispetto a uno valido', () => {
+  const engine = new ValueBettingEngine();
+  const result = engine.selectBestSingleMatchBet([
+    makeSingleMatchOpp('awayWin', '1X2 - Vittoria Ospite', 'goal_1x2', {
+      expectedValue: 35,
+      rankingScore: 0.9,
+      evReason: 'computed_insufficient_complement',
+    }),
+    makeSingleMatchOpp('over25', 'Over 2.5 Goal', 'goal_over', {
+      expectedValue: 8,
+      rankingScore: 0.25,
+      evReason: 'computed',
+    }),
+  ]);
+
+  assert.equal(result.bestBet.selection, 'over25');
+  assert.notEqual(result.bestBet.selection, 'awayWin');
+});
+
 test('selectBestSingleMatchBet penalizza mercati fragili ma li mostra come SPECULATIVE se sono la migliore opzione', () => {
   const engine = new ValueBettingEngine();
 
