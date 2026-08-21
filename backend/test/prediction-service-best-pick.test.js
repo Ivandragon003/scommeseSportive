@@ -24,6 +24,16 @@ test('should not promote to MEDIUM when calibration sample size is unknown (regr
   assert.ok(gated.dataWarnings.includes('calibration_sample_insufficient'));
 });
 
+test('generic settlement marks DNB draw and Asian handicap push as VOID', () => {
+  const service = new PredictionService({});
+  const draw = { home_goals: 1, away_goals: 1 };
+  const handicapPush = { home_goals: 2, away_goals: 1 };
+
+  assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', draw)?.status, 'VOID');
+  assert.equal(service.evaluateSelectionAgainstMatch('ahcp_away_1', handicapPush)?.status, 'VOID');
+  assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', { home_goals: 0, away_goals: 1 })?.status, 'WON');
+});
+
 test('statistical market can become final recommended pick when data reliability is strong', () => {
   const service = new PredictionService({});
 

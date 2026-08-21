@@ -2547,6 +2547,29 @@ export class DatabaseService {
     }
   }
 
+  async getPendingPredictions(matchId?: string): Promise<any[]> {
+    if (matchId) {
+      return this.all(
+        `SELECT * FROM predictions WHERE match_id = ? AND result = 'pending' ORDER BY created_at ASC`,
+        [matchId],
+      );
+    }
+    return this.all(`SELECT * FROM predictions WHERE result = 'pending' ORDER BY created_at ASC`);
+  }
+
+  async settlePrediction(
+    predictionId: string,
+    result: 'win' | 'loss' | 'void',
+    settledAt: string = new Date().toISOString(),
+  ): Promise<void> {
+    await this.run(
+      `UPDATE predictions
+       SET result = ?, settled_at = ?
+       WHERE prediction_id = ? AND result = 'pending'`,
+      [result, settledAt, predictionId],
+    );
+  }
+
   async getPredictionCounts(): Promise<any[]> {
     return this.all(`
       SELECT market, snapshot_type, COUNT(*) AS predictions,
