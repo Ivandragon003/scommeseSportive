@@ -63,6 +63,17 @@ export const PREDICTION_IMMUTABILITY_STATEMENTS = [
    END`,
 ];
 
+/** Report/backtest eligibility is fail-closed: NULL and every value other than 1 are rejected. */
+export const isPredictionReportEligible = (row: Record<string, any> | null | undefined): boolean => {
+  if (!row) return false;
+  return [
+    row.has_full_market_logging,
+    row.has_immutability_enforced,
+    row.has_generic_void_handling,
+    row.has_configurable_thresholds,
+  ].every((value) => Number(value) === 1);
+};
+
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
   private static optionalColumnsCheckPromise: Promise<void> | null = null;
@@ -2563,6 +2574,19 @@ export class DatabaseService {
       );
     }
     return this.all(`SELECT * FROM predictions WHERE result = 'pending' ORDER BY created_at ASC`);
+  }
+
+  /** Official calibration/backtest input. Missing guarantees are excluded by SQL equality. */
+  async getEligiblePredictionArchive(): Promise<any[]> {
+    return this.all(`
+      SELECT * FROM predictions
+      WHERE result IN ('win', 'loss', 'void')
+        AND has_full_market_logging = 1
+        AND has_immutability_enforced = 1
+        AND has_generic_void_handling = 1
+        AND has_configurable_thresholds = 1
+      ORDER BY created_at ASC
+    `);
   }
 
   async settlePrediction(
