@@ -39,7 +39,9 @@ jobs:
       ODDS_SYNC_TIMEOUT_SECONDS: '1800'
       FINAL_STATUS_TIMEOUT_SECONDS: '120'
       AUTO_BET_ENABLED: 'true'
-      AUTO_BET_DRY_RUN: 'false'
+      # Safety lock: evaluate and report candidates, but never place real bets
+      # until the production deployment and end-to-end validation are complete.
+      AUTO_BET_DRY_RUN: 'true'
       AUTO_BET_USER_ID: 'user1'
       AUTO_BET_WINDOW_HOURS: '24'
       AUTO_BET_MAX_MATCHES: '100'
