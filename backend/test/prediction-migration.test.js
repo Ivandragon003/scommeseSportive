@@ -6,7 +6,7 @@ const { join } = require('node:path');
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
 process.env.TURSO_AUTH_TOKEN = 'test-token';
-const { DatabaseService } = require('../dist/db/DatabaseService.js');
+const { DatabaseService, isPredictionReportEligible } = require('../dist/db/DatabaseService.js');
 
 test('prediction migration is additive and preserves an existing archive', async () => {
   const db = createClient({ url: 'file::memory:' });
@@ -84,4 +84,17 @@ test('prediction archive preserves the real bookmaker source', async () => {
   const rows = await db.getPendingPredictions('source-match');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source, 'odds_api');
+});
+
+test('prediction report eligibility is fail-closed on every guarantee flag', () => {
+  const eligible = {
+    has_full_market_logging: 1,
+    has_immutability_enforced: 1,
+    has_generic_void_handling: 1,
+    has_configurable_thresholds: 1,
+  };
+  assert.equal(isPredictionReportEligible(eligible), true);
+  assert.equal(isPredictionReportEligible({ ...eligible, has_immutability_enforced: null }), false);
+  assert.equal(isPredictionReportEligible({ ...eligible, has_generic_void_handling: 0 }), false);
+  assert.equal(isPredictionReportEligible(null), false);
 });
