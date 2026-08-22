@@ -166,6 +166,7 @@ export interface PredictionRequest {
   isDerby?: boolean;
   isHighStakes?: boolean;
   bookmakerOdds?: Record<string, number>;
+  oddsSource?: string;
   homeFormIndex?: number;
   awayFormIndex?: number;
   homeObjectiveIndex?: number;
@@ -1715,7 +1716,7 @@ export class PredictionService {
             rawProbability,
             calibratedProbability: null,
             modelVersion: ALGORITHM_VERSION,
-            source: 'unknown',
+            source: String(request.oddsSource ?? '').trim() || 'unknown',
             oddsAtPrediction: validOdds ? odds : null,
             impliedProbability: implied,
             novigProbability: companions.length > 0 && validOdds

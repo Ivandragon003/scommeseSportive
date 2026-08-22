@@ -125,6 +125,7 @@ export function useOddsForMatch() {
         matchId: resolvedMatchId,
         competition: competition || undefined,
         bookmakerOdds: providerOdds,
+        oddsSource: source || 'unknown',
       });
       if (enriched.data) {
         finalPrediction = sanitizePredictionForBookmakerOdds(
