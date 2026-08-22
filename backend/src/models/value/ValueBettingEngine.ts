@@ -2994,8 +2994,7 @@ export class ValueBettingEngine {
     opportunities: BetOpportunity[],
     options: SlateSelectionOptions = {}
   ): SlateSelectionResult {
-    const maxBets = Math.max(1, Math.min(8, Number(options.maxBets ?? 4)));
-    const maxLowConfidence = Math.max(0, Math.min(2, Number(options.maxLowConfidence ?? 0)));
+    const maxBets = Math.max(1, Math.min(3, Number(options.maxBets ?? 3)));
     const maxCardsBets = Math.max(0, Math.min(maxBets, Number(options.maxCardsBets ?? 2)));
     const maxFragileUnderBets = Math.max(0, Math.min(maxBets, Number(options.maxFragileUnderBets ?? 1)));
     const minRankingScore = Number(options.minRankingScore ?? 0.12);
@@ -3013,7 +3012,6 @@ export class ValueBettingEngine {
     const recommended: BetOpportunity[] = [];
     const skipped: BetOpportunity[] = [];
     const usedMatches = new Set<string>();
-    let lowConfidenceCount = 0;
     let cardsCount = 0;
     let fragileUnderCount = 0;
 
@@ -3037,7 +3035,9 @@ export class ValueBettingEngine {
         diagnostics.skippedBecauseWeakSlateRank++;
         continue;
       }
-      if (opportunity.confidence === 'LOW' && lowConfidenceCount >= maxLowConfidence) {
+      // LOW/SPECULATIVE resta visibile come diagnostica, ma non occupa uno
+      // dei tre posti operativi e non viene mai incluso nella slate giocabile.
+      if (opportunity.confidence === 'LOW') {
         skipped.push(this.markSlateSkipped(opportunity, 'skippedBecauseLowConfidence', slateRank));
         diagnostics.skippedBecauseLowConfidence++;
         continue;
@@ -3064,7 +3064,6 @@ export class ValueBettingEngine {
         continue;
       }
 
-      if (opportunity.confidence === 'LOW') lowConfidenceCount++;
       if (isCards) cardsCount++;
       if (isFragileUnder) fragileUnderCount++;
       if (matchId) usedMatches.add(matchId);

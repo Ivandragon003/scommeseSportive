@@ -981,6 +981,42 @@ test('selectRecommendedSlateBets seleziona meno bet, applica cap e non forza ogn
   assert.ok(result.skipped.some((opp) => opp.slateSkipReason === 'skippedBecauseLowConfidence'));
 });
 
+test('selectRecommendedSlateBets limita a tre bet operative e non conta le LOW', () => {
+  const engine = new ValueBettingEngine();
+  const makeOpp = (selection, matchId, confidence, rankingScore) => ({
+    marketName: selection,
+    selection,
+    matchId,
+    marketCategory: 'goal_over',
+    marketTier: 'CORE',
+    ourProbability: 62,
+    bookmakerOdds: 1.9,
+    impliedProbability: 52,
+    impliedProbabilityNoVig: 50,
+    expectedValue: 14,
+    kellyFraction: 3,
+    suggestedStakePercent: 1,
+    confidence,
+    isValueBet: true,
+    edge: 10,
+    edgeNoVig: 12,
+    rankingScore,
+    riskPenalty: 0.2,
+    uncertaintyFactor: 0.18,
+  });
+
+  const result = engine.selectRecommendedSlateBets([
+    makeOpp('low-first', 'm-low', 'LOW', 0.9),
+    makeOpp('high-1', 'm1', 'HIGH', 0.8),
+    makeOpp('medium-1', 'm2', 'MEDIUM', 0.7),
+    makeOpp('medium-2', 'm3', 'MEDIUM', 0.6),
+    makeOpp('high-2', 'm4', 'HIGH', 0.5),
+  ]);
+
+  assert.deepEqual(result.recommended.map((opp) => opp.selection), ['high-1', 'medium-1', 'medium-2']);
+  assert.ok(result.skipped.some((opp) => opp.selection === 'low-first' && opp.slateSkipReason === 'skippedBecauseLowConfidence'));
+});
+
 test('selectBestSingleMatchBet preferisce DNB a 1X2 quando il vantaggio aggressivo non e netto', () => {
   const engine = new ValueBettingEngine();
   const opportunities = [
