@@ -4,6 +4,10 @@ const { createClient } = require('@libsql/client');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 
+process.env.TURSO_DATABASE_URL = 'file::memory:';
+process.env.TURSO_AUTH_TOKEN = 'test-token';
+const { DatabaseService } = require('../dist/db/DatabaseService.js');
+
 test('prediction migration is additive and preserves an existing archive', async () => {
   const db = createClient({ url: 'file::memory:' });
   await db.execute(`
@@ -54,4 +58,30 @@ test('bet provenance migration preserves legacy rows and marks them pre-fix', as
 
   const rows = await db.execute('SELECT bet_id, data_quality, source FROM bets');
   assert.deepEqual(rows.rows, [{ bet_id: 'legacy-bet', data_quality: 'pre_fix', source: 'unknown' }]);
+});
+
+test('prediction archive preserves the real bookmaker source', async () => {
+  const db = new DatabaseService();
+  await db.appendPredictions([{
+    predictionId: 'source-prediction',
+    matchId: 'source-match',
+    market: '1x2',
+    selection: 'homeWin',
+    rawProbability: 0.55,
+    source: 'odds_api',
+    oddsAtPrediction: 2.1,
+    ev: 0.155,
+    evReason: 'computed',
+    snapshotType: 'update',
+    loggingFlags: {
+      hasFullMarketLogging: true,
+      hasImmutabilityEnforced: true,
+      hasGenericVoidHandling: true,
+      hasConfigurableThresholds: true,
+    },
+  }]);
+
+  const rows = await db.getPendingPredictions('source-match');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source, 'odds_api');
 });
