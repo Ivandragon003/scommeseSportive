@@ -1,8 +1,12 @@
 name: Nightly Sync
 
 on:
-  # Sospeso temporaneamente: il backend applica automaticamente le migration
-  # all'avvio e la 002 non deve raggiungere la produzione senza verifica branch.
+  schedule:
+    # Obiettivo: 03:00 ora di Roma (partite finite, dati completi).
+    # Due trigger per coprire ora legale/solare; il gate EXPECTED_LOCAL_HOUR
+    # in nightly-sync.sh fa girare solo quello che cade davvero alle 03:00 Roma.
+    - cron: '0 1 * * *'   # 03:00 Roma d'estate (UTC+2)
+    - cron: '0 2 * * *'   # 03:00 Roma d'inverno (UTC+1)
   workflow_dispatch:
 
 permissions:
