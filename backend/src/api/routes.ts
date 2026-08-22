@@ -525,6 +525,7 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
       awayTeamId: String(match.away_team_id),
       matchId: String(match.match_id),
       competition: String(match.competition ?? ''),
+      oddsSource: replaySource,
       bookmakerOdds: replayOddsUsed,
     });
 
@@ -745,6 +746,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         awayTeamId: String(match.away_team_id),
         matchId,
         competition,
+        oddsSource: String(oddsData?.source ?? '').trim() || 'unknown',
         bookmakerOdds: odds,
       });
       const opportunities = Array.isArray(prediction?.valueOpportunities)

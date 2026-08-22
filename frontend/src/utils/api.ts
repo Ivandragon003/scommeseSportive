@@ -226,6 +226,7 @@ export const getPrediction = (request: {
   matchId?: string;
   competition?: string;
   bookmakerOdds?: Record<string, number>;
+  oddsSource?: string;
 }) =>
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
 
