@@ -3157,7 +3157,7 @@ export class PredictionService {
     stake: number,
     ourProbability: number,
     expectedValue: number,
-    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date }
+    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date; source?: 'manual' | 'automation' | 'unknown' }
   ) {
     const normalizedStake = Number(stake);
     if (!Number.isFinite(normalizedStake) || normalizedStake <= 0) throw new Error('Importo puntata non valido');
@@ -3199,6 +3199,8 @@ export class PredictionService {
       expectedValue: Number(expectedValue),
       status: 'PENDING',
       placedAt: new Date(),
+      dataQuality: 'post_fix',
+      source: meta?.source ?? 'manual',
     };
 
     await this.db.saveBet(bet);

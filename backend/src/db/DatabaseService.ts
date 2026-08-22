@@ -525,6 +525,8 @@ export class DatabaseService {
       { table: 'bets', column: 'away_team_name', type: 'TEXT' },
       { table: 'bets', column: 'competition', type: 'TEXT' },
       { table: 'bets', column: 'match_date', type: 'TEXT' },
+      { table: 'bets', column: 'data_quality', type: "TEXT NOT NULL DEFAULT 'pre_fix'" },
+      { table: 'bets', column: 'source', type: "TEXT NOT NULL DEFAULT 'unknown'" },
       { table: 'teams', column: 'avg_home_corners', type: 'REAL DEFAULT 5.5' },
       { table: 'teams', column: 'avg_away_corners', type: 'REAL DEFAULT 4.5' },
       { table: 'teams', column: 'league_id', type: 'TEXT' },
@@ -1504,7 +1506,9 @@ export class DatabaseService {
   }
 
   async getUserBetClvReport(userId: string): Promise<any> {
-    const bets = await this.getBets(userId);
+    const bets = (await this.getBets(userId)).filter(
+      (bet: any) => String(bet.data_quality ?? 'pre_fix').trim().toLowerCase() === 'post_fix'
+    );
     const relevantBets = bets.filter((bet: any) => String(bet.match_id ?? '').trim());
     if (relevantBets.length === 0) {
       return {
@@ -1557,6 +1561,8 @@ export class DatabaseService {
         openingOdds,
         closingOdds,
         clvPct,
+        dataQuality: String(bet.data_quality ?? 'pre_fix'),
+        source: String(bet.source ?? 'unknown'),
       };
     });
 
@@ -2460,11 +2466,11 @@ export class DatabaseService {
       `INSERT OR REPLACE INTO bets (
         bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
         odds, stake, our_probability, expected_value,
-        status, return_amount, profit, placed_at, settled_at, notes
+        status, return_amount, profit, placed_at, settled_at, notes, data_quality, source
       ) VALUES (
         :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
         :odds, :stake, :ourProbability, :expectedValue,
-        :status, :returnAmount, :profit, :placedAt, :settledAt, :notes
+        :status, :returnAmount, :profit, :placedAt, :settledAt, :notes, :dataQuality, :source
       )`,
       {
         betId: bet.betId,
@@ -2486,6 +2492,8 @@ export class DatabaseService {
         placedAt: bet.placedAt instanceof Date ? bet.placedAt.toISOString() : bet.placedAt,
         settledAt: bet.settledAt ? (bet.settledAt instanceof Date ? bet.settledAt.toISOString() : bet.settledAt) : null,
         notes: bet.notes ?? null,
+        dataQuality: bet.dataQuality ?? 'pre_fix',
+        source: bet.source ?? 'unknown',
       }
     );
   }

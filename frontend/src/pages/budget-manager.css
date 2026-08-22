@@ -141,6 +141,8 @@
 .bm-status.won { color: var(--green); background: var(--green-dim); border-color: var(--green-border); }
 .bm-status.lost { color: var(--red); background: var(--red-dim); border-color: var(--red-border); }
 .bm-status.void { color: var(--gold); background: var(--gold-dim); border-color: var(--gold-border); }
+.bm-bet-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; color: var(--text-3); font-size: 10px; }
+.bm-data-warning { color: var(--gold); font-weight: 700; }
 
 .bm-match {
   font-size: 13px;

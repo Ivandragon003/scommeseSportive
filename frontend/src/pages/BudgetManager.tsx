@@ -33,6 +33,13 @@ const getBudgetSelectionLabel = (value: any) => {
   const isInternalCode = /^(?:dnb_|player_|homeWin$|awayWin$|draw$|btts(?:No)?$|(?:under|over|yellow|shots|cards)[A-Z0-9_])/i.test(label);
   return isInternalCode ? null : label;
 };
+const isPreFixBet = (bet: any) => String(bet?.data_quality ?? 'pre_fix').trim().toLowerCase() !== 'post_fix';
+const sourceLabel = (value: any) => {
+  const source = String(value ?? 'unknown').trim().toLowerCase();
+  if (source === 'manual') return 'Manuale';
+  if (source === 'automation') return 'Automatica';
+  return 'Origine non verificata';
+};
 
 const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   const [initAmount, setInitAmount] = useState('1000');
@@ -277,7 +284,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                             <td className="fp-mono">{Number(bet.odds ?? 0).toFixed(2)}</td>
                             <td className="fp-mono">EUR {Number(bet.stake ?? 0).toFixed(2)}</td>
                             <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{formatDateTime(bet.placed_at)}</td>
-                            <td><span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span></td>
+                            <td>
+                              <span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span>
+                              <div className="bm-bet-meta">
+                                {isPreFixBet(bet) && <span className="bm-data-warning">Pre-fix / non validata</span>}
+                                <span>{sourceLabel(bet.source)}</span>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -341,7 +354,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                           </td>
                           <td className="fp-mono">{Number(bet.odds ?? 0).toFixed(2)}</td>
                           <td className="fp-mono">EUR {Number(bet.stake ?? 0).toFixed(2)}</td>
-                          <td><span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span></td>
+                          <td>
+                            <span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span>
+                            <div className="bm-bet-meta">
+                              {isPreFixBet(bet) && <span className="bm-data-warning">Pre-fix / non validata</span>}
+                              <span>{sourceLabel(bet.source)}</span>
+                            </div>
+                          </td>
                           <td className="fp-mono" style={{ color: Number(bet.profit ?? 0) > 0 ? 'var(--green)' : Number(bet.profit ?? 0) < 0 ? 'var(--red)' : 'var(--text-2)' }}>
                             {bet.profit !== null && bet.profit !== undefined ? `${Number(bet.profit) > 0 ? '+' : ''}EUR ${Number(bet.profit).toFixed(2)}` : '-'}
                           </td>

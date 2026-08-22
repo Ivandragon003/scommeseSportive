@@ -822,7 +822,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
             betPayload.stake,
             betPayload.ourProbability,
             betPayload.expectedValue,
-            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate }
+            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate, source: 'automation' }
           );
           operationalBetCount++;
           results.push({ ...base, status: 'placed', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, betId: placed?.bet?.betId ?? null });
