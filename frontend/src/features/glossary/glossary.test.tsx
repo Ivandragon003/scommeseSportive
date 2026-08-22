@@ -25,6 +25,7 @@ const REQUIRED_TERM_IDS = [
   'pending-bet',
   'void',
   'confidence',
+  'speculative',
   'european-handicap',
   'asian-handicap',
   'lambda',

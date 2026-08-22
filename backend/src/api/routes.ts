@@ -672,6 +672,10 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
   const windowHours = Number.isFinite(windowHoursRaw) ? Math.max(1, Math.min(windowHoursRaw, 48)) : 24;
   const maxMatchesRaw = Number(req.body?.maxMatches ?? process.env.AUTO_BET_MAX_MATCHES ?? 100);
   const maxMatches = Number.isFinite(maxMatchesRaw) ? Math.max(1, Math.min(Math.trunc(maxMatchesRaw), 200)) : 100;
+  const maxOperationalBetsRaw = Number(req.body?.maxOperationalBets ?? process.env.AUTO_BET_MAX_OPERATIONAL_BETS ?? 3);
+  const maxOperationalBets = Number.isFinite(maxOperationalBetsRaw)
+    ? Math.max(1, Math.min(Math.trunc(maxOperationalBetsRaw), 3))
+    : 3;
   const maxSnapshotAgeHoursRaw = Number(process.env.AUTO_BET_MAX_SNAPSHOT_AGE_HOURS ?? 36);
   const maxSnapshotAgeHours = Number.isFinite(maxSnapshotAgeHoursRaw) ? Math.max(1, Math.min(maxSnapshotAgeHoursRaw, 168)) : 36;
   const apiBase = String(req.body?.apiBase ?? `http://127.0.0.1:${process.env.PORT ?? 3001}/api`).replace(/\/$/, '');
@@ -680,6 +684,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
   const matches = await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: until.toISOString(), limit: maxMatches });
   const results: any[] = [];
   let simulatedAvailableBudget: number | null = null;
+  let operationalBetCount = 0;
 
   const callApi = async (path: string, body: any) => {
     const response = await fetch(`${apiBase}${path}`, {
@@ -751,7 +756,19 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
       }
 
       for (const opportunity of opportunities) {
-        const betStatus = String(opportunity?.bestBetStatus ?? prediction?.bestBetStatus ?? 'VALUE').toUpperCase();
+        // Lo status della prediction complessiva puo essere SPECULATIVE anche
+        // quando una singola opportunity e operativa: qui conta solo quella
+        // dell'opportunity corrente.
+        const betStatus = String(opportunity?.bestBetStatus ?? 'VALUE').toUpperCase();
+        const isSpeculative = String(opportunity?.confidence ?? '').toUpperCase() === 'LOW' || betStatus === 'SPECULATIVE';
+        if (isSpeculative) {
+          results.push({ ...base, status: 'skipped', reason: 'low_speculative_esclusa_dal_conteggio_operativo', selection: opportunity?.selection ?? null, confidence: opportunity?.confidence ?? null });
+          continue;
+        }
+        if (operationalBetCount >= maxOperationalBets) {
+          results.push({ ...base, status: 'skipped', reason: 'limite_bet_operativo_raggiunto', selection: opportunity?.selection ?? null });
+          continue;
+        }
         const bookmakerOdds = Number(opportunity?.bookmakerOdds);
         if (!opportunity || !Number.isFinite(bookmakerOdds) || bookmakerOdds <= 1) {
           results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_valida', selection: opportunity?.selection ?? null });
@@ -790,6 +807,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         };
         if (dryRun) {
           simulatedAvailableBudget = Number((availableBudget - calculatedStake).toFixed(2));
+          operationalBetCount++;
           results.push({ ...base, status: 'dry_run', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake });
           continue;
         }
@@ -806,6 +824,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
             betPayload.expectedValue,
             { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate }
           );
+          operationalBetCount++;
           results.push({ ...base, status: 'placed', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, betId: placed?.bet?.betId ?? null });
         } catch (error: any) {
           results.push({ ...base, status: 'skipped', reason: String(error?.message ?? error), selection: betPayload.selection });
@@ -823,11 +842,13 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
       dryRun,
       userId,
       windowHours,
+      maxOperationalBets,
       from: now.toISOString(),
       until: until.toISOString(),
       candidates: matches.length,
       placed: results.filter((item) => item.status === 'placed').length,
       dryRunCount: results.filter((item) => item.status === 'dry_run').length,
+      operationalBetCount,
       skipped: results.filter((item) => item.status === 'skipped').length,
       results,
     },
