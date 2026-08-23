@@ -2,6 +2,7 @@ import { createClient } from '@libsql/client';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningService';
 
 type SqlArgs = Record<string, any> | any[];
 type HistoricalOddsDetail = {
@@ -485,6 +486,34 @@ export class DatabaseService {
         has_generic_void_handling INTEGER NOT NULL DEFAULT 0,
         has_configurable_thresholds INTEGER NOT NULL DEFAULT 0
       )`,
+      `CREATE TABLE IF NOT EXISTS automated_bet_decisions (
+        decision_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        match_id TEXT NOT NULL,
+        market_name TEXT NOT NULL,
+        selection TEXT NOT NULL,
+        opportunity_key TEXT NOT NULL,
+        confidence TEXT,
+        bookmaker_odds REAL,
+        theoretical_stake_percent REAL,
+        theoretical_stake_amount REAL,
+        ranking_position INTEGER NOT NULL,
+        operational_slot INTEGER CHECK (operational_slot IS NULL OR operational_slot BETWEEN 1 AND 3),
+        decision_status TEXT NOT NULL CHECK (decision_status IN ('reserved', 'placed', 'dry_run', 'saved_only')),
+        exclusion_reason TEXT,
+        bet_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_match
+       ON automated_bet_decisions(match_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_user
+       ON automated_bet_decisions(user_id, created_at)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_slot
+       ON automated_bet_decisions(user_id, match_id, operational_slot)
+       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_opportunity
+       ON automated_bet_decisions(user_id, match_id, opportunity_key)
+       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
       `CREATE TABLE IF NOT EXISTS learning_reviews (
         match_id TEXT PRIMARY KEY,
         competition TEXT,
@@ -2854,6 +2883,137 @@ export class DatabaseService {
       ORDER BY p.created_at DESC
       LIMIT ?
     `, params);
+  }
+
+  async appendAutomatedBetDecision(row: Record<string, any>): Promise<void> {
+    await this.run(
+      `INSERT INTO automated_bet_decisions (
+        decision_id, user_id, match_id, market_name, selection, opportunity_key, confidence,
+        bookmaker_odds, theoretical_stake_percent, theoretical_stake_amount,
+        ranking_position, operational_slot, decision_status, exclusion_reason, bet_id, created_at
+      ) VALUES (
+        :decisionId, :userId, :matchId, :marketName, :selection, :opportunityKey, :confidence,
+        :bookmakerOdds, :theoreticalStakePercent, :theoreticalStakeAmount,
+        :rankingPosition, :operationalSlot, :decisionStatus, :exclusionReason, :betId, :createdAt
+      )`,
+      {
+        decisionId: String(row.decisionId ?? randomUUID()),
+        userId: String(row.userId),
+        matchId: String(row.matchId),
+        marketName: String(row.marketName),
+        selection: String(row.selection),
+        opportunityKey: String(row.opportunityKey ?? automatedBetOpportunityKey(row.marketName, row.selection)),
+        confidence: row.confidence == null ? null : String(row.confidence),
+        bookmakerOdds: row.bookmakerOdds == null ? null : Number(row.bookmakerOdds),
+        theoreticalStakePercent: row.theoreticalStakePercent == null ? null : Number(row.theoreticalStakePercent),
+        theoreticalStakeAmount: row.theoreticalStakeAmount == null ? null : Number(row.theoreticalStakeAmount),
+        rankingPosition: Number(row.rankingPosition),
+        operationalSlot: row.operationalSlot == null ? null : Number(row.operationalSlot),
+        decisionStatus: String(row.decisionStatus),
+        exclusionReason: row.exclusionReason == null ? null : String(row.exclusionReason),
+        betId: row.betId == null ? null : String(row.betId),
+        createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : (row.createdAt ?? new Date().toISOString()),
+      },
+    );
+  }
+
+  async reserveAutomatedBetDecision(
+    row: Record<string, any>,
+    maxOperationalSlots = 3,
+  ): Promise<{ reserved: boolean; decisionId: string; operationalSlot: number | null }> {
+    const decisionId = String(row.decisionId ?? randomUUID());
+    const safeLimit = Number.isFinite(Number(maxOperationalSlots))
+      ? Math.max(1, Math.min(Math.trunc(Number(maxOperationalSlots)), 3))
+      : 3;
+    const preferredSlot = Number(row.operationalSlot);
+    const candidateSlots = [
+      ...(Number.isInteger(preferredSlot) && preferredSlot >= 1 && preferredSlot <= safeLimit ? [preferredSlot] : []),
+      ...Array.from({ length: safeLimit }, (_unused, index) => index + 1),
+    ].filter((slot, index, slots) => slots.indexOf(slot) === index);
+
+    for (const operationalSlot of candidateSlots) {
+      const result = await this.execute(
+        `INSERT OR IGNORE INTO automated_bet_decisions (
+          decision_id, user_id, match_id, market_name, selection, opportunity_key, confidence,
+          bookmaker_odds, theoretical_stake_percent, theoretical_stake_amount,
+          ranking_position, operational_slot, decision_status, exclusion_reason, bet_id, created_at
+        ) VALUES (
+          :decisionId, :userId, :matchId, :marketName, :selection, :opportunityKey, :confidence,
+          :bookmakerOdds, :theoreticalStakePercent, :theoreticalStakeAmount,
+          :rankingPosition, :operationalSlot, 'reserved', NULL, NULL, :createdAt
+        )`,
+        {
+          decisionId,
+          userId: String(row.userId),
+          matchId: String(row.matchId),
+          marketName: String(row.marketName),
+          selection: String(row.selection),
+          opportunityKey: String(row.opportunityKey ?? automatedBetOpportunityKey(row.marketName, row.selection)),
+          confidence: row.confidence == null ? null : String(row.confidence),
+          bookmakerOdds: row.bookmakerOdds == null ? null : Number(row.bookmakerOdds),
+          theoreticalStakePercent: row.theoreticalStakePercent == null ? null : Number(row.theoreticalStakePercent),
+          theoreticalStakeAmount: row.theoreticalStakeAmount == null ? null : Number(row.theoreticalStakeAmount),
+          rankingPosition: Number(row.rankingPosition),
+          operationalSlot,
+          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : (row.createdAt ?? new Date().toISOString()),
+        },
+      );
+      if (Number(result.rowsAffected ?? 0) === 1) {
+        return { reserved: true, decisionId, operationalSlot };
+      }
+    }
+    return { reserved: false, decisionId, operationalSlot: null };
+  }
+
+  async finalizeAutomatedBetDecision(
+    decisionId: string,
+    decisionStatus: 'placed' | 'dry_run' | 'saved_only',
+    options: { betId?: string | null; exclusionReason?: string | null } = {},
+  ): Promise<void> {
+    const result = await this.execute(
+      `UPDATE automated_bet_decisions
+       SET decision_status = ?, exclusion_reason = ?, bet_id = ?,
+           operational_slot = CASE WHEN ? = 'placed' THEN operational_slot ELSE NULL END
+       WHERE decision_id = ? AND decision_status = 'reserved'`,
+      [
+        decisionStatus,
+        options.exclusionReason ?? null,
+        options.betId ?? null,
+        decisionStatus,
+        decisionId,
+      ],
+    );
+    if (Number(result.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Decisione automatica ${decisionId} non finalizzabile.`);
+    }
+  }
+
+  async markAutomatedBetDecisionPlacementUnknown(decisionId: string, reason: string): Promise<void> {
+    const result = await this.execute(
+      `UPDATE automated_bet_decisions
+       SET exclusion_reason = ?
+       WHERE decision_id = ? AND decision_status = 'reserved'`,
+      [reason, decisionId],
+    );
+    if (Number(result.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Decisione automatica ${decisionId} non marcabile come esito incerto.`);
+    }
+  }
+
+  async getAutomatedBetDecisions(options: { userId?: string; matchId?: string; limit?: number } = {}): Promise<any[]> {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (options.userId) { where.push('user_id = ?'); params.push(options.userId); }
+    if (options.matchId) { where.push('match_id = ?'); params.push(options.matchId); }
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
+    params.push(limit);
+    return this.all(
+      `SELECT * FROM automated_bet_decisions
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY datetime(created_at) DESC, ranking_position ASC
+       LIMIT ?`,
+      params,
+    );
   }
 
   async getBudgetSessions(userId: string): Promise<any[]> {
