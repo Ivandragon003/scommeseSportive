@@ -1062,6 +1062,72 @@ export class DatabaseService {
     return Boolean(row);
   }
 
+  async hasTransitionForSourceSeason(sourceCompetitionId: string, sourceSeason: string): Promise<boolean> {
+    const row = await this.get(`
+      SELECT 1 AS present FROM team_competition_transitions
+      WHERE source_competition_id = ? AND source_season = ?
+      LIMIT 1
+    `, [sourceCompetitionId, sourceSeason]);
+    return Boolean(row);
+  }
+
+  async getTransitionTeams(): Promise<Array<{ team_id: string; name: string }>> {
+    return this.all('SELECT team_id, name FROM teams');
+  }
+
+  async upsertTeamCompetitionTransition(transition: {
+    transitionId: string;
+    teamId: string;
+    sourceCompetitionId: string;
+    sourceSeason: string;
+    destinationCompetitionId: string;
+    destinationSeason: string;
+    transitionType: 'promoted' | 'relegated';
+    sourceRank: number;
+    sourcePoints: number;
+    sourceMatches: number;
+    sourcePpg: number;
+    sourceGoalDifference: number;
+    sourceGoalDifferencePerMatch: number;
+    transitionMode: 'direct_1' | 'direct_2';
+    coverageStatus: 'complete' | 'partial';
+    sourceQuality: 'estimated';
+    sourceProvider: string;
+    sourceReference: string;
+    notes: string;
+  }): Promise<void> {
+    await this.execute(`
+      INSERT INTO team_competition_transitions (
+        transition_id, team_id, source_competition_id, source_season,
+        destination_competition_id, destination_season, transition_type,
+        source_rank, source_points, source_matches, source_ppg,
+        source_goal_difference, source_goal_difference_per_match,
+        transition_mode, coverage_status, source_quality, source_provider,
+        source_reference, notes, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(transition_id) DO UPDATE SET
+        source_rank = excluded.source_rank,
+        source_points = excluded.source_points,
+        source_matches = excluded.source_matches,
+        source_ppg = excluded.source_ppg,
+        source_goal_difference = excluded.source_goal_difference,
+        source_goal_difference_per_match = excluded.source_goal_difference_per_match,
+        coverage_status = excluded.coverage_status,
+        source_quality = excluded.source_quality,
+        source_provider = excluded.source_provider,
+        source_reference = excluded.source_reference,
+        notes = excluded.notes,
+        updated_at = datetime('now')
+    `, [
+      transition.transitionId, transition.teamId, transition.sourceCompetitionId, transition.sourceSeason,
+      transition.destinationCompetitionId, transition.destinationSeason, transition.transitionType,
+      transition.sourceRank, transition.sourcePoints, transition.sourceMatches, transition.sourcePpg,
+      transition.sourceGoalDifference, transition.sourceGoalDifferencePerMatch, transition.transitionMode,
+      transition.coverageStatus, transition.sourceQuality, transition.sourceProvider,
+      transition.sourceReference, transition.notes,
+    ]);
+  }
+
   async getSourceSeasonReferences(): Promise<any[]> {
     return this.all(`
       SELECT r.*, c.name AS competition_name, c.country, c.tier, c.cluster_key

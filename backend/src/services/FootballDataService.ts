@@ -206,6 +206,45 @@ export type TransitionSeasonReference = {
   sourceReference: string;
 };
 
+export type TransitionStanding = {
+  teamName: string;
+  normalizedTeamName: string;
+  played: number;
+  points: number;
+  goalDifference: number;
+  rank: number;
+  ppg: number;
+};
+
+/** Builds a deterministic final-table view from completed result rows. */
+export function buildTransitionStandings(rows: FootballDataRow[]): TransitionStanding[] {
+  const table = new Map<string, { teamName: string; played: number; points: number; goalDifference: number }>();
+  for (const row of rows) {
+    if (row.homeGoals == null || row.awayGoals == null) continue;
+    const homeKey = canonicalTeamName(row.homeTeam);
+    const awayKey = canonicalTeamName(row.awayTeam);
+    if (!table.has(homeKey)) table.set(homeKey, { teamName: row.homeTeam, played: 0, points: 0, goalDifference: 0 });
+    if (!table.has(awayKey)) table.set(awayKey, { teamName: row.awayTeam, played: 0, points: 0, goalDifference: 0 });
+    const home = table.get(homeKey)!;
+    const away = table.get(awayKey)!;
+    home.played += 1; away.played += 1;
+    home.goalDifference += row.homeGoals - row.awayGoals;
+    away.goalDifference += row.awayGoals - row.homeGoals;
+    if (row.homeGoals > row.awayGoals) home.points += 3;
+    else if (row.homeGoals < row.awayGoals) away.points += 3;
+    else { home.points += 1; away.points += 1; }
+  }
+  return [...table.entries()]
+    .map(([normalizedTeamName, team]) => ({
+      ...team,
+      normalizedTeamName,
+      rank: 0,
+      ppg: team.played > 0 ? team.points / team.played : 0,
+    }))
+    .sort((a, b) => b.points - a.points || b.goalDifference - a.goalDifference || a.teamName.localeCompare(b.teamName))
+    .map((team, index) => ({ ...team, rank: index + 1 }));
+}
+
 /**
  * Builds a final-table summary from a football-data result CSV. It is pure and
  * idempotent: the caller can upsert the resulting reference by competition and
@@ -218,24 +257,9 @@ export function buildTransitionSeasonReference(
   rows: FootballDataRow[],
   sourceReference: string,
 ): TransitionSeasonReference {
-  const table = new Map<string, { played: number; points: number; goalDifference: number }>();
-  for (const row of rows) {
-    if (row.homeGoals == null || row.awayGoals == null) continue;
-    for (const team of [row.homeTeam, row.awayTeam]) {
-      const key = canonicalTeamName(team);
-      if (!table.has(key)) table.set(key, { played: 0, points: 0, goalDifference: 0 });
-    }
-    const home = table.get(canonicalTeamName(row.homeTeam))!;
-    const away = table.get(canonicalTeamName(row.awayTeam))!;
-    home.played += 1; away.played += 1;
-    home.goalDifference += row.homeGoals - row.awayGoals;
-    away.goalDifference += row.awayGoals - row.homeGoals;
-    if (row.homeGoals > row.awayGoals) home.points += 3;
-    else if (row.homeGoals < row.awayGoals) away.points += 3;
-    else { home.points += 1; away.points += 1; }
-  }
-  const values = [...table.values()].filter((team) => team.played > 0);
-  const ppg = values.map((team) => team.points / team.played);
+  const standings = buildTransitionStandings(rows).filter((team) => team.played > 0);
+  const values = standings;
+  const ppg = values.map((team) => team.ppg);
   const gdPerMatch = values.map((team) => team.goalDifference / team.played);
   const mean = (items: number[]) => items.length ? items.reduce((a, b) => a + b, 0) / items.length : null;
   const stdev = (items: number[]) => {
@@ -297,6 +321,29 @@ export interface FootballDataSyncOptions {
 export interface TransitionReferenceDb {
   upsertTransitionSeasonReference(reference: TransitionSeasonReference): Promise<void>;
   hasCompleteTransitionSeasonReference?(sourceCompetitionId: string, sourceSeason: string): Promise<boolean>;
+  hasTransitionForSourceSeason?(sourceCompetitionId: string, sourceSeason: string): Promise<boolean>;
+  getTransitionTeams?(): Promise<Array<{ team_id: string; name: string }>>;
+  upsertTeamCompetitionTransition?(transition: {
+    transitionId: string;
+    teamId: string;
+    sourceCompetitionId: string;
+    sourceSeason: string;
+    destinationCompetitionId: string;
+    destinationSeason: string;
+    transitionType: 'promoted' | 'relegated';
+    sourceRank: number;
+    sourcePoints: number;
+    sourceMatches: number;
+    sourcePpg: number;
+    sourceGoalDifference: number;
+    sourceGoalDifferencePerMatch: number;
+    transitionMode: 'direct_1' | 'direct_2';
+    coverageStatus: 'complete' | 'partial';
+    sourceQuality: 'estimated';
+    sourceProvider: string;
+    sourceReference: string;
+    notes: string;
+  }): Promise<void>;
 }
 
 export interface TransitionReferenceSyncOptions {
@@ -311,7 +358,17 @@ export interface TransitionReferenceSyncSummary {
   persisted: number;
   skipped: number;
   errors: Array<{ competition: string; season: number; error: string }>;
+  transitionsPersisted: number;
+  unresolvedTeams: string[];
 }
+
+const TRANSITION_RULES: Record<string, { destinationCompetitionId: string; directPromotionRanks: number[] }> = {
+  serie_b: { destinationCompetitionId: 'serie_a', directPromotionRanks: [1, 2] },
+  championship: { destinationCompetitionId: 'premier_league', directPromotionRanks: [1, 2] },
+  '2_bundesliga': { destinationCompetitionId: 'bundesliga', directPromotionRanks: [1, 2] },
+  ligue_2: { destinationCompetitionId: 'ligue_1', directPromotionRanks: [1, 2] },
+  segunda_division: { destinationCompetitionId: 'la_liga', directPromotionRanks: [1, 2] },
+};
 
 /** Downloads and upserts seasonal references. Re-running it is safe. */
 export async function syncTransitionSeasonReferences(
@@ -321,7 +378,9 @@ export async function syncTransitionSeasonReferences(
   const competitions = options.competitions ?? FOOTBALL_DATA_TRANSITION_LEAGUE_CODES;
   const seasons = options.seasonStartYears ?? [currentSeasonStartYear() - 1];
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
-  const summary: TransitionReferenceSyncSummary = { requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [] };
+  const summary: TransitionReferenceSyncSummary = { requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [], transitionsPersisted: 0, unresolvedTeams: [] };
+  const teams = db.getTransitionTeams ? await db.getTransitionTeams() : [];
+  const teamByName = new Map(teams.map((team) => [canonicalTeamName(team.name), team.team_id]));
   for (const [competitionName, leagueCode] of Object.entries(competitions)) {
     const competitionId = competitionName === 'Serie B' ? 'serie_b'
       : competitionName === 'Championship' ? 'championship'
@@ -334,7 +393,8 @@ export async function syncTransitionSeasonReferences(
       try {
         const seasonLabelValue = seasonLabel(seasonStartYear);
         if (db.hasCompleteTransitionSeasonReference
-          && await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)) {
+          && await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)
+          && (!db.hasTransitionForSourceSeason || await db.hasTransitionForSourceSeason(competitionId, seasonLabelValue))) {
           summary.skipped += 1;
           continue;
         }
@@ -347,6 +407,37 @@ export async function syncTransitionSeasonReferences(
         );
         await db.upsertTransitionSeasonReference(reference);
         summary.persisted += 1;
+        const rule = TRANSITION_RULES[competitionId];
+        if (rule && db.upsertTeamCompetitionTransition && db.getTransitionTeams) {
+          const standings = buildTransitionStandings(parseFootballDataCsv(csv));
+          for (const standing of standings.filter((item) => rule.directPromotionRanks.includes(item.rank))) {
+            const teamId = teamByName.get(standing.normalizedTeamName);
+            if (!teamId) { summary.unresolvedTeams.push(`${competitionName}:${standing.teamName}:${reference.sourceSeason}`); continue; }
+            const destinationSeason = seasonLabel(seasonStartYear + 1);
+            await db.upsertTeamCompetitionTransition({
+              transitionId: `auto:${competitionId}:${reference.sourceSeason}:${teamId}:promoted`,
+              teamId,
+              sourceCompetitionId: competitionId,
+              sourceSeason: reference.sourceSeason,
+              destinationCompetitionId: rule.destinationCompetitionId,
+              destinationSeason,
+              transitionType: 'promoted',
+              sourceRank: standing.rank,
+              sourcePoints: standing.points,
+              sourceMatches: standing.played,
+              sourcePpg: standing.ppg,
+              sourceGoalDifference: standing.goalDifference,
+              sourceGoalDifferencePerMatch: standing.goalDifference / standing.played,
+              transitionMode: standing.rank === 1 ? 'direct_1' : 'direct_2',
+              coverageStatus: reference.coverageStatus === 'complete' ? 'complete' : 'partial',
+              sourceQuality: 'estimated',
+              sourceProvider: reference.sourceProvider,
+              sourceReference,
+              notes: 'Auto-identificata dalla posizione finale; i playoff non sono inferiti dai soli CSV di campionato.',
+            });
+            summary.transitionsPersisted += 1;
+          }
+        }
       } catch (error: any) {
         summary.errors.push({ competition: competitionName, season: seasonStartYear, error: error?.message ?? String(error) });
       }

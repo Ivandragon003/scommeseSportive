@@ -45,7 +45,7 @@ post_json() {
   local url="$1"
   local body="$2"
   local timeout_seconds="$3"
-  if ! curl --silent --show-error --fail --max-time "$timeout_seconds" \
+  if ! curl --silent --show-error --fail-with-body --max-time "$timeout_seconds" \
     -X POST "$url" \
     -H "Content-Type: application/json" \
     --data "$body"; then
@@ -59,7 +59,7 @@ post_json() {
 get_json() {
   local url="$1"
   local timeout_seconds="$2"
-  if ! curl --silent --show-error --fail --max-time "$timeout_seconds" "$url"; then
+  if ! curl --silent --show-error --fail-with-body --max-time "$timeout_seconds" "$url"; then
     echo "Request failed: $url"
     print_backend_log_tail
     return 1

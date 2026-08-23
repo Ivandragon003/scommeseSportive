@@ -12,6 +12,7 @@ const {
   pruneOldSeasons,
   buildMarketOddsJson,
   buildTransitionSeasonReference,
+  buildTransitionStandings,
   syncTransitionSeasonReferences,
   FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
 } = require('../dist/services/FootballDataService.js');
@@ -102,6 +103,35 @@ test('syncTransitionSeasonReferences: upsert idempotente e skip della stagione c
   assert.equal(result.requested, 2);
   assert.equal(result.persisted, 1);
   assert.equal(persisted[0].sourceSeason, '2025/2026');
+});
+
+test('syncTransitionSeasonReferences: salva le prime due promozioni dirette quando i team sono risolvibili', async () => {
+  const transitions = [];
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I2,01/08/2024,Alpha,Beta,2,0',
+    'I2,02/08/2024,Beta,Alpha,1,1',
+    'I2,03/08/2024,Gamma,Alpha,0,1',
+    'I2,04/08/2024,Alpha,Gamma,2,0',
+    'I2,05/08/2024,Beta,Gamma,1,0',
+    'I2,06/08/2024,Gamma,Beta,0,0',
+  ].join('\n');
+  const standings = buildTransitionStandings(parseFootballDataCsv(csv));
+  assert.deepEqual(standings.slice(0, 2).map((row) => row.teamName), ['Alpha', 'Beta']);
+  const fakeDb = {
+    async getTransitionTeams() { return [{ team_id: 'alpha-id', name: 'Alpha' }, { team_id: 'beta-id', name: 'Beta' }]; },
+    async upsertTransitionSeasonReference() {},
+    async upsertTeamCompetitionTransition(row) { transitions.push(row); },
+    async hasCompleteTransitionSeasonReference() { return false; },
+    async hasTransitionForSourceSeason() { return false; },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' },
+    seasonStartYears: [2024],
+    fetcher: async () => csv,
+  });
+  assert.equal(result.transitionsPersisted, 2);
+  assert.deepEqual(transitions.map((row) => row.transitionMode).sort(), ['direct_1', 'direct_2']);
 });
 
 test('FOOTBALL_DATA_TRANSITION_LEAGUE_CODES: catalogo seconde divisioni', () => {
