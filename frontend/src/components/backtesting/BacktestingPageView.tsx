@@ -124,13 +124,14 @@ const BacktestingPageView: React.FC = () => {
 
   return (
     <>
-      <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
-        <div style={{ marginBottom: 32 }}>
-        <h1 className="fp-page-title fp-gradient-blue">Backtesting e Validazione</h1>
-        <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0 }}>
-          Configura, esegui e interpreta la validazione temporale del modello senza confonderla con la manutenzione.
-        </p>
-      </div>
+      <div className="tool-page">
+        <header className="tool-page__header">
+          <p className="tool-page__eyebrow">Strumenti / Backtest</p>
+          <h1 className="tool-page__title">Backtest</h1>
+          <p className="tool-page__subtitle">
+            Verifica il modello sulle stagioni passate e confronta i risultati nel tempo.
+          </p>
+        </header>
 
       {reportError && (
         <ErrorBanner
@@ -140,12 +141,12 @@ const BacktestingPageView: React.FC = () => {
         />
       )}
 
-      <div className="fp-card" style={{ marginBottom: 24 }}>
+      <div className="fp-card bt-guide" style={{ marginBottom: 24 }}>
         <div className="fp-card-head">
           <div>
-            <div className="fp-card-title">Come usare il backtesting</div>
+            <div className="fp-card-title">Guida alla lettura</div>
             <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
-              Guida operativa per leggere ROI, CLV e robustezza del modello senza giudicare poche partite.
+              ROI, CLV e robustezza spiegati prima di avviare una validazione.
             </div>
           </div>
           <button
@@ -153,8 +154,9 @@ const BacktestingPageView: React.FC = () => {
             className="fp-btn fp-btn-ghost fp-btn-sm"
             onClick={() => setTutorialOpen((open) => !open)}
             aria-expanded={tutorialOpen}
+            aria-label={tutorialOpen ? 'Nascondi tutorial' : 'Come usare il backtesting'}
           >
-            {tutorialOpen ? 'Nascondi tutorial' : 'Come usare il backtesting'}
+            {tutorialOpen ? 'Nascondi guida' : 'Apri guida'}
           </button>
         </div>
         {tutorialOpen && (
@@ -183,10 +185,10 @@ const BacktestingPageView: React.FC = () => {
         )}
       </div>
 
-      <div className="fp-grid-2" style={{ marginBottom: 24 }}>
-        <div className="fp-card">
+      <div className="fp-grid-2 bt-layout" style={{ marginBottom: 24 }}>
+        <div className="fp-card bt-config-card">
           <div className="fp-card-head">
-            <div className="fp-card-title">Esegui Validazione</div>
+            <div className="fp-card-title">Configura il test</div>
           </div>
           <div className="fp-card-body">
             <div className="fp-alert fp-alert-info" style={{ marginBottom: 18 }}>
@@ -209,7 +211,8 @@ const BacktestingPageView: React.FC = () => {
                   : 'Il walk-forward puo richiedere alcuni minuti.'}
               </div>
             )}
-            <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+            <div className="bt-step-title"><span>1</span><div><strong>Ambito</strong><small>Campionato, stagione e livello di affidabilità</small></div></div>
+            <div className="fp-grid-2 bt-step-content" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-confidence">Filtro affidabilità</label>
                 <select id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
@@ -242,7 +245,8 @@ const BacktestingPageView: React.FC = () => {
               </div>
             </div>
 
-            <div className="fp-grid-2" style={{ marginBottom: 18 }}>
+            <div className="bt-step-title"><span>2</span><div><strong>Criteri</strong><small>Finestre temporali e volume della validazione</small></div></div>
+            <div className="fp-grid-2 bt-step-content" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-initial-train">Partite iniziali di addestramento</label>
                 <input id="backtest-initial-train" className="fp-input" value={initialTrainMatches} onChange={(e) => setInitialTrainMatches(e.target.value)} placeholder="Automatico" aria-describedby="backtest-initial-train-help" />
@@ -264,6 +268,8 @@ const BacktestingPageView: React.FC = () => {
                 <small id="backtest-max-folds-help" className="fp-section-text">Limita i cicli per controllare durata e volume del test.</small>
               </div>
             </div>
+            <div className="bt-step-title"><span>3</span><div><strong>Opzioni</strong><small>Salvataggio, finestra crescente e ottimizzazione</small></div></div>
+            <div className="bt-step-content bt-options">
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: 'var(--text-2)' }}>
               <input type="checkbox" checked={expandingWindow} onChange={(e) => setExpandingWindow(e.target.checked)} />
               <span>
@@ -306,8 +312,10 @@ const BacktestingPageView: React.FC = () => {
               </span>
             </label>
 
+            </div>
+
             <button
-              className="fp-btn fp-btn-gold fp-btn-lg"
+              className="fp-btn fp-btn-solid fp-btn-lg bt-run-button"
               onClick={handleRun}
               disabled={loading}
               title={loading ? 'Walk-forward gia in esecuzione' : 'Avvia una validazione walk-forward'}
@@ -317,8 +325,8 @@ const BacktestingPageView: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: 16 }}>
-          <div className="fp-card">
+        <div className="bt-archive" style={{ display: 'grid', gap: 16 }}>
+          <div className="fp-card bt-archive-card">
             <div className="fp-card-head">
               <div className="fp-card-title">Archivio esecuzioni</div>
               <span className="fp-badge fp-badge-gray">{results.length} esecuzioni</span>

@@ -58,6 +58,37 @@ const localStyles = `
   }
   .sc-check:hover { color: var(--text); }
   .sc-check input { accent-color: var(--blue); width: 16px; height: 16px; cursor: pointer; }
+  .sc-system-note { margin-bottom: 24px; }
+  .sc-overview { display:grid; gap:22px; }
+  .sc-source-section { border:1px solid var(--border); border-radius:14px; background:var(--surface); overflow:hidden; box-shadow:var(--shadow); }
+  .sc-source-section__head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:20px 22px; border-bottom:1px solid var(--border); }
+  .sc-source-section__head > div { display:flex; gap:13px; }
+  .sc-source-num { width:30px; height:30px; display:grid; place-items:center; border-radius:50%; background:var(--primary); color:white; font-weight:900; }
+  .sc-source-section__head h2 { margin:0; font-size:20px; }
+  .sc-source-section__head p { margin:4px 0 0; color:var(--text-2); font-size:12px; }
+  .sc-truth-banner { margin:18px 22px 0; padding:13px 15px; border:1px solid var(--green-border); border-radius:9px; background:var(--green-dim); color:var(--green); font-size:12px; }
+  .sc-source-table { display:grid; padding:8px 22px 18px; }
+  .sc-source-row { display:grid; grid-template-columns:minmax(190px,1.35fr) 100px minmax(150px,.8fr) minmax(170px,1fr) auto; align-items:center; gap:18px; min-height:74px; border-bottom:1px solid var(--border); }
+  .sc-source-row:last-child { border-bottom:0; }
+  .sc-source-name { display:grid; gap:3px; }
+  .sc-source-name strong { font-size:15px; }
+  .sc-source-name small,.sc-source-meta span { color:var(--text-3); font-size:11px; }
+  .sc-source-meta { display:grid; gap:3px; }
+  .sc-source-row button { min-height:38px; padding:0 13px; border:1px solid var(--primary-border); border-radius:8px; background:var(--primary-dim); color:var(--primary); font-size:11px; font-weight:800; cursor:pointer; }
+  .sc-config-label { margin:28px 0 12px; color:var(--text-3); font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; }
+  .sc-legacy-summary,.sc-legacy-note { display:none !important; }
+  @media (max-width: 640px) {
+    .sc-year-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sc-comp { flex: 1 1 135px; }
+    .sc-source-section__head { padding:18px; }
+    .sc-truth-banner { margin:14px 18px 0; }
+    .sc-source-table { padding:5px 18px 16px; }
+    .sc-source-row { grid-template-columns:minmax(0,1fr) auto; gap:9px 12px; padding:15px 0; }
+    .sc-source-row > .sc-source-meta { grid-column:1; }
+    .sc-source-row > button { grid-column:2; grid-row:1/3; }
+    .sc-source-section__head > .fp-badge { display:none; }
+    .sc-config-tabs { overflow-x:auto; }
+  }
 `;
 
 const formatDate = (iso: string) => {
@@ -294,15 +325,35 @@ export default function ScrapersPageView() {
   return (
     <>
       <style>{localStyles}</style>
-      <div style={{ padding: '40px 32px', minHeight: '100vh' }}>
-        <div style={{ marginBottom: 32 }}>
-          <h1 className="fp-page-title fp-gradient-blue">Dati e Provider</h1>
-          <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0 }}>
-            Stato operativo delle fonti dati, integrazioni e quote usate dall’applicazione.
+      <div className="tool-page">
+        <header className="tool-page__header">
+          <p className="tool-page__eyebrow">Strumenti / Fonti</p>
+          <h1 className="tool-page__title">Dati e provider</h1>
+          <p className="tool-page__subtitle">
+            Verifica in un solo punto lo stato delle fonti calcistiche e delle quote bookmaker.
           </p>
+        </header>
+
+        <div className="sc-overview">
+          <section className="sc-source-section" aria-labelledby="sc-football-sources-title">
+            <div className="sc-source-section__head"><div><span className="sc-source-num">1</span><div><h2 id="sc-football-sources-title">Dati calcistici</h2><p>Fonti usate per partite, statistiche e modello.</p></div></div><span className={`fp-badge ${getPipelineTone(understatPipelineStatus)}`}>{getPipelineLabel(understatPipelineStatus)}</span></div>
+            <div className="sc-truth-banner">Understat è la fonte primaria; football-data.co.uk integra soltanto campi mancanti compatibili.</div>
+            <div className="sc-source-table">
+              <div className="sc-source-row"><div className="sc-source-name"><strong>Understat</strong><small>Fonte primaria</small></div><span className={`fp-badge ${getPipelineTone(understatPipelineStatus)}`}>{getPipelineLabel(understatPipelineStatus)}</span><div className="sc-source-meta"><span>Ultimo aggiornamento</span><strong>{formatFullDate(scraperStatus?.lastUpdate?.at)}</strong></div><div className="sc-source-meta"><span>Copertura</span><strong>{Array.isArray(understatInfo?.competitions) ? `${understatInfo.competitions.length} campionati` : 'n/d'}</strong></div><button type="button" onClick={() => setActiveTab('understat')}>Gestisci</button></div>
+              <div className="sc-source-row"><div className="sc-source-name"><strong>football-data.co.uk</strong><small>Fonte supplementare HTTP/CSV</small></div><span className="fp-badge fp-badge-green">Attiva</span><div className="sc-source-meta"><span>Modalità</span><strong>Solo campi NULL</strong></div><div className="sc-source-meta"><span>Dati</span><strong>Corner, falli, tiri, cartellini</strong></div><button type="button" onClick={() => setActiveTab('understat')}>Gestisci</button></div>
+            </div>
+          </section>
+
+          <section className="sc-source-section" aria-labelledby="sc-odds-source-title">
+            <div className="sc-source-section__head"><div><span className="sc-source-num">2</span><div><h2 id="sc-odds-source-title">Quote reali</h2><p>Stato e provenienza delle quote bookmaker mostrate nell’app.</p></div></div><span className={`fp-badge ${getPipelineTone(quotePipelineStatus)}`}>{getPipelineLabel(quotePipelineStatus)}</span></div>
+            <div className="sc-truth-banner">La UI mostra solo quote espresse da bookmaker reali e ne dichiara la fonte. Le quote sintetiche restano escluse.</div>
+            <div className="sc-source-table">
+              <div className="sc-source-row"><div className="sc-source-name"><strong>{effectiveProviderHealth.activeProvider ?? 'Provider quote'}</strong><small>Provider runtime configurato</small></div><span className={`fp-badge ${getPipelineTone(quotePipelineStatus)}`}>{getPipelineLabel(quotePipelineStatus)}</span><div className="sc-source-meta"><span>Freschezza</span><strong>{formatFreshness(effectiveProviderHealth.freshnessMinutes)}</strong></div><div className="sc-source-meta"><span>Copertura</span><strong>{effectiveProviderHealth.matchesWithBaseOdds ?? 0} partite</strong></div><button type="button" onClick={() => setActiveTab('odds')}>Verifica</button></div>
+            </div>
+          </section>
         </div>
 
-        <div className="fp-grid-2" style={{ marginBottom: 24 }}>
+        <div className="fp-grid-2 sc-legacy-summary" style={{ marginBottom: 24 }}>
           <div className="fp-card">
             <div className="fp-card-head">
               <div>
@@ -363,7 +414,7 @@ export default function ScrapersPageView() {
         </div>
 
         {scraperStatus && (
-          <div className="fp-card" style={{ marginBottom: 24, padding: 16 }}>
+          <div className="fp-card sc-system-note sc-legacy-note" style={{ padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div>
                 <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>
@@ -400,14 +451,16 @@ export default function ScrapersPageView() {
           </div>
         )}
 
-        <div className="fp-tabs" style={{ marginBottom: 24 }} role="tablist" aria-label="Strumenti di aggiornamento dati">
+        <div className="sc-config-label">Configurazione e attività recenti</div>
+        <div className="fp-tabs sc-config-tabs" style={{ marginBottom: 24 }} role="tablist" aria-label="Strumenti di aggiornamento dati">
           <button
             className={`fp-tab${activeTab === 'understat' ? ' active' : ''}`}
             onClick={() => setActiveTab('understat')}
             role="tab"
             aria-selected={activeTab === 'understat'}
+            aria-label="Understat"
           >
-            Understat
+            Dati calcistici
             <span className="fp-badge fp-badge-green" style={{ fontSize: 10, marginLeft: 6 }}>Fonte primaria</span>
           </button>
           <button
@@ -415,8 +468,9 @@ export default function ScrapersPageView() {
             onClick={() => setActiveTab('odds')}
             role="tab"
             aria-selected={activeTab === 'odds'}
+            aria-label="Provider quote"
           >
-            Provider quote
+            Quote bookmaker
           </button>
         </div>
 
@@ -632,7 +686,7 @@ export default function ScrapersPageView() {
             <div className="fp-card-body">
               <div className="fp-alert fp-alert-info" style={{ marginBottom: 16 }}>
                 Le quote tecniche di fallback possono supportare il processo interno, ma la UI delle
-                previsioni mostra una quota solo quando è disponibile la fonte Eurobet prevista dal prodotto.
+                previsioni mostra solo quote provenienti da bookmaker reali con la fonte dichiarata.
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <div className="fp-stat c-blue">
