@@ -1,6 +1,7 @@
 import { createClient } from '@libsql/client';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 type SqlArgs = Record<string, any> | any[];
 type HistoricalOddsDetail = {
@@ -538,6 +539,8 @@ export class DatabaseService {
       { table: 'bets', column: 'match_date', type: 'TEXT' },
       { table: 'bets', column: 'data_quality', type: "TEXT NOT NULL DEFAULT 'pre_fix'" },
       { table: 'bets', column: 'source', type: "TEXT NOT NULL DEFAULT 'unknown'" },
+      { table: 'bets', column: 'budget_session_id', type: 'TEXT' },
+      { table: 'budgets', column: 'active_session_id', type: 'TEXT' },
       { table: 'teams', column: 'avg_home_corners', type: 'REAL DEFAULT 5.5' },
       { table: 'teams', column: 'avg_away_corners', type: 'REAL DEFAULT 4.5' },
       { table: 'teams', column: 'league_id', type: 'TEXT' },
@@ -2427,14 +2430,39 @@ export class DatabaseService {
   // ==================== BUDGET & BETS ====================
 
   async getBudget(userId: string): Promise<any | null> {
-    return this.get('SELECT * FROM budgets WHERE user_id = ?', [userId]);
+    return this.get(`
+      SELECT b.*, s.session_id, s.initial_budget AS session_initial_budget,
+             s.status AS session_status, s.started_at AS session_started_at, s.ended_at AS session_ended_at
+      FROM budgets b
+      LEFT JOIN budget_sessions s ON s.session_id = b.active_session_id
+      WHERE b.user_id = ?
+    `, [userId]);
   }
 
   async createOrResetBudget(userId: string, amount: number): Promise<void> {
+    const current = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [userId]);
+    const sessionId = `budget-${randomUUID()}`;
+    if (current?.active_session_id) {
+      await this.run(
+        `UPDATE budget_sessions SET status = 'closed', ended_at = datetime('now')
+         WHERE session_id = ? AND status = 'active'`,
+        [current.active_session_id]
+      );
+    }
     await this.run(
-      `INSERT OR REPLACE INTO budgets (user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, updated_at)
-      VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, datetime('now'))`,
-      [userId, amount, amount]
+      `INSERT INTO budget_sessions (session_id, user_id, initial_budget, status, started_at)
+       VALUES (?, ?, ?, 'active', datetime('now'))`,
+      [sessionId, userId, amount]
+    );
+    await this.run(
+      `INSERT INTO budgets (user_id, total_budget, available_budget, total_bets, total_staked, total_won, total_lost, roi, win_rate, active_session_id, updated_at)
+       VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, ?, datetime('now'))
+       ON CONFLICT(user_id) DO UPDATE SET
+         total_budget = excluded.total_budget, available_budget = excluded.available_budget,
+         total_bets = 0, total_staked = 0, total_won = 0, total_lost = 0,
+         roi = 0, win_rate = 0, active_session_id = excluded.active_session_id,
+         updated_at = excluded.updated_at`,
+      [userId, amount, amount, sessionId]
     );
   }
 
@@ -2457,7 +2485,14 @@ export class DatabaseService {
   }
 
   async deleteBetsByUser(userId: string): Promise<void> {
-    await this.run('DELETE FROM bets WHERE user_id = ?', [userId]);
+    // Kept for compatibility with callers: resets now archive by session.
+    const budget = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [userId]);
+    if (!budget?.active_session_id) return;
+    await this.run(
+      `UPDATE bets SET budget_session_id = ?
+       WHERE user_id = ? AND (budget_session_id IS NULL OR budget_session_id = ?)`,
+      [budget.active_session_id, userId, budget.active_session_id]
+    );
   }
 
   async updateBudget(budget: any): Promise<void> {
@@ -2473,14 +2508,15 @@ export class DatabaseService {
   }
 
   async saveBet(bet: any): Promise<void> {
+    const activeBudget = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [bet.userId]);
     await this.run(
       `INSERT OR REPLACE INTO bets (
         bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
-        odds, stake, our_probability, expected_value,
+        odds, stake, our_probability, expected_value, budget_session_id,
         status, return_amount, profit, placed_at, settled_at, notes, data_quality, source
       ) VALUES (
         :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
-        :odds, :stake, :ourProbability, :expectedValue,
+        :odds, :stake, :ourProbability, :expectedValue, :budgetSessionId,
         :status, :returnAmount, :profit, :placedAt, :settledAt, :notes, :dataQuality, :source
       )`,
       {
@@ -2497,6 +2533,7 @@ export class DatabaseService {
         stake: bet.stake,
         ourProbability: bet.ourProbability,
         expectedValue: bet.expectedValue,
+        budgetSessionId: bet.budgetSessionId ?? activeBudget?.active_session_id ?? null,
         status: bet.status,
         returnAmount: bet.returnAmount ?? null,
         profit: bet.profit ?? null,
@@ -2510,8 +2547,14 @@ export class DatabaseService {
   }
 
   async getBets(userId: string, status?: string): Promise<any[]> {
-    if (status) return this.all('SELECT * FROM bets WHERE user_id = ? AND status = ? ORDER BY placed_at DESC', [userId, status]);
-    return this.all('SELECT * FROM bets WHERE user_id = ? ORDER BY placed_at DESC', [userId]);
+    const active = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [userId]);
+    const sessionId = active?.active_session_id ?? null;
+    if (status) return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? AND status = ? ORDER BY placed_at DESC', [userId, sessionId, status]);
+    return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? ORDER BY placed_at DESC', [userId, sessionId]);
+  }
+
+  async getBudgetSessions(userId: string): Promise<any[]> {
+    return this.all('SELECT * FROM budget_sessions WHERE user_id = ? ORDER BY started_at DESC', [userId]);
   }
 
   async getBet(betId: string): Promise<any | null> {
