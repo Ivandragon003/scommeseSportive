@@ -11,6 +11,14 @@ jest.mock('./pages/BudgetManager', () => ({
   __esModule: true,
   default: () => <div>Budget page</div>,
 }));
+jest.mock('./pages/BetsManager', () => ({
+  __esModule: true,
+  default: () => <div>Bets page</div>,
+}));
+jest.mock('./features/prediction-archive/PredictionArchivePage', () => ({
+  __esModule: true,
+  default: () => <div>Prediction archive page</div>,
+}));
 jest.mock('./pages/Backtesting', () => ({
   __esModule: true,
   default: () => <div>Backtesting page</div>,
@@ -46,13 +54,13 @@ beforeEach(() => {
   } as any);
 });
 
-test('header principale mostra solo brand e aggiorna sistema, senza dettagli tecnici sempre visibili', async () => {
+test('header principale resta essenziale e rende aggiorna sistema disponibile negli strumenti', async () => {
   render(<App />);
 
   const header = screen.getByRole('banner');
   expect(within(header).getByText('FootPredictor')).toBeTruthy();
   expect(within(header).getByText(/Decisioni rapide/i)).toBeTruthy();
-  expect(within(header).getByRole('button', { name: /Aggiorna sistema/i })).toBeTruthy();
+  expect(within(header).queryByRole('button', { name: /Aggiorna sistema/i })).toBeNull();
 
   expect(screen.queryByText(/Sync Notturna/i)).toBeNull();
   expect(within(header).queryByText(/Workspace/i)).toBeNull();
@@ -63,7 +71,8 @@ test('header principale mostra solo brand e aggiorna sistema, senza dettagli tec
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1));
   expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(0);
 
-  fireEvent.click(within(header).getByRole('button', { name: /Aggiorna sistema/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
+  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i }));
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({
@@ -81,31 +90,27 @@ test('Aggiorna Sistema mostra quanti kickoff calendario sono stati corretti', as
 
   render(<App />);
 
-  const header = screen.getByRole('banner');
-  fireEvent.click(within(header).getByRole('button', { name: /Aggiorna sistema/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
+  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i }));
 
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(1));
   expect(await screen.findByText('Calendario aggiornato: 2 kickoff corretti')).toBeTruthy();
 });
 
-test('la pagina iniziale apre Previsioni e la Dashboard non compare nella navigazione', async () => {
+test('la pagina iniziale apre Partite e mostra la navigazione primaria semplificata', async () => {
   render(<App />);
 
   expect(await screen.findByText('Predictions page')).toBeTruthy();
 
-  const sidebar = screen.getByLabelText('Navigazione principale');
-  expect(within(sidebar).queryByText('Dashboard')).toBeNull();
-  expect(within(sidebar).getByText('Analisi')).toBeTruthy();
-  expect(within(sidebar).getByText('Strumenti avanzati')).toBeTruthy();
-  expect(within(sidebar).getByText('Previsioni')).toBeTruthy();
-  expect(within(sidebar).getByText('Budget')).toBeTruthy();
-  expect(within(sidebar).getByText('Glossario')).toBeTruthy();
-  expect(within(sidebar).getByText('Backtest')).toBeTruthy();
-  expect(within(sidebar).getByText('Dati')).toBeTruthy();
-  expect(within(sidebar).getByText('Dati & Provider')).toBeTruthy();
+  const navigation = screen.getByLabelText('Navigazione principale');
+  expect(within(navigation).queryByText('Dashboard')).toBeNull();
+  expect(within(navigation).getByText('Partite')).toBeTruthy();
+  expect(within(navigation).getByText('Giocate')).toBeTruthy();
+  expect(within(navigation).getByText('Budget')).toBeTruthy();
+  expect(within(navigation).getByText('Strumenti')).toBeTruthy();
 
-  const header = screen.getByRole('banner');
-  expect(within(header).getByRole('button', { name: /Aggiorna sistema/i })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
+  expect(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i })).toBeTruthy();
 });
 
 test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => {
@@ -121,8 +126,9 @@ test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => 
 test('apre la pagina Glossario dalla navigazione principale', async () => {
   render(<App />);
 
-  const sidebar = screen.getByLabelText('Navigazione principale');
-  fireEvent.click(within(sidebar).getByText('Glossario'));
+  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
+  const toolsMenu = screen.getByRole('menu', { name: /Strumenti/i });
+  fireEvent.click(within(toolsMenu).getByText('Glossario'));
 
   expect(await screen.findByRole('heading', { name: 'Glossario' })).toBeTruthy();
   expect(screen.getByRole('searchbox', { name: /Cerca nel glossario/i })).toBeTruthy();
@@ -138,18 +144,38 @@ test('il comando nell header apre il glossario rapido', async () => {
   expect(await screen.findByRole('dialog', { name: /Glossario rapido/i })).toBeTruthy();
 });
 
-test('il menu mobile avanzato si comporta come dialog e restituisce il focus alla chiusura', async () => {
+test('il menu mobile Strumenti si comporta come dialog e restituisce il focus alla chiusura', async () => {
   render(<App />);
 
-  const trigger = screen.getByRole('button', { name: /Apri altre sezioni/i });
+  const trigger = screen.getByRole('button', { name: /Apri strumenti mobile/i });
   fireEvent.click(trigger);
 
-  const dialog = await screen.findByRole('dialog', { name: /Altre sezioni/i });
+  const dialog = await screen.findByRole('dialog', { name: /Strumenti/i });
   expect(within(dialog).getByRole('link', { name: /Backtest/i })).toBeTruthy();
-  expect(within(dialog).getByRole('button', { name: /Chiudi menu altre sezioni/i }).matches(':focus')).toBe(true);
+  expect(within(dialog).getByRole('button', { name: /Chiudi strumenti/i }).matches(':focus')).toBe(true);
 
   fireEvent.keyDown(document, { key: 'Escape' });
 
   expect(screen.queryByRole('dialog', { name: /Altre sezioni/i })).toBeNull();
   expect(trigger.matches(':focus')).toBe(true);
+});
+
+test('apre la nuova pagina Giocate dalla navigazione primaria', async () => {
+  render(<App />);
+
+  const navigation = screen.getByLabelText('Navigazione principale');
+  fireEvent.click(within(navigation).getByText('Giocate'));
+
+  expect(await screen.findByText('Bets page')).toBeTruthy();
+  expect(window.location.pathname).toBe('/bets');
+});
+
+test('apre Archivio prediction dal menu Strumenti', async () => {
+  render(<App />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
+  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByText('Archivio prediction'));
+
+  expect(await screen.findByText('Prediction archive page')).toBeTruthy();
+  expect(window.location.pathname).toBe('/prediction-archive');
 });
