@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
+  ArrowUpDown,
   Database,
   FlaskConical,
   HelpCircle,
@@ -16,6 +17,7 @@ import BudgetManager from './pages/BudgetManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
+import CompetitionTransitions from './pages/CompetitionTransitions';
 import GlossaryPage from './features/glossary/GlossaryPage';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
 import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
@@ -34,6 +36,7 @@ const ADVANCED_NAV_ITEMS = [
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
   { path: '/data', label: 'Dati', meta: 'squadre e modelli', icon: Database },
   { path: '/scrapers', label: 'Dati & Provider', meta: 'pipeline dati e quote', icon: RadioTower },
+  { path: '/transitions', label: 'Transizioni', meta: 'promozioni e retrocessioni', icon: ArrowUpDown },
 ];
 
 const NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...ADVANCED_NAV_ITEMS];
@@ -203,6 +206,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             <Route path="/backtest" element={<Backtesting />} />
             <Route path="/data" element={<DataManager />} />
             <Route path="/scrapers" element={<Scrapers />} />
+            <Route path="/transitions" element={<CompetitionTransitions />} />
           </Routes>
         </main>
       </div>

@@ -966,6 +966,80 @@ export class DatabaseService {
     };
   }
 
+  async getCompetitionTransitionAudit(): Promise<any> {
+    const [competition, references, transitions, byType, byCoverage] = await Promise.all([
+      this.get('SELECT COUNT(*) AS total FROM secondary_competitions'),
+      this.get('SELECT COUNT(*) AS total FROM source_season_reference'),
+      this.get('SELECT COUNT(*) AS total FROM team_competition_transitions'),
+      this.all(`
+        SELECT transition_type, COUNT(*) AS total
+        FROM team_competition_transitions
+        GROUP BY transition_type
+        ORDER BY transition_type
+      `),
+      this.all(`
+        SELECT coverage_status, source_quality, COUNT(*) AS total
+        FROM team_competition_transitions
+        GROUP BY coverage_status, source_quality
+        ORDER BY coverage_status, source_quality
+      `),
+    ]);
+
+    const ready = await this.get(`
+      SELECT COUNT(*) AS total
+      FROM team_competition_transitions t
+      LEFT JOIN source_season_reference r
+        ON r.source_competition_id = t.source_competition_id
+       AND r.source_season = t.source_season
+      WHERE t.coverage_status = 'complete'
+        AND t.source_quality = 'confirmed'
+        AND (t.source_competition_id IS NULL OR r.coverage_status = 'complete')
+    `);
+
+    return {
+      catalogCount: Number(competition?.total ?? 0),
+      seasonReferenceCount: Number(references?.total ?? 0),
+      transitionCount: Number(transitions?.total ?? 0),
+      readyTransitionCount: Number(ready?.total ?? 0),
+      byType: byType.map((row: any) => ({ type: row.transition_type, count: Number(row.total ?? 0) })),
+      byCoverage: byCoverage.map((row: any) => ({
+        coverageStatus: row.coverage_status,
+        sourceQuality: row.source_quality,
+        count: Number(row.total ?? 0),
+      })),
+      modelAdjustmentEnabled: false,
+    };
+  }
+
+  async getSecondaryCompetitions(): Promise<any[]> {
+    return this.all('SELECT * FROM secondary_competitions ORDER BY country, tier, name');
+  }
+
+  async getSourceSeasonReferences(): Promise<any[]> {
+    return this.all(`
+      SELECT r.*, c.name AS competition_name, c.country, c.tier, c.cluster_key
+      FROM source_season_reference r
+      JOIN secondary_competitions c ON c.competition_id = r.source_competition_id
+      ORDER BY r.source_season DESC, c.country, c.name
+    `);
+  }
+
+  async getTeamCompetitionTransitions(): Promise<any[]> {
+    return this.all(`
+      SELECT t.*, p.name AS source_competition_name, p.country AS source_country,
+             p.tier AS source_tier, p.cluster_key,
+             teams.name AS team_name,
+             r.coverage_status AS reference_coverage_status
+      FROM team_competition_transitions t
+      LEFT JOIN secondary_competitions p ON p.competition_id = t.source_competition_id
+      LEFT JOIN teams ON teams.team_id = t.team_id
+      LEFT JOIN source_season_reference r
+        ON r.source_competition_id = t.source_competition_id
+       AND r.source_season = t.source_season
+      ORDER BY t.destination_season DESC, t.destination_competition_id, teams.name
+    `);
+  }
+
   async getLeagueSummaries(leagues: string[]): Promise<Array<{
     competition: string;
     matches: number;
