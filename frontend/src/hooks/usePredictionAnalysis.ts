@@ -75,8 +75,11 @@ export function usePredictionAnalysis({
   }, [budget?.available_budget]);
 
   const clearAnalysisState = useCallback(() => {
+    analyzeReqRef.current += 1;
     setPred(null);
     setActiveMatchId(null);
+    setLoading(false);
+    setLoadingMatchId(null);
     setAnalysisCacheKey(null);
     setOdds({});
     setOddsMsg('');
@@ -180,7 +183,7 @@ export function usePredictionAnalysis({
         return;
       }
 
-      setOddsMsg('Recupero quote live...');
+      setOddsMsg('Cerco quote pre-partita...');
       setOddsTone('info');
 
       const result = await fetchPredictionWithOdds({

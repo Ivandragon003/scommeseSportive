@@ -1,5 +1,4 @@
 import React from 'react';
-import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 import { fmtPct } from './predictionFormatting';
 import { GoalProbabilitiesSummary, ReplayTone } from './predictionTypes';
 
@@ -33,27 +32,29 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
         <div className={`pr-alert pr-alert-${replaySummary.tone}`}>{replaySummary.text}</div>
       </div>
     )}
-    <div className="pr-hero">
+    <section className="pr-hero" aria-label={`${homeTeam} contro ${awayTeam}`}>
       <div className="pr-hero-team">
+        <span className="pr-hero-role">Casa</span>
         <div className="pr-hero-name">{homeTeam}</div>
-        <div className="pr-hero-lambda">
-          <GlossaryTerm termId="lambda">Gol attesi</GlossaryTerm> {lambdaHome}
+        <div className="pr-hero-stat">
+          <span>Gol attesi</span><strong>{lambdaHome}</strong>
         </div>
       </div>
       <div className="pr-hero-center">
         <div className="pr-hero-vs">VS</div>
         <div className="pr-confidence">
-          <GlossaryTerm termId="confidence">Affidabilità</GlossaryTerm> {(modelConfidence * 100).toFixed(0)}%
+          <span>Affidabilità</span><strong>{(modelConfidence * 100).toFixed(0)}%</strong>
         </div>
-        {actualScore && <div className="pr-hero-lambda" style={{ marginTop: 8 }}>finale {actualScore}</div>}
+        {actualScore && <div className="pr-hero-final">Finale {actualScore}</div>}
       </div>
       <div className="pr-hero-team right">
+        <span className="pr-hero-role">Ospite</span>
         <div className="pr-hero-name">{awayTeam}</div>
-        <div className="pr-hero-lambda">
-          <GlossaryTerm termId="lambda">Gol attesi</GlossaryTerm> {lambdaAway}
+        <div className="pr-hero-stat">
+          <span>Gol attesi</span><strong>{lambdaAway}</strong>
         </div>
       </div>
-    </div>
+    </section>
     {goalProbabilities && (
       <div className="pr-kpi-row">
         {[

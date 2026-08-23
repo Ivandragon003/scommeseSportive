@@ -4,6 +4,7 @@ import { BestValueOpportunity, RecommendedBetResult, ReplayTone } from './predic
 
 interface ValueOpportunitiesTableProps {
   opportunities: BestValueOpportunity[];
+  recommendedOpportunity?: BestValueOpportunity | null;
   bankroll: number;
   budgetReady: boolean;
   isReplayAnalysis: boolean;
@@ -59,6 +60,7 @@ const valueWarningLabel = (warning: string): string | null => {
 
 const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   opportunities,
+  recommendedOpportunity,
   bankroll,
   budgetReady,
   isReplayAnalysis,
@@ -111,6 +113,11 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
           </div>
           {visibleOpportunities.map((opportunity) => {
             const stakeKey = getStakeKey(opportunity);
+            const isRecommended = Boolean(
+              recommendedOpportunity &&
+              String(recommendedOpportunity.selection ?? '') === String(opportunity.selection ?? '') &&
+              String(recommendedOpportunity.marketName ?? '') === String(opportunity.marketName ?? '')
+            );
             const currentStake = getStakeValue(opportunity);
             const currentStakePct = bankroll > 0 ? (currentStake / bankroll) * 100 : 0;
             const suggestedAmount = bankroll > 0 ? (Number(opportunity.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
@@ -131,6 +138,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                     <div className="pr-vb-market">{opportunity.marketName}</div>
                     <div className="pr-vb-market-sub">{fmtSelection(String(opportunity.selection))}</div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {isRecommended && (
+                        <span className="pr-badge pr-badge-green">Consigliata</span>
+                      )}
                       {opportunity.confidence && (
                         <span
                           className={`pr-badge ${opportunity.confidence === 'HIGH' ? 'pr-badge-green' : opportunity.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}
