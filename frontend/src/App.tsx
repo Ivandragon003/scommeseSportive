@@ -2,23 +2,28 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
+  Archive,
   ArrowUpDown,
+  BarChart3,
   Database,
   FlaskConical,
   HelpCircle,
-  MoreHorizontal,
+  Menu,
   RadioTower,
   RefreshCw,
-  Target,
+  SlidersHorizontal,
+  Ticket,
   Wallet,
 } from 'lucide-react';
 import Predictions from './pages/Predictions';
 import BudgetManager from './pages/BudgetManager';
+import BetsManager from './pages/BetsManager';
 import Backtesting from './pages/Backtesting';
 import DataManager from './pages/DataManager';
 import Scrapers from './pages/Scrapers';
 import CompetitionTransitions from './pages/CompetitionTransitions';
 import GlossaryPage from './features/glossary/GlossaryPage';
+import PredictionArchivePage from './features/prediction-archive/PredictionArchivePage';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
 import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
 import ToastStack from './components/common/ToastStack';
@@ -27,12 +32,14 @@ import { currentSeason } from './components/predictions/predictionWorkbenchUtils
 import './footpredictor.css';
 
 const PRIMARY_NAV_ITEMS = [
-  { path: '/predictions', label: 'Previsioni', meta: 'pick e quote', icon: Target },
-  { path: '/budget', label: 'Budget', meta: 'bankroll e storico', icon: Wallet },
-  { path: '/glossary', label: 'Glossario', meta: 'termini e interpretazione', icon: HelpCircle },
+  { path: '/predictions', label: 'Partite', meta: 'pronostico e quote', icon: BarChart3 },
+  { path: '/bets', label: 'Giocate', meta: 'aperte e storico', icon: Ticket },
+  { path: '/budget', label: 'Budget', meta: 'gestione bankroll', icon: Wallet },
 ];
 
 const ADVANCED_NAV_ITEMS = [
+  { path: '/prediction-archive', label: 'Archivio prediction', meta: 'storico del modello', icon: Archive },
+  { path: '/glossary', label: 'Glossario', meta: 'termini e interpretazione', icon: HelpCircle },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
   { path: '/data', label: 'Dati', meta: 'squadre e modelli', icon: Database },
   { path: '/scrapers', label: 'Dati & Provider', meta: 'pipeline dati e quote', icon: RadioTower },
@@ -40,7 +47,7 @@ const ADVANCED_NAV_ITEMS = [
 ];
 
 const NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...ADVANCED_NAV_ITEMS];
-const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/budget', '/glossary'];
+const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/bets', '/budget'];
 const MOBILE_PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const MOBILE_SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const ACTIVE_USER_STORAGE_KEY = 'footpredictor.activeUser';
@@ -75,6 +82,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isWorkbench = location.pathname === '/predictions';
   const mainContentClass = isWorkbench ? 'main-content main-content--workbench' : 'main-content main-content--scroll';
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [desktopToolsOpen, setDesktopToolsOpen] = useState(false);
+  const desktopToolsTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileMoreSheetRef = useRef<HTMLDivElement>(null);
   const mobileMoreCloseRef = useRef<HTMLButtonElement>(null);
@@ -82,7 +91,20 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   useEffect(() => {
     setMobileMoreOpen(false);
+    setDesktopToolsOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!desktopToolsOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDesktopToolsOpen(false);
+        desktopToolsTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [desktopToolsOpen]);
 
   const closeMobileMore = useCallback((restoreFocus = true) => {
     setMobileMoreOpen(false);
@@ -139,6 +161,48 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
         </div>
 
+        <nav className="desktop-nav" aria-label="Navigazione principale">
+          {PRIMARY_NAV_ITEMS.map(({ path, label }) => (
+            <NavLink key={path} to={path} className={({ isActive }) => `desktop-nav__link${isActive ? ' active' : ''}`}>
+              {label}
+            </NavLink>
+          ))}
+          <div className="desktop-tools">
+            <button
+              ref={desktopToolsTriggerRef}
+              type="button"
+              className={`desktop-nav__link desktop-nav__button${desktopToolsOpen || isMoreSectionActive ? ' active' : ''}`}
+              onClick={() => setDesktopToolsOpen((value) => !value)}
+              aria-expanded={desktopToolsOpen}
+              aria-haspopup="menu"
+              aria-label={desktopToolsOpen ? 'Chiudi strumenti' : 'Apri strumenti'}
+            >
+              Strumenti
+              <SlidersHorizontal size={15} aria-hidden="true" />
+            </button>
+            {desktopToolsOpen && (
+              <div className="desktop-tools__menu" role="menu" aria-label="Strumenti">
+                {ADVANCED_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
+                  <NavLink key={path} to={path} className="desktop-tools__item" role="menuitem">
+                    <Icon size={18} aria-hidden="true" />
+                    <span><strong>{label}</strong><small>{meta}</small></span>
+                  </NavLink>
+                ))}
+                <button
+                  type="button"
+                  className="desktop-tools__item desktop-tools__action"
+                  onClick={onRefreshStatus}
+                  disabled={statusRefreshing}
+                  aria-label={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
+                >
+                  <RefreshCw size={18} className={statusRefreshing ? 'fp-spin' : ''} aria-hidden="true" />
+                  <span><strong>{statusRefreshing ? 'Aggiornamento...' : 'Aggiorna sistema'}</strong><small>ricarica dati e calendario</small></span>
+                </button>
+              </div>
+            )}
+          </div>
+        </nav>
+
         <div className="app-header-right">
           <button
             type="button"
@@ -148,60 +212,20 @@ export const AppShell: React.FC<AppShellProps> = ({
             aria-label="Apri glossario rapido"
           >
             <HelpCircle size={15} />
-            <span>Glossario</span>
-          </button>
-          <button
-            type="button"
-            className="fp-btn fp-btn-ghost fp-btn-sm app-header-refresh"
-            onClick={onRefreshStatus}
-            disabled={statusRefreshing}
-            title={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
-            aria-label={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
-          >
-            <RefreshCw size={14} className={statusRefreshing ? 'fp-spin' : ''} />
-            <span>{statusRefreshing ? 'Aggiorno...' : 'Aggiorna Sistema'}</span>
+            <span className="sr-only">Glossario</span>
           </button>
         </div>
       </header>
 
       <div className="app-layout">
-        <aside className="sidebar" aria-label="Navigazione principale">
-          <div className="sidebar-section-title">Analisi</div>
-          <nav className="sidebar-nav" aria-label="Analisi">
-            {PRIMARY_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
-              <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-                <span className="nav-icon-wrap" aria-hidden="true">
-                  <Icon size={18} />
-                </span>
-                <span className="nav-copy">
-                  <span className="nav-label">{label}</span>
-                  <span className="nav-meta">{meta}</span>
-                </span>
-              </NavLink>
-            ))}
-          </nav>
-          <div className="sidebar-section-title sidebar-section-title--advanced">Strumenti avanzati</div>
-          <nav className="sidebar-nav" aria-label="Strumenti avanzati">
-            {ADVANCED_NAV_ITEMS.map(({ path, label, meta, icon: Icon }) => (
-              <NavLink key={path} to={path} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-                <span className="nav-icon-wrap" aria-hidden="true">
-                  <Icon size={18} />
-                </span>
-                <span className="nav-copy">
-                  <span className="nav-label">{label}</span>
-                  <span className="nav-meta">{meta}</span>
-                </span>
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
-
         <main className={mainContentClass}>
           <Routes>
             <Route path="/" element={<Navigate to="/predictions" replace />} />
             <Route path="/dashboard" element={<Navigate to="/predictions" replace />} />
             <Route path="/predictions" element={<Predictions activeUser={activeUser} />} />
+            <Route path="/bets" element={<BetsManager activeUser={activeUser} />} />
             <Route path="/budget" element={<BudgetManager activeUser={activeUser} />} />
+            <Route path="/prediction-archive" element={<PredictionArchivePage />} />
             <Route path="/glossary" element={<GlossaryPage />} />
             <Route path="/backtest" element={<Backtesting />} />
             <Route path="/data" element={<DataManager />} />
@@ -231,10 +255,10 @@ export const AppShell: React.FC<AppShellProps> = ({
           }}
           aria-expanded={mobileMoreOpen}
           aria-controls="mobile-more-menu"
-          aria-label={mobileMoreOpen ? 'Chiudi altre sezioni' : 'Apri altre sezioni'}
+          aria-label={mobileMoreOpen ? 'Chiudi strumenti mobile' : 'Apri strumenti mobile'}
         >
-          <MoreHorizontal size={18} />
-          <span>Altro</span>
+          <Menu size={18} />
+          <span>Strumenti</span>
         </button>
       </nav>
       {mobileMoreOpen && (
@@ -247,13 +271,13 @@ export const AppShell: React.FC<AppShellProps> = ({
           aria-labelledby="mobile-more-title"
         >
           <div className="mobile-more-sheet__header">
-            <h2 id="mobile-more-title">Altre sezioni</h2>
+            <h2 id="mobile-more-title">Strumenti</h2>
             <button
               ref={mobileMoreCloseRef}
               type="button"
               className="fp-btn fp-btn-ghost fp-btn-sm"
               onClick={() => closeMobileMore()}
-              aria-label="Chiudi menu altre sezioni"
+              aria-label="Chiudi strumenti"
             >
               Chiudi
             </button>
@@ -276,6 +300,19 @@ export const AppShell: React.FC<AppShellProps> = ({
                 </span>
               </NavLink>
             ))}
+            <button
+              type="button"
+              className="mobile-more-link mobile-more-link--button"
+              onClick={onRefreshStatus}
+              disabled={statusRefreshing}
+              aria-label={statusRefreshing ? 'Aggiornamento sistema in corso' : 'Aggiorna sistema'}
+            >
+              <span className="mobile-more-link__icon" aria-hidden="true"><RefreshCw size={18} className={statusRefreshing ? 'fp-spin' : ''} /></span>
+              <span className="mobile-more-link__copy">
+                <span className="mobile-more-link__label">{statusRefreshing ? 'Aggiornamento...' : 'Aggiorna sistema'}</span>
+                <span className="mobile-more-link__meta">ricarica dati e calendario</span>
+              </span>
+            </button>
           </div>
         </div>
       )}
