@@ -158,9 +158,40 @@ export class DatabaseService {
 
   private async initialize(): Promise<void> {
     await this.execute('PRAGMA foreign_keys = ON', undefined, true);
-    await this.runVersionedMigrations();
     await this.initSchema();
+    // Base tables must exist before additive versioned migrations can alter
+    // legacy schemas (Turso rejects ALTER TABLE on a missing table).
+    await this.runVersionedMigrations();
     await this.ensureOptionalColumnsOnce();
+    await this.ensureBudgetSessionBackfill();
+  }
+
+  private async ensureBudgetSessionBackfill(): Promise<void> {
+    await this.execute(
+      `INSERT OR IGNORE INTO budget_sessions (session_id, user_id, initial_budget, status, started_at)
+       SELECT 'legacy-' || user_id, user_id, total_budget, 'active', COALESCE(created_at, datetime('now'))
+       FROM budgets`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `UPDATE budgets SET active_session_id = 'legacy-' || user_id
+       WHERE active_session_id IS NULL OR trim(active_session_id) = ''`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `UPDATE bets SET budget_session_id = 'legacy-' || user_id
+       WHERE budget_session_id IS NULL OR trim(budget_session_id) = ''`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `CREATE INDEX IF NOT EXISTS idx_bets_budget_session
+       ON bets(user_id, budget_session_id, placed_at)`,
+      undefined,
+      true,
+    );
   }
 
   private async runVersionedMigrations(): Promise<void> {
@@ -188,13 +219,57 @@ export class DatabaseService {
 
       const sql = readFileSync(join(migrationsDirectory, filename), 'utf8').trim();
       if (!sql) continue;
-      await this.execute(sql, undefined, true);
+      // Turso/libSQL accepts one statement per execute call. Keep migrations
+      // as readable SQL files, but execute their statements individually.
+      for (const statement of this.splitMigrationStatements(sql)) {
+        const executable = statement.replace(/(^|\r?\n)\s*--[^\r\n]*/g, '$1').trim();
+        if (!executable) continue;
+        try {
+          await this.execute(executable, undefined, true);
+        } catch (error) {
+          const diagnostic = executable.slice(0, 240);
+          const migrationError = new Error(`Migration ${filename} failed at: ${diagnostic}`);
+          (migrationError as any).cause = error;
+          throw migrationError;
+        }
+      }
       await this.execute(
         'INSERT INTO schema_migrations (version) VALUES (?)',
         [filename],
         true,
       );
     }
+  }
+
+  private splitMigrationStatements(sql: string): string[] {
+    const statements: string[] = [];
+    let start = 0;
+    let quote: "'" | '"' | '`' | null = null;
+
+    for (let index = 0; index < sql.length; index += 1) {
+      const character = sql[index];
+      if (quote) {
+        if (character === quote) {
+          if (sql[index + 1] === quote) {
+            index += 1;
+          } else {
+            quote = null;
+          }
+        }
+        continue;
+      }
+      if (character === "'" || character === '"' || character === '`') {
+        quote = character;
+      } else if (character === ';') {
+        const statement = sql.slice(start, index).trim();
+        if (statement) statements.push(statement);
+        start = index + 1;
+      }
+    }
+
+    const tail = sql.slice(start).trim();
+    if (tail) statements.push(tail);
+    return statements;
   }
 
   private parseJsonObject(value: unknown): Record<string, any> {
