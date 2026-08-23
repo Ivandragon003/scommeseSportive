@@ -1,45 +1,22 @@
-import React, { useState } from 'react';
-import { initBudget } from '../utils/api';
-import ToastStack from '../components/common/ToastStack';
+import React, { useEffect, useState } from 'react';
+import { ArrowRight, ChevronDown, HelpCircle, Lock, RotateCcw, TrendingUp, WalletCards } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import ConfirmDialog from '../components/common/ConfirmDialog';
-import { useToastState } from '../hooks/useToastState';
-import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import ToastStack from '../components/common/ToastStack';
+import BankrollTrendChart from '../components/budget/BankrollTrendChart';
 import { useBudgetManagerData } from '../hooks/useBudgetManagerData';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { useToastState } from '../hooks/useToastState';
+import { initBudget } from '../utils/api';
 import { getErrorMessage } from '../utils/errorUtils';
-import GlossaryTerm from '../features/glossary/GlossaryTerm';
 import './budget-manager.css';
 
 interface BudgetManagerProps {
   activeUser: string;
 }
 
-const toAmount = (v: any) => Number(v ?? 0);
-const formatDateTime = (value: any) => {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('it-IT');
-};
-const formatBudgetMarketName = (value: any) => {
-  const label = String(value ?? '').trim();
-  if (!label) return 'Mercato non disponibile';
-  return label
-    .replace(/Draw No Bet/gi, 'Pareggio non conta (DNB)')
-    .replace(/Goal\/Goal - Si/gi, 'Entrambe segnano - Sì')
-    .replace(/Goal\/Goal - No/gi, 'Entrambe segnano - No');
-};
-const getBudgetSelectionLabel = (value: any) => {
-  const label = String(value ?? '').trim();
-  if (!label) return null;
-
-  const isInternalCode = /^(?:dnb_|player_|homeWin$|awayWin$|draw$|btts(?:No)?$|(?:under|over|yellow|shots|cards)[A-Z0-9_])/i.test(label);
-  return isInternalCode ? null : label;
-};
-const isPreFixBet = (bet: any) => String(bet?.data_quality ?? 'pre_fix').trim().toLowerCase() !== 'post_fix';
-const sourceLabel = (value: any) => {
-  const source = String(value ?? 'unknown').trim().toLowerCase();
-  if (source === 'manual') return 'Manuale';
-  if (source === 'automation') return 'Automatica';
-  return 'Origine non verificata';
-};
+const toAmount = (value: unknown) => Number(value ?? 0);
+const formatMoney = (value: unknown) => `EUR ${Number(value ?? 0).toFixed(2)}`;
 
 const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   const [initAmount, setInitAmount] = useState('1000');
@@ -48,363 +25,149 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
   const confirmDialog = useConfirmDialog();
   const {
     budget,
-    bets,
-    filter,
     loading,
     pendingBets,
+    settledBets,
     netProfit,
     winsCount,
     lossesCount,
     voidCount,
-    setFilter,
     loadAll,
   } = useBudgetManagerData(activeUser);
 
-  const handleReset = async () => {
+  const initializeBudget = async () => {
     const amount = Number(initAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toastState.showToast({ tone: 'warning', message: 'Inserisci un importo valido.' });
+      return;
+    }
+
     try {
       await initBudget(activeUser, amount);
       await loadAll({ force: true });
       setShowReset(false);
-    } catch (e: any) {
-      toastState.showToast({ tone: 'error', message: getErrorMessage(e, 'Errore reset budget') });
+    } catch (error: unknown) {
+      toastState.showToast({ tone: 'error', message: getErrorMessage(error, 'Errore durante il salvataggio del budget') });
     }
   };
 
-  const handleQuickReset = async () => {
+  const startNewSession = async () => {
     const amount = Number(initAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      toastState.showToast({ tone: 'warning', message: 'Inserisci un importo valido per il reset.' });
+      toastState.showToast({ tone: 'warning', message: 'Inserisci un importo valido per il nuovo bankroll.' });
       return;
     }
+
     const confirmed = await confirmDialog.confirm({
-      title: 'Confermare reset completo?',
-      message: `Le bet storiche non verranno cancellate: saranno archiviate nella sessione precedente. Confermi un nuovo bankroll per ${activeUser}?`,
-      confirmLabel: 'Nuova sessione',
+      title: 'Avviare una nuova sessione?',
+      message: `Le giocate già registrate resteranno archiviate. Confermi il nuovo bankroll per ${activeUser}?`,
+      confirmLabel: 'Avvia nuova sessione',
       tone: 'danger',
     });
-    if (!confirmed) return;
-    await handleReset();
+    if (confirmed) await initializeBudget();
   };
 
-  const usedPct = budget
-    ? Math.min(100, ((toAmount(budget.total_budget) - toAmount(budget.available_budget)) / Math.max(1, toAmount(budget.total_budget))) * 100)
-    : 0;
+  const totalBudget = toAmount(budget?.total_budget);
+  const availableBudget = toAmount(budget?.available_budget);
   const capitalExposure = pendingBets.reduce((sum, bet) => sum + toAmount(bet?.stake), 0);
   const settledCount = winsCount + lossesCount + voidCount;
-  const roi = Number(budget?.roi ?? 0);
-  const roiReading =
-    settledCount === 0
-      ? 'Campione insufficiente: il ROI diventa interpretabile dopo le prime scommesse concluse.'
-      : roi > 0
-        ? `ROI positivo, da leggere insieme a ${settledCount} scommesse concluse.`
-        : roi < 0
-          ? `ROI negativo su ${settledCount} scommesse concluse: non descrive da solo la qualità futura della strategia.`
-          : `ROI neutro su ${settledCount} scommesse concluse.`;
+  const roi = toAmount(budget?.roi);
+  const usedPct = budget
+    ? Math.min(100, Math.max(0, ((totalBudget - availableBudget) / Math.max(1, totalBudget)) * 100))
+    : 0;
+  const roiReading = settledCount === 0
+    ? 'Campione ancora ridotto'
+    : roi > 0
+      ? `ROI positivo, da leggere insieme a ${settledCount} giocate concluse.`
+      : roi < 0
+        ? `ROI negativo su ${settledCount} giocate concluse.`
+        : `ROI neutro su ${settledCount} giocate concluse.`;
 
-  const statusLabel = (s: string) => {
-    if (s === 'WON') return 'VINTA';
-    if (s === 'LOST') return 'PERSA';
-    if (s === 'VOID') return 'ANNULLATA';
-    return 'ATTESA';
-  };
-
-  const statusClass = (s: string) => {
-    if (s === 'WON') return 'won';
-    if (s === 'LOST') return 'lost';
-    if (s === 'VOID') return 'void';
-    return 'pending';
-  };
+  useEffect(() => {
+    if (budget?.total_budget !== undefined && budget?.total_budget !== null) {
+      setInitAmount(String(Number(budget.total_budget)));
+    }
+  }, [budget?.total_budget]);
 
   return (
     <>
-      <div className="bm-wrap">
-        <div className="bm-head">
+      <main className="bm-wrap budget-page">
+        <header className="bm-head">
           <div>
-            <h1 className="bm-title">Budget e giocate</h1>
-            <div className="bm-sub">Esito automatico su partite concluse e storico completo</div>
+            <h1 className="bm-title">Budget</h1>
+            <p className="bm-sub">Gestisci il tuo bankroll e monitora i risultati nel tempo.</p>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {!loading && budget && (
-              <button
-                className="fp-btn fp-btn-ghost fp-btn-sm"
-                onClick={() => setShowReset((value) => !value)}
-                title="Apri manutenzione bankroll e reset scommesse"
-              >
-                Manutenzione bankroll
-              </button>
-            )}
-            <div className="bm-user">Utente: <strong>{activeUser}</strong></div>
-          </div>
-        </div>
+          <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
+        </header>
 
         {loading ? (
-          <div className="fp-spinner-wrap" style={{ minHeight: 280 }}><div className="fp-spinner" /></div>
+          <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento budget"><span /><span /><span /></div>
         ) : !budget ? (
-          <div className="fp-card bm-init">
-            <div className="fp-card-head"><div className="fp-card-title">Crea bankroll iniziale</div></div>
-            <div className="fp-card-body">
-              <div className="bm-init-row" style={{ marginBottom: 12 }}>
-                <label className="sr-only" htmlFor="budget-initial-amount">Bankroll iniziale in euro</label>
-                <input
-                  id="budget-initial-amount"
-                  className="fp-input"
-                  type="number"
-                  value={initAmount}
-                  onChange={(e) => setInitAmount(e.target.value)}
-                  placeholder="1000"
-                />
-                <button className="fp-btn fp-btn-solid" onClick={handleReset}>Inizializza</button>
-              </div>
-              <div className="fp-alert fp-alert-info">
-                Imposta il budget iniziale per iniziare a registrare le scommesse.
-              </div>
+          <section className="budget-init" aria-labelledby="budget-init-title">
+            <div className="budget-init__icon"><WalletCards size={28} aria-hidden="true" /></div>
+            <div>
+              <span className="fp-section-kicker">Primo passo</span>
+              <h2 id="budget-init-title">Crea il bankroll iniziale</h2>
+              <p>Definisci la somma di partenza. Potrai poi controllare disponibilità, esposizione e risultati.</p>
             </div>
-          </div>
+            <div className="bm-init-row">
+              <label htmlFor="budget-initial-amount">Bankroll iniziale</label>
+              <div className="budget-amount-input"><span>EUR</span><input id="budget-initial-amount" type="number" min="0.01" value={initAmount} onChange={(event) => setInitAmount(event.target.value)} placeholder="1000" /></div>
+              <button className="fp-btn fp-btn-solid" type="button" onClick={initializeBudget}>Inizializza</button>
+            </div>
+          </section>
         ) : (
           <>
             <dl className="bm-summary" aria-label="Riepilogo bankroll">
-              <div className="bm-summary__item" data-testid="budget-initial">
-                <dt>Bankroll iniziale</dt>
-                <dd>EUR {toAmount(budget.total_budget).toFixed(2)}</dd>
-              </div>
               <div className="bm-summary__item is-positive" data-testid="budget-available">
-                <dt>Bankroll disponibile</dt>
-                <dd>EUR {toAmount(budget.available_budget).toFixed(2)}</dd>
+                <span className="bm-summary__icon"><WalletCards size={25} aria-hidden="true" /></span>
+                <span><dt>Bankroll disponibile</dt><dd>{formatMoney(availableBudget)}</dd><small>Aggiornato con le giocate registrate</small></span>
               </div>
               <div className="bm-summary__item" data-testid="budget-exposure">
-                <dt><GlossaryTerm termId="exposure">Capitale esposto</GlossaryTerm></dt>
-                <dd>EUR {capitalExposure.toFixed(2)}</dd>
+                <span className="bm-summary__icon"><Lock size={25} aria-hidden="true" /></span>
+                <span><dt>Capitale impegnato</dt><dd>{formatMoney(capitalExposure)}</dd><small>{pendingBets.length} giocate aperte</small></span>
               </div>
               <div className={`bm-summary__item ${netProfit >= 0 ? 'is-positive' : 'is-negative'}`} data-testid="budget-profit">
-                <dt>Profitto netto</dt>
-                <dd>{netProfit >= 0 ? '+' : ''}EUR {netProfit.toFixed(2)}</dd>
-              </div>
-              <div className={`bm-summary__item ${roi >= 0 ? 'is-positive' : 'is-negative'}`} data-testid="budget-roi">
-                <dt><GlossaryTerm termId="roi">Rendimento (ROI)</GlossaryTerm></dt>
-                <dd>{roi.toFixed(2)}%</dd>
-              </div>
-              <div className="bm-summary__item">
-                <dt><GlossaryTerm termId="pending-bet">Scommesse pendenti</GlossaryTerm></dt>
-                <dd>{pendingBets.length}</dd>
+                <span className="bm-summary__icon"><TrendingUp size={25} aria-hidden="true" /></span>
+                <span><dt>Risultato netto</dt><dd>{netProfit >= 0 ? '+' : ''}{formatMoney(netProfit)}</dd><strong data-testid="budget-roi">{roi >= 0 ? '+' : ''}{roi.toFixed(2)}%</strong><small>{roiReading}</small></span>
               </div>
             </dl>
 
-            <div className={`fp-alert ${roi < 0 ? 'fp-alert-warning' : 'fp-alert-info'} bm-roi-reading`}>
-              {roiReading}
+            <div className="budget-workspace">
+              <BankrollTrendChart initialBudget={totalBudget} settledBets={settledBets} />
+
+              <section className="budget-management" aria-labelledby="budget-management-title">
+                <h2 id="budget-management-title">Gestione bankroll</h2>
+                <div className="budget-current"><span>Bankroll attuale</span><strong>{formatMoney(availableBudget)}</strong></div>
+                <form onSubmit={(event) => { event.preventDefault(); void startNewSession(); }}>
+                  <label htmlFor="budget-initial-input">Budget iniziale</label>
+                  <div className="budget-amount-input"><span>EUR</span><input id="budget-initial-input" aria-label="Budget iniziale" type="number" min="0.01" value={initAmount} onChange={(event) => setInitAmount(event.target.value)} /></div>
+                  <button className="fp-btn fp-btn-green" type="submit">Aggiorna budget</button>
+                </form>
+                <Link className="budget-open-bets-link" to="/bets">Vai alle giocate aperte <ArrowRight size={18} aria-hidden="true" /></Link>
+              </section>
             </div>
 
-            <div className="bm-session-note">
-              Sessione corrente: <strong>{String(budget.session_id ?? 'non disponibile')}</strong>
-              {budget.session_started_at ? ` · iniziata ${formatDateTime(budget.session_started_at)}` : ''}
-              {' · Le sessioni precedenti restano archiviate.'}
+            <div className="budget-accessible-facts sr-only">
+              <span data-testid="budget-initial">Bankroll iniziale {formatMoney(totalBudget)}</span>
+              <div role="progressbar" aria-label="Budget utilizzato" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(usedPct.toFixed(1))}>{usedPct.toFixed(1)}%</div>
             </div>
 
-            <div className="fp-grid-2" style={{ marginBottom: 18 }}>
-              <div className="fp-card">
-                <div className="fp-card-head">
-                  <div className="fp-card-title">Dettaglio finanziario</div>
-                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setShowReset((v) => !v)}>Apri manutenzione</button>
-                </div>
-                <div className="fp-card-body">
-                  <div className="bm-fin-grid">
-                    <div className="bm-fin-row"><span className="bm-fin-k">Bankroll iniziale</span><strong className="bm-fin-v">EUR {toAmount(budget.total_budget).toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Bankroll disponibile</span><strong className="bm-fin-v" style={{ color: 'var(--green)' }}>EUR {toAmount(budget.available_budget).toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Capitale esposto nelle pendenti</span><strong className="bm-fin-v">EUR {capitalExposure.toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Totale puntato storico</span><strong className="bm-fin-v">EUR {toAmount(budget.total_staked).toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Totale ritorni vincenti</span><strong className="bm-fin-v">EUR {toAmount(budget.total_won).toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Totale perso</span><strong className="bm-fin-v">EUR {toAmount(budget.total_lost).toFixed(2)}</strong></div>
-                    <div className="bm-fin-row"><span className="bm-fin-k">Rendimento (ROI)</span><strong className="bm-fin-v" style={{ color: roi >= 0 ? 'var(--green)' : 'var(--red)' }}>{roi.toFixed(2)}%</strong></div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="fp-card">
-                <div className="fp-card-head"><div className="fp-card-title">Performance</div></div>
-                <div className="fp-card-body">
-                  <div className="fp-progress-wrap">
-                    <div className="fp-progress-meta"><span>Budget utilizzato</span><span className="fp-progress-val">{usedPct.toFixed(1)}%</span></div>
-                    <div className="fp-progress-track"><div className="fp-progress-fill" style={{ width: `${usedPct}%` }} /></div>
-                  </div>
-                  <div className="fp-progress-wrap">
-                    <div className="fp-progress-meta">
-                      <span><GlossaryTerm termId="win-rate">Percentuale di vittorie</GlossaryTerm></span>
-                      <span className="fp-progress-val">{Number(budget.win_rate ?? 0).toFixed(1)}%</span>
-                    </div>
-                    <div className="fp-progress-track"><div className="fp-progress-fill" style={{ width: `${Math.min(100, Number(budget.win_rate ?? 0))}%`, background: 'var(--green)' }} /></div>
-                  </div>
-                  <div className="fp-progress-wrap" style={{ marginBottom: 14 }}>
-                    <div className="fp-progress-meta">
-                      <span><GlossaryTerm termId="roi">ROI</GlossaryTerm></span>
-                      <span className="fp-progress-val">{Number(budget.roi ?? 0).toFixed(1)}%</span>
-                    </div>
-                    <div className="fp-progress-track"><div className="fp-progress-fill" style={{ width: `${Math.min(100, Math.max(0, Number(budget.roi ?? 0)))}%`, background: Number(budget.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }} /></div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <span className="fp-badge fp-badge-green">Vinte: {winsCount}</span>
-                    <span className="fp-badge fp-badge-red">Perse: {lossesCount}</span>
-                    <span className="fp-badge fp-badge-gold">Annullate: {voidCount}</span>
-                    <span className="fp-badge fp-badge-blue">Pendenti: {pendingBets.length}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="fp-card" style={{ marginBottom: 18 }}>
-              <div className="fp-card-head">
-                <div className="fp-card-title">Scommesse in attesa ({pendingBets.length})</div>
-              </div>
-              <div className="fp-card-body" style={{ paddingTop: 10 }}>
-                <div className="fp-alert fp-alert-info" style={{ marginBottom: 10 }}>
-                  Le scommesse vengono chiuse automaticamente quando la partita e conclusa e i dati necessari sono presenti.
-                </div>
-                {pendingBets.length === 0 ? (
-                  <div className="fp-empty"><div className="fp-empty-text">Nessuna scommessa pendente.</div></div>
-                ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="fp-table">
-                      <thead>
-                        <tr>
-                          <th>Partita</th>
-                          <th>Mercato</th>
-                          <th>Quota</th>
-                          <th>Puntata</th>
-                          <th>Data</th>
-                          <th>Stato</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pendingBets.map((bet: any) => (
-                          <tr key={String(bet.bet_id)}>
-                            <td>
-                              <div className="bm-match">{bet.home_team_name ?? '-' } vs {bet.away_team_name ?? '-'}</div>
-                              <div className="bm-market">{bet.competition ?? '-'}</div>
-                            </td>
-                            <td>
-                              <div className="bm-match">{formatBudgetMarketName(bet.market_name)}</div>
-                              {getBudgetSelectionLabel(bet.selection) && (
-                                <div className="bm-market">{getBudgetSelectionLabel(bet.selection)}</div>
-                              )}
-                            </td>
-                            <td className="fp-mono">{Number(bet.odds ?? 0).toFixed(2)}</td>
-                            <td className="fp-mono">EUR {Number(bet.stake ?? 0).toFixed(2)}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{formatDateTime(bet.placed_at)}</td>
-                            <td>
-                              <span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span>
-                              <div className="bm-bet-meta">
-                                {isPreFixBet(bet) && <span className="bm-data-warning">Pre-fix / non validata</span>}
-                                <span>{sourceLabel(bet.source)}</span>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="fp-card">
-              <div className="fp-card-head">
-                <div className="fp-card-title">Storico scommesse</div>
-                <div className="bm-ftabs" role="group" aria-label="Filtra storico giocate">
-                  {[
-                    { value: '', label: 'Tutte' },
-                    { value: 'PENDING', label: 'Attesa' },
-                    { value: 'WON', label: 'Vinte' },
-                    { value: 'LOST', label: 'Perse' },
-                    { value: 'VOID', label: 'Annullate' },
-                  ].map((f) => (
-                    <button
-                      key={f.value || 'all'}
-                      className={`bm-ftab${filter === f.value ? ' active' : ''}`}
-                      onClick={() => setFilter(f.value)}
-                      aria-pressed={filter === f.value}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {bets.length === 0 ? (
-                <div className="fp-empty"><div className="fp-empty-text">Nessuna scommessa registrata.</div></div>
-              ) : (
-                <div className="bm-history-table">
-                  <table className="fp-table">
-                    <thead>
-                      <tr>
-                        <th>Partita</th>
-                        <th>Mercato</th>
-                        <th>Quota</th>
-                        <th>Puntata</th>
-                        <th>Stato</th>
-                        <th>Profitto</th>
-                        <th>Data</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bets.slice(0, 80).map((bet: any) => (
-                        <tr key={String(bet.bet_id)}>
-                          <td>
-                            <div className="bm-match">{bet.home_team_name ?? '-'} vs {bet.away_team_name ?? '-'}</div>
-                            <div className="bm-market">{bet.competition ?? '-'}</div>
-                          </td>
-                          <td>
-                            <div className="bm-match">{formatBudgetMarketName(bet.market_name)}</div>
-                            {getBudgetSelectionLabel(bet.selection) && (
-                              <div className="bm-market">{getBudgetSelectionLabel(bet.selection)}</div>
-                            )}
-                          </td>
-                          <td className="fp-mono">{Number(bet.odds ?? 0).toFixed(2)}</td>
-                          <td className="fp-mono">EUR {Number(bet.stake ?? 0).toFixed(2)}</td>
-                          <td>
-                            <span className={`bm-status ${statusClass(String(bet.status ?? 'PENDING'))}`}>{statusLabel(String(bet.status ?? 'PENDING'))}</span>
-                            <div className="bm-bet-meta">
-                              {isPreFixBet(bet) && <span className="bm-data-warning">Pre-fix / non validata</span>}
-                              <span>{sourceLabel(bet.source)}</span>
-                            </div>
-                          </td>
-                          <td className="fp-mono" style={{ color: Number(bet.profit ?? 0) > 0 ? 'var(--green)' : Number(bet.profit ?? 0) < 0 ? 'var(--red)' : 'var(--text-2)' }}>
-                            {bet.profit !== null && bet.profit !== undefined ? `${Number(bet.profit) > 0 ? '+' : ''}EUR ${Number(bet.profit).toFixed(2)}` : '-'}
-                          </td>
-                          <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{formatDateTime(bet.placed_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <section className={`bm-maintenance${showReset ? ' is-open' : ''}`} aria-labelledby="budget-maintenance-title">
+              <span className="bm-maintenance__icon"><RotateCcw size={24} aria-hidden="true" /></span>
+              <div className="bm-maintenance__copy"><h2 id="budget-maintenance-title">Manutenzione budget</h2><p>Avvia una nuova sessione senza cancellare le giocate già archiviate.</p></div>
+              <button className="bm-maintenance__toggle" type="button" aria-expanded={showReset} onClick={() => setShowReset((value) => !value)}><span>{showReset ? 'Chiudi' : 'Gestisci'}</span><ChevronDown size={20} aria-hidden="true" /></button>
+              {showReset && (
+                <div className="bm-maintenance__form">
+                  <label htmlFor="budget-reset-amount">Nuovo bankroll</label>
+                  <div className="budget-amount-input"><span>EUR</span><input id="budget-reset-amount" type="number" min="0.01" value={initAmount} onChange={(event) => setInitAmount(event.target.value)} /></div>
+                  <button className="fp-btn fp-btn-red" type="button" onClick={startNewSession}>Avvia nuova sessione</button>
                 </div>
               )}
-            </div>
-
-            {showReset && (
-              <section className="bm-maintenance" aria-labelledby="budget-maintenance-title">
-                <h2 id="budget-maintenance-title">Manutenzione del bankroll</h2>
-                <p>
-                  Operazione distruttiva: reimposta il bankroll e cancella tutte le scommesse
-                  associate all’utente selezionato.
-                </p>
-                <div className="bm-init-row">
-                  <label className="fp-label" htmlFor="budget-reset-amount">Nuovo bankroll iniziale</label>
-                  <input
-                    id="budget-reset-amount"
-                    className="fp-input"
-                    type="number"
-                    min="0.01"
-                    value={initAmount}
-                    onChange={(event) => setInitAmount(event.target.value)}
-                  />
-                  <button className="fp-btn fp-btn-red" onClick={handleQuickReset}>
-                    Reimposta e cancella lo storico
-                  </button>
-                </div>
-              </section>
-            )}
+            </section>
           </>
         )}
-      </div>
+      </main>
       <ToastStack toasts={toastState.toasts} onDismiss={toastState.dismissToast} />
       <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
