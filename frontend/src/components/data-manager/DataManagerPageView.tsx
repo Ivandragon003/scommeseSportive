@@ -29,14 +29,19 @@ const normalizeKey = (v: any) =>
 
 /* Solo stili specifici di DataManager */
 const localStyles = `
-  .dm-wrap { padding: 40px 32px; min-height: 100vh; }
+  .dm-wrap { width: min(100%, 1360px); margin: 0 auto; padding: 32px clamp(20px, 3vw, 40px) 56px; min-height: 100vh; }
 
   .dm-title {
     font-size: clamp(28px,4vw,40px); font-weight: 800; letter-spacing: -1.5px; line-height: 1;
     color: var(--text);
-    margin-bottom: 8px;
+    margin: 0;
   }
-  .dm-subtitle { font-size: 13px; color: var(--text-2); margin-bottom: 30px; }
+  .dm-subtitle { max-width: 680px; font-size: 14px; line-height: 1.55; color: var(--text-2); margin: 0; }
+  .dm-header { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:24px; }
+  .dm-header-copy { display:grid; gap:7px; }
+  .dm-header-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .dm-header-actions button { min-height:40px; padding:0 13px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text-2); font-size:11px; font-weight:800; cursor:pointer; }
+  .dm-header-actions button.primary { border-color:var(--primary); background:var(--primary); color:white; }
 
   /* TABS wrapper - sovrascrive fp-tabs per aggiungere margin */
   .dm-tabs-wrap { margin-bottom: 24px; }
@@ -211,6 +216,14 @@ const localStyles = `
   }
   .dm-check-badge.ok { background: var(--green-dim); color: var(--green); border-color: var(--green-border); }
   .dm-check-badge.ko { background: var(--red-dim); color: var(--red); border-color: var(--red-border); }
+  .dm-sources { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .dm-source-card { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:14px; padding:18px; border:1px solid var(--border); border-radius:10px; background:var(--surface2); }
+  .dm-source-icon { width:42px; height:42px; display:grid; place-items:center; border-radius:10px; background:var(--primary-dim); color:var(--primary); font-weight:900; }
+  .dm-source-card strong,.dm-source-card small { display:block; }
+  .dm-source-card small { margin-top:3px; color:var(--text-3); }
+  .dm-recent-import { display:grid; gap:12px; }
+  .dm-recent-import__row { display:flex; justify-content:space-between; gap:16px; padding:14px 0; border-bottom:1px solid var(--border); }
+  .dm-recent-import__row span { color:var(--text-2); }
 
   @media (max-width: 900px) {
     .dm-steps      { grid-template-columns: repeat(2,1fr); }
@@ -221,10 +234,24 @@ const localStyles = `
     .dm-top5-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   }
   @media (max-width: 600px) {
-    .dm-wrap { padding: 16px; }
+    .dm-wrap { width:100%; max-width:100%; min-width:0; padding:24px 18px 100px; overflow-x:hidden; }
     .dm-title { font-size: 26px; }
     .dm-steps { grid-template-columns: 1fr; }
     .dm-top5-grid { grid-template-columns: 1fr; }
+    .dm-header,.dm-header-copy { width:100%; min-width:0; }
+    .dm-header { align-items:flex-start; flex-direction:column; }
+    .dm-subtitle { max-width:100%; }
+    .dm-header-actions { width:100%; min-width:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .dm-header-actions button { min-width:0; padding-inline:8px; }
+    .dm-header-actions button:last-child { grid-column:1/-1; }
+    .dm-sources { grid-template-columns:1fr; }
+    .dm-source-card { grid-template-columns:auto minmax(0,1fr); }
+    .dm-source-card .dm-check-badge { grid-column:2; margin-left:0; width:max-content; }
+    .dm-tabs-wrap { width:100%; max-width:100%; min-width:0; margin-inline:0; overflow-x:auto; padding-inline:0; }
+    .dm-tabs-wrap { scrollbar-width:none; }
+    .dm-tabs-wrap::-webkit-scrollbar { display:none; }
+    .dm-tabs-wrap .fp-tabs { width:max-content; }
+    .dm-wrap .fp-grid-4 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
   }
 `;
 
@@ -594,25 +621,18 @@ const DataManagerPageView: React.FC = () => {
       <div className="dm-wrap">
 
         {/* HEADER */}
-        <h1 className="dm-title">Gestione dati</h1>
-        <div className="dm-subtitle">
-          Copertura, qualità e manutenzione dello storico usato dal modello statistico.
-        </div>
-
-        {/* STAT GRID  usa classi globali */}
-        <div className="fp-grid-4" style={{ marginBottom: 28 }}>
-          {[
-            { val: loading ? '' : matches.length,                          label: 'Partite',       c: 'blue'   },
-            { val: loading ? '' : teams.length,                            label: 'Squadre',       c: 'blue'   },
-            { val: loading ? '' : competitions.length,                     label: 'Campionati',    c: 'blue'   },
-            { val: teams.filter((t: any) => t.attack_strength).length,       label: 'Modello attivo',c: 'green'  },
-          ].map(({ val, label, c }) => (
-            <div key={label} className={`fp-stat c-${c}`}>
-              <div className={`fp-stat-val c-${c}`}>{val}</div>
-              <div className="fp-stat-label">{label}</div>
-            </div>
-          ))}
-        </div>
+        <header className="dm-header">
+          <div className="dm-header-copy">
+            <p className="tool-page__eyebrow">Strumenti / Dati</p>
+            <h1 className="dm-title">Dati</h1>
+            <p className="dm-subtitle">Controlla fonti, copertura e qualità dello storico usato nelle analisi.</p>
+          </div>
+          <div className="dm-header-actions" aria-label="Azioni dati">
+            <button type="button" onClick={() => setActiveTab('model')}>Ricalcola modello</button>
+            <button type="button" onClick={() => setActiveTab('model')}>Calibra</button>
+            <button type="button" className="primary" onClick={() => setActiveTab('import')}>Importa JSON</button>
+          </div>
+        </header>
 
         {/* TABS */}
         <div className="dm-tabs-wrap">
@@ -635,24 +655,23 @@ const DataManagerPageView: React.FC = () => {
         {activeTab === 'overview' && (
           <>
             <div className="fp-card">
-              <div className="fp-card-head"><div className="fp-card-title">Flusso consigliato</div></div>
+              <div className="fp-card-head"><div><div className="fp-section-kicker">Fonti attive</div><div className="fp-card-title">Origine dei dati calcistici</div></div><span className="fp-badge fp-badge-green">Pipeline pronta</span></div>
               <div className="fp-card-body">
-                <div className="dm-steps">
-                  {[
-                    { n: '01', title: 'Importa dati',     desc: 'Importa Understat come fonte primaria e integra soltanto i valori mancanti ammessi.' },
-                    { n: '02', title: 'Verifica copertura', desc: 'Controlla completezza, stagioni disponibili e campi mancanti prima del calcolo.' },
-                    { n: '03', title: 'Aggiorna il modello', desc: 'Ricalcola medie e parametri Dixon-Coles sui dati disponibili.' },
-                    { n: '04', title: 'Analizza partite', desc: 'Vai in Previsioni per consultare la singola giocata finale consigliata.' },
-                  ].map(({ n: num, title, desc }, i, arr) => (
-                    <div key={num} className="dm-step">
-                      <div className="dm-step-num">Step {num}</div>
-                      <div className="dm-step-title">{title}</div>
-                      <div className="dm-step-desc">{desc}</div>
-                      {i < arr.length - 1 && <div className="dm-step-arrow"></div>}
-                    </div>
-                  ))}
+                <div className="fp-alert fp-alert-info">Understat resta la fonte primaria. football-data.co.uk completa soltanto i campi mancanti ammessi, senza sovrascrivere i dati esistenti.</div>
+                <div className="dm-sources">
+                  <div className="dm-source-card"><span className="dm-source-icon">U</span><div><strong>Understat</strong><small>Partite, squadre, giocatori, xG e tiri</small></div><span className="dm-check-badge ok">Attiva</span></div>
+                  <div className="dm-source-card"><span className="dm-source-icon">FD</span><div><strong>football-data.co.uk</strong><small>Integrazione HTTP/CSV dei soli campi mancanti</small></div><span className="dm-check-badge ok">Attiva</span></div>
                 </div>
               </div>
+            </div>
+
+            <div className="fp-grid-4" style={{ marginTop: 16 }}>
+              {[
+                { val: loading ? '' : (statsOverview?.coverage?.totals?.totalMatches ?? matches.length), label: 'Partite', c: 'blue' },
+                { val: loading ? '' : teams.length, label: 'Squadre', c: 'blue' },
+                { val: loading ? '' : competitions.length, label: 'Campionati', c: 'blue' },
+                { val: teams.filter((team: any) => team.attack_strength).length, label: 'Modello attivo', c: 'green' },
+              ].map(({ val, label, c }) => <div key={label} className={`fp-stat c-${c}`}><div className={`fp-stat-val c-${c}`}>{val}</div><div className="fp-stat-label">{label}</div></div>)}
             </div>
 
             <div className="dm-overview-grid">
@@ -692,28 +711,12 @@ const DataManagerPageView: React.FC = () => {
               </div>
 
               <div className="dm-overview-card">
-                <div className="dm-overview-title">Copertura stats giocatori (opzionale)</div>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-2)' }}>Squadre con profili giocatori</span>
-                    <strong className="fp-mono">{statsOverview?.coverage?.teams?.teamsWithPlayers ?? 0} / {statsOverview?.coverage?.teams?.totalTeams ?? 0}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-2)' }}>Copertura squadre</span>
-                    <strong className="fp-mono">{n(statsOverview?.coverage?.teams?.pctWithPlayers ?? 0, 1)}%</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-2)' }}>Giocatori disponibili</span>
-                    <strong className="fp-mono">{statsOverview?.coverage?.players?.totalPlayers ?? 0}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-2)' }}>Media partite / giocatore</span>
-                    <strong className="fp-mono">{n(statsOverview?.coverage?.players?.avgGamesPlayed ?? 0, 2)}</strong>
-                  </div>
-                </div>
-                <div className="fp-alert fp-alert-info" style={{ marginTop: 12 }}>
-                  Le statistiche giocatore sono opzionali e alimentano i mercati dedicati, separati
-                  dalla giocata principale di squadra.
+                <div className="dm-overview-title">Importazioni recenti</div>
+                <div className="dm-recent-import">
+                  <div className="dm-recent-import__row"><span>Ultimo controllo dati</span><strong>{statsOverview?.generatedAt ? new Date(statsOverview.generatedAt).toLocaleString('it-IT') : 'Non disponibile'}</strong></div>
+                  <div className="dm-recent-import__row"><span>Match completi</span><strong>{statsOverview?.coverage?.totals?.completedMatches ?? 0}</strong></div>
+                  <div className="dm-recent-import__row"><span>Match in programma</span><strong>{statsOverview?.coverage?.totals?.upcomingMatches ?? 0}</strong></div>
+                  <div className="dm-recent-import__row"><span>Giocatori disponibili</span><strong>{statsOverview?.coverage?.players?.totalPlayers ?? 0}</strong></div>
                 </div>
               </div>
             </div>

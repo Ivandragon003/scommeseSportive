@@ -1,178 +1,125 @@
-import React, { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, Search } from 'lucide-react';
 import { GLOSSARY_ENTRIES } from './glossaryEntries';
-import { GLOSSARY_CATEGORIES, GlossaryCategory } from './glossaryTypes';
+import type { GlossaryEntry } from './glossaryTypes';
 
-const ALL_CATEGORIES = 'Tutte le categorie';
+const CATEGORY_GROUPS = {
+  Tutti: null,
+  Pronostici: ['Mercati di scommessa', 'Value betting'],
+  Quote: ['Quote e probabilità'],
+  Budget: ['Gestione del bankroll', 'Rischio e stake'],
+  Statistiche: ['Modelli statistici', 'Statistiche calcistiche', 'Backtesting e validazione', 'Fonti e qualità dei dati'],
+} as const;
+
+type CategoryGroup = keyof typeof CATEGORY_GROUPS;
+
+const EntryDetails: React.FC<{ entry: GlossaryEntry; showHeading?: boolean }> = ({ entry, showHeading = true }) => (
+  <div className="glossary-entry__body">
+    <span className="glossary-category-label">{entry.category}</span>
+    {showHeading && <h2>{entry.term}{entry.acronym && !entry.term.toLocaleLowerCase('it').includes(entry.acronym.toLocaleLowerCase('it')) ? ` (${entry.acronym})` : ''}</h2>}
+    <p className="glossary-lead">{entry.simpleDefinition}</p>
+    <p>{entry.technicalDefinition}</p>
+    {entry.formula && <div className="glossary-formula"><span>Formula</span><code>{entry.formula}</code></div>}
+    <div className="glossary-example"><strong>Esempio pratico</strong><p>{entry.example}</p></div>
+    <dl className="glossary-detail-grid">
+      <div><dt>Come interpretarlo</dt><dd>{entry.interpretation}</dd></div>
+      <div><dt>Attenzione</dt><dd>{entry.caution}</dd></div>
+    </dl>
+    {entry.relatedTerms.length > 0 && (
+      <div className="glossary-related">
+        <span>Termini correlati</span>
+        <div>{entry.relatedTerms.map((id) => GLOSSARY_ENTRIES.find((candidate) => candidate.id === id)).filter(Boolean).map((related) => <a key={related?.id} href={`#${related?.id}`}>{related?.term}</a>)}</div>
+      </div>
+    )}
+  </div>
+);
 
 const GlossaryPage: React.FC = () => {
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<GlossaryCategory | typeof ALL_CATEGORIES>(ALL_CATEGORIES);
+  const [category, setCategory] = useState<CategoryGroup>('Tutti');
+  const [selectedId, setSelectedId] = useState(GLOSSARY_ENTRIES[0]?.id ?? '');
 
   const filteredEntries = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('it');
+    const allowedCategories = CATEGORY_GROUPS[category];
     return GLOSSARY_ENTRIES.filter((entry) => {
-      if (category !== ALL_CATEGORIES && entry.category !== category) return false;
+      if (allowedCategories && !(allowedCategories as readonly string[]).includes(entry.category)) return false;
       if (!normalizedQuery) return true;
-      return [
-        entry.term,
-        entry.acronym,
-        ...(entry.aliases ?? []),
-        entry.simpleDefinition,
-        entry.technicalDefinition,
-        entry.category,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('it')
-        .includes(normalizedQuery);
+      return [entry.term, entry.acronym, ...(entry.aliases ?? []), entry.simpleDefinition, entry.category]
+        .filter(Boolean).join(' ').toLocaleLowerCase('it').includes(normalizedQuery);
     });
   }, [category, query]);
 
-  const letters = useMemo(
-    () => Array.from(new Set(GLOSSARY_ENTRIES.map((entry) => entry.term[0].toLocaleUpperCase('it')))).sort(),
-    []
-  );
+  const letters = useMemo(() => Array.from(new Set(GLOSSARY_ENTRIES.map((entry) => entry.term[0].toLocaleUpperCase('it')))).sort(), []);
+  const selectedEntry = filteredEntries.find((entry) => entry.id === selectedId) ?? filteredEntries[0] ?? null;
+
+  useEffect(() => {
+    if (selectedEntry && selectedEntry.id !== selectedId) setSelectedId(selectedEntry.id);
+  }, [selectedEntry, selectedId]);
+
+  const selectLetter = (letter: string) => {
+    const candidate = filteredEntries.find((entry) => entry.term[0].toLocaleUpperCase('it') === letter);
+    if (candidate) setSelectedId(candidate.id);
+  };
 
   return (
     <div className="glossary-page">
       <header className="glossary-page__hero">
         <div>
-          <span className="glossary-kicker">Impara mentre analizzi</span>
+          <span className="glossary-kicker">Strumenti / Glossario</span>
           <h1>Glossario</h1>
-          <p>
-            Definizioni operative per quote, mercati, bankroll, modelli e backtesting.
-            Ogni voce spiega anche come leggere valori alti, bassi, positivi e negativi.
-          </p>
-        </div>
-        <div className="glossary-page__count" aria-label={`${GLOSSARY_ENTRIES.length} termini disponibili`}>
-          <strong>{GLOSSARY_ENTRIES.length}</strong>
-          <span>termini documentati</span>
+          <p>Le parole essenziali per leggere pronostici, quote e budget con sicurezza.</p>
         </div>
       </header>
 
       <div className="glossary-controls">
-        <label className="glossary-search">
-          <Search size={18} aria-hidden="true" />
-          <span className="sr-only">Cerca nel glossario</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Cerca ROI, quota implicita, walk-forward…"
-            aria-label="Cerca nel glossario"
-          />
-        </label>
-        <div className="glossary-categories" aria-label="Categorie del glossario">
-          {[ALL_CATEGORIES, ...GLOSSARY_CATEGORIES].map((item) => (
-            <button
-              type="button"
-              key={item}
-              className={category === item ? 'is-active' : ''}
-              onClick={() => setCategory(item as GlossaryCategory | typeof ALL_CATEGORIES)}
-            >
-              {item}
-            </button>
-          ))}
+        <div className="glossary-controls__top">
+          <label className="glossary-search">
+            <Search size={19} aria-hidden="true" />
+            <span className="sr-only">Cerca nel glossario</span>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca un termine o una definizione" aria-label="Cerca nel glossario" />
+          </label>
+          <div className="glossary-categories" aria-label="Categorie del glossario">
+            {(Object.keys(CATEGORY_GROUPS) as CategoryGroup[]).map((item) => (
+              <button type="button" key={item} className={category === item ? 'is-active' : ''} onClick={() => setCategory(item)}>{item}</button>
+            ))}
+          </div>
         </div>
         <nav className="glossary-alphabet" aria-label="Indice alfabetico">
-          {letters.map((letter) => (
-            <a key={letter} href={`#letter-${letter}`}>
-              {letter}
-            </a>
-          ))}
+          {letters.map((letter) => <button type="button" key={letter} onClick={() => selectLetter(letter)}>{letter}</button>)}
         </nav>
       </div>
 
-      <div className="glossary-results-meta" aria-live="polite">
-        {filteredEntries.length} {filteredEntries.length === 1 ? 'definizione trovata' : 'definizioni trovate'}
-      </div>
-
       {filteredEntries.length === 0 ? (
-        <div className="glossary-empty">
-          Nessuna definizione corrisponde ai filtri. Rimuovi una categoria o prova una parola più breve.
-        </div>
+        <div className="glossary-empty">Nessuna definizione corrisponde ai filtri.</div>
       ) : (
-        <div className="glossary-list">
-          {filteredEntries.map((entry, index) => {
-            const firstOfLetter =
-              index === 0 ||
-              filteredEntries[index - 1].term[0].toLocaleUpperCase('it') !== entry.term[0].toLocaleUpperCase('it');
-            const letter = entry.term[0].toLocaleUpperCase('it');
-            return (
-              <React.Fragment key={entry.id}>
-                {firstOfLetter && (
-                  <div className="glossary-letter" id={`letter-${letter}`} aria-hidden="true">
-                    {letter}
-                  </div>
-                )}
-                <article className="glossary-entry" id={entry.id}>
-                  <header className="glossary-entry__header">
-                    <div>
-                      <span className="glossary-category-label">{entry.category}</span>
-                      <h2>{entry.term}</h2>
-                    </div>
-                    {entry.acronym && <span className="glossary-entry__acronym">{entry.acronym}</span>}
-                  </header>
-                  <p className="glossary-lead">{entry.simpleDefinition}</p>
-                  <p>{entry.technicalDefinition}</p>
-                  {entry.formula && (
-                    <div className="glossary-formula">
-                      <span>Formula</span>
-                      <code>{entry.formula}</code>
-                    </div>
-                  )}
-                  <dl className="glossary-detail-grid">
-                    <div>
-                      <dt>Esempio pratico</dt>
-                      <dd>{entry.example}</dd>
-                    </div>
-                    <div>
-                      <dt>Valore alto</dt>
-                      <dd>{entry.highValue}</dd>
-                    </div>
-                    <div>
-                      <dt>Valore basso</dt>
-                      <dd>{entry.lowValue}</dd>
-                    </div>
-                    <div>
-                      <dt>Quando è positivo</dt>
-                      <dd>{entry.positiveMeaning}</dd>
-                    </div>
-                    <div>
-                      <dt>Quando è negativo</dt>
-                      <dd>{entry.negativeMeaning}</dd>
-                    </div>
-                    <div>
-                      <dt>Come interpretarlo</dt>
-                      <dd>{entry.interpretation}</dd>
-                    </div>
-                  </dl>
-                  <div className="glossary-caution">
-                    <strong>Attenzione</strong>
-                    <span>{entry.caution}</span>
-                  </div>
-                  {entry.relatedTerms.length > 0 && (
-                    <div className="glossary-related">
-                      <span>Termini correlati</span>
-                      <div>
-                        {entry.relatedTerms
-                          .map((id) => GLOSSARY_ENTRIES.find((candidate) => candidate.id === id))
-                          .filter(Boolean)
-                          .map((related) => (
-                            <a key={related?.id} href={`#${related?.id}`}>
-                              {related?.term}
-                            </a>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </article>
-              </React.Fragment>
-            );
-          })}
-        </div>
+        <>
+          <div className="glossary-desktop-layout">
+            <nav className="glossary-index" aria-label="Elenco termini">
+              {filteredEntries.map((entry, index) => {
+                const letter = entry.term[0].toLocaleUpperCase('it');
+                const showLetter = index === 0 || filteredEntries[index - 1].term[0].toLocaleUpperCase('it') !== letter;
+                return <React.Fragment key={entry.id}>
+                  {showLetter && <div className="glossary-index__letter">{letter}</div>}
+                  <button type="button" className={selectedEntry?.id === entry.id ? 'is-active' : ''} onClick={() => setSelectedId(entry.id)}><span>{entry.term}</span><small>{entry.category}</small></button>
+                </React.Fragment>;
+              })}
+            </nav>
+            {selectedEntry && <article className="glossary-detail-card" id={selectedEntry.id}><EntryDetails entry={selectedEntry} /></article>}
+          </div>
+
+          <div className="glossary-mobile-list">
+            {filteredEntries.map((entry, index) => (
+              <details className="glossary-entry" id={entry.id} key={entry.id} open={index === 0}>
+                <summary className="glossary-entry__header"><span><small>{entry.category}</small><strong>{entry.term}</strong></span><ChevronDown size={19} /></summary>
+                <EntryDetails entry={entry} showHeading={false} />
+              </details>
+            ))}
+          </div>
+        </>
       )}
+
+      <footer className="glossary-footer">Le definizioni aiutano a interpretare l’app: non trasformano una previsione in una certezza.</footer>
     </div>
   );
 };
