@@ -958,6 +958,16 @@ router.post('/learning/reviews/sync', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/predictions/settle-completed', async (req: Request, res: Response) => {
+  try {
+    const limit = Number(req.body?.limit ?? 500);
+    const result = await svc.settlePendingPredictionsForCompletedMatches(limit);
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
 router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
   applyBacktestRouteTimeout(req, res);
   try {

@@ -152,6 +152,12 @@ if ! post_json \
   echo "Warning: supplemental football-data sync failed; continuing with the primary Understat data."
 fi
 
+echo "Settling archived predictions for completed matches..."
+post_json \
+  "http://127.0.0.1:$PORT/api/predictions/settle-completed" \
+  "{\"limit\":500}" \
+  "${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-300}"
+
 if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
   for competition in "${competitions[@]}"; do
