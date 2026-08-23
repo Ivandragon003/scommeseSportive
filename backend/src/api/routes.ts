@@ -457,7 +457,10 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
     }
 
     res.json({ success: true, sync, prune, teamsUpdated });
-  } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e: any) {
+    console.error('[football-data-sync] failed:', e?.stack ?? e?.message ?? e);
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ====== PREDICT ======
@@ -974,6 +977,7 @@ router.post('/predictions/settle-completed', async (req: Request, res: Response)
     const result = await svc.settlePendingPredictionsForCompletedMatches(limit);
     res.json({ success: true, data: result });
   } catch (e: any) {
+    console.error('[prediction-settlement] failed:', e?.stack ?? e?.message ?? e);
     res.status(400).json({ success: false, error: e.message });
   }
 });
