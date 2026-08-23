@@ -36,6 +36,33 @@ test('generic settlement marks DNB draw and Asian handicap push as VOID', () => 
   assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', { home_goals: 0, away_goals: 1 })?.status, 'WON');
 });
 
+test('settles player shots, shots on target and yellow-card props from match details', () => {
+  const service = new PredictionService({});
+  const match = {
+    home_goals: 2,
+    away_goals: 1,
+    raw_json: JSON.stringify({
+      details: {
+        rosters: {
+          h: { '6521': { player_id: '6521', player: 'Yerry Mina', shots: '2', goals: '0', yellow_card: '1' } },
+        },
+        shots: {
+          h: [
+            { player_id: '6521', result: 'SavedShot' },
+            { player_id: '6521', result: 'MissedShots' },
+          ],
+          a: [],
+        },
+      },
+    }),
+  };
+
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_6521_shots_over_1_5', match)?.status, 'WON');
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_6521_sot_over_0_5', match)?.status, 'WON');
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_6521_yellow_under_0_5', match)?.status, 'LOST');
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_6521_shots_under_2_5', match)?.status, 'WON');
+});
+
 test('settles archived predictions for completed matches, including non-bets', async () => {
   const settled = [];
   const pending = [
