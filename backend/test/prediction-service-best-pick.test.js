@@ -36,6 +36,31 @@ test('generic settlement marks DNB draw and Asian handicap push as VOID', () => 
   assert.equal(service.evaluateSelectionAgainstMatch('dnb_away', { home_goals: 0, away_goals: 1 })?.status, 'WON');
 });
 
+test('settles archived predictions for completed matches, including non-bets', async () => {
+  const settled = [];
+  const pending = [
+    { prediction_id: 'pred-home', match_id: 'match-finished', selection: 'homeWin' },
+    { prediction_id: 'pred-dnb', match_id: 'match-finished', selection: 'dnb_away' },
+    { prediction_id: 'pred-open', match_id: 'match-open', selection: 'homeWin' },
+  ];
+  const db = {
+    getPendingPredictions: async (matchId) => matchId ? pending.filter((row) => row.match_id === matchId) : pending,
+    getMatchById: async (matchId) => matchId === 'match-finished'
+      ? { match_id: matchId, home_goals: 2, away_goals: 1 }
+      : { match_id: matchId, home_goals: null, away_goals: null },
+    settlePrediction: async (predictionId, result) => settled.push({ predictionId, result }),
+  };
+  const service = new PredictionService(db);
+
+  const result = await service.settlePendingPredictionsForCompletedMatches();
+
+  assert.deepEqual(result, { matches: 1, settled: 2, unresolved: 0 });
+  assert.deepEqual(settled, [
+    { predictionId: 'pred-home', result: 'win' },
+    { predictionId: 'pred-dnb', result: 'loss' },
+  ]);
+});
+
 test('statistical market can become final recommended pick when data reliability is strong', () => {
   const service = new PredictionService({});
 

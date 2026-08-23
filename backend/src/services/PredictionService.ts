@@ -1728,7 +1728,11 @@ export class PredictionService {
             kelly: kelly == null ? null : Number(kelly),
             confidenceComputed: null,
             snapshotType: 'update',
-            sampleSizeAtTime: null,
+            sampleSizeAtTime: Number(
+              calibrationProfile.byFamily[category]?.nObservations
+                ?? calibrationProfile.nObservations
+                ?? 0
+            ),
             isPromotedToBet: false,
             loggingFlags: {
               hasFullMarketLogging: true,
@@ -3012,6 +3016,28 @@ export class PredictionService {
     }
 
     return { settled, unresolved };
+  }
+
+  /** Settles every archived prediction for completed matches, including non-bets. */
+  async settlePendingPredictionsForCompletedMatches(limit = 500): Promise<{ matches: number; settled: number; unresolved: number }> {
+    const pending = await this.db.getPendingPredictions();
+    const matchIds = Array.from(new Set(
+      pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)
+    )).slice(0, Math.max(1, Math.trunc(limit)));
+    let matches = 0;
+    let settled = 0;
+    let unresolved = 0;
+
+    for (const matchId of matchIds) {
+      const matchRow = await this.db.getMatchById(matchId);
+      if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
+      const result = await this.settlePendingPredictionsForMatch(matchId, matchRow);
+      matches++;
+      settled += result.settled;
+      unresolved += result.unresolved;
+    }
+
+    return { matches, settled, unresolved };
   }
 
   private async resolvePlayedMatchForBet(bet: any): Promise<any | null> {
