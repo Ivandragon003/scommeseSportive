@@ -40,7 +40,12 @@ export const formatDayLabel = (key: string) => {
   const [year, month, day] = key.split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return key;
   const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const label = formatMatchDate(date);
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    timeZone: 'Europe/Rome',
+  }).format(date);
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
 

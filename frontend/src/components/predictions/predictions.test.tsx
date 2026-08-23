@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import BestValueCard from './BestValueCard';
 import OddsSourceBadge from './OddsSourceBadge';
 import PlayerPropsSection from './PlayerPropsSection';
+import PredictionHero from './PredictionHero';
 import StakePlanner from './StakePlanner';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { BestValueOpportunity } from './predictionTypes';
@@ -25,6 +26,25 @@ const opportunity: BestValueOpportunity = {
 };
 
 describe('predictions UI components', () => {
+  test('presenta la testata partita senza tooltip sovrapposti e con squadre simmetriche', () => {
+    render(
+      <PredictionHero
+        homeTeam="Bologna"
+        awayTeam="Lazio"
+        lambdaHome={1.169}
+        lambdaAway={1.134}
+        modelConfidence={0.84}
+        goalProbabilities={{ homeWin: 0.3669, draw: 0.2834, awayWin: 0.3497 }}
+      />
+    );
+
+    expect(screen.getByRole('region', { name: /Bologna contro Lazio/i })).toBeTruthy();
+    expect(screen.getByText('Casa')).toBeTruthy();
+    expect(screen.getByText('Ospite')).toBeTruthy();
+    expect(screen.getByText('84%')).toBeTruthy();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   test('renderizza bestValueOpportunity con motivi e quota', () => {
     render(
       <BestValueCard

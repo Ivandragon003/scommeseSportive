@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
 import StakePlanner from './StakePlanner';
@@ -20,21 +21,35 @@ interface PredictionWorkbenchViewProps {
 /*  STYLES  */
 const S = `
 .pr {
-  display:flex;
-  height:100%;
-  min-height:calc(100vh - var(--header-height) - var(--sync-height));
-  overflow:hidden;
+  display:grid;
+  grid-template-columns:minmax(280px,340px) minmax(0,1fr);
+  grid-template-rows:auto 1fr;
+  gap:18px;
+  max-width:1440px;
+  min-height:calc(100vh - var(--header-height));
+  margin:0 auto;
+  padding:28px clamp(18px,3vw,40px) 48px;
   font-family:var(--font-sans);
   background:var(--bg);
   color:var(--text);
 }
+.pr-page-head { grid-column:1/-1; display:flex; align-items:flex-end; justify-content:space-between; gap:18px; }
+.pr-page-head h1 { margin:4px 0 0; font-size:clamp(28px,3vw,38px); line-height:1; letter-spacing:-.04em; }
+.pr-page-head p { margin:8px 0 0; color:var(--text-2); }
+.pr-page-kicker { color:var(--primary); font-size:12px; font-weight:800; }
+.pr-page-trust { color:var(--green); border:1px solid var(--green-border); background:var(--green-dim); border-radius:var(--radius); padding:8px 11px; font-size:11px; font-weight:750; }
 
 /* LEFT PANEL  fixed sidebar */
 .pr-left {
-  width:380px; min-width:300px; max-width:420px;
-  border-right:1px solid var(--border);
+  min-width:0;
+  height:calc(100vh - 180px);
+  min-height:620px;
+  position:sticky; top:90px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
   display:flex; flex-direction:column;
-  background:var(--surface); overflow:hidden; flex-shrink:0;
+  background:var(--surface); overflow:hidden;
+  box-shadow:var(--shadow);
 }
 .pr-left-head {
   padding:20px 20px 14px; border-bottom:1px solid var(--border);
@@ -74,19 +89,19 @@ const S = `
 }
 
 /* RIGHT PANEL  scrollable results */
-.pr-right { flex:1; overflow-y:auto; min-width:0; }
+.pr-right { min-width:0; overflow:visible; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow); }
 
 /* EMPTY STATE */
 .pr-empty-state {
   display:flex; flex-direction:column; align-items:center; justify-content:center;
-  height:100%; color:var(--text-3); text-align:center; padding:40px;
+  min-height:620px; color:var(--text-3); text-align:center; padding:40px;
 }
 .pr-empty-icon { font-size:48px; margin-bottom:16px; }
 .pr-empty-msg { font-size:13px; line-height:1.7; }
 
 /* RESULTS HEADER */
 .pr-results-head {
-  position:sticky; top:0; z-index:10;
+  position:sticky; top:var(--header-height); z-index:10;
   background:var(--surface); border-bottom:1px solid var(--border);
   padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
 }
@@ -103,26 +118,37 @@ const S = `
   margin:16px 20px; padding:20px 24px;
   background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius-xl);
-  display:grid; grid-template-columns:1fr 80px 1fr;
-  align-items:center; gap:16px;
-  position:relative; overflow:hidden;
+  display:grid; grid-template-columns:minmax(0,1fr) minmax(112px,140px) minmax(0,1fr);
+  align-items:center; gap:24px;
+  position:relative;
 }
-.pr-hero-team { display:flex; flex-direction:column; gap:5px; }
+.pr-hero-team { display:flex; min-width:0; flex-direction:column; gap:6px; }
 .pr-hero-team.right { text-align:right; align-items:flex-end; }
-.pr-hero-name { font-size:16px; font-weight:800; letter-spacing:-.3px; }
+.pr-hero-role { color:var(--text-3); font-size:9px; font-weight:800; letter-spacing:1.1px; text-transform:uppercase; }
+.pr-hero-name { max-width:100%; font-size:16px; font-weight:800; letter-spacing:-.3px; line-height:1.25; overflow-wrap:anywhere; }
 .pr-hero-lambda {
   display:inline-flex; align-items:center; gap:4px;
   background:var(--surface2); border:1px solid var(--border);
   border-radius:var(--radius-xs); padding:3px 8px;
   font-family:var(--font-mono); font-size:11px; color:var(--text-2);
 }
-.pr-hero-center { text-align:center; }
+.pr-hero-stat {
+  display:inline-flex; width:max-content; max-width:100%; align-items:baseline; gap:7px;
+  padding:5px 9px; border:1px solid var(--border); border-radius:var(--radius-sm);
+  background:var(--surface2); color:var(--text-3); font-size:10px;
+}
+.pr-hero-stat strong { color:var(--text); font-family:var(--font-mono); font-size:12px; }
+.pr-hero-team.right .pr-hero-stat { justify-content:flex-end; }
+.pr-hero-center { display:flex; flex-direction:column; align-items:center; text-align:center; }
 .pr-hero-vs { font-size:11px; font-weight:800; color:var(--text-3); letter-spacing:3px; margin-bottom:6px; }
 .pr-confidence {
+  display:flex; width:100%; flex-direction:column; gap:2px;
   background:var(--blue-dim); border:1px solid var(--blue-border);
-  border-radius:var(--radius-xs); padding:4px 10px;
-  font-size:11px; color:var(--blue); font-family:var(--font-mono);
+  border-radius:var(--radius-sm); padding:7px 10px; color:var(--blue);
 }
+.pr-confidence span { font-size:9px; font-weight:750; letter-spacing:.3px; }
+.pr-confidence strong { font-family:var(--font-mono); font-size:14px; }
+.pr-hero-final { margin-top:7px; color:var(--text-2); font-family:var(--font-mono); font-size:10px; font-weight:700; }
 
 /* KPI ROW */
 .pr-kpi-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:0 20px 16px; }
@@ -317,14 +343,165 @@ const S = `
 .pr-decision-report__risks ul, .pr-decision-report__reasons ul { margin:7px 0 0 18px; padding:0; }
 
 @media (max-width:900px) {
-  .pr { flex-direction:column; height:auto; overflow:visible; }
-  .pr-left { width:100%; max-width:100%; height:auto; border-right:none; border-bottom:1px solid var(--border); }
+  .pr { grid-template-columns:1fr; height:auto; padding:22px 16px 96px; }
+  .pr-page-head { grid-column:1; align-items:flex-start; flex-direction:column; }
+  .pr-left { width:100%; max-width:100%; height:auto; min-height:0; position:static; }
   .pr-list { max-height:320px; }
   .pr-right { min-height:400px; }
   .pr-g2 { grid-template-columns:1fr; }
   .pr-vb-stats { grid-template-columns:repeat(2,1fr); }
   .pr-decision-layout { grid-template-columns:1fr; }
   .pr-decision-report__metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+/* Approved mockup layout */
+.pr {
+  display:block;
+  max-width:none;
+  min-height:calc(100vh - var(--header-height));
+  padding:0 40px 56px;
+}
+.pr-schedule {
+  margin:0 -40px;
+  padding:22px 40px 34px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+.pr-schedule__controls {
+  display:grid;
+  grid-template-columns:minmax(210px,250px) minmax(190px,230px);
+  gap:20px;
+  align-items:end;
+}
+.pr-filter { display:grid; gap:6px; }
+.pr-filter label { color:var(--text-3); font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.pr-filter select,
+.pr-filter input {
+  width:100%; min-height:46px; padding:0 14px;
+  border:1px solid var(--border); border-radius:10px;
+  background:var(--surface); color:var(--text); font-size:14px; font-weight:700;
+}
+.pr-schedule__tabs { display:flex; gap:28px; margin-top:20px; }
+.pr-mode-tab {
+  position:relative; padding:7px 1px; border:0; background:transparent;
+  color:var(--text-3); font-size:13px; font-weight:800; cursor:pointer;
+}
+.pr-mode-tab.active { color:var(--primary); }
+.pr-mode-tab.active::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:3px; border-radius:3px; background:var(--primary); }
+.pr-status-line { margin:10px 0 0; color:var(--text-2); font-size:12px; }
+.pr-match-list {
+  width:100%; margin:22px auto 0; overflow:hidden;
+  border:1px solid var(--border); border-radius:12px;
+  background:var(--surface);
+}
+.pr-day-group + .pr-day-group { border-top:1px solid var(--border); }
+.pr-day-heading {
+  display:flex; align-items:center; min-height:42px; padding:0 24px;
+  background:var(--surface2); color:var(--text-3);
+  font-size:11px; font-weight:850; letter-spacing:.06em; text-transform:uppercase;
+}
+.pr-match-list-row {
+  display:grid; grid-template-columns:82px minmax(0,2fr) 150px 122px 18px;
+  align-items:center; gap:16px; width:100%; min-height:62px; padding:0 24px;
+  border:0; border-top:1px solid var(--border); background:var(--surface);
+  color:var(--text); text-align:left; cursor:pointer;
+  transition:background .16s ease,color .16s ease;
+}
+.pr-match-list-row:hover { background:var(--primary-dim); }
+.pr-match-list-row:focus-visible { position:relative; z-index:1; outline:3px solid var(--primary-border); outline-offset:-3px; }
+.pr-match-list-row:disabled { cursor:wait; opacity:.68; }
+.pr-match-list__time { font-family:var(--font-mono); font-size:14px; font-weight:800; }
+.pr-match-list__teams { display:grid; grid-template-columns:minmax(150px,1fr) 36px minmax(150px,1fr); align-items:center; gap:16px; min-width:0; }
+.pr-match-list__team { min-width:0; font-size:14px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pr-match-list__versus { color:var(--text-3); font-size:11px; font-weight:800; text-align:center; text-transform:uppercase; }
+.pr-match-list__meta { color:var(--text-2); font-size:11px; text-align:right; }
+.pr-match-list__action { color:var(--primary); font-size:12px; font-weight:800; text-align:right; }
+.pr-match-list__chevron { color:var(--primary); }
+.pr-match-list__score { margin-left:8px; color:var(--primary); font-family:var(--font-mono); }
+.pr-list-state { display:grid; place-items:center; min-height:300px; padding:40px; color:var(--text-2); text-align:center; }
+.pr-list-state strong { display:block; margin-bottom:6px; color:var(--text); font-size:16px; }
+.pr-detail-nav { width:min(100%,1380px); margin:20px auto 0; }
+.pr-back-button {
+  display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 12px;
+  border:0; border-radius:8px; background:transparent; color:var(--primary);
+  font-size:13px; font-weight:800; cursor:pointer;
+}
+.pr-back-button:hover { background:var(--primary-dim); }
+.pr-back-button:focus-visible { outline:3px solid var(--primary-border); outline-offset:2px; }
+.pr-right {
+  width:min(100%,1380px); min-height:650px; margin:24px auto 0;
+  overflow:visible; border:0; border-radius:0; background:transparent; box-shadow:none;
+}
+.pr-results-head {
+  position:static; padding:18px 22px; border:1px solid var(--border); border-radius:14px 14px 0 0;
+  background:var(--surface);
+}
+.pr-results-match { font-size:22px; }
+.pr-results-meta { margin-top:5px; font-size:12px; }
+.pr-empty-state {
+  min-height:530px; border:1px solid var(--border); border-radius:14px;
+  background:var(--surface);
+}
+.pr-hero { margin:0; padding:30px 34px 24px; border-radius:0; border-top:0; }
+.pr-hero-name { font-size:22px; }
+.pr-kpi-row { margin:0; gap:0; border:1px solid var(--border); border-top:0; background:var(--surface); }
+.pr-kpi { border:0; border-right:1px solid var(--border); border-radius:0; background:var(--surface); padding:18px; }
+.pr-kpi:last-child { border-right:0; }
+.pr-kpi-val { font-size:25px; }
+.pr-decision-layout { margin:18px 0; grid-template-columns:minmax(0,1.6fr) minmax(300px,.62fr); gap:18px; }
+.pr-tabs { padding:6px 0 14px; border-bottom:1px solid var(--border); gap:8px; }
+.pr-tab { font-size:12px; padding:9px 15px; }
+.pr-content { padding:18px 0 32px; }
+
+@media (max-width:900px) {
+  .pr { padding:0 0 96px; }
+  .pr-schedule { margin:0; padding:18px 18px 20px; }
+  .pr-schedule__controls { grid-template-columns:1fr; gap:12px; }
+  .pr-filter label { font-size:9px; }
+  .pr-filter select, .pr-filter input { min-height:46px; font-size:13px; }
+  .pr-schedule__tabs { margin-top:14px; }
+  .pr-match-list { margin:14px 0 0; border-inline:0; border-radius:0; }
+  .pr-day-heading { min-height:42px; padding:0 18px; font-size:10px; }
+  .pr-match-list-row {
+    grid-template-columns:52px minmax(0,1fr) 54px 18px;
+    gap:10px; min-height:78px; padding:10px 18px;
+  }
+  .pr-match-list__time { align-self:start; padding-top:3px; font-size:12px; }
+  .pr-match-list__teams { display:block; min-width:0; }
+  .pr-match-list__team { display:block; font-size:13px; line-height:1.45; }
+  .pr-match-list__versus { display:block; text-align:left; font-size:9px; line-height:1.1; }
+  .pr-match-list__meta { font-size:10px; line-height:1.4; }
+  .pr-match-list__action { display:none; }
+  .pr-list-state { min-height:260px; }
+  .pr-detail-nav { margin:12px 14px 0; width:auto; }
+  .pr-right { min-height:0; margin:16px 18px 0; width:auto; }
+  .pr-results-head { padding:18px; align-items:flex-start; }
+  .pr-results-head > div:last-child { flex-direction:column; align-items:flex-end !important; }
+  .pr-results-match { font-size:19px; }
+  .pr-results-meta { font-size:10px; }
+  .pr-hero { grid-template-columns:minmax(0,1fr) 90px minmax(0,1fr); gap:12px; padding:22px 18px 20px; }
+  .pr-hero-name { font-size:17px; }
+  .pr-hero-stat { flex-direction:column; gap:1px; align-items:flex-start; }
+  .pr-hero-team.right .pr-hero-stat { align-items:flex-end; }
+  .pr-confidence { padding:6px; }
+  .pr-confidence span { font-size:8px; }
+  .pr-kpi { padding:14px 8px; }
+  .pr-kpi-val { font-size:19px; }
+  .pr-kpi-lbl { font-size:8px; }
+  .pr-decision-layout { grid-template-columns:1fr; margin:14px 0; gap:12px; }
+  .pr-tabs { padding-top:3px; }
+  .pr-content { padding-top:14px; }
+  .pr-empty-state { min-height:360px; }
+}
+
+@media (max-width:520px) {
+  .pr-hero { grid-template-columns:minmax(0,1fr) 66px minmax(0,1fr); gap:8px; padding:18px 12px; }
+  .pr-hero-name { font-size:14px; }
+  .pr-hero-stat { padding:4px 6px; }
+  .pr-hero-stat span { font-size:8px; }
+  .pr-hero-stat strong { font-size:11px; }
+  .pr-confidence span { display:none; }
+  .pr-confidence strong { font-size:12px; }
 }
 `;
 
@@ -342,7 +519,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     fp,
     sp,
     pp,
-    vb,
     playerValueOpportunities,
     bestValueOpp,
     analysisFactors,
@@ -374,7 +550,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     matchMode,
     upcomingLoading,
     matchdayMap,
-    activeMatchId,
     activeMatchRow,
     autoSyncMsg,
     comps,
@@ -398,9 +573,15 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const budget = userBudget.budget;
   const placedBetKeySet = userBudget.placedBetKeySet;
 
+  const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
+
   const handleAnalyze = (match: any) => {
     rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     void predictionAnalysis.handleAnalyze(match);
+  };
+
+  const handleBackToMatches = () => {
+    predictionAnalysis.clearAnalysisState();
   };
 
   return (
@@ -408,117 +589,115 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       <style>{S}</style>
       <div className="pr">
 
-        {/*  LEFT PANEL  */}
-        <div className="pr-left">
-          <div className="pr-left-head">
-            <div className="pr-left-title">{leftPanelTitle}</div>
-
-            <div style={{display:'flex',gap:6,marginBottom:10}}>
-              <button className={`pr-tab${matchMode==='upcoming' ? ' active' : ''}`} onClick={() => setMatchMode('upcoming')}>
-                In Programma
-              </button>
-              <button className={`pr-tab${matchMode==='recent' ? ' active' : ''}`} onClick={() => setMatchMode('recent')}>
-                Recenti Giocate
-              </button>
-            </div>
-            {autoSyncMsg && (
-              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
-                {autoSyncMsg}
-              </div>
-            )}
-
-            {/* Filters */}
-            <div className="pr-season-row">
-              <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                <label className="fp-label">Campionato</label>
-                <select className="pr-select-sm" value={competition} onChange={e => setCompetition(e.target.value)}>
-                  <option value="">Tutti</option>
-                  {comps.map(c => <option key={c} value={c}>{c}</option>)}
+        {!detailOpen && (
+          <section className="pr-schedule" aria-label="Filtri e partite">
+            <div className="pr-schedule__controls">
+              <div className="pr-filter">
+                <label htmlFor="pr-competition-filter">Campionato</label>
+                <select id="pr-competition-filter" value={competition} onChange={(event) => setCompetition(event.target.value)}>
+                  <option value="">Tutti i campionati</option>
+                  {comps.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </div>
-              <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                <label className="fp-label">Stagione</label>
-                <input className="pr-input-sm" value={season} onChange={e => setSeason(e.target.value)} placeholder={currentSeason()} />
+              <div className="pr-filter pr-filter--season">
+                <label htmlFor="pr-season-filter">Stagione</label>
+                <input id="pr-season-filter" value={season} onChange={(event) => setSeason(event.target.value)} placeholder={currentSeason()} />
               </div>
             </div>
 
+            <div className="pr-schedule__tabs" role="tablist" aria-label="Tipo partite">
+              <button type="button" role="tab" aria-selected={matchMode === 'upcoming'} className={`pr-mode-tab${matchMode === 'upcoming' ? ' active' : ''}`} onClick={() => setMatchMode('upcoming')}>In programma</button>
+              <button type="button" role="tab" aria-selected={matchMode === 'recent'} className={`pr-mode-tab${matchMode === 'recent' ? ' active' : ''}`} onClick={() => setMatchMode('recent')}>Recenti</button>
+            </div>
+            {autoSyncMsg && <p className="pr-status-line">{autoSyncMsg}</p>}
+
+            <div className="pr-match-list" aria-label={leftPanelTitle} aria-busy={upcomingLoading}>
+              {upcomingLoading ? (
+                <div className="pr-list-state"><div><span className="pr-spin" aria-label="Caricamento partite" /></div></div>
+              ) : grouped.length === 0 ? (
+                <div className="pr-list-state">
+                  <div><strong>Nessuna partita trovata</strong>Modifica campionato o stagione per vedere gli incontri.</div>
+                </div>
+              ) : grouped.map(({ key, label, matches }) => (
+                <section className="pr-day-group" key={key} aria-labelledby={`pr-day-${key}`}>
+                  <div className="pr-day-heading" id={`pr-day-${key}`}>{label}</div>
+                  {matches.map((match: any) => {
+                    const matchId = String(match.match_id ?? '');
+                    const isLoading = loadingMatchId === matchId;
+                    const isPlayed = match.home_goals !== null && match.away_goals !== null;
+                    const score = isPlayed ? `${match.home_goals}-${match.away_goals}` : null;
+                    const homeTeam = match.home_team_name ?? match.home_team_id;
+                    const awayTeam = match.away_team_name ?? match.away_team_id;
+                    const matchday = isSerieA(match.competition ?? competition) && matchdayMap[matchId]
+                      ? `G${matchdayMap[matchId]}`
+                      : '—';
+                    return (
+                      <button
+                        type="button"
+                        key={matchId}
+                        className="pr-match-list-row"
+                        aria-label={`${homeTeam} vs ${awayTeam}, ${formatKickoff(match.date)}. Vedi analisi`}
+                        onClick={() => !isLoading && handleAnalyze(match)}
+                        disabled={isLoading}
+                      >
+                        <span className="pr-match-list__time">{formatKickoff(match.date).split(',')[1]?.trim() ?? '--'}</span>
+                        <span className="pr-match-list__teams">
+                          <span className="pr-match-list__team">{homeTeam}{score && <b className="pr-match-list__score">{score.split('-')[0]}</b>}</span>
+                          <span className="pr-match-list__versus">vs</span>
+                          <span className="pr-match-list__team">{awayTeam}{score && <b className="pr-match-list__score">{score.split('-')[1]}</b>}</span>
+                        </span>
+                        <span className="pr-match-list__meta">{matchday} &nbsp;•&nbsp; {match.competition ?? competition}</span>
+                        <span className="pr-match-list__action">Vedi analisi</span>
+                        <ChevronRight className="pr-match-list__chevron" size={18} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {detailOpen && (
+          <div className="pr-detail-nav">
+            <button type="button" className="pr-back-button" onClick={handleBackToMatches}>
+              <ArrowLeft size={18} aria-hidden="true" /> Tutte le partite
+            </button>
           </div>
+        )}
 
-          {/* Match list */}
-          <div className="pr-list">
-            {upcomingLoading ? (
-              <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:120,gap:10}}>
-                <div className="pr-spin" /><span style={{fontSize:12,color:'var(--text-2)'}}>Caricamento...</span>
+        {/*  SINGLE MATCH DETAIL  */}
+        {detailOpen && <div className="pr-right" ref={rightRef}>
+          {!pred && activeMatchRow ? (
+            <>
+              <div className="pr-results-head">
+                <div>
+                  <div className="pr-results-match">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id} vs {activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div>
+                  <div className="pr-results-meta">{activeMatchRow.competition ?? competition} | {formatKickoff(activeMatchRow.date)}</div>
+                </div>
+                <button type="button" className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => handleAnalyze(activeMatchRow)} disabled={loading}>
+                  {loading ? 'Analisi in corso...' : 'Analizza partita'}
+                </button>
               </div>
-            ) : grouped.length === 0 ? (
-              <div style={{textAlign:'center',padding:'32px 16px',color:'var(--text-3)',fontSize:12}}>
-                Nessuna partita trovata.
+              <div className="pr-hero pr-preview-hero">
+                <div className="pr-hero-team"><div className="pr-hero-name">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id}</div><div className="pr-hero-lambda">Casa</div></div>
+                <div className="pr-hero-center"><div className="pr-hero-vs">VS</div>{loading && <div className="pr-spin" style={{ margin: '0 auto' }} />}</div>
+                <div className="pr-hero-team right"><div className="pr-hero-name">{activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div><div className="pr-hero-lambda">Trasferta</div></div>
               </div>
-            ) : grouped.map(({key, label, matches}) => (
-              <div key={key}>
-                <div className="pr-day-sep">{label}</div>
-                {matches.map((m:any) => {
-                  const mid = String(m.match_id ?? '');
-                  const isLoading = loadingMatchId === mid;
-                  const isActive  = activeMatchId === mid;
-                  const isPlayedRow = matchMode === 'recent' || (m.home_goals !== null && m.away_goals !== null);
-                  const scoreLabel = isPlayedRow && m.home_goals !== null && m.away_goals !== null
-                    ? `${m.home_goals}-${m.away_goals}`
-                    : null;
-                  const hasMD = isSerieA(m.competition ?? competition);
-                  const md = matchdayMap[mid];
-                  const matchVB = isActive && vb.length > 0;
-                  return (
-                    <div
-                      key={mid}
-                      className={`pr-match-row${isActive?' active':''}${isLoading?' loading-row':''}`}
-                      onClick={() => !isLoading && handleAnalyze(m)}
-                    >
-                      <div className="pr-match-time">{formatKickoff(m.date).split(',')[1]?.trim() ?? '--'}</div>
-                      <div className="pr-match-teams">
-                        <div className="pr-match-home">{m.home_team_name ?? m.home_team_id}</div>
-                        <div className="pr-match-away">{m.away_team_name ?? m.away_team_id}</div>
-                        {hasMD && <div className="pr-match-md">{md ? `G${md}` : ''}</div>}
-                      </div>
-                      {isLoading
-                        ? <div className="pr-match-spinner"><div className="pr-spin" /></div>
-                        : scoreLabel
-                          ? <span className="pr-match-vb">{scoreLabel}</span>
-                          : matchVB
-                          ? <span className="pr-match-vb">{vb.length} VB</span>
-                          : <span className="pr-match-comp" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
-                              {String(m.competition ?? '').replace('Serie A','SA').replace('Premier League','EPL').replace('La Liga','LAL').replace('Bundesliga','BUN').replace('Ligue 1','L1').slice(0,6)}
-                            </span>
-                      }
-                    </div>
-                  );
-                })}
+              <div className="pr-kpi-row" aria-label="Probabilità in attesa di analisi">
+                {[['1', 'Vittoria casa'], ['X', 'Pareggio'], ['2', 'Vittoria ospite']].map(([value, label]) => <div className="pr-kpi" key={value}><div className="pr-kpi-val">{value}</div><div className="pr-kpi-lbl">{label}</div></div>)}
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/*  RIGHT PANEL  */}
-        <div className="pr-right" ref={rightRef}>
-          {!pred && !loading ? (
-            <div className="pr-empty-state">
-              <div className="pr-empty-icon">?</div>
-              <div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Seleziona una partita</div>
-              <div className="pr-empty-msg">
-                {matchMode === 'recent'
-                  ? 'Apri una partita gia giocata per verificare il pronostico finale consigliato.'
-                  : 'Clicca su una partita nel pannello di sinistra per analizzarla.'}<br />
-                {matchMode === 'recent'
-                  ? 'Il replay mostra una quota soltanto quando è disponibile uno snapshot Eurobet storico.'
-                  : 'Le quote Eurobet vengono caricate automaticamente quando disponibili.'}
+              <div className="pr-decision-layout">
+                <div className="pr-decision-report is-empty">
+                  <div className="pr-decision-report__eyebrow">Giocata consigliata</div>
+                  <strong className="pr-decision-report__title">{loading ? 'Sto preparando il pronostico' : 'Pronta per l’analisi'}</strong>
+                  <p className="pr-decision-report__summary">{loading ? (oddsMsg || 'Calcolo probabilità e verifico le quote disponibili.') : 'Avvia l’analisi per calcolare la singola giocata finale e verificare le quote bookmaker reali.'}</p>
+                </div>
+                <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Impatto sul budget</div></div><div className="pr-card-body"><div className="pr-info">Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong></div></div></div>
               </div>
-            </div>
-          ) : loading && !pred ? (
-            <div className="pr-empty-state">
-              <div className="pr-spin" style={{width:36,height:36,borderWidth:3}} />
-              <div style={{marginTop:16,fontSize:13,color:'var(--text-2)'}}>Analisi in corso...</div>
-              {oddsMsg && <div className={`pr-odds-status ${oddsTone}`} style={{marginTop:12}}>{oddsMsg}</div>}
-            </div>
+            </>
+          ) : !pred ? (
+            <div className="pr-empty-state"><div className="pr-empty-icon">?</div><div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Nessuna partita disponibile</div><div className="pr-empty-msg">Modifica data o campionato per vedere gli incontri.</div></div>
           ) : pred && (
             <>
               {/* Sticky header */}
@@ -949,6 +1128,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     </div>
                     <ValueOpportunitiesTable
                       opportunities={vbRanked}
+                      recommendedOpportunity={bestValueOpp}
                       bankroll={bankroll}
                       budgetReady={Boolean(budget)}
                       isReplayAnalysis={isReplayAnalysis}
@@ -969,7 +1149,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               </div>
             </>
           )}
-        </div>
+        </div>}
 
       </div>
     </>

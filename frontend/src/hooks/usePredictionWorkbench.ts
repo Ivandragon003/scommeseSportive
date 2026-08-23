@@ -148,13 +148,46 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     () => vb.filter((opportunity) => !isPlayerPropOpportunity(opportunity)),
     [isPlayerPropOpportunity, vb]
   );
+  const speculativeTeamOpportunities = useMemo<BestValueOpportunityModel[]>(
+    () => (predictionAnalysis.pred?.speculativeOpportunities ?? [])
+      .filter((opportunity: BestValueOpportunityModel) => !isPlayerPropOpportunity(opportunity)),
+    [isPlayerPropOpportunity, predictionAnalysis.pred?.speculativeOpportunities]
+  );
   const bestValueOpp = (predictionAnalysis.pred?.bestValueOpportunity ?? null) as BestValueOpportunityModel | null;
   const analysisFactors = predictionAnalysis.pred?.analysisFactors ?? predictionAnalysis.pred?.methodology?.contextualFactors ?? null;
   const methodology = predictionAnalysis.pred?.methodology ?? {};
 
   const vbRanked = useMemo<BestValueOpportunityModel[]>(
-    () => [...matchValueOpportunities].sort((left, right) => rankOpportunity(right) - rankOpportunity(left)),
-    [matchValueOpportunities]
+    () => {
+      const isVisibleTeamBet = (opportunity: BestValueOpportunityModel): boolean => {
+        const confidence = String(opportunity.confidence ?? '').toUpperCase();
+        const bookmakerOdds = Number(opportunity.bookmakerOdds);
+        return (
+          !isPlayerPropOpportunity(opportunity) &&
+          (confidence === 'LOW' || confidence === 'MEDIUM' || confidence === 'HIGH') &&
+          Number.isFinite(bookmakerOdds) &&
+          bookmakerOdds > 1
+        );
+      };
+      const opportunityKey = (opportunity: BestValueOpportunityModel): string =>
+        `${String(opportunity.selection ?? '')}::${String(opportunity.marketName ?? '')}`;
+      const recommendedOpportunity = bestValueOpp && isVisibleTeamBet(bestValueOpp)
+        ? bestValueOpp
+        : null;
+      const recommendedKey = recommendedOpportunity ? opportunityKey(recommendedOpportunity) : null;
+      const alternativesByKey = new Map<string, BestValueOpportunityModel>();
+      for (const opportunity of [...matchValueOpportunities, ...speculativeTeamOpportunities]) {
+        if (!isVisibleTeamBet(opportunity)) continue;
+        const key = opportunityKey(opportunity);
+        if (key === recommendedKey || alternativesByKey.has(key)) continue;
+        alternativesByKey.set(key, opportunity);
+      }
+      const alternatives = Array.from(alternativesByKey.values())
+        .sort((left, right) => rankOpportunity(right) - rankOpportunity(left));
+
+      return recommendedOpportunity ? [recommendedOpportunity, ...alternatives] : alternatives;
+    },
+    [bestValueOpp, isPlayerPropOpportunity, matchValueOpportunities, speculativeTeamOpportunities]
   );
 
   const allOddsEntries = useMemo(
@@ -249,8 +282,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     { id: 'playerProps', label: 'Mercati giocatore', count: playerValueOpportunities.length },
     { id: 'strategy', label: 'Pronostico Finale' },
     { id: 'method', label: 'Algoritmo' },
-    { id: 'value', label: 'Scommesse', count: vb.length },
-  ], [allOddsEntries.length, playerValueOpportunities.length, pp.length, vb.length]);
+    { id: 'value', label: 'Scommesse', count: vbRanked.length },
+  ], [allOddsEntries.length, playerValueOpportunities.length, pp.length, vbRanked.length]);
 
   return {
     activeUser,

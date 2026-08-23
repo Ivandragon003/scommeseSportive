@@ -18,6 +18,16 @@ const matchRow = {
   away_goals: null,
 };
 
+const nextDayMatchRow = {
+  ...matchRow,
+  match_id: 'match_2',
+  home_team_id: 'team_napoli',
+  away_team_id: 'team_roma',
+  home_team_name: 'Napoli',
+  away_team_name: 'Roma',
+  date: '2026-05-24T18:45:00.000Z',
+};
+
 const valueOpportunity = {
   selection: 'over25',
   selectionLabel: 'Over 2.5 Goal',
@@ -128,7 +138,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    await screen.findByText('Inter');
+    await screen.findByRole('button', { name: /Inter.*Milan/i });
 
     expect(mockedApi.getTeams).toHaveBeenCalledTimes(1);
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
@@ -139,6 +149,41 @@ describe('Predictions page', () => {
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
+  });
+
+  test('mostra prima tutte le partite raggruppate per giorno senza filtro data o selezione automatica', async () => {
+    mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    expect(await screen.findByRole('button', { name: /Inter.*Milan/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Napoli.*Roma/i })).toBeTruthy();
+    expect(screen.getByLabelText('Campionato')).toBeTruthy();
+    expect(screen.getByLabelText('Stagione')).toBeTruthy();
+    expect(screen.queryByLabelText('Data')).toBeNull();
+    expect(screen.getByText(/Sabato 23 maggio/i)).toBeTruthy();
+    expect(screen.getByText(/Domenica 24 maggio/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Analizza partita/i })).toBeNull();
+    expect(screen.queryByText(/Pronta per l’analisi/i)).toBeNull();
+    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
+  });
+
+  test('apre il dettaglio di una sola partita e permette di tornare alla lista', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+
+    expect(screen.queryByRole('region', { name: 'Filtri e partite' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Tutte le partite/i }));
+
+    expect(await screen.findByRole('region', { name: 'Filtri e partite' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Tutte le partite/i })).toBeNull();
   });
 
   test('seleziona la partita, carica quote e mostra best value e stake planner', async () => {
@@ -158,7 +203,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
@@ -177,6 +222,96 @@ describe('Predictions page', () => {
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
     expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
+  });
+
+  test('mostra in Scommesse tutte le team bet LOW, MEDIUM e HIGH con la consigliata per prima', async () => {
+    const lowPlayerOpportunity = {
+      ...valueOpportunity,
+      selection: 'player_orsolini_shots_over_1_5',
+      selectionLabel: 'Riccardo Orsolini Over 1.5 tiri',
+      marketName: 'Tiri giocatore',
+      marketCategory: 'player_shots',
+      playerName: 'Riccardo Orsolini',
+      teamName: 'Bologna',
+      expectedMinutes: 82,
+      sampleSize: 12,
+      confidence: 'LOW',
+    };
+    const lowTeamOpportunity = {
+      ...valueOpportunity,
+      selection: 'under25',
+      selectionLabel: 'Under 2.5 Goal',
+      confidence: 'LOW',
+    };
+    const highTeamOpportunity = {
+      ...valueOpportunity,
+      selection: 'over25',
+      selectionLabel: 'Over 2.5 Goal',
+      confidence: 'HIGH',
+    };
+    const mediumTeamOpportunity = {
+      ...valueOpportunity,
+      selection: 'btts',
+      selectionLabel: 'GG Sì',
+      marketName: 'Goal / No Goal',
+      confidence: 'MEDIUM',
+    };
+    const recommendedAwayDnb = {
+      ...valueOpportunity,
+      selection: 'dnb_away',
+      selectionLabel: 'Pareggio non conta (DNB) · Ospite',
+      marketName: 'Draw No Bet - Ospite',
+      bookmakerOdds: 2.59,
+      confidence: 'LOW',
+      expectedValue: 20.26,
+    };
+    const speculativeTeamOpportunity = {
+      ...valueOpportunity,
+      selection: 'double_chance_1x',
+      selectionLabel: 'Doppia chance 1X',
+      marketName: 'Doppia Chance',
+      marketTier: 'SPECULATIVE',
+      confidence: 'LOW',
+    };
+    const opportunities = [lowPlayerOpportunity, lowTeamOpportunity, mediumTeamOpportunity, highTeamOpportunity];
+    mockedApi.getPrediction
+      .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb }) } as any)
+      .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb, oddsSource: 'odds_api' }) } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
+      data: {
+        found: true,
+        source: 'odds_api',
+        primaryProvider: 'odds_api',
+        selectedOdds: {
+          [lowPlayerOpportunity.selection]: lowPlayerOpportunity.bookmakerOdds,
+          [lowTeamOpportunity.selection]: lowTeamOpportunity.bookmakerOdds,
+          [mediumTeamOpportunity.selection]: mediumTeamOpportunity.bookmakerOdds,
+          [highTeamOpportunity.selection]: highTeamOpportunity.bookmakerOdds,
+          [speculativeTeamOpportunity.selection]: speculativeTeamOpportunity.bookmakerOdds,
+          [recommendedAwayDnb.selection]: recommendedAwayDnb.bookmakerOdds,
+        },
+        marketsRequested: ['player_shots', 'totals', 'h2h_3_way'],
+      },
+    } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    const recommendedBetsTab = await screen.findByRole('button', { name: /Scommesse\s*5/i });
+    fireEvent.click(recommendedBetsTab);
+
+    const valueBets = await screen.findByTestId('value-opportunities-table');
+    expect(valueBets.textContent).toContain('Pareggio non conta (DNB) · Ospite');
+    expect(valueBets.textContent).toContain('Under 2.5 Goal');
+    expect(valueBets.textContent).toContain('GG Si');
+    expect(valueBets.textContent).toContain('Over 2.5 Goal');
+    expect(valueBets.textContent).toContain('Double Chance 1X');
+    expect(valueBets.textContent).toContain('Consigliata');
+    expect(valueBets.textContent).not.toContain('Riccardo Orsolini');
+    expect(screen.queryByText(/Nessuna giocata supera i criteri operativi/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Mercati giocatore\s*1/i }));
+    expect(await screen.findByText('Riccardo Orsolini')).toBeTruthy();
   });
 
   test('mostra SPECULATIVE quando la migliore giocata e debole ma valutabile', async () => {
@@ -218,7 +353,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
@@ -250,7 +385,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
@@ -278,7 +413,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    expect(await screen.findByText('Inter')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Inter.*Milan/i })).toBeTruthy();
     expect(screen.queryByText('Juventus')).toBeNull();
   });
 
@@ -288,7 +423,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    await screen.findByText('Inter');
+    await screen.findByRole('button', { name: /Inter.*Milan/i });
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -313,7 +448,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
@@ -335,7 +470,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
     expect((await screen.findAllByText(/Quota Eurobet non disponibile/i)).length).toBeGreaterThan(0);
@@ -361,7 +496,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
 
@@ -385,7 +520,7 @@ describe('Predictions page', () => {
 
     render(<Predictions activeUser="user1" />);
 
-    fireEvent.click(await screen.findByText('Inter'));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
 
