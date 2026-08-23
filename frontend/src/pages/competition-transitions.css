@@ -1,0 +1,23 @@
+.transition-audit-page { padding: 40px 32px; min-height: 100vh; }
+.transition-audit-hero { margin-bottom: 28px; }
+.transition-audit-kicker { color: var(--primary); font: 700 11px var(--font-mono); text-transform: uppercase; letter-spacing: 1.2px; }
+.transition-audit-hero h1 { margin: 8px 0; font-size: clamp(28px,4vw,40px); letter-spacing: -1.5px; }
+.transition-audit-hero p { color: var(--text-2); font-size: 13px; max-width: 720px; }
+.transition-audit-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+.transition-audit-grid article, .transition-audit-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
+.transition-audit-grid article { padding: 18px; display: flex; flex-direction: column; gap: 5px; }
+.transition-audit-grid strong { font: 800 25px var(--font-mono); color: var(--primary); }
+.transition-audit-grid span, .transition-audit-card__header span { color: var(--text-2); font-size: 12px; }
+.transition-audit-callout, .transition-audit-alert { padding: 14px 18px; border-radius: var(--radius); margin-bottom: 16px; }
+.transition-audit-callout { background: color-mix(in srgb, var(--primary) 10%, var(--surface2)); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.transition-audit-callout span { color: var(--text-2); }
+.transition-audit-alert { background: var(--danger-bg, #fff1f1); color: var(--danger, #a33); }
+.transition-audit-card { margin-bottom: 16px; overflow: hidden; }
+.transition-audit-card__header { padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+.transition-audit-card__header h2 { margin: 0; font-size: 16px; }
+.transition-audit-table-wrap { overflow-x: auto; }
+.transition-audit-table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.transition-audit-table-wrap th, .transition-audit-table-wrap td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.transition-audit-table-wrap th { color: var(--text-2); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
+.transition-audit-empty { padding: 24px; color: var(--text-2); font-size: 13px; }
+@media (max-width: 800px) { .transition-audit-page { padding: 24px 16px; } .transition-audit-grid { grid-template-columns: repeat(2,1fr); } }

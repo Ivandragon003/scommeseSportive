@@ -142,3 +142,22 @@ test('budget session migration preserves legacy bets for the active session', as
   `);
   assert.deepEqual(rows.rows, [{ active_session_id: 'legacy-user1', status: 'active', budget_session_id: 'legacy-user1' }]);
 });
+
+test('competition transition migration creates audit-only normalized tables', async () => {
+  const db = createClient({ url: 'file::memory:' });
+  await db.execute('CREATE TABLE teams (team_id TEXT PRIMARY KEY, name TEXT NOT NULL)');
+  const migration = readFileSync(join(__dirname, '..', 'migrations', '004_competition_transitions.sql'), 'utf8');
+  await db.executeMultiple(migration);
+  await db.execute({
+    sql: 'INSERT INTO secondary_competitions (competition_id, name, country, tier, cluster_key) VALUES (?, ?, ?, ?, ?)',
+    args: ['serie_b', 'Serie B', 'Italy', 2, 'big5_second_to_big5_first'],
+  });
+  await db.execute({
+    sql: `INSERT INTO source_season_reference
+      (source_competition_id, source_season, teams_count, mean_ppg, stdev_ppg, coverage_status)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+    args: ['serie_b', '2024/2025', 20, 1.42, 0.22, 'complete'],
+  });
+  const tables = await db.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('secondary_competitions', 'source_season_reference', 'team_competition_transitions') ORDER BY name`);
+  assert.deepEqual(tables.rows.map((row) => row.name), ['secondary_competitions', 'source_season_reference', 'team_competition_transitions']);
+});

@@ -1100,6 +1100,40 @@ router.get('/stats/overview', async (_req: Request, res: Response) => {
   }
 });
 
+// Audit-only endpoints. Transition metadata is intentionally not consumed by
+// prediction scoring until its coverage and cluster backtests are validated.
+router.get('/competition-transitions/audit', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, data: await db.getCompetitionTransitionAudit() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/competition-transitions/competitions', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, data: await db.getSecondaryCompetitions() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/competition-transitions/references', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, data: await db.getSourceSeasonReferences() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/competition-transitions', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, data: await db.getTeamCompetitionTransitions() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 router.get('/analytics/system', async (req: Request, res: Response) => {
   try {
     const competition = String(req.query.competition ?? '').trim() || undefined;

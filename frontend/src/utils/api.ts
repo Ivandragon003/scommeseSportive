@@ -335,6 +335,15 @@ export const recomputeAverages = (competition?: string) =>
 export const getStatsOverview = (options?: ReadRequestOptions) =>
   cachedGet<any>('/stats/overview', undefined, { cacheMs: CACHE_TTL.statsOverview, ...options });
 
+export const getCompetitionTransitionAudit = (options?: ReadRequestOptions) =>
+  cachedGet<any>('/competition-transitions/audit', undefined, { cacheMs: CACHE_TTL.statsOverview, ...options });
+
+export const getCompetitionTransitionReferences = (options?: ReadRequestOptions) =>
+  cachedGet<any[]>('/competition-transitions/references', undefined, { cacheMs: CACHE_TTL.statsOverview, ...options });
+
+export const getCompetitionTransitions = (options?: ReadRequestOptions) =>
+  cachedGet<any[]>('/competition-transitions', undefined, { cacheMs: CACHE_TTL.statsOverview, ...options });
+
 export const getSystemAnalytics = (params?: { userId?: string; competition?: string }, options?: ReadRequestOptions) =>
   cachedGet<any>('/analytics/system', { params }, { cacheMs: CACHE_TTL.analytics, ...options });
 
