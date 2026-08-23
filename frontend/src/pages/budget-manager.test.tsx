@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import BudgetManager from './BudgetManager';
 import * as api from '../utils/api';
 
 jest.mock('../utils/api');
 
 const mockedApi = api as jest.Mocked<typeof api>;
+
+const renderBudget = () => render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
 
 const budgetPayload = {
   total_budget: 1000,
@@ -68,9 +71,9 @@ describe('BudgetManager', () => {
     mockedApi.getBets.mockResolvedValue({ data: [] } as any);
     mockedApi.initBudget.mockResolvedValue({ data: budgetPayload } as any);
 
-    render(<BudgetManager activeUser="user1" />);
+    renderBudget();
 
-    await screen.findByText(/Crea bankroll iniziale/i);
+    await screen.findByRole('heading', { name: /Crea il bankroll iniziale/i });
 
     fireEvent.change(screen.getByPlaceholderText('1000'), { target: { value: '1200' } });
     fireEvent.click(screen.getByRole('button', { name: /Inizializza/i }));
@@ -78,74 +81,119 @@ describe('BudgetManager', () => {
     await waitFor(() => expect(mockedApi.initBudget).toHaveBeenCalledWith('user1', 1200));
   });
 
-  test('mostra ultime scommesse e stati pending won lost', async () => {
+  test('mantiene le giocate fuori dalla pagina Budget e offre un collegamento dedicato', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
     mockedApi.initBudget.mockResolvedValue({ data: budgetPayload } as any);
 
-    render(<BudgetManager activeUser="user1" />);
+    renderBudget();
 
-    await screen.findByText(/Storico scommesse/i);
-
-    expect(screen.getAllByText('ATTESA').length).toBeGreaterThan(0);
-    expect(screen.getByText('VINTA')).toBeTruthy();
-    expect(screen.getByText('PERSA')).toBeTruthy();
-    expect(screen.getAllByText(/Inter vs Milan/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Juventus vs Roma/i)).toBeTruthy();
-    expect(screen.getByText(/Napoli vs Lazio/i)).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /Vai alle giocate aperte/i })).toBeTruthy();
+    expect(screen.queryByText(/Storico scommesse/i)).toBeNull();
+    expect(screen.queryByText(/Inter vs Milan/i)).toBeNull();
   });
 
   test('distingue bankroll iniziale, disponibile, capitale esposto e interpreta il ROI', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
 
-    render(<BudgetManager activeUser="user1" />);
+    renderBudget();
 
-    await screen.findByText(/Storico scommesse/i);
+    await screen.findByTestId('budget-available');
 
     expect(screen.getByTestId('budget-initial').textContent).toContain('EUR 1000.00');
     expect(screen.getByTestId('budget-available').textContent).toContain('EUR 760.00');
     expect(screen.getByTestId('budget-exposure').textContent).toContain('EUR 20.00');
     expect(screen.getByTestId('budget-profit').textContent).toContain('EUR 3.50');
     expect(screen.getByTestId('budget-roi').textContent).toContain('9.20%');
-    expect(screen.getByText(/ROI positivo, da leggere insieme a 2 scommesse concluse/i)).toBeTruthy();
-    expect(screen.getByText('Vinte: 1')).toBeTruthy();
-    expect(screen.getByText('Perse: 1')).toBeTruthy();
-    expect(screen.getByText('Annullate: 0')).toBeTruthy();
-    expect(screen.getByText('Pendenti: 1')).toBeTruthy();
+    expect(screen.getByText(/ROI positivo, da leggere insieme a 2 giocate concluse/i)).toBeTruthy();
   });
 
-  test('al mount non fa doppio fetch e il filtro storico ricarica solo le scommesse', async () => {
+  test('al mount carica una sola volta budget e riepilogo giocate', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
 
-    render(<BudgetManager activeUser="user1" />);
+    renderBudget();
 
-    await screen.findByText(/Storico scommesse/i);
+    await screen.findByTestId('budget-available');
 
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Vinte/i }));
-
-    await waitFor(() => expect(mockedApi.getBets).toHaveBeenCalledTimes(2));
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
   });
 
-  test('traduce i mercati legacy e non espone i codici tecnici nello storico', async () => {
+  test('non mostra una percentuale negativa quando il bankroll supera quello iniziale', async () => {
+    mockedApi.getBudget.mockResolvedValue({
+      data: { ...budgetPayload, available_budget: 1165.93 },
+    } as any);
+    mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+
+    renderBudget();
+
+    const progress = await screen.findByRole('progressbar', { name: /Budget utilizzato/i });
+    expect(progress.getAttribute('aria-valuenow')).toBe('0');
+    expect(screen.getByText('0.0%')).toBeTruthy();
+  });
+
+  test('mostra il grafico dell andamento del bankroll usando le giocate concluse', async () => {
+    mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+    mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+
+    renderBudget();
+
+    expect(await screen.findByRole('heading', { name: 'Andamento' })).toBeTruthy();
+    const chart = screen.getByTestId('bankroll-trend-chart');
+    expect(chart.getAttribute('aria-label')).toMatch(/da EUR 1000.00 a EUR 1003.50/i);
+  });
+
+  test('riproduce la gerarchia del mockup con tre indicatori principali', async () => {
+    mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+    mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+
+    renderBudget();
+
+    await screen.findByTestId('budget-available');
+    expect(screen.getAllByTestId(/^budget-(available|exposure|profit)$/)).toHaveLength(3);
+    expect(screen.getByText('Bankroll disponibile')).toBeTruthy();
+    expect(screen.getByText('Capitale impegnato')).toBeTruthy();
+    expect(screen.getByText('Risultato netto')).toBeTruthy();
+  });
+
+  test('permette di cambiare l intervallo temporale del grafico', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({
-      data: [{
-        ...betsPayload[1],
-        market_name: 'Draw No Bet - Casa',
-        selection: 'dnb_home',
-      }],
+      data: [
+        ...betsPayload,
+        {
+          ...betsPayload[1],
+          bet_id: 'bet_old_won',
+          profit: 100,
+          placed_at: '2025-01-01T18:00:00.000Z',
+        },
+      ],
     } as any);
 
-    render(<BudgetManager activeUser="user1" />);
+    renderBudget();
 
-    expect(await screen.findByText('Pareggio non conta (DNB) - Casa')).toBeTruthy();
-    expect(screen.queryByText('Draw No Bet - Casa')).toBeNull();
-    expect(screen.queryByText('dnb_home')).toBeNull();
+    const chart = await screen.findByTestId('bankroll-trend-chart');
+    expect(chart.getAttribute('aria-label')).toMatch(/EUR 1103.50.*2 movimenti/i);
+    expect(screen.getByRole('button', { name: '30G' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tutto' }));
+    expect(chart.getAttribute('aria-label')).toMatch(/EUR 1103.50.*3 movimenti/i);
+    expect(screen.getByRole('button', { name: 'Tutto' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('mostra gestione e manutenzione del bankroll come nel mockup', async () => {
+    mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+    mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+
+    renderBudget();
+
+    expect(await screen.findByRole('heading', { name: 'Gestione bankroll' })).toBeTruthy();
+    expect(screen.getByLabelText('Budget iniziale')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Aggiorna budget' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Manutenzione budget' })).toBeTruthy();
   });
 });
