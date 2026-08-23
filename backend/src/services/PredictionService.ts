@@ -2813,11 +2813,70 @@ export class PredictionService {
     return 'VOID';
   }
 
+  private getPlayerMatchStat(selection: string, matchRow: any): { value: number; marketType: PlayerPropMarketType } | null {
+    const parsed = parsePlayerPropSelectionKey(selection) ?? (() => {
+      const legacy = parseLegacyPlayerPropOddsKey(selection);
+      return legacy ? { playerId: legacy.playerSlug, marketType: legacy.marketType, side: legacy.side, line: legacy.line, lineKey: legacy.lineKey } : null;
+    })();
+    if (!parsed) return null;
+
+    let raw: any;
+    try {
+      const payload = typeof matchRow?.raw_json === 'string' ? JSON.parse(matchRow.raw_json) : matchRow?.raw_json;
+      raw = payload?.details ?? payload;
+    } catch {
+      return null;
+    }
+    if (!raw || typeof raw !== 'object') return null;
+
+    const playerId = String(parsed.playerId ?? '').trim().toLowerCase();
+    const sourceId = playerId.match(/(?:understat_player_|player_)(\d+)$/)?.[1] ?? null;
+    const rosters = [raw?.rosters?.h, raw?.rosters?.a]
+      .flatMap((roster: any) => Object.values(roster ?? {})) as any[];
+    const player = rosters.find((entry: any) => {
+      const entryId = String(entry?.player_id ?? entry?.id ?? '').trim();
+      const normalizedName = normalizePlayerNameForProp(String(entry?.player ?? entry?.name ?? ''));
+      return (sourceId && entryId === sourceId) || normalizedName === playerId;
+    });
+    if (!player) return null;
+
+    const playerEntryId = String(player?.player_id ?? player?.id ?? '').trim();
+    const shots = [raw?.shots?.h, raw?.shots?.a]
+      .flatMap((items: any) => Array.isArray(items) ? items : [])
+      .filter((shot: any) => String(shot?.player_id ?? '').trim() === playerEntryId);
+    const onTarget = shots.filter((shot: any) => ['Goal', 'SavedShot'].includes(String(shot?.result ?? '').trim())).length;
+    const numberOrNull = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    let value: number | null = null;
+    if (parsed.marketType === 'shots') value = numberOrNull(player?.shots);
+    if (parsed.marketType === 'sot') value = onTarget;
+    if (parsed.marketType === 'yellow') value = numberOrNull(player?.yellow_card ?? player?.yellow_cards ?? player?.yellowCards);
+    if (parsed.marketType === 'goals') value = numberOrNull(player?.goals);
+    return value === null ? null : { value, marketType: parsed.marketType };
+  }
+
   private evaluateSelectionForMatch(
     selection: string,
     matchRow: any
   ): { status: 'WON' | 'LOST' | 'VOID'; reason: string } | null {
     const s = String(selection ?? '').trim().toLowerCase();
+    const playerProp = parsePlayerPropSelectionKey(selection) ?? parseLegacyPlayerPropOddsKey(selection);
+    if (playerProp) {
+      const stat = this.getPlayerMatchStat(selection, matchRow);
+      if (!stat) return null;
+      const line = Number(playerProp.line);
+      const result = this.decideOverUnder(stat.value, playerProp.side, line);
+      const labels: Record<PlayerPropMarketType, string> = {
+        shots: 'tiri giocatore',
+        sot: 'tiri in porta giocatore',
+        yellow: 'gialli giocatore',
+        goals: 'gol giocatore',
+      };
+      return { status: result, reason: `${labels[stat.marketType]}: ${stat.value} rispetto a ${line}` };
+    }
     const hg = Number(matchRow?.home_goals);
     const ag = Number(matchRow?.away_goals);
     if (!Number.isFinite(hg) || !Number.isFinite(ag)) return null;
