@@ -2842,10 +2842,13 @@ export class DatabaseService {
     const limit = Math.max(1, Math.min(Number(options.limit ?? 200), 1000));
     params.push(limit);
     return this.all(`
-      SELECT p.*, b.bet_id, b.user_id AS bet_user_id, b.status AS bet_status,
+      SELECT p.*,
+             m.home_team_name, m.away_team_name, m.competition, m.date AS match_date,
+             b.bet_id, b.user_id AS bet_user_id, b.status AS bet_status,
              b.stake AS bet_stake, b.odds AS bet_odds, b.placed_at AS bet_placed_at,
              CASE WHEN b.bet_id IS NULL THEN 0 ELSE 1 END AS was_played
       FROM predictions p
+      LEFT JOIN matches m ON m.match_id = p.match_id
       LEFT JOIN bets b ON b.prediction_id = p.prediction_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY p.created_at DESC
