@@ -20,6 +20,7 @@ UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-1800}"
 ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-1800}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
+RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
 
 BACKEND_PID=""
 
@@ -150,6 +151,18 @@ if ! post_json \
   "{\"keepSeasons\":$FOOTBALL_DATA_KEEP_SEASONS,\"recomputeAverages\":true}" \
   "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
   echo "Warning: supplemental football-data sync failed; continuing with the primary Understat data."
+fi
+
+if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
+  echo "Syncing second-division seasonal references (idempotent)..."
+  if ! post_json \
+    "http://127.0.0.1:$PORT/api/competition-transitions/sync-references" \
+    "{}" \
+    "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
+    echo "Warning: transition reference sync failed; continuing with the normal nightly flow."
+  fi
+else
+  echo "Skipping transition reference sync. RUN_TRANSITION_REFERENCE_SYNC=false."
 fi
 
 echo "Settling archived predictions for completed matches..."

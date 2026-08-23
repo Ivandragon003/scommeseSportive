@@ -1,0 +1,2 @@
+source_competition_id,source_season,teams_count,mean_ppg,stdev_ppg,mean_goal_difference_per_match,stdev_goal_difference_per_match,matches_per_team,coverage_status,source_provider,source_reference
+serie_b,YYYY/YYYY,,,,,,,unknown,,

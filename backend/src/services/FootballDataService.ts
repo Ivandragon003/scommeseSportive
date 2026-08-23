@@ -17,6 +17,16 @@ export const FOOTBALL_DATA_LEAGUE_CODES: Record<string, string> = {
   'Ligue 1': 'F1',
 };
 
+// Historical second divisions used only for the promotion/relegation audit.
+// They are not added to the active match-ingestion catalog.
+export const FOOTBALL_DATA_TRANSITION_LEAGUE_CODES: Record<string, string> = {
+  'Serie B': 'I2',
+  Championship: 'E1',
+  '2. Bundesliga': 'D2',
+  'Ligue 2': 'F2',
+  'Segunda Division': 'SP2',
+};
+
 /** Codici stagione football-data (es. '2425' = 2024/25). */
 export function seasonToFootballDataCode(seasonStartYear: number): string {
   const a = String(seasonStartYear).slice(-2);
@@ -85,6 +95,8 @@ export interface FootballDataRow {
   date: string;            // ISO yyyy-mm-dd
   homeTeam: string;
   awayTeam: string;
+  homeGoals: number | null;
+  awayGoals: number | null;
   homeShots: number | null;
   awayShots: number | null;
   homeShotsOnTarget: number | null;
@@ -155,8 +167,10 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
     const date = `${yyyy}-${m[2]}-${m[1]}`;
     const home = c[iHome]?.trim(), away = c[iAway]?.trim();
     if (!home || !away) continue;
+    const iHG = col('FTHG'), iAG = col('FTAG');
     out.push({
       date, homeTeam: home, awayTeam: away,
+      homeGoals: numOrNull(c[iHG]), awayGoals: numOrNull(c[iAG]),
       homeShots: numOrNull(c[iHS]), awayShots: numOrNull(c[iAS]),
       homeShotsOnTarget: numOrNull(c[iHST]), awayShotsOnTarget: numOrNull(c[iAST]),
       homeFouls: numOrNull(c[iHF]), awayFouls: numOrNull(c[iAF]),
@@ -176,6 +190,74 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
 /** Chiave di matching data+squadre canoniche. */
 export function matchKey(dateIso: string, home: string, away: string): string {
   return `${String(dateIso).slice(0, 10)}|${canonicalTeamName(home)}|${canonicalTeamName(away)}`;
+}
+
+export type TransitionSeasonReference = {
+  sourceCompetitionId: string;
+  sourceSeason: string;
+  teamsCount: number;
+  meanPpg: number | null;
+  stdevPpg: number | null;
+  meanGoalDifferencePerMatch: number | null;
+  stdevGoalDifferencePerMatch: number | null;
+  matchesPerTeam: number | null;
+  coverageStatus: 'complete' | 'partial' | 'unknown';
+  sourceProvider: string;
+  sourceReference: string;
+};
+
+/**
+ * Builds a final-table summary from a football-data result CSV. It is pure and
+ * idempotent: the caller can upsert the resulting reference by competition and
+ * season. No promotion/playoff status is inferred here.
+ */
+export function buildTransitionSeasonReference(
+  competitionId: string,
+  competitionName: string,
+  seasonStartYear: number,
+  rows: FootballDataRow[],
+  sourceReference: string,
+): TransitionSeasonReference {
+  const table = new Map<string, { played: number; points: number; goalDifference: number }>();
+  for (const row of rows) {
+    if (row.homeGoals == null || row.awayGoals == null) continue;
+    for (const team of [row.homeTeam, row.awayTeam]) {
+      const key = canonicalTeamName(team);
+      if (!table.has(key)) table.set(key, { played: 0, points: 0, goalDifference: 0 });
+    }
+    const home = table.get(canonicalTeamName(row.homeTeam))!;
+    const away = table.get(canonicalTeamName(row.awayTeam))!;
+    home.played += 1; away.played += 1;
+    home.goalDifference += row.homeGoals - row.awayGoals;
+    away.goalDifference += row.awayGoals - row.homeGoals;
+    if (row.homeGoals > row.awayGoals) home.points += 3;
+    else if (row.homeGoals < row.awayGoals) away.points += 3;
+    else { home.points += 1; away.points += 1; }
+  }
+  const values = [...table.values()].filter((team) => team.played > 0);
+  const ppg = values.map((team) => team.points / team.played);
+  const gdPerMatch = values.map((team) => team.goalDifference / team.played);
+  const mean = (items: number[]) => items.length ? items.reduce((a, b) => a + b, 0) / items.length : null;
+  const stdev = (items: number[]) => {
+    if (items.length < 2) return null;
+    const avg = mean(items)!;
+    return Math.sqrt(items.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (items.length - 1));
+  };
+  const expectedMatches = values.length > 1 ? values.length - 1 : 0;
+  const complete = values.length > 0 && values.every((team) => team.played >= expectedMatches);
+  return {
+    sourceCompetitionId: competitionId,
+    sourceSeason: seasonLabel(seasonStartYear),
+    teamsCount: values.length,
+    meanPpg: mean(ppg),
+    stdevPpg: stdev(ppg),
+    meanGoalDifferencePerMatch: mean(gdPerMatch),
+    stdevGoalDifferencePerMatch: stdev(gdPerMatch),
+    matchesPerTeam: mean(values.map((team) => team.played)),
+    coverageStatus: complete ? 'complete' : values.length ? 'partial' : 'unknown',
+    sourceProvider: 'football-data.co.uk',
+    sourceReference,
+  };
 }
 
 export interface FootballDataDbMatch {
@@ -210,6 +292,67 @@ export interface FootballDataSyncOptions {
   competitions?: string[];
   seasonStartYears?: number[]; // es. [2024, 2025]
   fetcher?: FootballDataFetcher;
+}
+
+export interface TransitionReferenceDb {
+  upsertTransitionSeasonReference(reference: TransitionSeasonReference): Promise<void>;
+  hasCompleteTransitionSeasonReference?(sourceCompetitionId: string, sourceSeason: string): Promise<boolean>;
+}
+
+export interface TransitionReferenceSyncOptions {
+  competitions?: Record<string, string>;
+  seasonStartYears?: number[];
+  fetcher?: FootballDataFetcher;
+}
+
+export interface TransitionReferenceSyncSummary {
+  requested: number;
+  downloaded: number;
+  persisted: number;
+  skipped: number;
+  errors: Array<{ competition: string; season: number; error: string }>;
+}
+
+/** Downloads and upserts seasonal references. Re-running it is safe. */
+export async function syncTransitionSeasonReferences(
+  db: TransitionReferenceDb,
+  options: TransitionReferenceSyncOptions = {},
+): Promise<TransitionReferenceSyncSummary> {
+  const competitions = options.competitions ?? FOOTBALL_DATA_TRANSITION_LEAGUE_CODES;
+  const seasons = options.seasonStartYears ?? [currentSeasonStartYear() - 1];
+  const fetcher = options.fetcher ?? defaultFootballDataFetcher;
+  const summary: TransitionReferenceSyncSummary = { requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [] };
+  for (const [competitionName, leagueCode] of Object.entries(competitions)) {
+    const competitionId = competitionName === 'Serie B' ? 'serie_b'
+      : competitionName === 'Championship' ? 'championship'
+        : competitionName === '2. Bundesliga' ? '2_bundesliga'
+          : competitionName === 'Ligue 2' ? 'ligue_2' : 'segunda_division';
+    for (const seasonStartYear of seasons) {
+      summary.requested += 1;
+      const seasonCode = seasonToFootballDataCode(seasonStartYear);
+      const sourceReference = `https://www.football-data.co.uk/mmz4281/${seasonCode}/${leagueCode}.csv`;
+      try {
+        const seasonLabelValue = seasonLabel(seasonStartYear);
+        if (db.hasCompleteTransitionSeasonReference
+          && await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)) {
+          summary.skipped += 1;
+          continue;
+        }
+        const csv = await fetcher(leagueCode, seasonCode);
+        if (!csv) { summary.skipped += 1; continue; }
+        summary.downloaded += 1;
+        const reference = buildTransitionSeasonReference(
+          competitionId, competitionName, seasonStartYear,
+          parseFootballDataCsv(csv), sourceReference,
+        );
+        await db.upsertTransitionSeasonReference(reference);
+        summary.persisted += 1;
+      } catch (error: any) {
+        summary.errors.push({ competition: competitionName, season: seasonStartYear, error: error?.message ?? String(error) });
+      }
+    }
+  }
+  return summary;
 }
 
 export interface FootballDataSyncSummary {

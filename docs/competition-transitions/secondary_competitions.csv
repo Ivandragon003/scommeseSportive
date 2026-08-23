@@ -1,0 +1,6 @@
+competition_id,name,country,tier,cluster_key,is_active
+serie_b,Serie B,Italy,2,second_division_big5,1
+championship,Championship,England,2,second_division_big5,1
+2_bundesliga,2. Bundesliga,Germany,2,second_division_big5,1
+ligue_2,Ligue 2,France,2,second_division_big5,1
+segunda_division,Segunda Division,Spain,2,second_division_big5,1
