@@ -2777,6 +2777,10 @@ export class PredictionService {
     return this.db.getBudget(userId);
   }
 
+  async getBudgetSessions(userId: string) {
+    return this.db.getBudgetSessions(userId);
+  }
+
   async initBudget(userId: string, amount: number) {
     await this.db.deleteBetsByUser(userId);
     await this.db.createOrResetBudget(userId, amount);

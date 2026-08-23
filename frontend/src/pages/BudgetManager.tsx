@@ -80,8 +80,8 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
     }
     const confirmed = await confirmDialog.confirm({
       title: 'Confermare reset completo?',
-      message: `Confermi il reset completo di budget e scommesse per l'utente ${activeUser}?`,
-      confirmLabel: 'Reset completo',
+      message: `Le bet storiche non verranno cancellate: saranno archiviate nella sessione precedente. Confermi un nuovo bankroll per ${activeUser}?`,
+      confirmLabel: 'Nuova sessione',
       tone: 'danger',
     });
     if (!confirmed) return;
@@ -193,6 +193,12 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
 
             <div className={`fp-alert ${roi < 0 ? 'fp-alert-warning' : 'fp-alert-info'} bm-roi-reading`}>
               {roiReading}
+            </div>
+
+            <div className="bm-session-note">
+              Sessione corrente: <strong>{String(budget.session_id ?? 'non disponibile')}</strong>
+              {budget.session_started_at ? ` · iniziata ${formatDateTime(budget.session_started_at)}` : ''}
+              {' · Le sessioni precedenti restano archiviate.'}
             </div>
 
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>

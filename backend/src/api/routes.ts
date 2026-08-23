@@ -601,6 +601,14 @@ router.post('/budget/:userId/init', async (req: Request, res: Response) => {
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); }
 });
 
+router.get('/budget/:userId/sessions', async (req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await svc.getBudgetSessions(req.params.userId) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 router.post('/bets/place', async (req: Request, res: Response) => {
   try {
     const {

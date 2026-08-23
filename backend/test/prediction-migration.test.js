@@ -98,3 +98,37 @@ test('prediction report eligibility is fail-closed on every guarantee flag', () 
   assert.equal(isPredictionReportEligible({ ...eligible, has_generic_void_handling: 0 }), false);
   assert.equal(isPredictionReportEligible(null), false);
 });
+
+test('budget session migration preserves legacy bets for the active session', async () => {
+  const db = createClient({ url: 'file::memory:' });
+  await db.execute('CREATE TABLE users (user_id TEXT PRIMARY KEY)');
+  await db.execute('INSERT INTO users (user_id) VALUES (?)', ['user1']);
+  await db.execute(`
+    CREATE TABLE bets (
+      bet_id TEXT PRIMARY KEY, user_id TEXT, match_id TEXT, market_name TEXT,
+      selection TEXT, odds REAL, stake REAL, our_probability REAL,
+      expected_value REAL, status TEXT, placed_at TEXT,
+      data_quality TEXT, source TEXT
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE budgets (
+      user_id TEXT PRIMARY KEY, total_budget REAL, available_budget REAL,
+      total_bets INTEGER, total_staked REAL, total_won REAL, total_lost REAL,
+      roi REAL, win_rate REAL, created_at TEXT, updated_at TEXT
+    )
+  `);
+  await db.execute('INSERT INTO budgets (user_id, total_budget, available_budget, created_at) VALUES (?, ?, ?, ?)', ['user1', 1000, 900, '2026-08-21T00:00:00Z']);
+  await db.execute('INSERT INTO bets (bet_id, user_id, match_id, market_name, selection, odds, stake, our_probability, expected_value, status, placed_at, data_quality, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-bet', 'user1', 'match1', 'DNB', 'away', 2, 10, 0.55, 0.1, 'PENDING', '2026-08-21T00:00:00Z', 'pre_fix', 'unknown']);
+
+  const migration = readFileSync(join(__dirname, '..', 'migrations', '003_budget_sessions.sql'), 'utf8');
+  await db.executeMultiple(migration);
+
+  const rows = await db.execute(`
+    SELECT b.active_session_id, s.status, bets.budget_session_id
+    FROM budgets b
+    JOIN budget_sessions s ON s.session_id = b.active_session_id
+    JOIN bets ON bets.user_id = b.user_id
+  `);
+  assert.deepEqual(rows.rows, [{ active_session_id: 'legacy-user1', status: 'active', budget_session_id: 'legacy-user1' }]);
+});
