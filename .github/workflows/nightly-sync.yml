@@ -46,7 +46,7 @@ jobs:
       AUTO_BET_USER_ID: 'user1'
       AUTO_BET_WINDOW_HOURS: '24'
       AUTO_BET_MAX_MATCHES: '100'
-      AUTO_BET_MAX_OPERATIONAL_BETS: '3'
+      AUTO_BET_MAX_OPERATIONAL_BETS_PER_MATCH: '3'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
