@@ -60,6 +60,25 @@ test('bet provenance migration preserves legacy rows and marks them pre-fix', as
   assert.deepEqual(rows.rows, [{ bet_id: 'legacy-bet', data_quality: 'pre_fix', source: 'unknown' }]);
 });
 
+test('bet prediction link migration is additive and keeps legacy bets unlinked', async () => {
+  const db = createClient({ url: 'file::memory:' });
+  await db.execute(`
+    CREATE TABLE bets (
+      bet_id TEXT PRIMARY KEY, user_id TEXT, match_id TEXT, market_name TEXT,
+      selection TEXT, odds REAL, stake REAL, our_probability REAL,
+      expected_value REAL, placed_at TEXT
+    )
+  `);
+  await db.execute({
+    sql: 'INSERT INTO bets (bet_id, match_id, market_name, selection, odds, stake, our_probability, expected_value, placed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    args: ['legacy-bet', 'match1', 'DNB', 'away', 2, 1, 0.55, 0.1, '2026-08-21T00:00:00Z'],
+  });
+  const migration = readFileSync(join(__dirname, '..', 'migrations', '006_add_bet_prediction_link.sql'), 'utf8');
+  await db.executeMultiple(migration);
+  const rows = await db.execute('SELECT bet_id, prediction_id FROM bets');
+  assert.deepEqual(rows.rows, [{ bet_id: 'legacy-bet', prediction_id: null }]);
+});
+
 test('prediction archive preserves the real bookmaker source', async () => {
   // Keep this service-backed migration test isolated from the direct migration
   // fixtures above: libSQL's plain file::memory: URL can be shared by clients.

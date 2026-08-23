@@ -617,6 +617,7 @@ export interface PruneSummary {
 export async function pruneOldSeasons(client: LibsqlLike, keepCount = 4): Promise<PruneSummary> {
   const res = await client.execute({
     sql: `SELECT season, COUNT(*) n FROM matches WHERE season IS NOT NULL AND TRIM(season) <> '' GROUP BY season`,
+    args: [],
   });
   const seasons = res.rows
     .map((r) => ({ label: String(r.season), start: Number(String(r.season).slice(0, 4)) }))

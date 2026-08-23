@@ -2775,11 +2775,11 @@ export class DatabaseService {
       `INSERT OR REPLACE INTO bets (
         bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
         odds, stake, our_probability, expected_value, budget_session_id,
-        status, return_amount, profit, placed_at, settled_at, notes, data_quality, source
+        status, return_amount, profit, placed_at, settled_at, notes, data_quality, source, prediction_id
       ) VALUES (
         :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
         :odds, :stake, :ourProbability, :expectedValue, :budgetSessionId,
-        :status, :returnAmount, :profit, :placedAt, :settledAt, :notes, :dataQuality, :source
+        :status, :returnAmount, :profit, :placedAt, :settledAt, :notes, :dataQuality, :source, :predictionId
       )`,
       {
         betId: bet.betId,
@@ -2804,6 +2804,7 @@ export class DatabaseService {
         notes: bet.notes ?? null,
         dataQuality: bet.dataQuality ?? 'pre_fix',
         source: bet.source ?? 'unknown',
+        predictionId: bet.predictionId ?? null,
       }
     );
   }
@@ -2813,6 +2814,43 @@ export class DatabaseService {
     const sessionId = active?.active_session_id ?? null;
     if (status) return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? AND status = ? ORDER BY placed_at DESC', [userId, sessionId, status]);
     return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? ORDER BY placed_at DESC', [userId, sessionId]);
+  }
+
+  async findPredictionForBet(matchId: string, marketName: string, selection: string): Promise<string | null> {
+    const rows = await this.all(`
+      SELECT prediction_id, market, selection
+      FROM predictions
+      WHERE match_id = ? AND result = 'pending'
+        AND created_at >= datetime('now', '-2 days')
+      ORDER BY created_at DESC
+    `, [matchId]);
+    const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
+    const candidates = rows.filter((row: any) => norm(row.selection) === norm(selection));
+    if (candidates.length === 0) return null;
+    const exactMarket = candidates.find((row: any) => norm(row.market) === norm(marketName));
+    return String((exactMarket ?? candidates[0]).prediction_id);
+  }
+
+  async getPredictionArchive(options: { status?: string; matchId?: string; limit?: number } = {}): Promise<any[]> {
+    const params: any[] = [];
+    const where: string[] = [];
+    if (options.matchId) { where.push('p.match_id = ?'); params.push(options.matchId); }
+    const status = String(options.status ?? '').trim().toLowerCase();
+    if (status === 'played') where.push('b.bet_id IS NOT NULL');
+    if (status === 'unplayed') where.push('b.bet_id IS NULL');
+    if (['pending', 'win', 'loss', 'void'].includes(status)) { where.push('p.result = ?'); params.push(status); }
+    const limit = Math.max(1, Math.min(Number(options.limit ?? 200), 1000));
+    params.push(limit);
+    return this.all(`
+      SELECT p.*, b.bet_id, b.user_id AS bet_user_id, b.status AS bet_status,
+             b.stake AS bet_stake, b.odds AS bet_odds, b.placed_at AS bet_placed_at,
+             CASE WHEN b.bet_id IS NULL THEN 0 ELSE 1 END AS was_played
+      FROM predictions p
+      LEFT JOIN bets b ON b.prediction_id = p.prediction_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY p.created_at DESC
+      LIMIT ?
+    `, params);
   }
 
   async getBudgetSessions(userId: string): Promise<any[]> {

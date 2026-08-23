@@ -3247,7 +3247,7 @@ export class PredictionService {
     stake: number,
     ourProbability: number,
     expectedValue: number,
-    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date; source?: 'manual' | 'automation' | 'unknown' }
+    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date; source?: 'manual' | 'automation' | 'unknown'; predictionId?: string | null }
   ) {
     const normalizedStake = Number(stake);
     if (!Number.isFinite(normalizedStake) || normalizedStake <= 0) throw new Error('Importo puntata non valido');
@@ -3273,6 +3273,7 @@ export class PredictionService {
       throw new Error('Scommessa gia fatta');
     }
 
+    const predictionId = meta?.predictionId ?? await this.db.findPredictionForBet(matchId, marketName, selection);
     const bet = {
       betId: uuidv4(),
       userId,
@@ -3291,6 +3292,7 @@ export class PredictionService {
       placedAt: new Date(),
       dataQuality: 'post_fix',
       source: meta?.source ?? 'manual',
+      predictionId,
     };
 
     await this.db.saveBet(bet);
