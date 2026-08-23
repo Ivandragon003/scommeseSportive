@@ -230,6 +230,46 @@ export const getPrediction = (request: {
 }) =>
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
 
+export type PredictionArchiveStatus = 'played' | 'unplayed' | 'pending' | 'win' | 'loss' | 'void';
+
+export interface PredictionArchiveFilters {
+  status?: PredictionArchiveStatus;
+  matchId?: string;
+  limit?: number;
+}
+
+export interface PredictionArchiveRecord {
+  prediction_id: string;
+  match_id: string;
+  home_team_name?: string | null;
+  away_team_name?: string | null;
+  competition?: string | null;
+  match_date?: string | null;
+  market: string;
+  selection: string;
+  raw_probability?: number | null;
+  calibrated_probability?: number | null;
+  odds_at_prediction?: number | null;
+  source?: string | null;
+  ev?: number | null;
+  ev_reason?: string | null;
+  kelly?: number | null;
+  confidence_computed?: string | null;
+  sample_size_at_time?: number | null;
+  created_at?: string | null;
+  result?: string | null;
+  settled_at?: string | null;
+  was_played: number | boolean;
+  bet_id?: string | null;
+  bet_status?: string | null;
+  bet_stake?: number | null;
+  bet_odds?: number | null;
+  bet_placed_at?: string | null;
+}
+
+export const getPredictionArchive = (filters: PredictionArchiveFilters = {}) =>
+  cachedGet<PredictionArchiveRecord[]>('/predictions/archive', { params: filters });
+
 export const replayPlayedMatchPrediction = (matchId: string) =>
   API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
 

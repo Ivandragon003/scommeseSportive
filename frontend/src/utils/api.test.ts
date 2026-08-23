@@ -96,4 +96,15 @@ describe('backtesting API timeout', () => {
       expect.objectContaining({ timeout: 3600000 })
     );
   });
+
+  test('getPredictionArchive inoltra i filtri supportati all endpoint read-only', async () => {
+    const { getPredictionArchive } = await import('./api');
+    mockGet.mockResolvedValueOnce({ data: { success: true, data: [] } });
+
+    await getPredictionArchive({ status: 'unplayed', matchId: 'match-42', limit: 50 });
+
+    expect(mockGet).toHaveBeenCalledWith('/predictions/archive', {
+      params: { status: 'unplayed', matchId: 'match-42', limit: 50 },
+    });
+  });
 });
