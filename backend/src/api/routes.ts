@@ -629,6 +629,7 @@ router.post('/bets/place', async (req: Request, res: Response) => {
       awayTeamName,
       competition,
       matchDate,
+      predictionId,
     } = req.body;
 
     const result = await svc.placeBet(
@@ -640,7 +641,7 @@ router.post('/bets/place', async (req: Request, res: Response) => {
       stake,
       ourProbability,
       expectedValue,
-      { homeTeamName, awayTeamName, competition, matchDate }
+      { homeTeamName, awayTeamName, competition, matchDate, predictionId }
     );
     res.json({ success: true, data: result });
   } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
@@ -659,6 +660,19 @@ router.get('/bets/:userId', async (req: Request, res: Response) => {
     res.json({ success: true, data: await svc.getBets(req.params.userId, req.query.status as string) });
   }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.get('/predictions/archive', async (req: Request, res: Response) => {
+  try {
+    const data = await db.getPredictionArchive({
+      status: req.query.status as string,
+      matchId: req.query.matchId as string,
+      limit: Number(req.query.limit ?? 200),
+    });
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ====== AUTOMATED INTERNAL BET CARD ======
