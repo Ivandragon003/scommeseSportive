@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createClient } = require('@libsql/client');
-const { readFileSync } = require('node:fs');
+const { readFileSync, unlinkSync } = require('node:fs');
 const { join } = require('node:path');
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
@@ -61,6 +61,10 @@ test('bet provenance migration preserves legacy rows and marks them pre-fix', as
 });
 
 test('prediction archive preserves the real bookmaker source', async () => {
+  // Keep this service-backed migration test isolated from the direct migration
+  // fixtures above: libSQL's plain file::memory: URL can be shared by clients.
+  const isolatedDbPath = `prediction-source-test-${process.pid}.db`;
+  process.env.TURSO_DATABASE_URL = `file:${isolatedDbPath}`;
   const db = new DatabaseService();
   await db.appendPredictions([{
     predictionId: 'source-prediction',
@@ -84,6 +88,12 @@ test('prediction archive preserves the real bookmaker source', async () => {
   const rows = await db.getPendingPredictions('source-match');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source, 'odds_api');
+  try {
+    unlinkSync(isolatedDbPath);
+  } catch (error) {
+    // Windows may keep the libSQL handle open until the test process exits.
+    if (error.code !== 'EBUSY') throw error;
+  }
 });
 
 test('prediction report eligibility is fail-closed on every guarantee flag', () => {
