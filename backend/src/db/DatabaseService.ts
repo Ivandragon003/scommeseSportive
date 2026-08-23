@@ -1015,6 +1015,53 @@ export class DatabaseService {
     return this.all('SELECT * FROM secondary_competitions ORDER BY country, tier, name');
   }
 
+  async upsertTransitionSeasonReference(reference: {
+    sourceCompetitionId: string;
+    sourceSeason: string;
+    teamsCount: number;
+    meanPpg: number | null;
+    stdevPpg: number | null;
+    meanGoalDifferencePerMatch: number | null;
+    stdevGoalDifferencePerMatch: number | null;
+    matchesPerTeam: number | null;
+    coverageStatus: 'complete' | 'partial' | 'unknown';
+    sourceProvider: string;
+    sourceReference: string;
+  }): Promise<void> {
+    await this.execute(`
+      INSERT INTO source_season_reference (
+        source_competition_id, source_season, teams_count, mean_ppg, stdev_ppg,
+        mean_goal_difference_per_match, stdev_goal_difference_per_match,
+        matches_per_team, coverage_status, source_provider, source_reference, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(source_competition_id, source_season) DO UPDATE SET
+        teams_count = excluded.teams_count,
+        mean_ppg = excluded.mean_ppg,
+        stdev_ppg = excluded.stdev_ppg,
+        mean_goal_difference_per_match = excluded.mean_goal_difference_per_match,
+        stdev_goal_difference_per_match = excluded.stdev_goal_difference_per_match,
+        matches_per_team = excluded.matches_per_team,
+        coverage_status = excluded.coverage_status,
+        source_provider = excluded.source_provider,
+        source_reference = excluded.source_reference,
+        updated_at = datetime('now')
+    `, [
+      reference.sourceCompetitionId, reference.sourceSeason, reference.teamsCount,
+      reference.meanPpg, reference.stdevPpg, reference.meanGoalDifferencePerMatch,
+      reference.stdevGoalDifferencePerMatch, reference.matchesPerTeam,
+      reference.coverageStatus, reference.sourceProvider, reference.sourceReference,
+    ]);
+  }
+
+  async hasCompleteTransitionSeasonReference(sourceCompetitionId: string, sourceSeason: string): Promise<boolean> {
+    const row = await this.get(`
+      SELECT 1 AS present FROM source_season_reference
+      WHERE source_competition_id = ? AND source_season = ? AND coverage_status = 'complete'
+      LIMIT 1
+    `, [sourceCompetitionId, sourceSeason]);
+    return Boolean(row);
+  }
+
   async getSourceSeasonReferences(): Promise<any[]> {
     return this.all(`
       SELECT r.*, c.name AS competition_name, c.country, c.tier, c.cluster_key

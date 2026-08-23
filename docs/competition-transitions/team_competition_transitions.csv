@@ -1,0 +1,2 @@
+transition_id,team_id,source_competition_id,source_season,destination_competition_id,destination_season,transition_type,source_rank,source_points,source_matches,source_ppg,source_goal_difference,source_goal_difference_per_match,transition_mode,coverage_status,source_quality,source_provider,source_reference,notes
+REPLACE_WITH_UUID,REPLACE_WITH_TEAM_ID,serie_b,YYYY/YYYY,,YYYY/YYYY,promoted,,,,,,,unknown,unknown,unknown,,,

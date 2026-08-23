@@ -25,6 +25,8 @@ import {
   pruneOldSeasons,
   currentSeasonStartYear,
   FOOTBALL_DATA_LEAGUE_CODES,
+  FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
+  syncTransitionSeasonReferences,
 } from '../services/FootballDataService';
 
 const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
@@ -1105,6 +1107,23 @@ router.get('/stats/overview', async (_req: Request, res: Response) => {
 router.get('/competition-transitions/audit', async (_req: Request, res: Response) => {
   try {
     return res.json({ success: true, data: await db.getCompetitionTransitionAudit() });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Downloads final-result CSVs for the configured second divisions and upserts
+// only seasonal reference statistics. It never enables model adjustments.
+router.post('/competition-transitions/sync-references', async (req: Request, res: Response) => {
+  try {
+    const requestedYears: number[] = Array.isArray(req.body?.seasonStartYears)
+      ? req.body.seasonStartYears.map((value: any) => Number(value)).filter((value: number) => Number.isInteger(value) && value >= 1990 && value <= 2100)
+      : [currentSeasonStartYear() - 1];
+    const result = await syncTransitionSeasonReferences(db, {
+      competitions: FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
+      seasonStartYears: [...new Set(requestedYears)],
+    });
+    return res.json({ success: true, data: result, modelAdjustmentEnabled: false });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }

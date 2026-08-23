@@ -33,6 +33,7 @@ jobs:
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       RUN_ODDS_SYNC: 'true'
       FOOTBALL_DATA_KEEP_SEASONS: '4'
+      RUN_TRANSITION_REFERENCE_SYNC: 'true'
       ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
       UNDERSTAT_SYNC_TIMEOUT_SECONDS: '4200'
       LEARNING_SYNC_TIMEOUT_SECONDS: '1800'

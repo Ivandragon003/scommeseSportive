@@ -11,6 +11,9 @@ const {
   seasonLabel,
   pruneOldSeasons,
   buildMarketOddsJson,
+  buildTransitionSeasonReference,
+  syncTransitionSeasonReferences,
+  FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
 } = require('../dist/services/FootballDataService.js');
 
 test('seasonToFootballDataCode: anno inizio -> codice football-data', () => {
@@ -56,6 +59,55 @@ test('parseFootballDataCsv: estrae i campi supplementari e converte la data', ()
   assert.equal(rows[1].referee, null);
   assert.equal(rows[1].homeShots, 18);
   assert.equal(rows[1].awayRed, 1);
+  assert.equal(rows[0].homeGoals, 2);
+  assert.equal(rows[0].awayGoals, 2);
+});
+
+test('buildTransitionSeasonReference: calcola PPG e differenza reti senza inventare playoff', () => {
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I2,01/08/2024,A,B,2,0',
+    'I2,02/08/2024,B,A,1,1',
+    'I2,03/08/2024,C,A,0,1',
+    'I2,04/08/2024,A,C,2,0',
+    'I2,05/08/2024,B,C,1,0',
+    'I2,06/08/2024,C,B,0,0',
+  ].join('\n');
+  const reference = buildTransitionSeasonReference(
+    'serie_b', 'Serie B', 2024, parseFootballDataCsv(csv), 'https://example.test/2425/I2.csv'
+  );
+  assert.equal(reference.sourceSeason, '2024/2025');
+  assert.equal(reference.teamsCount, 3);
+  assert.equal(reference.coverageStatus, 'complete');
+  assert.equal(reference.sourceProvider, 'football-data.co.uk');
+  assert.equal(reference.sourceReference.includes('/2425/I2.csv'), true);
+});
+
+test('syncTransitionSeasonReferences: upsert idempotente e skip della stagione completa', async () => {
+  const persisted = [];
+  const fakeDb = {
+    async hasCompleteTransitionSeasonReference(id, season) {
+      return id === 'serie_b' && season === '2024/2025';
+    },
+    async upsertTransitionSeasonReference(reference) { persisted.push(reference); },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' },
+    seasonStartYears: [2024, 2025],
+    fetcher: async () => [
+      'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+      'I2,01/08/2025,A,B,1,0',
+    ].join('\n'),
+  });
+  assert.equal(result.requested, 2);
+  assert.equal(result.persisted, 1);
+  assert.equal(persisted[0].sourceSeason, '2025/2026');
+});
+
+test('FOOTBALL_DATA_TRANSITION_LEAGUE_CODES: catalogo seconde divisioni', () => {
+  assert.deepEqual(Object.keys(FOOTBALL_DATA_TRANSITION_LEAGUE_CODES).sort(), [
+    '2. Bundesliga', 'Championship', 'Ligue 2', 'Segunda Division', 'Serie B',
+  ]);
 });
 
 test('parseFootballDataCsv: estrae quote apertura (Avg) e chiusura (AvgC) + fallback B365', () => {
