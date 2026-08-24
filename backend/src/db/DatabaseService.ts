@@ -2918,6 +2918,54 @@ export class DatabaseService {
     );
   }
 
+  async getPlayerLineupStatuses(matchId: string): Promise<Array<{
+    player_id: string;
+    team_id: string;
+    status: string;
+    probability: number | null;
+    source: string;
+    fetched_at: string;
+  }>> {
+    return this.all(
+      `SELECT player_id, team_id, status, probability, source, fetched_at
+       FROM player_lineup_status WHERE match_id = ? ORDER BY fetched_at DESC`,
+      [matchId],
+    );
+  }
+
+  async savePlayerLineupStatuses(rows: Array<{
+    matchId: string;
+    playerId: string;
+    teamId: string;
+    status: string;
+    probability?: number | null;
+    source: string;
+    providerFixtureId?: string | null;
+    kickoffAt?: string | null;
+    rawJson?: string | null;
+  }>): Promise<void> {
+    for (const row of rows) {
+      await this.run(
+        `INSERT OR REPLACE INTO player_lineup_status
+          (match_id, player_id, team_id, status, probability, source,
+           provider_fixture_id, kickoff_at, raw_json, fetched_at)
+         VALUES (:matchId, :playerId, :teamId, :status, :probability, :source,
+           :providerFixtureId, :kickoffAt, :rawJson, datetime('now'))`,
+        {
+          matchId: row.matchId,
+          playerId: row.playerId,
+          teamId: row.teamId,
+          status: row.status,
+          probability: row.probability ?? null,
+          source: row.source,
+          providerFixtureId: row.providerFixtureId ?? null,
+          kickoffAt: row.kickoffAt ?? null,
+          rawJson: row.rawJson ?? null,
+        },
+      );
+    }
+  }
+
   async markPlayersUnavailable(competition?: string): Promise<number> {
     const normalizedCompetition = String(competition ?? '').trim();
     if (!normalizedCompetition) {
@@ -2927,6 +2975,18 @@ export class DatabaseService {
     const result = await this.execute(
       `UPDATE players SET is_available = 0 WHERE team_id IN (SELECT team_id FROM teams WHERE competition = ?)`,
       [normalizedCompetition]
+    );
+    return Number(result?.rowsAffected ?? 0);
+  }
+
+  async reconcilePlayersForTeam(teamId: string, activePlayerIds: string[]): Promise<number> {
+    const ids = [...new Set(activePlayerIds.map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(', ');
+    const result = await this.execute(
+      `UPDATE players SET is_available = CASE WHEN player_id IN (${placeholders}) THEN 1 ELSE 0 END
+       WHERE team_id = ?`,
+      [...ids, teamId],
     );
     return Number(result?.rowsAffected ?? 0);
   }
