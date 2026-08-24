@@ -63,6 +63,28 @@ test('settles player shots, shots on target and yellow-card props from match det
   assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_6521_shots_under_2_5', match)?.status, 'WON');
 });
 
+test('settles player props from normalized playerStats when roster details are unavailable', () => {
+  const service = new PredictionService({});
+  const match = {
+    home_goals: 1,
+    away_goals: 0,
+    raw_json: JSON.stringify({
+      playerStats: [{
+        playerId: 'understat_player_77',
+        playerName: 'Test Player',
+        shots: 2,
+        shotsOnTarget: 1,
+        goals: 1,
+        yellowCards: 0,
+      }],
+    }),
+  };
+
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_77_shots_over_1_5', match)?.status, 'WON');
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_77_sot_over_0_5', match)?.status, 'WON');
+  assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_77_goals_over_0_5', match)?.status, 'WON');
+});
+
 test('settles archived predictions for completed matches, including non-bets', async () => {
   const settled = [];
   const pending = [

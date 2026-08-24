@@ -1282,6 +1282,10 @@ export class PredictionService {
       }
       if (sampleSize < 8) dataWarnings.push('low_player_sample');
       if (expectedMinutes < 65) dataWarnings.push('uncertain_minutes');
+      // The current pre-match request has no confirmed starting XI feed.
+      // Historical average minutes are used, but must not be presented as
+      // confirmed titularity.
+      dataWarnings.push('starting_lineup_not_confirmed');
       if (!hasCompanion(key)) dataWarnings.push('missing_under_price');
 
       let probability: number | null = null;
@@ -2876,6 +2880,37 @@ export class PredictionService {
     const sourceId = playerId.match(/(?:understat_player_|player_)(\d+)$/)?.[1] ?? null;
     const rosters = [raw?.rosters?.h, raw?.rosters?.a]
       .flatMap((roster: any) => Object.values(roster ?? {})) as any[];
+    // Older imports may not have the provider roster tree, but can still
+    // contain the normalized playerStats array produced by Understat. Use it
+    // as a read-only settlement fallback instead of leaving valid props open.
+    const normalizedStats = Array.isArray(raw?.playerStats)
+      ? raw.playerStats
+      : Array.isArray(raw?.details?.playerStats)
+        ? raw.details.playerStats
+        : [];
+    if (rosters.length === 0 && normalizedStats.length > 0) {
+      const normalizedPlayer = normalizedStats.find((entry: any) => {
+        const entryId = String(entry?.sourcePlayerId ?? entry?.source_player_id ?? entry?.playerId ?? entry?.player_id ?? '').trim();
+        const normalizedName = normalizePlayerNameForProp(String(entry?.playerName ?? entry?.player_name ?? entry?.name ?? ''));
+        return (sourceId && entryId === sourceId)
+          || entryId.toLowerCase() === playerId
+          || normalizedName === playerId;
+      });
+      if (normalizedPlayer) {
+        const numeric = (value: unknown): number | null => {
+          const n = Number(value);
+          return Number.isFinite(n) ? n : null;
+        };
+        const value = parsed.marketType === 'shots'
+          ? numeric(normalizedPlayer.shots)
+          : parsed.marketType === 'yellow'
+            ? numeric(normalizedPlayer.yellowCards ?? normalizedPlayer.yellow_cards ?? normalizedPlayer.raw?.yellow_card)
+            : parsed.marketType === 'goals'
+              ? numeric(normalizedPlayer.goals)
+              : numeric(normalizedPlayer.shotsOnTarget ?? normalizedPlayer.shots_on_target);
+        return value === null ? null : { value, marketType: parsed.marketType };
+      }
+    }
     const player = rosters.find((entry: any) => {
       const entryId = String(entry?.player_id ?? entry?.id ?? '').trim();
       const normalizedName = normalizePlayerNameForProp(String(entry?.player ?? entry?.name ?? ''));
