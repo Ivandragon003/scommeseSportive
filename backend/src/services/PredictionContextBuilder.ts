@@ -90,6 +90,18 @@ export interface PredictionContextBuildParams {
   referee: any;
   homePlayers: any[];
   awayPlayers: any[];
+  homeHistoricalCoverage?: TeamHistoricalCoverage | null;
+  awayHistoricalCoverage?: TeamHistoricalCoverage | null;
+}
+
+export interface TeamHistoricalCoverage {
+  teamId?: string;
+  seasonsExpected: number;
+  seasonsAvailable: number;
+  coveragePercent: number;
+  seasons?: string[];
+  transitionHistory?: any[];
+  activeTransition?: any | null;
 }
 
 export interface PredictionContextBuildResult {
@@ -98,6 +110,11 @@ export interface PredictionContextBuildResult {
   homeXG?: number;
   awayXG?: number;
   richnessScore: number;
+  historicalCoverage: {
+    home: TeamHistoricalCoverage | null;
+    away: TeamHistoricalCoverage | null;
+    matchCoveragePercent: number | null;
+  };
 }
 
 export class PredictionContextBuilder {
@@ -380,13 +397,21 @@ export class PredictionContextBuilder {
     const playerCoverage =
       Math.min(homePlayers.length, awayPlayers.length) > 0 ? 1 : 0;
     const refereeCoverage = refereeStats?.sampleSize ? 1 : 0;
+    const homeHistoricalCoverage = params.homeHistoricalCoverage ?? null;
+    const awayHistoricalCoverage = params.awayHistoricalCoverage ?? null;
+    const matchCoveragePercent = homeHistoricalCoverage && awayHistoricalCoverage
+      ? Math.min(
+          clamp(Number(homeHistoricalCoverage.coveragePercent ?? 0), 0, 100),
+          clamp(Number(awayHistoricalCoverage.coveragePercent ?? 0), 0, 100),
+        )
+      : null;
 
     // FIX BASELINE: partire da 0.30 anziché 0.45 — un richnessScore di 0.45
     // senza dati reali dava falsa confidenza al modello. La baseline 0.30
     // riflette l'incertezza genuina quando mancano statistiche di supporto.
     // Il ceiling rimane 0.93: con sample largo + xg + player data + arbitro
     // si raggiunge ~0.91, lasciando 0.02 di margine per scenari futuri.
-    const richnessScore = clamp(
+    const baseRichnessScore = clamp(
       0.30 +
       Math.min(1, sampleBase / 24) * 0.32 +
       (hasBothXg ? 0.12 : 0) +
@@ -395,6 +420,13 @@ export class PredictionContextBuilder {
       0.30,
       0.93,
     );
+    // Historical coverage is match-scoped. Full coverage leaves the existing
+    // score unchanged; partial coverage reduces confidence conservatively.
+    // Missing coverage metadata is neutral for backwards compatibility.
+    const coverageMultiplier = matchCoveragePercent === null
+      ? 1
+      : 0.70 + (matchCoveragePercent / 100) * 0.30;
+    const richnessScore = clamp(baseRichnessScore * coverageMultiplier, 0.30, 0.93);
 
     return {
       supplementaryData: {
@@ -411,6 +443,11 @@ export class PredictionContextBuilder {
       homeXG: this.toFiniteNumber(homeTeam?.avg_home_xg),
       awayXG: this.toFiniteNumber(awayTeam?.avg_away_xg),
       richnessScore: Number(richnessScore.toFixed(3)),
+      historicalCoverage: {
+        home: homeHistoricalCoverage,
+        away: awayHistoricalCoverage,
+        matchCoveragePercent,
+      },
     };
   }
 }

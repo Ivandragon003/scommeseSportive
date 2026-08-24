@@ -241,6 +241,7 @@ export function formatPrediction(pred: any): any {
     lambdaAway: roundN(lambdaAway, 3),
     modelConfidence: Number(pred.modelConfidence ?? 0),
     richnessScore: Number(pred.richnessScore ?? pred.modelConfidence ?? 0),
+    ...(pred.historicalCoverage ? { historicalCoverage: pred.historicalCoverage } : {}),
     computedAt: pred.computedAt,
 
     goalProbabilities: {
