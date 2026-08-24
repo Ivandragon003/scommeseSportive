@@ -270,7 +270,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
           {!budget && <div className="fp-alert fp-alert-warning">Inizializza il budget prima di registrare nuove giocate.</div>}
 
           {showOpen && (
-            <section className="bets-section" aria-labelledby="open-bets-title" aria-label="Giocate aperte">
+          <section className="bets-section bets-section--open" aria-labelledby="open-bets-title" aria-label="Giocate aperte">
               <div className="bets-section__head">
                 <div><Clock3 size={22} aria-hidden="true" /><h2 id="open-bets-title">Giocate in attesa</h2><span className="fp-badge fp-badge-blue">{visibleOpenBets.length}</span></div>
               </div>
@@ -285,7 +285,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
             </section>
           )}
 
-          <section className="bets-section bets-history" aria-labelledby="history-title" aria-label="Storico giocate">
+          <section className="bets-section bets-history bets-section--history" aria-labelledby="history-title" aria-label="Storico giocate">
             <div className="bets-section__head">
               <div><History size={22} aria-hidden="true" /><h2 id="history-title">Storico giocate</h2><span className="fp-badge">{visibleHistoryBets.length}</span></div>
               <div className="bets-history-filters">
