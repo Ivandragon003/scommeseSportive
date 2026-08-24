@@ -123,6 +123,34 @@ test('extractBestOdds maps extended statistical and player markets without colla
   assert.equal(odds['player_shots_rafael_leao_over_1.5'], 2.35);
 });
 
+test('sceglie un bookmaker con quote traducibili quando il primo non ha mercati utilizzabili', () => {
+  const service = new OddsApiService('test-key');
+  const match = {
+    matchId: 'odds_3',
+    homeTeam: 'Inter',
+    awayTeam: 'Milan',
+    commenceTime: '2026-03-28T19:45:00Z',
+    bookmakers: [
+      {
+        bookmakerKey: 'codere_it',
+        bookmakerName: 'Codere IT',
+        markets: [{ marketKey: 'unsupported_market', outcomes: [{ name: 'X', price: 2.1 }] }],
+      },
+      {
+        bookmakerKey: 'pinnacle',
+        bookmakerName: 'Pinnacle',
+        markets: [{
+          marketKey: 'h2h',
+          outcomes: [{ name: 'Inter', price: 1.9 }, { name: 'Draw', price: 3.4 }],
+        }],
+      },
+    ],
+  };
+
+  assert.deepEqual(service.getSelectedBookmaker(match), { bookmakerKey: 'pinnacle', bookmakerName: 'Pinnacle' });
+  assert.deepEqual(service.extractBestOdds(match), { homeWin: 1.9, draw: 3.4 });
+});
+
 test('getScores normalizza eventi scores senza quote per correzione calendario', async () => {
   const originalGet = axios.get;
   axios.get = async (url, config) => {

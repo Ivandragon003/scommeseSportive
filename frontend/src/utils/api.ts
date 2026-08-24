@@ -259,6 +259,10 @@ export const getPrediction = (request: {
 export const getPlayerAvailability = (matchId: string) =>
   cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`);
 
+export const syncUpcomingPlayerAvailability = (windowHours = 48) =>
+  API.post<ApiResponse<any>>('/player-availability/sync-upcoming', { windowHours }, { timeout: 120000 })
+    .then(r => r.data);
+
 export type PredictionArchiveStatus = 'played' | 'unplayed' | 'pending' | 'win' | 'loss' | 'void';
 
 export interface PredictionArchiveFilters {

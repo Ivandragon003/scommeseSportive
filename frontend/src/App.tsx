@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import Predictions from './pages/Predictions';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
-import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
+import { getScraperStatus, syncUpcomingKickoffs, syncUpcomingPlayerAvailability } from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
@@ -367,6 +367,10 @@ const App: React.FC = () => {
         try {
           const kickoffPayload = await syncUpcomingKickoffs({ mode: 'top5', season: currentSeason(), limit: 160 });
           kickoffCorrected = Number(kickoffPayload?.data?.corrected ?? 0);
+          // The Understat import contains historical rosters. Refresh the
+          // current squads in the same user-triggered system update so old
+          // transferred players cannot leak into the next prediction.
+          await syncUpcomingPlayerAvailability(48);
           window.dispatchEvent(new Event('data-sync-complete'));
         } catch (kickoffError: any) {
           kickoffSyncWarning = kickoffError?.response?.data?.error

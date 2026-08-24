@@ -526,7 +526,14 @@ export class OddsApiService {
     ].filter((key): key is string => Boolean(key));
     const selected = preferredKeys
       .map((key) => match.bookmakers.find((bookmaker) => bookmaker.bookmakerKey === key))
-      .find((bookmaker): bookmaker is BookmakerOdds => Boolean(bookmaker));
+      .filter((bookmaker, index, bookmakers): bookmaker is BookmakerOdds =>
+        Boolean(bookmaker) && bookmakers.findIndex((candidate) => candidate?.bookmakerKey === bookmaker.bookmakerKey) === index
+      )
+      // A bookmaker may be present in the API response but expose only
+      // markets that this application cannot translate. Selecting it made
+      // extractBestOdds() return {}, even though another bookmaker had valid
+      // odds for the same event.
+      .find((bookmaker) => Object.keys(this.extractBookmakerOdds(match, bookmaker)).length > 0);
     return selected?.bookmakerKey && selected.bookmakerName
       ? { bookmakerKey: selected.bookmakerKey, bookmakerName: selected.bookmakerName }
       : null;
