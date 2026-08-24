@@ -22,6 +22,7 @@ import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
 import { ApiFootballService } from '../services/ApiFootballService';
+import { assessPlayerLineup } from '../services/PlayerLineupProbabilityService';
 import { normalizePlayerNameForProp } from '../services/playerProps';
 import { planAutomatedBetOpportunities } from '../services/AutomatedBetPlanningService';
 import {
@@ -326,6 +327,53 @@ function sameTeamName(left: string, right: string): boolean {
   const b = normalizePlayerNameForProp(right);
   return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
 }
+
+router.get('/player-availability/:matchId', async (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.matchId ?? '').trim();
+    const match = await db.getMatchById(matchId);
+    if (!match) return res.status(404).json({ error: 'Partita non trovata' });
+    const [homePlayers, awayPlayers, statusRows] = await Promise.all([
+      db.getPlayersByTeam(String(match.home_team_id)),
+      db.getPlayersByTeam(String(match.away_team_id)),
+      db.getPlayerLineupStatuses(matchId),
+    ]);
+    const statuses = new Map(statusRows.map((row: any) => [String(row.player_id), row]));
+    const buildTeam = (players: any[], teamId: string, teamName: string) => players.map((player: any) => {
+      const external = statuses.get(String(player.player_id));
+      const assessment = assessPlayerLineup(player, external ? {
+        status: String(external.status) as any,
+        probability: external.probability === null ? undefined : Number(external.probability),
+      } : undefined);
+      return {
+        playerId: String(player.player_id),
+        name: player.name,
+        teamId,
+        teamName,
+        probability: assessment.probability,
+        tier: assessment.tier,
+        status: assessment.status,
+        warnings: assessment.warnings,
+        source: external?.source ?? 'internal_lineup_model',
+        fetchedAt: external?.fetched_at ?? null,
+      };
+    }).sort((left: any, right: any) => right.probability - left.probability);
+    res.json({
+      success: true,
+      data: {
+        matchId,
+        kickoff: match.date,
+        home: buildTeam(homePlayers, String(match.home_team_id), String(match.home_team_name ?? 'Casa')),
+        away: buildTeam(awayPlayers, String(match.away_team_id), String(match.away_team_name ?? 'Trasferta')),
+        hasConfirmedLineup: statusRows.some((row: any) => String(row.status).startsWith('confirmed_')),
+        hasProviderData: statusRows.some((row: any) => String(row.source).startsWith('api_football_')),
+        note: 'La formazione probabile e una stima; la formazione ufficiale prevale quando disponibile.',
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? 'Impossibile recuperare le formazioni' });
+  }
+});
 
 /**
  * Stores confirmed API-Football lineups against our internal match/player IDs.
