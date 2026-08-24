@@ -173,11 +173,11 @@ test('apre la nuova pagina Giocate dalla navigazione primaria', async () => {
   expect(window.location.pathname).toBe('/bets');
 });
 
-test('apre Archivio prediction dal menu Strumenti', async () => {
+test('apre Archivio giocate dal menu Strumenti', async () => {
   render(<App />);
 
   fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByText('Archivio prediction'));
+  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByText('Archivio giocate'));
 
   expect(await screen.findByText('Prediction archive page')).toBeTruthy();
   expect(window.location.pathname).toBe('/prediction-archive');

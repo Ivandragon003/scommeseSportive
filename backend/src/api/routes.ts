@@ -770,6 +770,21 @@ router.get('/predictions/archive', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/bet-opportunities/archive', async (req: Request, res: Response) => {
+  try {
+    const data = await db.getBetOpportunityArchive({
+      type: req.query.type as string,
+      classification: req.query.classification as string,
+      result: req.query.result as string,
+      matchId: req.query.matchId as string,
+      limit: Number(req.query.limit ?? 200),
+    });
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ====== AUTOMATED INTERNAL BET CARD ======
 // This endpoint is intended for the nightly GitHub Actions runner. It deliberately
 // reuses the public odds/prediction/bet paths so the automation behaves exactly like
@@ -930,6 +945,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
           selection: String(opportunity?.selection ?? ''),
           confidence: String(opportunity?.confidence ?? '').toUpperCase() || null,
           bookmakerOdds: Number.isFinite(Number(opportunity?.bookmakerOdds)) ? Number(opportunity.bookmakerOdds) : null,
+          bookmakerName: String(oddsData?.selectedBookmakerName ?? '').trim() || null,
           theoreticalStakePercent: Number.isFinite(suggestedStakePercent) ? suggestedStakePercent : null,
           theoreticalStakeAmount,
           rankingPosition: decision.rankingPosition,
@@ -2013,6 +2029,14 @@ async function runUnderstatImport(req: Request, res: Response) {
       }
     }
 
+    const predictionSettlement = await svc.settlePendingBetOpportunityPredictionsForCompletedMatches(500)
+      .then((settlement) => ({ success: true, ...settlement, error: null }))
+      .catch((error: any) => {
+        const message = String(error?.message ?? error);
+        console.warn('[understat] Chiusura prediction non completata:', message);
+        return { success: false, matches: 0, settled: 0, unresolved: 0, error: message };
+      });
+
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
     const lastDatesAfter: Record<string, string> = {};
     for (const comp of competitionsToRun) {
@@ -2043,6 +2067,7 @@ async function runUnderstatImport(req: Request, res: Response) {
         refereeMatchesConsidered,
         deletedMatchesByCompetition,
         autoModelFit,
+        predictionSettlement,
         postProcessingCompetitions: competitionsNeedingPostProcessing,
         skippedPostProcessingCompetitions: competitionsToRun.filter((comp) => !competitionsNeedingPostProcessing.includes(comp)),
         dbLastDateAfter: lastDatesAfter,

@@ -8,148 +8,118 @@ const mockedApi = api as jest.Mocked<typeof api>;
 
 const archiveRows = [
   {
-    prediction_id: 'pred_pending_played',
-    match_id: 'match-101',
-    home_team_name: 'Bologna',
-    away_team_name: 'Lazio',
-    competition: 'Serie A',
-    match_date: '2026-08-23T18:45:00.000Z',
-    market: 'Draw No Bet',
-    selection: 'Ospite',
-    raw_probability: 0.51,
-    calibrated_probability: 0.55,
-    odds_at_prediction: 2.1,
-    source: 'odds_api',
-    ev: 0.155,
-    ev_reason: 'Quota superiore alla probabilità implicita.',
-    kelly: 0.04,
-    confidence_computed: 'MEDIUM',
-    sample_size_at_time: 240,
-    created_at: '2026-08-23T10:00:00.000Z',
-    result: 'pending',
-    settled_at: null,
-    was_played: 1,
-    bet_id: 'bet-101',
-    bet_status: 'PENDING',
-    bet_stake: 20,
-    bet_odds: 2.05,
-    bet_placed_at: '2026-08-23T10:04:00.000Z',
+    decision_id: 'decision-high', match_id: 'match-101', home_team_name: 'Bologna', away_team_name: 'Lazio',
+    competition: 'Serie A', match_date: '2026-08-23T18:45:00.000Z', market_name: '1X2', selection: 'homeWin',
+    classification: 'HIGH', archive_type: 'operative', display_odds: 2.05, bookmaker_odds: 2.1, bookmaker_name: 'Pinnacle',
+    raw_probability: 0.61, calibrated_probability: 0.59, ev: 0.15, source: 'odds_api',
+    theoretical_stake_percent: 2, theoretical_stake_amount: 20, ranking_position: 1, operational_slot: 1,
+    decision_status: 'placed', exclusion_reason: null, bet_id: 'bet-101', bet_stake: 20, result: 'pending',
+    created_at: '2026-08-23T10:00:00.000Z', settled_at: null,
   },
   {
-    prediction_id: 'pred_unplayed',
-    match_id: 'match-102',
-    market: 'Over/Under',
-    selection: 'Over 2.5',
-    raw_probability: 0.58,
-    calibrated_probability: 0.57,
-    odds_at_prediction: null,
-    ev: 0.094,
-    ev_reason: 'Non promossa a giocata.',
-    kelly: 0.02,
-    confidence_computed: 'LOW',
-    sample_size_at_time: 180,
-    created_at: '2026-08-23T09:00:00.000Z',
-    result: 'pending',
-    settled_at: null,
-    was_played: 0,
-    bet_id: null,
-    bet_status: null,
-    bet_stake: null,
-    bet_odds: null,
-    bet_placed_at: null,
+    decision_id: 'decision-medium', match_id: 'match-102', home_team_name: 'Torino', away_team_name: 'Milan',
+    competition: 'Serie A', match_date: '2026-08-23T20:45:00.000Z', market_name: 'Over/Under', selection: 'over2_5',
+    classification: 'MEDIUM', archive_type: 'simulated', display_odds: 2.1, bookmaker_odds: 2.1, bookmaker_name: 'Pinnacle',
+    raw_probability: 0.56, calibrated_probability: 0.55, ev: 0.12, source: 'odds_api',
+    theoretical_stake_percent: 1.5, theoretical_stake_amount: 15, ranking_position: 4, operational_slot: null,
+    decision_status: 'saved_only', exclusion_reason: 'per_match_limit_reached', bet_id: null, result: 'loss',
+    created_at: '2026-08-23T09:00:00.000Z', settled_at: '2026-08-23T23:00:00.000Z',
   },
-  { prediction_id: 'pred_win', match_id: 'match-103', market: '1X2', selection: 'Casa', calibrated_probability: 0.62, odds_at_prediction: 1.8, ev: 0.116, confidence_computed: 'HIGH', created_at: '2026-08-22T09:00:00.000Z', result: 'win', was_played: 1, bet_id: 'bet-103' },
-  { prediction_id: 'pred_loss', match_id: 'match-104', market: 'BTTS', selection: 'Sì', calibrated_probability: 0.54, odds_at_prediction: 2, ev: 0.08, confidence_computed: 'MEDIUM', created_at: '2026-08-21T09:00:00.000Z', result: 'loss', was_played: 0, bet_id: null },
-  { prediction_id: 'pred_void', match_id: 'match-105', market: 'Under/Over', selection: 'Under 3.5', calibrated_probability: 0.66, odds_at_prediction: 1.62, ev: 0.069, confidence_computed: 'HIGH', created_at: '2026-08-20T09:00:00.000Z', result: 'void', was_played: 1, bet_id: 'bet-105' },
+  {
+    decision_id: 'decision-low', match_id: 'match-103', market_name: 'Goal/Goal', selection: 'btts',
+    classification: 'LOW', archive_type: 'simulated', display_odds: 1.9, bookmaker_odds: 1.9, bookmaker_name: 'Betfair',
+    ranking_position: 5, decision_status: 'saved_only', exclusion_reason: 'low_confidence_saved_only',
+    result: 'win', created_at: '2026-08-22T09:00:00.000Z',
+  },
+  {
+    decision_id: 'decision-speculative', match_id: 'match-104', market_name: 'Risultato esatto', selection: 'exact_2-1',
+    classification: 'SPECULATIVE', archive_type: 'simulated', display_odds: 7.5, bookmaker_odds: 7.5, bookmaker_name: '888sport',
+    ranking_position: 6, decision_status: 'saved_only', exclusion_reason: 'speculative_saved_only',
+    result: 'void', created_at: '2026-08-21T09:00:00.000Z',
+  },
 ];
 
 describe('PredictionArchivePage', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    mockedApi.getPredictionArchive.mockResolvedValue({ success: true, data: archiveRows } as any);
+    mockedApi.getBetOpportunityArchive.mockResolvedValue({ success: true, data: archiveRows } as any);
   });
 
-  test('carica e mostra l archivio prediction', async () => {
+  test('mostra soltanto le colonne semplici dell archivio opportunita', async () => {
     render(<PredictionArchivePage />);
 
-    expect(await screen.findByRole('heading', { name: 'Archivio prediction' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Archivio giocate' })).toBeTruthy();
+    expect(await screen.findByRole('columnheader', { name: 'Classificazione' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Tipo' })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: 'Probabilità' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'EV' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Stato prediction' })).toBeNull();
+    expect(mockedApi.getBetOpportunityArchive).toHaveBeenCalledWith({ limit: 200 });
+  });
+
+  test('traduce mercato e giocata effettiva senza mostrare codici interni', async () => {
+    render(<PredictionArchivePage />);
+
     expect(await screen.findByText('Bologna – Lazio')).toBeTruthy();
-    expect(screen.getByText(/Serie A/)).toBeTruthy();
-    expect(screen.queryByText('Match #match-101')).toBeNull();
-    expect(screen.getByText('Draw No Bet')).toBeTruthy();
-    expect(mockedApi.getPredictionArchive).toHaveBeenCalledWith({ limit: 200 });
+    expect(screen.getByText('Vittoria Bologna')).toBeTruthy();
+    expect(screen.getByText('Più di 2,5 gol')).toBeTruthy();
+    expect(screen.getByText('Entrambe le squadre segnano')).toBeTruthy();
+    expect(screen.getByText('Risultato esatto 2–1')).toBeTruthy();
+    expect(screen.queryByText('homeWin')).toBeNull();
+    expect(screen.queryByText('exact_2-1')).toBeNull();
   });
 
-  test('mostra match id solo nei dettagli espandibili', async () => {
+  test('mostra quota reale classificazione tipo ed unico risultato', async () => {
     render(<PredictionArchivePage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Apri dettagli prediction pred_pending_played' }));
-
-    expect(screen.getByText('Match ID')).toBeTruthy();
-    expect(screen.getByText('match-101')).toBeTruthy();
-  });
-
-  test('mostra quota prediction e quota giocata senza inventare valori mancanti', async () => {
-    render(<PredictionArchivePage />);
-
-    expect(await screen.findByText('2.10')).toBeTruthy();
-    expect(screen.getAllByText('Quota prediction').length).toBeGreaterThan(0);
-    expect(screen.getByText('Giocata: 2.05')).toBeTruthy();
-    expect(screen.getAllByText('Non disponibile').length).toBeGreaterThan(0);
-  });
-
-  test('mostra Low Medium High dalla confidence registrata', async () => {
-    render(<PredictionArchivePage />);
-
-    expect((await screen.findAllByText('Low')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Medium').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('2.05')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Pinnacle').length).toBeGreaterThan(0);
     expect(screen.getAllByText('High').length).toBeGreaterThan(0);
-  });
-
-  test('il filtro non giocate interroga il backend senza mostrare bet operative', async () => {
-    mockedApi.getPredictionArchive
-      .mockResolvedValueOnce({ success: true, data: archiveRows } as any)
-      .mockResolvedValueOnce({ success: true, data: [archiveRows[1]] } as any);
-    render(<PredictionArchivePage />);
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Non giocate' }));
-
-    await waitFor(() => expect(mockedApi.getPredictionArchive).toHaveBeenLastCalledWith({ status: 'unplayed', limit: 200 }));
-    expect(await screen.findByText('Match #match-102')).toBeTruthy();
-    expect(screen.queryByText('Match #match-101')).toBeNull();
-  });
-
-  test('distingue chiaramente prediction giocate e non giocate', async () => {
-    render(<PredictionArchivePage />);
-
-    expect((await screen.findAllByText('Giocata')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Non giocata').length).toBeGreaterThan(0);
-  });
-
-  test('mostra gli esiti win loss e void con etichette leggibili', async () => {
-    render(<PredictionArchivePage />);
-
-    expect((await screen.findAllByText('Vinta')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Medium').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Low').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Speculativa').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Operativa').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Simulata').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('In attesa').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Vinta').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Persa').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Rimborsata').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Non classificata')).toBeNull();
   });
 
-  test('mostra uno stato vuoto quando non esistono prediction', async () => {
-    mockedApi.getPredictionArchive.mockResolvedValue({ success: true, data: [] } as any);
+  test('mantiene probabilita EV e stake soltanto nei dettagli', async () => {
     render(<PredictionArchivePage />);
 
-    expect(await screen.findByRole('status', { name: 'Archivio prediction vuoto' })).toBeTruthy();
-    expect(screen.getByText('Nessuna prediction trovata')).toBeTruthy();
+    expect(screen.queryByText('Probabilità del modello')).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Apri dettagli giocata decision-high' }));
+
+    expect(screen.getByText('Probabilità del modello')).toBeTruthy();
+    expect(screen.getByText('EV tecnico')).toBeTruthy();
+    expect(screen.getByText('Stake effettivo')).toBeTruthy();
+    expect(screen.getByText('20.00')).toBeTruthy();
   });
 
-  test('mostra loading ed errore con possibilità di riprovare', async () => {
-    let rejectRequest: ((reason?: unknown) => void) | undefined;
-    mockedApi.getPredictionArchive.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRequest = reject; }) as any);
+  test('i filtri interrogano il backend per tipo classificazione ed esito', async () => {
     render(<PredictionArchivePage />);
 
-    expect(screen.getByLabelText('Caricamento archivio prediction')).toBeTruthy();
-    rejectRequest?.(new Error('Archivio non disponibile'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Simulate' }));
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ type: 'simulated', limit: 200 }));
 
+    fireEvent.click(screen.getByRole('button', { name: 'Speculative' }));
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ classification: 'speculative', limit: 200 }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Perse' }));
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ result: 'loss', limit: 200 }));
+  });
+
+  test('mostra stato vuoto ed errore con possibilita di riprovare', async () => {
+    mockedApi.getBetOpportunityArchive.mockResolvedValueOnce({ success: true, data: [] } as any);
+    const { unmount } = render(<PredictionArchivePage />);
+    expect(await screen.findByRole('status', { name: 'Archivio giocate vuoto' })).toBeTruthy();
+    unmount();
+
+    mockedApi.getBetOpportunityArchive.mockRejectedValueOnce(new Error('Archivio non disponibile'));
+    render(<PredictionArchivePage />);
     expect((await screen.findByRole('alert')).textContent).toContain('Archivio non disponibile');
     expect(screen.getByRole('button', { name: 'Riprova' })).toBeTruthy();
   });

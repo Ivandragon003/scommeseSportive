@@ -41,7 +41,7 @@ const PRIMARY_NAV_ITEMS = [
 ];
 
 const ADVANCED_NAV_ITEMS = [
-  { path: '/prediction-archive', label: 'Archivio prediction', meta: 'storico del modello', icon: Archive },
+  { path: '/prediction-archive', label: 'Archivio giocate', meta: 'operative e simulate', icon: Archive },
   { path: '/glossary', label: 'Glossario', meta: 'termini e interpretazione', icon: HelpCircle },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
   { path: '/data', label: 'Dati', meta: 'squadre e modelli', icon: Database },

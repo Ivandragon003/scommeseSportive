@@ -579,6 +579,7 @@ export class DatabaseService {
         opportunity_key TEXT NOT NULL,
         confidence TEXT,
         bookmaker_odds REAL,
+        bookmaker_name TEXT,
         theoretical_stake_percent REAL,
         theoretical_stake_amount REAL,
         ranking_position INTEGER NOT NULL,
@@ -637,6 +638,7 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
       'CREATE INDEX IF NOT EXISTS idx_predictions_match_market ON predictions(match_id, market, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_predictions_match_selection_created ON predictions(match_id, selection, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_predictions_result ON predictions(result, market, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id)',
@@ -678,6 +680,7 @@ export class DatabaseService {
       { column: 'opportunity_key', type: 'TEXT' },
       { column: 'confidence', type: 'TEXT' },
       { column: 'bookmaker_odds', type: 'REAL' },
+      { column: 'bookmaker_name', type: 'TEXT' },
       { column: 'theoretical_stake_percent', type: 'REAL' },
       { column: 'theoretical_stake_amount', type: 'REAL' },
       { column: 'ranking_position', type: 'INTEGER DEFAULT 0' },
@@ -3035,15 +3038,107 @@ export class DatabaseService {
     `, params);
   }
 
+  async getBetOpportunityArchive(options: {
+    type?: string;
+    classification?: string;
+    result?: string;
+    matchId?: string;
+    limit?: number;
+  } = {}): Promise<any[]> {
+    const params: any[] = [];
+    const where: string[] = [];
+    const type = String(options.type ?? '').trim().toLowerCase();
+    const classification = String(options.classification ?? '').trim().toUpperCase();
+    const result = String(options.result ?? '').trim().toLowerCase();
+
+    if (options.matchId) { where.push('match_id = ?'); params.push(options.matchId); }
+    if (['operative', 'simulated'].includes(type)) { where.push('archive_type = ?'); params.push(type); }
+    if (['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE'].includes(classification)) {
+      where.push('classification = ?');
+      params.push(classification);
+    }
+    if (['pending', 'win', 'loss', 'void'].includes(result)) { where.push('result = ?'); params.push(result); }
+
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
+    params.push(limit);
+
+    return this.all(`
+      WITH opportunity_archive AS (
+        SELECT
+          d.*,
+          m.home_team_name,
+          m.away_team_name,
+          m.competition,
+          m.date AS match_date,
+          CASE
+            WHEN d.exclusion_reason = 'speculative_saved_only' THEN 'SPECULATIVE'
+            ELSE upper(trim(d.confidence))
+          END AS classification,
+          CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
+            THEN 'operative' ELSE 'simulated'
+          END AS archive_type,
+          CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
+            THEN b.odds ELSE d.bookmaker_odds
+          END AS display_odds,
+          CASE
+            WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL THEN
+              CASE upper(COALESCE(b.status, 'PENDING'))
+                WHEN 'WON' THEN 'win'
+                WHEN 'LOST' THEN 'loss'
+                WHEN 'VOID' THEN 'void'
+                ELSE 'pending'
+              END
+            ELSE COALESCE(p.result, 'pending')
+          END AS result,
+          p.prediction_id,
+          p.raw_probability,
+          p.calibrated_probability,
+          p.ev,
+          p.ev_reason,
+          p.kelly,
+          p.source,
+          p.sample_size_at_time,
+          CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
+            THEN b.stake ELSE NULL
+          END AS bet_stake,
+          CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
+            THEN b.settled_at ELSE p.settled_at
+          END AS settled_at
+        FROM automated_bet_decisions d
+        LEFT JOIN matches m ON m.match_id = d.match_id
+        LEFT JOIN bets b ON b.bet_id = d.bet_id
+        LEFT JOIN predictions p ON p.prediction_id = (
+          SELECT candidate.prediction_id
+          FROM predictions candidate
+          WHERE candidate.match_id = d.match_id
+            AND lower(trim(candidate.selection)) = lower(trim(d.selection))
+            AND datetime(candidate.created_at) <= datetime(d.created_at)
+          ORDER BY datetime(candidate.created_at) DESC, candidate.rowid DESC
+          LIMIT 1
+        )
+        WHERE d.decision_status IN ('placed', 'dry_run', 'saved_only')
+          AND (
+            d.exclusion_reason = 'speculative_saved_only'
+            OR upper(trim(d.confidence)) IN ('HIGH', 'MEDIUM', 'LOW')
+          )
+      )
+      SELECT *
+      FROM opportunity_archive
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY datetime(created_at) DESC, ranking_position ASC
+      LIMIT ?
+    `, params);
+  }
+
   async appendAutomatedBetDecision(row: Record<string, any>): Promise<void> {
     await this.run(
       `INSERT INTO automated_bet_decisions (
         decision_id, user_id, match_id, market_name, selection, opportunity_key, confidence,
-        bookmaker_odds, theoretical_stake_percent, theoretical_stake_amount,
+        bookmaker_odds, bookmaker_name, theoretical_stake_percent, theoretical_stake_amount,
         ranking_position, operational_slot, decision_status, exclusion_reason, bet_id, created_at
       ) VALUES (
         :decisionId, :userId, :matchId, :marketName, :selection, :opportunityKey, :confidence,
-        :bookmakerOdds, :theoreticalStakePercent, :theoreticalStakeAmount,
+        :bookmakerOdds, :bookmakerName, :theoreticalStakePercent, :theoreticalStakeAmount,
         :rankingPosition, :operationalSlot, :decisionStatus, :exclusionReason, :betId, :createdAt
       )`,
       {
@@ -3055,6 +3150,7 @@ export class DatabaseService {
         opportunityKey: String(row.opportunityKey ?? automatedBetOpportunityKey(row.marketName, row.selection)),
         confidence: row.confidence == null ? null : String(row.confidence),
         bookmakerOdds: row.bookmakerOdds == null ? null : Number(row.bookmakerOdds),
+        bookmakerName: row.bookmakerName == null ? null : String(row.bookmakerName),
         theoreticalStakePercent: row.theoreticalStakePercent == null ? null : Number(row.theoreticalStakePercent),
         theoreticalStakeAmount: row.theoreticalStakeAmount == null ? null : Number(row.theoreticalStakeAmount),
         rankingPosition: Number(row.rankingPosition),
@@ -3085,11 +3181,11 @@ export class DatabaseService {
       const result = await this.execute(
         `INSERT OR IGNORE INTO automated_bet_decisions (
           decision_id, user_id, match_id, market_name, selection, opportunity_key, confidence,
-          bookmaker_odds, theoretical_stake_percent, theoretical_stake_amount,
+          bookmaker_odds, bookmaker_name, theoretical_stake_percent, theoretical_stake_amount,
           ranking_position, operational_slot, decision_status, exclusion_reason, bet_id, created_at
         ) VALUES (
           :decisionId, :userId, :matchId, :marketName, :selection, :opportunityKey, :confidence,
-          :bookmakerOdds, :theoreticalStakePercent, :theoreticalStakeAmount,
+          :bookmakerOdds, :bookmakerName, :theoreticalStakePercent, :theoreticalStakeAmount,
           :rankingPosition, :operationalSlot, 'reserved', NULL, NULL, :createdAt
         )`,
         {
@@ -3101,6 +3197,7 @@ export class DatabaseService {
           opportunityKey: String(row.opportunityKey ?? automatedBetOpportunityKey(row.marketName, row.selection)),
           confidence: row.confidence == null ? null : String(row.confidence),
           bookmakerOdds: row.bookmakerOdds == null ? null : Number(row.bookmakerOdds),
+          bookmakerName: row.bookmakerName == null ? null : String(row.bookmakerName),
           theoreticalStakePercent: row.theoreticalStakePercent == null ? null : Number(row.theoreticalStakePercent),
           theoreticalStakeAmount: row.theoreticalStakeAmount == null ? null : Number(row.theoreticalStakeAmount),
           rankingPosition: Number(row.rankingPosition),
@@ -3236,6 +3333,26 @@ export class DatabaseService {
       );
     }
     return this.all(`SELECT * FROM predictions WHERE result = 'pending' ORDER BY created_at ASC`);
+  }
+
+  async getPendingBetOpportunityPredictions(): Promise<any[]> {
+    return this.all(`
+      SELECT p.*
+      FROM predictions p
+      WHERE p.result = 'pending'
+        AND EXISTS (
+          SELECT 1
+          FROM automated_bet_decisions d
+          WHERE d.match_id = p.match_id
+            AND lower(trim(d.selection)) = lower(trim(p.selection))
+            AND d.decision_status IN ('placed', 'dry_run', 'saved_only')
+            AND (
+              d.exclusion_reason = 'speculative_saved_only'
+              OR upper(trim(d.confidence)) IN ('HIGH', 'MEDIUM', 'LOW')
+            )
+        )
+      ORDER BY p.created_at ASC
+    `);
   }
 
   /** Official calibration/backtest input. Missing guarantees are excluded by SQL equality. */

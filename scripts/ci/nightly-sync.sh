@@ -165,7 +165,10 @@ else
   echo "Skipping transition reference sync. RUN_TRANSITION_REFERENCE_SYNC=false."
 fi
 
-echo "Settling archived predictions for completed matches..."
+# The Understat route already settles the small user-facing opportunity archive.
+# Keep the complete raw prediction settlement as a separate maintenance step:
+# it can be slower and remains useful for calibration/backtest history.
+echo "Settling the complete technical prediction audit for completed matches..."
 post_json \
   "http://127.0.0.1:$PORT/api/predictions/settle-completed" \
   "{\"limit\":500}" \

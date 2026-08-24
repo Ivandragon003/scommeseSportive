@@ -396,7 +396,8 @@ async function runBootDataSync(): Promise<void> {
         const data = payload?.data ?? {};
         console.log(
           `[bootstrap-sync] Done. New matches: ${Number(data?.newMatchesImported ?? 0)}, ` +
-          `updated: ${Number(data?.existingMatchesUpdated ?? 0)}.`,
+          `updated: ${Number(data?.existingMatchesUpdated ?? 0)}, ` +
+          `predictions settled: ${Number(data?.predictionSettlement?.settled ?? 0)}.`,
         );
         lastUpdate = {
           at: new Date(),
@@ -414,6 +415,7 @@ async function runBootDataSync(): Promise<void> {
             newMatchesImported: Number(data?.newMatchesImported ?? 0),
             existingMatchesUpdated: Number(data?.existingMatchesUpdated ?? 0),
             upcomingMatchesImported: Number(data?.upcomingMatchesImported ?? 0),
+            predictionSettlement: data?.predictionSettlement ?? null,
           },
           startedAt: startedAt.toISOString(),
           endedAt: new Date().toISOString(),
@@ -625,6 +627,10 @@ async function runUnderstatScheduledSync(trigger: 'scheduled'): Promise<void> {
       return;
     }
 
+    const predictionSettlement = data?.predictionSettlement ?? null;
+    if (predictionSettlement?.success === false) {
+      understatSchedulerState.lastError = `Chiusura prediction fallita: ${predictionSettlement.error}`;
+    }
     understatSchedulerState.lastRunAt = new Date();
     understatSchedulerState.lastDurationMs = Date.now() - startedAt.getTime();
     understatSchedulerState.lastResult = {
@@ -660,6 +666,7 @@ async function runUnderstatScheduledSync(trigger: 'scheduled'): Promise<void> {
         playersUpdated: Number(data?.playersUpdated ?? 0),
         teamsRecomputed: Number(data?.teamsRecomputed ?? 0),
         isUpToDate: Boolean(data?.isUpToDate),
+        predictionSettlement,
       },
     });
   } catch (err: any) {
