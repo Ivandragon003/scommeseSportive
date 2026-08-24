@@ -1,14 +1,88 @@
-import { createClient } from '@libsql/client';
+import { createClient, type InStatement } from '@libsql/client';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningService';
 
 type SqlArgs = Record<string, any> | any[];
+const MATCH_UPSERT_CHUNK_SIZE = 100;
+
+export class MatchBatchCommitError extends Error {
+  readonly committedCount: number;
+
+  constructor(committedCount: number, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Match batch failed after ${committedCount} committed row(s): ${detail}`);
+    this.name = 'MatchBatchCommitError';
+    this.committedCount = committedCount;
+  }
+}
+const MATCH_UPSERT_SQL = `
+      INSERT INTO matches (
+        match_id, home_team_id, away_team_id, home_team_name, away_team_name,
+        date, home_goals, away_goals, home_xg, away_xg,
+        home_shots, away_shots, home_shots_on_target, away_shots_on_target,
+        home_possession, away_possession, home_fouls, away_fouls,
+        home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards,
+        home_corners, away_corners,
+        referee, competition, season, source, source_match_id, raw_json
+      ) VALUES (
+        :matchId, :homeTeamId, :awayTeamId, :homeTeamName, :awayTeamName,
+        :date, :homeGoals, :awayGoals, :homeXG, :awayXG,
+        :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
+        :homePoss, :awayPoss, :homeFouls, :awayFouls,
+        :homeYellow, :awayYellow, :homeRed, :awayRed,
+        :homeCorners, :awayCorners,
+        :referee, :competition, :season, :source, :sourceMatchId, :rawJson
+      )
+      ON CONFLICT(match_id) DO UPDATE SET
+        home_team_id = COALESCE(excluded.home_team_id, matches.home_team_id),
+        away_team_id = COALESCE(excluded.away_team_id, matches.away_team_id),
+        home_team_name = COALESCE(excluded.home_team_name, matches.home_team_name),
+        away_team_name = COALESCE(excluded.away_team_name, matches.away_team_name),
+        date = COALESCE(excluded.date, matches.date),
+        home_goals = COALESCE(excluded.home_goals, matches.home_goals),
+        away_goals = COALESCE(excluded.away_goals, matches.away_goals),
+        home_xg = COALESCE(excluded.home_xg, matches.home_xg),
+        away_xg = COALESCE(excluded.away_xg, matches.away_xg),
+        home_shots = COALESCE(excluded.home_shots, matches.home_shots),
+        away_shots = COALESCE(excluded.away_shots, matches.away_shots),
+        home_shots_on_target = COALESCE(excluded.home_shots_on_target, matches.home_shots_on_target),
+        away_shots_on_target = COALESCE(excluded.away_shots_on_target, matches.away_shots_on_target),
+        home_possession = COALESCE(excluded.home_possession, matches.home_possession),
+        away_possession = COALESCE(excluded.away_possession, matches.away_possession),
+        home_fouls = COALESCE(excluded.home_fouls, matches.home_fouls),
+        away_fouls = COALESCE(excluded.away_fouls, matches.away_fouls),
+        home_yellow_cards = COALESCE(excluded.home_yellow_cards, matches.home_yellow_cards),
+        away_yellow_cards = COALESCE(excluded.away_yellow_cards, matches.away_yellow_cards),
+        home_red_cards = COALESCE(excluded.home_red_cards, matches.home_red_cards),
+        away_red_cards = COALESCE(excluded.away_red_cards, matches.away_red_cards),
+        home_corners = COALESCE(excluded.home_corners, matches.home_corners),
+        away_corners = COALESCE(excluded.away_corners, matches.away_corners),
+        referee = COALESCE(excluded.referee, matches.referee),
+        competition = COALESCE(excluded.competition, matches.competition),
+        season = COALESCE(excluded.season, matches.season),
+        source = COALESCE(excluded.source, matches.source),
+        source_match_id = COALESCE(excluded.source_match_id, matches.source_match_id),
+        raw_json = COALESCE(excluded.raw_json, matches.raw_json)
+    `;
+// Listing endpoints never consume the potentially large raw provider payload. Keeping
+// this projection explicit also makes accidental SELECT * regressions visible in review.
+const MATCH_LIST_COLUMNS = [
+  'match_id', 'home_team_id', 'away_team_id', 'home_team_name', 'away_team_name',
+  'date', 'home_goals', 'away_goals', 'home_xg', 'away_xg',
+  'home_shots', 'away_shots', 'home_shots_on_target', 'away_shots_on_target',
+  'home_possession', 'away_possession', 'home_fouls', 'away_fouls',
+  'home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards',
+  'home_corners', 'away_corners', 'referee', 'competition', 'season',
+  'source', 'source_match_id', 'created_at',
+].join(', ');
 type HistoricalOddsDetail = {
   odds: Record<string, number>;
   oddsSource: 'odds_api' | 'eurobet_scraper' | 'fallback' | 'synthetic' | 'unknown';
   snapshotSource: string | null;
+  selectedBookmakerKey?: string | null;
+  selectedBookmakerName?: string | null;
   capturedAt: string | null;
   closingOdds?: Record<string, number>;
   closingCapturedAt?: string | null;
@@ -160,11 +234,19 @@ export class DatabaseService {
   private async initialize(): Promise<void> {
     await this.execute('PRAGMA foreign_keys = ON', undefined, true);
     await this.initSchema();
-    // Base tables must exist before additive versioned migrations can alter
-    // legacy schemas (Turso rejects ALTER TABLE on a missing table).
+    // `007_automated_bet_decisions.sql` is additive only for a missing table.
+    // A deployed legacy table may already exist while that migration is marked
+    // applied, or may need its columns before the migration's backfill runs.
+    // Make that narrow compatibility boundary safe before migrations, then run
+    // the complete post-migration pass below.
+    await this.ensureAutomatedBetDecisionCompatibility();
+    // Base tables and the 007 compatibility boundary now exist before additive
+    // versioned migrations run (Turso rejects ALTER TABLE on a missing table).
     await this.runVersionedMigrations();
     await this.ensureOptionalColumnsOnce();
+    await this.ensureAutomatedBetDecisionCompatibility();
     await this.ensureBudgetSessionBackfill();
+    await this.ensureDependentSchemaObjects();
   }
 
   private async ensureBudgetSessionBackfill(): Promise<void> {
@@ -451,6 +533,8 @@ export class DatabaseService {
         estimated_odds_json TEXT,
         fallback_odds_json TEXT,
         all_bookmaker_odds_json TEXT,
+        selected_bookmaker_key TEXT,
+        selected_bookmaker_name TEXT,
         markets_requested_json TEXT,
         used_fallback_bookmaker INTEGER DEFAULT 0,
         used_synthetic_odds INTEGER DEFAULT 0,
@@ -504,16 +588,6 @@ export class DatabaseService {
         bet_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`,
-      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_match
-       ON automated_bet_decisions(match_id, created_at)`,
-      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_user
-       ON automated_bet_decisions(user_id, created_at)`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_slot
-       ON automated_bet_decisions(user_id, match_id, operational_slot)
-       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_opportunity
-       ON automated_bet_decisions(user_id, match_id, opportunity_key)
-       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
       `CREATE TABLE IF NOT EXISTS learning_reviews (
         match_id TEXT PRIMARY KEY,
         competition TEXT,
@@ -574,7 +648,6 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_system_runs_type_started ON system_runs(run_type, started_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_system_runs_component_started ON system_runs(component, started_at DESC)',
       "INSERT OR IGNORE INTO users (user_id, username) VALUES ('user1', 'Giocatore 1'), ('user2', 'Giocatore 2')",
-      ...PREDICTION_IMMUTABILITY_STATEMENTS,
     ];
 
     await this.executeBatch(statements, true);
@@ -588,6 +661,80 @@ export class DatabaseService {
       });
     }
     await DatabaseService.optionalColumnsCheckPromise;
+  }
+
+  /**
+   * SQLite's CREATE TABLE IF NOT EXISTS never evolves an older table. Keep the
+   * operational-decision audit readable on databases that predate migration
+   * 007, including installations that have already recorded 007 as applied.
+   */
+  private async ensureAutomatedBetDecisionCompatibility(): Promise<void> {
+    await this.ensureTableColumns('automated_bet_decisions', [
+      { column: 'decision_id', type: 'TEXT' },
+      { column: 'user_id', type: 'TEXT' },
+      { column: 'match_id', type: 'TEXT' },
+      { column: 'market_name', type: 'TEXT' },
+      { column: 'selection', type: 'TEXT' },
+      { column: 'opportunity_key', type: 'TEXT' },
+      { column: 'confidence', type: 'TEXT' },
+      { column: 'bookmaker_odds', type: 'REAL' },
+      { column: 'theoretical_stake_percent', type: 'REAL' },
+      { column: 'theoretical_stake_amount', type: 'REAL' },
+      { column: 'ranking_position', type: 'INTEGER DEFAULT 0' },
+      { column: 'operational_slot', type: 'INTEGER' },
+      // SQLite allows ADD COLUMN with this constant DEFAULT, so legacy rows
+      // get a safe non-active status without rewriting or dropping data.
+      { column: 'decision_status', type: "TEXT NOT NULL DEFAULT 'saved_only'" },
+      { column: 'exclusion_reason', type: 'TEXT' },
+      { column: 'bet_id', type: 'TEXT' },
+      { column: 'created_at', type: 'TEXT' },
+    ]);
+
+    await this.execute(
+      `UPDATE automated_bet_decisions
+       SET opportunity_key = 'legacy:' || COALESCE(NULLIF(trim(decision_id), ''), CAST(rowid AS TEXT))
+       WHERE opportunity_key IS NULL OR trim(opportunity_key) = ''`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `UPDATE automated_bet_decisions
+       SET decision_status = 'saved_only'
+       WHERE decision_status IS NULL OR trim(decision_status) = ''`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `UPDATE automated_bet_decisions
+       SET ranking_position = 0
+       WHERE ranking_position IS NULL`,
+      undefined,
+      true,
+    );
+    await this.execute(
+      `UPDATE automated_bet_decisions
+       SET created_at = datetime('now')
+       WHERE created_at IS NULL OR trim(created_at) = ''`,
+      undefined,
+      true,
+    );
+  }
+
+  /** Create indexes/triggers only after every referenced legacy column exists. */
+  private async ensureDependentSchemaObjects(): Promise<void> {
+    await this.executeBatch([
+      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_match
+       ON automated_bet_decisions(match_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_automated_bet_decisions_user
+       ON automated_bet_decisions(user_id, created_at)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_slot
+       ON automated_bet_decisions(user_id, match_id, operational_slot)
+       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_automated_bet_decisions_active_opportunity
+       ON automated_bet_decisions(user_id, match_id, opportunity_key)
+       WHERE operational_slot IS NOT NULL AND decision_status IN ('reserved', 'placed')`,
+      ...PREDICTION_IMMUTABILITY_STATEMENTS,
+    ], true);
   }
 
   async getTableColumns(table: string): Promise<string[]> {
@@ -671,6 +818,10 @@ export class DatabaseService {
       { table: 'predictions', column: 'has_immutability_enforced', type: 'INTEGER NOT NULL DEFAULT 0' },
       { table: 'predictions', column: 'has_generic_void_handling', type: 'INTEGER NOT NULL DEFAULT 0' },
       { table: 'predictions', column: 'has_configurable_thresholds', type: 'INTEGER NOT NULL DEFAULT 0' },
+      // La provenienza deve viaggiare con lo snapshot: le quote di bookmaker
+      // diversi non sono intercambiabili.
+      { table: 'odds_snapshots', column: 'selected_bookmaker_key', type: 'TEXT' },
+      { table: 'odds_snapshots', column: 'selected_bookmaker_name', type: 'TEXT' },
     ];
 
     const byTable = new Map<string, Array<{ column: string; type: string }>>();
@@ -692,57 +843,35 @@ export class DatabaseService {
   // ==================== MATCHES ====================
 
   async upsertMatch(match: any): Promise<void> {
-    await this.run(
-      `
-      INSERT INTO matches (
-        match_id, home_team_id, away_team_id, home_team_name, away_team_name,
-        date, home_goals, away_goals, home_xg, away_xg,
-        home_shots, away_shots, home_shots_on_target, away_shots_on_target,
-        home_possession, away_possession, home_fouls, away_fouls,
-        home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards,
-        home_corners, away_corners,
-        referee, competition, season, source, source_match_id, raw_json
-      ) VALUES (
-        :matchId, :homeTeamId, :awayTeamId, :homeTeamName, :awayTeamName,
-        :date, :homeGoals, :awayGoals, :homeXG, :awayXG,
-        :homeShots, :awayShots, :homeShotsOT, :awayShotsOT,
-        :homePoss, :awayPoss, :homeFouls, :awayFouls,
-        :homeYellow, :awayYellow, :homeRed, :awayRed,
-        :homeCorners, :awayCorners,
-        :referee, :competition, :season, :source, :sourceMatchId, :rawJson
-      )
-      ON CONFLICT(match_id) DO UPDATE SET
-        home_team_id = COALESCE(excluded.home_team_id, matches.home_team_id),
-        away_team_id = COALESCE(excluded.away_team_id, matches.away_team_id),
-        home_team_name = COALESCE(excluded.home_team_name, matches.home_team_name),
-        away_team_name = COALESCE(excluded.away_team_name, matches.away_team_name),
-        date = COALESCE(excluded.date, matches.date),
-        home_goals = COALESCE(excluded.home_goals, matches.home_goals),
-        away_goals = COALESCE(excluded.away_goals, matches.away_goals),
-        home_xg = COALESCE(excluded.home_xg, matches.home_xg),
-        away_xg = COALESCE(excluded.away_xg, matches.away_xg),
-        home_shots = COALESCE(excluded.home_shots, matches.home_shots),
-        away_shots = COALESCE(excluded.away_shots, matches.away_shots),
-        home_shots_on_target = COALESCE(excluded.home_shots_on_target, matches.home_shots_on_target),
-        away_shots_on_target = COALESCE(excluded.away_shots_on_target, matches.away_shots_on_target),
-        home_possession = COALESCE(excluded.home_possession, matches.home_possession),
-        away_possession = COALESCE(excluded.away_possession, matches.away_possession),
-        home_fouls = COALESCE(excluded.home_fouls, matches.home_fouls),
-        away_fouls = COALESCE(excluded.away_fouls, matches.away_fouls),
-        home_yellow_cards = COALESCE(excluded.home_yellow_cards, matches.home_yellow_cards),
-        away_yellow_cards = COALESCE(excluded.away_yellow_cards, matches.away_yellow_cards),
-        home_red_cards = COALESCE(excluded.home_red_cards, matches.home_red_cards),
-        away_red_cards = COALESCE(excluded.away_red_cards, matches.away_red_cards),
-        home_corners = COALESCE(excluded.home_corners, matches.home_corners),
-        away_corners = COALESCE(excluded.away_corners, matches.away_corners),
-        referee = COALESCE(excluded.referee, matches.referee),
-        competition = COALESCE(excluded.competition, matches.competition),
-        season = COALESCE(excluded.season, matches.season),
-        source = COALESCE(excluded.source, matches.source),
-        source_match_id = COALESCE(excluded.source_match_id, matches.source_match_id),
-        raw_json = COALESCE(excluded.raw_json, matches.raw_json)
-    `,
-      {
+    await this.run(MATCH_UPSERT_SQL, this.getMatchUpsertArgs(match));
+  }
+
+  /**
+   * Each chunk is a libSQL write transaction. The explicit cap avoids creating
+   * an unbounded single request for a large historical season while preserving
+   * all-or-nothing semantics inside every submitted chunk.
+   */
+  async upsertMatches(matches: any[], chunkSize = MATCH_UPSERT_CHUNK_SIZE): Promise<{ committedCount: number }> {
+    if (matches.length === 0) return { committedCount: 0 };
+    await this.initPromise;
+    const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || MATCH_UPSERT_CHUNK_SIZE, MATCH_UPSERT_CHUNK_SIZE));
+    let committedCount = 0;
+    for (let start = 0; start < matches.length; start += safeChunkSize) {
+      const statements: InStatement[] = matches
+        .slice(start, start + safeChunkSize)
+        .map((match) => ({ sql: MATCH_UPSERT_SQL, args: this.getMatchUpsertArgs(match) }));
+      try {
+        await this.db.batch(statements, 'write');
+        committedCount += statements.length;
+      } catch (error) {
+        throw new MatchBatchCommitError(committedCount, error);
+      }
+    }
+    return { committedCount };
+  }
+
+  private getMatchUpsertArgs(match: any): SqlArgs {
+    return {
         matchId: match.matchId,
         homeTeamId: match.homeTeamId,
         awayTeamId: match.awayTeamId,
@@ -773,8 +902,7 @@ export class DatabaseService {
         source: match.source ?? 'manual',
         sourceMatchId: match.sourceMatchId ?? null,
         rawJson: match.rawJson ?? null,
-      }
-    );
+      };
   }
 
   async getMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string; includeRawJson?: boolean }): Promise<any[]> {
@@ -832,7 +960,7 @@ export class DatabaseService {
       q += ' AND date <= ?';
       p.push(filters.toDate);
     }
-    q += ' ORDER BY datetime(date) DESC';
+    q += ' ORDER BY date DESC';
     return this.all(q, p);
   }
 
@@ -1452,6 +1580,8 @@ export class DatabaseService {
       estimatedOdds: parseJson(row.estimated_odds_json),
       fallbackOdds: parseJson(row.fallback_odds_json),
       allBookmakerOdds: parseJson(row.all_bookmaker_odds_json),
+      selectedBookmakerKey: typeof row.selected_bookmaker_key === 'string' ? row.selected_bookmaker_key : null,
+      selectedBookmakerName: typeof row.selected_bookmaker_name === 'string' ? row.selected_bookmaker_name : null,
       marketsRequested: Array.isArray(parseJson(row.markets_requested_json)) ? parseJson(row.markets_requested_json) : [],
       usedFallbackBookmaker: Boolean(Number(row.used_fallback_bookmaker ?? 0)),
       usedSyntheticOdds: Boolean(Number(row.used_synthetic_odds ?? 0)),
@@ -1464,15 +1594,24 @@ export class DatabaseService {
     if (Boolean(row?.usedSyntheticOdds) || source.includes('model_estimated') || source.includes('synthetic')) {
       return 'synthetic';
     }
-    if (source === 'odds_api' && !row?.usedFallbackBookmaker) {
+    if (source === 'odds_api' && !row?.usedFallbackBookmaker && this.hasSelectedBookmakerProvenance(row)) {
       return 'odds_api';
     }
     if (Boolean(row?.usedFallbackBookmaker) || source.includes('fallback')) {
       return 'fallback';
     }
-    if (source.includes('odds_api')) return 'odds_api';
+    if (source.includes('odds_api')) return this.hasSelectedBookmakerProvenance(row) ? 'odds_api' : 'unknown';
     if (source.includes('eurobet')) return 'eurobet_scraper';
     return 'unknown';
+  }
+
+  private hasSelectedBookmakerProvenance(row: any): boolean {
+    return Boolean(String(row?.selectedBookmakerName ?? row?.selected_bookmaker_name ?? '').trim());
+  }
+
+  private isHistoricalOddsSnapshotUsable(row: any): boolean {
+    const source = String(row?.source ?? '').trim().toLowerCase();
+    return !source.includes('odds_api') || this.hasSelectedBookmakerProvenance(row);
   }
 
   async saveOddsSnapshot(snapshot: {
@@ -1490,6 +1629,8 @@ export class DatabaseService {
     estimatedOdds?: Record<string, number>;
     fallbackOdds?: Record<string, number>;
     allBookmakerOdds?: Record<string, Record<string, number>>;
+    selectedBookmakerKey?: string | null;
+    selectedBookmakerName?: string | null;
     marketsRequested?: string[];
     usedFallbackBookmaker?: boolean;
     usedSyntheticOdds?: boolean;
@@ -1500,12 +1641,14 @@ export class DatabaseService {
       `INSERT INTO odds_snapshots (
         snapshot_id, match_id, odds_provider_match_id, competition, home_team_name, away_team_name,
         commence_time, source, selected_odds_json, live_selected_odds_json, eurobet_odds_json,
-        estimated_odds_json, fallback_odds_json, all_bookmaker_odds_json, markets_requested_json,
+        estimated_odds_json, fallback_odds_json, all_bookmaker_odds_json, selected_bookmaker_key,
+        selected_bookmaker_name, markets_requested_json,
         used_fallback_bookmaker, used_synthetic_odds, confidence_score, captured_at
       ) VALUES (
         :snapshotId, :matchId, :oddsProviderMatchId, :competition, :homeTeamName, :awayTeamName,
         :commenceTime, :source, :selectedOddsJson, :liveSelectedOddsJson, :eurobetOddsJson,
-        :estimatedOddsJson, :fallbackOddsJson, :allBookmakerOddsJson, :marketsRequestedJson,
+        :estimatedOddsJson, :fallbackOddsJson, :allBookmakerOddsJson, :selectedBookmakerKey,
+        :selectedBookmakerName, :marketsRequestedJson,
         :usedFallbackBookmaker, :usedSyntheticOdds, :confidenceScore, :capturedAt
       )`,
       {
@@ -1523,6 +1666,8 @@ export class DatabaseService {
         estimatedOddsJson: JSON.stringify(snapshot.estimatedOdds ?? {}),
         fallbackOddsJson: JSON.stringify(snapshot.fallbackOdds ?? {}),
         allBookmakerOddsJson: JSON.stringify(snapshot.allBookmakerOdds ?? {}),
+        selectedBookmakerKey: String(snapshot.selectedBookmakerKey ?? '').trim() || null,
+        selectedBookmakerName: String(snapshot.selectedBookmakerName ?? '').trim() || null,
         marketsRequestedJson: JSON.stringify(snapshot.marketsRequested ?? []),
         usedFallbackBookmaker: snapshot.usedFallbackBookmaker ? 1 : 0,
         usedSyntheticOdds: snapshot.usedSyntheticOdds ? 1 : 0,
@@ -1663,7 +1808,10 @@ export class DatabaseService {
 
     const out: Record<string, HistoricalOddsDetail> = {};
     for (const [matchId, matchRows] of rowsByMatch) {
-      const selectedRow = matchRows[0];
+      // A legacy odds_api row may contain a cross-bookmaker merged map. It has
+      // no trustworthy provenance and must not become input to a value backtest.
+      const selectedRow = matchRows.find((row) => this.isHistoricalOddsSnapshotUsable(row));
+      if (!selectedRow) continue;
       const liveOdds = selectedRow.liveSelectedOdds ?? selectedRow.eurobetOdds ?? {};
       const normalized = normalizeOdds(liveOdds);
       if (Object.keys(normalized).length === 0) continue;
@@ -1692,6 +1840,8 @@ export class DatabaseService {
         odds: normalized,
         oddsSource: this.classifyHistoricalOddsSource(selectedRow),
         snapshotSource: String(selectedRow.source ?? '').trim() || null,
+        selectedBookmakerKey: String(selectedRow.selectedBookmakerKey ?? '').trim() || null,
+        selectedBookmakerName: String(selectedRow.selectedBookmakerName ?? '').trim() || null,
         capturedAt: String(selectedRow.captured_at ?? '').trim() || null,
         closingOdds,
         closingCapturedAt: closingRow ? String(closingRow.captured_at ?? '').trim() || null : null,
@@ -1998,9 +2148,9 @@ export class DatabaseService {
     const nowIso = new Date(nowMs).toISOString();
     const toleranceMs = 5 * 60 * 1000;
     let q = `
-      SELECT *
+      SELECT ${MATCH_LIST_COLUMNS}
       FROM matches
-      WHERE datetime(date) >= datetime(?)
+      WHERE date >= ?
         AND home_goals IS NULL
         AND away_goals IS NULL
     `;
@@ -2008,7 +2158,7 @@ export class DatabaseService {
 
     const parsedUntil = Date.parse(String(filters?.untilIso ?? ''));
     if (Number.isFinite(parsedUntil)) {
-      q += ' AND datetime(date) <= datetime(?)';
+      q += ' AND date <= ?';
       params.push(new Date(parsedUntil).toISOString());
     }
 
@@ -2043,7 +2193,7 @@ export class DatabaseService {
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
       : 380;
     const queryLimit = Math.max(safeLimit, Math.min(safeLimit * 4, 2000));
-    q += ' ORDER BY datetime(date) ASC LIMIT ?';
+    q += ' ORDER BY date ASC LIMIT ?';
     params.push(queryLimit);
 
     const rows = await this.all(q, params);
@@ -2075,7 +2225,7 @@ export class DatabaseService {
 
   async getRecentCompletedMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
     let q = `
-      SELECT *
+      SELECT ${MATCH_LIST_COLUMNS}
       FROM matches
       WHERE home_goals IS NOT NULL
         AND away_goals IS NOT NULL
@@ -2113,7 +2263,7 @@ export class DatabaseService {
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 300))
       : 80;
 
-    q += ' ORDER BY datetime(date) DESC LIMIT ?';
+    q += ' ORDER BY date DESC LIMIT ?';
     params.push(safeLimit);
 
     return this.all(q, params);
@@ -3026,9 +3176,10 @@ export class DatabaseService {
 
   /** Append-only audit trail. Existing prediction rows are never updated or replaced. */
   async appendPredictions(rows: Array<Record<string, any>>): Promise<void> {
-    for (const row of rows) {
-      await this.run(
-        `INSERT INTO predictions (
+    if (rows.length === 0) return;
+    await this.initPromise;
+
+    const sql = `INSERT INTO predictions (
           prediction_id, match_id, market, selection, raw_probability, calibrated_probability,
           model_version, source, odds_at_prediction, implied_probability, novig_probability,
           has_complementary_odds, ev, ev_reason, kelly, confidence_computed, snapshot_type,
@@ -3040,8 +3191,10 @@ export class DatabaseService {
           :hasComplementaryOdds, :ev, :evReason, :kelly, :confidenceComputed, :snapshotType,
           :sampleSizeAtTime, :createdAt, :isPromotedToBet, 'pending', NULL, :supersedesPredictionId,
           :hasFullMarketLogging, :hasImmutabilityEnforced, :hasGenericVoidHandling, :hasConfigurableThresholds
-        )`,
-        {
+        )`;
+    const statements: InStatement[] = rows.map((row) => ({
+      sql,
+      args: {
           predictionId: String(row.predictionId),
           matchId: String(row.matchId),
           market: String(row.market),
@@ -3067,9 +3220,12 @@ export class DatabaseService {
           hasImmutabilityEnforced: row.loggingFlags?.hasImmutabilityEnforced ? 1 : 0,
           hasGenericVoidHandling: row.loggingFlags?.hasGenericVoidHandling ? 1 : 0,
           hasConfigurableThresholds: row.loggingFlags?.hasConfigurableThresholds ? 1 : 0,
-        }
-      );
-    }
+      },
+    }));
+
+    // libSQL batch("write") is one implicit write transaction: an error on any
+    // audit row rolls back every row, preserving complete append-only snapshots.
+    await this.db.batch(statements, 'write');
   }
 
   async getPendingPredictions(matchId?: string): Promise<any[]> {

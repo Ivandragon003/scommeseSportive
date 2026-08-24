@@ -49,13 +49,13 @@ describe('predictions UI components', () => {
     render(
       <BestValueCard
         opportunity={opportunity}
-        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota bookmaker verificata: Pinnacle', className: 'pr-badge-green' }}
       />
     );
 
     expect(screen.getByTestId('best-value-card')).toBeTruthy();
     expect(screen.getByText('Over 2.5 Goal')).toBeTruthy();
-    expect(screen.getByText('Quota Eurobet')).toBeTruthy();
+    expect(screen.getByText('Quota bookmaker')).toBeTruthy();
     expect(screen.getByText('2.15')).toBeTruthy();
     expect(screen.getByText('Probabilità stimata')).toBeTruthy();
     expect(screen.getByText('Affidabilità')).toBeTruthy();
@@ -70,7 +70,7 @@ describe('predictions UI components', () => {
     render(
       <BestValueCard
         opportunity={null}
-        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota bookmaker verificata: Pinnacle', className: 'pr-badge-green' }}
         bestBetStatus="NO_MARKET"
         bestBetReason="Quote o probabilita insufficienti per scegliere una giocata."
       />
@@ -92,7 +92,7 @@ describe('predictions UI components', () => {
           riskAdjustedBestScore: 0.08,
           edgeNoVig: 1.2,
         }}
-        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota bookmaker verificata: Pinnacle', className: 'pr-badge-green' }}
         bestBetAlternatives={[
           {
             selection: 'dnb_away',
@@ -126,7 +126,7 @@ describe('predictions UI components', () => {
           expectedValue: 21.3,
           edge: 13.3,
         }}
-        oddsBadge={{ label: 'Quota Eurobet verificata', className: 'pr-badge-green' }}
+        oddsBadge={{ label: 'Quota bookmaker verificata: Pinnacle', className: 'pr-badge-green' }}
       />
     );
 
@@ -137,11 +137,11 @@ describe('predictions UI components', () => {
   });
 
   test('renderizza badge sorgente quote', () => {
-    render(<OddsSourceBadge badge={{ label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' }} testId="badge" />);
+    render(<OddsSourceBadge badge={{ label: 'Quota bookmaker non disponibile', className: 'pr-badge-gray' }} testId="badge" />);
 
     const badge = screen.getByTestId('badge');
     expect(badge).toBeTruthy();
-    expect(badge.textContent).toBe('Quota Eurobet non disponibile');
+    expect(badge.textContent).toBe('Quota bookmaker non disponibile');
   });
 
   test('mostra stake suggerito sul bankroll', () => {
@@ -182,7 +182,7 @@ describe('predictions UI components', () => {
     );
 
     expect(screen.getByText(/Provider secondario disponibile/i)).toBeTruthy();
-    expect(screen.getByText(/Quota Eurobet non disponibile per questa partita/i)).toBeTruthy();
+    expect(screen.getByText(/Quota bookmaker non disponibile per questa partita/i)).toBeTruthy();
     expect(screen.getByText(/quote di fallback restano interne/i)).toBeTruthy();
   });
 
@@ -205,12 +205,12 @@ describe('predictions UI components', () => {
       />
     );
 
-    expect(screen.getByText(/Quota Eurobet non disponibile/i)).toBeTruthy();
+    expect(screen.getByText(/Quota bookmaker non disponibile/i)).toBeTruthy();
     expect(screen.queryByText('2.15')).toBeNull();
     expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
   });
 
-  test('sanitizza qualunque sorgente non Eurobet e usa badge prudenti', () => {
+  test('accetta solo quote odds_api con bookmaker reale e usa badge prudenti', () => {
     const prediction = {
       valueOpportunities: [opportunity],
       bestValueOpportunity: opportunity,
@@ -225,8 +225,16 @@ describe('predictions UI components', () => {
         bestBetStatus: 'NO_MARKET',
       })
     );
-    expect(buildOddsReliabilityBadge({ oddsSource: 'odds_api' }, false).label).toBe('Quota Eurobet verificata');
-    expect(buildOddsReliabilityBadge({ oddsSource: 'fallback_provider' }, false).label).toBe('Quota Eurobet non disponibile');
+    expect(sanitizePredictionForBookmakerOdds(prediction, 'odds_api')).toEqual(
+      expect.objectContaining({ valueOpportunities: [], bestValueOpportunity: null, oddsBookmaker: null })
+    );
+    expect(sanitizePredictionForBookmakerOdds(prediction, 'odds_api', 'Pinnacle')).toEqual(
+      expect.objectContaining({ valueOpportunities: [opportunity], oddsBookmaker: 'Pinnacle' })
+    );
+    expect(buildOddsReliabilityBadge({ oddsSource: 'odds_api', oddsBookmaker: 'Pinnacle' }, false).label)
+      .toBe('Quota bookmaker verificata: Pinnacle');
+    expect(buildOddsReliabilityBadge({ oddsSource: 'odds_api' }, false).label).toBe('Quota bookmaker non disponibile');
+    expect(buildOddsReliabilityBadge({ oddsSource: 'fallback_provider' }, false).label).toBe('Quota bookmaker non disponibile');
   });
 
   test('mostra warning sintetici per Under cartellini fragili', () => {
@@ -258,6 +266,7 @@ describe('predictions UI components', () => {
         budgetReady
         isReplayAnalysis={false}
         oddsSource="odds_api"
+        oddsBookmaker="Pinnacle"
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
         stakes={{}}
@@ -328,6 +337,7 @@ describe('predictions UI components', () => {
         budgetReady
         isReplayAnalysis={false}
         oddsSource="odds_api"
+        oddsBookmaker="Pinnacle"
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
         stakes={{}}
@@ -371,6 +381,7 @@ describe('predictions UI components', () => {
         budgetReady
         isReplayAnalysis={false}
         oddsSource="odds_api"
+        oddsBookmaker="Pinnacle"
         placedBetKeySet={new Set()}
         replayOutcomeTone="info"
         stakes={{}}

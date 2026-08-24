@@ -1499,11 +1499,17 @@ export class PredictionService {
   }
 
   async predict(request: PredictionRequest): Promise<PredictionResponse> {
-    const model = await this.getModel(request.competition);
-    const homeTeam = await this.db.getTeam(request.homeTeamId);
-    const awayTeam = await this.db.getTeam(request.awayTeamId);
-    const referee = request.referee ? await this.db.getRefereeByName(request.referee) : null;
-    const matchRow = request.matchId ? await this.db.getMatchById(request.matchId).catch(() => null) : null;
+    // These are independent read-only lookups. Keep the subsequent schedule query
+    // dependent on matchRow so its reference date remains exactly unchanged.
+    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers] = await Promise.all([
+      this.getModel(request.competition),
+      this.db.getTeam(request.homeTeamId),
+      this.db.getTeam(request.awayTeamId),
+      request.referee ? this.db.getRefereeByName(request.referee) : Promise.resolve(null),
+      request.matchId ? this.db.getMatchById(request.matchId).catch(() => null) : Promise.resolve(null),
+      this.db.getPlayersByTeam(request.homeTeamId),
+      this.db.getPlayersByTeam(request.awayTeamId),
+    ]);
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
     const [homeSchedule, awaySchedule] = await Promise.all([
       this.db.getTeamScheduleInsights(request.homeTeamId, referenceDate).catch(() => null),
@@ -1517,10 +1523,6 @@ export class PredictionService {
       awayRecentMatchesCount: request.awayRecentMatchesCount ?? awaySchedule?.matchesInLast14Days ?? undefined,
     };
     await this.applyAdaptiveTuning(derivedRequest.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined);
-
-    // Carica giocatori per i tiri per giocatore
-    const homePlayers = await this.db.getPlayersByTeam(request.homeTeamId);
-    const awayPlayers = await this.db.getPlayersByTeam(request.awayTeamId);
 
     const context = this.contextBuilder.build({
       request: derivedRequest,

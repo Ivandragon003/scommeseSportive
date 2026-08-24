@@ -213,8 +213,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
       ? (predictionAnalysis.pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
           ? 'Replay costruito su snapshot Eurobet storico.'
           : 'Quota Eurobet storica non disponibile: il replay non espone prezzi stimati o di altri provider.')
-      : predictionAnalysis.pred?.oddsSource !== 'odds_api'
-        ? 'Quota Eurobet non disponibile: nessuna quota fallback viene mostrata e non è possibile registrare la giocata.'
+      : predictionAnalysis.pred?.oddsSource !== 'odds_api' || !String(predictionAnalysis.pred?.oddsBookmaker ?? '').trim()
+        ? 'Quota bookmaker non disponibile: nessuna quota fallback viene mostrata e non è possibile registrare la giocata.'
         : null;
 
   const replayOutcomeTone =

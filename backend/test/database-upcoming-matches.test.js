@@ -55,7 +55,11 @@ test('getUpcomingMatches filtra da nowIso, scarta passate/invalide e ordina in m
     nowIso: '2026-05-23T10:00:00.000Z',
   });
 
-  assert.match(calls[0].sql, /datetime\(date\) >= datetime\(\?\)/);
+  // ISO timestamps sort lexicographically: wrapping the indexed column in
+  // datetime() prevents SQLite/libSQL from using idx_matches_date.
+  assert.match(calls[0].sql, /date >= \?/);
+  assert.doesNotMatch(calls[0].sql, /datetime\(date\)/);
+  assert.doesNotMatch(calls[0].sql, /SELECT \*/);
   assert.match(calls[0].sql, /home_goals IS NULL/);
   assert.match(calls[0].sql, /away_goals IS NULL/);
   assert.equal(calls[0].params[0], '2026-05-23T10:00:00.000Z');

@@ -293,6 +293,8 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
             isMerged: false,
             marketSources: { h2h: ['odds_api'], totals: ['odds_api'] },
             bestOddsByProvider: { odds_api: selectedOdds },
+            selectedBookmakerKey: 'pinnacle',
+            selectedBookmakerName: 'Pinnacle',
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },
@@ -319,6 +321,7 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.primaryProvider, 'odds_api');
     assert.equal(json.data.fallbackProvider, null);
     assert.equal(json.data.selectedProvider, 'odds_api');
+    assert.equal(json.data.selectedBookmakerName, 'Pinnacle');
     assert.ok(json.data.timeoutMs >= 45000);
     assert.equal(json.data.providerHealth.odds_api.status, 'healthy');
     assert.deepEqual(json.data.warnings, []);
@@ -332,11 +335,18 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.matchedAwayTeam, 'Milan');
     assert.equal(json.data.commenceTime, '2026-04-25T18:45:00.000Z');
     assert.equal(json.data.match.commenceTime, '2026-04-25T18:45:00.000Z');
-    assert.ok(requests[0].markets.includes('double_chance'));
-    assert.ok(requests[0].markets.includes('draw_no_bet'));
-    assert.ok(requests[0].markets.includes('alternate_totals'));
-    assert.ok(requests[0].fallbackMarkets.includes('h2h'));
-    assert.ok(requests[0].fallbackMarkets.includes('totals'));
+    // The competition endpoint only accepts the small, documented base set.
+    // Extended markets are requested after fixture matching, per event.
+    assert.deepEqual(requests[0].markets, ['h2h', 'totals']);
+    assert.deepEqual(requests[0].fallbackMarkets, ['h2h', 'totals']);
+    for (const eventOnlyMarket of [
+      'h2h_3_way', 'spreads', 'alternate_totals', 'alternate_spreads', 'btts', 'double_chance',
+      'draw_no_bet', 'team_totals', 'alternate_team_totals',
+    ]) {
+      assert.ok(!requests[0].markets.includes(eventOnlyMarket));
+      assert.ok(!requests[0].fallbackMarkets.includes(eventOnlyMarket));
+      assert.ok(requests[0].extraEventMarkets.includes(eventOnlyMarket));
+    }
     // Solo chiavi VALIDE di the-odds-api (verificate live 2026-07).
     assert.ok(requests[0].extraEventMarkets.includes('player_shots'));
     assert.ok(requests[0].extraEventMarkets.includes('player_shots_on_target'));
@@ -357,6 +367,8 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(snapshots[0].matchId, 'understat_match_1');
     assert.equal(snapshots[0].oddsProviderMatchId, 'event_123');
     assert.equal(snapshots[0].source, 'odds_api');
+    assert.equal(snapshots[0].selectedBookmakerKey, 'pinnacle');
+    assert.equal(snapshots[0].selectedBookmakerName, 'Pinnacle');
     assert.equal(snapshots[0].commenceTime, '2026-04-25T18:45:00.000Z');
     assert.deepEqual(snapshots[0].selectedOdds, selectedOdds);
     assert.deepEqual(snapshots[0].liveSelectedOdds, selectedOdds);
@@ -400,6 +412,8 @@ test('/scraper/odds/match usa commenceTime richiesto se il provider non lo espon
             isMerged: false,
             marketSources: { h2h: ['odds_api'] },
             bestOddsByProvider: { odds_api: selectedOdds },
+            selectedBookmakerKey: 'pinnacle',
+            selectedBookmakerName: 'Pinnacle',
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },
@@ -603,6 +617,8 @@ test('/scraper/odds/match ritenta una volta dopo sync kickoff se il primo matchi
             isMerged: false,
             marketSources: { h2h: ['odds_api'] },
             bestOddsByProvider: { odds_api: selectedOdds },
+            selectedBookmakerKey: 'pinnacle',
+            selectedBookmakerName: 'Pinnacle',
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },
@@ -744,6 +760,8 @@ test('/scraper/odds/match non salva in cache una risposta found=false', async ()
             isMerged: false,
             marketSources: { h2h: ['odds_api'] },
             bestOddsByProvider: { odds_api: selectedOdds },
+            selectedBookmakerKey: 'pinnacle',
+            selectedBookmakerName: 'Pinnacle',
             bookmakerComparisonByProvider: { odds_api: { Pinnacle: selectedOdds } },
             marginsByProvider: { odds_api: {} },
           },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getOddsSnapshotStatus,
   getProviderHealth,
@@ -47,6 +47,36 @@ const normalizeOddsState = (data: any) => {
 
 export function useScrapersStatus() {
   const [state, setState] = useState<ScrapersStatusState>(INITIAL_STATE);
+  const isUpdatingRef = useRef(false);
+
+  // Source coverage is static metadata; fetch it once instead of including it in
+  // the recurring operational poll.
+  useEffect(() => {
+    let active = true;
+    void getUnderstatScraperInfo()
+      .then((response) => {
+        if (active) setState((current) => ({ ...current, understatInfo: response.data ?? null }));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  // Preserve the explicit initial diagnostics shown by the provider panel. The
+  // recurring poll below uses the aggregated health payload instead.
+  useEffect(() => {
+    let active = true;
+    void Promise.all([getProviderHealth(), getSystemMetrics()])
+      .then(([providerHealthRes, systemMetricsRes]) => {
+        if (!active) return;
+        setState((current) => ({
+          ...current,
+          providerHealth: normalizeProviderHealth(providerHealthRes ?? {}),
+          systemMetrics: normalizeSystemMetrics(systemMetricsRes ?? {}),
+        }));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const applyOddsState = useCallback((data: any) => {
     setState((current) => ({
@@ -57,23 +87,27 @@ export function useScrapersStatus() {
 
   const refreshStatus = useCallback(async (options?: { force?: boolean }) => {
     try {
-      const [statusRes, infoRes, oddsRes, systemHealthRes, providerHealthRes, systemMetricsRes] = await Promise.all([
+      // /system/health already aggregates provider health and system metrics.
+      // Keep only the two payloads not represented there for the scraper UI.
+      const [statusRes, oddsRes, systemHealthRes] = await Promise.all([
         getScraperStatus(options),
-        getUnderstatScraperInfo(options),
         getOddsSnapshotStatus(options),
         getSystemHealth(options),
-        getProviderHealth(undefined, options),
-        getSystemMetrics(options),
       ]);
+      const systemHealth = normalizeSystemHealth(systemHealthRes ?? {});
+      isUpdatingRef.current = systemHealth.isUpdating;
 
       setState((current) => ({
         ...current,
         scraperStatus: statusRes.data ?? null,
-        understatInfo: infoRes.data ?? null,
         ...normalizeOddsState(oddsRes.data ?? null),
-        systemHealth: normalizeSystemHealth(systemHealthRes ?? {}),
-        providerHealth: normalizeProviderHealth(providerHealthRes ?? {}),
-        systemMetrics: normalizeSystemMetrics(systemMetricsRes ?? {}),
+        systemHealth,
+        providerHealth: systemHealth.providers.status === 'unknown' && current.providerHealth
+          ? current.providerHealth
+          : systemHealth.providers,
+        systemMetrics: systemHealth.metrics.provider.requestsObserved === 0 && current.systemMetrics
+          ? current.systemMetrics
+          : systemHealth.metrics,
       }));
     } catch (error) {
       console.error('Failed to fetch scraper status:', error);
@@ -82,21 +116,24 @@ export function useScrapersStatus() {
 
   const refreshQuotePipeline = useCallback(async (options?: { force?: boolean }) => {
     try {
-      const [statusRes, oddsRes, systemHealthRes, providerHealthRes, systemMetricsRes] = await Promise.all([
+      const [statusRes, oddsRes, systemHealthRes] = await Promise.all([
         getScraperStatus(options),
         getOddsSnapshotStatus(options),
         getSystemHealth(options),
-        getProviderHealth(undefined, options),
-        getSystemMetrics(options),
       ]);
+      const systemHealth = normalizeSystemHealth(systemHealthRes ?? {});
 
       setState((current) => ({
         ...current,
         scraperStatus: statusRes.data ?? current.scraperStatus,
         ...normalizeOddsState(oddsRes.data ?? null),
-        systemHealth: normalizeSystemHealth(systemHealthRes ?? {}),
-        providerHealth: normalizeProviderHealth(providerHealthRes ?? {}),
-        systemMetrics: normalizeSystemMetrics(systemMetricsRes ?? {}),
+        systemHealth,
+        providerHealth: systemHealth.providers.status === 'unknown' && current.providerHealth
+          ? current.providerHealth
+          : systemHealth.providers,
+        systemMetrics: systemHealth.metrics.provider.requestsObserved === 0 && current.systemMetrics
+          ? current.systemMetrics
+          : systemHealth.metrics,
       }));
     } catch (error) {
       console.error('Failed to refresh quote pipeline:', error);
@@ -111,27 +148,56 @@ export function useScrapersStatus() {
 
     setState((current) => ({
       ...current,
-      providerHealth: normalizeProviderHealth(providerHealthRes ?? {}),
+      providerHealth: normalizeSystemHealth({ data: { providers: providerHealthRes?.data ?? providerHealthRes } }).providers,
       systemHealth: normalizeSystemHealth(systemHealthRes ?? {}),
     }));
   }, []);
 
   useEffect(() => {
     let active = true;
+    let timeout: number | undefined;
+    let scheduleGeneration = 0;
+
+    const clearScheduledRefresh = () => {
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+        timeout = undefined;
+      }
+    };
 
     const safeRefresh = async () => {
+      if (document.hidden) return;
       await refreshStatus();
       if (!active) return;
     };
 
+    const scheduleNext = () => {
+      clearScheduledRefresh();
+      const generation = ++scheduleGeneration;
+      const intervalMs = document.hidden ? 60000 : (isUpdatingRef.current ? 5000 : 15000);
+      timeout = window.setTimeout(async () => {
+        if (!active || generation !== scheduleGeneration) return;
+        await safeRefresh();
+        if (active && generation === scheduleGeneration) scheduleNext();
+      }, intervalMs);
+    };
+
     void safeRefresh();
-    const interval = window.setInterval(() => {
-      void safeRefresh();
-    }, 5000);
+    scheduleNext();
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        scheduleGeneration += 1;
+        clearScheduledRefresh();
+        void safeRefresh().finally(() => { if (active) scheduleNext(); });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       active = false;
-      window.clearInterval(interval);
+      scheduleGeneration += 1;
+      clearScheduledRefresh();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [refreshStatus]);
 

@@ -188,16 +188,15 @@ describe('Predictions page', () => {
 
   test('seleziona la partita, carica quote e mostra best value e stake planner', async () => {
     mockedApi.getPrediction
-      .mockResolvedValueOnce({ data: buildPrediction() } as any)
       .mockResolvedValueOnce({ data: buildPrediction({ oddsSource: 'odds_api' }) } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: true,
         source: 'odds_api',
         primaryProvider: 'odds_api',
+        selectedBookmakerName: 'Pinnacle',
         selectedOdds: { over25: 2.1 },
         marketsRequested: ['totals'],
-        message: 'Quote bookmaker caricate correttamente.',
       },
     } as any);
 
@@ -206,7 +205,11 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    expect(mockedApi.getPrediction).toHaveBeenCalledWith(expect.objectContaining({
+      bookmakerOdds: { over25: 2.1 },
+      oddsSource: 'odds_api',
+    }));
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
       matchId: 'match_1',
       homeTeam: 'Inter',
@@ -218,9 +221,9 @@ describe('Predictions page', () => {
     await screen.findByTestId('best-value-card');
     expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota Eurobet verificata');
+    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota bookmaker verificata: Pinnacle');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
-    expect(screen.getByText(/Quote bookmaker caricate/i)).toBeTruthy();
+    expect(screen.getByText(/Quote bookmaker reali caricate.*odds_api/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
   });
 
@@ -282,6 +285,7 @@ describe('Predictions page', () => {
         found: true,
         source: 'odds_api',
         primaryProvider: 'odds_api',
+        selectedBookmakerName: 'Pinnacle',
         selectedOdds: {
           [lowPlayerOpportunity.selection]: lowPlayerOpportunity.bookmakerOdds,
           [lowTeamOpportunity.selection]: lowTeamOpportunity.bookmakerOdds,
@@ -345,6 +349,7 @@ describe('Predictions page', () => {
         found: true,
         source: 'odds_api',
         primaryProvider: 'odds_api',
+        selectedBookmakerName: 'Pinnacle',
         selectedOdds: { over25: 2.1 },
         marketsRequested: ['totals'],
         message: 'Quote bookmaker caricate correttamente.',
@@ -391,7 +396,7 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
 
     expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
-    expect(screen.getAllByText(/Quota Eurobet non disponibile/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Quota bookmaker non disponibile/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Match da saltare/i)).toBeNull();
   });
 
@@ -473,13 +478,13 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
 
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
-    expect((await screen.findAllByText(/Quota Eurobet non disponibile/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Quota bookmaker non disponibile/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText('2.06')).toBeNull();
 
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota Eurobet non disponibile');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile');
     });
     expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
   });
@@ -503,7 +508,7 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota Eurobet non disponibile per questa partita.');
+      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile per questa partita.');
     });
   });
 

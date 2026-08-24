@@ -11,6 +11,7 @@ function matchWith(outcomes) {
     homeTeam: 'Inter', awayTeam: 'Milan',
     bookmakers: [{
       bookmakerKey: 'pinnacle',
+      bookmakerName: 'Pinnacle',
       markets: [{ marketKey: 'player_goal_scorer_anytime', outcomes }],
     }],
   };

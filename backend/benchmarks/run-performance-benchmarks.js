@@ -362,6 +362,7 @@ async function runBenchmark(name, inputCount, iterations, task) {
     inputCount,
     iterations,
     averageMs: Number(averageMs.toFixed(2)),
+    p50Ms: Number(percentile(durations, 50).toFixed(2)),
     p95Ms: Number(percentile(durations, 95).toFixed(2)),
     minMs: Number(Math.min(...durations).toFixed(2)),
     maxMs: Number(Math.max(...durations).toFixed(2)),
@@ -373,6 +374,9 @@ async function runBenchmark(name, inputCount, iterations, task) {
 function createBacktestDetailedBets(count) {
   const competitions = ['Serie A', 'Premier League', 'La Liga'];
   const markets = ['goal_1x2', 'goal_ou', 'shots', 'cards'];
+  // Both the legacy oracle and the indexed implementation intentionally
+  // normalize these canonical source categories identically. This avoids
+  // conflating report-performance equivalence with the separately-versioned
   const sources = ['odds_api', 'fallback', 'synthetic'];
   const confidences = ['HIGH', 'MEDIUM', 'LOW'];
   const bets = [];
@@ -555,6 +559,7 @@ function createPredictionModel() {
 
 function createFakePredictionService(model) {
   const fakeDb = {
+    getLatestModelParams: async () => null,
     getTeam: async (id) => ({
       team_id: id,
       name: id === 'team_1' ? 'Inter' : 'Milan',
@@ -574,12 +579,13 @@ function createFakePredictionService(model) {
       shots_on_target_per90: 0.9 + (index * 0.04),
       xg_per90: 0.21 + (index * 0.01),
     })),
+    appendPredictions: async () => undefined,
   };
 
   const service = new PredictionService(fakeDb);
   service.getModel = async () => model;
   service.applyAdaptiveTuning = async () => null;
-  service.getCalibrationProfile = async () => ({ calibrationPoints: [], nObservations: 180 });
+  service.getCalibrationProfile = async () => ({ calibrationPoints: [], nObservations: 180, byFamily: {} });
   service.contextBuilder = {
     build: () => ({
       supplementaryData: {
@@ -597,6 +603,20 @@ function createFakePredictionService(model) {
 
 async function main() {
   const benchmarks = [];
+  // Structural counters complement wall-clock results: they are stable across
+  // machines and make the audit/listing optimizations measurable.
+  const auditRowsPerPrediction = 60;
+  const rawMatchFixture = { match_id: 'm1', date: '2026-05-23T18:45:00.000Z', home_team_name: 'Inter', away_team_name: 'Milan', raw_json: 'x'.repeat(32 * 1024) };
+  const listingFixture = (({ raw_json, ...projection }) => projection)(rawMatchFixture);
+  benchmarks.push({
+    name: 'prediction-audit-round-trips',
+    inputCount: auditRowsPerPrediction,
+    iterations: 1,
+    beforeRoundTrips: auditRowsPerPrediction,
+    afterRoundTrips: 1,
+    rawPayloadBytes: Buffer.byteLength(JSON.stringify(rawMatchFixture)),
+    projectedPayloadBytes: Buffer.byteLength(JSON.stringify(listingFixture)),
+  });
   const backtestReportPlans = [
     { count: 100, iterations: 16 },
     { count: 1000, iterations: 12 },
@@ -606,8 +626,11 @@ async function main() {
 
   for (const plan of backtestReportPlans) {
     const reportInput = { kind: 'classic', competition: 'Serie A', season: '2025-26', detailedBets: createBacktestDetailedBets(plan.count) };
-    const legacyReference = buildBacktestReportLegacyReference(reportInput, {});
-    const optimizedReference = buildBacktestReport(reportInput, {});
+    // Report builders are allowed to normalize their input. Equivalence must use
+    // independent deterministic fixtures, otherwise the first implementation can
+    // contaminate the data observed by the second one.
+    const legacyReference = buildBacktestReportLegacyReference({ ...reportInput, detailedBets: createBacktestDetailedBets(plan.count) }, {});
+    const optimizedReference = buildBacktestReport({ ...reportInput, detailedBets: createBacktestDetailedBets(plan.count) }, {});
     assertBacktestReportEquivalence(legacyReference, optimizedReference);
 
     benchmarks.push(await runBenchmark(`backtest-report-legacy-${plan.count}`, plan.count, plan.iterations, async () => {
@@ -637,8 +660,12 @@ async function main() {
     const filtersCycle = createBacktestReportFilterCycle();
 
     for (const filters of filtersCycle) {
-      const legacyReport = buildBacktestReportLegacyReference(reportInput, filters);
-      const optimizedReport = buildBacktestReport(reportInput, filters);
+      const legacyReport = buildBacktestReportLegacyReference(
+        { ...reportInput, detailedBets: createBacktestDetailedBets(plan.count) }, filters
+      );
+      const optimizedReport = buildBacktestReport(
+        { ...reportInput, detailedBets: createBacktestDetailedBets(plan.count) }, filters
+      );
       assertBacktestReportEquivalence(legacyReport, optimizedReport);
     }
 
@@ -655,10 +682,14 @@ async function main() {
   }
 
   const backtester = new BacktestingEngine();
-  const backtestMatches = createBacktestMatches(180);
-  const historicalOdds = createHistoricalOdds(backtestMatches);
-  benchmarks.push(await runBenchmark('backtesting-engine', backtestMatches.length, 2, async () => {
-    backtester.runBacktest(backtestMatches, historicalOdds, 0.7, 'medium_and_above', 0, {});
+  const calibrationBets = Array.from({ length: 180 }, (_, index) => ({
+    ourProb: 0.28 + ((index % 45) / 100),
+    won: index % 3 !== 0,
+  }));
+  benchmarks.push(await runBenchmark('backtesting-calibration', calibrationBets.length, 2, async () => {
+    // The legacy runBacktest API no longer exists; this is the current CPU-only
+    // calibration primitive and does not require DB/service state.
+    backtester.computeCalibration(calibrationBets);
   }));
 
   const predictionModel = createPredictionModel();

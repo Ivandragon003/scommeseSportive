@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 const mockPost = jest.fn();
 const mockGet = jest.fn();
 const mockDelete = jest.fn();
@@ -106,5 +109,47 @@ describe('backtesting API timeout', () => {
     expect(mockGet).toHaveBeenCalledWith('/predictions/archive', {
       params: { status: 'unplayed', matchId: 'match-42', limit: 50 },
     });
+  });
+
+  test('response cache resta bounded, elimina scaduti su una chiave diversa e mantiene invalidate', async () => {
+    const { RESPONSE_CACHE_MAX_ENTRIES, getApiResponseCacheStats, getTeams, invalidateApiCache } = await import('./api');
+    invalidateApiCache();
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockGet.mockImplementation(() => Promise.resolve({ data: { success: true, data: [] } }));
+
+    for (let index = 0; index < RESPONSE_CACHE_MAX_ENTRIES; index += 1) {
+      await getTeams(`competition-${index}`, { cacheMs: 50 });
+    }
+    expect(getApiResponseCacheStats().responseEntries).toBe(RESPONSE_CACHE_MAX_ENTRIES);
+    expect(mockGet).toHaveBeenCalledTimes(RESPONSE_CACHE_MAX_ENTRIES);
+
+    await getTeams('competition-0', { cacheMs: 50 });
+    expect(getApiResponseCacheStats().responseEntries).toBe(RESPONSE_CACHE_MAX_ENTRIES);
+    expect(mockGet).toHaveBeenCalledTimes(RESPONSE_CACHE_MAX_ENTRIES);
+
+    await getTeams(`competition-${RESPONSE_CACHE_MAX_ENTRIES}`, { cacheMs: 50 });
+    expect(getApiResponseCacheStats().responseEntries).toBe(RESPONSE_CACHE_MAX_ENTRIES);
+    expect(mockGet).toHaveBeenCalledTimes(RESPONSE_CACHE_MAX_ENTRIES + 1);
+
+    now += 51;
+    await getTeams('competition-after-expiry', { cacheMs: 50 });
+    expect(getApiResponseCacheStats().responseEntries).toBe(1);
+
+    invalidateApiCache((key) => key.includes('competition-after-expiry'));
+    expect(getApiResponseCacheStats().responseEntries).toBe(0);
+  });
+
+  test('la cache nginx per asset hashati include bundle main e lazy chunk CRA', () => {
+    const nginxConfig = readFileSync(resolve(__dirname, '../../nginx.conf'), 'utf8');
+    const locationLine = nginxConfig.split(/\r?\n/).find((line) => line.includes('location ~*'));
+    const quotedPattern = locationLine?.match(/location ~\* "([^"]+)"/i)?.[1];
+    expect(quotedPattern).toBeTruthy();
+
+    const assetPattern = new RegExp(quotedPattern!, 'i');
+    expect(assetPattern.test('main.4a1c24c9.js')).toBe(true);
+    expect(assetPattern.test('main.4a1c24c9.css')).toBe(true);
+    expect(assetPattern.test('797.b23acff4.chunk.js')).toBe(true);
+    expect(assetPattern.test('797.b23acff4.chunk.css')).toBe(true);
   });
 });

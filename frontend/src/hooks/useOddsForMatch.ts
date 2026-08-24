@@ -58,13 +58,9 @@ export function useOddsForMatch() {
     const homeName = resolveTeamName(teamNameIndex, homeId, match.home_team_name);
     const awayName = resolveTeamName(teamNameIndex, awayId, match.away_team_name);
 
-    const basePredictionPromise = getPrediction({
-      homeTeamId: homeId,
-      awayTeamId: awayId,
-      matchId: resolvedMatchId,
-      competition: competition || undefined,
-    });
-    const oddsPromise = getOddsForMatch({
+    // Fetch odds first. Starting a base prediction in parallel used to make the
+    // UI issue a second full model run whenever real odds arrived.
+    const oddsResult = await getOddsForMatch({
       matchId: resolvedMatchId,
       competition: competition || 'Serie A',
       homeTeam: homeName,
@@ -73,19 +69,9 @@ export function useOddsForMatch() {
     })
       .then((response) => ({ response, errorMessage: null as string | null }))
       .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));
-
-    const basePredictionResponse = await basePredictionPromise;
-    const basePrediction = basePredictionResponse.data ?? null;
-
-    if (basePrediction && onBasePrediction) {
-      onBasePrediction(sanitizePredictionForBookmakerOdds(basePrediction));
-    }
-
-    const oddsResult = await oddsPromise;
     const payload = (oddsResult.response as any)?.data ?? {};
     const requestedMarkets = Array.isArray(payload.marketsRequested) ? payload.marketsRequested : [];
 
-    let finalPrediction = basePrediction;
     let oddsMessage = '';
     let oddsTone: 'info' | 'success' | 'warning' | 'danger' = 'info';
     let appliedOdds: Record<string, string> = {};
@@ -97,6 +83,7 @@ export function useOddsForMatch() {
       ? payload.fallbackOdds as Record<string, number>
       : {};
     const source = String(payload?.source ?? payload?.oddsSource ?? '');
+    const selectedBookmakerName = String(payload?.selectedBookmakerName ?? '').trim();
     const primaryProvider = String(payload?.primaryProvider ?? '');
     const usedFallbackProvider = Boolean(payload?.usedFallbackBookmaker)
       || Boolean(source && primaryProvider && source !== primaryProvider);
@@ -109,32 +96,36 @@ export function useOddsForMatch() {
       return acc;
     }, {} as Record<string, string>);
 
-    const hasVerifiedEurobetOdds =
+    const hasVerifiedRealBookmakerOdds =
       Object.keys(providerOdds).length > 0
       && source === 'odds_api'
-      && !usedFallbackProvider;
+      && !usedFallbackProvider
+      && Boolean(selectedBookmakerName);
 
-    if (hasVerifiedEurobetOdds) {
+    const predictionResponse = await getPrediction({
+      homeTeamId: homeId,
+      awayTeamId: awayId,
+      matchId: resolvedMatchId,
+      competition: competition || undefined,
+      ...(hasVerifiedRealBookmakerOdds
+        ? { bookmakerOdds: providerOdds, oddsSource: source || 'unknown' }
+        : {}),
+    });
+    const basePrediction = predictionResponse.data ?? null;
+    if (basePrediction && onBasePrediction) {
+      onBasePrediction(sanitizePredictionForBookmakerOdds(basePrediction));
+    }
+    let finalPrediction = basePrediction;
+
+    if (hasVerifiedRealBookmakerOdds) {
       appliedOdds = stringifyOdds(providerOdds);
-      oddsMessage = payload.message ?? 'Quote Eurobet caricate.';
+      const realProvider = String(payload?.selectedProvider ?? payload?.activeProvider ?? source ?? '').trim();
+      oddsMessage = payload.message ?? `Quote bookmaker reali caricate${realProvider ? ` (${realProvider})` : ''}.`;
       oddsTone = 'success';
 
-      const enriched = await getPrediction({
-        homeTeamId: homeId,
-        awayTeamId: awayId,
-        matchId: resolvedMatchId,
-        competition: competition || undefined,
-        bookmakerOdds: providerOdds,
-        oddsSource: source || 'unknown',
-      });
-      if (enriched.data) {
-        finalPrediction = sanitizePredictionForBookmakerOdds(
-          enriched.data,
-          'odds_api'
-        );
-      }
+      finalPrediction = sanitizePredictionForBookmakerOdds(basePrediction, 'odds_api', selectedBookmakerName);
     } else if (Object.keys(providerOdds).length > 0 || Object.keys(fallbackOdds).length > 0) {
-      oddsMessage = 'Quota Eurobet non disponibile. Le quote di fallback restano interne e non vengono mostrate.';
+      oddsMessage = 'Quote bookmaker reali non disponibili. Le quote di fallback restano interne e non vengono mostrate.';
       oddsTone = 'warning';
       finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, 'fallback_provider');
     } else if (oddsResult.errorMessage) {
@@ -142,7 +133,7 @@ export function useOddsForMatch() {
       oddsTone = 'danger';
       finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, 'odds_unavailable');
     } else {
-      oddsMessage = payload.message ?? 'Quota Eurobet non disponibile per questa partita.';
+      oddsMessage = payload.message ?? 'Quote bookmaker reali non disponibili per questa partita.';
       oddsTone = 'warning';
       finalPrediction = sanitizePredictionForBookmakerOdds(finalPrediction, payload.source ?? 'odds_unavailable');
     }
@@ -150,7 +141,8 @@ export function useOddsForMatch() {
     if (finalPrediction) {
       finalPrediction = sanitizePredictionForBookmakerOdds(
         finalPrediction,
-        finalPrediction?.usedFallbackBookmaker ? 'fallback_provider' : (payload.source ?? finalPrediction?.oddsSource ?? null)
+        finalPrediction?.usedFallbackBookmaker ? 'fallback_provider' : (payload.source ?? finalPrediction?.oddsSource ?? null),
+        selectedBookmakerName
       );
     }
 

@@ -27,6 +27,29 @@ type CacheMatcher = string | RegExp | ((key: string) => boolean);
 
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
 const inFlightGetRequests = new Map<string, Promise<unknown>>();
+export const RESPONSE_CACHE_MAX_ENTRIES = 200;
+
+const pruneResponseCache = (now = Date.now()): void => {
+  for (const [key, entry] of responseCache) {
+    if (entry.expiresAt <= now) responseCache.delete(key);
+  }
+};
+
+const ensureResponseCacheCapacityForInsert = (requestKey: string): void => {
+  if (responseCache.has(requestKey)) return;
+  // FIFO eviction is intentional: Map preserves insertion order and this keeps
+  // read caching bounded without changing in-flight request coalescing.
+  while (responseCache.size >= RESPONSE_CACHE_MAX_ENTRIES) {
+    const oldestKey = responseCache.keys().next().value;
+    if (!oldestKey) break;
+    responseCache.delete(oldestKey);
+  }
+};
+
+export const getApiResponseCacheStats = () => ({
+  responseEntries: responseCache.size,
+  inFlightEntries: inFlightGetRequests.size,
+});
 
 const stableSerialize = (value: unknown): string => {
   if (value === null) return 'null';
@@ -93,8 +116,9 @@ const cachedGet = <T>(
   const requestKey = buildGetRequestKey(url, config);
   const cacheMs = Math.max(0, Number(options?.cacheMs ?? 0));
   const force = options?.force === true;
-  const cached = responseCache.get(requestKey);
   const now = Date.now();
+  pruneResponseCache(now);
+  const cached = responseCache.get(requestKey);
 
   if (!force && cached && cached.expiresAt > now) {
     return Promise.resolve(cached.value as ApiResponse<T>);
@@ -112,6 +136,8 @@ const cachedGet = <T>(
   const request = API.get<ApiResponse<T>>(url, config)
     .then((response) => {
       if (cacheMs > 0) {
+        pruneResponseCache(Date.now());
+        ensureResponseCacheCapacityForInsert(requestKey);
         responseCache.set(requestKey, {
           expiresAt: Date.now() + cacheMs,
           value: response.data,
