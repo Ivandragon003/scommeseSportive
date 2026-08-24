@@ -4,6 +4,7 @@ import GlossaryPage from './GlossaryPage';
 import { GlossaryProvider } from './GlossaryProvider';
 import GlossaryTerm from './GlossaryTerm';
 import { GLOSSARY_ENTRIES } from './glossaryEntries';
+import { GLOSSARY_PLAIN_LANGUAGE } from './glossaryPlainLanguage';
 
 const REQUIRED_TERM_IDS = [
   'decimal-odds',
@@ -49,9 +50,30 @@ const REQUIRED_TERM_IDS = [
   'synthetic-odds',
   'data-quality',
   'statistical-sample',
+  'brier-score',
+  'log-loss',
+  'yield',
+  'drawdown',
 ] as const;
 
 describe('glossario', () => {
+  test('spiega ogni voce con parole accessibili anche a chi non e del mestiere', () => {
+    const unexplainedJargon = /moltiplicatore lordo|mutuamente esclusiv|proper scoring rule|peak-to-trough|leakage|turnover|regolarizzazione|iperdispersione|perdita logaritmica negativa/i;
+
+    GLOSSARY_ENTRIES.forEach((entry) => {
+      expect(entry.simpleDefinition).toMatch(/^In parole povere:/);
+      expect(entry.simpleDefinition.length).toBeLessThanOrEqual(220);
+      expect(entry.technicalDefinition).not.toMatch(unexplainedJargon);
+      expect(entry.example.length).toBeGreaterThan(20);
+      expect(entry.interpretation.length).toBeGreaterThan(20);
+      expect(entry.caution.length).toBeGreaterThan(20);
+    });
+
+    expect(Object.keys(GLOSSARY_PLAIN_LANGUAGE).sort()).toEqual(
+      GLOSSARY_ENTRIES.map((entry) => entry.id).sort()
+    );
+  });
+
   test('copre tutti i termini obbligatori con contenuti utili all interpretazione', () => {
     const byId = new Map(GLOSSARY_ENTRIES.map((entry) => [entry.id, entry]));
 
@@ -120,6 +142,7 @@ describe('glossario', () => {
     });
 
     expect(screen.getByRole('heading', { name: /Rendimento sull.*investimento/i })).toBeTruthy();
+    expect(screen.getAllByText(/Calcolo facoltativo/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole('heading', { name: /Distribuzione di Poisson/i })).toBeNull();
   });
 
@@ -138,6 +161,6 @@ describe('glossario', () => {
 
     const dialog = screen.getByRole('dialog', { name: /Glossario rapido/i });
     expect(dialog.textContent).toContain('Rendimento sull’investimento');
-    expect(screen.getByRole('link', { name: /Apri definizione completa/i })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Apri spiegazione completa/i })).toBeTruthy();
   });
 });

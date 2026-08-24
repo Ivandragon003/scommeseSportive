@@ -19,10 +19,18 @@ const EntryDetails: React.FC<{ entry: GlossaryEntry; showHeading?: boolean }> = 
     {showHeading && <h2>{entry.term}{entry.acronym && !entry.term.toLocaleLowerCase('it').includes(entry.acronym.toLocaleLowerCase('it')) ? ` (${entry.acronym})` : ''}</h2>}
     <p className="glossary-lead">{entry.simpleDefinition}</p>
     <p>{entry.technicalDefinition}</p>
-    {entry.formula && <div className="glossary-formula"><span>Formula</span><code>{entry.formula}</code></div>}
+    {entry.formula && (
+      <details className="glossary-formula">
+        <summary>Calcolo facoltativo</summary>
+        <div>
+          <code>{entry.formula}</code>
+          <small>Non serve ricordarlo per usare l’app.</small>
+        </div>
+      </details>
+    )}
     <div className="glossary-example"><strong>Esempio pratico</strong><p>{entry.example}</p></div>
     <dl className="glossary-detail-grid">
-      <div><dt>Come interpretarlo</dt><dd>{entry.interpretation}</dd></div>
+      <div><dt>Cosa significa per te</dt><dd>{entry.interpretation}</dd></div>
       <div><dt>Attenzione</dt><dd>{entry.caution}</dd></div>
     </dl>
     {entry.relatedTerms.length > 0 && (
@@ -68,7 +76,7 @@ const GlossaryPage: React.FC = () => {
         <div>
           <span className="glossary-kicker">Strumenti / Glossario</span>
           <h1>Glossario</h1>
-          <p>Le parole essenziali per leggere pronostici, quote e budget con sicurezza.</p>
+          <p>Spiegazioni semplici, esempi concreti e avvertenze per capire l’app anche se non sei del mestiere.</p>
         </div>
       </header>
 

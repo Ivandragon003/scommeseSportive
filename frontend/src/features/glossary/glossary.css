@@ -239,9 +239,6 @@
 }
 
 .glossary-formula {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 12px;
   max-width: 850px;
   margin: 18px 0;
   padding: 12px 14px;
@@ -249,17 +246,28 @@
   border-left: 3px solid var(--primary);
 }
 
-.glossary-formula span {
+.glossary-formula summary {
   color: var(--text-2);
   font-size: 11px;
   font-weight: 800;
+  cursor: pointer;
   text-transform: uppercase;
+}
+
+.glossary-formula > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .glossary-formula code {
   color: var(--text);
   font-family: var(--font-mono);
   white-space: normal;
+}
+
+.glossary-formula small {
+  color: var(--text-2);
 }
 
 .glossary-detail-grid {
