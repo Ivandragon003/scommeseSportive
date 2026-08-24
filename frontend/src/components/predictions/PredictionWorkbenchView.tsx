@@ -171,6 +171,27 @@ const S = `
 .pr-confidence span { font-size:9px; font-weight:750; letter-spacing:.3px; }
 .pr-confidence strong { font-family:var(--font-mono); font-size:14px; }
 .pr-hero-final { margin-top:7px; color:var(--text-2); font-family:var(--font-mono); font-size:10px; font-weight:700; }
+.pr-data-quality { margin:0 20px 16px; padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface2); }
+.pr-data-quality-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.pr-data-quality-head h3 { margin:2px 0 0; font-size:16px; letter-spacing:-.02em; }
+.pr-data-quality-caption { color:var(--text-3); font-size:10px; text-align:right; }
+.pr-data-quality-history { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }
+.pr-data-history-item { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
+.pr-data-history-item span { color:var(--text-2); font-size:11px; font-weight:700; }
+.pr-data-history-item strong { color:var(--blue); font-family:var(--font-mono); font-size:14px; }
+.pr-data-history-item small { grid-column:1/-1; color:var(--text-3); font-size:10px; }
+.pr-data-quality-market { border-top:1px solid var(--border); padding-top:12px; }
+.pr-data-quality-title { margin-bottom:8px; color:var(--text); font-size:11px; font-weight:800; }
+.pr-data-quality-components { display:flex; flex-wrap:wrap; gap:6px; }
+.pr-data-chip { display:inline-flex; flex-direction:column; gap:2px; padding:6px 9px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--surface); }
+.pr-data-chip span { font-size:10px; font-weight:750; }
+.pr-data-chip small { font-size:9px; color:var(--text-3); }
+.pr-data-chip.is-available { border-color:var(--green-border); background:var(--green-dim); }
+.pr-data-chip.is-available small { color:var(--green); }
+.pr-data-chip.is-missing { border-color:var(--gold-border); background:var(--gold-dim); }
+.pr-data-chip.is-missing small { color:var(--gold); }
+.pr-data-quality-note { margin:10px 0 0; color:var(--text-2); font-size:11px; line-height:1.5; }
+@media (max-width:700px) { .pr-data-quality-head { flex-direction:column; } .pr-data-quality-caption { text-align:left; } }
 
 /* KPI ROW */
 .pr-kpi-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:0 20px 16px; }
@@ -747,6 +768,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 lambdaHome={pred.lambdaHome}
                 lambdaAway={pred.lambdaAway}
                 modelConfidence={pred.modelConfidence}
+                dataQuality={pred.dataQuality}
                 actualScore={actualMatch?.actualScore}
                 goalProbabilities={gp ?? null}
                 replaySummary={

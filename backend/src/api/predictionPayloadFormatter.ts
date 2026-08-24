@@ -242,6 +242,7 @@ export function formatPrediction(pred: any): any {
     modelConfidence: Number(pred.modelConfidence ?? 0),
     richnessScore: Number(pred.richnessScore ?? pred.modelConfidence ?? 0),
     ...(pred.historicalCoverage ? { historicalCoverage: pred.historicalCoverage } : {}),
+    ...(pred.dataQuality ? { dataQuality: pred.dataQuality } : {}),
     computedAt: pred.computedAt,
 
     goalProbabilities: {

@@ -56,8 +56,8 @@ const LineupPanel: React.FC<{ matchId?: string }> = ({ matchId }) => {
     let active = true;
     setLoading(true);
     setError('');
-    getPlayerAvailability(matchId)
-      .then((response) => { if (active) setData(response.data ?? null); })
+    Promise.resolve(getPlayerAvailability(matchId))
+      .then((response) => { if (active) setData(response?.data ?? null); })
       .catch(() => { if (active) setError('Formazioni non disponibili al momento.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

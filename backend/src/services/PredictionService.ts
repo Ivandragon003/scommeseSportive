@@ -85,6 +85,38 @@ export function applyHistoricalCoverageGate(opportunity: any, matchCoveragePerce
   };
 }
 
+type DataQualityComponent = { available: boolean | null; label: string; detail: string };
+
+function buildPredictionDataQuality(params: {
+  context: any; homeTeam: any; awayTeam: any; homePlayers: any[]; awayPlayers: any[];
+  referee: any; odds: Record<string, number>; opportunity: any;
+}): any {
+  const { context, homeTeam, awayTeam, homePlayers, awayPlayers, referee, odds, opportunity } = params;
+  const home = context?.historicalCoverage?.home ?? null;
+  const away = context?.historicalCoverage?.away ?? null;
+  const hasXg = Number.isFinite(Number(context?.homeXG)) && Number.isFinite(Number(context?.awayXG));
+  const hasTeamStats = Boolean(homeTeam && awayTeam);
+  const hasPlayers = homePlayers.length > 0 && awayPlayers.length > 0;
+  const hasReferee = Boolean(referee);
+  const hasOdds = Object.keys(odds ?? {}).length > 0;
+  const market = String(opportunity?.marketCategory ?? opportunity?.marketType ?? opportunity?.selection ?? 'goal').toLowerCase();
+  const isDisciplinary = /card|yellow|booking|gialli|red|rosso|foul|falli/.test(market);
+  const isPlayer = market.startsWith('player_') || /player/.test(market);
+  const requiredKeys = isDisciplinary ? ['teamStats', 'referee'] : isPlayer ? ['teamStats', 'players'] : ['teamStats', 'xg'];
+  const components: Record<string, DataQualityComponent> = {
+    teamStats: { available: hasTeamStats, label: 'Statistiche squadre', detail: hasTeamStats ? 'Storico e statistiche di entrambe le squadre disponibili.' : 'Statistiche complete delle due squadre non disponibili.' },
+    xg: { available: hasXg, label: 'xG', detail: hasXg ? 'xG casa e ospite disponibili.' : 'xG mancanti o incompleti per almeno una squadra.' },
+    players: { available: hasPlayers, label: 'Dati giocatori', detail: `Rosa/statistiche disponibili: casa ${homePlayers.length}, ospite ${awayPlayers.length}.` },
+    referee: { available: hasReferee, label: 'Arbitro', detail: hasReferee ? 'Profilo e storico arbitro disponibili.' : 'Arbitro non assegnato o storico non disponibile.' },
+    odds: { available: hasOdds, label: 'Quote bookmaker', detail: hasOdds ? 'Quote bookmaker disponibili per il confronto value.' : 'Quote bookmaker non disponibili: le value bet non sono verificabili.' },
+  };
+  const missing = requiredKeys.filter((key) => components[key]?.available !== true);
+  const marketRelevance = isDisciplinary
+    ? { required: ['teamStats', 'referee'], missing, note: missing.includes('referee') ? 'Arbitro non disponibile: il mercato disciplinare è utilizzabile con affidabilità limitata.' : 'Arbitro e dati squadra disponibili per questo mercato.', cap: missing.includes('referee') ? 'MEDIUM' : null }
+    : { required: requiredKeys, missing, note: missing.length === 0 ? 'I dati necessari per questo mercato sono disponibili.' : 'Mancano dati direttamente rilevanti per questo mercato; la valutazione va interpretata con prudenza.', cap: missing.length > 0 ? 'LOW' : null };
+  return { teamHistory: { home, away }, components, marketRelevance };
+}
+
 export const TOP_5_BACKTEST_KEY = 'TOP_5';
 export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
 
@@ -321,6 +353,11 @@ export interface PredictionResponse {
     home: any | null;
     away: any | null;
     matchCoveragePercent: number | null;
+  };
+  dataQuality?: {
+    teamHistory: { home: any | null; away: any | null };
+    components: Record<string, { available: boolean | null; label: string; detail: string }>;
+    marketRelevance: { required: string[]; missing: string[]; note: string; cap: string | null };
   };
   /** Incertezza dei parametri del modello (0-1) dal bootstrap (n.7). */
   modelUncertainty?: number;
@@ -1844,6 +1881,10 @@ export class PredictionService {
 
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors, singleMatchCandidateBoard);
     const modelConfidence = context.richnessScore;
+    const dataQuality = buildPredictionDataQuality({
+      context, homeTeam, awayTeam, homePlayers, awayPlayers, referee,
+      odds: alignedOdds, opportunity: bestValue.bestValueOpportunity,
+    });
 
     return {
       algorithmVersion: ALGORITHM_VERSION,
@@ -1868,6 +1909,7 @@ export class PredictionService {
       modelConfidence,
       richnessScore: Number(context.richnessScore ?? 0),
       historicalCoverage: context.historicalCoverage,
+      dataQuality,
       modelUncertainty,
       lineupXgAdjustments,
       computedAt: new Date(),

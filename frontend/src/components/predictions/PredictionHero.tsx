@@ -8,6 +8,11 @@ interface PredictionHeroProps {
   lambdaHome: number | string;
   lambdaAway: number | string;
   modelConfidence: number;
+  dataQuality?: {
+    teamHistory?: { home?: any; away?: any };
+    components?: Record<string, { available: boolean | null; label: string; detail: string }>;
+    marketRelevance?: { required?: string[]; missing?: string[]; note?: string; cap?: string | null };
+  } | null;
   actualScore?: string | null;
   goalProbabilities?: GoalProbabilitiesSummary | null;
   replaySummary?: {
@@ -22,6 +27,7 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
   lambdaHome,
   lambdaAway,
   modelConfidence,
+  dataQuality,
   actualScore,
   goalProbabilities,
   replaySummary,
@@ -43,7 +49,7 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
       <div className="pr-hero-center">
         <div className="pr-hero-vs">VS</div>
         <div className="pr-confidence">
-          <span>Affidabilità</span><strong>{(modelConfidence * 100).toFixed(0)}%</strong>
+          <span>Affidabilità modello</span><strong>{(modelConfidence * 100).toFixed(0)}%</strong>
         </div>
         {actualScore && <div className="pr-hero-final">Finale {actualScore}</div>}
       </div>
@@ -55,6 +61,35 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
         </div>
       </div>
     </section>
+    {dataQuality && (
+      <section className="pr-data-quality" aria-label="Trasparenza dati">
+        <div className="pr-data-quality-head">
+          <div><div className="pr-sec">Trasparenza dati</div><h3>Copertura e dati rilevanti</h3></div>
+          <span className="pr-data-quality-caption">La percentuale sopra misura la ricchezza generale del contesto.</span>
+        </div>
+        <div className="pr-data-quality-history">
+          {[{ key: 'home', label: 'Casa', value: dataQuality.teamHistory?.home }, { key: 'away', label: 'Ospite', value: dataQuality.teamHistory?.away }].map((item) => {
+            const coverage = item.value?.coveragePercent;
+            const percent = Number.isFinite(Number(coverage)) ? `${Number(coverage).toFixed(0)}%` : 'N/D';
+            const seasons = item.value ? `${item.value.seasonsAvailable ?? 0}/${item.value.seasonsExpected ?? 0} stagioni` : 'Dati non disponibili';
+            return <div className="pr-data-history-item" key={item.key}><span>{item.label}</span><strong>{percent}</strong><small>{seasons}</small></div>;
+          })}
+        </div>
+        <div className="pr-data-quality-market">
+          <div className="pr-data-quality-title">Dati usati per questo mercato</div>
+          <div className="pr-data-quality-components">
+            {Object.entries(dataQuality.components ?? {}).map(([key, component]) => {
+              const status = component.available === true ? 'available' : component.available === false ? 'missing' : 'unknown';
+              return <div className={`pr-data-chip is-${status}`} key={key}><span>{component.label}</span><small>{status === 'available' ? 'Disponibile' : status === 'missing' ? 'Mancante' : 'Non verificato'}</small></div>;
+            })}
+          </div>
+          <p className="pr-data-quality-note">
+            {dataQuality.marketRelevance?.note}
+            {dataQuality.marketRelevance?.cap ? ` Affidabilità massima per questo mercato: ${dataQuality.marketRelevance.cap}.` : ''}
+          </p>
+        </div>
+      </section>
+    )}
     {goalProbabilities && (
       <div className="pr-kpi-row">
         {[

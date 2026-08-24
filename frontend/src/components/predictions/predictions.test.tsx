@@ -34,14 +34,34 @@ describe('predictions UI components', () => {
         lambdaHome={1.169}
         lambdaAway={1.134}
         modelConfidence={0.84}
+        dataQuality={{
+          teamHistory: {
+            home: { seasonsAvailable: 5, seasonsExpected: 5, coveragePercent: 100 },
+            away: { seasonsAvailable: 4, seasonsExpected: 5, coveragePercent: 80 },
+          },
+          components: {
+            teamStats: { available: true, label: 'Statistiche squadre', detail: '' },
+            xg: { available: true, label: 'xG', detail: '' },
+            players: { available: true, label: 'Dati giocatori', detail: '' },
+            referee: { available: false, label: 'Arbitro', detail: '' },
+            odds: { available: false, label: 'Quote bookmaker', detail: '' },
+          },
+          marketRelevance: { required: ['teamStats', 'xg'], missing: [], note: 'I dati necessari per questo mercato sono disponibili.' },
+        }}
         goalProbabilities={{ homeWin: 0.3669, draw: 0.2834, awayWin: 0.3497 }}
       />
     );
 
     expect(screen.getByRole('region', { name: /Bologna contro Lazio/i })).toBeTruthy();
-    expect(screen.getByText('Casa')).toBeTruthy();
-    expect(screen.getByText('Ospite')).toBeTruthy();
+    expect(screen.getAllByText('Casa').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Ospite').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('84%')).toBeTruthy();
+    expect(screen.getByText('Affidabilità modello')).toBeTruthy();
+    expect(screen.getByText('Copertura e dati rilevanti')).toBeTruthy();
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText('4/5 stagioni')).toBeTruthy();
+    expect(screen.getByText('Arbitro')).toBeTruthy();
+    expect(screen.getByText('Quote bookmaker')).toBeTruthy();
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
