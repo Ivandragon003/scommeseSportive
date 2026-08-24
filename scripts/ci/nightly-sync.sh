@@ -10,6 +10,7 @@ SYNC_TIMEZONE="${SYNC_TIMEZONE:-Europe/Rome}"
 EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-03}"
 SCHEDULE_CRON="${SCHEDULE_CRON:-}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
+API_FOOTBALL_ENABLED="${API_FOOTBALL_ENABLED:-false}"
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 # SofaScore RIMOSSO: falli/corner/tiri/cartellini/arbitro ora da football-data.co.uk
@@ -188,6 +189,17 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   done
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
+fi
+
+if [[ "$API_FOOTBALL_ENABLED" == "true" && -n "${API_FOOTBALL_KEY:-}" ]]; then
+  echo "Checking API-Football confirmed lineups for matches near kickoff..."
+  post_json \
+    "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
+    '{"windowHours":24}' \
+    "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
+    echo "Warning: API-Football lineup sync failed; internal lineup predictor remains active."
+else
+  echo "Skipping API-Football lineup sync. API_FOOTBALL_ENABLED=false or API_FOOTBALL_KEY missing."
 fi
 
 echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."

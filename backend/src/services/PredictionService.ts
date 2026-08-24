@@ -18,6 +18,7 @@ import {
 } from '../models/value/EnhancedMarketAnalysis';
 import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
 import { computeLineupXgAdjustment, LineupXgAdjustment } from './LineupXgAdjustmentService';
+import { assessPlayerLineup } from './PlayerLineupProbabilityService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
@@ -380,6 +381,9 @@ type PlayerPropDiagnostics = {
   expectedMinutes: number;
   sampleSize: number;
   playerConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  lineupProbability: number;
+  lineupTier: 'probable_starter' | 'ballotaggio' | 'uncertain' | 'confirmed_starter' | 'confirmed_bench' | 'unavailable';
+  lineupStatus: string;
   dataWarnings: string[];
 };
 
@@ -1186,6 +1190,7 @@ export class PredictionService {
     awayTeamName: string;
     referee: any;
     leagueAvgYellowPerMatch: number;
+    lineupStatuses?: Map<string, { status: string; probability: number | null }>;
   }): PlayerPropBuildResult {
     const players = [
       ...(params.homePlayers ?? []).map((player) => ({ row: player, teamName: params.homeTeamName })),
@@ -1276,6 +1281,14 @@ export class PredictionService {
       const expectedMinutes = this.getPlayerExpectedMinutes(player.row);
       const sampleSize = this.getPlayerSampleSize(player.row);
       const dataWarnings: string[] = [];
+      const externalLineup = params.lineupStatuses?.get(parsed.playerId);
+      const lineup = assessPlayerLineup(player.row, externalLineup as any);
+      if (lineup.tier === 'confirmed_bench' || lineup.tier === 'unavailable' || lineup.tier === 'uncertain') {
+        warnings.push(`player_prop_skipped_lineup:${parsed.playerId}:${parsed.marketType}`);
+        continue;
+      }
+      dataWarnings.push(...lineup.warnings);
+      if (lineup.tier === 'ballotaggio') dataWarnings.push('lineup_ballotaggio');
       if (sampleSize < 5 || expectedMinutes < 45) {
         warnings.push(`player_prop_skipped_low_data:${parsed.playerId}:${parsed.marketType}`);
         continue;
@@ -1373,6 +1386,9 @@ export class PredictionService {
         expectedMinutes: Number(expectedMinutes.toFixed(1)),
         sampleSize,
         playerConfidence,
+        lineupProbability: lineup.probability,
+        lineupTier: lineup.tier,
+        lineupStatus: lineup.status,
         dataWarnings,
       };
     }
@@ -1533,7 +1549,7 @@ export class PredictionService {
   async predict(request: PredictionRequest): Promise<PredictionResponse> {
     // These are independent read-only lookups. Keep the subsequent schedule query
     // dependent on matchRow so its reference date remains exactly unchanged.
-    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers, homeHistoricalCoverage, awayHistoricalCoverage] = await Promise.all([
+    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers, homeHistoricalCoverage, awayHistoricalCoverage, lineupStatusRows] = await Promise.all([
       this.getModel(request.competition),
       this.db.getTeam(request.homeTeamId),
       this.db.getTeam(request.awayTeamId),
@@ -1543,7 +1559,14 @@ export class PredictionService {
       this.db.getPlayersByTeam(request.awayTeamId),
       this.db.getTeamHistoricalCoverage(request.homeTeamId, request.season).catch(() => null),
       this.db.getTeamHistoricalCoverage(request.awayTeamId, request.season).catch(() => null),
+      request.matchId ? this.db.getPlayerLineupStatuses(request.matchId).catch(() => []) : Promise.resolve([]),
     ]);
+    const lineupStatuses = new Map(
+      (lineupStatusRows ?? []).map((row: any) => [String(row.player_id), {
+        status: String(row.status),
+        probability: row.probability === null || row.probability === undefined ? null : Number(row.probability),
+      }]),
+    );
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
     const [homeSchedule, awaySchedule] = await Promise.all([
       this.db.getTeamScheduleInsights(request.homeTeamId, referenceDate).catch(() => null),
@@ -1646,6 +1669,7 @@ export class PredictionService {
       leagueAvgYellowPerMatch: resolveLeagueAvgYellowPerMatch(
         request.competition ?? homeTeam?.competition ?? awayTeam?.competition,
       ),
+      lineupStatuses,
     });
     Object.assign(probs.flatProbabilities, playerPropMarkets.probabilities);
     const normalizedOdds = { ...normalizedOddsBase, ...playerPropMarkets.odds };

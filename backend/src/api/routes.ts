@@ -21,6 +21,8 @@ import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
+import { ApiFootballService } from '../services/ApiFootballService';
+import { normalizePlayerNameForProp } from '../services/playerProps';
 import { planAutomatedBetOpportunities } from '../services/AutomatedBetPlanningService';
 import {
   syncFootballData,
@@ -315,6 +317,132 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
     for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch { /* skip invalid player payloads */ } }
     return res.json({ success: true, imported: ok });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
+});
+
+const apiFootball = new ApiFootballService();
+
+function sameTeamName(left: string, right: string): boolean {
+  const a = normalizePlayerNameForProp(left);
+  const b = normalizePlayerNameForProp(right);
+  return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
+}
+
+/**
+ * Stores confirmed API-Football lineups against our internal match/player IDs.
+ * It is deliberately separate from the prediction call: a provider response
+ * must be timestamped before it can influence a later prediction.
+ */
+router.post('/player-availability/sync', async (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.body?.matchId ?? '').trim();
+    const fixtureId = String(req.body?.apiFootballFixtureId ?? req.body?.fixtureId ?? '').trim();
+    if (!matchId || !fixtureId) return res.status(400).json({ error: 'matchId e fixtureId sono obbligatori' });
+    if (!apiFootball.enabled) return res.status(503).json({ error: 'API-Football disabilitata o API_FOOTBALL_KEY mancante' });
+    const match = await db.getMatchById(matchId);
+    if (!match) return res.status(404).json({ error: 'Partita non trovata' });
+    const [homePlayers, awayPlayers, lineups] = await Promise.all([
+      db.getPlayersByTeam(String(match.home_team_id)),
+      db.getPlayersByTeam(String(match.away_team_id)),
+      apiFootball.getConfirmedLineups(fixtureId),
+    ]);
+    const rows: any[] = [];
+    for (const lineup of lineups) {
+      const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? homePlayers
+        : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
+      for (const entry of lineup.players) {
+        const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, entry.name));
+        if (!player) continue;
+        rows.push({
+          matchId,
+          playerId: String(player.player_id),
+          teamId: String(player.team_id),
+          status: entry.starter ? 'confirmed_starter' : 'confirmed_bench',
+          probability: entry.starter ? 1 : 0,
+          source: 'api_football_confirmed',
+          providerFixtureId: fixtureId,
+          kickoffAt: match.date ?? null,
+          rawJson: JSON.stringify({ lineup, player: entry }),
+        });
+      }
+    }
+    await db.savePlayerLineupStatuses(rows);
+    res.json({ success: true, matchId, fixtureId, saved: rows.length, source: 'api_football_confirmed' });
+  } catch (error: any) {
+    console.error('[api-football-lineup-sync] failed:', error?.stack ?? error?.message ?? error);
+    res.status(502).json({ error: error?.message ?? 'Sincronizzazione formazione fallita' });
+  }
+});
+
+// Nightly-safe collector. API-Football's free lineup endpoint is checked only
+// close to kickoff; 24h predictions remain handled by the local predictor.
+router.post('/player-availability/sync-upcoming', async (req: Request, res: Response) => {
+  try {
+    if (!apiFootball.enabled) return res.json({ success: true, enabled: false, checked: 0, saved: 0 });
+    const hours = Math.max(1, Math.min(Number(req.body?.windowHours ?? 24), 48));
+    const now = Date.now();
+    const untilIso = new Date(now + hours * 60 * 60 * 1000).toISOString();
+    const matches = await db.getUpcomingMatches({ untilIso, limit: 200 });
+    const dates = [...new Set(matches.map((match: any) => String(match.date ?? '').slice(0, 10)).filter(Boolean))];
+    const providerFixtures = (await Promise.all(dates.map((date) => apiFootball.getFixturesByDate(date)))).flat();
+    const teamsReconciled = new Set<string>();
+    let checked = 0;
+    let saved = 0;
+    for (const match of matches) {
+      const kickoff = Date.parse(String(match.date ?? ''));
+      if (!Number.isFinite(kickoff)) continue;
+      // Official lineups are not expected 24h before kickoff. Avoid wasting
+      // the free quota until the normal publication window.
+      if (kickoff - now > 120 * 60 * 1000) continue;
+      const fixture = providerFixtures.find((candidate) =>
+        sameTeamName(candidate.homeName, String(match.home_team_name ?? '')) &&
+        sameTeamName(candidate.awayName, String(match.away_team_name ?? ''))
+      );
+      if (!fixture) continue;
+      for (const side of [
+        { internalId: String(match.home_team_id), providerId: fixture.homeProviderTeamId, name: String(match.home_team_name ?? '') },
+        { internalId: String(match.away_team_id), providerId: fixture.awayProviderTeamId, name: String(match.away_team_name ?? '') },
+      ]) {
+        if (!side.providerId || teamsReconciled.has(side.internalId)) continue;
+        const squad = await apiFootball.getSquad(side.providerId);
+        if (squad.length === 0) continue;
+        const currentPlayers = await db.getPlayersByTeam(side.internalId);
+        const activeIds = currentPlayers
+          .filter((player: any) => squad.some((member) => sameTeamName(member.name, String(player.name ?? ''))))
+          .map((player: any) => String(player.player_id));
+        if (activeIds.length > 0) {
+          await db.reconcilePlayersForTeam(side.internalId, activeIds);
+          teamsReconciled.add(side.internalId);
+        }
+      }
+      checked++;
+      const [homePlayers, awayPlayers, lineups] = await Promise.all([
+        db.getPlayersByTeam(String(match.home_team_id)),
+        db.getPlayersByTeam(String(match.away_team_id)),
+        apiFootball.getConfirmedLineups(fixture.id),
+      ]);
+      const rows: any[] = [];
+      for (const lineup of lineups) {
+        const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? homePlayers
+          : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
+        for (const entry of lineup.players) {
+          const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, entry.name));
+          if (!player) continue;
+          rows.push({
+            matchId: String(match.match_id), playerId: String(player.player_id), teamId: String(player.team_id),
+            status: entry.starter ? 'confirmed_starter' : 'confirmed_bench', probability: entry.starter ? 1 : 0,
+            source: 'api_football_confirmed', providerFixtureId: String(fixture.id), kickoffAt: match.date,
+            rawJson: JSON.stringify({ lineup, player: entry }),
+          });
+        }
+      }
+      await db.savePlayerLineupStatuses(rows);
+      saved += rows.length;
+    }
+    res.json({ success: true, enabled: true, windowHours: hours, checked, saved, teamsReconciled: teamsReconciled.size, source: 'api_football_confirmed' });
+  } catch (error: any) {
+    console.error('[api-football-upcoming-lineup-sync] failed:', error?.stack ?? error?.message ?? error);
+    res.status(502).json({ error: error?.message ?? 'Sincronizzazione formazioni imminenti fallita' });
+  }
 });
 
 // ====== MATCHES ======
