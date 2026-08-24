@@ -1198,7 +1198,7 @@ export class DatabaseService {
         mean_goal_difference_per_match, stdev_goal_difference_per_match,
         matches_per_team, matches_observed, matches_expected, coverage_percent,
         identity_coverage_percent, coverage_status, source_provider, source_reference, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(source_competition_id, source_season) DO UPDATE SET
         teams_count = excluded.teams_count,
         mean_ppg = excluded.mean_ppg,
