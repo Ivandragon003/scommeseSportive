@@ -1703,7 +1703,9 @@ router.get('/stats/understat/team-season', async (req: Request, res: Response) =
 router.get('/scraper/understat/info', async (_req, res) => {
   const competitions = UnderstatScraper.getSupportedCompetitions();
   const top5 = UnderstatScraper.getTop5Competitions();
-  const seasons = UnderstatScraper.generateSeasons(4);
+  // Six import seasons include the current one plus the five previous
+  // campaigns (for example 2026/27 back to 2021/22).
+  const seasons = UnderstatScraper.generateSeasons(6);
   const dbStatus: Record<string, string> = {};
   for (const comp of competitions) {
     const lastSeason = seasons[seasons.length - 1];
@@ -2334,6 +2336,9 @@ const parsePositiveIntEnv = (name: string, fallback: number): number => {
 
 const getMatchOddsCacheTtlMs = (): number =>
   parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
+
+const getReusableOddsSnapshotMaxAgeMs = (): number =>
+  parsePositiveIntEnv('ODDS_SNAPSHOT_REUSE_HOURS', 48) * 60 * 60 * 1000;
 
 const pruneMatchOddsCache = (now = Date.now()): void => {
   const ttlMs = getMatchOddsCacheTtlMs();
@@ -3171,6 +3176,53 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         errorCategory: null,
       });
       return res.json({ success: true, data: cachedPayload });
+    }
+
+    // Once an event has started, Odds API legitimately removes it from the
+    // live endpoint. The page must still use its most recent real, traced
+    // bookmaker snapshot instead of showing a false "quote non trovate".
+    const snapshotMatchId = String(matchId ?? '').trim();
+    const latestSnapshot = snapshotMatchId
+      ? await db.getLatestRealOddsSnapshotForMatch(snapshotMatchId)
+      : null;
+    const snapshotOdds = sanitizeOddsMap(latestSnapshot?.liveSelectedOdds ?? latestSnapshot?.selectedOdds ?? {});
+    const snapshotCapturedAt = Date.parse(String(latestSnapshot?.captured_at ?? ''));
+    const snapshotUsable = latestSnapshot
+      && String(latestSnapshot.source ?? '').trim() === 'odds_api'
+      && latestSnapshot.usedSyntheticOdds !== true
+      && latestSnapshot.usedFallbackBookmaker !== true
+      && Boolean(String(latestSnapshot.selectedBookmakerName ?? '').trim())
+      && Object.keys(snapshotOdds).length > 0
+      && Number.isFinite(snapshotCapturedAt)
+      && Date.now() - snapshotCapturedAt <= getReusableOddsSnapshotMaxAgeMs();
+    if (snapshotUsable) {
+      const snapshotPayload = {
+        found: true,
+        message: 'Quote bookmaker reali caricate dallo snapshot salvato.',
+        source: 'odds_api',
+        oddsSource: 'odds_api',
+        primaryProvider: 'odds_api',
+        fallbackProvider: null,
+        activeProvider: 'odds_api',
+        selectedProvider: 'odds_api',
+        selectedBookmakerKey: String(latestSnapshot.selectedBookmakerKey ?? '').trim() || null,
+        selectedBookmakerName: String(latestSnapshot.selectedBookmakerName ?? '').trim(),
+        fetchedAt: latestSnapshot.captured_at,
+        commenceTime: latestSnapshot.commence_time ?? commenceTime ?? null,
+        selectedOdds: snapshotOdds,
+        oddsApiOdds: snapshotOdds,
+        fallbackOdds: {},
+        allBookmakerOdds: latestSnapshot.allBookmakerOdds ?? {},
+        marketCount: Object.keys(snapshotOdds).length,
+        selectedOddsCount: Object.keys(snapshotOdds).length,
+        marketsRequested: Array.isArray(latestSnapshot.marketsRequested) ? latestSnapshot.marketsRequested : [],
+        usedFallbackBookmaker: false,
+        usedSyntheticOdds: false,
+        snapshotReused: true,
+        warnings: [],
+      };
+      setCachedMatchOddsPayload(cacheKey, snapshotPayload);
+      return res.json({ success: true, data: snapshotPayload });
     }
 
     const inFlight = matchOddsInFlight.get(cacheKey);

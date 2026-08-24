@@ -30,7 +30,7 @@ const UNDERSTAT_SCHEDULER_MODE =
 const UNDERSTAT_SCHEDULER_COMPETITION = String(process.env.UNDERSTAT_SCHEDULER_COMPETITION ?? 'Serie A').trim() || 'Serie A';
 const UNDERSTAT_SCHEDULER_YEARS_BACK = Math.max(
   1,
-  Math.min(Number(process.env.UNDERSTAT_SCHEDULER_YEARS_BACK ?? 1), 5)
+  Math.min(Number(process.env.UNDERSTAT_SCHEDULER_YEARS_BACK ?? 1), 6)
 );
 const UNDERSTAT_SCHEDULER_IMPORT_PLAYERS =
   String(process.env.UNDERSTAT_SCHEDULER_IMPORT_PLAYERS ?? 'true').trim().toLowerCase() === 'true';

@@ -1792,6 +1792,21 @@ export class DatabaseService {
     return this.parseOddsSnapshotRow(row);
   }
 
+  async getLatestRealOddsSnapshotForMatch(matchId: string): Promise<any | null> {
+    const row = await this.get(
+      `SELECT * FROM odds_snapshots
+       WHERE match_id = ?
+         AND source = 'odds_api'
+         AND COALESCE(used_fallback_bookmaker, 0) = 0
+         AND COALESCE(used_synthetic_odds, 0) = 0
+         AND trim(COALESCE(selected_bookmaker_name, '')) <> ''
+       ORDER BY datetime(captured_at) DESC
+       LIMIT 1`,
+      [matchId]
+    );
+    return this.parseOddsSnapshotRow(row);
+  }
+
   async findLatestOddsSnapshotByTeams(
     homeTeamName: string,
     awayTeamName: string,
