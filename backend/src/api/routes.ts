@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { PredictionService } from '../services/PredictionService';
-import { DatabaseService } from '../db/DatabaseService';
+import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
 import {
@@ -15,7 +15,8 @@ import { getProviderTimeoutMs } from '../services/odds-provider/OddsProviderCoor
 import { OddsApiKickoffSyncService } from '../services/OddsApiKickoffSyncService';
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
-import { UnderstatScraper } from '../services/UnderstatScraper';
+import { UnderstatScraper, hasValidUnderstatMatchDetails } from '../services/UnderstatScraper';
+import { HeavyJobBusyError, HeavyJobService } from '../services/HeavyJobService';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
@@ -61,6 +62,7 @@ export type ApiRouterDependencies = {
     OddsApiKickoffSyncService,
     'syncUpcomingKickoffsFromOddsApi' | 'syncSingleMatchKickoffFromOddsApi'
   >;
+  heavyJobService?: Pick<HeavyJobService, 'runWalkForwardBacktest'>;
 };
 
 export type OddsCompetitionFixtureScope = {
@@ -160,6 +162,80 @@ export const getMatchOddsRouteTimeoutMs = (): number => {
 export const getBacktestRouteTimeoutMs = (): number =>
   parsePositiveIntEnvValue('BACKTEST_ROUTE_TIMEOUT_MS', DEFAULT_BACKTEST_ROUTE_TIMEOUT_MS);
 
+const UNDERSTAT_UPSERT_COMPARISON_FIELDS: Array<[string, string]> = [
+  ['homeTeamId', 'home_team_id'], ['awayTeamId', 'away_team_id'],
+  ['homeTeamName', 'home_team_name'], ['awayTeamName', 'away_team_name'],
+  ['date', 'date'], ['homeGoals', 'home_goals'], ['awayGoals', 'away_goals'],
+  ['homeXG', 'home_xg'], ['awayXG', 'away_xg'],
+  ['homeTotalShots', 'home_shots'], ['awayTotalShots', 'away_shots'],
+  ['homeShotsOnTarget', 'home_shots_on_target'], ['awayShotsOnTarget', 'away_shots_on_target'],
+  ['homePossession', 'home_possession'], ['awayPossession', 'away_possession'],
+  ['homeFouls', 'home_fouls'], ['awayFouls', 'away_fouls'],
+  ['homeYellowCards', 'home_yellow_cards'], ['awayYellowCards', 'away_yellow_cards'],
+  ['homeRedCards', 'home_red_cards'], ['awayRedCards', 'away_red_cards'],
+  ['homeCorners', 'home_corners'], ['awayCorners', 'away_corners'],
+  ['referee', 'referee'], ['competition', 'competition'], ['season', 'season'],
+  ['source', 'source'], ['sourceMatchId', 'source_match_id'], ['rawJson', 'raw_json'],
+];
+
+const normalizeUnderstatUpsertValue = (field: string, value: unknown): unknown => {
+  if (value === null || value === undefined) return null;
+  if (field === 'date') {
+    const timestamp = value instanceof Date ? value.getTime() : Date.parse(String(value));
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : String(value);
+  }
+  if (typeof value === 'number') return Number(value);
+  return String(value);
+};
+
+/** A detailed Understat payload is the only raw JSON allowed to replace another detailed payload. */
+export const hasUnderstatRawJsonDetails = (value: unknown): boolean => {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    const parsed = JSON.parse(value);
+    return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      && hasValidUnderstatMatchDetails((parsed as Record<string, unknown>).details));
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Preserve an already persisted detailed payload when the import only has a
+ * base match payload (or malformed JSON). Null keeps MATCH_UPSERT_SQL's
+ * COALESCE semantics and also keeps this downgrade out of change detection.
+ */
+export const preserveUnderstatRichRawJson = (
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>
+): Record<string, unknown> => {
+  if (!hasUnderstatRawJsonDetails(existing?.raw_json) || hasUnderstatRawJsonDetails(incoming.rawJson)) {
+    return incoming;
+  }
+  return { ...incoming, rawJson: null };
+};
+
+/**
+ * Mirrors the match UPSERT's COALESCE semantics: a null incoming value never
+ * changes the database, while any effective value difference deserves a write.
+ */
+export const hasUnderstatMatchUpsertChange = (
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>
+): boolean => {
+  if (!existing) return true;
+  return UNDERSTAT_UPSERT_COMPARISON_FIELDS.some(([incomingField, existingField]) => {
+    const next = normalizeUnderstatUpsertValue(incomingField, incoming[incomingField]);
+    if (next === null) return false;
+    return next !== normalizeUnderstatUpsertValue(incomingField, existing[existingField]);
+  });
+};
+
+export const shouldRebuildUnderstatPlayers = (
+  committedWrites: Array<{ isPlayed: boolean }>,
+  batchError?: unknown
+): boolean => !batchError && committedWrites.some((write) => write.isPlayed);
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
@@ -168,6 +244,7 @@ const observability = deps.observability;
 const createOddsBundle = deps.createOddsProviderCoordinatorBundle ?? createOddsProviderCoordinatorBundle;
 const createKickoffSyncService = deps.createOddsApiKickoffSyncService
   ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
+const heavyJobService = deps.heavyJobService ?? new HeavyJobService();
 
 const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
   const timeoutMs = getBacktestRouteTimeoutMs();
@@ -769,6 +846,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
       const snapshotUsable = oddsData
         && String(oddsData.source ?? '').trim() === 'odds_api'
         && !oddsData.usedSyntheticOdds
+        && Boolean(String(oddsData.selectedBookmakerName ?? '').trim())
         && Object.keys(oddsData.liveSelectedOdds ?? oddsData.selectedOdds ?? {}).length > 0
         && Number.isFinite(snapshotAgeMs)
         && snapshotAgeMs <= maxSnapshotAgeHours * 60 * 60 * 1000;
@@ -786,6 +864,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
       const odds = oddsData?.liveSelectedOdds ?? oddsData?.selectedOdds ?? {};
       const realOdds = String(oddsData?.source ?? '').trim() === 'odds_api'
         && oddsData?.usedSyntheticOdds !== true
+        && Boolean(String(oddsData?.selectedBookmakerName ?? '').trim())
         && Object.keys(odds).length > 0;
       if (!realOdds) {
         results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_disponibile' });
@@ -1029,11 +1108,11 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
 router.post('/backtest', async (req: Request, res: Response) => {
   applyBacktestRouteTimeout(req, res);
   try {
-    const result = await svc.runWalkForwardBacktest(
-      req.body.competition,
-      req.body.season,
-      req.body.historicalOdds,
-      {
+    const result = await heavyJobService.runWalkForwardBacktest({
+      competition: req.body.competition,
+      season: req.body.season,
+      historicalOdds: req.body.historicalOdds,
+      options: {
         initialTrainMatches: req.body.initialTrainMatches,
         testWindowMatches: req.body.testWindowMatches,
         stepMatches: req.body.stepMatches,
@@ -1043,8 +1122,8 @@ router.post('/backtest', async (req: Request, res: Response) => {
         saveIndividualRuns: req.body.saveIndividualRuns === true,
         compareBaseline: req.body.compareBaseline !== false,
         optimizeRankingWeights: req.body.optimizeRankingWeights === true,
-      }
-    );
+      },
+    });
     res.setHeader('Deprecation', 'true');
     res.setHeader('Link', '</api/backtest/walk-forward>; rel="successor-version"');
     res.json({
@@ -1056,7 +1135,7 @@ router.post('/backtest', async (req: Request, res: Response) => {
         deprecationMessage: 'POST /backtest e deprecated: usa POST /backtest/walk-forward. Il risultato e walk-forward.',
       },
     });
-  } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
+  } catch (e: any) { res.status(e instanceof HeavyJobBusyError ? 429 : 400).json({ success: false, error: e.message }); }
 });
 
 type ExternalSchedulerRunMeta = {
@@ -1136,11 +1215,11 @@ router.post('/predictions/settle-completed', async (req: Request, res: Response)
 router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
   applyBacktestRouteTimeout(req, res);
   try {
-    const result = await svc.runWalkForwardBacktest(
-      req.body.competition,
-      req.body.season,
-      req.body.historicalOdds,
-      {
+    const result = await heavyJobService.runWalkForwardBacktest({
+      competition: req.body.competition,
+      season: req.body.season,
+      historicalOdds: req.body.historicalOdds,
+      options: {
         initialTrainMatches: req.body.initialTrainMatches,
         testWindowMatches: req.body.testWindowMatches,
         stepMatches: req.body.stepMatches,
@@ -1150,11 +1229,11 @@ router.post('/backtest/walk-forward', async (req: Request, res: Response) => {
         saveIndividualRuns: req.body.saveIndividualRuns === true,
         compareBaseline: req.body.compareBaseline !== false,
         optimizeRankingWeights: req.body.optimizeRankingWeights === true,
-      }
-    );
+      },
+    });
     res.json({ success: true, data: result });
   } catch (e: any) {
-    res.status(400).json({ success: false, error: e.message });
+    res.status(e instanceof HeavyJobBusyError ? 429 : 400).json({ success: false, error: e.message });
   }
 });
 
@@ -1484,17 +1563,6 @@ async function runUnderstatImport(req: Request, res: Response) {
       importPlayers: Boolean(importPlayers),
     };
 
-    const hasMissingAdvancedStats = (matchRow: any): boolean => {
-      if (!matchRow) return true;
-      const fields = [
-        'home_xg', 'away_xg',
-        'home_shots', 'away_shots',
-        'home_shots_on_target', 'away_shots_on_target',
-        'home_yellow_cards', 'away_yellow_cards',
-      ];
-      return fields.some((field) => matchRow[field] === null || matchRow[field] === undefined || matchRow[field] === '');
-    };
-
     const nowTs = Date.now();
     const isFutureMatch = (isoDate: string): boolean => {
       const ts = new Date(String(isoDate ?? '')).getTime();
@@ -1639,29 +1707,16 @@ async function runUnderstatImport(req: Request, res: Response) {
           continue;
         }
 
-        const matchesToImport: typeof allMatches = [];
-        const existingMatchCache = new Map<string, any>();
-        for (const m of allMatches) {
-          const futureFixture = isFutureMatch(m.date);
-          const isPlayed = m.homeGoals !== null && m.awayGoals !== null;
-          const normalizedMatch = futureFixture ? toFixtureOnly(m) : m;
-          const existing = await db.getMatchById(m.matchId);
-          existingMatchCache.set(m.matchId, existing ?? null);
-          if (forceRefresh || !existing) {
-            matchesToImport.push(normalizedMatch);
-            continue;
-          }
-          if (futureFixture || !isPlayed) {
-            matchesToImport.push(normalizedMatch);
-            continue;
-          }
-          if (includeMatchDetails !== false && hasMissingAdvancedStats(existing)) {
-            matchesToImport.push(normalizedMatch);
-            continue;
-          }
-          if (lastDateInDb && m.date.substring(0, 10) <= lastDateInDb) continue;
-          matchesToImport.push(normalizedMatch);
-        }
+        // One scoped read replaces one getMatchById round-trip per Understat item.
+        // raw_json participates in the same comparison as the UPSERT, therefore
+        // it is deliberately included only for this import prefetch.
+        const existingMatchCache = new Map<string, any>(
+          (await db.getMatches({ competition: competitionName, season, includeRawJson: true }))
+            .map((row: any) => [String(row.match_id), row])
+        );
+        const matchesToImport = allMatches.map((match) =>
+          isFutureMatch(match.date) ? toFixtureOnly(match) : match
+        );
 
         const playersAgg = new Map<string, {
           playerId: string;
@@ -1685,6 +1740,9 @@ async function runUnderstatImport(req: Request, res: Response) {
         let importedPlayed = 0;
         let importedUpcoming = 0;
         let skipped = 0;
+        const matchWrites: Record<string, unknown>[] = [];
+        const pendingWriteMeta: Array<{ existedBefore: boolean; isPlayed: boolean }> = [];
+        const internalizedPlayedMatches: any[] = [];
 
         for (const match of matchesToImport) {
           const homeTeam = await resolveInternalTeam(String(match.homeTeamId), String(match.homeTeamName), null);
@@ -1710,48 +1768,74 @@ async function runUnderstatImport(req: Request, res: Response) {
               : [],
           };
 
-          try {
-            const existingRow = existingMatchCache.get(internalizedMatch.matchId);
-            const existedBefore = Boolean(existingRow);
-            await db.upsertMatch(understat.toDbFormat(futureFixture ? toFixtureOnly(internalizedMatch) : internalizedMatch));
-            if (existedBefore) {
-              updatedExisting++;
-              if (isPlayed) updatedExistingPlayed++;
-              else updatedExistingUpcoming++;
-            } else {
-              imported++;
-              if (isPlayed) importedPlayed++;
-              else importedUpcoming++;
-            }
-
-            if (importPlayers && isPlayed && !futureFixture) {
-              for (const player of internalizedMatch.playerStats) {
-                const agg = playersAgg.get(player.playerId) ?? {
-                  playerId: player.playerId,
-                  sourcePlayerId: player.sourcePlayerId,
-                  name: player.playerName,
-                  teamId: player.teamId,
-                  games: new Set<string>(),
-                  shots: 0,
-                  shotsOnTarget: 0,
-                  goals: 0,
-                  xg: 0,
-                  xgot: 0,
-                  rawSamples: [],
-                };
-                agg.games.add(internalizedMatch.matchId);
-                agg.shots += player.shots;
-                agg.shotsOnTarget += player.shotsOnTarget;
-                agg.goals += player.goals;
-                agg.xg += player.xg;
-                agg.xgot += player.xgot;
-                agg.rawSamples.push(player.raw);
-                playersAgg.set(player.playerId, agg);
-                teamShotTotals.set(player.teamId, Number(teamShotTotals.get(player.teamId) ?? 0) + Number(player.shots ?? 0));
-              }
-            }
-          } catch {
+          const rawDbFormat = understat.toDbFormat(futureFixture ? toFixtureOnly(internalizedMatch) : internalizedMatch);
+          const existingRow = existingMatchCache.get(internalizedMatch.matchId);
+          const dbFormat = preserveUnderstatRichRawJson(existingRow, rawDbFormat);
+          const changed = forceRefresh || !existingRow || hasUnderstatMatchUpsertChange(existingRow, dbFormat);
+          // If any match changes, rebuild player aggregates from the full
+          // scraped played season rather than from the changed subset only.
+          if (importPlayers && isPlayed && !futureFixture) internalizedPlayedMatches.push(internalizedMatch);
+          if (!changed) {
             skipped++;
+            continue;
+          }
+
+          matchWrites.push(dbFormat);
+          pendingWriteMeta.push({ existedBefore: Boolean(existingRow), isPlayed });
+        }
+
+        let committedCount = 0;
+        let batchError: string | null = null;
+        try {
+          committedCount = (await db.upsertMatches(matchWrites)).committedCount;
+        } catch (error) {
+          committedCount = error instanceof MatchBatchCommitError ? error.committedCount : 0;
+          batchError = error instanceof Error ? error.message : String(error);
+          skipped += Math.max(0, matchWrites.length - committedCount);
+        }
+        const committedWrites = pendingWriteMeta.slice(0, committedCount);
+
+        for (const write of committedWrites) {
+          if (write.existedBefore) {
+            updatedExisting++;
+            if (write.isPlayed) updatedExistingPlayed++;
+            else updatedExistingUpcoming++;
+          } else {
+            imported++;
+            if (write.isPlayed) importedPlayed++;
+            else importedUpcoming++;
+          }
+        }
+
+        const playersRebuildSkippedReason = batchError
+          ? 'match_batch_partial_failure'
+          : null;
+        if (shouldRebuildUnderstatPlayers(committedWrites, batchError)) {
+          for (const internalizedMatch of internalizedPlayedMatches) {
+            for (const player of internalizedMatch.playerStats) {
+              const agg = playersAgg.get(player.playerId) ?? {
+                playerId: player.playerId,
+                sourcePlayerId: player.sourcePlayerId,
+                name: player.playerName,
+                teamId: player.teamId,
+                games: new Set<string>(),
+                shots: 0,
+                shotsOnTarget: 0,
+                goals: 0,
+                xg: 0,
+                xgot: 0,
+                rawSamples: [],
+              };
+              agg.games.add(internalizedMatch.matchId);
+              agg.shots += player.shots;
+              agg.shotsOnTarget += player.shotsOnTarget;
+              agg.goals += player.goals;
+              agg.xg += player.xg;
+              agg.xgot += player.xgot;
+              agg.rawSamples.push(player.raw);
+              playersAgg.set(player.playerId, agg);
+              teamShotTotals.set(player.teamId, Number(teamShotTotals.get(player.teamId) ?? 0) + Number(player.shots ?? 0));
+            }
           }
         }
 
@@ -1804,9 +1888,11 @@ async function runUnderstatImport(req: Request, res: Response) {
           updatedExistingPlayed,
           newImportedUpcoming: importedUpcoming,
           updatedExistingUpcoming,
-          touchedTotal: matchesToImport.length,
+          touchedTotal: committedCount,
           skipped,
           playersUpserted: playersAgg.size,
+          playersRebuildSkippedReason,
+          error: batchError,
         };
       }
     }
@@ -1814,7 +1900,7 @@ async function runUnderstatImport(req: Request, res: Response) {
     const competitionsNeedingPostProcessing = Array.from(
       new Set(
         competitionsToRun.filter((comp) =>
-          forceRefresh || (competitionActivity[comp]?.playedTouched ?? 0) > 0
+          (competitionActivity[comp]?.playedTouched ?? 0) > 0
         )
       )
     );
@@ -2012,6 +2098,7 @@ type OddsRuntimeState = {
 const matchOddsCache = new Map<string, { cachedAt: number; data: any }>();
 const matchOddsInFlight = new Map<string, Promise<any>>();
 const DEFAULT_MATCH_ODDS_CACHE_TTL_MS = 3 * 60 * 1000;
+const MATCH_ODDS_CACHE_MAX_ENTRIES = 200;
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
   const raw = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -2020,6 +2107,23 @@ const parsePositiveIntEnv = (name: string, fallback: number): number => {
 
 const getMatchOddsCacheTtlMs = (): number =>
   parsePositiveIntEnv('ODDS_MATCH_CACHE_TTL_SECONDS', Math.floor(DEFAULT_MATCH_ODDS_CACHE_TTL_MS / 1000)) * 1000;
+
+const pruneMatchOddsCache = (now = Date.now()): void => {
+  const ttlMs = getMatchOddsCacheTtlMs();
+  for (const [key, cached] of matchOddsCache) {
+    if (now - cached.cachedAt >= ttlMs) matchOddsCache.delete(key);
+  }
+};
+
+const ensureMatchOddsCacheCapacityForInsert = (cacheKey: string): void => {
+  if (matchOddsCache.has(cacheKey)) return;
+  // FIFO eviction, deliberately independent from the in-flight map.
+  while (matchOddsCache.size >= MATCH_ODDS_CACHE_MAX_ENTRIES) {
+    const oldestKey = matchOddsCache.keys().next().value;
+    if (!oldestKey) break;
+    matchOddsCache.delete(oldestKey);
+  }
+};
 
 const normalizeMatchOddsCachePart = (value: string): string =>
   String(value ?? '')
@@ -2044,6 +2148,7 @@ const buildMatchOddsCacheKey = (input: {
 ].join('::');
 
 const getCachedMatchOddsPayload = (cacheKey: string): any | null => {
+  pruneMatchOddsCache();
   const cached = matchOddsCache.get(cacheKey);
   if (!cached) return null;
   if (Date.now() - cached.cachedAt >= getMatchOddsCacheTtlMs()) {
@@ -2054,6 +2159,8 @@ const getCachedMatchOddsPayload = (cacheKey: string): any | null => {
 };
 
 const setCachedMatchOddsPayload = (cacheKey: string, data: any): void => {
+  pruneMatchOddsCache();
+  ensureMatchOddsCacheCapacityForInsert(cacheKey);
   matchOddsCache.set(cacheKey, {
     cachedAt: Date.now(),
     data,
@@ -2316,6 +2423,8 @@ const persistOddsSnapshot = async (input: {
   estimatedOdds?: Record<string, number>;
   fallbackOdds?: Record<string, number>;
   allBookmakerOdds?: Record<string, Record<string, number>>;
+  selectedBookmakerKey?: string | null;
+  selectedBookmakerName?: string | null;
   marketsRequested?: string[];
   usedFallbackBookmaker?: boolean;
   usedSyntheticOdds?: boolean;
@@ -2353,6 +2462,8 @@ const persistOddsSnapshot = async (input: {
     estimatedOdds: sanitizeOddsMap(input.estimatedOdds ?? {}),
     fallbackOdds: sanitizeOddsMap(input.fallbackOdds ?? {}),
     allBookmakerOdds: input.allBookmakerOdds ?? {},
+    selectedBookmakerKey: input.selectedBookmakerKey ?? null,
+    selectedBookmakerName: input.selectedBookmakerName ?? null,
     marketsRequested: Array.isArray(input.marketsRequested) ? input.marketsRequested : [],
     usedFallbackBookmaker: Boolean(input.usedFallbackBookmaker),
     usedSyntheticOdds: Boolean(input.usedSyntheticOdds),
@@ -2646,19 +2757,27 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         const liveSelectedOdds = selectedProvider === primaryProviderName ? primaryOdds : fallbackBestOdds;
         const oddsProviderMatchId = String(entry.match.matchId ?? '').replace(/^odds_/, '');
         const usedFallbackBookmaker = Boolean(selectedProvider && selectedProvider !== primaryProviderName);
+        const selectedBookmakerKey = selectedProvider === 'odds_api'
+          ? String(entry.selectedBookmakerKey ?? '').trim() || null
+          : null;
+        const selectedBookmakerName = selectedProvider === 'odds_api'
+          ? String(entry.selectedBookmakerName ?? '').trim() || null
+          : null;
         const snapshot = await persistOddsSnapshot({
           oddsProviderMatchId,
           competition: String(competition),
           homeTeamName: entry.match.homeTeam,
           awayTeamName: entry.match.awayTeam,
           commenceTime: entry.match.commenceTime,
-          source: selectedProvider ?? entry.oddsSource,
-          selectedOdds: liveSelectedOdds,
-          liveSelectedOdds,
+          source: selectedProvider === 'odds_api' && selectedBookmakerName ? 'odds_api' : 'unavailable',
+          selectedOdds: selectedBookmakerName ? liveSelectedOdds : {},
+          liveSelectedOdds: selectedBookmakerName ? liveSelectedOdds : {},
           legacyOdds: {},
           estimatedOdds: {},
           fallbackOdds: usedFallbackBookmaker ? liveSelectedOdds : {},
           allBookmakerOdds: flattenProviderComparisons(entry.bookmakerComparisonByProvider),
+          selectedBookmakerKey,
+          selectedBookmakerName,
           marketsRequested: normalizedMarkets,
           usedFallbackBookmaker,
           usedSyntheticOdds: false,
@@ -2897,26 +3016,15 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
 
       const preferredMarkets = [
         'h2h',
-        'h2h_3_way',
         'totals',
-        'alternate_totals',
-        'spreads',
-        'alternate_spreads',
-        'btts',
-        'double_chance',
-        'draw_no_bet',
-        'team_totals',
-        'alternate_team_totals',
       ];
-      const fallbackMarkets = [
-        'h2h',
-        'totals',
-        'alternate_totals',
-        'btts',
-        'double_chance',
-        'draw_no_bet',
-      ];
+      // This is the provider-verified competition-level set. Requesting even
+      // h2h_3_way/spreads here can produce a predictable 422; enrich only the
+      // matched event with those markets below.
+      const fallbackMarkets = [...preferredMarkets];
       const eventAdditionalMarkets = [
+        'h2h_3_way',
+        'spreads',
         'alternate_totals',
         'alternate_spreads',
         'alternate_totals_cards',
@@ -3129,14 +3237,21 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const selectedProvider = providerPriority.find((providerName) =>
         Object.keys(sanitizeOddsMap(coordinatedMatch.bestOddsByProvider[providerName] ?? {})).length > 0
       ) ?? null;
+      const selectedBookmakerKey = selectedProvider === 'odds_api'
+        ? String(coordinatedMatch.selectedBookmakerKey ?? '').trim() || null
+        : null;
+      const selectedBookmakerName = selectedProvider === 'odds_api'
+        ? String(coordinatedMatch.selectedBookmakerName ?? '').trim() || null
+        : null;
       const selectedOdds = selectedProvider
+        && selectedBookmakerName
         ? sanitizeOddsMap(coordinatedMatch.bestOddsByProvider[selectedProvider] ?? {})
         : {};
       const liveSelectedOdds = selectedOdds;
       const estimatedOdds: Record<string, number> = {};
       const usedFallbackBookmaker = Boolean(selectedProvider && selectedProvider !== primaryProviderName);
       const usedSyntheticOdds = false;
-      const source = selectedProvider === 'odds_api' ? 'odds_api' : 'unavailable';
+      const source = selectedProvider === 'odds_api' && selectedBookmakerName ? 'odds_api' : 'unavailable';
       const fallbackOdds: Record<string, number> = usedFallbackBookmaker ? selectedOdds : {};
       const oddsCoverage = summarizeOddsCoverage(
         selectedOdds,
@@ -3176,6 +3291,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           estimatedOdds,
           fallbackOdds,
           allBookmakerOdds,
+          selectedBookmakerKey,
+          selectedBookmakerName,
           marketsRequested: finalMarketsRequested,
           usedFallbackBookmaker,
           usedSyntheticOdds,
@@ -3225,6 +3342,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           snapshotMatchId,
           confidenceScore,
           selectedProvider,
+          selectedBookmakerKey,
+          selectedBookmakerName,
           candidateCount,
           timeoutMs: matchTimeoutMs,
         },
@@ -3245,6 +3364,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         fallbackProvider: fallbackProviderName,
         activeProvider: selectedProvider,
         selectedProvider,
+        selectedBookmakerKey,
+        selectedBookmakerName,
         timeoutMs: matchTimeoutMs,
         fallbackReason: coordinatedMatch.fallbackReason ?? coordination.fallbackReason,
         providerHealth,

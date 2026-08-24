@@ -1133,6 +1133,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       budgetReady={Boolean(budget)}
                       isReplayAnalysis={isReplayAnalysis}
                       oddsSource={pred?.oddsSource ?? null}
+                      oddsBookmaker={pred?.oddsBookmaker ?? null}
                       providerWarning={oddsSourceWarning}
                       placedBetKeySet={placedBetKeySet}
                       recommendedBetResult={recommendedBetResult}

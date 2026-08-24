@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
@@ -16,20 +16,23 @@ import {
   Wallet,
 } from 'lucide-react';
 import Predictions from './pages/Predictions';
-import BudgetManager from './pages/BudgetManager';
-import BetsManager from './pages/BetsManager';
-import Backtesting from './pages/Backtesting';
-import DataManager from './pages/DataManager';
-import Scrapers from './pages/Scrapers';
-import CompetitionTransitions from './pages/CompetitionTransitions';
-import GlossaryPage from './features/glossary/GlossaryPage';
-import PredictionArchivePage from './features/prediction-archive/PredictionArchivePage';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
 import { getScraperStatus, syncUpcomingKickoffs } from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
 import './footpredictor.css';
+
+// Keep the primary prediction workbench eager; less-frequent route modules are
+// loaded only when visited, reducing the initial JavaScript payload.
+const BudgetManager = lazy(() => import('./pages/BudgetManager'));
+const BetsManager = lazy(() => import('./pages/BetsManager'));
+const Backtesting = lazy(() => import('./pages/Backtesting'));
+const DataManager = lazy(() => import('./pages/DataManager'));
+const Scrapers = lazy(() => import('./pages/Scrapers'));
+const CompetitionTransitions = lazy(() => import('./pages/CompetitionTransitions'));
+const GlossaryPage = lazy(() => import('./features/glossary/GlossaryPage'));
+const PredictionArchivePage = lazy(() => import('./features/prediction-archive/PredictionArchivePage'));
 
 const PRIMARY_NAV_ITEMS = [
   { path: '/predictions', label: 'Partite', meta: 'pronostico e quote', icon: BarChart3 },
@@ -219,6 +222,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       <div className="app-layout">
         <main className={mainContentClass}>
+          <Suspense fallback={<div role="status" aria-live="polite">Caricamento pagina…</div>}>
           <Routes>
             <Route path="/" element={<Navigate to="/predictions" replace />} />
             <Route path="/dashboard" element={<Navigate to="/predictions" replace />} />
@@ -232,6 +236,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             <Route path="/scrapers" element={<Scrapers />} />
             <Route path="/transitions" element={<CompetitionTransitions />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
 

@@ -23,6 +23,8 @@ export type CoordinatedOddsMatch = {
   isMerged: boolean;
   marketSources: Record<string, string[]>;
   bestOddsByProvider: Record<string, Record<string, number>>;
+  selectedBookmakerKey: string | null;
+  selectedBookmakerName: string | null;
   bookmakerComparisonByProvider: Record<string, Record<string, Record<string, number>>>;
   marginsByProvider: Record<string, Record<string, string>>;
 };
@@ -460,6 +462,22 @@ export class OddsProviderCoordinator {
           this.getProvider(providerName)?.extractBestOdds(match as OddsMatch) ?? {},
         ])
     );
+    const selectedOddsProvider = Object.entries(bestOddsByProvider)
+      .find(([, odds]) => Object.keys(odds).length > 0)?.[0] ?? null;
+    const selectedProviderAdapter = selectedOddsProvider ? this.getProvider(selectedOddsProvider) : null;
+    const selectedProviderMatch = selectedOddsProvider
+      ? providerMatches[selectedOddsProvider] as OddsMatch | undefined
+      : undefined;
+    const selectedBookmaker = selectedProviderMatch
+      ? typeof selectedProviderAdapter?.getSelectedBookmaker === 'function'
+        ? selectedProviderAdapter.getSelectedBookmaker(selectedProviderMatch)
+        : selectedProviderMatch.bookmakers?.[0]
+          ? {
+              bookmakerKey: selectedProviderMatch.bookmakers[0].bookmakerKey,
+              bookmakerName: selectedProviderMatch.bookmakers[0].bookmakerName,
+            }
+          : null
+      : null;
 
     const bookmakerComparisonByProvider = Object.fromEntries(
       Object.entries(providerMatches)
@@ -497,6 +515,8 @@ export class OddsProviderCoordinator {
       isMerged,
       marketSources,
       bestOddsByProvider,
+      selectedBookmakerKey: selectedBookmaker?.bookmakerKey ?? null,
+      selectedBookmakerName: selectedBookmaker?.bookmakerName ?? null,
       bookmakerComparisonByProvider,
       marginsByProvider,
     };

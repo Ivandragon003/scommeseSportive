@@ -103,6 +103,26 @@ type UnderstatMatchPayload = {
   };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * `/getMatchData` must expose both sides of rosters and shots before it can
+ * replace persisted match detail. A successful but malformed response would
+ * otherwise be interpreted as empty data and overwrite real statistics.
+ */
+export const hasValidUnderstatMatchDetails = (value: unknown): value is UnderstatMatchPayload => {
+  if (!isRecord(value)) return false;
+  const rosters = value.rosters;
+  const shots = value.shots;
+  return isRecord(rosters)
+    && isRecord(rosters.h)
+    && isRecord(rosters.a)
+    && isRecord(shots)
+    && Array.isArray(shots.h)
+    && Array.isArray(shots.a);
+};
+
 const TEAM_ALIASES: Record<string, string> = {
   internazionale: 'inter',
   inter_milan: 'inter',
@@ -364,7 +384,7 @@ export class UnderstatScraper {
     );
 
     details.forEach((detail, idx) => {
-      if (!detail) return;
+      if (!hasValidUnderstatMatchDetails(detail)) return;
       const targetIndex = completedMatches[idx].index;
       matches[targetIndex] = this.enrichMatch(matches[targetIndex], detail);
     });

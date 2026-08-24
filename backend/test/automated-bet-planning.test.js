@@ -164,6 +164,7 @@ test('nightly route applies the limit independently to every match and archives 
       return {
         captured_at: new Date().toISOString(),
         source: 'odds_api',
+        selectedBookmakerName: 'Pinnacle',
         usedSyntheticOdds: false,
         liveSelectedOdds: { homeWin: 2 },
       };
@@ -273,7 +274,7 @@ test('returns HTTP 500 when a saved-only decision cannot be archived', async () 
     },
     async getLatestOddsSnapshotForMatch() {
       return {
-        captured_at: new Date().toISOString(), source: 'odds_api', usedSyntheticOdds: false,
+        captured_at: new Date().toISOString(), source: 'odds_api', selectedBookmakerName: 'Pinnacle', usedSyntheticOdds: false,
         liveSelectedOdds: { homeWin: 2 },
       };
     },
@@ -322,7 +323,7 @@ test('persistent operational slots prevent a retry from exceeding three real bet
     async getUpcomingMatches() { return [match]; },
     async getLatestOddsSnapshotForMatch() {
       return {
-        captured_at: new Date().toISOString(), source: 'odds_api', usedSyntheticOdds: false,
+        captured_at: new Date().toISOString(), source: 'odds_api', selectedBookmakerName: 'Pinnacle', usedSyntheticOdds: false,
         liveSelectedOdds: { homeWin: 2 },
       };
     },
@@ -490,7 +491,7 @@ test('keeps a durable reservation and returns HTTP 500 if audit finalization fai
     },
     async getLatestOddsSnapshotForMatch() {
       return {
-        captured_at: new Date().toISOString(), source: 'odds_api', usedSyntheticOdds: false,
+        captured_at: new Date().toISOString(), source: 'odds_api', selectedBookmakerName: 'Pinnacle', usedSyntheticOdds: false,
         liveSelectedOdds: { homeWin: 2 },
       };
     },
@@ -559,7 +560,7 @@ test('ambiguous placement failure keeps the slot reserved so a retry cannot plac
     async getUpcomingMatches() { return [match]; },
     async getLatestOddsSnapshotForMatch() {
       return {
-        captured_at: new Date().toISOString(), source: 'odds_api', usedSyntheticOdds: false,
+        captured_at: new Date().toISOString(), source: 'odds_api', selectedBookmakerName: 'Pinnacle', usedSyntheticOdds: false,
         liveSelectedOdds: { homeWin: 2 },
       };
     },

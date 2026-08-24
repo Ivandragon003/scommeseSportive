@@ -90,6 +90,13 @@ export interface BestValueOpportunity {
   commenceTime?: string | null;
 }
 
+export interface PredictionOddsProvenance {
+  oddsSource?: string | null;
+  oddsBookmaker?: string | null;
+  usedFallbackBookmaker?: boolean;
+  usedSyntheticOdds?: boolean;
+}
+
 export interface RecommendedBetResult {
   selection?: string;
   selectionLabel?: string;

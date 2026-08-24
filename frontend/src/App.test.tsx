@@ -130,7 +130,10 @@ test('apre la pagina Glossario dalla navigazione principale', async () => {
   const toolsMenu = screen.getByRole('menu', { name: /Strumenti/i });
   fireEvent.click(within(toolsMenu).getByText('Glossario'));
 
-  expect(await screen.findByRole('heading', { name: 'Glossario' })).toBeTruthy();
+  // The route is intentionally loaded through React.lazy. Under the full
+  // parallel Jest suite the dynamic import can exceed Testing Library's
+  // one-second default even though navigation has completed correctly.
+  expect(await screen.findByRole('heading', { name: 'Glossario' }, { timeout: 5000 })).toBeTruthy();
   expect(screen.getByRole('searchbox', { name: /Cerca nel glossario/i })).toBeTruthy();
   expect(window.location.pathname).toBe('/glossary');
 });

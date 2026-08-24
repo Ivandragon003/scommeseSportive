@@ -9,6 +9,7 @@ interface ValueOpportunitiesTableProps {
   budgetReady: boolean;
   isReplayAnalysis: boolean;
   oddsSource?: string | null;
+  oddsBookmaker?: string | null;
   providerWarning?: string | null;
   placedBetKeySet: Set<string>;
   recommendedBetResult?: RecommendedBetResult | null;
@@ -65,6 +66,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   budgetReady,
   isReplayAnalysis,
   oddsSource,
+  oddsBookmaker,
   providerWarning,
   placedBetKeySet,
   recommendedBetResult,
@@ -75,12 +77,12 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   onStakeChange,
   onBet,
 }) => {
-  const hasVerifiedEurobetOdds = oddsSource === 'odds_api';
-  const visibleOpportunities = hasVerifiedEurobetOdds ? opportunities : [];
-  const oddsUnavailable = !hasVerifiedEurobetOdds;
+  const hasVerifiedRealBookmakerOdds = oddsSource === 'odds_api' && Boolean(String(oddsBookmaker ?? '').trim());
+  const visibleOpportunities = hasVerifiedRealBookmakerOdds ? opportunities : [];
+  const oddsUnavailable = !hasVerifiedRealBookmakerOdds;
   const emptyMessage =
     oddsUnavailable
-      ? 'Quota Eurobet non disponibile per questa partita.'
+      ? 'Quota bookmaker non disponibile per questa partita.'
       : 'Nessuna giocata supera i criteri operativi.';
 
   return (

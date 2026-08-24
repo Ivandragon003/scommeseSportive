@@ -44,6 +44,11 @@ export interface BookmakerOdds {
   markets: MarketOdds[];
 }
 
+export type SelectedBookmaker = {
+  bookmakerKey: string;
+  bookmakerName: string;
+};
+
 export interface MarketOdds {
   marketKey: string;          // "h2h", "totals", "spreads"
   outcomes: OutcomeOdds[];
@@ -513,38 +518,25 @@ export class OddsApiService {
    * Formato output:
    * { homeWin: 1.85, draw: 3.40, awayWin: 4.20, over25: 1.70, under25: 2.10 }
    */
-  extractBestOdds(match: OddsMatch, preferredBookmaker: string = OddsApiService.PREFERRED_BOOKMAKERS[0]): Record<string, number> {
-    const odds: Record<string, number> = {};
-
-    // Trova il bookmaker preferito, altrimenti prendi il primo disponibile
-    const primary = match.bookmakers.find((b) => b.bookmakerKey === preferredBookmaker)
-      ?? match.bookmakers[0];
-
-    if (!primary) return odds;
-
-    const orderedBookmakers = [
-      primary.bookmakerKey,
+  getSelectedBookmaker(match: OddsMatch, preferredBookmaker?: string): SelectedBookmaker | null {
+    const preferredKeys = [
+      preferredBookmaker,
       ...OddsApiService.PREFERRED_BOOKMAKERS,
-      ...match.bookmakers.map((b) => b.bookmakerKey),
-    ].filter(Boolean);
+      ...match.bookmakers.map((bookmaker) => bookmaker.bookmakerKey),
+    ].filter((key): key is string => Boolean(key));
+    const selected = preferredKeys
+      .map((key) => match.bookmakers.find((bookmaker) => bookmaker.bookmakerKey === key))
+      .find((bookmaker): bookmaker is BookmakerOdds => Boolean(bookmaker));
+    return selected?.bookmakerKey && selected.bookmakerName
+      ? { bookmakerKey: selected.bookmakerKey, bookmakerName: selected.bookmakerName }
+      : null;
+  }
 
-    const seen = new Set<string>();
-    for (const bookmakerKey of orderedBookmakers) {
-      if (seen.has(bookmakerKey)) continue;
-      seen.add(bookmakerKey);
-
-      const bookmaker = match.bookmakers.find((b) => b.bookmakerKey === bookmakerKey);
-      if (!bookmaker) continue;
-
-      const bookmakerOdds = this.extractBookmakerOdds(match, bookmaker);
-      for (const [key, price] of Object.entries(bookmakerOdds)) {
-        if (odds[key] === undefined) {
-          odds[key] = price;
-        }
-      }
-    }
-
-    return odds;
+  extractBestOdds(match: OddsMatch, preferredBookmaker?: string): Record<string, number> {
+    const selected = this.getSelectedBookmaker(match, preferredBookmaker);
+    if (!selected) return {};
+    const bookmaker = match.bookmakers.find((entry) => entry.bookmakerKey === selected.bookmakerKey);
+    return bookmaker ? this.extractBookmakerOdds(match, bookmaker) : {};
   }
 
   /**

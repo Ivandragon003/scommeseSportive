@@ -211,6 +211,37 @@ test('buildBacktestReport segnala run legacy senza detailed bets', () => {
   assert.equal(report.alerts[0].type, 'legacy_data');
 });
 
+test('buildBacktestReport mantiene odds_api distinta da fallback e synthetic', () => {
+  const report = buildBacktestReport({
+    ...sampleResult,
+    detailedBets: [
+      { ...sampleResult.detailedBets[0], oddsSource: 'odds_api' },
+      { ...sampleResult.detailedBets[1], oddsSource: 'fallback' },
+      sampleResult.detailedBets[2],
+    ],
+  }, {});
+
+  assert.deepEqual(report.dataset.availableSources, ['fallback', 'odds_api', 'synthetic']);
+  assert.equal(buildBacktestReport({ ...sampleResult, detailedBets: [{ ...sampleResult.detailedBets[0], oddsSource: 'odds_api' }] }, { source: 'odds_api' }).summary.totalBets, 1);
+});
+
+test('buildBacktestReport conta odds_api con bookmaker nominato come quota reale', () => {
+  const report = buildBacktestReport({
+    ...sampleResult,
+    detailedBets: [{
+      ...sampleResult.detailedBets[0],
+      oddsSource: 'odds_api',
+      snapshotSource: 'odds_api',
+      isRealEurobetOdds: false,
+      isRealBookmakerOdds: true,
+      isSynthetic: false,
+    }],
+  }, {});
+
+  assert.equal(report.oddsReliability.betsWithRealEurobetOdds, 1);
+  assert.equal(report.oddsReliability.betsWithSyntheticOdds, 0);
+});
+
 test('buildBacktestReport calcola CLV aggregato e segmentato quando disponibile', () => {
   const resultWithClv = {
     kind: 'classic',

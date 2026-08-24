@@ -58,9 +58,12 @@ export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): O
       : { label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' };
   }
   if (prediction?.oddsSource === 'odds_api') {
-    return { label: 'Quota Eurobet verificata', className: 'pr-badge-green' };
+    const bookmakerName = String(prediction?.oddsBookmaker ?? '').trim();
+    return bookmakerName
+      ? { label: `Quota bookmaker verificata: ${bookmakerName}`, className: 'pr-badge-green' }
+      : { label: 'Quota bookmaker non disponibile', className: 'pr-badge-gray' };
   }
-  return { label: 'Quota Eurobet non disponibile', className: 'pr-badge-gray' };
+  return { label: 'Quota bookmaker non disponibile', className: 'pr-badge-gray' };
 };
 
 export const rankOpportunity = (opportunity: any): number => {
@@ -91,12 +94,14 @@ export const formatMarketKey = (market: string): string => {
 export const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
   `${String(matchId ?? '')}::${String(selection ?? '')}::${String(marketName ?? '')}`;
 
-export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?: string | null) => {
+export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?: string | null, oddsBookmaker?: string | null) => {
   if (!prediction) return prediction;
-  if (oddsSource === 'odds_api') {
+  const verifiedBookmaker = String(oddsBookmaker ?? '').trim();
+  if (oddsSource === 'odds_api' && verifiedBookmaker) {
     return {
       ...prediction,
       oddsSource: 'odds_api',
+      oddsBookmaker: verifiedBookmaker,
       usedSyntheticOdds: false,
       usedFallbackBookmaker: false,
     };
@@ -110,14 +115,15 @@ export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?:
     valueOpportunities: [],
     bestValueOpportunity: null,
     bestBetStatus: 'NO_MARKET',
-    bestBetReason: 'Quota Eurobet non disponibile: nessuna giocata operativa proposta.',
+    oddsBookmaker: null,
+    bestBetReason: 'Quota bookmaker non disponibile: nessuna giocata operativa proposta.',
     bestBetAlternatives: [],
   };
 };
 
 
 export const VALUE_LEGEND: Array<{ term: string; meaning: string; termId?: string }> = [
-  { term: 'Quota', termId: 'decimal-odds', meaning: 'Prezzo decimale Eurobet della selezione (es. 2.10).' },
+  { term: 'Quota', termId: 'decimal-odds', meaning: 'Prezzo decimale del bookmaker verificato per la selezione (es. 2.10).' },
   { term: 'Probabilità stimata', termId: 'model-probability', meaning: 'Probabilità attribuita dal modello alla selezione.' },
   { term: 'Probabilità implicita', termId: 'implied-probability', meaning: 'Probabilità ricavata dalla quota: 1 / quota.' },
   { term: 'EV', termId: 'expected-value', meaning: 'Valore atteso della giocata, da valutare insieme a rischio e campione.' },

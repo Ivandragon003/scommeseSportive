@@ -1,4 +1,4 @@
-import { OddsMatch } from '../OddsApiService';
+import { OddsMatch, SelectedBookmaker } from '../OddsApiService';
 
 export type OddsProviderHealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'not_checked' | 'disabled';
 
@@ -43,6 +43,7 @@ export interface OddsProvider<T extends OddsMatch = OddsMatch> {
 
 export interface OddsProviderTools<T extends OddsMatch = OddsMatch> {
   extractBestOdds(match: T, preferredBookmaker?: string): Record<string, number>;
+  getSelectedBookmaker(match: T, preferredBookmaker?: string): SelectedBookmaker | null;
   compareBookmakers(match: T): Record<string, Record<string, number>>;
   calculateMargin(match: T, bookmakerKey: string): number | null;
   getRuntimeMetadata(): Record<string, unknown>;

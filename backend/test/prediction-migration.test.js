@@ -79,6 +79,82 @@ test('bet prediction link migration is additive and keeps legacy bets unlinked',
   assert.deepEqual(rows.rows, [{ bet_id: 'legacy-bet', prediction_id: null }]);
 });
 
+test('DatabaseService upgrades an already-migrated legacy automated decision table before creating dependent indexes', async () => {
+  const isolatedDbPath = `legacy-automated-decisions-${process.pid}.db`;
+  process.env.TURSO_DATABASE_URL = `file:${isolatedDbPath}`;
+  const legacy = createClient({ url: `file:${isolatedDbPath}` });
+  await legacy.execute(`
+    CREATE TABLE automated_bet_decisions (
+      decision_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      match_id TEXT NOT NULL,
+      market_name TEXT NOT NULL,
+      selection TEXT NOT NULL,
+      confidence TEXT,
+      bookmaker_odds REAL,
+      theoretical_stake_percent REAL,
+      theoretical_stake_amount REAL,
+      ranking_position INTEGER,
+      created_at TEXT
+    )
+  `);
+  await legacy.execute({
+    sql: `INSERT INTO automated_bet_decisions (
+      decision_id, user_id, match_id, market_name, selection, confidence,
+      bookmaker_odds, theoretical_stake_percent, theoretical_stake_amount,
+      ranking_position, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      'legacy-decision', 'user1', 'match1', '1X2', 'home', 'high',
+      2.15, 2, 20, 1, '2026-08-24T00:00:00Z',
+    ],
+  });
+  await legacy.execute('CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT)');
+  await legacy.execute({
+    sql: 'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
+    args: ['007_automated_bet_decisions.sql', '2026-08-24T00:00:00Z'],
+  });
+
+  const db = new DatabaseService();
+  await db.getAutomatedBetDecisions({ userId: 'user1' });
+  const columns = await db.getTableColumns('automated_bet_decisions');
+  for (const column of [
+    'opportunity_key', 'operational_slot', 'decision_status', 'exclusion_reason', 'bet_id',
+  ]) {
+    assert.ok(columns.includes(column), `expected compatibility column ${column}`);
+  }
+
+  const rows = await legacy.execute(`
+    SELECT decision_id, confidence, bookmaker_odds, decision_status, opportunity_key
+    FROM automated_bet_decisions
+  `);
+  assert.equal(rows.rows.length, 1);
+  assert.equal(rows.rows[0].decision_id, 'legacy-decision');
+  assert.equal(rows.rows[0].confidence, 'high');
+  assert.equal(Number(rows.rows[0].bookmaker_odds), 2.15);
+  assert.equal(rows.rows[0].decision_status, 'saved_only');
+  assert.match(String(rows.rows[0].opportunity_key), /^legacy:/);
+
+  const indexes = await legacy.execute(`
+    SELECT name FROM sqlite_master
+    WHERE type = 'index'
+      AND name IN ('idx_automated_bet_decisions_active_slot', 'idx_automated_bet_decisions_active_opportunity')
+  `);
+  assert.deepEqual(
+    indexes.rows.map((row) => row.name).sort(),
+    ['idx_automated_bet_decisions_active_opportunity', 'idx_automated_bet_decisions_active_slot'],
+  );
+
+  await db.close();
+  await legacy.close();
+  try {
+    unlinkSync(isolatedDbPath);
+  } catch (error) {
+    // libSQL may retain a Windows handle briefly after close().
+    if (error.code !== 'EBUSY') throw error;
+  }
+});
+
 test('prediction archive preserves the real bookmaker source', async () => {
   // Keep this service-backed migration test isolated from the direct migration
   // fixtures above: libSQL's plain file::memory: URL can be shared by clients.

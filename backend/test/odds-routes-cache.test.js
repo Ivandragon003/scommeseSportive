@@ -4,6 +4,8 @@ const {
   buildOddsCompetitionCacheKey,
   shouldUseOddsCompetitionCache,
 } = require('../dist/api/routes.js');
+const fs = require('node:fs');
+const path = require('node:path');
 
 test('Odds API cache key bulk resta stabile per richieste competition-wide', () => {
   const first = buildOddsCompetitionCacheKey({
@@ -82,4 +84,12 @@ test('Odds API fixture signature normalizza il commenceTime per evitare chiavi i
   });
 
   assert.equal(first, second);
+});
+
+test('match odds cache resta bounded e rimuove scaduti opportunisticamente', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'api', 'routes.ts'), 'utf8');
+  assert.match(source, /MATCH_ODDS_CACHE_MAX_ENTRIES = 200/);
+  assert.match(source, /const pruneMatchOddsCache[\s\S]*cached\.cachedAt[\s\S]*?};/);
+  assert.match(source, /const ensureMatchOddsCacheCapacityForInsert[\s\S]*if \(matchOddsCache\.has\(cacheKey\)\) return;[\s\S]*while \(matchOddsCache\.size >= MATCH_ODDS_CACHE_MAX_ENTRIES\)/);
+  assert.match(source, /setCachedMatchOddsPayload[\s\S]*pruneMatchOddsCache\(\)[\s\S]*ensureMatchOddsCacheCapacityForInsert\(cacheKey\)/);
 });

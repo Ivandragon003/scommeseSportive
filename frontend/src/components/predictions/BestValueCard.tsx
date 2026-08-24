@@ -91,8 +91,8 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   const confidenceLabel = CONFIDENCE_LABELS[String(opportunity.confidence ?? '')] ?? 'Non disponibile';
   const metrics = [
     {
-      id: 'quota-eurobet',
-      label: 'Quota Eurobet',
+      id: 'quota-bookmaker',
+      label: 'Quota bookmaker',
       value: formatMetricNumber(opportunity.bookmakerOdds, 2),
     },
     {

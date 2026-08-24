@@ -224,6 +224,28 @@ test('BacktestingEngine walk-forward separates real Eurobet odds and synthetic o
   assert.ok(result.folds.every((fold) => typeof fold.betsWithSyntheticOdds === 'number'));
 });
 
+test('BacktestingEngine counts named odds_api bookmaker odds as real in reliability metrics', () => {
+  const engine = new BacktestingEngine();
+  const matches = buildMatches();
+  const { odds, context } = buildHistoricalOdds(matches);
+
+  for (const match of matches) {
+    context[match.matchId] = {
+      ...context[match.matchId],
+      oddsSource: 'odds_api',
+      snapshotSource: 'odds_api',
+      selectedBookmakerKey: 'pinnacle',
+      selectedBookmakerName: 'Pinnacle',
+    };
+  }
+
+  const result = runOfficialWalkForward(engine, matches, odds, context);
+  assert.ok(result.summary.totalBetsPlaced > 0);
+  assert.equal(result.detailedBets.every((bet) => bet.isRealBookmakerOdds === true), true);
+  assert.equal(result.detailedBets.every((bet) => bet.isRealEurobetOdds === true), true);
+  assert.equal(result.folds.every((fold) => fold.betsWithRealEurobetOdds > 0), true);
+});
+
 test('BacktestingEngine walk-forward rejects Eurobet closing snapshots captured after kickoff', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();

@@ -414,6 +414,8 @@ export interface HistoricalOddsContextEntry {
   odds: Record<string, number>;
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
+  selectedBookmakerKey?: string | null;
+  selectedBookmakerName?: string | null;
   capturedAt?: string | null;
   closingOdds?: Record<string, number>;
   closingCapturedAt?: string | null;
@@ -464,6 +466,8 @@ export interface BacktestBetDetail {
   closingSource?: string | null;
   clv?: number | null;
   clvMissingReason?: ClvMissingReason | null;
+  /** Additive semantic flag; `isRealEurobetOdds` remains for compatibility. */
+  isRealBookmakerOdds?: boolean;
   isRealEurobetOdds?: boolean;
   uncertaintyFactor?: number;
   riskPenalty?: number;
@@ -512,6 +516,7 @@ interface TestBet {
   profit: number;
   /** true se la quota usata è sintetica (nessuna quota reale disponibile per la partita) */
   isSynthetic: boolean;
+  isRealBookmakerOdds: boolean;
   isRealEurobetOdds: boolean;
   oddsSource: BacktestOddsSource;
   snapshotSource?: string | null;
@@ -1142,11 +1147,12 @@ export class BacktestingEngine {
     };
   }
 
-  private isRealEurobetOddsContext(context?: HistoricalOddsContextEntry): boolean {
+  private isRealBookmakerOddsContext(context?: HistoricalOddsContextEntry): boolean {
     const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
-    return selectedSource.includes('eurobet') &&
-      !context?.usedFallbackBookmaker &&
-      !context?.usedSyntheticOdds;
+    if (context?.usedFallbackBookmaker || context?.usedSyntheticOdds) return false;
+    if (selectedSource.includes('eurobet')) return true;
+    return selectedSource.includes('odds_api')
+      && Boolean(String(context?.selectedBookmakerName ?? '').trim());
   }
 
   private isTrustedClosingContext(context?: HistoricalOddsContextEntry): boolean {
@@ -1457,7 +1463,10 @@ export class BacktestingEngine {
       const odds        = historicalOdds[match.matchId]
         ?? this.generateSyntheticOdds(match.matchId, probMap);
       const oddsSource: BacktestOddsSource = oddsContext?.oddsSource ?? (hasRealOdds ? 'unknown' : 'synthetic');
-      const isRealEurobetOdds = hasRealOdds && this.isRealEurobetOddsContext(oddsContext);
+      const isRealBookmakerOdds = hasRealOdds && this.isRealBookmakerOddsContext(oddsContext);
+      // Compatibility field now retains the wider, truthful real-bookmaker
+      // population; consumers can migrate to isRealBookmakerOdds additively.
+      const isRealEurobetOdds = isRealBookmakerOdds;
 
       if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
 
@@ -1535,6 +1544,7 @@ export class BacktestingEngine {
             won,
             profit,
             isSynthetic: !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+            isRealBookmakerOdds,
             isRealEurobetOdds,
             oddsSource,
             snapshotSource: oddsContext?.snapshotSource ?? null,
@@ -1618,6 +1628,7 @@ export class BacktestingEngine {
           won,
           profit,
           isSynthetic:     !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+          isRealBookmakerOdds,
           isRealEurobetOdds,
           oddsSource,
           snapshotSource:  oddsContext?.snapshotSource ?? null,
@@ -2863,6 +2874,7 @@ export class BacktestingEngine {
         outcome: bet.won ? 'WON' : 'LOST',
         won: bet.won,
         isSynthetic: bet.isSynthetic,
+        isRealBookmakerOdds: bet.isRealBookmakerOdds,
         isRealEurobetOdds: bet.isRealEurobetOdds,
         oddsSource: bet.oddsSource,
         snapshotSource: bet.snapshotSource ?? null,

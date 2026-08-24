@@ -149,6 +149,7 @@ type NormalizedBacktestBet = {
   edge: number;
   clv: number | null;
   hasClv: boolean;
+  isRealBookmakerOdds: boolean;
   isRealEurobetOdds: boolean;
   isSynthetic: boolean;
   won: boolean;
@@ -332,7 +333,8 @@ const normalizeSource = (value: unknown): string => {
   const source = normalizeToken(value);
   if (!source) return 'unknown';
   if (source.includes('eurobet')) return 'eurobet_scraper';
-  if (source.includes('fallback') || source.includes('odds_api')) return 'fallback';
+  if (source.includes('odds_api')) return 'odds_api';
+  if (source.includes('fallback')) return 'fallback';
   if (source.includes('synthetic') || source.includes('model_estimated')) return 'synthetic';
   return source;
 };
@@ -498,7 +500,9 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
     const clvRaw = typeof clvValue === 'number' ? clvValue : Number.NaN;
     const hasClv = Number.isFinite(clvRaw);
     const clv = hasClv ? clvRaw : null;
-    const isRealEurobetOdds = Boolean((rawBet as BacktestBetDetail).isRealEurobetOdds);
+    const isRealBookmakerOdds = Boolean((rawBet as BacktestBetDetail).isRealBookmakerOdds)
+      || Boolean((rawBet as BacktestBetDetail).isRealEurobetOdds);
+    const isRealEurobetOdds = isRealBookmakerOdds;
     const isSynthetic = Boolean((rawBet as BacktestBetDetail).isSynthetic);
     const timestampCandidate = new Date(rawBet.matchDate).getTime();
     const timestampMs = Number.isNaN(timestampCandidate) ? null : timestampCandidate;
@@ -541,6 +545,7 @@ const buildNormalizedDataset = (bets: BacktestBetDetail[]): BacktestDatasetIndex
       edge,
       clv,
       hasClv,
+      isRealBookmakerOdds,
       isRealEurobetOdds,
       isSynthetic,
       won: Boolean(rawBet.won),
@@ -898,7 +903,7 @@ const buildOddsReliabilitySection = (
   }
 
   const rows = filteredIndices.map((index) => dataset.bets[index]);
-  const realRows = rows.filter((bet) => bet.isRealEurobetOdds);
+  const realRows = rows.filter((bet) => bet.isRealBookmakerOdds);
   const syntheticRows = rows.filter((bet) => bet.isSynthetic);
   const summarize = (items: NormalizedBacktestBet[]) => {
     const staked = items.reduce((sum, bet) => sum + bet.stake, 0);
