@@ -15,6 +15,7 @@ const {
   buildTransitionStandings,
   syncTransitionSeasonReferences,
   FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
+  selectLatestRelevantTransition,
 } = require('../dist/services/FootballDataService.js');
 
 test('seasonToFootballDataCode: anno inizio -> codice football-data', () => {
@@ -82,6 +83,18 @@ test('buildTransitionSeasonReference: calcola PPG e differenza reti senza invent
   assert.equal(reference.coverageStatus, 'complete');
   assert.equal(reference.sourceProvider, 'football-data.co.uk');
   assert.equal(reference.sourceReference.includes('/2425/I2.csv'), true);
+  assert.equal(reference.matchesObserved, 6);
+  assert.equal(reference.matchesExpected, 6);
+  assert.equal(reference.coveragePercent, 100);
+});
+
+test('selectLatestRelevantTransition: conserva la cronologia ma usa l’evento piu recente', () => {
+  const transitions = [
+    { destination_competition_id: 'serie_a', destination_season: '2022/2023', source: 'serie_a' },
+    { destination_competition_id: 'serie_a', destination_season: '2025/2026', source: 'serie_b' },
+  ];
+  assert.equal(selectLatestRelevantTransition(transitions, 'serie_a', '2025/2026').source, 'serie_b');
+  assert.equal(selectLatestRelevantTransition(transitions, 'serie_a', '2024/2025').source, 'serie_a');
 });
 
 test('syncTransitionSeasonReferences: upsert idempotente e skip della stagione completa', async () => {

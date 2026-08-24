@@ -201,6 +201,10 @@ export type TransitionSeasonReference = {
   meanGoalDifferencePerMatch: number | null;
   stdevGoalDifferencePerMatch: number | null;
   matchesPerTeam: number | null;
+  matchesObserved: number;
+  matchesExpected: number | null;
+  coveragePercent: number | null;
+  identityCoveragePercent: number | null;
   coverageStatus: 'complete' | 'partial' | 'unknown';
   sourceProvider: string;
   sourceReference: string;
@@ -215,6 +219,22 @@ export type TransitionStanding = {
   rank: number;
   ppg: number;
 };
+
+export function seasonStartFromLabel(value: unknown): number {
+  const match = String(value ?? '').match(/^(\d{4})/);
+  return match ? Number(match[1]) : Number.NaN;
+}
+
+/** Selects only the latest transition relevant to a destination season. */
+export function selectLatestRelevantTransition<T extends { destination_competition_id?: string; destination_season?: string }>(
+  transitions: T[], destinationCompetitionId: string, destinationSeason: string,
+): T | null {
+  const target = seasonStartFromLabel(destinationSeason);
+  return transitions
+    .filter((transition) => transition.destination_competition_id === destinationCompetitionId)
+    .filter((transition) => seasonStartFromLabel(transition.destination_season) <= target)
+    .sort((a, b) => seasonStartFromLabel(b.destination_season) - seasonStartFromLabel(a.destination_season))[0] ?? null;
+}
 
 /** Builds a deterministic final-table view from completed result rows. */
 export function buildTransitionStandings(rows: FootballDataRow[]): TransitionStanding[] {
@@ -267,8 +287,15 @@ export function buildTransitionSeasonReference(
     const avg = mean(items)!;
     return Math.sqrt(items.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (items.length - 1));
   };
-  const expectedMatches = values.length > 1 ? values.length - 1 : 0;
-  const complete = values.length > 0 && values.every((team) => team.played >= expectedMatches);
+  // The source CSV represents the regular league season, not playoffs. The
+  // supported second divisions use a double round-robin regular season.
+  const expectedMatchesPerTeam = values.length > 1 ? 2 * (values.length - 1) : 0;
+  const matchesObserved = Math.round(values.reduce((sum, team) => sum + team.played, 0) / 2);
+  const matchesExpected = expectedMatchesPerTeam > 0
+    ? Math.round(values.length * expectedMatchesPerTeam / 2)
+    : null;
+  const coveragePercent = matchesExpected ? Math.min(100, (matchesObserved / matchesExpected) * 100) : null;
+  const complete = values.length > 0 && values.every((team) => team.played >= expectedMatchesPerTeam);
   return {
     sourceCompetitionId: competitionId,
     sourceSeason: seasonLabel(seasonStartYear),
@@ -278,6 +305,13 @@ export function buildTransitionSeasonReference(
     meanGoalDifferencePerMatch: mean(gdPerMatch),
     stdevGoalDifferencePerMatch: stdev(gdPerMatch),
     matchesPerTeam: mean(values.map((team) => team.played)),
+    matchesObserved,
+    matchesExpected,
+    coveragePercent,
+    // This is populated by the transition sync after matching team identities;
+    // source completeness itself must never be reduced because Understat does
+    // not contain the lower-division teams.
+    identityCoveragePercent: null,
     coverageStatus: complete ? 'complete' : values.length ? 'partial' : 'unknown',
     sourceProvider: 'football-data.co.uk',
     sourceReference,
@@ -343,6 +377,8 @@ export interface TransitionReferenceDb {
     sourceProvider: string;
     sourceReference: string;
     notes: string;
+    transitionSequence?: number | null;
+    sourceIdentityStatus?: 'matched' | 'unresolved' | 'unknown';
   }): Promise<void>;
 }
 
@@ -401,15 +437,20 @@ export async function syncTransitionSeasonReferences(
         const csv = await fetcher(leagueCode, seasonCode);
         if (!csv) { summary.skipped += 1; continue; }
         summary.downloaded += 1;
+        const parsedRows = parseFootballDataCsv(csv);
+        const standings = buildTransitionStandings(parsedRows);
+        const identityMatched = standings.filter((item) => teamByName.has(item.normalizedTeamName)).length;
         const reference = buildTransitionSeasonReference(
           competitionId, competitionName, seasonStartYear,
-          parseFootballDataCsv(csv), sourceReference,
+          parsedRows, sourceReference,
         );
+        reference.identityCoveragePercent = standings.length > 0
+          ? (identityMatched / standings.length) * 100
+          : null;
         await db.upsertTransitionSeasonReference(reference);
         summary.persisted += 1;
         const rule = TRANSITION_RULES[competitionId];
         if (rule && db.upsertTeamCompetitionTransition && db.getTransitionTeams) {
-          const standings = buildTransitionStandings(parseFootballDataCsv(csv));
           for (const standing of standings.filter((item) => rule.directPromotionRanks.includes(item.rank))) {
             const teamId = teamByName.get(standing.normalizedTeamName);
             if (!teamId) { summary.unresolvedTeams.push(`${competitionName}:${standing.teamName}:${reference.sourceSeason}`); continue; }
@@ -434,6 +475,7 @@ export async function syncTransitionSeasonReferences(
               sourceProvider: reference.sourceProvider,
               sourceReference,
               notes: 'Auto-identificata dalla posizione finale; i playoff non sono inferiti dai soli CSV di campionato.',
+              sourceIdentityStatus: 'matched',
             });
             summary.transitionsPersisted += 1;
           }

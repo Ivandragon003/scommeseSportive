@@ -1184,6 +1184,10 @@ export class DatabaseService {
     meanGoalDifferencePerMatch: number | null;
     stdevGoalDifferencePerMatch: number | null;
     matchesPerTeam: number | null;
+    matchesObserved: number;
+    matchesExpected: number | null;
+    coveragePercent: number | null;
+    identityCoveragePercent: number | null;
     coverageStatus: 'complete' | 'partial' | 'unknown';
     sourceProvider: string;
     sourceReference: string;
@@ -1192,8 +1196,9 @@ export class DatabaseService {
       INSERT INTO source_season_reference (
         source_competition_id, source_season, teams_count, mean_ppg, stdev_ppg,
         mean_goal_difference_per_match, stdev_goal_difference_per_match,
-        matches_per_team, coverage_status, source_provider, source_reference, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        matches_per_team, matches_observed, matches_expected, coverage_percent,
+        identity_coverage_percent, coverage_status, source_provider, source_reference, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(source_competition_id, source_season) DO UPDATE SET
         teams_count = excluded.teams_count,
         mean_ppg = excluded.mean_ppg,
@@ -1201,6 +1206,10 @@ export class DatabaseService {
         mean_goal_difference_per_match = excluded.mean_goal_difference_per_match,
         stdev_goal_difference_per_match = excluded.stdev_goal_difference_per_match,
         matches_per_team = excluded.matches_per_team,
+        matches_observed = excluded.matches_observed,
+        matches_expected = excluded.matches_expected,
+        coverage_percent = excluded.coverage_percent,
+        identity_coverage_percent = excluded.identity_coverage_percent,
         coverage_status = excluded.coverage_status,
         source_provider = excluded.source_provider,
         source_reference = excluded.source_reference,
@@ -1209,7 +1218,9 @@ export class DatabaseService {
       reference.sourceCompetitionId, reference.sourceSeason, reference.teamsCount,
       reference.meanPpg, reference.stdevPpg, reference.meanGoalDifferencePerMatch,
       reference.stdevGoalDifferencePerMatch, reference.matchesPerTeam,
-      reference.coverageStatus, reference.sourceProvider, reference.sourceReference,
+      reference.matchesObserved, reference.matchesExpected, reference.coveragePercent,
+      reference.identityCoveragePercent, reference.coverageStatus,
+      reference.sourceProvider, reference.sourceReference,
     ]);
   }
 
@@ -1217,6 +1228,7 @@ export class DatabaseService {
     const row = await this.get(`
       SELECT 1 AS present FROM source_season_reference
       WHERE source_competition_id = ? AND source_season = ? AND coverage_status = 'complete'
+        AND matches_observed > 0 AND coverage_percent IS NOT NULL
       LIMIT 1
     `, [sourceCompetitionId, sourceSeason]);
     return Boolean(row);
@@ -1255,6 +1267,8 @@ export class DatabaseService {
     sourceProvider: string;
     sourceReference: string;
     notes: string;
+    transitionSequence?: number | null;
+    sourceIdentityStatus?: 'matched' | 'unresolved' | 'unknown';
   }): Promise<void> {
     await this.execute(`
       INSERT INTO team_competition_transitions (
@@ -1263,8 +1277,8 @@ export class DatabaseService {
         source_rank, source_points, source_matches, source_ppg,
         source_goal_difference, source_goal_difference_per_match,
         transition_mode, coverage_status, source_quality, source_provider,
-        source_reference, notes, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        source_reference, notes, transition_sequence, source_identity_status, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(transition_id) DO UPDATE SET
         source_rank = excluded.source_rank,
         source_points = excluded.source_points,
@@ -1277,6 +1291,8 @@ export class DatabaseService {
         source_provider = excluded.source_provider,
         source_reference = excluded.source_reference,
         notes = excluded.notes,
+        transition_sequence = excluded.transition_sequence,
+        source_identity_status = excluded.source_identity_status,
         updated_at = datetime('now')
     `, [
       transition.transitionId, transition.teamId, transition.sourceCompetitionId, transition.sourceSeason,
@@ -1284,7 +1300,8 @@ export class DatabaseService {
       transition.sourceRank, transition.sourcePoints, transition.sourceMatches, transition.sourcePpg,
       transition.sourceGoalDifference, transition.sourceGoalDifferencePerMatch, transition.transitionMode,
       transition.coverageStatus, transition.sourceQuality, transition.sourceProvider,
-      transition.sourceReference, transition.notes,
+      transition.sourceReference, transition.notes, transition.transitionSequence ?? null,
+      transition.sourceIdentityStatus ?? 'unknown',
     ]);
   }
 
@@ -1311,6 +1328,91 @@ export class DatabaseService {
        AND r.source_season = t.source_season
       ORDER BY t.destination_season DESC, t.destination_competition_id, teams.name
     `);
+  }
+
+  async getLatestRelevantTeamTransition(teamId: string, destinationCompetitionId: string, destinationSeason: string): Promise<any | null> {
+    const targetStart = Number(String(destinationSeason).slice(0, 4));
+    if (!Number.isFinite(targetStart)) return null;
+    return this.get(`
+      SELECT * FROM team_competition_transitions
+      WHERE team_id = ? AND destination_competition_id = ?
+        AND CAST(substr(destination_season, 1, 4) AS INTEGER) <= ?
+      ORDER BY CAST(substr(destination_season, 1, 4) AS INTEGER) DESC
+      LIMIT 1
+    `, [teamId, destinationCompetitionId, targetStart]);
+  }
+
+  /**
+   * Coverage is deliberately team-scoped. A missing team from the league
+   * catalogue must not lower the coverage of an unrelated fixture.
+   *
+   * The denominator is the five most recent completed seasons available for
+   * the target competition. When the target season is unknown, the five most
+   * recent seasons in the team's own history are used as the reference window.
+   * Transition rows are returned as provenance only: an aggregate source
+   * season is not silently counted as full match-level history.
+   */
+  async getTeamHistoricalCoverage(teamId: string, targetSeason?: string, windowSize = 5): Promise<{
+    teamId: string;
+    seasonsExpected: number;
+    seasonsAvailable: number;
+    coveragePercent: number;
+    seasons: string[];
+    transitionHistory: any[];
+    activeTransition: any | null;
+  }> {
+    const matches = await this.all(`
+      SELECT DISTINCT season
+      FROM matches
+      WHERE (home_team_id = ? OR away_team_id = ?)
+        AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+        AND season IS NOT NULL AND TRIM(season) <> ''
+      ORDER BY season DESC
+    `, [teamId, teamId]);
+
+    const transitions = await this.all(`
+      SELECT t.*, r.coverage_status AS source_reference_coverage_status,
+             r.coverage_percent AS source_reference_coverage_percent
+      FROM team_competition_transitions t
+      LEFT JOIN source_season_reference r
+        ON r.source_competition_id = t.source_competition_id
+       AND r.source_season = t.source_season
+      WHERE t.team_id = ?
+      ORDER BY CAST(substr(t.destination_season, 1, 4) AS INTEGER) DESC,
+               COALESCE(t.transition_sequence, 0) DESC
+    `, [teamId]);
+
+    const normalizeSeason = (value: unknown): string => String(value ?? '').trim();
+    const seasonStart = (value: string): number => {
+      const match = value.match(/^(\d{4})/);
+      return match ? Number(match[1]) : -Infinity;
+    };
+    const targetStart = targetSeason ? seasonStart(normalizeSeason(targetSeason)) : Infinity;
+    const eligibleSeasons = [...new Set(matches
+      .map((row: any) => normalizeSeason(row.season))
+      .filter((season) => season && seasonStart(season) <= targetStart))]
+      .sort((a, b) => seasonStart(b) - seasonStart(a))
+      .slice(0, Math.max(1, windowSize));
+
+    // The target window is intentionally fixed. Two available seasons are
+    // therefore 2/5, not 2/2; otherwise a short history would be reported as
+    // complete and could incorrectly unlock high confidence.
+    const expected = Math.max(1, windowSize);
+    const available = eligibleSeasons.length;
+    const activeTransition = transitions.find((row: any) => {
+      const destinationStart = seasonStart(normalizeSeason(row.destination_season));
+      return destinationStart <= targetStart;
+    }) ?? null;
+
+    return {
+      teamId,
+      seasonsExpected: expected,
+      seasonsAvailable: available,
+      coveragePercent: Number(((available / expected) * 100).toFixed(2)),
+      seasons: eligibleSeasons,
+      transitionHistory: transitions,
+      activeTransition,
+    };
   }
 
   async getLeagueSummaries(leagues: string[]): Promise<Array<{

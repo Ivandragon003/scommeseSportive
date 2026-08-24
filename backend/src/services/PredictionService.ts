@@ -62,6 +62,28 @@ export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationS
   };
 }
 
+/**
+ * Team history coverage is a prudential confidence cap, not a hard filter.
+ * Two complete seasons out of the five-season target window remain usable,
+ * but cannot be presented as HIGH confidence.
+ */
+export function applyHistoricalCoverageGate(opportunity: any, matchCoveragePercent: number | null): any {
+  if (matchCoveragePercent === null || !Number.isFinite(Number(matchCoveragePercent))) return opportunity;
+  const coverage = Math.max(0, Math.min(100, Number(matchCoveragePercent)));
+  const maxConfidence = coverage < 40 ? 'LOW' : coverage < 60 ? 'MEDIUM' : null;
+  if (!maxConfidence) return opportunity;
+  const rank = (value: any) => value === 'HIGH' ? 3 : value === 'MEDIUM' ? 2 : 1;
+  const current = opportunity?.confidence;
+  return {
+    ...opportunity,
+    confidence: current && rank(current) > rank(maxConfidence) ? maxConfidence : current,
+    dataWarnings: Array.from(new Set([
+      ...(Array.isArray(opportunity?.dataWarnings) ? opportunity.dataWarnings : []),
+      'historical_team_coverage_limited',
+    ])),
+  };
+}
+
 export const TOP_5_BACKTEST_KEY = 'TOP_5';
 export const TOP_5_COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'] as const;
 
@@ -161,6 +183,7 @@ export interface PredictionRequest {
   awayTeamId: string;
   matchId?: string;
   competition?: string;
+  season?: string;
   referee?: string;
   competitiveness?: number;
   isDerby?: boolean;
@@ -293,6 +316,11 @@ export interface PredictionResponse {
   analysisFactors?: AnalysisFactors;
   modelConfidence: number;
   richnessScore?: number;
+  historicalCoverage?: {
+    home: any | null;
+    away: any | null;
+    matchCoveragePercent: number | null;
+  };
   /** Incertezza dei parametri del modello (0-1) dal bootstrap (n.7). */
   modelUncertainty?: number;
   /** Correzioni xG applicate dalle assenze player-level (n.4); presente solo se richieste. */
@@ -1501,7 +1529,7 @@ export class PredictionService {
   async predict(request: PredictionRequest): Promise<PredictionResponse> {
     // These are independent read-only lookups. Keep the subsequent schedule query
     // dependent on matchRow so its reference date remains exactly unchanged.
-    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers] = await Promise.all([
+    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers, homeHistoricalCoverage, awayHistoricalCoverage] = await Promise.all([
       this.getModel(request.competition),
       this.db.getTeam(request.homeTeamId),
       this.db.getTeam(request.awayTeamId),
@@ -1509,6 +1537,8 @@ export class PredictionService {
       request.matchId ? this.db.getMatchById(request.matchId).catch(() => null) : Promise.resolve(null),
       this.db.getPlayersByTeam(request.homeTeamId),
       this.db.getPlayersByTeam(request.awayTeamId),
+      this.db.getTeamHistoricalCoverage(request.homeTeamId, request.season).catch(() => null),
+      this.db.getTeamHistoricalCoverage(request.awayTeamId, request.season).catch(() => null),
     ]);
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
     const [homeSchedule, awaySchedule] = await Promise.all([
@@ -1531,6 +1561,8 @@ export class PredictionService {
       referee,
       homePlayers,
       awayPlayers,
+      homeHistoricalCoverage,
+      awayHistoricalCoverage,
     });
 
     const supp: SupplementaryData = context.supplementaryData;
@@ -1762,7 +1794,11 @@ export class PredictionService {
     };
     const valueOpportunities = enhanced.allBets.map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
-      return applyPrudentialGate(diagnostic ? { ...opportunity, ...diagnostic } : opportunity);
+      const withCoverage = applyHistoricalCoverageGate(
+        diagnostic ? { ...opportunity, ...diagnostic } : opportunity,
+        context.historicalCoverage.matchCoveragePercent,
+      );
+      return applyPrudentialGate(withCoverage);
     });
     const singleMatchCandidateBoard = this.engine.buildSingleMatchCandidateBoard(
       probs.flatProbabilities,
@@ -1771,7 +1807,11 @@ export class PredictionService {
       analysisContext
     ).map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
-      return applyPrudentialGate(diagnostic ? { ...opportunity, ...diagnostic } : opportunity);
+      const withCoverage = applyHistoricalCoverageGate(
+        diagnostic ? { ...opportunity, ...diagnostic } : opportunity,
+        context.historicalCoverage.matchCoveragePercent,
+      );
+      return applyPrudentialGate(withCoverage);
     });
 
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors, singleMatchCandidateBoard);
@@ -1799,6 +1839,7 @@ export class PredictionService {
       analysisFactors: factors,
       modelConfidence,
       richnessScore: Number(context.richnessScore ?? 0),
+      historicalCoverage: context.historicalCoverage,
       modelUncertainty,
       lineupXgAdjustments,
       computedAt: new Date(),
