@@ -504,7 +504,7 @@ export default function ScrapersPageView() {
               <div style={{ marginBottom: 24 }}>
                 <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Stagioni da scaricare</label>
                 <div className="sc-year-grid">
-                  {[1, 2, 3].map((value) => (
+                  {[1, 2, 3, 4, 5, 6].map((value) => (
                     <button
                       key={value}
                       className={`sc-year${yearsBack === value ? ' on' : ''}`}
@@ -512,7 +512,7 @@ export default function ScrapersPageView() {
                       aria-pressed={yearsBack === value}
                     >
                       <span className="sc-year-num">{value}</span>
-                      <span className="sc-year-lbl">{value === 1 ? 'stagione' : 'stagioni'}</span>
+                      <span className="sc-year-lbl">{value === 6 ? 'fino a 5 anni fa' : value === 1 ? 'stagione' : 'stagioni'}</span>
                     </button>
                   ))}
                 </div>

@@ -48,6 +48,8 @@ const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots, dbOve
       saveOddsSnapshot: async (snapshot) => {
         snapshots.push(snapshot);
       },
+      getLatestOddsSnapshotForMatch: async () => null,
+      getLatestRealOddsSnapshotForMatch: async () => null,
       findMatchByTeams: async () => null,
       getMatchById: async () => null,
       updateMatchKickoff: async () => undefined,
@@ -373,6 +375,55 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.deepEqual(snapshots[0].selectedOdds, selectedOdds);
     assert.deepEqual(snapshots[0].liveSelectedOdds, selectedOdds);
     assert.equal(snapshots[0].usedFallbackBookmaker, false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('/scraper/odds/match riusa uno snapshot bookmaker reale recente quando la fixture non e piu live', async () => {
+  const snapshots = [];
+  let providerCalls = 0;
+  const coordinator = {
+    async getOddsForFixtures() {
+      providerCalls += 1;
+      throw new Error('il provider live non deve essere interrogato');
+    },
+  };
+  const capturedAt = new Date().toISOString();
+  const server = await startRouter({
+    coordinator,
+    snapshots,
+    dbOverrides: {
+      getLatestRealOddsSnapshotForMatch: async () => ({
+        source: 'odds_api',
+        captured_at: capturedAt,
+        commence_time: '2026-04-25T18:45:00.000Z',
+        selectedBookmakerKey: 'codere_it',
+        selectedBookmakerName: 'Codere (IT)',
+        selectedOdds: { homeWin: 1.91, draw: 3.4, awayWin: 4.2 },
+        liveSelectedOdds: { homeWin: 1.91, draw: 3.4, awayWin: 4.2 },
+        allBookmakerOdds: { 'Codere (IT)': { homeWin: 1.91, draw: 3.4, awayWin: 4.2 } },
+        marketsRequested: ['h2h', 'totals'],
+        usedSyntheticOdds: false,
+        usedFallbackBookmaker: false,
+      }),
+    },
+  });
+  try {
+    const { status, json } = await postMatchOdds(server.baseUrl, {
+      matchId: 'understat_match_snapshot',
+      competition: 'Serie A',
+      homeTeam: 'Roma',
+      awayTeam: 'Fiorentina',
+      commenceTime: '2026-04-25T18:45:00.000Z',
+    });
+
+    assert.equal(status, 200);
+    assert.equal(json.data.found, true);
+    assert.equal(json.data.snapshotReused, true);
+    assert.equal(json.data.selectedBookmakerName, 'Codere (IT)');
+    assert.deepEqual(json.data.selectedOdds, { homeWin: 1.91, draw: 3.4, awayWin: 4.2 });
+    assert.equal(providerCalls, 0);
   } finally {
     await server.close();
   }
