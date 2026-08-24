@@ -2918,6 +2918,13 @@ export class DatabaseService {
     );
   }
 
+  async getAllPlayersByTeam(teamId: string): Promise<any[]> {
+    return this.all(
+      'SELECT * FROM players WHERE team_id = ? ORDER BY avg_shots_per_game DESC',
+      [teamId]
+    );
+  }
+
   async getPlayerLineupStatuses(matchId: string): Promise<Array<{
     player_id: string;
     team_id: string;
@@ -2981,7 +2988,17 @@ export class DatabaseService {
 
   async reconcilePlayersForTeam(teamId: string, activePlayerIds: string[]): Promise<number> {
     const ids = [...new Set(activePlayerIds.map((id) => String(id).trim()).filter(Boolean))];
-    if (ids.length === 0) return 0;
+    // An empty list is meaningful: the provider returned a valid squad, but
+    // none of its names matched our historical Understat players. Keeping the
+    // old roster active in that case is worse than hiding it, because it leaks
+    // transferred players into player props.
+    if (ids.length === 0) {
+      const result = await this.execute(
+        'UPDATE players SET is_available = 0 WHERE team_id = ?',
+        [teamId],
+      );
+      return Number(result?.rowsAffected ?? 0);
+    }
     const placeholders = ids.map(() => '?').join(', ');
     const result = await this.execute(
       `UPDATE players SET is_available = CASE WHEN player_id IN (${placeholders}) THEN 1 ELSE 0 END

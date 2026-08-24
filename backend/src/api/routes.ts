@@ -450,14 +450,18 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
         if (!side.providerId || teamsReconciled.has(side.internalId)) continue;
         const squad = await apiFootball.getSquad(side.providerId);
         if (squad.length === 0) continue;
-        const currentPlayers = await db.getPlayersByTeam(side.internalId);
+        // Include players currently marked unavailable: a player can return
+        // to the squad after an earlier reconciliation and must be eligible
+        // to be reactivated by the next authoritative squad response.
+        const currentPlayers = await db.getAllPlayersByTeam(side.internalId);
         const activeIds = currentPlayers
           .filter((player: any) => squad.some((member) => sameTeamName(member.name, String(player.name ?? ''))))
           .map((player: any) => String(player.player_id));
-        if (activeIds.length > 0) {
-          await db.reconcilePlayersForTeam(side.internalId, activeIds);
-          teamsReconciled.add(side.internalId);
-        }
+        // Reconcile even when no names matched. A non-empty provider squad is
+        // authoritative for the current team: leaving the old players active
+        // would make transferred players appear in the prediction.
+        await db.reconcilePlayersForTeam(side.internalId, activeIds);
+        teamsReconciled.add(side.internalId);
       }
       checked++;
       const [homePlayers, awayPlayers, injuries] = await Promise.all([
