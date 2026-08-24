@@ -256,6 +256,9 @@ export const getPrediction = (request: {
 }) =>
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
 
+export const getPlayerAvailability = (matchId: string) =>
+  cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`);
+
 export type PredictionArchiveStatus = 'played' | 'unplayed' | 'pending' | 'win' | 'loss' | 'void';
 
 export interface PredictionArchiveFilters {

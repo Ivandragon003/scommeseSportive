@@ -6,6 +6,7 @@ import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
 import ShotsSection from './ShotsSection';
 import PlayerPropsSection from './PlayerPropsSection';
+import LineupPanel from './LineupPanel';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { DistChart, ProbBar } from './PredictionStatPrimitives';
 import { formatCompactOuKey, fmtN, fmtPct, fmtSelection } from './predictionFormatting';
@@ -112,6 +113,27 @@ const S = `
 .pr-odds-status.success { background:var(--green-dim); color:var(--green); }
 .pr-odds-status.warning { background:var(--gold-dim);  color:var(--gold);  }
 .pr-odds-status.danger  { background:var(--red-dim);   color:var(--red);   }
+.lineup-panel { margin:16px 20px; padding:18px 20px; border:1px solid var(--border); border-radius:var(--radius-xl); background:var(--surface2); }
+.lineup-panel__head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.lineup-panel__eyebrow { color:var(--primary); font-size:10px; font-weight:800; letter-spacing:1.2px; }
+.lineup-panel h3 { margin:4px 0 0; font-size:18px; letter-spacing:-.02em; }
+.lineup-panel__status { padding:5px 9px; border-radius:999px; background:var(--gold-dim); color:var(--gold); font-size:10px; font-weight:800; }
+.lineup-panel__status.is-confirmed { background:var(--green-dim); color:var(--green); }
+.lineup-panel__message { margin:10px 0 14px; color:var(--text-2); font-size:11px; }
+.lineup-panel__message.is-error { color:var(--red); }
+.lineup-panel__grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.lineup-panel__column h4 { margin:0 0 8px; font-size:12px; }
+.lineup-panel__list { display:grid; gap:5px; }
+.lineup-player { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.lineup-player strong, .lineup-player span { display:block; }
+.lineup-player strong { font-size:11px; }
+.lineup-player span { margin-top:2px; color:var(--text-3); font-size:9px; }
+.lineup-player b { color:var(--primary); font-family:var(--font-mono); font-size:11px; }
+.lineup-player--confirmed_bench, .lineup-player--unavailable, .lineup-player--uncertain { opacity:.62; }
+.lineup-player--confirmed_starter { border-color:var(--green-border); }
+.lineup-panel__empty, .lineup-panel__note { color:var(--text-3); font-size:10px; }
+.lineup-panel__note { display:block; margin-top:12px; }
+@media (max-width: 700px) { .lineup-panel__grid { grid-template-columns:1fr; } }
 
 /* MATCH HERO COMPACT */
 .pr-hero {
@@ -684,9 +706,11 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 <div className="pr-hero-center"><div className="pr-hero-vs">VS</div>{loading && <div className="pr-spin" style={{ margin: '0 auto' }} />}</div>
                 <div className="pr-hero-team right"><div className="pr-hero-name">{activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div><div className="pr-hero-lambda">Trasferta</div></div>
               </div>
+              <LineupPanel matchId={String(activeMatchRow.match_id)} />
               <div className="pr-kpi-row" aria-label="Probabilità in attesa di analisi">
                 {[['1', 'Vittoria casa'], ['X', 'Pareggio'], ['2', 'Vittoria ospite']].map(([value, label]) => <div className="pr-kpi" key={value}><div className="pr-kpi-val">{value}</div><div className="pr-kpi-lbl">{label}</div></div>)}
               </div>
+
               <div className="pr-decision-layout">
                 <div className="pr-decision-report is-empty">
                   <div className="pr-decision-report__eyebrow">Giocata consigliata</div>
@@ -738,6 +762,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     : null
                 }
               />
+
+              <LineupPanel matchId={String(activeMatchRow?.match_id ?? pred.matchId ?? '')} />
 
               <div className="pr-decision-layout">
                 <BestValueCard
