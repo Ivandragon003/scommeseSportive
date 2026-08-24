@@ -1,4 +1,5 @@
 import { GlossaryEntry } from './glossaryTypes';
+import { GLOSSARY_PLAIN_LANGUAGE } from './glossaryPlainLanguage';
 
 const entries: GlossaryEntry[] = [
   {
@@ -746,7 +747,15 @@ const entries: GlossaryEntry[] = [
   },
 ];
 
-export const GLOSSARY_ENTRIES = [...entries].sort((left, right) =>
+const entriesWithPlainLanguage = entries.map((entry) => {
+  const plainLanguageCopy = GLOSSARY_PLAIN_LANGUAGE[entry.id];
+  if (!plainLanguageCopy) {
+    throw new Error(`Manca la spiegazione semplice per il termine del glossario: ${entry.id}`);
+  }
+  return { ...entry, ...plainLanguageCopy };
+});
+
+export const GLOSSARY_ENTRIES = [...entriesWithPlainLanguage].sort((left, right) =>
   left.term.localeCompare(right.term, 'it', { sensitivity: 'base' })
 );
 

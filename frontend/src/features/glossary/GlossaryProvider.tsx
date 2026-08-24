@@ -165,7 +165,7 @@ export const GlossaryProvider: React.FC<GlossaryProviderProps> = ({ children }) 
                   <p className="glossary-lead">{selectedEntry.simpleDefinition}</p>
                   <dl className="glossary-quick-facts">
                     <div>
-                      <dt>Come leggerlo</dt>
+                      <dt>Cosa significa per te</dt>
                       <dd>{selectedEntry.interpretation}</dd>
                     </div>
                     <div>
@@ -182,7 +182,7 @@ export const GlossaryProvider: React.FC<GlossaryProviderProps> = ({ children }) 
                     to={`/glossary#${selectedEntry.id}`}
                     onClick={closeGlossary}
                   >
-                    Apri definizione completa
+                    Apri spiegazione completa
                   </Link>
                 </article>
               ) : (
