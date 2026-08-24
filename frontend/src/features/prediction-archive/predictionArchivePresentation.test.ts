@@ -1,20 +1,39 @@
-import { archiveOdds, confidenceBadge } from './predictionArchivePresentation';
+import {
+  classificationBadge,
+  opportunityLabel,
+  opportunityOdds,
+} from './predictionArchivePresentation';
 
 describe('prediction archive presentation', () => {
-  test('mostra solo quote prediction con provenienza reale registrata', () => {
-    expect(archiveOdds({
-      prediction_id: 'real', match_id: 'm1', market: '1x2', selection: 'home',
-      odds_at_prediction: 2.1, source: 'odds_api', was_played: 0,
-    }).prediction).toBe(2.1);
+  test('mostra soltanto quote reali e valide', () => {
+    expect(opportunityOdds({
+      decision_id: 'real', match_id: 'm1', market_name: '1X2', selection: 'homeWin',
+      classification: 'HIGH', archive_type: 'operative', display_odds: 2.1, bookmaker_name: 'Pinnacle', source: 'odds_api', result: 'pending',
+    })).toBe(2.1);
 
-    expect(archiveOdds({
-      prediction_id: 'synthetic', match_id: 'm1', market: '1x2', selection: 'home',
-      odds_at_prediction: 4.5, source: 'odds_api_plus_model_completion', was_played: 0,
-    }).prediction).toBeNull();
+    expect(opportunityOdds({
+      decision_id: 'synthetic', match_id: 'm1', market_name: '1X2', selection: 'homeWin',
+      classification: 'HIGH', archive_type: 'simulated', display_odds: 4.5, bookmaker_name: 'Pinnacle',
+      source: 'odds_api_plus_model_completion', result: 'pending',
+    })).toBeNull();
+
+    expect(opportunityOdds({
+      decision_id: 'unknown-bookmaker', match_id: 'm1', market_name: '1X2', selection: 'homeWin',
+      classification: 'HIGH', archive_type: 'simulated', display_odds: 2.2, source: 'odds_api', result: 'pending',
+    })).toBeNull();
   });
 
-  test('non ricalcola la confidence quando il valore archiviato manca', () => {
-    expect(confidenceBadge('HIGH')).toEqual({ label: 'High', tone: 'high' });
-    expect(confidenceBadge(null)).toEqual({ label: 'Non classificata', tone: 'unclassified' });
+  test('classifica sempre le quattro categorie dell archivio utente', () => {
+    expect(classificationBadge('HIGH')).toEqual({ label: 'High', tone: 'high' });
+    expect(classificationBadge('MEDIUM')).toEqual({ label: 'Medium', tone: 'medium' });
+    expect(classificationBadge('LOW')).toEqual({ label: 'Low', tone: 'low' });
+    expect(classificationBadge('SPECULATIVE')).toEqual({ label: 'Speculativa', tone: 'speculative' });
+  });
+
+  test('traduce le selezioni interne in giocate terra terra', () => {
+    expect(opportunityLabel('1X2', 'homeWin', 'Napoli', 'Roma')).toBe('Vittoria Napoli');
+    expect(opportunityLabel('Over/Under', 'over2_5', 'Napoli', 'Roma')).toBe('Più di 2,5 gol');
+    expect(opportunityLabel('Goal/Goal', 'btts', 'Napoli', 'Roma')).toBe('Entrambe le squadre segnano');
+    expect(opportunityLabel('Risultato esatto', 'exact_2-1', 'Napoli', 'Roma')).toBe('Risultato esatto 2–1');
   });
 });

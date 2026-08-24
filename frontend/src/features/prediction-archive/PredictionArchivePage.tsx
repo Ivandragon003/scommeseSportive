@@ -1,38 +1,49 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import {
-  getPredictionArchive,
-  PredictionArchiveRecord,
-  PredictionArchiveStatus,
+  BetOpportunityArchiveFilters,
+  BetOpportunityArchiveRecord,
+  getBetOpportunityArchive,
 } from '../../utils/api';
 import {
+  archiveErrorMessage,
   archiveMatchMeta,
   archiveMatchTitle,
-  archiveOdds,
-  archiveErrorMessage,
-  confidenceBadge,
+  classificationBadge,
   dateTime,
   decimal,
+  exclusionReasonLabel,
+  opportunityLabel,
+  opportunityMarketLabel,
+  opportunityOdds,
   percentage,
   resultBadge,
+  typeBadge,
 } from './predictionArchivePresentation';
 import './prediction-archive.css';
 
-type ArchiveFilter = 'all' | PredictionArchiveStatus;
+type ArchiveFilter =
+  | 'all' | 'operative' | 'simulated'
+  | 'high' | 'medium' | 'low' | 'speculative'
+  | 'pending' | 'win' | 'loss' | 'void';
 
-const FILTERS: Array<{ value: ArchiveFilter; label: string }> = [
-  { value: 'all', label: 'Tutte' },
-  { value: 'played', label: 'Giocate' },
-  { value: 'unplayed', label: 'Non giocate' },
-  { value: 'pending', label: 'In attesa' },
-  { value: 'win', label: 'Vinte' },
-  { value: 'loss', label: 'Perse' },
-  { value: 'void', label: 'Void' },
+const FILTERS: Array<{ value: ArchiveFilter; label: string; params: BetOpportunityArchiveFilters }> = [
+  { value: 'all', label: 'Tutte', params: {} },
+  { value: 'operative', label: 'Operative', params: { type: 'operative' } },
+  { value: 'simulated', label: 'Simulate', params: { type: 'simulated' } },
+  { value: 'high', label: 'High', params: { classification: 'high' } },
+  { value: 'medium', label: 'Medium', params: { classification: 'medium' } },
+  { value: 'low', label: 'Low', params: { classification: 'low' } },
+  { value: 'speculative', label: 'Speculative', params: { classification: 'speculative' } },
+  { value: 'pending', label: 'In attesa', params: { result: 'pending' } },
+  { value: 'win', label: 'Vinte', params: { result: 'win' } },
+  { value: 'loss', label: 'Perse', params: { result: 'loss' } },
+  { value: 'void', label: 'Rimborsate', params: { result: 'void' } },
 ];
 
 const PredictionArchivePage: React.FC = () => {
   const [filter, setFilter] = useState<ArchiveFilter>('all');
-  const [rows, setRows] = useState<PredictionArchiveRecord[]>([]);
+  const [rows, setRows] = useState<BetOpportunityArchiveRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
@@ -46,8 +57,8 @@ const PredictionArchivePage: React.FC = () => {
       setError('');
       setExpandedId(null);
       try {
-        const params = filter === 'all' ? { limit: 200 } : { status: filter, limit: 200 };
-        const response = await getPredictionArchive(params);
+        const selectedFilter = FILTERS.find((item) => item.value === filter);
+        const response = await getBetOpportunityArchive({ ...(selectedFilter?.params ?? {}), limit: 200 });
         if (!response.success) throw new Error(response.error || 'Archivio non disponibile');
         if (!ignore) setRows(Array.isArray(response.data) ? response.data : []);
       } catch (loadError) {
@@ -68,14 +79,17 @@ const PredictionArchivePage: React.FC = () => {
     <div className="pa-page">
       <header className="pa-header">
         <div>
-          <span className="pa-eyebrow">Storico del modello</span>
-          <h1>Archivio prediction</h1>
-          <p>Consulta tutte le prediction generate. Una prediction “Non giocata” non è una bet e non modifica il budget.</p>
+          <span className="pa-eyebrow">Storico delle opportunità</span>
+          <h1>Archivio giocate</h1>
+          <p>
+            Qui trovi tutte le giocate valutate: le prime 3 High/Medium per partita sono operative;
+            le altre, incluse Low e Speculative, sono simulazioni e non modificano il budget.
+          </p>
         </div>
         {!loading && !error && <span className="pa-total">{rows.length} risultati</span>}
       </header>
 
-      <nav className="pa-filters" aria-label="Filtra archivio prediction">
+      <nav className="pa-filters" aria-label="Filtra archivio giocate">
         {FILTERS.map(({ value, label }) => (
           <button
             key={value}
@@ -91,7 +105,7 @@ const PredictionArchivePage: React.FC = () => {
 
       <section className="pa-card" aria-live="polite">
         {loading && (
-          <div className="pa-loading" aria-label="Caricamento archivio prediction">
+          <div className="pa-loading" aria-label="Caricamento archivio giocate">
             <RefreshCw className="fp-spin" size={22} aria-hidden="true" />
             <span>Caricamento archivio…</span>
           </div>
@@ -108,9 +122,9 @@ const PredictionArchivePage: React.FC = () => {
         )}
 
         {!loading && !error && rows.length === 0 && (
-          <div className="pa-state" role="status" aria-label="Archivio prediction vuoto">
-            <strong>Nessuna prediction trovata</strong>
-            <p>Non ci sono elementi per il filtro selezionato.</p>
+          <div className="pa-state" role="status" aria-label="Archivio giocate vuoto">
+            <strong>Nessuna giocata trovata</strong>
+            <p>Le vecchie probabilità tecniche non classificate non vengono mostrate. Le nuove opportunità compariranno alla prossima elaborazione.</p>
           </div>
         )}
 
@@ -119,41 +133,59 @@ const PredictionArchivePage: React.FC = () => {
             <table className="pa-table">
               <thead>
                 <tr>
-                  <th>Partita</th><th>Mercato e selezione</th><th>Quota</th><th>Probabilità</th>
-                  <th>EV</th><th>Confidence</th><th>Stato prediction</th><th>Giocata</th><th>Risultato</th><th><span className="sr-only">Dettagli</span></th>
+                  <th>Partita</th>
+                  <th>Mercato e selezione</th>
+                  <th>Quota</th>
+                  <th>Classificazione</th>
+                  <th>Tipo</th>
+                  <th>Risultato</th>
+                  <th><span className="sr-only">Dettagli</span></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const played = row.was_played === 1 || row.was_played === true;
+                  const classification = classificationBadge(row.classification);
+                  const kind = typeBadge(row.archive_type);
                   const result = resultBadge(row.result);
-                  const confidence = confidenceBadge(row.confidence_computed);
-                  const odds = archiveOdds(row);
-                  const pending = String(row.result ?? 'pending').toLowerCase() === 'pending';
-                  const expanded = expandedId === row.prediction_id;
+                  const odds = opportunityOdds(row);
+                  const expanded = expandedId === row.decision_id;
+                  const probability = row.calibrated_probability ?? row.raw_probability;
                   return (
-                    <React.Fragment key={row.prediction_id}>
+                    <React.Fragment key={row.decision_id}>
                       <tr className="pa-row">
-                        <td><span className="pa-cell-label">Partita</span><strong>{archiveMatchTitle(row)}</strong><small>{archiveMatchMeta(row)}</small></td>
-                        <td><span className="pa-cell-label">Mercato e selezione</span><strong>{row.market || '—'}</strong><small>{row.selection || '—'}</small></td>
+                        <td>
+                          <span className="pa-cell-label">Partita</span>
+                          <strong>{archiveMatchTitle(row)}</strong>
+                          <small>{archiveMatchMeta(row)}</small>
+                        </td>
+                        <td>
+                          <span className="pa-cell-label">Mercato e selezione</span>
+                          <strong>{opportunityMarketLabel(row.market_name)}</strong>
+                          <small>{opportunityLabel(row.market_name, row.selection, row.home_team_name, row.away_team_name)}</small>
+                        </td>
                         <td className="pa-odds">
                           <span className="pa-cell-label">Quota</span>
-                          {odds.prediction !== null ? <><strong>{decimal(odds.prediction)}</strong><small>Quota prediction</small></> : <span className="pa-missing">Non disponibile</span>}
-                          {odds.bet !== null && <small>Giocata: {decimal(odds.bet)}</small>}
+                          {odds !== null ? <><strong>{decimal(odds)}</strong><small>{row.bookmaker_name}</small></> : <span className="pa-missing">Non disponibile</span>}
                         </td>
-                        <td><span className="pa-cell-label">Probabilità</span>{percentage(row.calibrated_probability ?? row.raw_probability)}</td>
-                        <td><span className="pa-cell-label">EV</span>{percentage(row.ev)}</td>
-                        <td><span className="pa-cell-label">Confidence</span><span className={`pa-badge pa-confidence pa-confidence--${confidence.tone}`}>{confidence.label}</span></td>
-                        <td><span className="pa-cell-label">Stato prediction</span><span className={`pa-badge pa-badge--${pending ? 'pending' : 'settled'}`}>{pending ? 'In attesa' : 'Regolata'}</span></td>
-                        <td><span className="pa-cell-label">Giocata</span><span className={`pa-badge pa-badge--${played ? 'played' : 'unplayed'}`}>{played ? 'Giocata' : 'Non giocata'}</span></td>
-                        <td><span className="pa-cell-label">Risultato</span><span className={`pa-badge pa-badge--${result.tone}`}>{result.label}</span></td>
+                        <td>
+                          <span className="pa-cell-label">Classificazione</span>
+                          <span className={`pa-badge pa-confidence pa-confidence--${classification.tone}`}>{classification.label}</span>
+                        </td>
+                        <td>
+                          <span className="pa-cell-label">Tipo</span>
+                          <span className={`pa-badge pa-badge--${kind.tone}`}>{kind.label}</span>
+                        </td>
+                        <td>
+                          <span className="pa-cell-label">Risultato</span>
+                          <span className={`pa-badge pa-badge--${result.tone}`}>{result.label}</span>
+                        </td>
                         <td className="pa-actions">
                           <button
                             type="button"
                             className="pa-expand"
-                            aria-label={`${expanded ? 'Chiudi' : 'Apri'} dettagli prediction ${row.prediction_id}`}
+                            aria-label={`${expanded ? 'Chiudi' : 'Apri'} dettagli giocata ${row.decision_id}`}
                             aria-expanded={expanded}
-                            onClick={() => setExpandedId(expanded ? null : row.prediction_id)}
+                            onClick={() => setExpandedId(expanded ? null : row.decision_id)}
                           >
                             {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                           </button>
@@ -161,22 +193,23 @@ const PredictionArchivePage: React.FC = () => {
                       </tr>
                       {expanded && (
                         <tr className="pa-details-row">
-                          <td colSpan={10}>
+                          <td colSpan={7}>
                             <div className="pa-details">
                               <dl>
-                                <div><dt>ID prediction</dt><dd>{row.prediction_id}</dd></div>
+                                <div><dt>ID giocata</dt><dd>{row.decision_id}</dd></div>
                                 <div><dt>Match ID</dt><dd>{row.match_id}</dd></div>
-                                <div><dt>Probabilità grezza</dt><dd>{percentage(row.raw_probability)}</dd></div>
-                                <div><dt>Probabilità calibrata</dt><dd>{percentage(row.calibrated_probability)}</dd></div>
-                                <div><dt>Kelly</dt><dd>{percentage(row.kelly)}</dd></div>
-                                <div><dt>Campione</dt><dd>{row.sample_size_at_time ?? '—'}</dd></div>
-                                <div><dt>Regolata il</dt><dd>{dateTime(row.settled_at)}</dd></div>
+                                <div><dt>Probabilità del modello</dt><dd>{percentage(probability)}</dd></div>
+                                <div><dt>EV tecnico</dt><dd>{percentage(row.ev)}</dd></div>
+                                <div><dt>{row.archive_type === 'operative' ? 'Stake effettivo' : 'Stake teorico'}</dt><dd>{decimal(row.archive_type === 'operative' ? row.bet_stake : row.theoretical_stake_amount)}</dd></div>
+                                <div><dt>Posizione in classifica</dt><dd>{row.ranking_position ?? '—'}</dd></div>
+                                <div><dt>Bookmaker</dt><dd>{row.bookmaker_name || '—'}</dd></div>
+                                <div><dt>Registrata il</dt><dd>{dateTime(row.created_at)}</dd></div>
+                                <div><dt>Conclusa il</dt><dd>{dateTime(row.settled_at)}</dd></div>
                               </dl>
-                              {row.ev_reason && <p className="pa-reason"><strong>Nota EV:</strong> {row.ev_reason}</p>}
-                              {played ? (
-                                <p className="pa-bet-note">Bet collegata: {row.bet_id || '—'} · stato {row.bet_status || '—'} · stake {decimal(row.bet_stake)} · quota {decimal(row.bet_odds)}</p>
+                              {row.archive_type === 'operative' ? (
+                                <p className="pa-bet-note">Giocata operativa: ha usato il budget. Bet collegata: {row.bet_id || '—'}.</p>
                               ) : (
-                                <p className="pa-bet-note pa-bet-note--unplayed">Nessuna bet collegata: questa prediction non incide sul budget.</p>
+                                <p className="pa-bet-note pa-bet-note--unplayed">Simulazione: {exclusionReasonLabel(row.exclusion_reason)}</p>
                               )}
                             </div>
                           </td>

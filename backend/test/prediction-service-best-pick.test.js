@@ -88,6 +88,27 @@ test('settles archived predictions for completed matches, including non-bets', a
   ]);
 });
 
+test('settles only archived bet opportunities after the regular data sync', async () => {
+  const settled = [];
+  const opportunityPredictions = [
+    { prediction_id: 'pred-opportunity', match_id: 'match-finished', selection: 'homeWin' },
+    { prediction_id: 'pred-future', match_id: 'match-open', selection: 'awayWin' },
+  ];
+  const db = {
+    getPendingBetOpportunityPredictions: async () => opportunityPredictions,
+    getMatchById: async (matchId) => matchId === 'match-finished'
+      ? { match_id: matchId, home_goals: 2, away_goals: 1 }
+      : { match_id: matchId, home_goals: null, away_goals: null },
+    settlePrediction: async (predictionId, result) => settled.push({ predictionId, result }),
+  };
+  const service = new PredictionService(db);
+
+  const result = await service.settlePendingBetOpportunityPredictionsForCompletedMatches();
+
+  assert.deepEqual(result, { matches: 1, settled: 1, unresolved: 0 });
+  assert.deepEqual(settled, [{ predictionId: 'pred-opportunity', result: 'win' }]);
+});
+
 test('statistical market can become final recommended pick when data reliability is strong', () => {
   const service = new PredictionService({});
 

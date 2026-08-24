@@ -3066,6 +3066,13 @@ export class PredictionService {
 
   async settlePendingPredictionsForMatch(matchId: string, matchRow: any): Promise<{ settled: number; unresolved: number }> {
     const pending = await this.db.getPendingPredictions(matchId);
+    return this.settlePredictionRowsForMatch(pending, matchRow);
+  }
+
+  private async settlePredictionRowsForMatch(
+    pending: any[],
+    matchRow: any,
+  ): Promise<{ settled: number; unresolved: number }> {
     let settled = 0;
     let unresolved = 0;
 
@@ -3081,6 +3088,35 @@ export class PredictionService {
     }
 
     return { settled, unresolved };
+  }
+
+  /** Fast daily path: settles only predictions linked to classified bet opportunities. */
+  async settlePendingBetOpportunityPredictionsForCompletedMatches(
+    limit = 500,
+  ): Promise<{ matches: number; settled: number; unresolved: number }> {
+    const pending = await this.db.getPendingBetOpportunityPredictions();
+    const byMatch = new Map<string, any[]>();
+    for (const row of pending) {
+      const matchId = String(row?.match_id ?? '').trim();
+      if (!matchId) continue;
+      const rows = byMatch.get(matchId) ?? [];
+      rows.push(row);
+      byMatch.set(matchId, rows);
+    }
+
+    let matches = 0;
+    let settled = 0;
+    let unresolved = 0;
+    for (const [matchId, rows] of Array.from(byMatch.entries()).slice(0, Math.max(1, Math.trunc(limit)))) {
+      const matchRow = await this.db.getMatchById(matchId);
+      if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
+      const result = await this.settlePredictionRowsForMatch(rows, matchRow);
+      matches++;
+      settled += result.settled;
+      unresolved += result.unresolved;
+    }
+
+    return { matches, settled, unresolved };
   }
 
   /** Settles every archived prediction for completed matches, including non-bets. */

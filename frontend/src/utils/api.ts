@@ -296,6 +296,56 @@ export interface PredictionArchiveRecord {
 export const getPredictionArchive = (filters: PredictionArchiveFilters = {}) =>
   cachedGet<PredictionArchiveRecord[]>('/predictions/archive', { params: filters });
 
+export type BetOpportunityArchiveType = 'operative' | 'simulated';
+export type BetOpportunityClassification = 'high' | 'medium' | 'low' | 'speculative';
+export type BetOpportunityResult = 'pending' | 'win' | 'loss' | 'void';
+
+export interface BetOpportunityArchiveFilters {
+  type?: BetOpportunityArchiveType;
+  classification?: BetOpportunityClassification;
+  result?: BetOpportunityResult;
+  matchId?: string;
+  limit?: number;
+}
+
+export interface BetOpportunityArchiveRecord {
+  decision_id: string;
+  match_id: string;
+  home_team_name?: string | null;
+  away_team_name?: string | null;
+  competition?: string | null;
+  match_date?: string | null;
+  market_name: string;
+  selection: string;
+  classification: 'HIGH' | 'MEDIUM' | 'LOW' | 'SPECULATIVE';
+  archive_type: BetOpportunityArchiveType;
+  display_odds?: number | null;
+  bookmaker_odds?: number | null;
+  bookmaker_name?: string | null;
+  raw_probability?: number | null;
+  calibrated_probability?: number | null;
+  ev?: number | null;
+  ev_reason?: string | null;
+  kelly?: number | null;
+  source?: string | null;
+  sample_size_at_time?: number | null;
+  theoretical_stake_percent?: number | null;
+  theoretical_stake_amount?: number | null;
+  bet_stake?: number | null;
+  ranking_position?: number | null;
+  operational_slot?: number | null;
+  decision_status?: string | null;
+  exclusion_reason?: string | null;
+  prediction_id?: string | null;
+  bet_id?: string | null;
+  result: BetOpportunityResult;
+  created_at?: string | null;
+  settled_at?: string | null;
+}
+
+export const getBetOpportunityArchive = (filters: BetOpportunityArchiveFilters = {}) =>
+  cachedGet<BetOpportunityArchiveRecord[]>('/bet-opportunities/archive', { params: filters });
+
 export const replayPlayedMatchPrediction = (matchId: string) =>
   API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
 
