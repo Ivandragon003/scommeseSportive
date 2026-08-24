@@ -154,6 +154,17 @@ if ! post_json \
   echo "Warning: supplemental football-data sync failed; continuing with the primary Understat data."
 fi
 
+if [[ "$API_FOOTBALL_ENABLED" == "true" && -n "${API_FOOTBALL_KEY:-}" ]]; then
+  echo "Checking API-Football confirmed lineups and availability before slow maintenance jobs..."
+  post_json \
+    "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
+    '{"windowHours":24}' \
+    "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
+    echo "Warning: API-Football lineup sync failed; internal lineup predictor remains active."
+else
+  echo "Skipping API-Football lineup sync. API_FOOTBALL_ENABLED=false or API_FOOTBALL_KEY missing."
+fi
+
 if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
   echo "Syncing second-division seasonal references (idempotent)..."
   if ! post_json \
@@ -170,10 +181,12 @@ fi
 # Keep the complete raw prediction settlement as a separate maintenance step:
 # it can be slower and remains useful for calibration/backtest history.
 echo "Settling the complete technical prediction audit for completed matches..."
-post_json \
+if ! post_json \
   "http://127.0.0.1:$PORT/api/predictions/settle-completed" \
-  "{\"limit\":500}" \
-  "${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-300}"
+  "{\"limit\":${PREDICTIONS_SETTLEMENT_MATCH_LIMIT:-25}}" \
+  "${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"; then
+  echo "Warning: prediction settlement batch timed out/failed; continuing with the remaining nightly jobs."
+fi
 
 if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   IFS='|' read -r -a competitions <<< "$ODDS_SYNC_COMPETITIONS"
@@ -189,17 +202,6 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   done
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
-fi
-
-if [[ "$API_FOOTBALL_ENABLED" == "true" && -n "${API_FOOTBALL_KEY:-}" ]]; then
-  echo "Checking API-Football confirmed lineups for matches near kickoff..."
-  post_json \
-    "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
-    '{"windowHours":24}' \
-    "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
-    echo "Warning: API-Football lineup sync failed; internal lineup predictor remains active."
-else
-  echo "Skipping API-Football lineup sync. API_FOOTBALL_ENABLED=false or API_FOOTBALL_KEY missing."
 fi
 
 echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
