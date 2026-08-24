@@ -390,9 +390,6 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
     for (const match of matches) {
       const kickoff = Date.parse(String(match.date ?? ''));
       if (!Number.isFinite(kickoff)) continue;
-      // Official lineups are not expected 24h before kickoff. Avoid wasting
-      // the free quota until the normal publication window.
-      if (kickoff - now > 120 * 60 * 1000) continue;
       const fixture = providerFixtures.find((candidate) =>
         sameTeamName(candidate.homeName, String(match.home_team_name ?? '')) &&
         sameTeamName(candidate.awayName, String(match.away_team_name ?? ''))
@@ -415,15 +412,40 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
         }
       }
       checked++;
-      const [homePlayers, awayPlayers, lineups] = await Promise.all([
+      const [homePlayers, awayPlayers, injuries] = await Promise.all([
         db.getPlayersByTeam(String(match.home_team_id)),
         db.getPlayersByTeam(String(match.away_team_id)),
+        apiFootball.getInjuries({ fixture: fixture.id }),
+      ]);
+      const injuryRows: any[] = [];
+      for (const injury of injuries) {
+        const providerTeamName = String(injury?.team?.name ?? '').trim();
+        const teamPlayers = sameTeamName(providerTeamName, String(match.home_team_name ?? '')) ? homePlayers
+          : sameTeamName(providerTeamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
+        const providerPlayerName = String(injury?.player?.name ?? '').trim();
+        const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, providerPlayerName));
+        if (!player) continue;
+        injuryRows.push({
+          matchId: String(match.match_id), playerId: String(player.player_id), teamId: String(player.team_id),
+          status: 'unavailable', probability: 0, source: 'api_football_injury',
+          providerFixtureId: String(fixture.id), kickoffAt: match.date,
+          rawJson: JSON.stringify(injury),
+        });
+      }
+      await db.savePlayerLineupStatuses(injuryRows);
+      saved += injuryRows.length;
+      // Official lineups are not expected 24h before kickoff. Avoid wasting
+      // the free quota until the normal publication window.
+      if (kickoff - now > 120 * 60 * 1000) continue;
+      const [confirmedHomePlayers, confirmedAwayPlayers, lineups] = await Promise.all([
+        Promise.resolve(homePlayers),
+        Promise.resolve(awayPlayers),
         apiFootball.getConfirmedLineups(fixture.id),
       ]);
       const rows: any[] = [];
       for (const lineup of lineups) {
-        const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? homePlayers
-          : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
+        const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? confirmedHomePlayers
+          : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? confirmedAwayPlayers : [];
         for (const entry of lineup.players) {
           const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, entry.name));
           if (!player) continue;
