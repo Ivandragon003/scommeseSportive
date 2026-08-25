@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningService';
+import type { LowerDivisionHistoryBatch } from '../services/FootballDataService';
 
 type SqlArgs = Record<string, any> | any[];
 const MATCH_UPSERT_CHUNK_SIZE = 100;
@@ -1133,10 +1134,12 @@ export class DatabaseService {
   }
 
   async getCompetitionTransitionAudit(): Promise<any> {
-    const [competition, references, transitions, byType, byCoverage] = await Promise.all([
+    const [competition, references, transitions, lowerSeasons, lowerMatches, byType, byCoverage] = await Promise.all([
       this.get('SELECT COUNT(*) AS total FROM secondary_competitions'),
       this.get('SELECT COUNT(*) AS total FROM source_season_reference'),
       this.get('SELECT COUNT(*) AS total FROM team_competition_transitions'),
+      this.get('SELECT COUNT(*) AS total FROM lower_division_team_seasons'),
+      this.get('SELECT COUNT(*) AS total FROM lower_division_team_matches'),
       this.all(`
         SELECT transition_type, COUNT(*) AS total
         FROM team_competition_transitions
@@ -1166,6 +1169,8 @@ export class DatabaseService {
       catalogCount: Number(competition?.total ?? 0),
       seasonReferenceCount: Number(references?.total ?? 0),
       transitionCount: Number(transitions?.total ?? 0),
+      lowerDivisionTeamSeasonCount: Number(lowerSeasons?.total ?? 0),
+      lowerDivisionTeamMatchCount: Number(lowerMatches?.total ?? 0),
       readyTransitionCount: Number(ready?.total ?? 0),
       byType: byType.map((row: any) => ({ type: row.transition_type, count: Number(row.total ?? 0) })),
       byCoverage: byCoverage.map((row: any) => ({
@@ -1174,6 +1179,11 @@ export class DatabaseService {
         count: Number(row.total ?? 0),
       })),
       modelAdjustmentEnabled: false,
+      calibrationCandidates: [
+        { id: 'transferable_elo_offset', status: 'requires_temporal_backtest' },
+        { id: 'bayesian_shrinkage', status: 'requires_temporal_backtest' },
+        { id: 'cross_division_anchors', status: 'requires_temporal_backtest' },
+      ],
     };
   }
 
@@ -1249,8 +1259,217 @@ export class DatabaseService {
     return Boolean(row);
   }
 
+  async hasLowerDivisionTeamHistory(sourceCompetitionId: string, sourceSeason: string): Promise<boolean> {
+    const row = await this.get(`
+      SELECT 1 AS present FROM lower_division_team_matches
+      WHERE source_competition_id = ? AND source_season = ? LIMIT 1
+    `, [sourceCompetitionId, sourceSeason]);
+    return Boolean(row);
+  }
+
+  async hasCompleteLowerDivisionTeamHistory(
+    sourceCompetitionId: string,
+    sourceSeason: string,
+    expectedTeamIds: string[],
+    expectedHistoryRows: number,
+  ): Promise<boolean> {
+    const teamIds = [...new Set(expectedTeamIds.map(String).filter(Boolean))];
+    if (teamIds.length === 0) return expectedHistoryRows === 0;
+    const placeholders = teamIds.map(() => '?').join(', ');
+    const args = [sourceCompetitionId, sourceSeason, ...teamIds];
+    const row = await this.get(`
+      SELECT
+        (SELECT COUNT(*) FROM lower_division_team_matches
+         WHERE source_competition_id = ? AND source_season = ?
+           AND team_id IN (${placeholders})) AS history_rows,
+        (SELECT COUNT(DISTINCT team_id) FROM lower_division_team_matches
+         WHERE source_competition_id = ? AND source_season = ?
+           AND team_id IN (${placeholders})) AS history_teams,
+        (SELECT COUNT(*) FROM lower_division_team_seasons
+         WHERE source_competition_id = ? AND source_season = ?
+           AND team_id IN (${placeholders})) AS season_rows
+    `, [...args, ...args, ...args]);
+    return Number(row?.history_rows ?? -1) === expectedHistoryRows
+      && Number(row?.history_teams ?? -1) === teamIds.length
+      && Number(row?.season_rows ?? -1) === teamIds.length;
+  }
+
+  async upsertLowerDivisionHistoryBatch(payload: LowerDivisionHistoryBatch): Promise<void> {
+    await this.initPromise;
+    const statements: InStatement[] = [];
+    for (const season of payload.teamSeasons) {
+      statements.push({
+        sql: `INSERT INTO lower_division_team_seasons
+          (team_id, source_competition_id, source_season, final_rank, matches_played,
+           points, ppg, goal_difference, goal_difference_per_match, source_provider,
+           source_reference, coverage_status, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(team_id, source_competition_id, source_season) DO UPDATE SET
+            final_rank=excluded.final_rank, matches_played=excluded.matches_played,
+            points=excluded.points, ppg=excluded.ppg, goal_difference=excluded.goal_difference,
+            goal_difference_per_match=excluded.goal_difference_per_match,
+            source_provider=excluded.source_provider, source_reference=excluded.source_reference,
+            coverage_status=excluded.coverage_status, updated_at=datetime('now')`,
+        args: [season.teamId, season.sourceCompetitionId, season.sourceSeason, season.finalRank,
+          season.matchesPlayed, season.points, season.ppg, season.goalDifference,
+          season.goalDifferencePerMatch, season.sourceProvider, season.sourceReference, season.coverageStatus],
+      });
+    }
+    for (const match of payload.teamMatches) {
+      statements.push({
+        sql: `INSERT INTO lower_division_team_matches
+          (history_id, team_id, source_competition_id, source_season, played_at, venue,
+           opponent_name, goals_for, goals_against, shots_for, shots_against,
+           shots_on_target_for, shots_on_target_against, fouls_for, fouls_against,
+           corners_for, corners_against, yellow_cards_for, yellow_cards_against,
+           red_cards_for, red_cards_against, referee, source_provider, source_reference,
+           raw_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(history_id) DO UPDATE SET
+            goals_for=excluded.goals_for, goals_against=excluded.goals_against,
+            shots_for=excluded.shots_for, shots_against=excluded.shots_against,
+            shots_on_target_for=excluded.shots_on_target_for,
+            shots_on_target_against=excluded.shots_on_target_against,
+            fouls_for=excluded.fouls_for, fouls_against=excluded.fouls_against,
+            corners_for=excluded.corners_for, corners_against=excluded.corners_against,
+            yellow_cards_for=excluded.yellow_cards_for, yellow_cards_against=excluded.yellow_cards_against,
+            red_cards_for=excluded.red_cards_for, red_cards_against=excluded.red_cards_against,
+            referee=excluded.referee, source_reference=excluded.source_reference,
+            raw_json=excluded.raw_json, updated_at=datetime('now')`,
+        args: [match.historyId, match.teamId, match.sourceCompetitionId, match.sourceSeason,
+          match.playedAt, match.venue, match.opponentName, match.goalsFor, match.goalsAgainst,
+          match.shotsFor, match.shotsAgainst, match.shotsOnTargetFor, match.shotsOnTargetAgainst,
+          match.foulsFor, match.foulsAgainst, match.cornersFor, match.cornersAgainst,
+          match.yellowCardsFor, match.yellowCardsAgainst, match.redCardsFor, match.redCardsAgainst,
+          match.referee, match.sourceProvider, match.sourceReference, match.rawJson],
+      });
+    }
+    for (const transition of payload.transitions) {
+      statements.push({
+        sql: `INSERT INTO team_competition_transitions (
+          transition_id, team_id, source_competition_id, source_season,
+          destination_competition_id, destination_season, transition_type,
+          source_rank, source_points, source_matches, source_ppg,
+          source_goal_difference, source_goal_difference_per_match,
+          transition_mode, coverage_status, source_quality, source_provider,
+          source_reference, notes, transition_sequence, source_identity_status, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(transition_id) DO UPDATE SET
+          source_rank=excluded.source_rank, source_points=excluded.source_points,
+          source_matches=excluded.source_matches, source_ppg=excluded.source_ppg,
+          source_goal_difference=excluded.source_goal_difference,
+          source_goal_difference_per_match=excluded.source_goal_difference_per_match,
+          transition_mode=excluded.transition_mode, coverage_status=excluded.coverage_status,
+          source_quality=excluded.source_quality, source_provider=excluded.source_provider,
+          source_reference=excluded.source_reference, notes=excluded.notes,
+          transition_sequence=excluded.transition_sequence,
+          source_identity_status=excluded.source_identity_status, updated_at=datetime('now')`,
+        args: [transition.transitionId, transition.teamId, transition.sourceCompetitionId,
+          transition.sourceSeason, transition.destinationCompetitionId, transition.destinationSeason,
+          transition.transitionType, transition.sourceRank, transition.sourcePoints,
+          transition.sourceMatches, transition.sourcePpg, transition.sourceGoalDifference,
+          transition.sourceGoalDifferencePerMatch, transition.transitionMode, transition.coverageStatus,
+          transition.sourceQuality, transition.sourceProvider, transition.sourceReference,
+          transition.notes, transition.transitionSequence ?? null, transition.sourceIdentityStatus ?? 'unknown'],
+      });
+    }
+
+    // Ogni blocco e una transazione libSQL. Il marker di completezza viene
+    // aggiornato solo dopo che tutti i blocchi di dettaglio sono riusciti: un
+    // errore intermedio non puo far saltare il retry della nightly successiva.
+    const chunkSize = 100;
+    for (let index = 0; index < statements.length; index += chunkSize) {
+      await this.db.batch(statements.slice(index, index + chunkSize), 'write');
+    }
+    const reference = payload.reference;
+    await this.db.batch([{
+      sql: `INSERT INTO source_season_reference (
+        source_competition_id, source_season, teams_count, mean_ppg, stdev_ppg,
+        mean_goal_difference_per_match, stdev_goal_difference_per_match,
+        matches_per_team, matches_observed, matches_expected, coverage_percent,
+        identity_coverage_percent, coverage_status, source_provider, source_reference, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(source_competition_id, source_season) DO UPDATE SET
+        teams_count=excluded.teams_count, mean_ppg=excluded.mean_ppg,
+        stdev_ppg=excluded.stdev_ppg,
+        mean_goal_difference_per_match=excluded.mean_goal_difference_per_match,
+        stdev_goal_difference_per_match=excluded.stdev_goal_difference_per_match,
+        matches_per_team=excluded.matches_per_team, matches_observed=excluded.matches_observed,
+        matches_expected=excluded.matches_expected, coverage_percent=excluded.coverage_percent,
+        identity_coverage_percent=excluded.identity_coverage_percent,
+        coverage_status=excluded.coverage_status, source_provider=excluded.source_provider,
+        source_reference=excluded.source_reference, updated_at=datetime('now')`,
+      args: [reference.sourceCompetitionId, reference.sourceSeason, reference.teamsCount,
+        reference.meanPpg, reference.stdevPpg, reference.meanGoalDifferencePerMatch,
+        reference.stdevGoalDifferencePerMatch, reference.matchesPerTeam,
+        reference.matchesObserved, reference.matchesExpected, reference.coveragePercent,
+        reference.identityCoveragePercent, reference.coverageStatus,
+        reference.sourceProvider, reference.sourceReference],
+    }], 'write');
+  }
+
   async getTransitionTeams(): Promise<Array<{ team_id: string; name: string }>> {
     return this.all('SELECT team_id, name FROM teams');
+  }
+
+  async upsertLowerDivisionTeamSeason(season: {
+    teamId: string; sourceCompetitionId: string; sourceSeason: string; finalRank: number;
+    matchesPlayed: number; points: number; ppg: number; goalDifference: number;
+    goalDifferencePerMatch: number; sourceProvider: string; sourceReference: string;
+    coverageStatus: 'complete' | 'partial';
+  }): Promise<void> {
+    await this.execute(`
+      INSERT INTO lower_division_team_seasons
+        (team_id, source_competition_id, source_season, final_rank, matches_played,
+         points, ppg, goal_difference, goal_difference_per_match, source_provider,
+         source_reference, coverage_status, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(team_id, source_competition_id, source_season) DO UPDATE SET
+        final_rank=excluded.final_rank, matches_played=excluded.matches_played,
+        points=excluded.points, ppg=excluded.ppg, goal_difference=excluded.goal_difference,
+        goal_difference_per_match=excluded.goal_difference_per_match,
+        source_provider=excluded.source_provider, source_reference=excluded.source_reference,
+        coverage_status=excluded.coverage_status, updated_at=datetime('now')
+    `, [season.teamId, season.sourceCompetitionId, season.sourceSeason, season.finalRank,
+      season.matchesPlayed, season.points, season.ppg, season.goalDifference,
+      season.goalDifferencePerMatch, season.sourceProvider, season.sourceReference, season.coverageStatus]);
+  }
+
+  async upsertLowerDivisionTeamMatch(match: {
+    historyId: string; teamId: string; sourceCompetitionId: string; sourceSeason: string;
+    playedAt: string; venue: 'home' | 'away'; opponentName: string;
+    goalsFor: number | null; goalsAgainst: number | null; shotsFor: number | null; shotsAgainst: number | null;
+    shotsOnTargetFor: number | null; shotsOnTargetAgainst: number | null;
+    foulsFor: number | null; foulsAgainst: number | null; cornersFor: number | null; cornersAgainst: number | null;
+    yellowCardsFor: number | null; yellowCardsAgainst: number | null; redCardsFor: number | null; redCardsAgainst: number | null;
+    referee: string | null; sourceProvider: string; sourceReference: string; rawJson: string;
+  }): Promise<void> {
+    await this.execute(`
+      INSERT INTO lower_division_team_matches
+        (history_id, team_id, source_competition_id, source_season, played_at, venue,
+         opponent_name, goals_for, goals_against, shots_for, shots_against,
+         shots_on_target_for, shots_on_target_against, fouls_for, fouls_against,
+         corners_for, corners_against, yellow_cards_for, yellow_cards_against,
+         red_cards_for, red_cards_against, referee, source_provider, source_reference,
+         raw_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(history_id) DO UPDATE SET
+        goals_for=excluded.goals_for, goals_against=excluded.goals_against,
+        shots_for=excluded.shots_for, shots_against=excluded.shots_against,
+        shots_on_target_for=excluded.shots_on_target_for,
+        shots_on_target_against=excluded.shots_on_target_against,
+        fouls_for=excluded.fouls_for, fouls_against=excluded.fouls_against,
+        corners_for=excluded.corners_for, corners_against=excluded.corners_against,
+        yellow_cards_for=excluded.yellow_cards_for, yellow_cards_against=excluded.yellow_cards_against,
+        red_cards_for=excluded.red_cards_for, red_cards_against=excluded.red_cards_against,
+        referee=excluded.referee, source_reference=excluded.source_reference,
+        raw_json=excluded.raw_json, updated_at=datetime('now')
+    `, [match.historyId, match.teamId, match.sourceCompetitionId, match.sourceSeason,
+      match.playedAt, match.venue, match.opponentName, match.goalsFor, match.goalsAgainst,
+      match.shotsFor, match.shotsAgainst, match.shotsOnTargetFor, match.shotsOnTargetAgainst,
+      match.foulsFor, match.foulsAgainst, match.cornersFor, match.cornersAgainst,
+      match.yellowCardsFor, match.yellowCardsAgainst, match.redCardsFor, match.redCardsAgainst,
+      match.referee, match.sourceProvider, match.sourceReference, match.rawJson]);
   }
 
   async upsertTeamCompetitionTransition(transition: {
@@ -2395,6 +2614,34 @@ export class DatabaseService {
     return this.all(q, params);
   }
 
+  async getRecentCompletedMatchesForTeam(
+    teamId: string,
+    beforeDate: string,
+    limit = 5,
+  ): Promise<any[]> {
+    return this.all(
+      `SELECT ${MATCH_LIST_COLUMNS}, raw_json
+       FROM matches
+       WHERE (home_team_id = ? OR away_team_id = ?)
+         AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+         AND datetime(date) < datetime(?)
+       ORDER BY datetime(date) DESC
+       LIMIT ?`,
+      [teamId, teamId, beforeDate, Math.max(1, Math.min(Math.trunc(limit), 20))],
+    );
+  }
+
+  async fillMatchReferee(matchId: string, referee: string): Promise<boolean> {
+    const clean = String(referee ?? '').trim();
+    if (!clean) return false;
+    const result = await this.execute(
+      `UPDATE matches SET referee = COALESCE(NULLIF(TRIM(referee), ''), ?)
+       WHERE match_id = ? AND (referee IS NULL OR TRIM(referee) = '')`,
+      [clean, matchId],
+    );
+    return Number(result.rowsAffected ?? 0) > 0;
+  }
+
   async getLastMatchDate(competition: string, season: string): Promise<string | null> {
     const row = await this.get(
       `
@@ -2946,16 +3193,85 @@ export class DatabaseService {
     );
   }
 
-  async getPlayerLineupStatuses(matchId: string): Promise<Array<{
+  async getPlayerLineupStatuses(matchId: string, asOf?: string): Promise<Array<{
     player_id: string;
     team_id: string;
     status: string;
     probability: number | null;
     source: string;
     fetched_at: string;
+    raw_json: string | null;
   }>> {
+    const cutoff = String(asOf ?? '').trim();
+    if (cutoff) {
+      // Replay/as-of: usa gli snapshot conservati entro il kickoff. La fonte
+      // piu autorevole prevale sull'intera finestra (ufficiale > assenza >
+      // previsione), non solo quando due acquisizioni hanno lo stesso secondo.
+      return this.all(
+        `WITH roster_batches AS (
+           SELECT snapshot.team_id, snapshot.is_official, snapshot.batch_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY snapshot.team_id, snapshot.is_official
+                    ORDER BY batch.batch_order DESC
+                  ) AS batch_number
+           FROM player_lineup_snapshots snapshot
+           INNER JOIN player_lineup_snapshot_batches batch ON batch.batch_id = snapshot.batch_id
+           WHERE snapshot.match_id = ? AND julianday(snapshot.captured_at) <= julianday(?)
+             AND (snapshot.is_official = 1 OR snapshot.status IN ('predicted_starter', 'predicted_bench'))
+           GROUP BY snapshot.team_id, snapshot.is_official, snapshot.batch_id, batch.batch_order
+         ), injury_batches AS (
+           SELECT refresh.match_id, refresh.team_id, refresh.batch_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY refresh.match_id, refresh.team_id
+                    ORDER BY batch.batch_order DESC
+                  ) AS batch_number
+           FROM player_injury_refresh_batches refresh
+           INNER JOIN player_lineup_snapshot_batches batch ON batch.batch_id = refresh.batch_id
+           WHERE refresh.match_id = ? AND julianday(refresh.captured_at) <= julianday(?)
+         ), candidates AS (
+           SELECT snapshot.*, batch.batch_order
+           FROM player_lineup_snapshots snapshot
+           INNER JOIN player_lineup_snapshot_batches batch ON batch.batch_id = snapshot.batch_id
+           WHERE snapshot.match_id = ? AND julianday(snapshot.captured_at) <= julianday(?)
+             AND (
+               (snapshot.status = 'unavailable' AND EXISTS (
+                 SELECT 1 FROM injury_batches injury
+                 WHERE injury.match_id = snapshot.match_id
+                   AND injury.team_id = snapshot.team_id
+                   AND injury.batch_id = snapshot.batch_id
+                   AND injury.batch_number = 1
+               ))
+               OR EXISTS (
+                 SELECT 1 FROM roster_batches batch
+                 WHERE batch.team_id = snapshot.team_id
+                   AND batch.is_official = snapshot.is_official
+                   AND batch.batch_id = snapshot.batch_id
+                   AND batch.batch_number = 1
+               )
+             )
+         )
+         SELECT player_id, team_id, status, probability, source,
+                captured_at AS fetched_at, raw_json
+         FROM (
+           SELECT player_id, team_id, status, probability, source, captured_at, raw_json,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY player_id
+                    ORDER BY CASE
+                        WHEN is_official = 1 THEN 3
+                        WHEN status = 'unavailable' THEN 2
+                        ELSE 1
+                      END DESC,
+                      batch_order DESC
+                  ) AS row_number
+           FROM candidates
+         ) ranked
+         WHERE row_number = 1
+         ORDER BY julianday(fetched_at) DESC`,
+        [matchId, cutoff, matchId, cutoff, matchId, cutoff],
+      );
+    }
     return this.all(
-      `SELECT player_id, team_id, status, probability, source, fetched_at
+      `SELECT player_id, team_id, status, probability, source, fetched_at, raw_json
        FROM player_lineup_status WHERE match_id = ? ORDER BY fetched_at DESC`,
       [matchId],
     );
@@ -2971,15 +3287,38 @@ export class DatabaseService {
     providerFixtureId?: string | null;
     kickoffAt?: string | null;
     rawJson?: string | null;
-  }>): Promise<void> {
+    formation?: string | null;
+    positionCode?: string | null;
+    historyMatchesUsed?: number | null;
+  }>, options: { replaceTeamOperational?: boolean } = {}): Promise<void> {
+    if (rows.length === 0) return;
+    await this.initPromise;
+    const statements: InStatement[] = [];
+    const snapshotBatchId = randomUUID();
+    const snapshotCapturedAt = new Date().toISOString();
+    statements.push({
+      sql: `INSERT INTO player_lineup_snapshot_batches (batch_id, captured_at)
+            VALUES (?, ?)`,
+      args: [snapshotBatchId, snapshotCapturedAt],
+    });
+    if (options.replaceTeamOperational) {
+      const teamKeys = new Set(rows.map((row) => `${row.matchId}\u0000${row.teamId}`));
+      for (const key of teamKeys) {
+        const [matchId, teamId] = key.split('\u0000');
+        statements.push({
+          sql: 'DELETE FROM player_lineup_status WHERE match_id = ? AND team_id = ?',
+          args: [matchId, teamId],
+        });
+      }
+    }
     for (const row of rows) {
-      await this.run(
-        `INSERT OR REPLACE INTO player_lineup_status
+      statements.push({
+        sql: `INSERT OR REPLACE INTO player_lineup_status
           (match_id, player_id, team_id, status, probability, source,
            provider_fixture_id, kickoff_at, raw_json, fetched_at)
          VALUES (:matchId, :playerId, :teamId, :status, :probability, :source,
-           :providerFixtureId, :kickoffAt, :rawJson, datetime('now'))`,
-        {
+           :providerFixtureId, :kickoffAt, :rawJson, :capturedAt)`,
+        args: {
           matchId: row.matchId,
           playerId: row.playerId,
           teamId: row.teamId,
@@ -2989,9 +3328,119 @@ export class DatabaseService {
           providerFixtureId: row.providerFixtureId ?? null,
           kickoffAt: row.kickoffAt ?? null,
           rawJson: row.rawJson ?? null,
+          capturedAt: snapshotCapturedAt,
         },
-      );
+      });
+      const isOfficial = row.status === 'confirmed_starter' || row.status === 'confirmed_bench';
+      const snapshotKind = isOfficial ? 'official' : row.status === 'unavailable' ? 'unavailable' : 'predicted';
+      statements.push({
+        sql: `INSERT OR REPLACE INTO player_lineup_snapshots
+          (snapshot_id, match_id, player_id, team_id, status, probability, source, batch_id,
+           is_official, formation, position_code, history_matches_used,
+           provider_fixture_id, kickoff_at, raw_json, captured_at)
+         VALUES (:snapshotId, :matchId, :playerId, :teamId, :status, :probability, :source, :batchId,
+           :isOfficial, :formation, :positionCode, :historyMatchesUsed,
+            :providerFixtureId, :kickoffAt, :rawJson, :capturedAt)`,
+        args: {
+          snapshotId: `${snapshotKind}:${row.matchId}:${row.playerId}:${randomUUID()}`,
+          matchId: row.matchId,
+          playerId: row.playerId,
+          teamId: row.teamId,
+          status: row.status,
+          probability: row.probability ?? null,
+          source: row.source,
+          batchId: snapshotBatchId,
+          isOfficial: isOfficial ? 1 : 0,
+          formation: row.formation ?? null,
+          positionCode: row.positionCode ?? null,
+          historyMatchesUsed: row.historyMatchesUsed ?? null,
+          providerFixtureId: row.providerFixtureId ?? null,
+          kickoffAt: row.kickoffAt ?? null,
+          rawJson: row.rawJson ?? null,
+          capturedAt: snapshotCapturedAt,
+        },
+      });
     }
+    await this.db.batch(statements, 'write');
+  }
+
+  async replacePlayerInjuryStatuses(params: {
+    matchId: string;
+    teamIds: string[];
+    rows: Array<{
+      matchId: string;
+      playerId: string;
+      teamId: string;
+      status: 'unavailable';
+      probability?: number | null;
+      source: string;
+      providerFixtureId?: string | null;
+      kickoffAt?: string | null;
+      rawJson?: string | null;
+    }>;
+    providerFixtureId?: string | null;
+    kickoffAt?: string | null;
+  }): Promise<void> {
+    await this.initPromise;
+    const teamIds = [...new Set(params.teamIds.map((teamId) => String(teamId).trim()).filter(Boolean))];
+    if (!params.matchId || teamIds.length === 0) return;
+    const allowedTeams = new Set(teamIds);
+    const rows = params.rows.filter((row) => row.matchId === params.matchId && allowedTeams.has(row.teamId));
+    const batchId = randomUUID();
+    const capturedAt = new Date().toISOString();
+    const statements: InStatement[] = [{
+      sql: `INSERT INTO player_lineup_snapshot_batches (batch_id, captured_at) VALUES (?, ?)`,
+      args: [batchId, capturedAt],
+    }];
+    for (const teamId of teamIds) {
+      statements.push({
+        sql: `INSERT INTO player_injury_refresh_batches
+          (batch_id, match_id, team_id, provider_fixture_id, captured_at)
+          VALUES (?, ?, ?, ?, ?)`,
+        args: [batchId, params.matchId, teamId, params.providerFixtureId ?? null, capturedAt],
+      });
+      statements.push({
+        sql: `DELETE FROM player_lineup_status
+              WHERE match_id = ? AND team_id = ? AND source = 'api_football_injury'`,
+        args: [params.matchId, teamId],
+      });
+    }
+    for (const row of rows) {
+      statements.push({
+        sql: `INSERT OR REPLACE INTO player_lineup_status
+          (match_id, player_id, team_id, status, probability, source,
+           provider_fixture_id, kickoff_at, raw_json, fetched_at)
+         VALUES (?, ?, ?, 'unavailable', ?, ?, ?, ?, ?, ?)`,
+        args: [row.matchId, row.playerId, row.teamId, row.probability ?? 0, row.source,
+          row.providerFixtureId ?? params.providerFixtureId ?? null,
+          row.kickoffAt ?? params.kickoffAt ?? null, row.rawJson ?? null, capturedAt],
+      });
+      statements.push({
+        sql: `INSERT INTO player_lineup_snapshots
+          (snapshot_id, match_id, player_id, team_id, status, probability, source, batch_id,
+           is_official, provider_fixture_id, kickoff_at, raw_json, captured_at)
+         VALUES (?, ?, ?, ?, 'unavailable', ?, ?, ?, 0, ?, ?, ?, ?)`,
+        args: [`unavailable:${row.matchId}:${row.playerId}:${randomUUID()}`,
+          row.matchId, row.playerId, row.teamId, row.probability ?? 0, row.source, batchId,
+          row.providerFixtureId ?? params.providerFixtureId ?? null,
+          row.kickoffAt ?? params.kickoffAt ?? null, row.rawJson ?? null, capturedAt],
+      });
+    }
+    await this.db.batch(statements, 'write');
+  }
+
+  async getAllPlayers(): Promise<any[]> {
+    return this.all('SELECT * FROM players ORDER BY name, player_id');
+  }
+
+  async getPlayersByIds(playerIds: string[]): Promise<any[]> {
+    const ids = [...new Set((playerIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    return this.all(
+      `SELECT * FROM players WHERE player_id IN (${placeholders})`,
+      ids,
+    );
   }
 
   async markPlayersUnavailable(competition?: string): Promise<number> {
@@ -3007,26 +3456,53 @@ export class DatabaseService {
     return Number(result?.rowsAffected ?? 0);
   }
 
-  async reconcilePlayersForTeam(teamId: string, activePlayerIds: string[]): Promise<number> {
-    const ids = [...new Set(activePlayerIds.map((id) => String(id).trim()).filter(Boolean))];
-    // An empty list is meaningful: the provider returned a valid squad, but
-    // none of its names matched our historical Understat players. Keeping the
-    // old roster active in that case is worse than hiding it, because it leaks
-    // transferred players into player props.
-    if (ids.length === 0) {
-      const result = await this.execute(
-        'UPDATE players SET is_available = 0 WHERE team_id = ?',
-        [teamId],
-      );
-      return Number(result?.rowsAffected ?? 0);
+  async applyProviderSquadReconciliation(teamId: string, players: Array<{
+    playerId: string;
+    name: string;
+    positionCode?: string | null;
+    isNew: boolean;
+    providerId?: number | null;
+  }>): Promise<number> {
+    const uniquePlayers = [...new Map(players
+      .map((player) => [String(player.playerId).trim(), player] as const)
+      .filter(([playerId]) => Boolean(playerId))).values()];
+    if (uniquePlayers.length === 0) throw new Error('Refusing destructive squad reconciliation without active players');
+    const statements: InStatement[] = [];
+    for (const player of uniquePlayers) {
+      const position = String(player.positionCode ?? '').trim();
+      if (player.isNew) {
+        statements.push({
+          sql: `INSERT INTO players
+            (player_id, name, team_id, position_code, games_played, is_available, source_player_id, stats_json, last_updated)
+            VALUES (?, ?, ?, ?, 0, 1, NULL, ?, datetime('now'))
+            ON CONFLICT(player_id) DO UPDATE SET
+              name = excluded.name, team_id = excluded.team_id,
+              position_code = excluded.position_code, is_available = 1,
+              last_updated = datetime('now')`,
+          args: [player.playerId, player.name, teamId, position || 'MF', JSON.stringify({
+            identityOnly: true, source: 'api_football_squad', providerPlayerId: player.providerId ?? null,
+          })],
+        });
+      } else {
+        statements.push({
+          sql: `UPDATE players
+                SET team_id = ?, position_code = CASE WHEN ? <> '' THEN ? ELSE position_code END,
+                    is_available = 1, last_updated = datetime('now')
+                WHERE player_id = ?`,
+          args: [teamId, position, position, player.playerId],
+        });
+      }
     }
+    const ids = uniquePlayers.map((player) => player.playerId);
     const placeholders = ids.map(() => '?').join(', ');
-    const result = await this.execute(
+    statements.push({
+      sql:
       `UPDATE players SET is_available = CASE WHEN player_id IN (${placeholders}) THEN 1 ELSE 0 END
        WHERE team_id = ?`,
-      [...ids, teamId],
-    );
-    return Number(result?.rowsAffected ?? 0);
+      args: [...ids, teamId],
+    });
+    const results = await this.db.batch(statements, 'write');
+    return results.reduce((total, result) => total + Number(result?.rowsAffected ?? 0), 0);
   }
 
   // ==================== REFEREES ====================

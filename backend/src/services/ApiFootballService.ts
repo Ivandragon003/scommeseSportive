@@ -19,7 +19,20 @@ export type ApiFootballFixture = {
   awayName: string;
   homeProviderTeamId: number | null;
   awayProviderTeamId: number | null;
+  referee: string | null;
 };
+
+export function mapApiFootballFixture(row: any): ApiFootballFixture {
+  return {
+    id: Number(row?.fixture?.id),
+    date: String(row?.fixture?.date ?? ''),
+    homeName: String(row?.teams?.home?.name ?? '').trim(),
+    awayName: String(row?.teams?.away?.name ?? '').trim(),
+    homeProviderTeamId: Number.isFinite(Number(row?.teams?.home?.id)) ? Number(row.teams.home.id) : null,
+    awayProviderTeamId: Number.isFinite(Number(row?.teams?.away?.id)) ? Number(row.teams.away.id) : null,
+    referee: String(row?.fixture?.referee ?? '').split(',')[0].trim() || null,
+  };
+}
 
 type ApiFootballResponse<T> = { response?: T[]; errors?: Record<string, string> };
 
@@ -73,22 +86,17 @@ export class ApiFootballService {
 
   async getFixturesByDate(date: string): Promise<ApiFootballFixture[]> {
     const rows = await this.get<any>('/fixtures', { date });
-    return rows.map((row) => ({
-      id: Number(row?.fixture?.id),
-      date: String(row?.fixture?.date ?? ''),
-      homeName: String(row?.teams?.home?.name ?? '').trim(),
-      awayName: String(row?.teams?.away?.name ?? '').trim(),
-      homeProviderTeamId: Number.isFinite(Number(row?.teams?.home?.id)) ? Number(row.teams.home.id) : null,
-      awayProviderTeamId: Number.isFinite(Number(row?.teams?.away?.id)) ? Number(row.teams.away.id) : null,
-    })).filter((row) => Number.isFinite(row.id) && row.homeName && row.awayName);
+    return rows.map(mapApiFootballFixture)
+      .filter((row) => Number.isFinite(row.id) && row.homeName && row.awayName);
   }
 
-  async getSquad(providerTeamId: string | number): Promise<Array<{ id: number | null; name: string }>> {
+  async getSquad(providerTeamId: string | number): Promise<Array<{ id: number | null; name: string; position: string | null }>> {
     const rows = await this.get<any>('/players/squads', { team: providerTeamId });
     const players = Array.isArray(rows[0]?.players) ? rows[0].players : [];
     return players.map((entry: any) => ({
       id: Number.isFinite(Number(entry?.id)) ? Number(entry.id) : null,
       name: String(entry?.name ?? '').trim(),
+      position: String(entry?.position ?? '').trim() || null,
     })).filter((entry) => entry.name);
   }
 

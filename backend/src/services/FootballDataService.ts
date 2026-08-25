@@ -49,6 +49,18 @@ export function seasonLabel(seasonStartYear: number): string {
   return `${seasonStartYear}/${seasonStartYear + 1}`;
 }
 
+export const DEFAULT_SEASON_RETENTION_COUNT = 5;
+
+/** Finestra mobile, dalla stagione piu vecchia alla corrente. */
+export function buildSeasonWindow(
+  now: Date = new Date(),
+  keepCount = DEFAULT_SEASON_RETENTION_COUNT,
+): string[] {
+  const count = Math.max(1, Math.trunc(keepCount));
+  const current = currentSeasonStartYear(now);
+  return Array.from({ length: count }, (_, index) => seasonLabel(current - count + index + 1));
+}
+
 /**
  * Alias nome-squadra: chiave = nome football-data normalizzato, valore = nome DB
  * (Understat) normalizzato. Solo le squadre che differiscono dopo la
@@ -352,34 +364,60 @@ export interface FootballDataSyncOptions {
   fetcher?: FootballDataFetcher;
 }
 
+export interface LowerDivisionTeamSeasonWrite {
+  teamId: string; sourceCompetitionId: string; sourceSeason: string;
+  finalRank: number; matchesPlayed: number; points: number; ppg: number;
+  goalDifference: number; goalDifferencePerMatch: number;
+  sourceProvider: string; sourceReference: string; coverageStatus: 'complete' | 'partial';
+}
+
+export interface LowerDivisionTeamMatchWrite {
+  historyId: string; teamId: string; sourceCompetitionId: string; sourceSeason: string;
+  playedAt: string; venue: 'home' | 'away'; opponentName: string;
+  goalsFor: number | null; goalsAgainst: number | null;
+  shotsFor: number | null; shotsAgainst: number | null;
+  shotsOnTargetFor: number | null; shotsOnTargetAgainst: number | null;
+  foulsFor: number | null; foulsAgainst: number | null;
+  cornersFor: number | null; cornersAgainst: number | null;
+  yellowCardsFor: number | null; yellowCardsAgainst: number | null;
+  redCardsFor: number | null; redCardsAgainst: number | null;
+  referee: string | null; sourceProvider: string; sourceReference: string; rawJson: string;
+}
+
+export interface TeamCompetitionTransitionWrite {
+  transitionId: string; teamId: string; sourceCompetitionId: string; sourceSeason: string;
+  destinationCompetitionId: string; destinationSeason: string;
+  transitionType: 'promoted' | 'relegated'; sourceRank: number; sourcePoints: number;
+  sourceMatches: number; sourcePpg: number; sourceGoalDifference: number;
+  sourceGoalDifferencePerMatch: number; transitionMode: 'direct_1' | 'direct_2';
+  coverageStatus: 'complete' | 'partial'; sourceQuality: 'estimated';
+  sourceProvider: string; sourceReference: string; notes: string;
+  transitionSequence?: number | null;
+  sourceIdentityStatus?: 'matched' | 'unresolved' | 'unknown';
+}
+
+export interface LowerDivisionHistoryBatch {
+  reference: TransitionSeasonReference;
+  teamSeasons: LowerDivisionTeamSeasonWrite[];
+  teamMatches: LowerDivisionTeamMatchWrite[];
+  transitions: TeamCompetitionTransitionWrite[];
+}
+
 export interface TransitionReferenceDb {
   upsertTransitionSeasonReference(reference: TransitionSeasonReference): Promise<void>;
   hasCompleteTransitionSeasonReference?(sourceCompetitionId: string, sourceSeason: string): Promise<boolean>;
   hasTransitionForSourceSeason?(sourceCompetitionId: string, sourceSeason: string): Promise<boolean>;
+  hasCompleteLowerDivisionTeamHistory?(
+    sourceCompetitionId: string,
+    sourceSeason: string,
+    expectedTeamIds: string[],
+    expectedHistoryRows: number,
+  ): Promise<boolean>;
+  upsertLowerDivisionHistoryBatch?(batch: LowerDivisionHistoryBatch): Promise<void>;
   getTransitionTeams?(): Promise<Array<{ team_id: string; name: string }>>;
-  upsertTeamCompetitionTransition?(transition: {
-    transitionId: string;
-    teamId: string;
-    sourceCompetitionId: string;
-    sourceSeason: string;
-    destinationCompetitionId: string;
-    destinationSeason: string;
-    transitionType: 'promoted' | 'relegated';
-    sourceRank: number;
-    sourcePoints: number;
-    sourceMatches: number;
-    sourcePpg: number;
-    sourceGoalDifference: number;
-    sourceGoalDifferencePerMatch: number;
-    transitionMode: 'direct_1' | 'direct_2';
-    coverageStatus: 'complete' | 'partial';
-    sourceQuality: 'estimated';
-    sourceProvider: string;
-    sourceReference: string;
-    notes: string;
-    transitionSequence?: number | null;
-    sourceIdentityStatus?: 'matched' | 'unresolved' | 'unknown';
-  }): Promise<void>;
+  upsertLowerDivisionTeamSeason?(season: LowerDivisionTeamSeasonWrite): Promise<void>;
+  upsertLowerDivisionTeamMatch?(match: LowerDivisionTeamMatchWrite): Promise<void>;
+  upsertTeamCompetitionTransition?(transition: TeamCompetitionTransitionWrite): Promise<void>;
 }
 
 export interface TransitionReferenceSyncOptions {
@@ -395,7 +433,18 @@ export interface TransitionReferenceSyncSummary {
   skipped: number;
   errors: Array<{ competition: string; season: number; error: string }>;
   transitionsPersisted: number;
+  teamSeasonsPersisted: number;
+  teamMatchesPersisted: number;
   unresolvedTeams: string[];
+  modelAdjustmentEnabled: false;
+  perSeason: Record<string, {
+    status: 'complete' | 'skipped_complete' | 'failed';
+    rows: number;
+    teamSeasons: number;
+    teamMatches: number;
+    transitions: number;
+    error: string | null;
+  }>;
 }
 
 const TRANSITION_RULES: Record<string, { destinationCompetitionId: string; directPromotionRanks: number[] }> = {
@@ -412,9 +461,14 @@ export async function syncTransitionSeasonReferences(
   options: TransitionReferenceSyncOptions = {},
 ): Promise<TransitionReferenceSyncSummary> {
   const competitions = options.competitions ?? FOOTBALL_DATA_TRANSITION_LEAGUE_CODES;
-  const seasons = options.seasonStartYears ?? [currentSeasonStartYear() - 1];
+  const seasons = options.seasonStartYears
+    ?? buildSeasonWindow().map((label) => Number(label.slice(0, 4)));
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
-  const summary: TransitionReferenceSyncSummary = { requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [], transitionsPersisted: 0, unresolvedTeams: [] };
+  const summary: TransitionReferenceSyncSummary = {
+    requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [],
+    transitionsPersisted: 0, teamSeasonsPersisted: 0, teamMatchesPersisted: 0,
+    unresolvedTeams: [], modelAdjustmentEnabled: false, perSeason: {},
+  };
   const teams = db.getTransitionTeams ? await db.getTransitionTeams() : [];
   const teamByName = new Map(teams.map((team) => [canonicalTeamName(team.name), team.team_id]));
   for (const [competitionName, leagueCode] of Object.entries(competitions)) {
@@ -426,18 +480,35 @@ export async function syncTransitionSeasonReferences(
       summary.requested += 1;
       const seasonCode = seasonToFootballDataCode(seasonStartYear);
       const sourceReference = `https://www.football-data.co.uk/mmz4281/${seasonCode}/${leagueCode}.csv`;
+      const seasonLabelValue = seasonLabel(seasonStartYear);
+      const seasonKey = `${competitionName} ${seasonLabelValue}`;
       try {
-        const seasonLabelValue = seasonLabel(seasonStartYear);
+        const needsTeamHistory = Boolean(
+          db.upsertLowerDivisionHistoryBatch
+          || db.upsertLowerDivisionTeamSeason
+          || db.upsertLowerDivisionTeamMatch,
+        );
+        // Senza storico squadra il vecchio marker completo consente di evitare
+        // anche il download. Con lo storico scarichiamo il CSV per scoprire
+        // eventuali squadre divenute note, ma saltiamo tutte le scritture se i
+        // conteggi attesi risultano gia presenti.
         if (db.hasCompleteTransitionSeasonReference
           && await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)
-          && (!db.hasTransitionForSourceSeason || await db.hasTransitionForSourceSeason(competitionId, seasonLabelValue))) {
+          && (!db.hasTransitionForSourceSeason || await db.hasTransitionForSourceSeason(competitionId, seasonLabelValue))
+          && !needsTeamHistory
+          && !db.upsertLowerDivisionHistoryBatch) {
           summary.skipped += 1;
+          summary.perSeason[seasonKey] = {
+            status: 'skipped_complete', rows: 0, teamSeasons: 0, teamMatches: 0,
+            transitions: 0, error: null,
+          };
           continue;
         }
         const csv = await fetcher(leagueCode, seasonCode);
-        if (!csv) { summary.skipped += 1; continue; }
+        if (!csv) throw new Error(`CSV non disponibile: ${sourceReference}`);
         summary.downloaded += 1;
         const parsedRows = parseFootballDataCsv(csv);
+        if (parsedRows.length === 0) throw new Error(`CSV vuoto o senza righe valide: ${sourceReference}`);
         const standings = buildTransitionStandings(parsedRows);
         const identityMatched = standings.filter((item) => teamByName.has(item.normalizedTeamName)).length;
         const reference = buildTransitionSeasonReference(
@@ -447,15 +518,55 @@ export async function syncTransitionSeasonReferences(
         reference.identityCoveragePercent = standings.length > 0
           ? (identityMatched / standings.length) * 100
           : null;
-        await db.upsertTransitionSeasonReference(reference);
-        summary.persisted += 1;
+        const teamSeasons: LowerDivisionTeamSeasonWrite[] = standings.flatMap((standing) => {
+          const teamId = teamByName.get(standing.normalizedTeamName);
+          return teamId ? [{
+            teamId, sourceCompetitionId: competitionId, sourceSeason: reference.sourceSeason,
+            finalRank: standing.rank, matchesPlayed: standing.played, points: standing.points,
+            ppg: standing.ppg, goalDifference: standing.goalDifference,
+            goalDifferencePerMatch: standing.goalDifference / Math.max(1, standing.played),
+            sourceProvider: reference.sourceProvider, sourceReference,
+            coverageStatus: reference.coverageStatus === 'complete' ? 'complete' : 'partial',
+          }] : [];
+        });
+        const teamMatches: LowerDivisionTeamMatchWrite[] = [];
+        for (const row of parsedRows) {
+          for (const side of ['home', 'away'] as const) {
+            const ownName = side === 'home' ? row.homeTeam : row.awayTeam;
+            const opponentName = side === 'home' ? row.awayTeam : row.homeTeam;
+            const teamId = teamByName.get(canonicalTeamName(ownName));
+            if (!teamId) continue;
+            teamMatches.push({
+              historyId: `fd:${competitionId}:${seasonStartYear}:${teamId}:${row.date}:${side}:${canonicalTeamName(opponentName)}`,
+              teamId, sourceCompetitionId: competitionId, sourceSeason: reference.sourceSeason,
+              playedAt: row.date, venue: side, opponentName,
+              goalsFor: side === 'home' ? row.homeGoals : row.awayGoals,
+              goalsAgainst: side === 'home' ? row.awayGoals : row.homeGoals,
+              shotsFor: side === 'home' ? row.homeShots : row.awayShots,
+              shotsAgainst: side === 'home' ? row.awayShots : row.homeShots,
+              shotsOnTargetFor: side === 'home' ? row.homeShotsOnTarget : row.awayShotsOnTarget,
+              shotsOnTargetAgainst: side === 'home' ? row.awayShotsOnTarget : row.homeShotsOnTarget,
+              foulsFor: side === 'home' ? row.homeFouls : row.awayFouls,
+              foulsAgainst: side === 'home' ? row.awayFouls : row.homeFouls,
+              cornersFor: side === 'home' ? row.homeCorners : row.awayCorners,
+              cornersAgainst: side === 'home' ? row.awayCorners : row.homeCorners,
+              yellowCardsFor: side === 'home' ? row.homeYellow : row.awayYellow,
+              yellowCardsAgainst: side === 'home' ? row.awayYellow : row.homeYellow,
+              redCardsFor: side === 'home' ? row.homeRed : row.awayRed,
+              redCardsAgainst: side === 'home' ? row.awayRed : row.homeRed,
+              referee: row.referee, sourceProvider: reference.sourceProvider, sourceReference,
+              rawJson: JSON.stringify(row),
+            });
+          }
+        }
+        const transitions: TeamCompetitionTransitionWrite[] = [];
         const rule = TRANSITION_RULES[competitionId];
-        if (rule && db.upsertTeamCompetitionTransition && db.getTransitionTeams) {
+        if (rule && reference.coverageStatus === 'complete' && db.getTransitionTeams) {
           for (const standing of standings.filter((item) => rule.directPromotionRanks.includes(item.rank))) {
             const teamId = teamByName.get(standing.normalizedTeamName);
             if (!teamId) { summary.unresolvedTeams.push(`${competitionName}:${standing.teamName}:${reference.sourceSeason}`); continue; }
             const destinationSeason = seasonLabel(seasonStartYear + 1);
-            await db.upsertTeamCompetitionTransition({
+            transitions.push({
               transitionId: `auto:${competitionId}:${reference.sourceSeason}:${teamId}:promoted`,
               teamId,
               sourceCompetitionId: competitionId,
@@ -477,11 +588,53 @@ export async function syncTransitionSeasonReferences(
               notes: 'Auto-identificata dalla posizione finale; i playoff non sono inferiti dai soli CSV di campionato.',
               sourceIdentityStatus: 'matched',
             });
-            summary.transitionsPersisted += 1;
           }
         }
+
+        const expectedTeamIds = [...new Set(teamSeasons.map((item) => item.teamId))].sort();
+        const referenceComplete = db.hasCompleteTransitionSeasonReference
+          ? await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)
+          : false;
+        const transitionsComplete = transitions.length === 0 || (db.hasTransitionForSourceSeason
+          ? await db.hasTransitionForSourceSeason(competitionId, seasonLabelValue)
+          : false);
+        const historyComplete = db.hasCompleteLowerDivisionTeamHistory
+          ? await db.hasCompleteLowerDivisionTeamHistory(
+              competitionId, seasonLabelValue, expectedTeamIds, teamMatches.length,
+            )
+          : false;
+        if (reference.coverageStatus === 'complete' && referenceComplete && transitionsComplete && historyComplete) {
+          summary.skipped += 1;
+          summary.perSeason[seasonKey] = {
+            status: 'skipped_complete', rows: parsedRows.length, teamSeasons: teamSeasons.length,
+            teamMatches: teamMatches.length, transitions: transitions.length, error: null,
+          };
+          continue;
+        }
+
+        if (db.upsertLowerDivisionHistoryBatch) {
+          await db.upsertLowerDivisionHistoryBatch({ reference, teamSeasons, teamMatches, transitions });
+        } else {
+          await db.upsertTransitionSeasonReference(reference);
+          for (const season of teamSeasons) await db.upsertLowerDivisionTeamSeason?.(season);
+          for (const match of teamMatches) await db.upsertLowerDivisionTeamMatch?.(match);
+          for (const transition of transitions) await db.upsertTeamCompetitionTransition?.(transition);
+        }
+        summary.persisted += 1;
+        summary.teamSeasonsPersisted += teamSeasons.length;
+        summary.teamMatchesPersisted += teamMatches.length;
+        summary.transitionsPersisted += transitions.length;
+        summary.perSeason[seasonKey] = {
+          status: 'complete', rows: parsedRows.length, teamSeasons: teamSeasons.length,
+          teamMatches: teamMatches.length, transitions: transitions.length, error: null,
+        };
       } catch (error: any) {
-        summary.errors.push({ competition: competitionName, season: seasonStartYear, error: error?.message ?? String(error) });
+        const message = error?.message ?? String(error);
+        summary.errors.push({ competition: competitionName, season: seasonStartYear, error: message });
+        summary.perSeason[seasonKey] = {
+          status: 'failed', rows: 0, teamSeasons: 0, teamMatches: 0,
+          transitions: 0, error: message,
+        };
       }
     }
   }
@@ -489,12 +642,29 @@ export async function syncTransitionSeasonReferences(
 }
 
 export interface FootballDataSyncSummary {
+  requested: number;
+  completed: number;
   csvRows: number;
   matched: number;
   updated: number;
   oddsWritten: number;
+  dateToleranceMatched: number;
   unmatchedTeams: string[];
-  perCompetition: Record<string, { csvRows: number; matched: number; updated: number; oddsWritten: number }>;
+  perCompetition: Record<string, {
+    csvRows: number; matched: number; updated: number; oddsWritten: number; dateToleranceMatched: number;
+  }>;
+  perSeason: Record<string, {
+    status: 'complete' | 'failed';
+    csvRows: number;
+    matched: number;
+    updated: number;
+    oddsWritten: number;
+    dateToleranceMatched: number;
+    sourceLatestDate: string | null;
+    matchedLatestDate: string | null;
+    error: string | null;
+  }>;
+  errors: Array<{ competition: string; season: number; error: string }>;
 }
 
 /**
@@ -529,7 +699,10 @@ export async function syncFootballData(
   const seasons = options.seasonStartYears ?? [2024, 2025];
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
 
-  const summary: FootballDataSyncSummary = { csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, unmatchedTeams: [], perCompetition: {} };
+  const summary: FootballDataSyncSummary = {
+    requested: 0, completed: 0, csvRows: 0, matched: 0, updated: 0,
+    oddsWritten: 0, dateToleranceMatched: 0, unmatchedTeams: [], perCompetition: {}, perSeason: {}, errors: [],
+  };
   const unmatched = new Set<string>();
 
   for (const competition of competitions) {
@@ -538,31 +711,95 @@ export async function syncFootballData(
 
     const dbMatches = await db.getMatchesForCompetition(competition);
     const index = new Map<string, FootballDataDbMatch>();
+    const byTeamPair = new Map<string, FootballDataDbMatch[]>();
     const dbTeams = new Set<string>();
     for (const m of dbMatches) {
       index.set(matchKey(String(m.date).slice(0, 10), m.home_team_name ?? '', m.away_team_name ?? ''), m);
+      const pairKey = `${canonicalTeamName(m.home_team_name ?? '')}|${canonicalTeamName(m.away_team_name ?? '')}`;
+      byTeamPair.set(pairKey, [...(byTeamPair.get(pairKey) ?? []), m]);
       dbTeams.add(canonicalTeamName(m.home_team_name ?? ''));
       dbTeams.add(canonicalTeamName(m.away_team_name ?? ''));
     }
 
-    const perComp = { csvRows: 0, matched: 0, updated: 0, oddsWritten: 0 };
+    const perComp = { csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, dateToleranceMatched: 0 };
     for (const seasonStart of seasons) {
-      const csv = await fetcher(leagueCode, seasonToFootballDataCode(seasonStart));
-      if (!csv) continue;
-      const rows = parseFootballDataCsv(csv);
-      perComp.csvRows += rows.length;
-      for (const row of rows) {
-        const hit = index.get(matchKey(row.date, row.homeTeam, row.awayTeam));
-        if (!hit) {
-          if (!dbTeams.has(canonicalTeamName(row.homeTeam))) unmatched.add(row.homeTeam);
-          if (!dbTeams.has(canonicalTeamName(row.awayTeam))) unmatched.add(row.awayTeam);
-          continue;
+      summary.requested += 1;
+      const label = seasonLabel(seasonStart);
+      const seasonKey = `${competition} ${label}`;
+      let rows: FootballDataRow[] = [];
+      let matched = 0;
+      let updated = 0;
+      let oddsWritten = 0;
+      let dateToleranceMatched = 0;
+      let matchedLatestDate: string | null = null;
+      try {
+        const csv = await fetcher(leagueCode, seasonToFootballDataCode(seasonStart));
+        if (!csv) throw new Error('CSV non disponibile');
+        rows = parseFootballDataCsv(csv);
+        if (rows.length === 0) throw new Error('CSV vuoto o senza righe valide');
+        perComp.csvRows += rows.length;
+        for (const row of rows) {
+          let hit = index.get(matchKey(row.date, row.homeTeam, row.awayTeam));
+          if (!hit) {
+            const pairKey = `${canonicalTeamName(row.homeTeam)}|${canonicalTeamName(row.awayTeam)}`;
+            const rowTimestamp = Date.parse(`${row.date}T00:00:00Z`);
+            const candidates = (byTeamPair.get(pairKey) ?? []).filter((candidate) => {
+              const candidateTimestamp = Date.parse(`${String(candidate.date).slice(0, 10)}T00:00:00Z`);
+              return Number.isFinite(rowTimestamp) && Number.isFinite(candidateTimestamp)
+                && Math.abs(candidateTimestamp - rowTimestamp) <= 24 * 60 * 60 * 1000;
+            });
+            if (candidates.length === 1) {
+              [hit] = candidates;
+              dateToleranceMatched += 1;
+            }
+          }
+          if (!hit) {
+            if (!dbTeams.has(canonicalTeamName(row.homeTeam))) unmatched.add(row.homeTeam);
+            if (!dbTeams.has(canonicalTeamName(row.awayTeam))) unmatched.add(row.awayTeam);
+            continue;
+          }
+          matched += 1;
+          matchedLatestDate = !matchedLatestDate || row.date > matchedLatestDate ? row.date : matchedLatestDate;
+          const changed = await db.fillSupplementalStats(hit.match_id, row);
+          if (changed) updated += 1;
+          const oddsSaved = await db.saveMarketOdds(hit.match_id, row);
+          if (oddsSaved) oddsWritten += 1;
         }
-        perComp.matched += 1;
-        const changed = await db.fillSupplementalStats(hit.match_id, row);
-        if (changed) perComp.updated += 1;
-        const oddsSaved = await db.saveMarketOdds(hit.match_id, row);
-        if (oddsSaved) perComp.oddsWritten += 1;
+        const sourceLatestDate = rows.reduce<string | null>(
+          (latest, row) => !latest || row.date > latest ? row.date : latest,
+          null,
+        );
+        if (matched === 0) throw new Error('Nessuna partita CSV corrisponde ai dati Understat nel DB');
+        if (matched !== rows.length) {
+          throw new Error(`Copertura CSV incompleta: ${matched}/${rows.length} partite abbinate`);
+        }
+        if (sourceLatestDate !== matchedLatestDate) {
+          throw new Error(`Dati non freschi: ultima data fonte ${sourceLatestDate}, ultima data abbinata ${matchedLatestDate ?? 'nessuna'}`);
+        }
+        perComp.matched += matched;
+        perComp.updated += updated;
+        perComp.oddsWritten += oddsWritten;
+        perComp.dateToleranceMatched += dateToleranceMatched;
+        summary.completed += 1;
+        summary.perSeason[seasonKey] = {
+          status: 'complete', csvRows: rows.length, matched, updated, oddsWritten, dateToleranceMatched,
+          sourceLatestDate, matchedLatestDate, error: null,
+        };
+      } catch (error: any) {
+        const message = error?.message ?? String(error);
+        perComp.matched += matched;
+        perComp.updated += updated;
+        perComp.oddsWritten += oddsWritten;
+        perComp.dateToleranceMatched += dateToleranceMatched;
+        const sourceLatestDate = rows.reduce<string | null>(
+          (latest, row) => !latest || row.date > latest ? row.date : latest,
+          null,
+        );
+        summary.errors.push({ competition, season: seasonStart, error: message });
+        summary.perSeason[seasonKey] = {
+          status: 'failed', csvRows: rows.length, matched, updated, oddsWritten, dateToleranceMatched,
+          sourceLatestDate, matchedLatestDate, error: message,
+        };
       }
     }
     summary.perCompetition[competition] = perComp;
@@ -570,6 +807,7 @@ export async function syncFootballData(
     summary.matched += perComp.matched;
     summary.updated += perComp.updated;
     summary.oddsWritten += perComp.oddsWritten;
+    summary.dateToleranceMatched += perComp.dateToleranceMatched;
   }
   summary.unmatchedTeams = [...unmatched].sort();
   return summary;
@@ -582,6 +820,10 @@ export async function syncFootballData(
 /** Minimo sottoinsieme del client libSQL usato qui. */
 export interface LibsqlLike {
   execute(query: { sql: string; args?: any } | string): Promise<{ rows: any[]; rowsAffected?: number }>;
+  batch?(
+    statements: Array<{ sql: string; args?: any }>,
+    mode?: 'write',
+  ): Promise<Array<{ rows: any[]; rowsAffected?: number }>>;
 }
 
 /** Colonne supplementari riempite (solo dove NULL). */
@@ -648,41 +890,110 @@ export interface PruneSummary {
   seasonsDeleted: string[];
   matchesDeleted: number;
   oddsDeleted: number;
+  linkedRowsDeleted: number;
 }
 
+const DELETE_ORPHAN_LINEUP_BATCHES_SQL = `DELETE FROM player_lineup_snapshot_batches
+  WHERE NOT EXISTS (
+    SELECT 1 FROM player_lineup_snapshots snapshot
+    WHERE snapshot.batch_id = player_lineup_snapshot_batches.batch_id
+  ) AND NOT EXISTS (
+    SELECT 1 FROM player_injury_refresh_batches injury
+    WHERE injury.batch_id = player_lineup_snapshot_batches.batch_id
+  )`;
+
 /**
- * Retention: tiene solo le `keepCount` stagioni più recenti (per anno d'inizio),
- * elimina le più vecchie e gli odds_snapshots orfani. Libera lo spazio del
- * raw_json pesante. Safeguard: non fa nulla se le stagioni presenti sono ≤ keepCount.
+ * Retention: tiene la stagione corrente e le `keepCount - 1` precedenti,
+ * elimina in un unico batch i match fuori finestra e i dati tecnici collegati.
+ * Prediction e bet restano append-only e non vengono mai cancellate.
  * Le stagioni con label non standard (null/'') non vengono mai toccate.
  */
-export async function pruneOldSeasons(client: LibsqlLike, keepCount = 4): Promise<PruneSummary> {
+export async function pruneOldSeasons(
+  client: LibsqlLike,
+  keepCount = DEFAULT_SEASON_RETENTION_COUNT,
+  now: Date = new Date(),
+): Promise<PruneSummary> {
   const res = await client.execute({
-    sql: `SELECT season, COUNT(*) n FROM matches WHERE season IS NOT NULL AND TRIM(season) <> '' GROUP BY season`,
+    // La sorgente della lista e l'unione di tutte le tabelle tecniche: una
+    // stagione inferiore o un parametro orfano va eliminato anche se i match
+    // Top 5 corrispondenti non sono (piu) presenti.
+    sql: `SELECT season FROM matches WHERE season IS NOT NULL AND TRIM(season) <> ''
+          UNION SELECT source_season AS season FROM source_season_reference WHERE TRIM(source_season) <> ''
+          UNION SELECT source_season AS season FROM lower_division_team_seasons WHERE TRIM(source_season) <> ''
+          UNION SELECT source_season AS season FROM lower_division_team_matches WHERE TRIM(source_season) <> ''
+          UNION SELECT source_season AS season FROM team_competition_transitions WHERE TRIM(source_season) <> ''
+          UNION SELECT destination_season AS season FROM team_competition_transitions WHERE TRIM(destination_season) <> ''
+          UNION SELECT season FROM model_params WHERE season IS NOT NULL AND TRIM(season) <> ''`,
     args: [],
   });
   const seasons = res.rows
     .map((r) => ({ label: String(r.season), start: Number(String(r.season).slice(0, 4)) }))
-    .filter((s) => Number.isFinite(s.start))
+    .filter((s) => /^\d{4}[/-]\d{4}$/.test(s.label) && Number.isFinite(s.start))
     .sort((a, b) => b.start - a.start);
 
-  if (seasons.length <= keepCount) {
-    return { seasonsKept: seasons.map((s) => s.label), seasonsDeleted: [], matchesDeleted: 0, oddsDeleted: 0 };
+  const currentStart = currentSeasonStartYear(now);
+  const oldestStart = currentStart - Math.max(1, Math.trunc(keepCount)) + 1;
+  const keep = seasons.filter((season) => season.start >= oldestStart && season.start <= currentStart);
+  const drop = seasons.filter((season) => season.start < oldestStart || season.start > currentStart);
+  if (drop.length === 0) {
+    // La pulizia dei contenitori snapshot vuoti e housekeeping indipendente:
+    // deve avvenire anche quando la finestra stagionale e gia corretta.
+    const orphanCleanup = await client.execute({ sql: DELETE_ORPHAN_LINEUP_BATCHES_SQL, args: [] });
+    return {
+      seasonsKept: keep.map((season) => season.label),
+      seasonsDeleted: [],
+      matchesDeleted: 0,
+      oddsDeleted: 0,
+      linkedRowsDeleted: Number(orphanCleanup.rowsAffected ?? 0),
+    };
   }
-  const keep = seasons.slice(0, keepCount);
-  const drop = seasons.slice(keepCount);
-  let matchesDeleted = 0, oddsDeleted = 0;
-  for (const s of drop) {
-    // odds_snapshots orfani prima (FK logica), poi i match
-    try {
-      const o = await client.execute({
-        sql: `DELETE FROM odds_snapshots WHERE match_id IN (SELECT match_id FROM matches WHERE season = ?)`,
-        args: [s.label],
-      });
-      oddsDeleted += Number(o.rowsAffected ?? 0);
-    } catch { /* tabella odds assente in alcuni ambienti */ }
-    const m = await client.execute({ sql: `DELETE FROM matches WHERE season = ?`, args: [s.label] });
-    matchesDeleted += Number(m.rowsAffected ?? 0);
+  if (typeof client.batch !== 'function') {
+    throw new Error('Atomic season retention requires libSQL batch support');
   }
-  return { seasonsKept: keep.map((s) => s.label), seasonsDeleted: drop.map((s) => s.label), matchesDeleted, oddsDeleted };
+
+  type DeletionKind = 'matches' | 'odds' | 'linked';
+  const statements: Array<{ sql: string; args: any[] }> = [];
+  const kinds: DeletionKind[] = [];
+  const add = (kind: DeletionKind, sql: string, args: any[]) => {
+    statements.push({ sql, args });
+    kinds.push(kind);
+  };
+
+  for (const season of drop) {
+    const args = [season.label];
+    const matchIds = `SELECT match_id FROM matches WHERE season = ?`;
+    add('linked', `DELETE FROM player_injury_refresh_batches WHERE match_id IN (${matchIds})`, args);
+    add('linked', `DELETE FROM player_lineup_snapshots WHERE match_id IN (${matchIds})`, args);
+    add('linked', `DELETE FROM player_lineup_status WHERE match_id IN (${matchIds})`, args);
+    add('linked', `DELETE FROM learning_reviews WHERE match_id IN (${matchIds})`, args);
+    add('odds', `DELETE FROM odds_snapshots WHERE match_id IN (${matchIds})`, args);
+    // Le transizioni vanno eliminate prima dei riferimenti di stagione (FK).
+    add('linked', `DELETE FROM team_competition_transitions WHERE source_season = ? OR destination_season = ?`, [season.label, season.label]);
+    add('linked', `DELETE FROM lower_division_team_matches WHERE source_season = ?`, args);
+    add('linked', `DELETE FROM lower_division_team_seasons WHERE source_season = ?`, args);
+    add('linked', `DELETE FROM source_season_reference WHERE source_season = ?`, args);
+    add('linked', `DELETE FROM model_params WHERE season = ?`, args);
+    add('matches', `DELETE FROM matches WHERE season = ?`, args);
+  }
+  add('linked', DELETE_ORPHAN_LINEUP_BATCHES_SQL, []);
+
+  // Turso/libSQL esegue batch in una transazione implicita: una singola
+  // cancellazione fallita annulla l'intera retention.
+  const results = await client.batch(statements, 'write');
+  let matchesDeleted = 0;
+  let oddsDeleted = 0;
+  let linkedRowsDeleted = 0;
+  results.forEach((result, index) => {
+    const affected = Number(result?.rowsAffected ?? 0);
+    if (kinds[index] === 'matches') matchesDeleted += affected;
+    else if (kinds[index] === 'odds') oddsDeleted += affected;
+    else linkedRowsDeleted += affected;
+  });
+  return {
+    seasonsKept: keep.map((season) => season.label),
+    seasonsDeleted: drop.map((season) => season.label),
+    matchesDeleted,
+    oddsDeleted,
+    linkedRowsDeleted,
+  };
 }

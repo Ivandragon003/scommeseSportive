@@ -48,10 +48,8 @@ const UNDERSTAT_SCHEDULER_MODE =
     ? 'single'
     : 'top5';
 const UNDERSTAT_SCHEDULER_COMPETITION = String(process.env.UNDERSTAT_SCHEDULER_COMPETITION ?? 'Serie A').trim() || 'Serie A';
-const UNDERSTAT_SCHEDULER_YEARS_BACK = Math.max(
-  1,
-  Math.min(Number(process.env.UNDERSTAT_SCHEDULER_YEARS_BACK ?? 1), 6)
-);
+// Policy dati bloccata: stagione corrente + quattro precedenti.
+const UNDERSTAT_SCHEDULER_YEARS_BACK = 5;
 const UNDERSTAT_SCHEDULER_IMPORT_PLAYERS =
   String(process.env.UNDERSTAT_SCHEDULER_IMPORT_PLAYERS ?? 'true').trim().toLowerCase() === 'true';
 const UNDERSTAT_SCHEDULER_INCLUDE_MATCH_DETAILS =
@@ -410,7 +408,7 @@ async function runBootDataSync(): Promise<void> {
           },
           body: JSON.stringify({
             mode: 'top5',
-            yearsBack: 1,
+            yearsBack: 5,
             importPlayers: true,
             includeMatchDetails: true,
             forceRefresh: false,
