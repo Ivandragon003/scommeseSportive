@@ -39,6 +39,21 @@ test('il backend temporaneo della nightly disabilita solo in CI la sessione ammi
   assert.doesNotMatch(backendStart, /NODE_ENV=production/);
 });
 
+test('la nightly autorizza esplicitamente solo la propria origine loopback per le POST', () => {
+  const nightly = read('scripts', 'ci', 'nightly-sync.sh');
+  const postJson = nightly.slice(
+    nightly.indexOf('post_json()'),
+    nightly.indexOf('get_json()'),
+  );
+  const backendStart = nightly.slice(
+    nightly.indexOf('echo "Starting backend for CI sync..."'),
+    nightly.indexOf('echo "Waiting for backend health..."'),
+  );
+
+  assert.match(postJson, /-H "Origin: http:\/\/127\.0\.0\.1:\$PORT"/);
+  assert.match(backendStart, /CORS_ORIGIN="http:\/\/127\.0\.0\.1:\$PORT" \\\n/);
+});
+
 test('policy API resta esattamente corrente piu quattro precedenti', () => {
   const policy = fixedFiveSeasonPolicy(new Date('2026-08-25T00:00:00Z'));
   assert.deepEqual(policy, {
