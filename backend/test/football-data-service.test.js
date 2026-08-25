@@ -17,7 +17,66 @@ const {
   syncTransitionSeasonReferences,
   FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
   selectLatestRelevantTransition,
+  defaultFootballDataFetcher,
 } = require('../dist/services/FootballDataService.js');
+
+test('defaultFootballDataFetcher ritenta errori di rete temporanei e poi restituisce il CSV', async () => {
+  const originalFetch = global.fetch;
+  const originalDelay = process.env.FOOTBALL_DATA_RETRY_DELAY_MS;
+  let calls = 0;
+  process.env.FOOTBALL_DATA_RETRY_DELAY_MS = '0';
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError('fetch failed');
+    if (calls === 2) return { ok: false, status: 521, text: async () => '' };
+    return { ok: true, status: 200, text: async () => 'csv-ok' };
+  };
+  try {
+    assert.equal(await defaultFootballDataFetcher('F1', '2526'), 'csv-ok');
+    assert.equal(calls, 3);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalDelay === undefined) delete process.env.FOOTBALL_DATA_RETRY_DELAY_MS;
+    else process.env.FOOTBALL_DATA_RETRY_DELAY_MS = originalDelay;
+  }
+});
+
+test('defaultFootballDataFetcher non ritenta un CSV realmente assente', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: false, status: 404, text: async () => '' };
+  };
+  try {
+    assert.equal(await defaultFootballDataFetcher('D1', '2627'), null);
+    assert.equal(calls, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('defaultFootballDataFetcher resta fail-closed dopo tre errori 5xx', async () => {
+  const originalFetch = global.fetch;
+  const originalDelay = process.env.FOOTBALL_DATA_RETRY_DELAY_MS;
+  let calls = 0;
+  process.env.FOOTBALL_DATA_RETRY_DELAY_MS = '0';
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: false, status: 521, text: async () => '' };
+  };
+  try {
+    await assert.rejects(
+      defaultFootballDataFetcher('F1', '2526'),
+      /HTTP 521 dopo 3 tentativi/,
+    );
+    assert.equal(calls, 3);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalDelay === undefined) delete process.env.FOOTBALL_DATA_RETRY_DELAY_MS;
+    else process.env.FOOTBALL_DATA_RETRY_DELAY_MS = originalDelay;
+  }
+});
 
 test('seasonToFootballDataCode: anno inizio -> codice football-data', () => {
   assert.equal(seasonToFootballDataCode(2024), '2425');
