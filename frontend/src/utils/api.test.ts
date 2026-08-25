@@ -40,6 +40,34 @@ describe('backtesting API timeout', () => {
     expect(LONG_BACKTEST_TIMEOUT_MS).toBe(10 * 60 * 1000);
   });
 
+  test('sessione condivisa usa richieste credentialed e invalida la cache al login', async () => {
+    const { getAdminSession, loginSharedAdmin, logoutSharedAdmin } = await import('./api');
+    mockGet.mockResolvedValueOnce({
+      data: { success: true, data: { authenticated: true, sharedDataUserId: 'user1' } },
+    });
+    mockPost
+      .mockResolvedValueOnce({ data: { success: true, data: { authenticated: true, sharedDataUserId: 'user1' } } })
+      .mockResolvedValueOnce({ data: undefined });
+
+    await getAdminSession();
+    await loginSharedAdmin('shared password');
+    await logoutSharedAdmin();
+
+    expect(mockGet).toHaveBeenCalledWith('/auth/session');
+    expect(mockPost).toHaveBeenNthCalledWith(1, '/auth/login', { password: 'shared password' });
+    expect(mockPost).toHaveBeenNthCalledWith(2, '/auth/logout');
+  });
+
+  test('sincronizza le giocate condivise tramite un endpoint di mutazione esplicito', async () => {
+    const { syncSharedBets } = await import('./api');
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { settled: 1 } } });
+
+    const result = await syncSharedBets();
+
+    expect(mockPost).toHaveBeenCalledWith('/bets/sync');
+    expect(result).toEqual({ success: true, data: { settled: 1 } });
+  });
+
   test('runWalkForwardBacktest rende leggibile un timeout Axios', async () => {
     const { WALK_FORWARD_TIMEOUT_MESSAGE, runWalkForwardBacktest } = await import('./api');
     mockPost.mockRejectedValueOnce({

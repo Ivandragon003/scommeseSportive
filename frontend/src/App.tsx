@@ -8,6 +8,7 @@ import {
   Database,
   FlaskConical,
   HelpCircle,
+  LogOut,
   Menu,
   RadioTower,
   RefreshCw,
@@ -17,10 +18,19 @@ import {
 } from 'lucide-react';
 import Predictions from './pages/Predictions';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
-import { getScraperStatus, syncUpcomingKickoffs, syncUpcomingPlayerAvailability } from './utils/api';
+import {
+  AdminSession,
+  getAdminSession,
+  getScraperStatus,
+  loginSharedAdmin,
+  logoutSharedAdmin,
+  syncUpcomingKickoffs,
+  syncUpcomingPlayerAvailability,
+} from './utils/api';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
+import SharedAdminLogin from './features/auth/SharedAdminLogin';
 import './footpredictor.css';
 
 // Keep the primary prediction workbench eager; less-frequent route modules are
@@ -53,33 +63,18 @@ const NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...ADVANCED_NAV_ITEMS];
 const MOBILE_PRIMARY_NAV_PATHS = ['/predictions', '/bets', '/budget'];
 const MOBILE_PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
 const MOBILE_SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_NAV_PATHS.includes(item.path));
-const ACTIVE_USER_STORAGE_KEY = 'footpredictor.activeUser';
-const DEFAULT_ACTIVE_USER = String(process.env.REACT_APP_DEFAULT_USER ?? 'user1').trim() || 'user1';
-const CONFIGURED_USERS = Array.from(new Set(
-  String(process.env.REACT_APP_USER_OPTIONS ?? DEFAULT_ACTIVE_USER)
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-));
-
-const getInitialActiveUser = () => {
-  if (typeof window !== 'undefined') {
-    const stored = window.localStorage.getItem(ACTIVE_USER_STORAGE_KEY)?.trim();
-    if (stored) return stored;
-  }
-  return CONFIGURED_USERS[0] ?? DEFAULT_ACTIVE_USER;
-};
-
 interface AppShellProps {
   activeUser: string;
   statusRefreshing: boolean;
   onRefreshStatus: () => void;
+  onLogout: () => void;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
   activeUser,
   statusRefreshing,
   onRefreshStatus,
+  onLogout,
 }) => {
   const location = useLocation();
   const isWorkbench = location.pathname === '/predictions';
@@ -201,6 +196,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                   <RefreshCw size={18} className={statusRefreshing ? 'fp-spin' : ''} aria-hidden="true" />
                   <span><strong>{statusRefreshing ? 'Aggiornamento...' : 'Aggiorna sistema'}</strong><small>ricarica dati e calendario</small></span>
                 </button>
+                <button
+                  type="button"
+                  className="desktop-tools__item desktop-tools__action"
+                  onClick={onLogout}
+                  role="menuitem"
+                >
+                  <LogOut size={18} aria-hidden="true" />
+                  <span><strong>Esci</strong><small>chiudi la sessione condivisa</small></span>
+                </button>
               </div>
             )}
           </div>
@@ -318,6 +322,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <span className="mobile-more-link__meta">ricarica dati e calendario</span>
               </span>
             </button>
+            <button
+              type="button"
+              className="mobile-more-link mobile-more-link--button"
+              onClick={onLogout}
+            >
+              <span className="mobile-more-link__icon" aria-hidden="true"><LogOut size={18} /></span>
+              <span className="mobile-more-link__copy">
+                <span className="mobile-more-link__label">Esci</span>
+                <span className="mobile-more-link__meta">chiudi la sessione condivisa</span>
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -325,17 +340,15 @@ export const AppShell: React.FC<AppShellProps> = ({
   );
 };
 
-const App: React.FC = () => {
-  const [activeUser] = useState(getInitialActiveUser);
+interface AuthenticatedAppProps {
+  activeUser: string;
+  onLogout: () => void;
+}
+
+const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ activeUser, onLogout }) => {
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const { toasts, showToast, dismissToast } = useToastState();
   const mountedRef = useRef(true);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ACTIVE_USER_STORAGE_KEY, activeUser);
-    }
-  }, [activeUser]);
 
   const applyStatus = useCallback((statusPayload: any) => {
     const scheduler = statusPayload?.data?.understatScheduler ?? null;
@@ -436,12 +449,48 @@ const App: React.FC = () => {
             activeUser={activeUser}
             statusRefreshing={statusRefreshing}
             onRefreshStatus={() => { void refreshStatus(); }}
+            onLogout={onLogout}
           />
         </GlossaryProvider>
       </Router>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </>
   );
+};
+
+const App: React.FC = () => {
+  const [session, setSession] = useState<AdminSession | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    getAdminSession()
+      .then((current) => {
+        if (active) setSession(current);
+      })
+      .catch(() => {
+        if (active) setSession(null);
+      })
+      .finally(() => {
+        if (active) setCheckingSession(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const login = async (password: string) => {
+    const current = await loginSharedAdmin(password);
+    setSession(current);
+  };
+
+  const logout = () => {
+    void logoutSharedAdmin().finally(() => setSession(null));
+  };
+
+  if (checkingSession) {
+    return <main className="shared-login" role="status" aria-live="polite">Verifica accesso…</main>;
+  }
+  if (!session) return <SharedAdminLogin onLogin={login} />;
+  return <AuthenticatedApp activeUser={session.sharedDataUserId} onLogout={logout} />;
 };
 
 export default App;

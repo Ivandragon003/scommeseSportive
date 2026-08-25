@@ -1,10 +1,16 @@
 import axios, { AxiosRequestConfig } from 'axios';
+import { Capacitor } from '@capacitor/core';
+
+const HOSTLESS_API_URL = 'https://scommese-sportive-backend.hostless.app/api';
+const configuredApiUrl = String(process.env.REACT_APP_API_URL ?? '').trim();
+const apiBaseUrl = configuredApiUrl || (Capacitor.isNativePlatform() ? HOSTLESS_API_URL : '/api');
 
 const API = axios.create({
   // In produzione il frontend è un servizio separato dal backend. CRA
   // sostituisce REACT_APP_* durante la build; in locale resta il proxy /api.
-  baseURL: (process.env.REACT_APP_API_URL || '/api').replace(/\/$/, ''),
+  baseURL: apiBaseUrl.replace(/\/$/, ''),
   timeout: 30000,
+  withCredentials: true,
 });
 
 export const LONG_BACKTEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -22,6 +28,25 @@ export interface ReadRequestOptions {
   force?: boolean;
   cacheMs?: number;
 }
+
+export interface AdminSession {
+  authenticated: true;
+  sharedDataUserId: string;
+}
+
+export const getAdminSession = () =>
+  API.get<ApiResponse<AdminSession>>('/auth/session').then((response) => response.data.data!);
+
+export const loginSharedAdmin = (password: string) =>
+  API.post<ApiResponse<AdminSession>>('/auth/login', { password }).then((response) => {
+    invalidateApiCache();
+    return response.data.data!;
+  });
+
+export const logoutSharedAdmin = () =>
+  API.post('/auth/logout').then(() => {
+    invalidateApiCache();
+  });
 
 type CacheMatcher = string | RegExp | ((key: string) => boolean);
 
@@ -392,6 +417,12 @@ export const placeBet = (bet: {
 
 export const settleBet = (betId: string, won: boolean, returnAmount?: number) =>
   API.post<ApiResponse<any>>(`/bets/${betId}/settle`, { won, returnAmount }).then(r => {
+    invalidateApiCache((key) => key.includes('GET:/budget/') || key.includes('GET:/bets/'));
+    return r.data;
+  });
+
+export const syncSharedBets = () =>
+  API.post<ApiResponse<any>>('/bets/sync').then(r => {
     invalidateApiCache((key) => key.includes('GET:/budget/') || key.includes('GET:/bets/'));
     return r.data;
   });
