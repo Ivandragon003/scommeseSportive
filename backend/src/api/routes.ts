@@ -22,14 +22,21 @@ import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
 import { ApiFootballService } from '../services/ApiFootballService';
-import { assessPlayerLineup } from '../services/PlayerLineupProbabilityService';
+import {
+  assessPlayerLineup,
+  buildPredictedLineup,
+  completeOfficialTeamIds,
+  extractOfficialLineupHistory,
+  retainCompleteOfficialLineupRows,
+} from '../services/PlayerLineupProbabilityService';
 import { normalizePlayerNameForProp } from '../services/playerProps';
 import { planAutomatedBetOpportunities } from '../services/AutomatedBetPlanningService';
 import {
   syncFootballData,
   createLibsqlFootballDataDb,
   pruneOldSeasons,
-  currentSeasonStartYear,
+  buildSeasonWindow,
+  DEFAULT_SEASON_RETENTION_COUNT,
   FOOTBALL_DATA_LEAGUE_CODES,
   FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
   syncTransitionSeasonReferences,
@@ -69,6 +76,10 @@ export type ApiRouterDependencies = {
     'syncUpcomingKickoffsFromOddsApi' | 'syncSingleMatchKickoffFromOddsApi'
   >;
   heavyJobService?: Pick<HeavyJobService, 'runWalkForwardBacktest'>;
+  apiFootballService?: Pick<
+    ApiFootballService,
+    'enabled' | 'getConfirmedLineups' | 'getFixturesByDate' | 'getSquad' | 'getInjuries'
+  >;
 };
 
 export type OddsCompetitionFixtureScope = {
@@ -254,6 +265,135 @@ export const resolveInternalApiBaseUrl = (configuredValue?: string): string => {
   return parsed.toString().replace(/\/$/, '');
 };
 
+function sameTeamName(left: string, right: string): boolean {
+  const a = normalizePlayerNameForProp(left);
+  const b = normalizePlayerNameForProp(right);
+  return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
+}
+
+export function matchUniquePlayerByName<T extends { name?: unknown }>(players: T[], providerName: string): T | null {
+  const target = normalizePlayerNameForProp(providerName);
+  if (!target) return null;
+  const exact = players.filter((player) => normalizePlayerNameForProp(String(player.name ?? '')) === target);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  const partial = players.filter((player) => {
+    const candidate = normalizePlayerNameForProp(String(player.name ?? ''));
+    return Boolean(candidate && (candidate.includes(target) || target.includes(candidate)));
+  });
+  return partial.length === 1 ? partial[0] : null;
+}
+
+export function fixedFiveSeasonPolicy(now: Date = new Date()): {
+  seasonLabels: string[];
+  seasonStartYears: number[];
+  keepSeasons: number;
+  prune: true;
+} {
+  const seasonLabels = buildSeasonWindow(now, DEFAULT_SEASON_RETENTION_COUNT);
+  return {
+    seasonLabels,
+    seasonStartYears: seasonLabels.map((label) => Number(label.slice(0, 4))),
+    keepSeasons: DEFAULT_SEASON_RETENTION_COUNT,
+    prune: true,
+  };
+}
+
+export function isCompleteUnderstatSeasonDetail(detail: Record<string, unknown> | null | undefined): boolean {
+  if (!detail || detail.error) return false;
+  const source = Number(detail.totalOnSource ?? 0);
+  const persisted = Number(detail.persistedSourceMatches ?? 0);
+  const missing = Number(detail.missingSourceMatches ?? Number.POSITIVE_INFINITY);
+  return source > 0 && persisted >= source && missing === 0;
+}
+
+export function buildConfirmedStatusRows(params: {
+  matchId: string;
+  teamPlayers: any[];
+  lineup: { formation?: string | null; players: Array<{ name: string; starter: boolean; position?: string | null }> };
+  providerFixtureId: string;
+  kickoffAt?: string | null;
+}): any[] {
+  const usedPlayerIds = new Set<string>();
+  return params.lineup.players.flatMap((entry) => {
+    const player = matchUniquePlayerByName(params.teamPlayers, entry.name) as any;
+    if (!player) return [];
+    const playerId = String(player.player_id);
+    if (usedPlayerIds.has(playerId)) return [];
+    usedPlayerIds.add(playerId);
+    return [{
+      matchId: params.matchId, playerId, teamId: String(player.team_id),
+      status: entry?.starter ? 'confirmed_starter' : 'confirmed_bench',
+      probability: entry?.starter ? 1 : 0,
+      source: 'api_football_confirmed', providerFixtureId: params.providerFixtureId,
+      kickoffAt: params.kickoffAt ?? null, formation: params.lineup.formation ?? null,
+      positionCode: entry?.position ?? player.position_code ?? null,
+      rawJson: JSON.stringify({ lineup: params.lineup, player: entry ?? null }),
+    }];
+  });
+}
+
+export const officialFormationFromRows = (rows: any[], teamId: string): string | null => {
+  const official = rows.find((row: any) =>
+    String(row.team_id) === teamId && String(row.status).startsWith('confirmed_'));
+  try {
+    const raw = typeof official?.raw_json === 'string' ? JSON.parse(official.raw_json) : official?.raw_json;
+    const formation = String(raw?.lineup?.formation ?? '').trim();
+    return formation || null;
+  } catch {
+    return null;
+  }
+};
+
+type ProviderSquadMember = { id: number | null; name: string; position?: string | null };
+
+export function buildProviderSquadReconciliationPlan(params: {
+  teamId: string;
+  currentPlayers: any[];
+  allPlayers: any[];
+  squad: ProviderSquadMember[];
+}): {
+  safeToApply: boolean;
+  coverage: number;
+  resolved: Array<{ playerId: string; positionCode: string | null; isNew: boolean; name: string; providerId: number | null }>;
+} {
+  const chooseCanonicalExact = (players: any[], name: string): any | null => {
+    const target = normalizePlayerNameForProp(name);
+    const exact = players.filter((player) => normalizePlayerNameForProp(String(player?.name ?? '')) === target);
+    if (exact.length === 1) return exact[0];
+    const understat = exact.filter((player) => player?.source_player_id != null || String(player?.player_id ?? '').startsWith('understat_player_'));
+    return understat.length === 1 ? understat[0] : null;
+  };
+  const knownById = new Map(params.allPlayers.map((player) => [String(player?.player_id ?? ''), player]));
+  const resolvedByPlayerId = new Map<string, {
+    playerId: string; positionCode: string | null; isNew: boolean; name: string; providerId: number | null;
+  }>();
+  for (const member of params.squad) {
+    const current = chooseCanonicalExact(params.currentPlayers, member.name)
+      ?? matchUniquePlayerByName(params.currentPlayers, member.name);
+    const global = current ?? chooseCanonicalExact(params.allPlayers, member.name);
+    const providerPlayerId = member.id === null ? null : `api_football_player_${member.id}`;
+    const knownProviderPlayer = providerPlayerId ? knownById.get(providerPlayerId) : null;
+    const matched = global ?? knownProviderPlayer;
+    const playerId = matched ? String(matched.player_id) : providerPlayerId;
+    if (!playerId || resolvedByPlayerId.has(playerId)) continue;
+    resolvedByPlayerId.set(playerId, {
+      playerId,
+      positionCode: String(member.position ?? matched?.position_code ?? '').trim() || null,
+      isNew: !matched,
+      name: member.name,
+      providerId: member.id,
+    });
+  }
+  const resolved = [...resolvedByPlayerId.values()];
+  const coverage = params.squad.length > 0 ? resolved.length / params.squad.length : 0;
+  return {
+    safeToApply: params.squad.length >= 11 && resolved.length >= 11 && coverage >= 0.70,
+    coverage,
+    resolved,
+  };
+}
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
@@ -336,52 +476,141 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
 });
 
-const apiFootball = new ApiFootballService();
+const apiFootball = deps.apiFootballService ?? new ApiFootballService();
+const lineupRefreshReservations = new Map<string, number>();
+const LINEUP_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
-function sameTeamName(left: string, right: string): boolean {
-  const a = normalizePlayerNameForProp(left);
-  const b = normalizePlayerNameForProp(right);
-  return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
-}
+const reserveLineupRefresh = (matchId: string, now = Date.now()): boolean => {
+  const previous = lineupRefreshReservations.get(matchId) ?? 0;
+  if (now - previous < LINEUP_REFRESH_COOLDOWN_MS) return false;
+  lineupRefreshReservations.set(matchId, now);
+  if (lineupRefreshReservations.size > 1000) {
+    for (const [key, timestamp] of lineupRefreshReservations) {
+      if (now - timestamp >= LINEUP_REFRESH_COOLDOWN_MS) lineupRefreshReservations.delete(key);
+    }
+  }
+  return true;
+};
+
+const saveLocalPredictedLineups = async (match: any): Promise<{
+  saved: number; incompletePredictions: number;
+}> => {
+  const matchId = String(match.match_id);
+  const kickoffAt = String(match.date);
+  const [homePlayers, awayPlayers, existingStatuses, homeHistoryMatches, awayHistoryMatches] = await Promise.all([
+    db.getPlayersByTeam(String(match.home_team_id)),
+    db.getPlayersByTeam(String(match.away_team_id)),
+    db.getPlayerLineupStatuses(matchId, kickoffAt),
+    db.getRecentCompletedMatchesForTeam(String(match.home_team_id), kickoffAt, 20),
+    db.getRecentCompletedMatchesForTeam(String(match.away_team_id), kickoffAt, 20),
+  ]);
+  const confirmedTeams = completeOfficialTeamIds(existingStatuses);
+  const rows: any[] = [];
+  let incompletePredictions = 0;
+  for (const side of [
+    { teamId: String(match.home_team_id), players: homePlayers, historyMatches: homeHistoryMatches },
+    { teamId: String(match.away_team_id), players: awayPlayers, historyMatches: awayHistoryMatches },
+  ]) {
+    if (confirmedTeams.has(side.teamId)) continue;
+    const unavailableIds = new Set<string>(existingStatuses
+      .filter((row: any) => String(row.team_id) === side.teamId && String(row.status) === 'unavailable')
+      .map((row: any) => String(row.player_id)));
+    const history = extractOfficialLineupHistory(side.historyMatches, side.teamId, kickoffAt, 5);
+    const predicted = buildPredictedLineup(side.players, history, unavailableIds);
+    if (predicted.incomplete) incompletePredictions++;
+    for (const player of [...predicted.starters, ...predicted.bench]) {
+      rows.push({
+        matchId, playerId: player.playerId, teamId: side.teamId,
+        status: player.status, probability: player.probability, source: 'last_five_lineup_model',
+        providerFixtureId: null, kickoffAt, formation: predicted.formation,
+        positionCode: player.positionGroup, historyMatchesUsed: predicted.historyMatchesUsed,
+        rawJson: JSON.stringify({
+          historyMatchesUsed: predicted.historyMatchesUsed,
+          recentStarts: player.recentStarts,
+          warnings: predicted.warnings,
+        }),
+      });
+    }
+  }
+  await db.savePlayerLineupStatuses(rows);
+  return { saved: rows.length, incompletePredictions };
+};
 
 router.get('/player-availability/:matchId', async (req: Request, res: Response) => {
   try {
     const matchId = String(req.params.matchId ?? '').trim();
     const match = await db.getMatchById(matchId);
     if (!match) return res.status(404).json({ error: 'Partita non trovata' });
-    const [homePlayers, awayPlayers, statusRows] = await Promise.all([
+    const [homePlayers, awayPlayers, statusRows, homeHistoryMatches, awayHistoryMatches] = await Promise.all([
       db.getPlayersByTeam(String(match.home_team_id)),
       db.getPlayersByTeam(String(match.away_team_id)),
-      db.getPlayerLineupStatuses(matchId),
+      db.getPlayerLineupStatuses(matchId, String(match.date)),
+      db.getRecentCompletedMatchesForTeam(String(match.home_team_id), String(match.date), 20),
+      db.getRecentCompletedMatchesForTeam(String(match.away_team_id), String(match.date), 20),
     ]);
     const statuses = new Map(statusRows.map((row: any) => [String(row.player_id), row]));
-    const buildTeam = (players: any[], teamId: string, teamName: string) => players.map((player: any) => {
-      const external = statuses.get(String(player.player_id));
-      const assessment = assessPlayerLineup(player, external ? {
-        status: String(external.status) as any,
-        probability: external.probability === null ? undefined : Number(external.probability),
-      } : undefined);
+    const buildTeam = (players: any[], teamId: string, teamName: string, historyMatches: any[]) => {
+      const unavailableIds = new Set<string>(statusRows
+        .filter((row: any) => String(row.team_id) === teamId && String(row.status) === 'unavailable')
+        .map((row: any) => String(row.player_id)));
+      const history = extractOfficialLineupHistory(historyMatches, teamId, String(match.date), 5);
+      const predicted = buildPredictedLineup(players, history, unavailableIds);
+      const predictedByPlayer = new Map([
+        ...predicted.starters,
+        ...predicted.bench,
+      ].map((row) => [row.playerId, row]));
+      const hasOfficialTeamLineup = completeOfficialTeamIds(statusRows).has(teamId);
+      const officialFormation = hasOfficialTeamLineup ? officialFormationFromRows(statusRows, teamId) : null;
+      const mapped = players.map((player: any) => {
+        const external = statuses.get(String(player.player_id)) ?? predictedByPlayer.get(String(player.player_id));
+        const assessment = assessPlayerLineup(player, external ? {
+          status: String(external.status) as any,
+          probability: external.probability === null ? undefined : Number(external.probability),
+        } : undefined);
+        return {
+          playerId: String(player.player_id),
+          name: player.name,
+          teamId,
+          teamName,
+          probability: assessment.probability,
+          tier: assessment.tier,
+          status: assessment.status,
+          warnings: assessment.warnings,
+          source: (external as any)?.source ?? 'last_five_lineup_model',
+          fetchedAt: (external as any)?.fetched_at ?? null,
+        };
+      }).filter((player: any) => hasOfficialTeamLineup
+        ? player.status === 'confirmed_starter'
+        : player.status === 'predicted_starter')
+        .sort((left: any, right: any) => right.probability - left.probability);
       return {
-        playerId: String(player.player_id),
-        name: player.name,
-        teamId,
-        teamName,
-        probability: assessment.probability,
-        tier: assessment.tier,
-        status: assessment.status,
-        warnings: assessment.warnings,
-        source: external?.source ?? 'internal_lineup_model',
-        fetchedAt: external?.fetched_at ?? null,
+        players: mapped,
+        formation: hasOfficialTeamLineup ? officialFormation : predicted.formation,
+        historyMatchesUsed: predicted.historyMatchesUsed,
+        incomplete: hasOfficialTeamLineup ? mapped.length !== 11 : predicted.incomplete,
+        warnings: predicted.warnings,
+        unavailableCount: unavailableIds.size,
       };
-    }).sort((left: any, right: any) => right.probability - left.probability);
+    };
+    const home = buildTeam(homePlayers, String(match.home_team_id), String(match.home_team_name ?? 'Casa'), homeHistoryMatches);
+    const away = buildTeam(awayPlayers, String(match.away_team_id), String(match.away_team_name ?? 'Trasferta'), awayHistoryMatches);
     res.json({
       success: true,
       data: {
         matchId,
         kickoff: match.date,
-        home: buildTeam(homePlayers, String(match.home_team_id), String(match.home_team_name ?? 'Casa')),
-        away: buildTeam(awayPlayers, String(match.away_team_id), String(match.away_team_name ?? 'Trasferta')),
-        hasConfirmedLineup: statusRows.some((row: any) => String(row.status).startsWith('confirmed_')),
+        home: home.players,
+        away: away.players,
+        homeFormation: home.formation,
+        awayFormation: away.formation,
+        homeHistoryMatchesUsed: home.historyMatchesUsed,
+        awayHistoryMatchesUsed: away.historyMatchesUsed,
+        homeIncomplete: home.incomplete,
+        awayIncomplete: away.incomplete,
+        homeUnavailableCount: home.unavailableCount,
+        awayUnavailableCount: away.unavailableCount,
+        warnings: Array.from(new Set([...home.warnings, ...away.warnings])),
+        hasConfirmedLineup: completeOfficialTeamIds(statusRows).size > 0,
         hasProviderData: statusRows.some((row: any) => String(row.source).startsWith('api_football_')),
         note: 'La formazione probabile e una stima; la formazione ufficiale prevale quando disponibile.',
       },
@@ -404,36 +633,152 @@ router.post('/player-availability/sync', async (req: Request, res: Response) => 
     if (!apiFootball.enabled) return res.status(503).json({ error: 'API-Football disabilitata o API_FOOTBALL_KEY mancante' });
     const match = await db.getMatchById(matchId);
     if (!match) return res.status(404).json({ error: 'Partita non trovata' });
+    if (!reserveLineupRefresh(matchId)) {
+      return res.json({ success: true, enabled: true, skipped: 'refresh_cooldown', saved: 0 });
+    }
     const [homePlayers, awayPlayers, lineups] = await Promise.all([
       db.getPlayersByTeam(String(match.home_team_id)),
       db.getPlayersByTeam(String(match.away_team_id)),
       apiFootball.getConfirmedLineups(fixtureId),
     ]);
-    const rows: any[] = [];
+    const candidateRows: any[] = [];
     for (const lineup of lineups) {
       const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? homePlayers
         : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
-      for (const entry of lineup.players) {
-        const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, entry.name));
-        if (!player) continue;
-        rows.push({
-          matchId,
-          playerId: String(player.player_id),
-          teamId: String(player.team_id),
-          status: entry.starter ? 'confirmed_starter' : 'confirmed_bench',
-          probability: entry.starter ? 1 : 0,
-          source: 'api_football_confirmed',
-          providerFixtureId: fixtureId,
-          kickoffAt: match.date ?? null,
-          rawJson: JSON.stringify({ lineup, player: entry }),
-        });
-      }
+      candidateRows.push(...buildConfirmedStatusRows({
+        matchId, teamPlayers, lineup, providerFixtureId: fixtureId,
+        kickoffAt: match.date ?? null,
+      }));
     }
-    await db.savePlayerLineupStatuses(rows);
-    res.json({ success: true, matchId, fixtureId, saved: rows.length, source: 'api_football_confirmed' });
+    const rows = retainCompleteOfficialLineupRows(candidateRows);
+    await db.savePlayerLineupStatuses(rows, { replaceTeamOperational: true });
+    res.json({
+      success: true, matchId, fixtureId, saved: rows.length,
+      discardedPartial: candidateRows.length - rows.length,
+      source: 'api_football_confirmed',
+    });
   } catch (error: any) {
     console.error('[api-football-lineup-sync] failed:', error?.stack ?? error?.message ?? error);
     res.status(502).json({ error: error?.message ?? 'Sincronizzazione formazione fallita' });
+  }
+});
+
+// Refresh on demand when the user opens a fixture close to kickoff. The
+// nightly can prepare the prediction, but official XI usually arrive later.
+router.post('/player-availability/refresh/:matchId', async (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.matchId ?? '').trim();
+    const match = await db.getMatchById(matchId);
+    if (!match) return res.status(404).json({ error: 'Partita non trovata' });
+    const kickoff = Date.parse(String(match.date ?? ''));
+    const deltaMinutes = (kickoff - Date.now()) / 60000;
+    if (!Number.isFinite(deltaMinutes) || deltaMinutes < 0) {
+      return res.json({ success: true, enabled: apiFootball.enabled, skipped: 'outside_official_lineup_window', saved: 0 });
+    }
+    const existingStatuses = await db.getPlayerLineupStatuses(matchId, String(match.date));
+    const confirmedTeams = completeOfficialTeamIds(existingStatuses);
+    if (confirmedTeams.has(String(match.home_team_id))
+      && confirmedTeams.has(String(match.away_team_id))) {
+      return res.json({ success: true, enabled: true, skipped: 'official_lineups_already_saved', saved: 0 });
+    }
+    if (!reserveLineupRefresh(matchId)) {
+      return res.json({ success: true, enabled: apiFootball.enabled, skipped: 'refresh_cooldown', saved: 0 });
+    }
+    if (!apiFootball.enabled || deltaMinutes > 150) {
+      const local = await saveLocalPredictedLineups(match);
+      return res.json({
+        success: true, enabled: apiFootball.enabled,
+        skipped: apiFootball.enabled ? 'provider_window_not_open' : undefined,
+        source: 'last_five_lineup_model', ...local,
+      });
+    }
+    let fixtures: Awaited<ReturnType<ApiFootballService['getFixturesByDate']>> = [];
+    try {
+      fixtures = await apiFootball.getFixturesByDate(String(match.date).slice(0, 10));
+    } catch (providerError: any) {
+      const local = await saveLocalPredictedLineups(match);
+      return res.json({
+        success: true, enabled: true, skipped: 'provider_unavailable',
+        source: 'last_five_lineup_model', providerError: String(providerError?.message ?? providerError), ...local,
+      });
+    }
+    const fixture = fixtures.find((candidate) =>
+      sameTeamName(candidate.homeName, String(match.home_team_name ?? ''))
+      && sameTeamName(candidate.awayName, String(match.away_team_name ?? '')));
+    if (!fixture) {
+      const local = await saveLocalPredictedLineups(match);
+      return res.json({
+        success: true, enabled: true, skipped: 'fixture_not_matched',
+        source: 'last_five_lineup_model', ...local,
+      });
+    }
+    if (fixture.referee) await db.fillMatchReferee(matchId, fixture.referee);
+    const providerWarnings: string[] = [];
+    const [homePlayers, awayPlayers, injuryFetch, lineups] = await Promise.all([
+      db.getPlayersByTeam(String(match.home_team_id)),
+      db.getPlayersByTeam(String(match.away_team_id)),
+      apiFootball.getInjuries({ fixture: fixture.id })
+        .then((rows) => ({ fetched: true as const, rows }))
+        .catch((providerError: any) => {
+          providerWarnings.push(`injuries:${String(providerError?.message ?? providerError)}`);
+          return { fetched: false as const, rows: [] };
+        }),
+      apiFootball.getConfirmedLineups(fixture.id).catch((providerError: any) => {
+        providerWarnings.push(`lineups:${String(providerError?.message ?? providerError)}`);
+        return [];
+      }),
+    ]);
+    const injuryRows: any[] = [];
+    for (const injury of injuryFetch.rows) {
+      const teamPlayers = sameTeamName(String(injury?.team?.name ?? ''), String(match.home_team_name ?? '')) ? homePlayers
+        : sameTeamName(String(injury?.team?.name ?? ''), String(match.away_team_name ?? '')) ? awayPlayers : [];
+      const player = matchUniquePlayerByName(teamPlayers, String(injury?.player?.name ?? '')) as any;
+      if (!player) continue;
+      injuryRows.push({
+        matchId, playerId: String(player.player_id), teamId: String(player.team_id),
+        status: 'unavailable', probability: 0, source: 'api_football_injury',
+        providerFixtureId: String(fixture.id), kickoffAt: match.date,
+        rawJson: JSON.stringify(injury),
+      });
+    }
+    const operationalInjuryRows = injuryRows.filter((row) => !confirmedTeams.has(String(row.teamId)));
+    if (injuryFetch.fetched) {
+      await db.replacePlayerInjuryStatuses({
+        matchId,
+        teamIds: [String(match.home_team_id), String(match.away_team_id)],
+        rows: operationalInjuryRows,
+        providerFixtureId: String(fixture.id),
+        kickoffAt: match.date,
+      });
+    }
+    // La previsione viene rigenerata dopo il refresh infortuni: una risposta
+    // valida e vuota rende subito rieleggibile un giocatore recuperato.
+    const local = await saveLocalPredictedLineups(match);
+    const confirmedCandidates: any[] = [];
+    for (const lineup of lineups) {
+      const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? homePlayers
+        : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
+      confirmedCandidates.push(...buildConfirmedStatusRows({
+        matchId, teamPlayers, lineup,
+        providerFixtureId: String(fixture.id), kickoffAt: match.date,
+      }));
+    }
+    const confirmedRows = retainCompleteOfficialLineupRows(confirmedCandidates);
+    await db.savePlayerLineupStatuses(confirmedRows, { replaceTeamOperational: true });
+    return res.json({
+      success: true, enabled: true, fixtureId: String(fixture.id),
+      source: confirmedRows.length > 0 ? 'api_football_confirmed' : 'last_five_lineup_model',
+      officialLineups: lineups.length,
+      saved: local.saved + operationalInjuryRows.length + confirmedRows.length,
+      predictedSaved: local.saved,
+      incompletePredictions: local.incompletePredictions,
+      discardedPartial: confirmedCandidates.length - confirmedRows.length,
+      refereeUpdated: Boolean(fixture.referee),
+      providerWarnings,
+    });
+  } catch (error: any) {
+    console.error('[api-football-lineup-refresh] failed:', error?.stack ?? error?.message ?? error);
+    return res.status(502).json({ error: error?.message ?? 'Aggiornamento formazione fallito' });
   }
 });
 
@@ -441,94 +786,182 @@ router.post('/player-availability/sync', async (req: Request, res: Response) => 
 // close to kickoff; 24h predictions remain handled by the local predictor.
 router.post('/player-availability/sync-upcoming', async (req: Request, res: Response) => {
   try {
-    if (!apiFootball.enabled) return res.json({ success: true, enabled: false, checked: 0, saved: 0 });
     const hours = Math.max(1, Math.min(Number(req.body?.windowHours ?? 24), 48));
     const now = Date.now();
     const untilIso = new Date(now + hours * 60 * 60 * 1000).toISOString();
     const matches = await db.getUpcomingMatches({ untilIso, limit: 200 });
-    const dates = [...new Set(matches.map((match: any) => String(match.date ?? '').slice(0, 10)).filter(Boolean))];
-    const providerFixtures = (await Promise.all(dates.map((date) => apiFootball.getFixturesByDate(date)))).flat();
+    // Il modello locale deve funzionare anche senza API-Football. Il provider
+    // arricchisce rosa/assenze/XI ufficiale, ma non e un prerequisito.
+    const reservedMatchIds = new Set<string>();
+    for (const match of matches) {
+      const matchId = String(match.match_id ?? '');
+      if (matchId && reserveLineupRefresh(matchId, now)) reservedMatchIds.add(matchId);
+    }
+    const providerDates = [...new Set(matches
+      .filter((match: any) => reservedMatchIds.has(String(match.match_id ?? '')))
+      .map((match: any) => String(match.date ?? '').slice(0, 10))
+      .filter(Boolean))];
+    let providerFixtures: Awaited<ReturnType<ApiFootballService['getFixturesByDate']>> = [];
+    const providerWarnings: string[] = [];
+    if (apiFootball.enabled) {
+      try {
+        providerFixtures = (await Promise.all(providerDates.map((date) => apiFootball.getFixturesByDate(date)))).flat();
+      } catch (providerError: any) {
+        providerWarnings.push(`fixtures:${String(providerError?.message ?? providerError)}`);
+      }
+    }
     const teamsReconciled = new Set<string>();
     let checked = 0;
     let saved = 0;
+    let predictedSaved = 0;
+    let incompletePredictions = 0;
     for (const match of matches) {
       const kickoff = Date.parse(String(match.date ?? ''));
       if (!Number.isFinite(kickoff)) continue;
-      const fixture = providerFixtures.find((candidate) =>
+      const matchId = String(match.match_id);
+      if (!reservedMatchIds.has(matchId)) continue;
+      const providerAllowed = apiFootball.enabled;
+      const fixture = providerAllowed ? providerFixtures.find((candidate) =>
         sameTeamName(candidate.homeName, String(match.home_team_name ?? '')) &&
         sameTeamName(candidate.awayName, String(match.away_team_name ?? ''))
-      );
-      if (!fixture) continue;
-      for (const side of [
-        { internalId: String(match.home_team_id), providerId: fixture.homeProviderTeamId, name: String(match.home_team_name ?? '') },
-        { internalId: String(match.away_team_id), providerId: fixture.awayProviderTeamId, name: String(match.away_team_name ?? '') },
-      ]) {
-        if (!side.providerId || teamsReconciled.has(side.internalId)) continue;
-        const squad = await apiFootball.getSquad(side.providerId);
-        if (squad.length === 0) continue;
-        // Include players currently marked unavailable: a player can return
-        // to the squad after an earlier reconciliation and must be eligible
-        // to be reactivated by the next authoritative squad response.
-        const currentPlayers = await db.getAllPlayersByTeam(side.internalId);
-        const activeIds = currentPlayers
-          .filter((player: any) => squad.some((member) => sameTeamName(member.name, String(player.name ?? ''))))
-          .map((player: any) => String(player.player_id));
-        // Reconcile even when no names matched. A non-empty provider squad is
-        // authoritative for the current team: leaving the old players active
-        // would make transferred players appear in the prediction.
-        await db.reconcilePlayersForTeam(side.internalId, activeIds);
-        teamsReconciled.add(side.internalId);
+      ) : undefined;
+      if (fixture) {
+        if (fixture.referee) await db.fillMatchReferee(matchId, fixture.referee);
+        for (const side of [
+          { internalId: String(match.home_team_id), providerId: fixture.homeProviderTeamId },
+          { internalId: String(match.away_team_id), providerId: fixture.awayProviderTeamId },
+        ]) {
+          if (!side.providerId || teamsReconciled.has(side.internalId)) continue;
+          const squad = await apiFootball.getSquad(side.providerId).catch((providerError: any) => {
+            providerWarnings.push(`squad:${side.internalId}:${String(providerError?.message ?? providerError)}`);
+            return [];
+          });
+          if (squad.length === 0) continue;
+          // Include players currently marked unavailable: a player can return
+          // to the squad after an earlier reconciliation and must be eligible
+          // to be reactivated by the next authoritative squad response.
+          const [currentPlayers, allPlayers] = await Promise.all([
+            db.getAllPlayersByTeam(side.internalId),
+            db.getAllPlayers(),
+          ]);
+          const plan = buildProviderSquadReconciliationPlan({
+            teamId: side.internalId, currentPlayers, allPlayers, squad,
+          });
+          if (!plan.safeToApply) {
+            providerWarnings.push(`squad_coverage:${side.internalId}:${plan.resolved.length}/${squad.length}`);
+            teamsReconciled.add(side.internalId);
+            continue;
+          }
+          // Creazioni identity-only, trasferimenti e disattivazione degli
+          // esclusi avvengono in un unico batch Turso transazionale.
+          await db.applyProviderSquadReconciliation(side.internalId, plan.resolved);
+          teamsReconciled.add(side.internalId);
+        }
       }
       checked++;
-      const [homePlayers, awayPlayers, injuries] = await Promise.all([
+      const [homePlayers, awayPlayers, injuryFetch, statusesBeforeRefresh] = await Promise.all([
         db.getPlayersByTeam(String(match.home_team_id)),
         db.getPlayersByTeam(String(match.away_team_id)),
-        apiFootball.getInjuries({ fixture: fixture.id }),
+        fixture ? apiFootball.getInjuries({ fixture: fixture.id })
+          .then((rows) => ({ fetched: true as const, rows }))
+          .catch((providerError: any) => {
+            providerWarnings.push(`injuries:${matchId}:${String(providerError?.message ?? providerError)}`);
+            return { fetched: false as const, rows: [] };
+          }) : Promise.resolve({ fetched: false as const, rows: [] }),
+        db.getPlayerLineupStatuses(matchId, String(match.date)),
       ]);
       const injuryRows: any[] = [];
-      for (const injury of injuries) {
+      for (const injury of injuryFetch.rows) {
         const providerTeamName = String(injury?.team?.name ?? '').trim();
         const teamPlayers = sameTeamName(providerTeamName, String(match.home_team_name ?? '')) ? homePlayers
           : sameTeamName(providerTeamName, String(match.away_team_name ?? '')) ? awayPlayers : [];
         const providerPlayerName = String(injury?.player?.name ?? '').trim();
-        const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, providerPlayerName));
+        const player = matchUniquePlayerByName(teamPlayers, providerPlayerName) as any;
         if (!player) continue;
         injuryRows.push({
-          matchId: String(match.match_id), playerId: String(player.player_id), teamId: String(player.team_id),
+          matchId, playerId: String(player.player_id), teamId: String(player.team_id),
           status: 'unavailable', probability: 0, source: 'api_football_injury',
-          providerFixtureId: String(fixture.id), kickoffAt: match.date,
+          providerFixtureId: fixture ? String(fixture.id) : null, kickoffAt: match.date,
           rawJson: JSON.stringify(injury),
         });
       }
-      await db.savePlayerLineupStatuses(injuryRows);
-      saved += injuryRows.length;
-      // Official lineups are not expected 24h before kickoff. Avoid wasting
-      // the free quota until the normal publication window.
-      if (kickoff - now > 120 * 60 * 1000) continue;
-      const [confirmedHomePlayers, confirmedAwayPlayers, lineups] = await Promise.all([
-        Promise.resolve(homePlayers),
-        Promise.resolve(awayPlayers),
-        apiFootball.getConfirmedLineups(fixture.id),
-      ]);
-      const rows: any[] = [];
-      for (const lineup of lineups) {
-        const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? confirmedHomePlayers
-          : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? confirmedAwayPlayers : [];
-        for (const entry of lineup.players) {
-          const player = teamPlayers.find((candidate: any) => sameTeamName(candidate.name, entry.name));
-          if (!player) continue;
-          rows.push({
-            matchId: String(match.match_id), playerId: String(player.player_id), teamId: String(player.team_id),
-            status: entry.starter ? 'confirmed_starter' : 'confirmed_bench', probability: entry.starter ? 1 : 0,
-            source: 'api_football_confirmed', providerFixtureId: String(fixture.id), kickoffAt: match.date,
-            rawJson: JSON.stringify({ lineup, player: entry }),
+      const confirmedBeforeRefresh = completeOfficialTeamIds(statusesBeforeRefresh);
+      const operationalInjuryRows = injuryRows.filter((row) => !confirmedBeforeRefresh.has(String(row.teamId)));
+      if (injuryFetch.fetched) {
+        await db.replacePlayerInjuryStatuses({
+          matchId,
+          teamIds: [String(match.home_team_id), String(match.away_team_id)],
+          rows: operationalInjuryRows,
+          providerFixtureId: fixture ? String(fixture.id) : null,
+          kickoffAt: match.date,
+        });
+      }
+      const existingStatuses = await db.getPlayerLineupStatuses(matchId, String(match.date));
+      const confirmedTeamIds = completeOfficialTeamIds(existingStatuses);
+      const unavailableByTeam = new Map<string, Set<string>>();
+      for (const row of existingStatuses.filter((entry: any) => String(entry.status) === 'unavailable')) {
+        const teamId = String(row.team_id);
+        if (!unavailableByTeam.has(teamId)) unavailableByTeam.set(teamId, new Set());
+        unavailableByTeam.get(teamId)!.add(String(row.player_id));
+      }
+      const predictedRows: any[] = [];
+      for (const side of [
+        { teamId: String(match.home_team_id), players: homePlayers },
+        { teamId: String(match.away_team_id), players: awayPlayers },
+      ]) {
+        if (confirmedTeamIds.has(side.teamId)) continue;
+        const historyMatches = await db.getRecentCompletedMatchesForTeam(side.teamId, String(match.date), 20);
+        const history = extractOfficialLineupHistory(historyMatches, side.teamId, String(match.date), 5);
+        const predicted = buildPredictedLineup(side.players, history, unavailableByTeam.get(side.teamId) ?? new Set());
+        if (predicted.incomplete) incompletePredictions++;
+        for (const player of [...predicted.starters, ...predicted.bench]) {
+          predictedRows.push({
+            matchId, playerId: player.playerId, teamId: side.teamId,
+            status: player.status, probability: player.probability, source: 'last_five_lineup_model',
+            providerFixtureId: fixture ? String(fixture.id) : null, kickoffAt: match.date,
+            formation: predicted.formation, positionCode: player.positionGroup,
+            historyMatchesUsed: predicted.historyMatchesUsed,
+            rawJson: JSON.stringify({
+              historyMatchesUsed: predicted.historyMatchesUsed,
+              recentStarts: player.recentStarts,
+              warnings: predicted.warnings,
+            }),
           });
         }
       }
-      await db.savePlayerLineupStatuses(rows);
+      await db.savePlayerLineupStatuses(predictedRows);
+      predictedSaved += predictedRows.length;
+      saved += operationalInjuryRows.length;
+      // Official lineups are not expected 24h before kickoff. Avoid wasting
+      // the free quota until the normal publication window.
+      if (!fixture || kickoff - now > 120 * 60 * 1000) continue;
+      const [confirmedHomePlayers, confirmedAwayPlayers, lineups] = await Promise.all([
+        Promise.resolve(homePlayers),
+        Promise.resolve(awayPlayers),
+        apiFootball.getConfirmedLineups(fixture.id).catch((providerError: any) => {
+          providerWarnings.push(`lineups:${matchId}:${String(providerError?.message ?? providerError)}`);
+          return [];
+        }),
+      ]);
+      const candidateRows: any[] = [];
+      for (const lineup of lineups) {
+        const teamPlayers = sameTeamName(lineup.teamName, String(match.home_team_name ?? '')) ? confirmedHomePlayers
+          : sameTeamName(lineup.teamName, String(match.away_team_name ?? '')) ? confirmedAwayPlayers : [];
+        candidateRows.push(...buildConfirmedStatusRows({
+          matchId, teamPlayers, lineup,
+          providerFixtureId: String(fixture.id), kickoffAt: match.date,
+        }));
+      }
+      const rows = retainCompleteOfficialLineupRows(candidateRows);
+      await db.savePlayerLineupStatuses(rows, { replaceTeamOperational: true });
       saved += rows.length;
     }
-    res.json({ success: true, enabled: true, windowHours: hours, checked, saved, teamsReconciled: teamsReconciled.size, source: 'api_football_confirmed' });
+    res.json({
+      success: true, enabled: apiFootball.enabled, windowHours: hours, checked, saved,
+      predictedSaved, incompletePredictions, teamsReconciled: teamsReconciled.size,
+      source: apiFootball.enabled ? 'local_model_plus_api_football' : 'last_five_lineup_model',
+      providerWarnings,
+    });
   } catch (error: any) {
     console.error('[api-football-upcoming-lineup-sync] failed:', error?.stack ?? error?.message ?? error);
     res.status(502).json({ error: error?.message ?? 'Sincronizzazione formazioni imminenti fallita' });
@@ -742,25 +1175,29 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
 router.post('/scraper/football-data', async (req: Request, res: Response) => {
   try {
     const body = req.body ?? {};
-    const now = new Date();
-    // Default: stagione corrente + precedente (per catturare stat aggiunte in ritardo).
-    const cur = currentSeasonStartYear(now);
-    const seasonStartYears: number[] = Array.isArray(body.seasonStartYears) && body.seasonStartYears.length > 0
-      ? body.seasonStartYears.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y))
-      : [cur, cur - 1];
+    // Policy non aggirabile: stagione corrente + quattro precedenti. I campi
+    // legacy seasonStartYears/keepSeasons/prune sono ignorati intenzionalmente.
+    const policy = fixedFiveSeasonPolicy();
     const competitions: string[] = Array.isArray(body.competitions) && body.competitions.length > 0
       ? body.competitions
       : Object.keys(FOOTBALL_DATA_LEAGUE_CODES);
 
     const client = (db as any).db;
     const fdDb = createLibsqlFootballDataDb(client);
-    const sync = await syncFootballData(fdDb, { competitions, seasonStartYears });
+    // La retention viene applicata prima della rete: anche un outage della
+    // fonte supplementare non puo lasciare una sesta stagione nel DB.
+    const prune = await pruneOldSeasons(client, policy.keepSeasons);
+    const sync = await syncFootballData(fdDb, { competitions, seasonStartYears: policy.seasonStartYears });
 
-    // Retention: tiene solo le N stagioni più recenti (default 4) per contenere il raw_json.
-    const keepSeasons = Math.max(1, Number(body.keepSeasons ?? 4));
-    const prune = body.prune === false
-      ? { seasonsKept: [], seasonsDeleted: [], matchesDeleted: 0, oddsDeleted: 0 }
-      : await pruneOldSeasons(client, keepSeasons);
+    if (sync.errors.length > 0 || sync.completed !== sync.requested) {
+      return res.status(502).json({
+        success: false,
+        error: `Sync football-data incompleta: ${sync.completed}/${sync.requested} campionati-stagioni completati.`,
+        sync,
+        prune,
+        retentionPolicy: policy,
+      });
+    }
 
     // Ricalcolo medie (ora che i dati supplementari ci sono).
     let teamsUpdated = 0;
@@ -769,7 +1206,7 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
       for (const t of teams) { await db.recomputeTeamAverages(t.team_id); teamsUpdated++; }
     }
 
-    res.json({ success: true, sync, prune, teamsUpdated });
+    res.json({ success: true, sync, prune, teamsUpdated, retentionPolicy: policy });
   } catch (e: any) {
     console.error('[football-data-sync] failed:', e?.stack ?? e?.message ?? e);
     res.status(500).json({ success: false, error: e.message });
@@ -1601,16 +2038,27 @@ router.get('/competition-transitions/audit', async (_req: Request, res: Response
 
 // Downloads final-result CSVs for the configured second divisions and upserts
 // only seasonal reference statistics. It never enables model adjustments.
-router.post('/competition-transitions/sync-references', async (req: Request, res: Response) => {
+router.post('/competition-transitions/sync-references', async (_req: Request, res: Response) => {
   try {
-    const requestedYears: number[] = Array.isArray(req.body?.seasonStartYears)
-      ? req.body.seasonStartYears.map((value: any) => Number(value)).filter((value: number) => Number.isInteger(value) && value >= 1990 && value <= 2100)
-      : [currentSeasonStartYear() - 1];
+    // Stessa policy non aggirabile degli import principali: l'input legacy
+    // seasonStartYears e ignorato per non reinserire stagioni gia potate.
+    const policy = fixedFiveSeasonPolicy();
+    const prune = await pruneOldSeasons((db as any).db, policy.keepSeasons);
     const result = await syncTransitionSeasonReferences(db, {
       competitions: FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
-      seasonStartYears: [...new Set(requestedYears)],
+      seasonStartYears: policy.seasonStartYears,
     });
-    return res.json({ success: true, data: result, modelAdjustmentEnabled: false });
+    if (result.errors.length > 0 || result.persisted + result.skipped !== result.requested) {
+      return res.status(502).json({
+        success: false,
+        error: `Sync serie inferiori incompleta: ${result.persisted + result.skipped}/${result.requested} campionati-stagioni completati.`,
+        data: result,
+        prune,
+        modelAdjustmentEnabled: false,
+        retentionPolicy: policy,
+      });
+    }
+    return res.json({ success: true, data: result, prune, modelAdjustmentEnabled: false, retentionPolicy: policy });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
@@ -1738,9 +2186,7 @@ router.get('/stats/understat/team-season', async (req: Request, res: Response) =
 router.get('/scraper/understat/info', async (_req, res) => {
   const competitions = UnderstatScraper.getSupportedCompetitions();
   const top5 = UnderstatScraper.getTop5Competitions();
-  // Six import seasons include the current one plus the five previous
-  // campaigns (for example 2026/27 back to 2021/22).
-  const seasons = UnderstatScraper.generateSeasons(6);
+  const seasons = fixedFiveSeasonPolicy().seasonLabels;
   const dbStatus: Record<string, string> = {};
   for (const comp of competitions) {
     const lastSeason = seasons[seasons.length - 1];
@@ -1791,8 +2237,6 @@ async function runUnderstatImport(req: Request, res: Response) {
       mode = 'single',
       competition = 'Serie A',
       competitions,
-      seasons,
-      yearsBack = 1,
       importPlayers = true,
       includeMatchDetails = true,
       forceRefresh = false,
@@ -1804,9 +2248,14 @@ async function runUnderstatImport(req: Request, res: Response) {
         ? competitions
         : [competition];
 
-    const seasonsToScrape: string[] = Array.isArray(seasons) && seasons.length > 0
-      ? seasons
-      : UnderstatScraper.generateSeasons(yearsBack);
+    // Anche l'import manuale rispetta la medesima finestra mobile esatta.
+    // seasons/yearsBack restano campi accettati dal client legacy ma non
+    // possono estendere o restringere la retention tecnica.
+    const retentionPolicy = fixedFiveSeasonPolicy();
+    const seasonsToScrape = retentionPolicy.seasonLabels;
+    // Non dipendere dal successo di football-data.co.uk: ogni entry point di
+    // ingest applica autonomamente la finestra tecnica esatta.
+    const retentionPrune = await pruneOldSeasons((db as any).db, retentionPolicy.keepSeasons);
 
     understatActiveImportMeta = {
       startedAt: new Date().toISOString(),
@@ -1957,6 +2406,9 @@ async function runUnderstatImport(req: Request, res: Response) {
             touchedTotal: 0,
             skipped: 0,
             playersUpserted: 0,
+            persistedSourceMatches: 0,
+            missingSourceMatches: null,
+            complete: false,
             error: seasonError?.message ?? 'errore scraping stagione',
           };
           continue;
@@ -2134,7 +2586,11 @@ async function runUnderstatImport(req: Request, res: Response) {
         competitionActivity[competitionName].newPlayed += importedPlayed;
         competitionActivity[competitionName].updatedPlayed += updatedExistingPlayed;
 
-        seasonSummary[`${competitionName} ${season}`] = {
+        const persistedAfter = await db.getMatches({ competition: competitionName, season });
+        const persistedIds = new Set(persistedAfter.map((row: any) => String(row.match_id)));
+        const sourceIds = [...new Set(matchesToImport.map((match: any) => String(match.matchId)))];
+        const missingSourceMatches = sourceIds.filter((matchId) => !persistedIds.has(matchId)).length;
+        const detail = {
           lastDateBefore: lastDateInDb ?? 'nessuna',
           totalOnSource: allMatches.length,
           newImported: imported,
@@ -2147,7 +2603,13 @@ async function runUnderstatImport(req: Request, res: Response) {
           skipped,
           playersUpserted: playersAgg.size,
           playersRebuildSkippedReason,
+          persistedSourceMatches: sourceIds.length - missingSourceMatches,
+          missingSourceMatches,
           error: batchError,
+        };
+        seasonSummary[`${competitionName} ${season}`] = {
+          ...detail,
+          complete: isCompleteUnderstatSeasonDetail(detail),
         };
       }
     }
@@ -2282,13 +2744,24 @@ async function runUnderstatImport(req: Request, res: Response) {
       lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
     }
 
+    const expectedSeasonPairs = competitionsToRun.length * seasonsToScrape.length;
+    const completedSeasonPairs = Object.values(seasonSummary).filter((detail: any) =>
+      isCompleteUnderstatSeasonDetail(detail)
+    ).length;
+    const failedSeasonPairs = Object.entries(seasonSummary)
+      .filter(([, detail]: [string, any]) => !isCompleteUnderstatSeasonDetail(detail))
+      .map(([key, detail]: [string, any]) => ({ key, error: detail?.error ?? 'dati mancanti o incompleti' }));
+    const allExpectedSeasonsComplete = completedSeasonPairs === expectedSeasonPairs
+      && failedSeasonPairs.length === 0;
     const responsePayload = {
-      success: true,
+      success: allExpectedSeasonsComplete,
       data: {
         source: 'understat',
         mode,
         competitions: competitionsToRun,
         seasons: seasonsToScrape,
+        retentionPolicy,
+        retentionPrune,
         newMatchesImported: totalImported,
         existingMatchesUpdated: totalUpdatedExisting,
         upcomingMatchesImported: totalUpcomingImported,
@@ -2310,14 +2783,24 @@ async function runUnderstatImport(req: Request, res: Response) {
         postProcessingCompetitions: competitionsNeedingPostProcessing,
         skippedPostProcessingCompetitions: competitionsToRun.filter((comp) => !competitionsNeedingPostProcessing.includes(comp)),
         dbLastDateAfter: lastDatesAfter,
-        isUpToDate: totalNew === 0,
+        expectedSeasonPairs,
+        completedSeasonPairs,
+        failedSeasonPairs,
+        allExpectedSeasonsComplete,
+        isUpToDate: allExpectedSeasonsComplete && totalNew === 0,
         forceRefresh,
-        message: totalNew === 0
+        message: !allExpectedSeasonsComplete
+          ? `Import Understat incompleto: ${completedSeasonPairs}/${expectedSeasonPairs} campionati-stagioni completi.`
+          : totalNew === 0
           ? 'DB gia aggiornato da Understat.'
           : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       },
     };
+    if (!allExpectedSeasonsComplete) {
+      await persistExternalSchedulerRun(externalRun, false, responsePayload.data, responsePayload.data.message);
+      return res.status(502).json(responsePayload);
+    }
     await persistExternalSchedulerRun(externalRun, true, responsePayload.data, null);
     return res.json(responsePayload);
   } catch (e: any) {

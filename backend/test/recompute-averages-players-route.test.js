@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const { createApiRouter } = require('../dist/api/routes.js');
+const { rebuildPlayerDerivedStats } = require('../dist/services/PlayerDerivedStatsService.js');
 
 /**
  * Characterization test for the player derived-stats rebuild, exercised through
@@ -105,4 +106,25 @@ test('POST /model/recompute-averages rebuilds player aggregates (characterizatio
   } finally {
     await close();
   }
+});
+
+test('un giocatore trasferito resta associato alla squadra della gara piu recente', async () => {
+  const roster = (teamPlayerName) => JSON.stringify({
+    details: { rosters: { h: {
+      player: { player_id: 300, player: teamPlayerName, position: 'F', time: 90 },
+    }, a: {} }, shots: { h: [], a: [] } },
+  });
+  const captured = [];
+  await rebuildPlayerDerivedStats({
+    // Ordine recente -> vecchio, come DatabaseService.getMatches.
+    getMatches: async () => [
+      { match_id: 'new', date: '2026-08-20T20:00:00Z', home_team_id: 'new-team', away_team_id: 'x', home_goals: 1, away_goals: 0, raw_json: roster('Nuovo Arrivo') },
+      { match_id: 'old', date: '2025-12-20T20:00:00Z', home_team_id: 'old-team', away_team_id: 'y', home_goals: 1, away_goals: 0, raw_json: roster('Nuovo Arrivo') },
+    ],
+    markPlayersUnavailable: async () => 0,
+    upsertPlayer: async (payload) => { captured.push(payload); },
+  });
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].teamId, 'new-team');
+  assert.equal(captured[0].gamesPlayed, 2);
 });

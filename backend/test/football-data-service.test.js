@@ -9,6 +9,7 @@ const {
   FOOTBALL_DATA_LEAGUE_CODES,
   currentSeasonStartYear,
   seasonLabel,
+  buildSeasonWindow,
   pruneOldSeasons,
   buildMarketOddsJson,
   buildTransitionSeasonReference,
@@ -205,7 +206,6 @@ test('syncFootballData: matcha per data+squadre e riempie solo i NULL (DB fake)'
   };
   const csv = [
     'Div,Date,HomeTeam,AwayTeam,HS,AS,HF,AF,HC,AC,HY,AY,HR,AR',
-    'I1,17/08/2024,Genoa,Inter,10,14,15,14,1,4,1,2,0,0', // Genoa vs Inter: NON matcha (home/away invertiti rispetto a m1)
     'I1,17/08/2024,Inter,Genoa,14,10,14,15,4,1,2,1,0,0', // matcha m1
     'I1,18/08/2024,Milan,Torino,18,7,11,16,7,2,2,3,0,1', // matcha m2
   ].join('\n');
@@ -217,6 +217,91 @@ test('syncFootballData: matcha per data+squadre e riempie solo i NULL (DB fake)'
   assert.equal(summary.matched, 2, 'devono matchare m1 e m2');
   assert.equal(summary.updated, 2);
   assert.deepEqual(filled.map((f) => f.matchId).sort(), ['m1', 'm2']);
+  assert.equal(summary.requested, 1);
+  assert.equal(summary.completed, 1);
+  assert.deepEqual(summary.errors, []);
+  assert.equal(summary.perSeason['Serie A 2024/2025'].status, 'complete');
+});
+
+test('syncFootballData: segnala CSV mancante o vuoto per ogni stagione attesa', async () => {
+  const fakeDb = {
+    async getMatchesForCompetition() { return []; },
+    async fillSupplementalStats() { return false; },
+    async saveMarketOdds() { return false; },
+  };
+  const missing = await syncFootballData(fakeDb, {
+    competitions: ['Serie A'], seasonStartYears: [2024], fetcher: async () => null,
+  });
+  assert.equal(missing.requested, 1);
+  assert.equal(missing.completed, 0);
+  assert.equal(missing.errors.length, 1);
+  assert.equal(missing.perSeason['Serie A 2024/2025'].status, 'failed');
+
+  const empty = await syncFootballData(fakeDb, {
+    competitions: ['Serie A'], seasonStartYears: [2024], fetcher: async () => 'Foo,Bar\n1,2',
+  });
+  assert.equal(empty.errors.length, 1);
+  assert.match(empty.errors[0].error, /vuoto|valide/i);
+});
+
+test('syncFootballData: fallisce la stagione senza match DB corrispondenti e conserva i conteggi', async () => {
+  const fakeDb = {
+    async getMatchesForCompetition() { return []; },
+    async fillSupplementalStats() { return false; },
+    async saveMarketOdds() { return false; },
+  };
+  const csv = ['Div,Date,HomeTeam,AwayTeam,FTHG,FTAG', 'I1,17/08/2024,Inter,Genoa,2,0'].join('\n');
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Serie A'], seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.equal(summary.completed, 0);
+  assert.equal(summary.errors.length, 1);
+  assert.equal(summary.perSeason['Serie A 2024/2025'].csvRows, 1);
+  assert.equal(summary.perSeason['Serie A 2024/2025'].matched, 0);
+});
+
+test('syncFootballData abbina una data fonte errata di un giorno solo con coppia squadre univoca', async () => {
+  const filled = [];
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return [{ match_id: 'st-pauli-kiel', date: '2024-11-30T14:30:00Z', home_team_name: 'St. Pauli', away_team_name: 'Holstein Kiel' }];
+    },
+    async fillSupplementalStats(matchId) { filled.push(matchId); return true; },
+    async saveMarketOdds() { return true; },
+  };
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'D1,29/11/2024,St Pauli,Holstein Kiel,3,1',
+  ].join('\n');
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Bundesliga'], seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.deepEqual(filled, ['st-pauli-kiel']);
+  assert.equal(summary.completed, 1);
+  assert.equal(summary.matched, 1);
+});
+
+test('syncFootballData non dichiara completa una stagione con una riga intermedia non abbinata', async () => {
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return [{ match_id: 'latest', date: '2024-08-10', home_team_name: 'Gamma', away_team_name: 'Delta' }];
+    },
+    async fillSupplementalStats() { return true; },
+    async saveMarketOdds() { return true; },
+  };
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I1,01/08/2024,Alpha,Beta,1,0',
+    'I1,10/08/2024,Gamma,Delta,2,1',
+  ].join('\n');
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Serie A'], seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.equal(summary.matched, 1);
+  assert.equal(summary.completed, 0);
+  assert.equal(summary.errors.length, 1);
+  assert.match(summary.errors[0].error, /copertura.*1\/2/i);
+  assert.equal(summary.perSeason['Serie A 2024/2025'].status, 'failed');
 });
 
 test('buildMarketOddsJson: apertura+chiusura nel formato motore, scarta quote invalide', () => {
@@ -243,36 +328,229 @@ test('currentSeasonStartYear: le stagioni iniziano ad agosto (luglio+ punta alla
   assert.equal(seasonLabel(2024), '2024/2025');
 });
 
-test('pruneOldSeasons: tiene le N stagioni piu recenti ed elimina le vecchie + odds orfani', async () => {
+test('syncTransitionSeasonReferences salva stagione e partite di serie inferiore solo per team noti', async () => {
+  const seasons = [];
+  const matches = [];
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,HS,AS,HST,AST,HF,AF,HC,AC,HY,AY,HR,AR,Referee',
+    'I2,01/08/2024,Alpha,Unknown,2,0,12,5,6,2,9,12,7,2,1,3,0,0,Rossi',
+    'I2,08/08/2024,Unknown,Alpha,1,1,8,10,3,4,11,10,3,5,2,2,0,0,Bianchi',
+  ].join('\n');
+  const fakeDb = {
+    async getTransitionTeams() { return [{ team_id: 'alpha-id', name: 'Alpha' }]; },
+    async upsertTransitionSeasonReference() {},
+    async upsertLowerDivisionTeamSeason(row) { seasons.push(row); },
+    async upsertLowerDivisionTeamMatch(row) { matches.push(row); },
+    async hasCompleteTransitionSeasonReference() { return false; },
+    async hasTransitionForSourceSeason() { return false; },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' }, seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.equal(result.teamSeasonsPersisted, 1);
+  assert.equal(result.teamMatchesPersisted, 2);
+  assert.equal(seasons[0].teamId, 'alpha-id');
+  assert.deepEqual(matches.map((row) => [row.venue, row.opponentName, row.goalsFor]), [
+    ['home', 'Unknown', 2], ['away', 'Unknown', 1],
+  ]);
+  assert.equal(matches.some((row) => Object.hasOwn(row, 'xgFor')), false);
+  assert.equal(result.modelAdjustmentEnabled, false);
+});
+
+test('syncTransitionSeasonReferences rilegge stagioni complete quando compare una nuova squadra nota', async () => {
+  const saved = [];
+  let downloads = 0;
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I2,01/08/2024,New Team,Other,1,0',
+    'I2,08/08/2024,Other,New Team,0,2',
+  ].join('\n');
+  const fakeDb = {
+    async getTransitionTeams() { return [{ team_id: 'new-team-id', name: 'New Team' }]; },
+    async hasCompleteTransitionSeasonReference() { return true; },
+    async hasTransitionForSourceSeason() { return true; },
+    async upsertTransitionSeasonReference() {},
+    async upsertLowerDivisionTeamSeason(row) { saved.push(row); },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' }, seasonStartYears: [2024],
+    fetcher: async () => { downloads += 1; return csv; },
+  });
+  assert.equal(downloads, 1);
+  assert.equal(result.skipped, 0);
+  assert.equal(saved.some((row) => row.teamId === 'new-team-id'), true);
+});
+
+test('syncTransitionSeasonReferences: CSV mancante e un errore esplicito, non uno skip riuscito', async () => {
+  const result = await syncTransitionSeasonReferences({
+    async upsertTransitionSeasonReference() {},
+  }, {
+    competitions: { 'Serie B': 'I2' }, seasonStartYears: [2024], fetcher: async () => null,
+  });
+  assert.equal(result.requested, 1);
+  assert.equal(result.persisted, 0);
+  assert.equal(result.skipped, 0);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.perSeason['Serie B 2024/2025'].status, 'failed');
+});
+
+test('syncTransitionSeasonReferences usa un batch e salta scritture storiche gia complete', async () => {
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I2,01/08/2024,Alpha,Beta,2,0',
+    'I2,02/08/2024,Beta,Alpha,0,1',
+  ].join('\n');
+  let bulkCalls = 0;
+  const fakeDb = {
+    async getTransitionTeams() { return [{ team_id: 'alpha-id', name: 'Alpha' }]; },
+    async hasCompleteTransitionSeasonReference() { return true; },
+    async hasTransitionForSourceSeason() { return true; },
+    async hasCompleteLowerDivisionTeamHistory(_competition, _season, expectedTeamIds, expectedRows) {
+      assert.deepEqual(expectedTeamIds, ['alpha-id']);
+      assert.equal(expectedRows, 2);
+      return true;
+    },
+    async upsertTransitionSeasonReference() { throw new Error('non deve scrivere'); },
+    async upsertLowerDivisionHistoryBatch() { bulkCalls += 1; },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' }, seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.equal(result.skipped, 1);
+  assert.equal(result.persisted, 0);
+  assert.equal(bulkCalls, 0);
+  assert.equal(result.perSeason['Serie B 2024/2025'].status, 'skipped_complete');
+});
+
+test('syncTransitionSeasonReferences raggruppa storico e transizioni in una sola chiamata bulk', async () => {
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I2,01/08/2024,Alpha,Beta,2,0',
+    'I2,02/08/2024,Beta,Alpha,0,1',
+  ].join('\n');
+  const batches = [];
+  const fakeDb = {
+    async getTransitionTeams() { return [{ team_id: 'alpha-id', name: 'Alpha' }, { team_id: 'beta-id', name: 'Beta' }]; },
+    async hasCompleteTransitionSeasonReference() { return false; },
+    async hasTransitionForSourceSeason() { return false; },
+    async hasCompleteLowerDivisionTeamHistory() { return false; },
+    async upsertTransitionSeasonReference() { throw new Error('usa bulk'); },
+    async upsertLowerDivisionHistoryBatch(payload) { batches.push(payload); },
+  };
+  const result = await syncTransitionSeasonReferences(fakeDb, {
+    competitions: { 'Serie B': 'I2' }, seasonStartYears: [2024], fetcher: async () => csv,
+  });
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].teamSeasons.length, 2);
+  assert.equal(batches[0].teamMatches.length, 4);
+  assert.equal(result.teamSeasonsPersisted, 2);
+  assert.equal(result.teamMatchesPersisted, 4);
+  assert.equal(result.perSeason['Serie B 2024/2025'].status, 'complete');
+});
+
+test('buildSeasonWindow: restituisce sempre stagione corrente e quattro precedenti', () => {
+  assert.deepEqual(buildSeasonWindow(new Date('2026-08-25T00:00:00Z')), [
+    '2022/2023', '2023/2024', '2024/2025', '2025/2026', '2026/2027',
+  ]);
+});
+
+test('pruneOldSeasons: tiene la finestra esatta di cinque stagioni e pulisce i dati collegati in un batch atomico', async () => {
   const executed = [];
+  const batches = [];
   const client = {
     async execute(q) {
       const sql = typeof q === 'string' ? q : q.sql;
       executed.push({ sql, args: q.args });
       if (/SELECT season/.test(sql)) {
         return { rows: [
-          { season: '2022/2023', n: 380 }, { season: '2023/2024', n: 380 },
+          { season: '2021/2022', n: 380 }, { season: '2022/2023', n: 380 }, { season: '2023/2024', n: 380 },
           { season: '2024/2025', n: 380 }, { season: '2025/2026', n: 380 },
           { season: '2026/2027', n: 100 },
         ] };
       }
-      if (/DELETE FROM odds_snapshots/.test(sql)) return { rows: [], rowsAffected: 12 };
-      if (/DELETE FROM matches/.test(sql)) return { rows: [], rowsAffected: 380 };
       return { rows: [] };
     },
+    async batch(statements, mode) {
+      batches.push({ statements, mode });
+      return statements.map((statement) => ({
+        rows: [],
+        rowsAffected: /DELETE FROM matches/.test(statement.sql) ? 380
+          : /DELETE FROM odds_snapshots/.test(statement.sql) ? 12 : 3,
+      }));
+    },
   };
-  const summary = await pruneOldSeasons(client, 4);
-  assert.deepEqual(summary.seasonsKept, ['2026/2027', '2025/2026', '2024/2025', '2023/2024']);
-  assert.deepEqual(summary.seasonsDeleted, ['2022/2023']);
+  const summary = await pruneOldSeasons(client, 5, new Date('2026-08-25T00:00:00Z'));
+  assert.deepEqual(summary.seasonsKept, ['2026/2027', '2025/2026', '2024/2025', '2023/2024', '2022/2023']);
+  assert.deepEqual(summary.seasonsDeleted, ['2021/2022']);
   assert.equal(summary.matchesDeleted, 380);
   assert.equal(summary.oddsDeleted, 12);
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].mode, 'write');
+  const sql = batches[0].statements.map((statement) => statement.sql).join('\n');
+  assert.match(sql, /DELETE FROM player_injury_refresh_batches/);
+  assert.match(sql, /DELETE FROM player_lineup_status/);
+  assert.match(sql, /DELETE FROM player_lineup_snapshots/);
+  assert.match(sql, /DELETE FROM learning_reviews/);
+  assert.doesNotMatch(sql, /DELETE FROM predictions/);
+  assert.doesNotMatch(sql, /DELETE FROM bets/);
 });
 
-test('pruneOldSeasons: no-op se le stagioni sono <= keepCount', async () => {
+test('pruneOldSeasons: senza stagioni vecchie pulisce comunque i batch snapshot orfani', async () => {
+  let orphanCleanupCalls = 0;
   const client = {
-    async execute() { return { rows: [{ season: '2024/2025', n: 10 }, { season: '2025/2026', n: 10 }] }; },
+    async execute(q) {
+      const sql = typeof q === 'string' ? q : q.sql;
+      if (/SELECT season/.test(sql)) {
+        return { rows: [{ season: '2024/2025', n: 10 }, { season: '2025/2026', n: 10 }] };
+      }
+      assert.match(sql, /DELETE FROM player_lineup_snapshot_batches/);
+      assert.match(sql, /player_injury_refresh_batches injury/);
+      orphanCleanupCalls += 1;
+      return { rows: [], rowsAffected: 2 };
+    },
   };
-  const summary = await pruneOldSeasons(client, 4);
+  const summary = await pruneOldSeasons(client, 5, new Date('2026-08-25T00:00:00Z'));
   assert.deepEqual(summary.seasonsDeleted, []);
   assert.equal(summary.matchesDeleted, 0);
+  assert.equal(summary.linkedRowsDeleted, 2);
+  assert.equal(orphanCleanupCalls, 1);
+});
+
+test('pruneOldSeasons elimina una stagione tecnica vecchia anche senza match residui', async () => {
+  const batches = [];
+  const client = {
+    async execute() { return { rows: [{ season: '2021/2022' }, { season: '2026/2027' }] }; },
+    async batch(statements, mode) {
+      batches.push({ statements, mode });
+      return statements.map(() => ({ rowsAffected: 0 }));
+    },
+  };
+  const summary = await pruneOldSeasons(client, 5, new Date('2026-08-25T00:00:00Z'));
+  assert.deepEqual(summary.seasonsDeleted, ['2021/2022']);
+  assert.equal(batches.length, 1);
+  assert.match(batches[0].statements.map((statement) => statement.sql).join('\n'), /DELETE FROM lower_division_team_seasons/);
+});
+
+test('pruneOldSeasons: non esegue cancellazioni parziali quando il batch atomico fallisce', async () => {
+  let destructiveExecuteCalls = 0;
+  const client = {
+    async execute(q) {
+      const sql = typeof q === 'string' ? q : q.sql;
+      if (/SELECT season/.test(sql)) {
+        return { rows: [
+          { season: '2021/2022', n: 380 }, { season: '2022/2023', n: 380 },
+          { season: '2023/2024', n: 380 }, { season: '2024/2025', n: 380 },
+          { season: '2025/2026', n: 380 }, { season: '2026/2027', n: 100 },
+        ] };
+      }
+      if (/DELETE FROM/.test(sql)) destructiveExecuteCalls++;
+      return { rows: [] };
+    },
+    async batch() { throw new Error('write failed'); },
+  };
+  await assert.rejects(
+    pruneOldSeasons(client, 5, new Date('2026-08-25T00:00:00Z')),
+    /write failed/,
+  );
+  assert.equal(destructiveExecuteCalls, 0);
 });

@@ -18,7 +18,7 @@ import {
 } from '../models/value/EnhancedMarketAnalysis';
 import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
 import { computeLineupXgAdjustment, LineupXgAdjustment } from './LineupXgAdjustmentService';
-import { assessPlayerLineup } from './PlayerLineupProbabilityService';
+import { assessPlayerLineup, completeOfficialTeamIds } from './PlayerLineupProbabilityService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
@@ -246,6 +246,76 @@ export interface PredictionRequest {
    */
   homeAbsentPlayers?: string[];
   awayAbsentPlayers?: string[];
+}
+
+export function resolvePredictionRefereeName(requestReferee: unknown, persistedReferee: unknown): string | null {
+  const requested = String(requestReferee ?? '').trim();
+  if (requested) return requested;
+  const persisted = String(persistedReferee ?? '').trim();
+  return persisted || null;
+}
+
+/**
+ * Le probabilita player-prop sono condizionate alla validita della giocata
+ * (giocatore impiegato secondo il regolamento del bookmaker). La probabilita
+ * di titolarita resta un filtro/confidence signal e non viene trasformata nel
+ * complemento automatico dell'under, che produrrebbe falsi value bet.
+ */
+export function conditionalPlayerPropOverProbability(baseOver: number): number {
+  return clamp(baseOver, 0, 1);
+}
+
+export function buildOperationalLineupStatusMap(
+  rows: any[],
+  players: any[],
+): Map<string, { status: string; probability: number | null }> {
+  const officialTeamIds = completeOfficialTeamIds(rows);
+  const byPlayer = new Map((rows ?? []).map((row: any) => [String(row.player_id), row]));
+  return new Map((players ?? []).map((player: any) => {
+    const playerId = String(player?.player_id ?? player?.playerId ?? '');
+    const teamId = String(player?.team_id ?? player?.teamId ?? '');
+    const row: any = byPlayer.get(playerId);
+    if (officialTeamIds.has(teamId)) {
+      const confirmedStarter = String(row?.status ?? '') === 'confirmed_starter';
+      return [playerId, {
+        status: confirmedStarter ? 'confirmed_starter' : 'confirmed_bench',
+        probability: confirmedStarter ? 1 : 0,
+      }];
+    }
+    return [playerId, {
+      status: String(row?.status ?? 'modelled'),
+      probability: row?.probability === null || row?.probability === undefined ? null : Number(row.probability),
+    }];
+  }).filter(([playerId]) => Boolean(playerId)) as Array<[string, { status: string; probability: number | null }]>);
+}
+
+export function mergeSnapshotRoster(
+  activePlayers: any[],
+  snapshotPlayers: any[],
+  lineupRows: any[],
+  teamId: string,
+): any[] {
+  const activeIds = new Set((activePlayers ?? [])
+    .map((player: any) => String(player?.player_id ?? player?.playerId ?? ''))
+    .filter(Boolean));
+  const teamRows = (lineupRows ?? []).filter((row: any) => String(row?.team_id ?? '') === teamId);
+  const snapshotIds = new Set(teamRows
+    .map((row: any) => String(row?.player_id ?? ''))
+    .filter(Boolean));
+  const hasRosterSnapshot = teamRows.some((row: any) =>
+    /^(predicted|confirmed)_(starter|bench)$/.test(String(row?.status ?? '')));
+  const byId = new Map<string, any>();
+  for (const player of [...(activePlayers ?? []), ...(snapshotPlayers ?? [])]) {
+    const playerId = String(player?.player_id ?? player?.playerId ?? '');
+    if (playerId) byId.set(playerId, player);
+  }
+  return [...byId.values()].filter((player: any) => {
+    const playerId = String(player?.player_id ?? player?.playerId ?? '');
+    // Se esiste una fotografia completa della rosa pre-partita, quella e la
+    // fonte temporale: non aggiungere giocatori arrivati dopo. Con sole righe
+    // di indisponibilita, invece, mantieni il roster attivo come fallback.
+    return hasRosterSnapshot ? snapshotIds.has(playerId) : activeIds.has(playerId) || snapshotIds.has(playerId);
+  }).map((player: any) => ({ ...player, team_id: teamId }));
 }
 
 export interface AnalysisFactors {
@@ -1315,7 +1385,7 @@ export class PredictionService {
       if (!parsed) continue;
       const player = byId.get(parsed.playerId);
       if (!player) continue;
-      const expectedMinutes = this.getPlayerExpectedMinutes(player.row);
+      const historicalExpectedMinutes = this.getPlayerExpectedMinutes(player.row);
       const sampleSize = this.getPlayerSampleSize(player.row);
       const dataWarnings: string[] = [];
       const externalLineup = params.lineupStatuses?.get(parsed.playerId);
@@ -1324,6 +1394,10 @@ export class PredictionService {
         warnings.push(`player_prop_skipped_lineup:${parsed.playerId}:${parsed.marketType}`);
         continue;
       }
+      // I minuti restano condizionati all'impiego del giocatore. La titolarita
+      // stimata filtra e riduce la confidenza, ma non viene confusa con un
+      // evento da zero statistiche (il cui settlement varia per bookmaker).
+      const expectedMinutes = historicalExpectedMinutes;
       dataWarnings.push(...lineup.warnings);
       if (lineup.tier === 'ballotaggio') dataWarnings.push('lineup_ballotaggio');
       if (sampleSize < 5 || expectedMinutes < 45) {
@@ -1332,10 +1406,7 @@ export class PredictionService {
       }
       if (sampleSize < 8) dataWarnings.push('low_player_sample');
       if (expectedMinutes < 65) dataWarnings.push('uncertain_minutes');
-      // The current pre-match request has no confirmed starting XI feed.
-      // Historical average minutes are used, but must not be presented as
-      // confirmed titularity.
-      dataWarnings.push('starting_lineup_not_confirmed');
+      if (lineup.tier !== 'confirmed_starter') dataWarnings.push('starting_lineup_not_confirmed');
       if (!hasCompanion(key)) dataWarnings.push('missing_under_price');
 
       let probability: number | null = null;
@@ -1345,7 +1416,7 @@ export class PredictionService {
           dataWarnings.push('missing_player_event_data');
           continue;
         }
-        const over =
+        const conditionalOver =
           parsed.marketType === 'shots'
             ? parsed.line <= 0.5
               ? shotPrediction.prob1PlusShots
@@ -1357,6 +1428,7 @@ export class PredictionService {
             : parsed.line <= 0.5
               ? shotPrediction.prob1PlusShotsOT
               : this.probabilityOverLine(shotPrediction.expectedShotsOnTarget, parsed.line);
+        const over = conditionalPlayerPropOverProbability(conditionalOver);
         probability = parsed.side === 'over' ? over : 1 - over;
       } else if (parsed.marketType === 'yellow') {
         const role = this.mapPositionToCardRole(String(player.row?.position_code ?? player.row?.positionCode ?? 'MF'));
@@ -1402,8 +1474,9 @@ export class PredictionService {
       const playerName = String(player.row?.name ?? player.row?.playerName ?? parsed.playerId);
       const confidenceScore =
         0.28 +
-        clamp(sampleSize / 20, 0, 1) * 0.32 +
-        clamp(expectedMinutes / 90, 0, 1) * 0.28 +
+        clamp(sampleSize / 20, 0, 1) * 0.22 +
+        clamp(expectedMinutes / 90, 0, 1) * 0.20 +
+        clamp(lineup.probability, 0, 1) * 0.18 +
         (hasCompanion(key) ? 0.12 : 0);
       const playerConfidence: PlayerPropDiagnostics['playerConfidence'] =
         parsed.marketType === 'yellow' || confidenceScore < 0.55
@@ -1586,25 +1659,41 @@ export class PredictionService {
   async predict(request: PredictionRequest): Promise<PredictionResponse> {
     // These are independent read-only lookups. Keep the subsequent schedule query
     // dependent on matchRow so its reference date remains exactly unchanged.
-    const [model, homeTeam, awayTeam, referee, matchRow, homePlayers, awayPlayers, homeHistoricalCoverage, awayHistoricalCoverage, lineupStatusRows] = await Promise.all([
+    const [model, homeTeam, awayTeam, matchRow, activeHomePlayers, activeAwayPlayers, homeHistoricalCoverage, awayHistoricalCoverage] = await Promise.all([
       this.getModel(request.competition),
       this.db.getTeam(request.homeTeamId),
       this.db.getTeam(request.awayTeamId),
-      request.referee ? this.db.getRefereeByName(request.referee) : Promise.resolve(null),
       request.matchId ? this.db.getMatchById(request.matchId).catch(() => null) : Promise.resolve(null),
       this.db.getPlayersByTeam(request.homeTeamId),
       this.db.getPlayersByTeam(request.awayTeamId),
       this.db.getTeamHistoricalCoverage(request.homeTeamId, request.season).catch(() => null),
       this.db.getTeamHistoricalCoverage(request.awayTeamId, request.season).catch(() => null),
-      request.matchId ? this.db.getPlayerLineupStatuses(request.matchId).catch(() => []) : Promise.resolve([]),
     ]);
-    const lineupStatuses = new Map(
-      (lineupStatusRows ?? []).map((row: any) => [String(row.player_id), {
-        status: String(row.status),
-        probability: row.probability === null || row.probability === undefined ? null : Number(row.probability),
-      }]),
-    );
+    const refereeName = resolvePredictionRefereeName(request.referee, matchRow?.referee);
+    const referee = refereeName ? await this.db.getRefereeByName(refereeName) : null;
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
+    const lineupStatusRows = request.matchId
+      ? await this.db.getPlayerLineupStatuses(request.matchId, referenceDate).catch(() => [])
+      : [];
+    let homePlayers = activeHomePlayers;
+    let awayPlayers = activeAwayPlayers;
+    if (lineupStatusRows.length > 0) {
+      const snapshotPlayerIds = [...new Set(lineupStatusRows
+        .map((row: any) => String(row?.player_id ?? '').trim())
+        .filter(Boolean))];
+      // La ricerca e globale per ID: dopo un trasferimento la riga corrente ha
+      // un team_id diverso, mentre lo snapshot conserva la squadra al kickoff.
+      const snapshotPlayers = await this.db.getPlayersByIds(snapshotPlayerIds);
+      // Un replay deve poter ricostruire la rosa al kickoff. Un giocatore oggi
+      // trasferito resta candidato se compare in uno snapshot pre-partita;
+      // gli ex giocatori senza evidenza per quella gara restano esclusi.
+      homePlayers = mergeSnapshotRoster(activeHomePlayers, snapshotPlayers, lineupStatusRows, request.homeTeamId);
+      awayPlayers = mergeSnapshotRoster(activeAwayPlayers, snapshotPlayers, lineupStatusRows, request.awayTeamId);
+    }
+    const lineupStatuses = buildOperationalLineupStatusMap(
+      lineupStatusRows,
+      [...(homePlayers ?? []), ...(awayPlayers ?? [])],
+    );
     const [homeSchedule, awaySchedule] = await Promise.all([
       this.db.getTeamScheduleInsights(request.homeTeamId, referenceDate).catch(() => null),
       this.db.getTeamScheduleInsights(request.awayTeamId, referenceDate).catch(() => null),

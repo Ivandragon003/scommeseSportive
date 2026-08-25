@@ -49,6 +49,7 @@ export async function rebuildPlayerDerivedStats(
     sourcePlayerId: number | null;
     name: string;
     teamId: string;
+    teamObservedAt: number;
     positionCode: string;
     games: Set<string>;
     minutesTotal: number;
@@ -96,6 +97,7 @@ export async function rebuildPlayerDerivedStats(
     shots: any[],
     teamId: string,
     matchId: string,
+    matchDate: string,
     teamMatchShots: number
   ) => {
     const onTargetByPlayer = buildOnTargetMap(shots);
@@ -112,6 +114,7 @@ export async function rebuildPlayerDerivedStats(
         sourcePlayerId: sourcePlayerId === null ? null : Math.trunc(sourcePlayerId),
         name: playerName,
         teamId,
+        teamObservedAt: Number.isFinite(Date.parse(matchDate)) ? Date.parse(matchDate) : -Infinity,
         positionCode: String((entry as any)?.position ?? 'MF').trim().split(/\s+/)[0] || 'MF',
         games: new Set<string>(),
         minutesTotal: 0,
@@ -125,7 +128,11 @@ export async function rebuildPlayerDerivedStats(
         redCards: 0,
         rawSamples: [],
       };
-      current.teamId = teamId;
+      const observedAt = Date.parse(matchDate);
+      if (Number.isFinite(observedAt) && observedAt > current.teamObservedAt) {
+        current.teamId = teamId;
+        current.teamObservedAt = observedAt;
+      }
       // A4: accumula i tiri squadra della partita solo se il giocatore non e'
       // gia' stato contato per questo match (una entry per giocatore/partita).
       if (!current.games.has(matchId)) {
@@ -173,8 +180,8 @@ export async function rebuildPlayerDerivedStats(
     const homeMatchShots = Number(homeShots ?? homeShotsDetail.length);
     const awayMatchShots = Number(awayShots ?? awayShotsDetail.length);
 
-    ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id), homeMatchShots);
-    ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id), awayMatchShots);
+    ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id), String(match.date ?? ''), homeMatchShots);
+    ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id), String(match.date ?? ''), awayMatchShots);
   }
 
   let playersUpdated = 0;
