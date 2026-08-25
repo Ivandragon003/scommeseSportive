@@ -115,6 +115,7 @@ button {
 
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--header-height) 1fr;
@@ -1329,6 +1330,10 @@ button {
     padding-right: 16px;
   }
 
+  .app-header {
+    padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  }
+
   .app-layout { display: block; }
 
   .desktop-nav {
@@ -1349,7 +1354,7 @@ button {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
-    padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 10px 12px max(10px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
     background: var(--surface);
     border-top: 1px solid var(--border);
   }
@@ -1390,6 +1395,9 @@ button {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-hover);
+    max-height: calc(100dvh - var(--mobile-nav-height) - 32px - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .mobile-more-sheet__header {
