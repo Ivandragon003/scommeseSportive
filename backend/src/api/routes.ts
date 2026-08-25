@@ -1282,10 +1282,10 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
     const prune = await pruneOldSeasons(client, policy.keepSeasons);
     const sync = await syncFootballData(fdDb, { competitions, seasonStartYears: policy.seasonStartYears });
 
-    if (sync.errors.length > 0 || sync.completed !== sync.requested) {
+    if (!sync.allExpectedSeasonsReady) {
       return res.status(502).json({
         success: false,
-        error: `Sync football-data incompleta: ${sync.completed}/${sync.requested} campionati-stagioni completati.`,
+        error: `Sync football-data non pronta: ${sync.completed} complete, ${sync.pending} pending, ${sync.requested} richieste.`,
         sync,
         prune,
         retentionPolicy: policy,
