@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "axios": "^1.6.7",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
@@ -18,7 +20,10 @@
     "test": "react-scripts test",
     "test:ci": "react-scripts test --watchAll=false --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings=0"
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings=0",
+    "mobile:sync": "npm run build && cap sync android",
+    "android:open": "cap open android",
+    "android:debug": "npm run mobile:sync && cd android && gradlew.bat assembleDebug"
   },
   "browserslist": {
     "production": [
@@ -31,6 +36,7 @@
   },
   "proxy": "http://localhost:3001",
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^29.5.14",
     "@types/react": "^18.3.12",

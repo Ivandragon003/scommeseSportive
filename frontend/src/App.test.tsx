@@ -52,12 +52,53 @@ beforeEach(() => {
   mockedApi.syncUpcomingKickoffs.mockResolvedValue({
     data: { corrected: 0 },
   } as any);
+  mockedApi.getAdminSession.mockResolvedValue({
+    authenticated: true,
+    sharedDataUserId: 'user1',
+  });
+  mockedApi.loginSharedAdmin.mockResolvedValue({
+    authenticated: true,
+    sharedDataUserId: 'user1',
+  });
+  mockedApi.logoutSharedAdmin.mockResolvedValue(undefined);
+});
+
+test('richiede la password condivisa quando non esiste una sessione', async () => {
+  mockedApi.getAdminSession.mockRejectedValueOnce({ response: { status: 401 } });
+
+  render(<App />);
+
+  expect(await screen.findByRole('heading', { name: /Accesso condiviso/i })).toBeTruthy();
+  expect(screen.queryByText('Predictions page')).toBeNull();
+
+  fireEvent.change(screen.getByLabelText(/Password condivisa/i), {
+    target: { value: 'shared password' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Entra nell'app/i }));
+
+  await waitFor(() => expect(mockedApi.loginSharedAdmin).toHaveBeenCalledWith('shared password'));
+  expect(await screen.findByText('Predictions page')).toBeTruthy();
+});
+
+test('usa sempre l utente condiviso restituito dal server e non localStorage', async () => {
+  window.localStorage.setItem('footpredictor.activeUser', 'user2');
+  mockedApi.getAdminSession.mockResolvedValueOnce({
+    authenticated: true,
+    sharedDataUserId: 'shared-bankroll',
+  });
+
+  render(<App />);
+
+  expect(await screen.findByText('Predictions page')).toBeTruthy();
+  expect(window.localStorage.getItem('footpredictor.activeUser')).toBe('user2');
+  expect(mockedApi.getAdminSession).toHaveBeenCalledTimes(1);
 });
 
 test('header principale resta essenziale e rende aggiorna sistema disponibile negli strumenti', async () => {
   render(<App />);
 
-  const header = screen.getByRole('banner');
+  await screen.findByText('Predictions page');
+  const header = await screen.findByRole('banner');
   expect(within(header).getByText('FootPredictor')).toBeTruthy();
   expect(within(header).getByText(/Decisioni rapide/i)).toBeTruthy();
   expect(within(header).queryByRole('button', { name: /Aggiorna sistema/i })).toBeNull();
@@ -90,6 +131,7 @@ test('Aggiorna Sistema mostra quanti kickoff calendario sono stati corretti', as
 
   render(<App />);
 
+  await screen.findByText('Predictions page');
   fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
   fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i }));
 
@@ -126,6 +168,7 @@ test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => 
 test('apre la pagina Glossario dalla navigazione principale', async () => {
   render(<App />);
 
+  await screen.findByText('Predictions page');
   fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
   const toolsMenu = screen.getByRole('menu', { name: /Strumenti/i });
   fireEvent.click(within(toolsMenu).getByText('Glossario'));
@@ -141,7 +184,7 @@ test('apre la pagina Glossario dalla navigazione principale', async () => {
 test('il comando nell header apre il glossario rapido', async () => {
   render(<App />);
 
-  const header = screen.getByRole('banner');
+  const header = await screen.findByRole('banner');
   fireEvent.click(within(header).getByRole('button', { name: /Apri glossario rapido/i }));
 
   expect(await screen.findByRole('dialog', { name: /Glossario rapido/i })).toBeTruthy();
@@ -150,7 +193,8 @@ test('il comando nell header apre il glossario rapido', async () => {
 test('il menu mobile Strumenti si comporta come dialog e restituisce il focus alla chiusura', async () => {
   render(<App />);
 
-  const trigger = screen.getByRole('button', { name: /Apri strumenti mobile/i });
+  await screen.findByText('Predictions page');
+  const trigger = await screen.findByRole('button', { name: /Apri strumenti mobile/i });
   fireEvent.click(trigger);
 
   const dialog = await screen.findByRole('dialog', { name: /Strumenti/i });
@@ -166,6 +210,7 @@ test('il menu mobile Strumenti si comporta come dialog e restituisce il focus al
 test('apre la nuova pagina Giocate dalla navigazione primaria', async () => {
   render(<App />);
 
+  await screen.findByText('Predictions page');
   const navigation = screen.getByLabelText('Navigazione principale');
   fireEvent.click(within(navigation).getByText('Giocate'));
 
@@ -176,6 +221,7 @@ test('apre la nuova pagina Giocate dalla navigazione primaria', async () => {
 test('apre Archivio giocate dal menu Strumenti', async () => {
   render(<App />);
 
+  await screen.findByText('Predictions page');
   fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
   fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByText('Archivio giocate'));
 
