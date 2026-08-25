@@ -15,7 +15,6 @@ ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 # SofaScore RIMOSSO: falli/corner/tiri/cartellini/arbitro ora da football-data.co.uk
 # (fonte HTTP/CSV stabile, vedi step piu' sotto).
-FOOTBALL_DATA_KEEP_SEASONS="${FOOTBALL_DATA_KEEP_SEASONS:-4}"
 FOOTBALL_DATA_TIMEOUT_SECONDS="${FOOTBALL_DATA_TIMEOUT_SECONDS:-900}"
 UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-1800}"
@@ -24,6 +23,7 @@ FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
 
 BACKEND_PID=""
+REQUIRED_SYNC_FAILURES=()
 
 cleanup() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
@@ -141,29 +141,29 @@ for attempt in $(seq 1 60); do
 done
 
 echo "Running Understat sync..."
-post_json \
+if ! post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
-  "{\"mode\":\"top5\",\"yearsBack\":1,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
-  "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"
+  "{\"mode\":\"top5\",\"yearsBack\":5,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+  "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"; then
+  REQUIRED_SYNC_FAILURES+=("understat")
+  echo "Required gate failed: Understat. Continuing with independent data gates."
+fi
 
 echo "Running football-data.co.uk supplemental sync (fouls/corners/shots/cards/referee) + season retention..."
 if ! post_json \
   "http://127.0.0.1:$PORT/api/scraper/football-data" \
-  "{\"keepSeasons\":$FOOTBALL_DATA_KEEP_SEASONS,\"recomputeAverages\":true}" \
+  '{"recomputeAverages":true}' \
   "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
-  echo "Warning: supplemental football-data sync failed; continuing with the primary Understat data."
+  REQUIRED_SYNC_FAILURES+=("football-data")
+  echo "Required gate failed: football-data. Continuing with independent data gates."
 fi
 
-if [[ "$API_FOOTBALL_ENABLED" == "true" && -n "${API_FOOTBALL_KEY:-}" ]]; then
-  echo "Checking API-Football confirmed lineups and availability before slow maintenance jobs..."
-  post_json \
-    "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
-    '{"windowHours":24}' \
-    "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
-    echo "Warning: API-Football lineup sync failed; internal lineup predictor remains active."
-else
-  echo "Skipping API-Football lineup sync. API_FOOTBALL_ENABLED=false or API_FOOTBALL_KEY missing."
-fi
+echo "Saving local last-five lineup predictions; API-Football enrichment is optional..."
+post_json \
+  "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
+  '{"windowHours":24}' \
+  "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
+  echo "Warning: lineup sync failed; the on-demand local fallback remains available."
 
 if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
   echo "Syncing second-division seasonal references (idempotent)..."
@@ -171,7 +171,8 @@ if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
     "http://127.0.0.1:$PORT/api/competition-transitions/sync-references" \
     "{}" \
     "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
-    echo "Warning: transition reference sync failed; continuing with the normal nightly flow."
+    REQUIRED_SYNC_FAILURES+=("second-division-references")
+    echo "Required gate failed: second-division references. Continuing with independent data gates."
   fi
 else
   echo "Skipping transition reference sync. RUN_TRANSITION_REFERENCE_SYNC=false."
@@ -195,13 +196,24 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
       continue
     fi
     echo "Running odds snapshot sync for: $competition"
-    post_json \
+    if ! post_json \
       "http://127.0.0.1:$PORT/api/scraper/odds" \
       "{\"competition\":\"$competition\",\"markets\":[\"h2h\",\"totals\",\"spreads\"]}" \
-      "$ODDS_SYNC_TIMEOUT_SECONDS"
+      "$ODDS_SYNC_TIMEOUT_SECONDS"; then
+      REQUIRED_SYNC_FAILURES+=("odds:$competition")
+      echo "Required gate failed: odds for $competition. Continuing with the remaining competitions."
+    fi
   done
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
+fi
+
+if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then
+  echo "Required data gates failed: ${REQUIRED_SYNC_FAILURES[*]}"
+  echo "Skipping automated bets and learning because the input data is incomplete."
+  echo "Fetching scheduler status after the failed gates..."
+  get_json "http://127.0.0.1:$PORT/api/scraper/status" "$FINAL_STATUS_TIMEOUT_SECONDS" || true
+  exit 1
 fi
 
 echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
