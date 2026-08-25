@@ -112,7 +112,8 @@ done
 cd "$BACKEND_DIR"
 
 echo "Starting backend for CI sync..."
-NODE_ENV=production \
+NODE_ENV=ci \
+SHARED_ADMIN_AUTH_ENABLED=false \
 PORT="$PORT" \
 AUTO_SYNC_ON_BOOT=false \
 UNDERSTAT_SCHEDULER_ENABLED=false \

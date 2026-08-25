@@ -27,6 +27,18 @@ test('nightly and runtime defaults request exactly five seasons', () => {
   assert.match(frontendDockerfile, /^FROM node:22-alpine AS builder/m);
 });
 
+test('il backend temporaneo della nightly disabilita solo in CI la sessione amministratore', () => {
+  const nightly = read('scripts', 'ci', 'nightly-sync.sh');
+  const backendStart = nightly.slice(
+    nightly.indexOf('echo "Starting backend for CI sync..."'),
+    nightly.indexOf('echo "Waiting for backend health..."'),
+  );
+
+  assert.match(backendStart, /NODE_ENV=ci \\\n/);
+  assert.match(backendStart, /SHARED_ADMIN_AUTH_ENABLED=false \\\n/);
+  assert.doesNotMatch(backendStart, /NODE_ENV=production/);
+});
+
 test('policy API resta esattamente corrente piu quattro precedenti', () => {
   const policy = fixedFiveSeasonPolicy(new Date('2026-08-25T00:00:00Z'));
   assert.deepEqual(policy, {
