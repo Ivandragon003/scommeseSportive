@@ -32,6 +32,8 @@ test('canonicalTeamName: alias football-data -> nome DB Understat', () => {
   assert.equal(canonicalTeamName('Man City'), 'manchestercity');
   assert.equal(canonicalTeamName('Ath Madrid'), 'atleticomadrid');
   assert.equal(canonicalTeamName('Ein Frankfurt'), 'eintrachtfrankfurt');
+  assert.equal(canonicalTeamName('Santander'), 'racingsantander');
+  assert.equal(canonicalTeamName('La Coruna'), 'deportivolacoruna');
   // nome senza alias: solo normalizzato
   assert.equal(canonicalTeamName('Arsenal'), 'arsenal');
   assert.equal(canonicalTeamName('Real Madrid'), 'realmadrid');
@@ -279,6 +281,152 @@ test('syncFootballData abbina una data fonte errata di un giorno solo con coppia
   assert.deepEqual(filled, ['st-pauli-kiel']);
   assert.equal(summary.completed, 1);
   assert.equal(summary.matched, 1);
+});
+
+test('syncFootballData abbina un rinvio oltre un giorno solo alla coppia univoca della stessa stagione', async () => {
+  const filled = [];
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return [
+        { match_id: 'udinese-roma-2324', date: '2024-04-14T16:00:00Z', home_team_name: 'Udinese', away_team_name: 'Roma' },
+        { match_id: 'udinese-roma-2425', date: '2025-01-26T14:00:00Z', home_team_name: 'Udinese', away_team_name: 'Roma' },
+      ];
+    },
+    async fillSupplementalStats(matchId) { filled.push(matchId); return true; },
+    async saveMarketOdds() { return true; },
+  };
+  const csv = [
+    'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+    'I1,25/04/2024,Udinese,Roma,1,2',
+  ].join('\n');
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Serie A'], seasonStartYears: [2023], fetcher: async () => csv,
+  });
+  assert.deepEqual(filled, ['udinese-roma-2324']);
+  assert.equal(summary.completed, 1);
+  assert.equal(summary.dateToleranceMatched, 1);
+});
+
+test('syncFootballData tratta come pending la Bundesliga non pubblicata solo prima del via ufficiale', async () => {
+  const seasons = [2022, 2023, 2024, 2025, 2026];
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return seasons.slice(0, 4).map((season) => ({
+        match_id: `bayern-mainz-${season}`,
+        date: `${season}-08-20`,
+        home_team_name: 'Bayern Munich',
+        away_team_name: 'Mainz 05',
+      }));
+    },
+    async fillSupplementalStats() { return true; },
+    async saveMarketOdds() { return true; },
+  };
+  const fetcher = async (_league, code) => code === '2627'
+    ? null
+    : ['Div,Date,HomeTeam,AwayTeam,FTHG,FTAG', `D1,20/08/20${code.slice(0, 2)},Bayern Munich,Mainz,2,0`].join('\n');
+
+  const beforeStart = await syncFootballData(fakeDb, {
+    competitions: ['Bundesliga'], seasonStartYears: seasons, fetcher,
+    now: new Date('2026-08-27T21:59:59Z'),
+  });
+  assert.equal(beforeStart.completed, 4);
+  assert.equal(beforeStart.pending, 1);
+  assert.equal(beforeStart.allExpectedSeasonsReady, true);
+  assert.equal(beforeStart.perSeason['Bundesliga 2026/2027'].status, 'pending');
+  assert.deepEqual(beforeStart.errors, []);
+
+  const onStart = await syncFootballData(fakeDb, {
+    competitions: ['Bundesliga'], seasonStartYears: seasons, fetcher,
+    now: new Date('2026-08-27T22:00:00Z'),
+  });
+  assert.equal(onStart.pending, 0);
+  assert.equal(onStart.allExpectedSeasonsReady, false);
+  assert.equal(onStart.perSeason['Bundesliga 2026/2027'].status, 'failed');
+});
+
+test('syncFootballData mette in quarantena temporanea la sola inversione ufficiale Rennes-PSG', async () => {
+  const seasons = [2022, 2023, 2024, 2025, 2026];
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return [
+        ...seasons.slice(0, 4).map((season) => ({
+          match_id: `rennes-lille-${season}`,
+          date: `${season}-08-20`,
+          home_team_name: 'Rennes',
+          away_team_name: 'Lille',
+        })),
+        { match_id: 'stale-psg-rennes', date: '2026-08-23', home_team_name: 'Paris Saint Germain', away_team_name: 'Rennes' },
+        { match_id: 'marseille-strasbourg', date: '2026-08-21', home_team_name: 'Marseille', away_team_name: 'Strasbourg' },
+      ];
+    },
+    async fillSupplementalStats() { return true; },
+    async saveMarketOdds() { return true; },
+  };
+  const fetcher = async (_league, code) => code === '2627'
+    ? [
+      'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+      'F1,23/08/2026,Rennes,Paris SG,0,0',
+      'F1,21/08/2026,Marseille,Strasbourg,4,0',
+    ].join('\n')
+    : ['Div,Date,HomeTeam,AwayTeam,FTHG,FTAG', `F1,20/08/20${code.slice(0, 2)},Rennes,Lille,1,0`].join('\n');
+
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Ligue 1'], seasonStartYears: seasons, fetcher,
+    now: new Date('2026-08-25T12:00:00Z'),
+  });
+  assert.equal(summary.completed, 4);
+  assert.equal(summary.pending, 1);
+  assert.equal(summary.allExpectedSeasonsReady, true);
+  assert.equal(summary.perSeason['Ligue 1 2026/2027'].status, 'pending');
+  assert.match(summary.pendingSeasonPairs[0].reason, /inversione/i);
+  assert.deepEqual(summary.errors, []);
+
+  const expired = await syncFootballData(fakeDb, {
+    competitions: ['Ligue 1'], seasonStartYears: seasons, fetcher,
+    now: new Date('2026-08-27T22:00:00Z'),
+  });
+  assert.equal(expired.pending, 0);
+  assert.equal(expired.allExpectedSeasonsReady, false);
+  assert.equal(expired.perSeason['Ligue 1 2026/2027'].status, 'failed');
+});
+
+test('syncFootballData non nasconde un errore DB dietro la quarantena Rennes-PSG', async () => {
+  const seasons = [2022, 2023, 2024, 2025, 2026];
+  const fakeDb = {
+    async getMatchesForCompetition() {
+      return [
+        ...seasons.slice(0, 4).map((season) => ({
+          match_id: `rennes-lille-${season}`,
+          date: `${season}-08-20`,
+          home_team_name: 'Rennes',
+          away_team_name: 'Lille',
+        })),
+        { match_id: 'stale-psg-rennes', date: '2026-08-23', home_team_name: 'Paris Saint Germain', away_team_name: 'Rennes' },
+        { match_id: 'marseille-strasbourg', date: '2026-08-21', home_team_name: 'Marseille', away_team_name: 'Strasbourg' },
+      ];
+    },
+    async fillSupplementalStats(matchId) {
+      if (matchId === 'marseille-strasbourg') throw new Error('database unavailable');
+      return true;
+    },
+    async saveMarketOdds() { return true; },
+  };
+  const fetcher = async (_league, code) => code === '2627'
+    ? [
+      'Div,Date,HomeTeam,AwayTeam,FTHG,FTAG',
+      'F1,23/08/2026,Rennes,Paris SG,0,0',
+      'F1,21/08/2026,Marseille,Strasbourg,4,0',
+    ].join('\n')
+    : ['Div,Date,HomeTeam,AwayTeam,FTHG,FTAG', `F1,20/08/20${code.slice(0, 2)},Rennes,Lille,1,0`].join('\n');
+
+  const summary = await syncFootballData(fakeDb, {
+    competitions: ['Ligue 1'], seasonStartYears: seasons, fetcher,
+    now: new Date('2026-08-25T12:00:00Z'),
+  });
+  assert.equal(summary.pending, 0);
+  assert.equal(summary.allExpectedSeasonsReady, false);
+  assert.equal(summary.perSeason['Ligue 1 2026/2027'].status, 'failed');
+  assert.match(summary.errors[0].error, /database unavailable/i);
 });
 
 test('syncFootballData non dichiara completa una stagione con una riga intermedia non abbinata', async () => {

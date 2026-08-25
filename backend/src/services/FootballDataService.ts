@@ -76,6 +76,7 @@ const TEAM_ALIASES: Record<string, string> = {
   athbilbao: 'athleticclub', athmadrid: 'atleticomadrid', celta: 'celtavigo',
   espanol: 'espanyol', oviedo: 'realoviedo', sociedad: 'realsociedad',
   valladolid: 'realvalladolid', vallecano: 'rayovallecano', betis: 'realbetis',
+  santander: 'racingsantander', lacoruna: 'deportivolacoruna',
   // Bundesliga
   leverkusen: 'bayerleverkusen', dortmund: 'borussiadortmund', mgladbach: 'borussiamgladbach',
   einfrankfurt: 'eintrachtfrankfurt', fckoln: 'fccologne', heidenheim: 'fcheidenheim',
@@ -362,6 +363,7 @@ export interface FootballDataSyncOptions {
   competitions?: string[];
   seasonStartYears?: number[]; // es. [2024, 2025]
   fetcher?: FootballDataFetcher;
+  now?: Date;
 }
 
 export interface LowerDivisionTeamSeasonWrite {
@@ -644,6 +646,10 @@ export async function syncTransitionSeasonReferences(
 export interface FootballDataSyncSummary {
   requested: number;
   completed: number;
+  pending: number;
+  allExpectedSeasonsComplete: boolean;
+  allExpectedSeasonsReady: boolean;
+  pendingSeasonPairs: Array<{ key: string; reason: string }>;
   csvRows: number;
   matched: number;
   updated: number;
@@ -654,7 +660,7 @@ export interface FootballDataSyncSummary {
     csvRows: number; matched: number; updated: number; oddsWritten: number; dateToleranceMatched: number;
   }>;
   perSeason: Record<string, {
-    status: 'complete' | 'failed';
+    status: 'complete' | 'pending' | 'failed';
     csvRows: number;
     matched: number;
     updated: number;
@@ -663,9 +669,55 @@ export interface FootballDataSyncSummary {
     sourceLatestDate: string | null;
     matchedLatestDate: string | null;
     error: string | null;
+    pendingReason?: string | null;
   }>;
   errors: Array<{ competition: string; season: number; error: string }>;
 }
+
+const romeCalendarDate = (now: Date): string => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+};
+
+const expectedFootballDataPendingReason = (params: {
+  competition: string;
+  seasonStart: number;
+  rows: FootballDataRow[];
+  unmatchedRows: FootballDataRow[];
+  matched: number;
+  error: string;
+  now: Date;
+}): string | null => {
+  const { competition, seasonStart, rows, unmatchedRows, matched, error, now } = params;
+  if (romeCalendarDate(now) >= '2026-08-28' || seasonStart !== 2026) return null;
+
+  if (competition === 'Bundesliga'
+    && rows.length === 0
+    && /CSV non disponibile/i.test(error)) {
+    return 'stagione corrente non ancora pubblicata dalla fonte prima del via ufficiale';
+  }
+
+  if (competition === 'Ligue 1'
+    && matched === rows.length - 1
+    && unmatchedRows.length === 1
+    && error === `Copertura CSV incompleta: ${matched}/${rows.length} partite abbinate`) {
+    const [row] = unmatchedRows;
+    // La LFP ha invertito ufficialmente PSG-Rennes il 19/08/2026, dopo la
+    // pubblicazione del calendario iniziale. Understat espone ancora la vecchia
+    // identita della gara: non associare mai le statistiche a casa/trasferta
+    // invertite. La quarantena scade il 28/08 e torna quindi fail-closed.
+    // https://ligue1.com/fr/articles/l1_article_5699-j1-psg-rennes-inverse-l1-2627
+    if (row.date === '2026-08-23'
+      && canonicalTeamName(row.homeTeam) === 'rennes'
+      && canonicalTeamName(row.awayTeam) === 'parissaintgermain') {
+      return 'inversione ufficiale Rennes-PSG in quarantena in attesa del riallineamento Understat';
+    }
+  }
+  return null;
+};
 
 /**
  * Estrae le quote di mercato (apertura+chiusura) da una riga CSV nel formato del
@@ -698,10 +750,13 @@ export async function syncFootballData(
   const competitions = options.competitions ?? Object.keys(FOOTBALL_DATA_LEAGUE_CODES);
   const seasons = options.seasonStartYears ?? [2024, 2025];
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
+  const now = options.now ?? new Date();
 
   const summary: FootballDataSyncSummary = {
-    requested: 0, completed: 0, csvRows: 0, matched: 0, updated: 0,
-    oddsWritten: 0, dateToleranceMatched: 0, unmatchedTeams: [], perCompetition: {}, perSeason: {}, errors: [],
+    requested: 0, completed: 0, pending: 0,
+    allExpectedSeasonsComplete: false, allExpectedSeasonsReady: false, pendingSeasonPairs: [],
+    csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, dateToleranceMatched: 0,
+    unmatchedTeams: [], perCompetition: {}, perSeason: {}, errors: [],
   };
   const unmatched = new Set<string>();
 
@@ -732,6 +787,7 @@ export async function syncFootballData(
       let oddsWritten = 0;
       let dateToleranceMatched = 0;
       let matchedLatestDate: string | null = null;
+      const unmatchedRows: FootballDataRow[] = [];
       try {
         const csv = await fetcher(leagueCode, seasonToFootballDataCode(seasonStart));
         if (!csv) throw new Error('CSV non disponibile');
@@ -754,6 +810,22 @@ export async function syncFootballData(
             }
           }
           if (!hit) {
+            const pairKey = `${canonicalTeamName(row.homeTeam)}|${canonicalTeamName(row.awayTeam)}`;
+            const seasonStartDate = Date.parse(`${seasonStart}-07-01T00:00:00Z`);
+            const nextSeasonStartDate = Date.parse(`${seasonStart + 1}-07-01T00:00:00Z`);
+            const candidates = (byTeamPair.get(pairKey) ?? []).filter((candidate) => {
+              const candidateTimestamp = Date.parse(`${String(candidate.date).slice(0, 10)}T00:00:00Z`);
+              return Number.isFinite(candidateTimestamp)
+                && candidateTimestamp >= seasonStartDate
+                && candidateTimestamp < nextSeasonStartDate;
+            });
+            if (candidates.length === 1) {
+              [hit] = candidates;
+              dateToleranceMatched += 1;
+            }
+          }
+          if (!hit) {
+            unmatchedRows.push(row);
             if (!dbTeams.has(canonicalTeamName(row.homeTeam))) unmatched.add(row.homeTeam);
             if (!dbTeams.has(canonicalTeamName(row.awayTeam))) unmatched.add(row.awayTeam);
             continue;
@@ -795,11 +867,26 @@ export async function syncFootballData(
           (latest, row) => !latest || row.date > latest ? row.date : latest,
           null,
         );
-        summary.errors.push({ competition, season: seasonStart, error: message });
-        summary.perSeason[seasonKey] = {
-          status: 'failed', csvRows: rows.length, matched, updated, oddsWritten, dateToleranceMatched,
-          sourceLatestDate, matchedLatestDate, error: message,
-        };
+        const pendingReason = expectedFootballDataPendingReason({
+          competition, seasonStart, rows, unmatchedRows, matched, error: message, now,
+        });
+        const previousFourComplete = [1, 2, 3, 4].every((yearsBack) =>
+          summary.perSeason[`${competition} ${seasonLabel(seasonStart - yearsBack)}`]?.status === 'complete'
+        );
+        if (pendingReason && previousFourComplete) {
+          summary.pending += 1;
+          summary.pendingSeasonPairs.push({ key: seasonKey, reason: pendingReason });
+          summary.perSeason[seasonKey] = {
+            status: 'pending', csvRows: rows.length, matched, updated, oddsWritten, dateToleranceMatched,
+            sourceLatestDate, matchedLatestDate, error: null, pendingReason,
+          };
+        } else {
+          summary.errors.push({ competition, season: seasonStart, error: message });
+          summary.perSeason[seasonKey] = {
+            status: 'failed', csvRows: rows.length, matched, updated, oddsWritten, dateToleranceMatched,
+            sourceLatestDate, matchedLatestDate, error: message, pendingReason: null,
+          };
+        }
       }
     }
     summary.perCompetition[competition] = perComp;
@@ -810,6 +897,9 @@ export async function syncFootballData(
     summary.dateToleranceMatched += perComp.dateToleranceMatched;
   }
   summary.unmatchedTeams = [...unmatched].sort();
+  summary.allExpectedSeasonsComplete = summary.completed === summary.requested && summary.errors.length === 0;
+  summary.allExpectedSeasonsReady = summary.completed + summary.pending === summary.requested
+    && summary.errors.length === 0;
   return summary;
 }
 

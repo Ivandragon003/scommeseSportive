@@ -217,3 +217,13 @@ test('lo script nightly tratta football-data e transizioni come gate obbligatori
   assert.ok(failureGate > nightly.indexOf('/api/competition-transitions/sync-references'));
   assert.ok(failureGate < nightly.indexOf('/api/automation/place-valid-bets'));
 });
+
+test('la route football-data accetta solo stagioni complete o pending espliciti', () => {
+  const routes = read('backend', 'src', 'api', 'routes.ts');
+  const block = routes.slice(
+    routes.indexOf("router.post('/scraper/football-data'"),
+    routes.indexOf('// ====== PREDICT ======'),
+  );
+  assert.match(block, /sync\.allExpectedSeasonsReady/);
+  assert.doesNotMatch(block, /sync\.completed !== sync\.requested/);
+});
