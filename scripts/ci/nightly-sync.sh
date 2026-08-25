@@ -15,10 +15,14 @@ ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 # SofaScore RIMOSSO: falli/corner/tiri/cartellini/arbitro ora da football-data.co.uk
 # (fonte HTTP/CSV stabile, vedi step piu' sotto).
-FOOTBALL_DATA_TIMEOUT_SECONDS="${FOOTBALL_DATA_TIMEOUT_SECONDS:-900}"
-UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-4200}"
-LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-1800}"
-ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-1800}"
+UNDERSTAT_SYNC_TIMEOUT_SECONDS="${UNDERSTAT_SYNC_TIMEOUT_SECONDS:-3600}"
+FOOTBALL_DATA_TIMEOUT_SECONDS="${FOOTBALL_DATA_TIMEOUT_SECONDS:-2400}"
+TRANSITION_REFERENCE_TIMEOUT_SECONDS="${TRANSITION_REFERENCE_TIMEOUT_SECONDS:-600}"
+API_FOOTBALL_TIMEOUT_SECONDS="${API_FOOTBALL_TIMEOUT_SECONDS:-120}"
+PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS="${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"
+ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-300}"
+AUTO_BET_TIMEOUT_SECONDS="${AUTO_BET_TIMEOUT_SECONDS:-900}"
+LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
 
@@ -165,7 +169,7 @@ echo "Saving local last-five lineup predictions; API-Football enrichment is opti
 post_json \
   "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
   '{"windowHours":24}' \
-  "${API_FOOTBALL_TIMEOUT_SECONDS:-120}" || \
+  "$API_FOOTBALL_TIMEOUT_SECONDS" || \
   echo "Warning: lineup sync failed; the on-demand local fallback remains available."
 
 if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
@@ -173,7 +177,7 @@ if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
   if ! post_json \
     "http://127.0.0.1:$PORT/api/competition-transitions/sync-references" \
     "{}" \
-    "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
+    "$TRANSITION_REFERENCE_TIMEOUT_SECONDS"; then
     REQUIRED_SYNC_FAILURES+=("second-division-references")
     echo "Required gate failed: second-division references. Continuing with independent data gates."
   fi
@@ -188,7 +192,7 @@ echo "Settling the complete technical prediction audit for completed matches..."
 if ! post_json \
   "http://127.0.0.1:$PORT/api/predictions/settle-completed" \
   "{\"limit\":${PREDICTIONS_SETTLEMENT_MATCH_LIMIT:-25}}" \
-  "${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"; then
+  "$PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS"; then
   echo "Warning: prediction settlement batch timed out/failed; continuing with the remaining nightly jobs."
 fi
 
@@ -223,7 +227,7 @@ echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOU
 post_json \
   "http://127.0.0.1:$PORT/api/automation/place-valid-bets" \
   "{\"userId\":\"${AUTO_BET_USER_ID:-user1}\",\"windowHours\":${AUTO_BET_WINDOW_HOURS:-24},\"maxMatches\":${AUTO_BET_MAX_MATCHES:-100}}" \
-  "${AUTO_BET_TIMEOUT_SECONDS:-3600}"
+  "$AUTO_BET_TIMEOUT_SECONDS"
 
 echo "Running learning review sync..."
 post_json \
