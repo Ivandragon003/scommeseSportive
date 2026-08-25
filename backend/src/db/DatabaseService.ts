@@ -1325,7 +1325,7 @@ export class DatabaseService {
            red_cards_for, red_cards_against, referee, source_provider, source_reference,
            raw_json, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-          ON CONFLICT(history_id) DO UPDATE SET
+          ON CONFLICT DO UPDATE SET
             goals_for=excluded.goals_for, goals_against=excluded.goals_against,
             shots_for=excluded.shots_for, shots_against=excluded.shots_against,
             shots_on_target_for=excluded.shots_on_target_for,
@@ -1453,7 +1453,7 @@ export class DatabaseService {
          red_cards_for, red_cards_against, referee, source_provider, source_reference,
          raw_json, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(history_id) DO UPDATE SET
+      ON CONFLICT DO UPDATE SET
         goals_for=excluded.goals_for, goals_against=excluded.goals_against,
         shots_for=excluded.shots_for, shots_against=excluded.shots_against,
         shots_on_target_for=excluded.shots_on_target_for,

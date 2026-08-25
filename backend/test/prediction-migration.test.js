@@ -461,3 +461,44 @@ test('lo storico di serie inferiore usa batch idempotenti e un marker finale ver
   await db.close();
   removeDbFile(isolatedDbPath);
 });
+
+test('lo storico di serie inferiore resta idempotente se cambia la normalizzazione dell avversario', async () => {
+  const isolatedDbPath = uniqueDbPath('lower-division-natural-key');
+  process.env.TURSO_DATABASE_URL = `file:${isolatedDbPath}`;
+  const db = new DatabaseService();
+  await db.upsertTeam({ teamId: 'lower-team', name: 'Lower Team', competition: 'La Liga' });
+  const reference = {
+    sourceCompetitionId: 'segunda_division', sourceSeason: '2024/2025', teamsCount: 2,
+    meanPpg: 1.5, stdevPpg: 0.2, meanGoalDifferencePerMatch: 0,
+    stdevGoalDifferencePerMatch: 0.1, matchesPerTeam: 2, matchesObserved: 2,
+    matchesExpected: 2, coveragePercent: 100, identityCoveragePercent: 50,
+    coverageStatus: 'complete', sourceProvider: 'football-data.co.uk',
+    sourceReference: 'https://example.test/2425/SP2.csv',
+  };
+  const baseMatch = {
+    teamId: 'lower-team', sourceCompetitionId: 'segunda_division', sourceSeason: '2024/2025',
+    playedAt: '2024-08-01', venue: 'home', opponentName: 'Santander',
+    goalsFor: 2, goalsAgainst: 0, shotsFor: 10, shotsAgainst: 4,
+    shotsOnTargetFor: 5, shotsOnTargetAgainst: 1, foulsFor: 8, foulsAgainst: 10,
+    cornersFor: 6, cornersAgainst: 2, yellowCardsFor: 1, yellowCardsAgainst: 2,
+    redCardsFor: 0, redCardsAgainst: 0, referee: 'Rossi',
+    sourceProvider: reference.sourceProvider, sourceReference: reference.sourceReference,
+    rawJson: '{}',
+  };
+
+  await db.upsertLowerDivisionHistoryBatch({
+    reference, teamSeasons: [], transitions: [],
+    teamMatches: [{ ...baseMatch, historyId: 'fd:old-santander-alias' }],
+  });
+  await db.upsertLowerDivisionHistoryBatch({
+    reference, teamSeasons: [], transitions: [],
+    teamMatches: [{ ...baseMatch, historyId: 'fd:new-racing-santander-alias', goalsFor: 3 }],
+  });
+
+  const rows = await db.execute(`SELECT history_id, goals_for
+    FROM lower_division_team_matches
+    WHERE team_id = 'lower-team' AND source_season = '2024/2025'`);
+  assert.deepEqual(rows.rows, [{ history_id: 'fd:old-santander-alias', goals_for: 3 }]);
+  await db.close();
+  removeDbFile(isolatedDbPath);
+});
