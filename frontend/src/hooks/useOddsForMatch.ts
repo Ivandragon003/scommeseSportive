@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { getOddsForMatch, getPrediction } from '../utils/api';
+import { getOddsForMatch, getPrediction, refreshPlayerAvailability } from '../utils/api';
 import { sanitizePredictionForBookmakerOdds } from '../components/predictions/predictionWorkbenchUtils';
 
 interface FetchPredictionWithOddsInput {
@@ -102,6 +102,10 @@ export function useOddsForMatch() {
       && !usedFallbackProvider
       && Boolean(selectedBookmakerName);
 
+    // Close to kickoff this replaces the predicted XI with the official one
+    // before player props are evaluated. Outside that window the endpoint is
+    // a cheap no-op; provider errors do not block the team prediction.
+    await Promise.resolve(refreshPlayerAvailability(resolvedMatchId)).catch(() => undefined);
     const predictionResponse = await getPrediction({
       homeTeamId: homeId,
       awayTeamId: awayId,

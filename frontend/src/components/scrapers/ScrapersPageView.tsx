@@ -139,11 +139,6 @@ const formatFreshness = (minutes: number | null | undefined) => {
   return `${(minutes / 1440).toFixed(1)} gg`;
 };
 
-const getSeasonStartYears = (count: number, now = new Date()) => {
-  const currentStart = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
-  return Array.from({ length: Math.max(1, count) }, (_, index) => currentStart - index);
-};
-
 const getPipelineTone = (status: 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'unknown') => {
   if (status === 'healthy') return 'fp-badge-green';
   if (status === 'degraded') return 'fp-badge-gold';
@@ -177,7 +172,7 @@ export default function ScrapersPageView() {
   } = useScrapersStatus();
 
   const [competition, setCompetition] = useState('Serie A');
-  const [yearsBack, setYearsBack] = useState(1);
+  const yearsBack = 5;
   const [includeMatchDetails, setIncludeMatchDetails] = useState(true);
   const [importPlayers, setImportPlayers] = useState(true);
   const [forceRefresh, setForceRefresh] = useState(false);
@@ -235,9 +230,6 @@ export default function ScrapersPageView() {
     try {
       const result = await runFootballDataSync({
         competitions: [competition],
-        seasonStartYears: getSeasonStartYears(yearsBack),
-        keepSeasons: 4,
-        prune: true,
         recomputeAverages: true,
       });
       setFootballDataResult(result);
@@ -502,19 +494,12 @@ export default function ScrapersPageView() {
               </div>
 
               <div style={{ marginBottom: 24 }}>
-                <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Stagioni da scaricare</label>
-                <div className="sc-year-grid">
-                  {[1, 2, 3, 4, 5, 6].map((value) => (
-                    <button
-                      key={value}
-                      className={`sc-year${yearsBack === value ? ' on' : ''}`}
-                      onClick={() => setYearsBack(value)}
-                      aria-pressed={yearsBack === value}
-                    >
-                      <span className="sc-year-num">{value}</span>
-                      <span className="sc-year-lbl">{value === 6 ? 'fino a 5 anni fa' : value === 1 ? 'stagione' : 'stagioni'}</span>
-                    </button>
-                  ))}
+                <label className="fp-label" style={{ display: 'block', marginBottom: 10 }}>Finestra dati</label>
+                <div className="sc-year-grid" aria-label="Finestra mobile fissa di cinque stagioni">
+                  <div className="sc-year on" style={{ cursor: 'default' }}>
+                    <span className="sc-year-num">5</span>
+                    <span className="sc-year-lbl">stagioni, finestra mobile</span>
+                  </div>
                 </div>
               </div>
 
