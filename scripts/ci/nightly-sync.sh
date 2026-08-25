@@ -48,6 +48,7 @@ post_json() {
   local timeout_seconds="$3"
   if ! curl --silent --show-error --fail-with-body --max-time "$timeout_seconds" \
     -X POST "$url" \
+    -H "Origin: http://127.0.0.1:$PORT" \
     -H "Content-Type: application/json" \
     --data "$body"; then
     echo "Request failed: $url"
@@ -114,6 +115,7 @@ cd "$BACKEND_DIR"
 echo "Starting backend for CI sync..."
 NODE_ENV=ci \
 SHARED_ADMIN_AUTH_ENABLED=false \
+CORS_ORIGIN="http://127.0.0.1:$PORT" \
 PORT="$PORT" \
 AUTO_SYNC_ON_BOOT=false \
 UNDERSTAT_SCHEDULER_ENABLED=false \
