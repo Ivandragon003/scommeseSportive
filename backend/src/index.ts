@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import { randomBytes } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
 import { DatabaseService } from './db/DatabaseService';
@@ -12,11 +13,30 @@ import {
 import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoordinator';
 import { PredictionService } from './services/PredictionService';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
+import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
 
 const app = express();
 const db = new DatabaseService();
 const svc = new PredictionService(db);
 const observability = new SystemObservabilityService(db);
+const configuredCorsOrigins = String(process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = new Set([
+  'http://localhost:3000',
+  'https://localhost',
+  'https://scommese-sportive-frontend.hostless.site',
+  ...configuredCorsOrigins,
+]);
+const sharedAdminConfig = loadSharedAdminAuthConfig();
+const internalAdminToken = randomBytes(32).toString('base64url');
+const sharedAdminAuth = createSharedAdminAuth({
+  ...sharedAdminConfig,
+  sessionStore: db,
+  internalAccessToken: internalAdminToken,
+  allowedOrigins: allowedCorsOrigins,
+});
 const PORT = Number(process.env.PORT ?? 3001);
 const AUTO_SYNC_ON_BOOT =
   String(process.env.AUTO_SYNC_ON_BOOT ?? 'true').trim().toLowerCase() !== 'false';
@@ -210,16 +230,6 @@ const logOddsRuntimeConfig = (): void => {
   });
 };
 
-const configuredCorsOrigins = String(process.env.CORS_ORIGIN ?? '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const allowedCorsOrigins = new Set([
-  'http://localhost:3000',
-  'https://scommese-sportive-frontend.hostless.site',
-  ...configuredCorsOrigins,
-]);
-
 app.use(cors({
   origin: (origin, callback) => {
     // Le richieste server-to-server non hanno Origin e devono restare consentite.
@@ -229,9 +239,14 @@ app.use(cors({
     }
     callback(new Error(`CORS origin non autorizzata: ${origin}`));
   },
+  credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+if (String(process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production') {
+  app.set('trust proxy', 1);
+}
 
 app.use((req, res, next) => {
   const requestId = String(req.headers['x-request-id'] ?? '').trim() || uuidv4();
@@ -260,7 +275,24 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/api', createApiRouter({ db, svc, observability }));
+app.get('/api/health', (_req, res) => res.json({ success: true, status: 'ok', version: '2.0' }));
+app.use('/api', sharedAdminAuth.publicRouter);
+app.use('/api', (req, res, next) => {
+  // The automation endpoint has its own dedicated token check and is also
+  // invoked by an external scheduled workflow, so it does not use the browser session.
+  if (req.path === '/automation/place-valid-bets') {
+    next();
+    return;
+  }
+  void sharedAdminAuth.requireAdmin(req, res, next);
+});
+app.use('/api', createApiRouter({
+  db,
+  svc,
+  observability,
+  sharedDataUserId: sharedAdminConfig.sharedDataUserId,
+  internalAccessToken: internalAdminToken,
+}));
 
 const getSchedulerSnapshot = () => ({
   understat: understatSchedulerState,
@@ -372,7 +404,10 @@ async function runBootDataSync(): Promise<void> {
       try {
         const response = await fetch(`http://127.0.0.1:${PORT}/api/scraper/understat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-admin-token': internalAdminToken,
+          },
           body: JSON.stringify({
             mode: 'top5',
             yearsBack: 1,
@@ -467,7 +502,10 @@ async function runBootDataSync(): Promise<void> {
 async function postInternal(path: string, body: Record<string, unknown>): Promise<{ response: Response; payload: any }> {
   const response = await fetch(`http://localhost:${PORT}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-internal-admin-token': internalAdminToken,
+    },
     body: JSON.stringify(body),
   });
   const payload: any = await response.json().catch(() => ({}));

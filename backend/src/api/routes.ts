@@ -60,6 +60,9 @@ export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
   observability?: SystemObservabilityService;
+  sharedDataUserId?: string;
+  internalAccessToken?: string;
+  getInternalApiBaseUrl?: () => string;
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
   createOddsApiKickoffSyncService?: (db: DatabaseService) => Pick<
     OddsApiKickoffSyncService,
@@ -239,6 +242,18 @@ export const shouldRebuildUnderstatPlayers = (
   batchError?: unknown
 ): boolean => !batchError && committedWrites.some((write) => write.isPlayed);
 
+export const resolveInternalApiBaseUrl = (configuredValue?: string): string => {
+  const candidate = String(
+    configuredValue ?? `http://127.0.0.1:${process.env.PORT ?? 3001}/api`,
+  ).replace(/\/$/, '');
+  const parsed = new URL(candidate);
+  const loopbackHost = parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]';
+  if (parsed.protocol !== 'http:' || !loopbackHost || parsed.username || parsed.password) {
+    throw new Error('Internal API base URL must use loopback HTTP.');
+  }
+  return parsed.toString().replace(/\/$/, '');
+};
+
 export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
@@ -248,6 +263,7 @@ const createOddsBundle = deps.createOddsProviderCoordinatorBundle ?? createOddsP
 const createKickoffSyncService = deps.createOddsApiKickoffSyncService
   ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
 const heavyJobService = deps.heavyJobService ?? new HeavyJobService();
+const sharedDataUserId = String(deps.sharedDataUserId ?? process.env.SHARED_DATA_USER_ID ?? 'user1').trim() || 'user1';
 
 const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
   const timeoutMs = getBacktestRouteTimeoutMs();
@@ -889,8 +905,7 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
 // ====== BUDGET & BETS ======
 router.get('/budget/:userId', async (req: Request, res: Response) => {
   try {
-    await svc.syncPendingBets(req.params.userId);
-    res.json({ success: true, data: await svc.getBudget(req.params.userId) });
+    res.json({ success: true, data: await svc.getBudget(sharedDataUserId) });
   }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -899,13 +914,13 @@ router.post('/budget/:userId/init', async (req: Request, res: Response) => {
   try {
     const amount = parseFloat(req.body.amount);
     if (isNaN(amount) || amount <= 0) return res.status(400).json({ success: false, error: 'Importo non valido' });
-    return res.json({ success: true, data: await svc.initBudget(req.params.userId, amount) });
+    return res.json({ success: true, data: await svc.initBudget(sharedDataUserId, amount) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); }
 });
 
 router.get('/budget/:userId/sessions', async (req: Request, res: Response) => {
   try {
-    res.json({ success: true, data: await svc.getBudgetSessions(req.params.userId) });
+    res.json({ success: true, data: await svc.getBudgetSessions(sharedDataUserId) });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -914,7 +929,7 @@ router.get('/budget/:userId/sessions', async (req: Request, res: Response) => {
 router.post('/bets/place', async (req: Request, res: Response) => {
   try {
     const {
-      userId,
+      userId: _requestedUserId,
       matchId,
       marketName,
       selection,
@@ -930,7 +945,7 @@ router.post('/bets/place', async (req: Request, res: Response) => {
     } = req.body;
 
     const result = await svc.placeBet(
-      userId,
+      sharedDataUserId,
       matchId,
       marketName,
       selection,
@@ -946,15 +961,26 @@ router.post('/bets/place', async (req: Request, res: Response) => {
 
 router.post('/bets/:betId/settle', async (req: Request, res: Response) => {
   try {
+    const bet = await db.getBet(req.params.betId);
+    if (!bet || String(bet.user_id ?? '') !== sharedDataUserId) {
+      return res.status(404).json({ success: false, error: 'Giocata non trovata.' });
+    }
     const result = await svc.settleBet(req.params.betId, req.body.won, req.body.returnAmount);
-    res.json({ success: true, data: result });
-  } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
+    return res.json({ success: true, data: result });
+  } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); }
+});
+
+router.post('/bets/sync', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, data: await svc.syncPendingBets(sharedDataUserId) });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 router.get('/bets/:userId', async (req: Request, res: Response) => {
   try {
-    await svc.syncPendingBets(req.params.userId);
-    res.json({ success: true, data: await svc.getBets(req.params.userId, req.query.status as string) });
+    res.json({ success: true, data: await svc.getBets(sharedDataUserId, req.query.status as string) });
   }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -964,6 +990,7 @@ router.get('/predictions/archive', async (req: Request, res: Response) => {
     const data = await db.getPredictionArchive({
       status: req.query.status as string,
       matchId: req.query.matchId as string,
+      userId: sharedDataUserId,
       limit: Number(req.query.limit ?? 200),
     });
     return res.json({ success: true, data });
@@ -979,6 +1006,7 @@ router.get('/bet-opportunities/archive', async (req: Request, res: Response) => 
       classification: req.query.classification as string,
       result: req.query.result as string,
       matchId: req.query.matchId as string,
+      userId: sharedDataUserId,
       limit: Number(req.query.limit ?? 200),
     });
     return res.json({ success: true, data });
@@ -996,7 +1024,11 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
   const suppliedToken = String(req.header('x-automation-token') ?? '').trim();
   const remoteAddress = String(req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
   const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1';
-  if ((configuredToken && suppliedToken !== configuredToken) || (!configuredToken && !isLoopback)) {
+  const isProduction = String(process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production';
+  if (
+    (configuredToken && suppliedToken !== configuredToken)
+    || (!configuredToken && (isProduction || !isLoopback))
+  ) {
     return res.status(401).json({ success: false, error: 'Automazione non autorizzata.' });
   }
 
@@ -1007,7 +1039,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
     return res.status(409).json({ success: false, error: 'AUTO_BET_ENABLED=false: automazione disattivata.' });
   }
 
-  const userId = String(req.body?.userId ?? process.env.AUTO_BET_USER_ID ?? 'user1').trim() || 'user1';
+  const userId = sharedDataUserId;
   const windowHoursRaw = Number(req.body?.windowHours ?? process.env.AUTO_BET_WINDOW_HOURS ?? 24);
   const windowHours = Number.isFinite(windowHoursRaw) ? Math.max(1, Math.min(windowHoursRaw, 48)) : 24;
   const maxMatchesRaw = Number(req.body?.maxMatches ?? process.env.AUTO_BET_MAX_MATCHES ?? 100);
@@ -1024,7 +1056,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
     : 3;
   const maxSnapshotAgeHoursRaw = Number(process.env.AUTO_BET_MAX_SNAPSHOT_AGE_HOURS ?? 36);
   const maxSnapshotAgeHours = Number.isFinite(maxSnapshotAgeHoursRaw) ? Math.max(1, Math.min(maxSnapshotAgeHoursRaw, 168)) : 36;
-  const apiBase = String(req.body?.apiBase ?? `http://127.0.0.1:${process.env.PORT ?? 3001}/api`).replace(/\/$/, '');
+  const apiBase = resolveInternalApiBaseUrl(deps.getInternalApiBaseUrl?.());
   const now = new Date();
   const until = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
   const matches = await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: until.toISOString(), limit: maxMatches });
@@ -1035,7 +1067,10 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
   const callApi = async (path: string, body: any) => {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(deps.internalAccessToken ? { 'x-internal-admin-token': deps.internalAccessToken } : {}),
+      },
       body: JSON.stringify(body),
     });
     const payload = await response.json().catch(() => ({}));
@@ -1608,7 +1643,7 @@ router.get('/competition-transitions', async (_req: Request, res: Response) => {
 router.get('/analytics/system', async (req: Request, res: Response) => {
   try {
     const competition = String(req.query.competition ?? '').trim() || undefined;
-    const userId = String(req.query.userId ?? '').trim() || 'default';
+    const userId = sharedDataUserId;
     const [overview, oddsArchive, userClv, learningLoop, adaptiveTuning] = await Promise.all([
       buildStatsOverviewPayload(),
       db.getOddsArchiveStats({ competition }),

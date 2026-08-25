@@ -3307,40 +3307,16 @@ export class PredictionService {
     );
   }
 
-  private async recomputeBudgetFromBets(userId: string): Promise<any | null> {
-    const budget = await this.db.getBudget(userId);
-    if (!budget) return null;
-
-    const allBets = await this.db.getBets(userId);
-    const summary = summarizeBudgetBetsInternal(allBets);
-    const availableBudget = Number(budget.total_budget ?? 0) - summary.totalStaked + summary.totalReturned;
-
-    await this.db.updateBudget({
-      userId,
-      totalBudget: Number(budget.total_budget ?? 0),
-      availableBudget: Number(availableBudget.toFixed(2)),
-      totalBets: summary.totalBets,
-      totalStaked: Number(summary.totalStaked.toFixed(2)),
-      totalWon: Number(summary.totalWon.toFixed(2)),
-      totalLost: Number(summary.totalLost.toFixed(2)),
-      roi: Number(summary.roi.toFixed(2)),
-      winRate: Number(summary.winRate.toFixed(2)),
-    });
-
-    return this.db.getBudget(userId);
-  }
-
   private async settleBetInternal(
     betId: string,
     status: 'WON' | 'LOST' | 'VOID',
     returnAmount?: number,
-    notes?: string,
-    recomputeBudget = true
+    notes?: string
   ) {
     const betRow = await this.db.getBet(betId);
     if (!betRow) throw new Error('Scommessa non trovata');
     if (betRow.status !== 'PENDING') {
-      return { bet: betRow, budget: await this.db.getBudget(betRow.user_id) };
+      return { settled: false, bet: betRow, budget: await this.db.getBudget(betRow.user_id) };
     }
 
     const baseReturn =
@@ -3352,29 +3328,16 @@ export class PredictionService {
     const actualReturn = Number.isFinite(baseReturn) ? baseReturn : 0;
     const profit = actualReturn - Number(betRow.stake ?? 0);
 
-    await this.db.saveBet({
-      ...betRow,
+    const settlement = await this.db.settlePendingBetAtomically({
       betId: betRow.bet_id,
       userId: betRow.user_id,
-      matchId: betRow.match_id,
-      homeTeamName: betRow.home_team_name ?? null,
-      awayTeamName: betRow.away_team_name ?? null,
-      competition: betRow.competition ?? null,
-      matchDate: betRow.match_date ?? null,
-      marketName: betRow.market_name,
-      selection: betRow.selection,
-      ourProbability: betRow.our_probability,
-      expectedValue: betRow.expected_value,
-      placedAt: betRow.placed_at,
       status,
       returnAmount: Number(actualReturn.toFixed(2)),
       profit: Number(profit.toFixed(2)),
-      settledAt: new Date(),
+      settledAt: new Date().toISOString(),
       notes: notes ?? betRow.notes ?? null,
     });
-
-    const updatedBudget = recomputeBudget ? await this.recomputeBudgetFromBets(String(betRow.user_id)) : null;
-    return { bet: await this.db.getBet(betId), budget: updatedBudget };
+    return settlement;
   }
 
   async syncPendingBets(userId: string) {
@@ -3404,17 +3367,16 @@ export class PredictionService {
             ? Number(bet.stake ?? 0)
             : 0;
 
-      await this.settleBetInternal(
+      const settlement = await this.settleBetInternal(
         String(bet.bet_id),
         decision.status,
         returnAmount,
-        `Auto-settle (${decision.reason})`,
-        false
+        `Auto-settle (${decision.reason})`
       );
-      settled++;
+      if (settlement.settled) settled++;
     }
 
-    const budget = settled > 0 ? await this.recomputeBudgetFromBets(userId) : await this.db.getBudget(userId);
+    const budget = await this.db.getBudget(userId);
     return { settled, unresolved, budget };
   }
 
@@ -3435,24 +3397,6 @@ export class PredictionService {
     if (!Number.isFinite(Number(odds)) || Number(odds) <= 1) throw new Error('Quota non valida');
 
     await this.syncPendingBets(userId);
-    const budget = await this.db.getBudget(userId);
-    if (!budget) throw new Error('Budget non trovato');
-    if (normalizedStake > Number(budget.available_budget ?? 0)) {
-      throw new Error(`Budget insufficiente: EUR ${Number(budget.available_budget ?? 0).toFixed(2)} disponibili`);
-    }
-
-    const allBets = await this.db.getBets(userId);
-    const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
-    const duplicate = allBets.find(
-      (b: any) =>
-        norm(b.match_id) === norm(matchId) &&
-        norm(b.selection) === norm(selection) &&
-        norm(b.market_name) === norm(marketName)
-    );
-    if (duplicate) {
-      throw new Error('Scommessa gia fatta');
-    }
-
     const predictionId = meta?.predictionId ?? await this.db.findPredictionForBet(matchId, marketName, selection);
     const bet = {
       betId: uuidv4(),
@@ -3475,14 +3419,19 @@ export class PredictionService {
       predictionId,
     };
 
-    await this.db.saveBet(bet);
-    const newBudget = await this.recomputeBudgetFromBets(userId);
+    const placement = await this.db.placeBetAtomically(bet);
+    if ('reason' in placement) {
+      if (placement.reason === 'duplicate') throw new Error('Scommessa gia fatta');
+      if (placement.availableBudget === null) throw new Error('Budget non trovato');
+      throw new Error(`Budget insufficiente: EUR ${placement.availableBudget.toFixed(2)} disponibili`);
+    }
+    const newBudget = await this.db.getBudget(userId);
     return { bet, budget: newBudget };
   }
 
   async settleBet(betId: string, won: boolean, returnAmount?: number) {
     const status: 'WON' | 'LOST' = won ? 'WON' : 'LOST';
-    return this.settleBetInternal(betId, status, returnAmount, 'Settle manuale', true);
+    return this.settleBetInternal(betId, status, returnAmount, 'Settle manuale');
   }
 
   private async loadBacktestMatches(competition: string, season?: string): Promise<MatchData[]> {
