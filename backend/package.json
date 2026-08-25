@@ -14,7 +14,8 @@
     "test": "npm run build && node --test",
     "test:ci": "node --test",
     "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "auth:hash": "npm run build && node scripts/generate-shared-admin-password-hash.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

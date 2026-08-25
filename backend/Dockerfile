@@ -18,6 +18,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+ENV NODE_ENV=production
+
 COPY --from=builder /app/dist ./dist
 COPY migrations ./migrations
 

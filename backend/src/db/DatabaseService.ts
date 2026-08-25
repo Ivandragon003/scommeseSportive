@@ -477,6 +477,11 @@ export class DatabaseService {
         username TEXT NOT NULL UNIQUE,
         created_at TEXT DEFAULT (datetime('now'))
       )`,
+      `CREATE TABLE IF NOT EXISTS admin_sessions (
+        session_hash TEXT PRIMARY KEY,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
       `CREATE TABLE IF NOT EXISTS budgets (
         user_id TEXT PRIMARY KEY REFERENCES users(user_id),
         total_budget REAL NOT NULL DEFAULT 0,
@@ -643,6 +648,7 @@ export class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_bets_status ON bets(status)',
+      'CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)',
       'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_match_id ON odds_snapshots(match_id, captured_at)',
       'CREATE INDEX IF NOT EXISTS idx_odds_snapshots_lookup ON odds_snapshots(home_team_name, away_team_name, competition, commence_time)',
       'CREATE INDEX IF NOT EXISTS idx_learning_reviews_competition ON learning_reviews(competition, updated_at)',
@@ -3067,6 +3073,30 @@ export class DatabaseService {
 
   // ==================== BUDGET & BETS ====================
 
+  async createAdminSession(sessionHash: string, expiresAt: string): Promise<void> {
+    await this.run(
+      `INSERT INTO admin_sessions (session_hash, expires_at, created_at)
+       VALUES (?, ?, datetime('now'))`,
+      [sessionHash, expiresAt],
+    );
+  }
+
+  async getAdminSession(sessionHash: string): Promise<{ expiresAt: string } | null> {
+    const row = await this.get(
+      'SELECT expires_at FROM admin_sessions WHERE session_hash = ?',
+      [sessionHash],
+    );
+    return row ? { expiresAt: String(row.expires_at) } : null;
+  }
+
+  async deleteAdminSession(sessionHash: string): Promise<void> {
+    await this.run('DELETE FROM admin_sessions WHERE session_hash = ?', [sessionHash]);
+  }
+
+  async purgeExpiredAdminSessions(nowIso: string): Promise<void> {
+    await this.run('DELETE FROM admin_sessions WHERE expires_at <= ?', [nowIso]);
+  }
+
   async getBudget(userId: string): Promise<any | null> {
     return this.get(`
       SELECT b.*, s.session_id, s.initial_budget AS session_initial_budget,
@@ -3145,6 +3175,77 @@ export class DatabaseService {
     );
   }
 
+  private budgetRecomputeStatement(userId: string) {
+    return {
+      sql: `WITH summary AS (
+        SELECT
+          COUNT(*) AS total_bets,
+          COALESCE(SUM(stake), 0) AS total_staked,
+          COALESCE(SUM(CASE WHEN status = 'WON' THEN COALESCE(return_amount, 0) ELSE 0 END), 0) AS total_won,
+          COALESCE(SUM(CASE WHEN status = 'LOST' THEN stake ELSE 0 END), 0) AS total_lost,
+          COALESCE(SUM(CASE WHEN status IN ('WON', 'VOID') THEN COALESCE(return_amount, 0) ELSE 0 END), 0) AS total_returned,
+          COALESCE(SUM(CASE WHEN status IN ('WON', 'LOST', 'VOID') THEN COALESCE(profit, 0) ELSE 0 END), 0) AS total_profit,
+          COALESCE(SUM(CASE WHEN status IN ('WON', 'LOST', 'VOID') THEN stake ELSE 0 END), 0) AS settled_staked,
+          COALESCE(SUM(CASE WHEN status IN ('WON', 'LOST') THEN 1 ELSE 0 END), 0) AS settled_count,
+          COALESCE(SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END), 0) AS won_count
+        FROM bets
+        WHERE user_id = :userId
+          AND budget_session_id = (SELECT active_session_id FROM budgets WHERE user_id = :userId)
+      )
+      UPDATE budgets
+      SET available_budget = ROUND(total_budget - (SELECT total_staked FROM summary) + (SELECT total_returned FROM summary), 2),
+          total_bets = (SELECT total_bets FROM summary),
+          total_staked = ROUND((SELECT total_staked FROM summary), 2),
+          total_won = ROUND((SELECT total_won FROM summary), 2),
+          total_lost = ROUND((SELECT total_lost FROM summary), 2),
+          roi = CASE
+            WHEN (SELECT settled_staked FROM summary) > 0
+              THEN ROUND(((SELECT total_profit FROM summary) / (SELECT settled_staked FROM summary)) * 100, 2)
+            ELSE 0
+          END,
+          win_rate = CASE
+            WHEN (SELECT settled_count FROM summary) > 0
+              THEN ROUND((CAST((SELECT won_count FROM summary) AS REAL) / (SELECT settled_count FROM summary)) * 100, 2)
+            ELSE 0
+          END,
+          updated_at = datetime('now')
+      WHERE user_id = :userId`,
+      args: { userId },
+    };
+  }
+
+  async settlePendingBetAtomically(settlement: {
+    betId: string;
+    userId: string;
+    status: 'WON' | 'LOST' | 'VOID';
+    returnAmount: number;
+    profit: number;
+    settledAt: string;
+    notes: string | null;
+  }): Promise<{ settled: boolean; bet: any | null; budget: any | null }> {
+    const results = await this.db.batch([
+      {
+        sql: `UPDATE bets
+          SET status = :status,
+              return_amount = :returnAmount,
+              profit = :profit,
+              settled_at = :settledAt,
+              notes = :notes
+          WHERE bet_id = :betId
+            AND user_id = :userId
+            AND status = 'PENDING'`,
+        args: settlement,
+      },
+      this.budgetRecomputeStatement(settlement.userId),
+    ], 'write');
+
+    return {
+      settled: Number(results[0]?.rowsAffected ?? 0) > 0,
+      bet: await this.getBet(settlement.betId),
+      budget: await this.getBudget(settlement.userId),
+    };
+  }
+
   async saveBet(bet: any): Promise<void> {
     const activeBudget = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [bet.userId]);
     await this.run(
@@ -3185,6 +3286,96 @@ export class DatabaseService {
     );
   }
 
+  async placeBetAtomically(
+    bet: any,
+  ): Promise<{ placed: true } | { placed: false; reason: 'budget' | 'duplicate'; availableBudget: number | null }> {
+    const values = {
+      betId: bet.betId,
+      userId: bet.userId,
+      matchId: bet.matchId,
+      homeTeamName: bet.homeTeamName ?? null,
+      awayTeamName: bet.awayTeamName ?? null,
+      competition: bet.competition ?? null,
+      matchDate: bet.matchDate ? (bet.matchDate instanceof Date ? bet.matchDate.toISOString() : bet.matchDate) : null,
+      marketName: bet.marketName,
+      selection: bet.selection,
+      odds: bet.odds,
+      stake: bet.stake,
+      ourProbability: bet.ourProbability,
+      expectedValue: bet.expectedValue,
+      status: bet.status,
+      returnAmount: bet.returnAmount ?? null,
+      profit: bet.profit ?? null,
+      placedAt: bet.placedAt instanceof Date ? bet.placedAt.toISOString() : bet.placedAt,
+      settledAt: bet.settledAt ? (bet.settledAt instanceof Date ? bet.settledAt.toISOString() : bet.settledAt) : null,
+      notes: bet.notes ?? null,
+      dataQuality: bet.dataQuality ?? 'pre_fix',
+      source: bet.source ?? 'unknown',
+      predictionId: bet.predictionId ?? null,
+    };
+
+    const results = await this.db.batch([
+      {
+        sql: `INSERT INTO bets (
+          bet_id, user_id, match_id, home_team_name, away_team_name, competition, match_date, market_name, selection,
+          odds, stake, our_probability, expected_value, budget_session_id,
+          status, return_amount, profit, placed_at, settled_at, notes, data_quality, source, prediction_id
+        )
+        SELECT
+          :betId, :userId, :matchId, :homeTeamName, :awayTeamName, :competition, :matchDate, :marketName, :selection,
+          :odds, :stake, :ourProbability, :expectedValue, budget.active_session_id,
+          :status, :returnAmount, :profit, :placedAt, :settledAt, :notes, :dataQuality, :source, :predictionId
+        FROM budgets AS budget
+        WHERE budget.user_id = :userId
+          AND budget.active_session_id IS NOT NULL
+          AND budget.available_budget >= :stake
+          AND NOT EXISTS (
+            SELECT 1
+            FROM bets AS existing
+            WHERE existing.user_id = :userId
+              AND existing.budget_session_id = budget.active_session_id
+              AND lower(trim(existing.match_id)) = lower(trim(:matchId))
+              AND lower(trim(existing.market_name)) = lower(trim(:marketName))
+              AND lower(trim(existing.selection)) = lower(trim(:selection))
+          )`,
+        args: values,
+      },
+      {
+        sql: `UPDATE budgets
+          SET available_budget = available_budget - :stake,
+              total_bets = total_bets + 1,
+              total_staked = total_staked + :stake,
+              updated_at = datetime('now')
+          WHERE user_id = :userId
+            AND active_session_id = (
+              SELECT budget_session_id FROM bets WHERE bet_id = :betId
+            )`,
+        args: { betId: values.betId, userId: values.userId, stake: values.stake },
+      },
+    ], 'write');
+
+    if (Number(results[0]?.rowsAffected ?? 0) > 0) return { placed: true };
+
+    const budget = await this.getBudget(String(values.userId));
+    const duplicate = budget?.active_session_id
+      ? await this.get(
+        `SELECT bet_id FROM bets
+         WHERE user_id = ? AND budget_session_id = ?
+           AND lower(trim(match_id)) = lower(trim(?))
+           AND lower(trim(market_name)) = lower(trim(?))
+           AND lower(trim(selection)) = lower(trim(?))
+         LIMIT 1`,
+        [values.userId, budget.active_session_id, values.matchId, values.marketName, values.selection],
+      )
+      : null;
+
+    return {
+      placed: false,
+      reason: duplicate ? 'duplicate' : 'budget',
+      availableBudget: budget ? Number(budget.available_budget ?? 0) : null,
+    };
+  }
+
   async getBets(userId: string, status?: string): Promise<any[]> {
     const active = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [userId]);
     const sessionId = active?.active_session_id ?? null;
@@ -3207,9 +3398,12 @@ export class DatabaseService {
     return String((exactMarket ?? candidates[0]).prediction_id);
   }
 
-  async getPredictionArchive(options: { status?: string; matchId?: string; limit?: number } = {}): Promise<any[]> {
+  async getPredictionArchive(options: { status?: string; matchId?: string; userId?: string; limit?: number } = {}): Promise<any[]> {
+    const joinParams: any[] = [];
     const params: any[] = [];
     const where: string[] = [];
+    const userId = String(options.userId ?? '').trim();
+    if (userId) joinParams.push(userId);
     if (options.matchId) { where.push('p.match_id = ?'); params.push(options.matchId); }
     const status = String(options.status ?? '').trim().toLowerCase();
     if (status === 'played') where.push('b.bet_id IS NOT NULL');
@@ -3225,11 +3419,11 @@ export class DatabaseService {
              CASE WHEN b.bet_id IS NULL THEN 0 ELSE 1 END AS was_played
       FROM predictions p
       LEFT JOIN matches m ON m.match_id = p.match_id
-      LEFT JOIN bets b ON b.prediction_id = p.prediction_id
+       LEFT JOIN bets b ON b.prediction_id = p.prediction_id${userId ? ' AND b.user_id = ?' : ''}
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY p.created_at DESC
       LIMIT ?
-    `, params);
+    `, [...joinParams, ...params]);
   }
 
   async getBetOpportunityArchive(options: {
@@ -3237,6 +3431,7 @@ export class DatabaseService {
     classification?: string;
     result?: string;
     matchId?: string;
+    userId?: string;
     limit?: number;
   } = {}): Promise<any[]> {
     const params: any[] = [];
@@ -3244,7 +3439,9 @@ export class DatabaseService {
     const type = String(options.type ?? '').trim().toLowerCase();
     const classification = String(options.classification ?? '').trim().toUpperCase();
     const result = String(options.result ?? '').trim().toLowerCase();
+    const userId = String(options.userId ?? '').trim();
 
+    if (userId) { where.push('user_id = ?'); params.push(userId); }
     if (options.matchId) { where.push('match_id = ?'); params.push(options.matchId); }
     if (['operative', 'simulated'].includes(type)) { where.push('archive_type = ?'); params.push(type); }
     if (['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE'].includes(classification)) {
@@ -3300,7 +3497,7 @@ export class DatabaseService {
           END AS settled_at
         FROM automated_bet_decisions d
         LEFT JOIN matches m ON m.match_id = d.match_id
-        LEFT JOIN bets b ON b.bet_id = d.bet_id
+        LEFT JOIN bets b ON b.bet_id = d.bet_id AND b.user_id = d.user_id
         LEFT JOIN predictions p ON p.prediction_id = (
           SELECT candidate.prediction_id
           FROM predictions candidate

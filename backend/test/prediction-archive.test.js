@@ -128,6 +128,25 @@ test('getBetOpportunityArchive mostra solo opportunita classificate e distingue 
   assert.equal(rows[1].bookmaker_name, 'Pinnacle');
   assert.equal(rows.some((row) => row.selection === 'exact_0-5'), false);
 
+  await db.saveBet({
+    betId: 'bet-other-user', userId: 'user2', matchId: 'understat_31000', marketName: '1X2', selection: 'homeWin',
+    odds: 1.9, stake: 10, ourProbability: 59, expectedValue: 12, status: 'WON',
+    placedAt: createdAt, settledAt: '2026-08-24T22:00:00.000Z', predictionId: 'prediction-high', source: 'manual',
+  });
+  await db.appendAutomatedBetDecision({
+    decisionId: 'decision-other-user', userId: 'user2', matchId: 'understat_31000', marketName: '1X2',
+    selection: 'homeWin', confidence: 'HIGH', bookmakerOdds: 1.9, bookmakerName: 'Pinnacle',
+    theoreticalStakePercent: 1, theoreticalStakeAmount: 10, rankingPosition: 1,
+    decisionStatus: 'placed', betId: 'bet-other-user', createdAt,
+  });
+
+  const sharedPredictions = await db.getPredictionArchive({ matchId: 'understat_31000', userId: 'user1' });
+  assert.equal(sharedPredictions.filter((row) => row.prediction_id === 'prediction-high').length, 1);
+  assert.equal(sharedPredictions.find((row) => row.prediction_id === 'prediction-high').bet_user_id, 'user1');
+
+  const sharedOpportunities = await db.getBetOpportunityArchive({ userId: 'user1', limit: 20 });
+  assert.equal(sharedOpportunities.some((row) => row.decision_id === 'decision-other-user'), false);
+
   const pendingOpportunityPredictions = await db.getPendingBetOpportunityPredictions();
   assert.deepEqual(pendingOpportunityPredictions.map((row) => row.prediction_id), ['prediction-speculative']);
 });
@@ -164,7 +183,7 @@ test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo con
     assert.equal(payload.success, true);
     assert.equal(payload.data[0].decision_id, 'decision-api');
     assert.deepEqual(receivedOptions, {
-      type: 'simulated', classification: 'low', result: 'pending', matchId: undefined, limit: 50,
+      type: 'simulated', classification: 'low', result: 'pending', matchId: undefined, userId: 'user1', limit: 50,
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));

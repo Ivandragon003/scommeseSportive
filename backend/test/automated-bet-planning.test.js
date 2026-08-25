@@ -15,7 +15,13 @@ const {
   planAutomatedBetOpportunities,
 } = require('../dist/services/AutomatedBetPlanningService.js');
 const { DatabaseService } = require('../dist/db/DatabaseService.js');
-const { createApiRouter } = require('../dist/api/routes.js');
+const { createApiRouter, resolveInternalApiBaseUrl } = require('../dist/api/routes.js');
+
+test('internal automation API base is loopback-only', () => {
+  assert.equal(resolveInternalApiBaseUrl('http://127.0.0.1:3001/api'), 'http://127.0.0.1:3001/api');
+  assert.throws(() => resolveInternalApiBaseUrl('https://attacker.example/api'), /loopback/i);
+  assert.throws(() => resolveInternalApiBaseUrl('http://10.0.0.5:3001/api'), /loopback/i);
+});
 
 const isolatedDatabasePath = (prefix) => join(tmpdir(), `${prefix}-${process.pid}-${randomUUID()}.db`);
 
@@ -226,11 +232,12 @@ test('nightly route applies the limit independently to every match and archives 
 
   const app = express();
   app.use(express.json());
-  app.use('/api', createApiRouter({ db, svc }));
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
-  const apiBase = `http://127.0.0.1:${port}/api`;
+  apiBase = `http://127.0.0.1:${port}/api`;
 
   try {
     const response = await fetch(`${apiBase}/automation/place-valid-bets`, {
@@ -239,7 +246,7 @@ test('nightly route applies the limit independently to every match and archives 
       body: JSON.stringify({
         dryRun: true,
         userId: 'user1',
-        apiBase,
+        apiBase: 'https://attacker.example/api',
         maxOperationalBetsPerMatch: 3,
       }),
     });
@@ -289,11 +296,12 @@ test('returns HTTP 500 when a saved-only decision cannot be archived', async () 
   };
   const app = express();
   app.use(express.json());
-  app.use('/api', createApiRouter({ db, svc }));
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
-  const apiBase = `http://127.0.0.1:${port}/api`;
+  apiBase = `http://127.0.0.1:${port}/api`;
 
   try {
     const response = await fetch(`${apiBase}/automation/place-valid-bets`, {
@@ -357,11 +365,12 @@ test('persistent operational slots prevent a retry from exceeding three real bet
   process.env.AUTO_BET_DRY_RUN = 'false';
   const app = express();
   app.use(express.json());
-  app.use('/api', createApiRouter({ db, svc }));
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
-  const apiBase = `http://127.0.0.1:${port}/api`;
+  apiBase = `http://127.0.0.1:${port}/api`;
 
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -520,11 +529,12 @@ test('keeps a durable reservation and returns HTTP 500 if audit finalization fai
   process.env.AUTO_BET_DRY_RUN = 'false';
   const app = express();
   app.use(express.json());
-  app.use('/api', createApiRouter({ db, svc }));
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
-  const apiBase = `http://127.0.0.1:${port}/api`;
+  apiBase = `http://127.0.0.1:${port}/api`;
 
   try {
     const response = await fetch(`${apiBase}/automation/place-valid-bets`, {
@@ -598,11 +608,12 @@ test('ambiguous placement failure keeps the slot reserved so a retry cannot plac
   process.env.AUTO_BET_DRY_RUN = 'false';
   const app = express();
   app.use(express.json());
-  app.use('/api', createApiRouter({ db, svc }));
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
-  const apiBase = `http://127.0.0.1:${port}/api`;
+  apiBase = `http://127.0.0.1:${port}/api`;
 
   try {
     const first = await fetch(`${apiBase}/automation/place-valid-bets`, {
