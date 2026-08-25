@@ -1,0 +1,5 @@
+# Copy to key.properties and keep the real file outside Git.
+storeFile=C:\\absolute\\path\\to\\footpredictor-release.jks
+storePassword=replace-with-local-secret
+keyAlias=footpredictor
+keyPassword=replace-with-local-secret

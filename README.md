@@ -970,6 +970,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\security\run-secret-scan.ps1 
 
 ## Onboarding operativo
 
+Per generare e distribuire la versione Android personale usa la guida
+[FootPredictor su Android (APK privato)](docs/android-private-apk.md). La versione mobile
+resta collegata allo stesso backend e allo stesso bankroll della versione desktop.
+
 ### Setup locale raccomandato
 
 1. Clona il repository.

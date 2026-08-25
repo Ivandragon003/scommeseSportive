@@ -47,3 +47,9 @@ yarn-error.log*
 pnpm-debug.log*
 gitleaks-report.*
 secret-scan-report.*
+
+# Android private distribution and signing secrets
+*.jks
+*.keystore
+frontend/android/key.properties
+frontend/android/app/release/
