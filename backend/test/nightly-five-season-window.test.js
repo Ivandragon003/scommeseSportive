@@ -5,7 +5,12 @@ const { join } = require('node:path');
 
 const root = join(__dirname, '..', '..');
 const read = (...parts) => readFileSync(join(root, ...parts), 'utf8');
-const { fixedFiveSeasonPolicy, isCompleteUnderstatSeasonDetail } = require('../dist/api/routes.js');
+const {
+  fixedFiveSeasonPolicy,
+  isCompleteUnderstatSeasonDetail,
+  isExpectedPendingCurrentSeasonDetail,
+  summarizeUnderstatSeasonReadiness,
+} = require('../dist/api/routes.js');
 
 test('nightly and runtime defaults request exactly five seasons', () => {
   const nightly = read('scripts', 'ci', 'nightly-sync.sh');
@@ -102,6 +107,92 @@ test('la nightly fallisce se una coppia Understat campionato-stagione non e comp
   assert.equal(isCompleteUnderstatSeasonDetail({ totalOnSource: 0, persistedSourceMatches: 0, missingSourceMatches: 0, error: null }), false);
   assert.equal(isCompleteUnderstatSeasonDetail({ totalOnSource: 380, persistedSourceMatches: 379, missingSourceMatches: 1, error: null }), false);
   assert.equal(isCompleteUnderstatSeasonDetail({ totalOnSource: 380, persistedSourceMatches: 380, missingSourceMatches: 0, error: 'provider down' }), false);
+});
+
+test('la stagione corrente vuota e pending solo nel pre-campionato e senza errori provider', () => {
+  const empty = { totalOnSource: 0, persistedSourceMatches: 0, missingSourceMatches: 0, error: null };
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Bundesliga', '2026/2027', new Date('2026-08-25T00:00:00Z')),
+    true,
+  );
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Bundesliga', '2025/2026', new Date('2026-08-25T00:00:00Z')),
+    false,
+  );
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Bundesliga', '2026/2027', new Date('2026-08-27T22:00:00Z')),
+    false,
+  );
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail({ ...empty, error: 'provider down' }, 'Bundesliga', '2026/2027', new Date('2026-08-25T00:00:00Z')),
+    false,
+  );
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Serie A', '2026/2027', new Date('2026-08-25T00:00:00Z')),
+    false,
+  );
+});
+
+test('il riepilogo accetta pending solo con le quattro stagioni precedenti complete', () => {
+  const complete = { totalOnSource: 380, persistedSourceMatches: 380, missingSourceMatches: 0, error: null };
+  const empty = { totalOnSource: 0, persistedSourceMatches: 0, missingSourceMatches: 0, error: null };
+  const seasons = ['2022/2023', '2023/2024', '2024/2025', '2025/2026', '2026/2027'];
+  const seasonSummary = Object.fromEntries(seasons.map((season) => [`Bundesliga ${season}`, complete]));
+  seasonSummary['Bundesliga 2026/2027'] = empty;
+
+  const ready = summarizeUnderstatSeasonReadiness({
+    competitions: ['Bundesliga'], seasons, seasonSummary, now: new Date('2026-08-25T00:00:00Z'),
+  });
+  assert.equal(ready.expectedSeasonPairs, 5);
+  assert.equal(ready.completedSeasonPairs, 4);
+  assert.equal(ready.pendingSeasonPairs.length, 1);
+  assert.equal(ready.failedSeasonPairs.length, 0);
+  assert.equal(ready.allExpectedSeasonsComplete, false);
+  assert.equal(ready.allExpectedSeasonsReady, true);
+
+  seasonSummary['Bundesliga 2025/2026'] = empty;
+  const blocked = summarizeUnderstatSeasonReadiness({
+    competitions: ['Bundesliga'], seasons, seasonSummary, now: new Date('2026-08-25T00:00:00Z'),
+  });
+  assert.equal(blocked.pendingSeasonPairs.length, 0);
+  assert.equal(blocked.allExpectedSeasonsReady, false);
+  assert.deepEqual(blocked.failedSeasonPairs.map((pair) => pair.key).sort(), [
+    'Bundesliga 2025/2026',
+    'Bundesliga 2026/2027',
+  ]);
+});
+
+test('il pending Bundesliga termina alla data ufficiale di avvio in ora di Roma', () => {
+  const empty = { totalOnSource: 0, persistedSourceMatches: 0, missingSourceMatches: 0, error: null };
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Bundesliga', '2026/2027', new Date('2026-08-27T21:59:59Z')),
+    true,
+  );
+  assert.equal(
+    isExpectedPendingCurrentSeasonDetail(empty, 'Bundesliga', '2026/2027', new Date('2026-08-27T22:00:00Z')),
+    false,
+  );
+});
+
+test('i timeout distinti restano entro il budget totale del job', () => {
+  const nightly = read('scripts', 'ci', 'nightly-sync.sh');
+  const workflow = read('.github', 'workflows', 'nightly-sync.yml');
+  assert.match(nightly, /FOOTBALL_DATA_TIMEOUT_SECONDS="\$\{FOOTBALL_DATA_TIMEOUT_SECONDS:-2400\}"/);
+  assert.match(nightly, /TRANSITION_REFERENCE_TIMEOUT_SECONDS="\$\{TRANSITION_REFERENCE_TIMEOUT_SECONDS:-600\}"/);
+  assert.match(workflow, /timeout-minutes: 180/);
+
+  const envTimeout = (name) => Number(workflow.match(new RegExp(`${name}: '(\\d+)'`))?.[1]);
+  const totalSeconds = envTimeout('UNDERSTAT_SYNC_TIMEOUT_SECONDS')
+    + envTimeout('FOOTBALL_DATA_TIMEOUT_SECONDS')
+    + envTimeout('TRANSITION_REFERENCE_TIMEOUT_SECONDS')
+    + envTimeout('API_FOOTBALL_TIMEOUT_SECONDS')
+    + envTimeout('PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS')
+    + envTimeout('ODDS_SYNC_TIMEOUT_SECONDS') * 5
+    + envTimeout('AUTO_BET_TIMEOUT_SECONDS')
+    + envTimeout('LEARNING_SYNC_TIMEOUT_SECONDS')
+    + envTimeout('FINAL_STATUS_TIMEOUT_SECONDS');
+  assert.ok(Number.isFinite(totalSeconds));
+  assert.ok(totalSeconds <= 180 * 60, `budget timeout ${totalSeconds}s oltre il job`);
 });
 
 test('lo script nightly tratta football-data e transizioni come gate obbligatori', () => {

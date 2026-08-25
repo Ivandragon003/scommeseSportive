@@ -307,6 +307,99 @@ export function isCompleteUnderstatSeasonDetail(detail: Record<string, unknown> 
   return source > 0 && persisted >= source && missing === 0;
 }
 
+// Eccezioni fail-closed e specifiche per stagione. Una coppia non presente qui
+// non puo essere dichiarata pending con sorgente vuota. Per il 2026/27 la DFL
+// ha fissato l'avvio della Bundesliga al 28 agosto 2026.
+const UNDERSTAT_COMPETITION_START_DATES: Record<string, string> = {
+  'Bundesliga 2026/2027': '2026-08-28',
+};
+
+export function isExpectedPendingCurrentSeasonDetail(
+  detail: Record<string, unknown> | null | undefined,
+  competition: string,
+  season: string,
+  now: Date = new Date(),
+): boolean {
+  if (!detail || detail.error) return false;
+  const policy = fixedFiveSeasonPolicy(now);
+  const currentSeason = policy.seasonLabels[policy.seasonLabels.length - 1];
+  if (season !== currentSeason) return false;
+
+  const officialStartDate = UNDERSTAT_COMPETITION_START_DATES[`${competition} ${season}`];
+  if (!officialStartDate) return false;
+  if (!Number.isFinite(now.getTime())) return false;
+  const romeDateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    romeDateParts.find((entry) => entry.type === type)?.value ?? '';
+  const romeDate = `${part('year')}-${part('month')}-${part('day')}`;
+  if (romeDate >= officialStartDate) return false;
+
+  return Number(detail.totalOnSource ?? 0) === 0
+    && Number(detail.persistedSourceMatches ?? 0) === 0
+    && Number(detail.missingSourceMatches ?? Number.POSITIVE_INFINITY) === 0;
+}
+
+export function summarizeUnderstatSeasonReadiness(params: {
+  competitions: string[];
+  seasons: string[];
+  seasonSummary: Record<string, any>;
+  now?: Date;
+}): {
+  expectedSeasonPairs: number;
+  completedSeasonPairs: number;
+  pendingSeasonPairs: Array<{ key: string; reason: string }>;
+  failedSeasonPairs: Array<{ key: string; error: string }>;
+  allExpectedSeasonsComplete: boolean;
+  allExpectedSeasonsReady: boolean;
+} {
+  const expectedEntries = params.competitions.flatMap((competition) =>
+    params.seasons.map((season) => ({
+      competition,
+      season,
+      key: `${competition} ${season}`,
+      detail: params.seasonSummary[`${competition} ${season}`],
+    }))
+  );
+  const expectedSeasonPairs = expectedEntries.length;
+  const completedSeasonPairs = expectedEntries.filter(({ detail }) =>
+    isCompleteUnderstatSeasonDetail(detail)
+  ).length;
+  const currentSeasonLabel = params.seasons[params.seasons.length - 1] ?? '';
+  const previousSeasonLabels = params.seasons.slice(0, -1);
+  const pendingSeasonPairs = expectedEntries
+    .filter(({ competition, season, detail }) =>
+      season === currentSeasonLabel
+      && isExpectedPendingCurrentSeasonDetail(detail, competition, season, params.now)
+      && previousSeasonLabels.every((previousSeason) =>
+        isCompleteUnderstatSeasonDetail(params.seasonSummary[`${competition} ${previousSeason}`])
+      )
+    )
+    .map(({ key }) => ({ key, reason: 'stagione corrente non ancora pubblicata dalla fonte' }));
+  const pendingKeys = new Set(pendingSeasonPairs.map((pair) => pair.key));
+  const failedSeasonPairs = expectedEntries
+    .filter(({ key, detail }) =>
+      !isCompleteUnderstatSeasonDetail(detail) && !pendingKeys.has(key)
+    )
+    .map(({ key, detail }) => ({ key, error: detail?.error ?? 'dati mancanti o incompleti' }));
+  const allExpectedSeasonsComplete = completedSeasonPairs === expectedSeasonPairs
+    && failedSeasonPairs.length === 0;
+  const allExpectedSeasonsReady = completedSeasonPairs + pendingSeasonPairs.length === expectedSeasonPairs
+    && failedSeasonPairs.length === 0;
+  return {
+    expectedSeasonPairs,
+    completedSeasonPairs,
+    pendingSeasonPairs,
+    failedSeasonPairs,
+    allExpectedSeasonsComplete,
+    allExpectedSeasonsReady,
+  };
+}
+
 export function buildConfirmedStatusRows(params: {
   matchId: string;
   teamPlayers: any[];
@@ -2744,17 +2837,20 @@ async function runUnderstatImport(req: Request, res: Response) {
       lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
     }
 
-    const expectedSeasonPairs = competitionsToRun.length * seasonsToScrape.length;
-    const completedSeasonPairs = Object.values(seasonSummary).filter((detail: any) =>
-      isCompleteUnderstatSeasonDetail(detail)
-    ).length;
-    const failedSeasonPairs = Object.entries(seasonSummary)
-      .filter(([, detail]: [string, any]) => !isCompleteUnderstatSeasonDetail(detail))
-      .map(([key, detail]: [string, any]) => ({ key, error: detail?.error ?? 'dati mancanti o incompleti' }));
-    const allExpectedSeasonsComplete = completedSeasonPairs === expectedSeasonPairs
-      && failedSeasonPairs.length === 0;
+    const {
+      expectedSeasonPairs,
+      completedSeasonPairs,
+      pendingSeasonPairs,
+      failedSeasonPairs,
+      allExpectedSeasonsComplete,
+      allExpectedSeasonsReady,
+    } = summarizeUnderstatSeasonReadiness({
+      competitions: competitionsToRun,
+      seasons: seasonsToScrape,
+      seasonSummary,
+    });
     const responsePayload = {
-      success: allExpectedSeasonsComplete,
+      success: allExpectedSeasonsReady,
       data: {
         source: 'understat',
         mode,
@@ -2785,19 +2881,23 @@ async function runUnderstatImport(req: Request, res: Response) {
         dbLastDateAfter: lastDatesAfter,
         expectedSeasonPairs,
         completedSeasonPairs,
+        pendingSeasonPairs,
         failedSeasonPairs,
         allExpectedSeasonsComplete,
+        allExpectedSeasonsReady,
         isUpToDate: allExpectedSeasonsComplete && totalNew === 0,
         forceRefresh,
-        message: !allExpectedSeasonsComplete
+        message: !allExpectedSeasonsReady
           ? `Import Understat incompleto: ${completedSeasonPairs}/${expectedSeasonPairs} campionati-stagioni completi.`
+          : pendingSeasonPairs.length > 0
+          ? `Import Understat pronto: ${completedSeasonPairs}/${expectedSeasonPairs} stagioni complete e ${pendingSeasonPairs.length} in attesa del calendario corrente.`
           : totalNew === 0
           ? 'DB gia aggiornato da Understat.'
           : `Importate ${totalImported} partite Understat (${totalUpcomingImported} future), aggiornati ${playersUpdated} giocatori.`,
         seasonDetail: seasonSummary,
       },
     };
-    if (!allExpectedSeasonsComplete) {
+    if (!allExpectedSeasonsReady) {
       await persistExternalSchedulerRun(externalRun, false, responsePayload.data, responsePayload.data.message);
       return res.status(502).json(responsePayload);
     }
