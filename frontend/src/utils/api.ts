@@ -284,6 +284,23 @@ export const getPrediction = (request: {
 export const getPlayerAvailability = (matchId: string) =>
   cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`);
 
+export const PLAYER_AVAILABILITY_UPDATED_EVENT = 'player-availability-updated';
+
+const notifyPlayerAvailabilityUpdated = (matchId: string) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(PLAYER_AVAILABILITY_UPDATED_EVENT, {
+    detail: { matchId },
+  }));
+};
+
+export const refreshPlayerAvailability = (matchId: string) =>
+  API.post<ApiResponse<any>>(`/player-availability/refresh/${encodeURIComponent(matchId)}`, {}, { timeout: 45000 })
+    .then(r => {
+      invalidateApiCache((key) => key.includes(`GET:/player-availability/${encodeURIComponent(matchId)}`));
+      notifyPlayerAvailabilityUpdated(matchId);
+      return r.data;
+    });
+
 export const syncUpcomingPlayerAvailability = (windowHours = 48) =>
   API.post<ApiResponse<any>>('/player-availability/sync-upcoming', { windowHours }, { timeout: 120000 })
     .then(r => r.data);
@@ -524,8 +541,9 @@ export const runUnderstatImport = (params?: {
     mode: params?.mode ?? 'top5',
     competition: params?.competition ?? 'Serie A',
     competitions: params?.competitions,
-    seasons: params?.seasons,
-    yearsBack: params?.yearsBack ?? 1,
+    // Policy server-side non aggirabile: corrente + quattro precedenti.
+    seasons: undefined,
+    yearsBack: 5,
     importPlayers: params?.importPlayers ?? true,
     includeMatchDetails: params?.includeMatchDetails ?? true,
     forceRefresh: params?.forceRefresh ?? false,
@@ -600,16 +618,10 @@ export const getRecentSystemRuns = (limit = 20, options?: ReadRequestOptions) =>
 
 export const runFootballDataSync = (params?: {
   competitions?: string[];
-  seasonStartYears?: number[];
-  keepSeasons?: number;
-  prune?: boolean;
   recomputeAverages?: boolean;
 }) =>
   API.post<ApiResponse<any>>('/scraper/football-data', {
     competitions: params?.competitions,
-    seasonStartYears: params?.seasonStartYears,
-    keepSeasons: params?.keepSeasons ?? 4,
-    prune: params?.prune ?? true,
     recomputeAverages: params?.recomputeAverages ?? true,
   }, { timeout: 3600000 }).then(r => {
     invalidateApiCache((key) =>

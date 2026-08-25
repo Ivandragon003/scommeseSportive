@@ -101,6 +101,23 @@ describe('backtesting API timeout', () => {
     expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
+  test('refreshPlayerAvailability notifica i pannelli della stessa partita dopo il refresh', async () => {
+    const { PLAYER_AVAILABILITY_UPDATED_EVENT, refreshPlayerAvailability } = await import('./api');
+    const received: string[] = [];
+    const listener = (event: Event) => {
+      received.push((event as CustomEvent<{ matchId: string }>).detail.matchId);
+    };
+    window.addEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, listener);
+    mockPost.mockResolvedValueOnce({ data: { success: true, saved: 22 } });
+
+    try {
+      await refreshPlayerAvailability('match-42');
+      expect(received).toEqual(['match-42']);
+    } finally {
+      window.removeEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, listener);
+    }
+  });
+
   test('runFootballDataSync usa il contratto supplementare frontend-only', async () => {
     const { runFootballDataSync } = await import('./api');
     mockPost.mockResolvedValueOnce({
@@ -109,9 +126,6 @@ describe('backtesting API timeout', () => {
 
     await runFootballDataSync({
       competitions: ['Serie A'],
-      seasonStartYears: [2025, 2024],
-      keepSeasons: 4,
-      prune: true,
       recomputeAverages: true,
     });
 
@@ -119,11 +133,21 @@ describe('backtesting API timeout', () => {
       '/scraper/football-data',
       {
         competitions: ['Serie A'],
-        seasonStartYears: [2025, 2024],
-        keepSeasons: 4,
-        prune: true,
         recomputeAverages: true,
       },
+      expect.objectContaining({ timeout: 3600000 })
+    );
+  });
+
+  test('runUnderstatImport non consente al client di cambiare la finestra quinquennale', async () => {
+    const { runUnderstatImport } = await import('./api');
+    mockPost.mockResolvedValueOnce({ data: { success: true } });
+
+    await runUnderstatImport({ yearsBack: 1, seasons: ['2025/2026'] });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/scraper/understat',
+      expect.objectContaining({ yearsBack: 5, seasons: undefined }),
       expect.objectContaining({ timeout: 3600000 })
     );
   });

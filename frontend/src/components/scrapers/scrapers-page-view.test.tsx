@@ -143,10 +143,9 @@ describe('ScrapersPageView', () => {
     await waitFor(() => expect(mockedApi.runFootballDataSync).toHaveBeenCalledTimes(1));
     expect(mockedApi.runFootballDataSync).toHaveBeenCalledWith(expect.objectContaining({
       competitions: ['Serie A'],
-      seasonStartYears: expect.any(Array),
-      prune: true,
       recomputeAverages: true,
     }));
+    expect(screen.getByLabelText(/Finestra mobile fissa di cinque stagioni/i)).toBeTruthy();
     expect(await screen.findByText(/Integrazione completata/i)).toBeTruthy();
   });
 
@@ -168,6 +167,7 @@ describe('ScrapersPageView', () => {
     expect(mockedApi.runUnderstatImport.mock.calls[0][0]).toMatchObject({
       mode: 'single',
       competition: 'Serie A',
+      yearsBack: 5,
       includeMatchDetails: true,
     });
   });

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getPlayerAvailability } from '../../utils/api';
+import { getPlayerAvailability, PLAYER_AVAILABILITY_UPDATED_EVENT } from '../../utils/api';
 
 type LineupPlayer = {
   playerId: string;
@@ -17,6 +17,15 @@ type LineupData = {
   away: LineupPlayer[];
   hasConfirmedLineup: boolean;
   hasProviderData: boolean;
+  homeFormation?: string | null;
+  awayFormation?: string | null;
+  homeHistoryMatchesUsed?: number;
+  awayHistoryMatchesUsed?: number;
+  homeIncomplete?: boolean;
+  awayIncomplete?: boolean;
+  homeUnavailableCount?: number;
+  awayUnavailableCount?: number;
+  warnings?: string[];
   note: string;
 };
 
@@ -54,20 +63,40 @@ const LineupPanel: React.FC<{ matchId?: string }> = ({ matchId }) => {
   useEffect(() => {
     if (!matchId) return undefined;
     let active = true;
-    setLoading(true);
-    setError('');
-    Promise.resolve(getPlayerAvailability(matchId))
-      .then((response) => { if (active) setData(response?.data ?? null); })
-      .catch(() => { if (active) setError('Formazioni non disponibili al momento.'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    let requestSequence = 0;
+    const load = () => {
+      const requestId = ++requestSequence;
+      setLoading(true);
+      setError('');
+      Promise.resolve(getPlayerAvailability(matchId))
+        .then((response) => {
+          if (active && requestId === requestSequence) setData(response?.data ?? null);
+        })
+        .catch(() => {
+          if (active && requestId === requestSequence) setError('Formazioni non disponibili al momento.');
+        })
+        .finally(() => {
+          if (active && requestId === requestSequence) setLoading(false);
+        });
+    };
+    const onAvailabilityUpdated = (event: Event) => {
+      const updatedMatchId = (event as CustomEvent<{ matchId?: string }>).detail?.matchId;
+      if (updatedMatchId === matchId) load();
+    };
+    load();
+    window.addEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, onAvailabilityUpdated);
+    return () => {
+      active = false;
+      window.removeEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, onAvailabilityUpdated);
+    };
   }, [matchId]);
 
   const summary = useMemo(() => {
     if (!data) return '';
     if (data.hasConfirmedLineup) return 'Formazione ufficiale ricevuta: le player bet possono essere rivalutate.';
     if (data.hasProviderData) return 'Indisponibilità aggiornate da API-Football; titolarità ancora stimata.';
-    return 'Stima interna basata sui minuti e sulle presenze storiche.';
+    const used = Math.min(data.homeHistoryMatchesUsed ?? 0, data.awayHistoryMatchesUsed ?? 0);
+    return `Stima interna sulle ultime ${used || 0} formazioni ufficiali, con indisponibili esclusi e fallback per ruolo.`;
   }, [data]);
 
   return (
@@ -81,9 +110,12 @@ const LineupPanel: React.FC<{ matchId?: string }> = ({ matchId }) => {
       {error ? <p className="lineup-panel__message is-error">{error}</p> : data && (
         <>
           <p className="lineup-panel__message">{summary}</p>
+          {(data.homeIncomplete || data.awayIncomplete) && (
+            <p className="lineup-panel__message is-error">Rosa incompleta per almeno una squadra: nessun giocatore viene inventato per riempire i ruoli mancanti.</p>
+          )}
           <div className="lineup-panel__grid">
-            <LineupColumn title={data.home[0]?.teamName ?? 'Casa'} players={data.home} />
-            <LineupColumn title={data.away[0]?.teamName ?? 'Trasferta'} players={data.away} />
+            <LineupColumn title={`${data.home[0]?.teamName ?? 'Casa'}${data.homeFormation ? ` · ${data.homeFormation}` : ''}`} players={data.home} />
+            <LineupColumn title={`${data.away[0]?.teamName ?? 'Trasferta'}${data.awayFormation ? ` · ${data.awayFormation}` : ''}`} players={data.away} />
           </div>
           <small className="lineup-panel__note">{data.note} Le percentuali non sono garanzia di presenza.</small>
         </>
