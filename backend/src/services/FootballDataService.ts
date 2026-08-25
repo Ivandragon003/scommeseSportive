@@ -351,12 +351,44 @@ export interface FootballDataFetcher {
   (leagueCode: string, seasonCode: string): Promise<string | null>;
 }
 
+const FOOTBALL_DATA_MAX_ATTEMPTS = 3;
+const TRANSIENT_FOOTBALL_DATA_STATUSES = new Set([408, 425, 429]);
+
+function isTransientFootballDataStatus(status: number): boolean {
+  return TRANSIENT_FOOTBALL_DATA_STATUSES.has(status) || (status >= 500 && status <= 599);
+}
+
+function footballDataRetryDelayMs(): number {
+  const configured = String(process.env.FOOTBALL_DATA_RETRY_DELAY_MS ?? '').trim();
+  if (!configured) return 500;
+  const parsed = Number(configured);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 10_000) : 500;
+}
+
 /** Fetcher HTTP di default (Node 20+ global fetch). */
 export const defaultFootballDataFetcher: FootballDataFetcher = async (leagueCode, seasonCode) => {
   const url = `https://www.football-data.co.uk/mmz4281/${seasonCode}/${leagueCode}.csv`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) return null;
-  return await res.text();
+  const retryDelayMs = footballDataRetryDelayMs();
+  let lastNetworkError: unknown = null;
+  for (let attempt = 1; attempt <= FOOTBALL_DATA_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      if (res.ok) return await res.text();
+      if (!isTransientFootballDataStatus(res.status)) return null;
+      if (attempt === FOOTBALL_DATA_MAX_ATTEMPTS) {
+        throw new Error(`football-data HTTP ${res.status} dopo ${attempt} tentativi: ${url}`);
+      }
+    } catch (error) {
+      lastNetworkError = error;
+      if (attempt === FOOTBALL_DATA_MAX_ATTEMPTS) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`football-data download fallito dopo ${attempt} tentativi: ${url}: ${detail}`);
+      }
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs * (2 ** (attempt - 1))));
+  }
+  const detail = lastNetworkError instanceof Error ? lastNetworkError.message : String(lastNetworkError);
+  throw new Error(`football-data download fallito: ${url}: ${detail}`);
 };
 
 export interface FootballDataSyncOptions {
