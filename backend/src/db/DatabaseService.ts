@@ -856,6 +856,14 @@ export class DatabaseService {
     await this.run(MATCH_UPSERT_SQL, this.getMatchUpsertArgs(match));
   }
 
+  async updateMatchRawJson(matchId: string, rawJson: string): Promise<boolean> {
+    const result = await this.execute(
+      `UPDATE matches SET raw_json = ? WHERE match_id = ?`,
+      [rawJson, matchId],
+    );
+    return Number(result.rowsAffected ?? 0) === 1;
+  }
+
   /**
    * Each chunk is a libSQL write transaction. The explicit cap avoids creating
    * an unbounded single request for a large historical season while preserving
@@ -3930,7 +3938,7 @@ export class DatabaseService {
     params.push(limit);
 
     return this.all(`
-      WITH opportunity_archive AS (
+      WITH archive_candidates AS (
         SELECT
           d.*,
           m.home_team_name,
@@ -3988,6 +3996,20 @@ export class DatabaseService {
             d.exclusion_reason = 'speculative_saved_only'
             OR upper(trim(d.confidence)) IN ('HIGH', 'MEDIUM', 'LOW')
           )
+      ),
+      ranked_archive AS (
+        SELECT archive_candidates.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY user_id, match_id, opportunity_key
+            ORDER BY
+              CASE WHEN archive_type = 'operative' THEN 0 ELSE 1 END,
+              datetime(created_at) DESC,
+              decision_id DESC
+          ) AS archive_rank
+        FROM archive_candidates
+      ),
+      opportunity_archive AS (
+        SELECT * FROM ranked_archive WHERE archive_rank = 1
       )
       SELECT *
       FROM opportunity_archive
@@ -4007,7 +4029,18 @@ export class DatabaseService {
         :decisionId, :userId, :matchId, :marketName, :selection, :opportunityKey, :confidence,
         :bookmakerOdds, :bookmakerName, :theoreticalStakePercent, :theoreticalStakeAmount,
         :rankingPosition, :operationalSlot, :decisionStatus, :exclusionReason, :betId, :createdAt
-      )`,
+      )
+      ON CONFLICT(decision_id) DO UPDATE SET
+        confidence = excluded.confidence,
+        bookmaker_odds = excluded.bookmaker_odds,
+        bookmaker_name = excluded.bookmaker_name,
+        theoretical_stake_percent = excluded.theoretical_stake_percent,
+        theoretical_stake_amount = excluded.theoretical_stake_amount,
+        ranking_position = excluded.ranking_position,
+        exclusion_reason = excluded.exclusion_reason,
+        created_at = excluded.created_at
+      WHERE automated_bet_decisions.decision_status = 'saved_only'
+        AND excluded.decision_status = 'saved_only'`,
       {
         decisionId: String(row.decisionId ?? randomUUID()),
         userId: String(row.userId),

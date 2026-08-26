@@ -161,6 +161,24 @@ test('getBetOpportunityArchive filtra classificazione tipo ed esito', async () =
   assert.deepEqual(simulatedLosses.map((row) => row.decision_id), ['decision-medium']);
 });
 
+test('getBetOpportunityArchive nasconde i duplicati storici della stessa opportunita', async () => {
+  const db = new DatabaseService();
+  const base = {
+    userId: 'user1', matchId: 'understat_31000', marketName: 'Doppia chance', selection: 'double_chance_1x',
+    confidence: 'LOW', bookmakerName: 'Pinnacle', theoreticalStakePercent: 1,
+    theoreticalStakeAmount: 10, rankingPosition: 5, decisionStatus: 'saved_only',
+    exclusionReason: 'low_confidence_saved_only',
+  };
+  await db.appendAutomatedBetDecision({ ...base, decisionId: 'duplicate-old', bookmakerOdds: 1.5, createdAt: '2026-08-24T09:00:00Z' });
+  await db.appendAutomatedBetDecision({ ...base, decisionId: 'duplicate-new', bookmakerOdds: 1.6, createdAt: '2026-08-24T11:00:00Z' });
+
+  const rows = await db.getBetOpportunityArchive({ matchId: 'understat_31000', limit: 50 });
+  const duplicates = rows.filter((row) => row.selection === 'double_chance_1x');
+  assert.equal(duplicates.length, 1);
+  assert.equal(duplicates[0].decision_id, 'duplicate-new');
+  assert.equal(Number(duplicates[0].display_odds), 1.6);
+});
+
 test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo contratto', async () => {
   let receivedOptions = null;
   const db = {

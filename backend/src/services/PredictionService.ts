@@ -44,6 +44,11 @@ import {
   BACKTEST_ENGINE_VERSION,
   RANKING_VERSION,
 } from '../config/algorithmVersions';
+import {
+  hasValidUnderstatMatchDetails,
+  UnderstatMatchPayload,
+  UnderstatScraper,
+} from './UnderstatScraper';
 
 export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationSample: number): any {
   const ev = Number(opportunity.expectedValue ?? 0);
@@ -222,6 +227,7 @@ export interface PredictionRequest {
   isDerby?: boolean;
   isHighStakes?: boolean;
   bookmakerOdds?: Record<string, number>;
+  bookmakerBySelection?: Record<string, string>;
   oddsSource?: string;
   homeFormIndex?: number;
   awayFormIndex?: number;
@@ -351,6 +357,7 @@ export interface BestValueOpportunityExplanation {
   marketName: string;
   marketTier: string;
   bookmakerOdds: number;
+  bookmakerName?: string;
   ourProbability: number;
   impliedProbability: number;
   expectedValue: number;
@@ -496,6 +503,7 @@ type PlayerPropDiagnostics = {
 
 type PlayerPropBuildResult = {
   odds: Record<string, number>;
+  bookmakerBySelection: Record<string, string>;
   probabilities: Record<string, number>;
   marketNames: Record<string, string>;
   diagnostics: Record<string, PlayerPropDiagnostics>;
@@ -624,6 +632,7 @@ export class PredictionService {
   private contextBuilder: PredictionContextBuilder;
   private playerCardsModel: PlayerCardsModel;
   private adaptiveTuningService: AdaptiveTuningService;
+  private understat: Pick<UnderstatScraper, 'getMatchDetails'>;
   private adaptiveTuningCache: Map<string, { expiresAt: number; profile: AdaptiveEngineTuningProfile }> = new Map();
   private calibrationCache: Map<string, {
     expiresAt: number;
@@ -633,13 +642,14 @@ export class PredictionService {
     blendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
   }> = new Map();
 
-  constructor(db: DatabaseService) {
+  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {
     this.db = db;
     this.engine = new ValueBettingEngine();
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
     this.playerCardsModel = new PlayerCardsModel();
     this.adaptiveTuningService = new AdaptiveTuningService();
+    this.understat = understat;
   }
 
   private normalizeReplayOdds(input?: Record<string, number>): Record<string, number> {
@@ -1290,6 +1300,7 @@ export class PredictionService {
 
   private buildPlayerPropMarkets(params: {
     odds: Record<string, number>;
+    bookmakerBySelection?: Record<string, string>;
     homePlayers: any[];
     awayPlayers: any[];
     probabilities: FullMatchProbabilities;
@@ -1321,6 +1332,7 @@ export class PredictionService {
     ];
     const shotsByPlayerId = new Map(playerShots.map((prediction) => [String(prediction.playerId), prediction]));
     const odds: Record<string, number> = {};
+    const bookmakerBySelection: Record<string, string> = {};
     const probabilities: Record<string, number> = {};
     const marketNames: Record<string, string> = {};
     const diagnostics: Record<string, PlayerPropDiagnostics> = {};
@@ -1366,6 +1378,8 @@ export class PredictionService {
       const mapped = registerMappedOdd(key);
       if (!mapped) continue;
       odds[mapped.key] = Number(odd.toFixed(2));
+      const bookmakerName = String(params.bookmakerBySelection?.[key] ?? '').trim();
+      if (bookmakerName) bookmakerBySelection[mapped.key] = bookmakerName;
     }
 
     const hasCompanion = (key: string): boolean => {
@@ -1503,7 +1517,7 @@ export class PredictionService {
       };
     }
 
-    return { odds, probabilities, marketNames, diagnostics, warnings: [...new Set(warnings)] };
+    return { odds, bookmakerBySelection, probabilities, marketNames, diagnostics, warnings: [...new Set(warnings)] };
   }
 
   private async getModel(competition: string = 'default'): Promise<DixonColesModel> {
@@ -1784,8 +1798,18 @@ export class PredictionService {
     // Allinea le chiavi delle quote. Le player props vengono valutate solo se esiste
     // una quota bookmaker corrispondente e il matching giocatore e non ambiguo.
     const normalizedOddsBase = this.normalizeBookmakerOdds(request.bookmakerOdds || {});
+    const normalizedBookmakerBySelection: Record<string, string> = {};
+    for (const [selection, rawBookmakerName] of Object.entries(request.bookmakerBySelection ?? {})) {
+      const bookmakerName = String(rawBookmakerName ?? '').trim();
+      if (!bookmakerName) continue;
+      const normalizedSelection = this.normalizeBookmakerOdds({ [selection]: 2 });
+      const alignedSelection = this.alignOddsKeys(normalizedSelection);
+      for (const key of Object.keys(alignedSelection)) normalizedBookmakerBySelection[key] = bookmakerName;
+      for (const key of Object.keys(normalizedSelection)) normalizedBookmakerBySelection[key] = bookmakerName;
+    }
     const playerPropMarkets = this.buildPlayerPropMarkets({
       odds: normalizedOddsBase,
+      bookmakerBySelection: request.bookmakerBySelection,
       homePlayers,
       awayPlayers,
       probabilities: probs,
@@ -1800,6 +1824,10 @@ export class PredictionService {
     Object.assign(probs.flatProbabilities, playerPropMarkets.probabilities);
     const normalizedOdds = { ...normalizedOddsBase, ...playerPropMarkets.odds };
     const alignedOdds = this.alignOddsKeys(normalizedOdds);
+    const alignedBookmakerBySelection = {
+      ...normalizedBookmakerBySelection,
+      ...playerPropMarkets.bookmakerBySelection,
+    };
 
     const marketNames = {
       ...this.getMarketNames(Object.keys(probs.flatProbabilities)),
@@ -1944,7 +1972,12 @@ export class PredictionService {
       const gated = applyCalibrationSampleGate(opportunity, minimumCalibrationSample);
       const warnings = new Set<string>(gated.dataWarnings ?? []);
       if (anomaly) warnings.add('anomalous_ev_requires_review');
-      return { ...gated, dataWarnings: Array.from(warnings) };
+      const bookmakerName = String(alignedBookmakerBySelection[opportunity.selection] ?? '').trim();
+      return {
+        ...gated,
+        ...(bookmakerName ? { bookmakerName } : {}),
+        dataWarnings: Array.from(warnings),
+      };
     };
     const valueOpportunities = enhanced.allBets.map((opportunity) => {
       const diagnostic = playerPropMarkets.diagnostics[opportunity.selection];
@@ -1967,6 +2000,9 @@ export class PredictionService {
       );
       return applyPrudentialGate(withCoverage);
     });
+    const speculativeOpportunities = enhanced.speculativeBets.map((opportunity) =>
+      applyPrudentialGate(opportunity)
+    );
 
     const bestValue = this.computeBestValueOpportunity(valueOpportunities, factors, singleMatchCandidateBoard);
     const modelConfidence = context.richnessScore;
@@ -1986,7 +2022,7 @@ export class PredictionService {
       probabilities: probs,
       valueOpportunities,
       comboBets: enhanced.comboBets,
-      speculativeOpportunities: enhanced.speculativeBets,
+      speculativeOpportunities,
       bestValueOpportunity: bestValue.bestValueOpportunity,
       bestBetDecision: bestValue.bestBetDecision,
       bestBetAlternatives: bestValue.bestBetAlternatives,
@@ -2929,6 +2965,9 @@ export class PredictionService {
       selectionFamily: String(best.opp.selectionFamily ?? ''),
       marketTier: String((best.opp as any).marketTier ?? 'SECONDARY'),
       bookmakerOdds: Number(best.opp.bookmakerOdds ?? 0),
+      ...(String((best.opp as any).bookmakerName ?? '').trim()
+        ? { bookmakerName: String((best.opp as any).bookmakerName).trim() }
+        : {}),
       ourProbability: Number(best.opp.ourProbability ?? 0),
       impliedProbability: Number(best.opp.impliedProbability ?? 0),
       expectedValue: Number(best.opp.expectedValue ?? 0),
@@ -3015,7 +3054,11 @@ export class PredictionService {
     return 'VOID';
   }
 
-  private getPlayerMatchStat(selection: string, matchRow: any): { value: number; marketType: PlayerPropMarketType } | null {
+  private getPlayerMatchStat(selection: string, matchRow: any): {
+    value: number;
+    marketType: PlayerPropMarketType;
+    didNotPlay?: boolean;
+  } | null {
     const parsed = parsePlayerPropSelectionKey(selection) ?? (() => {
       const legacy = parseLegacyPlayerPropOddsKey(selection);
       return legacy ? { playerId: legacy.playerSlug, marketType: legacy.marketType, side: legacy.side, line: legacy.line, lineKey: legacy.lineKey } : null;
@@ -3071,7 +3114,11 @@ export class PredictionService {
       const normalizedName = normalizePlayerNameForProp(String(entry?.player ?? entry?.name ?? ''));
       return (sourceId && entryId === sourceId) || normalizedName === playerId;
     });
-    if (!player) return null;
+    if (!player) {
+      return hasValidUnderstatMatchDetails(raw)
+        ? { value: 0, marketType: parsed.marketType, didNotPlay: true }
+        : null;
+    }
 
     const playerEntryId = String(player?.player_id ?? player?.id ?? '').trim();
     const shots = [raw?.shots?.h, raw?.shots?.a]
@@ -3100,6 +3147,9 @@ export class PredictionService {
     if (playerProp) {
       const stat = this.getPlayerMatchStat(selection, matchRow);
       if (!stat) return null;
+      if (stat.didNotPlay) {
+        return { status: 'VOID', reason: 'giocatore non schierato' };
+      }
       const line = Number(playerProp.line);
       const result = this.decideOverUnder(stat.value, playerProp.side, line);
       const labels: Record<PlayerPropMarketType, string> = {
@@ -3396,6 +3446,47 @@ export class PredictionService {
     );
   }
 
+  private rawUnderstatDetails(matchRow: any): UnderstatMatchPayload | null {
+    try {
+      const payload = typeof matchRow?.raw_json === 'string'
+        ? JSON.parse(matchRow.raw_json)
+        : matchRow?.raw_json;
+      const details = payload?.details ?? payload;
+      return hasValidUnderstatMatchDetails(details) ? details : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async refreshUnderstatDetailsForSettlement(matchRow: any): Promise<any> {
+    if (this.rawUnderstatDetails(matchRow)) return matchRow;
+    const sourceId = String(matchRow?.match_id ?? '').match(/^understat_(\d+)$/i)?.[1];
+    if (!sourceId) return matchRow;
+
+    let detail: UnderstatMatchPayload | null = null;
+    try {
+      detail = await this.understat.getMatchDetails(Number(sourceId));
+    } catch {
+      return matchRow;
+    }
+    if (!detail) return matchRow;
+
+    let existingPayload: any = {};
+    try {
+      existingPayload = typeof matchRow?.raw_json === 'string'
+        ? JSON.parse(matchRow.raw_json)
+        : (matchRow?.raw_json ?? {});
+    } catch {
+      existingPayload = {};
+    }
+    const rawJson = JSON.stringify({
+      match: existingPayload?.match ?? existingPayload,
+      details: detail,
+    });
+    await this.db.updateMatchRawJson(String(matchRow.match_id), rawJson);
+    return { ...matchRow, raw_json: rawJson };
+  }
+
   private async settleBetInternal(
     betId: string,
     status: 'WON' | 'LOST' | 'VOID',
@@ -3433,15 +3524,25 @@ export class PredictionService {
     const pendingBets = await this.db.getBets(userId, 'PENDING');
     let settled = 0;
     let unresolved = 0;
+    const refreshedMatches = new Map<string, any>();
 
     for (const bet of pendingBets) {
-      const matchRow = await this.resolvePlayedMatchForBet(bet);
+      const matchId = String(bet.match_id ?? '');
+      let matchRow = refreshedMatches.get(matchId) ?? await this.resolvePlayedMatchForBet(bet);
       if (!matchRow) {
         unresolved++;
         continue;
       }
 
-      await this.settlePendingPredictionsForMatch(String(bet.match_id), matchRow);
+      const selection = String(bet.selection ?? '');
+      const isPlayerProp = isPlayerPropSelection(selection)
+        || parseLegacyPlayerPropOddsKey(selection) !== null;
+      if (isPlayerProp && !this.rawUnderstatDetails(matchRow)) {
+        matchRow = await this.refreshUnderstatDetailsForSettlement(matchRow);
+      }
+      refreshedMatches.set(matchId, matchRow);
+
+      await this.settlePendingPredictionsForMatch(matchId, matchRow);
 
       const decision = this.evaluateSelectionForMatch(String(bet.selection ?? ''), matchRow);
       if (!decision) {

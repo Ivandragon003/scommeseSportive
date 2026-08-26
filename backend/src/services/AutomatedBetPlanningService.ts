@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export type AutomatedBetOpportunity = {
   matchId?: string;
   marketName?: string;
@@ -9,6 +11,11 @@ export type AutomatedBetOpportunity = {
   suggestedStakePercent?: number;
   ourProbability?: number;
   expectedValue?: number;
+  edgeNoVig?: number;
+  edge?: number;
+  kellyFraction?: number;
+  isValueBet?: boolean;
+  realBookmakerOdds?: boolean;
   rankingScore?: number;
   riskAdjustedBestScore?: number;
   score?: number;
@@ -32,6 +39,16 @@ const sqliteAsciiLower = (value: unknown): string =>
 export const automatedBetOpportunityKey = (marketName: unknown, selection: unknown): string =>
   `${sqliteAsciiLower(marketName)}\u001f${sqliteAsciiLower(selection)}`;
 
+export const automatedSavedDecisionId = (
+  userId: unknown,
+  matchId: unknown,
+  marketName: unknown,
+  selection: unknown,
+): string => {
+  const identity = `${String(userId ?? '').trim()}\u001f${String(matchId ?? '').trim()}\u001f${automatedBetOpportunityKey(marketName, selection)}`;
+  return `saved_${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`;
+};
+
 const opportunityScore = (opportunity: AutomatedBetOpportunity): number => {
   const candidates = [
     opportunity.riskAdjustedBestScore,
@@ -43,9 +60,25 @@ const opportunityScore = (opportunity: AutomatedBetOpportunity): number => {
   return firstFinite ?? Number.NEGATIVE_INFINITY;
 };
 
+export const isExceptionalLowConfidenceOpportunity = (opportunity: AutomatedBetOpportunity): boolean => {
+  const odds = Number(opportunity.bookmakerOdds);
+  const ev = Number(opportunity.expectedValue);
+  const edgeNoVig = Number(opportunity.edgeNoVig);
+  const kelly = Number(opportunity.kellyFraction);
+  const suggestedStake = Number(opportunity.suggestedStakePercent);
+  return opportunity.realBookmakerOdds === true
+    && opportunity.isValueBet !== false
+    && Number.isFinite(odds) && odds > 1
+    && Number.isFinite(ev) && ev > 0
+    && Number.isFinite(edgeNoVig) && edgeNoVig > 0
+    && Number.isFinite(kelly) && kelly > 0
+    && Number.isFinite(suggestedStake) && suggestedStake > 0;
+};
+
 /**
  * Ranks every opportunity inside its own match and makes at most the configured
- * number of HIGH/MEDIUM opportunities operational. Every other opportunity is
+ * number of HIGH/MEDIUM opportunities operational. A LOW can fill a remaining
+ * slot only when every real-value check passes. Every other opportunity is
  * returned as saved-only so the caller can persist a complete audit trail.
  */
 export function planAutomatedBetOpportunities(
@@ -66,7 +99,14 @@ export function planAutomatedBetOpportunities(
 
   const decisions: AutomatedBetPlanDecision[] = [];
   for (const group of byMatch.values()) {
-    const ranked = [...group].sort((left, right) => opportunityScore(right) - opportunityScore(left));
+    const ranked = [...group].sort((left, right) => {
+      const confidencePriority = (opportunity: AutomatedBetOpportunity): number => {
+        const confidence = String(opportunity.confidence ?? '').trim().toUpperCase();
+        return confidence === 'HIGH' || confidence === 'MEDIUM' ? 2 : confidence === 'LOW' ? 1 : 0;
+      };
+      return confidencePriority(right) - confidencePriority(left)
+        || opportunityScore(right) - opportunityScore(left);
+    });
     let operationalCount = 0;
 
     ranked.forEach((opportunity, index) => {
@@ -79,9 +119,13 @@ export function planAutomatedBetOpportunities(
 
       if (betStatus === 'SPECULATIVE' || marketTier === 'SPECULATIVE') {
         reason = 'speculative_saved_only';
-      } else if (confidence === 'LOW') {
+      } else if (confidence === 'LOW' && !isExceptionalLowConfidenceOpportunity(opportunity)) {
         reason = 'low_confidence_saved_only';
-      } else if (confidence !== 'HIGH' && confidence !== 'MEDIUM') {
+      } else if (
+        confidence !== 'HIGH'
+        && confidence !== 'MEDIUM'
+        && !(confidence === 'LOW' && isExceptionalLowConfidenceOpportunity(opportunity))
+      ) {
         reason = 'unsupported_confidence_saved_only';
       } else if (operationalCount >= safeLimit) {
         reason = 'per_match_limit_reached';

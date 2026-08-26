@@ -1,7 +1,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
-const { createApiRouter, getBulkOddsRouteTimeoutMs, getMatchOddsRouteTimeoutMs } = require('../dist/api/routes.js');
+const {
+  createApiRouter,
+  getBulkOddsRouteTimeoutMs,
+  getMatchOddsRouteTimeoutMs,
+} = require('../dist/api/routes.js');
+const {
+  hasCurrentMatchMarketCoverage,
+  MATCH_EVENT_ADDITIONAL_MARKETS,
+} = require('../dist/services/OddsMarketPolicy.js');
+
+test('match odds requests advanced markets but never imports correct score', () => {
+  assert.equal(MATCH_EVENT_ADDITIONAL_MARKETS.includes('player_shots'), true);
+  assert.equal(MATCH_EVENT_ADDITIONAL_MARKETS.includes('alternate_totals_cards'), true);
+  assert.equal(MATCH_EVENT_ADDITIONAL_MARKETS.includes('alternate_totals_corners'), true);
+  assert.equal(MATCH_EVENT_ADDITIONAL_MARKETS.includes('correct_score'), false);
+  assert.equal(hasCurrentMatchMarketCoverage(MATCH_EVENT_ADDITIONAL_MARKETS), true);
+  assert.equal(hasCurrentMatchMarketCoverage(['h2h', 'totals', 'spreads']), false);
+});
 const { OddsProviderCoordinator } = require('../dist/services/odds-provider/OddsProviderCoordinator.js');
 const {
   getConfiguredFallbackProviderName,
@@ -403,7 +420,7 @@ test('/scraper/odds/match riusa uno snapshot bookmaker reale recente quando la f
         selectedOdds: { homeWin: 1.91, draw: 3.4, awayWin: 4.2 },
         liveSelectedOdds: { homeWin: 1.91, draw: 3.4, awayWin: 4.2 },
         allBookmakerOdds: { 'Codere (IT)': { homeWin: 1.91, draw: 3.4, awayWin: 4.2 } },
-        marketsRequested: ['h2h', 'totals'],
+        marketsRequested: MATCH_EVENT_ADDITIONAL_MARKETS,
         usedSyntheticOdds: false,
         usedFallbackBookmaker: false,
       }),

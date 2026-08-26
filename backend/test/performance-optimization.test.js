@@ -9,6 +9,13 @@ const {
   shouldRebuildUnderstatPlayers,
 } = require('../dist/api/routes.js');
 
+const completeUnderstatRoster = (prefix) => Object.fromEntries(
+  Array.from({ length: 11 }, (_, index) => {
+    const id = `${prefix}${index + 1}`;
+    return [id, { player_id: id, player: `${prefix} Player ${index + 1}` }];
+  }),
+);
+
 test('appendPredictions invia l intero audit append-only in un unico batch write atomico', async () => {
   const batches = [];
   const db = Object.create(DatabaseService.prototype);
@@ -158,13 +165,13 @@ test('Understat invariato non richiede un upsert, ma rileva solo campi che il CO
 test('Understat non degrada raw_json ricco con payload base o non valido, ma accetta un nuovo dettaglio ricco', () => {
   const existingRich = { raw_json: JSON.stringify({
     match: { id: 1 },
-    details: { rosters: { h: {}, a: {} }, shots: { h: [], a: [] } },
+    details: { rosters: { h: completeUnderstatRoster('h'), a: completeUnderstatRoster('a') }, shots: { h: [], a: [] } },
   }) };
   const base = { rawJson: JSON.stringify({ match: { id: 1 } }) };
   const invalid = { rawJson: '{non-json' };
   const richer = { rawJson: JSON.stringify({
     match: { id: 1 },
-    details: { rosters: { h: { player: {} }, a: {} }, shots: { h: [], a: [] } },
+    details: { rosters: { h: completeUnderstatRoster('h2'), a: completeUnderstatRoster('a2') }, shots: { h: [], a: [] } },
   }) };
 
   const protectedBase = preserveUnderstatRichRawJson(existingRich, base);
@@ -180,12 +187,12 @@ test('Understat non degrada raw_json ricco con payload base o non valido, ma acc
 test('Understat considera ricco solo un payload details strutturalmente valido', () => {
   const existingRich = { raw_json: JSON.stringify({
     match: { id: 1 },
-    details: { rosters: { h: {}, a: {} }, shots: { h: [], a: [] } },
+    details: { rosters: { h: completeUnderstatRoster('h'), a: completeUnderstatRoster('a') }, shots: { h: [], a: [] } },
   }) };
   const malformedDetails = { rawJson: JSON.stringify({ match: { id: 1 }, details: {} }) };
   const validDetails = { rawJson: JSON.stringify({
     match: { id: 1 },
-    details: { rosters: { h: {}, a: {} }, shots: { h: [], a: [] } },
+    details: { rosters: { h: completeUnderstatRoster('h2'), a: completeUnderstatRoster('a2') }, shots: { h: [], a: [] } },
   }) };
 
   assert.equal(hasUnderstatRawJsonDetails(malformedDetails.rawJson), false);

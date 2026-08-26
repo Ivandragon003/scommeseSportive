@@ -92,7 +92,7 @@ type UnderstatTeamPayload = {
   statistics?: Record<string, any>;
 };
 
-type UnderstatMatchPayload = {
+export type UnderstatMatchPayload = {
   rosters?: {
     h?: Record<string, any>;
     a?: Record<string, any>;
@@ -115,9 +115,21 @@ export const hasValidUnderstatMatchDetails = (value: unknown): value is Understa
   if (!isRecord(value)) return false;
   const rosters = value.rosters;
   const shots = value.shots;
+  const hasCompleteRoster = (roster: unknown): boolean => {
+    if (!isRecord(roster)) return false;
+    const players = Object.values(roster).filter((entry) => {
+      if (!isRecord(entry)) return false;
+      return Boolean(String(entry.player_id ?? entry.id ?? '').trim())
+        && Boolean(String(entry.player ?? entry.player_name ?? entry.name ?? '').trim());
+    });
+    // Understat includes starters plus any substitutes used. Requiring at
+    // least a full starting XI on both sides keeps absence-based VOID
+    // settlement fail-closed when the provider returns partial roster data.
+    return players.length >= 11;
+  };
   return isRecord(rosters)
-    && isRecord(rosters.h)
-    && isRecord(rosters.a)
+    && hasCompleteRoster(rosters.h)
+    && hasCompleteRoster(rosters.a)
     && isRecord(shots)
     && Array.isArray(shots.h)
     && Array.isArray(shots.a);
@@ -244,6 +256,17 @@ export class UnderstatScraper {
 
   private async fetchMatchData(matchId: number): Promise<UnderstatMatchPayload> {
     return this.fetchJson<UnderstatMatchPayload>(`/getMatchData/${matchId}`);
+  }
+
+  /**
+   * Recupera il dettaglio ufficiale di una singola partita conclusa.
+   * Il payload viene restituito solo se contiene roster e tiri di entrambe le
+   * squadre, così un errore parziale del provider non può sembrare un DNP.
+   */
+  async getMatchDetails(matchId: number): Promise<UnderstatMatchPayload | null> {
+    if (!Number.isInteger(matchId) || matchId <= 0) return null;
+    const detail = await this.fetchMatchData(matchId);
+    return hasValidUnderstatMatchDetails(detail) ? detail : null;
   }
 
   private async mapLimit<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
