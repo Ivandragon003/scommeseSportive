@@ -11,7 +11,9 @@ export interface BestBetAlternative {
   marketCategory?: string;
   family?: string;
   bookmakerOdds?: number | string;
+  bookmakerName?: string;
   expectedValue?: number | string;
+  isValueBet?: boolean;
   edgeNoVig?: number | string;
   confidence?: string;
   riskAdjustedScore?: number | string;
@@ -32,11 +34,13 @@ export interface BestValueOpportunity {
   marketCategory?: string;
   selectionLabel?: string;
   bookmakerOdds?: number | string;
+  bookmakerName?: string;
   confidence?: string;
   marketTier?: string;
   humanSummary?: string;
   humanReasons?: string[];
   expectedValue?: number | string;
+  isValueBet?: boolean;
   edge?: number | string;
   ourProbability?: number | string;
   modelProbability?: number | string;

@@ -89,6 +89,10 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   const warnings = Array.isArray(opportunity.dataWarnings) ? opportunity.dataWarnings.slice(0, 4) : [];
   const riskReasons = Array.isArray(opportunity.riskReasons) ? opportunity.riskReasons.slice(0, 3) : [];
   const confidenceLabel = CONFIDENCE_LABELS[String(opportunity.confidence ?? '')] ?? 'Non disponibile';
+  const opportunityBookmaker = String(opportunity.bookmakerName ?? '').trim();
+  const resolvedOddsBadge = opportunityBookmaker
+    ? { label: `Quota bookmaker verificata: ${opportunityBookmaker}`, className: 'pr-badge-green' }
+    : oddsBadge;
   const metrics = [
     {
       id: 'quota-bookmaker',
@@ -135,7 +139,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
           </p>
         </div>
         <div className="pr-decision-report__badges">
-          <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
+          <OddsSourceBadge badge={resolvedOddsBadge} testId="odds-source-badge" />
           {resolvedStatus && (
             <span className={`pr-badge ${statusClass}`}>
               {STATUS_LABELS[resolvedStatus] ?? resolvedStatus}

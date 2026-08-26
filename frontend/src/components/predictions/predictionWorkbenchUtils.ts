@@ -74,6 +74,25 @@ export const rankOpportunity = (opportunity: any): number => {
   return (expectedValue * 0.55) + (edge * 0.30) + (normalizedProbability * 8) + (confidenceRank(opportunity?.confidence) * 4);
 };
 
+export const isWorthwhileLowConfidenceOpportunity = (opportunity: any): boolean => {
+  if (String(opportunity?.confidence ?? '').toUpperCase() !== 'LOW') return false;
+  const status = String(opportunity?.bestBetStatus ?? '').toUpperCase();
+  const tier = String(opportunity?.marketTier ?? '').toUpperCase();
+  const odds = Number(opportunity?.bookmakerOdds);
+  const expectedValue = Number(opportunity?.expectedValue);
+  const edgeNoVig = Number(opportunity?.edgeNoVig);
+  const kelly = Number(opportunity?.kellyFraction);
+  const stake = Number(opportunity?.suggestedStakePercent);
+  return status !== 'SPECULATIVE'
+    && tier !== 'SPECULATIVE'
+    && opportunity?.isValueBet !== false
+    && Number.isFinite(odds) && odds > 1
+    && Number.isFinite(expectedValue) && expectedValue > 0
+    && Number.isFinite(edgeNoVig) && edgeNoVig > 0
+    && Number.isFinite(kelly) && kelly > 0
+    && Number.isFinite(stake) && stake > 0;
+};
+
 export const formatMarketKey = (market: string): string => {
   const key = String(market ?? '').toLowerCase();
   if (key === 'h2h') return '1X2';
@@ -89,6 +108,21 @@ export const formatMarketKey = (market: string): string => {
   if (key === 'alternate_team_totals') return 'Team Totals Alternativi';
   if (key === 'model_estimated') return 'Quote stimate dal modello';
   return market;
+};
+
+export const oddsCategoryLabel = (selection: string): string => {
+  const key = String(selection ?? '').toLowerCase();
+  if (['homewin', 'draw', 'awaywin'].includes(key)) return 'Esito partita';
+  if (key.startsWith('double_chance_') || key.startsWith('dnb_')) return 'Esiti protetti';
+  if (key === 'btts' || key === 'bttsno') return 'Goal / No Goal';
+  if (/^team_(home|away)_(over|under)_/.test(key)) return 'Goal squadra';
+  if (/^(over|under)\d/.test(key)) return 'Totali goal';
+  if (key.startsWith('ahcp_') || key.startsWith('hcp_') || key.startsWith('asian_')) return 'Handicap';
+  if (key.startsWith('cardstotal') || key.startsWith('cards_total_') || key.startsWith('yellow')) return 'Cartellini';
+  if (key.startsWith('corners')) return 'Corner';
+  if (/^player_.+_(shots|sot)_/.test(key)) return 'Tiri giocatore';
+  if (/^player_.+_goals_/.test(key)) return 'Marcatori';
+  return 'Altri mercati';
 };
 
 export const buildBetKey = (matchId: string, selection: string, marketName: string): string =>

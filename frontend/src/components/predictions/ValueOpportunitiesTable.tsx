@@ -143,6 +143,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                       {isRecommended && (
                         <span className="pr-badge pr-badge-green">Consigliata</span>
                       )}
+                      {opportunity.bookmakerName && (
+                        <span className="pr-badge pr-badge-gray">{opportunity.bookmakerName}</span>
+                      )}
                       {opportunity.confidence && (
                         <span
                           className={`pr-badge ${opportunity.confidence === 'HIGH' ? 'pr-badge-green' : opportunity.confidence === 'MEDIUM' ? 'pr-badge-blue' : 'pr-badge-gold'}`}

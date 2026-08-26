@@ -81,7 +81,7 @@ const BetRow: React.FC<{
     : 'Non disponibile';
 
   return (
-    <article className={`bet-row bet-row--${variant}${expanded ? ' is-expanded' : ''}`}>
+    <article className={`bet-row bet-row--${variant} bet-row--${String(bet.status ?? 'pending').toLowerCase()}${expanded ? ' is-expanded' : ''}`}>
       <button
         type="button"
         className="bet-row__summary"
@@ -196,6 +196,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
     <div className="bm-wrap bets-page">
       <header className="bm-head bets-page-head">
         <div>
+          <span className="bets-page-eyebrow"><Ticket size={15} aria-hidden="true" /> Registro bankroll</span>
           <h1 className="bm-title">Giocate</h1>
           <p className="bm-sub">Monitora le tue giocate in attesa e consulta lo storico dei risultati.</p>
         </div>
@@ -273,6 +274,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
           <section className="bets-section bets-section--open" aria-labelledby="open-bets-title" aria-label="Giocate aperte">
               <div className="bets-section__head">
                 <div><Clock3 size={22} aria-hidden="true" /><h2 id="open-bets-title">Giocate in attesa</h2><span className="fp-badge fp-badge-blue">{visibleOpenBets.length}</span></div>
+                <span className="bets-section__hint">Capitale già impegnato · aggiornamento automatico a risultato disponibile</span>
               </div>
               <div className="bets-table-shell">
                 <div className="bets-table-head" aria-hidden="true"><span /><span>Partita / Data</span><span>Mercato / Selezione</span><span>Quota reale</span><span>Puntata</span><span>Ritorno potenziale</span><span>Stato</span></div>

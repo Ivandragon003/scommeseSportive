@@ -91,12 +91,40 @@ describe('PredictionArchivePage', () => {
     render(<PredictionArchivePage />);
 
     expect(screen.queryByText('Probabilità del modello')).toBeNull();
-    fireEvent.click(await screen.findByRole('button', { name: 'Apri dettagli giocata decision-high' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — Vittoria Bologna/ }));
 
     expect(screen.getByText('Probabilità del modello')).toBeTruthy();
     expect(screen.getByText('EV tecnico')).toBeTruthy();
     expect(screen.getByText('Stake effettivo')).toBeTruthy();
     expect(screen.getByText('20.00')).toBeTruthy();
+    expect(screen.queryByText('ID giocata')).toBeNull();
+    expect(screen.queryByText('Match ID')).toBeNull();
+    expect(screen.queryByText('decision-high')).toBeNull();
+  });
+
+  test('distingue i pulsanti dettagli quando la stessa partita ha piu opportunita', async () => {
+    mockedApi.getBetOpportunityArchive.mockResolvedValueOnce({
+      success: true,
+      data: [
+        archiveRows[0],
+        {
+          ...archiveRows[1],
+          decision_id: 'decision-second-market',
+          match_id: 'match-101',
+          home_team_name: 'Bologna',
+          away_team_name: 'Lazio',
+        },
+      ],
+    } as any);
+
+    render(<PredictionArchivePage />);
+
+    expect(await screen.findByRole('button', {
+      name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — Vittoria Bologna/,
+    })).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: /Apri dettagli Bologna – Lazio: Over\/Under — Più di 2,5 gol/,
+    })).toBeTruthy();
   });
 
   test('i filtri interrogano il backend per tipo classificazione ed esito', async () => {
