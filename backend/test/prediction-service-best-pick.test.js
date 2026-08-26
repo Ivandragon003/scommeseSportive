@@ -85,6 +85,135 @@ test('settles player props from normalized playerStats when roster details are u
   assert.equal(service.evaluateSelectionAgainstMatch('player_understat_player_77_goals_over_0_5', match)?.status, 'WON');
 });
 
+test('annulla la player prop quando il dettaglio completo conferma che il giocatore non e sceso in campo', () => {
+  const service = new PredictionService({});
+  const roster = (prefix) => Object.fromEntries(Array.from({ length: 11 }, (_, index) => {
+    const id = `${prefix}${index + 1}`;
+    return [id, { player_id: id, player: `${prefix} Player ${index + 1}`, shots: '0' }];
+  }));
+  const match = {
+    home_goals: 0,
+    away_goals: 1,
+    raw_json: JSON.stringify({
+      details: {
+        rosters: {
+          h: roster('h'),
+          a: roster('a'),
+        },
+        shots: { h: [], a: [] },
+      },
+    }),
+  };
+
+  const result = service.evaluateSelectionAgainstMatch('player_understat_player_6521_shots_over_1_5', match);
+  assert.deepEqual(result, { status: 'VOID', reason: 'giocatore non schierato' });
+});
+
+test('non interpreta roster Understat vuoti o parziali come prova di giocatore non schierato', () => {
+  const service = new PredictionService({});
+  const selection = 'player_understat_player_6521_shots_over_1_5';
+  const empty = {
+    raw_json: JSON.stringify({ details: { rosters: { h: {}, a: {} }, shots: { h: [], a: [] } } }),
+  };
+  const partial = {
+    raw_json: JSON.stringify({
+      details: {
+        rosters: {
+          h: { '10': { player_id: '10', player: 'Home Player' } },
+          a: { '20': { player_id: '20', player: 'Away Player' } },
+        },
+        shots: { h: [], a: [] },
+      },
+    }),
+  };
+
+  assert.equal(service.evaluateSelectionAgainstMatch(selection, empty), null);
+  assert.equal(service.evaluateSelectionAgainstMatch(selection, partial), null);
+});
+
+test('sync pending recupera il dettaglio Understat mancante e rimborsa automaticamente il DNP', async () => {
+  const bet = {
+    bet_id: 'legacy-player-prop', user_id: 'user1', match_id: 'understat_31562',
+    selection: 'player_understat_player_6521_shots_over_1_5', status: 'PENDING',
+    stake: 4, odds: 5,
+  };
+  let savedRawJson = null;
+  let settlementInput = null;
+  const db = {
+    getBets: async () => [bet],
+    getMatchById: async () => ({
+      match_id: 'understat_31562', home_goals: 0, away_goals: 1,
+      raw_json: JSON.stringify({ match: { id: '31562' }, details: {} }),
+    }),
+    updateMatchRawJson: async (_matchId, rawJson) => { savedRawJson = rawJson; return true; },
+    getPendingPredictions: async () => [],
+    getBet: async () => bet,
+    settlePendingBetAtomically: async (input) => { settlementInput = input; return { settled: true }; },
+    getBudget: async () => ({ available_budget: 100 }),
+  };
+  const understat = {
+    getMatchDetails: async () => ({
+      rosters: {
+        h: Object.fromEntries(Array.from({ length: 11 }, (_, index) => {
+          const id = `h${index + 1}`;
+          return [id, { player_id: id, player: `Home Player ${index + 1}`, shots: '0' }];
+        })),
+        a: Object.fromEntries(Array.from({ length: 11 }, (_, index) => {
+          const id = `a${index + 1}`;
+          return [id, { player_id: id, player: `Away Player ${index + 1}`, shots: '0' }];
+        })),
+      },
+      shots: { h: [], a: [] },
+    }),
+  };
+  const service = new PredictionService(db, understat);
+
+  const result = await service.syncPendingBets('user1');
+
+  assert.equal(result.settled, 1);
+  assert.equal(result.unresolved, 0);
+  assert.ok(savedRawJson);
+  assert.equal(settlementInput.status, 'VOID');
+  assert.equal(settlementInput.returnAmount, 4);
+  assert.match(settlementInput.notes, /giocatore non schierato/i);
+});
+
+test('sync pending recupera i dettagli anche per una chiave player prop legacy', async () => {
+  const bet = {
+    bet_id: 'legacy-format-player-prop', user_id: 'user1', match_id: 'understat_31562',
+    selection: 'player_shots_yerry_mina_over_1_5', status: 'PENDING', stake: 4, odds: 5,
+  };
+  let detailRequests = 0;
+  const db = {
+    getBets: async () => [bet],
+    getMatchById: async () => ({
+      match_id: bet.match_id, home_goals: 0, away_goals: 1,
+      raw_json: JSON.stringify({ match: { id: '31562' }, details: {} }),
+    }),
+    updateMatchRawJson: async () => true,
+    getPendingPredictions: async () => [],
+    getBet: async () => bet,
+    settlePendingBetAtomically: async () => ({ settled: true }),
+    getBudget: async () => ({ available_budget: 100 }),
+  };
+  const roster = (prefix) => Object.fromEntries(Array.from({ length: 11 }, (_, index) => {
+    const id = `${prefix}${index + 1}`;
+    return [id, { player_id: id, player: `${prefix} Player ${index + 1}`, shots: '0' }];
+  }));
+  const understat = {
+    getMatchDetails: async () => {
+      detailRequests++;
+      return { rosters: { h: roster('h'), a: roster('a') }, shots: { h: [], a: [] } };
+    },
+  };
+
+  const result = await new PredictionService(db, understat).syncPendingBets('user1');
+
+  assert.equal(detailRequests, 1);
+  assert.equal(result.settled, 1);
+  assert.equal(result.unresolved, 0);
+});
+
 test('settles archived predictions for completed matches, including non-bets', async () => {
   const settled = [];
   const pending = [
@@ -160,6 +289,7 @@ test('statistical market can become final recommended pick when data reliability
       marketTier: 'SECONDARY',
       ourProbability: 61,
       bookmakerOdds: 2.16,
+      bookmakerName: 'Pinnacle',
       impliedProbability: 46.3,
       impliedProbabilityNoVig: 45.7,
       expectedValue: 11.1,
@@ -196,6 +326,7 @@ test('statistical market can become final recommended pick when data reliability
   assert.ok(best);
   assert.equal(result.bestBetStatus, 'PLAYABLE');
   assert.equal(best.selection, 'shots_total_over_23.5');
+  assert.equal(best.bookmakerName, 'Pinnacle');
   assert.equal(best.marketTier, 'SECONDARY');
 });
 

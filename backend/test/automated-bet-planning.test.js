@@ -12,6 +12,8 @@ process.env.TURSO_AUTH_TOKEN = 'test-token';
 
 const {
   automatedBetOpportunityKey,
+  automatedSavedDecisionId,
+  isExceptionalLowConfidenceOpportunity,
   planAutomatedBetOpportunities,
 } = require('../dist/services/AutomatedBetPlanningService.js');
 const { DatabaseService } = require('../dist/db/DatabaseService.js');
@@ -88,12 +90,35 @@ test('saves LOW, SPECULATIVE and unclassified opportunities without making them 
   assert.deepEqual(
     decisions.filter((decision) => decision.action === 'saved_only').map((decision) => [decision.opportunity.selection, decision.reason]),
     [
-      ['low', 'low_confidence_saved_only'],
       ['speculative', 'speculative_saved_only'],
       ['speculative-tier', 'speculative_saved_only'],
+      ['low', 'low_confidence_saved_only'],
       ['unknown', 'unsupported_confidence_saved_only'],
     ],
   );
+});
+
+test('ammette una LOW verificata solo dopo HIGH/MEDIUM e solo con EV, edge e Kelly positivi', () => {
+  const strongLow = {
+    ...opportunity({ matchId: 'match-1', selection: 'low-strong', confidence: 'LOW', rankingScore: 100 }),
+    realBookmakerOdds: true,
+    edgeNoVig: 4,
+    kellyFraction: 1.2,
+  };
+  assert.equal(isExceptionalLowConfidenceOpportunity(strongLow), true);
+
+  const decisions = planAutomatedBetOpportunities([
+    strongLow,
+    opportunity({ matchId: 'match-1', selection: 'high', confidence: 'HIGH', rankingScore: 30 }),
+    opportunity({ matchId: 'match-1', selection: 'medium', confidence: 'MEDIUM', rankingScore: 20 }),
+    { ...strongLow, selection: 'low-no-edge', edgeNoVig: 0 },
+  ], 3);
+
+  assert.deepEqual(
+    decisions.filter((decision) => decision.action === 'operational').map((decision) => decision.opportunity.selection),
+    ['high', 'medium', 'low-strong'],
+  );
+  assert.equal(decisions.find((decision) => decision.opportunity.selection === 'low-no-edge').reason, 'low_confidence_saved_only');
 });
 
 test('LOW/SPECULATIVE do not consume the three operational HIGH/MEDIUM slots', () => {
@@ -142,6 +167,42 @@ test('persists an auditable saved-only decision with theoretical stake and ranki
   assert.equal(Number(rows[0].ranking_position), 4);
   assert.equal(rows[0].decision_status, 'saved_only');
   assert.equal(rows[0].exclusion_reason, 'per_match_limit_reached');
+
+  try {
+    unlinkSync(isolatedDbPath);
+  } catch (error) {
+    if (error.code !== 'EBUSY') throw error;
+  }
+});
+
+test('saved-only audit usa un id stabile e aggiorna lo stesso record ai retry', async () => {
+  const isolatedDbPath = isolatedDatabasePath('automated-bet-saved-idempotent');
+  process.env.TURSO_DATABASE_URL = `file:${isolatedDbPath}`;
+  const db = new DatabaseService();
+  const decisionId = automatedSavedDecisionId('user1', 'match-1', '1X2', 'awayWin');
+  const base = {
+    decisionId,
+    userId: 'user1',
+    matchId: 'match-1',
+    marketName: '1X2',
+    selection: 'awayWin',
+    confidence: 'LOW',
+    bookmakerName: 'Pinnacle',
+    theoreticalStakePercent: 1,
+    theoreticalStakeAmount: 10,
+    rankingPosition: 1,
+    decisionStatus: 'saved_only',
+    exclusionReason: 'low_confidence_saved_only',
+  };
+
+  await db.appendAutomatedBetDecision({ ...base, bookmakerOdds: 4.2, createdAt: '2026-08-26T01:00:00Z' });
+  await db.appendAutomatedBetDecision({ ...base, bookmakerOdds: 4.4, createdAt: '2026-08-26T02:00:00Z' });
+  const rows = await db.getAutomatedBetDecisions({ matchId: 'match-1' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].decision_id, decisionId);
+  assert.equal(Number(rows[0].bookmaker_odds), 4.4);
+  assert.equal(rows[0].created_at, '2026-08-26T02:00:00Z');
 
   try {
     unlinkSync(isolatedDbPath);

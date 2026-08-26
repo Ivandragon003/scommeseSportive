@@ -30,7 +30,12 @@ import {
   retainCompleteOfficialLineupRows,
 } from '../services/PlayerLineupProbabilityService';
 import { normalizePlayerNameForProp } from '../services/playerProps';
-import { planAutomatedBetOpportunities } from '../services/AutomatedBetPlanningService';
+import {
+  automatedSavedDecisionId,
+  planAutomatedBetOpportunities,
+} from '../services/AutomatedBetPlanningService';
+import { buildCoherentBookmakerOddsBundle } from '../services/BookmakerOddsSelectionService';
+import { hasCurrentMatchMarketCoverage, MATCH_EVENT_ADDITIONAL_MARKETS } from '../services/OddsMarketPolicy';
 import {
   syncFootballData,
   createLibsqlFootballDataDb,
@@ -1625,11 +1630,13 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
     try {
       let oddsData: any = await db.getLatestOddsSnapshotForMatch(matchId);
       const snapshotAgeMs = oddsData?.captured_at ? Date.now() - Date.parse(String(oddsData.captured_at)) : Infinity;
+      const snapshotMarkets = Array.isArray(oddsData?.marketsRequested) ? oddsData.marketsRequested : [];
       const snapshotUsable = oddsData
         && String(oddsData.source ?? '').trim() === 'odds_api'
         && !oddsData.usedSyntheticOdds
         && Boolean(String(oddsData.selectedBookmakerName ?? '').trim())
         && Object.keys(oddsData.liveSelectedOdds ?? oddsData.selectedOdds ?? {}).length > 0
+        && (snapshotMarkets.length === 0 || hasCurrentMatchMarketCoverage(snapshotMarkets))
         && Number.isFinite(snapshotAgeMs)
         && snapshotAgeMs <= maxSnapshotAgeHours * 60 * 60 * 1000;
 
@@ -1643,10 +1650,18 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         });
       }
 
-      const odds = oddsData?.liveSelectedOdds ?? oddsData?.selectedOdds ?? {};
+      const fallbackSelectedOdds = sanitizeOddsMap(oddsData?.liveSelectedOdds ?? oddsData?.selectedOdds ?? {});
+      const automatedAnalysisBundle = buildCoherentBookmakerOddsBundle(
+        Object.keys(oddsData?.allBookmakerOdds ?? {}).length > 0
+          ? oddsData.allBookmakerOdds
+          : (oddsData?.selectedBookmakerName
+              ? { [String(oddsData.selectedBookmakerName)]: fallbackSelectedOdds }
+              : {})
+      );
+      const odds = sanitizeOddsMap(oddsData?.analysisOdds ?? automatedAnalysisBundle.odds ?? fallbackSelectedOdds);
+      const bookmakerBySelection = oddsData?.bookmakerBySelection ?? automatedAnalysisBundle.bookmakerBySelection;
       const realOdds = String(oddsData?.source ?? '').trim() === 'odds_api'
         && oddsData?.usedSyntheticOdds !== true
-        && Boolean(String(oddsData?.selectedBookmakerName ?? '').trim())
         && Object.keys(odds).length > 0;
       if (!realOdds) {
         results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_disponibile' });
@@ -1660,6 +1675,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         competition,
         oddsSource: String(oddsData?.source ?? '').trim() || 'unknown',
         bookmakerOdds: odds,
+        bookmakerBySelection,
       });
       const valueOpportunities = Array.isArray(prediction?.valueOpportunities)
         ? prediction.valueOpportunities
@@ -1677,7 +1693,11 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
       }
 
       const plannedDecisions = planAutomatedBetOpportunities(
-        opportunities.map((opportunity: any) => ({ ...opportunity, matchId: opportunity?.matchId ?? matchId })),
+        opportunities.map((opportunity: any) => ({
+          ...opportunity,
+          matchId: opportunity?.matchId ?? matchId,
+          realBookmakerOdds: realOdds,
+        })),
         maxOperationalBetsPerMatch,
       );
 
@@ -1704,7 +1724,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
           && suggestedStakePercent > 0
           ? Math.max(1, Number((availableBudget * suggestedStakePercent / 100).toFixed(2)))
           : null;
-        const decisionRecord = (decisionId = randomUUID()) => ({
+        const decisionRecord = (decisionId: string = randomUUID()) => ({
           decisionId,
           userId,
           matchId,
@@ -1712,7 +1732,12 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
           selection: String(opportunity?.selection ?? ''),
           confidence: String(opportunity?.confidence ?? '').toUpperCase() || null,
           bookmakerOdds: Number.isFinite(Number(opportunity?.bookmakerOdds)) ? Number(opportunity.bookmakerOdds) : null,
-          bookmakerName: String(oddsData?.selectedBookmakerName ?? '').trim() || null,
+          bookmakerName: String(
+            opportunity?.bookmakerName
+            ?? bookmakerBySelection?.[String(opportunity?.selection ?? '')]
+            ?? oddsData?.selectedBookmakerName
+            ?? ''
+          ).trim() || null,
           theoreticalStakePercent: Number.isFinite(suggestedStakePercent) ? suggestedStakePercent : null,
           theoreticalStakeAmount,
           rankingPosition: decision.rankingPosition,
@@ -1720,7 +1745,12 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         const archiveSavedOnly = async (exclusionReason: string | null) => {
           try {
             await db.appendAutomatedBetDecision({
-              ...decisionRecord(),
+              ...decisionRecord(automatedSavedDecisionId(
+                userId,
+                matchId,
+                opportunity?.marketName,
+                opportunity?.selection,
+              )),
               operationalSlot: null,
               decisionStatus: 'saved_only',
               exclusionReason,
@@ -3804,6 +3834,14 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       ? await db.getLatestRealOddsSnapshotForMatch(snapshotMatchId)
       : null;
     const snapshotOdds = sanitizeOddsMap(latestSnapshot?.liveSelectedOdds ?? latestSnapshot?.selectedOdds ?? {});
+    const snapshotAllBookmakerOdds = latestSnapshot?.allBookmakerOdds ?? {};
+    const snapshotAnalysisBundle = buildCoherentBookmakerOddsBundle(
+      Object.keys(snapshotAllBookmakerOdds).length > 0
+        ? snapshotAllBookmakerOdds
+        : (latestSnapshot?.selectedBookmakerName
+            ? { [String(latestSnapshot.selectedBookmakerName)]: snapshotOdds }
+            : {})
+    );
     const snapshotCapturedAt = Date.parse(String(latestSnapshot?.captured_at ?? ''));
     const snapshotUsable = latestSnapshot
       && String(latestSnapshot.source ?? '').trim() === 'odds_api'
@@ -3811,6 +3849,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       && latestSnapshot.usedFallbackBookmaker !== true
       && Boolean(String(latestSnapshot.selectedBookmakerName ?? '').trim())
       && Object.keys(snapshotOdds).length > 0
+      && Object.keys(snapshotAnalysisBundle.odds).length > 0
+      && hasCurrentMatchMarketCoverage(latestSnapshot.marketsRequested)
       && Number.isFinite(snapshotCapturedAt)
       && Date.now() - snapshotCapturedAt <= getReusableOddsSnapshotMaxAgeMs();
     if (snapshotUsable) {
@@ -3829,9 +3869,14 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         commenceTime: latestSnapshot.commence_time ?? commenceTime ?? null,
         selectedOdds: snapshotOdds,
         oddsApiOdds: snapshotOdds,
+        analysisOdds: snapshotAnalysisBundle.odds,
+        bookmakerBySelection: snapshotAnalysisBundle.bookmakerBySelection,
+        analysisBookmakers: snapshotAnalysisBundle.bookmakers,
+        analysisBookmakerCount: snapshotAnalysisBundle.bookmakers.length,
         fallbackOdds: {},
-        allBookmakerOdds: latestSnapshot.allBookmakerOdds ?? {},
+        allBookmakerOdds: snapshotAllBookmakerOdds,
         marketCount: Object.keys(snapshotOdds).length,
+        analysisOddsCount: Object.keys(snapshotAnalysisBundle.odds).length,
         selectedOddsCount: Object.keys(snapshotOdds).length,
         marketsRequested: Array.isArray(latestSnapshot.marketsRequested) ? latestSnapshot.marketsRequested : [],
         usedFallbackBookmaker: false,
@@ -3920,19 +3965,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       // matched event with those markets below.
       const fallbackMarkets = [...preferredMarkets];
       const eventAdditionalMarkets = [
-        'h2h_3_way',
-        'spreads',
-        'alternate_totals',
-        'alternate_spreads',
-        'alternate_totals_cards',
-        'alternate_spreads_cards',
-        'team_totals',
-        'alternate_team_totals',
-        'btts',
-        'double_chance',
-        'draw_no_bet',
-        'player_shots',
-        'player_shots_on_target',
+        ...MATCH_EVENT_ADDITIONAL_MARKETS,
         // Rimosse 'shots', 'shots_on_target', 'cards': NON sono chiavi valide di
         // the-odds-api (verificato live 2026-07, "Invalid markets") e ogni giro
         // produceva richieste destinate a fallire. Gli equivalenti validi sono
@@ -3942,10 +3975,6 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         // codice chiedeva la chiave 'corners', anch'essa inesistente. Le chiavi
         // valide sono le quattro qui sotto. Il fetch per-evento degrada
         // singolarmente, quindi aggiungerle e' sicuro.
-        'alternate_totals_corners',
-        'alternate_spreads_corners',
-        'alternate_team_totals_corners',
-        'corners_1x2',
         // NOTA: i FALLI non sono ottenibili da the-odds-api in nessuna forma
         // (verificato live: 'fouls', 'totals_fouls', 'alternate_totals_fouls'
         // restituiscono "Invalid markets"; confermato dalla doc ufficiale dei
@@ -4166,6 +4195,11 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       ]));
 
       const allBookmakerOdds = flattenProviderComparisons(coordinatedMatch.bookmakerComparisonByProvider);
+      const analysisBundle = buildCoherentBookmakerOddsBundle(
+        Object.keys(allBookmakerOdds).length > 0
+          ? allBookmakerOdds
+          : (selectedBookmakerName ? { [selectedBookmakerName]: selectedOdds } : {})
+      );
       const selectedProviderMatch = selectedProvider
         ? coordinatedMatch.providerMatches[selectedProvider] as OddsMatch | undefined
         : undefined;
@@ -4208,6 +4242,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const sourceUsed = source;
       const fallbackUsed = usedFallbackBookmaker || Boolean(coordinatedMatch.fallbackReason ?? coordination.fallbackReason);
       const selectedOddsCount = Object.keys(selectedOdds).length;
+      const analysisOddsCount = Object.keys(analysisBundle.odds).length;
 
       await observability?.recordProviderRun({
         requestId,
@@ -4222,7 +4257,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         matchesWithBaseOdds,
         matchesWithExtendedGroups,
         durationMs,
-        success: Object.keys(selectedOdds).length > 0,
+        success: analysisOddsCount > 0,
         fallbackUsed,
         fallbackReason: coordinatedMatch.fallbackReason ?? coordination.fallbackReason,
         warningCount: Array.from(new Set([...coordination.warnings, ...retryWarnings])).length,
@@ -4249,8 +4284,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       });
 
       return {
-        found: Object.keys(selectedOdds).length > 0,
-        message: Object.keys(selectedOdds).length > 0
+        found: analysisOddsCount > 0,
+        message: analysisOddsCount > 0
           ? (usedFallbackBookmaker ? 'Quote bookmaker caricate da provider secondario.' : 'Quote bookmaker caricate correttamente.')
           : 'Quote bookmaker non trovate per questa partita.',
         usedFallbackBookmaker,
@@ -4271,9 +4306,14 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         freshnessMinutes: minutesSince(coordinatedMatch.fetchedAt),
         selectedOdds,
         oddsApiOdds: sanitizeOddsMap(oddsApiOdds),
+        analysisOdds: analysisBundle.odds,
+        bookmakerBySelection: analysisBundle.bookmakerBySelection,
+        analysisBookmakers: analysisBundle.bookmakers,
+        analysisBookmakerCount: analysisBundle.bookmakers.length,
         fallbackOdds,
         allBookmakerOdds,
         marketCount,
+        analysisOddsCount,
         selectedOddsCount,
         oddsCoverage: {
           ...oddsCoverage,
