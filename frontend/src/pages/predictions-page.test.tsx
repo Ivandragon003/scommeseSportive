@@ -196,7 +196,10 @@ describe('Predictions page', () => {
         primaryProvider: 'odds_api',
         selectedBookmakerName: 'Pinnacle',
         selectedOdds: { over25: 2.1 },
-        marketsRequested: ['totals'],
+        analysisOdds: { over25: 2.1, 'cards_total_over_4.5': 2.05 },
+        bookmakerBySelection: { over25: 'Pinnacle', 'cards_total_over_4.5': 'Codere' },
+        analysisBookmakers: ['Codere', 'Pinnacle'],
+        marketsRequested: ['totals', 'alternate_totals_cards'],
       },
     } as any);
 
@@ -207,7 +210,8 @@ describe('Predictions page', () => {
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
     expect(mockedApi.getPrediction).toHaveBeenCalledWith(expect.objectContaining({
-      bookmakerOdds: { over25: 2.1 },
+      bookmakerOdds: { over25: 2.1, 'cards_total_over_4.5': 2.05 },
+      bookmakerBySelection: { over25: 'Pinnacle', 'cards_total_over_4.5': 'Codere' },
       oddsSource: 'odds_api',
     }));
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
@@ -221,13 +225,19 @@ describe('Predictions page', () => {
     await screen.findByTestId('best-value-card');
     expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota bookmaker verificata: Pinnacle');
+    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota bookmaker verificata: 2 bookmaker reali');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
     expect(screen.getByText(/Quote bookmaker reali caricate.*odds_api/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Quote Complete\s*2/i }));
+    expect(await screen.findByRole('region', { name: 'Totali goal' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Cartellini' })).toBeTruthy();
+    expect(screen.getByText('Codere')).toBeTruthy();
+    expect(screen.getByText('Pinnacle')).toBeTruthy();
   });
 
-  test('mostra in Scommesse tutte le team bet LOW, MEDIUM e HIGH con la consigliata per prima', async () => {
+  test('usa i 3 slot per HIGH/MEDIUM prima di una LOW consigliata anche se conveniente', async () => {
     const lowPlayerOpportunity = {
       ...valueOpportunity,
       selection: 'player_orsolini_shots_over_1_5',
@@ -259,6 +269,13 @@ describe('Predictions page', () => {
       marketName: 'Goal / No Goal',
       confidence: 'MEDIUM',
     };
+    const thirdPriorityTeamOpportunity = {
+      ...valueOpportunity,
+      selection: 'awayWin',
+      selectionLabel: 'Vittoria Milan',
+      marketName: 'Esito finale (1X2)',
+      confidence: 'MEDIUM',
+    };
     const recommendedAwayDnb = {
       ...valueOpportunity,
       selection: 'dnb_away',
@@ -267,6 +284,7 @@ describe('Predictions page', () => {
       bookmakerOdds: 2.59,
       confidence: 'LOW',
       expectedValue: 20.26,
+      edgeNoVig: 6.4,
     };
     const speculativeTeamOpportunity = {
       ...valueOpportunity,
@@ -276,7 +294,13 @@ describe('Predictions page', () => {
       marketTier: 'SPECULATIVE',
       confidence: 'LOW',
     };
-    const opportunities = [lowPlayerOpportunity, lowTeamOpportunity, mediumTeamOpportunity, highTeamOpportunity];
+    const opportunities = [
+      lowPlayerOpportunity,
+      lowTeamOpportunity,
+      mediumTeamOpportunity,
+      highTeamOpportunity,
+      thirdPriorityTeamOpportunity,
+    ];
     mockedApi.getPrediction
       .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb }) } as any)
       .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb, oddsSource: 'odds_api' }) } as any);
@@ -291,6 +315,7 @@ describe('Predictions page', () => {
           [lowTeamOpportunity.selection]: lowTeamOpportunity.bookmakerOdds,
           [mediumTeamOpportunity.selection]: mediumTeamOpportunity.bookmakerOdds,
           [highTeamOpportunity.selection]: highTeamOpportunity.bookmakerOdds,
+          [thirdPriorityTeamOpportunity.selection]: thirdPriorityTeamOpportunity.bookmakerOdds,
           [speculativeTeamOpportunity.selection]: speculativeTeamOpportunity.bookmakerOdds,
           [recommendedAwayDnb.selection]: recommendedAwayDnb.bookmakerOdds,
         },
@@ -301,15 +326,16 @@ describe('Predictions page', () => {
     render(<Predictions activeUser="user1" />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    const recommendedBetsTab = await screen.findByRole('button', { name: /Scommesse\s*5/i });
+    const recommendedBetsTab = await screen.findByRole('button', { name: /Scommesse\s*3/i });
     fireEvent.click(recommendedBetsTab);
 
     const valueBets = await screen.findByTestId('value-opportunities-table');
-    expect(valueBets.textContent).toContain('Pareggio non conta (DNB) · Ospite');
-    expect(valueBets.textContent).toContain('Under 2.5 Goal');
     expect(valueBets.textContent).toContain('GG Si');
     expect(valueBets.textContent).toContain('Over 2.5 Goal');
-    expect(valueBets.textContent).toContain('Double Chance 1X');
+    expect(valueBets.textContent).toContain('Vittoria Ospite');
+    expect(valueBets.textContent).not.toContain('Pareggio non conta (DNB) · Ospite');
+    expect(valueBets.textContent).not.toContain('Under 2.5 Goal');
+    expect(valueBets.textContent).not.toContain('Double Chance 1X');
     expect(valueBets.textContent).toContain('Consigliata');
     expect(valueBets.textContent).not.toContain('Riccardo Orsolini');
     expect(screen.queryByText(/Nessuna giocata supera i criteri operativi/i)).toBeNull();
@@ -318,9 +344,10 @@ describe('Predictions page', () => {
     expect(await screen.findByText('Riccardo Orsolini')).toBeTruthy();
   });
 
-  test('mostra SPECULATIVE quando la migliore giocata e debole ma valutabile', async () => {
+  test('non presenta come operativa una giocata solo speculativa', async () => {
     mockedApi.getPrediction.mockResolvedValue({
       data: buildPrediction({
+        valueOpportunities: [],
         bestValueOpportunity: {
           ...valueOpportunity,
           confidence: 'LOW',
@@ -363,10 +390,10 @@ describe('Predictions page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
 
-    expect(await screen.findByText('Rischio elevato')).toBeTruthy();
-    expect(screen.getByText(/Migliore giocata disponibile/i)).toBeTruthy();
-    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
-    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
+    expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
+    expect(screen.getByText(/non genera una puntata reale/i)).toBeTruthy();
+    expect(screen.getByTestId('best-value-card').textContent).not.toContain('Over 2.5 Goal');
+    expect(screen.getByText(/EUR 0\.00/)).toBeTruthy();
     expect(screen.queryByText(/Alternative valutate/i)).toBeNull();
   });
 

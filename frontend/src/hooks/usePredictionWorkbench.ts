@@ -5,6 +5,8 @@ import {
   buildOddsReliabilityBadge,
   currentSeason,
   formatMarketKey,
+  isWorthwhileLowConfidenceOpportunity,
+  oddsCategoryLabel,
   rankOpportunity,
 } from '../components/predictions/predictionWorkbenchUtils';
 import { fmtSelection } from '../components/predictions/predictionFormatting';
@@ -35,7 +37,8 @@ export interface PredictionWorkbenchViewModel {
   analysisFactors: any;
   methodology: any;
   vbRanked: BestValueOpportunityModel[];
-  allOddsEntries: Array<{ selection: string; odd: number }>;
+  allOddsEntries: Array<{ selection: string; odd: number; bookmaker: string; category: string }>;
+  allOddsGroups: Array<{ category: string; entries: Array<{ selection: string; odd: number; bookmaker: string; category: string }> }>;
   valueSelectionSet: Set<string>;
   currentMatchId: string;
   isReplayAnalysis: boolean;
@@ -148,11 +151,6 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     () => vb.filter((opportunity) => !isPlayerPropOpportunity(opportunity)),
     [isPlayerPropOpportunity, vb]
   );
-  const speculativeTeamOpportunities = useMemo<BestValueOpportunityModel[]>(
-    () => (predictionAnalysis.pred?.speculativeOpportunities ?? [])
-      .filter((opportunity: BestValueOpportunityModel) => !isPlayerPropOpportunity(opportunity)),
-    [isPlayerPropOpportunity, predictionAnalysis.pred?.speculativeOpportunities]
-  );
   const bestValueOpp = (predictionAnalysis.pred?.bestValueOpportunity ?? null) as BestValueOpportunityModel | null;
   const analysisFactors = predictionAnalysis.pred?.analysisFactors ?? predictionAnalysis.pred?.methodology?.contextualFactors ?? null;
   const methodology = predictionAnalysis.pred?.methodology ?? {};
@@ -161,10 +159,18 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     () => {
       const isVisibleTeamBet = (opportunity: BestValueOpportunityModel): boolean => {
         const confidence = String(opportunity.confidence ?? '').toUpperCase();
+        const status = String(opportunity.bestBetStatus ?? '').toUpperCase();
+        const tier = String(opportunity.marketTier ?? '').toUpperCase();
         const bookmakerOdds = Number(opportunity.bookmakerOdds);
         return (
           !isPlayerPropOpportunity(opportunity) &&
-          (confidence === 'LOW' || confidence === 'MEDIUM' || confidence === 'HIGH') &&
+          status !== 'SPECULATIVE' &&
+          tier !== 'SPECULATIVE' &&
+          (
+            confidence === 'MEDIUM' ||
+            confidence === 'HIGH' ||
+            isWorthwhileLowConfidenceOpportunity(opportunity)
+          ) &&
           Number.isFinite(bookmakerOdds) &&
           bookmakerOdds > 1
         );
@@ -174,29 +180,50 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
       const recommendedOpportunity = bestValueOpp && isVisibleTeamBet(bestValueOpp)
         ? bestValueOpp
         : null;
-      const recommendedKey = recommendedOpportunity ? opportunityKey(recommendedOpportunity) : null;
-      const alternativesByKey = new Map<string, BestValueOpportunityModel>();
-      for (const opportunity of [...matchValueOpportunities, ...speculativeTeamOpportunities]) {
+      const candidatesByKey = new Map<string, BestValueOpportunityModel>();
+      if (recommendedOpportunity) {
+        candidatesByKey.set(opportunityKey(recommendedOpportunity), recommendedOpportunity);
+      }
+      for (const opportunity of matchValueOpportunities) {
         if (!isVisibleTeamBet(opportunity)) continue;
         const key = opportunityKey(opportunity);
-        if (key === recommendedKey || alternativesByKey.has(key)) continue;
-        alternativesByKey.set(key, opportunity);
+        if (candidatesByKey.has(key)) continue;
+        candidatesByKey.set(key, opportunity);
       }
-      const alternatives = Array.from(alternativesByKey.values())
-        .sort((left, right) => rankOpportunity(right) - rankOpportunity(left));
-
-      return recommendedOpportunity ? [recommendedOpportunity, ...alternatives] : alternatives;
+      return Array.from(candidatesByKey.values())
+        .sort((left, right) => {
+          const confidenceBand = (opportunity: BestValueOpportunityModel) =>
+            ['HIGH', 'MEDIUM'].includes(String(opportunity.confidence ?? '').toUpperCase()) ? 1 : 0;
+          return confidenceBand(right) - confidenceBand(left)
+            || rankOpportunity(right) - rankOpportunity(left);
+        })
+        .slice(0, 3);
     },
-    [bestValueOpp, isPlayerPropOpportunity, matchValueOpportunities, speculativeTeamOpportunities]
+    [bestValueOpp, isPlayerPropOpportunity, matchValueOpportunities]
   );
 
   const allOddsEntries = useMemo(
     () => Object.entries(predictionAnalysis.odds)
-      .map(([selection, odd]) => ({ selection, odd: Number(odd) }))
+      .map(([selection, odd]) => ({
+        selection,
+        odd: Number(odd),
+        bookmaker: String(predictionAnalysis.bookmakerBySelection[selection] ?? '').trim(),
+        category: oddsCategoryLabel(selection),
+      }))
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1)
-      .sort((left, right) => fmtSelection(left.selection).localeCompare(fmtSelection(right.selection), 'it')),
-    [predictionAnalysis.odds]
+      .sort((left, right) => left.category.localeCompare(right.category, 'it')
+        || fmtSelection(left.selection).localeCompare(fmtSelection(right.selection), 'it')),
+    [predictionAnalysis.bookmakerBySelection, predictionAnalysis.odds]
   );
+  const allOddsGroups = useMemo(() => {
+    const grouped = new Map<string, typeof allOddsEntries>();
+    for (const entry of allOddsEntries) {
+      const entries = grouped.get(entry.category) ?? [];
+      entries.push(entry);
+      grouped.set(entry.category, entries);
+    }
+    return Array.from(grouped.entries()).map(([category, entries]) => ({ category, entries }));
+  }, [allOddsEntries]);
 
   const valueSelectionSet = useMemo(
     () => new Set((vb ?? []).map((opportunity: any) => String(opportunity.selection))),
@@ -239,12 +266,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const maxExposureAmount = userBudget.bankroll > 0 ? (userBudget.bankroll * maxExposurePct) / 100 : 0;
 
   const finalRecommendedChoice = useMemo(() => {
-    if (!bestValueOpp) return null;
-    const match =
-      vbRanked.find((opportunity) =>
-        String(opportunity.selection ?? '') === String(bestValueOpp.selection ?? '') &&
-        String(opportunity.marketName ?? '') === String(bestValueOpp.marketName ?? '')
-      ) ?? null;
+    const match = vbRanked[0] ?? null;
     if (!match) return null;
     const suggestedStakeAmount = userBudget.bankroll > 0
       ? (Number(match.suggestedStakePercent ?? 0) / 100) * userBudget.bankroll
@@ -253,7 +275,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
       ...match,
       suggestedStakeAmount,
     };
-  }, [bestValueOpp, userBudget.bankroll, vbRanked]);
+  }, [userBudget.bankroll, vbRanked]);
 
   const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
   const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
@@ -306,6 +328,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     methodology,
     vbRanked,
     allOddsEntries,
+    allOddsGroups,
     valueSelectionSet,
     currentMatchId,
     isReplayAnalysis,

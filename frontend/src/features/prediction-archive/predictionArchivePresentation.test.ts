@@ -1,4 +1,5 @@
 import {
+  archiveMatchTitle,
   classificationBadge,
   opportunityLabel,
   opportunityOdds,
@@ -35,5 +36,17 @@ describe('prediction archive presentation', () => {
     expect(opportunityLabel('Over/Under', 'over2_5', 'Napoli', 'Roma')).toBe('Più di 2,5 gol');
     expect(opportunityLabel('Goal/Goal', 'btts', 'Napoli', 'Roma')).toBe('Entrambe le squadre segnano');
     expect(opportunityLabel('Risultato esatto', 'exact_2-1', 'Napoli', 'Roma')).toBe('Risultato esatto 2–1');
+  });
+
+  test('non espone identificativi tecnici nei fallback utente', () => {
+    expect(archiveMatchTitle({
+      decision_id: 'decision-1', match_id: 'understat_31562', market_name: 'Tiri giocatore',
+      selection: 'player_understat_player_6521_shots_over_1_5', classification: 'LOW',
+      archive_type: 'simulated', result: 'void',
+    })).toBe('Partita archiviata');
+    expect(opportunityLabel(
+      'Tiri giocatore',
+      'player_understat_player_6521_shots_over_1_5',
+    )).toBe('Giocatore: più di 1,5 tiri');
   });
 });

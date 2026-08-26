@@ -10,6 +10,8 @@ type OddsTone = 'info' | 'success' | 'warning' | 'danger';
 interface AnalysisCacheEntry {
   pred: any;
   odds: Record<string, string>;
+  bookmakerBySelection: Record<string, string>;
+  analysisBookmakers: string[];
   marketsRequested: string[];
   oddsMsg: string;
   oddsTone: OddsTone;
@@ -39,6 +41,8 @@ export function usePredictionAnalysis({
   const [loading, setLoading] = useState(false);
   const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
   const [odds, setOdds] = useState<Record<string, string>>({});
+  const [bookmakerBySelection, setBookmakerBySelection] = useState<Record<string, string>>({});
+  const [analysisBookmakers, setAnalysisBookmakers] = useState<string[]>([]);
   const [marketsRequested, setMarketsRequested] = useState<string[]>([]);
   const [oddsMsg, setOddsMsg] = useState('');
   const [oddsTone, setOddsTone] = useState<OddsTone>('info');
@@ -82,6 +86,8 @@ export function usePredictionAnalysis({
     setLoadingMatchId(null);
     setAnalysisCacheKey(null);
     setOdds({});
+    setBookmakerBySelection({});
+    setAnalysisBookmakers([]);
     setOddsMsg('');
     setMarketsRequested([]);
     setStakes({});
@@ -110,6 +116,8 @@ export function usePredictionAnalysis({
       setActiveMatchId(resolvedMatchId);
       setPred(cached.pred);
       setOdds(cached.odds);
+      setBookmakerBySelection(cached.bookmakerBySelection);
+      setAnalysisBookmakers(cached.analysisBookmakers);
       setMarketsRequested(cached.marketsRequested);
       setOddsMsg(cached.oddsMsg);
       setOddsTone(cached.oddsTone);
@@ -123,6 +131,8 @@ export function usePredictionAnalysis({
     setActiveMatchId(resolvedMatchId);
     setLoadingMatchId(rawMatchId || resolvedMatchId);
     setOdds({});
+    setBookmakerBySelection({});
+    setAnalysisBookmakers([]);
     setOddsMsg('');
     setMarketsRequested([]);
 
@@ -174,6 +184,8 @@ export function usePredictionAnalysis({
         analysisCacheRef.current.set(cacheKey, {
           pred: replayPrediction,
           odds: appliedOdds,
+          bookmakerBySelection: {},
+          analysisBookmakers: [],
           marketsRequested: requestedMarkets,
           oddsMsg: replayData.analysisDisclaimer ?? 'Replay statistico su partita gia giocata.',
           oddsTone: 'warning',
@@ -202,6 +214,8 @@ export function usePredictionAnalysis({
 
       setPred(result.finalPred);
       setOdds(result.appliedOdds);
+      setBookmakerBySelection(result.bookmakerBySelection);
+      setAnalysisBookmakers(result.analysisBookmakers);
       setMarketsRequested(result.marketsRequested);
       setOddsMsg(result.oddsMsg);
       setOddsTone(result.oddsTone);
@@ -213,6 +227,8 @@ export function usePredictionAnalysis({
       analysisCacheRef.current.set(cacheKey, {
         pred: result.finalPred,
         odds: result.appliedOdds,
+        bookmakerBySelection: result.bookmakerBySelection,
+        analysisBookmakers: result.analysisBookmakers,
         marketsRequested: result.marketsRequested,
         oddsMsg: result.oddsMsg,
         oddsTone: result.oddsTone,
@@ -263,6 +279,8 @@ export function usePredictionAnalysis({
     loading,
     loadingMatchId,
     odds,
+    bookmakerBySelection,
+    analysisBookmakers,
     marketsRequested,
     oddsMsg,
     oddsTone,

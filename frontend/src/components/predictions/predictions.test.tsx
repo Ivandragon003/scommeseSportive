@@ -6,7 +6,11 @@ import PredictionHero from './PredictionHero';
 import StakePlanner from './StakePlanner';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { BestValueOpportunity } from './predictionTypes';
-import { buildOddsReliabilityBadge, sanitizePredictionForBookmakerOdds } from './predictionWorkbenchUtils';
+import {
+  buildOddsReliabilityBadge,
+  isWorthwhileLowConfidenceOpportunity,
+  sanitizePredictionForBookmakerOdds,
+} from './predictionWorkbenchUtils';
 
 const opportunity: BestValueOpportunity = {
   selection: 'over25',
@@ -26,6 +30,27 @@ const opportunity: BestValueOpportunity = {
 };
 
 describe('predictions UI components', () => {
+  test('considera operativa una LOW solo con quota, EV, edge e Kelly tutti positivi', () => {
+    expect(isWorthwhileLowConfidenceOpportunity({
+      ...opportunity,
+      confidence: 'LOW',
+      edgeNoVig: 3.2,
+      bestBetStatus: 'PRUDENT',
+    })).toBe(true);
+    expect(isWorthwhileLowConfidenceOpportunity({
+      ...opportunity,
+      confidence: 'LOW',
+      edgeNoVig: 0,
+      bestBetStatus: 'PRUDENT',
+    })).toBe(false);
+    expect(isWorthwhileLowConfidenceOpportunity({
+      ...opportunity,
+      confidence: 'LOW',
+      edgeNoVig: 3.2,
+      bestBetStatus: 'SPECULATIVE',
+    })).toBe(false);
+  });
+
   test('presenta la testata partita senza tooltip sovrapposti e con squadre simmetriche', () => {
     render(
       <PredictionHero

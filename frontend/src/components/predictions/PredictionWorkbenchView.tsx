@@ -318,15 +318,19 @@ const S = `
 .pr-card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); }
 .pr-card-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.3px; color:var(--text-2); }
 .pr-card-body { padding:18px; }
+.pr-odds-groups { display:grid; gap:16px; }
+.pr-odds-group { display:grid; gap:8px; }
+.pr-odds-group-title { margin:0; font-size:11px; font-weight:800; color:var(--text-2); text-transform:uppercase; letter-spacing:.08em; }
 .pr-odds-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
 .pr-odds-cell {
-  display:flex; justify-content:space-between; align-items:center;
+  display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center;
   background:var(--surface2); border:1px solid var(--border);
   border-radius:9px; padding:8px 10px; gap:10px;
 }
 .pr-odds-cell.best { border-color:var(--green-border); background:var(--green-dim); }
 .pr-odds-name { font-size:12px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .pr-odds-val { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text); }
+.pr-odds-bookmaker { grid-column:1 / -1; color:var(--text-3); font-size:10px; }
 .pr-legend-grid { display:grid; grid-template-columns:1fr; gap:6px; }
 .pr-legend-row {
   display:grid; grid-template-columns:170px 1fr; gap:10px;
@@ -563,11 +567,11 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     sp,
     pp,
     playerValueOpportunities,
-    bestValueOpp,
     analysisFactors,
     methodology,
     vbRanked,
     allOddsEntries,
+    allOddsGroups,
     valueSelectionSet,
     isReplayAnalysis,
     actualMatch,
@@ -580,6 +584,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     bankroll,
     maxExposurePct,
     maxExposureAmount,
+    finalRecommendedChoice,
     suggestedTotalStake,
     exposureRatio,
     oppStakeKey,
@@ -789,11 +794,13 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
               <div className="pr-decision-layout">
                 <BestValueCard
-                  opportunity={bestValueOpp as BestValueOpportunityModel | null}
+                  opportunity={finalRecommendedChoice as BestValueOpportunityModel | null}
                   oddsBadge={oddsReliabilityBadge}
                   oddsWarning={oddsSourceWarning}
-                  bestBetStatus={pred.bestBetStatus}
-                  bestBetReason={pred.bestBetReason}
+                  bestBetStatus={finalRecommendedChoice ? pred.bestBetStatus : 'NO_MARKET'}
+                  bestBetReason={finalRecommendedChoice
+                    ? pred.bestBetReason
+                    : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
                   emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
                   recommendedBetResult={
                     recommendedBetResult
@@ -921,12 +928,20 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                             Nessuna quota disponibile per questa partita.
                           </div>
                         ) : (
-                          <div className="pr-odds-grid">
-                            {allOddsEntries.map((o) => (
-                              <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
-                                <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
-                                <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
-                              </div>
+                          <div className="pr-odds-groups">
+                            {allOddsGroups.map((group) => (
+                              <section className="pr-odds-group" key={group.category} aria-label={group.category}>
+                                <h3 className="pr-odds-group-title">{group.category}</h3>
+                                <div className="pr-odds-grid">
+                                  {group.entries.map((o) => (
+                                    <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
+                                      <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
+                                      <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
+                                      {o.bookmaker && <small className="pr-odds-bookmaker">{o.bookmaker}</small>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
                             ))}
                           </div>
                         )}
@@ -1080,8 +1095,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         <div className="pr-g2">
                           <div className="pr-info">
                             <strong>Lettura del match</strong><br />
-                            {bestValueOpp
-                              ? `${bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)} resta la sola uscita principale per questo match.`
+                            {finalRecommendedChoice
+                              ? `${finalRecommendedChoice.selectionLabel ?? fmtSelection(finalRecommendedChoice.selection)} resta la sola uscita principale per questo match.`
                               : 'Se non emerge una giocata davvero forte, il sistema preferisce non spingere una pick finale.'}
                           </div>
                           <div className="pr-info">
@@ -1126,8 +1141,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                           <div>
                             <div className="pr-sec">Lettura del Match</div>
                             <div className="pr-info" style={{ marginBottom: 10 }}>
-                              {bestValueOpp
-                                ? `${bestValueOpp.selectionLabel ?? fmtSelection(bestValueOpp.selection)} e la sola quota proposta come uscita finale.`
+                              {finalRecommendedChoice
+                                ? `${finalRecommendedChoice.selectionLabel ?? fmtSelection(finalRecommendedChoice.selection)} e la sola quota proposta come uscita finale.`
                                 : 'Se non c e una giocata davvero solida, il sistema non propone un pronostico finale.'}
                             </div>
                           </div>
@@ -1176,7 +1191,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     </div>
                     <ValueOpportunitiesTable
                       opportunities={vbRanked}
-                      recommendedOpportunity={bestValueOpp}
+                      recommendedOpportunity={finalRecommendedChoice}
                       bankroll={bankroll}
                       budgetReady={Boolean(budget)}
                       isReplayAnalysis={isReplayAnalysis}

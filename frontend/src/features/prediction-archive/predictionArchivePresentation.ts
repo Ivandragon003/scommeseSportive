@@ -18,7 +18,7 @@ export const dateTime = (value?: string | null) => {
 export const archiveMatchTitle = (row: BetOpportunityArchiveRecord) => {
   const home = String(row.home_team_name ?? '').trim();
   const away = String(row.away_team_name ?? '').trim();
-  return home && away ? `${home} – ${away}` : `Partita ${row.match_id}`;
+  return home && away ? `${home} – ${away}` : 'Partita archiviata';
 };
 
 export const archiveMatchMeta = (row: BetOpportunityArchiveRecord) => {
@@ -94,7 +94,11 @@ export const opportunityLabel = (
 
   const playerProp = raw.match(/^player_(.+)_(shots|sot|yellow|goals)_(over|under)_([0-9]+(?:_[0-9]+)?)$/i);
   if (playerProp) {
-    const player = playerProp[1].replace(/_/g, ' ');
+    const rawPlayer = playerProp[1];
+    const player = /^(?:understat_player_|player_)?\d+$/i.test(rawPlayer)
+      || /^understat_player_\d+$/i.test(rawPlayer)
+      ? 'Giocatore'
+      : rawPlayer.replace(/_/g, ' ');
     const labels: Record<string, string> = { shots: 'tiri', sot: 'tiri in porta', yellow: 'cartellini', goals: 'gol' };
     const direction = playerProp[3].toLowerCase() === 'over' ? 'più di' : 'meno di';
     return `${player}: ${direction} ${formatLine(playerProp[4])} ${labels[playerProp[2].toLowerCase()]}`;

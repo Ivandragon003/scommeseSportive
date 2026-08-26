@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Archive, ChevronDown, ChevronUp, Clock3, FlaskConical, RefreshCw, ShieldCheck } from 'lucide-react';
 import {
   BetOpportunityArchiveFilters,
   BetOpportunityArchiveRecord,
@@ -48,6 +48,11 @@ const PredictionArchivePage: React.FC = () => {
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const overview = useMemo(() => ({
+    operative: rows.filter((row) => row.archive_type === 'operative').length,
+    simulated: rows.filter((row) => row.archive_type === 'simulated').length,
+    pending: rows.filter((row) => row.result === 'pending').length,
+  }), [rows]);
 
   useEffect(() => {
     let ignore = false;
@@ -78,16 +83,27 @@ const PredictionArchivePage: React.FC = () => {
   return (
     <div className="pa-page">
       <header className="pa-header">
-        <div>
-          <span className="pa-eyebrow">Storico delle opportunità</span>
+        <div className="pa-heading">
+          <span className="pa-heading-icon" aria-hidden="true"><Archive size={24} /></span>
+          <div>
+          <span className="pa-eyebrow">Registro decisionale</span>
           <h1>Archivio giocate</h1>
           <p>
-            Qui trovi tutte le giocate valutate: le prime 3 High/Medium per partita sono operative;
-            le altre, incluse Low e Speculative, sono simulazioni e non modificano il budget.
+            Fino a 3 giocate Medium/High per partita diventano operative. Una Low entra solo con
+            quota reale, EV, edge e Kelly positivi; tutte le altre restano simulazioni senza impatto sul budget.
           </p>
+          </div>
         </div>
         {!loading && !error && <span className="pa-total">{rows.length} risultati</span>}
       </header>
+
+      {!loading && !error && (
+        <div className="pa-overview" role="group" aria-label="Riepilogo del filtro attivo">
+          <div className="pa-overview--operative"><span className="pa-overview__icon" aria-hidden="true"><ShieldCheck size={18} /></span><span className="pa-overview__label">Operative</span><strong className="pa-overview__value">{overview.operative}</strong></div>
+          <div className="pa-overview--simulated"><span className="pa-overview__icon" aria-hidden="true"><FlaskConical size={18} /></span><span className="pa-overview__label">Simulate</span><strong className="pa-overview__value">{overview.simulated}</strong></div>
+          <div className="pa-overview--pending"><span className="pa-overview__icon" aria-hidden="true"><Clock3 size={18} /></span><span className="pa-overview__label">Da verificare</span><strong className="pa-overview__value">{overview.pending}</strong></div>
+        </div>
+      )}
 
       <nav className="pa-filters" aria-label="Filtra archivio giocate">
         {FILTERS.map(({ value, label }) => (
@@ -152,7 +168,7 @@ const PredictionArchivePage: React.FC = () => {
                   const probability = row.calibrated_probability ?? row.raw_probability;
                   return (
                     <React.Fragment key={row.decision_id}>
-                      <tr className="pa-row">
+                      <tr className={`pa-row pa-row--${row.archive_type}`}>
                         <td>
                           <span className="pa-cell-label">Partita</span>
                           <strong>{archiveMatchTitle(row)}</strong>
@@ -183,7 +199,7 @@ const PredictionArchivePage: React.FC = () => {
                           <button
                             type="button"
                             className="pa-expand"
-                            aria-label={`${expanded ? 'Chiudi' : 'Apri'} dettagli giocata ${row.decision_id}`}
+                            aria-label={`${expanded ? 'Chiudi' : 'Apri'} dettagli ${archiveMatchTitle(row)}: ${opportunityMarketLabel(row.market_name)} — ${opportunityLabel(row.market_name, row.selection, row.home_team_name, row.away_team_name)}`}
                             aria-expanded={expanded}
                             onClick={() => setExpandedId(expanded ? null : row.decision_id)}
                           >
@@ -196,18 +212,15 @@ const PredictionArchivePage: React.FC = () => {
                           <td colSpan={7}>
                             <div className="pa-details">
                               <dl>
-                                <div><dt>ID giocata</dt><dd>{row.decision_id}</dd></div>
-                                <div><dt>Match ID</dt><dd>{row.match_id}</dd></div>
                                 <div><dt>Probabilità del modello</dt><dd>{percentage(probability)}</dd></div>
                                 <div><dt>EV tecnico</dt><dd>{percentage(row.ev)}</dd></div>
                                 <div><dt>{row.archive_type === 'operative' ? 'Stake effettivo' : 'Stake teorico'}</dt><dd>{decimal(row.archive_type === 'operative' ? row.bet_stake : row.theoretical_stake_amount)}</dd></div>
-                                <div><dt>Posizione in classifica</dt><dd>{row.ranking_position ?? '—'}</dd></div>
                                 <div><dt>Bookmaker</dt><dd>{row.bookmaker_name || '—'}</dd></div>
                                 <div><dt>Registrata il</dt><dd>{dateTime(row.created_at)}</dd></div>
                                 <div><dt>Conclusa il</dt><dd>{dateTime(row.settled_at)}</dd></div>
                               </dl>
                               {row.archive_type === 'operative' ? (
-                                <p className="pa-bet-note">Giocata operativa: ha usato il budget. Bet collegata: {row.bet_id || '—'}.</p>
+                                <p className="pa-bet-note">Giocata operativa: la puntata è stata detratta dal budget.</p>
                               ) : (
                                 <p className="pa-bet-note pa-bet-note--unplayed">Simulazione: {exclusionReasonLabel(row.exclusion_reason)}</p>
                               )}

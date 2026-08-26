@@ -15,6 +15,8 @@ interface FetchPredictionWithOddsInput {
 export interface FetchPredictionWithOddsResult {
   finalPred: any;
   appliedOdds: Record<string, string>;
+  bookmakerBySelection: Record<string, string>;
+  analysisBookmakers: string[];
   marketsRequested: string[];
   oddsMsg: string;
   oddsTone: 'info' | 'success' | 'warning' | 'danger';
@@ -76,14 +78,24 @@ export function useOddsForMatch() {
     let oddsTone: 'info' | 'success' | 'warning' | 'danger' = 'info';
     let appliedOdds: Record<string, string> = {};
 
-    const providerOdds: Record<string, number> = payload?.found && payload?.selectedOdds
-      ? payload.selectedOdds as Record<string, number>
+    const providerOdds: Record<string, number> = payload?.found && (payload?.analysisOdds || payload?.selectedOdds)
+      ? (payload.analysisOdds ?? payload.selectedOdds) as Record<string, number>
       : {};
+    const bookmakerBySelection: Record<string, string> = payload?.bookmakerBySelection
+      && typeof payload.bookmakerBySelection === 'object'
+      ? payload.bookmakerBySelection as Record<string, string>
+      : {};
+    const analysisBookmakers = Array.isArray(payload?.analysisBookmakers)
+      ? payload.analysisBookmakers.map(String).map((name: string) => name.trim()).filter(Boolean)
+      : Array.from(new Set(Object.values(bookmakerBySelection).map(String).map((name) => name.trim()).filter(Boolean)));
     const fallbackOdds: Record<string, number> = payload?.fallbackOdds
       ? payload.fallbackOdds as Record<string, number>
       : {};
     const source = String(payload?.source ?? payload?.oddsSource ?? '');
     const selectedBookmakerName = String(payload?.selectedBookmakerName ?? '').trim();
+    const verifiedBookmakerLabel = analysisBookmakers.length > 1
+      ? `${analysisBookmakers.length} bookmaker reali`
+      : (analysisBookmakers[0] ?? selectedBookmakerName);
     const primaryProvider = String(payload?.primaryProvider ?? '');
     const usedFallbackProvider = Boolean(payload?.usedFallbackBookmaker)
       || Boolean(source && primaryProvider && source !== primaryProvider);
@@ -100,7 +112,7 @@ export function useOddsForMatch() {
       Object.keys(providerOdds).length > 0
       && source === 'odds_api'
       && !usedFallbackProvider
-      && Boolean(selectedBookmakerName);
+      && Boolean(verifiedBookmakerLabel);
 
     // Close to kickoff this replaces the predicted XI with the official one
     // before player props are evaluated. Outside that window the endpoint is
@@ -112,7 +124,7 @@ export function useOddsForMatch() {
       matchId: resolvedMatchId,
       competition: competition || undefined,
       ...(hasVerifiedRealBookmakerOdds
-        ? { bookmakerOdds: providerOdds, oddsSource: source || 'unknown' }
+        ? { bookmakerOdds: providerOdds, bookmakerBySelection, oddsSource: source || 'unknown' }
         : {}),
     });
     const basePrediction = predictionResponse.data ?? null;
@@ -124,10 +136,10 @@ export function useOddsForMatch() {
     if (hasVerifiedRealBookmakerOdds) {
       appliedOdds = stringifyOdds(providerOdds);
       const realProvider = String(payload?.selectedProvider ?? payload?.activeProvider ?? source ?? '').trim();
-      oddsMessage = payload.message ?? `Quote bookmaker reali caricate${realProvider ? ` (${realProvider})` : ''}.`;
+      oddsMessage = `${payload.message ?? `Quote bookmaker reali caricate${realProvider ? ` (${realProvider})` : ''}.`} ${analysisBookmakers.length > 1 ? `Copertura combinata da ${analysisBookmakers.length} bookmaker.` : ''}`.trim();
       oddsTone = 'success';
 
-      finalPrediction = sanitizePredictionForBookmakerOdds(basePrediction, 'odds_api', selectedBookmakerName);
+      finalPrediction = sanitizePredictionForBookmakerOdds(basePrediction, 'odds_api', verifiedBookmakerLabel);
     } else if (Object.keys(providerOdds).length > 0 || Object.keys(fallbackOdds).length > 0) {
       oddsMessage = 'Quote bookmaker reali non disponibili. Le quote di fallback restano interne e non vengono mostrate.';
       oddsTone = 'warning';
@@ -146,13 +158,15 @@ export function useOddsForMatch() {
       finalPrediction = sanitizePredictionForBookmakerOdds(
         finalPrediction,
         finalPrediction?.usedFallbackBookmaker ? 'fallback_provider' : (payload.source ?? finalPrediction?.oddsSource ?? null),
-        selectedBookmakerName
+        verifiedBookmakerLabel
       );
     }
 
     return {
       finalPred: finalPrediction,
       appliedOdds,
+      bookmakerBySelection,
+      analysisBookmakers,
       marketsRequested: requestedMarkets,
       oddsMsg: oddsMessage,
       oddsTone,
