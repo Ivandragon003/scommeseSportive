@@ -89,6 +89,17 @@ const localStyles = `
     .sc-source-section__head > .fp-badge { display:none; }
     .sc-config-tabs { overflow-x:auto; }
   }
+
+  /* Provider controls follow the shared tool workspace hierarchy. */
+  .sc-overview { gap:16px; }
+  .sc-source-section { border-radius:14px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
+  .sc-source-section__head { background:#f5f8fc; }
+  .sc-source-num { border-radius:9px; }
+  .sc-source-row:hover { background:#f9fbfe; }
+  .sc-year { border-radius:11px; background:var(--surface); }
+  .sc-year.on { box-shadow:inset 0 -2px 0 var(--primary); }
+  .sc-comp { border-radius:8px; }
+  .sc-big-btn { border-radius:10px; }
 `;
 
 const formatDate = (iso: string) => {

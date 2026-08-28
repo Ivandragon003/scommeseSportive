@@ -3,19 +3,17 @@
   display: grid;
   place-items: center;
   padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
-  background:
-    radial-gradient(circle at 50% 0%, rgba(62, 207, 142, 0.14), transparent 38%),
-    var(--fp-bg, #07110e);
-  color: var(--fp-text, #f4f8f6);
+  background: #f4f7fb;
+  color: var(--text, #101b36);
 }
 
 .shared-login__card {
   width: min(100%, 420px);
   padding: clamp(24px, 7vw, 40px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  background: rgba(13, 29, 24, 0.94);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+  border: 1px solid var(--border, #dbe2df);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(16, 27, 54, 0.12);
 }
 
 .shared-login__brand {
@@ -25,13 +23,13 @@
   place-items: center;
   margin-bottom: 24px;
   border-radius: 16px;
-  background: #28c783;
-  color: #062a1d;
+  background: var(--primary, #0968d8);
+  color: white;
 }
 
 .shared-login__eyebrow {
   margin: 0 0 8px;
-  color: #7de3b5;
+  color: var(--primary, #0968d8);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -46,7 +44,7 @@
 
 .shared-login__intro {
   margin: 12px 0 28px;
-  color: #afc2ba;
+  color: var(--text-2, #52617a);
   line-height: 1.55;
 }
 
@@ -66,14 +64,14 @@
   align-items: center;
   gap: 10px;
   padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--border, #dbe2df);
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: #fff;
 }
 
 .shared-login__field:focus-within {
-  border-color: #4bd99a;
-  box-shadow: 0 0 0 3px rgba(75, 217, 154, 0.16);
+  border-color: var(--primary, #0968d8);
+  box-shadow: 0 0 0 3px var(--primary-focus, rgba(9, 104, 216, .22));
 }
 
 .shared-login__field input {
@@ -102,7 +100,7 @@
 
 .shared-login__note {
   margin: 20px 0 0;
-  color: #80958c;
+  color: var(--text-2, #52617a);
   font-size: 0.78rem;
   text-align: center;
 }

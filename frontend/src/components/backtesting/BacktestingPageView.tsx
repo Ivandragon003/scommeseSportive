@@ -124,7 +124,7 @@ const BacktestingPageView: React.FC = () => {
 
   return (
     <>
-      <div className="tool-page">
+      <div className="tool-page bt-page">
         <header className="tool-page__header">
           <p className="tool-page__eyebrow">Strumenti / Backtest</p>
           <h1 className="tool-page__title">Backtest</h1>
@@ -385,7 +385,7 @@ const BacktestingPageView: React.FC = () => {
             </div>
           </div>
 
-          <div className="fp-card" style={{ borderColor: 'var(--red-border)', background: 'color-mix(in srgb, white 88%, var(--red-dim))' }}>
+          <div className="fp-card bt-maintenance-card" style={{ borderColor: 'var(--red-border)', background: 'color-mix(in srgb, white 88%, var(--red-dim))' }}>
             <div className="fp-card-head">
               <div>
                 <div className="fp-card-title">Manutenzione esecuzioni</div>
@@ -492,7 +492,7 @@ const BacktestingPageView: React.FC = () => {
             </div>
           )}
 
-          <div className="fp-tabs" style={{ marginBottom: 20 }} role="tablist" aria-label="Risultati walk-forward">
+          <div className="fp-tabs bt-result-tabs" style={{ marginBottom: 20 }} role="tablist" aria-label="Risultati walk-forward">
             {[
               { id: 'folds', label: 'Finestre' },
               { id: 'stability', label: 'Stabilità' },
@@ -517,10 +517,10 @@ const BacktestingPageView: React.FC = () => {
                   {walkForwardResult.expandingWindow ? 'Finestra crescente' : 'Finestra mobile'}
                 </span>
               </div>
-              <div style={{ padding: '24px 24px 8px' }}>
+              <div className="bt-chart" style={{ padding: '24px 24px 8px' }}>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={walkForwardResult.folds}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,27,54,0.10)" />
                     <XAxis dataKey="foldNumber" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
                     <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
                     <Tooltip
@@ -631,7 +631,7 @@ const BacktestingPageView: React.FC = () => {
       )}
 
       {(currentResult || backtestReport || reportError) && (
-        <div className="fp-card" style={{ marginBottom: 24 }}>
+        <div className="fp-card bt-report-card" style={{ marginBottom: 24 }}>
           <div className="fp-card-head">
             <div className="fp-card-title">Report decisionale</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -674,7 +674,7 @@ const BacktestingPageView: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+            <div className="bt-report-actions" style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
               <button
                 className="fp-btn fp-btn-gold fp-btn-sm"
                 onClick={() => void loadReport(currentResultId, competition, reportFilters, { force: true })}
@@ -910,10 +910,10 @@ const BacktestingPageView: React.FC = () => {
                     <div className="fp-card-head">
                       <div className="fp-card-title">Fasce di probabilità</div>
                     </div>
-                    <div style={{ padding: '24px 24px 8px' }}>
+                    <div className="bt-chart" style={{ padding: '24px 24px 8px' }}>
                       <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={backtestReport.calibration?.probabilityBuckets ?? []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,27,54,0.10)" />
                           <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
                           <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
                           <Tooltip
@@ -934,10 +934,10 @@ const BacktestingPageView: React.FC = () => {
                         <GlossaryTerm termId="yield">Yield</GlossaryTerm> per sorgente
                       </div>
                     </div>
-                    <div style={{ padding: '24px 24px 8px' }}>
+                    <div className="bt-chart" style={{ padding: '24px 24px 8px' }}>
                       <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={backtestReport.segments?.bySource ?? []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,27,54,0.10)" />
                           <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} />
                           <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
                           <Tooltip

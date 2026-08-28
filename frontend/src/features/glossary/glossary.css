@@ -594,3 +594,16 @@
   .glossary-entry__body h2,.glossary-entry__body > .glossary-category-label { display:none; }
   .glossary-detail-grid { grid-template-columns:1fr; }
 }
+
+/* Reference workspace for dense explanations: index, reading pane, no visual noise. */
+.glossary-page { width:min(1440px,100%); padding:38px clamp(18px,3vw,42px) 76px; }
+.glossary-page__hero { padding-bottom:22px; border-bottom:1px solid var(--border); }
+.glossary-page__hero h1 { font-weight:850; }
+.glossary-controls { padding:16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+.glossary-search { background:#fff; }
+.glossary-desktop-layout { border-radius:14px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
+.glossary-index { background:#f5f8fc; }
+.glossary-index button.is-active { box-shadow:inset 3px 0 0 var(--primary); border-left:0; padding-left:18px; }
+.glossary-detail-card { padding:32px 34px 38px; }
+.glossary-example { background:#f5f8fc; }
+@media (max-width:720px) { .glossary-page { padding:24px 14px 102px; } .glossary-controls { padding:12px; border-radius:12px; } }
