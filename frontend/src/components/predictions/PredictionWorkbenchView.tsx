@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
@@ -203,13 +203,21 @@ const S = `
 .pr-kpi-lbl { font-size:9px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-2); font-weight:700; margin-top:3px; }
 
 /* TABS */
-.pr-tabs { display:flex; gap:2px; padding:0 20px 12px; overflow-x:auto; scrollbar-width:none; flex-shrink:0; }
-.pr-tabs::-webkit-scrollbar { display:none; }
+.pr-tabs-wrap { min-width:0; }
+.pr-tabs {
+  display:flex; gap:2px; padding:0 20px 12px; min-width:0; max-width:100%;
+  overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch; scroll-snap-type:x proximity; flex-shrink:0;
+  scrollbar-width:thin; scrollbar-color:rgba(115,136,161,0.45) transparent;
+}
+.pr-tabs::-webkit-scrollbar { height:4px; }
+.pr-tabs::-webkit-scrollbar-thumb { background:rgba(115,136,161,0.45); border-radius:4px; }
+.pr-tabs-scroll-hint { display:none; }
 .pr-tab {
   font-family:var(--font-sans); font-size:11px; font-weight:700;
   white-space:nowrap; padding:7px 14px; border-radius:8px;
   border:1px solid transparent; background:transparent; color:var(--text-3);
-  cursor:pointer; transition:all var(--transition); flex-shrink:0;
+  cursor:pointer; transition:all var(--transition); flex-shrink:0; scroll-snap-align:start;
 }
 .pr-tab:hover { color:var(--text); background:var(--surface3); border-color:var(--border); }
 .pr-tab.active { background:var(--surface3); color:var(--text); border-color:var(--border-hover); }
@@ -421,7 +429,7 @@ const S = `
   align-items:end;
 }
 .pr-filter { display:grid; gap:6px; }
-.pr-filter label { color:var(--text-3); font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.pr-filter label { color:var(--text-2); font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
 .pr-filter select,
 .pr-filter input {
   width:100%; min-height:46px; padding:0 14px;
@@ -431,7 +439,7 @@ const S = `
 .pr-schedule__tabs { display:flex; gap:28px; margin-top:20px; }
 .pr-mode-tab {
   position:relative; padding:7px 1px; border:0; background:transparent;
-  color:var(--text-3); font-size:13px; font-weight:800; cursor:pointer;
+  color:var(--text-2); font-size:13px; font-weight:800; cursor:pointer;
 }
 .pr-mode-tab.active { color:var(--primary); }
 .pr-mode-tab.active::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:3px; border-radius:3px; background:var(--primary); }
@@ -550,12 +558,221 @@ const S = `
   .pr-confidence span { display:none; }
   .pr-confidence strong { font-size:12px; }
 }
+
+/* Matchday workspace: deliberately distinct from the dense analytical detail. */
+.pr-schedule {
+  padding-top: 30px;
+  background: var(--surface);
+}
+.pr-schedule__heading {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:24px;
+  max-width:1380px;
+  margin:0 auto 26px;
+}
+.pr-schedule__heading h1 {
+  margin:4px 0 0;
+  color:var(--text);
+  font-size:clamp(30px,3.8vw,46px);
+  font-weight:850;
+  letter-spacing:-.052em;
+  line-height:1;
+}
+.pr-schedule__heading p:not(.pr-schedule__eyebrow) {
+  margin:10px 0 0;
+  color:var(--text-2);
+  font-size:13px;
+}
+.pr-schedule__eyebrow {
+  margin:0;
+  color:var(--primary);
+  font:800 11px var(--font-mono);
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+.pr-schedule__availability {
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  min-height:32px;
+  padding-left:12px;
+  border-left:3px solid var(--green);
+  color:#547260;
+  font-size:12px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.pr-schedule__availability span { width:8px; height:8px; border-radius:50%; background:var(--green); }
+.pr-schedule__controls { max-width:1380px; margin:0 auto; grid-template-columns:minmax(190px,240px) minmax(168px,210px); }
+.pr-schedule__tabs { max-width:1380px; margin-inline:auto; }
+.pr-date-rail {
+  display:flex;
+  gap:9px;
+  max-width:1380px;
+  margin:18px auto 0;
+  overflow-x:auto;
+  padding:2px 1px 7px;
+  scrollbar-width:thin;
+}
+.pr-date-rail__item {
+  display:grid;
+  flex:0 0 108px;
+  gap:5px;
+  min-height:70px;
+  padding:11px 12px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:var(--surface);
+  color:var(--text-2);
+  text-align:left;
+  cursor:pointer;
+}
+.pr-date-rail__item span { overflow:hidden; font-size:12px; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+.pr-date-rail__item strong { color:var(--text-3); font-size:10px; font-weight:700; }
+.pr-date-rail__item:hover { border-color:var(--primary-border); background:var(--primary-dim); color:var(--primary); }
+.pr-date-rail__item.active { border-color:var(--primary); background:var(--primary); color:#fff; }
+.pr-date-rail__item.active strong { color:#dcecff; }
+.pr-match-list {
+  max-width:1380px;
+  margin-top:22px;
+  padding:0;
+  overflow:visible;
+  border:0;
+  border-radius:0;
+  background:transparent;
+}
+.pr-day-group { display:grid; gap:10px; margin-top:24px; }
+.pr-day-group + .pr-day-group { border:0; }
+.pr-day-heading {
+  min-height:auto;
+  padding:0 0 10px;
+  border-bottom:1px solid var(--border);
+  background:transparent;
+  color:var(--text);
+  font-size:16px;
+  letter-spacing:-.02em;
+  text-transform:none;
+}
+.pr-day-heading::after { content:'Partite disponibili'; margin-left:10px; color:var(--text-3); font-size:11px; font-weight:700; letter-spacing:0; }
+.pr-day-group { grid-template-columns:repeat(auto-fill,minmax(276px,1fr)); }
+.pr-day-heading { grid-column:1/-1; }
+.pr-match-list-row {
+  position:relative;
+  grid-template-columns:1fr auto;
+  grid-template-rows:auto 1fr auto auto;
+  gap:9px 14px;
+  min-height:184px;
+  padding:18px 18px 16px;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--surface);
+  box-shadow:0 1px 1px rgba(16,27,54,.03);
+  overflow:hidden;
+}
+.pr-match-list-row::before { content:''; position:absolute; inset:0 auto 0 0; width:4px; background:var(--primary); opacity:.88; }
+.pr-match-list-row:hover { border-color:var(--primary); background:var(--surface); box-shadow:0 10px 24px rgba(16,27,54,.10); transform:translateY(-1px); }
+.pr-match-list__time { align-self:start; color:var(--text); font-size:12px; }
+.pr-match-list__meta { align-self:start; color:var(--text-3); font-size:10px; white-space:nowrap; }
+.pr-match-list__teams { grid-column:1/-1; display:grid; grid-template-columns:1fr 30px 1fr; gap:8px; align-self:center; }
+.pr-match-list__team { font-size:15px; line-height:1.25; white-space:normal; }
+.pr-match-list__team:last-child { text-align:right; }
+.pr-match-list__versus { align-self:center; color:var(--text-3); font-family:var(--font-mono); font-size:10px; }
+.pr-match-list__action { grid-column:1; grid-row:3; align-self:end; text-align:left; color:var(--primary); font-size:11px; }
+.pr-match-list__pick {
+  grid-column:1/-1;
+  grid-row:4;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-width:0;
+  padding:9px 10px;
+  border-left:2px solid #b4c0d1;
+  background:#f5f7fa;
+  color:var(--text-2);
+}
+.pr-match-list__pick.is-ready { border-left-color:var(--green); background:var(--green-dim); }
+.pr-match-list__pick strong { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.pr-match-list__pick small { flex:0 0 auto; color:var(--text-3); font-family:var(--font-mono); font-size:10px; }
+.pr-match-list__pick.is-ready small { color:var(--green); font-weight:800; }
+.pr-match-list__chevron { grid-column:2; grid-row:3; align-self:end; }
+
+/* The one recommendation is the report surface, never another anonymous card. */
+.pr-decision-report {
+  border:1px solid #1d3159;
+  border-left:4px solid var(--green);
+  border-radius:14px;
+  background:#101b36;
+  box-shadow:none;
+}
+.pr-decision-report.is-empty { border-color:var(--border); border-left-color:var(--text-3); background:var(--surface); }
+.pr-decision-report__eyebrow { color:#8bbbf6; font-family:var(--font-mono); }
+.pr-decision-report__title { color:white; font-size:27px; letter-spacing:-.04em; }
+.pr-decision-report__summary,.pr-decision-report__market,.pr-decision-report__risks,.pr-decision-report__reasons { color:#d8e4f7; }
+.pr-decision-report__metrics { border-color:#2a3d62; background:#162442; }
+.pr-decision-report__metric { border-color:#2a3d62; }
+.pr-decision-report__metric dt { color:#9db1d0; }
+.pr-decision-report__metric dd,.pr-decision-report__market strong { color:#fff; }
+.pr-decision-report__body { padding-top:18px; }
+.pr-decision-report.is-empty .pr-decision-report__eyebrow { color:var(--text-3); }
+.pr-decision-report.is-empty .pr-decision-report__title { color:var(--text); }
+.pr-decision-report.is-empty .pr-decision-report__summary { color:var(--text-2); }
+.pr-results-head { border-radius:14px 14px 0 0; }
+.pr-hero { background:#101b36; border:1px solid #1d3159; color:white; }
+.pr-hero-name,.pr-hero-stat strong { color:white; }
+.pr-hero-role,.pr-hero-lambda,.pr-hero-vs,.pr-hero-final { color:#9db1d0; }
+.pr-confidence { background:#1a2b4b; border:1px solid #2a3d62; color:#d8e4f7; }
+.pr-confidence strong { color:white; }
+.pr-kpi-row { border-color:var(--border); }
+.pr-content { padding-top:22px; }
+.pr-content .pr-card { border-radius:12px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
+.pr-content .pr-card-head { background:#f8faff; }
+.pr-content .pr-info { background:#f5f8fc; border-radius:10px; }
+.pr-content .pr-odds-cell { border-radius:9px; background:#fff; }
+.pr-content .pr-odds-cell.best { background:var(--green-dim); }
+.pr-content .pr-score-cell { border-radius:9px; background:#fff; }
+.pr-content .pr-prob-track { background:#eef2f7; }
+.pr-tabs { border-bottom:0; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+.pr-tab.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+.pr-tab.active .pr-tab-pill { background:rgba(255,255,255,.2); color:#fff; }
+
+@media (max-width:900px) {
+  .pr-schedule { padding-top:22px; }
+  .pr-schedule__heading { align-items:flex-start; flex-direction:column; margin-bottom:18px; }
+  .pr-schedule__heading h1 { font-size:34px; }
+  .pr-schedule__availability { font-size:11px; }
+  .pr-match-list { margin-top:18px; }
+  .pr-date-rail { margin-top:14px; }
+  .pr-day-group { grid-template-columns:repeat(auto-fill,minmax(248px,1fr)); margin-top:20px; }
+  .pr-match-list-row { min-height:168px; }
+  .pr-schedule__controls { grid-template-columns:1fr; }
+  .pr-tabs-scroll-hint {
+    display:flex; align-items:center; justify-content:flex-end; gap:5px;
+    margin:5px 4px 0; color:var(--text-3); font-size:10px; font-weight:700;
+    letter-spacing:.01em;
+  }
+  .pr-tabs-scroll-hint span { color:var(--primary); font-size:13px; line-height:1; }
+}
+
+@media (max-width:560px) {
+  .pr-schedule__heading { margin-bottom:16px; }
+  .pr-schedule__heading p:not(.pr-schedule__eyebrow) { font-size:12px; line-height:1.5; }
+  .pr-schedule__availability { white-space:normal; }
+  .pr-day-group { grid-template-columns:1fr; }
+  .pr-match-list-row { min-height:148px; }
+  .pr-schedule__controls { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
+  .pr-filter,.pr-filter input,.pr-filter select { min-width:0; max-width:100%; }
+  .pr-decision-report__title { font-size:23px; }
+}
 `;
 
 /*  MAIN  */
 
 const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm }) => {
   const rightRef = useRef<HTMLDivElement>(null);
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const {
     matchSelection,
     predictionAnalysis,
@@ -622,6 +839,44 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const placedBetKeySet = userBudget.placedBetKeySet;
 
   const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
+  const visibleDayGroups = selectedDayKey
+    ? grouped.filter((group) => group.key === selectedDayKey)
+    : grouped;
+
+  const revealMarketTab = (target: HTMLElement) => {
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  };
+
+  const handleMarketTabWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const tabList = event.currentTarget;
+    if (tabList.scrollWidth <= tabList.clientWidth) return;
+
+    const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+    if (!delta) return;
+
+    const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, tabList.scrollLeft + delta));
+    if (nextScrollLeft !== tabList.scrollLeft) {
+      event.preventDefault();
+      tabList.scrollLeft = nextScrollLeft;
+    }
+  };
+
+  const handleMarketTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % TABS.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = TABS.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextTab = TABS[nextIndex];
+    setTab(nextTab.id);
+    const nextButton = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.pr-tab')[nextIndex];
+    nextButton?.focus();
+    if (nextButton) revealMarketTab(nextButton);
+  };
 
   const handleAnalyze = (match: any) => {
     rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -639,6 +894,17 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
         {!detailOpen && (
           <section className="pr-schedule" aria-label="Filtri e partite">
+            <header className="pr-schedule__heading">
+              <div>
+                <p className="pr-schedule__eyebrow">Partite · {matchMode === 'upcoming' ? 'in programma' : 'concluse'}</p>
+                <h1>{matchMode === 'upcoming' ? 'Giocate di oggi' : 'Partite recenti'}</h1>
+                <p>Seleziona una partita per vedere quote, pronostico e tutti i mercati disponibili.</p>
+              </div>
+              <div className="pr-schedule__availability">
+                <span aria-hidden="true" />
+                Quote reali verificate nell’analisi
+              </div>
+            </header>
             <div className="pr-schedule__controls">
               <div className="pr-filter">
                 <label htmlFor="pr-competition-filter">Campionato</label>
@@ -654,19 +920,49 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
             </div>
 
             <div className="pr-schedule__tabs" role="tablist" aria-label="Tipo partite">
-              <button type="button" role="tab" aria-selected={matchMode === 'upcoming'} className={`pr-mode-tab${matchMode === 'upcoming' ? ' active' : ''}`} onClick={() => setMatchMode('upcoming')}>In programma</button>
-              <button type="button" role="tab" aria-selected={matchMode === 'recent'} className={`pr-mode-tab${matchMode === 'recent' ? ' active' : ''}`} onClick={() => setMatchMode('recent')}>Recenti</button>
+              <button type="button" role="tab" aria-selected={matchMode === 'upcoming'} className={`pr-mode-tab${matchMode === 'upcoming' ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); setMatchMode('upcoming'); }}>In programma</button>
+              <button type="button" role="tab" aria-selected={matchMode === 'recent'} className={`pr-mode-tab${matchMode === 'recent' ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); setMatchMode('recent'); }}>Recenti</button>
             </div>
             {autoSyncMsg && <p className="pr-status-line">{autoSyncMsg}</p>}
 
-            <div className="pr-match-list" aria-label={leftPanelTitle} aria-busy={upcomingLoading}>
+            {!upcomingLoading && grouped.length > 0 && (
+              <div className="pr-date-rail" role="toolbar" aria-label="Filtra partite per data">
+                <button
+                  type="button"
+                  className={`pr-date-rail__item${selectedDayKey === null ? ' active' : ''}`}
+                  aria-pressed={selectedDayKey === null}
+                  onClick={() => setSelectedDayKey(null)}
+                >
+                  <span>Tutte</span><strong>{grouped.reduce((total, group) => total + group.matches.length, 0)}</strong>
+                </button>
+                {grouped.slice(0, 8).map((group) => {
+                  const compactDate = group.key === 'unknown'
+                    ? group.label
+                    : new Date(`${group.key}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' });
+                  return (
+                    <button
+                      type="button"
+                      key={group.key}
+                      className={`pr-date-rail__item${selectedDayKey === group.key ? ' active' : ''}`}
+                      aria-pressed={selectedDayKey === group.key}
+                      aria-label={`${group.label}, ${group.matches.length} match`}
+                      onClick={() => setSelectedDayKey(group.key)}
+                    >
+                      <span>{compactDate}</span><strong>{group.matches.length} match</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <section className="pr-match-list" aria-label={leftPanelTitle} aria-busy={upcomingLoading}>
               {upcomingLoading ? (
                 <div className="pr-list-state"><div><span className="pr-spin" aria-label="Caricamento partite" /></div></div>
               ) : grouped.length === 0 ? (
                 <div className="pr-list-state">
                   <div><strong>Nessuna partita trovata</strong>Modifica campionato o stagione per vedere gli incontri.</div>
                 </div>
-              ) : grouped.map(({ key, label, matches }) => (
+              ) : visibleDayGroups.map(({ key, label, matches }) => (
                 <section className="pr-day-group" key={key} aria-labelledby={`pr-day-${key}`}>
                   <div className="pr-day-heading" id={`pr-day-${key}`}>{label}</div>
                   {matches.map((match: any) => {
@@ -679,6 +975,12 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     const matchday = isSerieA(match.competition ?? competition) && matchdayMap[matchId]
                       ? `G${matchdayMap[matchId]}`
                       : '—';
+                    const recommendation = String(match.finalRecommendation ?? match.recommendation ?? match.bestBet ?? '').trim();
+                    const odds = Number(match.bookmakerOdds ?? match.odds ?? match.odd);
+                    const bookmaker = String(match.oddsBookmaker ?? match.bookmaker ?? '').trim();
+                    const verifiedOdds = String(match.oddsSource ?? '').toLowerCase() === 'odds_api'
+                      && bookmaker.length > 0
+                      && Number.isFinite(odds);
                     return (
                       <button
                         type="button"
@@ -696,13 +998,20 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         </span>
                         <span className="pr-match-list__meta">{matchday} &nbsp;•&nbsp; {match.competition ?? competition}</span>
                         <span className="pr-match-list__action">Vedi analisi</span>
+                        <span className={`pr-match-list__pick${recommendation && verifiedOdds ? ' is-ready' : ''}`}>
+                          {recommendation && verifiedOdds ? (
+                            <><strong>{recommendation}</strong><small>{bookmaker} · {odds.toFixed(2)}</small></>
+                          ) : (
+                            <><strong>Analisi da aprire</strong><small>Verifica quote reali nell’analisi</small></>
+                          )}
+                        </span>
                         <ChevronRight className="pr-match-list__chevron" size={18} aria-hidden="true" />
                       </button>
                     );
                   })}
                 </section>
               ))}
-            </div>
+            </section>
           </section>
         )}
 
@@ -836,16 +1145,40 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               </div>
 
               {/* Tabs */}
-              <div className="pr-tabs">
-                {TABS.map(t => (
-                  <button key={t.id} className={`pr-tab${tab===t.id?' active':''}`} onClick={() => setTab(t.id)}>
+              <div className="pr-tabs-wrap">
+                <div
+                  className="pr-tabs"
+                  role="tablist"
+                  aria-label="Mercati disponibili"
+                  aria-describedby="pr-tabs-scroll-help"
+                  onWheel={handleMarketTabWheel}
+                >
+                {TABS.map((t, index) => (
+                  <button
+                    key={t.id}
+                    id={`prediction-market-tab-${t.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.id}
+                    aria-controls="prediction-market-panel"
+                    tabIndex={tab === t.id ? 0 : -1}
+                    className={`pr-tab${tab===t.id?' active':''}`}
+                    onClick={(event) => {
+                      setTab(t.id);
+                      revealMarketTab(event.currentTarget);
+                    }}
+                    onFocus={(event) => revealMarketTab(event.currentTarget)}
+                    onKeyDown={(event) => handleMarketTabKeyDown(event, index)}
+                  >
                     {t.label}
                     {t.count !== undefined && t.count > 0 && <span className="pr-tab-pill">{t.count}</span>}
                   </button>
                 ))}
+                </div>
+                <p id="pr-tabs-scroll-help" className="pr-tabs-scroll-hint"><span aria-hidden="true">↔</span> Scorri per vedere tutti i mercati</p>
               </div>
 
-              <div className="pr-content">
+              <div className="pr-content" id="prediction-market-panel" role="tabpanel" aria-labelledby={`prediction-market-tab-${tab}`}>
 
                 {/* 1X2 & GOAL */}
                 {tab==='1x2' && gp && (

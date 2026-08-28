@@ -253,6 +253,17 @@ const localStyles = `
     .dm-tabs-wrap .fp-tabs { width:max-content; }
     .dm-wrap .fp-grid-4 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
   }
+
+  /* Dense data tooling uses consistent workspace surfaces, not dashboard noise. */
+  .dm-wrap { width:min(1440px,100%); padding:38px clamp(18px,3vw,42px) 76px; }
+  .dm-header { padding-bottom:20px; border-bottom:1px solid var(--border); }
+  .dm-title { font-weight:850; }
+  .dm-tabs-wrap { padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+  .dm-source-card,.dm-overview-card,.dm-league-card,.dm-team-card,.dm-detail { border-radius:12px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
+  .dm-source-card:hover,.dm-team-card:hover { border-color:var(--primary-border); background:#f5f8fc; }
+  .dm-detail-head,.dm-stats-head { background:#f5f8fc; }
+  .dm-wrap .fp-card { box-shadow:0 1px 2px rgba(16,27,54,.035); }
+  @media (max-width:600px) { .dm-wrap { padding:24px 14px 102px; } .dm-header { padding-bottom:0; border-bottom:0; } .dm-tabs-wrap { padding:8px; } }
 `;
 
 const DataManagerPageView: React.FC = () => {

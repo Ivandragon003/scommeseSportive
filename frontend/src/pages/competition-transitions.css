@@ -21,3 +21,15 @@
 .transition-audit-table-wrap th { color: var(--text-2); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
 .transition-audit-empty { padding: 24px; color: var(--text-2); font-size: 13px; }
 @media (max-width: 800px) { .transition-audit-page { padding: 24px 16px; } .transition-audit-grid { grid-template-columns: repeat(2,1fr); } }
+
+/* Compact audit workspace with the same hierarchy as the data tools. */
+.transition-audit-page { width:min(1440px,100%); margin:0 auto; padding:38px clamp(18px,3vw,42px) 76px; }
+.transition-audit-hero { padding-bottom:20px; border-bottom:1px solid var(--border); }
+.transition-audit-hero h1 { font-weight:850; }
+.transition-audit-grid { gap:14px; }
+.transition-audit-grid article { position:relative; min-height:126px; border-radius:12px; background:var(--surface); box-shadow:0 1px 2px rgba(16,27,54,.035); }
+.transition-audit-grid article::before { content:''; position:absolute; inset:0 auto auto 0; width:100%; height:3px; background:var(--primary); }
+.transition-audit-card { border-radius:14px; background:var(--surface); box-shadow:0 1px 2px rgba(16,27,54,.035); }
+.transition-audit-card__header { background:#f5f8fc; }
+.transition-audit-callout { background:var(--primary-dim); border-color:var(--primary-border); }
+@media (max-width:800px) { .transition-audit-page { padding:24px 14px 102px; } }

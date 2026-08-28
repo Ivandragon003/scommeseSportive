@@ -14,7 +14,7 @@
 
   --text: #101b36;
   --text-2: #52617a;
-  --text-3: #758098;
+  --text-3: #62708a;
 
   --primary: #0968d8;
   --primary-hover: #0756b5;
@@ -1569,4 +1569,216 @@ button {
   .bt-archive-card .fp-table td { padding:0; border:0; }
   .bt-archive-card .fp-table td:nth-child(3),.bt-archive-card .fp-table td:nth-child(4) { color:var(--text-3); font-size:11px; }
   .bt-archive-card .fp-table td:last-child { grid-column:2; grid-row:1/4; align-self:center; }
+}
+
+/* 2026 operational shell: calm, compact and deliberately legible. */
+.app-header {
+  min-height: 64px;
+  padding-inline: clamp(16px, 3vw, 42px);
+  background: rgba(255, 255, 255, 0.98);
+}
+.app-brand { gap: 11px; }
+.app-brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.app-brand-name { font-size: 18px; font-weight: 850; }
+.app-brand-tag { font-size: 11px; }
+.desktop-nav { gap: 2px; }
+.desktop-nav__link { min-width: 78px; padding-inline: 13px; font-size: 13px; }
+.desktop-nav__link::after { right:10px; left:10px; height:2px; }
+.desktop-tools__menu { top: calc(100% - 6px); border-radius: 14px; padding: 7px; }
+.desktop-tools__item { border-radius: 9px; }
+.main-content { background: #f7f9fc; }
+.tool-page { padding-top: 36px; }
+.tool-page__title, .fp-page-title { font-weight: 850; }
+.fp-card, .fp-panel, .fp-init-card, .fp-reset-panel { border-radius: 12px; box-shadow: 0 1px 2px rgba(16, 27, 54, .035); }
+.fp-card-head, .fp-panel-head { padding: 15px 18px; }
+.fp-card-body { padding: 18px; }
+.fp-stat { border-radius: 12px; box-shadow: none; }
+.fp-stat::before { height: 3px; }
+.fp-tab { border-radius: 8px; }
+.fp-table th, .fp-stats-table th { background: #f5f8fc; }
+
+/* Shared tool routes: consistent page rhythm, filters, tables and operational states. */
+.tool-page__header { padding-bottom:22px; border-bottom:1px solid var(--border); }
+.tool-page__title { font-weight:850; }
+.tool-page .fp-tabs { padding:9px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+.tool-page .fp-card { border-radius:14px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
+.tool-page .fp-card-head { background:#f9fbfe; }
+.bt-page { width:min(1440px,100%); padding-bottom:76px; }
+.bt-page .bt-layout { gap:18px; }
+.bt-page .bt-guide { border-left:3px solid var(--primary); }
+.bt-page .bt-config-card { overflow:hidden; }
+.bt-page .bt-step-title { background:#f5f8fc; margin-inline:-24px; padding:16px 24px; }
+.bt-page .bt-step-content { padding-top:4px; }
+.bt-page .bt-archive-card { border-radius:14px; }
+
+/* Backtest: the data-dense workbench uses the same calm operational rhythm as
+   the rest of the product, rather than the former mixed legacy report panels. */
+.bt-page {
+  --bt-section-head: #f3f7fc;
+  --bt-table-line: #e2eaf3;
+  --bt-table-hover: #f7faff;
+  --bt-ink-muted: #61718a;
+  display: flow-root;
+}
+
+.bt-page .fp-card {
+  border-color: #d9e3ef;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 27, 54, .035);
+}
+
+.bt-page .fp-card-head {
+  min-height: 58px;
+  padding: 15px 18px;
+  background: var(--bt-section-head);
+  border-bottom-color: var(--bt-table-line);
+}
+
+.bt-page .fp-card-body { padding: 18px; }
+.bt-page .fp-card-title { color: #536683; letter-spacing: .085em; }
+.bt-page .fp-section-text,
+.bt-page small { color: var(--bt-ink-muted); }
+
+.bt-page .fp-input {
+  min-height: 42px;
+  border-color: #d5e0ec;
+  background: #fff;
+}
+
+.bt-page .fp-input:hover { border-color: #a9bfda; background: #fbfdff; }
+
+.bt-page .fp-alert {
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.bt-page .fp-stat {
+  min-height: 104px;
+  padding: 16px 16px 14px;
+  border-color: #d9e3ef;
+  box-shadow: none;
+}
+
+.bt-page .fp-stat-label {
+  max-width: 22ch;
+  line-height: 1.35;
+  color: var(--bt-ink-muted);
+}
+
+.bt-page .fp-stat-val {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.035em;
+}
+
+.bt-page .fp-mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.bt-page .fp-tabs {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.bt-page .fp-tab { flex: 0 0 auto; }
+.bt-page .bt-result-tabs { max-width: 420px; }
+
+.bt-page div[style*="overflow-x"] {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-color: #b6c8dc transparent;
+  scrollbar-width: thin;
+}
+
+.bt-page .fp-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text);
+}
+
+.bt-page .fp-table th {
+  height: 52px;
+  padding: 12px 18px;
+  color: #536683;
+  background: var(--bt-section-head);
+  border-bottom: 1px solid var(--bt-table-line);
+  font-size: 11px;
+  letter-spacing: .085em;
+}
+
+.bt-page .fp-table td {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--bt-table-line);
+  vertical-align: middle;
+}
+
+.bt-page .fp-table tbody tr:last-child td { border-bottom: 0; }
+.bt-page .fp-table tbody tr:hover td { background: var(--bt-table-hover); }
+
+.bt-page .bt-chart {
+  min-height: 308px;
+  background: #fbfdff;
+  border-bottom: 1px solid var(--bt-table-line);
+}
+
+.bt-page .bt-guide { background: #fff; }
+.bt-page .bt-guide .fp-card-body { background: #fbfdff; }
+.bt-page .bt-maintenance-card .fp-card-head { background: #fff8f7; }
+.bt-page .bt-maintenance-card .fp-card-body { background: rgba(255, 255, 255, .8); }
+.bt-page .bt-report-card { border-color: #cfddeb; }
+.bt-page .bt-report-card > .fp-card-head { background: #eef5fd; }
+.bt-page .bt-report-actions .fp-btn-gold { background: var(--blue); }
+.bt-page .bt-report-actions .fp-btn-gold:hover:not(:disabled) { background: var(--primary-hover); }
+
+@media (max-width: 900px) {
+  .bt-page .fp-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bt-page .fp-stat { min-height: 96px; }
+}
+
+@media (max-width: 640px) {
+  .bt-page { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .bt-page .fp-card-head { min-height: 54px; padding: 13px 14px; }
+  .bt-page .fp-card-body { padding: 14px; }
+  .bt-page .fp-grid-2 { gap: 12px; }
+  .bt-page .fp-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .bt-page .fp-stat { min-height: 90px; padding: 13px 12px 11px; border-radius: 10px; }
+  .bt-page .fp-stat-val { font-size: clamp(19px, 7vw, 25px); }
+  .bt-page .fp-stat-label { margin-top: 4px; font-size: 11px; }
+  .bt-page .bt-chart { min-height: 236px; padding: 14px 8px 0 !important; }
+  .bt-page .bt-chart .recharts-responsive-container { min-width: 290px; }
+  .bt-page .fp-table { min-width: 560px; font-size: 13px; }
+  .bt-page .fp-table th { height: 46px; padding: 10px 13px; font-size: 10px; }
+  .bt-page .fp-table td { padding: 11px 13px; }
+  .bt-page .bt-result-tabs { max-width: 100%; }
+  .bt-page .bt-report-actions .fp-btn { flex: 1 1 150px; }
+}
+
+@media (max-width:900px) {
+  .app-header { min-height: 60px; }
+  .mobile-nav {
+    position: fixed;
+    right:0;
+    bottom:0;
+    left:0;
+    gap: 2px;
+    padding-inline: 8px;
+    box-shadow: 0 -8px 22px rgba(16,27,54,.07);
+  }
+  .mobile-nav-item { min-height:50px; border-radius:9px; }
+  .mobile-nav-item.active { background:transparent; border-color:transparent; }
+  .mobile-nav-item.active svg { stroke-width:2.7; }
+  .mobile-more-sheet { border-radius:14px; box-shadow: var(--shadow-lg); }
 }
