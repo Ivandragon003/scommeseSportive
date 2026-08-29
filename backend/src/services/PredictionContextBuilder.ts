@@ -102,6 +102,8 @@ export interface TeamHistoricalCoverage {
   seasons?: string[];
   transitionHistory?: any[];
   activeTransition?: any | null;
+  promotedTeamPrior?: any | null;
+  effectiveCoveragePercent?: number | null;
 }
 
 export interface PredictionContextBuildResult {
@@ -114,6 +116,7 @@ export interface PredictionContextBuildResult {
     home: TeamHistoricalCoverage | null;
     away: TeamHistoricalCoverage | null;
     matchCoveragePercent: number | null;
+    rawMatchCoveragePercent?: number | null;
   };
 }
 
