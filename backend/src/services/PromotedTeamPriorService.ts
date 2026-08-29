@@ -1,55 +1,67 @@
 import { clamp } from '../models/utils/MathUtils';
 
 /**
- * A deliberately small, transparent bridge between a promoted team's last
- * complete second-tier season and its first top-flight fixtures.
- *
- * It is not xG and it must never be presented as such: the source only holds
- * observed results.  We therefore use it as a bounded relative goal-rate
- * signal and fade it out as actual top-flight results become available.
+ * Factual, team-only history for a side entering a top division from its
+ * corresponding second division. No player information and no synthetic xG
+ * are used here: the source contains observed team results and match stats.
  */
-export interface PromotedTeamHistoryRow {
-  transition_type?: string | null;
-  transition_mode?: string | null;
-  coverage_status?: string | null;
-  source_quality?: string | null;
+export interface LowerDivisionHistoryRow {
   source_season?: string | null;
   source_competition_id?: string | null;
+  coverage_status?: string | null;
+  transition_mode?: string | null;
   lower_matches?: number | null;
+  completed_top_flight_matches?: number | null;
   goals_for_per_match?: number | null;
   goals_against_per_match?: number | null;
-  league_goals_for_per_match?: number | null;
-  completed_top_flight_matches?: number | null;
+  shots_for_per_match?: number | null;
+  shots_against_per_match?: number | null;
+  shots_on_target_for_per_match?: number | null;
+  shots_on_target_against_per_match?: number | null;
+  fouls_for_per_match?: number | null;
+  fouls_against_per_match?: number | null;
+  corners_for_per_match?: number | null;
+  corners_against_per_match?: number | null;
+  yellow_cards_for_per_match?: number | null;
+  yellow_cards_against_per_match?: number | null;
 }
 
 export interface PromotedTeamPrior {
-  applied: boolean;
-  sourceSeason: string;
+  applied: true;
   sourceCompetitionId: string;
+  sourceSeasons: string[];
   lowerDivisionMatches: number;
   completedTopFlightMatches: number;
-  weight: number;
-  attackIndex: number;
-  concessionIndex: number;
+  transitionEvidence: 'direct' | 'previous_lower_tier';
   /** Confidence evidence only; it can never unlock HIGH on its own. */
   evidenceCoveragePercent: number;
-  reason?: string;
-}
-
-export interface PromotedMatchXgAdjustment {
-  homeXG?: number;
-  awayXG?: number;
-  homePrior: PromotedTeamPrior | null;
-  awayPrior: PromotedTeamPrior | null;
+  teamProfile: {
+    goalsForPerMatch: number | null;
+    goalsAgainstPerMatch: number | null;
+    shotsForPerMatch: number | null;
+    shotsAgainstPerMatch: number | null;
+    shotsOnTargetForPerMatch: number | null;
+    shotsOnTargetAgainstPerMatch: number | null;
+    foulsForPerMatch: number | null;
+    foulsAgainstPerMatch: number | null;
+    cornersForPerMatch: number | null;
+    cornersAgainstPerMatch: number | null;
+    yellowCardsForPerMatch: number | null;
+    yellowCardsAgainstPerMatch: number | null;
+  };
 }
 
 const MIN_LOWER_DIVISION_MATCHES = 20;
-const FADE_OUT_AFTER_TOP_FLIGHT_MATCHES = 8;
-const MAX_PRIOR_WEIGHT = 0.30;
+const MAX_CONTIGUOUS_SEASONS = 5;
 
 const asFinite = (value: unknown): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const seasonStart = (value: unknown): number | null => {
+  const match = String(value ?? '').match(/^(\d{4})/);
+  return match ? Number(match[1]) : null;
 };
 
 /** Map public competition names to the stable transition catalogue IDs. */
@@ -65,91 +77,89 @@ export function destinationCompetitionIdFor(competition: unknown): string | null
   return ids[normalized] ?? null;
 }
 
-export function buildPromotedTeamPrior(row: PromotedTeamHistoryRow | null | undefined): PromotedTeamPrior | null {
-  if (!row) return null;
-  const matches = asFinite(row.lower_matches);
-  const goalsFor = asFinite(row.goals_for_per_match);
-  const goalsAgainst = asFinite(row.goals_against_per_match);
-  const leagueGoals = asFinite(row.league_goals_for_per_match);
-  const topFlightMatches = Math.max(0, asFinite(row.completed_top_flight_matches) ?? 0);
-  const sourceSeason = String(row.source_season ?? '').trim();
-  const sourceCompetitionId = String(row.source_competition_id ?? '').trim();
-
-  if (String(row.transition_type ?? '').toLowerCase() !== 'promoted') return null;
-  if (String(row.coverage_status ?? '').toLowerCase() !== 'complete') return null;
-  const sourceQuality = String(row.source_quality ?? '').toLowerCase();
-  const transitionMode = String(row.transition_mode ?? '').toLowerCase();
-  // Existing direct promotions are intentionally stored as "estimated": the
-  // CSV proves the final ranking but does not try to infer playoff winners.
-  // A complete, direct 1st/2nd-place promotion is nevertheless deterministic;
-  // playoff and all other unconfirmed transitions remain fail-closed.
-  const deterministicDirectPromotion = sourceQuality === 'estimated'
-    && (transitionMode === 'direct_1' || transitionMode === 'direct_2');
-  if (sourceQuality !== 'confirmed' && !deterministicDirectPromotion) return null;
-  if (matches === null || matches < MIN_LOWER_DIVISION_MATCHES || goalsFor === null || goalsFor <= 0 || goalsAgainst === null || goalsAgainst < 0 || leagueGoals === null || leagueGoals <= 0 || !sourceSeason || !sourceCompetitionId) {
-    return null;
-  }
-
-  // A complete 38-game season is fully eligible; shorter but valid seasons
-  // contribute proportionally.  The influence disappears after eight actual
-  // top-flight games, where the primary Understat model has direct evidence.
-  const sampleWeight = clamp(matches / 38, 0, 1);
-  const fade = clamp(1 - (topFlightMatches / FADE_OUT_AFTER_TOP_FLIGHT_MATCHES), 0, 1);
-  const weight = Number((MAX_PRIOR_WEIGHT * sampleWeight * fade).toFixed(4));
-  if (weight <= 0) return null;
-
-  return {
-    applied: true,
-    sourceSeason,
-    sourceCompetitionId,
-    lowerDivisionMatches: Math.round(matches),
-    completedTopFlightMatches: Math.round(topFlightMatches),
-    weight,
-    // Clamps keep a very unusual lower-tier season from overwhelming the
-    // top-flight model.  1 means exactly league-average for that season.
-    attackIndex: Number(clamp(goalsFor / leagueGoals, 0.65, 1.45).toFixed(4)),
-    concessionIndex: Number(clamp(goalsAgainst / leagueGoals, 0.65, 1.45).toFixed(4)),
-    evidenceCoveragePercent: 40,
+/** Maps each supported top division to its factual lower-division source. */
+export function sourceCompetitionIdFor(competition: unknown): string | null {
+  const destination = destinationCompetitionIdFor(competition);
+  const sources: Record<string, string> = {
+    serie_a: 'serie_b',
+    premier_league: 'championship',
+    la_liga: 'segunda_division',
+    bundesliga: '2_bundesliga',
+    ligue_1: 'ligue_2',
   };
+  return destination ? sources[destination] ?? null : null;
 }
 
 /**
- * Applies the relative lower-division signal to the xG inputs.  The model
- * still supplies the baseline and the final DC probability matrix; this
- * function only nudges goals-for and goals-against in the first fixtures.
+ * Builds a profile from up to five *contiguous* lower-division seasons ending
+ * immediately before the top-flight season. A gap stops the lookback: an old
+ * stint in Serie B must not be silently applied after intervening top-flight
+ * seasons. Newer seasons receive more evidence weight, while a longer season
+ * contributes more than a short one.
  */
-export function applyPromotedTeamPriors(params: {
-  homeXG?: number;
-  awayXG?: number;
-  homePrior: PromotedTeamPrior | null;
-  awayPrior: PromotedTeamPrior | null;
-}): PromotedMatchXgAdjustment {
-  const homeBase = asFinite(params.homeXG);
-  const awayBase = asFinite(params.awayXG);
-  let homeXG = homeBase ?? undefined;
-  let awayXG = awayBase ?? undefined;
+export function buildPromotedTeamPrior(
+  rows: LowerDivisionHistoryRow[] | null | undefined,
+  destinationSeason: string,
+): PromotedTeamPrior | null {
+  const targetStart = seasonStart(destinationSeason);
+  if (!targetStart || !Array.isArray(rows)) return null;
+  const byStart = new Map(rows.map((row) => [seasonStart(row.source_season), row]));
+  const selected: Array<{ row: LowerDivisionHistoryRow; weight: number }> = [];
 
-  const nudge = (base: number | undefined, index: number, weight: number): number | undefined => {
-    if (base === undefined || base <= 0) return base;
-    return Number((base * (1 + weight * (index - 1))).toFixed(4));
+  for (let age = 0; age < MAX_CONTIGUOUS_SEASONS; age += 1) {
+    const row = byStart.get(targetStart - 1 - age);
+    const matches = asFinite(row?.lower_matches);
+    if (!row || String(row.coverage_status ?? '').toLowerCase() !== 'complete' || matches === null || matches < MIN_LOWER_DIVISION_MATCHES) break;
+    // This is evidence weighting, not a probability-model coefficient. The
+    // latest completed season dominates without discarding factual continuity.
+    selected.push({ row, weight: matches / (age + 1) });
+  }
+  if (selected.length === 0) return null;
+
+  const weightedAverage = (field: keyof LowerDivisionHistoryRow): number | null => {
+    let numerator = 0;
+    let denominator = 0;
+    for (const item of selected) {
+      const value = asFinite(item.row[field]);
+      if (value === null) continue;
+      numerator += value * item.weight;
+      denominator += item.weight;
+    }
+    return denominator > 0 ? Number((numerator / denominator).toFixed(4)) : null;
   };
+  const newest = selected[0].row;
+  const sourceCompetitionId = String(newest.source_competition_id ?? '').trim();
+  if (!sourceCompetitionId) return null;
+  const direct = ['direct_1', 'direct_2', 'direct_3', 'playoff'].includes(
+    String(newest.transition_mode ?? '').toLowerCase(),
+  );
 
-  // A promoted home team affects its own attack and the away side's expected
-  // goals through the goals it conceded in the lower division; vice versa for
-  // a promoted away team.
-  if (params.homePrior) {
-    homeXG = nudge(homeXG, params.homePrior.attackIndex, params.homePrior.weight);
-    awayXG = nudge(awayXG, params.homePrior.concessionIndex, params.homePrior.weight);
-  }
-  if (params.awayPrior) {
-    awayXG = nudge(awayXG, params.awayPrior.attackIndex, params.awayPrior.weight);
-    homeXG = nudge(homeXG, params.awayPrior.concessionIndex, params.awayPrior.weight);
-  }
-
-  return { homeXG, awayXG, homePrior: params.homePrior, awayPrior: params.awayPrior };
+  return {
+    applied: true,
+    sourceCompetitionId,
+    sourceSeasons: selected.map(({ row }) => String(row.source_season)),
+    lowerDivisionMatches: selected.reduce((sum, { row }) => sum + Math.round(asFinite(row.lower_matches) ?? 0), 0),
+    completedTopFlightMatches: Math.max(0, Math.round(asFinite(newest.completed_top_flight_matches) ?? 0)),
+    transitionEvidence: direct ? 'direct' : 'previous_lower_tier',
+    evidenceCoveragePercent: 40,
+    teamProfile: {
+      goalsForPerMatch: weightedAverage('goals_for_per_match'),
+      goalsAgainstPerMatch: weightedAverage('goals_against_per_match'),
+      shotsForPerMatch: weightedAverage('shots_for_per_match'),
+      shotsAgainstPerMatch: weightedAverage('shots_against_per_match'),
+      shotsOnTargetForPerMatch: weightedAverage('shots_on_target_for_per_match'),
+      shotsOnTargetAgainstPerMatch: weightedAverage('shots_on_target_against_per_match'),
+      foulsForPerMatch: weightedAverage('fouls_for_per_match'),
+      foulsAgainstPerMatch: weightedAverage('fouls_against_per_match'),
+      cornersForPerMatch: weightedAverage('corners_for_per_match'),
+      cornersAgainstPerMatch: weightedAverage('corners_against_per_match'),
+      yellowCardsForPerMatch: weightedAverage('yellow_cards_for_per_match'),
+      yellowCardsAgainstPerMatch: weightedAverage('yellow_cards_against_per_match'),
+    },
+  };
 }
 
-/** A promoted prior may lift missing-history evidence only to MEDIUM. */
+/** A promoted-team profile may lift missing-history evidence only to MEDIUM. */
 export function effectiveCoverageWithPromotedPrior(
   rawCoveragePercent: number | null | undefined,
   prior: PromotedTeamPrior | null,

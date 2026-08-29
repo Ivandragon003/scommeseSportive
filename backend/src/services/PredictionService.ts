@@ -19,10 +19,10 @@ import {
 import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
 import { computeLineupXgAdjustment, LineupXgAdjustment } from './LineupXgAdjustmentService';
 import {
-  applyPromotedTeamPriors,
   buildPromotedTeamPrior,
   destinationCompetitionIdFor,
   effectiveCoverageWithPromotedPrior,
+  sourceCompetitionIdFor,
 } from './PromotedTeamPriorService';
 import { assessPlayerLineup, completeOfficialTeamIds } from './PlayerLineupProbabilityService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
@@ -1696,14 +1696,15 @@ export class PredictionService {
     const targetCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? '';
     const targetSeason = request.season ?? matchRow?.season ?? '';
     const destinationCompetitionId = destinationCompetitionIdFor(targetCompetition);
-    const [homePromotedHistory, awayPromotedHistory] = destinationCompetitionId && targetSeason
+    const sourceCompetitionId = sourceCompetitionIdFor(targetCompetition);
+    const [homePromotedHistory, awayPromotedHistory] = destinationCompetitionId && sourceCompetitionId && targetSeason
       ? await Promise.all([
-          this.db.getPromotedTeamPrior(request.homeTeamId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => null),
-          this.db.getPromotedTeamPrior(request.awayTeamId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => null),
+          this.db.getPromotedTeamHistory(request.homeTeamId, sourceCompetitionId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => []),
+          this.db.getPromotedTeamHistory(request.awayTeamId, sourceCompetitionId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => []),
         ])
-      : [null, null];
-    const homePromotedPrior = buildPromotedTeamPrior(homePromotedHistory);
-    const awayPromotedPrior = buildPromotedTeamPrior(awayPromotedHistory);
+      : [[], []];
+    const homePromotedPrior = buildPromotedTeamPrior(homePromotedHistory, targetSeason);
+    const awayPromotedPrior = buildPromotedTeamPrior(awayPromotedHistory, targetSeason);
     const lineupStatusRows = request.matchId
       ? await this.db.getPlayerLineupStatuses(request.matchId, referenceDate).catch(() => [])
       : [];
@@ -1808,21 +1809,6 @@ export class PredictionService {
     let lineupXgAdjustments: { home: LineupXgAdjustment; away: LineupXgAdjustment } | undefined;
     let effectiveHomeXG = context.homeXG;
     let effectiveAwayXG = context.awayXG;
-    if (homePromotedPrior || awayPromotedPrior) {
-      // If one direct xG average is not available in the first top-flight
-      // rounds, use the DC baseline only as the neutral input to the existing
-      // 60/40 xG blend.  The promoted prior then remains a small relative
-      // correction rather than a fabricated xG observation.
-      const baseline = model.computeExpectedGoals(request.homeTeamId, request.awayTeamId);
-      const promotedAdjustment = applyPromotedTeamPriors({
-        homeXG: effectiveHomeXG ?? baseline.lambdaHome,
-        awayXG: effectiveAwayXG ?? baseline.lambdaAway,
-        homePrior: homePromotedPrior,
-        awayPrior: awayPromotedPrior,
-      });
-      effectiveHomeXG = promotedAdjustment.homeXG;
-      effectiveAwayXG = promotedAdjustment.awayXG;
-    }
     if (predictionEngineConfig.lineupXg.enableLineupXgAdjustment && hasAbsenceRequest) {
       const homeAdjustment = computeLineupXgAdjustment(homePlayers, request.homeAbsentPlayers);
       const awayAdjustment = computeLineupXgAdjustment(awayPlayers, request.awayAbsentPlayers);

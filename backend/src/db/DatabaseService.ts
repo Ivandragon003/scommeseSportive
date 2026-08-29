@@ -1576,59 +1576,74 @@ export class DatabaseService {
   }
 
   /**
-   * Returns the last complete second-tier season for a team promoted into the
-   * requested top-flight season.  This is intentionally a read-only summary:
-   * lower-division matches are never copied into `matches` or treated as
-   * Understat xG.  `referenceDate` prevents future same-season results from
-   * leaking into a historical replay.
+   * Returns the factual, team-level lower-division history immediately before
+   * a top-flight season. It works for direct and playoff promotions alike:
+   * the latter are identified from the team's completed prior lower season,
+   * rather than guessed from a final-table rank. These rows are never copied
+   * into `matches` or labelled as Understat xG.
    */
-  async getPromotedTeamPrior(
+  async getPromotedTeamHistory(
     teamId: string,
+    sourceCompetitionId: string,
     destinationCompetitionId: string,
     destinationSeason: string,
     targetCompetition: string,
     referenceDate?: string,
-  ): Promise<any | null> {
+  ): Promise<any[]> {
     const cutoff = String(referenceDate ?? '').trim();
     const completedBefore = cutoff
       ? `AND datetime(m.date) < datetime(?)`
       : `AND datetime(m.date) < datetime('now')`;
-    return this.get(`
+    const topFlightHistory = await this.get(`
+      SELECT COUNT(*) AS completed_top_flight_matches
+      FROM matches m
+      WHERE (m.home_team_id = ? OR m.away_team_id = ?)
+        AND m.competition = ?
+        AND m.season = ?
+        AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+        ${completedBefore}
+    `, [teamId, teamId, targetCompetition, destinationSeason, ...(cutoff ? [cutoff] : [])]);
+
+    const rows = await this.all(`
       SELECT
-        t.transition_id, t.transition_type, t.source_competition_id, t.source_season,
-        t.destination_competition_id, t.destination_season, t.coverage_status,
-        t.source_quality, t.transition_mode,
+        l.source_competition_id, l.source_season,
+        r.coverage_status,
+        t.transition_mode,
         COUNT(l.history_id) AS lower_matches,
         AVG(l.goals_for) AS goals_for_per_match,
         AVG(l.goals_against) AS goals_against_per_match,
-        (
-          SELECT AVG(l2.goals_for)
-          FROM lower_division_team_matches l2
-          WHERE l2.source_competition_id = t.source_competition_id
-            AND l2.source_season = t.source_season
-            AND l2.goals_for IS NOT NULL
-        ) AS league_goals_for_per_match,
-        (
-          SELECT COUNT(*)
-          FROM matches m
-          WHERE (m.home_team_id = ? OR m.away_team_id = ?)
-            AND m.competition = ?
-            AND m.season = ?
-            AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
-            ${completedBefore}
-        ) AS completed_top_flight_matches
-      FROM team_competition_transitions t
-      LEFT JOIN lower_division_team_matches l
-        ON l.team_id = t.team_id
-       AND l.source_competition_id = t.source_competition_id
-       AND l.source_season = t.source_season
-      WHERE t.team_id = ?
-        AND t.destination_competition_id = ?
-        AND t.destination_season = ?
-        AND t.transition_type = 'promoted'
-      GROUP BY t.transition_id
-      LIMIT 1
-    `, [teamId, teamId, targetCompetition, destinationSeason, ...(cutoff ? [cutoff] : []), teamId, destinationCompetitionId, destinationSeason]);
+        AVG(l.shots_for) AS shots_for_per_match,
+        AVG(l.shots_against) AS shots_against_per_match,
+        AVG(l.shots_on_target_for) AS shots_on_target_for_per_match,
+        AVG(l.shots_on_target_against) AS shots_on_target_against_per_match,
+        AVG(l.fouls_for) AS fouls_for_per_match,
+        AVG(l.fouls_against) AS fouls_against_per_match,
+        AVG(l.corners_for) AS corners_for_per_match,
+        AVG(l.corners_against) AS corners_against_per_match,
+        AVG(l.yellow_cards_for) AS yellow_cards_for_per_match,
+        AVG(l.yellow_cards_against) AS yellow_cards_against_per_match
+      FROM lower_division_team_matches l
+      JOIN source_season_reference r
+        ON r.source_competition_id = l.source_competition_id
+       AND r.source_season = l.source_season
+      LEFT JOIN team_competition_transitions t
+        ON t.team_id = l.team_id
+       AND t.source_competition_id = l.source_competition_id
+       AND t.source_season = l.source_season
+       AND t.destination_competition_id = ?
+       AND t.destination_season = ?
+       AND t.transition_type = 'promoted'
+      WHERE l.team_id = ?
+        AND l.source_competition_id = ?
+        AND CAST(substr(l.source_season, 1, 4) AS INTEGER) < CAST(substr(?, 1, 4) AS INTEGER)
+      GROUP BY l.source_competition_id, l.source_season, r.coverage_status, t.transition_mode
+      ORDER BY l.source_season DESC
+    `, [destinationCompetitionId, destinationSeason, teamId, sourceCompetitionId, destinationSeason]);
+
+    return rows.map((row) => ({
+      ...row,
+      completed_top_flight_matches: Number(topFlightHistory?.completed_top_flight_matches ?? 0),
+    }));
   }
 
   /**
