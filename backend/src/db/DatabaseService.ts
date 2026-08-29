@@ -1576,6 +1576,62 @@ export class DatabaseService {
   }
 
   /**
+   * Returns the last complete second-tier season for a team promoted into the
+   * requested top-flight season.  This is intentionally a read-only summary:
+   * lower-division matches are never copied into `matches` or treated as
+   * Understat xG.  `referenceDate` prevents future same-season results from
+   * leaking into a historical replay.
+   */
+  async getPromotedTeamPrior(
+    teamId: string,
+    destinationCompetitionId: string,
+    destinationSeason: string,
+    targetCompetition: string,
+    referenceDate?: string,
+  ): Promise<any | null> {
+    const cutoff = String(referenceDate ?? '').trim();
+    const completedBefore = cutoff
+      ? `AND datetime(m.date) < datetime(?)`
+      : `AND datetime(m.date) < datetime('now')`;
+    return this.get(`
+      SELECT
+        t.transition_id, t.transition_type, t.source_competition_id, t.source_season,
+        t.destination_competition_id, t.destination_season, t.coverage_status,
+        t.source_quality, t.transition_mode,
+        COUNT(l.history_id) AS lower_matches,
+        AVG(l.goals_for) AS goals_for_per_match,
+        AVG(l.goals_against) AS goals_against_per_match,
+        (
+          SELECT AVG(l2.goals_for)
+          FROM lower_division_team_matches l2
+          WHERE l2.source_competition_id = t.source_competition_id
+            AND l2.source_season = t.source_season
+            AND l2.goals_for IS NOT NULL
+        ) AS league_goals_for_per_match,
+        (
+          SELECT COUNT(*)
+          FROM matches m
+          WHERE (m.home_team_id = ? OR m.away_team_id = ?)
+            AND m.competition = ?
+            AND m.season = ?
+            AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+            ${completedBefore}
+        ) AS completed_top_flight_matches
+      FROM team_competition_transitions t
+      LEFT JOIN lower_division_team_matches l
+        ON l.team_id = t.team_id
+       AND l.source_competition_id = t.source_competition_id
+       AND l.source_season = t.source_season
+      WHERE t.team_id = ?
+        AND t.destination_competition_id = ?
+        AND t.destination_season = ?
+        AND t.transition_type = 'promoted'
+      GROUP BY t.transition_id
+      LIMIT 1
+    `, [teamId, teamId, targetCompetition, destinationSeason, ...(cutoff ? [cutoff] : []), teamId, destinationCompetitionId, destinationSeason]);
+  }
+
+  /**
    * Coverage is deliberately team-scoped. A missing team from the league
    * catalogue must not lower the coverage of an unrelated fixture.
    *

@@ -18,6 +18,12 @@ import {
 } from '../models/value/EnhancedMarketAnalysis';
 import { learnBlendWeights, noVigProbability, BlendLearningSample } from './MarketBlendLearningService';
 import { computeLineupXgAdjustment, LineupXgAdjustment } from './LineupXgAdjustmentService';
+import {
+  applyPromotedTeamPriors,
+  buildPromotedTeamPrior,
+  destinationCompetitionIdFor,
+  effectiveCoverageWithPromotedPrior,
+} from './PromotedTeamPriorService';
 import { assessPlayerLineup, completeOfficialTeamIds } from './PlayerLineupProbabilityService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
@@ -430,6 +436,7 @@ export interface PredictionResponse {
     home: any | null;
     away: any | null;
     matchCoveragePercent: number | null;
+    rawMatchCoveragePercent?: number | null;
   };
   dataQuality?: {
     teamHistory: { home: any | null; away: any | null };
@@ -1686,6 +1693,17 @@ export class PredictionService {
     const refereeName = resolvePredictionRefereeName(request.referee, matchRow?.referee);
     const referee = refereeName ? await this.db.getRefereeByName(refereeName) : null;
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
+    const targetCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? '';
+    const targetSeason = request.season ?? matchRow?.season ?? '';
+    const destinationCompetitionId = destinationCompetitionIdFor(targetCompetition);
+    const [homePromotedHistory, awayPromotedHistory] = destinationCompetitionId && targetSeason
+      ? await Promise.all([
+          this.db.getPromotedTeamPrior(request.homeTeamId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => null),
+          this.db.getPromotedTeamPrior(request.awayTeamId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => null),
+        ])
+      : [null, null];
+    const homePromotedPrior = buildPromotedTeamPrior(homePromotedHistory);
+    const awayPromotedPrior = buildPromotedTeamPrior(awayPromotedHistory);
     const lineupStatusRows = request.matchId
       ? await this.db.getPlayerLineupStatuses(request.matchId, referenceDate).catch(() => [])
       : [];
@@ -1732,6 +1750,51 @@ export class PredictionService {
       awayHistoricalCoverage,
     });
 
+    // A completed lower-division season provides real team evidence, but is
+    // not equivalent to top-flight Understat history.  It can therefore lift
+    // only the prudential coverage floor (never beyond MEDIUM), while keeping
+    // the raw top-flight percentage visible for auditability.
+    const rawMatchCoveragePercent = context.historicalCoverage.matchCoveragePercent;
+    const homeEffectiveCoverage = effectiveCoverageWithPromotedPrior(
+      context.historicalCoverage.home?.coveragePercent,
+      homePromotedPrior,
+    );
+    const awayEffectiveCoverage = effectiveCoverageWithPromotedPrior(
+      context.historicalCoverage.away?.coveragePercent,
+      awayPromotedPrior,
+    );
+    if (homePromotedPrior && context.historicalCoverage.home) {
+      context.historicalCoverage.home = {
+        ...context.historicalCoverage.home,
+        promotedTeamPrior: homePromotedPrior,
+        effectiveCoveragePercent: homeEffectiveCoverage,
+      };
+    }
+    if (awayPromotedPrior && context.historicalCoverage.away) {
+      context.historicalCoverage.away = {
+        ...context.historicalCoverage.away,
+        promotedTeamPrior: awayPromotedPrior,
+        effectiveCoveragePercent: awayEffectiveCoverage,
+      };
+    }
+    if (homeEffectiveCoverage !== null && awayEffectiveCoverage !== null) {
+      const effectiveMatchCoverage = Math.min(homeEffectiveCoverage, awayEffectiveCoverage);
+      context.historicalCoverage.rawMatchCoveragePercent = rawMatchCoveragePercent;
+      context.historicalCoverage.matchCoveragePercent = effectiveMatchCoverage;
+      // Keep richness consistent with the same conservative coverage factor
+      // used by PredictionContextBuilder, without ever manufacturing a full
+      // history score from a lower-tier season.
+      if (rawMatchCoveragePercent !== null) {
+        const rawFactor = 0.70 + (clamp(Number(rawMatchCoveragePercent), 0, 100) / 100) * 0.30;
+        const effectiveFactor = 0.70 + (effectiveMatchCoverage / 100) * 0.30;
+        context.richnessScore = Number(clamp(
+          Number(context.richnessScore) * (effectiveFactor / rawFactor),
+          0.30,
+          0.93,
+        ).toFixed(3));
+      }
+    }
+
     const supp: SupplementaryData = context.supplementaryData;
     const competitiveness = context.competitiveness;
 
@@ -1745,6 +1808,21 @@ export class PredictionService {
     let lineupXgAdjustments: { home: LineupXgAdjustment; away: LineupXgAdjustment } | undefined;
     let effectiveHomeXG = context.homeXG;
     let effectiveAwayXG = context.awayXG;
+    if (homePromotedPrior || awayPromotedPrior) {
+      // If one direct xG average is not available in the first top-flight
+      // rounds, use the DC baseline only as the neutral input to the existing
+      // 60/40 xG blend.  The promoted prior then remains a small relative
+      // correction rather than a fabricated xG observation.
+      const baseline = model.computeExpectedGoals(request.homeTeamId, request.awayTeamId);
+      const promotedAdjustment = applyPromotedTeamPriors({
+        homeXG: effectiveHomeXG ?? baseline.lambdaHome,
+        awayXG: effectiveAwayXG ?? baseline.lambdaAway,
+        homePrior: homePromotedPrior,
+        awayPrior: awayPromotedPrior,
+      });
+      effectiveHomeXG = promotedAdjustment.homeXG;
+      effectiveAwayXG = promotedAdjustment.awayXG;
+    }
     if (predictionEngineConfig.lineupXg.enableLineupXgAdjustment && hasAbsenceRequest) {
       const homeAdjustment = computeLineupXgAdjustment(homePlayers, request.homeAbsentPlayers);
       const awayAdjustment = computeLineupXgAdjustment(awayPlayers, request.awayAbsentPlayers);
