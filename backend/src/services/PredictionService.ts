@@ -75,6 +75,68 @@ export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationS
 }
 
 /**
+ * `analyzeMarketsEnhanced` calibra le probabilita con le curve isotoniche
+ * calcolate per la previsione live. Il motore value, invece, espone anche una
+ * seconda diagnostica per l'eventuale profilo di calibrazione storico dei
+ * mercati. Quando quel secondo profilo non e configurato, i suoi campi sono
+ * `none/0`: non significa che la calibrazione live manchi.
+ *
+ * Manteniamo quindi l'evidenza della curva effettivamente usata accanto
+ * all'opportunita, prima di applicare il gate prudenziale del campione.
+ */
+export function attachIsotonicCalibrationEvidence(
+  opportunity: any,
+  profile: {
+    calibrationPoints: Array<{ x: number; y: number }>;
+    nObservations: number;
+    byFamily: Record<string, FamilyCalibrationCurve>;
+  },
+  categorizeSelection: (selection: string) => string,
+): any {
+  const existingSampleSize = Number(opportunity?.calibrationSampleSize);
+  const existingStatus = String(opportunity?.categoryCalibrationStatus ?? 'none');
+  if (existingStatus !== 'none' && Number.isFinite(existingSampleSize) && existingSampleSize > 0) {
+    return opportunity;
+  }
+
+  const family = categorizeSelection(String(opportunity?.selection ?? ''));
+  const familyCurve = profile.byFamily?.[family];
+  const familySampleSize = Number(familyCurve?.nObservations ?? 0);
+  const hasFamilyCurve = Array.isArray(familyCurve?.points)
+    && familyCurve.points.length >= 2
+    && Number.isFinite(familySampleSize)
+    && familySampleSize > 0;
+  const globalSampleSize = Number(profile.nObservations ?? 0);
+  const hasGlobalCurve = Array.isArray(profile.calibrationPoints)
+    && profile.calibrationPoints.length >= 2
+    && Number.isFinite(globalSampleSize)
+    && globalSampleSize > 0;
+
+  if (hasFamilyCurve) {
+    return {
+      ...opportunity,
+      categoryCalibrationStatus: 'applied',
+      calibrationSampleSize: familySampleSize,
+      calibrationReliability: Number(Math.min(1, familySampleSize / 120).toFixed(3)),
+    };
+  }
+  if (hasGlobalCurve) {
+    return {
+      ...opportunity,
+      categoryCalibrationStatus: 'global_fallback',
+      calibrationSampleSize: globalSampleSize,
+      calibrationReliability: Number(Math.min(1, globalSampleSize / 120).toFixed(3)),
+    };
+  }
+  return {
+    ...opportunity,
+    categoryCalibrationStatus: 'insufficient_sample',
+    calibrationSampleSize: Number.isFinite(globalSampleSize) ? globalSampleSize : 0,
+    calibrationReliability: 0,
+  };
+}
+
+/**
  * Team history coverage is a prudential confidence cap, not a hard filter.
  * Two complete seasons out of the five-season target window remain usable,
  * but cannot be presented as HIGH confidence.
@@ -2033,7 +2095,12 @@ export class PredictionService {
     const applyPrudentialGate = (opportunity: any): any => {
       const ev = Number(opportunity.expectedValue ?? 0);
       const anomaly = ev > anomalousEvPercent;
-      const gated = applyCalibrationSampleGate(opportunity, minimumCalibrationSample);
+      const withCalibrationEvidence = attachIsotonicCalibrationEvidence(
+        opportunity,
+        calibrationProfile,
+        (selection) => this.engine.categorizeSelection(selection),
+      );
+      const gated = applyCalibrationSampleGate(withCalibrationEvidence, minimumCalibrationSample);
       const warnings = new Set<string>(gated.dataWarnings ?? []);
       if (anomaly) warnings.add('anomalous_ev_requires_review');
       const bookmakerName = String(alignedBookmakerBySelection[opportunity.selection] ?? '').trim();

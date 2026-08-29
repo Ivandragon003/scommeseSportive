@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   PredictionService,
   applyCalibrationSampleGate,
+  attachIsotonicCalibrationEvidence,
   TOP_5_BACKTEST_KEY,
   TOP_5_COMPETITIONS,
   buildTop5BacktestAggregate,
@@ -22,6 +23,26 @@ test('should not promote to MEDIUM when calibration sample size is unknown (regr
   assert.equal(gated.confidence, 'LOW');
   assert.equal(gated.isValueBet, true);
   assert.ok(gated.dataWarnings.includes('calibration_sample_insufficient'));
+});
+
+test('uses the live isotonic global curve as calibration evidence instead of demoting every opportunity to LOW', () => {
+  const withEvidence = attachIsotonicCalibrationEvidence({
+    selection: 'dnb_home',
+    confidence: 'MEDIUM',
+    expectedValue: 12.4,
+    categoryCalibrationStatus: 'none',
+    calibrationSampleSize: 0,
+  }, {
+    calibrationPoints: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.8 }],
+    nObservations: 80,
+    byFamily: {},
+  }, () => 'goal_1x2');
+
+  const gated = applyCalibrationSampleGate(withEvidence, 30);
+  assert.equal(withEvidence.categoryCalibrationStatus, 'global_fallback');
+  assert.equal(withEvidence.calibrationSampleSize, 80);
+  assert.equal(gated.confidence, 'MEDIUM');
+  assert.equal(gated.dataWarnings?.includes('calibration_sample_insufficient'), false);
 });
 
 test('generic settlement marks DNB draw and Asian handicap push as VOID', () => {
