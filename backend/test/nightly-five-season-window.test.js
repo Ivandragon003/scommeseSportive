@@ -39,8 +39,8 @@ test('il backend temporaneo della nightly disabilita solo in CI la sessione ammi
     nightly.indexOf('echo "Waiting for backend health..."'),
   );
 
-  assert.match(backendStart, /NODE_ENV=ci \\\n/);
-  assert.match(backendStart, /SHARED_ADMIN_AUTH_ENABLED=false \\\n/);
+  assert.match(backendStart, /NODE_ENV=ci \\\r?\n/);
+  assert.match(backendStart, /SHARED_ADMIN_AUTH_ENABLED=false \\\r?\n/);
   assert.doesNotMatch(backendStart, /NODE_ENV=production/);
 });
 
@@ -56,7 +56,7 @@ test('la nightly autorizza esplicitamente solo la propria origine loopback per l
   );
 
   assert.match(postJson, /-H "Origin: http:\/\/127\.0\.0\.1:\$PORT"/);
-  assert.match(backendStart, /CORS_ORIGIN="http:\/\/127\.0\.0\.1:\$PORT" \\\n/);
+  assert.match(backendStart, /CORS_ORIGIN="http:\/\/127\.0\.0\.1:\$PORT" \\\r?\n/);
 });
 
 test('policy API resta esattamente corrente piu quattro precedenti', () => {
