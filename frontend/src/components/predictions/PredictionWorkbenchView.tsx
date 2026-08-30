@@ -778,6 +778,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     predictionAnalysis,
     userBudget,
     handleBet,
+    handleArchiveOpportunity,
     gp,
     cp,
     fp,
@@ -787,6 +788,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     analysisFactors,
     methodology,
     vbRanked,
+    manualArchiveOpportunities,
+    manuallyArchivedOpportunityKeys,
     allOddsEntries,
     allOddsGroups,
     valueSelectionSet,
@@ -1539,6 +1542,9 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       getStakeValue={(o) => oppStakeValue(o)}
                       onStakeChange={(stakeKey, value) => setStakes((previous) => ({ ...previous, [stakeKey]: value }))}
                       onBet={(opportunity) => handleBet(opportunity)}
+                      manualArchiveOpportunities={manualArchiveOpportunities}
+                      archivedOpportunityKeys={manuallyArchivedOpportunityKeys}
+                      onArchive={(opportunity) => { void handleArchiveOpportunity(opportunity); }}
                     />
                   </div>
                 )}

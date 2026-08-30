@@ -146,6 +146,7 @@ export const exclusionReasonLabel = (reason?: string | null) => {
     case 'per_match_limit_reached': return 'Fuori dalle 3 giocate operative della partita.';
     case 'low_confidence_saved_only': return 'Registrata per raccogliere dati, senza usare il budget.';
     case 'speculative_saved_only': return 'Ipotesi speculativa registrata solo per analisi future.';
+    case 'manual_saved_only': return 'Salvata manualmente senza piazzare la giocata.';
     default: return 'Questa simulazione non modifica il budget.';
   }
 };

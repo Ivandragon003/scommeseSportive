@@ -1550,6 +1550,83 @@ router.get('/bet-opportunities/archive', async (req: Request, res: Response) => 
   }
 });
 
+// Saves a manually reviewed LOW/SPECULATIVE opportunity without creating a
+// budget bet. The server rechecks the latest real bookmaker snapshot, so a
+// browser payload can never archive synthetic/model-completed odds as real.
+router.post('/bet-opportunities/archive/manual', async (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.body?.matchId ?? '').trim();
+    const marketName = String(req.body?.marketName ?? '').trim();
+    const selection = String(req.body?.selection ?? '').trim();
+    const classification = String(req.body?.classification ?? '').trim().toUpperCase();
+    const requestedOdds = Number(req.body?.bookmakerOdds);
+    const requestedBookmaker = String(req.body?.bookmakerName ?? '').trim();
+
+    if (!matchId || !marketName || !selection) {
+      return res.status(400).json({ success: false, error: 'Partita, mercato e selezione sono obbligatori.' });
+    }
+    if (!['LOW', 'SPECULATIVE'].includes(classification)) {
+      return res.status(400).json({ success: false, error: 'Si possono archiviare manualmente solo opportunita LOW o SPECULATIVE.' });
+    }
+    if (!Number.isFinite(requestedOdds) || requestedOdds <= 1) {
+      return res.status(400).json({ success: false, error: 'Quota bookmaker non valida.' });
+    }
+
+    const match = await db.getMatchById(matchId);
+    const kickoffAt = Date.parse(String(match?.date ?? ''));
+    if (!match || match.home_goals !== null || match.away_goals !== null || !Number.isFinite(kickoffAt) || kickoffAt <= Date.now()) {
+      return res.status(400).json({ success: false, error: 'Puoi archiviare solo una partita futura non ancora conclusa.' });
+    }
+
+    const snapshot = await db.getLatestOddsSnapshotForMatch(matchId);
+    const snapshotBundle = buildCoherentBookmakerOddsBundle(snapshot?.allBookmakerOdds);
+    const snapshotOdds = sanitizeOddsMap(snapshotBundle.odds);
+    const snapshotOdd = Number(
+      snapshotOdds[selection]
+      ?? snapshot?.liveSelectedOdds?.[selection]
+      ?? snapshot?.selectedOdds?.[selection]
+    );
+    const snapshotBookmaker = String(
+      snapshotBundle.bookmakerBySelection[selection]
+      ?? snapshot?.selectedBookmakerName
+      ?? ''
+    ).trim();
+    const hasRealBookmakerSnapshot = snapshot
+      && String(snapshot.source ?? '').trim() === 'odds_api'
+      && snapshot.usedSyntheticOdds !== true;
+    if (!hasRealBookmakerSnapshot || !Number.isFinite(snapshotOdd) || snapshotOdd <= 1 || !snapshotBookmaker) {
+      return res.status(409).json({ success: false, error: 'La quota bookmaker reale per questa selezione non e piu disponibile. Aggiorna la partita e riprova.' });
+    }
+    if (Math.abs(snapshotOdd - requestedOdds) > 0.011 || (requestedBookmaker && requestedBookmaker !== snapshotBookmaker)) {
+      return res.status(409).json({ success: false, error: 'La quota e cambiata. Aggiorna la partita prima di archiviarla.' });
+    }
+
+    const decisionId = automatedSavedDecisionId(sharedDataUserId, matchId, marketName, selection);
+    await db.appendAutomatedBetDecision({
+      decisionId,
+      userId: sharedDataUserId,
+      matchId,
+      marketName,
+      selection,
+      confidence: classification,
+      bookmakerOdds: snapshotOdd,
+      bookmakerName: snapshotBookmaker,
+      theoreticalStakePercent: Number.isFinite(Number(req.body?.suggestedStakePercent))
+        ? Number(req.body.suggestedStakePercent)
+        : null,
+      theoreticalStakeAmount: null,
+      rankingPosition: 1,
+      operationalSlot: null,
+      decisionStatus: 'saved_only',
+      exclusionReason: classification === 'SPECULATIVE' ? 'speculative_saved_only' : 'manual_saved_only',
+      betId: null,
+    });
+    return res.json({ success: true, data: { decisionId, archiveType: 'simulated' } });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message ?? 'Archiviazione opportunita non riuscita.' });
+  }
+});
+
 // ====== AUTOMATED INTERNAL BET CARD ======
 // This endpoint is intended for the nightly GitHub Actions runner. It deliberately
 // reuses the public odds/prediction/bet paths so the automation behaves exactly like
