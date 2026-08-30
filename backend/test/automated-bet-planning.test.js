@@ -459,6 +459,64 @@ test('persistent operational slots prevent a retry from exceeding three real bet
   }
 });
 
+test('an already placed internal bet is archived as a known skip without failing the nightly run', async () => {
+  const finalized = [];
+  const match = {
+    match_id: 'match-duplicate', home_team_id: 'home', away_team_id: 'away',
+    home_team_name: 'Home', away_team_name: 'Away', competition: 'Serie A',
+    date: '2026-08-25T18:00:00.000Z',
+  };
+  const db = {
+    async getUpcomingMatches() { return [match]; },
+    async getLatestOddsSnapshotForMatch() {
+      return {
+        captured_at: new Date().toISOString(), source: 'odds_api', selectedBookmakerName: 'Pinnacle', usedSyntheticOdds: false,
+        liveSelectedOdds: { homeWin: 2 },
+      };
+    },
+    async appendAutomatedBetDecision() {},
+    async reserveAutomatedBetDecision(row) { return { reserved: true, decisionId: row.decisionId, operationalSlot: 1 }; },
+    async finalizeAutomatedBetDecision(decisionId, status, options) { finalized.push({ decisionId, status, options }); },
+  };
+  const svc = {
+    async predict(request) {
+      return { probabilities: {}, valueOpportunities: [opportunity({ matchId: request.matchId, selection: 'homeWin', confidence: 'HIGH', rankingScore: 10 })], speculativeOpportunities: [], comboBets: [] };
+    },
+    async getBudget() { return { available_budget: 1000 }; },
+    async placeBet() { throw new Error('Scommessa gia fatta'); },
+  };
+  const previousEnabled = process.env.AUTO_BET_ENABLED;
+  const previousDryRun = process.env.AUTO_BET_DRY_RUN;
+  process.env.AUTO_BET_ENABLED = 'true';
+  process.env.AUTO_BET_DRY_RUN = 'false';
+  const app = express();
+  app.use(express.json());
+  let apiBase = '';
+  app.use('/api', createApiRouter({ db, svc, getInternalApiBaseUrl: () => apiBase }));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address();
+  apiBase = `http://127.0.0.1:${port}/api`;
+
+  try {
+    const response = await fetch(`${apiBase}/automation/place-valid-bets`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiBase }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.success, true);
+    assert.equal(payload.data.results[0].reason, 'scommessa_gia_registrata');
+    assert.deepEqual(finalized[0].status, 'saved_only');
+    assert.equal(finalized[0].options.exclusionReason, 'scommessa_gia_registrata');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousEnabled === undefined) delete process.env.AUTO_BET_ENABLED;
+    else process.env.AUTO_BET_ENABLED = previousEnabled;
+    if (previousDryRun === undefined) delete process.env.AUTO_BET_DRY_RUN;
+    else process.env.AUTO_BET_DRY_RUN = previousDryRun;
+  }
+});
+
 test('concurrent reservations allocate at most three distinct operational slots', async () => {
   const isolatedDbPath = isolatedDatabasePath('automated-bet-concurrency');
   process.env.TURSO_DATABASE_URL = `file:${isolatedDbPath}`;

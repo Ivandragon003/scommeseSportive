@@ -68,6 +68,12 @@ class AutomationPlacementUnknownError extends Error {
   }
 }
 
+function isAlreadyPlacedBetError(error: unknown): boolean {
+  return String((error as any)?.message ?? error)
+    .trim()
+    .toLocaleLowerCase('it-IT') === 'scommessa gia fatta';
+}
+
 export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
@@ -1954,6 +1960,19 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
             { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate, source: 'automation' }
           );
         } catch (error: any) {
+          if (isAlreadyPlacedBetError(error)) {
+            const reason = 'scommessa_gia_registrata';
+            await finalizeReservedDecision(reservation.decisionId, 'saved_only', { exclusionReason: reason });
+            results.push({
+              ...base,
+              status: 'skipped',
+              reason,
+              selection: betPayload.selection,
+              marketName: betPayload.marketName,
+              rankingPosition: decision.rankingPosition,
+            });
+            continue;
+          }
           const reason = `esito_piazzamento_incerto: ${String(error?.message ?? error)}`;
           await markPlacementUnknown(reservation.decisionId, reason);
           throw new AutomationPlacementUnknownError(reason, error);

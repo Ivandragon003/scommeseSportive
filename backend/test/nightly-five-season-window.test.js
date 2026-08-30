@@ -211,11 +211,11 @@ test('lo script nightly tratta football-data e transizioni come gate obbligatori
   assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("understat"\)/);
   assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("football-data"\)/);
   assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("second-division-references"\)/);
-  const failureGate = nightly.indexOf('Required data gates failed:');
+  const failureGate = nightly.indexOf('Nightly sync completed with required data-gate failures:');
   assert.ok(failureGate > nightly.indexOf('/api/scraper/understat'));
   assert.ok(failureGate > nightly.indexOf('/api/scraper/football-data'));
   assert.ok(failureGate > nightly.indexOf('/api/competition-transitions/sync-references'));
-  assert.ok(failureGate < nightly.indexOf('/api/automation/place-valid-bets'));
+  assert.ok(failureGate > nightly.indexOf('/api/automation/place-valid-bets'));
 });
 
 test('la route football-data accetta solo stagioni complete o pending espliciti', () => {
