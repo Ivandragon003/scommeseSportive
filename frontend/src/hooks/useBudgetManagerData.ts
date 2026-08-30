@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getBets, getBudget, syncSharedBets } from '../utils/api';
+import { getBets, getBudget } from '../utils/api';
 
 export function useBudgetManagerData(activeUser: string) {
   const [budget, setBudget] = useState<any>(null);
@@ -34,7 +34,6 @@ export function useBudgetManagerData(activeUser: string) {
   }, [activeUser]);
 
   const loadAll = useCallback(async (options?: { force?: boolean }) => {
-    await Promise.resolve(syncSharedBets()).catch(() => undefined);
     await Promise.all([loadBudget(options), loadBets(options)]);
   }, [loadBets, loadBudget]);
 

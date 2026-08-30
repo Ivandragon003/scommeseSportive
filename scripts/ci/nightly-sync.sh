@@ -28,6 +28,7 @@ RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
 
 BACKEND_PID=""
 REQUIRED_SYNC_FAILURES=()
+UNDERSTAT_SYNC_FAILED=false
 
 cleanup() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
@@ -153,6 +154,7 @@ if ! post_json \
   "{\"mode\":\"top5\",\"yearsBack\":5,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"; then
   REQUIRED_SYNC_FAILURES+=("understat")
+  UNDERSTAT_SYNC_FAILED=true
   echo "Required gate failed: Understat. Continuing with independent data gates."
 fi
 
@@ -185,6 +187,17 @@ else
   echo "Skipping transition reference sync. RUN_TRANSITION_REFERENCE_SYNC=false."
 fi
 
+# Chiude le giocate operative dopo l'import delle statistiche supplementari.
+# In precedenza la nightly aggiornava solo le prediction archiviate: le bet nel
+# budget restavano PENDING fino a una navigazione manuale nell'interfaccia.
+echo "Settling pending budget bets for completed matches..."
+if ! post_json \
+  "http://127.0.0.1:$PORT/api/bets/sync" \
+  "{}" \
+  "$PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS"; then
+  echo "Warning: budget bet settlement batch timed out/failed; continuing with the remaining nightly jobs."
+fi
+
 # The Understat route already settles the small user-facing opportunity archive.
 # Keep the complete raw prediction settlement as a separate maintenance step:
 # it can be slower and remains useful for calibration/backtest history.
@@ -215,27 +228,34 @@ else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
 fi
 
-if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then
-  echo "Required data gates failed: ${REQUIRED_SYNC_FAILURES[*]}"
-  echo "Skipping automated bets and learning because the input data is incomplete."
-  echo "Fetching scheduler status after the failed gates..."
-  get_json "http://127.0.0.1:$PORT/api/scraper/status" "$FINAL_STATUS_TIMEOUT_SECONDS" || true
-  exit 1
+if [[ "$UNDERSTAT_SYNC_FAILED" == "true" ]]; then
+  echo "Skipping automated bets: Understat did not complete, so the core match data is not reliable enough."
+else
+  # A failure in a bulk-odds request for another league must not discard valid
+  # Serie A candidates: this endpoint verifies data and real odds per match.
+  echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
+  post_json \
+    "http://127.0.0.1:$PORT/api/automation/place-valid-bets" \
+    "{\"userId\":\"${AUTO_BET_USER_ID:-user1}\",\"windowHours\":${AUTO_BET_WINDOW_HOURS:-24},\"maxMatches\":${AUTO_BET_MAX_MATCHES:-100}}" \
+    "$AUTO_BET_TIMEOUT_SECONDS"
 fi
 
-echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
-post_json \
-  "http://127.0.0.1:$PORT/api/automation/place-valid-bets" \
-  "{\"userId\":\"${AUTO_BET_USER_ID:-user1}\",\"windowHours\":${AUTO_BET_WINDOW_HOURS:-24},\"maxMatches\":${AUTO_BET_MAX_MATCHES:-100}}" \
-  "$AUTO_BET_TIMEOUT_SECONDS"
-
-echo "Running learning review sync..."
-post_json \
-  "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
-  "{\"limit\":50,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"learning\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
-  "$LEARNING_SYNC_TIMEOUT_SECONDS"
+if (( ${#REQUIRED_SYNC_FAILURES[@]} == 0 )); then
+  echo "Running learning review sync..."
+  post_json \
+    "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
+    "{\"limit\":50,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"learning\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+    "$LEARNING_SYNC_TIMEOUT_SECONDS"
+else
+  echo "Skipping learning review sync because required data gates failed: ${REQUIRED_SYNC_FAILURES[*]}."
+fi
 
 echo "Fetching final scheduler status snapshot..."
 get_json "http://127.0.0.1:$PORT/api/scraper/status" "$FINAL_STATUS_TIMEOUT_SECONDS"
+
+if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then
+  echo "Nightly sync completed with required data-gate failures: ${REQUIRED_SYNC_FAILURES[*]}."
+  exit 1
+fi
 
 echo "Nightly sync workflow completed."

@@ -121,6 +121,7 @@ describe('BudgetManager', () => {
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
 
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
+    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
   });
 
   test('non mostra una percentuale negativa quando il bankroll supera quello iniziale', async () => {
