@@ -163,6 +163,24 @@ describe('backtesting API timeout', () => {
     });
   });
 
+  test('budget e giocate riusano una cache breve e la sync esplicita la invalida', async () => {
+    const { getBudget, getBets, invalidateApiCache, syncSharedBets } = await import('./api');
+    invalidateApiCache();
+    mockGet.mockResolvedValue({ data: { success: true, data: [] } });
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { settled: 0 } } });
+
+    await getBudget('user1');
+    await getBudget('user1');
+    await getBets('user1');
+    await getBets('user1');
+    expect(mockGet).toHaveBeenCalledTimes(2);
+
+    await syncSharedBets();
+    await getBudget('user1');
+    await getBets('user1');
+    expect(mockGet).toHaveBeenCalledTimes(4);
+  });
+
   test('response cache resta bounded, elimina scaduti su una chiave diversa e mantiene invalidate', async () => {
     const { RESPONSE_CACHE_MAX_ENTRIES, getApiResponseCacheStats, getTeams, invalidateApiCache } = await import('./api');
     invalidateApiCache();

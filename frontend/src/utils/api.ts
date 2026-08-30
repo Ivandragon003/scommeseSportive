@@ -197,6 +197,11 @@ const CACHE_TTL = {
   backtestResults: 15 * 1000,
   backtestResult: 15 * 1000,
   backtestReport: 15 * 1000,
+  // Budget e storico sono invalidati subito dopo ogni mutazione. Una cache
+  // breve evita di rifare le stesse query passando fra Budget e Giocate.
+  budget: 15 * 1000,
+  bets: 15 * 1000,
+  betOpportunityArchive: 15 * 1000,
 } as const;
 
 // Teams
@@ -393,14 +398,16 @@ export interface BetOpportunityArchiveRecord {
 }
 
 export const getBetOpportunityArchive = (filters: BetOpportunityArchiveFilters = {}) =>
-  cachedGet<BetOpportunityArchiveRecord[]>('/bet-opportunities/archive', { params: filters });
+  cachedGet<BetOpportunityArchiveRecord[]>('/bet-opportunities/archive', { params: filters }, {
+    cacheMs: CACHE_TTL.betOpportunityArchive,
+  });
 
 export const replayPlayedMatchPrediction = (matchId: string) =>
   API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
 
 // Budget
 export const getBudget = (userId: string, options?: ReadRequestOptions) =>
-  cachedGet<any>(`/budget/${userId}`, undefined, { cacheMs: 0, ...options });
+  cachedGet<any>(`/budget/${userId}`, undefined, { cacheMs: CACHE_TTL.budget, ...options });
 
 export const initBudget = (userId: string, amount: number) =>
   API.post<ApiResponse<any>>(`/budget/${userId}/init`, { amount }).then(r => {
@@ -445,7 +452,7 @@ export const syncSharedBets = () =>
   });
 
 export const getBets = (userId: string, status?: string, options?: ReadRequestOptions) =>
-  cachedGet<any[]>(`/bets/${userId}`, { params: { status } }, { cacheMs: 0, ...options });
+  cachedGet<any[]>(`/bets/${userId}`, { params: { status } }, { cacheMs: CACHE_TTL.bets, ...options });
 
 export const runWalkForwardBacktest = (params: {
   competition: string;

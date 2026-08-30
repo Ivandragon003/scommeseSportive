@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getBets, getBudget, syncSharedBets } from '../utils/api';
+import { getBets, getBudget } from '../utils/api';
 import { buildBetKey } from '../components/predictions/predictionWorkbenchUtils';
 
 export function useUserBudget(activeUser: string) {
@@ -8,7 +8,6 @@ export function useUserBudget(activeUser: string) {
 
   const loadUserContext = useCallback(async () => {
     try {
-      await Promise.resolve(syncSharedBets()).catch(() => undefined);
       const [budgetRes, betsRes] = await Promise.all([
         getBudget(activeUser),
         getBets(activeUser),
