@@ -181,8 +181,8 @@ const cachedGet = <T>(
 const CACHE_TTL = {
   teams: 5 * 60 * 1000,
   players: 5 * 60 * 1000,
-  matches: 60 * 1000,
-  matchList: 30 * 1000,
+  matches: 10 * 60 * 1000,
+  matchList: 10 * 60 * 1000,
   matchdays: 60 * 1000,
   statsOverview: 60 * 1000,
   analytics: 30 * 1000,
@@ -400,6 +400,20 @@ export interface BetOpportunityArchiveRecord {
 export const getBetOpportunityArchive = (filters: BetOpportunityArchiveFilters = {}) =>
   cachedGet<BetOpportunityArchiveRecord[]>('/bet-opportunities/archive', { params: filters }, {
     cacheMs: CACHE_TTL.betOpportunityArchive,
+  });
+
+export const archiveManualBetOpportunity = (opportunity: {
+  matchId: string;
+  marketName: string;
+  selection: string;
+  classification: 'LOW' | 'SPECULATIVE';
+  bookmakerOdds: number;
+  bookmakerName: string;
+  suggestedStakePercent?: number;
+}) =>
+  API.post<ApiResponse<{ decisionId: string }>>('/bet-opportunities/archive/manual', opportunity).then((response) => {
+    invalidateApiCache((key) => key.includes('GET:/bet-opportunities/archive'));
+    return response.data;
   });
 
 export const replayPlayedMatchPrediction = (matchId: string) =>

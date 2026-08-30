@@ -19,6 +19,9 @@ interface ValueOpportunitiesTableProps {
   getStakeValue: (opportunity: BestValueOpportunity) => number;
   onStakeChange: (stakeKey: string, value: string) => void;
   onBet: (opportunity: BestValueOpportunity) => void;
+  manualArchiveOpportunities?: BestValueOpportunity[];
+  archivedOpportunityKeys?: Set<string>;
+  onArchive?: (opportunity: BestValueOpportunity) => void;
 }
 
 const valueWarningLabel = (warning: string): string | null => {
@@ -76,6 +79,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   getStakeValue,
   onStakeChange,
   onBet,
+  manualArchiveOpportunities = [],
+  archivedOpportunityKeys = new Set<string>(),
+  onArchive,
 }) => {
   const hasVerifiedRealBookmakerOdds = oddsSource === 'odds_api' && Boolean(String(oddsBookmaker ?? '').trim());
   const visibleOpportunities = hasVerifiedRealBookmakerOdds ? opportunities : [];
@@ -84,6 +90,16 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
     oddsUnavailable
       ? 'Quota bookmaker non disponibile per questa partita.'
       : 'Nessuna giocata supera i criteri operativi.';
+  const archiveClassification = (opportunity: BestValueOpportunity): 'LOW' | 'SPECULATIVE' | null => {
+    const status = String(opportunity.bestBetStatus ?? opportunity.bestBetDecision?.status ?? '').toUpperCase();
+    const tier = String(opportunity.marketTier ?? '').toUpperCase();
+    if (status === 'SPECULATIVE' || tier === 'SPECULATIVE') return 'SPECULATIVE';
+    return String(opportunity.confidence ?? '').toUpperCase() === 'LOW' ? 'LOW' : null;
+  };
+  const archiveOnlyOpportunities = manualArchiveOpportunities.filter((opportunity) =>
+    archiveClassification(opportunity)
+    && !visibleOpportunities.some((visible) => getStakeKey(visible) === getStakeKey(opportunity))
+  );
 
   return (
     <div data-testid="value-opportunities-table">
@@ -95,7 +111,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
         </div>
       )}
 
-      {visibleOpportunities.length === 0 ? (
+      {visibleOpportunities.length === 0 && archiveOnlyOpportunities.length === 0 ? (
         <div className="pr-info" style={{ textAlign: 'center', padding: '32px 0' }}>
           {emptyMessage}
           <br />
@@ -107,12 +123,14 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
         </div>
       ) : (
         <>
-          <div className="pr-alert pr-alert-success">
-            <strong>{visibleOpportunities.length}</strong> selezioni superano i criteri di confronto
-          </div>
-          <div className="pr-alert pr-alert-info">
-            Confronto completo mercati: la migliore giocata resta quella evidenziata in alto. Qui sotto vedi solo alternative e confronto operativo.
-          </div>
+          {visibleOpportunities.length > 0 && <>
+            <div className="pr-alert pr-alert-success">
+              <strong>{visibleOpportunities.length}</strong> selezioni superano i criteri di confronto
+            </div>
+            <div className="pr-alert pr-alert-info">
+              Confronto completo mercati: la migliore giocata resta quella evidenziata in alto. Qui sotto vedi solo alternative e confronto operativo.
+            </div>
+          </>}
           {visibleOpportunities.map((opportunity) => {
             const stakeKey = getStakeKey(opportunity);
             const isRecommended = Boolean(
@@ -124,6 +142,8 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
             const currentStakePct = bankroll > 0 ? (currentStake / bankroll) * 100 : 0;
             const suggestedAmount = bankroll > 0 ? (Number(opportunity.suggestedStakePercent ?? 0) / 100) * bankroll : 0;
             const alreadyPlaced = placedBetKeySet.has(stakeKey);
+            const classification = archiveClassification(opportunity);
+            const alreadyArchived = archivedOpportunityKeys.has(stakeKey);
             const isRecommendedReplaySelection =
               String(recommendedBetResult?.selection ?? '') === String(opportunity.selection ?? '');
             const warningLabels = Array.from(
@@ -217,8 +237,42 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                   ) : alreadyPlaced ? (
                     <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
                   ) : (
-                    <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
-                      Scommetti -&gt;
+                    <>
+                      {classification && onArchive && (
+                        <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => onArchive(opportunity)} disabled={alreadyArchived}>
+                          {alreadyArchived ? 'Archiviata' : 'Archivia'}
+                        </button>
+                      )}
+                      <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
+                        Scommetti -&gt;
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {archiveOnlyOpportunities.map((opportunity) => {
+            const stakeKey = getStakeKey(opportunity);
+            const classification = archiveClassification(opportunity)!;
+            const archived = archivedOpportunityKeys.has(stakeKey);
+            return (
+              <div key={`archive-${stakeKey}`} className="pr-vb low">
+                <div className="pr-vb-top">
+                  <div>
+                    <div className="pr-vb-market">{opportunity.marketName}</div>
+                    <div className="pr-vb-market-sub">{fmtSelection(String(opportunity.selection))}</div>
+                  </div>
+                  <span className="pr-badge pr-badge-gold">Solo archivio · {classification}</span>
+                </div>
+                <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
+                  Opportunita non consigliata per una puntata: puoi salvarla come simulata per seguirne l'esito.
+                </div>
+                <div className="pr-vb-bottom">
+                  <span className="pr-badge pr-badge-gray">{opportunity.bookmakerName} · quota {Number(opportunity.bookmakerOdds).toFixed(2)}</span>
+                  {onArchive && (
+                    <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => onArchive(opportunity)} disabled={archived || isReplayAnalysis}>
+                      {archived ? 'Archiviata' : 'Archivia senza giocare'}
                     </button>
                   )}
                 </div>

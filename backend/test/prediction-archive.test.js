@@ -207,3 +207,51 @@ test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo con
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('POST /bet-opportunities/archive/manual salva una LOW come simulata con quota bookmaker verificata', async () => {
+  const saved = [];
+  const db = {
+    async getMatchById() {
+      return {
+        match_id: 'match-manual', date: '2030-08-30T20:00:00.000Z',
+        home_goals: null, away_goals: null,
+      };
+    },
+    async getLatestOddsSnapshotForMatch() {
+      return {
+        source: 'odds_api', usedSyntheticOdds: false,
+        allBookmakerOdds: { Pinnacle: { over25: 2.15 } },
+        liveSelectedOdds: { over25: 2.15 },
+        selectedBookmakerName: 'Pinnacle',
+      };
+    },
+    async appendAutomatedBetDecision(row) { saved.push(row); },
+  };
+  const app = express();
+  app.use(express.json());
+  app.use('/api', createApiRouter({ db, svc: {} }));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/bet-opportunities/archive/manual`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        matchId: 'match-manual', marketName: 'Over/Under', selection: 'over25',
+        classification: 'LOW', bookmakerOdds: 2.15, bookmakerName: 'Pinnacle', suggestedStakePercent: 1.2,
+      }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.success, true);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].decisionStatus, 'saved_only');
+    assert.equal(saved[0].exclusionReason, 'manual_saved_only');
+    assert.equal(saved[0].bookmakerOdds, 2.15);
+    assert.equal(saved[0].bookmakerName, 'Pinnacle');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

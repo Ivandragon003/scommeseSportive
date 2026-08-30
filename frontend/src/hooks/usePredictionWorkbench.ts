@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
 import {
   buildBetKey,
@@ -16,6 +16,7 @@ import { useUserBudget } from './useUserBudget';
 import { useMatchSelection } from './useMatchSelection';
 import { usePredictionAnalysis } from './usePredictionAnalysis';
 import { useBetPlacement } from './useBetPlacement';
+import { archiveManualBetOpportunity } from '../utils/api';
 
 export interface PredictionWorkbenchViewModel {
   activeUser: string;
@@ -25,6 +26,7 @@ export interface PredictionWorkbenchViewModel {
   matchSelection: ReturnType<typeof useMatchSelection>;
   predictionAnalysis: ReturnType<typeof usePredictionAnalysis>;
   handleBet: (opportunity: BestValueOpportunityModel) => Promise<void>;
+  handleArchiveOpportunity: (opportunity: BestValueOpportunityModel) => Promise<void>;
   gp: any;
   cp: any;
   fp: any;
@@ -37,6 +39,8 @@ export interface PredictionWorkbenchViewModel {
   analysisFactors: any;
   methodology: any;
   vbRanked: BestValueOpportunityModel[];
+  manualArchiveOpportunities: BestValueOpportunityModel[];
+  manuallyArchivedOpportunityKeys: Set<string>;
   allOddsEntries: Array<{ selection: string; odd: number; bookmaker: string; category: string }>;
   allOddsGroups: Array<{ category: string; entries: Array<{ selection: string; odd: number; bookmaker: string; category: string }> }>;
   valueSelectionSet: Set<string>;
@@ -66,6 +70,7 @@ export interface PredictionWorkbenchViewModel {
 export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchViewModel {
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
+  const [manuallyArchivedOpportunityKeys, setManuallyArchivedOpportunityKeys] = useState<Set<string>>(new Set());
   const userBudget = useUserBudget(activeUser);
   const matchSelection = useMatchSelection();
   const predictionAnalysis = usePredictionAnalysis({
@@ -288,6 +293,52 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     Number(predictionAnalysis.stakes[oppStakeKey(opportunity)] ?? 0),
   [oppStakeKey, predictionAnalysis.stakes]);
 
+  const manualArchiveClassification = useCallback((opportunity: BestValueOpportunityModel): 'LOW' | 'SPECULATIVE' | null => {
+    const status = String(opportunity.bestBetStatus ?? opportunity.bestBetDecision?.status ?? '').toUpperCase();
+    const tier = String(opportunity.marketTier ?? '').toUpperCase();
+    if (status === 'SPECULATIVE' || tier === 'SPECULATIVE') return 'SPECULATIVE';
+    return String(opportunity.confidence ?? '').toUpperCase() === 'LOW' ? 'LOW' : null;
+  }, []);
+
+  const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => {
+    if (!bestValueOpp || !manualArchiveClassification(bestValueOpp)) return [];
+    return [bestValueOpp];
+  }, [bestValueOpp, manualArchiveClassification]);
+
+  const handleArchiveOpportunity = useCallback(async (opportunity: BestValueOpportunityModel) => {
+    if (isReplayAnalysis) {
+      toastState.showToast({ tone: 'warning', title: 'Replay retrospettivo', message: 'Una partita gia giocata non puo essere archiviata come opportunita futura.' });
+      return;
+    }
+    const classification = manualArchiveClassification(opportunity);
+    const bookmakerOdds = Number(opportunity.bookmakerOdds);
+    const bookmakerName = String(opportunity.bookmakerName ?? predictionAnalysis.bookmakerBySelection[opportunity.selection] ?? '').trim();
+    if (!classification || !currentMatchId || !Number.isFinite(bookmakerOdds) || bookmakerOdds <= 1 || !bookmakerName) {
+      toastState.showToast({ tone: 'warning', title: 'Archiviazione non disponibile', message: 'Servono una LOW/SPECULATIVE e una quota bookmaker reale verificata.' });
+      return;
+    }
+
+    try {
+      await archiveManualBetOpportunity({
+        matchId: currentMatchId,
+        marketName: String(opportunity.marketName),
+        selection: String(opportunity.selection),
+        classification,
+        bookmakerOdds,
+        bookmakerName,
+        suggestedStakePercent: Number(opportunity.suggestedStakePercent),
+      });
+      setManuallyArchivedOpportunityKeys((previous) => {
+        const next = new Set(previous);
+        next.add(oppStakeKey(opportunity));
+        return next;
+      });
+      toastState.showToast({ tone: 'success', title: 'Opportunita archiviata', message: 'Salvata come simulata: il budget non e stato modificato.' });
+    } catch (error) {
+      toastState.showToast({ tone: 'error', title: 'Archiviazione non riuscita', message: error instanceof Error ? error.message : 'Riprova aggiornando la partita.' });
+    }
+  }, [currentMatchId, isReplayAnalysis, manualArchiveClassification, oppStakeKey, predictionAnalysis.bookmakerBySelection, toastState]);
+
   const handleRefresh = useCallback(() => {
     refreshAnalysis(matchSelection.activeMatchRow);
   }, [matchSelection.activeMatchRow, refreshAnalysis]);
@@ -315,6 +366,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     matchSelection,
     predictionAnalysis,
     handleBet,
+    handleArchiveOpportunity,
     gp,
     cp,
     fp,
@@ -327,6 +379,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     analysisFactors,
     methodology,
     vbRanked,
+    manualArchiveOpportunities,
+    manuallyArchivedOpportunityKeys,
     allOddsEntries,
     allOddsGroups,
     valueSelectionSet,

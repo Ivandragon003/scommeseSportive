@@ -163,6 +163,26 @@ describe('backtesting API timeout', () => {
     });
   });
 
+  test('archivia manualmente una LOW/SPECULATIVE senza creare una bet', async () => {
+    const { archiveManualBetOpportunity } = await import('./api');
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { decisionId: 'saved_1' } } });
+
+    const result = await archiveManualBetOpportunity({
+      matchId: 'match-42',
+      marketName: 'Over/Under',
+      selection: 'over25',
+      classification: 'LOW',
+      bookmakerOdds: 2.15,
+      bookmakerName: 'Pinnacle',
+      suggestedStakePercent: 1.2,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith('/bet-opportunities/archive/manual', expect.objectContaining({
+      matchId: 'match-42', selection: 'over25', classification: 'LOW', bookmakerOdds: 2.15,
+    }));
+    expect(result.data?.decisionId).toBe('saved_1');
+  });
+
   test('budget e giocate riusano una cache breve e la sync esplicita la invalida', async () => {
     const { getBudget, getBets, invalidateApiCache, syncSharedBets } = await import('./api');
     invalidateApiCache();
