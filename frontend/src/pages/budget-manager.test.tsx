@@ -109,7 +109,7 @@ describe('BudgetManager', () => {
     expect(screen.getByText(/ROI positivo, da leggere insieme a 2 giocate concluse/i)).toBeTruthy();
   });
 
-  test('al mount carica una sola volta budget e riepilogo giocate', async () => {
+  test('al mount aggiorna prima le giocate concluse e poi carica budget e riepilogo', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
     mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
 
@@ -119,9 +119,7 @@ describe('BudgetManager', () => {
 
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
-
-    expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
-    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
+    expect(mockedApi.syncSharedBets).toHaveBeenCalledTimes(1);
   });
 
   test('non mostra una percentuale negativa quando il bankroll supera quello iniziale', async () => {

@@ -144,6 +144,7 @@ describe('Predictions page', () => {
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
     expect(mockedApi.getRecentMatches).toHaveBeenCalledTimes(0);
     expect(mockedApi.getMatchdayMap).toHaveBeenCalledTimes(1);
+    expect(mockedApi.syncSharedBets).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
     expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
@@ -220,7 +221,7 @@ describe('Predictions page', () => {
       awayTeam: 'Milan',
       commenceTime: matchRow.date,
     }));
-    fireEvent.click(screen.getByRole('button', { name: /Pronostico Finale/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Pronostico Finale/i }));
 
     await screen.findByTestId('best-value-card');
     expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
@@ -230,7 +231,7 @@ describe('Predictions page', () => {
     expect(screen.getByText(/Quote bookmaker reali caricate.*odds_api/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Quote Complete\s*2/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Quote Complete\s*2/i }));
     expect(await screen.findByRole('region', { name: 'Totali goal' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Cartellini' })).toBeTruthy();
     expect(screen.getByText('Codere')).toBeTruthy();
@@ -326,21 +327,22 @@ describe('Predictions page', () => {
     render(<Predictions activeUser="user1" />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    const recommendedBetsTab = await screen.findByRole('button', { name: /Scommesse\s*3/i });
+    const recommendedBetsTab = await screen.findByRole('tab', { name: /Scommesse\s*3/i });
     fireEvent.click(recommendedBetsTab);
 
     const valueBets = await screen.findByTestId('value-opportunities-table');
     expect(valueBets.textContent).toContain('GG Si');
     expect(valueBets.textContent).toContain('Over 2.5 Goal');
     expect(valueBets.textContent).toContain('Vittoria Ospite');
-    expect(valueBets.textContent).not.toContain('Pareggio non conta (DNB) · Ospite');
+    expect(valueBets.textContent).toContain('Pareggio non conta (DNB) · Ospite');
+    expect(valueBets.textContent).toContain('Solo archivio · LOW');
     expect(valueBets.textContent).not.toContain('Under 2.5 Goal');
     expect(valueBets.textContent).not.toContain('Double Chance 1X');
     expect(valueBets.textContent).toContain('Consigliata');
     expect(valueBets.textContent).not.toContain('Riccardo Orsolini');
     expect(screen.queryByText(/Nessuna giocata supera i criteri operativi/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Mercati giocatore\s*1/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Mercati giocatore\s*1/i }));
     expect(await screen.findByText('Riccardo Orsolini')).toBeTruthy();
   });
 
@@ -388,7 +390,7 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Pronostico Finale/i }));
 
     expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
     expect(screen.getByText(/non genera una puntata reale/i)).toBeTruthy();
@@ -420,7 +422,7 @@ describe('Predictions page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByRole('button', { name: /Pronostico Finale/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Pronostico Finale/i }));
 
     expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
     expect(screen.getAllByText(/Quota bookmaker non disponibile/i).length).toBeGreaterThan(0);
@@ -508,7 +510,7 @@ describe('Predictions page', () => {
     expect((await screen.findAllByText(/Quota bookmaker non disponibile/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText('2.06')).toBeNull();
 
-    fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Scommesse/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile');
@@ -532,7 +534,7 @@ describe('Predictions page', () => {
 
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByRole('button', { name: /Scommesse/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Scommesse/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile per questa partita.');
