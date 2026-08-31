@@ -78,6 +78,17 @@ const LEARNING_REVIEW_MATCH_LIMIT = Math.max(
   10,
   Math.min(Number(process.env.LEARNING_REVIEW_MATCH_LIMIT ?? 80), 250)
 );
+const LINEUP_REFRESH_SCHEDULER_ENABLED =
+  String(process.env.LINEUP_REFRESH_SCHEDULER_ENABLED ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
+    .trim().toLowerCase() === 'true';
+const LINEUP_REFRESH_INTERVAL_MINUTES = Math.max(
+  5,
+  Math.min(Number(process.env.LINEUP_REFRESH_INTERVAL_MINUTES ?? 10) || 10, 60)
+);
+const LINEUP_REFRESH_WINDOW_HOURS = Math.max(
+  1,
+  Math.min(Number(process.env.LINEUP_REFRESH_WINDOW_HOURS ?? 2) || 2, 6)
+);
 const ODDS_SNAPSHOT_COMPETITIONS = String(
   process.env.ODDS_SNAPSHOT_COMPETITIONS
     ?? 'Serie A,Premier League,La Liga,Bundesliga,Ligue 1'
@@ -98,6 +109,7 @@ let lastUpdate: { at: Date; success: boolean; message: string } | null = null;
 let understatSchedulerTimer: NodeJS.Timeout | null = null;
 let oddsSchedulerTimer: NodeJS.Timeout | null = null;
 let learningSchedulerTimer: NodeJS.Timeout | null = null;
+let lineupRefreshSchedulerTimer: NodeJS.Timeout | null = null;
 
 const understatSchedulerState: {
   enabled: boolean;
@@ -209,6 +221,28 @@ const learningSchedulerState: {
   lastResult: null,
 };
 
+const lineupRefreshSchedulerState: {
+  enabled: boolean;
+  running: boolean;
+  intervalMinutes: number;
+  windowHours: number;
+  lastRunAt: Date | null;
+  nextRunAt: Date | null;
+  lastDurationMs: number | null;
+  lastError: string | null;
+  lastResult: { checked: number; saved: number; providerWarnings: number } | null;
+} = {
+  enabled: LINEUP_REFRESH_SCHEDULER_ENABLED,
+  running: false,
+  intervalMinutes: LINEUP_REFRESH_INTERVAL_MINUTES,
+  windowHours: LINEUP_REFRESH_WINDOW_HOURS,
+  lastRunAt: null,
+  nextRunAt: null,
+  lastDurationMs: null,
+  lastError: null,
+  lastResult: null,
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const parsePositiveIntEnv = (name: string, fallback: number): number => {
@@ -296,6 +330,7 @@ const getSchedulerSnapshot = () => ({
   understat: understatSchedulerState,
   odds: oddsSchedulerState,
   learning: learningSchedulerState,
+  lineups: lineupRefreshSchedulerState,
 });
 
 app.get('/api/system/health', async (_req, res) => {
@@ -1002,6 +1037,65 @@ function startLearningReviewScheduler(): void {
   scheduleNextLearningReviewRun();
 }
 
+function scheduleNextLineupRefreshRun(delayMs = LINEUP_REFRESH_INTERVAL_MINUTES * 60_000): void {
+  if (!LINEUP_REFRESH_SCHEDULER_ENABLED) {
+    lineupRefreshSchedulerState.nextRunAt = null;
+    return;
+  }
+  if (lineupRefreshSchedulerTimer) clearTimeout(lineupRefreshSchedulerTimer);
+  const nextRunAt = new Date(Date.now() + Math.max(1_000, Math.trunc(delayMs)));
+  lineupRefreshSchedulerState.nextRunAt = nextRunAt;
+  lineupRefreshSchedulerTimer = setTimeout(() => {
+    void runUpcomingLineupRefresh();
+  }, Math.max(1_000, nextRunAt.getTime() - Date.now()));
+}
+
+async function runUpcomingLineupRefresh(): Promise<void> {
+  if (!LINEUP_REFRESH_SCHEDULER_ENABLED || lineupRefreshSchedulerState.running) return;
+
+  const startedAt = new Date();
+  lineupRefreshSchedulerState.running = true;
+  lineupRefreshSchedulerState.nextRunAt = null;
+  lineupRefreshSchedulerState.lastError = null;
+  try {
+    const { response, payload } = await postInternal('/api/player-availability/sync-upcoming', {
+      windowHours: LINEUP_REFRESH_WINDOW_HOURS,
+    });
+    if (!response.ok || payload?.success === false) {
+      throw new Error(String(payload?.error ?? `HTTP ${response.status}`));
+    }
+    lineupRefreshSchedulerState.lastResult = {
+      checked: Number(payload?.checked ?? 0),
+      saved: Number(payload?.saved ?? 0),
+      providerWarnings: Array.isArray(payload?.providerWarnings) ? payload.providerWarnings.length : 0,
+    };
+    lineupRefreshSchedulerState.lastRunAt = new Date();
+    console.log(
+      `[lineup-refresh-scheduler] checked ${lineupRefreshSchedulerState.lastResult.checked}, ` +
+      `saved ${lineupRefreshSchedulerState.lastResult.saved}.`
+    );
+  } catch (err: any) {
+    lineupRefreshSchedulerState.lastError = err?.message ?? 'Unknown lineup refresh scheduler error';
+    console.error('[lineup-refresh-scheduler] failed:', lineupRefreshSchedulerState.lastError);
+  } finally {
+    lineupRefreshSchedulerState.lastDurationMs = Date.now() - startedAt.getTime();
+    lineupRefreshSchedulerState.running = false;
+    scheduleNextLineupRefreshRun();
+  }
+}
+
+function startLineupRefreshScheduler(): void {
+  if (!LINEUP_REFRESH_SCHEDULER_ENABLED) {
+    console.log('[lineup-refresh-scheduler] Disabled (LINEUP_REFRESH_SCHEDULER_ENABLED=false)');
+    return;
+  }
+  console.log(
+    `[lineup-refresh-scheduler] Enabled | every ${LINEUP_REFRESH_INTERVAL_MINUTES}m | ` +
+    `upcoming window ${LINEUP_REFRESH_WINDOW_HOURS}h`
+  );
+  scheduleNextLineupRefreshRun(20_000);
+}
+
 app.listen(PORT, () => {
   console.log(`Football Predictor Backend running on http://localhost:${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
@@ -1010,6 +1104,7 @@ app.listen(PORT, () => {
   startUnderstatScheduler();
   startOddsSnapshotScheduler();
   startLearningReviewScheduler();
+  startLineupRefreshScheduler();
 });
 
 export default app;
