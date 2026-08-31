@@ -1000,7 +1000,7 @@ Servizi previsti:
 
 - Il file `.env` nella root e la sola sorgente di verita locale.
 - Backend:
-  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `UNDERSTAT_*`, `SOFASCORE_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `UNDERSTAT_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `LINEUP_REFRESH_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
 - Frontend:
   nessun segreto runtime richiesto in locale; `FRONTEND_PORT` serve per Docker.
 
@@ -1011,9 +1011,13 @@ ODDS_API_KEY=your-odds-api-key
 ODDS_PRIMARY_PROVIDER=odds_api
 ODDS_SNAPSHOT_SCHEDULER_ENABLED=true
 ODDS_SNAPSHOT_RUN_ON_BOOT=true
+LINEUP_REFRESH_SCHEDULER_ENABLED=true
+LINEUP_REFRESH_INTERVAL_MINUTES=10
+LINEUP_REFRESH_WINDOW_HOURS=2
 ```
 
 Il runtime quote e Odds API only. `ODDS_PRIMARY_PROVIDER` deve restare `odds_api`.
+Il refresh lineup gira nel backend Docker (non in GitHub Actions): negli ultimi due ore prima del calcio d'inizio controlla le formazioni ufficiali ogni dieci minuti.
 
 ### Docker
 
