@@ -48,10 +48,6 @@ pnpm-debug.log*
 gitleaks-report.*
 secret-scan-report.*
 
-# Local environment secrets
-.env
-.env.production
-
 # Android private distribution and signing secrets
 *.jks
 *.keystore
