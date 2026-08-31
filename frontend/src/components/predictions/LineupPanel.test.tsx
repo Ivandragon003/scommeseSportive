@@ -1,14 +1,16 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import LineupPanel from './LineupPanel';
 
 const mockGetPlayerAvailability = jest.fn();
+const mockRefreshPlayerAvailability = jest.fn();
 
 jest.mock('../../utils/api', () => ({
   getPlayerAvailability: (...args: unknown[]) => mockGetPlayerAvailability(...args),
+  refreshPlayerAvailability: (...args: unknown[]) => mockRefreshPlayerAvailability(...args),
   PLAYER_AVAILABILITY_UPDATED_EVENT: 'player-availability-updated',
 }));
 
-const response = (name: string, confirmed: boolean) => ({
+const response = (name: string, confirmed: boolean, kickoff?: string) => ({
   data: {
     home: [{
       playerId: `home-${name}`, name, teamName: 'Casa', probability: confirmed ? 1 : 0.8,
@@ -18,6 +20,7 @@ const response = (name: string, confirmed: boolean) => ({
     away: [],
     hasConfirmedLineup: confirmed,
     hasProviderData: confirmed,
+    kickoff,
     homeHistoryMatchesUsed: 5,
     awayHistoryMatchesUsed: 5,
     note: 'Nota formazione',
@@ -40,4 +43,18 @@ test('ricarica il pannello quando il refresh della stessa partita termina', asyn
   await screen.findByText('Titolare ufficiale');
   expect(await screen.findByText('Ufficiale')).toBeTruthy();
   expect(mockGetPlayerAvailability).toHaveBeenCalledTimes(2);
+});
+
+test('richiede periodicamente la formazione ufficiale solo nella finestra pre-partita', async () => {
+  mockGetPlayerAvailability.mockResolvedValue(response(
+    'Titolare stimato',
+    false,
+    new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  ));
+  mockRefreshPlayerAvailability.mockResolvedValue({ success: true });
+
+  render(<LineupPanel matchId="match-42" />);
+
+  await screen.findByText('Titolare stimato');
+  await waitFor(() => expect(mockRefreshPlayerAvailability).toHaveBeenCalledWith('match-42'));
 });

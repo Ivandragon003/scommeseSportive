@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getPlayerAvailability, PLAYER_AVAILABILITY_UPDATED_EVENT } from '../../utils/api';
+import {
+  getPlayerAvailability,
+  PLAYER_AVAILABILITY_UPDATED_EVENT,
+  refreshPlayerAvailability,
+} from '../../utils/api';
 
 type LineupPlayer = {
   playerId: string;
@@ -25,6 +29,7 @@ type LineupData = {
   awayIncomplete?: boolean;
   homeUnavailableCount?: number;
   awayUnavailableCount?: number;
+  kickoff?: string;
   warnings?: string[];
   note: string;
 };
@@ -37,6 +42,9 @@ const tierLabel: Record<string, string> = {
   uncertain: 'Incerto',
   unavailable: 'Indisponibile',
 };
+
+const OFFICIAL_LINEUP_WINDOW_MS = 150 * 60 * 1000;
+const LINEUP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 const LineupColumn: React.FC<{ title: string; players: LineupPlayer[] }> = ({ title, players }) => (
   <div className="lineup-panel__column">
@@ -90,6 +98,22 @@ const LineupPanel: React.FC<{ matchId?: string }> = ({ matchId }) => {
       window.removeEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, onAvailabilityUpdated);
     };
   }, [matchId]);
+
+  useEffect(() => {
+    if (!matchId || !data?.kickoff || data.hasConfirmedLineup) return undefined;
+    const kickoff = Date.parse(data.kickoff);
+    const remaining = kickoff - Date.now();
+    if (!Number.isFinite(kickoff) || remaining < 0 || remaining > OFFICIAL_LINEUP_WINDOW_MS) return undefined;
+
+    const refresh = () => {
+      // The endpoint applies its own cooldown and emits the event that reloads
+      // this panel. A failed provider must not make the probable lineup vanish.
+      void Promise.resolve(refreshPlayerAvailability(matchId)).catch(() => undefined);
+    };
+    refresh();
+    const intervalId = window.setInterval(refresh, LINEUP_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [data?.hasConfirmedLineup, data?.kickoff, matchId]);
 
   const summary = useMemo(() => {
     if (!data) return '';

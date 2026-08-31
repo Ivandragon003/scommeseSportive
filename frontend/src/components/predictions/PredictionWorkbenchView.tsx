@@ -847,7 +847,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     : grouped;
 
   const revealMarketTab = (target: HTMLElement) => {
-    target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   };
 
   const handleMarketTabWheel = (event: React.WheelEvent<HTMLDivElement>) => {

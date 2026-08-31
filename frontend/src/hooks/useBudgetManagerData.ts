@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getBets, getBudget } from '../utils/api';
+import { getBets, getBudget, syncSharedBets } from '../utils/api';
 
 export function useBudgetManagerData(activeUser: string) {
   const [budget, setBudget] = useState<any>(null);
@@ -34,7 +34,14 @@ export function useBudgetManagerData(activeUser: string) {
   }, [activeUser]);
 
   const loadAll = useCallback(async (options?: { force?: boolean }) => {
-    await Promise.all([loadBudget(options), loadBets(options)]);
+    // A read-only GET must not settle bets, but opening the budget area is an
+    // explicit user action where we can safely refresh completed fixtures first.
+    // Keep rendering available even when the settlement check is temporarily down.
+    const syncResult = syncSharedBets();
+    if (syncResult && typeof (syncResult as Promise<unknown>).then === 'function') {
+      await syncResult.catch(() => undefined);
+    }
+    await Promise.all([loadBudget({ ...options, force: true }), loadBets({ ...options, force: true })]);
   }, [loadBets, loadBudget]);
 
   useEffect(() => {
