@@ -255,6 +255,38 @@ describe('predictions UI components', () => {
     expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
   });
 
+  test('mantiene metriche e stake per una proposta solo archivio, senza abilitarne la puntata', () => {
+    const noop = () => undefined;
+    render(
+      <ValueOpportunitiesTable
+        opportunities={[]}
+        manualArchiveOpportunities={[{ ...opportunity, confidence: 'LOW', marketTier: 'SPECULATIVE', bestBetStatus: 'SPECULATIVE' }]}
+        bankroll={1000}
+        budgetReady
+        isReplayAnalysis={false}
+        oddsSource="odds_api"
+        oddsBookmaker="Pinnacle"
+        placedBetKeySet={new Set()}
+        replayOutcomeTone="info"
+        stakes={{}}
+        getStakeKey={() => 'archive-low'}
+        getStakeValue={() => 0}
+        onStakeChange={noop}
+        onBet={noop}
+        onArchive={noop}
+      />
+    );
+
+    expect(screen.getByText('Solo archivio · SPECULATIVE')).toBeTruthy();
+    expect(screen.getByText('P. Nostra')).toBeTruthy();
+    expect(screen.getByText('P. Implicita')).toBeTruthy();
+    expect(screen.getByText('Kelly 1/4')).toBeTruthy();
+    expect(screen.getByText('EV')).toBeTruthy();
+    expect(screen.getByText(/EUR 25\.00/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /Archivia senza giocare/i })).toBeTruthy();
+  });
+
   test('accetta solo quote odds_api con bookmaker reale e usa badge prudenti', () => {
     const prediction = {
       valueOpportunities: [opportunity],

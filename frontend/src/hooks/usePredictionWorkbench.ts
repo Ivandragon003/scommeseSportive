@@ -78,7 +78,6 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     competition: matchSelection.competition,
     matchMode: matchSelection.matchMode,
     teams: matchSelection.teams,
-    setCompetition: matchSelection.setCompetition,
     setActiveMatchId: matchSelection.setActiveMatchId,
     setTab: matchSelection.setTab,
   });

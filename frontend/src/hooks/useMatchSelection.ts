@@ -9,12 +9,14 @@ import { parseMatchDateValue } from '../utils/dateTime';
 
 export type MatchMode = 'upcoming' | 'recent';
 const UPCOMING_TOLERANCE_MS = 5 * 60 * 1000;
+const initialSearch = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+const initialMode = initialSearch.get('mode');
 
 export function useMatchSelection() {
   const [teams, setTeams] = useState<any[]>([]);
-  const [competition, setCompetition] = useState('Serie A');
-  const [season, setSeason] = useState(currentSeason());
-  const [matchMode, setMatchMode] = useState<MatchMode>('upcoming');
+  const [competition, setCompetition] = useState(initialSearch.get('competition') ?? 'Serie A');
+  const [season, setSeason] = useState(initialSearch.get('season') ?? currentSeason());
+  const [matchMode, setMatchMode] = useState<MatchMode>(initialMode === 'recent' ? 'recent' : 'upcoming');
   const [upcomingLoading, setUpcomingLoading] = useState(false);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [recentMatches, setRecentMatches] = useState<any[]>([]);
@@ -100,6 +102,14 @@ export function useMatchSelection() {
   useEffect(() => {
     void loadMatchdays();
   }, [loadMatchdays]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (competition) params.set('competition', competition); else params.delete('competition');
+    if (season) params.set('season', season); else params.delete('season');
+    params.set('mode', matchMode);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
+  }, [competition, season, matchMode]);
 
   const comps = useMemo(
     () => Array.from(new Set(['Serie A', ...teams.map((team: any) => team.competition).filter(Boolean)])),

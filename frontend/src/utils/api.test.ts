@@ -183,6 +183,19 @@ describe('backtesting API timeout', () => {
     expect(result.data?.decisionId).toBe('saved_1');
   });
 
+  test('getBetOpportunityArchive invia date e classificazioni multiple in un solo filtro server-side', async () => {
+    const { getBetOpportunityArchive } = await import('./api');
+    mockGet.mockResolvedValueOnce({ data: { success: true, data: [], summary: { settledCount: 0 } } });
+
+    await getBetOpportunityArchive({
+      from: '2026-08-20', to: '2026-08-31', classifications: ['high', 'speculative'], limit: 200,
+    });
+
+    expect(mockGet).toHaveBeenCalledWith('/bet-opportunities/archive', {
+      params: { from: '2026-08-20', to: '2026-08-31', classifications: 'high,speculative', limit: 200 },
+    });
+  });
+
   test('budget e giocate riusano una cache breve e la sync esplicita la invalida', async () => {
     const { getBudget, getBets, invalidateApiCache, syncSharedBets } = await import('./api');
     invalidateApiCache();

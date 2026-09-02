@@ -79,9 +79,18 @@
   min-width: 0;
   border: 0;
   outline: 0;
+  box-shadow: none;
   background: transparent;
   color: inherit;
   font: inherit;
+}
+
+/* The field owns the focus indicator so keyboard and pointer focus share one ring. */
+.shared-login__field input:focus,
+.shared-login__field input:focus-visible {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
 }
 
 .shared-login__form .fp-btn {
@@ -104,3 +113,89 @@
   font-size: 0.78rem;
   text-align: center;
 }
+
+/* The sign-in gate uses the same operational surface as the app shell. */
+.shared-login {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 18%, color-mix(in srgb, var(--primary) 13%, transparent), transparent 31rem),
+    radial-gradient(circle at 85% 82%, color-mix(in srgb, var(--blue) 10%, transparent), transparent 28rem),
+    var(--bg);
+}
+
+.shared-login::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: .42;
+  background-image: linear-gradient(color-mix(in srgb, var(--border) 65%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border) 65%, transparent) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+}
+
+.shared-login__theme {
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
+  right: 20px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.shared-login__theme:hover { color: var(--primary); border-color: var(--primary-border); background: var(--primary-dim); }
+
+.shared-login__pitch {
+  position: absolute;
+  width: min(500px, 44vw);
+  aspect-ratio: 1.48;
+  left: clamp(28px, 9vw, 170px);
+  top: 50%;
+  z-index: -1;
+  overflow: hidden;
+  transform: translateY(-50%) rotate(-7deg);
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface) 70%, transparent), var(--shadow-md);
+}
+
+.shared-login__pitch::before, .shared-login__pitch::after { content: ''; position: absolute; border: 1px solid color-mix(in srgb, var(--primary) 42%, transparent); border-radius: 50%; }
+.shared-login__pitch::before { width: 39%; aspect-ratio: 1; left: 30.5%; top: 30%; }
+.shared-login__pitch::after { width: 100%; height: 1px; top: 50%; left: 0; border-width: 1px 0 0; border-radius: 0; }
+.shared-login__pitch span { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary) 38%, transparent); }
+.shared-login__pitch span:nth-child(1) { left: 12%; }.shared-login__pitch span:nth-child(2) { left: 50%; }.shared-login__pitch span:nth-child(3) { right: 12%; }
+.shared-login__pitch i { position: absolute; top: 36%; left: 47%; width: 6%; aspect-ratio: 1; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 9px color-mix(in srgb, var(--primary) 16%, transparent); }
+.shared-login__pitch b, .shared-login__pitch em { position: absolute; color: var(--primary); font-style: normal; font-size: 10px; font-weight: 850; letter-spacing: .13em; }.shared-login__pitch b { top: 17%; left: 9%; }.shared-login__pitch em { right: 8%; bottom: 15%; color: var(--text-3); letter-spacing: .07em; }
+
+.shared-login__card {
+  position: relative;
+  width: min(100%, 440px);
+  margin-left: min(33vw, 420px);
+  padding: clamp(26px, 4vw, 42px);
+  border-color: var(--border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(18px);
+}
+
+.shared-login__card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: 20px 0 0 20px; background: var(--primary); }
+.shared-login__brand { width: 48px; height: 48px; margin-bottom: 20px; border-radius: 14px; background: var(--primary); box-shadow: 0 10px 22px color-mix(in srgb, var(--primary) 25%, transparent); }
+.shared-login__eyebrow { color: var(--primary); font-size: 10px; letter-spacing: .14em; }.shared-login h1 { color: var(--text); font-size: clamp(2rem, 4vw, 2.7rem); }.shared-login__intro,.shared-login__note { color: var(--text-2); }.shared-login__field { border-color: var(--border); background: var(--surface2); color: var(--text); }.shared-login__field svg { color: var(--primary); }.shared-login__error { color: var(--red); background: var(--red-dim); border: 1px solid var(--red-border); }
+
+@media (max-width: 900px) { .shared-login__pitch { width: 520px; max-width: 124vw; left: 50%; top: 13%; transform: translate(-50%, -50%) rotate(-7deg); opacity: .58; }.shared-login__card { margin: 80px 0 0; } }
+@media (max-width: 480px) { .shared-login { align-items: start; padding: max(82px, env(safe-area-inset-top)) 14px 24px; }.shared-login__theme { top: max(14px, env(safe-area-inset-top)); right: 14px; width: 40px; padding: 0; justify-content: center; }.shared-login__theme span { display: none; }.shared-login__card { margin-top: 56px; padding: 25px 22px; border-radius: 16px; }.shared-login__pitch { top: 11%; }.shared-login__intro { margin-bottom: 24px; } }

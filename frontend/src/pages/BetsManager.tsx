@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   Check,
@@ -35,6 +35,21 @@ interface DateRange {
 }
 
 type BetView = 'PENDING' | 'CLOSED' | 'ALL' | 'WON' | 'LOST' | 'VOID';
+
+const readFiltersFromUrl = () => {
+  if (!window.location.pathname.endsWith('/bets')) {
+    return { search: '', view: 'PENDING' as BetView, historyOutcome: '', historyCompetition: '', dateRange: { from: '', to: '' } };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('betsView') as BetView | null;
+  return {
+    search: params.get('betsSearch') ?? '',
+    view: view && ['PENDING', 'CLOSED', 'ALL', 'WON', 'LOST', 'VOID'].includes(view) ? view : 'PENDING' as BetView,
+    historyOutcome: params.get('betsOutcome') ?? '',
+    historyCompetition: params.get('betsCompetition') ?? '',
+    dateRange: { from: params.get('betsFrom') ?? '', to: params.get('betsTo') ?? '' },
+  };
+};
 
 const formatDateInput = (value: string) => {
   if (!value) return '';
@@ -81,7 +96,7 @@ const BetRow: React.FC<{
     : 'Non disponibile';
 
   return (
-    <article className={`bet-row bet-row--${variant} bet-row--${String(bet.status ?? 'pending').toLowerCase()}${expanded ? ' is-expanded' : ''}`}>
+    <article className={`bet-row bet-row--${variant} bet-row--${status.className}${expanded ? ' is-expanded' : ''}`}>
       <button
         type="button"
         className="bet-row__summary"
@@ -121,14 +136,15 @@ const BetRow: React.FC<{
 };
 
 const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
+  const initialFilters = useMemo(readFiltersFromUrl, []);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [view, setView] = useState<BetView>('PENDING');
-  const [historyOutcome, setHistoryOutcome] = useState('');
-  const [historyCompetition, setHistoryCompetition] = useState('');
+  const [search, setSearch] = useState(initialFilters.search);
+  const [view, setView] = useState<BetView>(initialFilters.view);
+  const [historyOutcome, setHistoryOutcome] = useState(initialFilters.historyOutcome);
+  const [historyCompetition, setHistoryCompetition] = useState(initialFilters.historyCompetition);
   const [datePanelOpen, setDatePanelOpen] = useState(false);
-  const [draftDateRange, setDraftDateRange] = useState<DateRange>({ from: '', to: '' });
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [draftDateRange, setDraftDateRange] = useState<DateRange>(initialFilters.dateRange);
+  const [dateRange, setDateRange] = useState<DateRange>(initialFilters.dateRange);
   const {
     budget,
     bets,
@@ -139,6 +155,30 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
     lossesCount,
     voidCount,
   } = useBudgetManagerData(activeUser);
+
+  useEffect(() => {
+    const writeFilters = () => {
+      if (!window.location.pathname.endsWith('/bets')) return;
+      const params = new URLSearchParams(window.location.search);
+      const values: Record<string, string> = {
+        betsSearch: search, betsView: view, betsOutcome: historyOutcome, betsCompetition: historyCompetition,
+        betsFrom: dateRange.from, betsTo: dateRange.to,
+      };
+      Object.entries(values).forEach(([key, value]) => value ? params.set(key, value) : params.delete(key));
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+    };
+    writeFilters();
+  }, [search, view, historyOutcome, historyCompetition, dateRange]);
+
+  useEffect(() => {
+    const restoreFilters = () => {
+      const next = readFiltersFromUrl();
+      setSearch(next.search); setView(next.view); setHistoryOutcome(next.historyOutcome); setHistoryCompetition(next.historyCompetition);
+      setDateRange(next.dateRange); setDraftDateRange(next.dateRange); setExpandedId(null);
+    };
+    window.addEventListener('popstate', restoreFilters);
+    return () => window.removeEventListener('popstate', restoreFilters);
+  }, []);
 
   const closedCount = winsCount + lossesCount + voidCount;
   const capitalExposure = pendingBets.reduce((sum, bet) => sum + Number(bet?.stake ?? 0), 0);

@@ -385,7 +385,7 @@ const BacktestingPageView: React.FC = () => {
             </div>
           </div>
 
-          <div className="fp-card bt-maintenance-card" style={{ borderColor: 'var(--red-border)', background: 'color-mix(in srgb, white 88%, var(--red-dim))' }}>
+          <div className="fp-card bt-maintenance-card">
             <div className="fp-card-head">
               <div>
                 <div className="fp-card-title">Manutenzione esecuzioni</div>
@@ -395,11 +395,11 @@ const BacktestingPageView: React.FC = () => {
               </div>
               <span className="fp-badge fp-badge-red">Pericoloso</span>
             </div>
-            <div className="fp-card-body" style={{ display: 'grid', gap: 12 }}>
+            <div className="fp-card-body bt-maintenance-card__body">
               <div className="fp-alert fp-alert-warning">
                 Elimina o riduci le esecuzioni solo quando serve davvero. Le operazioni non sono reversibili.
               </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="bt-maintenance-card__controls">
                 <input
                   className="fp-input"
                   style={{ maxWidth: 140 }}
@@ -427,7 +427,7 @@ const BacktestingPageView: React.FC = () => {
                   Svuota archivio
                 </button>
               </div>
-              <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
+              <div className="bt-maintenance-card__help">
                 Mantieni ultime N: conserva solo le esecuzioni più recenti nel perimetro selezionato.
               </div>
             </div>

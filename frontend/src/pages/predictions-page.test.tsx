@@ -123,6 +123,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  window.history.replaceState(null, '', '/predictions');
   jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-05-23T08:00:00.000Z').getTime());
   setupBaseMocks();
 });
@@ -197,8 +198,8 @@ describe('Predictions page', () => {
         primaryProvider: 'odds_api',
         selectedBookmakerName: 'Pinnacle',
         selectedOdds: { over25: 2.1 },
-        analysisOdds: { over25: 2.1, 'cards_total_over_4.5': 2.05 },
-        bookmakerBySelection: { over25: 'Pinnacle', 'cards_total_over_4.5': 'Codere' },
+        analysisOdds: { over25: 2.1, 'alternate_totals_cards_over_4.5': 2.05, 'alternate_totals_shots_over_23.5': 1.92 },
+        bookmakerBySelection: { over25: 'Pinnacle', 'alternate_totals_cards_over_4.5': 'Codere', 'alternate_totals_shots_over_23.5': 'Betfair' },
         analysisBookmakers: ['Codere', 'Pinnacle'],
         marketsRequested: ['totals', 'alternate_totals_cards'],
       },
@@ -211,8 +212,8 @@ describe('Predictions page', () => {
     await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
     expect(mockedApi.getPrediction).toHaveBeenCalledWith(expect.objectContaining({
-      bookmakerOdds: { over25: 2.1, 'cards_total_over_4.5': 2.05 },
-      bookmakerBySelection: { over25: 'Pinnacle', 'cards_total_over_4.5': 'Codere' },
+      bookmakerOdds: { over25: 2.1, 'alternate_totals_cards_over_4.5': 2.05, 'alternate_totals_shots_over_23.5': 1.92 },
+      bookmakerBySelection: { over25: 'Pinnacle', 'alternate_totals_cards_over_4.5': 'Codere', 'alternate_totals_shots_over_23.5': 'Betfair' },
       oddsSource: 'odds_api',
     }));
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
@@ -231,11 +232,46 @@ describe('Predictions page', () => {
     expect(screen.getByText(/Quote bookmaker reali caricate.*odds_api/i)).toBeTruthy();
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: /Quote Complete\s*2/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Quote Complete/i }));
     expect(await screen.findByRole('region', { name: 'Totali goal' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Cartellini' })).toBeTruthy();
     expect(screen.getByText('Codere')).toBeTruthy();
     expect(screen.getByText('Pinnacle')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Cartellini' }));
+    expect(await screen.findByText(/Quote disponibili · Cartellini/i)).toBeTruthy();
+    expect(screen.getByLabelText('Quote disponibili: Cartellini').textContent).toContain('Codere');
+    fireEvent.click(screen.getByRole('tab', { name: 'Tiri' }));
+    expect(await screen.findByText(/Quote disponibili · Tiri/i)).toBeTruthy();
+    expect(screen.getByLabelText('Quote disponibili: Tiri').textContent).toContain('Betfair');
+    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
+  });
+
+  test('conserva i filtri e ripristina il dettaglio dalla cronologia senza ricalcolare', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ oddsSource: 'odds_api' }) } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({
+      data: { found: true, source: 'odds_api', selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, analysisOdds: { over25: 2.1 }, bookmakerBySelection: { over25: 'Pinnacle' }, analysisBookmakers: ['Pinnacle'] },
+    } as any);
+
+    render(<Predictions activeUser="user1" />);
+
+    const dateFilter = await screen.findByRole('button', { name: /Sabato 23 maggio/i });
+    fireEvent.click(dateFilter);
+    fireEvent.click(screen.getByRole('button', { name: /Inter.*Milan/i }));
+    await screen.findByRole('tab', { name: /Quote Complete/i });
+    expect(window.location.search).toContain('match=match_1');
+
+    window.history.back();
+    fireEvent.popState(window);
+    expect(await screen.findByRole('region', { name: 'Filtri e partite' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Sabato 23 maggio/i }).getAttribute('aria-pressed')).toBe('true');
+
+    window.history.forward();
+    fireEvent.popState(window);
+    await screen.findByRole('tab', { name: /Quote Complete/i });
+    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
   });
 
   test('usa i 3 slot per HIGH/MEDIUM prima di una LOW consigliata anche se conveniente', async () => {

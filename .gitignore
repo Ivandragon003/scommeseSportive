@@ -2,7 +2,6 @@
 node_modules/
 **/node_modules/
 
-
 # Build artifacts
 dist/
 build/
@@ -53,3 +52,12 @@ secret-scan-report.*
 *.keystore
 frontend/android/key.properties
 frontend/android/app/release/
+frontend/android/.gradle/
+
+# Local previews and generated design exports
+mockups/
+frontend/login-*.png
+frontend/.env.development
+
+# Local recovery copy of incomplete Git metadata
+.git.corrupt-*/

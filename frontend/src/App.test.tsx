@@ -31,6 +31,10 @@ jest.mock('./pages/Scrapers', () => ({
   __esModule: true,
   default: () => <div>Scrapers page</div>,
 }));
+jest.mock('./pages/DataCenter', () => ({
+  __esModule: true,
+  default: ({ onRefreshStatus }: { onRefreshStatus: () => void }) => <button type="button" onClick={onRefreshStatus}>Aggiorna dati e calendario</button>,
+}));
 
 const mockedApi = api as jest.Mocked<typeof api>;
 
@@ -94,12 +98,12 @@ test('usa sempre l utente condiviso restituito dal server e non localStorage', a
   expect(mockedApi.getAdminSession).toHaveBeenCalledTimes(1);
 });
 
-test('header principale resta essenziale e rende aggiorna sistema disponibile negli strumenti', async () => {
+test('header principale resta essenziale e rende aggiorna dati disponibile nel Centro dati', async () => {
   render(<App />);
 
   await screen.findByText('Predictions page');
   const header = await screen.findByRole('banner');
-  expect(within(header).getByText('FootPredictor')).toBeTruthy();
+  expect(within(header).getByText((_, element) => element?.textContent === 'FootPredictor')).toBeTruthy();
   expect(within(header).getByText(/Decisioni rapide/i)).toBeTruthy();
   expect(within(header).queryByRole('button', { name: /Aggiorna sistema/i })).toBeNull();
 
@@ -112,8 +116,8 @@ test('header principale resta essenziale e rende aggiorna sistema disponibile ne
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1));
   expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(0);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i }));
+  fireEvent.click(screen.getByRole('link', { name: /Centro dati/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /Aggiorna dati e calendario/i }));
 
   await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({
@@ -132,8 +136,8 @@ test('Aggiorna Sistema mostra quanti kickoff calendario sono stati corretti', as
   render(<App />);
 
   await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i }));
+  fireEvent.click(screen.getByRole('link', { name: /Centro dati/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /Aggiorna dati e calendario/i }));
 
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(1));
   expect(await screen.findByText('Calendario aggiornato: 2 kickoff corretti')).toBeTruthy();
@@ -149,10 +153,8 @@ test('la pagina iniziale apre Partite e mostra la navigazione primaria semplific
   expect(within(navigation).getByText('Partite')).toBeTruthy();
   expect(within(navigation).getByText('Giocate')).toBeTruthy();
   expect(within(navigation).getByText('Budget')).toBeTruthy();
-  expect(within(navigation).getByText('Strumenti')).toBeTruthy();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  expect(within(screen.getByRole('menu', { name: /Strumenti/i })).getByRole('button', { name: /Aggiorna sistema/i })).toBeTruthy();
+  expect(within(navigation).getByText('Archivio giocate')).toBeTruthy();
+  expect(within(navigation).getByText('Centro dati')).toBeTruthy();
 });
 
 test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => {
@@ -169,9 +171,7 @@ test('apre la pagina Glossario dalla navigazione principale', async () => {
   render(<App />);
 
   await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  const toolsMenu = screen.getByRole('menu', { name: /Strumenti/i });
-  fireEvent.click(within(toolsMenu).getByText('Glossario'));
+  fireEvent.click(screen.getByRole('link', { name: /Glossario/i }));
 
   // The route is intentionally loaded through React.lazy. Under the full
   // parallel Jest suite the dynamic import can exceed Testing Library's
@@ -194,12 +194,12 @@ test('il menu mobile Strumenti si comporta come dialog e restituisce il focus al
   render(<App />);
 
   await screen.findByText('Predictions page');
-  const trigger = await screen.findByRole('button', { name: /Apri strumenti mobile/i });
+  const trigger = await screen.findByRole('button', { name: 'Strumenti' });
   fireEvent.click(trigger);
 
   const dialog = await screen.findByRole('dialog', { name: /Strumenti/i });
   expect(within(dialog).getByRole('link', { name: /Backtest/i })).toBeTruthy();
-  expect(within(dialog).getByRole('button', { name: /Chiudi strumenti/i }).matches(':focus')).toBe(true);
+  expect(within(dialog).getByRole('button', { name: 'Chiudi' }).matches(':focus')).toBe(true);
 
   fireEvent.keyDown(document, { key: 'Escape' });
 
@@ -218,12 +218,11 @@ test('apre la nuova pagina Giocate dalla navigazione primaria', async () => {
   expect(window.location.pathname).toBe('/bets');
 });
 
-test('apre Archivio giocate dal menu Strumenti', async () => {
+test('apre Archivio giocate dalla navigazione secondaria desktop', async () => {
   render(<App />);
 
   await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('button', { name: 'Apri strumenti' }));
-  fireEvent.click(within(screen.getByRole('menu', { name: /Strumenti/i })).getByText('Archivio giocate'));
+  fireEvent.click(screen.getByRole('link', { name: /Archivio giocate/i }));
 
   expect(await screen.findByText('Prediction archive page')).toBeTruthy();
   expect(window.location.pathname).toBe('/prediction-archive');
