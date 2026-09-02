@@ -112,21 +112,31 @@ export const formatMarketKey = (market: string): string => {
 
 export const oddsCategoryLabel = (selection: string): string => {
   const key = String(selection ?? '').toLowerCase();
+  // Provider keys can begin with the market family (for example
+  // alternate_totals_cards) rather than the user-facing selection. Normalize
+  // the already-loaded snapshot here: market tabs then only filter local data.
+  if (/^player_.+_(shots|sot)_/.test(key)) return 'Tiri giocatore';
+  if (/^player_.+_goals_/.test(key)) return 'Marcatori';
   if (['homewin', 'draw', 'awaywin'].includes(key)) return 'Esito partita';
   if (key.startsWith('double_chance_') || key.startsWith('dnb_')) return 'Esiti protetti';
   if (key === 'btts' || key === 'bttsno') return 'Goal / No Goal';
   if (/^team_(home|away)_(over|under)_/.test(key)) return 'Goal squadra';
   if (/^(over|under)\d/.test(key)) return 'Totali goal';
   if (key.startsWith('ahcp_') || key.startsWith('hcp_') || key.startsWith('asian_')) return 'Handicap';
-  if (key.startsWith('cardstotal') || key.startsWith('cards_total_') || key.startsWith('yellow')) return 'Cartellini';
-  if (key.startsWith('corners')) return 'Corner';
-  if (/^player_.+_(shots|sot)_/.test(key)) return 'Tiri giocatore';
-  if (/^player_.+_goals_/.test(key)) return 'Marcatori';
+  if (key.startsWith('cardstotal') || key.includes('cards') || key.startsWith('yellow')) return 'Cartellini';
+  if (key.startsWith('fouls') || key.includes('fouls')) return 'Falli';
+  if (key.startsWith('shots') || key.includes('shots') || key.includes('_sot_')) return 'Tiri';
+  if (key.startsWith('corners') || key.includes('corners')) return 'Corner';
   return 'Altri mercati';
 };
 
 export const buildBetKey = (matchId: string, selection: string, marketName: string): string =>
   `${String(matchId ?? '')}::${String(selection ?? '')}::${String(marketName ?? '')}`;
+
+/** Market tabs only filter already loaded analysis data; they must never request a new analysis. */
+export const switchMarketTab = (marketId: string, setActiveMarket: (marketId: string) => void) => {
+  setActiveMarket(marketId);
+};
 
 export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?: string | null, oddsBookmaker?: string | null) => {
   if (!prediction) return prediction;

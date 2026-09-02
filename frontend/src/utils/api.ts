@@ -353,13 +353,35 @@ export const getPredictionArchive = (filters: PredictionArchiveFilters = {}) =>
 export type BetOpportunityArchiveType = 'operative' | 'simulated';
 export type BetOpportunityClassification = 'high' | 'medium' | 'low' | 'speculative';
 export type BetOpportunityResult = 'pending' | 'win' | 'loss' | 'void';
+export type BetOpportunityArchiveCategory = 'played' | 'unplayed' | 'no_proposal';
 
 export interface BetOpportunityArchiveFilters {
+  category?: BetOpportunityArchiveCategory;
   type?: BetOpportunityArchiveType;
   classification?: BetOpportunityClassification;
+  classifications?: BetOpportunityClassification[];
   result?: BetOpportunityResult;
   matchId?: string;
+  /** Calendar days (YYYY-MM-DD), applied inclusively to match_date. */
+  from?: string;
+  to?: string;
   limit?: number;
+}
+
+export interface BetOpportunityArchiveSummary {
+  settledCount: number;
+  wonCount: number;
+  lostCount: number;
+  voidCount: number;
+  wonProfit: number;
+  lostProfit: number;
+  netProfit: number;
+}
+
+export interface BetOpportunityArchiveCategoryCounts {
+  played: number;
+  unplayed: number;
+  noProposal: number;
 }
 
 export interface BetOpportunityArchiveRecord {
@@ -386,6 +408,7 @@ export interface BetOpportunityArchiveRecord {
   theoretical_stake_percent?: number | null;
   theoretical_stake_amount?: number | null;
   bet_stake?: number | null;
+  bet_profit?: number | null;
   ranking_position?: number | null;
   operational_slot?: number | null;
   decision_status?: string | null;
@@ -397,10 +420,36 @@ export interface BetOpportunityArchiveRecord {
   settled_at?: string | null;
 }
 
-export const getBetOpportunityArchive = (filters: BetOpportunityArchiveFilters = {}) =>
-  cachedGet<BetOpportunityArchiveRecord[]>('/bet-opportunities/archive', { params: filters }, {
+export interface MatchWithoutArchivedOpportunityRecord {
+  match_id: string;
+  home_team_name?: string | null;
+  away_team_name?: string | null;
+  competition?: string | null;
+  match_date?: string | null;
+  home_goals?: number | null;
+  away_goals?: number | null;
+  archive_type: 'no_proposal';
+}
+
+export type BetOpportunityArchiveEntry = BetOpportunityArchiveRecord | MatchWithoutArchivedOpportunityRecord;
+
+export interface BetOpportunityArchiveResponse extends ApiResponse<BetOpportunityArchiveEntry[]> {
+  summary?: BetOpportunityArchiveSummary;
+  counts?: BetOpportunityArchiveCategoryCounts;
+}
+
+export const getBetOpportunityArchive = (filters: BetOpportunityArchiveFilters = {}) => {
+  const { classifications, ...rest } = filters;
+  // A comma-separated parameter is portable across Express query parsers and
+  // avoids the browser sending a list syntax that deployment proxies may alter.
+  const params = {
+    ...rest,
+    ...(classifications?.length ? { classifications: classifications.join(',') } : {}),
+  };
+  return cachedGet<BetOpportunityArchiveEntry[]>('/bet-opportunities/archive', { params }, {
     cacheMs: CACHE_TTL.betOpportunityArchive,
-  });
+  }) as Promise<BetOpportunityArchiveResponse>;
+};
 
 export const archiveManualBetOpportunity = (opportunity: {
   matchId: string;

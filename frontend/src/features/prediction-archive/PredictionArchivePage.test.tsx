@@ -48,13 +48,13 @@ describe('PredictionArchivePage', () => {
   test('mostra soltanto le colonne semplici dell archivio opportunita', async () => {
     render(<PredictionArchivePage />);
 
-    expect(await screen.findByRole('heading', { name: 'Archivio giocate' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Archivio' })).toBeTruthy();
     expect(await screen.findByRole('columnheader', { name: 'Classificazione' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Tipo' })).toBeTruthy();
     expect(screen.queryByRole('columnheader', { name: 'Probabilità' })).toBeNull();
     expect(screen.queryByRole('columnheader', { name: 'EV' })).toBeNull();
     expect(screen.queryByRole('columnheader', { name: 'Stato prediction' })).toBeNull();
-    expect(mockedApi.getBetOpportunityArchive).toHaveBeenCalledWith({ limit: 200 });
+    expect(mockedApi.getBetOpportunityArchive).toHaveBeenCalledWith({ category: 'played', limit: 200 });
   });
 
   test('traduce mercato e giocata effettiva senza mostrare codici interni', async () => {
@@ -87,14 +87,14 @@ describe('PredictionArchivePage', () => {
     expect(screen.queryByText('Non classificata')).toBeNull();
   });
 
-  test('mantiene probabilita EV e stake soltanto nei dettagli', async () => {
+  test('mantiene nei dettagli solo informazioni comprensibili della giocata', async () => {
     render(<PredictionArchivePage />);
 
     expect(screen.queryByText('Probabilità del modello')).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — Vittoria Bologna/ }));
 
-    expect(screen.getByText('Probabilità del modello')).toBeTruthy();
-    expect(screen.getByText('EV tecnico')).toBeTruthy();
+    expect(screen.queryByText('Probabilità del modello')).toBeNull();
+    expect(screen.queryByText('EV tecnico')).toBeNull();
     expect(screen.getByText('Stake effettivo')).toBeTruthy();
     expect(screen.getByText('20.00')).toBeTruthy();
     expect(screen.queryByText('ID giocata')).toBeNull();
@@ -127,17 +127,46 @@ describe('PredictionArchivePage', () => {
     })).toBeTruthy();
   });
 
-  test('i filtri interrogano il backend per tipo classificazione ed esito', async () => {
+  test('i filtri data e classificazione multipla interrogano il backend', async () => {
     render(<PredictionArchivePage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Simulate' }));
-    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ type: 'simulated', limit: 200 }));
+    await screen.findByText('Bologna – Lazio');
+    fireEvent.change(screen.getByLabelText('Da'), { target: { value: '2026-08-23' } });
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ category: 'played', from: '2026-08-23', limit: 200 }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Speculative' }));
-    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ classification: 'speculative', limit: 200 }));
+    fireEvent.change(screen.getByLabelText('A'), { target: { value: '2026-08-24' } });
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ category: 'played', from: '2026-08-23', to: '2026-08-24', limit: 200 }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Perse' }));
-    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ result: 'loss', limit: 200 }));
+    fireEvent.click(screen.getByRole('button', { name: 'High' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Low' }));
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({
+      category: 'played', from: '2026-08-23', to: '2026-08-24', classifications: ['high', 'low'], limit: 200,
+    }));
+    expect(screen.getByText(/Non ci sono ancora giocate operative concluse nei filtri scelti/)).toBeTruthy();
+    expect(screen.getByText(/risultati filtrati/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Azzera filtri/ }));
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ category: 'played', limit: 200 }));
+  });
+
+  test('mostra il saldo server-side delle sole giocate operative concluse', async () => {
+    mockedApi.getBetOpportunityArchive.mockResolvedValueOnce({
+      success: true,
+      data: archiveRows,
+      summary: {
+        settledCount: 3, wonCount: 2, lostCount: 1, voidCount: 0,
+        wonProfit: 31.5, lostProfit: 12, netProfit: 19.5,
+      },
+    } as any);
+
+    render(<PredictionArchivePage />);
+
+    expect(await screen.findByRole('region', { name: 'Riepilogo economico delle giocate concluse' })).toBeTruthy();
+    expect(screen.getByText('3 concluse')).toBeTruthy();
+    expect(screen.getByText('+31,50 €')).toBeTruthy();
+    expect(screen.getByText('−12,00 €')).toBeTruthy();
+    expect(screen.getByText('+19,50 €')).toBeTruthy();
+    expect(screen.getByText(/esclusivamente il profitto delle giocate operative/i)).toBeTruthy();
   });
 
   test('mostra stato vuoto ed errore con possibilita di riprovare', async () => {
@@ -150,5 +179,53 @@ describe('PredictionArchivePage', () => {
     render(<PredictionArchivePage />);
     expect((await screen.findByRole('alert')).textContent).toContain('Archivio non disponibile');
     expect(screen.getByRole('button', { name: 'Riprova' })).toBeTruthy();
+  });
+
+  test('separa le categorie e mostra i match conclusi senza proposta', async () => {
+    mockedApi.getBetOpportunityArchive.mockResolvedValueOnce({
+      success: true,
+      data: archiveRows,
+      counts: { played: 1, unplayed: 3, noProposal: 2 },
+    } as any).mockResolvedValueOnce({
+      success: true,
+      data: [{
+        match_id: 'match-no-proposal', home_team_name: 'Como', away_team_name: 'Lecce', competition: 'Serie A',
+        match_date: '2026-08-25T18:45:00.000Z', home_goals: 2, away_goals: 1, archive_type: 'no_proposal',
+      }],
+      counts: { played: 1, unplayed: 3, noProposal: 2 },
+    } as any);
+    render(<PredictionArchivePage />);
+
+    await screen.findByText('Giocate');
+    expect(screen.getByRole('tab', { name: /Giocate/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: /Non giocate/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Nessuna proposta/ }));
+
+    expect(await screen.findByText('Como – Lecce')).toBeTruthy();
+    expect(screen.getByText('2–1')).toBeTruthy();
+    expect(screen.getByText('1 partita senza proposta')).toBeTruthy();
+    expect(screen.getByText(/assenza di una proposta non indica un errore/i)).toBeTruthy();
+    await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ category: 'no_proposal', limit: 200 }));
+    expect((screen.getByRole('button', { name: 'High' }).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+  });
+
+  test('le tab seguono il pattern tastiera con frecce, Home ed End', async () => {
+    render(<PredictionArchivePage />);
+    const played = await screen.findByRole('tab', { name: /Giocate/ });
+    const unplayed = screen.getByRole('tab', { name: /Non giocate/ });
+    const noProposal = screen.getByRole('tab', { name: /Nessuna proposta/ });
+
+    expect(played.tabIndex).toBe(0);
+    expect(unplayed.tabIndex).toBe(-1);
+    fireEvent.keyDown(played, { key: 'ArrowRight' });
+    await waitFor(() => expect(unplayed.getAttribute('aria-selected')).toBe('true'));
+    expect(document.activeElement).toBe(unplayed);
+
+    fireEvent.keyDown(unplayed, { key: 'End' });
+    await waitFor(() => expect(noProposal.getAttribute('aria-selected')).toBe('true'));
+    fireEvent.keyDown(noProposal, { key: 'Home' });
+    await waitFor(() => expect(played.getAttribute('aria-selected')).toBe('true'));
+    fireEvent.keyDown(played, { key: 'ArrowLeft' });
+    await waitFor(() => expect(noProposal.getAttribute('aria-selected')).toBe('true'));
   });
 });

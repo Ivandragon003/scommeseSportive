@@ -3981,34 +3981,51 @@ export class DatabaseService {
     `, [...joinParams, ...params]);
   }
 
-  async getBetOpportunityArchive(options: {
+  private betOpportunityArchiveFilters(options: {
     type?: string;
     classification?: string;
+    classifications?: string[] | string;
     result?: string;
     matchId?: string;
     userId?: string;
-    limit?: number;
-  } = {}): Promise<any[]> {
+    from?: string;
+    to?: string;
+  } = {}): { where: string[]; params: any[] } {
     const params: any[] = [];
     const where: string[] = [];
     const type = String(options.type ?? '').trim().toLowerCase();
-    const classification = String(options.classification ?? '').trim().toUpperCase();
+    const singleClassification = String(options.classification ?? '').trim().toUpperCase();
+    const classifications = Array.from(new Set([
+      ...String(options.classifications ?? '').split(','),
+      singleClassification,
+    ].map((value) => value.trim().toUpperCase()).filter((value) =>
+      ['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE'].includes(value)
+    )));
     const result = String(options.result ?? '').trim().toLowerCase();
     const userId = String(options.userId ?? '').trim();
+    const from = String(options.from ?? '').trim();
+    const to = String(options.to ?? '').trim();
+    const isCalendarDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
     if (userId) { where.push('user_id = ?'); params.push(userId); }
     if (options.matchId) { where.push('match_id = ?'); params.push(options.matchId); }
     if (['operative', 'simulated'].includes(type)) { where.push('archive_type = ?'); params.push(type); }
-    if (['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE'].includes(classification)) {
-      where.push('classification = ?');
-      params.push(classification);
+    if (classifications.length > 0) {
+      where.push(`classification IN (${classifications.map(() => '?').join(', ')})`);
+      params.push(...classifications);
     }
     if (['pending', 'win', 'loss', 'void'].includes(result)) { where.push('result = ?'); params.push(result); }
+    // The archive is grouped by the match the opportunity belongs to, not by the
+    // timestamp in which the prediction was generated. date() keeps both ends
+    // inclusive for the calendar-day values accepted by the UI.
+    if (isCalendarDay(from)) { where.push('date(match_date) >= date(?)'); params.push(from); }
+    if (isCalendarDay(to)) { where.push('date(match_date) <= date(?)'); params.push(to); }
 
-    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
-    params.push(limit);
+    return { where, params };
+  }
 
-    return this.all(`
+  private betOpportunityArchiveCte(): string {
+    return `
       WITH archive_candidates AS (
         SELECT
           d.*,
@@ -4048,6 +4065,9 @@ export class DatabaseService {
             THEN b.stake ELSE NULL
           END AS bet_stake,
           CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
+            THEN b.profit ELSE NULL
+          END AS bet_profit,
+          CASE WHEN d.decision_status = 'placed' AND b.bet_id IS NOT NULL
             THEN b.settled_at ELSE p.settled_at
           END AS settled_at
         FROM automated_bet_decisions d
@@ -4081,13 +4101,186 @@ export class DatabaseService {
       ),
       opportunity_archive AS (
         SELECT * FROM ranked_archive WHERE archive_rank = 1
-      )
+      )`;
+  }
+
+  private archiveCategory(options: { category?: string }): 'operative' | 'simulated' | 'no_proposal' | null {
+    const category = String(options.category ?? '').trim().toLowerCase();
+    if (category === 'played') return 'operative';
+    if (category === 'unplayed') return 'simulated';
+    if (category === 'no_proposal') return 'no_proposal';
+    return null;
+  }
+
+  private matchesWithoutArchivedOpportunitiesFilters(options: {
+    userId?: string;
+    from?: string;
+    to?: string;
+  } = {}): { where: string[]; params: any[] } {
+    const where = ['m.home_goals IS NOT NULL', 'm.away_goals IS NOT NULL'];
+    const params: any[] = [];
+    const userId = String(options.userId ?? '').trim();
+    const from = String(options.from ?? '').trim();
+    const to = String(options.to ?? '').trim();
+    const isCalendarDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+    // A match belongs to this tab only when it has no decision which would be
+    // eligible for the archive. Raw prediction rows alone are deliberately not
+    // treated as a proposal: they are internal model evidence, not a user-facing
+    // recommendation.
+    const userClause = userId ? 'AND d.user_id = ?' : '';
+    if (userId) params.push(userId);
+    where.push(`NOT EXISTS (
+      SELECT 1
+      FROM automated_bet_decisions d
+      WHERE d.match_id = m.match_id
+        ${userClause}
+        AND d.decision_status IN ('placed', 'dry_run', 'saved_only')
+        AND (
+          d.exclusion_reason = 'speculative_saved_only'
+          OR upper(trim(d.confidence)) IN ('HIGH', 'MEDIUM', 'LOW')
+        )
+    )`);
+    if (isCalendarDay(from)) { where.push('date(m.date) >= date(?)'); params.push(from); }
+    if (isCalendarDay(to)) { where.push('date(m.date) <= date(?)'); params.push(to); }
+    return { where, params };
+  }
+
+  async getMatchesWithoutArchivedOpportunities(options: {
+    userId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  } = {}): Promise<any[]> {
+    const { where, params } = this.matchesWithoutArchivedOpportunitiesFilters(options);
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
+    return this.all(`
+      SELECT
+        m.match_id,
+        m.home_team_name,
+        m.away_team_name,
+        m.competition,
+        m.date AS match_date,
+        m.home_goals,
+        m.away_goals,
+        'no_proposal' AS archive_type
+      FROM matches m
+      WHERE ${where.join(' AND ')}
+      ORDER BY datetime(m.date) DESC, m.match_id DESC
+      LIMIT ?
+    `, [...params, limit]);
+  }
+
+  async getBetOpportunityArchive(options: {
+    category?: string;
+    type?: string;
+    classification?: string;
+    classifications?: string[] | string;
+    result?: string;
+    matchId?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  } = {}): Promise<any[]> {
+    const category = this.archiveCategory(options);
+    if (category === 'no_proposal') return this.getMatchesWithoutArchivedOpportunities(options);
+    const { where, params } = this.betOpportunityArchiveFilters({
+      ...options,
+      type: category ?? options.type,
+    });
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
+    return this.all(`${this.betOpportunityArchiveCte()}
       SELECT *
       FROM opportunity_archive
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY datetime(created_at) DESC, ranking_position ASC
       LIMIT ?
+    `, [...params, limit]);
+  }
+
+  async getBetOpportunityArchiveSummary(options: {
+    category?: string;
+    type?: string;
+    classification?: string;
+    classifications?: string[] | string;
+    result?: string;
+    matchId?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+  } = {}): Promise<{
+    settledCount: number;
+    wonCount: number;
+    lostCount: number;
+    voidCount: number;
+    wonProfit: number;
+    lostProfit: number;
+    netProfit: number;
+  }> {
+    const category = this.archiveCategory(options);
+    if (category === 'no_proposal') {
+      return { settledCount: 0, wonCount: 0, lostCount: 0, voidCount: 0, wonProfit: 0, lostProfit: 0, netProfit: 0 };
+    }
+    const { where, params } = this.betOpportunityArchiveFilters({
+      ...options,
+      type: category ?? options.type,
+    });
+    const scopedWhere = [
+      "archive_type = 'operative'",
+      'bet_id IS NOT NULL',
+      "result IN ('win', 'loss', 'void')",
+      ...where,
+    ];
+    const summary = await this.get(`${this.betOpportunityArchiveCte()}
+      SELECT
+        COUNT(*) AS settled_count,
+        SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS won_count,
+        SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS lost_count,
+        SUM(CASE WHEN result = 'void' THEN 1 ELSE 0 END) AS void_count,
+        COALESCE(SUM(CASE WHEN result = 'win' THEN COALESCE(bet_profit, 0) ELSE 0 END), 0) AS won_profit,
+        COALESCE(SUM(CASE WHEN result = 'loss' THEN ABS(COALESCE(bet_profit, 0)) ELSE 0 END), 0) AS lost_profit,
+        COALESCE(SUM(COALESCE(bet_profit, 0)), 0) AS net_profit
+      FROM opportunity_archive
+      WHERE ${scopedWhere.join(' AND ')}
     `, params);
+    return {
+      settledCount: Number(summary?.settled_count ?? 0),
+      wonCount: Number(summary?.won_count ?? 0),
+      lostCount: Number(summary?.lost_count ?? 0),
+      voidCount: Number(summary?.void_count ?? 0),
+      wonProfit: Number(summary?.won_profit ?? 0),
+      lostProfit: Number(summary?.lost_profit ?? 0),
+      netProfit: Number(summary?.net_profit ?? 0),
+    };
+  }
+
+  async getBetOpportunityArchiveCategoryCounts(options: {
+    classifications?: string[] | string;
+    classification?: string;
+    from?: string;
+    to?: string;
+    userId?: string;
+  } = {}): Promise<{ played: number; unplayed: number; noProposal: number }> {
+    const { where, params } = this.betOpportunityArchiveFilters(options);
+    const opportunityCounts = await this.get(`${this.betOpportunityArchiveCte()}
+      SELECT
+        SUM(CASE WHEN archive_type = 'operative' THEN 1 ELSE 0 END) AS played_count,
+        SUM(CASE WHEN archive_type = 'simulated' THEN 1 ELSE 0 END) AS unplayed_count
+      FROM opportunity_archive
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    `, params);
+    const noProposalFilters = this.matchesWithoutArchivedOpportunitiesFilters(options);
+    const noProposalCount = await this.get(`
+      SELECT COUNT(*) AS no_proposal_count
+      FROM matches m
+      WHERE ${noProposalFilters.where.join(' AND ')}
+    `, noProposalFilters.params);
+    return {
+      played: Number(opportunityCounts?.played_count ?? 0),
+      unplayed: Number(opportunityCounts?.unplayed_count ?? 0),
+      noProposal: Number(noProposalCount?.no_proposal_count ?? 0),
+    };
   }
 
   async appendAutomatedBetDecision(row: Record<string, any>): Promise<void> {

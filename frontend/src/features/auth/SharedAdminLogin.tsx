@@ -1,12 +1,15 @@
 import React, { FormEvent, useState } from 'react';
-import { Activity, Lock } from 'lucide-react';
+import { Activity, Lock, Moon, Sun } from 'lucide-react';
+import type { Theme } from '../../App';
 import './shared-admin-login.css';
 
 interface SharedAdminLoginProps {
   onLogin: (password: string) => Promise<void>;
+  theme: Theme;
+  onThemeToggle: () => void;
 }
 
-const SharedAdminLogin: React.FC<SharedAdminLoginProps> = ({ onLogin }) => {
+const SharedAdminLogin: React.FC<SharedAdminLoginProps> = ({ onLogin, theme, onThemeToggle }) => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,11 @@ const SharedAdminLogin: React.FC<SharedAdminLoginProps> = ({ onLogin }) => {
 
   return (
     <main className="shared-login">
+      <button type="button" className="shared-login__theme" onClick={onThemeToggle} aria-label={theme === 'light' ? 'Attiva tema scuro' : 'Attiva tema chiaro'}>
+        {theme === 'light' ? <Moon size={18} aria-hidden="true" /> : <Sun size={18} aria-hidden="true" />}
+        <span>{theme === 'light' ? 'Scuro' : 'Chiaro'}</span>
+      </button>
+      <div className="shared-login__pitch" aria-hidden="true"><span /><span /><span /><i /><b>LIVE MODEL</b><em>Quota · Probabilità · Valore</em></div>
       <section className="shared-login__card" aria-labelledby="shared-login-title">
         <div className="shared-login__brand" aria-hidden="true">
           <Activity size={28} />

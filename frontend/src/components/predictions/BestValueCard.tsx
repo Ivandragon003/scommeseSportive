@@ -1,6 +1,7 @@
 import React from 'react';
 import OddsSourceBadge from './OddsSourceBadge';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
+import { formatMarketKey } from './predictionWorkbenchUtils';
 import {
   BestBetAlternative,
   BestValueOpportunity,
@@ -181,7 +182,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
 
         <div className="pr-decision-report__market">
           <span>Mercato</span>
-          <strong>{opportunity.marketName}</strong>
+          <strong>{formatMarketKey(opportunity.marketName)}</strong>
         </div>
 
         {resolvedReason && (

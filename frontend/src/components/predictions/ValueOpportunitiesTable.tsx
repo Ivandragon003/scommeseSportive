@@ -1,6 +1,7 @@
 import React from 'react';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
 import { BestValueOpportunity, RecommendedBetResult, ReplayTone } from './predictionTypes';
+import { formatMarketKey } from './predictionWorkbenchUtils';
 
 interface ValueOpportunitiesTableProps {
   opportunities: BestValueOpportunity[];
@@ -157,7 +158,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
               >
                 <div className="pr-vb-top">
                   <div>
-                    <div className="pr-vb-market">{opportunity.marketName}</div>
+                    <div className="pr-vb-market">{formatMarketKey(opportunity.marketName)}</div>
                     <div className="pr-vb-market-sub">{fmtSelection(String(opportunity.selection))}</div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {isRecommended && (
@@ -243,7 +244,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                           {alreadyArchived ? 'Archiviata' : 'Archivia'}
                         </button>
                       )}
-                      <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
+                      <button className="fp-btn fp-btn-solid fp-btn-sm pr-place-bet" onClick={() => onBet(opportunity)} disabled={!budgetReady}>
                         Scommetti -&gt;
                       </button>
                     </>
@@ -256,20 +257,50 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
             const stakeKey = getStakeKey(opportunity);
             const classification = archiveClassification(opportunity)!;
             const archived = archivedOpportunityKeys.has(stakeKey);
+            const suggestedAmount = bankroll > 0
+              ? (Number(opportunity.suggestedStakePercent ?? 0) / 100) * bankroll
+              : 0;
+            const warningLabels = Array.from(
+              new Set((opportunity.dataWarnings ?? []).map(valueWarningLabel).filter(Boolean))
+            ) as string[];
             return (
               <div key={`archive-${stakeKey}`} className="pr-vb low">
                 <div className="pr-vb-top">
                   <div>
-                    <div className="pr-vb-market">{opportunity.marketName}</div>
+                    <div className="pr-vb-market">{formatMarketKey(opportunity.marketName)}</div>
                     <div className="pr-vb-market-sub">{fmtSelection(String(opportunity.selection))}</div>
                   </div>
                   <span className="pr-badge pr-badge-gold">Solo archivio · {classification}</span>
                 </div>
-                <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
-                  Opportunita non consigliata per una puntata: puoi salvarla come simulata per seguirne l'esito.
+                <div className="pr-vb-stats" aria-label="Metriche della proposta">
+                  {[
+                    { label: 'P. Nostra', value: `${opportunity.ourProbability ?? 'N/D'}%` },
+                    { label: 'P. Implicita', value: `${opportunity.impliedProbability ?? 'N/D'}%` },
+                    { label: 'Edge', value: opportunity.edge === undefined ? 'N/D' : `+${opportunity.edge}%` },
+                    { label: 'Quota', value: opportunity.bookmakerOdds ?? 'N/D' },
+                    { label: 'Kelly 1/4', value: opportunity.kellyFraction === undefined ? 'N/D' : `${opportunity.kellyFraction}%` },
+                    { label: 'EV', value: opportunity.expectedValue === undefined ? 'N/D' : `+${opportunity.expectedValue}%` },
+                  ].map((entry) => (
+                    <div className="pr-vb-stat" key={entry.label}>
+                      <div className="pr-vb-stat-lbl">{entry.label}</div>
+                      <div className="pr-vb-stat-val">{entry.value}</div>
+                    </div>
+                  ))}
                 </div>
+                <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
+                  Proposta analizzata ma non consigliata per una puntata reale: puoi salvarla come simulata per seguirne l'esito.
+                </div>
+                {warningLabels.length > 0 && (
+                  <div className="pr-alert pr-alert-warning" style={{ marginTop: 12 }}>
+                    {warningLabels.join(' - ')}
+                  </div>
+                )}
                 <div className="pr-vb-bottom">
-                  <span className="pr-badge pr-badge-gray">{opportunity.bookmakerName} · quota {Number(opportunity.bookmakerOdds).toFixed(2)}</span>
+                  <div className="pr-stake-wrap" aria-label="Puntata suggerita">
+                    <span className="pr-stake-lbl">Puntata suggerita</span>
+                    <span className="pr-suggest">EUR {suggestedAmount.toFixed(2)} ({Number(opportunity.suggestedStakePercent ?? 0).toFixed(2)}% budget)</span>
+                  </div>
+                  <span className="pr-badge pr-badge-gray">{opportunity.bookmakerName ?? 'Bookmaker'} · quota {Number(opportunity.bookmakerOdds ?? 0).toFixed(2)}</span>
                   {onArchive && (
                     <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => onArchive(opportunity)} disabled={archived || isReplayAnalysis}>
                       {archived ? 'Archiviata' : 'Archivia senza giocare'}

@@ -1,8 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Archive, ChevronDown, ChevronUp, Clock3, FlaskConical, RefreshCw, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, CircleDollarSign, ClipboardList, CircleSlash2, ChevronDown, ChevronUp, RefreshCw, RotateCcw } from 'lucide-react';
 import {
+  BetOpportunityArchiveCategory,
+  BetOpportunityArchiveCategoryCounts,
+  BetOpportunityClassification,
   BetOpportunityArchiveFilters,
   BetOpportunityArchiveRecord,
+  BetOpportunityArchiveSummary,
+  MatchWithoutArchivedOpportunityRecord,
   getBetOpportunityArchive,
 } from '../../utils/api';
 import {
@@ -16,59 +21,162 @@ import {
   opportunityLabel,
   opportunityMarketLabel,
   opportunityOdds,
-  percentage,
   resultBadge,
   typeBadge,
 } from './predictionArchivePresentation';
 import './prediction-archive.css';
 
-type ArchiveFilter =
-  | 'all' | 'operative' | 'simulated'
-  | 'high' | 'medium' | 'low' | 'speculative'
-  | 'pending' | 'win' | 'loss' | 'void';
-
-const FILTERS: Array<{ value: ArchiveFilter; label: string; params: BetOpportunityArchiveFilters }> = [
-  { value: 'all', label: 'Tutte', params: {} },
-  { value: 'operative', label: 'Operative', params: { type: 'operative' } },
-  { value: 'simulated', label: 'Simulate', params: { type: 'simulated' } },
-  { value: 'high', label: 'High', params: { classification: 'high' } },
-  { value: 'medium', label: 'Medium', params: { classification: 'medium' } },
-  { value: 'low', label: 'Low', params: { classification: 'low' } },
-  { value: 'speculative', label: 'Speculative', params: { classification: 'speculative' } },
-  { value: 'pending', label: 'In attesa', params: { result: 'pending' } },
-  { value: 'win', label: 'Vinte', params: { result: 'win' } },
-  { value: 'loss', label: 'Perse', params: { result: 'loss' } },
-  { value: 'void', label: 'Rimborsate', params: { result: 'void' } },
+const RISK_FILTERS: Array<{ value: BetOpportunityClassification; label: string }> = [
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+  { value: 'speculative', label: 'Speculative' },
 ];
 
+const EMPTY_SUMMARY: BetOpportunityArchiveSummary = {
+  settledCount: 0,
+  wonCount: 0,
+  lostCount: 0,
+  voidCount: 0,
+  wonProfit: 0,
+  lostProfit: 0,
+  netProfit: 0,
+};
+
+const EMPTY_COUNTS: BetOpportunityArchiveCategoryCounts = { played: 0, unplayed: 0, noProposal: 0 };
+
+const ARCHIVE_TABS: Array<{
+  value: BetOpportunityArchiveCategory;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+}> = [
+  { value: 'played', label: 'Giocate', description: 'Inserite nel budget', icon: CircleDollarSign },
+  { value: 'unplayed', label: 'Non giocate', description: 'Analizzate, senza puntata', icon: ClipboardList },
+  { value: 'no_proposal', label: 'Nessuna proposta', description: 'Concluse senza decisione', icon: CircleSlash2 },
+];
+
+const money = (amount: number, signed = false) => {
+  const value = Number.isFinite(amount) ? amount : 0;
+  const sign = signed && value > 0 ? '+' : '';
+  return `${sign}${value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+};
+
+const filterDateLabel = (value: string) => {
+  if (!value) return '';
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+};
+
+const completedScore = (row: MatchWithoutArchivedOpportunityRecord) => {
+  const home = Number(row.home_goals);
+  const away = Number(row.away_goals);
+  return Number.isFinite(home) && Number.isFinite(away) ? `${home}–${away}` : 'Conclusa';
+};
+
 const PredictionArchivePage: React.FC = () => {
-  const [filter, setFilter] = useState<ArchiveFilter>('all');
+  const [category, setCategory] = useState<BetOpportunityArchiveCategory>('played');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [classifications, setClassifications] = useState<BetOpportunityClassification[]>([]);
   const [rows, setRows] = useState<BetOpportunityArchiveRecord[]>([]);
+  const [noProposalRows, setNoProposalRows] = useState<MatchWithoutArchivedOpportunityRecord[]>([]);
+  const [summary, setSummary] = useState<BetOpportunityArchiveSummary>(EMPTY_SUMMARY);
+  const [counts, setCounts] = useState<BetOpportunityArchiveCategoryCounts>(EMPTY_COUNTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const overview = useMemo(() => ({
-    operative: rows.filter((row) => row.archive_type === 'operative').length,
-    simulated: rows.filter((row) => row.archive_type === 'simulated').length,
-    pending: rows.filter((row) => row.result === 'pending').length,
-  }), [rows]);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const filters = useMemo<BetOpportunityArchiveFilters>(() => ({
+    category,
+    from: from || undefined,
+    to: to || undefined,
+    classifications: category === 'no_proposal' || classifications.length === 0 ? undefined : classifications,
+    limit: 200,
+  }), [category, from, to, classifications]);
+  const isNoProposal = category === 'no_proposal';
+  const activeTab = ARCHIVE_TABS.find((tab) => tab.value === category)!;
+  const ActiveTabIcon = activeTab.icon;
+  const invalidDateRange = Boolean(from && to && from > to);
+  const filtersAreActive = Boolean(from || to || (!isNoProposal && classifications.length > 0));
+  const summaryScope = useMemo(() => {
+    const dateScope = from && to
+      ? `${filterDateLabel(from)} – ${filterDateLabel(to)}`
+      : from
+        ? `Dal ${filterDateLabel(from)}`
+        : to
+          ? `Fino al ${filterDateLabel(to)}`
+          : 'Tutte le date';
+    const classificationScope = !isNoProposal && classifications.length > 0
+      ? classifications.map((classification) => RISK_FILTERS.find((item) => item.value === classification)?.label).filter(Boolean).join(', ')
+      : 'Tutte le classificazioni';
+    return `${dateScope} · ${classificationScope}`;
+  }, [from, to, classifications, isNoProposal]);
+
+  const selectCategory = (nextCategory: BetOpportunityArchiveCategory) => {
+    setCategory(nextCategory);
+    setExpandedId(null);
+    if (nextCategory === 'no_proposal') setClassifications([]);
+  };
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    const lastIndex = ARCHIVE_TABS.length - 1;
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+    if (event.key === 'ArrowLeft') nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = lastIndex;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    selectCategory(ARCHIVE_TABS[nextIndex].value);
+    // The selected tab is the only tab stop. Move focus with the selection so
+    // keyboard users keep their place in the archive's tab sequence.
+    tabRefs.current[nextIndex]?.focus();
+  };
+
+  const toggleClassification = (classification: BetOpportunityClassification) => {
+    setClassifications((active) => active.includes(classification)
+      ? active.filter((value) => value !== classification)
+      : [...active, classification]);
+  };
+
+  const resetFilters = () => {
+    setFrom('');
+    setTo('');
+    setClassifications([]);
+  };
 
   useEffect(() => {
     let ignore = false;
+
+    if (invalidDateRange) {
+      setLoading(false);
+      return () => { ignore = true; };
+    }
 
     const loadArchive = async () => {
       setLoading(true);
       setError('');
       setExpandedId(null);
       try {
-        const selectedFilter = FILTERS.find((item) => item.value === filter);
-        const response = await getBetOpportunityArchive({ ...(selectedFilter?.params ?? {}), limit: 200 });
+        const response = await getBetOpportunityArchive(filters);
         if (!response.success) throw new Error(response.error || 'Archivio non disponibile');
-        if (!ignore) setRows(Array.isArray(response.data) ? response.data : []);
+        if (!ignore) {
+          const data = Array.isArray(response.data) ? response.data : [];
+          setRows(category === 'no_proposal' ? [] : data as BetOpportunityArchiveRecord[]);
+          setNoProposalRows(category === 'no_proposal' ? data as MatchWithoutArchivedOpportunityRecord[] : []);
+          setSummary(response.summary ?? EMPTY_SUMMARY);
+          setCounts(response.counts ?? EMPTY_COUNTS);
+        }
       } catch (loadError) {
         if (!ignore) {
           setRows([]);
+          setNoProposalRows([]);
+          setSummary(EMPTY_SUMMARY);
+          setCounts(EMPTY_COUNTS);
           setError(archiveErrorMessage(loadError));
         }
       } finally {
@@ -78,7 +186,12 @@ const PredictionArchivePage: React.FC = () => {
 
     void loadArchive();
     return () => { ignore = true; };
-  }, [filter, retryKey]);
+  }, [category, filters, invalidDateRange, retryKey]);
+
+  const visibleCount = isNoProposal ? noProposalRows.length : rows.length;
+  const contextualCountLabel = category === 'unplayed'
+    ? `${visibleCount} ${visibleCount === 1 ? 'decisione salvata' : 'decisioni salvate'}`
+    : `${visibleCount} ${visibleCount === 1 ? 'partita senza proposta' : 'partite senza proposta'}`;
 
   return (
     <div className="pa-page">
@@ -87,39 +200,110 @@ const PredictionArchivePage: React.FC = () => {
           <span className="pa-heading-icon" aria-hidden="true"><Archive size={24} /></span>
           <div>
           <span className="pa-eyebrow">Registro decisionale</span>
-          <h1>Archivio giocate</h1>
-          <p>
-            Fino a 3 giocate Medium/High per partita diventano operative. Una Low entra solo con
-            quota reale, EV, edge e Kelly positivi; tutte le altre restano simulazioni senza impatto sul budget.
-          </p>
+          <h1>Archivio</h1>
+          <p>Separa le giocate reali dalle analisi salvate e controlla le partite concluse senza una proposta.</p>
           </div>
         </div>
-        {!loading && !error && <span className="pa-total">{rows.length} risultati</span>}
+        {!loading && !error && <span className="pa-total">{visibleCount} {filtersAreActive ? 'risultati filtrati' : 'risultati'}</span>}
       </header>
 
-      {!loading && !error && (
-        <div className="pa-overview" role="group" aria-label="Riepilogo del filtro attivo">
-          <div className="pa-overview--operative"><span className="pa-overview__icon" aria-hidden="true"><ShieldCheck size={18} /></span><span className="pa-overview__label">Operative</span><strong className="pa-overview__value">{overview.operative}</strong></div>
-          <div className="pa-overview--simulated"><span className="pa-overview__icon" aria-hidden="true"><FlaskConical size={18} /></span><span className="pa-overview__label">Simulate</span><strong className="pa-overview__value">{overview.simulated}</strong></div>
-          <div className="pa-overview--pending"><span className="pa-overview__icon" aria-hidden="true"><Clock3 size={18} /></span><span className="pa-overview__label">Da verificare</span><strong className="pa-overview__value">{overview.pending}</strong></div>
+      <section className="pa-tabs-panel" aria-label="Categorie archivio">
+        <div className="pa-tabs" role="tablist" aria-label="Categorie delle partite archiviate">
+          {ARCHIVE_TABS.map((tab, index) => {
+            const Icon = tab.icon;
+            const selected = category === tab.value;
+            const count = tab.value === 'played' ? counts.played : tab.value === 'unplayed' ? counts.unplayed : counts.noProposal;
+            return (
+              <button
+                key={tab.value}
+                id={`archive-tab-${tab.value}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls="archive-results"
+                tabIndex={selected ? 0 : -1}
+                className={`pa-tab${selected ? ' is-active' : ''}`}
+                onClick={() => selectCategory(tab.value)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+                ref={(element) => { tabRefs.current[index] = element; }}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span className="pa-tab__copy"><strong>{tab.label}</strong><small>{tab.description}</small></span>
+                <span className="pa-tab__count" aria-label={`${count} ${tab.label.toLocaleLowerCase('it-IT')}`}>{count}</span>
+              </button>
+            );
+          })}
         </div>
+      </section>
+
+      <section className="pa-filter-panel" aria-label="Filtra archivio giocate">
+        <div className="pa-date-filters">
+          <label className="pa-date-filter">
+            <span>Da</span>
+            <input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
+          </label>
+          <label className="pa-date-filter">
+            <span>A</span>
+            <input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
+          </label>
+        </div>
+        <fieldset className="pa-risk-filters" disabled={isNoProposal} aria-describedby={isNoProposal ? 'pa-risk-unavailable' : undefined}>
+          <legend>Classificazione</legend>
+          <div>
+            {RISK_FILTERS.map(({ value, label }) => {
+              const active = classifications.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  className={`pa-filter pa-filter--${value}${active ? ' active' : ''}`}
+                  aria-pressed={active}
+                  onClick={() => toggleClassification(value)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+        <button type="button" className="pa-reset" onClick={resetFilters} disabled={!filtersAreActive}>
+          <RotateCcw size={15} aria-hidden="true" /> Azzera filtri
+        </button>
+        {isNoProposal && <p id="pa-risk-unavailable" className="pa-filter-hint">La classificazione vale solo per decisioni archiviate.</p>}
+        {invalidDateRange && <p className="pa-filter-error" role="alert">La data “Da” deve precedere la data “A”.</p>}
+      </section>
+
+      {!loading && !error && !invalidDateRange && category === 'played' && summary.settledCount > 0 && (
+        <section className="pa-summary" aria-label="Riepilogo economico delle giocate concluse">
+          <div className="pa-summary__intro">
+            <span>Riepilogo giocate</span>
+            <strong>{summary.settledCount} concluse</strong>
+            <small className="pa-summary__scope">{summaryScope}</small>
+            <small>{summary.wonCount} vinte · {summary.lostCount} perse · {summary.voidCount} rimborsate</small>
+          </div>
+          <div className="pa-summary__metric pa-summary__metric--win"><span>Vinto</span><strong>{money(summary.wonProfit, true)}</strong></div>
+          <div className="pa-summary__metric pa-summary__metric--loss"><span>Perso</span><strong>−{money(summary.lostProfit)}</strong></div>
+          <div className={`pa-summary__metric pa-summary__metric--net ${summary.netProfit >= 0 ? 'is-positive' : 'is-negative'}`}><span>Saldo netto</span><strong>{money(summary.netProfit, true)}</strong></div>
+          <p>Il saldo usa esclusivamente il profitto delle giocate operative concluse.</p>
+        </section>
       )}
 
-      <nav className="pa-filters" aria-label="Filtra archivio giocate">
-        {FILTERS.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            className={`pa-filter${filter === value ? ' active' : ''}`}
-            aria-pressed={filter === value}
-            onClick={() => setFilter(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      {!loading && !error && !invalidDateRange && (category !== 'played' || summary.settledCount === 0) && (
+        <section className="pa-context-summary" aria-label={`Riepilogo ${activeTab.label.toLocaleLowerCase('it-IT')}`}>
+          <ActiveTabIcon size={22} aria-hidden="true" />
+          <div>
+            <span>{filtersAreActive ? 'Nei filtri selezionati' : category === 'unplayed' ? 'Analisi senza puntata' : 'Copertura delle partite concluse'}</span>
+            <strong>{contextualCountLabel}</strong>
+          </div>
+          <p>{category === 'unplayed'
+            ? 'Queste analisi non sono entrate nel budget e non incidono sul saldo.'
+            : category === 'played'
+              ? 'Non ci sono ancora giocate operative concluse nei filtri scelti: il saldo comparirà solo quando esisteranno risultati reali.'
+              : 'L’assenza di una proposta non indica un errore: la partita è stata conclusa senza una decisione idonea da archiviare.'}</p>
+        </section>
+      )}
 
-      <section className="pa-card" aria-live="polite">
+      <section id="archive-results" role="tabpanel" aria-labelledby={`archive-tab-${category}`} className="pa-card" aria-live="polite">
         {loading && (
           <div className="pa-loading" aria-label="Caricamento archivio giocate">
             <RefreshCw className="fp-spin" size={22} aria-hidden="true" />
@@ -137,14 +321,31 @@ const PredictionArchivePage: React.FC = () => {
           </div>
         )}
 
-        {!loading && !error && rows.length === 0 && (
+        {!loading && !error && visibleCount === 0 && (
           <div className="pa-state" role="status" aria-label="Archivio giocate vuoto">
-            <strong>Nessuna giocata trovata</strong>
-            <p>Le vecchie probabilità tecniche non classificate non vengono mostrate. Le nuove opportunità compariranno alla prossima elaborazione.</p>
+            <strong>{category === 'no_proposal' ? 'Nessuna partita senza proposta' : category === 'unplayed' ? 'Nessuna analisi non giocata' : 'Nessuna giocata trovata'}</strong>
+            <p>{category === 'no_proposal'
+              ? 'Nel periodo scelto tutte le partite concluse hanno almeno una decisione archiviata.'
+              : 'Prova a modificare i filtri oppure attendi la prossima elaborazione.'}</p>
           </div>
         )}
 
-        {!loading && !error && rows.length > 0 && (
+        {!loading && !error && isNoProposal && noProposalRows.length > 0 && (
+          <div className="pa-table-scroll">
+            <table className="pa-table pa-table--coverage">
+              <thead><tr><th>Partita</th><th>Competizione</th><th>Risultato finale</th></tr></thead>
+              <tbody>{noProposalRows.map((row) => (
+                <tr key={row.match_id} className="pa-row pa-row--no-proposal">
+                  <td><span className="pa-cell-label">Partita</span><strong>{row.home_team_name || 'Squadra casa'} – {row.away_team_name || 'Squadra ospite'}</strong><small>{dateTime(row.match_date)}</small></td>
+                  <td><span className="pa-cell-label">Competizione</span><strong>{row.competition || 'Competizione non indicata'}</strong></td>
+                  <td><span className="pa-cell-label">Risultato finale</span><span className="pa-score">{completedScore(row)}</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && !error && !isNoProposal && rows.length > 0 && (
           <div className="pa-table-scroll">
             <table className="pa-table">
               <thead>
@@ -165,10 +366,9 @@ const PredictionArchivePage: React.FC = () => {
                   const result = resultBadge(row.result);
                   const odds = opportunityOdds(row);
                   const expanded = expandedId === row.decision_id;
-                  const probability = row.calibrated_probability ?? row.raw_probability;
                   return (
                     <React.Fragment key={row.decision_id}>
-                      <tr className={`pa-row pa-row--${row.archive_type}`}>
+                      <tr className={`pa-row pa-row--${row.archive_type} pa-row--result-${result.tone}`}>
                         <td>
                           <span className="pa-cell-label">Partita</span>
                           <strong>{archiveMatchTitle(row)}</strong>
@@ -212,8 +412,6 @@ const PredictionArchivePage: React.FC = () => {
                           <td colSpan={7}>
                             <div className="pa-details">
                               <dl>
-                                <div><dt>Probabilità del modello</dt><dd>{percentage(probability)}</dd></div>
-                                <div><dt>EV tecnico</dt><dd>{percentage(row.ev)}</dd></div>
                                 <div><dt>{row.archive_type === 'operative' ? 'Stake effettivo' : 'Stake teorico'}</dt><dd>{decimal(row.archive_type === 'operative' ? row.bet_stake : row.theoretical_stake_amount)}</dd></div>
                                 <div><dt>Bookmaker</dt><dd>{row.bookmaker_name || '—'}</dd></div>
                                 <div><dt>Registrata il</dt><dd>{dateTime(row.created_at)}</dd></div>

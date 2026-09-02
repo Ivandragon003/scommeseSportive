@@ -2,7 +2,7 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { fmtN } from './predictionFormatting';
 
-export const ProbBar: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color = 'var(--blue)' }) => (
+export const ProbBar: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color = 'var(--primary)' }) => (
   <div className="pr-prob-row">
     <span className="pr-prob-lbl" title={label}>
       {label}
@@ -20,7 +20,7 @@ export const DistChart: React.FC<{
   expected: number;
   title: string;
   color?: string;
-}> = ({ dist, expected, title, color = 'var(--blue)' }) => {
+}> = ({ dist, expected, title, color = 'var(--primary)' }) => {
   const data = Object.entries(dist)
     .map(([key, probability]) => ({ key: parseInt(key, 10), pct: parseFloat((probability * 100).toFixed(2)) }))
     .filter((item) => item.pct >= 0.05)

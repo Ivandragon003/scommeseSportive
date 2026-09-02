@@ -93,7 +93,7 @@ const PredictionHero: React.FC<PredictionHeroProps> = ({
     {goalProbabilities && (
       <div className="pr-kpi-row">
         {[
-          { label: '1 Casa', value: fmtPct(goalProbabilities.homeWin), color: 'var(--blue)' },
+          { label: '1 Casa', value: fmtPct(goalProbabilities.homeWin), color: 'var(--primary)' },
           { label: 'X Pari', value: fmtPct(goalProbabilities.draw), color: 'var(--text-2)' },
           { label: '2 Ospite', value: fmtPct(goalProbabilities.awayWin), color: 'var(--red)' },
         ].map((item) => (

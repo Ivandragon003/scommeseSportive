@@ -23,7 +23,6 @@ interface UsePredictionAnalysisParams {
   competition: string;
   matchMode: MatchMode;
   teams: any[];
-  setCompetition: (value: string) => void;
   setActiveMatchId: (value: string | null) => void;
   setTab: (value: string) => void;
 }
@@ -33,7 +32,6 @@ export function usePredictionAnalysis({
   competition,
   matchMode,
   teams,
-  setCompetition,
   setActiveMatchId,
   setTab,
 }: UsePredictionAnalysisParams) {
@@ -135,10 +133,6 @@ export function usePredictionAnalysis({
     setAnalysisBookmakers([]);
     setOddsMsg('');
     setMarketsRequested([]);
-
-    if (matchCompetition && matchCompetition !== competition) {
-      setCompetition(matchCompetition);
-    }
 
     setTab('1x2');
     setLoading(true);
@@ -252,7 +246,6 @@ export function usePredictionAnalysis({
     matchMode,
     recalculateStakes,
     setActiveMatchId,
-    setCompetition,
     setTab,
     teams,
   ]);

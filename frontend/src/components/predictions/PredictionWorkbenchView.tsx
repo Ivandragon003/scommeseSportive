@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
@@ -11,7 +11,7 @@ import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { DistChart, ProbBar } from './PredictionStatPrimitives';
 import { formatCompactOuKey, fmtN, fmtPct, fmtSelection } from './predictionFormatting';
 import { BestValueOpportunity as BestValueOpportunityModel } from './predictionTypes';
-import { currentSeason, formatKickoff, isSerieA, formatMarketKey as fmtMarketKey, VALUE_LEGEND } from './predictionWorkbenchUtils';
+import { currentSeason, formatKickoff, isSerieA, switchMarketTab, VALUE_LEGEND } from './predictionWorkbenchUtils';
 import type { PredictionWorkbenchViewModel } from '../../hooks/usePredictionWorkbench';
 import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 
@@ -75,7 +75,7 @@ const S = `
   cursor:pointer; transition:background var(--transition); position:relative;
 }
 .pr-match-row:hover { background:var(--surface2); }
-.pr-match-row.active { background:var(--blue-dim) !important; border-left:2px solid var(--blue); padding-left:14px; }
+.pr-match-row.active { background:var(--primary-dim) !important; border-left:2px solid var(--primary); padding-left:14px; }
 .pr-match-row.loading-row { opacity:.5; pointer-events:none; }
 .pr-match-time { font-family:var(--font-mono); font-size:10px; color:var(--text-3); width:40px; flex-shrink:0; text-align:center; }
 .pr-match-teams { flex:1; min-width:0; }
@@ -109,7 +109,7 @@ const S = `
 .pr-results-match { font-size:15px; font-weight:800; letter-spacing:-.3px; }
 .pr-results-meta { font-size:11px; color:var(--text-2); font-family:var(--font-mono); margin-top:2px; }
 .pr-odds-status { font-size:11px; padding:4px 10px; border-radius:var(--radius-xs); }
-.pr-odds-status.info    { background:var(--blue-dim);  color:var(--blue);  }
+.pr-odds-status.info    { background:var(--surface3);  color:var(--text-2);  }
 .pr-odds-status.success { background:var(--green-dim); color:var(--green); }
 .pr-odds-status.warning { background:var(--gold-dim);  color:var(--gold);  }
 .pr-odds-status.danger  { background:var(--red-dim);   color:var(--red);   }
@@ -166,7 +166,7 @@ const S = `
 .pr-confidence {
   display:flex; width:100%; flex-direction:column; gap:2px;
   background:var(--blue-dim); border:1px solid var(--blue-border);
-  border-radius:var(--radius-sm); padding:7px 10px; color:var(--blue);
+  border-radius:var(--radius-sm); padding:7px 10px; color:var(--primary);
 }
 .pr-confidence span { font-size:9px; font-weight:750; letter-spacing:.3px; }
 .pr-confidence strong { font-family:var(--font-mono); font-size:14px; }
@@ -178,7 +178,7 @@ const S = `
 .pr-data-quality-history { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }
 .pr-data-history-item { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
 .pr-data-history-item span { color:var(--text-2); font-size:11px; font-weight:700; }
-.pr-data-history-item strong { color:var(--blue); font-family:var(--font-mono); font-size:14px; }
+.pr-data-history-item strong { color:var(--primary); font-family:var(--font-mono); font-size:14px; }
 .pr-data-history-item small { grid-column:1/-1; color:var(--text-3); font-size:10px; }
 .pr-data-quality-market { border-top:1px solid var(--border); padding-top:12px; }
 .pr-data-quality-title { margin-bottom:8px; color:var(--text); font-size:11px; font-weight:800; }
@@ -257,7 +257,7 @@ const S = `
 .pr-score-cell.hot { border-color:var(--blue-border); background:var(--blue-dim); }
 .pr-score-cell.warm { border-color:var(--border-hover); background:var(--surface3); }
 .pr-score-val { font-size:18px; font-weight:800; font-family:var(--font-mono); }
-.pr-score-pct { font-size:10px; font-family:var(--font-mono); color:var(--blue); margin-top:2px; }
+.pr-score-pct { font-size:10px; font-family:var(--font-mono); color:var(--primary); margin-top:2px; }
 
 /* CHART */
 .pr-chart-head { display:flex; justify-content:space-between; margin-bottom:6px; font-size:11px; color:var(--text-2); }
@@ -310,13 +310,13 @@ const S = `
   font-size:9px; font-weight:600; padding:2px 8px; border-radius:var(--radius-xs); border:1px solid transparent;
 }
 .pr-badge-green  { background:var(--green-dim);  color:var(--green);  border-color:var(--green-border); }
-.pr-badge-blue   { background:var(--blue-dim);   color:var(--blue);   border-color:var(--blue-border);  }
+.pr-badge-blue   { background:var(--primary-dim); color:var(--primary); border-color:var(--primary-border); }
 .pr-badge-gold   { background:var(--gold-dim);   color:var(--gold);   border-color:var(--gold-border);  }
 .pr-badge-gray   { background:var(--surface3); color:var(--text-2); border-color:var(--border); }
 .pr-badge-purple { background:var(--purple-dim); color:var(--purple); border-color:var(--purple-border); }
 
 .pr-alert { padding:10px 14px; border-radius:var(--radius-sm); font-size:12px; line-height:1.6; margin-bottom:12px; }
-.pr-alert-info    { background:var(--blue-dim);  border:1px solid var(--blue-border);  color:var(--blue);  }
+.pr-alert-info    { background:color-mix(in srgb, var(--primary-dim) 52%, var(--surface)); border:1px solid var(--primary-border); color:var(--text-2); }
 .pr-alert-success { background:var(--green-dim); border:1px solid var(--green-border); color:var(--green); }
 .pr-alert-warning { background:var(--gold-dim);  border:1px solid var(--gold-border);  color:var(--gold);  }
 .pr-alert-danger  { background:var(--red-dim);   border:1px solid var(--red-border);   color:var(--red);   }
@@ -349,7 +349,7 @@ const S = `
 .pr-legend-meaning { font-size:11px; color:var(--text-2); }
 
 /* SPINNER */
-.pr-spin { width:24px; height:24px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:pr-s .6s linear infinite; flex-shrink:0; }
+.pr-spin { width:24px; height:24px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:pr-s .6s linear infinite; flex-shrink:0; }
 @keyframes pr-s { to { transform:rotate(360deg); } }
 
 /* LOADING overlay on match row */
@@ -359,7 +359,7 @@ const S = `
 .pr-player-head { display:flex; justify-content:space-between; align-items:flex-start; }
 .pr-player-name { font-size:15px; font-weight:800; margin-bottom:3px; }
 .pr-player-meta { font-size:11px; color:var(--text-2); }
-.pr-player-xg-val { font-size:22px; font-weight:800; font-family:var(--font-mono); color:var(--blue); text-align:right; }
+.pr-player-xg-val { font-size:22px; font-weight:800; font-family:var(--font-mono); color:var(--primary); text-align:right; }
 .pr-player-xg-lbl { font-size:10px; color:var(--text-2); text-align:right; }
 
 /* INFO BOX */
@@ -372,7 +372,7 @@ const S = `
   padding:8px 12px; color:var(--text); font-family:var(--font-mono); font-size:12px;
   width:100%; outline:none; transition:border-color var(--transition);
 }
-.pr-select-sm:focus, .pr-input-sm:focus { border-color:var(--blue); }
+.pr-select-sm:focus, .pr-input-sm:focus { border-color:var(--primary); }
 .pr-select-sm { appearance:none; cursor:pointer; }
 
 .pr-decision-layout { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(260px,.55fr); gap:14px; margin:0 20px 16px; align-items:start; }
@@ -663,7 +663,7 @@ const S = `
   grid-template-columns:1fr auto;
   grid-template-rows:auto 1fr auto auto;
   gap:9px 14px;
-  min-height:184px;
+  min-height:172px;
   padding:18px 18px 16px;
   border:1px solid var(--border);
   border-radius:14px;
@@ -671,8 +671,11 @@ const S = `
   box-shadow:0 1px 1px rgba(16,27,54,.03);
   overflow:hidden;
 }
-.pr-match-list-row::before { content:''; position:absolute; inset:0 auto 0 0; width:4px; background:var(--primary); opacity:.88; }
-.pr-match-list-row:hover { border-color:var(--primary); background:var(--surface); box-shadow:0 10px 24px rgba(16,27,54,.10); transform:translateY(-1px); }
+.pr-match-list-row::before { content:''; position:absolute; inset:15px auto 15px 0; width:3px; border-radius:0 3px 3px 0; background:var(--surface4); }
+.pr-match-list-row.is-ready::before { background:var(--green); }
+.pr-match-list-row::after { display:none; }
+.pr-match-list-row:hover { border-color:var(--primary); background:var(--surface); box-shadow:var(--shadow-hover); transform:translateY(-2px); }
+.pr-match-list-row:active { transform:translateY(0); }
 .pr-match-list__time { align-self:start; color:var(--text); font-size:12px; }
 .pr-match-list__meta { align-self:start; color:var(--text-3); font-size:10px; white-space:nowrap; }
 .pr-match-list__teams { grid-column:1/-1; display:grid; grid-template-columns:1fr 30px 1fr; gap:8px; align-self:center; }
@@ -680,6 +683,7 @@ const S = `
 .pr-match-list__team:last-child { text-align:right; }
 .pr-match-list__versus { align-self:center; color:var(--text-3); font-family:var(--font-mono); font-size:10px; }
 .pr-match-list__action { grid-column:1; grid-row:3; align-self:end; text-align:left; color:var(--primary); font-size:11px; }
+.pr-match-list__action::before { content:'Analisi'; display:inline-flex; margin-right:6px; padding:2px 5px; border:1px solid var(--primary-border); border-radius:4px; background:var(--primary-dim); color:var(--primary); font-family:var(--font-mono); font-size:8px; letter-spacing:.06em; text-transform:uppercase; }
 .pr-match-list__pick {
   grid-column:1/-1;
   grid-row:4;
@@ -689,8 +693,10 @@ const S = `
   gap:10px;
   min-width:0;
   padding:9px 10px;
-  border-left:2px solid #b4c0d1;
-  background:#f5f7fa;
+  border:1px solid var(--border);
+  border-left:3px solid var(--border-hover);
+  border-radius:8px;
+  background:var(--surface2);
   color:var(--text-2);
 }
 .pr-match-list__pick.is-ready { border-left-color:var(--green); background:var(--green-dim); }
@@ -701,39 +707,42 @@ const S = `
 
 /* The one recommendation is the report surface, never another anonymous card. */
 .pr-decision-report {
-  border:1px solid #1d3159;
+  border:1px solid var(--primary-border);
   border-left:4px solid var(--green);
   border-radius:14px;
-  background:#101b36;
+  background:var(--surface);
   box-shadow:none;
 }
 .pr-decision-report.is-empty { border-color:var(--border); border-left-color:var(--text-3); background:var(--surface); }
-.pr-decision-report__eyebrow { color:#8bbbf6; font-family:var(--font-mono); }
-.pr-decision-report__title { color:white; font-size:27px; letter-spacing:-.04em; }
-.pr-decision-report__summary,.pr-decision-report__market,.pr-decision-report__risks,.pr-decision-report__reasons { color:#d8e4f7; }
-.pr-decision-report__metrics { border-color:#2a3d62; background:#162442; }
-.pr-decision-report__metric { border-color:#2a3d62; }
-.pr-decision-report__metric dt { color:#9db1d0; }
-.pr-decision-report__metric dd,.pr-decision-report__market strong { color:#fff; }
+.pr-place-bet { background:var(--green); border-color:var(--green); color:#fff; }
+.pr-place-bet:hover:not(:disabled) { background:color-mix(in srgb, var(--green) 84%, #000); border-color:color-mix(in srgb, var(--green) 84%, #000); }
+.pr-decision-report__eyebrow { color:var(--primary); font-family:var(--font-mono); }
+.pr-decision-report__title { color:var(--text); font-size:27px; letter-spacing:-.04em; }
+.pr-decision-report__summary,.pr-decision-report__market,.pr-decision-report__risks,.pr-decision-report__reasons { color:var(--text-2); }
+.pr-decision-report__metrics { border-color:var(--border); background:var(--surface2); }
+.pr-decision-report__metric { border-color:var(--border); }
+.pr-decision-report__metric dt { color:var(--text-3); }
+.pr-decision-report__metric dd,.pr-decision-report__market strong { color:var(--text); }
 .pr-decision-report__body { padding-top:18px; }
 .pr-decision-report.is-empty .pr-decision-report__eyebrow { color:var(--text-3); }
 .pr-decision-report.is-empty .pr-decision-report__title { color:var(--text); }
 .pr-decision-report.is-empty .pr-decision-report__summary { color:var(--text-2); }
 .pr-results-head { border-radius:14px 14px 0 0; }
-.pr-hero { background:#101b36; border:1px solid #1d3159; color:white; }
-.pr-hero-name,.pr-hero-stat strong { color:white; }
-.pr-hero-role,.pr-hero-lambda,.pr-hero-vs,.pr-hero-final { color:#9db1d0; }
-.pr-confidence { background:#1a2b4b; border:1px solid #2a3d62; color:#d8e4f7; }
-.pr-confidence strong { color:white; }
+.pr-hero { position:relative; overflow:hidden; background:linear-gradient(135deg,color-mix(in srgb,var(--primary-dim) 60%,var(--surface)),var(--surface2)); border:1px solid var(--border); color:var(--text); }
+.pr-hero::before { content:''; position:absolute; inset:0 auto 0 0; width:5px; background:var(--primary); }
+.pr-hero-name,.pr-hero-stat strong { color:var(--text); }
+.pr-hero-role,.pr-hero-lambda,.pr-hero-vs,.pr-hero-final { color:var(--text-3); }
+.pr-confidence { background:var(--primary-dim); border:1px solid var(--primary-border); color:var(--primary); }
+.pr-confidence strong { color:var(--text); }
 .pr-kpi-row { border-color:var(--border); }
 .pr-content { padding-top:22px; }
 .pr-content .pr-card { border-radius:12px; box-shadow:0 1px 2px rgba(16,27,54,.035); }
-.pr-content .pr-card-head { background:#f8faff; }
-.pr-content .pr-info { background:#f5f8fc; border-radius:10px; }
-.pr-content .pr-odds-cell { border-radius:9px; background:#fff; }
+.pr-content .pr-card-head { background:var(--surface2); }
+.pr-content .pr-info { background:var(--surface2); border-radius:10px; }
+.pr-content .pr-odds-cell { border-radius:9px; background:var(--surface); }
 .pr-content .pr-odds-cell.best { background:var(--green-dim); }
-.pr-content .pr-score-cell { border-radius:9px; background:#fff; }
-.pr-content .pr-prob-track { background:#eef2f7; }
+.pr-content .pr-score-cell { border-radius:9px; background:var(--surface); }
+.pr-content .pr-prob-track { background:var(--surface3); }
 .pr-tabs { border-bottom:0; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
 .pr-tab.active { background:var(--primary); border-color:var(--primary); color:#fff; }
 .pr-tab.active .pr-tab-pill { background:rgba(255,255,255,.2); color:#fff; }
@@ -772,7 +781,7 @@ const S = `
 
 const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm }) => {
   const rightRef = useRef<HTMLDivElement>(null);
-  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
   const {
     matchSelection,
     predictionAnalysis,
@@ -832,19 +841,39 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     pred,
     loading,
     loadingMatchId,
-    marketsRequested,
     oddsMsg,
     oddsTone,
     stakes,
     setStakes,
+    clearAnalysisState,
+    handleAnalyze: analyzeSelectedMatch,
   } = predictionAnalysis;
   const budget = userBudget.budget;
   const placedBetKeySet = userBudget.placedBetKeySet;
 
   const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
+  const marketOddsGroups = useMemo(() => {
+    const categoriesByTab: Record<string, string[]> = {
+      '1x2': ['Esito partita', 'Esiti protetti', 'Goal / No Goal', 'Totali goal'],
+      handicap: ['Handicap'],
+      cards: ['Cartellini'],
+      fouls: ['Falli'],
+      shots: ['Tiri', 'Tiri giocatore'],
+      players: ['Tiri giocatore', 'Marcatori'],
+      playerProps: ['Tiri giocatore', 'Marcatori'],
+    };
+    const categories = categoriesByTab[tab];
+    return categories ? allOddsGroups.filter((group) => categories.includes(group.category)) : [];
+  }, [allOddsGroups, tab]);
   const visibleDayGroups = selectedDayKey
     ? grouped.filter((group) => group.key === selectedDayKey)
     : grouped;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (selectedDayKey) params.set('day', selectedDayKey); else params.delete('day');
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
+  }, [selectedDayKey]);
 
   const revealMarketTab = (target: HTMLElement) => {
     target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
@@ -882,13 +911,44 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   };
 
   const handleAnalyze = (match: any) => {
+    const matchId = String(match.match_id ?? '');
+    if (matchId) {
+      const params = new URLSearchParams(window.location.search);
+      params.set('match', matchId);
+      window.history.pushState({ predictionDetail: matchId }, '', `${window.location.pathname}?${params.toString()}`);
+    }
     rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    void predictionAnalysis.handleAnalyze(match);
+    void analyzeSelectedMatch(match);
   };
 
   const handleBackToMatches = () => {
-    predictionAnalysis.clearAnalysisState();
+    if (window.history.state?.predictionDetail) {
+      window.history.back();
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.delete('match');
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
+    clearAnalysisState();
   };
+
+  useEffect(() => {
+    const restoreHistoryDetail = () => {
+      const matchId = new URLSearchParams(window.location.search).get('match');
+      if (!matchId) {
+        clearAnalysisState();
+        return;
+      }
+      const match = grouped.flatMap((group) => group.matches).find((item: any) => String(item.match_id ?? '') === matchId);
+      if (match && String(activeMatchRow?.match_id ?? '') !== matchId) {
+        void analyzeSelectedMatch(match);
+      }
+    };
+
+    restoreHistoryDetail();
+    window.addEventListener('popstate', restoreHistoryDetail);
+    return () => window.removeEventListener('popstate', restoreHistoryDetail);
+  }, [activeMatchRow?.match_id, analyzeSelectedMatch, clearAnalysisState, grouped]);
 
   return (
     <>
@@ -988,7 +1048,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       <button
                         type="button"
                         key={matchId}
-                        className="pr-match-list-row"
+                        className={`pr-match-list-row${recommendation && verifiedOdds ? ' is-ready' : ''}`}
                         aria-label={`${homeTeam} vs ${awayTeam}, ${formatKickoff(match.date)}. Vedi analisi`}
                         onClick={() => !isLoading && handleAnalyze(match)}
                         disabled={isLoading}
@@ -1167,7 +1227,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     tabIndex={tab === t.id ? 0 : -1}
                     className={`pr-tab${tab===t.id?' active':''}`}
                     onClick={(event) => {
-                      setTab(t.id);
+                      switchMarketTab(t.id, setTab);
                       revealMarketTab(event.currentTarget);
                     }}
                     onFocus={(event) => revealMarketTab(event.currentTarget)}
@@ -1183,17 +1243,40 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
               <div className="pr-content" id="prediction-market-panel" role="tabpanel" aria-labelledby={`prediction-market-tab-${tab}`}>
 
+                {tab !== 'odds' && marketOddsGroups.length > 0 && (
+                  <section className="pr-card pr-market-drilldown" aria-label={`Quote disponibili: ${TABS.find((item) => item.id === tab)?.label ?? 'mercato'}`}>
+                    <div className="pr-card-head">
+                      <div className="pr-card-title">Quote disponibili · {TABS.find((item) => item.id === tab)?.label}</div>
+                      <span className="pr-badge pr-badge-green">Già caricate</span>
+                    </div>
+                    <div className="pr-card-body pr-odds-groups">
+                      {marketOddsGroups.map((group) => (
+                        <section className="pr-odds-group" key={group.category} aria-label={group.category}>
+                          <h3 className="pr-odds-group-title">{group.category}</h3>
+                          <div className="pr-odds-grid">
+                            {group.entries.map((o) => <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
+                              <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
+                              <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
+                              {o.bookmaker && <small className="pr-odds-bookmaker">{o.bookmaker}</small>}
+                            </div>)}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
                 {/* 1X2 & GOAL */}
                 {tab==='1x2' && gp && (
                   <div className="pr-g2">
                     <div className="pr-card">
                       <div className="pr-card-head"><div className="pr-card-title">1X2 & Double Chance</div></div>
                       <div className="pr-card-body">
-                        <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--blue)" />
+                        <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--primary)" />
                         <ProbBar label="Pareggio" value={gp.draw} color="var(--text-2)" />
                         <ProbBar label={pred.awayTeam} value={gp.awayWin} color="var(--red)" />
                         <div style={{borderTop:'1px solid var(--border)',marginTop:12,paddingTop:12}}>
-                          <ProbBar label="1X (1 o X)" value={gp.homeWin+gp.draw} color="var(--blue)" />
+                          <ProbBar label="1X (1 o X)" value={gp.homeWin+gp.draw} color="var(--primary)" />
                           <ProbBar label="X2 (X o 2)" value={gp.draw+gp.awayWin} color="var(--red)" />
                         </div>
                       </div>
@@ -1204,7 +1287,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         <ProbBar label="Goal/Goal" value={gp.btts} color="var(--primary-hover)" />
                         <ProbBar label="No GG" value={gp.bttsNo ?? (1-gp.btts)} color="var(--text-3)" />
                         <div style={{borderTop:'1px solid var(--border)',margin:'10px 0'}} />
-                        {[['Over 0.5',gp.over05,'var(--blue)'],['Over 1.5',gp.over15,'var(--blue)'],['Over 2.5',gp.over25,'var(--blue)'],['Over 3.5',gp.over35,'var(--gold)'],['Over 4.5',gp.over45,'var(--red)']].map(([l,v,c]) => (
+                        {[['Over 0.5',gp.over05,'var(--primary)'],['Over 1.5',gp.over15,'var(--primary)'],['Over 2.5',gp.over25,'var(--primary)'],['Over 3.5',gp.over35,'var(--gold)'],['Over 4.5',gp.over45,'var(--red)']].map(([l,v,c]) => (
                           <ProbBar key={String(l)} label={String(l)} value={Number(v)} color={String(c)} />
                         ))}
                       </div>
@@ -1221,7 +1304,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         <div>
                           <div className="pr-sec">{pred.homeTeam}</div>
                           {Object.entries(gp.handicap).filter(([k])=>k.startsWith('home')).map(([k,v]) => (
-                            <ProbBar key={k} label={k.replace('home','H ')} value={v as number} color="var(--blue)" />
+                            <ProbBar key={k} label={k.replace('home','H ')} value={v as number} color="var(--primary)" />
                           ))}
                         </div>
                         <div>
@@ -1254,11 +1337,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                         <span className="pr-badge pr-badge-blue">{allOddsEntries.length} selezioni</span>
                       </div>
                       <div className="pr-card-body">
-                        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
-                          {(marketsRequested.length > 0 ? marketsRequested : ['n/d']).map((m:string) => (
-                            <span key={m} className="pr-badge pr-badge-gray">{fmtMarketKey(m)}</span>
-                          ))}
-                        </div>
                         {allOddsEntries.length === 0 ? (
                           <div className="pr-info">
                             Nessuna quota disponibile per questa partita.
@@ -1332,9 +1410,9 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       <div className="pr-card">
                         <div className="pr-card-head"><div className="pr-card-title">Per Squadra & Rossi</div></div>
                         <div className="pr-card-body">
-                          <div className="pr-sec" style={{color:'var(--blue)'}}>{pred.homeTeam}</div>
-                          <ProbBar label="O1.5" value={cp.homeYellow.over15} color="var(--blue)" />
-                          <ProbBar label="O2.5" value={cp.homeYellow.over25} color="var(--blue)" />
+                          <div className="pr-sec" style={{color:'var(--primary)'}}>{pred.homeTeam}</div>
+                          <ProbBar label="O1.5" value={cp.homeYellow.over15} color="var(--primary)" />
+                          <ProbBar label="O2.5" value={cp.homeYellow.over25} color="var(--primary)" />
                           <div className="pr-sec" style={{color:'var(--red)',marginTop:10}}>{pred.awayTeam}</div>
                           <ProbBar label="O1.5" value={cp.awayYellow.over15} color="var(--red)" />
                           <ProbBar label="O2.5" value={cp.awayYellow.over25} color="var(--red)" />
@@ -1397,10 +1475,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       </div>
                       <div className="pr-card-body">
                         <div className="pr-g2">
-                          <DistChart dist={p.shotDistribution} expected={p.expectedShots} title="ZIP" color="var(--blue)" />
+                          <DistChart dist={p.shotDistribution} expected={p.expectedShots} title="ZIP" color="var(--primary)" />
                           <div>
-                            <ProbBar label=">=1 tiro" value={p.markets.over05shots} color="var(--blue)" />
-                            <ProbBar label=">=2 tiri" value={p.markets.over15shots} color="var(--blue)" />
+                            <ProbBar label=">=1 tiro" value={p.markets.over05shots} color="var(--primary)" />
+                            <ProbBar label=">=2 tiri" value={p.markets.over15shots} color="var(--primary)" />
                             <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--primary-hover)" />
                           </div>
                         </div>

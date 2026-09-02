@@ -1542,15 +1542,30 @@ router.get('/predictions/archive', async (req: Request, res: Response) => {
 
 router.get('/bet-opportunities/archive', async (req: Request, res: Response) => {
   try {
-    const data = await db.getBetOpportunityArchive({
+    const classifications = String(req.query.classifications ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const options = {
+      category: req.query.category as string,
       type: req.query.type as string,
       classification: req.query.classification as string,
+      classifications,
       result: req.query.result as string,
       matchId: req.query.matchId as string,
+      from: req.query.from as string,
+      to: req.query.to as string,
       userId: sharedDataUserId,
       limit: Number(req.query.limit ?? 200),
-    });
-    return res.json({ success: true, data });
+    };
+    const data = await db.getBetOpportunityArchive(options);
+    const summary = typeof db.getBetOpportunityArchiveSummary === 'function'
+      ? await db.getBetOpportunityArchiveSummary(options)
+      : undefined;
+    const counts = typeof db.getBetOpportunityArchiveCategoryCounts === 'function'
+      ? await db.getBetOpportunityArchiveCategoryCounts(options)
+      : undefined;
+    return res.json({ success: true, data, summary, counts });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
