@@ -169,7 +169,13 @@ const PredictionArchivePage: React.FC = () => {
           setRows(category === 'no_proposal' ? [] : data as BetOpportunityArchiveRecord[]);
           setNoProposalRows(category === 'no_proposal' ? data as MatchWithoutArchivedOpportunityRecord[] : []);
           setSummary(response.summary ?? EMPTY_SUMMARY);
-          setCounts(response.counts ?? EMPTY_COUNTS);
+          // The active list is the authoritative result for the request just
+          // completed. Keep its tab count in sync even when a cached/global
+          // aggregate is briefly stale after an archive write.
+          setCounts({
+            ...(response.counts ?? EMPTY_COUNTS),
+            [category]: data.length,
+          });
         }
       } catch (loadError) {
         if (!ignore) {
