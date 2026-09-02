@@ -5,6 +5,7 @@ import {
 } from '../../utils/api';
 import ToastStack from '../common/ToastStack';
 import ErrorBanner from '../common/ErrorBanner';
+import { AppSelect } from '../common/AppSelect';
 import { useToastState } from '../../hooks/useToastState';
 import { getErrorMessage } from '../../utils/errorUtils';
 
@@ -777,15 +778,7 @@ const DataManagerPageView: React.FC = () => {
               ].map(({ label, value, set, opts, ph }) => (
                 <div key={label} className="dm-filter-group">
                   <label className="fp-label" htmlFor={`data-filter-${normalizeKey(label)}`}>{label}</label>
-                  <select
-                    id={`data-filter-${normalizeKey(label)}`}
-                    className="fp-select"
-                    value={value}
-                    onChange={e => set(e.target.value)}
-                  >
-                    <option value="">{ph}</option>
-                    {opts.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                  <AppSelect id={`data-filter-${normalizeKey(label)}`} className="fp-select" value={value} onChange={set} options={[{ value: '', label: ph }, ...opts.map(o => ({ value: o, label: o }))]} />
                 </div>
               ))}
             </div>
