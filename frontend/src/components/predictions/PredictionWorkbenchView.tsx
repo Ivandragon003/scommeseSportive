@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
@@ -18,6 +19,31 @@ import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 interface PredictionWorkbenchViewProps {
   vm: PredictionWorkbenchViewModel;
 }
+
+const NativeCompetitionPicker: React.FC<{
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}> = ({ value, options, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const label = value || 'Tutti i campionati';
+  return (
+    <div className="pr-native-picker">
+      <button type="button" className="pr-native-picker__trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <span>{label}</span><ChevronRight className={open ? 'is-open' : ''} size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="pr-native-picker__menu" role="listbox" aria-label="Campionato">
+          {['', ...options].map((item) => (
+            <button key={item || 'all'} type="button" role="option" aria-selected={item === value} className={item === value ? 'active' : ''} onClick={() => { onChange(item); setOpen(false); }}>
+              <span>{item || 'Tutti i campionati'}</span>{item === value && <span aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /*  STYLES  */
 const S = `
@@ -58,6 +84,13 @@ const S = `
 }
 .pr-left-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-2); margin-bottom:14px; }
 .pr-season-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.pr-native-picker { position:relative; }
+.pr-native-picker__trigger { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:42px; padding:0 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font:inherit; text-align:left; }
+.pr-native-picker__trigger svg { transition:transform .18s ease; color:var(--text-2); }
+.pr-native-picker__trigger svg.is-open { transform:rotate(90deg); }
+.pr-native-picker__menu { position:absolute; z-index:20; top:calc(100% + 6px); left:0; right:0; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 16px 34px rgba(0,0,0,.22); }
+.pr-native-picker__menu button { width:100%; display:flex; justify-content:space-between; padding:10px; border:0; border-radius:8px; background:transparent; color:var(--text); font:inherit; text-align:left; }
+.pr-native-picker__menu button.active, .pr-native-picker__menu button:focus-visible { background:var(--green-dim); color:var(--green); outline:none; }
 
 /* MATCH LIST */
 .pr-list { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(115,136,161,0.28) transparent; }
@@ -780,6 +813,7 @@ const S = `
 /*  MAIN  */
 
 const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm }) => {
+  const isNativeApp = Capacitor.isNativePlatform();
   const rightRef = useRef<HTMLDivElement>(null);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
   const {
@@ -971,10 +1005,14 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
             <div className="pr-schedule__controls">
               <div className="pr-filter">
                 <label htmlFor="pr-competition-filter">Campionato</label>
-                <select id="pr-competition-filter" value={competition} onChange={(event) => setCompetition(event.target.value)}>
-                  <option value="">Tutti i campionati</option>
-                  {comps.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
+                {isNativeApp ? (
+                  <NativeCompetitionPicker value={competition} options={comps} onChange={setCompetition} />
+                ) : (
+                  <select id="pr-competition-filter" value={competition} onChange={(event) => setCompetition(event.target.value)}>
+                    <option value="">Tutti i campionati</option>
+                    {comps.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                )}
               </div>
               <div className="pr-filter pr-filter--season">
                 <label htmlFor="pr-season-filter">Stagione</label>

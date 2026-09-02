@@ -1,4 +1,5 @@
 import React, { FormEvent, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Activity, Lock, Moon, Sun } from 'lucide-react';
 import type { Theme } from '../../App';
 import './shared-admin-login.css';
@@ -10,6 +11,7 @@ interface SharedAdminLoginProps {
 }
 
 const SharedAdminLogin: React.FC<SharedAdminLoginProps> = ({ onLogin, theme, onThemeToggle }) => {
+  const isNativeApp = Capacitor.isNativePlatform();
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ const SharedAdminLogin: React.FC<SharedAdminLoginProps> = ({ onLogin, theme, onT
   };
 
   return (
-    <main className="shared-login">
+    <main className={`shared-login${isNativeApp ? ' shared-login--native' : ''}`}>
       <button type="button" className="shared-login__theme" onClick={onThemeToggle} aria-label={theme === 'light' ? 'Attiva tema scuro' : 'Attiva tema chiaro'}>
         {theme === 'light' ? <Moon size={18} aria-hidden="true" /> : <Sun size={18} aria-hidden="true" />}
         <span>{theme === 'light' ? 'Scuro' : 'Chiaro'}</span>

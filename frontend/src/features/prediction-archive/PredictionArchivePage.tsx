@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, CircleDollarSign, ClipboardList, CircleSlash2, ChevronDown, ChevronUp, RefreshCw, RotateCcw } from 'lucide-react';
+import { AppDateInput } from '../../components/common/AppSelect';
 import {
   BetOpportunityArchiveCategory,
   BetOpportunityArchiveCategoryCounts,
@@ -246,11 +247,11 @@ const PredictionArchivePage: React.FC = () => {
         <div className="pa-date-filters">
           <label className="pa-date-filter">
             <span>Da</span>
-            <input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
+            <AppDateInput value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
           </label>
           <label className="pa-date-filter">
             <span>A</span>
-            <input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
+            <AppDateInput value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
           </label>
         </div>
         <fieldset className="pa-risk-filters" disabled={isNoProposal} aria-describedby={isNoProposal ? 'pa-risk-unavailable' : undefined}>

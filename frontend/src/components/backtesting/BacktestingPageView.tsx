@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import ToastStack from '../common/ToastStack';
 import ConfirmDialog from '../common/ConfirmDialog';
+import { AppDateInput, AppSelect } from '../common/AppSelect';
 import ErrorBanner from '../common/ErrorBanner';
 import { useToastState } from '../../hooks/useToastState';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
@@ -215,23 +216,11 @@ const BacktestingPageView: React.FC = () => {
             <div className="fp-grid-2 bt-step-content" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-confidence">Filtro affidabilità</label>
-                <select id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value as ConfidenceMode)}>
-                  <option value="medium_and_above">Alta e media</option>
-                  <option value="high_only">Solo alta</option>
-                </select>
+                <AppSelect id="backtest-confidence" className="fp-input" value={confidenceLevel} onChange={(value) => setConfidenceLevel(value as ConfidenceMode)} options={[{value:'medium_and_above',label:'Alta e media'},{value:'high_only',label:'Solo alta'}]} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-competition">Competizione</label>
-                <select
-                  id="backtest-competition"
-                  className="fp-input"
-                  value={competition}
-                  onChange={(e) => setCompetition(e.target.value)}
-                >
-                  {COMPETITION_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                <AppSelect id="backtest-competition" className="fp-input" value={competition} onChange={setCompetition} options={COMPETITION_OPTIONS} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-season">Stagione (opzionale)</label>
@@ -648,29 +637,19 @@ const BacktestingPageView: React.FC = () => {
             <div className="fp-grid-2" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-report-market">Mercato</label>
-                <select id="backtest-report-market" className="fp-input" value={reportMarket} onChange={(e) => setReportMarket(e.target.value)}>
-                  <option value="">Tutti</option>
-                  {reportMarketOptions.map((option: string) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
+                <AppSelect id="backtest-report-market" className="fp-input" value={reportMarket} onChange={setReportMarket} options={[{value:'',label:'Tutti'}, ...reportMarketOptions.map((option: string) => ({value:option,label:option}))]} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-report-source">Sorgente quote</label>
-                <select id="backtest-report-source" className="fp-input" value={reportSource} onChange={(e) => setReportSource(e.target.value)}>
-                  <option value="">Tutte</option>
-                  {reportSourceOptions.map((option: string) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
+                <AppSelect id="backtest-report-source" className="fp-input" value={reportSource} onChange={setReportSource} options={[{value:'',label:'Tutte'}, ...reportSourceOptions.map((option: string) => ({value:option,label:option}))]} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-report-date-from">Data da</label>
-                <input id="backtest-report-date-from" className="fp-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} />
+                <AppDateInput id="backtest-report-date-from" className="fp-input" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label className="fp-label" htmlFor="backtest-report-date-to">Data a</label>
-                <input id="backtest-report-date-to" className="fp-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} />
+                <AppDateInput id="backtest-report-date-to" className="fp-input" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} />
               </div>
             </div>
 

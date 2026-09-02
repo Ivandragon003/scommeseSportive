@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AppDateInput, AppSelect } from '../components/common/AppSelect';
 import {
   CalendarDays,
   Check,
@@ -296,8 +297,8 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
                 {datePanelOpen && (
                   <div className="bets-date-panel" id="bets-date-panel" role="group" aria-label="Seleziona intervallo date">
                     <div className="bets-date-panel__head"><strong>Intervallo date</strong><button type="button" aria-label="Chiudi intervallo date" onClick={() => setDatePanelOpen(false)}><X size={16} /></button></div>
-                    <label htmlFor="bets-date-from">Data iniziale<input id="bets-date-from" type="date" value={draftDateRange.from} onChange={(event) => setDraftDateRange((range) => ({ ...range, from: event.target.value }))} /></label>
-                    <label htmlFor="bets-date-to">Data finale<input id="bets-date-to" type="date" value={draftDateRange.to} onChange={(event) => setDraftDateRange((range) => ({ ...range, to: event.target.value }))} /></label>
+                    <label htmlFor="bets-date-from">Data iniziale<AppDateInput id="bets-date-from" value={draftDateRange.from} onChange={(event) => setDraftDateRange((range) => ({ ...range, from: event.target.value }))} /></label>
+                    <label htmlFor="bets-date-to">Data finale<AppDateInput id="bets-date-to" value={draftDateRange.to} onChange={(event) => setDraftDateRange((range) => ({ ...range, to: event.target.value }))} /></label>
                     <div className="bets-date-panel__actions">
                       <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={resetDateRange}>Azzera intervallo</button>
                       <button type="button" className="fp-btn fp-btn-solid fp-btn-sm" onClick={applyDateRange}>Applica intervallo</button>
@@ -331,8 +332,8 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
             <div className="bets-section__head">
               <div><History size={22} aria-hidden="true" /><h2 id="history-title">Storico giocate</h2><span className="fp-badge">{visibleHistoryBets.length}</span></div>
               <div className="bets-history-filters">
-                <label><span className="sr-only">Filtra storico per esito</span><select aria-label="Filtra storico per esito" value={historyOutcome} onChange={(event) => setHistoryOutcome(event.target.value)}><option value="">Tutti gli esiti</option><option value="WON">Vinte</option><option value="LOST">Perse</option><option value="VOID">Annullate</option></select></label>
-                <label><span className="sr-only">Filtra storico per competizione</span><select aria-label="Filtra storico per competizione" value={historyCompetition} onChange={(event) => setHistoryCompetition(event.target.value)}><option value="">Tutte le competizioni</option>{competitions.map((competition) => <option key={competition} value={competition}>{competition}</option>)}</select></label>
+                <label><span className="sr-only">Filtra storico per esito</span><AppSelect aria-label="Filtra storico per esito" value={historyOutcome} onChange={setHistoryOutcome} options={[{value:'',label:'Tutti gli esiti'},{value:'WON',label:'Vinte'},{value:'LOST',label:'Perse'},{value:'VOID',label:'Annullate'}]} /></label>
+                <label><span className="sr-only">Filtra storico per competizione</span><AppSelect aria-label="Filtra storico per competizione" value={historyCompetition} onChange={setHistoryCompetition} options={[{value:'',label:'Tutte le competizioni'}, ...competitions.map((competition) => ({value:competition,label:competition}))]} /></label>
               </div>
             </div>
             <div className="bets-table-shell">

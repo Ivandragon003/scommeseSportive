@@ -199,3 +199,52 @@
 
 @media (max-width: 900px) { .shared-login__pitch { width: 520px; max-width: 124vw; left: 50%; top: 13%; transform: translate(-50%, -50%) rotate(-7deg); opacity: .58; }.shared-login__card { margin: 80px 0 0; } }
 @media (max-width: 480px) { .shared-login { align-items: start; padding: max(82px, env(safe-area-inset-top)) 14px 24px; }.shared-login__theme { top: max(14px, env(safe-area-inset-top)); right: 14px; width: 40px; padding: 0; justify-content: center; }.shared-login__theme span { display: none; }.shared-login__card { margin-top: 56px; padding: 25px 22px; border-radius: 16px; }.shared-login__pitch { top: 11%; }.shared-login__intro { margin-bottom: 24px; } }
+
+/* Native app only: a compact, touch-first access gate. The desktop composition
+   is deliberately kept intact for the browser version. */
+.shared-login--native {
+  min-height: 100svh;
+  align-items: start;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  box-sizing: border-box;
+  padding: calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 24px);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--primary-dim) 58%, var(--bg)), var(--bg) 38%);
+}
+
+.shared-login--native::before { opacity: .22; background-size: 28px 28px; }
+.shared-login--native .shared-login__pitch { display: none; }
+.shared-login--native .shared-login__theme {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 14px);
+  right: 18px;
+  width: 42px;
+  padding: 0;
+  justify-content: center;
+}
+.shared-login--native .shared-login__theme span { display: none; }
+.shared-login--native .shared-login__card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  margin: 68px 0 0;
+  padding: 24px 22px 22px;
+  border-radius: 18px;
+  box-shadow: 0 14px 34px rgba(16, 27, 54, .10);
+  backdrop-filter: none;
+}
+.shared-login--native .shared-login__card::before { width: 3px; border-radius: 18px 0 0 18px; }
+.shared-login--native .shared-login__brand { width: 46px; height: 46px; margin-bottom: 16px; border-radius: 13px; }
+.shared-login--native h1 { font-size: clamp(2rem, 9vw, 2.45rem); line-height: 1.02; }
+.shared-login--native .shared-login__intro { margin: 12px 0 22px; font-size: 1rem; line-height: 1.48; }
+.shared-login--native .shared-login__form { gap: 10px; }
+.shared-login--native .shared-login__field { min-height: 54px; }
+.shared-login--native .shared-login__form .fp-btn { min-height: 52px; margin-top: 6px; }
+.shared-login--native .shared-login__note { margin-top: 16px; font-size: .76rem; }
+
+@media (max-width: 380px) {
+  .shared-login--native { padding-inline: 14px; }
+  .shared-login--native .shared-login__card { padding: 21px 18px 19px; margin-top: 60px; }
+  .shared-login--native .shared-login__brand { margin-bottom: 13px; }
+  .shared-login--native .shared-login__intro { margin-bottom: 18px; }
+}
