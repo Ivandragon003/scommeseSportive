@@ -1133,9 +1133,9 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                   <div className="pr-results-match">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id} vs {activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div>
                   <div className="pr-results-meta">{activeMatchRow.competition ?? competition} | {formatKickoff(activeMatchRow.date)}</div>
                 </div>
-                <button type="button" className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => handleAnalyze(activeMatchRow)} disabled={loading}>
-                  {loading ? 'Analisi in corso...' : 'Analizza partita'}
-                </button>
+                <span className={`pr-odds-status ${loading ? 'info' : 'danger'}`}>
+                  {loading ? 'Analisi in corso…' : 'Analisi non disponibile'}
+                </span>
               </div>
               <div className="pr-hero pr-preview-hero">
                 <div className="pr-hero-team"><div className="pr-hero-name">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id}</div><div className="pr-hero-lambda">Casa</div></div>
@@ -1150,8 +1150,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               <div className="pr-decision-layout">
                 <div className="pr-decision-report is-empty">
                   <div className="pr-decision-report__eyebrow">Giocata consigliata</div>
-                  <strong className="pr-decision-report__title">{loading ? 'Sto preparando il pronostico' : 'Pronta per l’analisi'}</strong>
-                  <p className="pr-decision-report__summary">{loading ? (oddsMsg || 'Calcolo probabilità e verifico le quote disponibili.') : 'Avvia l’analisi per calcolare la singola giocata finale e verificare le quote bookmaker reali.'}</p>
+                  <strong className="pr-decision-report__title">{loading ? 'Sto preparando il pronostico' : 'Analisi non disponibile'}</strong>
+                  <p className="pr-decision-report__summary">{loading ? (oddsMsg || 'Calcolo probabilità e verifico le quote disponibili.') : (oddsMsg || 'Non è stato possibile completare l’analisi. Torna all’elenco e seleziona di nuovo la partita.')}</p>
                 </div>
                 <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Impatto sul budget</div></div><div className="pr-card-body"><div className="pr-info">Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong></div></div></div>
               </div>
