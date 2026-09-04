@@ -26,6 +26,7 @@ const betsPayload = [
     selection: 'Over 2.5 Goal',
     odds: 2.1,
     stake: 20,
+    our_probability: 0.57,
     profit: null,
     status: 'PENDING',
     placed_at: '2026-04-22T10:00:00.000Z',
@@ -40,6 +41,7 @@ const betsPayload = [
     selection: 'dnb_home',
     odds: 1.9,
     stake: 15,
+    our_probability: 0.57,
     profit: 13.5,
     status: 'WON',
     placed_at: '2026-04-21T18:00:00.000Z',
@@ -142,6 +144,8 @@ describe('BetsManager', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Apri dettaglio Inter Milan/i }));
 
     expect(screen.getByText('Quota alla giocata')).toBeTruthy();
+    expect(screen.getByText('P. nostra')).toBeTruthy();
+    expect(screen.getByText('57%')).toBeTruthy();
     expect(screen.getByText('Giocata il')).toBeTruthy();
     expect(screen.getByText('Fonte quota')).toBeTruthy();
   });
