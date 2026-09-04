@@ -91,8 +91,8 @@ const BetRow: React.FC<{
       : String(bet.status) === 'VOID'
         ? stake
         : 0;
-  const probabilityValue = Number(bet.estimated_probability ?? bet.probability ?? bet.model_probability);
-  const probability = Number.isFinite(probabilityValue)
+  const probabilityValue = Number(bet.our_probability ?? bet.ourProbability ?? bet.estimated_probability ?? bet.probability ?? bet.model_probability);
+  const probability = Number.isFinite(probabilityValue) && probabilityValue > 0
     ? `${probabilityValue <= 1 ? (probabilityValue * 100).toFixed(0) : probabilityValue.toFixed(0)}%`
     : 'Non disponibile';
 
@@ -126,7 +126,7 @@ const BetRow: React.FC<{
         <div className="bet-row__detail">
           <div><small>Pronostico originale</small><strong>{formatBetMarketName(bet.market_name)}</strong>{selection && <span>{selection}</span>}</div>
           <div><small>Quota alla giocata</small><strong>{odds.toFixed(2)}</strong></div>
-          <div><small>Probabilità stimata</small><strong>{probability}</strong></div>
+          <div><small>P. nostra</small><strong>{probability}</strong></div>
           <div><small>Puntata</small><strong>{formatMoney(stake)}</strong></div>
           <div><small>Giocata il</small><strong>{formatBetDateTime(bet.placed_at)}</strong></div>
           <div><small>Fonte quota</small><strong>{getBookmakerLabel(bet)}</strong>{isLegacyBet(bet) && <span className="bm-data-warning">Dato precedente alla validazione</span>}</div>
