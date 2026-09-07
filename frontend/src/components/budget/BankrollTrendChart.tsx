@@ -29,13 +29,15 @@ const formatCurrency = (value: number) => `EUR ${value.toFixed(2)}`;
 
 const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, settledBets }) => {
   const [range, setRange] = useState<TrendRange>('30D');
+  const now = Date.now();
   const fullData = useMemo<TrendPoint[]>(() => {
     let runningBudget = initialBudget;
     const orderedBets = [...settledBets]
-      .map((bet) => ({ bet, timestamp: new Date(bet?.placed_at ?? 0).getTime() }))
-      .filter(({ timestamp }) => Number.isFinite(timestamp))
+      .map((bet) => ({ bet, timestamp: [bet?.settled_at, bet?.placed_at]
+        .map((date) => date ? new Date(date).getTime() : NaN).find(Number.isFinite) ?? NaN }))
+      .filter(({ timestamp }) => Number.isFinite(timestamp) && timestamp <= now)
       .sort((left, right) => left.timestamp - right.timestamp);
-    const startTimestamp = orderedBets[0]?.timestamp ?? Date.now();
+    const startTimestamp = orderedBets[0]?.timestamp ?? now;
     const points: TrendPoint[] = [{
       label: 'Inizio',
       value: runningBudget,
@@ -56,23 +58,26 @@ const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, 
     }
 
     return points;
-  }, [initialBudget, settledBets]);
+  }, [initialBudget, settledBets, now]);
 
   const { data, movementCount } = useMemo(() => {
-    if (range === 'ALL' || fullData.length <= 1) {
+    if (range === 'ALL') {
       return { data: fullData, movementCount: Math.max(0, fullData.length - 1) };
     }
     const selected = ranges.find((item) => item.value === range);
-    const latestTimestamp = fullData[fullData.length - 1]?.timestamp ?? Date.now();
-    const cutoff = latestTimestamp - Number(selected?.days ?? 30) * 24 * 60 * 60 * 1000;
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - Number(selected?.days ?? 30) + 1);
+    const cutoff = start.getTime();
     const earlier = fullData.filter((point) => point.timestamp < cutoff);
     const inside = fullData.filter((point, index) => index > 0 && point.timestamp >= cutoff);
     const baseline = earlier[earlier.length - 1] ?? fullData[0];
     return {
-      data: [{ ...baseline, label: 'Inizio periodo', result: 'Valore a inizio periodo' }, ...inside],
+      data: [{ ...baseline, timestamp: cutoff, label: 'Inizio periodo', result: 'Valore a inizio periodo' }, ...inside,
+        { ...fullData[fullData.length - 1], timestamp: now, label: 'Oggi', result: 'Valore attuale' }],
       movementCount: inside.length,
     };
-  }, [fullData, range]);
+  }, [fullData, range, now]);
 
   const finalBudget = data[data.length - 1]?.value ?? initialBudget;
 
@@ -98,6 +103,11 @@ const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, 
           <span className="initial"><Minus size={20} />Budget iniziale</span>
         </div>
       </div>
+      <p className="budget-chart-period" role="status">
+        {movementCount === 0 ? 'Nessuna giocata conclusa nel periodo selezionato.'
+          : `${movementCount} ${movementCount === 1 ? 'giocata conclusa' : 'giocate concluse'} nel periodo.`}
+        {' '}Dal {new Date(data[0].timestamp).toLocaleDateString('it-IT')} al {new Date(now).toLocaleDateString('it-IT')}.
+      </p>
       <figure
         className="budget-chart"
         data-testid="bankroll-trend-chart"
