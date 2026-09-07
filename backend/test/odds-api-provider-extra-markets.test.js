@@ -2,6 +2,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { OddsApiProvider } = require('../dist/services/odds-provider/OddsApiProvider.js');
 
+test('authentication cooldown is shared across leagues and instances but isolated by API key', async () => {
+  let calls = 0;
+  const service = {
+    getRemainingRequests: () => 0,
+    getOdds: async () => { calls++; const error = new Error('unauthorized'); error.response = { status: 401 }; throw error; },
+  };
+  const first = new OddsApiProvider('shared-auth-test');
+  first.service = service;
+  await assert.rejects(first.getCompetitionOdds({ competition: 'Serie A', markets: ['h2h'] }), /401/);
+  const second = new OddsApiProvider('shared-auth-test');
+  second.service = service;
+  await assert.rejects(second.getCompetitionOdds({ competition: 'La Liga', markets: ['h2h'] }), /retry paused/);
+  assert.equal(calls, 1);
+  const other = new OddsApiProvider('separate-auth-test');
+  other.service = service;
+  await assert.rejects(other.getCompetitionOdds({ competition: 'La Liga', markets: ['h2h'] }), /401/);
+  assert.equal(calls, 2);
+});
+
 const baseMatch = {
   matchId: 'odds_event_1',
   homeTeam: 'Inter',

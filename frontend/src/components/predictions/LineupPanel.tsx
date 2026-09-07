@@ -102,10 +102,11 @@ const LineupPanel: React.FC<{ matchId?: string }> = ({ matchId }) => {
   useEffect(() => {
     if (!matchId || !data?.kickoff || data.hasConfirmedLineup) return undefined;
     const kickoff = Date.parse(data.kickoff);
-    const remaining = kickoff - Date.now();
-    if (!Number.isFinite(kickoff) || remaining < 0 || remaining > OFFICIAL_LINEUP_WINDOW_MS) return undefined;
+    if (!Number.isFinite(kickoff) || kickoff < Date.now()) return undefined;
 
     const refresh = () => {
+      const remaining = kickoff - Date.now();
+      if (remaining < 0 || remaining > OFFICIAL_LINEUP_WINDOW_MS) return;
       // The endpoint applies its own cooldown and emits the event that reloads
       // this panel. A failed provider must not make the probable lineup vanish.
       void Promise.resolve(refreshPlayerAvailability(matchId)).catch(() => undefined);

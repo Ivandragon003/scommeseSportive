@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
@@ -582,6 +583,8 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
 
 const apiFootball = deps.apiFootballService ?? new ApiFootballService();
 const lineupRefreshReservations = new Map<string, number>();
+const reconciledSquads = new Map<string, number>();
+const SQUAD_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const LINEUP_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 const reserveLineupRefresh = (matchId: string, now = Date.now()): boolean => {
@@ -714,7 +717,8 @@ router.get('/player-availability/:matchId', async (req: Request, res: Response) 
         homeUnavailableCount: home.unavailableCount,
         awayUnavailableCount: away.unavailableCount,
         warnings: Array.from(new Set([...home.warnings, ...away.warnings])),
-        hasConfirmedLineup: completeOfficialTeamIds(statusRows).size > 0,
+        hasConfirmedLineup: [String(match.home_team_id), String(match.away_team_id)]
+          .every((teamId) => completeOfficialTeamIds(statusRows).has(teamId)),
         hasProviderData: statusRows.some((row: any) => String(row.source).startsWith('api_football_')),
         note: 'La formazione probabile e una stima; la formazione ufficiale prevale quando disponibile.',
       },
@@ -893,7 +897,19 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
     const hours = Math.max(1, Math.min(Number(req.body?.windowHours ?? 24), 48));
     const now = Date.now();
     const untilIso = new Date(now + hours * 60 * 60 * 1000).toISOString();
-    const matches = await db.getUpcomingMatches({ untilIso, limit: 200 });
+    const upcomingMatches = await db.getUpcomingMatches({ untilIso, limit: 200 });
+    const matches = [];
+    let alreadyConfirmed = 0;
+    for (const match of upcomingMatches) {
+      const kickoff = Date.parse(String(match.date ?? ''));
+      if (!Number.isFinite(kickoff) || kickoff < now) continue;
+      const confirmed = completeOfficialTeamIds(await db.getPlayerLineupStatuses(String(match.match_id), String(match.date)));
+      if (confirmed.has(String(match.home_team_id)) && confirmed.has(String(match.away_team_id))) {
+        alreadyConfirmed++;
+        continue;
+      }
+      matches.push(match);
+    }
     // Il modello locale deve funzionare anche senza API-Football. Il provider
     // arricchisce rosa/assenze/XI ufficiale, ma non e un prerequisito.
     const reservedMatchIds = new Set<string>();
@@ -905,13 +921,15 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
       .filter((match: any) => reservedMatchIds.has(String(match.match_id ?? '')))
       .map((match: any) => String(match.date ?? '').slice(0, 10))
       .filter(Boolean))];
-    let providerFixtures: Awaited<ReturnType<ApiFootballService['getFixturesByDate']>> = [];
+    const providerFixtures: Awaited<ReturnType<ApiFootballService['getFixturesByDate']>> = [];
     const providerWarnings: string[] = [];
     if (apiFootball.enabled) {
-      try {
-        providerFixtures = (await Promise.all(providerDates.map((date) => apiFootball.getFixturesByDate(date)))).flat();
-      } catch (providerError: any) {
-        providerWarnings.push(`fixtures:${String(providerError?.message ?? providerError)}`);
+      for (const date of providerDates) {
+        try {
+          providerFixtures.push(...await apiFootball.getFixturesByDate(date));
+        } catch (providerError: any) {
+          providerWarnings.push(`fixtures:${date}:${String(providerError?.message ?? providerError)}`);
+        }
       }
     }
     const teamsReconciled = new Set<string>();
@@ -936,6 +954,9 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
           { internalId: String(match.away_team_id), providerId: fixture.awayProviderTeamId },
         ]) {
           if (!side.providerId || teamsReconciled.has(side.internalId)) continue;
+          const squadKey = `${side.internalId}:${side.providerId}`;
+          const reconciledAt = reconciledSquads.get(squadKey);
+          if (reconciledAt !== undefined && now - reconciledAt < SQUAD_REFRESH_INTERVAL_MS) continue;
           const squad = await apiFootball.getSquad(side.providerId).catch((providerError: any) => {
             providerWarnings.push(`squad:${side.internalId}:${String(providerError?.message ?? providerError)}`);
             return [];
@@ -959,6 +980,11 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
           // Creazioni identity-only, trasferimenti e disattivazione degli
           // esclusi avvengono in un unico batch Turso transazionale.
           await db.applyProviderSquadReconciliation(side.internalId, plan.resolved);
+          for (const [key, timestamp] of reconciledSquads) {
+            if (now - timestamp >= SQUAD_REFRESH_INTERVAL_MS) reconciledSquads.delete(key);
+          }
+          if (reconciledSquads.size >= 500) reconciledSquads.delete(reconciledSquads.keys().next().value!);
+          reconciledSquads.set(squadKey, now);
           teamsReconciled.add(side.internalId);
         }
       }
@@ -1061,10 +1087,12 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
       saved += rows.length;
     }
     res.json({
-      success: true, enabled: apiFootball.enabled, windowHours: hours, checked, saved,
+      success: true, enabled: apiFootball.enabled, windowHours: hours, checked, saved, alreadyConfirmed,
       predictedSaved, incompletePredictions, teamsReconciled: teamsReconciled.size,
       source: apiFootball.enabled ? 'local_model_plus_api_football' : 'last_five_lineup_model',
       providerWarnings,
+      providerStatus: !apiFootball.enabled ? 'disabled' : providerWarnings.length > 0 ? 'degraded'
+        : checked === 0 ? 'not_checked' : 'ok',
     });
   } catch (error: any) {
     console.error('[api-football-upcoming-lineup-sync] failed:', error?.stack ?? error?.message ?? error);
@@ -1291,7 +1319,10 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
     // La retention viene applicata prima della rete: anche un outage della
     // fonte supplementare non puo lasciare una sesta stagione nel DB.
     const prune = await pruneOldSeasons(client, policy.keepSeasons);
-    const sync = await syncFootballData(fdDb, { competitions, seasonStartYears: policy.seasonStartYears });
+    const sync = await syncFootballData(fdDb, {
+      competitions, seasonStartYears: policy.seasonStartYears,
+      historyStore: createFootballDataHistoryStore(client), forceRefresh: body.forceRefresh === true,
+    });
 
     if (!sync.allExpectedSeasonsReady) {
       return res.status(502).json({
@@ -2281,6 +2312,7 @@ router.post('/competition-transitions/sync-references', async (_req: Request, re
     const result = await syncTransitionSeasonReferences(db, {
       competitions: FOOTBALL_DATA_TRANSITION_LEAGUE_CODES,
       seasonStartYears: policy.seasonStartYears,
+      historyStore: createFootballDataHistoryStore((db as any).db), forceRefresh: _req.body?.forceRefresh === true,
     });
     if (result.errors.length > 0 || result.persisted + result.skipped !== result.requested) {
       return res.status(502).json({
@@ -3664,7 +3696,10 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       : primaryProviderName;
     const marketCount = coordination.matches.reduce((sum, entry) => sum + countMatchMarkets(entry.match), 0);
 
-    if (coordination.matches.length === 0 && !apiKey) {
+    const providerFailed = Object.values(coordination.providerHealth).some(
+      (health) => health.status === 'unhealthy' || health.status === 'disabled'
+    );
+    if (coordination.matches.length === 0 && (!apiKey || providerFailed)) {
       await observability?.recordProviderRun({
         requestId,
         runId,
@@ -3694,7 +3729,9 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       });
       return res.status(503).json({
         success: false,
-        error: 'Provider quote non disponibile e ODDS_API_KEY non configurata sul server.',
+        error: !apiKey
+          ? 'Provider quote non disponibile e ODDS_API_KEY non configurata sul server.'
+          : 'Sincronizzazione quote fallita: provider non disponibile. Verificare providerHealth e warnings.',
         providerHealth: coordination.providerHealth,
         fetchedAt: coordination.fetchedAt,
         warnings: coordination.warnings,

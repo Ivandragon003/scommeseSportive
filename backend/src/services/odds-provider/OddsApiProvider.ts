@@ -192,24 +192,12 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
     throw new Error(warnings.join(' | ') || 'Odds API non ha restituito quote per i mercati richiesti');
   }
 
-  private getCooldownKey(competition?: string): string {
-    return `${this.cooldownScope}:${String(competition ?? '').trim().toLowerCase() || 'default'}`;
+  private getCooldownKey(_competition?: string): string {
+    return this.cooldownScope;
   }
 
   private getActiveAuthCooldown(competition?: string): { until: number; message: string } | null {
     OddsApiProvider.pruneAuthCooldowns();
-    if (competition === undefined) {
-      const scopePrefix = `${this.cooldownScope}:`;
-      for (const [key, cooldown] of OddsApiProvider.authCooldowns) {
-        if (!key.startsWith(scopePrefix)) continue;
-        if (cooldown.until <= Date.now()) {
-          OddsApiProvider.authCooldowns.delete(key);
-          continue;
-        }
-        return cooldown;
-      }
-      return null;
-    }
     const key = this.getCooldownKey(competition);
     const cooldown = OddsApiProvider.authCooldowns.get(key);
     if (!cooldown) return null;

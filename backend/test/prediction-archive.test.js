@@ -201,7 +201,16 @@ test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo con
     assert.equal(payload.success, true);
     assert.equal(payload.data[0].decision_id, 'decision-api');
     assert.deepEqual(receivedOptions, {
-      type: 'simulated', classification: 'low', result: 'pending', matchId: undefined, userId: 'user1', limit: 50,
+      category: undefined, type: 'simulated', classification: 'low', classifications: [],
+      result: 'pending', matchId: undefined, from: undefined, to: undefined, userId: 'user1', limit: 50,
+    });
+
+    const filteredResponse = await fetch(`http://127.0.0.1:${port}/api/bet-opportunities/archive?category=unplayed&type=simulated&classifications=low,%20medium,,&from=2026-09-01&to=2026-09-07&matchId=match-42&limit=25`);
+    assert.equal(filteredResponse.status, 200);
+    await filteredResponse.json();
+    assert.deepEqual(receivedOptions, {
+      category: 'unplayed', type: 'simulated', classification: undefined, classifications: ['low', 'medium'],
+      result: undefined, matchId: 'match-42', from: '2026-09-01', to: '2026-09-07', userId: 'user1', limit: 25,
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
