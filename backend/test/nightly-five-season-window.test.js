@@ -16,17 +16,13 @@ test('nightly and runtime defaults request exactly five seasons', () => {
   const nightly = read('scripts', 'ci', 'nightly-sync.sh');
   const backend = read('backend', 'src', 'index.ts');
   const compose = read('docker-compose.yml');
-  const composeProd = read('docker-compose.prod.yml');
   const frontendDockerfile = read('frontend', 'Dockerfile');
   assert.doesNotMatch(nightly, /FOOTBALL_DATA_KEEP_SEASONS/);
   assert.match(nightly, /\\"yearsBack\\":5/);
   assert.match(backend, /UNDERSTAT_SCHEDULER_YEARS_BACK = 5/);
-  assert.match(compose, /UNDERSTAT_SCHEDULER_YEARS_BACK=5/);
-  assert.match(composeProd, /UNDERSTAT_SCHEDULER_YEARS_BACK=5/);
-  assert.match(compose, /API_FOOTBALL_ENABLED=\$\{API_FOOTBALL_ENABLED:-false\}/);
-  assert.match(compose, /API_FOOTBALL_KEY=\$\{API_FOOTBALL_KEY:-\}/);
-  assert.match(composeProd, /API_FOOTBALL_ENABLED=\$\{API_FOOTBALL_ENABLED:-false\}/);
-  assert.match(composeProd, /API_FOOTBALL_KEY=\$\{API_FOOTBALL_KEY:-\}/);
+  // Compose imports provider settings from .env; the five-season policy is
+  // enforced by the backend, rather than duplicated in deployment overrides.
+  assert.match(compose, /env_file:\s*\r?\n\s*- \.env\s/);
   assert.match(nightly, /api\/player-availability\/sync-upcoming/);
   assert.doesNotMatch(nightly, /if \[\[ "\$API_FOOTBALL_ENABLED"/);
   assert.match(frontendDockerfile, /^FROM node:22-alpine AS builder/m);

@@ -107,6 +107,36 @@ const postMatchOdds = async (baseUrl, body) => {
   };
 };
 
+for (const providerStatus of ['unhealthy', 'disabled', 'degraded']) {
+  test(`bulk odds reports ${providerStatus} without confusing provider failure with an empty calendar`, async () => {
+    const snapshots = [];
+    const server = await startRouter({
+      snapshots,
+      coordinator: {
+        getCompetitionOdds: async () => ({
+          matches: [], fetchedAt: fixedFetchedAt, isMerged: false,
+          warnings: [], fallbackReason: null, providerRuntime: {},
+          providerHealth: { odds_api: { status: providerStatus, message: 'provider diagnostic' } },
+        }),
+      },
+    });
+    try {
+      const result = await fetch(`${server.baseUrl}/scraper/odds`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ competition: 'Serie A' }),
+      });
+      const payload = await result.json();
+      const failed = providerStatus !== 'degraded';
+      assert.equal(result.status, failed ? 503 : 200);
+      assert.equal(payload.success, !failed);
+      assert.equal(snapshots.length, 0);
+      if (failed) assert.equal(payload.providerHealth.odds_api.status, providerStatus);
+    } finally {
+      await server.close();
+    }
+  });
+}
+
 const getJson = async (baseUrl, path) => {
   const response = await fetch(`${baseUrl}${path}`);
   return {

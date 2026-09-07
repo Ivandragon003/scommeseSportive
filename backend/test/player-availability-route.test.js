@@ -70,6 +70,78 @@ const history = Array.from({ length: 5 }, (_, index) => ({
   ), a: {} } } }),
 }));
 
+test('upcoming refresh reuses reconciled squads, keeps injuries fresh and stops only after both XI are confirmed', async () => {
+  const oldNow = Date.now;
+  let now = oldNow();
+  const kickoff = new Date(now + 20 * 60 * 60 * 1000).toISOString();
+  const match = { match_id: 'refresh-economy', date: kickoff,
+    home_team_id: 'home', away_team_id: 'away', home_team_name: 'Home', away_team_name: 'Away' };
+  const awayPlayers = players.map((p) => ({ ...p, player_id: `away-${p.player_id}`, team_id: 'away' }));
+  let statuses = [];
+  let squadCalls = 0;
+  let fixtureCalls = 0;
+  let injuryCalls = 0;
+  const app = express();
+  app.use(express.json());
+  app.use('/api', createApiRouter({
+    db: {
+      getUpcomingMatches: async () => [match], getMatchById: async () => match,
+      getPlayerLineupStatuses: async () => statuses,
+      getPlayersByTeam: async (id) => id === 'home' ? players : awayPlayers,
+      getAllPlayersByTeam: async (id) => id === 'home' ? players : awayPlayers,
+      getAllPlayers: async () => [...players, ...awayPlayers],
+      applyProviderSquadReconciliation: async () => {},
+      replacePlayerInjuryStatuses: async () => {},
+      getRecentCompletedMatchesForTeam: async () => [],
+      savePlayerLineupStatuses: async () => {},
+    }, svc: {},
+    apiFootballService: {
+      enabled: true,
+      getFixturesByDate: async () => { fixtureCalls++; return [{ id: 1, homeName: 'Home', awayName: 'Away', homeProviderTeamId: 1, awayProviderTeamId: 2 }]; },
+      getSquad: async (id) => { squadCalls++; return (id === 1 ? players : awayPlayers).map((p, i) => ({ id: i + 1, name: p.name, position: p.position_code })); },
+      getInjuries: async () => { injuryCalls++; return []; }, getConfirmedLineups: async () => [],
+    },
+  }));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/api/player-availability`;
+  const refresh = async () => {
+    const result = await fetch(`${url}/sync-upcoming`, { method: 'POST' });
+    const body = await result.json();
+    assert.equal(result.status, 200, JSON.stringify(body));
+    return body;
+  };
+  try {
+    Date.now = () => now;
+    await refresh();
+    assert.equal(squadCalls, 2);
+    now += 6 * 60 * 1000;
+    await refresh();
+    assert.equal(squadCalls, 2);
+    assert.equal(injuryCalls, 2);
+    now += 6 * 60 * 60 * 1000;
+    await refresh();
+    assert.equal(squadCalls, 4);
+    statuses = players.slice(0, 11).map((p) => ({ ...p, status: 'confirmed_starter' }));
+    const partial = await (await fetch(`${url}/refresh-economy`)).json();
+    assert.equal(partial.data.hasConfirmedLineup, false);
+    now += 6 * 60 * 1000;
+    assert.equal((await refresh()).checked, 1);
+    statuses.push(...awayPlayers.slice(0, 11).map((p) => ({ ...p, status: 'confirmed_starter' })));
+    now += 6 * 60 * 1000;
+    const before = fixtureCalls;
+    const done = await refresh();
+    assert.equal(done.alreadyConfirmed, 1);
+    assert.equal(done.checked, 0);
+    assert.equal(fixtureCalls, before);
+    const full = await (await fetch(`${url}/refresh-economy`)).json();
+    assert.equal(full.data.hasConfirmedLineup, true);
+  } finally {
+    Date.now = oldNow;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('GET player-availability restituisce undici probabili titolari e rimuove gli indisponibili', async () => {
   const app = express();
   app.use(express.json());

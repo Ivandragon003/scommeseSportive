@@ -9,6 +9,24 @@
 // Scrittura NON distruttiva: riempie solo le colonne attualmente NULL
 // (UPDATE ... = COALESCE(col, :nuovo)), quindi non sovrascrive mai i valori Understat.
 
+import { loadFootballDataCsv, type FootballDataHistoryStore } from './FootballDataHistoryCache';
+
+// Only cache a complete regular season, never a truncated CSV that happens to
+// match the subset currently in our database.
+function isCompleteSourceSeason(leagueCode: string, seasonStart: number, rows: FootballDataRow[]): boolean {
+  const expectedTeams: Record<string, number> = {
+    I1: 20, E0: 20, SP1: 20, D1: 18, F1: seasonStart < 2023 ? 20 : 18,
+    I2: 20, E1: 24, SP2: 22, D2: 18, F2: seasonStart < 2024 ? 20 : 18,
+  };
+  const count = expectedTeams[leagueCode];
+  if (!count || rows.length !== count * (count - 1)) return false;
+  const teams = new Set(rows.flatMap((row) => [canonicalTeamName(row.homeTeam), canonicalTeamName(row.awayTeam)]));
+  const pairs = new Set(rows.map((row) => `${canonicalTeamName(row.homeTeam)}:${canonicalTeamName(row.awayTeam)}`));
+  return teams.size === count && pairs.size === rows.length
+    && rows.every((row) => canonicalTeamName(row.homeTeam) !== canonicalTeamName(row.awayTeam)
+      && row.date >= `${seasonStart}-07-01` && row.date < `${seasonStart + 1}-07-01`);
+}
+
 export const FOOTBALL_DATA_LEAGUE_CODES: Record<string, string> = {
   'Serie A': 'I1',
   'Premier League': 'E0',
@@ -392,6 +410,8 @@ export const defaultFootballDataFetcher: FootballDataFetcher = async (leagueCode
 };
 
 export interface FootballDataSyncOptions {
+  historyStore?: FootballDataHistoryStore;
+  forceRefresh?: boolean;
   competitions?: string[];
   seasonStartYears?: number[]; // es. [2024, 2025]
   fetcher?: FootballDataFetcher;
@@ -455,12 +475,16 @@ export interface TransitionReferenceDb {
 }
 
 export interface TransitionReferenceSyncOptions {
+  historyStore?: FootballDataHistoryStore;
+  forceRefresh?: boolean;
+  now?: Date;
   competitions?: Record<string, string>;
   seasonStartYears?: number[];
   fetcher?: FootballDataFetcher;
 }
 
 export interface TransitionReferenceSyncSummary {
+  reusedHistorical: number;
   requested: number;
   downloaded: number;
   persisted: number;
@@ -499,6 +523,7 @@ export async function syncTransitionSeasonReferences(
     ?? buildSeasonWindow().map((label) => Number(label.slice(0, 4)));
   const fetcher = options.fetcher ?? defaultFootballDataFetcher;
   const summary: TransitionReferenceSyncSummary = {
+    reusedHistorical: 0,
     requested: 0, downloaded: 0, persisted: 0, skipped: 0, errors: [],
     transitionsPersisted: 0, teamSeasonsPersisted: 0, teamMatchesPersisted: 0,
     unresolvedTeams: [], modelAdjustmentEnabled: false, perSeason: {},
@@ -530,7 +555,7 @@ export async function syncTransitionSeasonReferences(
           && await db.hasCompleteTransitionSeasonReference(competitionId, seasonLabelValue)
           && (!db.hasTransitionForSourceSeason || await db.hasTransitionForSourceSeason(competitionId, seasonLabelValue))
           && !needsTeamHistory
-          && !db.upsertLowerDivisionHistoryBatch) {
+          && !db.upsertLowerDivisionHistoryBatch && !options.forceRefresh && !options.historyStore) {
           summary.skipped += 1;
           summary.perSeason[seasonKey] = {
             status: 'skipped_complete', rows: 0, teamSeasons: 0, teamMatches: 0,
@@ -538,9 +563,16 @@ export async function syncTransitionSeasonReferences(
           };
           continue;
         }
-        const csv = await fetcher(leagueCode, seasonCode);
+        const now = options.now ?? new Date();
+        const loaded = await loadFootballDataCsv({
+          leagueCode, seasonStart: seasonStartYear, seasonCode, fetcher, now,
+          currentSeasonStart: currentSeasonStartYear(now),
+          store: options.historyStore, forceRefresh: options.forceRefresh,
+        });
+        const csv = loaded.csv;
         if (!csv) throw new Error(`CSV non disponibile: ${sourceReference}`);
-        summary.downloaded += 1;
+        if (loaded.reused) summary.reusedHistorical++;
+        else summary.downloaded += 1;
         const parsedRows = parseFootballDataCsv(csv);
         if (parsedRows.length === 0) throw new Error(`CSV vuoto o senza righe valide: ${sourceReference}`);
         const standings = buildTransitionStandings(parsedRows);
@@ -637,7 +669,8 @@ export async function syncTransitionSeasonReferences(
               competitionId, seasonLabelValue, expectedTeamIds, teamMatches.length,
             )
           : false;
-        if (reference.coverageStatus === 'complete' && referenceComplete && transitionsComplete && historyComplete) {
+        if ((loaded.reused || (!options.historyStore && !options.forceRefresh))
+          && reference.coverageStatus === 'complete' && referenceComplete && transitionsComplete && historyComplete) {
           summary.skipped += 1;
           summary.perSeason[seasonKey] = {
             status: 'skipped_complete', rows: parsedRows.length, teamSeasons: teamSeasons.length,
@@ -653,6 +686,9 @@ export async function syncTransitionSeasonReferences(
           for (const season of teamSeasons) await db.upsertLowerDivisionTeamSeason?.(season);
           for (const match of teamMatches) await db.upsertLowerDivisionTeamMatch?.(match);
           for (const transition of transitions) await db.upsertTeamCompetitionTransition?.(transition);
+        }
+        if (reference.coverageStatus === 'complete' && isCompleteSourceSeason(leagueCode, seasonStartYear, parsedRows)) {
+          await loaded.markVerified();
         }
         summary.persisted += 1;
         summary.teamSeasonsPersisted += teamSeasons.length;
@@ -676,6 +712,7 @@ export async function syncTransitionSeasonReferences(
 }
 
 export interface FootballDataSyncSummary {
+  reusedHistorical: number;
   requested: number;
   completed: number;
   pending: number;
@@ -785,6 +822,7 @@ export async function syncFootballData(
   const now = options.now ?? new Date();
 
   const summary: FootballDataSyncSummary = {
+    reusedHistorical: 0,
     requested: 0, completed: 0, pending: 0,
     allExpectedSeasonsComplete: false, allExpectedSeasonsReady: false, pendingSeasonPairs: [],
     csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, dateToleranceMatched: 0,
@@ -821,7 +859,13 @@ export async function syncFootballData(
       let matchedLatestDate: string | null = null;
       const unmatchedRows: FootballDataRow[] = [];
       try {
-        const csv = await fetcher(leagueCode, seasonToFootballDataCode(seasonStart));
+        const loaded = await loadFootballDataCsv({
+          leagueCode, seasonStart, seasonCode: seasonToFootballDataCode(seasonStart), fetcher, now,
+          currentSeasonStart: currentSeasonStartYear(now),
+          store: options.historyStore, forceRefresh: options.forceRefresh,
+        });
+        const csv = loaded.csv;
+        if (loaded.reused) summary.reusedHistorical++;
         if (!csv) throw new Error('CSV non disponibile');
         rows = parseFootballDataCsv(csv);
         if (rows.length === 0) throw new Error('CSV vuoto o senza righe valide');
@@ -880,6 +924,7 @@ export async function syncFootballData(
         if (sourceLatestDate !== matchedLatestDate) {
           throw new Error(`Dati non freschi: ultima data fonte ${sourceLatestDate}, ultima data abbinata ${matchedLatestDate ?? 'nessuna'}`);
         }
+        if (isCompleteSourceSeason(leagueCode, seasonStart, rows)) await loaded.markVerified();
         perComp.matched += matched;
         perComp.updated += updated;
         perComp.oddsWritten += oddsWritten;

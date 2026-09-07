@@ -3,6 +3,7 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
+import { lineupSyncDiagnostics } from './services/LineupSyncDiagnostics';
 import { DatabaseService } from './db/DatabaseService';
 import {
   createOddsProviderCoordinatorBundle,
@@ -230,7 +231,7 @@ const lineupRefreshSchedulerState: {
   nextRunAt: Date | null;
   lastDurationMs: number | null;
   lastError: string | null;
-  lastResult: { checked: number; saved: number; providerWarnings: number } | null;
+  lastResult: ReturnType<typeof lineupSyncDiagnostics> | null;
 } = {
   enabled: LINEUP_REFRESH_SCHEDULER_ENABLED,
   running: false,
@@ -1064,15 +1065,16 @@ async function runUpcomingLineupRefresh(): Promise<void> {
     if (!response.ok || payload?.success === false) {
       throw new Error(String(payload?.error ?? `HTTP ${response.status}`));
     }
-    lineupRefreshSchedulerState.lastResult = {
-      checked: Number(payload?.checked ?? 0),
-      saved: Number(payload?.saved ?? 0),
-      providerWarnings: Array.isArray(payload?.providerWarnings) ? payload.providerWarnings.length : 0,
-    };
+    lineupRefreshSchedulerState.lastResult = lineupSyncDiagnostics(payload);
+    if (lineupRefreshSchedulerState.lastResult.providerStatus === 'degraded') {
+      lineupRefreshSchedulerState.lastError = lineupRefreshSchedulerState.lastResult.providerWarningMessages.join(' | ');
+      console.warn('[lineup-refresh-scheduler] provider degraded:', lineupRefreshSchedulerState.lastError);
+    }
     lineupRefreshSchedulerState.lastRunAt = new Date();
     console.log(
       `[lineup-refresh-scheduler] checked ${lineupRefreshSchedulerState.lastResult.checked}, ` +
-      `saved ${lineupRefreshSchedulerState.lastResult.saved}.`
+      `saved ${lineupRefreshSchedulerState.lastResult.saved}, predicted ${lineupRefreshSchedulerState.lastResult.predictedSaved}, ` +
+      `already confirmed ${lineupRefreshSchedulerState.lastResult.alreadyConfirmed}, provider ${lineupRefreshSchedulerState.lastResult.providerStatus}.`
     );
   } catch (err: any) {
     lineupRefreshSchedulerState.lastError = err?.message ?? 'Unknown lineup refresh scheduler error';

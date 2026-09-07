@@ -58,3 +58,26 @@ test('richiede periodicamente la formazione ufficiale solo nella finestra pre-pa
   await screen.findByText('Titolare stimato');
   await waitFor(() => expect(mockRefreshPlayerAvailability).toHaveBeenCalledWith('match-42'));
 });
+
+test('una pagina aperta prima della finestra avvia il refresh e lo interrompe al calcio di inizio', async () => {
+  jest.useFakeTimers();
+  mockRefreshPlayerAvailability.mockClear();
+  mockGetPlayerAvailability.mockResolvedValue(response(
+    'Titolare stimato', false, new Date(Date.now() + 155 * 60 * 1000).toISOString(),
+  ));
+  mockRefreshPlayerAvailability.mockResolvedValue({ success: true });
+  const view = render(<LineupPanel matchId="match-42" />);
+  try {
+    await act(async () => {});
+    expect(mockRefreshPlayerAvailability).not.toHaveBeenCalled();
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(mockRefreshPlayerAvailability).toHaveBeenCalledTimes(1);
+    await act(async () => { jest.advanceTimersByTime(155 * 60 * 1000); });
+    const callsAtKickoff = mockRefreshPlayerAvailability.mock.calls.length;
+    await act(async () => { jest.advanceTimersByTime(10 * 60 * 1000); });
+    expect(mockRefreshPlayerAvailability).toHaveBeenCalledTimes(callsAtKickoff);
+  } finally {
+    view.unmount();
+    jest.useRealTimers();
+  }
+});
