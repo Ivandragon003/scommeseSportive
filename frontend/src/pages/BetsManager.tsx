@@ -232,6 +232,14 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
     const id = String(bet.bet_id);
     setExpandedId((current) => current === id ? null : id);
   };
+  const changeView = (next: BetView) => {
+    setView(next);
+    setHistoryOutcome('');
+  };
+  const changeHistoryOutcome = (next: string) => {
+    setHistoryOutcome(next);
+    if (view === 'WON' || view === 'LOST' || view === 'VOID') setView('CLOSED');
+  };
 
   return (
     <div className="bm-wrap bets-page">
@@ -265,9 +273,9 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
       ) : (
         <>
           <div className="bets-mobile-tabs" role="group" aria-label="Vista giocate mobile">
-            <button type="button" className={view === 'PENDING' ? 'active' : ''} aria-pressed={view === 'PENDING'} onClick={() => setView('PENDING')}>Aperte</button>
-            <button type="button" className={view === 'CLOSED' ? 'active' : ''} aria-pressed={view === 'CLOSED'} onClick={() => setView('CLOSED')}>Chiuse</button>
-            <button type="button" className={view === 'ALL' ? 'active' : ''} aria-label="Tutte" aria-pressed={view === 'ALL'} onClick={() => setView('ALL')}>Tutte</button>
+            <button type="button" className={view === 'PENDING' ? 'active' : ''} aria-pressed={view === 'PENDING'} onClick={() => changeView('PENDING')}>Aperte</button>
+            <button type="button" className={view === 'CLOSED' ? 'active' : ''} aria-pressed={view === 'CLOSED'} onClick={() => changeView('CLOSED')}>Chiuse</button>
+            <button type="button" className={view === 'ALL' ? 'active' : ''} aria-label="Tutte" aria-pressed={view === 'ALL'} onClick={() => changeView('ALL')}>Tutte</button>
           </div>
 
           <section className="bets-toolbar" aria-label="Filtri giocate">
@@ -279,7 +287,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
                 { value: 'LOST', label: 'Perse' },
                 { value: 'VOID', label: 'Annullate' },
               ].map((item) => (
-                <button key={item.value} type="button" aria-label={item.ariaLabel} className={`bm-ftab${view === item.value ? ' active' : ''}`} onClick={() => setView(item.value as BetView)} aria-pressed={view === item.value}>{item.label}</button>
+                <button key={item.value} type="button" aria-label={item.ariaLabel} className={`bm-ftab${view === item.value ? ' active' : ''}`} onClick={() => changeView(item.value as BetView)} aria-pressed={view === item.value}>{item.label}</button>
               ))}
             </div>
             <div className="bets-toolbar__right">
@@ -332,7 +340,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
             <div className="bets-section__head">
               <div><History size={22} aria-hidden="true" /><h2 id="history-title">Storico giocate</h2><span className="fp-badge">{visibleHistoryBets.length}</span></div>
               <div className="bets-history-filters">
-                <label><span className="sr-only">Filtra storico per esito</span><AppSelect aria-label="Filtra storico per esito" value={historyOutcome} onChange={setHistoryOutcome} options={[{value:'',label:'Tutti gli esiti'},{value:'WON',label:'Vinte'},{value:'LOST',label:'Perse'},{value:'VOID',label:'Annullate'}]} /></label>
+                <label><span className="sr-only">Filtra storico per esito</span><AppSelect aria-label="Filtra storico per esito" value={historyOutcome} onChange={changeHistoryOutcome} options={[{value:'',label:'Tutti gli esiti'},{value:'WON',label:'Vinte'},{value:'LOST',label:'Perse'},{value:'VOID',label:'Annullate'}]} /></label>
                 <label><span className="sr-only">Filtra storico per competizione</span><AppSelect aria-label="Filtra storico per competizione" value={historyCompetition} onChange={setHistoryCompetition} options={[{value:'',label:'Tutte le competizioni'}, ...competitions.map((competition) => ({value:competition,label:competition}))]} /></label>
               </div>
             </div>

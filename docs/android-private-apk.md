@@ -40,8 +40,10 @@ repository, nell'APK o nelle variabili `REACT_APP_*`.
 Requisiti: Node.js 22+, Android SDK 36 e JDK 21. Dalla cartella `frontend`:
 
 ```powershell
-npm install
-npm run android:debug
+npm ci
+npm run mobile:sync
+cd android
+./gradlew.bat assembleDebug
 ```
 
 L'APK risultante è:
@@ -72,6 +74,12 @@ L'APK firmato sarà in:
 ```text
 frontend/android/app/build/outputs/apk/release/app-release.apk
 ```
+
+`mobile:sync` ricompila il frontend in produzione e aggiorna gli asset Android.
+Imposta `JAVA_HOME` sul JDK 21 e `ANDROID_HOME` sulla cartella Android SDK prima
+della build. Ogni aggiornamento distribuito deve incrementare `versionCode` in
+`frontend/android/app/build.gradle`. La release richiede la firma configurata e
+non abilita la modalita debug.
 
 Esegui prima il deploy coordinato del backend e del frontend, poi distribuisci l'APK.
 Senza il nuovo backend autenticato l'APK non può completare il login.

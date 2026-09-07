@@ -64,7 +64,9 @@ const betsPayload = [
 describe('BudgetManager', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-04-22T20:00:00Z'));
   });
+  afterEach(() => jest.restoreAllMocks());
 
   test('inizializza il budget quando non esiste un bankroll', async () => {
     mockedApi.getBudget.mockResolvedValue({ data: null } as any);

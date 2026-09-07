@@ -271,6 +271,8 @@
 .budget-chart-ranges button:last-child { border-right: 0; }
 .budget-chart-ranges button:hover { background: var(--surface2); }
 .budget-chart-ranges button.active { background: var(--primary); color: white; }
+.budget-chart-ranges button:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; }
+.budget-chart-period { margin: 12px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.5; }
 
 .budget-chart-legend {
   display: flex;
@@ -803,8 +805,10 @@
   .budget-workspace { gap: 16px; }
   .budget-chart-panel { padding: 18px 12px 12px; }
   .budget-chart-panel__head { grid-template-columns: 1fr; gap: 12px; }
-  .budget-chart-ranges { width: 100%; max-width: none; }
-  .budget-chart-ranges button { min-width: 0; padding: 0 4px; }
+  .budget-chart-ranges { width: 100%; max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .budget-chart-ranges button { min-width: 0; min-height: 44px; padding: 0 4px; }
+  .budget-chart-ranges button:nth-child(3) { border-right: 0; }
+  .budget-chart-ranges button:nth-child(-n+3) { border-bottom: 1px solid var(--border); }
   .budget-chart-legend { grid-column: 1; justify-content: center; }
   .budget-chart { height: 280px; }
   .budget-management { min-height: 0; padding: 22px 18px 0; }
@@ -897,7 +901,7 @@
   .bm-head { padding-bottom:0; border-bottom:0; }
   .bm-summary__item { min-height:118px; padding:17px 14px; }
   .bets-toolbar { padding:10px; border-radius:11px; }
-  .bets-date-panel { width:min(350px, calc(100vw - 28px)); }
+  .bets-date-panel { width:100%; }
 }
 
 @media (max-width: 390px) {

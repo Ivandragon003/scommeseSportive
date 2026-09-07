@@ -21,6 +21,7 @@
     "@types/jest": "^29.5.14"
   },
   "scripts": {
+    "mobile:sync": "npm run build && cap sync android",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",

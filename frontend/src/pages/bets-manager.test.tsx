@@ -138,6 +138,20 @@ describe('BetsManager', () => {
     expect(screen.queryByText(/Arsenal.*Chelsea/i)).toBeNull();
   });
 
+  test('i filtri di esito non si contraddicono cambiando vista', async () => {
+    mockedApi.getBets.mockResolvedValue({ data: [...betsPayload,
+      { ...betsPayload[1], bet_id: 'lost', home_team_name: 'Arsenal', away_team_name: 'Chelsea', status: 'LOST' },
+    ] } as any);
+    render(<BetsManager activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vinte' }));
+    fireEvent.change(screen.getByLabelText('Filtra storico per esito'), { target: { value: 'LOST' } });
+    expect(screen.getByText(/Arsenal.*Chelsea/i)).toBeTruthy();
+    expect(screen.queryByText(/Juventus.*Roma/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Tutte$/ }));
+    expect(screen.getByText(/Juventus.*Roma/i)).toBeTruthy();
+    expect(screen.getByText(/Arsenal.*Chelsea/i)).toBeTruthy();
+  });
+
   test('espande una giocata mostrando le informazioni operative del mockup', async () => {
     render(<BetsManager activeUser="user1" />);
 
