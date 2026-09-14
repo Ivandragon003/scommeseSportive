@@ -85,6 +85,11 @@ beforeEach(() => {
     data: {
       status: 'healthy',
       issues: [],
+      providers: providerHealthPayload.data,
+      metrics: {
+        provider: { avgScrapeLatencyMs: 18500, requestsObserved: 1 },
+        trends: { errorRuns: 2 },
+      },
     },
   } as any);
   mockedApi.getProviderHealth.mockResolvedValue(providerHealthPayload as any);
@@ -134,6 +139,7 @@ describe('ScrapersPageView', () => {
     render(<ScrapersPageView />);
 
     await screen.findByText(/Aggiornamento da Understat/i);
+    await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
 
     expect(screen.queryByText(/SofaScore/i)).toBeNull();
     expect(screen.queryByText(/Learning review/i)).toBeNull();
@@ -153,13 +159,14 @@ describe('ScrapersPageView', () => {
     render(<ScrapersPageView />);
 
     await screen.findByText(/Aggiornamento da Understat/i);
+    await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
 
-    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(0);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
     expect(mockedApi.getOddsSnapshotStatus).toHaveBeenCalledTimes(1);
     expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(0);
+    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(0);
 
     fireEvent.click(screen.getByRole('button', { name: /Scarica solo Serie A/i }));
 
@@ -176,12 +183,13 @@ describe('ScrapersPageView', () => {
     render(<ScrapersPageView />);
 
     await screen.findByText(/Aggiornamento da Understat/i);
+    await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
 
     await screen.findByText(/Scarica quote provider/i);
-    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(0);
+    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(0);
     expect(screen.getByTestId('provider-status-summary-provider-odds_api').textContent).toContain('OK');
 
     fireEvent.click(screen.getByRole('button', { name: /Scarica quote provider/i }));
@@ -194,28 +202,29 @@ describe('ScrapersPageView', () => {
     render(<ScrapersPageView />);
 
     await screen.findByText(/Aggiornamento da Understat/i);
+    await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
 
-    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(0);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(0);
     expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(0);
 
     fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
     fireEvent.click(screen.getByRole('tab', { name: /Understat/i }));
 
-    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(0);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(0);
 
     fireEvent.click(screen.getByRole('tab', { name: /Provider quote/i }));
     fireEvent.click(screen.getByRole('button', { name: /Verifica provider/i }));
 
-    await waitFor(() => expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedApi.getProviderHealth).toHaveBeenCalledTimes(1));
     expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(2);
-    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(0);
     expect(mockedApi.getUnderstatScraperInfo).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getSystemMetrics).toHaveBeenCalledTimes(0);
     expect(mockedApi.getOddsSnapshotStatus).toHaveBeenCalledTimes(1);
   });
 });

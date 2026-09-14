@@ -14,6 +14,7 @@ export interface PlayerDerivedStatsDb {
   }): Promise<any[]>;
   markPlayersUnavailable(competition?: string): Promise<number>;
   upsertPlayer(payload: any): Promise<unknown>;
+  upsertPlayers?(payloads: any[]): Promise<number>;
 }
 
 export interface RebuildPlayerDerivedStatsOptions {
@@ -184,7 +185,7 @@ export async function rebuildPlayerDerivedStats(
     ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id), String(match.date ?? ''), awayMatchShots);
   }
 
-  let playersUpdated = 0;
+  const playerWrites: any[] = [];
   for (const [, player] of playersAgg) {
     const games = Math.max(1, player.games.size);
     const minutesBase = player.minutesTotal > 0 ? player.minutesTotal : games * 90;
@@ -193,7 +194,7 @@ export async function rebuildPlayerDerivedStats(
     // share di chi aveva saltato gare per infortunio/rotazione).
     const teamShotsInGames = Math.max(1, player.teamShotsInPlayedGames);
 
-    await db.upsertPlayer({
+    playerWrites.push({
       playerId: player.playerId,
       sourcePlayerId: player.sourcePlayerId,
       name: player.name,
@@ -237,8 +238,10 @@ export async function rebuildPlayerDerivedStats(
         rawSamples: player.rawSamples.slice(0, 8),
       }),
     });
-    playersUpdated++;
   }
+  if (db.upsertPlayers) await db.upsertPlayers(playerWrites);
+  else for (const payload of playerWrites) await db.upsertPlayer(payload);
+  const playersUpdated = playerWrites.length;
 
   return {
     playersMarkedUnavailable,

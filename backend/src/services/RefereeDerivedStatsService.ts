@@ -19,6 +19,14 @@ export interface RefereeDerivedStatsDb {
     games: number;
     dispersionYellow: number;
   }): Promise<unknown>;
+  upsertReferees?(payloads: Array<{
+    name: string;
+    avgFouls?: number;
+    avgYellow?: number;
+    avgRed?: number;
+    games: number;
+    dispersionYellow: number;
+  }>): Promise<number>;
 }
 
 export interface RebuildRefereeDerivedStatsOptions {
@@ -112,13 +120,20 @@ export async function rebuildRefereeDerivedStats(
     aggregates.set(name, current);
   }
 
-  let refereesUpdated = 0;
+  const refereeWrites: Array<{
+    name: string;
+    avgFouls?: number;
+    avgYellow?: number;
+    avgRed?: number;
+    games: number;
+    dispersionYellow: number;
+  }> = [];
   for (const [, referee] of aggregates) {
     const yellowMean = referee.yellowGames > 0 ? referee.yellowTotal / referee.yellowGames : 0;
     const variance = referee.yellowSamples.length > 0
       ? referee.yellowSamples.reduce((sum, sample) => sum + ((sample - yellowMean) ** 2), 0) / referee.yellowSamples.length
       : 0;
-    await db.upsertReferee({
+    refereeWrites.push({
       name: referee.name,
       avgFouls: referee.foulsGames > 0 ? referee.foulsTotal / referee.foulsGames : undefined,
       avgYellow: referee.yellowGames > 0 ? yellowMean : undefined,
@@ -126,8 +141,10 @@ export async function rebuildRefereeDerivedStats(
       games: referee.games,
       dispersionYellow: Math.sqrt(Math.max(0, variance)),
     });
-    refereesUpdated++;
   }
+  if (db.upsertReferees) await db.upsertReferees(refereeWrites);
+  else for (const payload of refereeWrites) await db.upsertReferee(payload);
+  const refereesUpdated = refereeWrites.length;
 
   return {
     refereesDetected: aggregates.size,

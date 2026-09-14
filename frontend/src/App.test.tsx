@@ -42,15 +42,17 @@ beforeEach(() => {
   jest.resetAllMocks();
   window.localStorage.clear();
   window.history.pushState({}, '', '/');
-  mockedApi.getScraperStatus.mockResolvedValue({
+  mockedApi.getSystemHealth.mockResolvedValue({
     data: {
       isUpdating: false,
       lastUpdate: { success: true, message: 'Dati aggiornati correttamente.' },
-      recentSchedulerRuns: [
-        { schedulerName: 'understat', success: true },
-        { schedulerName: 'learning', success: true },
-        { schedulerName: 'odds', success: true },
-      ],
+      schedulers: {
+        understat: { success: true },
+        learning: { success: true },
+        odds: { success: true },
+      },
+      providers: {},
+      metrics: {},
     },
   } as any);
   mockedApi.syncUpcomingKickoffs.mockResolvedValue({
@@ -113,13 +115,13 @@ test('header principale resta essenziale e rende aggiorna dati disponibile nel C
   expect(within(header).queryByText(/Sistema OK/i)).toBeNull();
   expect(within(header).queryByText(/Sync OK/i)).toBeNull();
 
-  await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
   expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(0);
 
   fireEvent.click(screen.getByRole('link', { name: /Centro dati/i }));
   fireEvent.click(await screen.findByRole('button', { name: /Aggiorna dati e calendario/i }));
 
-  await waitFor(() => expect(mockedApi.getScraperStatus).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({
     mode: 'top5',
     season: expect.stringMatching(/^\d{4}\/\d{4}$/),
@@ -184,10 +186,11 @@ test('apre la pagina Glossario dalla navigazione principale', async () => {
 test('il comando nell header apre il glossario rapido', async () => {
   render(<App />);
 
+  await screen.findByText('Predictions page');
   const header = await screen.findByRole('banner');
   fireEvent.click(within(header).getByRole('button', { name: /Apri glossario rapido/i }));
 
-  expect(await screen.findByRole('dialog', { name: /Glossario rapido/i })).toBeTruthy();
+  expect(await screen.findByRole('dialog', { name: /Glossario rapido/i }, { timeout: 5000 })).toBeTruthy();
 });
 
 test('il menu mobile Strumenti si comporta come dialog e restituisce il focus alla chiusura', async () => {

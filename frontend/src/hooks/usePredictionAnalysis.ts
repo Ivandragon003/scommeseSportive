@@ -49,6 +49,7 @@ export function usePredictionAnalysis({
 
   const analyzeReqRef = useRef(0);
   const analysisCacheRef = useRef<Map<string, AnalysisCacheEntry>>(new Map());
+  const inFlightAnalysisRef = useRef<{ cacheKey: string; requestId: number } | null>(null);
   const { fetchPredictionWithOdds } = useOddsForMatch();
 
   const applyOdds = useCallback((incoming: Record<string, number>) => {
@@ -123,8 +124,12 @@ export function usePredictionAnalysis({
       setTab(isPlayedMatch ? 'strategy' : 'odds');
       return;
     }
+    // Updating the URL also wakes the history-restoration effect. Coalesce that
+    // second request while the explicit click is already analysing this match.
+    if (inFlightAnalysisRef.current?.cacheKey === cacheKey) return;
 
     const requestId = ++analyzeReqRef.current;
+    inFlightAnalysisRef.current = { cacheKey, requestId };
     setAnalysisCacheKey(cacheKey);
     setActiveMatchId(resolvedMatchId);
     setLoadingMatchId(rawMatchId || resolvedMatchId);
@@ -233,6 +238,7 @@ export function usePredictionAnalysis({
       setOddsMsg(getErrorMessage(error));
       setOddsTone('danger');
     } finally {
+      if (inFlightAnalysisRef.current?.requestId === requestId) inFlightAnalysisRef.current = null;
       if (requestId === analyzeReqRef.current) {
         setLoading(false);
         setLoadingMatchId(null);

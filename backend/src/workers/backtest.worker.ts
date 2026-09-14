@@ -10,7 +10,9 @@ const serializeError = (error: unknown) => {
 
 const run = async (): Promise<void> => {
   const job = workerData as WalkForwardBacktestJob;
-  const db = new DatabaseService();
+  // The API process has already applied the schema migrations before it can
+  // dispatch a backtest job. Avoid replaying the full bootstrap in each worker.
+  const db = new DatabaseService({ skipSchemaBootstrap: true });
   let response: { type: 'result'; result: unknown } | { type: 'error'; error: ReturnType<typeof serializeError> };
   try {
     const service = new PredictionService(db);

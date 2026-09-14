@@ -576,7 +576,12 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
     const { players } = req.body;
     if (!Array.isArray(players)) return res.status(400).json({ success: false, error: 'Array richiesto' });
     let ok = 0;
-    for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch { /* skip invalid player payloads */ } }
+    try {
+      ok = await db.upsertPlayers(players);
+    } catch {
+      // Preserve the legacy partial-success contract for malformed payloads.
+      for (const p of players) { try { await db.upsertPlayer(p); ok++; } catch { /* skip invalid player payloads */ } }
+    }
     return res.json({ success: true, imported: ok });
   } catch (e: any) { return res.status(500).json({ success: false, error: e.message }); }
 });
@@ -898,12 +903,22 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
     const now = Date.now();
     const untilIso = new Date(now + hours * 60 * 60 * 1000).toISOString();
     const upcomingMatches = await db.getUpcomingMatches({ untilIso, limit: 200 });
-    const matches = [];
-    let alreadyConfirmed = 0;
-    for (const match of upcomingMatches) {
+    const eligibleUpcoming = upcomingMatches.filter((match: any) => {
       const kickoff = Date.parse(String(match.date ?? ''));
-      if (!Number.isFinite(kickoff) || kickoff < now) continue;
-      const confirmed = completeOfficialTeamIds(await db.getPlayerLineupStatuses(String(match.match_id), String(match.date)));
+      return Number.isFinite(kickoff) && kickoff >= now;
+    });
+    const confirmedTeamsByMatch = typeof (db as any).getConfirmedLineupTeamsForMatches === 'function'
+      ? await db.getConfirmedLineupTeamsForMatches(
+          eligibleUpcoming.map((match: any) => String(match.match_id ?? '')),
+        )
+      : Object.fromEntries(await Promise.all(eligibleUpcoming.map(async (match: any) => [
+          String(match.match_id ?? ''),
+          [...completeOfficialTeamIds(await db.getPlayerLineupStatuses(String(match.match_id), String(match.date)))],
+        ])));
+    const matches: any[] = [];
+    let alreadyConfirmed = 0;
+    for (const match of eligibleUpcoming) {
+      const confirmed = new Set(confirmedTeamsByMatch[String(match.match_id ?? '')] ?? []);
       if (confirmed.has(String(match.home_team_id)) && confirmed.has(String(match.away_team_id))) {
         alreadyConfirmed++;
         continue;
@@ -932,6 +947,16 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
         }
       }
     }
+    const allPlayersForReconciliation = providerFixtures.length > 0 ? await db.getAllPlayers() : [];
+    const activePlayersByTeam = new Map<string, Promise<any[]>>();
+    const getActivePlayers = (teamId: string) => {
+      let pending = activePlayersByTeam.get(teamId);
+      if (!pending) {
+        pending = db.getPlayersByTeam(teamId);
+        activePlayersByTeam.set(teamId, pending);
+      }
+      return pending;
+    };
     const teamsReconciled = new Set<string>();
     let checked = 0;
     let saved = 0;
@@ -965,12 +990,9 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
           // Include players currently marked unavailable: a player can return
           // to the squad after an earlier reconciliation and must be eligible
           // to be reactivated by the next authoritative squad response.
-          const [currentPlayers, allPlayers] = await Promise.all([
-            db.getAllPlayersByTeam(side.internalId),
-            db.getAllPlayers(),
-          ]);
+          const currentPlayers = await db.getAllPlayersByTeam(side.internalId);
           const plan = buildProviderSquadReconciliationPlan({
-            teamId: side.internalId, currentPlayers, allPlayers, squad,
+            teamId: side.internalId, currentPlayers, allPlayers: allPlayersForReconciliation, squad,
           });
           if (!plan.safeToApply) {
             providerWarnings.push(`squad_coverage:${side.internalId}:${plan.resolved.length}/${squad.length}`);
@@ -990,8 +1012,8 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
       }
       checked++;
       const [homePlayers, awayPlayers, injuryFetch, statusesBeforeRefresh] = await Promise.all([
-        db.getPlayersByTeam(String(match.home_team_id)),
-        db.getPlayersByTeam(String(match.away_team_id)),
+        getActivePlayers(String(match.home_team_id)),
+        getActivePlayers(String(match.away_team_id)),
         fixture ? apiFootball.getInjuries({ fixture: fixture.id })
           .then((rows) => ({ fetched: true as const, rows }))
           .catch((providerError: any) => {
@@ -1026,7 +1048,9 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
           kickoffAt: match.date,
         });
       }
-      const existingStatuses = await db.getPlayerLineupStatuses(matchId, String(match.date));
+      const existingStatuses = injuryFetch.fetched
+        ? await db.getPlayerLineupStatuses(matchId, String(match.date))
+        : statusesBeforeRefresh;
       const confirmedTeamIds = completeOfficialTeamIds(existingStatuses);
       const unavailableByTeam = new Map<string, Set<string>>();
       for (const row of existingStatuses.filter((entry: any) => String(entry.status) === 'unavailable')) {
@@ -1724,6 +1748,11 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
   const now = new Date();
   const until = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
   const matches = await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: until.toISOString(), limit: maxMatches });
+  // One settlement pass is enough for the whole automation run. Calling it
+  // again for every planned bet multiplies the same reads without new data.
+  if (!dryRun && typeof (svc as any).syncPendingBets === 'function') {
+    await svc.syncPendingBets(userId);
+  }
   const results: any[] = [];
   let simulatedAvailableBudget: number | null = null;
   let operationalBetCount = 0;
@@ -2003,7 +2032,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
             betPayload.stake,
             betPayload.ourProbability,
             betPayload.expectedValue,
-            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate, source: 'automation' }
+            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate, source: 'automation', skipPendingSync: true }
           );
         } catch (error: any) {
           if (isAlreadyPlacedBetError(error)) {
@@ -2812,10 +2841,11 @@ async function runUnderstatImport(req: Request, res: Response) {
           }
         }
 
+        const seasonPlayerWrites: any[] = [];
         for (const [, player] of playersAgg) {
           const games = Math.max(1, player.games.size);
           const teamShots = Math.max(1, Number(teamShotTotals.get(player.teamId) ?? 0));
-          await db.upsertPlayer({
+          seasonPlayerWrites.push({
             playerId: player.playerId,
             sourcePlayerId: player.sourcePlayerId,
             name: player.name,
@@ -2839,7 +2869,14 @@ async function runUnderstatImport(req: Request, res: Response) {
               rawSamples: player.rawSamples.slice(0, 8),
             }),
           });
-          playersUpdated++;
+        }
+        if (typeof (db as any).upsertPlayers === 'function') {
+          playersUpdated += await db.upsertPlayers(seasonPlayerWrites);
+        } else {
+          for (const payload of seasonPlayerWrites) {
+            await db.upsertPlayer(payload);
+            playersUpdated++;
+          }
         }
 
         totalImported += imported;
@@ -2979,7 +3016,13 @@ async function runUnderstatImport(req: Request, res: Response) {
         ).length;
         const tw = trainingWindowFor(completedCurrentSeasonMatches);
         const toDate = now.toISOString();
-        const fit = await svc.fitModelForCompetition(comp, undefined, tw.fromDate, toDate);
+        const fit = await svc.fitModelForCompetition(
+          comp,
+          undefined,
+          tw.fromDate,
+          toDate,
+          { recomputeTeamAverages: false },
+        );
         autoModelFit[comp] = {
           ok: true,
           thresholdBucket: tw.bucket,

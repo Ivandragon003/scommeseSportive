@@ -1664,7 +1664,13 @@ export class PredictionService {
     return blendGoalProbabilities(flat, poissonProbs, cfg);
   }
 
-  async fitModelForCompetition(competition: string, season?: string, fromDate?: string, toDate?: string) {
+  async fitModelForCompetition(
+    competition: string,
+    season?: string,
+    fromDate?: string,
+    toDate?: string,
+    options: { recomputeTeamAverages?: boolean } = {},
+  ) {
     const rawMatches = await this.db.getMatches({ competition, season, fromDate, toDate });
     const matches: MatchData[] = rawMatches
       .filter((m: any) => m.home_goals !== null && m.away_goals !== null)
@@ -1691,18 +1697,26 @@ export class PredictionService {
     const poissonParams = poissonModel.fit(matches);
     const params: any = { ...scaledParams, poissonXg: poissonParams };
 
-    // Aggiorna parametri nel DB e ricalcola medie statistiche
+    // Aggiorna i soli parametri del modello. Il sync Understat ricalcola gia le
+    // statistiche squadra prima del fit e puo disattivare il secondo passaggio.
     for (const teamId of teams) {
-      const existing = await this.db.getTeam(teamId);
-      if (existing) {
+      if (typeof (this.db as any).updateTeamModelStrengths === 'function') {
+        await (this.db as any).updateTeamModelStrengths(
+          teamId,
+          params.attackParams[teamId] ?? 0,
+          params.defenceParams[teamId] ?? 0,
+        );
+      } else {
+        const existing = await this.db.getTeam(teamId);
+        if (!existing) continue;
         await this.db.upsertTeam({
           ...this.teamRowToObj(existing),
           teamId,
           attackStrength: params.attackParams[teamId] ?? 0,
           defenceStrength: params.defenceParams[teamId] ?? 0,
         });
-        await this.db.recomputeTeamAverages(teamId);
       }
+      if (options.recomputeTeamAverages !== false) await this.db.recomputeTeamAverages(teamId);
     }
 
     const logLikelihood = this.computeLL(model, matches);
@@ -3488,6 +3502,7 @@ export class PredictionService {
     let settled = 0;
     let unresolved = 0;
 
+    const writes: Array<{ predictionId: string; result: 'win' | 'loss' | 'void' }> = [];
     for (const prediction of pending) {
       const decision = this.evaluateSelectionForMatch(String(prediction.selection ?? ''), matchRow);
       if (!decision) {
@@ -3495,8 +3510,16 @@ export class PredictionService {
         continue;
       }
       const result = decision.status === 'WON' ? 'win' : decision.status === 'LOST' ? 'loss' : 'void';
-      await this.db.settlePrediction(String(prediction.prediction_id), result);
-      settled++;
+      writes.push({ predictionId: String(prediction.prediction_id), result });
+    }
+
+    if (typeof (this.db as any).settlePredictionsBatch === 'function') {
+      settled = await (this.db as any).settlePredictionsBatch(writes);
+    } else {
+      for (const write of writes) {
+        await this.db.settlePrediction(write.predictionId, write.result);
+        settled++;
+      }
     }
 
     return { settled, unresolved };
@@ -3516,11 +3539,17 @@ export class PredictionService {
       byMatch.set(matchId, rows);
     }
 
+    const matchIds = Array.from(byMatch.keys()).slice(0, Math.max(1, Math.trunc(limit)));
+    const matchRows = typeof (this.db as any).getMatchesByIds === 'function'
+      ? await (this.db as any).getMatchesByIds(matchIds)
+      : await Promise.all(matchIds.map((matchId) => this.db.getMatchById(matchId)));
+    const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));
     let matches = 0;
     let settled = 0;
     let unresolved = 0;
-    for (const [matchId, rows] of Array.from(byMatch.entries()).slice(0, Math.max(1, Math.trunc(limit)))) {
-      const matchRow = await this.db.getMatchById(matchId);
+    for (const matchId of matchIds) {
+      const rows = byMatch.get(matchId) ?? [];
+      const matchRow = matchesById.get(matchId);
       if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
       const result = await this.settlePredictionRowsForMatch(rows, matchRow);
       matches++;
@@ -3537,14 +3566,26 @@ export class PredictionService {
     const matchIds = Array.from(new Set(
       pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)
     )).slice(0, Math.max(1, Math.trunc(limit)));
+    const pendingByMatch = new Map<string, any[]>();
+    for (const row of pending) {
+      const matchId = String(row.match_id ?? '').trim();
+      if (!matchId) continue;
+      const rows = pendingByMatch.get(matchId) ?? [];
+      rows.push(row);
+      pendingByMatch.set(matchId, rows);
+    }
+    const matchRows = typeof (this.db as any).getMatchesByIds === 'function'
+      ? await (this.db as any).getMatchesByIds(matchIds)
+      : await Promise.all(matchIds.map((matchId) => this.db.getMatchById(matchId)));
+    const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));
     let matches = 0;
     let settled = 0;
     let unresolved = 0;
 
     for (const matchId of matchIds) {
-      const matchRow = await this.db.getMatchById(matchId);
+      const matchRow = matchesById.get(matchId);
       if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
-      const result = await this.settlePendingPredictionsForMatch(matchId, matchRow);
+      const result = await this.settlePredictionRowsForMatch(pendingByMatch.get(matchId) ?? [], matchRow);
       matches++;
       settled += result.settled;
       unresolved += result.unresolved;
@@ -3622,9 +3663,10 @@ export class PredictionService {
     betId: string,
     status: 'WON' | 'LOST' | 'VOID',
     returnAmount?: number,
-    notes?: string
+    notes?: string,
+    suppliedBetRow?: any,
   ) {
-    const betRow = await this.db.getBet(betId);
+    const betRow = suppliedBetRow ?? await this.db.getBet(betId);
     if (!betRow) throw new Error('Scommessa non trovata');
     if (betRow.status !== 'PENDING') {
       return { settled: false, bet: betRow, budget: await this.db.getBudget(betRow.user_id) };
@@ -3656,6 +3698,7 @@ export class PredictionService {
     let settled = 0;
     let unresolved = 0;
     const refreshedMatches = new Map<string, any>();
+    const predictionsSettledForMatches = new Set<string>();
 
     for (const bet of pendingBets) {
       const matchId = String(bet.match_id ?? '');
@@ -3673,7 +3716,10 @@ export class PredictionService {
       }
       refreshedMatches.set(matchId, matchRow);
 
-      await this.settlePendingPredictionsForMatch(matchId, matchRow);
+      if (!predictionsSettledForMatches.has(matchId)) {
+        await this.settlePendingPredictionsForMatch(matchId, matchRow);
+        predictionsSettledForMatches.add(matchId);
+      }
 
       const decision = this.evaluateSelectionForMatch(String(bet.selection ?? ''), matchRow);
       if (!decision) {
@@ -3692,7 +3738,8 @@ export class PredictionService {
         String(bet.bet_id),
         decision.status,
         returnAmount,
-        `Auto-settle (${decision.reason})`
+        `Auto-settle (${decision.reason})`,
+        bet,
       );
       if (settlement.settled) settled++;
     }
@@ -3710,14 +3757,14 @@ export class PredictionService {
     stake: number,
     ourProbability: number,
     expectedValue: number,
-    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date; source?: 'manual' | 'automation' | 'unknown'; predictionId?: string | null }
+    meta?: { homeTeamName?: string; awayTeamName?: string; competition?: string; matchDate?: string | Date; source?: 'manual' | 'automation' | 'unknown'; predictionId?: string | null; skipPendingSync?: boolean }
   ) {
     const normalizedStake = Number(stake);
     if (!Number.isFinite(normalizedStake) || normalizedStake <= 0) throw new Error('Importo puntata non valido');
     if (normalizedStake < 1) throw new Error('Puntata minima bookmaker: 1 EUR');
     if (!Number.isFinite(Number(odds)) || Number(odds) <= 1) throw new Error('Quota non valida');
 
-    await this.syncPendingBets(userId);
+    if (!meta?.skipPendingSync) await this.syncPendingBets(userId);
     const predictionId = meta?.predictionId ?? await this.db.findPredictionForBet(matchId, marketName, selection);
     const bet = {
       betId: uuidv4(),

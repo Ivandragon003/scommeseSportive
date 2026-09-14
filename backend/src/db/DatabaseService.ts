@@ -7,6 +7,7 @@ import type { LowerDivisionHistoryBatch } from '../services/FootballDataService'
 
 type SqlArgs = Record<string, any> | any[];
 const MATCH_UPSERT_CHUNK_SIZE = 100;
+const GENERIC_WRITE_CHUNK_SIZE = 100;
 
 export class MatchBatchCommitError extends Error {
   readonly committedCount: number;
@@ -157,7 +158,7 @@ export class DatabaseService {
   private initPromise: Promise<void>;
   private schedulerRunRetention: number;
 
-  constructor() {
+  constructor(options?: { skipSchemaBootstrap?: boolean }) {
     const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
     const authToken = (process.env.TURSO_AUTH_TOKEN ?? '').trim();
 
@@ -173,7 +174,9 @@ export class DatabaseService {
       10,
       Math.min(Number(process.env.SCHEDULER_RUN_RETENTION ?? 100) || 100, 1000)
     );
-    this.initPromise = this.initialize();
+    this.initPromise = options?.skipSchemaBootstrap
+      ? this.execute('PRAGMA foreign_keys = ON', undefined, true).then(() => undefined)
+      : this.initialize();
   }
 
   private normalizeValue(value: unknown): unknown {
@@ -1836,33 +1839,31 @@ export class DatabaseService {
     return this.get('SELECT * FROM matches WHERE match_id = ?', [matchId]);
   }
 
+  async getMatchesByIds(matchIds: string[], chunkSize = GENERIC_WRITE_CHUNK_SIZE): Promise<any[]> {
+    const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return [];
+    const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || GENERIC_WRITE_CHUNK_SIZE, GENERIC_WRITE_CHUNK_SIZE));
+    const rows: any[] = [];
+    for (let index = 0; index < ids.length; index += safeChunkSize) {
+      const chunk = ids.slice(index, index + safeChunkSize);
+      rows.push(...await this.all(
+        `SELECT * FROM matches WHERE match_id IN (${chunk.map(() => '?').join(', ')})`,
+        chunk,
+      ));
+    }
+    return rows;
+  }
+
   async getTeamScheduleInsights(
     teamId: string,
     referenceDate?: string
   ): Promise<{ lastPlayedAt: string | null; restDays: number | null; matchesInLast14Days: number; matchesInLast7Days: number }> {
     const refIso = String(referenceDate ?? '').trim();
-    const paramsBase: any[] = [teamId, teamId];
-    const dateClause = refIso
-      ? `AND datetime(date) < datetime(?)`
-      : `AND datetime(date) < datetime('now')`;
-
-    const lastMatch = await this.get(
-      `
-      SELECT date
-      FROM matches
-      WHERE (home_team_id = ? OR away_team_id = ?)
-        AND home_goals IS NOT NULL
-        AND away_goals IS NOT NULL
-        ${dateClause}
-      ORDER BY datetime(date) DESC
-      LIMIT 1
-      `,
-      refIso ? [...paramsBase, refIso] : paramsBase
-    );
-
-    const recentRows = await this.get(
+    const targetIso = refIso || new Date().toISOString();
+    const schedule = await this.get(
       `
       SELECT
+        MAX(date) AS last_played_at,
         SUM(CASE WHEN datetime(date) >= datetime(?, '-14 days') THEN 1 ELSE 0 END) AS matches_14d,
         SUM(CASE WHEN datetime(date) >= datetime(?, '-7 days') THEN 1 ELSE 0 END) AS matches_7d
       FROM matches
@@ -1872,16 +1873,16 @@ export class DatabaseService {
         AND datetime(date) < datetime(?)
       `,
       [
-        refIso || new Date().toISOString(),
-        refIso || new Date().toISOString(),
+        targetIso,
+        targetIso,
         teamId,
         teamId,
-        refIso || new Date().toISOString(),
+        targetIso,
       ]
     );
 
     let restDays: number | null = null;
-    const lastPlayedAt = String(lastMatch?.date ?? '').trim() || null;
+    const lastPlayedAt = String(schedule?.last_played_at ?? '').trim() || null;
     const targetDate = refIso ? new Date(refIso) : new Date();
     if (lastPlayedAt) {
       const prev = new Date(lastPlayedAt);
@@ -1893,8 +1894,8 @@ export class DatabaseService {
     return {
       lastPlayedAt,
       restDays,
-      matchesInLast14Days: Number(recentRows?.matches_14d ?? 0),
-      matchesInLast7Days: Number(recentRows?.matches_7d ?? 0),
+      matchesInLast14Days: Number(schedule?.matches_14d ?? 0),
+      matchesInLast7Days: Number(schedule?.matches_7d ?? 0),
     };
   }
 
@@ -2820,6 +2821,15 @@ export class DatabaseService {
     );
   }
 
+  async updateTeamModelStrengths(teamId: string, attackStrength: number, defenceStrength: number): Promise<void> {
+    await this.run(
+      `UPDATE teams
+       SET attack_strength = ?, defence_strength = ?, last_updated = datetime('now')
+       WHERE team_id = ?`,
+      [attackStrength, defenceStrength, teamId],
+    );
+  }
+
   async getTeams(competition?: string): Promise<any[]> {
     if (competition) return this.all('SELECT * FROM teams WHERE competition = ?', [competition]);
     return this.all('SELECT * FROM teams');
@@ -2950,7 +2960,16 @@ export class DatabaseService {
         AVG(home_yellow_cards * home_yellow_cards * 1.0) - AVG(home_yellow_cards * 1.0) * AVG(home_yellow_cards * 1.0) AS var_yellow,
         AVG(home_fouls * home_fouls * 1.0) - AVG(home_fouls * 1.0) * AVG(home_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
-        COUNT(*) AS n
+        COUNT(*) AS n,
+        SUM(COALESCE(home_shots, 0)) AS total_shots,
+        SUM(COALESCE(home_shots_on_target, 0)) AS total_shots_ot,
+        SUM(COALESCE(home_xg, 0)) AS total_xg,
+        SUM(COALESCE(away_xg, 0)) AS total_xga,
+        SUM(COALESCE(home_fouls, 0)) AS total_fouls_committed,
+        SUM(COALESCE(away_fouls, 0)) AS total_fouls_drawn,
+        SUM(COALESCE(home_yellow_cards, 0)) AS total_yellow,
+        SUM(COALESCE(home_red_cards, 0)) AS total_red,
+        SUM(COALESCE(home_corners, 0)) AS total_corners
       FROM matches
       WHERE home_team_id = ? AND home_goals IS NOT NULL`,
       [teamId]
@@ -2982,31 +3001,6 @@ export class DatabaseService {
         AVG(away_yellow_cards * away_yellow_cards * 1.0) - AVG(away_yellow_cards * 1.0) * AVG(away_yellow_cards * 1.0) AS var_yellow,
         AVG(away_fouls * away_fouls * 1.0) - AVG(away_fouls * 1.0) * AVG(away_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
-        COUNT(*) AS n
-      FROM matches
-      WHERE away_team_id = ? AND home_goals IS NOT NULL`,
-      [teamId]
-    );
-
-    const homeTotals = await this.get(
-      `SELECT
-        COUNT(*) AS n,
-        SUM(COALESCE(home_shots, 0)) AS total_shots,
-        SUM(COALESCE(home_shots_on_target, 0)) AS total_shots_ot,
-        SUM(COALESCE(home_xg, 0)) AS total_xg,
-        SUM(COALESCE(away_xg, 0)) AS total_xga,
-        SUM(COALESCE(home_fouls, 0)) AS total_fouls_committed,
-        SUM(COALESCE(away_fouls, 0)) AS total_fouls_drawn,
-        SUM(COALESCE(home_yellow_cards, 0)) AS total_yellow,
-        SUM(COALESCE(home_red_cards, 0)) AS total_red,
-        SUM(COALESCE(home_corners, 0)) AS total_corners
-      FROM matches
-      WHERE home_team_id = ? AND home_goals IS NOT NULL`,
-      [teamId]
-    );
-
-    const awayTotals = await this.get(
-      `SELECT
         COUNT(*) AS n,
         SUM(COALESCE(away_shots, 0)) AS total_shots,
         SUM(COALESCE(away_shots_on_target, 0)) AS total_shots_ot,
@@ -3060,15 +3054,15 @@ export class DatabaseService {
     const avgYellow = totalW > 0 ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeW + Number(awayRows?.avg_yellow ?? 1.9) * awayW) / totalW) : 1.9;
     const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
-    const totalShots = Number(homeTotals?.total_shots ?? 0) + Number(awayTotals?.total_shots ?? 0);
-    const totalShotsOnTarget = Number(homeTotals?.total_shots_ot ?? 0) + Number(awayTotals?.total_shots_ot ?? 0);
-    const totalXg = Number(homeTotals?.total_xg ?? 0) + Number(awayTotals?.total_xg ?? 0);
-    const totalXga = Number(homeTotals?.total_xga ?? 0) + Number(awayTotals?.total_xga ?? 0);
-    const totalFoulsCommitted = Number(homeTotals?.total_fouls_committed ?? 0) + Number(awayTotals?.total_fouls_committed ?? 0);
-    const totalFoulsDrawn = Number(homeTotals?.total_fouls_drawn ?? 0) + Number(awayTotals?.total_fouls_drawn ?? 0);
-    const totalYellowCards = Number(homeTotals?.total_yellow ?? 0) + Number(awayTotals?.total_yellow ?? 0);
-    const totalRedCards = Number(homeTotals?.total_red ?? 0) + Number(awayTotals?.total_red ?? 0);
-    const totalCorners = Number(homeTotals?.total_corners ?? 0) + Number(awayTotals?.total_corners ?? 0);
+    const totalShots = Number(homeRows?.total_shots ?? 0) + Number(awayRows?.total_shots ?? 0);
+    const totalShotsOnTarget = Number(homeRows?.total_shots_ot ?? 0) + Number(awayRows?.total_shots_ot ?? 0);
+    const totalXg = Number(homeRows?.total_xg ?? 0) + Number(awayRows?.total_xg ?? 0);
+    const totalXga = Number(homeRows?.total_xga ?? 0) + Number(awayRows?.total_xga ?? 0);
+    const totalFoulsCommitted = Number(homeRows?.total_fouls_committed ?? 0) + Number(awayRows?.total_fouls_committed ?? 0);
+    const totalFoulsDrawn = Number(homeRows?.total_fouls_drawn ?? 0) + Number(awayRows?.total_fouls_drawn ?? 0);
+    const totalYellowCards = Number(homeRows?.total_yellow ?? 0) + Number(awayRows?.total_yellow ?? 0);
+    const totalRedCards = Number(homeRows?.total_red ?? 0) + Number(awayRows?.total_red ?? 0);
+    const totalCorners = Number(homeRows?.total_corners ?? 0) + Number(awayRows?.total_corners ?? 0);
     const recent5 = buildRecentWindow(recentRows.slice(0, 5));
     const recent10 = buildRecentWindow(recentRows.slice(0, 10));
     const existingStats = parseJson(existingTeam?.team_stats_json);
@@ -3206,9 +3200,9 @@ export class DatabaseService {
 
   // ==================== PLAYERS ====================
 
-  async upsertPlayer(player: any): Promise<void> {
-    await this.run(
-      `INSERT OR REPLACE INTO players (
+  private playerUpsertStatement(player: any): { sql: string; args: SqlArgs } {
+    return {
+      sql: `INSERT OR REPLACE INTO players (
         player_id, name, team_id, position_code,
         avg_shots_per_game, avg_shots_on_target_per_game,
         avg_xg_per_game, avg_xgot_per_game,
@@ -3227,7 +3221,7 @@ export class DatabaseService {
         :shotShare, :games, :available,
         :sourcePlayerId, :statsJson, datetime('now')
       )`,
-      {
+      args: {
         playerId: player.playerId,
         name: player.name,
         teamId: player.teamId,
@@ -3254,8 +3248,26 @@ export class DatabaseService {
         available: player.isAvailable !== false ? 1 : 0,
         sourcePlayerId: player.sourcePlayerId ?? null,
         statsJson: player.statsJson ?? null,
-      }
-    );
+      },
+    };
+  }
+
+  async upsertPlayer(player: any): Promise<void> {
+    const statement = this.playerUpsertStatement(player);
+    await this.run(statement.sql, statement.args as SqlArgs);
+  }
+
+  async upsertPlayers(players: any[], chunkSize = GENERIC_WRITE_CHUNK_SIZE): Promise<number> {
+    if (!Array.isArray(players) || players.length === 0) return 0;
+    await this.initPromise;
+    const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || GENERIC_WRITE_CHUNK_SIZE, GENERIC_WRITE_CHUNK_SIZE));
+    let committed = 0;
+    for (let index = 0; index < players.length; index += safeChunkSize) {
+      const chunk = players.slice(index, index + safeChunkSize);
+      await this.db.batch(chunk.map((player) => this.playerUpsertStatement(player)), 'write');
+      committed += chunk.length;
+    }
+    return committed;
   }
 
   async getPlayersByTeam(teamId: string): Promise<any[]> {
@@ -3270,6 +3282,29 @@ export class DatabaseService {
       'SELECT * FROM players WHERE team_id = ? ORDER BY avg_shots_per_game DESC',
       [teamId]
     );
+  }
+
+  async getConfirmedLineupTeamsForMatches(matchIds: string[]): Promise<Record<string, string[]>> {
+    const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = await this.all(
+      `SELECT DISTINCT match_id, team_id
+       FROM player_lineup_status
+       WHERE match_id IN (${placeholders})
+         AND status IN ('confirmed_starter', 'confirmed_bench')`,
+      ids,
+    );
+    const out: Record<string, string[]> = {};
+    for (const row of rows) {
+      const matchId = String(row.match_id ?? '');
+      const teamId = String(row.team_id ?? '');
+      if (!matchId || !teamId) continue;
+      const teams = out[matchId] ?? [];
+      if (!teams.includes(teamId)) teams.push(teamId);
+      out[matchId] = teams;
+    }
+    return out;
   }
 
   async getPlayerLineupStatuses(matchId: string, asOf?: string): Promise<Array<{
@@ -3586,14 +3621,14 @@ export class DatabaseService {
 
   // ==================== REFEREES ====================
 
-  async upsertReferee(ref: any): Promise<void> {
-    await this.run(
-      `INSERT OR REPLACE INTO referees (
+  private refereeUpsertStatement(ref: any): { sql: string; args: SqlArgs } {
+    return {
+      sql: `INSERT OR REPLACE INTO referees (
         referee_id, name, avg_fouls_per_game, avg_yellow_cards_per_game,
         avg_red_cards_per_game, total_games, dispersion_yellow, last_updated
       )
       VALUES (:refId, :name, :fouls, :yellow, :red, :games, :dispersionYellow, datetime('now'))`,
-      {
+      args: {
         refId: ref.refId ?? String(ref.name ?? '').toLowerCase().replace(/\s/g, '_'),
         name: ref.name,
         fouls: ref.avgFouls ?? 22.4,
@@ -3601,8 +3636,26 @@ export class DatabaseService {
         red: ref.avgRed ?? 0.22,
         games: ref.games ?? 0,
         dispersionYellow: ref.dispersionYellow ?? 12.4,
-      }
-    );
+      },
+    };
+  }
+
+  async upsertReferee(ref: any): Promise<void> {
+    const statement = this.refereeUpsertStatement(ref);
+    await this.run(statement.sql, statement.args as SqlArgs);
+  }
+
+  async upsertReferees(referees: any[], chunkSize = GENERIC_WRITE_CHUNK_SIZE): Promise<number> {
+    if (!Array.isArray(referees) || referees.length === 0) return 0;
+    await this.initPromise;
+    const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || GENERIC_WRITE_CHUNK_SIZE, GENERIC_WRITE_CHUNK_SIZE));
+    let committed = 0;
+    for (let index = 0; index < referees.length; index += safeChunkSize) {
+      const chunk = referees.slice(index, index + safeChunkSize);
+      await this.db.batch(chunk.map((referee) => this.refereeUpsertStatement(referee)), 'write');
+      committed += chunk.length;
+    }
+    return committed;
   }
 
   async getRefereeByName(name: string): Promise<any | null> {
@@ -4543,6 +4596,28 @@ export class DatabaseService {
        WHERE prediction_id = ? AND result = 'pending'`,
       [result, settledAt, predictionId],
     );
+  }
+
+  async settlePredictionsBatch(rows: Array<{
+    predictionId: string;
+    result: 'win' | 'loss' | 'void';
+    settledAt?: string;
+  }>, chunkSize = GENERIC_WRITE_CHUNK_SIZE): Promise<number> {
+    if (!Array.isArray(rows) || rows.length === 0) return 0;
+    await this.initPromise;
+    const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || GENERIC_WRITE_CHUNK_SIZE, GENERIC_WRITE_CHUNK_SIZE));
+    let settled = 0;
+    for (let index = 0; index < rows.length; index += safeChunkSize) {
+      const chunk = rows.slice(index, index + safeChunkSize);
+      const results = await this.db.batch(chunk.map((row) => ({
+        sql: `UPDATE predictions
+              SET result = ?, settled_at = ?
+              WHERE prediction_id = ? AND result = 'pending'`,
+        args: [row.result, row.settledAt ?? new Date().toISOString(), row.predictionId],
+      })), 'write');
+      settled += results.reduce((total, result) => total + Number(result?.rowsAffected ?? 0), 0);
+    }
+    return settled;
   }
 
   async getPredictionCounts(): Promise<any[]> {

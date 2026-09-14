@@ -142,7 +142,7 @@ describe('PredictionArchivePage', () => {
     await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({
       category: 'played', from: '2026-08-23', to: '2026-08-24', classifications: ['high', 'low'], limit: 200,
     }));
-    expect(screen.getByText(/Non ci sono ancora giocate operative concluse nei filtri scelti/)).toBeTruthy();
+    expect(await screen.findByText(/Non ci sono ancora giocate operative concluse nei filtri scelti/)).toBeTruthy();
     expect(screen.getByText(/risultati filtrati/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Azzera filtri/ }));
