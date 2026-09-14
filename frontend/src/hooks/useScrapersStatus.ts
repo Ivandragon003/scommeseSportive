@@ -2,16 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getOddsSnapshotStatus,
   getProviderHealth,
-  getScraperStatus,
   getSystemHealth,
-  getSystemMetrics,
   getUnderstatScraperInfo,
 } from '../utils/api';
-import {
-  normalizeProviderHealth,
-  normalizeSystemHealth,
-  normalizeSystemMetrics,
-} from '../utils/systemObservability';
+import { normalizeSystemHealth } from '../utils/systemObservability';
 
 interface ScrapersStatusState {
   scraperStatus: any;
@@ -45,6 +39,16 @@ const normalizeOddsState = (data: any) => {
   };
 };
 
+const scraperStatusFromSystemHealth = (health: any) => ({
+  isUpdating: Boolean(health?.isUpdating),
+  lastUpdate: health?.lastUpdate ?? null,
+  understatScheduler: health?.schedulers?.understat ?? null,
+  oddsSnapshotScheduler: health?.schedulers?.odds ?? null,
+  learningReviewScheduler: health?.schedulers?.learning ?? null,
+  lineupRefreshScheduler: health?.schedulers?.lineups ?? null,
+  providerHealth: health?.providers ?? null,
+});
+
 export function useScrapersStatus() {
   const [state, setState] = useState<ScrapersStatusState>(INITIAL_STATE);
   const isUpdatingRef = useRef(false);
@@ -61,23 +65,6 @@ export function useScrapersStatus() {
     return () => { active = false; };
   }, []);
 
-  // Preserve the explicit initial diagnostics shown by the provider panel. The
-  // recurring poll below uses the aggregated health payload instead.
-  useEffect(() => {
-    let active = true;
-    void Promise.all([getProviderHealth(), getSystemMetrics()])
-      .then(([providerHealthRes, systemMetricsRes]) => {
-        if (!active) return;
-        setState((current) => ({
-          ...current,
-          providerHealth: normalizeProviderHealth(providerHealthRes ?? {}),
-          systemMetrics: normalizeSystemMetrics(systemMetricsRes ?? {}),
-        }));
-      })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
   const applyOddsState = useCallback((data: any) => {
     setState((current) => ({
       ...current,
@@ -89,8 +76,7 @@ export function useScrapersStatus() {
     try {
       // /system/health already aggregates provider health and system metrics.
       // Keep only the two payloads not represented there for the scraper UI.
-      const [statusRes, oddsRes, systemHealthRes] = await Promise.all([
-        getScraperStatus(options),
+      const [oddsRes, systemHealthRes] = await Promise.all([
         getOddsSnapshotStatus(options),
         getSystemHealth(options),
       ]);
@@ -99,7 +85,7 @@ export function useScrapersStatus() {
 
       setState((current) => ({
         ...current,
-        scraperStatus: statusRes.data ?? null,
+        scraperStatus: scraperStatusFromSystemHealth(systemHealth),
         ...normalizeOddsState(oddsRes.data ?? null),
         systemHealth,
         providerHealth: systemHealth.providers.status === 'unknown' && current.providerHealth
@@ -116,8 +102,7 @@ export function useScrapersStatus() {
 
   const refreshQuotePipeline = useCallback(async (options?: { force?: boolean }) => {
     try {
-      const [statusRes, oddsRes, systemHealthRes] = await Promise.all([
-        getScraperStatus(options),
+      const [oddsRes, systemHealthRes] = await Promise.all([
         getOddsSnapshotStatus(options),
         getSystemHealth(options),
       ]);
@@ -125,7 +110,7 @@ export function useScrapersStatus() {
 
       setState((current) => ({
         ...current,
-        scraperStatus: statusRes.data ?? current.scraperStatus,
+        scraperStatus: scraperStatusFromSystemHealth(systemHealth),
         ...normalizeOddsState(oddsRes.data ?? null),
         systemHealth,
         providerHealth: systemHealth.providers.status === 'unknown' && current.providerHealth
@@ -173,8 +158,9 @@ export function useScrapersStatus() {
 
     const scheduleNext = () => {
       clearScheduledRefresh();
+      if (document.hidden) return;
       const generation = ++scheduleGeneration;
-      const intervalMs = document.hidden ? 60000 : (isUpdatingRef.current ? 5000 : 15000);
+      const intervalMs = isUpdatingRef.current ? 15000 : 60000;
       timeout = window.setTimeout(async () => {
         if (!active || generation !== scheduleGeneration) return;
         await safeRefresh();

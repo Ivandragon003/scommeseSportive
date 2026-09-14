@@ -363,6 +363,15 @@ export interface FootballDataDb {
   fillSupplementalStats(matchId: string, row: FootballDataRow): Promise<boolean>;
   /** Salva le quote di mercato (apertura+chiusura) in matches.fd_odds_json. Idempotente. Ritorna true se scritte. */
   saveMarketOdds(matchId: string, row: FootballDataRow): Promise<boolean>;
+  /**
+   * Optional combined write used by the libSQL adapter. Implementations that do
+   * not provide it keep the two-call fallback above (useful for test doubles and
+   * older adapters).
+   */
+  applySupplementalStatsAndOdds?(updates: Array<{ matchId: string; row: FootballDataRow }>): Promise<Array<{
+    statsChanged: boolean;
+    oddsWritten: boolean;
+  }>>;
 }
 
 export interface FootballDataFetcher {
@@ -870,6 +879,7 @@ export async function syncFootballData(
         rows = parseFootballDataCsv(csv);
         if (rows.length === 0) throw new Error('CSV vuoto o senza righe valide');
         perComp.csvRows += rows.length;
+        const matchedRows: Array<{ matchId: string; row: FootballDataRow }> = [];
         for (const row of rows) {
           let hit = index.get(matchKey(row.date, row.homeTeam, row.awayTeam));
           if (!hit) {
@@ -908,10 +918,26 @@ export async function syncFootballData(
           }
           matched += 1;
           matchedLatestDate = !matchedLatestDate || row.date > matchedLatestDate ? row.date : matchedLatestDate;
-          const changed = await db.fillSupplementalStats(hit.match_id, row);
-          if (changed) updated += 1;
-          const oddsSaved = await db.saveMarketOdds(hit.match_id, row);
-          if (oddsSaved) oddsWritten += 1;
+          matchedRows.push({ matchId: hit.match_id, row });
+        }
+        if (db.applySupplementalStatsAndOdds) {
+          // Keep requests bounded: libSQL limits statement payloads and a
+          // failed chunk must not make a full-season sync unmanageable.
+          const chunkSize = 50;
+          for (let index = 0; index < matchedRows.length; index += chunkSize) {
+            const results = await db.applySupplementalStatsAndOdds(matchedRows.slice(index, index + chunkSize));
+            for (const result of results) {
+              if (result.statsChanged) updated += 1;
+              if (result.oddsWritten) oddsWritten += 1;
+            }
+          }
+        } else {
+          for (const { matchId, row } of matchedRows) {
+            const changed = await db.fillSupplementalStats(matchId, row);
+            if (changed) updated += 1;
+            const oddsSaved = await db.saveMarketOdds(matchId, row);
+            if (oddsSaved) oddsWritten += 1;
+          }
         }
         const sourceLatestDate = rows.reduce<string | null>(
           (latest, row) => !latest || row.date > latest ? row.date : latest,
@@ -1048,6 +1074,62 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
         args: { json: JSON.stringify(payload), id: matchId },
       });
       return Number(res.rowsAffected ?? 0) > 0;
+    },
+    async applySupplementalStatsAndOdds(updates: Array<{ matchId: string; row: FootballDataRow }>) {
+      const output: Array<{ statsChanged: boolean; oddsWritten: boolean }> = [];
+      // Keep this guard here as well as in syncFootballData: callers may use
+      // the adapter directly with a whole season's worth of rows.
+      for (let offset = 0; offset < updates.length; offset += 50) {
+        const chunk = updates.slice(offset, offset + 50);
+        const statements: Array<{ sql: string; args?: any }> = [];
+        const resultMap: Array<{ updateIndex: number; kind: 'stats' | 'odds' }> = [];
+        for (let updateIndex = 0; updateIndex < chunk.length; updateIndex += 1) {
+          const { matchId, row } = chunk[updateIndex];
+          const nullCond = SUPPLEMENTAL_COLS.map((c) => `${c} IS NULL`).join(' OR ')
+            + ` OR referee IS NULL OR TRIM(referee) = ''`;
+          statements.push({
+            sql: `UPDATE matches SET
+              home_shots = COALESCE(home_shots, :hs), away_shots = COALESCE(away_shots, :as_),
+              home_shots_on_target = COALESCE(home_shots_on_target, :hst), away_shots_on_target = COALESCE(away_shots_on_target, :ast),
+              home_fouls = COALESCE(home_fouls, :hf), away_fouls = COALESCE(away_fouls, :af),
+              home_corners = COALESCE(home_corners, :hc), away_corners = COALESCE(away_corners, :ac),
+              home_yellow_cards = COALESCE(home_yellow_cards, :hy), away_yellow_cards = COALESCE(away_yellow_cards, :ay),
+              home_red_cards = COALESCE(home_red_cards, :hr), away_red_cards = COALESCE(away_red_cards, :ar),
+              referee = COALESCE(NULLIF(TRIM(referee), ''), :ref)
+              WHERE match_id = :id AND (${nullCond})`,
+            args: {
+              hs: row.homeShots, as_: row.awayShots, hst: row.homeShotsOnTarget, ast: row.awayShotsOnTarget,
+              hf: row.homeFouls, af: row.awayFouls, hc: row.homeCorners, ac: row.awayCorners,
+              hy: row.homeYellow, ay: row.awayYellow, hr: row.homeRed, ar: row.awayRed,
+              ref: row.referee, id: matchId,
+            },
+          });
+          resultMap.push({ updateIndex, kind: 'stats' });
+          const payload = buildMarketOddsJson(row);
+          if (payload) {
+            statements.push({
+              sql: 'UPDATE matches SET fd_odds_json = :json WHERE match_id = :id',
+              args: { json: JSON.stringify(payload), id: matchId },
+            });
+            resultMap.push({ updateIndex, kind: 'odds' });
+          }
+          output.push({ statsChanged: false, oddsWritten: false });
+        }
+        let results: Array<{ rows: any[]; rowsAffected?: number }> = [];
+        if (client.batch) {
+          results = await client.batch(statements, 'write');
+        } else {
+          // Legacy clients without batch support retain correctness, at the
+          // cost of the original sequential round trips.
+          for (const statement of statements) results.push(await client.execute(statement));
+        }
+        resultMap.forEach(({ updateIndex, kind }, resultIndex) => {
+          const changed = Number(results[resultIndex]?.rowsAffected ?? 0) > 0;
+          if (kind === 'stats') output[offset + updateIndex].statsChanged = changed;
+          else output[offset + updateIndex].oddsWritten = changed;
+        });
+      }
+      return output;
     },
   };
 }

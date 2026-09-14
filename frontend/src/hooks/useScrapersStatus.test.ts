@@ -4,17 +4,13 @@ import { useScrapersStatus } from './useScrapersStatus';
 
 const mockGetOddsSnapshotStatus = jest.fn();
 const mockGetProviderHealth = jest.fn();
-const mockGetScraperStatus = jest.fn();
 const mockGetSystemHealth = jest.fn();
-const mockGetSystemMetrics = jest.fn();
 const mockGetUnderstatScraperInfo = jest.fn();
 
 jest.mock('../utils/api', () => ({
   getOddsSnapshotStatus: (...args: unknown[]) => mockGetOddsSnapshotStatus(...args),
   getProviderHealth: (...args: unknown[]) => mockGetProviderHealth(...args),
-  getScraperStatus: (...args: unknown[]) => mockGetScraperStatus(...args),
   getSystemHealth: (...args: unknown[]) => mockGetSystemHealth(...args),
-  getSystemMetrics: (...args: unknown[]) => mockGetSystemMetrics(...args),
   getUnderstatScraperInfo: (...args: unknown[]) => mockGetUnderstatScraperInfo(...args),
 }));
 
@@ -29,9 +25,9 @@ describe('useScrapersStatus polling', () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     mockGetOddsSnapshotStatus.mockReset().mockResolvedValue({ data: {} });
     mockGetProviderHealth.mockReset().mockResolvedValue({ data: {} });
-    mockGetScraperStatus.mockReset().mockResolvedValue({ data: {} });
-    mockGetSystemHealth.mockReset().mockResolvedValue({ data: {} });
-    mockGetSystemMetrics.mockReset().mockResolvedValue({ data: {} });
+    mockGetSystemHealth.mockReset().mockResolvedValue({
+      data: { isUpdating: false, schedulers: {}, providers: {}, metrics: {} },
+    });
     mockGetUnderstatScraperInfo.mockReset().mockResolvedValue({ data: {} });
   });
 
@@ -42,22 +38,22 @@ describe('useScrapersStatus polling', () => {
   test('visibilitychange durante un refresh mantiene una sola catena timer', async () => {
     render(createElement(StatusProbe));
     await act(async () => { await Promise.resolve(); });
-    expect(mockGetScraperStatus).toHaveBeenCalledTimes(1);
+    expect(mockGetSystemHealth).toHaveBeenCalledTimes(1);
 
     act(() => document.dispatchEvent(new Event('visibilitychange')));
     await act(async () => { await Promise.resolve(); });
-    expect(mockGetScraperStatus).toHaveBeenCalledTimes(2);
+    expect(mockGetSystemHealth).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      jest.advanceTimersByTime(15_000);
+      jest.advanceTimersByTime(59_000);
       await Promise.resolve();
     });
-    expect(mockGetScraperStatus).toHaveBeenCalledTimes(3);
+    expect(mockGetSystemHealth).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      jest.advanceTimersByTime(15_000);
+      jest.advanceTimersByTime(1_000);
       await Promise.resolve();
     });
-    expect(mockGetScraperStatus).toHaveBeenCalledTimes(4);
+    expect(mockGetSystemHealth).toHaveBeenCalledTimes(3);
   });
 });
