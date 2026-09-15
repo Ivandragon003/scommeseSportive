@@ -74,6 +74,13 @@ export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationS
   };
 }
 
+type CalibrationProfile = {
+  calibrationPoints: Array<{ x: number; y: number }>;
+  nObservations: number;
+  byFamily: Record<string, FamilyCalibrationCurve>;
+  learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
+};
+
 /**
  * `analyzeMarketsEnhanced` calibra le probabilita con le curve isotoniche
  * calcolate per la previsione live. Il motore value, invece, espone anche una
@@ -704,6 +711,7 @@ export class PredictionService {
   private adaptiveTuningService: AdaptiveTuningService;
   private understat: Pick<UnderstatScraper, 'getMatchDetails'>;
   private adaptiveTuningCache: Map<string, { expiresAt: number; profile: AdaptiveEngineTuningProfile }> = new Map();
+  private adaptiveTuningLoads: Map<string, Promise<AdaptiveEngineTuningProfile>> = new Map();
   private calibrationCache: Map<string, {
     expiresAt: number;
     points: Array<{ x: number; y: number }>;
@@ -711,6 +719,7 @@ export class PredictionService {
     byFamily: Record<string, FamilyCalibrationCurve>;
     blendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
   }> = new Map();
+  private calibrationLoads: Map<string, Promise<CalibrationProfile>> = new Map();
 
   constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {
     this.db = db;
@@ -813,12 +822,25 @@ export class PredictionService {
     model: DixonColesModel,
     competition?: string,
     forceRefresh = false
-  ): Promise<{
-    calibrationPoints: Array<{ x: number; y: number }>;
-    nObservations: number;
-    byFamily: Record<string, FamilyCalibrationCurve>;
-    learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
-  }> {
+  ): Promise<CalibrationProfile> {
+    const loadKey = `${this.getCalibrationCacheKey(competition)}:${forceRefresh ? 'refresh' : 'cached'}`;
+    const pending = this.calibrationLoads.get(loadKey);
+    if (pending) return pending;
+
+    const load = this.loadCalibrationProfile(model, competition, forceRefresh);
+    this.calibrationLoads.set(loadKey, load);
+    try {
+      return await load;
+    } finally {
+      if (this.calibrationLoads.get(loadKey) === load) this.calibrationLoads.delete(loadKey);
+    }
+  }
+
+  private async loadCalibrationProfile(
+    model: DixonColesModel,
+    competition?: string,
+    forceRefresh = false
+  ): Promise<CalibrationProfile> {
     const cacheKey = this.getCalibrationCacheKey(competition);
     const now = Date.now();
     const cached = this.calibrationCache.get(cacheKey);
@@ -1033,6 +1055,20 @@ export class PredictionService {
   }
 
   async getAdaptiveTuningProfile(competition?: string, forceRefresh = false): Promise<AdaptiveEngineTuningProfile> {
+    const loadKey = `${this.getAdaptiveTuningCacheKey(competition)}:${forceRefresh ? 'refresh' : 'cached'}`;
+    const pending = this.adaptiveTuningLoads.get(loadKey);
+    if (pending) return pending;
+
+    const load = this.loadAdaptiveTuningProfile(competition, forceRefresh);
+    this.adaptiveTuningLoads.set(loadKey, load);
+    try {
+      return await load;
+    } finally {
+      if (this.adaptiveTuningLoads.get(loadKey) === load) this.adaptiveTuningLoads.delete(loadKey);
+    }
+  }
+
+  private async loadAdaptiveTuningProfile(competition?: string, forceRefresh = false): Promise<AdaptiveEngineTuningProfile> {
     const cacheKey = this.getAdaptiveTuningCacheKey(competition);
     const now = Date.now();
     const cached = this.adaptiveTuningCache.get(cacheKey);
@@ -2746,6 +2782,13 @@ export class PredictionService {
       season: options?.season,
       limit,
     });
+    const matchIds = [...new Set(matches.map((match: any) => String(match?.match_id ?? '').trim()).filter(Boolean))];
+    const supportsBulkReviews = typeof (this.db as any).getLearningReviewsByMatchIds === 'function';
+    const supportsBulkSnapshots = typeof (this.db as any).getLatestOddsSnapshotsForMatches === 'function';
+    const [existingByMatch, snapshotsByMatch] = await Promise.all([
+      supportsBulkReviews ? (this.db as any).getLearningReviewsByMatchIds(matchIds) : Promise.resolve({}),
+      supportsBulkSnapshots ? (this.db as any).getLatestOddsSnapshotsForMatches(matchIds) : Promise.resolve({}),
+    ]);
 
     let considered = 0;
     let created = 0;
@@ -2755,20 +2798,25 @@ export class PredictionService {
     let skippedNoOdds = 0;
     let usedModelFallbackReviews = 0;
     const touchedCompetitions = new Set<string>();
+    const reviewWrites: Array<{ matchId: string; competition: string; review: CompletedMatchLearningReview }> = [];
 
     for (const match of matches) {
       const matchId = String(match?.match_id ?? '').trim();
       if (!matchId) continue;
       considered += 1;
 
-      const existing = await this.db.getLearningReview(matchId);
+      const existing = supportsBulkReviews
+        ? (existingByMatch[matchId] ?? null)
+        : await this.db.getLearningReview(matchId);
       if (existing && !options?.forceRefresh) {
         skippedExisting += 1;
         continue;
       }
 
       const historicalSnapshot =
-        await this.db.getLatestOddsSnapshotForMatch(matchId)
+        (supportsBulkSnapshots
+          ? (snapshotsByMatch[matchId] ?? null)
+          : await this.db.getLatestOddsSnapshotForMatch(matchId))
         ?? await this.db.findLatestOddsSnapshotByTeams(
           String(match.home_team_name ?? ''),
           String(match.away_team_name ?? ''),
@@ -2813,12 +2861,18 @@ export class PredictionService {
         source: replaySource,
         learningWeight,
       });
-      await this.db.saveLearningReview(matchId, String(match.competition ?? ''), review);
+      if (typeof (this.db as any).saveLearningReviews === 'function') {
+        reviewWrites.push({ matchId, competition: String(match.competition ?? ''), review });
+      } else {
+        await this.db.saveLearningReview(matchId, String(match.competition ?? ''), review);
+      }
       touchedCompetitions.add(String(match.competition ?? '').trim());
 
       if (existing) refreshed += 1;
       else created += 1;
     }
+
+    if (reviewWrites.length > 0) await (this.db as any).saveLearningReviews(reviewWrites);
 
     if (created > 0 || refreshed > 0) {
       if (touchedCompetitions.size > 0) {

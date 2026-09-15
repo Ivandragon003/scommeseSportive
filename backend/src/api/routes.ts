@@ -509,6 +509,22 @@ const createKickoffSyncService = deps.createOddsApiKickoffSyncService
   ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
 const heavyJobService = deps.heavyJobService ?? new HeavyJobService();
 const sharedDataUserId = String(deps.sharedDataUserId ?? process.env.SHARED_DATA_USER_ID ?? 'user1').trim() || 'user1';
+const archivePayloadCache = new Map<string, { expiresAt: number; payload: any }>();
+const archivePayloadLoads = new Map<string, Promise<any>>();
+const ARCHIVE_PAYLOAD_CACHE_TTL_MS = 30_000;
+const ARCHIVE_PAYLOAD_CACHE_MAX_ENTRIES = 40;
+
+const clearArchivePayloadCache = (): void => {
+  archivePayloadCache.clear();
+};
+
+const rememberArchivePayload = (key: string, payload: any): void => {
+  if (!archivePayloadCache.has(key) && archivePayloadCache.size >= ARCHIVE_PAYLOAD_CACHE_MAX_ENTRIES) {
+    const oldestKey = archivePayloadCache.keys().next().value;
+    if (oldestKey) archivePayloadCache.delete(oldestKey);
+  }
+  archivePayloadCache.set(key, { expiresAt: Date.now() + ARCHIVE_PAYLOAD_CACHE_TTL_MS, payload });
+};
 
 const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
   const timeoutMs = getBacktestRouteTimeoutMs();
@@ -1618,16 +1634,32 @@ router.get('/bet-opportunities/archive', async (req: Request, res: Response) => 
       userId: sharedDataUserId,
       limit: Number(req.query.limit ?? 200),
     };
-    const [data, summary, counts] = await Promise.all([
-      db.getBetOpportunityArchive(options),
-      typeof db.getBetOpportunityArchiveSummary === 'function'
-        ? db.getBetOpportunityArchiveSummary(options)
-        : Promise.resolve(undefined),
-      typeof db.getBetOpportunityArchiveCategoryCounts === 'function'
-        ? db.getBetOpportunityArchiveCategoryCounts(options)
-        : Promise.resolve(undefined),
-    ]);
-    return res.json({ success: true, data, summary, counts });
+    const cacheKey = JSON.stringify(options);
+    const cached = archivePayloadCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return res.json(cached.payload);
+    if (cached) archivePayloadCache.delete(cacheKey);
+
+    let load = archivePayloadLoads.get(cacheKey);
+    if (!load) {
+      load = Promise.all([
+        db.getBetOpportunityArchive(options),
+        typeof db.getBetOpportunityArchiveSummary === 'function'
+          ? db.getBetOpportunityArchiveSummary(options)
+          : Promise.resolve(undefined),
+        typeof db.getBetOpportunityArchiveCategoryCounts === 'function'
+          ? db.getBetOpportunityArchiveCategoryCounts(options)
+          : Promise.resolve(undefined),
+      ]).then(([data, summary, counts]) => ({ success: true, data, summary, counts }));
+      archivePayloadLoads.set(cacheKey, load);
+    }
+
+    try {
+      const payload = await load;
+      rememberArchivePayload(cacheKey, payload);
+      return res.json(payload);
+    } finally {
+      if (archivePayloadLoads.get(cacheKey) === load) archivePayloadLoads.delete(cacheKey);
+    }
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
@@ -1704,6 +1736,7 @@ router.post('/bet-opportunities/archive/manual', async (req: Request, res: Respo
       exclusionReason: classification === 'SPECULATIVE' ? 'speculative_saved_only' : 'manual_saved_only',
       betId: null,
     });
+    clearArchivePayloadCache();
     return res.json({ success: true, data: { decisionId, archiveType: 'simulated' } });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message ?? 'Archiviazione opportunita non riuscita.' });

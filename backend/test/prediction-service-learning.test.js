@@ -121,6 +121,26 @@ test('adaptive tuning profile learns from missed winners and penalizes wrong pic
   assert.ok(profile.selectionFamilies.draw.wrongPickRate > 0);
 });
 
+test('adaptive tuning coalesces concurrent cache misses into one database read', async () => {
+  const service = new PredictionService({});
+  let reads = 0;
+  service.db.getLearningReviews = async () => {
+    reads += 1;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    return [];
+  };
+
+  const [first, second, third] = await Promise.all([
+    service.getAdaptiveTuningProfile('Serie A'),
+    service.getAdaptiveTuningProfile('Serie A'),
+    service.getAdaptiveTuningProfile('Serie A'),
+  ]);
+
+  assert.equal(reads, 1);
+  assert.equal(first, second);
+  assert.equal(second, third);
+});
+
 test('CLV positive on a lost bet reduces learning penalty as good process bad result', () => {
   const service = new PredictionService({});
   const prediction = {

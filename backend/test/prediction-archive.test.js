@@ -181,8 +181,10 @@ test('getBetOpportunityArchive nasconde i duplicati storici della stessa opportu
 
 test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo contratto', async () => {
   let receivedOptions = null;
+  let archiveReads = 0;
   const db = {
     async getBetOpportunityArchive(options) {
+      archiveReads += 1;
       receivedOptions = options;
       return [{ decision_id: 'decision-api', classification: 'LOW', archive_type: 'simulated', result: 'pending' }];
     },
@@ -204,6 +206,11 @@ test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo con
       category: undefined, type: 'simulated', classification: 'low', classifications: [],
       result: 'pending', matchId: undefined, from: undefined, to: undefined, userId: 'user1', limit: 50,
     });
+
+    const cachedResponse = await fetch(`http://127.0.0.1:${port}/api/bet-opportunities/archive?type=simulated&classification=low&result=pending&limit=50`);
+    assert.equal(cachedResponse.status, 200);
+    await cachedResponse.json();
+    assert.equal(archiveReads, 1);
 
     const filteredResponse = await fetch(`http://127.0.0.1:${port}/api/bet-opportunities/archive?category=unplayed&type=simulated&classifications=low,%20medium,,&from=2026-09-01&to=2026-09-07&matchId=match-42&limit=25`);
     assert.equal(filteredResponse.status, 200);
