@@ -157,6 +157,7 @@ export class DatabaseService {
   private static optionalColumnsCheckPromise: Promise<void> | null = null;
   private initPromise: Promise<void>;
   private schedulerRunRetention: number;
+  private teamAverageLoads = new Map<string, Promise<void>>();
 
   constructor(options?: { skipSchemaBootstrap?: boolean }) {
     const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
@@ -254,6 +255,15 @@ export class DatabaseService {
   }
 
   private async ensureBudgetSessionBackfill(): Promise<void> {
+    const pendingResult = await this.execute(
+      `SELECT
+         EXISTS(SELECT 1 FROM budgets WHERE active_session_id IS NULL OR trim(active_session_id) = '' LIMIT 1) AS budgets_missing,
+         EXISTS(SELECT 1 FROM bets WHERE budget_session_id IS NULL OR trim(budget_session_id) = '' LIMIT 1) AS bets_missing`,
+      undefined,
+      true,
+    );
+    const pending = this.normalizeRow((pendingResult.rows ?? [])[0] as Record<string, unknown> | undefined);
+    if (Number(pending?.budgets_missing ?? 0) === 0 && Number(pending?.bets_missing ?? 0) === 0) return;
     await this.execute(
       `INSERT OR IGNORE INTO budget_sessions (session_id, user_id, initial_budget, status, started_at)
        SELECT 'legacy-' || user_id, user_id, total_budget, 'active', COALESCE(created_at, datetime('now'))
@@ -296,13 +306,13 @@ export class DatabaseService {
       .filter((file) => /^\d+_.+\.sql$/i.test(file))
       .sort();
 
+    const appliedRows = await this.execute('SELECT version FROM schema_migrations', undefined, true);
+    const appliedVersions = new Set(
+      (appliedRows.rows ?? []).map((row: any) => String(row.version ?? '')),
+    );
+
     for (const filename of migrations) {
-      const applied = await this.execute(
-        'SELECT version FROM schema_migrations WHERE version = ?',
-        [filename],
-        true,
-      );
-      if ((applied.rows ?? []).length > 0) continue;
+      if (appliedVersions.has(filename)) continue;
 
       const sql = readFileSync(join(migrationsDirectory, filename), 'utf8').trim();
       if (!sql) continue;
@@ -325,6 +335,7 @@ export class DatabaseService {
         [filename],
         true,
       );
+      appliedVersions.add(filename);
     }
   }
 
@@ -2222,6 +2233,28 @@ export class DatabaseService {
     return this.parseOddsSnapshotRow(row);
   }
 
+  async getLatestOddsSnapshotsForMatches(matchIds: string[]): Promise<Record<string, any>> {
+    const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const rows = await this.all(
+      `SELECT * FROM (
+         SELECT snapshots.*,
+                ROW_NUMBER() OVER (
+                  PARTITION BY match_id
+                  ORDER BY datetime(captured_at) DESC, snapshot_id DESC
+                ) AS snapshot_rank
+         FROM odds_snapshots snapshots
+         WHERE match_id IN (${ids.map(() => '?').join(', ')})
+       ) ranked
+       WHERE snapshot_rank = 1`,
+      ids,
+    );
+    return Object.fromEntries(rows.map((row) => [
+      String(row.match_id),
+      this.parseOddsSnapshotRow(row),
+    ]));
+  }
+
   async getLatestRealOddsSnapshotForMatch(matchId: string): Promise<any | null> {
     const row = await this.get(
       `SELECT * FROM odds_snapshots
@@ -2611,6 +2644,31 @@ export class DatabaseService {
     );
   }
 
+  async saveLearningReviews(rows: Array<{
+    matchId: string;
+    competition?: string | null;
+    review: any;
+  }>): Promise<void> {
+    const normalized = rows.filter((row) => String(row.matchId ?? '').trim());
+    if (normalized.length === 0) return;
+    await this.initPromise;
+    await this.db.batch(normalized.map((row) => ({
+      sql: `INSERT INTO learning_reviews (match_id, competition, review_type, review_json)
+        VALUES (:matchId, :competition, :reviewType, :reviewJson)
+        ON CONFLICT(match_id) DO UPDATE SET
+          competition = excluded.competition,
+          review_type = excluded.review_type,
+          review_json = excluded.review_json,
+          updated_at = datetime('now')`,
+      args: {
+        matchId: String(row.matchId).trim(),
+        competition: row.competition ? String(row.competition) : null,
+        reviewType: String(row.review?.reviewType ?? 'no_actionable_signal'),
+        reviewJson: JSON.stringify(row.review ?? {}),
+      },
+    })), 'write');
+  }
+
   async getLearningReview(matchId: string): Promise<any | null> {
     const row = await this.get('SELECT * FROM learning_reviews WHERE match_id = ?', [matchId]);
     if (!row) return null;
@@ -2628,6 +2686,27 @@ export class DatabaseService {
       updatedAt: row.updated_at ?? null,
       review,
     };
+  }
+
+  async getLearningReviewsByMatchIds(matchIds: string[]): Promise<Record<string, any>> {
+    const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const rows = await this.all(
+      `SELECT * FROM learning_reviews WHERE match_id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    );
+    return Object.fromEntries(rows.map((row: any) => {
+      let review: any = {};
+      try { review = JSON.parse(String(row.review_json ?? '{}')); } catch { review = {}; }
+      return [String(row.match_id), {
+        matchId: String(row.match_id ?? ''),
+        competition: row.competition ?? null,
+        reviewType: String(row.review_type ?? 'no_actionable_signal'),
+        savedAt: row.saved_at ?? null,
+        updatedAt: row.updated_at ?? null,
+        review,
+      }];
+    }));
   }
 
   async getLearningReviews(filters?: { competition?: string; limit?: number }): Promise<any[]> {
@@ -3021,6 +3100,21 @@ export class DatabaseService {
   }
 
   async recomputeTeamAverages(teamId: string): Promise<void> {
+    const normalizedTeamId = String(teamId ?? '').trim();
+    if (!normalizedTeamId) return;
+    const pending = this.teamAverageLoads.get(normalizedTeamId);
+    if (pending) return pending;
+
+    const load = this.loadTeamAverages(normalizedTeamId);
+    this.teamAverageLoads.set(normalizedTeamId, load);
+    try {
+      await load;
+    } finally {
+      if (this.teamAverageLoads.get(normalizedTeamId) === load) this.teamAverageLoads.delete(normalizedTeamId);
+    }
+  }
+
+  private async loadTeamAverages(teamId: string): Promise<void> {
     const DECAY_PER_DAY = 0.005;
     const safeAvgOrNull = (v: unknown): number | null => {
       if (v === null || v === undefined || v === '') return null;
@@ -4966,8 +5060,9 @@ export class DatabaseService {
         entry.error ?? null,
       ]
     );
-    await this.pruneSchedulerRuns();
-    return Number(result?.lastInsertRowid ?? 0);
+    const runId = Number(result?.lastInsertRowid ?? 0);
+    if (runId > 0 && runId % 25 === 0) await this.pruneSchedulerRuns();
+    return runId;
   }
 
   async pruneSchedulerRuns(limit = this.schedulerRunRetention): Promise<number> {
