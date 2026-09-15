@@ -6,11 +6,13 @@ const createDbStub = (systemRuns = []) => {
   const savedRuns = [];
   return {
     savedRuns,
+    listCalls: 0,
     async saveSystemRun(entry) {
       savedRuns.push(entry);
       return savedRuns.length;
     },
     async listRecentSystemRuns(limit) {
+      this.listCalls += 1;
       return systemRuns.slice(0, limit);
     },
   };
@@ -111,6 +113,16 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
   assert.equal(metrics.provider.avgScrapeLatencyMs, 15000);
   assert.equal(metrics.sync.successRatePct, 100);
   assert.equal(metrics.trends.topErrorCategories[0].category, 'provider_degraded');
+});
+
+test('SystemObservabilityService coalesces and caches repeated metrics reads', async () => {
+  const db = createDbStub([]);
+  const svc = new SystemObservabilityService(db);
+
+  await Promise.all([svc.getMetricsPayload(), svc.getMetricsPayload()]);
+  await svc.getMetricsPayload();
+
+  assert.equal(db.listCalls, 1);
 });
 
 test('SystemObservabilityService costruisce provider health con Odds API primario', async () => {

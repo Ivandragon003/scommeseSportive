@@ -693,6 +693,7 @@ export function summarizeBudgetBetsInternal(allBets: any[]): BudgetBetSummary {
 
 export class PredictionService {
   private models: Map<string, DixonColesModel> = new Map();
+  private modelLoads: Map<string, Promise<DixonColesModel>> = new Map();
   /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */
   private poissonModels: Map<string, PoissonXgModel | null> = new Map();
   private engine: ValueBettingEngine;
@@ -1590,7 +1591,11 @@ export class PredictionService {
   }
 
   private async getModel(competition: string = 'default'): Promise<DixonColesModel> {
-    if (!this.models.has(competition)) {
+    const cached = this.models.get(competition);
+    if (cached) return cached;
+    const inFlight = this.modelLoads.get(competition);
+    if (inFlight) return inFlight;
+    const load = (async () => {
       const saved = await this.db.getLatestModelParams(competition);
       if (saved) {
         const model = new DixonColesModel();
@@ -1601,8 +1606,14 @@ export class PredictionService {
         this.models.set(competition, new DixonColesModel());
         this.poissonModels.set(competition, null);
       }
+      return this.models.get(competition)!;
+    })();
+    this.modelLoads.set(competition, load);
+    try {
+      return await load;
+    } finally {
+      this.modelLoads.delete(competition);
     }
-    return this.models.get(competition)!;
   }
 
   /**
@@ -1699,14 +1710,22 @@ export class PredictionService {
 
     // Aggiorna i soli parametri del modello. Il sync Understat ricalcola gia le
     // statistiche squadra prima del fit e puo disattivare il secondo passaggio.
+    const strengthsSavedInBatch = typeof (this.db as any).updateTeamModelStrengthsBatch === 'function';
+    if (strengthsSavedInBatch) {
+      await (this.db as any).updateTeamModelStrengthsBatch(teams.map((teamId) => ({
+        teamId,
+        attackStrength: params.attackParams[teamId] ?? 0,
+        defenceStrength: params.defenceParams[teamId] ?? 0,
+      })));
+    }
     for (const teamId of teams) {
-      if (typeof (this.db as any).updateTeamModelStrengths === 'function') {
+      if (!strengthsSavedInBatch && typeof (this.db as any).updateTeamModelStrengths === 'function') {
         await (this.db as any).updateTeamModelStrengths(
           teamId,
           params.attackParams[teamId] ?? 0,
           params.defenceParams[teamId] ?? 0,
         );
-      } else {
+      } else if (!strengthsSavedInBatch) {
         const existing = await this.db.getTeam(teamId);
         if (!existing) continue;
         await this.db.upsertTeam({
@@ -1756,16 +1775,30 @@ export class PredictionService {
   async predict(request: PredictionRequest): Promise<PredictionResponse> {
     // These are independent read-only lookups. Keep the subsequent schedule query
     // dependent on matchRow so its reference date remains exactly unchanged.
-    const [model, homeTeam, awayTeam, matchRow, activeHomePlayers, activeAwayPlayers, homeHistoricalCoverage, awayHistoricalCoverage] = await Promise.all([
+    const teamIds = [request.homeTeamId, request.awayTeamId];
+    const teamsPromise = typeof (this.db as any).getTeamsByIds === 'function'
+      ? (this.db as any).getTeamsByIds(teamIds)
+      : Promise.all(teamIds.map((teamId) => this.db.getTeam(teamId)));
+    const playersPromise = typeof (this.db as any).getPlayersByTeams === 'function'
+      ? (this.db as any).getPlayersByTeams(teamIds)
+      : Promise.all(teamIds.map((teamId) => this.db.getPlayersByTeam(teamId))).then((groups) => groups.flat());
+    const coveragePromise = typeof (this.db as any).getTeamHistoricalCoverageBatch === 'function'
+      ? (this.db as any).getTeamHistoricalCoverageBatch(teamIds, request.season)
+      : Promise.all(teamIds.map((teamId) => this.db.getTeamHistoricalCoverage(teamId, request.season).catch(() => null)))
+        .then((rows) => Object.fromEntries(teamIds.map((teamId, index) => [teamId, rows[index]])));
+    const [model, teamRows, matchRow, activePlayers, coverageByTeam] = await Promise.all([
       this.getModel(request.competition),
-      this.db.getTeam(request.homeTeamId),
-      this.db.getTeam(request.awayTeamId),
+      teamsPromise,
       request.matchId ? this.db.getMatchById(request.matchId).catch(() => null) : Promise.resolve(null),
-      this.db.getPlayersByTeam(request.homeTeamId),
-      this.db.getPlayersByTeam(request.awayTeamId),
-      this.db.getTeamHistoricalCoverage(request.homeTeamId, request.season).catch(() => null),
-      this.db.getTeamHistoricalCoverage(request.awayTeamId, request.season).catch(() => null),
+      playersPromise,
+      coveragePromise.catch(() => ({})),
     ]);
+    const homeTeam = teamRows.find((row: any) => String(row?.team_id) === request.homeTeamId) ?? null;
+    const awayTeam = teamRows.find((row: any) => String(row?.team_id) === request.awayTeamId) ?? null;
+    const activeHomePlayers = activePlayers.filter((row: any) => String(row?.team_id) === request.homeTeamId);
+    const activeAwayPlayers = activePlayers.filter((row: any) => String(row?.team_id) === request.awayTeamId);
+    const homeHistoricalCoverage = coverageByTeam[request.homeTeamId] ?? null;
+    const awayHistoricalCoverage = coverageByTeam[request.awayTeamId] ?? null;
     const refereeName = resolvePredictionRefereeName(request.referee, matchRow?.referee);
     const referee = refereeName ? await this.db.getRefereeByName(refereeName) : null;
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
@@ -1773,16 +1806,34 @@ export class PredictionService {
     const targetSeason = request.season ?? matchRow?.season ?? '';
     const destinationCompetitionId = destinationCompetitionIdFor(targetCompetition);
     const sourceCompetitionId = sourceCompetitionIdFor(targetCompetition);
-    const [homePromotedHistory, awayPromotedHistory] = destinationCompetitionId && sourceCompetitionId && targetSeason
-      ? await Promise.all([
+    let homePromotedHistory: any[] = [];
+    let awayPromotedHistory: any[] = [];
+    if (destinationCompetitionId && sourceCompetitionId && targetSeason) {
+      if (typeof (this.db as any).getPromotedTeamHistoryBatch === 'function') {
+        const promotedByTeam = await (this.db as any).getPromotedTeamHistoryBatch(
+          teamIds,
+          sourceCompetitionId,
+          destinationCompetitionId,
+          targetSeason,
+          targetCompetition,
+          referenceDate,
+        ).catch(() => ({}));
+        homePromotedHistory = promotedByTeam[request.homeTeamId] ?? [];
+        awayPromotedHistory = promotedByTeam[request.awayTeamId] ?? [];
+      } else {
+        [homePromotedHistory, awayPromotedHistory] = await Promise.all([
           this.db.getPromotedTeamHistory(request.homeTeamId, sourceCompetitionId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => []),
           this.db.getPromotedTeamHistory(request.awayTeamId, sourceCompetitionId, destinationCompetitionId, targetSeason, targetCompetition, referenceDate).catch(() => []),
-        ])
-      : [[], []];
+        ]);
+      }
+    }
     const homePromotedPrior = buildPromotedTeamPrior(homePromotedHistory, targetSeason);
     const awayPromotedPrior = buildPromotedTeamPrior(awayPromotedHistory, targetSeason);
     const lineupStatusRows = request.matchId
-      ? await this.db.getPlayerLineupStatuses(request.matchId, referenceDate).catch(() => [])
+      ? await this.db.getPlayerLineupStatuses(
+          request.matchId,
+          referenceDate && Date.parse(referenceDate) < Date.now() ? referenceDate : undefined,
+        ).catch(() => [])
       : [];
     let homePlayers = activeHomePlayers;
     let awayPlayers = activeAwayPlayers;
@@ -1803,10 +1854,14 @@ export class PredictionService {
       lineupStatusRows,
       [...(homePlayers ?? []), ...(awayPlayers ?? [])],
     );
-    const [homeSchedule, awaySchedule] = await Promise.all([
-      this.db.getTeamScheduleInsights(request.homeTeamId, referenceDate).catch(() => null),
-      this.db.getTeamScheduleInsights(request.awayTeamId, referenceDate).catch(() => null),
-    ]);
+    const scheduleByTeam = typeof (this.db as any).getTeamScheduleInsightsBatch === 'function'
+      ? await (this.db as any).getTeamScheduleInsightsBatch(teamIds, referenceDate).catch(() => ({}))
+      : Object.fromEntries(await Promise.all(teamIds.map(async (teamId) => [
+          teamId,
+          await this.db.getTeamScheduleInsights(teamId, referenceDate).catch(() => null),
+        ])));
+    const homeSchedule = scheduleByTeam[request.homeTeamId] ?? null;
+    const awaySchedule = scheduleByTeam[request.awayTeamId] ?? null;
     const derivedRequest: PredictionRequest = {
       ...request,
       homeRestDays: request.homeRestDays ?? homeSchedule?.restDays ?? undefined,
@@ -3594,8 +3649,14 @@ export class PredictionService {
     return { matches, settled, unresolved };
   }
 
-  private async resolvePlayedMatchForBet(bet: any): Promise<any | null> {
-    const byId = await this.db.getMatchById(String(bet?.match_id ?? ''));
+  private async resolvePlayedMatchForBet(
+    bet: any,
+    prefetchedById?: any,
+    idLookupCompleted = false,
+  ): Promise<any | null> {
+    const byId = idLookupCompleted
+      ? (prefetchedById ?? null)
+      : await this.db.getMatchById(String(bet?.match_id ?? ''));
     if (byId && byId.home_goals !== null && byId.away_goals !== null) return byId;
 
     const rawMatchDate = String(bet?.match_date ?? '').trim();
@@ -3695,14 +3756,31 @@ export class PredictionService {
 
   async syncPendingBets(userId: string) {
     const pendingBets = await this.db.getBets(userId, 'PENDING');
-    let settled = 0;
     let unresolved = 0;
     const refreshedMatches = new Map<string, any>();
     const predictionsSettledForMatches = new Set<string>();
+    const matchIds = [...new Set(pendingBets.map((bet: any) => String(bet.match_id ?? '')).filter(Boolean))];
+    const supportsMatchPrefetch = typeof (this.db as any).getMatchesByIds === 'function';
+    const prefetchedMatches = supportsMatchPrefetch
+      ? await (this.db as any).getMatchesByIds(matchIds)
+      : [];
+    const matchesById = new Map<string, any>(
+      prefetchedMatches.filter(Boolean).map((row: any) => [String(row.match_id), row]),
+    );
+    const pendingSettlements: Array<{
+      betId: string;
+      userId: string;
+      status: 'WON' | 'LOST' | 'VOID';
+      returnAmount: number;
+      profit: number;
+      settledAt: string;
+      notes: string | null;
+    }> = [];
 
     for (const bet of pendingBets) {
       const matchId = String(bet.match_id ?? '');
-      let matchRow = refreshedMatches.get(matchId) ?? await this.resolvePlayedMatchForBet(bet);
+      let matchRow = refreshedMatches.get(matchId)
+        ?? await this.resolvePlayedMatchForBet(bet, matchesById.get(matchId), supportsMatchPrefetch);
       if (!matchRow) {
         unresolved++;
         continue;
@@ -3734,16 +3812,28 @@ export class PredictionService {
             ? Number(bet.stake ?? 0)
             : 0;
 
-      const settlement = await this.settleBetInternal(
-        String(bet.bet_id),
-        decision.status,
-        returnAmount,
-        `Auto-settle (${decision.reason})`,
-        bet,
-      );
-      if (settlement.settled) settled++;
+      const roundedReturn = Number(returnAmount.toFixed(2));
+      pendingSettlements.push({
+        betId: String(bet.bet_id),
+        userId: String(bet.user_id),
+        status: decision.status,
+        returnAmount: roundedReturn,
+        profit: Number((roundedReturn - Number(bet.stake ?? 0)).toFixed(2)),
+        settledAt: new Date().toISOString(),
+        notes: `Auto-settle (${decision.reason})`,
+      });
     }
 
+    if (pendingSettlements.length > 0 && typeof (this.db as any).settlePendingBetsAtomically === 'function') {
+      const result = await (this.db as any).settlePendingBetsAtomically(pendingSettlements);
+      return { settled: Number(result.settled ?? 0), unresolved, budget: result.budget ?? null };
+    }
+
+    let settled = 0;
+    for (const item of pendingSettlements) {
+      const result = await this.db.settlePendingBetAtomically(item);
+      if (result.settled) settled++;
+    }
     const budget = await this.db.getBudget(userId);
     return { settled, unresolved, budget };
   }

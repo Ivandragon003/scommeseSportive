@@ -592,9 +592,11 @@ const reconciledSquads = new Map<string, number>();
 const SQUAD_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const LINEUP_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
+const isLineupRefreshCoolingDown = (matchId: string, now = Date.now()): boolean =>
+  now - (lineupRefreshReservations.get(matchId) ?? 0) < LINEUP_REFRESH_COOLDOWN_MS;
+
 const reserveLineupRefresh = (matchId: string, now = Date.now()): boolean => {
-  const previous = lineupRefreshReservations.get(matchId) ?? 0;
-  if (now - previous < LINEUP_REFRESH_COOLDOWN_MS) return false;
+  if (isLineupRefreshCoolingDown(matchId, now)) return false;
   lineupRefreshReservations.set(matchId, now);
   if (lineupRefreshReservations.size > 1000) {
     for (const [key, timestamp] of lineupRefreshReservations) {
@@ -612,7 +614,7 @@ const saveLocalPredictedLineups = async (match: any): Promise<{
   const [homePlayers, awayPlayers, existingStatuses, homeHistoryMatches, awayHistoryMatches] = await Promise.all([
     db.getPlayersByTeam(String(match.home_team_id)),
     db.getPlayersByTeam(String(match.away_team_id)),
-    db.getPlayerLineupStatuses(matchId, kickoffAt),
+    db.getPlayerLineupStatuses(matchId),
     db.getRecentCompletedMatchesForTeam(String(match.home_team_id), kickoffAt, 20),
     db.getRecentCompletedMatchesForTeam(String(match.away_team_id), kickoffAt, 20),
   ]);
@@ -656,7 +658,7 @@ router.get('/player-availability/:matchId', async (req: Request, res: Response) 
     const [homePlayers, awayPlayers, statusRows, homeHistoryMatches, awayHistoryMatches] = await Promise.all([
       db.getPlayersByTeam(String(match.home_team_id)),
       db.getPlayersByTeam(String(match.away_team_id)),
-      db.getPlayerLineupStatuses(matchId, String(match.date)),
+      db.getPlayerLineupStatuses(matchId),
       db.getRecentCompletedMatchesForTeam(String(match.home_team_id), String(match.date), 20),
       db.getRecentCompletedMatchesForTeam(String(match.away_team_id), String(match.date), 20),
     ]);
@@ -781,6 +783,9 @@ router.post('/player-availability/sync', async (req: Request, res: Response) => 
 router.post('/player-availability/refresh/:matchId', async (req: Request, res: Response) => {
   try {
     const matchId = String(req.params.matchId ?? '').trim();
+    if (isLineupRefreshCoolingDown(matchId)) {
+      return res.json({ success: true, enabled: apiFootball.enabled, skipped: 'refresh_cooldown', saved: 0 });
+    }
     const match = await db.getMatchById(matchId);
     if (!match) return res.status(404).json({ error: 'Partita non trovata' });
     const kickoff = Date.parse(String(match.date ?? ''));
@@ -788,7 +793,7 @@ router.post('/player-availability/refresh/:matchId', async (req: Request, res: R
     if (!Number.isFinite(deltaMinutes) || deltaMinutes < 0) {
       return res.json({ success: true, enabled: apiFootball.enabled, skipped: 'outside_official_lineup_window', saved: 0 });
     }
-    const existingStatuses = await db.getPlayerLineupStatuses(matchId, String(match.date));
+    const existingStatuses = await db.getPlayerLineupStatuses(matchId);
     const confirmedTeams = completeOfficialTeamIds(existingStatuses);
     if (confirmedTeams.has(String(match.home_team_id))
       && confirmedTeams.has(String(match.away_team_id))) {
@@ -913,7 +918,7 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
         )
       : Object.fromEntries(await Promise.all(eligibleUpcoming.map(async (match: any) => [
           String(match.match_id ?? ''),
-          [...completeOfficialTeamIds(await db.getPlayerLineupStatuses(String(match.match_id), String(match.date)))],
+          [...completeOfficialTeamIds(await db.getPlayerLineupStatuses(String(match.match_id)))],
         ])));
     const matches: any[] = [];
     let alreadyConfirmed = 0;
@@ -1020,7 +1025,7 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
             providerWarnings.push(`injuries:${matchId}:${String(providerError?.message ?? providerError)}`);
             return { fetched: false as const, rows: [] };
           }) : Promise.resolve({ fetched: false as const, rows: [] }),
-        db.getPlayerLineupStatuses(matchId, String(match.date)),
+        db.getPlayerLineupStatuses(matchId),
       ]);
       const injuryRows: any[] = [];
       for (const injury of injuryFetch.rows) {
@@ -1049,7 +1054,7 @@ router.post('/player-availability/sync-upcoming', async (req: Request, res: Resp
         });
       }
       const existingStatuses = injuryFetch.fetched
-        ? await db.getPlayerLineupStatuses(matchId, String(match.date))
+        ? await db.getPlayerLineupStatuses(matchId)
         : statusesBeforeRefresh;
       const confirmedTeamIds = completeOfficialTeamIds(existingStatuses);
       const unavailableByTeam = new Map<string, Set<string>>();
@@ -1613,13 +1618,15 @@ router.get('/bet-opportunities/archive', async (req: Request, res: Response) => 
       userId: sharedDataUserId,
       limit: Number(req.query.limit ?? 200),
     };
-    const data = await db.getBetOpportunityArchive(options);
-    const summary = typeof db.getBetOpportunityArchiveSummary === 'function'
-      ? await db.getBetOpportunityArchiveSummary(options)
-      : undefined;
-    const counts = typeof db.getBetOpportunityArchiveCategoryCounts === 'function'
-      ? await db.getBetOpportunityArchiveCategoryCounts(options)
-      : undefined;
+    const [data, summary, counts] = await Promise.all([
+      db.getBetOpportunityArchive(options),
+      typeof db.getBetOpportunityArchiveSummary === 'function'
+        ? db.getBetOpportunityArchiveSummary(options)
+        : Promise.resolve(undefined),
+      typeof db.getBetOpportunityArchiveCategoryCounts === 'function'
+        ? db.getBetOpportunityArchiveCategoryCounts(options)
+        : Promise.resolve(undefined),
+    ]);
     return res.json({ success: true, data, summary, counts });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
@@ -1859,22 +1866,24 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         maxOperationalBetsPerMatch,
       );
 
-      for (const decision of plannedDecisions) {
-        const opportunity = decision.opportunity as any;
-        const betStatus = String(opportunity?.bestBetStatus ?? 'VALUE').toUpperCase();
-        let budgetLookupError: string | null = null;
-        let availableBudget = Number.NaN;
+      let budgetLookupError: string | null = null;
+      let matchAvailableBudget = dryRun ? simulatedAvailableBudget : null;
+      if (matchAvailableBudget === null) {
         try {
           const currentBudget = await svc.getBudget(userId);
-          availableBudget = dryRun
-            ? (simulatedAvailableBudget ?? Number(currentBudget?.available_budget ?? 0))
-            : Number(currentBudget?.available_budget ?? 0);
+          matchAvailableBudget = Number(currentBudget?.available_budget ?? 0);
         } catch (error: any) {
           budgetLookupError = String(error?.message ?? error);
         }
-        if (simulatedAvailableBudget === null && Number.isFinite(availableBudget)) {
-          simulatedAvailableBudget = availableBudget;
-        }
+      }
+      if (simulatedAvailableBudget === null && Number.isFinite(matchAvailableBudget)) {
+        simulatedAvailableBudget = matchAvailableBudget;
+      }
+
+      for (const decision of plannedDecisions) {
+        const opportunity = decision.opportunity as any;
+        const betStatus = String(opportunity?.bestBetStatus ?? 'VALUE').toUpperCase();
+        const availableBudget = Number(matchAvailableBudget ?? Number.NaN);
         const suggestedStakePercent = Number(opportunity?.suggestedStakePercent ?? 0);
         const theoreticalStakeAmount = Number.isFinite(availableBudget)
           && availableBudget > 0
@@ -2015,6 +2024,7 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
         };
         if (dryRun) {
           simulatedAvailableBudget = Number((availableBudget - calculatedStake).toFixed(2));
+          matchAvailableBudget = simulatedAvailableBudget;
           operationalBetCount++;
           await finalizeReservedDecision(reservation.decisionId, 'dry_run');
           results.push({ ...base, status: 'dry_run', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, rankingPosition: decision.rankingPosition, operationalSlot: reservation.operationalSlot });
@@ -2053,6 +2063,10 @@ router.post('/automation/place-valid-bets', async (req: Request, res: Response) 
           throw new AutomationPlacementUnknownError(reason, error);
         }
         const betId = placed?.bet?.betId ?? null;
+        const placedAvailableBudget = Number(placed?.budget?.available_budget);
+        matchAvailableBudget = Number.isFinite(placedAvailableBudget)
+          ? placedAvailableBudget
+          : Number((availableBudget - calculatedStake).toFixed(2));
         operationalBetCount++;
         await finalizeReservedDecision(reservation.decisionId, 'placed', { betId });
         results.push({ ...base, status: 'placed', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, betId, rankingPosition: decision.rankingPosition, operationalSlot: reservation.operationalSlot });
@@ -2483,11 +2497,9 @@ router.get('/scraper/understat/info', async (_req, res) => {
   const top5 = UnderstatScraper.getTop5Competitions();
   const seasons = fixedFiveSeasonPolicy().seasonLabels;
   const dbStatus: Record<string, string> = {};
-  for (const comp of competitions) {
-    const lastSeason = seasons[seasons.length - 1];
-    const lastDate = await db.getLastMatchDate(comp, lastSeason);
-    dbStatus[comp] = lastDate ?? 'nessun dato';
-  }
+  const lastSeason = seasons[seasons.length - 1];
+  const lastDates = await db.getLastMatchDates(competitions, lastSeason);
+  for (const comp of competitions) dbStatus[comp] = lastDates[comp] ?? 'nessun dato';
 
   res.json({
     success: true,

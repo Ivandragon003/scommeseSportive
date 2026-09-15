@@ -12,6 +12,7 @@ const {
 class MemorySessionStore {
   constructor() {
     this.sessions = new Map();
+    this.getCalls = 0;
   }
 
   async createAdminSession(sessionHash, expiresAt) {
@@ -19,6 +20,7 @@ class MemorySessionStore {
   }
 
   async getAdminSession(sessionHash) {
+    this.getCalls += 1;
     return this.sessions.get(sessionHash) ?? null;
   }
 
@@ -122,6 +124,35 @@ test('login creates an HttpOnly session that authorizes the shared user', async 
     assert.equal(logout.status, 204);
     const afterLogout = await fetch(`${baseUrl}/private`, { headers: { cookie } });
     assert.equal(afterLogout.status, 401);
+  } finally {
+    await close();
+  }
+});
+
+test('authenticated requests reuse the bounded short-lived session cache', async () => {
+  const store = new MemorySessionStore();
+  const { baseUrl, close } = await startServer({ store });
+  try {
+    const login = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://localhost' },
+      body: JSON.stringify({ password: 'shared-secret' }),
+    });
+    const cookie = login.headers.get('set-cookie');
+    await Promise.all([
+      fetch(`${baseUrl}/private`, { headers: { cookie } }),
+      fetch(`${baseUrl}/private`, { headers: { cookie } }),
+      fetch(`${baseUrl}/auth/session`, { headers: { cookie } }),
+    ]);
+    assert.equal(store.getCalls, 0);
+
+    await fetch(`${baseUrl}/auth/logout`, {
+      method: 'POST',
+      headers: { cookie, origin: 'https://localhost' },
+    });
+    const afterLogout = await fetch(`${baseUrl}/private`, { headers: { cookie } });
+    assert.equal(afterLogout.status, 401);
+    assert.equal(store.getCalls, 1);
   } finally {
     await close();
   }
