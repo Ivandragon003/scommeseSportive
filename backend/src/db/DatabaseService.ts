@@ -646,6 +646,8 @@ export class DatabaseService {
       )`,
       'CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date)',
       'CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition)',
+      'CREATE INDEX IF NOT EXISTS idx_matches_home_team_date ON matches(home_team_id, date)',
+      'CREATE INDEX IF NOT EXISTS idx_matches_away_team_date ON matches(away_team_id, date)',
       'CREATE INDEX IF NOT EXISTS idx_predictions_match_market ON predictions(match_id, market, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_predictions_match_selection_created ON predictions(match_id, selection, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_predictions_result ON predictions(result, market, created_at)',
@@ -1593,23 +1595,62 @@ export class DatabaseService {
     targetCompetition: string,
     referenceDate?: string,
   ): Promise<any[]> {
+    const histories = await this.getPromotedTeamHistoryBatch(
+      [teamId],
+      sourceCompetitionId,
+      destinationCompetitionId,
+      destinationSeason,
+      targetCompetition,
+      referenceDate,
+    );
+    return histories[teamId] ?? [];
+  }
+
+  async getPromotedTeamHistoryBatch(
+    teamIds: string[],
+    sourceCompetitionId: string,
+    destinationCompetitionId: string,
+    destinationSeason: string,
+    targetCompetition: string,
+    referenceDate?: string,
+  ): Promise<Record<string, any[]>> {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
     const cutoff = String(referenceDate ?? '').trim();
     const completedBefore = cutoff
       ? `AND datetime(m.date) < datetime(?)`
       : `AND datetime(m.date) < datetime('now')`;
-    const topFlightHistory = await this.get(`
-      SELECT COUNT(*) AS completed_top_flight_matches
-      FROM matches m
-      WHERE (m.home_team_id = ? OR m.away_team_id = ?)
-        AND m.competition = ?
-        AND m.season = ?
-        AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
-        ${completedBefore}
-    `, [teamId, teamId, targetCompetition, destinationSeason, ...(cutoff ? [cutoff] : [])]);
-
-    const rows = await this.all(`
+    const placeholders = ids.map(() => '?').join(', ');
+    const topFlightArgs = (): any[] => [
+      ...ids,
+      targetCompetition,
+      destinationSeason,
+      ...(cutoff ? [cutoff] : []),
+    ];
+    const [topFlightHistory, rows] = await Promise.all([
+      this.all(`
+        WITH team_matches AS (
+          SELECT m.home_team_id AS team_id
+          FROM matches m
+          WHERE m.home_team_id IN (${placeholders})
+            AND m.competition = ? AND m.season = ?
+            AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+            ${completedBefore}
+          UNION ALL
+          SELECT m.away_team_id AS team_id
+          FROM matches m
+          WHERE m.away_team_id IN (${placeholders})
+            AND m.competition = ? AND m.season = ?
+            AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+            ${completedBefore}
+        )
+        SELECT team_id, COUNT(*) AS completed_top_flight_matches
+        FROM team_matches
+        GROUP BY team_id
+      `, [...topFlightArgs(), ...topFlightArgs()]),
+      this.all(`
       SELECT
-        l.source_competition_id, l.source_season,
+        l.team_id, l.source_competition_id, l.source_season,
         r.coverage_status,
         t.transition_mode,
         COUNT(l.history_id) AS lower_matches,
@@ -1636,17 +1677,26 @@ export class DatabaseService {
        AND t.destination_competition_id = ?
        AND t.destination_season = ?
        AND t.transition_type = 'promoted'
-      WHERE l.team_id = ?
+      WHERE l.team_id IN (${placeholders})
         AND l.source_competition_id = ?
         AND CAST(substr(l.source_season, 1, 4) AS INTEGER) < CAST(substr(?, 1, 4) AS INTEGER)
-      GROUP BY l.source_competition_id, l.source_season, r.coverage_status, t.transition_mode
-      ORDER BY l.source_season DESC
-    `, [destinationCompetitionId, destinationSeason, teamId, sourceCompetitionId, destinationSeason]);
-
-    return rows.map((row) => ({
-      ...row,
-      completed_top_flight_matches: Number(topFlightHistory?.completed_top_flight_matches ?? 0),
-    }));
+      GROUP BY l.team_id, l.source_competition_id, l.source_season, r.coverage_status, t.transition_mode
+      ORDER BY l.team_id, l.source_season DESC
+    `, [destinationCompetitionId, destinationSeason, ...ids, sourceCompetitionId, destinationSeason]),
+    ]);
+    const counts = new Map(topFlightHistory.map((row: any) => [
+      String(row.team_id),
+      Number(row.completed_top_flight_matches ?? 0),
+    ]));
+    return Object.fromEntries(ids.map((teamId) => [
+      teamId,
+      rows
+        .filter((row: any) => String(row.team_id) === teamId)
+        .map((row: any) => ({
+          ...row,
+          completed_top_flight_matches: counts.get(teamId) ?? 0,
+        })),
+    ]));
   }
 
   /**
@@ -1668,26 +1718,48 @@ export class DatabaseService {
     transitionHistory: any[];
     activeTransition: any | null;
   }> {
-    const matches = await this.all(`
-      SELECT DISTINCT season
-      FROM matches
-      WHERE (home_team_id = ? OR away_team_id = ?)
-        AND home_goals IS NOT NULL AND away_goals IS NOT NULL
-        AND season IS NOT NULL AND TRIM(season) <> ''
-      ORDER BY season DESC
-    `, [teamId, teamId]);
+    const result = await this.getTeamHistoricalCoverageBatch([teamId], targetSeason, windowSize);
+    return result[teamId];
+  }
 
-    const transitions = await this.all(`
-      SELECT t.*, r.coverage_status AS source_reference_coverage_status,
-             r.coverage_percent AS source_reference_coverage_percent
-      FROM team_competition_transitions t
-      LEFT JOIN source_season_reference r
-        ON r.source_competition_id = t.source_competition_id
-       AND r.source_season = t.source_season
-      WHERE t.team_id = ?
-      ORDER BY CAST(substr(t.destination_season, 1, 4) AS INTEGER) DESC,
-               COALESCE(t.transition_sequence, 0) DESC
-    `, [teamId]);
+  async getTeamHistoricalCoverageBatch(teamIds: string[], targetSeason?: string, windowSize = 5): Promise<Record<string, {
+    teamId: string;
+    seasonsExpected: number;
+    seasonsAvailable: number;
+    coveragePercent: number;
+    seasons: string[];
+    transitionHistory: any[];
+    activeTransition: any | null;
+  }>> {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const placeholders = ids.map(() => '?').join(', ');
+    const [matches, transitions] = await Promise.all([
+      this.all(`
+        SELECT home_team_id AS team_id, season
+        FROM matches
+        WHERE home_team_id IN (${placeholders})
+          AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+          AND season IS NOT NULL AND TRIM(season) <> ''
+        UNION
+        SELECT away_team_id AS team_id, season
+        FROM matches
+        WHERE away_team_id IN (${placeholders})
+          AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+          AND season IS NOT NULL AND TRIM(season) <> ''
+      `, [...ids, ...ids]),
+      this.all(`
+        SELECT t.*, r.coverage_status AS source_reference_coverage_status,
+               r.coverage_percent AS source_reference_coverage_percent
+        FROM team_competition_transitions t
+        LEFT JOIN source_season_reference r
+          ON r.source_competition_id = t.source_competition_id
+         AND r.source_season = t.source_season
+        WHERE t.team_id IN (${placeholders})
+        ORDER BY CAST(substr(t.destination_season, 1, 4) AS INTEGER) DESC,
+                 COALESCE(t.transition_sequence, 0) DESC
+      `, ids),
+    ]);
 
     const normalizeSeason = (value: unknown): string => String(value ?? '').trim();
     const seasonStart = (value: string): number => {
@@ -1695,31 +1767,30 @@ export class DatabaseService {
       return match ? Number(match[1]) : -Infinity;
     };
     const targetStart = targetSeason ? seasonStart(normalizeSeason(targetSeason)) : Infinity;
-    const eligibleSeasons = [...new Set(matches
-      .map((row: any) => normalizeSeason(row.season))
-      .filter((season) => season && seasonStart(season) <= targetStart))]
-      .sort((a, b) => seasonStart(b) - seasonStart(a))
-      .slice(0, Math.max(1, windowSize));
-
-    // The target window is intentionally fixed. Two available seasons are
-    // therefore 2/5, not 2/2; otherwise a short history would be reported as
-    // complete and could incorrectly unlock high confidence.
-    const expected = Math.max(1, windowSize);
-    const available = eligibleSeasons.length;
-    const activeTransition = transitions.find((row: any) => {
-      const destinationStart = seasonStart(normalizeSeason(row.destination_season));
-      return destinationStart <= targetStart;
-    }) ?? null;
-
-    return {
-      teamId,
-      seasonsExpected: expected,
-      seasonsAvailable: available,
-      coveragePercent: Number(((available / expected) * 100).toFixed(2)),
-      seasons: eligibleSeasons,
-      transitionHistory: transitions,
-      activeTransition,
-    };
+    return Object.fromEntries(ids.map((teamId) => {
+      const teamTransitions = transitions.filter((row: any) => String(row.team_id) === teamId);
+      const eligibleSeasons = [...new Set(matches
+        .filter((row: any) => String(row.team_id) === teamId)
+        .map((row: any) => normalizeSeason(row.season))
+        .filter((season) => season && seasonStart(season) <= targetStart))]
+        .sort((a, b) => seasonStart(b) - seasonStart(a))
+        .slice(0, Math.max(1, windowSize));
+      const expected = Math.max(1, windowSize);
+      const available = eligibleSeasons.length;
+      const activeTransition = teamTransitions.find((row: any) => {
+        const destinationStart = seasonStart(normalizeSeason(row.destination_season));
+        return destinationStart <= targetStart;
+      }) ?? null;
+      return [teamId, {
+        teamId,
+        seasonsExpected: expected,
+        seasonsAvailable: available,
+        coveragePercent: Number(((available / expected) * 100).toFixed(2)),
+        seasons: eligibleSeasons,
+        transitionHistory: teamTransitions,
+        activeTransition,
+      }];
+    }));
   }
 
   async getLeagueSummaries(leagues: string[]): Promise<Array<{
@@ -1897,6 +1968,60 @@ export class DatabaseService {
       matchesInLast14Days: Number(schedule?.matches_14d ?? 0),
       matchesInLast7Days: Number(schedule?.matches_7d ?? 0),
     };
+  }
+
+  async getTeamScheduleInsightsBatch(
+    teamIds: string[],
+    referenceDate?: string,
+  ): Promise<Record<string, { lastPlayedAt: string | null; restDays: number | null; matchesInLast14Days: number; matchesInLast7Days: number }>> {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const refIso = String(referenceDate ?? '').trim();
+    const targetIso = refIso || new Date().toISOString();
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = await this.all(
+      `WITH team_matches AS (
+         SELECT home_team_id AS team_id, date
+         FROM matches
+         WHERE home_team_id IN (${placeholders})
+           AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+           AND datetime(date) < datetime(?)
+         UNION ALL
+         SELECT away_team_id AS team_id, date
+         FROM matches
+         WHERE away_team_id IN (${placeholders})
+           AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+           AND datetime(date) < datetime(?)
+       )
+       SELECT team_id,
+              MAX(date) AS last_played_at,
+              SUM(CASE WHEN datetime(date) >= datetime(?, '-14 days') THEN 1 ELSE 0 END) AS matches_14d,
+              SUM(CASE WHEN datetime(date) >= datetime(?, '-7 days') THEN 1 ELSE 0 END) AS matches_7d
+       FROM team_matches
+       GROUP BY team_id`,
+      [...ids, targetIso, ...ids, targetIso, targetIso, targetIso],
+    );
+    const targetDate = refIso ? new Date(refIso) : new Date();
+    const rowsByTeam = new Map(rows.map((row: any) => [String(row.team_id), row]));
+    const out: Record<string, { lastPlayedAt: string | null; restDays: number | null; matchesInLast14Days: number; matchesInLast7Days: number }> = {};
+    for (const teamId of ids) {
+      const row: any = rowsByTeam.get(teamId);
+      const lastPlayedAt = String(row?.last_played_at ?? '').trim() || null;
+      let restDays: number | null = null;
+      if (lastPlayedAt) {
+        const previous = new Date(lastPlayedAt);
+        if (!Number.isNaN(previous.getTime()) && !Number.isNaN(targetDate.getTime())) {
+          restDays = Math.max(0, Math.round((targetDate.getTime() - previous.getTime()) / 86_400_000));
+        }
+      }
+      out[teamId] = {
+        lastPlayedAt,
+        restDays,
+        matchesInLast14Days: Number(row?.matches_14d ?? 0),
+        matchesInLast7Days: Number(row?.matches_7d ?? 0),
+      };
+    }
+    return out;
   }
 
   async findMatchByTeams(
@@ -2738,6 +2863,28 @@ export class DatabaseService {
     return String(row.last_date).substring(0, 10);
   }
 
+  async getLastMatchDates(competitions: string[], season: string): Promise<Record<string, string | null>> {
+    const normalized = [...new Set((competitions ?? []).map((value) => String(value).trim()).filter(Boolean))];
+    const result = Object.fromEntries(normalized.map((competition) => [competition, null])) as Record<string, string | null>;
+    if (normalized.length === 0) return result;
+    const rows = await this.all(
+      `SELECT competition, MAX(date) AS last_date
+       FROM matches
+       WHERE competition IN (${normalized.map(() => '?').join(', ')})
+         AND season = ?
+         AND home_goals IS NOT NULL
+       GROUP BY competition`,
+      [...normalized, season],
+    );
+    for (const row of rows) {
+      const competition = String(row.competition ?? '');
+      if (competition in result) {
+        result[competition] = row.last_date ? String(row.last_date).substring(0, 10) : null;
+      }
+    }
+    return result;
+  }
+
   // ==================== TEAMS ====================
 
   async upsertTeam(team: any): Promise<void> {
@@ -2830,6 +2977,22 @@ export class DatabaseService {
     );
   }
 
+  async updateTeamModelStrengthsBatch(rows: Array<{
+    teamId: string;
+    attackStrength: number;
+    defenceStrength: number;
+  }>): Promise<void> {
+    if (rows.length === 0) return;
+    await this.db.batch(rows.map((row) => ({
+      sql: `UPDATE teams
+        SET attack_strength = :attackStrength,
+            defence_strength = :defenceStrength,
+            last_updated = datetime('now')
+        WHERE team_id = :teamId`,
+      args: row,
+    })), 'write');
+  }
+
   async getTeams(competition?: string): Promise<any[]> {
     if (competition) return this.all('SELECT * FROM teams WHERE competition = ?', [competition]);
     return this.all('SELECT * FROM teams');
@@ -2841,6 +3004,15 @@ export class DatabaseService {
 
   async getTeam(teamId: string): Promise<any | null> {
     return this.get('SELECT * FROM teams WHERE team_id = ?', [teamId]);
+  }
+
+  async getTeamsByIds(teamIds: string[]): Promise<any[]> {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return [];
+    return this.all(
+      `SELECT * FROM teams WHERE team_id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    );
   }
 
   async getTeamStatsJson(teamId: string): Promise<Record<string, any>> {
@@ -3281,6 +3453,17 @@ export class DatabaseService {
     return this.all(
       'SELECT * FROM players WHERE team_id = ? ORDER BY avg_shots_per_game DESC',
       [teamId]
+    );
+  }
+
+  async getPlayersByTeams(teamIds: string[]): Promise<any[]> {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return [];
+    return this.all(
+      `SELECT * FROM players
+       WHERE team_id IN (${ids.map(() => '?').join(', ')}) AND is_available = 1
+       ORDER BY team_id, avg_shots_per_game DESC`,
+      ids,
     );
   }
 
@@ -3854,6 +4037,40 @@ export class DatabaseService {
     };
   }
 
+  async settlePendingBetsAtomically(settlements: Array<{
+    betId: string;
+    userId: string;
+    status: 'WON' | 'LOST' | 'VOID';
+    returnAmount: number;
+    profit: number;
+    settledAt: string;
+    notes: string | null;
+  }>): Promise<{ settled: number; budget: any | null }> {
+    if (settlements.length === 0) return { settled: 0, budget: null };
+    const userIds = [...new Set(settlements.map((item) => String(item.userId)))];
+    if (userIds.length !== 1) throw new Error('Il settlement batch richiede un singolo utente');
+    const updateStatements = settlements.map((settlement) => ({
+      sql: `UPDATE bets
+        SET status = :status,
+            return_amount = :returnAmount,
+            profit = :profit,
+            settled_at = :settledAt,
+            notes = :notes
+        WHERE bet_id = :betId
+          AND user_id = :userId
+          AND status = 'PENDING'`,
+      args: settlement,
+    }));
+    const results = await this.db.batch([
+      ...updateStatements,
+      this.budgetRecomputeStatement(userIds[0]),
+    ], 'write');
+    const settled = results
+      .slice(0, updateStatements.length)
+      .reduce((sum, result) => sum + Number(result?.rowsAffected ?? 0), 0);
+    return { settled, budget: await this.getBudget(userIds[0]) };
+  }
+
   async saveBet(bet: any): Promise<void> {
     const activeBudget = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [bet.userId]);
     await this.run(
@@ -3985,10 +4202,17 @@ export class DatabaseService {
   }
 
   async getBets(userId: string, status?: string): Promise<any[]> {
-    const active = await this.get('SELECT active_session_id FROM budgets WHERE user_id = ?', [userId]);
-    const sessionId = active?.active_session_id ?? null;
-    if (status) return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? AND status = ? ORDER BY placed_at DESC', [userId, sessionId, status]);
-    return this.all('SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ? ORDER BY placed_at DESC', [userId, sessionId]);
+    const activeSession = '(SELECT active_session_id FROM budgets WHERE user_id = ?)';
+    if (status) {
+      return this.all(
+        `SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ${activeSession} AND status = ? ORDER BY placed_at DESC`,
+        [userId, userId, status],
+      );
+    }
+    return this.all(
+      `SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ${activeSession} ORDER BY placed_at DESC`,
+      [userId, userId],
+    );
   }
 
   async findPredictionForBet(matchId: string, marketName: string, selection: string): Promise<string | null> {

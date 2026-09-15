@@ -287,7 +287,7 @@ export const getPrediction = (request: {
   API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
 
 export const getPlayerAvailability = (matchId: string) =>
-  cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`);
+  cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`, undefined, { cacheMs: 30_000 });
 
 export const PLAYER_AVAILABILITY_UPDATED_EVENT = 'player-availability-updated';
 
@@ -301,8 +301,12 @@ const notifyPlayerAvailabilityUpdated = (matchId: string) => {
 export const refreshPlayerAvailability = (matchId: string) =>
   API.post<ApiResponse<any>>(`/player-availability/refresh/${encodeURIComponent(matchId)}`, {}, { timeout: 45000 })
     .then(r => {
-      invalidateApiCache((key) => key.includes(`GET:/player-availability/${encodeURIComponent(matchId)}`));
-      notifyPlayerAvailabilityUpdated(matchId);
+      const payload = r.data as ApiResponse<any> & { skipped?: string };
+      const skipped = String(payload.skipped ?? payload.data?.skipped ?? '');
+      if (!['refresh_cooldown', 'official_lineups_already_saved'].includes(skipped)) {
+        invalidateApiCache((key) => key.includes(`GET:/player-availability/${encodeURIComponent(matchId)}`));
+        notifyPlayerAvailabilityUpdated(matchId);
+      }
       return r.data;
     });
 

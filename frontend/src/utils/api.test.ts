@@ -163,6 +163,20 @@ describe('backtesting API timeout', () => {
     });
   });
 
+  test('refreshPlayerAvailability non invalida i pannelli quando il backend applica il cooldown', async () => {
+    const { PLAYER_AVAILABILITY_UPDATED_EVENT, refreshPlayerAvailability } = await import('./api');
+    const listener = jest.fn();
+    window.addEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, listener);
+    mockPost.mockResolvedValueOnce({ data: { success: true, skipped: 'refresh_cooldown', saved: 0 } });
+
+    try {
+      await refreshPlayerAvailability('match-42');
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(PLAYER_AVAILABILITY_UPDATED_EVENT, listener);
+    }
+  });
+
   test('archivia manualmente una LOW/SPECULATIVE senza creare una bet', async () => {
     const { archiveManualBetOpportunity } = await import('./api');
     mockPost.mockResolvedValueOnce({ data: { success: true, data: { decisionId: 'saved_1' } } });

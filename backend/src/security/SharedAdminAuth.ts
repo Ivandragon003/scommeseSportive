@@ -6,6 +6,8 @@ const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const DEFAULT_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_LOGIN_ATTEMPTS = 5;
 const DEFAULT_MAX_TRACKED_LOGIN_IPS = 5_000;
+const SESSION_VALIDATION_CACHE_TTL_MS = 30_000;
+const MAX_CACHED_SESSIONS = 1_000;
 const MAX_PASSWORD_LENGTH = 256;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_COST = 16_384;
@@ -37,6 +39,7 @@ export interface SharedAdminAuthOptions extends SharedAdminAuthConfig {
 }
 
 type AttemptState = { count: number; resetAt: number };
+type CachedSession = { expiresAtMs: number; validUntilMs: number };
 
 const deriveScrypt = (
   password: string,
@@ -158,6 +161,7 @@ export const isLoopbackAddress = (value: unknown): boolean => {
 export const createSharedAdminAuth = (options: SharedAdminAuthOptions) => {
   const publicRouter = Router();
   const attempts = new Map<string, AttemptState>();
+  const sessionCache = new Map<string, CachedSession>();
   const sameSite = options.secureCookies ? 'none' as const : 'lax' as const;
   const cookieOptions = {
     httpOnly: true,
@@ -203,13 +207,28 @@ export const createSharedAdminAuth = (options: SharedAdminAuthOptions) => {
     const token = readCookie(req, COOKIE_NAME);
     if (!token) return false;
     const sessionHash = hashSessionToken(token);
+    const now = Date.now();
+    const cached = sessionCache.get(sessionHash);
+    if (cached) {
+      if (cached.expiresAtMs > now && cached.validUntilMs > now) return true;
+      sessionCache.delete(sessionHash);
+    }
     const session = await options.sessionStore.getAdminSession(sessionHash);
     if (!session) return false;
     const expiresAt = String(session.expiresAt ?? session.expires_at ?? '');
-    if (!expiresAt || Date.parse(expiresAt) <= Date.now()) {
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!expiresAt || !Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
       await options.sessionStore.deleteAdminSession(sessionHash).catch(() => undefined);
       return false;
     }
+    if (!sessionCache.has(sessionHash) && sessionCache.size >= MAX_CACHED_SESSIONS) {
+      const oldestHash = sessionCache.keys().next().value;
+      if (oldestHash) sessionCache.delete(oldestHash);
+    }
+    sessionCache.set(sessionHash, {
+      expiresAtMs,
+      validUntilMs: Math.min(expiresAtMs, now + SESSION_VALIDATION_CACHE_TTL_MS),
+    });
     return true;
   };
 
@@ -269,7 +288,12 @@ export const createSharedAdminAuth = (options: SharedAdminAuthOptions) => {
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(now + options.sessionTtlMs).toISOString();
     await options.sessionStore.purgeExpiredAdminSessions(new Date(now).toISOString()).catch(() => undefined);
-    await options.sessionStore.createAdminSession(hashSessionToken(token), expiresAt);
+    const sessionHash = hashSessionToken(token);
+    await options.sessionStore.createAdminSession(sessionHash, expiresAt);
+    sessionCache.set(sessionHash, {
+      expiresAtMs: Date.parse(expiresAt),
+      validUntilMs: Math.min(Date.parse(expiresAt), now + SESSION_VALIDATION_CACHE_TTL_MS),
+    });
     res.cookie(COOKIE_NAME, token, cookieOptions);
     return res.json({
       success: true,
@@ -280,7 +304,9 @@ export const createSharedAdminAuth = (options: SharedAdminAuthOptions) => {
   publicRouter.post('/auth/logout', async (req, res) => {
     const token = readCookie(req, COOKIE_NAME);
     if (token) {
-      await options.sessionStore.deleteAdminSession(hashSessionToken(token)).catch(() => undefined);
+      const sessionHash = hashSessionToken(token);
+      sessionCache.delete(sessionHash);
+      await options.sessionStore.deleteAdminSession(sessionHash).catch(() => undefined);
     }
     res.clearCookie(COOKIE_NAME, {
       httpOnly: true,

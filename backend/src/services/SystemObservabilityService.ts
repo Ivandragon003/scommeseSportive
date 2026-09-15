@@ -73,6 +73,7 @@ export type ProviderSnapshot = {
 };
 
 const MAX_RECENT_RUNS = 200;
+const METRICS_CACHE_TTL_MS = 60_000;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -119,6 +120,8 @@ const detectErrorCategoryFromText = (value: string | null | undefined): string |
 
 export class SystemObservabilityService {
   private lastProviderSnapshot: ProviderSnapshot | null = null;
+  private metricsCache: { value: Record<string, unknown>; expiresAt: number } | null = null;
+  private metricsLoad: Promise<Record<string, unknown>> | null = null;
 
   constructor(private readonly db: DatabaseService) {}
 
@@ -226,6 +229,7 @@ export class SystemObservabilityService {
       startedAt: entry.startedAt,
       endedAt,
     });
+    this.metricsCache = null;
   }
 
   async recordSyncRun(entry: SyncRunRecord): Promise<void> {
@@ -268,6 +272,7 @@ export class SystemObservabilityService {
       startedAt: entry.startedAt,
       endedAt,
     });
+    this.metricsCache = null;
   }
 
   getLastProviderSnapshot(): ProviderSnapshot | null {
@@ -319,6 +324,19 @@ export class SystemObservabilityService {
   }
 
   async getMetricsPayload(): Promise<Record<string, unknown>> {
+    if (this.metricsCache && this.metricsCache.expiresAt > Date.now()) return this.metricsCache.value;
+    if (this.metricsLoad) return this.metricsLoad;
+    this.metricsLoad = this.loadMetricsPayload();
+    try {
+      const value = await this.metricsLoad;
+      this.metricsCache = { value, expiresAt: Date.now() + METRICS_CACHE_TTL_MS };
+      return value;
+    } finally {
+      this.metricsLoad = null;
+    }
+  }
+
+  private async loadMetricsPayload(): Promise<Record<string, unknown>> {
     const recentRuns = await this.db.listRecentSystemRuns(MAX_RECENT_RUNS);
     const providerRuns = recentRuns.filter((run) => run.runType === 'provider_fetch');
     const syncRuns = recentRuns.filter((run) => run.runType === 'sync');
@@ -433,7 +451,6 @@ export class SystemObservabilityService {
       odds: any;
       learning: any;
     };
-    recentSchedulerRuns?: any[];
   }): Promise<Record<string, unknown>> {
     const providerHealth = await this.getProviderHealthPayload();
     const metrics = await this.getMetricsPayload();
@@ -550,7 +567,7 @@ export class SystemObservabilityService {
     const run = latest[0];
     if (!run) return null;
 
-    return {
+    this.lastProviderSnapshot = {
       runId: run.externalRunId ?? String(run.runId ?? ''),
       requestId: run.requestId ?? null,
       provider: run.provider ?? 'odds_api',
@@ -575,5 +592,6 @@ export class SystemObservabilityService {
       endedAt: run.endedAt ?? null,
       fetchedAt: run.endedAt ?? run.startedAt ?? nowIso(),
     };
+    return this.lastProviderSnapshot;
   }
 }

@@ -335,12 +335,10 @@ const getSchedulerSnapshot = () => ({
 });
 
 app.get('/api/system/health', async (_req, res) => {
-  const recentSchedulerRuns = await db.listRecentSchedulerRuns(12).catch(() => []);
   const payload = await observability.getSystemHealthPayload({
     isUpdating,
     lastUpdate,
     schedulers: getSchedulerSnapshot(),
-    recentSchedulerRuns,
   });
   res.json({ success: true, data: payload });
 });
