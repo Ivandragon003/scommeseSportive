@@ -2237,16 +2237,15 @@ export class DatabaseService {
     const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
     if (ids.length === 0) return {};
     const rows = await this.all(
-      `SELECT * FROM (
-         SELECT snapshots.*,
-                ROW_NUMBER() OVER (
-                  PARTITION BY match_id
-                  ORDER BY datetime(captured_at) DESC, snapshot_id DESC
-                ) AS snapshot_rank
-         FROM odds_snapshots snapshots
-         WHERE match_id IN (${ids.map(() => '?').join(', ')})
-       ) ranked
-       WHERE snapshot_rank = 1`,
+      `WITH requested(match_id) AS (VALUES ${ids.map(() => '(?)').join(', ')})
+       SELECT snapshots.*
+       FROM requested
+       JOIN odds_snapshots snapshots ON snapshots.snapshot_id = (
+         SELECT candidate.snapshot_id FROM odds_snapshots candidate
+         WHERE candidate.match_id = requested.match_id
+         ORDER BY datetime(candidate.captured_at) DESC, candidate.snapshot_id DESC
+         LIMIT 1
+       )`,
       ids,
     );
     return Object.fromEntries(rows.map((row) => [
@@ -2924,6 +2923,20 @@ export class DatabaseService {
       [clean, matchId],
     );
     return Number(result.rowsAffected ?? 0) > 0;
+  }
+
+  async countCompletedMatches(competition: string, season: string): Promise<number> {
+    const rawSeason = String(season ?? '').trim();
+    const variants = [...new Set([
+      rawSeason, rawSeason.replace('/', '-'), rawSeason.replace('-', '/'),
+    ])];
+    const row = await this.get(
+      `SELECT COUNT(*) AS completed_count FROM matches
+       WHERE competition = ? AND season IN (${variants.map(() => '?').join(', ')})
+         AND home_goals IS NOT NULL AND away_goals IS NOT NULL`,
+      [competition, ...variants],
+    );
+    return Number(row?.completed_count ?? 0);
   }
 
   async getLastMatchDate(competition: string, season: string): Promise<string | null> {

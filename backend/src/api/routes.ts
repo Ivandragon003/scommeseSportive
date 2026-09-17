@@ -3049,10 +3049,7 @@ async function runUnderstatImport(req: Request, res: Response) {
         continue;
       }
       try {
-        const currentSeasonRows = await db.getMatches({ competition: comp, season: currentSeason });
-        const completedCurrentSeasonMatches = currentSeasonRows.filter(
-          (m: any) => m.home_goals !== null && m.away_goals !== null
-        ).length;
+        const completedCurrentSeasonMatches = await db.countCompletedMatches(comp, currentSeason);
         const tw = trainingWindowFor(completedCurrentSeasonMatches);
         const toDate = now.toISOString();
         const fit = await svc.fitModelForCompetition(
@@ -3088,8 +3085,9 @@ async function runUnderstatImport(req: Request, res: Response) {
 
     const lastSeason = seasonsToScrape[seasonsToScrape.length - 1];
     const lastDatesAfter: Record<string, string> = {};
+    const importedLastDates = await db.getLastMatchDates(competitionsToRun, lastSeason);
     for (const comp of competitionsToRun) {
-      lastDatesAfter[comp] = (await db.getLastMatchDate(comp, lastSeason)) ?? 'nessuna';
+      lastDatesAfter[comp] = importedLastDates[comp] ?? 'nessuna';
     }
 
     const {

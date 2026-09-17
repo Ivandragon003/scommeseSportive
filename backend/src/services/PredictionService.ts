@@ -2791,10 +2791,15 @@ export class PredictionService {
     const matchIds = [...new Set(matches.map((match: any) => String(match?.match_id ?? '').trim()).filter(Boolean))];
     const supportsBulkReviews = typeof (this.db as any).getLearningReviewsByMatchIds === 'function';
     const supportsBulkSnapshots = typeof (this.db as any).getLatestOddsSnapshotsForMatches === 'function';
-    const [existingByMatch, snapshotsByMatch] = await Promise.all([
-      supportsBulkReviews ? (this.db as any).getLearningReviewsByMatchIds(matchIds) : Promise.resolve({}),
-      supportsBulkSnapshots ? (this.db as any).getLatestOddsSnapshotsForMatches(matchIds) : Promise.resolve({}),
-    ]);
+    const existingByMatch = supportsBulkReviews
+      ? await this.db.getLearningReviewsByMatchIds(matchIds)
+      : {};
+    const snapshotMatchIds = matchIds.filter((id) =>
+      options?.forceRefresh || !supportsBulkReviews || !existingByMatch[id],
+    );
+    const snapshotsByMatch = supportsBulkSnapshots && snapshotMatchIds.length > 0
+      ? await this.db.getLatestOddsSnapshotsForMatches(snapshotMatchIds)
+      : {};
 
     let considered = 0;
     let created = 0;
@@ -2893,7 +2898,7 @@ export class PredictionService {
       }
     }
 
-    const adaptiveTuning = await this.applyAdaptiveTuning(options?.competition, true);
+    const adaptiveTuning = await this.applyAdaptiveTuning(options?.competition, created > 0 || refreshed > 0);
     return {
       considered,
       created,
