@@ -13,6 +13,7 @@ import {
 } from './services/odds-provider/providerRuntimeConfig';
 import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoordinator';
 import { PredictionService } from './services/PredictionService';
+import { shouldRetryBootstrapSync } from './services/SchedulerRetryPolicy';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
 
@@ -453,7 +454,7 @@ async function runBootDataSync(): Promise<void> {
         if (!response.ok || payload?.success === false) {
           lastErrorMessage = payload?.error ?? `HTTP ${response.status}`;
           console.error(`[bootstrap-sync] Attempt ${attempt}/${maxAttempts} failed:`, lastErrorMessage);
-          if (attempt < maxAttempts) {
+          if (attempt < maxAttempts && shouldRetryBootstrapSync(lastErrorMessage, response.status)) {
             await sleep(1500 * attempt);
             continue;
           }
@@ -492,6 +493,7 @@ async function runBootDataSync(): Promise<void> {
       } catch (err: any) {
         lastErrorMessage = err?.message ?? 'Unknown error';
         console.error(`[bootstrap-sync] Attempt ${attempt}/${maxAttempts} error:`, lastErrorMessage);
+        if (!shouldRetryBootstrapSync(err)) break;
         if (attempt < maxAttempts) {
           await sleep(1500 * attempt);
         }

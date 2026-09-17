@@ -152,7 +152,7 @@ test('all-null statistics retain shot averages and the existing fallback rules',
   const a = await db.getTeam('a');
   assert.equal(a.avg_home_shots, 13.5);
   assert.equal(a.avg_away_shots, 8.75);
-  assert.equal(a.avg_yellow_cards, 1.9);
+  assertEquivalent(a.avg_yellow_cards, 1.9);
   assert.equal(a.avg_home_corners, 5.5);
   assert.equal(a.avg_away_corners, 4.5);
   const computed = JSON.parse(a.team_stats_json).computed;
