@@ -21,6 +21,7 @@ import { HeavyJobBusyError, HeavyJobService } from '../services/HeavyJobService'
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { clamp } from '../models/utils/MathUtils';
 import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsService';
+import { recomputeTeamAveragesForTeamIds } from '../services/TeamAveragesService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
 import { ApiFootballService } from '../services/ApiFootballService';
 import {
@@ -1301,11 +1302,7 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
 
     const normalizedCompetition = String(competition ?? '').trim();
     const teams = await db.getTeams(competition);
-    let teamsUpdated = 0;
-    for (const t of teams) {
-      await db.recomputeTeamAverages(t.team_id);
-      teamsUpdated++;
-    }
+    const teamsUpdated = await recomputeTeamAveragesForTeamIds(db, teams.map((t) => t.team_id));
 
     const playerStats = recomputePlayers
       ? await rebuildPlayerDerivedStats(db, {
@@ -1383,7 +1380,7 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
     let teamsUpdated = 0;
     if (body.recomputeAverages !== false) {
       const teams = await db.getTeams(undefined as any);
-      for (const t of teams) { await db.recomputeTeamAverages(t.team_id); teamsUpdated++; }
+      teamsUpdated = await recomputeTeamAveragesForTeamIds(db, teams.map((t) => t.team_id));
     }
 
     res.json({ success: true, sync, prune, teamsUpdated, retentionPolicy: policy });
@@ -2981,10 +2978,7 @@ async function runUnderstatImport(req: Request, res: Response) {
     let refereeMatchesConsidered = 0;
     for (const comp of competitionsNeedingPostProcessing) {
       const teams = await db.getTeams(comp);
-      for (const team of teams) {
-        await db.recomputeTeamAverages(team.team_id);
-        teamsRecomputed++;
-      }
+      teamsRecomputed += await recomputeTeamAveragesForTeamIds(db, teams.map((team) => team.team_id));
       const playerStats = await rebuildPlayerDerivedStats(db, { competition: comp });
       playersMarkedUnavailable += playerStats.playersMarkedUnavailable;
       playersDerivedDetected += playerStats.playersDetected;

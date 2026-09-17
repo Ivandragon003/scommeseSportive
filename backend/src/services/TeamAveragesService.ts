@@ -1,8 +1,22 @@
-// Team-average recomputation for a set of match rows, extracted verbatim from
-// api/routes.ts. The DB is injected (dependency inversion). No behavior change.
+// Prefer set-based recomputation; retain the single-team contract for adapters.
 
 export interface TeamAveragesDb {
   recomputeTeamAverages(teamId: string): Promise<unknown>;
+  recomputeTeamAveragesBatch?(teamIds: string[]): Promise<unknown>;
+}
+
+export async function recomputeTeamAveragesForTeamIds(
+  db: TeamAveragesDb,
+  ids: string[],
+): Promise<number> {
+  const teamIds = [...new Set(ids.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (teamIds.length === 0) return 0;
+  if (typeof db.recomputeTeamAveragesBatch === 'function') {
+    await db.recomputeTeamAveragesBatch(teamIds);
+  } else {
+    for (const teamId of teamIds) await db.recomputeTeamAverages(teamId);
+  }
+  return teamIds.length;
 }
 
 export async function recomputeTeamAveragesForMatchRows(
@@ -17,10 +31,5 @@ export async function recomputeTeamAveragesForMatchRows(
       ]).filter(Boolean)
     )
   );
-  let recomputed = 0;
-  for (const teamId of teamIds) {
-    await db.recomputeTeamAverages(teamId);
-    recomputed += 1;
-  }
-  return recomputed;
+  return recomputeTeamAveragesForTeamIds(db, teamIds);
 }

@@ -1771,7 +1771,13 @@ export class PredictionService {
           defenceStrength: params.defenceParams[teamId] ?? 0,
         });
       }
-      if (options.recomputeTeamAverages !== false) await this.db.recomputeTeamAverages(teamId);
+      if (options.recomputeTeamAverages !== false && typeof this.db.recomputeTeamAveragesBatch !== 'function') {
+        await this.db.recomputeTeamAverages(teamId);
+      }
+    }
+
+    if (options.recomputeTeamAverages !== false && typeof this.db.recomputeTeamAveragesBatch === 'function') {
+      await this.db.recomputeTeamAveragesBatch(teams);
     }
 
     const logLikelihood = this.computeLL(model, matches);
