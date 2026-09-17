@@ -44,10 +44,14 @@ Build Docker non eseguibile in questo turno: il daemon Docker Desktop è spento.
 
 - EXPLAIN locale e numero di chiamate non misurano la fatturazione Turso. Registrare
   letture/scritture dal pannello prima e dopo una nightly e dopo uso UI ordinario.
-- Docker locale ha scheduler Understat, quote e learning abilitati. Se GitHub
-  Actions punta allo stesso DB ed è attivo, scegliere un solo orchestratore per
-  le nightly. Le guardie locali e la concurrency GitHub non sono lock tra processi.
-  Nessuna impostazione personale è stata disabilitata senza questa scelta.
+- Il proprietario ha scelto GitHub Actions come unico orchestratore nightly.
+  Docker Compose disabilita esplicitamente bootstrap sync e scheduler Understat,
+  quote e learning, sovrascrivendo anche vecchi flag true in .env. Restano
+  disponibili API manuali, prediction, UI e collector formazioni vicino al kickoff
+  (default true, configurabile con LINEUP_REFRESH_SCHEDULER_ENABLED).
+  La modifica si applica quando il container viene ricreato con docker compose up.
+  Un backend avviato direttamente con Node, fuori da Compose, usa ancora i propri
+  flag env: non avviarlo come seconda nightly sul medesimo DB.
 - Avvio e healthcheck contro il DB reale sono ancora da verificare; i container
   del progetto restano fermi per non fare tentativi sul piano bloccato.
 - L'archivio resta volutamente invariato: cache già presente, unificazione SQL
