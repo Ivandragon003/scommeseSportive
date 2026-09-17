@@ -33,3 +33,45 @@ test('returns 0 for empty input and never calls the db', async () => {
   assert.equal(await recomputeTeamAveragesForMatchRows(db, []), 0);
   assert.equal(calls.length, 0);
 });
+
+test('prefers one batch for all unique teams when the adapter supports it', async () => {
+  const calls = [];
+  const db = {
+    recomputeTeamAverages: async () => { throw new Error('unexpected single-team call'); },
+    recomputeTeamAveragesBatch: async (ids) => { calls.push(ids); },
+  };
+  const count = await recomputeTeamAveragesForMatchRows(db, [
+    { home_team_id: 'a', away_team_id: 'b' },
+    { home_team_id: 'a', away_team_id: 'c' },
+  ]);
+  assert.equal(count, 3);
+  assert.deepEqual(calls, [['a', 'b', 'c']]);
+});
+
+test('manual recomputation route calls the set-based adapter once', async () => {
+  const express = require('express');
+  const { createApiRouter } = require('../dist/api/routes.js');
+  const calls = [];
+  const db = {
+    getTeams: async () => [{ team_id: 'a' }, { team_id: 'b' }],
+    recomputeTeamAverages: async () => { throw new Error('unexpected single-team call'); },
+    recomputeTeamAveragesBatch: async (ids) => { calls.push(ids); },
+  };
+  const app = express();
+  app.use(express.json());
+  app.use('/api', createApiRouter({ db, svc: {} }));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/model/recompute-averages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ recomputePlayers: false, recomputeReferees: false }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).teamsUpdated, 2);
+    assert.deepEqual(calls, [['a', 'b']]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
