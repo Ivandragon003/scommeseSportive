@@ -10,6 +10,14 @@ services:
       NODE_ENV: production
       TZ: ${TZ:-Europe/Rome}
       PORT: 3001
+      # GitHub Actions owns the full nightly; do not duplicate it locally.
+      # Explicit values override older scheduler flags in .env.
+      AUTO_SYNC_ON_BOOT: "false"
+      UNDERSTAT_SCHEDULER_ENABLED: "false"
+      ODDS_SNAPSHOT_SCHEDULER_ENABLED: "false"
+      LEARNING_REVIEW_SCHEDULER_ENABLED: "false"
+      # Keep near-kickoff lineup refresh independent of the nightly.
+      LINEUP_REFRESH_SCHEDULER_ENABLED: ${LINEUP_REFRESH_SCHEDULER_ENABLED:-true}
     ports:
       - "3001:3001"
     restart: unless-stopped

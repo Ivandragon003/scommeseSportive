@@ -27,3 +27,19 @@ test('frontend Docker compila i sorgenti senza dipendere da una build locale', (
   assert.doesNotMatch(content, /^COPY build /m);
   assert.match(readRootFile('frontend/.dockerignore'), /^build\s*$/m);
 });
+
+test('Docker delegates nightly jobs to GitHub but keeps near-kickoff lineup refresh', () => {
+  const content = readRootFile('docker-compose.yml');
+  for (const flag of [
+    'AUTO_SYNC_ON_BOOT', 'UNDERSTAT_SCHEDULER_ENABLED',
+    'ODDS_SNAPSHOT_SCHEDULER_ENABLED', 'LEARNING_REVIEW_SCHEDULER_ENABLED',
+  ]) {
+    assert.ok(content.includes(flag + ': "false"'), flag);
+    assert.ok(!content.includes(flag + ': ${'), 'nightly flags must override stale .env settings');
+  }
+  assert.ok(content.includes('LINEUP_REFRESH_SCHEDULER_ENABLED: ${LINEUP_REFRESH_SCHEDULER_ENABLED:-true}'));
+  const workflow = readRootFile('.github/workflows/nightly-sync.yml');
+  assert.match(workflow, /schedule:/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /bash scripts\/ci\/nightly-sync\.sh/);
+});
