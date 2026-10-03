@@ -206,7 +206,7 @@ describe('PredictionArchivePage', () => {
     expect(screen.getByText('1 partita senza proposta')).toBeTruthy();
     expect(screen.getByText(/assenza di una proposta non indica un errore/i)).toBeTruthy();
     await waitFor(() => expect(mockedApi.getBetOpportunityArchive).toHaveBeenLastCalledWith({ category: 'no_proposal', limit: 200 }));
-    expect((screen.getByRole('button', { name: 'High' }).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+    expect((screen.getByRole('group', { name: 'Classificazione' }) as HTMLFieldSetElement).disabled).toBe(true);
   });
 
   test('le tab seguono il pattern tastiera con frecce, Home ed End', async () => {
@@ -219,7 +219,7 @@ describe('PredictionArchivePage', () => {
     expect(unplayed.tabIndex).toBe(-1);
     fireEvent.keyDown(played, { key: 'ArrowRight' });
     await waitFor(() => expect(unplayed.getAttribute('aria-selected')).toBe('true'));
-    expect(document.activeElement).toBe(unplayed);
+    expect(unplayed.matches(':focus')).toBe(true);
 
     fireEvent.keyDown(unplayed, { key: 'End' });
     await waitFor(() => expect(noProposal.getAttribute('aria-selected')).toBe('true'));

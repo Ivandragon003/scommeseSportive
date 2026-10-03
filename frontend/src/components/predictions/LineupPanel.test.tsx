@@ -68,7 +68,7 @@ test('una pagina aperta prima della finestra avvia il refresh e lo interrompe al
   mockRefreshPlayerAvailability.mockResolvedValue({ success: true });
   const view = render(<LineupPanel matchId="match-42" />);
   try {
-    await act(async () => {});
+    await screen.findByText('Titolare stimato');
     expect(mockRefreshPlayerAvailability).not.toHaveBeenCalled();
     await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
     expect(mockRefreshPlayerAvailability).toHaveBeenCalledTimes(1);
