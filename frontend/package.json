@@ -24,6 +24,7 @@
     "mobile:sync": "npm run build && cap sync android",
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "lint": "eslint src --ext .ts,.tsx,.js,.jsx --max-warnings=0",
     "test": "react-scripts test",
     "test:ci": "react-scripts test --watchAll=false",
     "typecheck": "tsc --noEmit"
