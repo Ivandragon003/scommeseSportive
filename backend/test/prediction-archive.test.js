@@ -179,14 +179,64 @@ test('getBetOpportunityArchive nasconde i duplicati storici della stessa opportu
   assert.equal(Number(duplicates[0].display_odds), 1.6);
 });
 
+test('combined archive page preserves standalone APIs with one archive reconstruction', async () => {
+  const db = new DatabaseService();
+  await db.upsertMatch({ matchId: 'no-proposal-match', homeTeamId: 'x', awayTeamId: 'y',
+    date: '2026-08-25T20:00:00Z', homeGoals: 2, awayGoals: 1 });
+  await db.run("UPDATE bets SET profit = 18.6 WHERE bet_id = 'bet-high'");
+  const cases = [
+    { userId: 'user1', limit: 1 },
+    { userId: 'user1', category: 'played', limit: 1 },
+    { userId: 'user1', category: 'unplayed', classifications: ['LOW', 'MEDIUM'], result: 'loss', limit: 1 },
+    { userId: 'user1', type: 'simulated', classification: 'SPECULATIVE', matchId: 'understat_31000' },
+    { userId: 'user2', category: 'played', from: '2026-08-24', to: '2026-08-24' },
+    { userId: 'missing-user', from: '2026-08-24', to: '2026-08-25' },
+    { userId: 'user1', category: 'no_proposal', classification: 'LOW', result: 'win', matchId: 'ignored-by-no-proposal' },
+    { userId: 'user1', from: '2035-01-01' },
+  ];
+  for (const options of cases) {
+    const rows = await db.getBetOpportunityArchive(options);
+    const summary = await db.getBetOpportunityArchiveSummary(options);
+    const categoryCounts = await db.getBetOpportunityArchiveCategoryCounts({
+      userId: options.userId, classification: options.classification, classifications: options.classifications,
+      from: options.from, to: options.to,
+    });
+    const originalAll = db.all.bind(db);
+    const originalGet = db.get.bind(db);
+    let reads = 0;
+    let query;
+    db.all = async (sql, args) => { reads++; query = { sql, args }; return originalAll(sql, args); };
+    db.get = async () => { throw new Error('combined page must not make secondary reads'); };
+    try {
+      assert.deepEqual(await db.getBetOpportunityArchivePage(options), { rows, summary, categoryCounts });
+      assert.equal(reads, 1);
+      const plan = await originalAll(`EXPLAIN QUERY PLAN ${query.sql}`, query.args);
+      assert.equal(plan.filter((row) => row.detail === 'MATERIALIZE opportunity_archive').length, 1);
+    } finally {
+      db.all = originalAll;
+      db.get = originalGet;
+    }
+  }
+  const limited = await db.getBetOpportunityArchivePage({ userId: 'user1', limit: 1 });
+  assert.equal(limited.rows.length, 1);
+  assert.equal(limited.summary.settledCount, 1);
+  assert.equal(limited.summary.netProfit, 18.6);
+  assert.ok(limited.categoryCounts.unplayed > limited.rows.length);
+  assert.ok(limited.categoryCounts.noProposal > 0);
+});
+
 test('GET /bet-opportunities/archive inoltra i filtri e restituisce il nuovo contratto', async () => {
   let receivedOptions = null;
   let archiveReads = 0;
   const db = {
-    async getBetOpportunityArchive(options) {
+    async getBetOpportunityArchivePage(options) {
       archiveReads += 1;
       receivedOptions = options;
-      return [{ decision_id: 'decision-api', classification: 'LOW', archive_type: 'simulated', result: 'pending' }];
+      return {
+        rows: [{ decision_id: 'decision-api', classification: 'LOW', archive_type: 'simulated', result: 'pending' }],
+        summary: { settledCount: 0, wonCount: 0, lostCount: 0, voidCount: 0, wonProfit: 0, lostProfit: 0, netProfit: 0 },
+        categoryCounts: { played: 2, unplayed: 4, noProposal: 1 },
+      };
     },
   };
   const app = express();

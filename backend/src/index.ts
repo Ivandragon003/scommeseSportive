@@ -14,6 +14,7 @@ import {
 import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoordinator';
 import { PredictionService } from './services/PredictionService';
 import { shouldRetryBootstrapSync } from './services/SchedulerRetryPolicy';
+import { loadNightlySchedulerConfig } from './services/NightlySchedulerConfig';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
 
@@ -40,10 +41,9 @@ const sharedAdminAuth = createSharedAdminAuth({
   allowedOrigins: allowedCorsOrigins,
 });
 const PORT = Number(process.env.PORT ?? 3001);
-const AUTO_SYNC_ON_BOOT =
-  String(process.env.AUTO_SYNC_ON_BOOT ?? 'true').trim().toLowerCase() !== 'false';
-const UNDERSTAT_SCHEDULER_ENABLED =
-  String(process.env.UNDERSTAT_SCHEDULER_ENABLED ?? 'true').trim().toLowerCase() === 'true';
+const nightlyConfig = loadNightlySchedulerConfig();
+const AUTO_SYNC_ON_BOOT = nightlyConfig.autoSyncOnBoot;
+const UNDERSTAT_SCHEDULER_ENABLED = nightlyConfig.understatEnabled;
 const UNDERSTAT_SCHEDULER_TIME = String(process.env.UNDERSTAT_SCHEDULER_TIME ?? '01:00').trim() || '01:00';
 const UNDERSTAT_SCHEDULER_MODE =
   String(process.env.UNDERSTAT_SCHEDULER_MODE ?? 'top5').trim().toLowerCase() === 'single'
@@ -58,8 +58,7 @@ const UNDERSTAT_SCHEDULER_INCLUDE_MATCH_DETAILS =
   String(process.env.UNDERSTAT_SCHEDULER_INCLUDE_MATCH_DETAILS ?? 'true').trim().toLowerCase() === 'true';
 const UNDERSTAT_SCHEDULER_FORCE_REFRESH =
   String(process.env.UNDERSTAT_SCHEDULER_FORCE_REFRESH ?? 'false').trim().toLowerCase() === 'true';
-const ODDS_SNAPSHOT_SCHEDULER_ENABLED =
-  String(process.env.ODDS_SNAPSHOT_SCHEDULER_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+const ODDS_SNAPSHOT_SCHEDULER_ENABLED = nightlyConfig.oddsEnabled;
 const ODDS_SNAPSHOT_SCHEDULER_TIME = String(process.env.ODDS_SNAPSHOT_SCHEDULER_TIME ?? '02:15').trim() || '02:15';
 const ODDS_SNAPSHOT_RUN_ON_BOOT =
   String(process.env.ODDS_SNAPSHOT_RUN_ON_BOOT ?? 'false').trim().toLowerCase() === 'true';
@@ -67,8 +66,7 @@ const ODDS_SNAPSHOT_INTERVAL_HOURS = Math.max(
   6,
   Math.min(Number(process.env.ODDS_SNAPSHOT_INTERVAL_HOURS ?? 24), 168)
 );
-const LEARNING_REVIEW_SCHEDULER_ENABLED =
-  String(process.env.LEARNING_REVIEW_SCHEDULER_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+const LEARNING_REVIEW_SCHEDULER_ENABLED = nightlyConfig.learningEnabled;
 const LEARNING_REVIEW_SCHEDULER_TIME = String(process.env.LEARNING_REVIEW_SCHEDULER_TIME ?? '03:00').trim() || '03:00';
 const LEARNING_REVIEW_RUN_ON_BOOT =
   String(process.env.LEARNING_REVIEW_RUN_ON_BOOT ?? 'true').trim().toLowerCase() === 'true';
@@ -1101,6 +1099,7 @@ function startLineupRefreshScheduler(): void {
 app.listen(PORT, () => {
   console.log(`Football Predictor Backend running on http://localhost:${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
+  console.log(`[nightly] Orchestrator: ${nightlyConfig.orchestrator}`);
   logOddsRuntimeConfig();
   void runBootDataSync();
   startUnderstatScheduler();

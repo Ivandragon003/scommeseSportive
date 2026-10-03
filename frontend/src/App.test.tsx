@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
 import * as api from './utils/api';
 
@@ -45,7 +45,7 @@ beforeEach(() => {
   mockedApi.getSystemHealth.mockResolvedValue({
     data: {
       isUpdating: false,
-      lastUpdate: { success: true, message: 'Dati aggiornati correttamente.' },
+      lastUpdate: { at: '2026-10-03T01:00:00.000Z', success: true, message: 'Dati aggiornati correttamente.' },
       schedulers: {
         understat: { success: true },
         learning: { success: true },
@@ -58,6 +58,7 @@ beforeEach(() => {
   mockedApi.syncUpcomingKickoffs.mockResolvedValue({
     data: { corrected: 0 },
   } as any);
+  mockedApi.syncUpcomingPlayerAvailability.mockResolvedValue({ saved: 0, predictedSaved: 0, teamsReconciled: 0 } as any);
   mockedApi.getAdminSession.mockResolvedValue({
     authenticated: true,
     sharedDataUserId: 'user1',
@@ -229,4 +230,89 @@ test('apre Archivio giocate dalla navigazione secondaria desktop', async () => {
 
   expect(await screen.findByText('Prediction archive page')).toBeTruthy();
   expect(window.location.pathname).toBe('/prediction-archive');
+});
+const syncHealth = (at: string | null, success = true, running = false) => ({
+  data: {
+    lastUpdate: at ? { at, success } : null,
+    isUpdating: running,
+    schedulers: { understat: { running } },
+  },
+} as any);
+
+test('polling aggiorna le pagine solo per una nuova sync conclusa', async () => {
+  jest.useFakeTimers();
+  const complete = jest.fn();
+  const error = jest.fn();
+  window.addEventListener('data-sync-complete', complete);
+  window.addEventListener('data-sync-error', error);
+  try {
+    render(<App />);
+    await screen.findByText('Predictions page');
+    expect(complete).toHaveBeenCalledTimes(0);
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(0);
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T02:00:00.000Z', true, true));
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(complete).toHaveBeenCalledTimes(0);
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T02:00:00.000Z'));
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(complete).toHaveBeenCalledTimes(1);
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T03:00:00.000Z', false));
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(error).toHaveBeenCalledTimes(1);
+    // A delayed older response cannot trigger another reload.
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T02:00:00.000Z'));
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(complete).toHaveBeenCalledTimes(1);
+  } finally {
+    window.removeEventListener('data-sync-complete', complete);
+    window.removeEventListener('data-sync-error', error);
+    jest.useRealTimers();
+  }
+});
+
+test('la prima sync dopo uno stato iniziale senza aggiornamenti ricarica le pagine', async () => {
+  const complete = jest.fn();
+  window.addEventListener('data-sync-complete', complete);
+  try {
+    mockedApi.getSystemHealth.mockResolvedValueOnce(syncHealth(null));
+    render(<App />);
+    await screen.findByText('Predictions page');
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T02:00:00.000Z'));
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(complete).toHaveBeenCalledTimes(1);
+  } finally { window.removeEventListener('data-sync-complete', complete); }
+});
+
+test('il refresh manuale senza modifiche evita reload e con disponibilita aggiornata ne emette uno', async () => {
+  const complete = jest.fn();
+  window.addEventListener('data-sync-complete', complete);
+  try {
+    render(<App />);
+    await screen.findByText('Predictions page');
+    await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
+    expect(complete).toHaveBeenCalledTimes(0);
+    mockedApi.syncUpcomingPlayerAvailability.mockResolvedValue({ saved: 1, predictedSaved: 0 } as any);
+    await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
+    expect(complete).toHaveBeenCalledTimes(1);
+  } finally { window.removeEventListener('data-sync-complete', complete); }
+});
+
+test('sync nuova e correzioni manuali ricaricano le pagine una sola volta anche con disponibilita fallita', async () => {
+  const complete = jest.fn();
+  window.addEventListener('data-sync-complete', complete);
+  try {
+    render(<App />);
+    await screen.findByText('Predictions page');
+    mockedApi.getSystemHealth.mockResolvedValue(syncHealth('2026-10-03T02:00:00.000Z'));
+    mockedApi.syncUpcomingKickoffs.mockResolvedValue({ data: { corrected: 2 } } as any);
+    await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
+    expect(complete).toHaveBeenCalledTimes(1);
+    mockedApi.syncUpcomingPlayerAvailability.mockRejectedValueOnce(new Error('Availability failed'));
+    await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
+    expect(complete).toHaveBeenCalledTimes(2);
+  } finally { window.removeEventListener('data-sync-complete', complete); }
 });

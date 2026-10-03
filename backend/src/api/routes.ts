@@ -1361,10 +1361,23 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
     // La retention viene applicata prima della rete: anche un outage della
     // fonte supplementare non puo lasciare una sesta stagione nel DB.
     const prune = await pruneOldSeasons(client, policy.keepSeasons);
+    if (prune.matchesDeleted > 0) db.markAllTeamAveragesDirty();
+    const prunedTeamIds = prune.matchesDeleted > 0
+      ? (await db.getTeams()).map((team) => team.team_id)
+      : [];
+    db.markTeamAveragesDirty(prunedTeamIds);
     const sync = await syncFootballData(fdDb, {
       competitions, seasonStartYears: policy.seasonStartYears,
       historyStore: createFootballDataHistoryStore(client), forceRefresh: body.forceRefresh === true,
     });
+
+    // Successful chunks may already have changed statistics even if another
+    // season is incomplete. Keep their derived averages consistent before the gate.
+    const changedTeamIds = [...new Set([...prunedTeamIds, ...sync.updatedTeamIds])];
+    db.markTeamAveragesDirty(changedTeamIds);
+    const teamsUpdated = body.recomputeAverages !== false
+      ? await recomputeTeamAveragesForTeamIds(db, changedTeamIds)
+      : 0;
 
     if (!sync.allExpectedSeasonsReady) {
       return res.status(502).json({
@@ -1372,15 +1385,9 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
         error: `Sync football-data non pronta: ${sync.completed} complete, ${sync.pending} pending, ${sync.requested} richieste.`,
         sync,
         prune,
+        teamsUpdated,
         retentionPolicy: policy,
       });
-    }
-
-    // Ricalcolo medie (ora che i dati supplementari ci sono).
-    let teamsUpdated = 0;
-    if (body.recomputeAverages !== false) {
-      const teams = await db.getTeams(undefined as any);
-      teamsUpdated = await recomputeTeamAveragesForTeamIds(db, teams.map((t) => t.team_id));
     }
 
     res.json({ success: true, sync, prune, teamsUpdated, retentionPolicy: policy });
@@ -1638,7 +1645,11 @@ router.get('/bet-opportunities/archive', async (req: Request, res: Response) => 
 
     let load = archivePayloadLoads.get(cacheKey);
     if (!load) {
-      load = Promise.all([
+      load = typeof db.getBetOpportunityArchivePage === 'function'
+        ? db.getBetOpportunityArchivePage(options).then(({ rows, summary, categoryCounts }) => ({
+            success: true, data: rows, summary, counts: categoryCounts,
+          }))
+        : Promise.all([
         db.getBetOpportunityArchive(options),
         typeof db.getBetOpportunityArchiveSummary === 'function'
           ? db.getBetOpportunityArchiveSummary(options)

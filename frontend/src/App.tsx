@@ -90,8 +90,60 @@ export const AppShell: React.FC<AppShellProps> = ({ activeUser, statusRefreshing
 interface AuthenticatedAppProps { activeUser: string; onLogout: () => void; theme: Theme; onThemeToggle: () => void; }
 const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ activeUser, onLogout, theme, onThemeToggle }) => {
   const [statusRefreshing, setStatusRefreshing] = useState(false); const { toasts, showToast, dismissToast } = useToastState(); const mountedRef = useRef(true);
-  const applyStatus = useCallback((payload: any) => { const scheduler = payload?.data?.schedulers?.understat; const lastUpdate = payload?.data?.lastUpdate; if (payload?.data?.isUpdating || scheduler?.running) return; if (lastUpdate?.success) window.dispatchEvent(new Event('data-sync-complete')); if (lastUpdate?.success === false) window.dispatchEvent(new Event('data-sync-error')); }, []);
-  const refreshStatus = useCallback(async (options?: { silent?: boolean }) => { const silent = options?.silent === true; if (!silent && mountedRef.current) setStatusRefreshing(true); try { const status = await getSystemHealth({ force: !silent }); let corrected = 0; let warning: string | null = null; if (!silent) { try { const kickoff = await syncUpcomingKickoffs({ mode: 'top5', season: currentSeason(), limit: 160 }); corrected = Number(kickoff?.data?.corrected ?? 0); await syncUpcomingPlayerAvailability(48); window.dispatchEvent(new Event('data-sync-complete')); } catch (error: any) { warning = error?.response?.data?.error || error?.message || 'Sync calendario non riuscito'; } } if (!mountedRef.current) return; applyStatus(status); if (!silent) showToast({ tone: warning ? 'warning' : 'success', message: warning ? `Sistema aggiornato. Sync calendario non riuscito: ${warning}` : corrected > 0 ? `Calendario aggiornato: ${corrected} kickoff corretti` : 'Sistema aggiornato' }); } catch (error: any) { if (!mountedRef.current) return; if (!silent) showToast({ tone: 'error', message: error?.response?.data?.error || error?.message || 'Errore aggiornamento' }); window.dispatchEvent(new Event('data-sync-error')); } finally { if (!silent && mountedRef.current) setStatusRefreshing(false); } }, [applyStatus, showToast]);
+  const lastCompletedSyncAt = useRef<number | null>(null);
+  const statusObserved = useRef(false);
+  const applyStatus = useCallback((payload: any): 'data-sync-complete' | 'data-sync-error' | null => {
+    const scheduler = payload?.data?.schedulers?.understat;
+    const lastUpdate = payload?.data?.lastUpdate;
+    const completedAt = Date.parse(String(lastUpdate?.at ?? ''));
+    // Existing data was loaded by the mounted pages. Establish a baseline on
+    // the first poll, including while a later run is still updating.
+    if (!statusObserved.current) {
+      statusObserved.current = true;
+      if (Number.isFinite(completedAt)) lastCompletedSyncAt.current = completedAt;
+      return null;
+    }
+    if (!Number.isFinite(completedAt) || typeof lastUpdate?.success !== 'boolean') return null;
+    if (payload?.data?.isUpdating || scheduler?.running
+      || (lastCompletedSyncAt.current !== null && completedAt <= lastCompletedSyncAt.current)) return null;
+    lastCompletedSyncAt.current = completedAt;
+    return lastUpdate.success ? 'data-sync-complete' : 'data-sync-error';
+  }, []);
+  const refreshStatus = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent && mountedRef.current) setStatusRefreshing(true);
+    try {
+      const status = await getSystemHealth({ force: !silent });
+      let corrected = 0;
+      let changed = false;
+      let warning: string | null = null;
+      if (!silent) {
+        try {
+          const kickoff = await syncUpcomingKickoffs({ mode: 'top5', season: currentSeason(), limit: 160 });
+          corrected = Number(kickoff?.data?.corrected ?? 0);
+          changed = corrected > 0;
+          const availability = await syncUpcomingPlayerAvailability(48) as {
+            saved?: number; predictedSaved?: number; teamsReconciled?: number;
+          };
+          changed = changed || Number(availability?.saved ?? 0) > 0
+            || Number(availability?.predictedSaved ?? 0) > 0 || Number(availability?.teamsReconciled ?? 0) > 0;
+        } catch (error: any) {
+          warning = error?.response?.data?.error || error?.message || 'Sync calendario non riuscito';
+        }
+      }
+      if (!mountedRef.current) return;
+      const syncEvent = applyStatus(status);
+      if (syncEvent) window.dispatchEvent(new Event(syncEvent));
+      if (changed && syncEvent !== 'data-sync-complete') window.dispatchEvent(new Event('data-sync-complete'));
+      if (!silent) showToast({ tone: warning ? 'warning' : 'success', message: warning ? `Sistema aggiornato. Sync calendario non riuscito: ${warning}` : corrected > 0 ? `Calendario aggiornato: ${corrected} kickoff corretti` : 'Sistema aggiornato' });
+    } catch (error: any) {
+      if (!mountedRef.current) return;
+      if (!silent) showToast({ tone: 'error', message: error?.response?.data?.error || error?.message || 'Errore aggiornamento' });
+      window.dispatchEvent(new Event('data-sync-error'));
+    } finally {
+      if (!silent && mountedRef.current) setStatusRefreshing(false);
+    }
+  }, [applyStatus, showToast]);
   useEffect(() => { mountedRef.current = true; void refreshStatus({ silent: true }); const poll = () => { if (!document.hidden) void refreshStatus({ silent: true }); }; const interval = setInterval(poll, 5 * 60 * 1000); const onVisible = () => { if (!document.hidden) poll(); }; const manual = () => void refreshStatus(); document.addEventListener('visibilitychange', onVisible); window.addEventListener('scraper-status-refresh', manual); return () => { mountedRef.current = false; clearInterval(interval); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('scraper-status-refresh', manual); }; }, [refreshStatus]);
   return <><Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><GlossaryProvider><AppShell activeUser={activeUser} statusRefreshing={statusRefreshing} onRefreshStatus={() => void refreshStatus()} onLogout={onLogout} theme={theme} onThemeToggle={onThemeToggle} /></GlossaryProvider></Router><ToastStack toasts={toasts} onDismiss={dismissToast} /></>;
 };

@@ -12,6 +12,7 @@ services:
       PORT: 3001
       # GitHub Actions owns the full nightly; do not duplicate it locally.
       # Explicit values override older scheduler flags in .env.
+      NIGHTLY_ORCHESTRATOR: github_actions
       AUTO_SYNC_ON_BOOT: "false"
       UNDERSTAT_SCHEDULER_ENABLED: "false"
       ODDS_SNAPSHOT_SCHEDULER_ENABLED: "false"
