@@ -1,9 +1,15 @@
 # Scelte scartate e perché — documento compagno del formulario
 
-Ultimo aggiornamento: 2026-07-17
+Ultimo aggiornamento: 2026-10-03
 Compagno di [`FORMULARIO-sistema-scommesse.md`](FORMULARIO-sistema-scommesse.md). Elenca **tutto ciò che è stato valutato e NON implementato**, con la ragione. Serve a non riprendere idee già testate né a dimenticare perché sono state scartate. I numeri vengono dai backtest walk-forward OOS in [`docs/performance/`](performance/).
 
 Metodo comune: misurazione sull'**intera pipeline di produzione** (fit → ensemble → calibrazione per-famiglia → market blending → value bet), con test di significatività appaiato per partita dove sensato.
+
+Il [retest del 3 ottobre 2026 sul modello attuale](performance/retest-discarded-2026-10-03/README.md)
+confronta 16 varianti sulle cinque stagioni 2021/22–2025/26, con un controllo di calibrazione OOS.
+Le valutazioni sotto conservano i risultati storici di luglio. Nel nuovo test nessuna variante
+supera tutti i criteri di robustezza; D3 migliora la media ma soltanto in 3/5 leghe.
+Il modello operativo resta invariato. Protocollo, limiti e tabelle numeriche sono nel report.
 
 ---
 

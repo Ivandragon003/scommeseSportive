@@ -1,0 +1,55 @@
+{
+  "status": "PASS",
+  "verificationCommand": "node qa-results.cjs",
+  "exitCode": 0,
+  "matches": 8908,
+  "variantsIncludingBaseline": 17,
+  "records": 151436,
+  "leagues": [
+    {
+      "league": "Serie A",
+      "matches": 1900,
+      "records": 32300,
+      "folds": 219,
+      "preservedFolds": 5
+    },
+    {
+      "league": "Premier League",
+      "matches": 1900,
+      "records": 32300,
+      "folds": 212,
+      "preservedFolds": 5
+    },
+    {
+      "league": "La Liga",
+      "matches": 1900,
+      "records": 32300,
+      "folds": 216,
+      "preservedFolds": 5
+    },
+    {
+      "league": "Bundesliga",
+      "matches": 1530,
+      "records": 26010,
+      "folds": 216,
+      "preservedFolds": 8
+    },
+    {
+      "league": "Ligue 1",
+      "matches": 1678,
+      "records": 28526,
+      "folds": 214,
+      "preservedFolds": 6
+    }
+  ],
+  "checks": [
+    "Outcomes independently checked against source, official bookingPoints and strict missing-value rules",
+    "Finite probabilities between 0 and 1",
+    "Unrelated raw families invariant for count variants",
+    "Unique complete 17-model fixture groups",
+    "Weekly fold boundaries and source-reconstructed adaptive training metadata",
+    "Minimum fit size 20; previous valid model preserved below threshold",
+    "Complete source counts with no skipped fixture groups"
+  ],
+  "readOnly": true
+}

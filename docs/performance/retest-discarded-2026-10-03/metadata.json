@@ -1,0 +1,227 @@
+{
+  "baselineId": "baseline",
+  "inputRecords": 151436,
+  "baselineMatches": 8908,
+  "candidateCount": 16,
+  "primaryStage": "oosCalibrated",
+  "primaryBootstrapMode": "season",
+  "referenceReplayCaveat": "calibrated/blended target forecasts are out-of-time, using current runtime calibration. Runtime calibration recalculates strictly past forecasts without guaranteeing they are out-of-sample relative to the fitted model, using their realized xG/outcomes. These stages are a runtime reference. Chronological oosCalibrated fits calibration using prior out-of-sample forecasts and is the primary stage.",
+  "weighting": "Log-loss and Brier average selection losses within each match, then weight every paired match equally. ECE uses all paired selection observations.",
+  "pairing": "Same match ID, stage, finite canonical selection key and observed binary outcome; no zero imputation; blended stages restricted to selections with real entry prices on both sides.",
+  "uncertainty": "2000 deterministic paired cluster resamples, league strata, whole league-season clusters. Coarser dependence-preserving primary; weekly model-fold bootstrap is supplied separately as sensitivity. Seasons can remain dependent across years and only five are observed; inference is exploratory. Simultaneous CI is not claimed. Holm correction separately for each family-stage candidate comparison set.",
+  "improvementSign": "Negative delta means lower loss and improvement.",
+  "oddsCaveat": "Historical football-data opening prices are retrospective market evidence, not proof of executable entry prices or achievable betting returns. No ROI/CLV inferred.",
+  "createdAt": "2026-10-03T19:16:56.219Z",
+  "sourceCommit": "bff46342",
+  "evaluationSeasons": [
+    "2021/2022",
+    "2022/2023",
+    "2023/2024",
+    "2024/2025",
+    "2025/2026"
+  ],
+  "warmupSeasons": [
+    "2017/2018",
+    "2018/2019",
+    "2019/2020",
+    "2020/2021"
+  ],
+  "sourceDatasetSha256": "409cc55f4ca9d219582e05bf716495afc78335d97d43d862b06e7fda7ab00076",
+  "manifestSha256": "927f955986c422e55f539b4f4d01e10f8770ea243ae00ea59ad446e5140ab01e",
+  "sourceResultFiles": [
+    {
+      "file": "serie-a.jsonl",
+      "sha256": "1cadfb8d2752aaff91bdd8627c6686abf18ba7a8d71b8c9f22f413b2aa8ed6fb",
+      "bytes": 114074862,
+      "records": 32300,
+      "baselineMatches": 1900
+    },
+    {
+      "file": "premier-league.jsonl",
+      "sha256": "fd4c62366c8cf0df17a8aba6cdcfbbf48541169924f100ed6ec689dccb415c69",
+      "bytes": 115202201,
+      "records": 32300,
+      "baselineMatches": 1900
+    },
+    {
+      "file": "la-liga.jsonl",
+      "sha256": "7a52f1d2c9f8f967b9e526169f85af3cb1f5c1afc6ccc9fccbcf92778bec4287",
+      "bytes": 116500279,
+      "records": 32300,
+      "baselineMatches": 1900
+    },
+    {
+      "file": "bundesliga.jsonl",
+      "sha256": "5fb32cfef9caec742ac0e1ba69c8f6332daece928c1266579b8baa1c3f20776a",
+      "bytes": 91324690,
+      "records": 26010,
+      "baselineMatches": 1530
+    },
+    {
+      "file": "ligue-1.jsonl",
+      "sha256": "792577a5ff912d4c8931c39c8ff637b200b5c21723f11b3a29d4c0629dd8f161",
+      "bytes": 101001948,
+      "records": 28526,
+      "baselineMatches": 1678
+    }
+  ],
+  "candidateDefinitions": [
+    {
+      "id": "baseline",
+      "label": "Modello attuale",
+      "family": "goals"
+    },
+    {
+      "id": "recent_form_001",
+      "label": "Recent Form decay 0.01/settimana",
+      "fitOptions": {
+        "currentSeasonDecay": 0.01
+      },
+      "reconstruction": false,
+      "family": "goals"
+    },
+    {
+      "id": "recent_form_002",
+      "label": "Recent Form decay 0.02/settimana",
+      "fitOptions": {
+        "currentSeasonDecay": 0.02
+      },
+      "reconstruction": false,
+      "family": "goals"
+    },
+    {
+      "id": "recent_form_004",
+      "label": "Recent Form decay 0.04/settimana",
+      "fitOptions": {
+        "currentSeasonDecay": 0.04
+      },
+      "reconstruction": false,
+      "family": "goals"
+    },
+    {
+      "id": "recent_form_008",
+      "label": "Recent Form decay 0.08/settimana",
+      "fitOptions": {
+        "currentSeasonDecay": 0.08
+      },
+      "reconstruction": false,
+      "family": "goals"
+    },
+    {
+      "id": "per_team_ha",
+      "label": "Home advantage per-squadra: fit congiunto supportato",
+      "fitOptions": {
+        "enablePerTeamHomeAdvantage": true
+      },
+      "reconstruction": false,
+      "limitation": "Exact supported fit; current applyHomeAdvantageScale halves only global HA, not per-team parameters. This direct hypothetical wiring has a scaling confound; report explicitly.",
+      "family": "goals"
+    },
+    {
+      "id": "per_team_ha_scaled_control",
+      "label": "Controllo HA per-squadra: stessa scala globale applicata alla mappa",
+      "fitOptions": {
+        "enablePerTeamHomeAdvantage": true
+      },
+      "reconstruction": true,
+      "limitation": "New explicit methodological control, not a historical discarded variant: scales each fitted per-team HA by current model.homeAdvantageScale while retaining the already scaled global HA.",
+      "family": "goals"
+    },
+    {
+      "id": "centered_per_team_ha",
+      "label": "HA centrato: specificita per-squadra w=1, half-life 200 giorni",
+      "fitOptions": {},
+      "reconstruction": true,
+      "limitation": "Documented closed-form centered hypothesis reconstructed; no archived runner. Conditioning uses structural lambda without target xG, levelCorrection excluded as structural definition.",
+      "family": "goals"
+    },
+    {
+      "id": "dynamic_global_xg",
+      "label": "Dynamic xG globale: griglia 0.4/0.6/0.8/1, validazione temporale interna",
+      "fitOptions": {},
+      "reconstruction": true,
+      "limitation": "Documented auto-weight hypothesis reconstructed; exact old scratchpad/grid unavailable. Raw seven-key ensemble log-loss chooses weight on last 120 strictly past matches, then refit on full past training.",
+      "family": "goals"
+    },
+    {
+      "id": "league_avg_yellow",
+      "label": "B6 gialli media lega as-of",
+      "family": "cards",
+      "reconstruction": false,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    },
+    {
+      "id": "b1_split_yellow",
+      "label": "B1 gialli casa/trasferta pesati",
+      "family": "cards",
+      "reconstruction": false,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    },
+    {
+      "id": "d2_yellow_covariance",
+      "label": "D2 correlazione gialli rho=0.12",
+      "family": "cards",
+      "reconstruction": false,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    },
+    {
+      "id": "d5_raw_sot_ratio",
+      "label": "D5 raw SOT/raw shots",
+      "family": "shots_ot",
+      "reconstruction": false
+    },
+    {
+      "id": "d3_red_baseline",
+      "label": "D3 rossi media lega as-of",
+      "family": "cards",
+      "reconstruction": false,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    },
+    {
+      "id": "d1_both_fouls_factor",
+      "label": "D1 both, vecchio fattore falli con propagazione coerente",
+      "family": "cards",
+      "reconstruction": true,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    },
+    {
+      "id": "d1_both_legacy_exact",
+      "label": "D1 both, blocco legacy esatto solo gialli",
+      "family": "yellow",
+      "reconstruction": false
+    },
+    {
+      "id": "d1_induced_yellow_reconstruction",
+      "label": "D1 gialli indotti avversario, ricostruzione esplicita",
+      "family": "cards",
+      "reconstruction": true,
+      "families": [
+        "cards",
+        "yellow"
+      ]
+    }
+  ],
+  "bootstrapSamples": 2000,
+  "primaryBootstrapClusters": 25,
+  "primaryBootstrapStrata": 5,
+  "primaryBootstrapClusterDescription": "Whole league-season blocks; five seasons resampled within each of five league strata. Actual sample-specific counts are reported on each summary row.",
+  "aggregation": "Single streaming pass partitions result records by variant, then loads baseline plus one candidate only; applies Holm globally by family and stage.",
+  "scopeCaveat": "Forecasts reconstructed from available historical source data. No historical ingest timestamps, promotion priors, absence/lineup revisions or adaptive-tuning history; shared omissions apply to baseline and candidate.",
+  "reportingCaveat": "The present experiment was explicitly requested to reopen rejected hypotheses because the current model differs. No operational algorithms, settings or DB rows are modified.",
+  "sourceCommitFull": "bff463429a291501f056c3ac0b20fd75e860da31"
+}

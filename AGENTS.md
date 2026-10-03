@@ -1,268 +1,64 @@
-# AGENTS.md - scommeseSportive
+# scommeseSportive - Istruzioni di progetto
 
-Questo file definisce le istruzioni specifiche del progetto `scommeseSportive`.
-Vale in aggiunta alle istruzioni globali di Codex e serve a bloccare le decisioni architetturali e di prodotto gia prese per questo repo.
+## Prodotto e architettura
 
-## 1. Missione del progetto
+- Web app per importare dati calcistici, calcolare previsioni pre-match, recuperare quote bookmaker e archiviare quote e replay delle partite concluse. Mantieni un'esperienza chiara e un codice portabile.
+- Stack deciso: React; Node.js/Express/TypeScript; libSQL/Turso; Docker Compose. Architettura modular monolith, fruizione primaria web-first. Cambi materiali richiedono una decisione esplicita dell'utente.
+- Usa software gratuito/open-source o free tier realmente utilizzabili; non introdurre provider a pagamento obbligatori, microservizi, codebase duplicate o infrastruttura superflua.
 
-`scommeseSportive` e una web app operativa per:
-- importare dati calcistici
-- calcolare prediction pre-match
-- recuperare quote bookmaker
-- proporre una sola giocata finale consigliata per partita
-- archiviare quote e replay delle partite concluse
-
-Obiettivo del prodotto:
-- esperienza chiara per utente finale che vuole analizzare partite e quote
-- codice mantenibile e portabile
-- stack gratuito/open-source o con free tier realmente usabile
-- architettura semplice: modular monolith
+## Riferimenti secondo il task
 
-## 2. Decisioni architetturali bloccate
-
-Queste decisioni sono gia state prese e non vanno rimesse in discussione senza richiesta esplicita del proprietario del progetto:
-
-- frontend: `React`
-- backend: `Node.js + Express + TypeScript`
-- database: `libSQL / Turso`
-- containerizzazione: `Docker + docker-compose`
-- architettura: modular monolith, non microservizi
-- fruizione primaria: web-first
+- Avvio e configurazione: `README.md`, `docker-compose.yml` e gli script nei `backend/package.json` e `frontend/package.json`.
+- Import e fonti: `backend/src/services/FootballDataService.ts`, `docs/github-actions-nightly-sync.md`; transizioni tra competizioni: `docs/competition-transitions/README.md`.
+- Mercati, selezione e matching: `backend/src/services/PredictionService.ts`, `backend/src/services/playerProps.ts`, `backend/src/models/value/ValueBettingEngine.ts` e `backend/src/api/routes.ts`.
+- Modelli e decisioni sperimentali: `docs/FORMULARIO-sistema-scommesse.md`, `docs/FORMULARIO-scelte-scartate.md` e il report pertinente in `docs/performance/`. Per riaprire l'ottimizzazione leggi `docs/performance/model-optimization-status-2026-07.md`.
+- Quote storiche, anytime e corner/falli: `docs/performance/closing-odds-ingest-2026-07.md`, `docs/performance/anytime-scorer-e5-2026-07.md` e `docs/performance/fouls-corners-validation-2026-07.md`.
+- Packaging Android: `docs/android-private-apk.md`. Sicurezza della cronologia: `docs/security/history-cleanup.md`.
+- I report datati descrivono esperimenti e snapshot storici: verifica codice, configurazione e dati pertinenti prima di presentarne copertura, metriche o funzionalità come attuali. Non trasformare la loro roadmap in lavoro automaticamente autorizzato.
 
-Non introdurre:
-- microservizi
-- codebase duplicate
-- orchestrazioni complesse
-- provider a pagamento obbligatori
-- infrastruttura non necessaria
+## Fonti e integrità dei dati
 
-## 3. Fonte dati ufficiale
+- Understat resta la fonte primaria per squadre, partite, giocatori, xG, tiri e storico.
+- `football-data.co.uk` è ammessa come fonte supplementare HTTP/CSV senza browser o API key. Per statistiche incomplete (falli, corner, tiri, tiri in porta, cartellini, arbitro) conserva i valori Understat e riempi i mancanti con semantica `COALESCE`; matching per data e alias squadra. Non assumere copertura uniforme dell'arbitro fuori Premier League o disponibilità del possesso. Il servizio gestisce anche quote storiche di chiusura: preservane provenienza e distinzione dalle statistiche.
+- Per aggiornamenti nightly della fonte supplementare segui il flusso della stagione corrente documentato. Lo scraper SofaScore è stato sostituito per questi campi.
+- Non riattivare FotMob, Transfermarkt o FBref, né fallback silenziosi verso queste fonti, senza richiesta esplicita e motivata. Rimuovi riferimenti legacy inutili quando pertinente al task, preservando compatibilità e lavoro estraneo.
+- Preferisci HTTP/JSON stabile; non introdurre scraper browser quando esiste questa alternativa. Il blocco del mercato falli non autorizza autonomamente scraping bookmaker o nuovi provider a pagamento.
 
-### Regola principale
+## Quote e mercati
 
-`Understat` e la fonte dati PRIMARIA del progetto per dati calcistici.
+- Sono ammesse quote di più bookmaker reali, sempre con bookmaker e provenienza veritieri, tracciati nel campo `source` dello snapshot. Non attribuire a Eurobet o ad altri operatori quote che non hanno espresso.
+- Quote sintetiche o completate dal modello (incluse `*_plus_model_completion`) restano interne: non mostrarle come quote bookmaker e non usarle per calcolare value o dimostrare ROI/CLV, perché il confronto sarebbe circolare. Se manca una quota reale, mostra la sua indisponibilità.
+- Fallback tecnici possono evitare blocchi backend, completare logica interna o salvare diagnostica/snapshot, rispettando questi confini.
+- Mercati previsti: 1X2, doppia chance, draw no bet, goal/over-under, BTTS, tiri, tiri in porta, cartellini totali over/under e handicap europeo/asiatico. Exact score serve solo a probabilità interne e analisi: non richiedere il mercato bookmaker `correct_score`, escluso dalla selezione operativa.
+- Per `alternate_totals_cards` confronta Total Cards/Bookings con **booking points**, non soli gialli: `cardsTotalOver/Under` e settlement `cards_total` usano gialli + 2 × rossi. Understat rappresenta ogni espulsione come 0 gialli + 1 rosso; non restringere ai soli rossi diretti. Riferimento: `bookingPoints` in `backend/src/utils/dataHelpers.ts`.
+- Player props: tiri, tiri in porta, gialli e marcatore anytime (`player_goal_scorer_anytime`). Richiedono quota reale per giocatore/mercato/linea, matching non ambiguo e campione sufficiente secondo `buildPlayerPropMarkets`.
+- Corner e falli sono desiderati, ma il dato statistico disponibile non basta ad attivarne le giocate. Conserva i blocchi di `DISABLED_CATEGORIES` e i filtri EV finché un backtest di mercato con quote reali non giustifica lo sblocco. Non presentare mercati come forti senza validazione reale.
+- Nelle verifiche di luglio 2026 il provider supportava `alternate_totals_corners`, `alternate_spreads_corners`, `alternate_team_totals_corners`, `corners_1x2`, `alternate_totals_cards`, `alternate_spreads_cards`, `player_shots`, `player_shots_on_target`; le chiavi generiche `corners`, `shots`, `shots_on_target`, `cards` erano invalide. Prima di cambiare l'integrazione verifica la documentazione ufficiale corrente e le chiavi già usate nelle route.
+- Il mercato falli resta non attivabile secondo la decisione documentata: le verifiche del luglio 2026 non trovavano quote disponibili dal provider o alternative gratuite adeguate. Una nuova evidenza va valutata esplicitamente; le quote generate dal modello non rimuovono il blocco.
 
-Questo significa che squadre, partite, giocatori, xG, tiri e storico match nascono da `Understat`.
+## Direzione del modello
 
-### Fonte supplementare (dal 2026-07)
+- L'ottimizzazione incrementale del modello è considerata chiusa secondo il report di luglio 2026. Non riproporre micro-ottimizzazioni goal senza ipotesi sostanzialmente nuova e metrica non già testata.
+- L'esperimento opzionale di calibrazione/dispersione tiri richiede valutazione indipendente dalla selezione sulla pipeline completa: GO solo se il miglioramento sopravvive a calibrazione e blending su almeno 4/5 leghe. Verifica nel report e nel codice se l'esperimento è ancora aperto prima di proporlo.
+- Per nuove priorità usa la roadmap documentata (quote storiche, statistiche giocatore, dati inutilizzati, igiene dati, mercati per tempo e corner), verificando quanto è già stato implementato. In particolare, non riproporre anytime o ingest di chiusura come assenti basandoti solo sul report iniziale. Recent Form ha un precedente NO-GO: collegare dati non prova un miglioramento.
 
-`football-data.co.uk` e una fonte **supplementare** HTTP/CSV (no browser, no API key), usata SOLO per riempire i campi che Understat copre male o per niente: falli, corner, tiri, tiri in porta, cartellini, arbitro (Referee solo Premier League). Regole:
-- riempie solo i campi NULL via COALESCE: NON sovrascrive mai i dati Understat
-- una riga CSV = una partita; il matching e per data + nomi squadra (mappa alias in `FootballDataService.ts`)
-- si aggiorna nella nightly (solo stagione corrente) — vedi `FootballDataService`
-- ha sostituito lo scraper `SofaScore` (Playwright) per questi campi; l'unico dato non coperto e il possesso
+## Presentazione e UX
 
-### Fonti disattivate
+- Una sola giocata finale consigliata sui mercati squadra per partita, con motivazione breve e comprensibile. Player props in una sezione distinta e ordinata per confidenza/value, senza elencare indiscriminatamente tutti i giocatori.
+- Mantieni interne learning review post-match, tuning adattivo, analisi degli errori e debug di filtri/ranking. Non aggiungere pannelli debug/learning o spiegazioni tecniche EV/edge/score nel consiglio finale.
+- Replay focalizzato su pronostico consigliato, risultato reale ed esito della giocata.
+- Testi leggibili, contrasto adeguato, font chiaro e stati espliciti per disponibilità delle quote reali e relativo bookmaker, sincronizzazione e mercati supportati. Evita dashboard dense, pannelli avanzati non richiesti e visualizzazioni decorative che ostacolano la lettura.
 
-Non reintrodurre nel flusso attivo:
-- `FotMob`
-- `Transfermarkt`
-- `FBref`
+## Backend, database e sicurezza
 
-Questi path legacy non devono essere ripristinati senza una richiesta esplicita e motivata del proprietario del progetto.
+- Separa route, servizi, database e modelli; la logica pesante appartiene ai servizi. Introduci dipendenze, timeout e retry solo dove necessari.
+- Mantieni compatibilità libSQL/Turso, senza assunzioni MySQL/PostgreSQL. Evoluzioni additive e compatibili; preserva dati e payload come `team_stats_json`. Drop di tabelle/colonne richiedono richiesta esplicita.
+- Mantieni segreti e credenziali fuori da sorgenti, log, output condivisi e Git. Usa configurazione locale e ambiente previsti dal progetto.
+- Rispetta i confini di autorizzazione globali per operazioni esterne o distruttive; segnala conflitti con decisioni di prodotto senza cambiarle silenziosamente. Non includere modifiche estranee nei commit.
 
-Se trovi file o riferimenti legacy:
-- rimuovili se non servono piu
-- non creare fallback silenziosi verso fonti legacy
+## Verifica e completamento
 
-## 4. Regole quote
-
-### Fonte quote lato utente (aggiornato 2026-07)
-
-**Le quote possono provenire da piu bookmaker.** La precedente regola "Eurobet-only"
-e superata: il proprietario gioca su piu operatori (`Eurobet`, `888`, ecc.) e
-sceglie lui su quale piazzare, dato che le differenze di quota tra bookmaker sono
-tipicamente di pochi centesimi (salvo casi rari).
-
-Regole bloccate:
-- **e ammesso mostrare quote da piu bookmaker reali**, purche sia sempre indicato
-  **quale bookmaker** ha espresso quella quota
-- **mai attribuire a un bookmaker una quota che non ha espresso**: la provenienza
-  deve essere veritiera e tracciata (`source` nello snapshot)
-- **mai mostrare come quota bookmaker una quota stimata o completata dal modello**
-  (es. sorgenti `*_plus_model_completion` o quote sintetiche): queste restano
-  esclusivamente interne. Usarle per calcolare il value sarebbe circolare
-- se per una giocata non esiste **nessuna** quota bookmaker reale, non va mostrata
-  nessuna quota per quella giocata
-
-### Fallback tecnici
-
-Sono ammessi fallback tecnici interni solo se servono a:
-- non bloccare il backend
-- completare logica interna
-- salvare diagnostica o snapshot
-
-Lato UI:
-- sono ammesse quote di piu bookmaker reali, sempre con la fonte dichiarata
-- **non** sono ammesse quote sintetiche o completate dal modello
-
-## 5. Mercati supportati
-
-### Mercati attivi e coerenti con Understat
-
-Sono priorita del progetto:
-- `1X2`
-- `double chance`
-- `draw no bet`
-- `goal / over-under`
-- `btts`
-- `shots`
-- `shots on target`
-- `cartellini totali over/under` (mercato attivo). **Aggiornato 2026-07 (A6/B4):** le quote `alternate_totals_cards` del provider sono "Total Cards / Bookings", non gialli. Il modello ora espone e confronta i **booking points** (`cardsTotalOver/Under` = giallo 1, rosso 2; helper `bookingPoints` in `dataHelpers`), e il backtest regola `cards_total` su `gialli + 2·rossi`. Understat codifica ogni espulsione come `0 gialli + 1 rosso`, quindi la formula `gialli + 2·rossi` è corretta e NON va cambiata in "solo rossi diretti". Modello squadra e giocatore implementati; baseline gialli per-lega nel modello giocatore (B6).
-- `exact score` solo come probabilita statistica interna del modello e visualizzazione analitica: non richiedere/importare il mercato bookmaker `correct_score`, perche non entra nella selezione operativa e consumerebbe quota API inutilmente
-- `handicap` (europeo e asiatico)
-- **scommesse singole sui giocatori** (`player props`): tiri giocatore, tiri in porta giocatore, gialli giocatore, **marcatore anytime** (E5, dal 2026-07: chiave provider `player_goal_scorer_anytime`, modellato come Poisson su `xG/90` × minuti attesi × shrink; validato as-of, ECE 0.013). Valutate quando esiste una quota bookmaker corrispondente e il matching giocatore non e ambiguo (`playerProps.ts`, `PredictionService.buildPlayerPropMarkets`).
-
-### Falli e corner — dato ora disponibile (2026-07)
-
-- `fouls` e `corners` — **voluti dal proprietario**, che li gioca abitualmente. Il blocco storico era la copertura del **dato statistico** (falli/corner all'1-2% su Understat). **Risolto:** ora coperti a ~100% su tutte e 4 le stagioni via **football-data.co.uk** (§3). Understat resta primaria: football-data riempie solo i campi NULL (COALESCE).
-- **Situazione QUOTE (verificata live sul provider, 2026-07):**
-  - **Corner: ottenibili.** Chiavi valide di the-odds-api (tutte verificate live): `alternate_totals_corners`, `alternate_spreads_corners`, `alternate_team_totals_corners`, `corners_1x2`. Il codice chiedeva `'corners'`, chiave **inesistente** ("Invalid markets") — per questo non arrivavano mai quote corner. Corretto in `routes.ts` (`eventAdditionalMarkets`).
-  - **Falli: NON ottenibili, filone chiuso.** Tutte le varianti (`fouls`, `totals_fouls`, `alternate_totals_fouls`) restituiscono "Invalid markets"; la documentazione ufficiale dei mercati conferma che per il calcio esistono corner e cartellini ma **non i falli**. Ricerca alternative (2026-07): nessun provider con free tier reale documenta i falli sul calcio; le opzioni potenzialmente capaci sono **a pagamento con prezzo su richiesta**, vietate da §2. I bookmaker che offrono i falli (incluso quello usato dal proprietario) sarebbero raggiungibili solo via scraping, escluso da §8. **Il mercato falli resta non attivabile.** Le uniche quote falli presenti negli snapshot sono `*_plus_model_completion`, cioe generate dal modello: **non utilizzabili** (sarebbe circolare).
-  - Attenzione: `'shots'`, `'shots_on_target'`, `'cards'` sono anch'esse chiavi **non valide**; le equivalenti valide sono `alternate_totals_cards`, `alternate_spreads_cards`, `player_shots`, `player_shots_on_target`.
-- Prima di mostrare corner/falli come mercati forti in UI: **validare i modelli in backtest di mercato** con quote reali (come fatto per i cartellini) e sbloccarli nel filtro value (`DISABLED_CATEGORIES` in `ValueBettingEngine`, piu la soglia EV oggi a 0.120). Attivarli solo dopo esito positivo.
-
-Regola generale: non mostrare un mercato come "forte" solo per riempire la UI se il modello non e stato validato sul dato reale.
-
-### Direzione di lavoro (aggiornato 2026-07)
-
-Il capitolo **"ottimizzazione del modello" e considerato CHIUSO**: dopo tutti i GO/NO-GO/BLOCCATI documentati non resta alcun intervento sul modello esistente con elevata probabilita di miglioramento significativo (mercati goal saturi con ECE 0.0019; 5+ feature NO-GO consecutive; gialli/tiri gia corretti; corner/falli/possesso bloccati a monte dalle quote o dalla fonte dati). Motivazione completa in `docs/performance/model-optimization-status-2026-07.md`.
-
-- **Non proporre nuove micro-ottimizzazioni del modello goal** senza un'ipotesi sostanzialmente nuova e una metrica non gia testata.
-- Unico esperimento modellistico ancora aperto (confidenza MEDIA, opzionale): **calibrazione/dispersione del mercato tiri** (ECE grezzo 0.06-0.12). Da validare selection-independent sulla pipeline completa; GO solo se sopravvive a calibrazione+blending su >=4/5 leghe.
-- **Da qui in poi il lavoro e su nuove funzionalita o infrastruttura**, in quest'ordine di valore: (1) ingest quote storiche di chiusura (sblocca ROI/CLV, oggi 96% quote sintetiche non validabili); (2) `player_match_stats` → marcatore anytime + player v4; (3) collegamento dati gia calcolati ma inutilizzati (con cautela: Recent Form e NO-GO, riposo/calendario non testati); (4) igiene dati (`xgot` mal nominato, metriche giocatore archiviate e mai lette); (5) mercati 1o/2o tempo; (6) riattivazione corner se le quote si popolano a stagione iniziata.
-
-## 6. Regole prediction e UX
-
-### Pronostico finale
-
-Per ogni partita deve esserci:
-- una sola giocata finale consigliata **sui mercati squadra** (1X2, over/under, gialli, ecc.)
-- motivazione breve, leggibile e umana
-
-Non trasformare il prodotto in una lista caotica di pick equivalenti sui mercati squadra.
-
-### Scommesse singole sui giocatori
-
-Le `player props` (tiri, tiri in porta, gialli giocatore) sono una categoria **distinta** dal pronostico squadra e possono essere mostrate come singole giocate sui giocatori, quando:
-- esiste una quota bookmaker corrispondente per quel giocatore/mercato/linea
-- il matching del giocatore non e ambiguo
-- il campione dati del giocatore e sufficiente (vedi filtri in `buildPlayerPropMarkets`)
-
-Queste NON contano come "seconda giocata squadra": vivono in una sezione player dedicata. Vanno comunque presentate in modo ordinato (le migliori per confidenza/EV), non come lista indiscriminata di tutti i giocatori.
-
-### Schermate interne
-
-Le analisi interne di apprendimento non devono essere mostrate all'utente finale.
-
-Restano interne:
-- post-match learning review
-- tuning adattivo
-- analisi degli errori del modello
-- debug dei filtri/ranking
-
-Non reintrodurre nella UI:
-- card debug
-- pannelli learning
-- spiegazioni tecniche EV/edge/score nel consiglio finale
-
-### Replay
-
-La sezione partite concluse deve restare focalizzata su:
-- pronostico finale consigliato
-- risultato reale
-- esito della giocata
-
-Non aggiungere rumore tecnico non richiesto.
-
-## 7. Regole frontend
-
-### Obiettivo UI
-
-La UI deve essere:
-- leggibile
-- veloce da capire
-- adatta a chi vuole consultare partite e quote rapidamente
-
-### Vincoli UI
-
-- privilegiare leggibilita del testo e contrasto
-- mantenere il font principale orientato alla leggibilita
-- usare badge e stati chiari per:
-  - quote Eurobet disponibili / non disponibili
-  - sync in corso / pronta
-  - mercati supportati
-
-Non introdurre:
-- dashboard troppo dense
-- pannelli "power user" non richiesti
-- visualizzazioni decorative che peggiorano la chiarezza
-
-## 8. Regole backend
-
-- mantenere separazione chiara tra route, service, db e modelli
-- non mettere logica pesante direttamente nelle route se puo stare in service
-- nessuna assunzione MySQL/Postgres: il DB reale e `libSQL / Turso`
-- evitare dipendenze inutili
-- usare timeout e retry solo dove servono davvero
-- non introdurre scrapers browser-based se esiste gia una fonte HTTP/JSON stabile
-
-## 9. Regole database
-
-- non droppare tabelle o colonne senza richiesta esplicita
-- preferire evoluzioni additive e compatibili
-- preservare i dati esistenti
-- non sovrascrivere `team_stats_json` o altri payload in modo distruttivo
-- mantenere compatibilita con `libSQL / Turso`
-
-## 10. Docker e runtime
-
-Questo progetto deve restare eseguibile in modo riproducibile con:
-
-```powershell
-docker compose up -d --build
-```
-
-Ogni modifica importante che tocca runtime o dipendenze deve preservare:
-- build backend
-- build frontend
-- avvio container
-- healthcheck backend
-
-## 11. Checklist obbligatoria prima di chiudere task sostanziali
-
-Se il task tocca codice applicativo, eseguire quando sensato:
-
-### Backend
-- `npm run build` in `backend`
-- `npm test` in `backend`
-
-### Frontend
-- `npm run build` in `frontend`
-
-### Runtime
-- `docker compose up -d --build backend frontend` se il task tocca runtime, dipendenze, env o API
-- verifica `http://localhost:3001/api/health`
-
-### Regressioni funzionali minime
-- verificare che `Understat` resti la sola fonte dati attiva
-- verificare che gli endpoint legacy non vengano reintrodotti
-- verificare che la UI non mostri quote non-Eurobet
-
-## 12. Cose da non fare mai in questo repo
-
-- non reintrodurre `FotMob`, `Transfermarkt` o `FBref` nel flusso attivo
-- non mostrare quote fallback come se fossero Eurobet
-- non mostrare learning interno/debug all'utente finale
-- non aggiungere mercati non coperti bene dalla fonte dati unica
-- non complicare l'architettura con microservizi o tool superflui
-- non introdurre servizi a pagamento obbligatori
-- non rompere la portabilita Docker-first del progetto
-
-## 13. Regola di escalation
-
-Se una richiesta futura entra in conflitto con queste decisioni bloccate:
-- non cambiare silenziosamente il progetto
-- segnala il conflitto in modo diretto
-- proponi le opzioni tecniche
-- procedi solo con la variante piu coerente o con richiesta esplicita
+- Usa i controlli pertinenti alla modifica e gli script effettivi nei package. Backend: `npm test` include già la build; `npm run typecheck` e `npm run lint` quando pertinenti. Frontend: `npm run test:ci`, `npm run build`, typecheck/lint secondo lo scope. Evita ripetizioni della stessa build senza necessità.
+- Per runtime, dipendenze, ambiente o API preserva build, avvio e healthcheck: `docker compose up -d --build backend frontend` e `http://localhost:3001/api/health`. L'avvio completo riproducibile resta `docker compose up -d --build`; esegui la verifica runtime quando pertinente al task.
+- Per modifiche a fonti o quote verifica priorità Understat con supplemento consentito, assenza di riattivazione legacy e provenienza reale delle quote mostrate da qualsiasi bookmaker ammesso.
+- Per sole istruzioni o documentazione verifica diff, coerenza e riferimenti senza avviare test applicativi o chiamate provider non necessarie. Riporta controlli eseguiti e limiti; non equiparare una verifica mirata all'intero gate applicativo.
