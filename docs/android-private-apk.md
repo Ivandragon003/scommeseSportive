@@ -83,3 +83,25 @@ non abilita la modalita debug.
 
 Esegui prima il deploy coordinato del backend e del frontend, poi distribuisci l'APK.
 Senza il nuovo backend autenticato l'APK non può completare il login.
+
+## 4. Verificare il filtro nativo delle giocate
+
+La versione 1.1.1 limita lo sfondo dello splash alla finestra Android, evitando
+che le righe del selettore degli esiti ereditino l'altezza dell'immagine.
+Il test `NativeFilterLayoutTest` verifica le quattro opzioni dopo il passaggio
+dal tema di avvio al tema dell'app.
+
+Dalla cartella `frontend/android`, con JDK 21 e SDK Android configurati:
+
+```powershell
+./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
+```
+
+Con un emulatore o dispositivo di test già avviato:
+
+```powershell
+./gradlew.bat :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=it.footpredictor.personal.NativeFilterLayoutTest"
+```
+
+Il prefisso `:app:` limita la verifica al modulo applicativo. Il test controlla
+il layout nativo senza effettuare login o chiamate al backend.

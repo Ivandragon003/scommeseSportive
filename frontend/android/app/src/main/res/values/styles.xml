@@ -22,7 +22,10 @@
     <style name="AppTheme.NoActionBar" parent="@style/AppThemeNoActionBarBase" />
 
     <style name="AppThemeNoActionBarLaunchBase" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!-- Scope the splash to the window. A theme-wide view background also
+             reaches WebView select rows, giving each row the splash image's
+             minimum height and hiding the remaining filter options. -->
+        <item name="android:windowBackground">@drawable/splash</item>
         <item name="windowSplashScreenBackground">@color/appBackground</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:statusBarColor">@color/systemBarBackground</item>
