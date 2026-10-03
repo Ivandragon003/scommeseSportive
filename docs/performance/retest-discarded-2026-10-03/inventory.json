@@ -1,0 +1,342 @@
+[
+  {
+    "id": "baseline",
+    "label": "Modello attuale",
+    "family": "goals",
+    "source": "docs/FORMULARIO-sistema-scommesse.md",
+    "line": 98,
+    "historicalResult": "Baseline attuale; nessun risultato nuovo anticipato. Ensemble w=0.5, xGWeight=0.80, levelCorrection e calibrazione per famiglia sono gia adottati.",
+    "retestStatus": "control",
+    "reason": "Riferimento corrente comune ai retest; non una variante scartata."
+  },
+  {
+    "id": "recent_form_001",
+    "label": "Recent Form decay 0.01/settimana",
+    "family": "goals",
+    "source": "docs/performance/recent-form-half-life-2026-07.md",
+    "line": 10,
+    "historicalResult": "DC isolato: logLoss calibrata 0.60308 -> 0.60139 (-0.28%); ECE 0.0057 -> 0.0045. Non validata storicamente sopra ensemble.",
+    "retestStatus": "tested_exact",
+    "reason": "Opzione currentSeasonDecay documentata e gia disponibile; nuova valutazione sopra pipeline attuale."
+  },
+  {
+    "id": "recent_form_002",
+    "label": "Recent Form decay 0.02/settimana",
+    "family": "goals",
+    "source": "docs/performance/recent-form-half-life-2026-07.md",
+    "line": 24,
+    "historicalResult": "DC isolato LL -0.50%; pipeline ensemble calibrata LL 0.59924 -> 0.59912 (-0.02%), ECE 0.0019 -> 0.0037, paired p=0.65, n=5282 match.",
+    "retestStatus": "tested_exact",
+    "reason": "Parametro storico esatto 0.02/settimana, contro default 0.002/settimana."
+  },
+  {
+    "id": "recent_form_004",
+    "label": "Recent Form decay 0.04/settimana",
+    "family": "goals",
+    "source": "docs/performance/recent-form-half-life-2026-07.md",
+    "line": 10,
+    "historicalResult": "DC isolato: LL cal 0.60308 -> 0.60127 (-0.30%); ECE 0.0057 -> 0.0020. Non validata storicamente sopra ensemble.",
+    "retestStatus": "tested_exact",
+    "reason": "Opzione currentSeasonDecay esatta documentata; nuovo confronto sulla pipeline attuale."
+  },
+  {
+    "id": "recent_form_008",
+    "label": "Recent Form decay 0.08/settimana",
+    "family": "goals",
+    "source": "docs/performance/recent-form-half-life-2026-07.md",
+    "line": 10,
+    "historicalResult": "DC isolato: LL cal 0.60308 -> 0.60671 (+0.60%); ECE 0.0057 -> 0.0034; overfit storico.",
+    "retestStatus": "tested_exact",
+    "reason": "Opzione currentSeasonDecay esatta documentata; nuovo confronto sulla pipeline attuale."
+  },
+  {
+    "id": "per_team_ha",
+    "label": "HA per-squadra: fit congiunto",
+    "family": "goals",
+    "source": "docs/performance/per-team-home-advantage-analysis-2026-07.md",
+    "line": 130,
+    "historicalResult": "Quattro stagioni: LL cal ALL -0.04%, 1X2 -0.05%; paired t 1X2=-0.256, n=3282. Due stagioni ALL +0.12%, 1X2 p circa 0.60.",
+    "retestStatus": "tested_exact",
+    "reason": "enablePerTeamHomeAdvantage=true e ridge 0.05 gia nel fit. Il wiring attuale scala HA globale ma non la mappa per-team: segnalare confondimento scala."
+  },
+  {
+    "id": "per_team_ha_scaled_control",
+    "label": "Controllo HA per-squadra: scala coerente",
+    "family": "goals",
+    "source": "docs/FORMULARIO-sistema-scommesse.md",
+    "line": 24,
+    "historicalResult": "Nessun risultato storico: controllo metodologico introdotto nel retest.",
+    "retestStatus": "control",
+    "reason": "Stessa homeAdvantageScale corrente applicata anche alla mappa per-team; non una variante storica scartata."
+  },
+  {
+    "id": "centered_per_team_ha",
+    "label": "HA ibrido centrato w=1",
+    "family": "goals",
+    "source": "docs/performance/per-team-home-advantage-analysis-2026-07.md",
+    "line": 140,
+    "historicalResult": "Quattro stagioni centered=1: LL ALL -0.14%, OU -0.10%, 1X2 -0.31%; t ALL=-1.20 (NS), t 1X2=-2.51. Due stagioni LL ALL -0.11%, t=-0.71.",
+    "retestStatus": "tested_reconstructed",
+    "reason": "Ipotesi centrata documentata: delta profile-likelihood, half-life 200 giorni, w=1. Runner storico assente; condizionamento ricostruito esplicitamente."
+  },
+  {
+    "id": "dynamic_global_xg",
+    "label": "Dynamic xG globale per fold",
+    "family": "goals",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 14,
+    "historicalResult": "LogLoss calibrata -0.07% rispetto al peso fisso 0.80; non rilevante.",
+    "retestStatus": "tested_reconstructed",
+    "reason": "Auto-peso globale documentato senza scratchpad/grid originali. Retest usa grid 0.4/0.6/0.8/1 e validazione temporale interna su passato; non replica identica."
+  },
+  {
+    "id": "league_avg_yellow",
+    "label": "Media gialli per lega nel modello squadra",
+    "family": "cards",
+    "source": "docs/performance/per-league-yellow-param-2026-07.md",
+    "line": 18,
+    "historicalResult": "LL raw 0.51858 -> 0.52053 (+0.38%); cal 0.51563 -> 0.51585 (+0.04%); paired p=0.016 nella direzione peggiore, n=2181; raw peggiore 5/5 leghe.",
+    "retestStatus": "tested_exact",
+    "reason": "Media rolling reale della lega al posto di 3.8; modello squadra soltanto. Settlement booking points e arbitro ora quelli correnti."
+  },
+  {
+    "id": "b1_split_yellow",
+    "label": "B1 split gialli casa/trasferta",
+    "family": "cards",
+    "source": "docs/performance/cards-opponent-bundle-b1-d1-d2-2026-07.md",
+    "line": 13,
+    "historicalResult": "LL ALL 0.63823 -> 0.63983 (+0.25%); peggiora in 5/5 leghe, 6621 match as-of.",
+    "retestStatus": "tested_exact",
+    "reason": "Usare media gialli venue-specific anziche overall; statistiche ricostruite solo dal passato."
+  },
+  {
+    "id": "d2_yellow_covariance",
+    "label": "D2 covarianza gialli rho=0.12",
+    "family": "cards",
+    "source": "docs/performance/cards-opponent-bundle-b1-d1-d2-2026-07.md",
+    "line": 51,
+    "historicalResult": "LL ALL -0.04% con rho=0.12; migliora Liga/Bundesliga, peggiora Serie A/Premier/Ligue 1. Correlazione empirica circa 0.18.",
+    "retestStatus": "tested_exact",
+    "reason": "Parametro rho=0.12 documentato, covarianza aggiunta alla varianza totale sopra D1 corrente."
+  },
+  {
+    "id": "d5_raw_sot_ratio",
+    "label": "D5 SOT scala con volume blended",
+    "family": "shots_ot",
+    "source": "docs/performance/shots-ot-d5-reds-d3-2026-07.md",
+    "line": 5,
+    "historicalResult": "LL 0.67894 -> 0.68721 (+1.22%, peggioramento); Brier 0.24004 -> 0.24230; ECE 0.08470 -> 0.09113; n=6299 match. Segno -1.22% nel testo storico improprio.",
+    "retestStatus": "tested_exact",
+    "reason": "Rate rawSOT/rawShots sostituisce rawSOT/blendedShots; formula documentata, nessun nuovo coefficiente."
+  },
+  {
+    "id": "d3_red_baseline",
+    "label": "D3 baseline rossi per lega",
+    "family": "cards",
+    "source": "docs/performance/shots-ot-d5-reds-d3-2026-07.md",
+    "line": 29,
+    "historicalResult": "Nessuna LL storica riportata; effetto atteso <0.1 booking points. Proxy gialli*0.05: Premier +64%, Ligue 1 -24%, Liga -12%, Serie A +11%, Bundesliga +17%.",
+    "retestStatus": "tested_exact",
+    "reason": "Intervento rinviato per impatto ritenuto non misurabile, non NO-GO numerico. Sostituzione del proxy con media rossi as-of."
+  },
+  {
+    "id": "d1_both_fouls_factor",
+    "label": "D1 both: propagazione coerente ricostruita",
+    "family": "cards",
+    "source": "docs/performance/cards-opponent-bundle-b1-d1-d2-2026-07.md",
+    "line": 46,
+    "historicalResult": "Storico: stacking D1 + vecchia correzione peggiora; nessuna cifra pubblicata.",
+    "retestStatus": "tested_reconstructed",
+    "reason": "Propagare il vecchio fattore anche ai booking points e una ricostruzione coerente distinta dalla implementazione legacy solo-gialli."
+  },
+  {
+    "id": "d1_both_legacy_exact",
+    "label": "D1 both: vecchio blocco esatto solo gialli",
+    "family": "yellow",
+    "source": "docs/performance/cards-opponent-bundle-b1-d1-d2-2026-07.md",
+    "line": 46,
+    "historicalResult": "Storico: both (D1 + vecchia yellowFoulsCorrFactor) peggiora; nessuna LL/ECE riportata.",
+    "retestStatus": "tested_exact",
+    "reason": "Ripristino offline del blocco legacy esatto, sopra D1 corrente; scope probabilita solo-gialli da mantenere distinto da cards."
+  },
+  {
+    "id": "d1_induced_yellow_reconstruction",
+    "label": "D1 alternativa gialli indotti dall'avversario",
+    "family": "cards",
+    "source": "docs/performance/cards-opponent-bundle-b1-d1-d2-2026-07.md",
+    "line": 20,
+    "historicalResult": "LL ALL 0.63559, ECE 0.0204 contro D1 fouls_drawn adottato LL 0.63512, ECE 0.0166; baseline senza avversario LL 0.63823.",
+    "retestStatus": "tested_reconstructed",
+    "reason": "Alternativa non adottata. Il report documenta clamp [0.7,1.4] ma non coefficiente/formula completa; ricostruzione as-of esplicita."
+  },
+  {
+    "id": "dynamic_team_xg",
+    "label": "Dynamic xG Blend per squadra",
+    "family": "goals",
+    "source": "docs/performance/recent-form-half-life-2026-07.md",
+    "line": 64,
+    "historicalResult": "LL cal -0.01/-0.02%; rumore rispetto allo statico 0.80.",
+    "retestStatus": "not_reproducible",
+    "reason": "Documentato solo come adattivo alla ricchezza dati; formula, soglie e runner storico non disponibili."
+  },
+  {
+    "id": "shot_quality_adjustment",
+    "label": "Shot Quality Adjustment",
+    "family": "goals",
+    "source": "docs/performance/model-improvements-summary.md",
+    "line": 24,
+    "historicalResult": "LL -0.24% isolata; -0.05% aggiuntiva sopra ensemble; ECE 0.0019 -> 0.0026.",
+    "retestStatus": "not_reproducible",
+    "reason": "Descritta come regolarizzazione xG/tiro verso lega; prior, intensita e formula storica non disponibili."
+  },
+  {
+    "id": "strength_calibration_2",
+    "label": "Calibrazione famiglia x forza, 2 fasce",
+    "family": "goals",
+    "source": "docs/performance/player-adjustment-strength-calibration-2026-07.md",
+    "line": 64,
+    "historicalResult": "LL 0.59924 -> 0.59915 (-0.02%); Brier 0.20616 -> 0.20612; ECE 0.0019 -> 0.0022; p=0.48.",
+    "retestStatus": "not_reproducible",
+    "reason": "Fasce balanced/mismatch dalla probabilita favorito, fallback famiglia/globale: cutoff storico non documentato."
+  },
+  {
+    "id": "strength_calibration_3",
+    "label": "Calibrazione famiglia x forza, 3 fasce",
+    "family": "goals",
+    "source": "docs/performance/player-adjustment-strength-calibration-2026-07.md",
+    "line": 72,
+    "historicalResult": "LL 0.59924 -> 0.59907 (-0.03%); Brier 0.20616 -> 0.20608; ECE 0.0019 -> 0.0037; p=0.35.",
+    "retestStatus": "not_reproducible",
+    "reason": "Cutoff e definizioni delle tre fasce storiche non documentati; sceglierli oggi sarebbe nuovo disegno."
+  },
+  {
+    "id": "absence_current",
+    "label": "Player Adjustment assenze, algoritmo current",
+    "family": "goals",
+    "source": "docs/performance/player-adjustment-strength-calibration-2026-07.md",
+    "line": 16,
+    "historicalResult": "LL 0.59924 -> 0.59933 (+0.01%); Brier 0.20616 -> 0.20620; ECE 0.0019 -> 0.0008; p=0.90. 3040/5582 match con >=1 assente.",
+    "retestStatus": "not_reproducible",
+    "reason": "Formula ESATTA nota: titolare >=60min in >=60% delle 10 gare precedenti; multiplier 1-min(0.18,shareXg*0.4). Mancano roster/prepartita completi nelle cinque stagioni e revisioni storiche; non motivare con formula mancante."
+  },
+  {
+    "id": "absence_advanced",
+    "label": "Player Adjustment assenze avanzato, attacco/difesa/ruoli",
+    "family": "goals",
+    "source": "docs/performance/player-adjustment-strength-calibration-2026-07.md",
+    "line": 36,
+    "historicalResult": "LL 0.59924 -> 0.59912 (-0.02%); Brier 0.20616 -> 0.20610; ECE 0.0019 -> 0.0014; p=0.57.",
+    "retestStatus": "not_reproducible",
+    "reason": "Coefficienti per ruolo e difesa non documentati; inoltre stessi limiti roster/prepartita della variante current."
+  },
+  {
+    "id": "anytime_goals90",
+    "label": "Anytime da goals/90 invece xG/90",
+    "family": "player_goals",
+    "source": "docs/performance/anytime-scorer-e5-2026-07.md",
+    "line": 13,
+    "historicalResult": "Goals/90 LL 0.367, Brier 0.072, ECE 0.026 contro xG/90 LL 0.256, Brier 0.071, ECE 0.013; n=85894 osservazioni player-match.",
+    "retestStatus": "not_reproducible",
+    "reason": "Formula ESATTA P=1-exp(-rate90*expectedMinutes/90). Dati player as-of/minuti previsti incompleti su cinque stagioni; BacktestingEngine attuale non valuta player."
+  },
+  {
+    "id": "anytime_xg_defense",
+    "label": "Anytime xG/90 piu difesa avversaria",
+    "family": "player_goals",
+    "source": "docs/performance/anytime-scorer-e5-2026-07.md",
+    "line": 21,
+    "historicalResult": "LL 0.256 e Brier 0.071 come xG puro; ECE 0.014 contro 0.013. Difesa non aggiungeva nulla.",
+    "retestStatus": "not_reproducible",
+    "reason": "Moltiplicatore difensivo esatto non documentato; limiti dati player as-of su cinque stagioni."
+  },
+  {
+    "id": "corner_conceded_b2_a2",
+    "label": "Corner concessi, vecchio B2 poi fix A2",
+    "family": "corners",
+    "source": "docs/performance/model-fixes-a2-b6-2026-07.md",
+    "line": 11,
+    "historicalResult": "Vecchio formulario: LL Serie A 0.558->0.526, Premier 0.594->0.558, Liga 0.551->0.532, Bundesliga 0.592->0.558, Ligue 1 0.582->0.549; p circa 0.031. A2 adottato commit 004d65a6.",
+    "retestStatus": "already_adopted",
+    "reason": "Stato scartato nel formulario storico superato: cornerAgainst ora usa corner concessi. Mercato operativo ancora disabilitato, non motivo per ripristinare fix gia presente."
+  },
+  {
+    "id": "lambda_level_correction",
+    "label": "Correzione di livello lambda",
+    "family": "goals",
+    "source": "docs/FORMULARIO-sistema-scommesse.md",
+    "line": 62,
+    "historicalResult": "LL raw -1.44%; azzera bias totali (over2.5 calibration-in-large z 6.3 -> 0).",
+    "retestStatus": "already_adopted",
+    "reason": "lambda-level-bias-report la descriveva non implementata, ma levelCorrection e oggi parte della baseline."
+  },
+  {
+    "id": "shots_calibration_dispersion",
+    "label": "Calibrazione/dispersione tiri opzionale",
+    "family": "shots",
+    "source": "docs/performance/model-optimization-status-2026-07.md",
+    "line": 43,
+    "historicalResult": "Margine ECE grezzo 0.06-0.12; nessun GO/NO-GO numerico concluso.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Esperimento opzionale non testato, non algoritmo precedentemente scartato. Parametri nuovi fuori dal retest richiesto."
+  },
+  {
+    "id": "underdispersion_full",
+    "label": "Underdispersion COM-Poisson/Generalized Poisson",
+    "family": "design",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 72,
+    "historicalResult": "Nessun confronto numerico storico.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Semplificazione di design, non candidato con precedente bocciatura numerica."
+  },
+  {
+    "id": "covariance_monte_carlo",
+    "label": "covarianceMonteCarlo random a runtime",
+    "family": "design",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 73,
+    "historicalResult": "Nessun confronto numerico storico; uso deliberato di proxy varianza deterministico.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Scelta di riproducibilita, non algoritmo sperimentalmente scartato."
+  },
+  {
+    "id": "hessian_analytic",
+    "label": "Hessiana analitica bootstrap completa",
+    "family": "design",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 74,
+    "historicalResult": "Nessun confronto numerico storico; hessianApproximation accettata come fallback deterministico.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Semplificazione di design, non precedente NO-GO."
+  },
+  {
+    "id": "shots_model_player_v4",
+    "label": "ShotsModel player v4 ZIP/ZINB gerarchico",
+    "family": "player_shots",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 78,
+    "historicalResult": "Nessun confronto numerico storico documentato.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Codice non collegato, player_match_stats/wiring storicamente rinviati; non NO-GO con numeri."
+  },
+  {
+    "id": "learn_context_weights",
+    "label": "learnContextWeights",
+    "family": "context",
+    "source": "docs/FORMULARIO-scelte-scartate.md",
+    "line": 80,
+    "historicalResult": "Nessun confronto numerico storico documentato.",
+    "retestStatus": "not_previously_tested",
+    "reason": "Codice dormiente senza caller operativo; non algoritmo sperimentalmente scartato."
+  },
+  {
+    "id": "player_form_recency",
+    "label": "Player forma/recency/split casa-trasferta",
+    "family": "player",
+    "source": "docs/performance/anytime-scorer-e5-2026-07.md",
+    "line": 43,
+    "historicalResult": "Nessun confronto player numerico storico; richiamo alla recency squadra NO-GO non e una validazione player.",
+    "retestStatus": "not_previously_tested",
+    "reason": "E2/E4 rinviati per wiring/dati, non scarto su backtest player."
+  }
+]
