@@ -153,6 +153,17 @@ export interface FootballDataRow {
   closingAway: number | null;
   closingOver25: number | null;
   closingUnder25: number | null;
+  sourceOrientation?: FootballDataOddsOrientation;
+}
+
+export interface FootballDataOddsOrientation {
+  mapping: 'by_team_identity';
+  source: 'football-data.co.uk';
+  sourceHomeTeam: string;
+  sourceAwayTeam: string;
+  mappedHomeTeam: string;
+  mappedAwayTeam: string;
+  officialReference: string;
 }
 
 const numOrNull = (v: string | undefined): number | null => {
@@ -354,11 +365,24 @@ export interface FootballDataDbMatch {
   date: string;
   home_team_name: string | null;
   away_team_name: string | null;
+  home_team_id?: string | null;
+  away_team_id?: string | null;
+  supplementalStats?: Pick<FootballDataRow,
+    'homeShots' | 'awayShots' | 'homeShotsOnTarget' | 'awayShotsOnTarget' | 'homeFouls' | 'awayFouls'
+    | 'homeCorners' | 'awayCorners' | 'homeYellow' | 'awayYellow' | 'homeRed' | 'awayRed' | 'referee'>;
+  marketOddsJson?: string | null;
+}
+
+export interface FootballDataDbUpdate {
+  matchId: string;
+  row: FootballDataRow;
+  fillStats?: boolean;
+  saveOdds?: boolean;
 }
 
 export interface FootballDataDb {
-  /** Match completati di una competizione dal 2024-08-01 (per il matching). */
-  getMatchesForCompetition(competition: string): Promise<FootballDataDbMatch[]>;
+  /** Match completati delle stagioni richieste, con margine per il matching delle date. */
+  getMatchesForCompetition(competition: string, seasonStartYears?: number[]): Promise<FootballDataDbMatch[]>;
   /** Riempie SOLO i campi NULL del match (COALESCE existing-wins). Ritorna true se una riga è stata toccata. */
   fillSupplementalStats(matchId: string, row: FootballDataRow): Promise<boolean>;
   /** Salva le quote di mercato (apertura+chiusura) in matches.fd_odds_json. Idempotente. Ritorna true se scritte. */
@@ -368,7 +392,7 @@ export interface FootballDataDb {
    * not provide it keep the two-call fallback above (useful for test doubles and
    * older adapters).
    */
-  applySupplementalStatsAndOdds?(updates: Array<{ matchId: string; row: FootballDataRow }>): Promise<Array<{
+  applySupplementalStatsAndOdds?(updates: FootballDataDbUpdate[]): Promise<Array<{
     statsChanged: boolean;
     oddsWritten: boolean;
   }>>;
@@ -731,6 +755,9 @@ export interface FootballDataSyncSummary {
   csvRows: number;
   matched: number;
   updated: number;
+  /** Statistiche cambiate, incluse le scritture riuscite di una stagione parziale. */
+  updatedMatchIds: string[];
+  updatedTeamIds: string[];
   oddsWritten: number;
   dateToleranceMatched: number;
   unmatchedTeams: string[];
@@ -803,7 +830,7 @@ const expectedFootballDataPendingReason = (params: {
  */
 export function buildMarketOddsJson(
   row: FootballDataRow
-): { opening: Record<string, number>; closing: Record<string, number> } | null {
+): { opening: Record<string, number>; closing: Record<string, number>; orientation?: FootballDataOddsOrientation } | null {
   const clean = (o: Record<string, number | null>): Record<string, number> => {
     const out: Record<string, number> = {};
     for (const [k, v] of Object.entries(o)) {
@@ -814,7 +841,57 @@ export function buildMarketOddsJson(
   const opening = clean({ homeWin: row.oddsHome, draw: row.oddsDraw, awayWin: row.oddsAway, over25: row.oddsOver25, under25: row.oddsUnder25 });
   const closing = clean({ homeWin: row.closingHome, draw: row.closingDraw, awayWin: row.closingAway, over25: row.closingOver25, under25: row.closingUnder25 });
   if (Object.keys(opening).length === 0 && Object.keys(closing).length === 0) return null;
-  return { opening, closing };
+  return { opening, closing, ...(row.sourceOrientation ? { orientation: row.sourceOrientation } : {}) };
+}
+
+function isVerifiedInvertedSourceFixture(competition: string, seasonStart: number, row: FootballDataRow): boolean {
+  // The LFP officially inverted this fixture after publishing its schedule.
+  // Keep this an exact fixture exception, never a generic reversed-pair match.
+  // The 2-2 result is independently confirmed by the official Rennes match centre:
+  // https://www.staderennais.com/matchs/2026-08-23-rennes-vs-paris-saint-germain
+  return competition === 'Ligue 1' && seasonStart === 2026 && row.date === '2026-08-23'
+    && canonicalTeamName(row.homeTeam) === 'rennes'
+    && canonicalTeamName(row.awayTeam) === 'parissaintgermain'
+    && row.homeGoals === 2 && row.awayGoals === 2;
+}
+
+function orientVerifiedInvertedFixture(row: FootballDataRow, match: FootballDataDbMatch): FootballDataRow {
+  // Persist by primary team identity without changing Understat's venue labels.
+  // Goals are also reoriented for consistency, although this adapter never saves them.
+  return {
+    ...row,
+    homeTeam: match.home_team_name!, awayTeam: match.away_team_name!,
+    homeGoals: row.awayGoals, awayGoals: row.homeGoals,
+    homeShots: row.awayShots, awayShots: row.homeShots,
+    homeShotsOnTarget: row.awayShotsOnTarget, awayShotsOnTarget: row.homeShotsOnTarget,
+    homeFouls: row.awayFouls, awayFouls: row.homeFouls,
+    homeCorners: row.awayCorners, awayCorners: row.homeCorners,
+    homeYellow: row.awayYellow, awayYellow: row.homeYellow,
+    homeRed: row.awayRed, awayRed: row.homeRed,
+    oddsHome: row.oddsAway, oddsAway: row.oddsHome,
+    closingHome: row.closingAway, closingAway: row.closingHome,
+    sourceOrientation: {
+      mapping: 'by_team_identity', source: 'football-data.co.uk',
+      sourceHomeTeam: row.homeTeam, sourceAwayTeam: row.awayTeam,
+      mappedHomeTeam: match.home_team_name!, mappedAwayTeam: match.away_team_name!,
+      officialReference: 'https://ligue1.com/fr/articles/l1_article_5699-j1-psg-rennes-inverse-l1-2627',
+    },
+  };
+}
+
+function needsSupplementalStats(match: FootballDataDbMatch, row: FootballDataRow): boolean {
+  if (!match.supplementalStats) return true;
+  return Object.entries(match.supplementalStats).some(([field, existing]) => {
+    const incoming = row[field as keyof NonNullable<FootballDataDbMatch['supplementalStats']>];
+    if (field === 'referee') return !String(existing ?? '').trim() && !!String(incoming ?? '').trim();
+    return existing == null && incoming != null;
+  });
+}
+
+function needsMarketOdds(match: FootballDataDbMatch, row: FootballDataRow): boolean {
+  const payload = buildMarketOddsJson(row);
+  if (!payload) return false;
+  return match.marketOddsJson === undefined || match.marketOddsJson !== JSON.stringify(payload);
 }
 
 /**
@@ -834,16 +911,23 @@ export async function syncFootballData(
     reusedHistorical: 0,
     requested: 0, completed: 0, pending: 0,
     allExpectedSeasonsComplete: false, allExpectedSeasonsReady: false, pendingSeasonPairs: [],
-    csvRows: 0, matched: 0, updated: 0, oddsWritten: 0, dateToleranceMatched: 0,
+    csvRows: 0, matched: 0, updated: 0, updatedMatchIds: [], updatedTeamIds: [], oddsWritten: 0, dateToleranceMatched: 0,
     unmatchedTeams: [], perCompetition: {}, perSeason: {}, errors: [],
   };
   const unmatched = new Set<string>();
+  const updatedMatchIds = new Set<string>();
+  const updatedTeamIds = new Set<string>();
+  const recordStatsChange = (match: FootballDataDbMatch) => {
+    updatedMatchIds.add(match.match_id);
+    if (match.home_team_id) updatedTeamIds.add(match.home_team_id);
+    if (match.away_team_id) updatedTeamIds.add(match.away_team_id);
+  };
 
   for (const competition of competitions) {
     const leagueCode = FOOTBALL_DATA_LEAGUE_CODES[competition];
     if (!leagueCode) continue;
 
-    const dbMatches = await db.getMatchesForCompetition(competition);
+    const dbMatches = await db.getMatchesForCompetition(competition, seasons);
     const index = new Map<string, FootballDataDbMatch>();
     const byTeamPair = new Map<string, FootballDataDbMatch[]>();
     const dbTeams = new Set<string>();
@@ -879,10 +963,21 @@ export async function syncFootballData(
         rows = parseFootballDataCsv(csv);
         if (rows.length === 0) throw new Error('CSV vuoto o senza righe valide');
         perComp.csvRows += rows.length;
-        const matchedRows: Array<{ matchId: string; row: FootballDataRow }> = [];
+        const matchedRows: Array<FootballDataDbUpdate & { match: FootballDataDbMatch }> = [];
         for (const row of rows) {
           let hit = index.get(matchKey(row.date, row.homeTeam, row.awayTeam));
-          if (!hit) {
+          let mappedRow = row;
+          let ambiguousInvertedFixture = false;
+          if (!hit && isVerifiedInvertedSourceFixture(competition, seasonStart, row)) {
+            const reversed = (byTeamPair.get('parissaintgermain|rennes') ?? []).filter((candidate) =>
+              String(candidate.date).slice(0, 10) === row.date
+            );
+            if (reversed.length === 1) {
+              [hit] = reversed;
+              mappedRow = orientVerifiedInvertedFixture(row, hit);
+            } else ambiguousInvertedFixture = reversed.length > 1;
+          }
+          if (!hit && !ambiguousInvertedFixture) {
             const pairKey = `${canonicalTeamName(row.homeTeam)}|${canonicalTeamName(row.awayTeam)}`;
             const rowTimestamp = Date.parse(`${row.date}T00:00:00Z`);
             const candidates = (byTeamPair.get(pairKey) ?? []).filter((candidate) => {
@@ -895,7 +990,7 @@ export async function syncFootballData(
               dateToleranceMatched += 1;
             }
           }
-          if (!hit) {
+          if (!hit && !ambiguousInvertedFixture) {
             const pairKey = `${canonicalTeamName(row.homeTeam)}|${canonicalTeamName(row.awayTeam)}`;
             const seasonStartDate = Date.parse(`${seasonStart}-07-01T00:00:00Z`);
             const nextSeasonStartDate = Date.parse(`${seasonStart + 1}-07-01T00:00:00Z`);
@@ -918,24 +1013,33 @@ export async function syncFootballData(
           }
           matched += 1;
           matchedLatestDate = !matchedLatestDate || row.date > matchedLatestDate ? row.date : matchedLatestDate;
-          matchedRows.push({ matchId: hit.match_id, row });
+          const fillStats = needsSupplementalStats(hit, mappedRow);
+          const saveOdds = needsMarketOdds(hit, mappedRow);
+          if (fillStats || saveOdds) matchedRows.push({ matchId: hit.match_id, row: mappedRow, match: hit, fillStats, saveOdds });
         }
         if (db.applySupplementalStatsAndOdds) {
           // Keep requests bounded: libSQL limits statement payloads and a
           // failed chunk must not make a full-season sync unmanageable.
           const chunkSize = 50;
           for (let index = 0; index < matchedRows.length; index += chunkSize) {
-            const results = await db.applySupplementalStatsAndOdds(matchedRows.slice(index, index + chunkSize));
-            for (const result of results) {
-              if (result.statsChanged) updated += 1;
+            const chunk = matchedRows.slice(index, index + chunkSize);
+            const results = await db.applySupplementalStatsAndOdds(chunk);
+            for (const [resultIndex, result] of results.entries()) {
+              if (result.statsChanged) {
+                updated += 1;
+                recordStatsChange(chunk[resultIndex].match);
+              }
               if (result.oddsWritten) oddsWritten += 1;
             }
           }
         } else {
-          for (const { matchId, row } of matchedRows) {
-            const changed = await db.fillSupplementalStats(matchId, row);
-            if (changed) updated += 1;
-            const oddsSaved = await db.saveMarketOdds(matchId, row);
+          for (const { matchId, row, match, fillStats, saveOdds } of matchedRows) {
+            const changed = fillStats && await db.fillSupplementalStats(matchId, row);
+            if (changed) {
+              updated += 1;
+              recordStatsChange(match);
+            }
+            const oddsSaved = saveOdds && await db.saveMarketOdds(matchId, row);
             if (oddsSaved) oddsWritten += 1;
           }
         }
@@ -1000,6 +1104,8 @@ export async function syncFootballData(
     summary.dateToleranceMatched += perComp.dateToleranceMatched;
   }
   summary.unmatchedTeams = [...unmatched].sort();
+  summary.updatedMatchIds = [...updatedMatchIds].sort();
+  summary.updatedTeamIds = [...updatedTeamIds].sort();
   summary.allExpectedSeasonsComplete = summary.completed === summary.requested && summary.errors.length === 0;
   summary.allExpectedSeasonsReady = summary.completed + summary.pending === summary.requested
     && summary.errors.length === 0;
@@ -1020,62 +1126,89 @@ export interface LibsqlLike {
 }
 
 /** Colonne supplementari riempite (solo dove NULL). */
-const SUPPLEMENTAL_COLS = [
-  'home_shots', 'away_shots', 'home_shots_on_target', 'away_shots_on_target',
-  'home_fouls', 'away_fouls', 'home_corners', 'away_corners',
-  'home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards',
-];
+const SUPPLEMENTAL_PARAMS = {
+  home_shots: 'hs', away_shots: 'as_', home_shots_on_target: 'hst', away_shots_on_target: 'ast',
+  home_fouls: 'hf', away_fouls: 'af', home_corners: 'hc', away_corners: 'ac',
+  home_yellow_cards: 'hy', away_yellow_cards: 'ay', home_red_cards: 'hr', away_red_cards: 'ar',
+};
+
+function supplementalStatsStatement(matchId: string, row: FootballDataRow) {
+  const fields = Object.entries(SUPPLEMENTAL_PARAMS);
+  const assignments = fields.map(([column, param]) => `${column} = COALESCE(${column}, :${param})`);
+  const changes = fields.map(([column, param]) => `(${column} IS NULL AND :${param} IS NOT NULL)`);
+  assignments.push(`referee = COALESCE(NULLIF(TRIM(referee), ''), :ref)`);
+  changes.push(`((referee IS NULL OR TRIM(referee) = '') AND :ref IS NOT NULL)`);
+  return {
+    sql: `UPDATE matches SET ${assignments.join(', ')} WHERE match_id = :id AND (${changes.join(' OR ')})`,
+    args: {
+      hs: row.homeShots, as_: row.awayShots, hst: row.homeShotsOnTarget, ast: row.awayShotsOnTarget,
+      hf: row.homeFouls, af: row.awayFouls, hc: row.homeCorners, ac: row.awayCorners,
+      hy: row.homeYellow, ay: row.awayYellow, hr: row.homeRed, ar: row.awayRed,
+      ref: row.referee?.trim() || null, id: matchId,
+    },
+  };
+}
+
+function marketOddsStatement(matchId: string, row: FootballDataRow) {
+  const payload = buildMarketOddsJson(row);
+  return payload ? {
+    sql: 'UPDATE matches SET fd_odds_json = :json WHERE match_id = :id AND fd_odds_json IS NOT :json',
+    args: { json: JSON.stringify(payload), id: matchId },
+  } : null;
+}
 
 /** Costruisce un FootballDataDb su un client libSQL. Scrittura non distruttiva (COALESCE). */
 export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
-  return {
-    async getMatchesForCompetition(competition: string) {
+  const adapter: FootballDataDb = {
+    async getMatchesForCompetition(competition: string, seasonStartYears?: number[]) {
+      const args: Array<string | number> = [competition];
+      let dateCondition = `date >= '2022-08-01'`;
+      if (seasonStartYears) {
+        const seasons = [...new Set(seasonStartYears.filter((year) => Number.isInteger(year)))];
+        if (!seasons.length) return [];
+        // One day beyond July-to-July also keeps the existing date-tolerance
+        // matching safe for fixtures exactly on the season boundary.
+        dateCondition = seasons.map((year) => {
+          args.push(`${year}-06-30`, `${year + 1}-07-02`);
+          return '(date >= ? AND date < ?)';
+        }).join(' OR ');
+      }
       const res = await client.execute({
-        sql: `SELECT match_id, date, home_team_name, away_team_name FROM matches
-              WHERE competition = ? AND date >= '2022-08-01' AND home_goals IS NOT NULL`,
-        args: [competition],
+        sql: `SELECT match_id, date, home_team_name, away_team_name, home_team_id, away_team_id,
+              ${Object.keys(SUPPLEMENTAL_PARAMS).join(', ')}, referee, fd_odds_json FROM matches
+              WHERE competition = ? AND (${dateCondition}) AND home_goals IS NOT NULL`,
+        args,
       });
       return res.rows.map((r) => ({
         match_id: String(r.match_id),
         date: String(r.date),
         home_team_name: r.home_team_name ?? null,
         away_team_name: r.away_team_name ?? null,
+        home_team_id: r.home_team_id == null ? null : String(r.home_team_id),
+        away_team_id: r.away_team_id == null ? null : String(r.away_team_id),
+        supplementalStats: {
+          homeShots: r.home_shots ?? null, awayShots: r.away_shots ?? null,
+          homeShotsOnTarget: r.home_shots_on_target ?? null, awayShotsOnTarget: r.away_shots_on_target ?? null,
+          homeFouls: r.home_fouls ?? null, awayFouls: r.away_fouls ?? null,
+          homeCorners: r.home_corners ?? null, awayCorners: r.away_corners ?? null,
+          homeYellow: r.home_yellow_cards ?? null, awayYellow: r.away_yellow_cards ?? null,
+          homeRed: r.home_red_cards ?? null, awayRed: r.away_red_cards ?? null,
+          referee: r.referee ?? null,
+        },
+        marketOddsJson: r.fd_odds_json == null ? null : String(r.fd_odds_json),
       }));
     },
     async fillSupplementalStats(matchId: string, row: FootballDataRow) {
-      const nullCond = SUPPLEMENTAL_COLS.map((c) => `${c} IS NULL`).join(' OR ')
-        + ` OR referee IS NULL OR TRIM(referee) = ''`;
-      const res = await client.execute({
-        sql: `UPDATE matches SET
-          home_shots = COALESCE(home_shots, :hs), away_shots = COALESCE(away_shots, :as_),
-          home_shots_on_target = COALESCE(home_shots_on_target, :hst), away_shots_on_target = COALESCE(away_shots_on_target, :ast),
-          home_fouls = COALESCE(home_fouls, :hf), away_fouls = COALESCE(away_fouls, :af),
-          home_corners = COALESCE(home_corners, :hc), away_corners = COALESCE(away_corners, :ac),
-          home_yellow_cards = COALESCE(home_yellow_cards, :hy), away_yellow_cards = COALESCE(away_yellow_cards, :ay),
-          home_red_cards = COALESCE(home_red_cards, :hr), away_red_cards = COALESCE(away_red_cards, :ar),
-          referee = COALESCE(NULLIF(TRIM(referee), ''), :ref)
-          WHERE match_id = :id AND (${nullCond})`,
-        args: {
-          hs: row.homeShots, as_: row.awayShots, hst: row.homeShotsOnTarget, ast: row.awayShotsOnTarget,
-          hf: row.homeFouls, af: row.awayFouls, hc: row.homeCorners, ac: row.awayCorners,
-          hy: row.homeYellow, ay: row.awayYellow, hr: row.homeRed, ar: row.awayRed,
-          ref: row.referee, id: matchId,
-        },
-      });
+      const res = await client.execute(supplementalStatsStatement(matchId, row));
       return Number(res.rowsAffected ?? 0) > 0;
     },
     async saveMarketOdds(matchId: string, row: FootballDataRow) {
-      const payload = buildMarketOddsJson(row);
-      if (!payload) return false;
-      // Idempotente: sovrascrive con gli stessi valori a ogni run (le quote di un
-      // match concluso sono finali). Scrittura additiva (colonna dedicata).
-      const res = await client.execute({
-        sql: `UPDATE matches SET fd_odds_json = :json WHERE match_id = :id`,
-        args: { json: JSON.stringify(payload), id: matchId },
-      });
+      const statement = marketOddsStatement(matchId, row);
+      if (!statement) return false;
+      const res = await client.execute(statement);
       return Number(res.rowsAffected ?? 0) > 0;
     },
-    async applySupplementalStatsAndOdds(updates: Array<{ matchId: string; row: FootballDataRow }>) {
+    async applySupplementalStatsAndOdds(updates: FootballDataDbUpdate[]) {
       const output: Array<{ statsChanged: boolean; oddsWritten: boolean }> = [];
       // Keep this guard here as well as in syncFootballData: callers may use
       // the adapter directly with a whole season's worth of rows.
@@ -1084,45 +1217,20 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
         const statements: Array<{ sql: string; args?: any }> = [];
         const resultMap: Array<{ updateIndex: number; kind: 'stats' | 'odds' }> = [];
         for (let updateIndex = 0; updateIndex < chunk.length; updateIndex += 1) {
-          const { matchId, row } = chunk[updateIndex];
-          const nullCond = SUPPLEMENTAL_COLS.map((c) => `${c} IS NULL`).join(' OR ')
-            + ` OR referee IS NULL OR TRIM(referee) = ''`;
-          statements.push({
-            sql: `UPDATE matches SET
-              home_shots = COALESCE(home_shots, :hs), away_shots = COALESCE(away_shots, :as_),
-              home_shots_on_target = COALESCE(home_shots_on_target, :hst), away_shots_on_target = COALESCE(away_shots_on_target, :ast),
-              home_fouls = COALESCE(home_fouls, :hf), away_fouls = COALESCE(away_fouls, :af),
-              home_corners = COALESCE(home_corners, :hc), away_corners = COALESCE(away_corners, :ac),
-              home_yellow_cards = COALESCE(home_yellow_cards, :hy), away_yellow_cards = COALESCE(away_yellow_cards, :ay),
-              home_red_cards = COALESCE(home_red_cards, :hr), away_red_cards = COALESCE(away_red_cards, :ar),
-              referee = COALESCE(NULLIF(TRIM(referee), ''), :ref)
-              WHERE match_id = :id AND (${nullCond})`,
-            args: {
-              hs: row.homeShots, as_: row.awayShots, hst: row.homeShotsOnTarget, ast: row.awayShotsOnTarget,
-              hf: row.homeFouls, af: row.awayFouls, hc: row.homeCorners, ac: row.awayCorners,
-              hy: row.homeYellow, ay: row.awayYellow, hr: row.homeRed, ar: row.awayRed,
-              ref: row.referee, id: matchId,
-            },
-          });
-          resultMap.push({ updateIndex, kind: 'stats' });
-          const payload = buildMarketOddsJson(row);
-          if (payload) {
-            statements.push({
-              sql: 'UPDATE matches SET fd_odds_json = :json WHERE match_id = :id',
-              args: { json: JSON.stringify(payload), id: matchId },
-            });
+          const { matchId, row, fillStats, saveOdds } = chunk[updateIndex];
+          if (fillStats !== false) {
+            statements.push(supplementalStatsStatement(matchId, row));
+            resultMap.push({ updateIndex, kind: 'stats' });
+          }
+          const oddsStatement = saveOdds === false ? null : marketOddsStatement(matchId, row);
+          if (oddsStatement) {
+            statements.push(oddsStatement);
             resultMap.push({ updateIndex, kind: 'odds' });
           }
           output.push({ statsChanged: false, oddsWritten: false });
         }
-        let results: Array<{ rows: any[]; rowsAffected?: number }> = [];
-        if (client.batch) {
-          results = await client.batch(statements, 'write');
-        } else {
-          // Legacy clients without batch support retain correctness, at the
-          // cost of the original sequential round trips.
-          for (const statement of statements) results.push(await client.execute(statement));
-        }
+        if (!statements.length) continue;
+        const results = await client.batch!(statements, 'write');
         resultMap.forEach(({ updateIndex, kind }, resultIndex) => {
           const changed = Number(results[resultIndex]?.rowsAffected ?? 0) > 0;
           if (kind === 'stats') output[offset + updateIndex].statsChanged = changed;
@@ -1132,6 +1240,10 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
       return output;
     },
   };
+  // Only use combined writes with atomic batch support. The sync's individual
+  // fallback accounts for each successful stats write even if odds later fail.
+  if (!client.batch) delete adapter.applySupplementalStatsAndOdds;
+  return adapter;
 }
 
 export interface PruneSummary {

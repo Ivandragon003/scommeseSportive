@@ -54,6 +54,8 @@ test('upsertMatches usa un batch write e non emette scritture per un array vuoto
   const batches = [];
   const db = Object.create(DatabaseService.prototype);
   db.initPromise = Promise.resolve();
+  db.teamAverageLoads = new Map();
+  db.dirtyTeamAverageLoads = new Set();
   db.db = { async batch(statements, mode) { batches.push({ statements, mode }); } };
 
   await db.upsertMatches([]);
@@ -67,6 +69,8 @@ test('upsertMatches usa un batch write e non emette scritture per un array vuoto
 test('upsertMatches rende osservabile il prefisso committato se un chunk successivo fallisce', async () => {
   const db = Object.create(DatabaseService.prototype);
   db.initPromise = Promise.resolve();
+  db.teamAverageLoads = new Map();
+  db.dirtyTeamAverageLoads = new Set();
   let calls = 0;
   db.db = {
     async batch() {

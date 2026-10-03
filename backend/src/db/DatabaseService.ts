@@ -158,6 +158,7 @@ export class DatabaseService {
   private initPromise: Promise<void>;
   private schedulerRunRetention: number;
   private teamAverageLoads = new Map<string, Promise<void>>();
+  private dirtyTeamAverageLoads = new Set<string>();
 
   constructor(options?: { skipSchemaBootstrap?: boolean }) {
     const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
@@ -870,6 +871,7 @@ export class DatabaseService {
 
   async upsertMatch(match: any): Promise<void> {
     await this.run(MATCH_UPSERT_SQL, this.getMatchUpsertArgs(match));
+    this.markTeamAveragesDirty([match.homeTeamId, match.awayTeamId]);
   }
 
   async updateMatchRawJson(matchId: string, rawJson: string): Promise<boolean> {
@@ -896,6 +898,8 @@ export class DatabaseService {
         .map((match) => ({ sql: MATCH_UPSERT_SQL, args: this.getMatchUpsertArgs(match) }));
       try {
         await this.db.batch(statements, 'write');
+        this.markTeamAveragesDirty(matches.slice(start, start + safeChunkSize)
+          .flatMap((match) => [match.homeTeamId, match.awayTeamId]));
         committedCount += statements.length;
       } catch (error) {
         throw new MatchBatchCommitError(committedCount, error);
@@ -2849,6 +2853,7 @@ export class DatabaseService {
       'UPDATE matches SET date = ? WHERE match_id = ?',
       [new Date(timestamp).toISOString(), id]
     );
+    this.markTeamAveragesDirty([...this.teamAverageLoads.keys()]);
   }
 
   async getRecentCompletedMatches(filters?: { competition?: string; season?: string; limit?: number }): Promise<any[]> {
@@ -3116,6 +3121,19 @@ export class DatabaseService {
     await this.recomputeTeamAveragesBatch([teamId]);
   }
 
+  // Only running loads need invalidation. No versions or cached team ids are
+  // retained after completion, and callers still share unchanged snapshots.
+  markTeamAveragesDirty(teamIds: string[]): void {
+    for (const value of teamIds) {
+      const id = String(value ?? '').trim();
+      if (this.teamAverageLoads.has(id)) this.dirtyTeamAverageLoads.add(id);
+    }
+  }
+
+  markAllTeamAveragesDirty(): void {
+    this.markTeamAveragesDirty([...this.teamAverageLoads.keys()]);
+  }
+
   async recomputeTeamAveragesBatch(teamIds: string[]): Promise<void> {
     const ids = [...new Set(teamIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
     const pending = ids.map((id) => this.teamAverageLoads.get(id)).filter(
@@ -3126,14 +3144,30 @@ export class DatabaseService {
       await Promise.all(pending);
       return;
     }
-    const load = this.loadTeamAveragesBatch(freshIds);
-    for (const id of freshIds) this.teamAverageLoads.set(id, load);
-    const trackedLoad = load.finally(() => {
-      for (const id of freshIds) {
-        if (this.teamAverageLoads.get(id) === load) this.teamAverageLoads.delete(id);
+    const load: Promise<void> = (async () => {
+      try {
+        let nextIds = freshIds;
+        do {
+          for (const id of nextIds) this.dirtyTeamAverageLoads.delete(id);
+          await this.loadTeamAveragesBatch(nextIds);
+          // A match import can commit after these aggregates were read but
+          // before they were written. Repeat only the affected teams before
+          // resolving any joined caller, so an older write cannot win the race.
+          nextIds = freshIds.filter((id) => this.dirtyTeamAverageLoads.has(id));
+        } while (nextIds.length > 0);
+      } finally {
+        // Clean up in the same continuation as the final dirty check: a new
+        // write must never join a resolved load awaiting a separate finally.
+        for (const id of freshIds) {
+          if (this.teamAverageLoads.get(id) === load) {
+            this.teamAverageLoads.delete(id);
+            this.dirtyTeamAverageLoads.delete(id);
+          }
+        }
       }
-    });
-    await Promise.all([...pending, trackedLoad]);
+    })();
+    for (const id of freshIds) this.teamAverageLoads.set(id, load);
+    await Promise.all([...pending, load]);
   }
 
   private async loadTeamAveragesBatch(teamIds: string[]): Promise<void> {
@@ -4075,6 +4109,9 @@ export class DatabaseService {
       params.push(...seasonVariants);
     }
     const result = await this.execute(sql, params);
+    if (Number(result?.rowsAffected ?? 0) > 0) {
+      this.markTeamAveragesDirty([...this.teamAverageLoads.keys()]);
+    }
     return Number(result?.rowsAffected ?? 0);
   }
 
@@ -4436,7 +4473,7 @@ export class DatabaseService {
     return { where, params };
   }
 
-  private betOpportunityArchiveCte(): string {
+  private betOpportunityArchiveCte(materialized = false): string {
     return `
       WITH archive_candidates AS (
         SELECT
@@ -4511,7 +4548,7 @@ export class DatabaseService {
           ) AS archive_rank
         FROM archive_candidates
       ),
-      opportunity_archive AS (
+      opportunity_archive AS ${materialized ? 'MATERIALIZED' : ''} (
         SELECT * FROM ranked_archive WHERE archive_rank = 1
       )`;
   }
@@ -4609,6 +4646,99 @@ export class DatabaseService {
       ORDER BY datetime(created_at) DESC, ranking_position ASC
       LIMIT ?
     `, [...params, limit]);
+  }
+
+  async getBetOpportunityArchivePage(options: {
+    category?: string;
+    type?: string;
+    classification?: string;
+    classifications?: string[] | string;
+    result?: string;
+    matchId?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  } = {}): Promise<{
+    rows: any[];
+    summary: {
+      settledCount: number; wonCount: number; lostCount: number; voidCount: number;
+      wonProfit: number; lostProfit: number; netProfit: number;
+    };
+    categoryCounts: { played: number; unplayed: number; noProposal: number };
+  }> {
+    const category = this.archiveCategory(options);
+    const scoped = this.betOpportunityArchiveFilters({ ...options, type: category ?? options.type });
+    // Tab counts intentionally ignore selected category, outcome and match id,
+    // exactly as the independent count API does.
+    const counts = this.betOpportunityArchiveFilters({
+      classifications: options.classifications, classification: options.classification,
+      from: options.from, to: options.to, userId: options.userId,
+    });
+    const noProposal = this.matchesWithoutArchivedOpportunitiesFilters(options);
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit ?? 200)), 1000));
+    const scopeClause = scoped.where.length ? `WHERE ${scoped.where.join(' AND ')}` : '';
+    const countsClause = counts.where.length ? `WHERE ${counts.where.join(' AND ')}` : '';
+    const noProposalList = category === 'no_proposal';
+    const listSql = noProposalList
+      ? `SELECT m.match_id, m.home_team_name, m.away_team_name, m.competition,
+          m.date AS match_date, m.home_goals, m.away_goals, 'no_proposal' AS archive_type
+         FROM matches m WHERE ${noProposal.where.join(' AND ')}
+         ORDER BY datetime(m.date) DESC, m.match_id DESC LIMIT ?`
+      : `SELECT * FROM scoped_archive ORDER BY datetime(created_at) DESC, ranking_position ASC LIMIT ?`;
+    const listParams = noProposalList ? [...noProposal.params, limit] : [limit];
+    const result = await this.all(`${this.betOpportunityArchiveCte(true)},
+      scoped_archive AS MATERIALIZED (SELECT * FROM opportunity_archive ${scopeClause}),
+      archive_page AS MATERIALIZED (${listSql}),
+      archive_summary AS (
+        SELECT COUNT(*) AS settled_count,
+          COALESCE(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END), 0) AS won_count,
+          COALESCE(SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END), 0) AS lost_count,
+          COALESCE(SUM(CASE WHEN result = 'void' THEN 1 ELSE 0 END), 0) AS void_count,
+          COALESCE(SUM(CASE WHEN result = 'win' THEN COALESCE(bet_profit, 0) ELSE 0 END), 0) AS won_profit,
+          COALESCE(SUM(CASE WHEN result = 'loss' THEN ABS(COALESCE(bet_profit, 0)) ELSE 0 END), 0) AS lost_profit,
+          COALESCE(SUM(COALESCE(bet_profit, 0)), 0) AS net_profit
+        FROM scoped_archive
+        WHERE archive_type = 'operative' AND bet_id IS NOT NULL AND result IN ('win', 'loss', 'void')
+          ${noProposalList ? 'AND 0' : ''}
+      ),
+      archive_counts AS (
+        SELECT COALESCE(SUM(CASE WHEN archive_type = 'operative' THEN 1 ELSE 0 END), 0) AS played_count,
+          COALESCE(SUM(CASE WHEN archive_type = 'simulated' THEN 1 ELSE 0 END), 0) AS unplayed_count
+        FROM opportunity_archive ${countsClause}
+      ),
+      no_proposal_count AS (
+        SELECT COUNT(*) AS total FROM matches m WHERE ${noProposal.where.join(' AND ')}
+      )
+      SELECT archive_page.*,
+        archive_summary.settled_count AS __archive_settled_count,
+        archive_summary.won_count AS __archive_won_count,
+        archive_summary.lost_count AS __archive_lost_count,
+        archive_summary.void_count AS __archive_void_count,
+        archive_summary.won_profit AS __archive_won_profit,
+        archive_summary.lost_profit AS __archive_lost_profit,
+        archive_summary.net_profit AS __archive_net_profit,
+        archive_counts.played_count AS __archive_played_count,
+        archive_counts.unplayed_count AS __archive_unplayed_count,
+        no_proposal_count.total AS __archive_no_proposal_count
+      FROM archive_summary CROSS JOIN archive_counts CROSS JOIN no_proposal_count
+      LEFT JOIN archive_page ON 1 = 1
+      ORDER BY ${noProposalList ? 'datetime(match_date) DESC, match_id DESC' : 'datetime(created_at) DESC, ranking_position ASC'}
+    `, [...scoped.params, ...listParams, ...counts.params, ...noProposal.params]);
+    const metadata = result[0];
+    const number = (name: string): number => Number(metadata?.[`__archive_${name}`] ?? 0);
+    return {
+      rows: result.filter((row) => noProposalList ? row.match_id != null : row.decision_id != null)
+        .map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('__archive_')))),
+      summary: {
+        settledCount: number('settled_count'), wonCount: number('won_count'),
+        lostCount: number('lost_count'), voidCount: number('void_count'),
+        wonProfit: number('won_profit'), lostProfit: number('lost_profit'), netProfit: number('net_profit'),
+      },
+      categoryCounts: {
+        played: number('played_count'), unplayed: number('unplayed_count'), noProposal: number('no_proposal_count'),
+      },
+    };
   }
 
   async getBetOpportunityArchiveSummary(options: {

@@ -209,3 +209,86 @@ test('SystemObservabilityService costruisce recent runs combinando system e sche
   assert.equal(payload.runs[0].kind, 'scheduler');
   assert.equal(payload.runs[1].kind, 'provider_fetch');
 });
+const providerRun = (runId, matchCount = 1) => ({
+  externalRunId: runId,
+  runType: 'provider_fetch',
+  provider: 'odds_api',
+  sourceUsed: 'odds_api',
+  matchCount,
+  success: true,
+  startedAt: '2026-10-03T01:00:00.000Z',
+  endedAt: '2026-10-03T01:00:01.000Z',
+  metadata: { providerHealth: { odds_api: { status: 'healthy' } } },
+});
+
+test('provider snapshot shares reads, expires and observes external nightly updates', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const runs = [providerRun('initial', 3)];
+  const db = createDbStub(runs);
+  const svc = new SystemObservabilityService(db);
+  const first = await Promise.all([svc.getProviderHealthPayload(), svc.getProviderHealthPayload()]);
+  assert.equal(db.listCalls, 1);
+  assert.equal(first[0].matchCount, 3);
+  runs[0] = providerRun('nightly', 7);
+  now += 59_999;
+  assert.equal((await svc.getProviderHealthPayload()).matchCount, 3);
+  assert.equal(db.listCalls, 1);
+  now += 1;
+  const updated = await Promise.all([svc.getProviderHealthPayload(), svc.getProviderHealthPayload()]);
+  assert.equal(db.listCalls, 2);
+  assert.equal(updated[0].matchCount, 7);
+  assert.equal(updated[1].matchCount, 7);
+  assert.equal(svc.getLastProviderSnapshot().runId, 'nightly');
+});
+
+test('empty provider history is cached temporarily and a later external run becomes visible', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const runs = [];
+  const db = createDbStub(runs);
+  const svc = new SystemObservabilityService(db);
+  await Promise.all([svc.getProviderHealthPayload(), svc.getProviderHealthPayload()]);
+  await svc.getProviderHealthPayload();
+  assert.equal(db.listCalls, 1);
+  assert.equal(svc.getLastProviderSnapshot(), null);
+  runs.push(providerRun('first_nightly', 5));
+  now += 60_000;
+  assert.equal((await svc.getProviderHealthPayload()).matchCount, 5);
+  assert.equal(db.listCalls, 2);
+});
+
+test('an old in-flight DB load cannot replace a newer local provider run', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const db = createDbStub();
+  let resolveRead;
+  db.listRecentSystemRuns = () => new Promise((resolve) => { resolveRead = resolve; });
+  const svc = new SystemObservabilityService(db);
+  const oldLoad = svc.getProviderHealthPayload();
+  await svc.recordProviderRun({
+    runId: 'local', provider: 'odds_api', sourceUsed: 'odds_api', matchCount: 9,
+    success: true, startedAt: '2026-10-03T02:00:00.000Z',
+    providerHealth: { odds_api: { status: 'healthy' } },
+  });
+  resolveRead([providerRun('old', 2)]);
+  assert.equal((await oldLoad).matchCount, 9);
+  assert.equal((await svc.getProviderHealthPayload()).matchCount, 9);
+  assert.equal(svc.getLastProviderSnapshot().runId, 'local');
+  db.listRecentSystemRuns = async () => [providerRun('external_after_local', 12)];
+  now += 60_000;
+  assert.equal((await svc.getProviderHealthPayload()).matchCount, 12);
+});
+
+test('failed provider snapshot reads remain retryable', async () => {
+  const db = createDbStub();
+  let attempts = 0;
+  db.listRecentSystemRuns = async () => {
+    if (++attempts === 1) throw new Error('Temporary DB error');
+    return [providerRun('retry', 4)];
+  };
+  const svc = new SystemObservabilityService(db);
+  await assert.rejects(svc.getProviderHealthPayload(), /Temporary DB error/);
+  assert.equal((await svc.getProviderHealthPayload()).matchCount, 4);
+  assert.equal(attempts, 2);
+});

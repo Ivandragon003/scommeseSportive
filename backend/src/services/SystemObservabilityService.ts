@@ -74,6 +74,7 @@ export type ProviderSnapshot = {
 
 const MAX_RECENT_RUNS = 200;
 const METRICS_CACHE_TTL_MS = 60_000;
+const PROVIDER_SNAPSHOT_CACHE_TTL_MS = 60_000;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -120,6 +121,9 @@ const detectErrorCategoryFromText = (value: string | null | undefined): string |
 
 export class SystemObservabilityService {
   private lastProviderSnapshot: ProviderSnapshot | null = null;
+  private providerSnapshotExpiresAt = 0;
+  private providerSnapshotLoad: Promise<ProviderSnapshot | null> | null = null;
+  private providerSnapshotRevision = 0;
   private metricsCache: { value: Record<string, unknown>; expiresAt: number } | null = null;
   private metricsLoad: Promise<Record<string, unknown>> | null = null;
 
@@ -190,6 +194,8 @@ export class SystemObservabilityService {
       endedAt,
       fetchedAt: endedAt,
     };
+    this.providerSnapshotRevision += 1;
+    this.providerSnapshotExpiresAt = Date.now() + PROVIDER_SNAPSHOT_CACHE_TTL_MS;
 
     this.log(entry.success ? 'info' : 'error', 'provider_run', {
       requestId: entry.requestId ?? null,
@@ -280,7 +286,7 @@ export class SystemObservabilityService {
   }
 
   async getProviderHealthPayload(): Promise<Record<string, unknown>> {
-    const snapshot = this.lastProviderSnapshot ?? await this.loadLatestProviderSnapshot();
+    const snapshot = await this.getLatestProviderSnapshot();
     const primaryProvider = getConfiguredPrimaryProviderName();
     const providerHealth = {
       ...(snapshot?.providerHealth ?? {}),
@@ -562,12 +568,31 @@ export class SystemObservabilityService {
     return snapshot?.fallbackUsed && fallbackProvider ? fallbackProvider : primaryProvider;
   }
 
+  private async getLatestProviderSnapshot(): Promise<ProviderSnapshot | null> {
+    if (this.providerSnapshotExpiresAt > Date.now()) return this.lastProviderSnapshot;
+    if (this.providerSnapshotLoad) return this.providerSnapshotLoad;
+    const revision = this.providerSnapshotRevision;
+    const load = this.loadLatestProviderSnapshot().then((snapshot) => {
+      // A provider run completed locally while this DB read was in flight.
+      if (revision !== this.providerSnapshotRevision) return this.lastProviderSnapshot;
+      this.lastProviderSnapshot = snapshot;
+      this.providerSnapshotExpiresAt = Date.now() + PROVIDER_SNAPSHOT_CACHE_TTL_MS;
+      return snapshot;
+    });
+    this.providerSnapshotLoad = load;
+    try {
+      return await load;
+    } finally {
+      this.providerSnapshotLoad = null;
+    }
+  }
+
   private async loadLatestProviderSnapshot(): Promise<ProviderSnapshot | null> {
     const latest = await this.db.listRecentSystemRuns(1, { runType: 'provider_fetch' });
     const run = latest[0];
     if (!run) return null;
 
-    this.lastProviderSnapshot = {
+    return {
       runId: run.externalRunId ?? String(run.runId ?? ''),
       requestId: run.requestId ?? null,
       provider: run.provider ?? 'odds_api',
@@ -592,6 +617,5 @@ export class SystemObservabilityService {
       endedAt: run.endedAt ?? null,
       fetchedAt: run.endedAt ?? run.startedAt ?? nowIso(),
     };
-    return this.lastProviderSnapshot;
   }
 }

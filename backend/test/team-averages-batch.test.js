@@ -197,3 +197,56 @@ test('large inputs are chunked and a failed batch can be retried', async () => {
     db.db.batch = originalBatch;
   }
 });
+
+test('an import committed after aggregate reads refreshes all joined callers before completion', async () => {
+  for (const importMode of ['single', 'batch', 'external', 'external-all']) {
+    await db.db.execute('DELETE FROM matches');
+    await db.db.execute('DELETE FROM teams');
+    for (const id of ['a', 'b']) await db.upsertTeam({ teamId: id, name: id });
+    const firstMatch = {
+      matchId: 'before-import', homeTeamId: 'a', awayTeamId: 'b', date: '2026-08-01',
+      homeGoals: 1, awayGoals: 0, homeTotalShots: 10, awayTotalShots: 5,
+    };
+    await db.upsertMatch(firstMatch);
+    let releaseWrite;
+    let signalSnapshot;
+    const heldWrite = new Promise((resolve) => { releaseWrite = resolve; });
+    const snapshotRead = new Promise((resolve) => { signalSnapshot = resolve; });
+    const originalBatch = db.db.batch.bind(db.db);
+    let aggregateWrites = 0;
+    db.db.batch = async (statements, mode) => {
+      if (statements[0]?.sql.includes('UPDATE teams SET') && statements[0]?.args?.teamStatsJson) {
+        aggregateWrites++;
+        if (aggregateWrites === 1) {
+          signalSnapshot();
+          await heldWrite;
+        }
+      }
+      return originalBatch(statements, mode);
+    };
+    try {
+      const first = db.recomputeTeamAveragesBatch(['a', 'b']);
+      await snapshotRead;
+      const nextMatch = { ...firstMatch, matchId: 'during-import', homeTotalShots: 20 };
+      if (importMode === 'single') await db.upsertMatch(nextMatch);
+      else if (importMode === 'batch') await db.upsertMatches([nextMatch]);
+      else {
+        await db.db.execute("UPDATE matches SET home_shots = 30 WHERE match_id = 'before-import'");
+        if (importMode === 'external-all') db.markAllTeamAveragesDirty();
+        else db.markTeamAveragesDirty(['a', 'b']);
+      }
+      const second = db.recomputeTeamAverages('a');
+      releaseWrite();
+      await Promise.all([first, second]);
+      const a = await db.getTeam('a');
+      assert.equal(aggregateWrites, 2, importMode);
+      assertEquivalent(a.avg_home_shots, importMode.startsWith('external') ? 30 : 15);
+      assert.equal(JSON.parse(a.team_stats_json).computed.overallSampleSize, importMode.startsWith('external') ? 1 : 2);
+      assert.equal(db.teamAverageLoads.size, 0);
+      assert.equal(db.dirtyTeamAverageLoads.size, 0);
+    } finally {
+      releaseWrite();
+      db.db.batch = originalBatch;
+    }
+  }
+});

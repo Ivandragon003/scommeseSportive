@@ -1,5 +1,48 @@
 # Audit letture Turso — settembre 2026
 
+## Aggiornamento verificato — 3 ottobre 2026
+
+Questa sezione aggiorna i limiti dello snapshot di settembre riportato sotto.
+Il DB reale è nuovamente leggibile. Il controllo read-only della stagione
+Ligue 1 2026/27 confronta 45 righe CSV con 45 match DB e ora li abbina tutti.
+La discrepanza di campo Rennes–PSG è gestita dall'eccezione documentata nella
+[nightly](../github-actions-nightly-sync.md), senza cambiare l'identità primaria.
+
+Interventi completati:
+
+- Il supplemento carica solo le stagioni richieste. Una seconda sync identica
+  non invia UPDATE né batch per statistiche e quote; il test verifica i comandi
+  effettivi, oltre ai contatori. Le condizioni SQL preservano i valori Understat
+  e non riscrivono JSON quote identici anche in caso di concorrenza.
+- Le medie vengono ricalcolate solo per le squadre con statistiche cambiate,
+  comprese le scritture riuscite di una sync parziale. Un'eliminazione dovuta
+  alla retention richiede invece il ricalcolo completo. Le elaborazioni in corso
+  ripetono il calcolo quando un import ne invalida i dati letti.
+- L'archivio restituisce lista, riepilogo e conteggi in un solo SELECT, con CTE
+  materializzata condivisa; i test verificano filtri e riepilogo non limitato
+  dalla paginazione, oltre al piano SQL. Le vecchie API DB restano compatibili.
+- L'interfaccia segnala una sync completata solo per un nuovo timestamp;
+  refresh ripetuti del medesimo stato non forzano budget e settlement. Il refresh
+  manuale continua a segnalare modifiche effettive a calendario e disponibilità.
+- La cache degli snapshot provider scade dopo 60 secondi, con richieste in corso
+  condivise e protezione dalle letture che terminano dopo una scrittura locale.
+- GitHub Actions è l'orchestratore predefinito anche con Node diretto:
+  bootstrap e scheduler Understat/quote/learning rimangono disabilitati in questa
+  modalità anche con vecchi flag true. Si applica dopo riavvio o redeploy.
+
+Verifiche locali: 469 test backend e 129 frontend superati; typecheck e lint
+di entrambi, build frontend, build/avvio Docker e healthcheck sul DB reale
+superati. Prova browser sulla build frontend con backend in memoria: navigazione
+e refresh manuale con errore provider visibile; nessuna ulteriore richiesta
+budget/bets rispetto al caricamento iniziale. Provider esterni disabilitati in
+questa prova. Test in memoria dell'avvio e del ricalcolo superato.
+
+La riduzione dei comandi è verificata. Il risparmio di righe fatturate richiede
+ancora confronto dei contatori Turso prima/dopo un normale ciclo nightly/UI:
+numero di roundtrip, righe lette e righe scritte sono misure diverse.
+
+## Snapshot storico di settembre
+
 ## Correzioni verificate offline
 
 - Learning: leggere prima le review esistenti; caricare snapshot solo per match da
