@@ -14,6 +14,8 @@ const API = axios.create({
 });
 
 export const LONG_BACKTEST_TIMEOUT_MS = 10 * 60 * 1000;
+// A cold OOS calibration rebuild can outlast the default read timeout.
+export const PREDICTION_TIMEOUT_MS = 2 * 60 * 1000;
 export const WALK_FORWARD_TIMEOUT_MESSAGE =
   'Il walk-forward Top 5 sta impiegando troppo tempo. Riduci max folds, disattiva il tuning pesi oppure riprova con un singolo campionato.';
 
@@ -284,7 +286,7 @@ export const getPrediction = (request: {
   bookmakerOdds?: Record<string, number>;
   oddsSource?: string;
 }) =>
-  API.post<ApiResponse<any>>('/predict', request).then(r => r.data);
+  API.post<ApiResponse<any>>('/predict', request, { timeout: PREDICTION_TIMEOUT_MS }).then(r => r.data);
 
 export const getPlayerAvailability = (matchId: string) =>
   cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`, undefined, { cacheMs: 30_000 });
@@ -470,7 +472,7 @@ export const archiveManualBetOpportunity = (opportunity: {
   });
 
 export const replayPlayedMatchPrediction = (matchId: string) =>
-  API.post<ApiResponse<any>>('/predict/replay', { matchId }).then(r => r.data);
+  API.post<ApiResponse<any>>('/predict/replay', { matchId }, { timeout: PREDICTION_TIMEOUT_MS }).then(r => r.data);
 
 // Budget
 export const getBudget = (userId: string, options?: ReadRequestOptions) =>

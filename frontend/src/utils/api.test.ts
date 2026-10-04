@@ -40,6 +40,19 @@ describe('backtesting API timeout', () => {
     expect(LONG_BACKTEST_TIMEOUT_MS).toBe(10 * 60 * 1000);
   });
 
+  test('prediction e replay lasciano tempo alla prima calibrazione OOS', async () => {
+    const { PREDICTION_TIMEOUT_MS, getPrediction, replayPlayedMatchPrediction } = await import('./api');
+    mockPost.mockResolvedValue({ data: { success: true } });
+    const request = { homeTeamId: 'home', awayTeamId: 'away', matchId: 'match-42' };
+    await getPrediction(request);
+    await replayPlayedMatchPrediction('match-42');
+    expect(mockPost).toHaveBeenNthCalledWith(1, '/predict', request, { timeout: PREDICTION_TIMEOUT_MS });
+    expect(mockPost).toHaveBeenNthCalledWith(2, '/predict/replay', { matchId: 'match-42' }, { timeout: PREDICTION_TIMEOUT_MS });
+    expect(PREDICTION_TIMEOUT_MS).toBe(120000);
+    const nginxConfig = readFileSync(resolve(__dirname, '../../nginx.conf'), 'utf8');
+    expect(nginxConfig).toMatch(/location ~ \^\/api\/predict[\s\S]*?proxy_read_timeout 150s;/);
+  });
+
   test('sessione condivisa usa richieste credentialed e invalida la cache al login', async () => {
     const { getAdminSession, loginSharedAdmin, logoutSharedAdmin } = await import('./api');
     mockGet.mockResolvedValueOnce({
