@@ -1,6 +1,7 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
+import { buildChronologicalForecastsAsync } from './ChronologicalForecastService';
 import {
   ValueBettingEngine,
   BetOpportunity,
@@ -26,12 +27,14 @@ import {
 } from './PromotedTeamPriorService';
 import { assessPlayerLineup, completeOfficialTeamIds } from './PlayerLineupProbabilityService';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
-import { BacktestingEngine, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
+import { BacktestingEngine, BacktestProbabilityMetrics, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { PredictionContextBuilder } from './PredictionContextBuilder';
 import { AdaptiveTuningService } from './AdaptiveTuningService';
 import { clamp } from '../models/utils/MathUtils';
+import { bookingPoints } from '../utils/dataHelpers';
+import { historicalTimestamp } from '../utils/historicalTime';
 import { predictionConfig, resolveLeagueAvgYellowPerMatch } from '../config/predictionConfig';
 import { buildBacktestReport } from './BacktestReportService';
 import { PlayerCardsModel, PlayerCardRole } from '../models/markets/PlayerCardsModel';
@@ -239,6 +242,21 @@ export const isTop5BacktestRequest = (competition: string): boolean => {
   const value = String(competition ?? '').trim().toLowerCase();
   return value === TOP_5_BACKTEST_KEY.toLowerCase() || value === 'top 5' || value === 'top 5 campionati';
 };
+
+export function mergeBacktestProbabilityMetrics(metrics: BacktestProbabilityMetrics[]): BacktestProbabilityMetrics | undefined {
+  if (!metrics.length) return undefined;
+  const byFamily: BacktestProbabilityMetrics['byFamily'] = {};
+  for (const family of new Set(metrics.flatMap((item) => Object.keys(item.byFamily)))) {
+    const rows = metrics.map((item) => item.byFamily[family]).filter(Boolean);
+    const nObservations = rows.reduce((sum, item) => sum + item.nObservations, 0);
+    byFamily[family] = {
+      nMatches: rows.reduce((sum, item) => sum + item.nMatches, 0), nObservations,
+      brierScore: nObservations ? rows.reduce((sum, item) => sum + item.brierScore * item.nObservations, 0) / nObservations : 0,
+      logLoss: nObservations ? rows.reduce((sum, item) => sum + item.logLoss * item.nObservations, 0) / nObservations : 0,
+    };
+  }
+  return { scope: 'all_common_forecasts', primaryFamily: 'goals', ...byFamily.goals, byFamily };
+}
 
 export function buildTop5BacktestAggregate(results: Array<Record<string, any>>): Top5BacktestAggregate {
   const byCompetition: Top5CompetitionSummary[] = (results ?? []).map((result) => {
@@ -720,6 +738,16 @@ export class PredictionService {
     blendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
   }> = new Map();
   private calibrationLoads: Map<string, Promise<CalibrationProfile>> = new Map();
+  private calibrationGenerations = new Map<string, number>();
+  private calibrationInputs = new Map<string, {
+    expiresAt: number;
+    rows: any[];
+    odds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }>;
+  }>();
+  private calibrationInputLoads = new Map<string, Promise<{
+    rows: any[];
+    odds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }>;
+  }>>();
 
   constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {
     this.db = db;
@@ -770,6 +798,7 @@ export class PredictionService {
   }
 
   private didSelectionWinInRow(selection: string, row: any): boolean | null {
+    if (row?.home_goals == null || row?.away_goals == null) return null;
     const h = Number(row?.home_goals);
     const a = Number(row?.away_goals);
     if (!Number.isFinite(h) || !Number.isFinite(a)) return null;
@@ -786,14 +815,24 @@ export class PredictionService {
     if (lower === 'double_chance_1x') return h >= a;
     if (lower === 'double_chance_x2') return a >= h;
     if (lower === 'double_chance_12') return h !== a;
-    if (lower === 'dnb_home') return h > a;
-    if (lower === 'dnb_away') return a > h;
+    if (lower === 'dnb_home') return h === a ? null : h > a;
+    if (lower === 'dnb_away') return h === a ? null : a > h;
 
     const mGoal = lower.match(/^(over|under)(0[5]|1[5]|2[5]|3[5]|4[5])$/);
     if (mGoal) {
       const side = mGoal[1];
       const line = Number(`${mGoal[2][0]}.${mGoal[2][1]}`);
       return side === 'over' ? total > line : total <= line;
+    }
+
+    const mCards = lower.match(/^cardstotal(over|under)(\d{2,3})$/);
+    if (mCards) {
+      const values = ['home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards']
+        .map((column) => row[column] == null ? NaN : Number(row[column]));
+      if (values.some((value) => !Number.isFinite(value) || value < 0)) return null;
+      const totalPoints = bookingPoints(values[0] + values[1], values[2] + values[3]);
+      const line = Number(mCards[2]) / 10;
+      return mCards[1] === 'over' ? totalPoints > line : totalPoints < line;
     }
 
     // Totali match dei mercati statistici (linee .5: l'ultima cifra è il decimale)
@@ -807,8 +846,9 @@ export class PredictionService {
         corners: ['home_corners', 'away_corners'],
       };
       const [homeCol, awayCol] = statColumns[mStat[1]];
-      const homeVal = Number(row?.[homeCol]);
-      const awayVal = Number(row?.[awayCol]);
+      if (row?.[homeCol] == null || row?.[awayCol] == null) return null;
+      const homeVal = Number(row[homeCol]);
+      const awayVal = Number(row[awayCol]);
       if (!Number.isFinite(homeVal) || !Number.isFinite(awayVal) || homeVal < 0 || awayVal < 0) return null;
       const statLine = Number(mStat[3]) / 10;
       const statTotal = homeVal + awayVal;
@@ -819,15 +859,15 @@ export class PredictionService {
   }
 
   private async getCalibrationProfile(
-    model: DixonColesModel,
     competition?: string,
-    forceRefresh = false
+    forceRefresh = false,
+    asOf?: Date,
   ): Promise<CalibrationProfile> {
-    const loadKey = `${this.getCalibrationCacheKey(competition)}:${forceRefresh ? 'refresh' : 'cached'}`;
+    const loadKey = `${this.getCalibrationCacheKey(competition)}:${asOf?.toISOString() ?? 'live'}:${forceRefresh ? 'refresh' : 'cached'}`;
     const pending = this.calibrationLoads.get(loadKey);
     if (pending) return pending;
 
-    const load = this.loadCalibrationProfile(model, competition, forceRefresh);
+    const load = this.loadCalibrationProfile(competition, forceRefresh, asOf);
     this.calibrationLoads.set(loadKey, load);
     try {
       return await load;
@@ -837,14 +877,21 @@ export class PredictionService {
   }
 
   private async loadCalibrationProfile(
-    model: DixonColesModel,
     competition?: string,
-    forceRefresh = false
+    forceRefresh = false,
+    asOf?: Date,
   ): Promise<CalibrationProfile> {
-    const cacheKey = this.getCalibrationCacheKey(competition);
+    const competitionKey = this.getCalibrationCacheKey(competition);
+    const generation = this.calibrationGenerations.get(competitionKey) ?? 0;
+    const cacheKey = `${competitionKey}:${asOf?.toISOString() ?? 'live'}`;
     const now = Date.now();
+    for (const [key, entry] of this.calibrationCache) {
+      if (entry.expiresAt <= now) this.calibrationCache.delete(key);
+    }
     const cached = this.calibrationCache.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAt > now) {
+      this.calibrationCache.delete(cacheKey);
+      this.calibrationCache.set(cacheKey, cached);
       return {
         calibrationPoints: cached.points,
         nObservations: cached.observations,
@@ -853,35 +900,37 @@ export class PredictionService {
       };
     }
 
-    const rows = await this.db.getMatches({ competition });
-    const completedRows = rows
-      .filter((m: any) =>
-        m?.home_goals !== null &&
-        m?.away_goals !== null &&
-        String(m?.home_team_id ?? '').trim() &&
-        String(m?.away_team_id ?? '').trim()
-      )
-      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 450);
-
-    // Odds storiche archiviate (per apprendere i pesi modello↔mercato).
-    // Assenti nei db di test o senza archivio: si procede senza campioni.
-    let historicalOdds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }> = {};
-    if (predictionEngineConfig.marketBlending.enableLearnedBlendWeights) {
-      try {
-        if (typeof (this.db as any).getHistoricalOddsDetailMap === 'function') {
-          historicalOdds = await this.db.getHistoricalOddsDetailMap({ competition });
-        }
-      } catch {
-        historicalOdds = {};
-      }
-    }
+    const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh);
+    const matches = this.mapCompletedMatches(rows);
+    const forecasts = await buildChronologicalForecastsAsync(matches, {
+      asOf: asOf ?? new Date(now),
+      createPredictor: (past, referenceDate) => {
+        const historicalModel = new DixonColesModel();
+        const teams = [...new Set(past.flatMap((match) => [match.homeTeamId, match.awayTeamId]))];
+        historicalModel.setParams(this.applyHomeAdvantageScale(
+          historicalModel.fitModel(past, teams, 280, 0.04, { referenceDate }),
+        ));
+        const poisson = new PoissonXgModel();
+        poisson.fit(past);
+        return (target, availablePast) => {
+          const context = this.backtester.buildAsOfPredictionContext(target, availablePast);
+          const probs = historicalModel.computeFullProbabilities(
+            target.homeTeamId, target.awayTeamId,
+            context.homeXG, context.awayXG, context.supplementaryData,
+          );
+          const flat = this.applyEnsembleBlend(probs.flatProbabilities, poisson,
+            target.homeTeamId, target.awayTeamId);
+          this.enrichFlatProbabilities(flat);
+          return flat;
+        };
+      },
+    });
 
     // ---- Passata 1: replay del modello sui match completati -> coppie (prob, esito) ----
     const predicted: number[] = [];
     const observed: number[] = [];
     const familyPairs = new Map<string, { predicted: number[]; observed: number[] }>();
-    const replaySamples: Array<{ matchId: string; selection: string; family: string; raw: number; outcome: 0 | 1 }> = [];
+    const replaySamples: Array<{ matchId: string; selection: string; family: string; raw: number; outcome: 0 | 1; forecastAt: number; availableAt: number }> = [];
 
     const coreSelections = [
       'homeWin', 'draw', 'awayWin',
@@ -890,26 +939,11 @@ export class PredictionService {
       'double_chance_1x', 'double_chance_x2', 'double_chance_12',
       'dnb_home', 'dnb_away',
     ];
-    const statKeyPattern = /^(shotsOT|shots|yellow|fouls|corners)(Over|Under)\d{2,3}$/;
+    const statKeyPattern = /^(shotsOT|shots|yellow|fouls|corners|cardsTotal)(Over|Under)\d{2,3}$/;
 
-    // Stesso partner Poisson-xG usato al predict live: la calibrazione va fittata
-    // sulle probabilità GIÀ blendate, altrimenti le curve risultano disallineate.
-    const ensemblePoisson = await this.ensurePoissonModel(competition);
-
-    for (const row of completedRows) {
-      const probs = model.computeFullProbabilities(
-        String(row.home_team_id),
-        String(row.away_team_id),
-        Number.isFinite(Number(row.home_xg)) ? Number(row.home_xg) : undefined,
-        Number.isFinite(Number(row.away_xg)) ? Number(row.away_xg) : undefined
-      );
-      const flat: Record<string, number> = this.applyEnsembleBlend(
-        probs.flatProbabilities ?? {},
-        ensemblePoisson,
-        String(row.home_team_id),
-        String(row.away_team_id),
-      );
-      this.enrichFlatProbabilities(flat);
+    for (const forecast of forecasts) {
+      const row = rows.find((candidate: any) => String(candidate.match_id) === forecast.match.matchId);
+      const flat = forecast.probabilities;
 
       const trackKeys = new Set<string>(coreSelections);
       for (const key of Object.keys(flat)) {
@@ -935,6 +969,8 @@ export class PredictionService {
           family,
           raw,
           outcome: outcomeBit,
+          forecastAt: forecast.match.date.getTime(),
+          availableAt: forecast.availableAt,
         });
       }
     }
@@ -963,14 +999,15 @@ export class PredictionService {
     const blendSamples: BlendLearningSample[] = [];
     if (Object.keys(historicalOdds).length > 0) {
       const groupsByMatch = new Map<string, ReturnType<ValueBettingEngine['buildMarketGroups']>>();
+      const priorCurves = new Map<string, { points: Array<{ x: number; y: number }>; byFamily: Record<string, FamilyCalibrationCurve>; n: number }>();
       for (const sample of replaySamples) {
         const detail = historicalOdds[sample.matchId];
         if (!detail) continue;
 
         let groups = groupsByMatch.get(sample.matchId);
         if (!groups) {
-          const oddsRecord = Object.keys(detail.closingOdds ?? {}).length > 0 ? detail.closingOdds! : detail.odds;
-          groups = this.engine.buildMarketGroups(oddsRecord);
+          // The entry snapshot is the price available to this forecast, not closing.
+          groups = this.engine.buildMarketGroups(detail.odds);
           groupsByMatch.set(sample.matchId, groups);
         }
 
@@ -979,10 +1016,27 @@ export class PredictionService {
         const marketProb = noVigProbability(group.odds, group.companions);
         if (marketProb === null) continue;
 
-        const familyCurve = byFamily[sample.family];
+        let prior = priorCurves.get(sample.matchId);
+        if (!prior) {
+          const pastSamples = replaySamples.filter((item) => item.availableAt <= sample.forecastAt);
+          const fit = this.engine.fitIsotonicCalibration(pastSamples.map((item) => item.raw), pastSamples.map((item) => item.outcome));
+          const priorFamilies: Record<string, FamilyCalibrationCurve> = {};
+          if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+            for (const family of new Set(pastSamples.map((item) => item.family))) {
+              const subset = pastSamples.filter((item) => item.family === family);
+              if (subset.length < predictionEngineConfig.calibration.perFamilyMinSamples) continue;
+              const familyFit = this.engine.fitIsotonicCalibration(subset.map((item) => item.raw), subset.map((item) => item.outcome));
+              if (familyFit.calibrationPoints.length >= 3) priorFamilies[family] = { points: familyFit.calibrationPoints, nObservations: subset.length };
+            }
+          }
+          prior = { points: fit.calibrationPoints, byFamily: priorFamilies, n: pastSamples.length };
+          priorCurves.set(sample.matchId, prior);
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        const familyCurve = prior.byFamily[sample.family];
         const calibratedProb = familyCurve
           ? this.engine.calibrate(sample.raw, familyCurve.points, familyCurve.nObservations)
-          : this.engine.calibrate(sample.raw, calibrationPoints, nObservations);
+          : this.engine.calibrate(sample.raw, prior.points, prior.n);
 
         blendSamples.push({
           category: sample.family,
@@ -1006,15 +1060,64 @@ export class PredictionService {
 
     const result = { calibrationPoints, nObservations, byFamily, learnedBlendWeights };
 
-    this.calibrationCache.set(cacheKey, {
-      expiresAt: now + (6 * 60 * 60 * 1000),
-      points: calibrationPoints,
-      observations: nObservations,
-      byFamily,
-      blendWeights: learnedBlendWeights,
-    });
+    if ((this.calibrationGenerations.get(competitionKey) ?? 0) === generation) {
+      this.calibrationCache.set(cacheKey, {
+        expiresAt: now + (6 * 60 * 60 * 1000),
+        points: calibrationPoints,
+        observations: nObservations,
+        byFamily,
+        blendWeights: learnedBlendWeights,
+      });
+      while (this.calibrationCache.size > 32) {
+        this.calibrationCache.delete(this.calibrationCache.keys().next().value!);
+      }
+    }
 
     return result;
+  }
+
+  private async loadCalibrationInputs(competition?: string, forceRefresh = false) {
+    const key = this.getCalibrationCacheKey(competition);
+    const generation = this.calibrationGenerations.get(key) ?? 0;
+    const now = Date.now();
+    for (const [cacheKey, entry] of this.calibrationInputs) {
+      if (entry.expiresAt <= now) this.calibrationInputs.delete(cacheKey);
+    }
+    const cached = this.calibrationInputs.get(key);
+    if (!forceRefresh && cached) return cached;
+    const pending = this.calibrationInputLoads.get(key);
+    if (pending) return pending;
+    const load = (async () => {
+      const oddsPromise = predictionEngineConfig.marketBlending.enableLearnedBlendWeights &&
+        typeof this.db.getHistoricalOddsDetailMap === 'function'
+        ? this.db.getHistoricalOddsDetailMap({ competition }).catch(() => ({})) : Promise.resolve({});
+      const [rows, odds] = await Promise.all([this.db.getMatches({ competition }), oddsPromise]);
+      const result = { rows, odds };
+      if ((this.calibrationGenerations.get(key) ?? 0) === generation) {
+        this.calibrationInputs.set(key, { ...result, expiresAt: now + 6 * 60 * 60 * 1000 });
+        while (this.calibrationInputs.size > 8) {
+          this.calibrationInputs.delete(this.calibrationInputs.keys().next().value!);
+        }
+      }
+      return result;
+    })();
+    this.calibrationInputLoads.set(key, load);
+    try { return await load; }
+    finally { if (this.calibrationInputLoads.get(key) === load) this.calibrationInputLoads.delete(key); }
+  }
+
+  private invalidateCalibrationForCompetition(competition: string): void {
+    for (const competitionKey of new Set([this.getCalibrationCacheKey(competition), 'all'])) {
+      this.calibrationGenerations.set(competitionKey, (this.calibrationGenerations.get(competitionKey) ?? 0) + 1);
+      this.calibrationInputs.delete(competitionKey);
+      this.calibrationInputLoads.delete(competitionKey);
+      for (const key of this.calibrationCache.keys()) {
+        if (key.startsWith(`${competitionKey}:`)) this.calibrationCache.delete(key);
+      }
+      for (const key of this.calibrationLoads.keys()) {
+        if (key.startsWith(`${competitionKey}:`)) this.calibrationLoads.delete(key);
+      }
+    }
   }
 
   private probabilityToOdds(probability: number, overround = 0.06): number {
@@ -1784,6 +1887,7 @@ export class PredictionService {
     await this.db.saveModelParams(competition, season ?? 'all', params, matches.length, logLikelihood);
     this.models.set(competition, model);
     this.poissonModels.set(competition, poissonModel);
+    this.invalidateCalibrationForCompetition(competition);
 
     return { matchesUsed: matches.length, logLikelihood, teams: teams.length };
   }
@@ -2072,8 +2176,9 @@ export class PredictionService {
     };
     const marketGroups = this.engine.buildMarketGroups(alignedOdds);
     const calibrationProfile = await this.getCalibrationProfile(
-      model,
-      ensembleCompetition
+      ensembleCompetition,
+      false,
+      referenceDate && Date.parse(referenceDate) < Date.now() ? new Date(referenceDate) : undefined,
     );
     const factors = this.buildAnalysisFactors(derivedRequest, probs, homeTeam, awayTeam, competitiveness, supp);
     const homeSampleSize = Number((homeTeam as any)?.matchesPlayed ?? (homeTeam as any)?.matches ?? homePlayers.length ?? 0);
@@ -3957,31 +4062,40 @@ export class PredictionService {
     return this.settleBetInternal(betId, status, returnAmount, 'Settle manuale');
   }
 
-  private async loadBacktestMatches(competition: string, season?: string): Promise<MatchData[]> {
-    const rawMatches = await this.db.getMatches({ competition, season });
-    const matches: MatchData[] = rawMatches
-      .filter((m: any) => m.home_goals !== null && m.away_goals !== null)
+  private mapCompletedMatches(rawMatches: any[]): MatchData[] {
+    const optionalNumber = (value: unknown): number | undefined =>
+      value == null || !Number.isFinite(Number(value)) ? undefined : Number(value);
+    return rawMatches
+      .filter((m: any) => m.home_goals != null && m.away_goals != null &&
+        String(m.match_id ?? '').trim() &&
+        Number.isFinite(Number(m.home_goals)) && Number(m.home_goals) >= 0 &&
+        Number.isFinite(Number(m.away_goals)) && Number(m.away_goals) >= 0 &&
+        String(m.home_team_id ?? '').trim() && String(m.away_team_id ?? '').trim() &&
+        Number.isFinite(historicalTimestamp(m.date)))
       .map((m: any) => ({
-        matchId: m.match_id, homeTeamId: m.home_team_id, awayTeamId: m.away_team_id,
-        date: new Date(m.date), homeGoals: m.home_goals, awayGoals: m.away_goals,
-        homeXG: m.home_xg, awayXG: m.away_xg,
-        homeShotsOnTarget: m.home_shots_on_target,
-        awayShotsOnTarget: m.away_shots_on_target,
-        homeTotalShots: m.home_shots,
-        awayTotalShots: m.away_shots,
-        homePossession: m.home_possession,
-        awayPossession: m.away_possession,
-        homeFouls: m.home_fouls,
-        awayFouls: m.away_fouls,
-        homeYellowCards: m.home_yellow_cards,
-        awayYellowCards: m.away_yellow_cards,
-        homeRedCards: m.home_red_cards,
-        awayRedCards: m.away_red_cards,
+        matchId: String(m.match_id), homeTeamId: String(m.home_team_id), awayTeamId: String(m.away_team_id),
+        date: new Date(historicalTimestamp(m.date)), homeGoals: Number(m.home_goals), awayGoals: Number(m.away_goals),
+        homeXG: optionalNumber(m.home_xg), awayXG: optionalNumber(m.away_xg),
+        homeShotsOnTarget: optionalNumber(m.home_shots_on_target),
+        awayShotsOnTarget: optionalNumber(m.away_shots_on_target),
+        homeTotalShots: optionalNumber(m.home_shots),
+        awayTotalShots: optionalNumber(m.away_shots),
+        homePossession: optionalNumber(m.home_possession),
+        awayPossession: optionalNumber(m.away_possession),
+        homeFouls: optionalNumber(m.home_fouls),
+        awayFouls: optionalNumber(m.away_fouls),
+        homeYellowCards: optionalNumber(m.home_yellow_cards),
+        awayYellowCards: optionalNumber(m.away_yellow_cards),
+        homeRedCards: optionalNumber(m.home_red_cards),
+        awayRedCards: optionalNumber(m.away_red_cards),
         referee: m.referee,
         competition: m.competition,
         season: m.season,
       }));
+  }
 
+  private async loadBacktestMatches(competition: string, season?: string): Promise<MatchData[]> {
+    const matches = this.mapCompletedMatches(await this.db.getMatches({ competition, season }));
     if (matches.length < 50) throw new Error(`Servono almeno 50 partite. Disponibili: ${matches.length}`);
     return matches;
   }
@@ -4008,7 +4122,10 @@ export class PredictionService {
     }
 
     const matches = await this.loadBacktestMatches(competition, season);
-    const adaptiveTuning = await this.applyAdaptiveTuning(competition);
+    // Post-match reviews have no historical availability guarantees. Do not use
+    // their current tuning to select bets in a reconstruction of the past.
+    const adaptiveTuning = this.buildEmptyAdaptiveTuningProfile();
+    this.backtester.setAdaptiveTuning(adaptiveTuning);
     let oddsDetailMap: Record<string, HistoricalOddsContextEntry>;
     if (historicalOdds && Object.keys(historicalOdds).length > 0) {
       oddsDetailMap = Object.entries(historicalOdds).reduce((acc, [matchId, odds]) => {
@@ -4109,6 +4226,8 @@ export class PredictionService {
     }
 
     const top5Aggregate = buildTop5BacktestAggregate(competitionResults);
+    const probabilityMetrics = mergeBacktestProbabilityMetrics(competitionResults
+      .map((result) => result.probabilityMetrics).filter(Boolean));
     const rankingOptimizations = competitionResults
       .map((result) => result?.rankingOptimization)
       .filter(Boolean);
@@ -4127,6 +4246,13 @@ export class PredictionService {
       competitionResults,
       competitionErrors,
       detailedBets: competitionResults.flatMap((result) => Array.isArray(result?.detailedBets) ? result.detailedBets : []),
+      probabilityMetrics,
+      brierScore: probabilityMetrics?.brierScore ?? 0,
+      logLoss: probabilityMetrics?.logLoss ?? 0,
+      summary: {
+        averageBrierScore: probabilityMetrics?.brierScore ?? 0,
+        averageLogLoss: probabilityMetrics?.logLoss ?? 0,
+      },
       betsPlaced: top5Aggregate.totalBets,
       betsWon: top5Aggregate.byCompetition.reduce((sum, item) => sum + item.betsWon, 0),
       totalStaked: top5Aggregate.totalStaked,

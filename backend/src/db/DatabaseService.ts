@@ -89,6 +89,8 @@ type HistoricalOddsDetail = {
   closingOdds?: Record<string, number>;
   closingCapturedAt?: string | null;
   closingSource?: string | null;
+  closingBookmakerKey?: string | null;
+  closingBookmakerName?: string | null;
   closingRejectedReason?: 'missing_closing_odds' | 'non_eurobet_snapshot' | 'snapshot_after_kickoff_rejected' | null;
   usedFallbackBookmaker: boolean;
   usedSyntheticOdds: boolean;
@@ -2161,7 +2163,45 @@ export class DatabaseService {
 
   private isHistoricalOddsSnapshotUsable(row: any): boolean {
     const source = String(row?.source ?? '').trim().toLowerCase();
-    return !source.includes('odds_api') || this.hasSelectedBookmakerProvenance(row);
+    const classified = this.classifyHistoricalOddsSource(row);
+    if (row?.usedFallbackBookmaker || row?.usedSyntheticOdds || source.includes('completion')) return false;
+    if (classified !== 'odds_api' && classified !== 'eurobet_scraper') return false;
+    if (source.includes('odds_api')) return this.hasSelectedBookmakerProvenance(row);
+    // Legacy Eurobet scrapes identify the bookmaker through their source. If
+    // explicit provenance is present, it must agree with that source.
+    return [row?.selectedBookmakerKey, row?.selectedBookmakerName]
+      .every((value) => !String(value ?? '').trim() || /^eurobet/i.test(String(value).trim()));
+  }
+
+  private historicalOddsTimestamp(value: unknown): number | null {
+    const text = String(value ?? '').trim();
+    const parts = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/i);
+    if (!parts) return null;
+    const day = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
+    if (day.getUTCFullYear() !== Number(parts[1]) || day.getUTCMonth() + 1 !== Number(parts[2]) || day.getUTCDate() !== Number(parts[3])) return null;
+    // SQLite datetime values without an offset are UTC, like the query's
+    // datetime(captured_at) ordering; do not reinterpret them in local time.
+    const iso = text.replace(' ', 'T');
+    const parsed = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private historicalOddsBookmaker(row: any): { key: string; name: string } {
+    const legacyEurobet = String(row?.source ?? '').toLowerCase().includes('eurobet');
+    const normalize = (value: unknown): string => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    return {
+      key: normalize(row?.selectedBookmakerKey) || (legacyEurobet ? 'eurobet' : ''),
+      name: normalize(row?.selectedBookmakerName) || (legacyEurobet ? 'eurobet' : ''),
+    };
+  }
+
+  private historicalOddsSameBookmaker(left: any, right: any): boolean {
+    const a = this.historicalOddsBookmaker(left);
+    const b = this.historicalOddsBookmaker(right);
+    const eurobetAlias = (value: string): boolean => /^eurobet(?:it)?$/.test(value);
+    const same = (x: string, y: string): boolean => x === y || (eurobetAlias(x) && eurobetAlias(y));
+    if (a.key && b.key && !same(a.key, b.key)) return false;
+    return Boolean(a.name && b.name && same(a.name, b.name));
   }
 
   async saveOddsSnapshot(snapshot: {
@@ -2394,33 +2434,29 @@ export class DatabaseService {
 
     const out: Record<string, HistoricalOddsDetail> = {};
     for (const [matchId, matchRows] of rowsByMatch) {
-      // A legacy odds_api row may contain a cross-bookmaker merged map. It has
-      // no trustworthy provenance and must not become input to a value backtest.
-      const selectedRow = matchRows.find((row) => this.isHistoricalOddsSnapshotUsable(row));
+      const kickoffMs = this.historicalOddsTimestamp(matchRows[0]?.match_date);
+      if (kickoffMs === null) continue;
+      const realOdds = (row: any): Record<string, number> => {
+        const live = normalizeOdds(row.liveSelectedOdds);
+        if (Object.keys(live).length > 0) return live;
+        const eurobet = String(row.source ?? '').toLowerCase().includes('eurobet')
+          ? normalizeOdds(row.eurobetOdds) : {};
+        return Object.keys(eurobet).length > 0 ? eurobet : normalizeOdds(row.selectedOdds);
+      };
+      const candidates = matchRows.filter((row) => this.isHistoricalOddsSnapshotUsable(row)
+        && this.historicalOddsTimestamp(row.captured_at) !== null
+        && Object.keys(realOdds(row)).length > 0)
+        .sort((a, b) => this.historicalOddsTimestamp(b.captured_at)! - this.historicalOddsTimestamp(a.captured_at)!);
+      // No decision timestamp is recorded: use the latest real quote known
+      // strictly before kickoff, never a later snapshot or a merged legacy map.
+      const selectedRow = candidates.find((row) => this.historicalOddsTimestamp(row.captured_at)! < kickoffMs);
       if (!selectedRow) continue;
-      const liveOdds = selectedRow.liveSelectedOdds ?? selectedRow.eurobetOdds ?? {};
-      const normalized = normalizeOdds(liveOdds);
-      if (Object.keys(normalized).length === 0) continue;
-
-      const kickoffMs = new Date(String(selectedRow.match_date ?? selectedRow.commence_time ?? '')).getTime();
-      const closingRow = matchRows.find((row) => {
-        const source = String(row.source ?? '').toLowerCase();
-        const capturedMs = new Date(String(row.captured_at ?? '')).getTime();
-        return source.includes('eurobet') &&
-          Number.isFinite(capturedMs) &&
-          (!Number.isFinite(kickoffMs) || capturedMs <= kickoffMs);
-      });
-      const hasRejectedAfterKickoff = !closingRow && matchRows.some((row) => {
-        const source = String(row.source ?? '').toLowerCase();
-        const capturedMs = new Date(String(row.captured_at ?? '')).getTime();
-        return source.includes('eurobet') &&
-          Number.isFinite(capturedMs) &&
-          Number.isFinite(kickoffMs) &&
-          capturedMs > kickoffMs;
-      });
-      const closingOdds = closingRow
-        ? normalizeOdds(closingRow.liveSelectedOdds ?? closingRow.eurobetOdds ?? closingRow.selectedOdds ?? {})
-        : {};
+      const normalized = realOdds(selectedRow);
+      const entryMs = this.historicalOddsTimestamp(selectedRow.captured_at)!;
+      const closingRow = candidates.find((row) => this.historicalOddsSameBookmaker(selectedRow, row)
+        && this.historicalOddsTimestamp(row.captured_at)! >= entryMs
+        && this.historicalOddsTimestamp(row.captured_at)! <= kickoffMs);
+      const closingOdds = closingRow ? realOdds(closingRow) : {};
 
       out[matchId] = {
         odds: normalized,
@@ -2432,7 +2468,9 @@ export class DatabaseService {
         closingOdds,
         closingCapturedAt: closingRow ? String(closingRow.captured_at ?? '').trim() || null : null,
         closingSource: closingRow ? String(closingRow.source ?? '').trim() || null : null,
-        closingRejectedReason: hasRejectedAfterKickoff ? 'snapshot_after_kickoff_rejected' : null,
+        closingBookmakerKey: closingRow ? String(closingRow.selectedBookmakerKey ?? '').trim() || null : null,
+        closingBookmakerName: closingRow ? String(closingRow.selectedBookmakerName ?? '').trim() || null : null,
+        closingRejectedReason: closingRow ? null : 'missing_closing_odds',
         usedFallbackBookmaker: Boolean(selectedRow.usedFallbackBookmaker),
         usedSyntheticOdds: Boolean(selectedRow.usedSyntheticOdds),
       };

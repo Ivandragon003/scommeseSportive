@@ -1223,6 +1223,25 @@ export class ValueBettingEngine {
     return this.clampNumber(Number(quality.toFixed(3)), 0, 1);
   }
 
+  /** Applies the live probability pipeline without EV/confidence filtering. */
+  blendForecastProbability(
+    selection: string, probability: number, group: MarketOddsGroup | undefined,
+    context: ValueAnalysisContext = {},
+  ): number {
+    if (!group || !Number.isFinite(group.odds) || group.odds <= 1) return probability;
+    const allOdds = [group.odds, ...group.companions.filter((odds) => Number.isFinite(odds) && odds > 1)];
+    const implied = allOdds.length >= 2
+      ? this.impliedProbabilityNoVig(group.odds, allOdds) : this.impliedProbabilityFromOdds(group.odds);
+    const category = this.categorizeSelection(selection);
+    const guard = this.computeSelectionRiskGuard(selection, category, context);
+    const uncertainty = this.clampNumber(
+      this.computeUncertaintyFactor(category, group.odds, context) + guard.uncertaintyBump, 0.04, 0.92,
+    );
+    const calibrated = this.applyMarketCalibration(probability, selection, category, context);
+    return this.blendWithMarketProbability(calibrated.probability, implied, category,
+      context, allOdds.length >= 2, uncertainty).probability;
+  }
+
   private blendWithMarketProbability(
     modelProbability: number,
     marketProbabilityNoVig: number,
