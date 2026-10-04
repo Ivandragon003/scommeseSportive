@@ -851,11 +851,20 @@ alpha = max(0.10, 1 / (1 + n/1000))
 p_final = alpha x p_raw + (1-alpha) x p_cal
 ```
 
-### 8. WALK-FORWARD BACKTESTING ENGINE (aggiornato v4)
+### 8. WALK-FORWARD BACKTESTING ENGINE (protocollo v5 OOS)
 
 Il progetto usa walk-forward come unica modalita ufficiale di validazione dell'algoritmo. Il vecchio backtest classico con split singolo train/test non e piu usato dalla UI e `POST /backtest` resta solo come alias deprecated verso `POST /backtest/walk-forward`.
 
 #### 8.1 Walk-forward validation
+Il protocollo `backtest-engine-v5-oos` esclude gli esiti non ancora disponibili
+(kickoff + 2 ore), usa xG/contesto del solo passato e calibrazione da forecast
+cronologici fuori campione. Le metriche probabilistiche includono anche le
+partite senza giocate; ROI e CLV richiedono quote reali con provenienza valida.
+Gli snapshot di ingresso devono precedere il kickoff e la chiusura deve riferirsi
+allo stesso bookmaker. I risultati precedenti restano identificati dalla loro
+versione e non sono confrontabili direttamente con il nuovo protocollo.
+Dettagli e limiti: [integrità del backtest](docs/performance/backtest-integrity-2026-10-04.md).
+
 Per ogni fold `k = 1..K`:
 - train: storico disponibile prima della finestra test
 - test: finestra temporale successiva
@@ -876,9 +885,13 @@ Metriche aggregate:
 | `edgeNoVig` | `mean(ourProb_i - 1/odds_i)` |
 | `edgeDecayByMonth` | edgeNoVig per mese |
 | `rollingSharpePeriods` | Sharpe su finestre fisse di 50 bet |
-| `usedSyntheticOddsOnly` | true se tutte le quote sono sintetiche |
+| `usedSyntheticOddsOnly` | compatibilità dei vecchi report; il protocollo v5 non gioca quote sintetiche |
 
-#### 8.3 Metriche standard (invariato v3)
+#### 8.3 Metriche standard
+
+LL/Brier principali: tutte le previsioni goal della coorte comune, compresi i
+match senza giocate. Le metriche filtrate per giocata descrivono invece la
+selezione; `probabilityMetrics.byFamily` mantiene separate le altre famiglie.
 
 | Metrica | Formula |
 |---|---|

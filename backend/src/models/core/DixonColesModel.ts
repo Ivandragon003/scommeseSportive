@@ -999,6 +999,8 @@ export class DixonColesModel {
     maxIter = 280,
     lr = 0.04,
     opts: {
+      /** Reference clock for historical fits; no mutation of the live clock. */
+      referenceDate?: Date;
       prevSeasonWeight?: number;
       tauInter?: number;
       currentSeasonDecay?: number;
@@ -1047,7 +1049,7 @@ export class DixonColesModel {
       if (this.params.defenceParams[t] === undefined) this.params.defenceParams[t] = 0.0;
     }
 
-    const now = new Date();
+    const now = opts.referenceDate ?? new Date();
     const { current: currentSeason, previous: previousSeason } = this.resolveSeasons(matches, now);
 
     const {

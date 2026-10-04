@@ -1,4 +1,4 @@
-import { BacktestBetDetail } from '../models/backtesting/BacktestingEngine';
+import { BacktestBetDetail, BacktestProbabilityMetrics } from '../models/backtesting/BacktestingEngine';
 
 export type BacktestReportFilters = {
   market?: string;
@@ -196,6 +196,7 @@ type AggregatedReportSections = {
 };
 
 type BacktestReportSource = {
+  probabilityMetrics?: BacktestProbabilityMetrics;
   detailedBets?: unknown;
   kind?: unknown;
   competition?: unknown;
@@ -243,6 +244,7 @@ type BacktestReportSource = {
 };
 
 type BacktestReport = {
+  probabilityMetrics: BacktestProbabilityMetrics | null;
   run: {
     kind: 'classic' | 'walk_forward';
     competition: string;
@@ -1144,6 +1146,8 @@ export const buildBacktestReport = (
       },
       quality: datasetIndex.quality,
     },
+    // Forecast quality has a different population from filtered bet diagnostics.
+    probabilityMetrics: result.probabilityMetrics ?? null,
     summary,
     segments: {
       byCompetition,

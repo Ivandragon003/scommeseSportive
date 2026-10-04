@@ -202,7 +202,7 @@ test('BacktestingEngine walk-forward uses the live vig-removal value betting pat
   assert.ok(result.summary.totalBetsPlaced >= 0);
 });
 
-test('BacktestingEngine walk-forward separates real Eurobet odds and synthetic odds metrics', () => {
+test('BacktestingEngine walk-forward counts only real bookmaker prices in financial metrics', () => {
   const engine = new BacktestingEngine();
   const matches = buildMatches();
   const { odds, context } = buildHistoricalOdds(matches);
@@ -219,7 +219,9 @@ test('BacktestingEngine walk-forward separates real Eurobet odds and synthetic o
   const realBets = result.detailedBets.filter((bet) => bet.isRealEurobetOdds);
   const syntheticBets = result.detailedBets.filter((bet) => bet.isSynthetic);
   assert.ok(result.summary.totalBetsPlaced > 0);
-  assert.equal(realBets.length + syntheticBets.length, result.summary.totalBetsPlaced);
+  assert.equal(realBets.length, result.summary.totalBetsPlaced);
+  assert.equal(syntheticBets.length, 0);
+  assert.equal(new Set(realBets.map((bet) => `${bet.matchId}:${bet.selection}`)).size, realBets.length);
   assert.ok(result.folds.every((fold) => typeof fold.betsWithRealEurobetOdds === 'number'));
   assert.ok(result.folds.every((fold) => typeof fold.betsWithSyntheticOdds === 'number'));
 });
@@ -292,7 +294,7 @@ test('BacktestingEngine walk-forward records algorithm version metadata on resul
 
   assert.equal(result.algorithmVersion, 'value-engine-v4');
   assert.equal(result.rankingVersion, 'ranking-edge-novig-loggrowth-v2');
-  assert.equal(result.backtestEngineVersion, 'backtest-engine-v4');
+  assert.equal(result.backtestEngineVersion, 'backtest-engine-v5-oos');
   assert.ok(result.detailedBets.length > 0);
   assert.equal(result.detailedBets.every((bet) => bet.algorithmVersion === result.algorithmVersion), true);
   assert.equal(result.detailedBets.every((bet) => bet.rankingVersion === result.rankingVersion), true);

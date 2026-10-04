@@ -1,29 +1,8 @@
 /**
- * Backtesting Engine — v3
- *
- * MODIFICHE v3:
- *
- * 1. SELEZIONE BET: selectMediumAndAbove (HIGH + MEDIUM confidence)
- *    invece di solo HIGH. Questo porta il volume nel range target
- *    150-400 bet/stagione su una lega completa (38 giornate × N partite).
- *    L'utente può passare a selectHighConfidence per essere più conservativo.
- *
- * 2. RANGE ODDS SINTETICI: [1.40, 8.00] allineato con ValueBettingEngine v3.
- *    Il motore genererà quote anche per underdog (quota 4-8) quando
- *    la probabilità implicita è nel range corretto.
- *
- * 3. MARGINE SINTETICO: ridotto a 5% (era 6%). Bookmaker competitivi
- *    (Pinnacle, Betfair) hanno margini realistici del 3-5%.
- *
- * 4. JITTER RIDOTTO: ±6% (era ±8%). Meno rumore → simulazione più realistica
- *    del comportamento di un bookmaker efficiente.
- *
- * 5. marketBreakdown: aggiornato con MarketCategory di v3.
- *
- * 6. evaluateBet: gestisce tutti i mercati inclusi tiri, gialli, falli.
- *    Per i mercati statistici, se il dato reale non è disponibile in MatchData,
- *    la bet viene marcata come non valutabile (VOID) e separata dalle metriche
- *    di ROI/win-rate per evitare penalizzazioni silenziose nel backtest.
+ * Chronological walk-forward validation of the current prematch pipeline.
+ * Results become available two hours after kickoff. Model fit, context and
+ * calibration cannot read target outcomes. Probability scores cover every
+ * common fixed forecast; financial metrics require verifiable real prices.
  */
 
 import { DixonColesModel, MatchData, SupplementaryData } from '../core/DixonColesModel';
@@ -36,13 +15,20 @@ import {
   ValueAnalysisContext,
   RankingWeightsConfig,
   MarketCalibrationProfile,
-  MarketCalibrationEntry,
   SingleMatchBetStatus,
 } from '../value/ValueBettingEngine';
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
+import { applyCalibrationToFlatProbabilities, FamilyCalibrationCurve } from '../value/EnhancedMarketAnalysis';
+import { PoissonXgModel } from '../core/PoissonXgModel';
+import { blendGoalProbabilities } from '../../services/ProbabilityEnsembleService';
+import { learnBlendWeights, noVigProbability } from '../../services/MarketBlendLearningService';
+import { predictionConfig } from '../../config/predictionConfig';
+import { PredictionContextBuilder } from '../../services/PredictionContextBuilder';
+import { HISTORICAL_RESULT_DELAY_MS } from '../../services/ChronologicalForecastService';
 import { clamp } from '../utils/MathUtils';
 import { bookingPoints } from '../../utils/dataHelpers';
-import { MetricWeightMode } from '../../config/PredictionEngineConfig';
+import { historicalTimestamp } from '../../utils/historicalTime';
+import { MetricWeightMode, predictionEngineConfig } from '../../config/PredictionEngineConfig';
 import {
   ALGORITHM_VERSION,
   BACKTEST_ENGINE_VERSION,
@@ -79,6 +65,8 @@ export interface BacktestResult {
   averageEV: number;
   brierScore: number;
   logLoss: number;
+  probabilityMetrics?: BacktestProbabilityMetrics;
+  probabilityObservations?: BacktestProbabilityObservation[];
   weightedBrierScore?: number;
   weightedLogLoss?: number;
   calibration: CalibrationBucket[];
@@ -159,7 +147,49 @@ export interface BacktestRunOptions {
    * modello gira sui default (comportamento legacy pre-I1) — utile per A/B.
    */
   asOfSupplementaryData?: boolean;
+  /** Prior out-of-sample forecasts only; availability is checked again at the fold cutoff. */
+  calibrationObservations?: BacktestProbabilityObservation[];
+  /** Explicit offline diagnostic export; omitted from persisted results by default. */
+  includeProbabilityObservations?: boolean;
 }
+
+export interface BacktestProbabilityObservation {
+  matchId: string;
+  date: Date;
+  competition?: string;
+  season?: string;
+  selection: string;
+  probability: number;
+  outcome: 0 | 1;
+  stage: 'raw' | 'calibrated' | 'blended';
+  odds?: number;
+  companionOdds?: number[];
+}
+
+export interface BacktestProbabilityMetrics {
+  scope: 'all_common_forecasts';
+  primaryFamily: 'goals';
+  nMatches: number;
+  nObservations: number;
+  brierScore: number;
+  logLoss: number;
+  byFamily: Record<string, { nMatches: number; nObservations: number; brierScore: number; logLoss: number }>;
+}
+
+const PROBABILITY_FAMILIES: Record<string, string[]> = {
+  goals: ['homeWin', 'draw', 'awayWin', 'over15', 'over25', 'over35', 'btts'],
+  cards: ['cardsTotalOver35', 'cardsTotalOver45', 'cardsTotalOver55'],
+  yellow: ['yellowOver35', 'yellowOver45', 'yellowOver55'],
+  shots: ['shotsOver235', 'shotsOver255', 'shotsOver275'],
+  shots_ot: ['shotsOTOver75', 'shotsOTOver85', 'shotsOTOver95'],
+};
+
+type OutOfSampleCalibrationProfile = {
+  calibrationPoints: Array<{ x: number; y: number }>;
+  nObservations: number;
+  byFamily: Record<string, FamilyCalibrationCurve>;
+  learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
+};
 
 export interface BacktestComparisonMetrics {
   algorithmMode: BacktestAlgorithmMode;
@@ -310,6 +340,7 @@ export interface WalkForwardFoldSummary {
   netProfit: number;
   brierScore: number;
   logLoss: number;
+  probabilityMetrics?: BacktestProbabilityMetrics;
   averageClv: number | null;
   positiveClvRate: number | null;
   maxDrawdown: number;
@@ -356,6 +387,8 @@ export interface WalkForwardBacktestResult {
     averageLogLoss: number;
   };
   detailedBets: BacktestBetDetail[];
+  probabilityMetrics?: BacktestProbabilityMetrics;
+  probabilityObservations?: BacktestProbabilityObservation[];
   calibrationDiagnostics?: CalibrationDiagnostics;
   blendedVsRawComparison?: BlendedVsRawComparison;
   categoryOverfittingRisk?: Record<string, OverfittingRisk>;
@@ -420,6 +453,8 @@ export interface HistoricalOddsContextEntry {
   closingOdds?: Record<string, number>;
   closingCapturedAt?: string | null;
   closingSource?: string | null;
+  closingBookmakerKey?: string | null;
+  closingBookmakerName?: string | null;
   usedFallbackBookmaker?: boolean;
   usedSyntheticOdds?: boolean;
   closingRejectedReason?: ClvMissingReason | null;
@@ -996,10 +1031,10 @@ export class BacktestingEngine {
     const awayHistory = prior.filter((row) => row.homeTeamId === match.awayTeamId || row.awayTeamId === match.awayTeamId);
     const recentHome = homeHistory.slice(-5);
     const recentAway = awayHistory.slice(-5);
-    const hasXg = prior.some((row) => Number.isFinite(Number(row.homeXG)) && Number.isFinite(Number(row.awayXG)));
-    const hasShots = prior.some((row) => Number.isFinite(Number(row.homeTotalShots)) && Number.isFinite(Number(row.awayTotalShots)));
-    const hasShotsOnTarget = prior.some((row) => Number.isFinite(Number(row.homeShotsOnTarget)) && Number.isFinite(Number(row.awayShotsOnTarget)));
-    const hasCards = prior.some((row) => Number.isFinite(Number(row.homeYellowCards)) && Number.isFinite(Number(row.awayYellowCards)));
+    const hasXg = prior.some((row) => this.isFiniteObserved(row.homeXG) && this.isFiniteObserved(row.awayXG));
+    const hasShots = prior.some((row) => this.isFiniteObserved(row.homeTotalShots) && this.isFiniteObserved(row.awayTotalShots));
+    const hasShotsOnTarget = prior.some((row) => this.isFiniteObserved(row.homeShotsOnTarget) && this.isFiniteObserved(row.awayShotsOnTarget));
+    const hasCards = prior.some((row) => this.isFiniteObserved(row.homeYellowCards) && this.isFiniteObserved(row.awayYellowCards));
     const hasRefereeData = prior.some((row) => Boolean(String(row.referee ?? '').trim()));
     const sampleStrength = clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
     const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
@@ -1023,7 +1058,7 @@ export class BacktestingEngine {
       return points / rows.length;
     };
     const averageXgDiff = (rows: MatchData[], teamId: string): number => {
-      const valid = rows.filter((row) => Number.isFinite(Number(row.homeXG)) && Number.isFinite(Number(row.awayXG)));
+      const valid = rows.filter((row) => this.isFiniteObserved(row.homeXG) && this.isFiniteObserved(row.awayXG));
       if (!valid.length) return 0;
       return valid.reduce((sum, row) => {
         const isHome = row.homeTeamId === teamId;
@@ -1094,74 +1129,83 @@ export class BacktestingEngine {
     };
   }
 
-  private buildCalibrationEntry(rows: Array<{ probability: number; won: boolean }>): MarketCalibrationEntry {
-    const predictedAvg = rows.reduce((sum, row) => sum + row.probability, 0) / rows.length;
-    const actualHitRate = rows.filter((row) => row.won).length / rows.length;
-    return {
-      predictedAvg: Number(predictedAvg.toFixed(6)),
-      actualHitRate: Number(actualHitRate.toFixed(6)),
-      sampleSize: rows.length,
-      reliability: Number(this.clampNumber(rows.length / 120, 0, 1).toFixed(3)),
-      calibrationGap: Number((actualHitRate - predictedAvg).toFixed(6)),
-    };
-  }
-
-  private buildTrainingMarketCalibrationProfile(
-    trainMatches: MatchData[],
-    asOfSupp = false,
-  ): MarketCalibrationProfile | undefined {
-    const byMarketRows: Record<string, Array<{ probability: number; won: boolean }>> = {};
-    const globalRows: Array<{ probability: number; won: boolean }> = [];
-
-    for (const match of trainMatches) {
-      if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
-      const supp = asOfSupp ? this.buildAsOfSupp(match, trainMatches) : undefined;
-      const probs = this.model.computeFullProbabilities(
-        match.homeTeamId,
-        match.awayTeamId,
-        match.homeXG,
-        match.awayXG,
-        supp,
-      );
-
-      for (const [selection, probability] of Object.entries(probs.flatProbabilities ?? {})) {
-        const numericProbability = Number(probability);
-        if (!Number.isFinite(numericProbability) || numericProbability <= 0 || numericProbability >= 1) continue;
-        const won = this.evaluateBetNullable(selection, match);
-        if (won === null) continue;
-        const category = this.engine.categorizeSelection(selection);
-        const calibrationKey = this.engine.getMarketCalibrationKey(selection, category);
-        const row = { probability: numericProbability, won };
-        globalRows.push(row);
-        (byMarketRows[calibrationKey] ??= []).push(row);
+  /** Curves are fitted exclusively on forecasts made before their outcomes existed. */
+  private buildOutOfSampleCalibrationProfile(
+    observations: BacktestProbabilityObservation[], cutoff: Date,
+  ): OutOfSampleCalibrationProfile {
+    const available = observations.filter((row) => row.date.getTime() < cutoff.getTime()
+      && row.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
+    const latestIds = new Set([...new Map(available.map((row) => [row.matchId, row.date.getTime()])).entries()]
+      .sort((a, b) => a[1] - b[1]).slice(-450).map(([id]) => id));
+    const calibrationKeys = new Set(['homeWin', 'draw', 'awayWin', 'over15', 'under15', 'over25', 'under25',
+      'over35', 'under35', 'btts', 'bttsNo', 'double_chance_1x', 'double_chance_x2', 'double_chance_12', 'dnb_home', 'dnb_away']);
+    const calibrationSelection = (key: string) => calibrationKeys.has(key) || /^(shotsOT|shots|yellow)(Over|Under)\d{2,3}$/.test(key);
+    const raw = available.filter((row) => row.stage === 'raw' && latestIds.has(row.matchId) && calibrationSelection(row.selection));
+    const fit = this.engine.fitIsotonicCalibration(raw.map((row) => row.probability), raw.map((row) => row.outcome));
+    const byFamily: Record<string, FamilyCalibrationCurve> = {};
+    if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+      for (const family of new Set(raw.map((row) => this.engine.categorizeSelection(row.selection)))) {
+        const bucket = raw.filter((row) => this.engine.categorizeSelection(row.selection) === family);
+        if (bucket.length < predictionEngineConfig.calibration.perFamilyMinSamples) continue;
+        const curve = this.engine.fitIsotonicCalibration(bucket.map((row) => row.probability), bucket.map((row) => row.outcome));
+        if (curve.calibrationPoints.length >= 3) byFamily[family] = { points: curve.calibrationPoints, nObservations: bucket.length };
       }
     }
+    // Use the calibrated probability actually available to the earlier forecast,
+    // rather than recalibrating that forecast with its own eventual result.
+    const blendSamples = available.filter((row) => row.stage === 'calibrated' && latestIds.has(row.matchId) && calibrationSelection(row.selection))
+      .flatMap((row) => {
+        const market = noVigProbability(row.odds ?? NaN, row.companionOdds ?? []);
+        return market === null ? [] : [{ category: this.engine.categorizeSelection(row.selection),
+          modelProb: row.probability, marketProbNoVig: market, outcome: row.outcome }];
+      });
+    return { calibrationPoints: fit.calibrationPoints, nObservations: raw.length, byFamily,
+      learnedBlendWeights: predictionEngineConfig.marketBlending.enableLearnedBlendWeights
+        ? learnBlendWeights(blendSamples) : {} };
+  }
 
-    if (globalRows.length === 0) return undefined;
-
-    return {
-      global: this.buildCalibrationEntry(globalRows),
-      byMarket: Object.fromEntries(
-        Object.entries(byMarketRows).map(([market, rows]) => [market, this.buildCalibrationEntry(rows)])
-      ),
-    };
+  private probabilityMetrics(observations: BacktestProbabilityObservation[]): BacktestProbabilityMetrics {
+    const byFamily: BacktestProbabilityMetrics['byFamily'] = {};
+    for (const [family, selections] of Object.entries(PROBABILITY_FAMILIES)) {
+      const rows = observations.filter((row) => row.stage === 'blended' && selections.includes(row.selection));
+      const grouped = new Map<string, BacktestProbabilityObservation[]>();
+      for (const row of rows) { const bucket = grouped.get(row.matchId) ?? []; bucket.push(row); grouped.set(row.matchId, bucket); }
+      const common = [...grouped.values()].filter((bucket) => selections.every((key) => bucket.some((row) => row.selection === key)))
+        .flatMap((bucket) => selections.map((key) => bucket.find((row) => row.selection === key)!));
+      const n = common.length;
+      byFamily[family] = { nMatches: n / selections.length, nObservations: n,
+        brierScore: n ? common.reduce((sum, row) => sum + (row.probability - row.outcome) ** 2, 0) / n : 0,
+        logLoss: n ? common.reduce((sum, row) => { const p = clamp(row.probability, 1e-10, 1 - 1e-10);
+          return sum - (row.outcome ? Math.log(p) : Math.log(1 - p)); }, 0) / n : 0 };
+    }
+    return { scope: 'all_common_forecasts', primaryFamily: 'goals', ...byFamily.goals, byFamily };
   }
 
   private isRealBookmakerOddsContext(context?: HistoricalOddsContextEntry): boolean {
     const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
-    if (context?.usedFallbackBookmaker || context?.usedSyntheticOdds) return false;
+    if (context?.usedFallbackBookmaker || context?.usedSyntheticOdds || context?.oddsSource === 'synthetic'
+      || selectedSource.includes('synthetic') || selectedSource.includes('model_completion')) return false;
+    if (selectedSource.includes('football_data')) return true;
     if (selectedSource.includes('eurobet')) return true;
     return selectedSource.includes('odds_api')
       && Boolean(String(context?.selectedBookmakerName ?? '').trim());
   }
 
   private isTrustedClosingContext(context?: HistoricalOddsContextEntry): boolean {
+    if (!this.isRealBookmakerOddsContext(context)) return false;
     const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
-    const closingSource = String(context?.closingSource ?? context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
-    // Closing affidabile per il CLV: Eurobet (quote lato utente) o football-data
-    // (media mercato di chiusura, source `football_data`, stage 3 ingest closing odds).
-    const trusted = (s: string) => s.includes('eurobet') || s.includes('football_data');
-    return trusted(selectedSource) && trusted(closingSource);
+    const closingSource = String(context?.closingSource ?? '').toLowerCase();
+    if (closingSource.includes('synthetic') || closingSource.includes('model_completion')) return false;
+    if (selectedSource.includes('football_data') && closingSource.includes('football_data')) return true;
+    // Legacy Eurobet rows already identify the operator by their source.
+    if (selectedSource.includes('eurobet') && closingSource.includes('eurobet')) return true;
+    if (!selectedSource.includes('odds_api') || !closingSource.includes('odds_api')) return false;
+    const entryKey = String(context?.selectedBookmakerKey ?? '').trim().toLowerCase();
+    const closingKey = String(context?.closingBookmakerKey ?? '').trim().toLowerCase();
+    if (entryKey && closingKey) return entryKey === closingKey;
+    const entryName = String(context?.selectedBookmakerName ?? '').trim().toLowerCase();
+    const closingName = String(context?.closingBookmakerName ?? '').trim().toLowerCase();
+    return Boolean(entryName && closingName && entryName === closingName);
   }
 
   private resolveClosingOdds(
@@ -1169,6 +1213,11 @@ export class BacktestingEngine {
     selection: string,
     kickoffDate: Date
   ): { closingOdds: number | null; capturedAt: string | null; source: string | null; missingReason: ClvMissingReason | null } {
+    if (context && this.isRealBookmakerOddsContext(context)
+      && (!Number.isFinite(Number(context.closingOdds?.[selection])) || Number(context.closingOdds?.[selection]) <= 1)) {
+      return { closingOdds: null, capturedAt: context.closingCapturedAt ?? null,
+        source: context.closingSource ?? null, missingReason: 'missing_closing_odds' };
+    }
     if (!context || !this.isTrustedClosingContext(context)) {
       return {
         closingOdds: null,
@@ -1178,7 +1227,7 @@ export class BacktestingEngine {
       };
     }
 
-    const capturedMs = new Date(String(context.closingCapturedAt ?? '')).getTime();
+    const capturedMs = historicalTimestamp(context.closingCapturedAt);
     const kickoffMs = kickoffDate.getTime();
     if (
       context.closingRejectedReason === 'snapshot_after_kickoff_rejected' ||
@@ -1190,6 +1239,14 @@ export class BacktestingEngine {
         source: context.closingSource ?? context.snapshotSource ?? null,
         missingReason: 'snapshot_after_kickoff_rejected',
       };
+    }
+
+    const entryMs = historicalTimestamp(context.capturedAt);
+    const importedCsv = String(context.closingSource ?? '').toLowerCase().includes('football_data');
+    if ((!Number.isFinite(capturedMs) && !(importedCsv && !context.closingCapturedAt))
+      || (Number.isFinite(capturedMs) && Number.isFinite(entryMs) && capturedMs < entryMs)) {
+      return { closingOdds: null, capturedAt: context.closingCapturedAt ?? null,
+        source: context.closingSource ?? null, missingReason: 'missing_closing_odds' };
     }
 
     const closingOdds = Number(context.closingOdds?.[selection]);
@@ -1255,7 +1312,7 @@ export class BacktestingEngine {
     };
     const mean = (a: { v: number; w: number }): number | undefined => (a.w > 0 ? a.v / a.w : undefined);
     const popVar = (arr: number[]): number | undefined => {
-      if (arr.length < 2) return undefined;
+      if (arr.length === 0) return undefined;
       const m = arr.reduce((s, x) => s + x, 0) / arr.length;
       return Math.max(0, arr.reduce((s, x) => s + (x - m) * (x - m), 0) / arr.length);
     };
@@ -1266,52 +1323,56 @@ export class BacktestingEngine {
     // (DISABLED_CATEGORIES) e rimossi dalle flatProbabilities. Quando il mercato
     // corner verra' riattivato, l'aggregazione corner va aggiunta insieme al
     // campo su MatchData e alla mappatura in loadBacktestMatches.
-    const h = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
-    const a = { shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
-    const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
-    const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[] };
+    const h = { xg: wsum(), shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
+    const a = { xg: wsum(), shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
+    const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[], poss: [] as number[] };
+    const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[], poss: [] as number[] };
 
+    let totalFoulsDrawn = 0;
     for (const m of past) {
       const w = this.asOfWeight(asOfMs, m.date.getTime());
       if (m.homeTeamId === teamId) {
-        h.w += w; h.n += 1;
+        h.w += w; h.n += 1; add(h.xg, m.homeXG, w);
+        totalFoulsDrawn += this.isFiniteObserved(m.awayFouls) ? m.awayFouls : 0;
+        if (this.isFiniteObserved(m.homePossession)) hv.poss.push(m.homePossession);
         add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w);
         add(h.poss, m.homePossession, w); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
         add(h.foul, m.homeFouls, w); add(h.fdrawn, m.awayFouls, w); add(h.conc, m.awayTotalShots, w);
-        if (Number.isFinite(Number(m.homeTotalShots))) hv.shots.push(Number(m.homeTotalShots));
-        if (Number.isFinite(Number(m.homeShotsOnTarget))) hv.sot.push(Number(m.homeShotsOnTarget));
-        if (Number.isFinite(Number(m.homeYellowCards))) hv.yel.push(Number(m.homeYellowCards));
-        if (Number.isFinite(Number(m.homeFouls))) hv.foul.push(Number(m.homeFouls));
+        if (this.isFiniteObserved(m.homeTotalShots)) hv.shots.push(Number(m.homeTotalShots));
+        if (this.isFiniteObserved(m.homeShotsOnTarget)) hv.sot.push(Number(m.homeShotsOnTarget));
+        if (this.isFiniteObserved(m.homeYellowCards)) hv.yel.push(Number(m.homeYellowCards));
+        if (this.isFiniteObserved(m.homeFouls)) hv.foul.push(Number(m.homeFouls));
       } else if (m.awayTeamId === teamId) {
-        a.w += w; a.n += 1;
+        a.w += w; a.n += 1; add(a.xg, m.awayXG, w);
+        totalFoulsDrawn += this.isFiniteObserved(m.homeFouls) ? m.homeFouls : 0;
+        if (this.isFiniteObserved(m.awayPossession)) av.poss.push(m.awayPossession);
         add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w);
         add(a.poss, m.awayPossession, w); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
         add(a.foul, m.awayFouls, w); add(a.fdrawn, m.homeFouls, w); add(a.conc, m.homeTotalShots, w);
-        if (Number.isFinite(Number(m.awayTotalShots))) av.shots.push(Number(m.awayTotalShots));
-        if (Number.isFinite(Number(m.awayShotsOnTarget))) av.sot.push(Number(m.awayShotsOnTarget));
-        if (Number.isFinite(Number(m.awayYellowCards))) av.yel.push(Number(m.awayYellowCards));
-        if (Number.isFinite(Number(m.awayFouls))) av.foul.push(Number(m.awayFouls));
+        if (this.isFiniteObserved(m.awayTotalShots)) av.shots.push(Number(m.awayTotalShots));
+        if (this.isFiniteObserved(m.awayShotsOnTarget)) av.sot.push(Number(m.awayShotsOnTarget));
+        if (this.isFiniteObserved(m.awayYellowCards)) av.yel.push(Number(m.awayYellowCards));
+        if (this.isFiniteObserved(m.awayFouls)) av.foul.push(Number(m.awayFouls));
       }
     }
 
     // avg combinati (yellow/red/fouls/conceded) pesati per venue-weight, come produzione.
     const totW = h.w + a.w;
-    const combine = (hh: { v: number; w: number }, aa: { v: number; w: number }): number | undefined => {
-      const mh = mean(hh); const ma = mean(aa);
-      if (mh === undefined && ma === undefined) return undefined;
-      if (totW <= 0) return mh ?? ma;
-      return ((mh ?? ma ?? 0) * h.w + (ma ?? mh ?? 0) * a.w) / totW;
+    const combine = (hh: { v: number; w: number }, aa: { v: number; w: number }, fallback: number): number => {
+      return totW > 0 ? ((mean(hh) ?? fallback) * h.w + (mean(aa) ?? fallback) * a.w) / totW : fallback;
     };
-    const avgConcededAll = combine(h.conc, a.conc);
-    const suppression = avgConcededAll !== undefined ? avgConcededAll / this.ASOF_LEAGUE_SHOTS_CONCEDED : undefined;
+    const suppression = combine(h.conc, a.conc, this.ASOF_LEAGUE_SHOTS_CONCEDED) / this.ASOF_LEAGUE_SHOTS_CONCEDED;
+    const simpleMean = (values: number[]): number | undefined => values.length
+      ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
 
     return {
       homeN: h.n, awayN: a.n,
+      avgHomeXG: mean(h.xg), avgAwayXG: mean(a.xg),
       avgHomeShots: mean(h.shots), avgAwayShots: mean(a.shots),
       avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
-      avgHomePoss: mean(h.poss), avgAwayPoss: mean(a.poss),
-      avgYellow: combine(h.yel, a.yel), avgRed: combine(h.red, a.red), avgFouls: combine(h.foul, a.foul),
-      avgFoulsDrawn: combine(h.fdrawn, a.fdrawn),
+      avgHomePoss: simpleMean(hv.poss), avgAwayPoss: simpleMean(av.poss),
+      avgYellow: combine(h.yel, a.yel, 1.9), avgRed: combine(h.red, a.red, 0.11), avgFouls: combine(h.foul, a.foul, 11.2),
+      avgFoulsDrawn: h.n + a.n > 0 ? totalFoulsDrawn / (h.n + a.n) : undefined,
       suppression,
       varHomeShots: popVar(hv.shots), varAwayShots: popVar(av.shots),
       varHomeSot: popVar(hv.sot), varAwaySot: popVar(av.sot),
@@ -1331,9 +1392,9 @@ export class BacktestingEngine {
       const y = Number(m.homeYellowCards) + Number(m.awayYellowCards);
       const f = Number(m.homeFouls) + Number(m.awayFouls);
       const r = Number(m.homeRedCards) + Number(m.awayRedCards);
-      if (Number.isFinite(y)) { sumY += y; nY += 1; }
-      if (Number.isFinite(f)) { sumF += f; nF += 1; }
-      if (Number.isFinite(r)) { sumR += r; nR += 1; }
+      if (this.isFiniteObserved(m.homeYellowCards) && this.isFiniteObserved(m.awayYellowCards)) { sumY += y; nY += 1; }
+      if (this.isFiniteObserved(m.homeFouls) && this.isFiniteObserved(m.awayFouls)) { sumF += f; nF += 1; }
+      if (this.isFiniteObserved(m.homeRedCards) && this.isFiniteObserved(m.awayRedCards)) { sumR += r; nR += 1; }
     }
     if (games === 0) return undefined;
     return {
@@ -1349,10 +1410,9 @@ export class BacktestingEngine {
    * match da cui aggregare; il filtro strettamente-precedente e la guardia
    * anti-leakage garantiscono che nessun dato della partita o futuro entri.
    */
-  private buildAsOfSupp(match: MatchData, history: MatchData[]): SupplementaryData | undefined {
+  buildAsOfSupp(match: MatchData, history: MatchData[]): SupplementaryData | undefined {
     const asOfMs = match.date.getTime();
-    const past = history.filter((m) =>
-      m.date.getTime() < asOfMs && m.homeGoals !== undefined && m.awayGoals !== undefined && m.matchId !== match.matchId);
+    const past = this.availableHistory(history, match.date, match.matchId);
     if (past.length === 0) return undefined;
     // Guardia hard anti-leakage: nessun match incluso puo essere >= asOf.
     for (const m of past) {
@@ -1412,6 +1472,49 @@ export class BacktestingEngine {
     };
   }
 
+  private isFiniteObserved(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+  }
+
+  private isCompletedMatch(match: MatchData): boolean {
+    return this.isFiniteObserved(match.homeGoals) && this.isFiniteObserved(match.awayGoals)
+      && match.homeGoals >= 0 && match.awayGoals >= 0;
+  }
+
+  private availableHistory(history: MatchData[], cutoff: Date, targetId?: string): MatchData[] {
+    const seen = new Set<string>();
+    return history.filter((row) => {
+      const time = row.date.getTime();
+      if (row.matchId === targetId || seen.has(row.matchId) || !Number.isFinite(time)
+        || time >= cutoff.getTime() || time + HISTORICAL_RESULT_DELAY_MS > cutoff.getTime()
+        || !this.isCompletedMatch(row)) return false;
+      seen.add(row.matchId); return true;
+    }).sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
+  }
+
+  /** Same as-of inputs are shared by the backtest and historical runtime calibration. */
+  buildAsOfPredictionContext(match: MatchData, history: MatchData[]): {
+    supplementaryData?: SupplementaryData; homeXG?: number; awayXG?: number;
+  } {
+    const past = this.availableHistory(history, match.date, match.matchId);
+    const home = this.computeAsOfTeamRecord(match.homeTeamId, match.date.getTime(), past);
+    const away = this.computeAsOfTeamRecord(match.awayTeamId, match.date.getTime(), past);
+    const schedule = (teamId: string) => {
+      const rows = past.filter((row) => row.homeTeamId === teamId || row.awayTeamId === teamId);
+      return { rest: rows.length ? Math.max(0, Math.round((match.date.getTime() - rows[rows.length - 1].date.getTime()) / 86400000)) : undefined,
+        recent: rows.filter((row) => match.date.getTime() - row.date.getTime() <= 14 * 86400000).length };
+    };
+    const homeSchedule = schedule(match.homeTeamId), awaySchedule = schedule(match.awayTeamId);
+    const context = new PredictionContextBuilder().build({
+      request: { homeRestDays: homeSchedule.rest, awayRestDays: awaySchedule.rest,
+        homeRecentMatchesCount: homeSchedule.recent, awayRecentMatchesCount: awaySchedule.recent },
+      homeTeam: null, awayTeam: null, referee: null, homePlayers: [], awayPlayers: [],
+    }).supplementaryData;
+    return { homeXG: home.avgHomeXG, awayXG: away.avgAwayXG,
+      supplementaryData: { ...this.buildAsOfSupp(match, past), competitiveness: context.competitiveness,
+        isDerby: context.isDerby, contextAdjustments: context.contextAdjustments } };
+  }
+
   private simulateBacktestScenario(
     trainMatches: MatchData[],
     testMatches: MatchData[],
@@ -1423,14 +1526,19 @@ export class BacktestingEngine {
     const algorithmMode: BacktestAlgorithmMode = options.algorithmMode ?? 'current';
     // I1: default ON. Il backtest costruisce `supp` as-of-date come la produzione.
     const asOfSupp = options.asOfSupplementaryData !== false;
-    const teams = [...new Set([...trainMatches, ...testMatches].flatMap(m => [m.homeTeamId, m.awayTeamId]))];
-    const teamSamples = this.buildTeamSampleSizes(trainMatches);
-    // Storico as-of per le predizioni di test: train + test, filtrato per date < D
-    // dentro buildAsOfSupp (che esclude anche la partita stessa e ogni futura).
-    const asOfHistory = asOfSupp ? [...trainMatches, ...testMatches] : [];
-
-    this.model.fitModel(trainMatches, teams);
-    const marketCalibrationProfile = this.buildTrainingMarketCalibrationProfile(trainMatches, asOfSupp);
+    testMatches = [...testMatches].sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
+    const cutoff = testMatches[0]?.date ?? new Date();
+    trainMatches = this.availableHistory(trainMatches, cutoff);
+    const teams = [...new Set(trainMatches.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
+    const asOfHistory = [...trainMatches, ...testMatches];
+    // Fresh parameters prevent the previous fold from acting as a hidden prior.
+    this.model = new DixonColesModel();
+    const params = this.model.fitModel(trainMatches, teams, 280, 0.04, { referenceDate: cutoff });
+    this.model.setParams({ ...params, homeAdvantage: clamp(params.homeAdvantage * predictionConfig.model.homeAdvantageScale, -0.8, 1.2) });
+    const poisson = new PoissonXgModel();
+    poisson.fit(trainMatches);
+    const calibrationProfile = this.buildOutOfSampleCalibrationProfile(options.calibrationObservations ?? [], cutoff);
+    const probabilityObservations: BacktestProbabilityObservation[] = [];
 
     const bets: TestBet[] = [];
     const singleBestAlwaysBets: TestBet[] = [];
@@ -1440,7 +1548,6 @@ export class BacktestingEngine {
     let singleBestBankroll = this.INITIAL_BANKROLL;
     let syntheticOddsMatchCount = 0;
     let realOddsMatchCount = 0;
-    const chronologicalHistory = [...trainMatches].sort((a, b) => a.date.getTime() - b.date.getTime());
     const equityCurve: EquityPoint[] = [
       { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
     ];
@@ -1450,40 +1557,73 @@ export class BacktestingEngine {
 
     for (let i = 0; i < testMatches.length; i++) {
       const match = testMatches[i];
-      if (match.homeGoals === undefined || match.awayGoals === undefined) continue;
-
-      const suppAsOf = asOfSupp ? this.buildAsOfSupp(match, asOfHistory) : undefined;
+      if (!this.isCompletedMatch(match)) continue;
+      // The predictor receives only identifiers and metadata known before kickoff.
+      const target: MatchData = { matchId: match.matchId, homeTeamId: match.homeTeamId, awayTeamId: match.awayTeamId,
+        date: match.date, competition: match.competition, season: match.season, referee: match.referee };
+      const context = this.buildAsOfPredictionContext(target, asOfHistory);
       const probs = this.model.computeFullProbabilities(
-        match.homeTeamId, match.awayTeamId, match.homeXG, match.awayXG, suppAsOf
+        target.homeTeamId, target.awayTeamId, context.homeXG, context.awayXG,
+        asOfSupp ? context.supplementaryData : undefined,
       );
-      const probMap     = probs.flatProbabilities;
+      const raw = blendGoalProbabilities(probs.flatProbabilities,
+        poisson.hasParams() ? poisson.computeGoalProbabilities(target.homeTeamId, target.awayTeamId) : null,
+        predictionEngineConfig.ensemble);
+      const p1 = raw.homeWin ?? 0, px = raw.draw ?? 0, p2 = raw.awayWin ?? 0;
+      raw.double_chance_1x = p1 + px; raw.double_chance_x2 = p2 + px; raw.double_chance_12 = p1 + p2;
+      if (p1 + p2 > 0) { raw.dnb_home = p1 / (p1 + p2); raw.dnb_away = p2 / (p1 + p2); }
+      const homeSample = Number(context.supplementaryData?.homeTeamStats?.sampleSize ?? 0);
+      const awaySample = Number(context.supplementaryData?.awayTeamStats?.sampleSize ?? 0);
+      const statsAvailable = homeSample >= predictionConfig.markets.minSampleSizePerTeam
+        && awaySample >= predictionConfig.markets.minSampleSizePerTeam
+        && homeSample + awaySample >= predictionConfig.markets.minCombinedSampleSize;
+      for (const key of Object.keys(raw)) {
+        if (/^(corners|fouls)/i.test(key) || (!statsAvailable && /^(shots|yellow|cards_?total)/i.test(key))) delete raw[key];
+      }
+      const probMap = applyCalibrationToFlatProbabilities(raw, calibrationProfile.calibrationPoints,
+        calibrationProfile.nObservations, this.engine, calibrationProfile.byFamily);
       const marketNames = this.buildMarketNames(probMap);
-      const hasRealOdds = Boolean(historicalOdds[match.matchId]);
       const oddsContext = historicalOddsContext[match.matchId];
-      const odds        = historicalOdds[match.matchId]
-        ?? this.generateSyntheticOdds(match.matchId, probMap);
-      const oddsSource: BacktestOddsSource = oddsContext?.oddsSource ?? (hasRealOdds ? 'unknown' : 'synthetic');
-      const isRealBookmakerOdds = hasRealOdds && this.isRealBookmakerOddsContext(oddsContext);
-      // Compatibility field now retains the wider, truthful real-bookmaker
-      // population; consumers can migrate to isRealBookmakerOdds additively.
+      const capturedMs = historicalTimestamp(oddsContext?.capturedAt);
+      const isImportedOpening = String(oddsContext?.snapshotSource ?? '').toLowerCase().includes('football_data');
+      const entryPredatesKickoff = Number.isFinite(capturedMs) ? capturedMs < match.date.getTime()
+        : isImportedOpening && !oddsContext?.capturedAt;
+      const hasRealOdds = Boolean(historicalOdds[match.matchId]) && this.isRealBookmakerOddsContext(oddsContext)
+        && entryPredatesKickoff;
+      // Missing, unverified and model-completed prices cannot establish ROI or CLV.
+      const odds = hasRealOdds ? historicalOdds[match.matchId] : {};
+      const oddsSource: BacktestOddsSource = oddsContext?.oddsSource ?? 'unknown';
+      const isRealBookmakerOdds = hasRealOdds;
       const isRealEurobetOdds = isRealBookmakerOdds;
-
       if (hasRealOdds) realOddsMatchCount++; else syntheticOddsMatchCount++;
-
       const marketGroups = this.engine.buildMarketGroups(odds);
-      const historicalRows = chronologicalHistory.filter((row) => row.date.getTime() < match.date.getTime());
+      const historicalRows = this.availableHistory(asOfHistory, match.date, match.matchId);
       const contextDiagnostics = this.buildBacktestValueAnalysisContext(
-        match,
-        historicalRows,
-        teamSamples,
-        isRealEurobetOdds,
-        marketCalibrationProfile
+        target, historicalRows, this.buildTeamSampleSizes(historicalRows), isRealEurobetOdds,
       );
+      contextDiagnostics.context.learnedBlendWeights = calibrationProfile.learnedBlendWeights;
       contextDiagnostics.context.expectedCards = Number(probs.cards?.expectedTotalYellow ?? 0);
       contextDiagnostics.context.expectedFouls = Number(probs.fouls?.expectedTotalFouls ?? 0);
       contextDiagnostics.context.expectedGoals = Number(probs.lambdaHome ?? 0) + Number(probs.lambdaAway ?? 0);
       contextDiagnostics.context.enableMarketBlending = true;
       contextDiagnostics.context.competition = match.competition ?? undefined;
+      const coreSelections = new Set(['homeWin', 'draw', 'awayWin', 'over15', 'under15', 'over25', 'under25',
+        'over35', 'under35', 'btts', 'bttsNo', 'double_chance_1x', 'double_chance_x2', 'double_chance_12', 'dnb_home', 'dnb_away']);
+      for (const selection of Object.keys(raw)) {
+        if (!coreSelections.has(selection) && !/^(shotsOT|shots|yellow|cardsTotal)(Over|Under)\d{2,3}$/.test(selection)) continue;
+        const outcome = this.evaluateBetNullable(selection, match);
+        if (outcome === null) continue;
+        for (const stage of ['raw', 'calibrated', 'blended'] as const) {
+          const group = marketGroups[selection];
+          const probability = stage === 'raw' ? raw[selection]
+            : stage === 'calibrated' ? probMap[selection]
+            : this.engine.blendForecastProbability(selection, probMap[selection], group, contextDiagnostics.context);
+          if (!Number.isFinite(probability) || probability < 0 || probability > 1) continue;
+          probabilityObservations.push({ matchId: match.matchId, date: match.date,
+            competition: match.competition, season: match.season, selection, probability,
+            outcome: outcome ? 1 : 0, stage, odds: group?.odds, companionOdds: group?.companions });
+        }
+      }
       const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(
         probMap,
         marketGroups,
@@ -1520,7 +1660,7 @@ export class BacktestingEngine {
           const underCardsCloseToLine = Boolean((singleBestOpp.dataWarnings ?? []).includes('under_cards_close_to_line'));
           const cardLearning = this.assessCardLineLearning({
             selection: singleBestOpp.selection,
-            actualCards: this.getActualCards(match),
+            actualCards: this.getActualCards(match, singleBestOpp.selection),
             clv,
             wasRecommendedTooCloseToLine: underCardsCloseToLine,
           });
@@ -1604,7 +1744,7 @@ export class BacktestingEngine {
         const underCardsCloseToLine = Boolean((opp.dataWarnings ?? []).includes('under_cards_close_to_line'));
         const cardLearning = this.assessCardLineLearning({
           selection: opp.selection,
-          actualCards: this.getActualCards(match),
+          actualCards: this.getActualCards(match, opp.selection),
           clv,
           wasRecommendedTooCloseToLine: underCardsCloseToLine,
         });
@@ -1664,9 +1804,6 @@ export class BacktestingEngine {
         });
       }
 
-      chronologicalHistory.push(match);
-      teamSamples.set(match.homeTeamId, (teamSamples.get(match.homeTeamId) ?? 0) + 1);
-      teamSamples.set(match.awayTeamId, (teamSamples.get(match.awayTeamId) ?? 0) + 1);
       equityCurve.push({
         date:          match.date,
         matchNumber:   i + 1,
@@ -1693,12 +1830,12 @@ export class BacktestingEngine {
     }
     if (realOddsMatchCount === 0 && syntheticOddsMatchCount > 0) {
       console.warn(
-        `[Backtest] Nessuna quota reale fornita (${syntheticOddsMatchCount} partite con quote sintetiche). ` +
-        'I risultati non sono validabili contro il mercato reale.'
+        `[Backtest] Nessuna quota reale fornita (${syntheticOddsMatchCount} partite senza quote verificate). ` +
+        'Metriche probabilistiche disponibili; nessuna giocata conteggiata nel ROI.'
       );
     } else if (syntheticOddsMatchCount > 0) {
       console.info(
-        `[Backtest] Quote reali: ${realOddsMatchCount} partite | Quote sintetiche: ${syntheticOddsMatchCount} partite.`
+        `[Backtest] Quote reali: ${realOddsMatchCount} partite | Quote non disponibili: ${syntheticOddsMatchCount} partite.`
       );
     }
 
@@ -1710,7 +1847,9 @@ export class BacktestingEngine {
       attemptedByCategory,
       voidedByCategory,
       singleBestAlwaysBets,
-      singleBestAlwaysEquity
+      singleBestAlwaysEquity,
+      probabilityObservations,
+      options.includeProbabilityObservations === true,
     );
     result.algorithmMode = algorithmMode;
     return result;
@@ -1728,11 +1867,15 @@ export class BacktestingEngine {
       maxFolds?: number;
       compareBaseline?: boolean;
       asOfSupplementaryData?: boolean;
+      /** Opt in only when the caller needs the full raw/calibrated/blended forecast rows. */
+      includeProbabilityObservations?: boolean;
     },
     historicalOddsContext: Record<string, HistoricalOddsContextEntry> = {}
   ): WalkForwardBacktestResult {
     const asOfSupplementaryData = options?.asOfSupplementaryData !== false;
-    const sorted = [...matches].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const sorted = [...new Map(matches.filter((match) => Number.isFinite(match.date.getTime()))
+      .map((match) => [match.matchId, match])).values()]
+      .sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
     const totalMatches = sorted.length;
     const initialTrainMatches = Math.max(30, Math.min(Number(options?.initialTrainMatches ?? Math.floor(totalMatches * 0.55)), totalMatches - 10));
     const testWindowMatches = Math.max(10, Math.min(Number(options?.testWindowMatches ?? Math.max(10, Math.floor(totalMatches * 0.12))), totalMatches - initialTrainMatches));
@@ -1743,13 +1886,23 @@ export class BacktestingEngine {
 
     const folds: WalkForwardFoldSummary[] = [];
     const detailedBets: BacktestBetDetail[] = [];
+    const probabilityObservations: BacktestProbabilityObservation[] = [];
+    const seenFixtures = new Set<string>();
 
     for (let testStart = initialTrainMatches; testStart < sorted.length && folds.length < maxFolds; testStart += stepMatches) {
-      const testEnd = Math.min(sorted.length, testStart + testWindowMatches);
-      const trainStart = expandingWindow ? 0 : Math.max(0, testStart - initialTrainMatches);
-      const trainMatches = sorted.slice(trainStart, testStart);
-      const testMatches = sorted.slice(testStart, testEnd);
-      if (trainMatches.length < 30 || testMatches.length < 5) continue;
+      let groupStart = testStart;
+      while (groupStart > 0 && sorted[groupStart - 1].date.getTime() === sorted[testStart].date.getTime()) groupStart--;
+      let testEnd = Math.min(sorted.length, testStart + testWindowMatches);
+      while (testEnd < sorted.length && sorted[testEnd].date.getTime() === sorted[testEnd - 1].date.getTime()) testEnd++;
+      const testMatches = sorted.slice(groupStart, testEnd).filter((match) => !seenFixtures.has(match.matchId));
+      if (!testMatches.length) continue;
+      const cutoff = testMatches[0].date;
+      const firstNewIndex = sorted.findIndex((match) => match.matchId === testMatches[0].matchId);
+      const trainStart = expandingWindow ? 0 : Math.max(0, firstNewIndex - initialTrainMatches);
+      const trainMatches = this.availableHistory(sorted.slice(trainStart, firstNewIndex), cutoff);
+      if (trainMatches.length < 30) continue;
+      const priorForecasts = probabilityObservations.filter((row) => row.date.getTime() < cutoff.getTime()
+        && row.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
 
       const foldResult = this.simulateBacktestScenario(
         trainMatches,
@@ -1757,7 +1910,7 @@ export class BacktestingEngine {
         historicalOdds,
         confidenceLevel,
         historicalOddsContext,
-        { algorithmMode: 'current', asOfSupplementaryData }
+        { algorithmMode: 'current', asOfSupplementaryData, calibrationObservations: priorForecasts, includeProbabilityObservations: true }
       );
       const baselineResult = options?.compareBaseline
         ? this.simulateBacktestScenario(
@@ -1766,12 +1919,14 @@ export class BacktestingEngine {
             historicalOdds,
             confidenceLevel,
             historicalOddsContext,
-            { algorithmMode: 'baseline', asOfSupplementaryData }
+            { algorithmMode: 'baseline', asOfSupplementaryData, calibrationObservations: priorForecasts }
           )
         : null;
       const foldWinner = baselineResult
         ? (foldResult.roi > baselineResult.roi ? 'current' : baselineResult.roi > foldResult.roi ? 'baseline' : 'none')
         : 'none';
+      for (const match of testMatches) seenFixtures.add(match.matchId);
+      probabilityObservations.push(...foldResult.probabilityObservations ?? []);
       detailedBets.push(...foldResult.detailedBets);
       folds.push({
         algorithmVersion: ALGORITHM_VERSION,
@@ -1787,6 +1942,7 @@ export class BacktestingEngine {
         winRate: Number(foldResult.winRate.toFixed(2)),
         netProfit: Number(foldResult.netProfit.toFixed(2)),
         brierScore: Number(foldResult.brierScore.toFixed(4)),
+        probabilityMetrics: foldResult.probabilityMetrics,
         logLoss: Number(foldResult.logLoss.toFixed(4)),
         averageClv: foldResult.averageClv,
         positiveClvRate: foldResult.positiveClvRate,
@@ -1833,6 +1989,7 @@ export class BacktestingEngine {
     const rankingStabilityScore = folds.length > 0
       ? Number((currentBeatsBaselineFolds / folds.length).toFixed(3))
       : 0;
+    const probabilityMetrics = this.probabilityMetrics(probabilityObservations);
     const calibrationDiagnostics = this.buildDetailedBetCalibrationDiagnostics(detailedBets);
     const blendedVsRawComparison = this.buildDetailedBetBlendedComparison(detailedBets);
     const categoryOverfittingRisk = this.buildDetailedBetCategoryOverfittingRisk(detailedBets);
@@ -1865,10 +2022,12 @@ export class BacktestingEngine {
         tunedBeatsCurrentFolds: 0,
         rankingStabilityScore,
         positiveFoldRate: folds.length > 0 ? Number(((folds.filter((fold) => fold.roi > 0).length / folds.length) * 100).toFixed(2)) : 0,
-        averageBrierScore: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.brierScore, 0) / folds.length).toFixed(4)) : 0,
-        averageLogLoss: folds.length > 0 ? Number((folds.reduce((sum, fold) => sum + fold.logLoss, 0) / folds.length).toFixed(4)) : 0,
+        averageBrierScore: Number(probabilityMetrics.brierScore.toFixed(4)),
+        averageLogLoss: Number(probabilityMetrics.logLoss.toFixed(4)),
       },
       detailedBets,
+      probabilityMetrics,
+      ...(options?.includeProbabilityObservations === true ? { probabilityObservations } : {}),
       calibrationDiagnostics,
       blendedVsRawComparison,
       categoryOverfittingRisk,
@@ -2423,6 +2582,12 @@ export class BacktestingEngine {
 
   private evaluateBetNullable(selection: string, match: MatchData): boolean | null {
     const s = String(selection ?? '').toLowerCase();
+    if (!this.isCompletedMatch(match)) return null;
+    if (/^dnb_(home|away)$/.test(s)) return match.homeGoals === match.awayGoals ? null
+      : s === 'dnb_home' ? match.homeGoals! > match.awayGoals! : match.awayGoals! > match.homeGoals!;
+    if (s === 'double_chance_1x') return match.homeGoals! >= match.awayGoals!;
+    if (s === 'double_chance_x2') return match.awayGoals! >= match.homeGoals!;
+    if (s === 'double_chance_12') return match.homeGoals !== match.awayGoals;
     if (/^player_.+_(shots|sot|yellow)_(over|under)_/i.test(s)) {
       return null;
     }
@@ -2438,24 +2603,28 @@ export class BacktestingEngine {
       /^sot_total_(over|under)_/i.test(s);
     const requiresYellow =
       /^yellow(over|under)\d+$/i.test(s) ||
+      /^cardstotal(over|under)\d+$/i.test(s) ||
       /^cards_total_(over|under)_/i.test(s) ||
       /^yellow_(over|under)_/i.test(s);
     const requiresFouls =
       /^fouls(over|under)\d+$/i.test(s) ||
       /^fouls_(over|under)_/i.test(s);
 
-    if (requiresShots && (match.homeTotalShots === undefined || match.awayTotalShots === undefined)) return null;
-    if (requiresSot && (match.homeShotsOnTarget === undefined || match.awayShotsOnTarget === undefined)) return null;
-    if (requiresYellow && (match.homeYellowCards === undefined || match.awayYellowCards === undefined)) return null;
-    if (requiresFouls && (match.homeFouls === undefined || match.awayFouls === undefined)) return null;
+    if (requiresShots && (!this.isFiniteObserved(match.homeTotalShots) || !this.isFiniteObserved(match.awayTotalShots))) return null;
+    if (requiresSot && (!this.isFiniteObserved(match.homeShotsOnTarget) || !this.isFiniteObserved(match.awayShotsOnTarget))) return null;
+    if (requiresYellow && (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards))) return null;
+    if (requiresFouls && (!this.isFiniteObserved(match.homeFouls) || !this.isFiniteObserved(match.awayFouls))) return null;
 
+    if (/^(cardstotal|cards_total_)/i.test(s) && (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards))) return null;
     return this.evaluateBet(selection, match);
   }
 
-  private getActualCards(match: MatchData): number | null {
-    const home = Number(match.homeYellowCards);
-    const away = Number(match.awayYellowCards);
-    return Number.isFinite(home) && Number.isFinite(away) ? home + away : null;
+  private getActualCards(match: MatchData, selection = ''): number | null {
+    if (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards)) return null;
+    const yellow = match.homeYellowCards + match.awayYellowCards;
+    if (!/^(cardstotal|cards_total_)/i.test(selection)) return yellow;
+    if (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards)) return null;
+    return bookingPoints(yellow, match.homeRedCards + match.awayRedCards);
   }
 
   evaluateComboBetOpportunity(
@@ -2545,6 +2714,8 @@ export class BacktestingEngine {
     voidedByCategory: Record<string, number> = {},
     singleBestAlwaysBets: TestBet[] = [],
     singleBestAlwaysEquity: EquityPoint[] = [],
+    probabilityObservations: BacktestProbabilityObservation[] = [],
+    includeProbabilityObservations = false,
   ): BacktestResult {
     const won         = bets.filter(b => b.won);
     const totalStaked = bets.reduce((s,b) => s+b.stake, 0);
@@ -2634,16 +2805,8 @@ export class BacktestingEngine {
       if (dd > maxDD) maxDD = dd;
     }
 
-    const logLoss = bets.length > 0
-      ? -bets.reduce((s,b) => {
-        const p = b.ourProb, y = b.won ? 1 : 0;
-        return s + y*Math.log(Math.max(1e-10,p)) + (1-y)*Math.log(Math.max(1e-10,1-p));
-      }, 0) / bets.length
-      : 0;
-
-    const brierScore = bets.length > 0
-      ? bets.reduce((s,b) => s+(b.ourProb-(b.won?1:0))**2, 0) / bets.length
-      : 0;
+    const probabilityMetrics = this.probabilityMetrics(probabilityObservations);
+    const { logLoss, brierScore } = probabilityMetrics;
     const weightedMetrics = this.computeWeightedProbabilityMetrics(bets, 'none');
     const grossWin     = bets.filter(b=>b.profit>0) .reduce((s,b)=>s+b.profit, 0);
     const grossLoss    = Math.abs(bets.filter(b=>b.profit<=0).reduce((s,b)=>s+b.profit, 0));
@@ -2837,6 +3000,8 @@ export class BacktestingEngine {
       averageOdds:  bets.length > 0 ? bets.reduce((s,b)=>s+b.odds,0)/bets.length : 0,
       averageEV:    bets.length > 0 ? bets.reduce((s,b)=>s+b.ev,  0)/bets.length*100 : 0,
       brierScore, logLoss,
+      probabilityMetrics,
+      ...(includeProbabilityObservations ? { probabilityObservations } : {}),
       weightedBrierScore: weightedMetrics.weightedBrierScore,
       weightedLogLoss: weightedMetrics.weightedLogLoss,
       calibration:  this.computeCalibration(bets),
