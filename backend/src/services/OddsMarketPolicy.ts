@@ -1,3 +1,5 @@
+import { isPlayerDataEnabled } from './PlayerDataConfig';
+
 export const MATCH_EVENT_ADDITIONAL_MARKETS: string[] = [
   'h2h_3_way',
   'spreads',
@@ -19,9 +21,13 @@ export const MATCH_EVENT_ADDITIONAL_MARKETS: string[] = [
   'corners_1x2',
 ];
 
+export const enabledMatchEventMarkets = (): string[] => isPlayerDataEnabled()
+  ? [...MATCH_EVENT_ADDITIONAL_MARKETS]
+  : MATCH_EVENT_ADDITIONAL_MARKETS.filter((market) => !market.startsWith('player_'));
+
 export const hasCurrentMatchMarketCoverage = (markets: unknown): boolean => {
   if (!Array.isArray(markets)) return false;
   const requested = new Set(markets.map((market) => String(market).trim()).filter(Boolean));
-  return MATCH_EVENT_ADDITIONAL_MARKETS.every((market) => requested.has(market))
+  return enabledMatchEventMarkets().every((market) => requested.has(market))
     && !requested.has('correct_score');
 };

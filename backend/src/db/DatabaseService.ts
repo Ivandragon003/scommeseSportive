@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningService';
 import type { LowerDivisionHistoryBatch } from '../services/FootballDataService';
+import { ShortReadCache } from '../services/ShortReadCache';
+import { isPlayerDataEnabled } from '../services/PlayerDataConfig';
 
 type SqlArgs = Record<string, any> | any[];
 const MATCH_UPSERT_CHUNK_SIZE = 100;
@@ -161,6 +163,7 @@ export class DatabaseService {
   private schedulerRunRetention: number;
   private teamAverageLoads = new Map<string, Promise<void>>();
   private dirtyTeamAverageLoads = new Set<string>();
+  private teamHistoricalCoverageCache = new ShortReadCache<Awaited<ReturnType<DatabaseService['loadTeamHistoricalCoverageBatch']>>>();
 
   constructor(options?: { skipSchemaBootstrap?: boolean }) {
     const url = (process.env.TURSO_DATABASE_URL ?? '').trim();
@@ -1112,7 +1115,7 @@ export class DatabaseService {
     );
 
     const teamsRow = await this.get('SELECT COUNT(*) AS total_teams FROM teams');
-    const playersRow = await this.get(
+    const playersRow = isPlayerDataEnabled() ? await this.get(
       `
       SELECT
         COUNT(*) AS total_players,
@@ -1121,7 +1124,7 @@ export class DatabaseService {
       FROM players
       WHERE is_available = 1
     `
-    );
+    ) : null;
 
     const totalMatches = Number(row?.total_matches ?? 0);
     const pct = (filled: number): number =>
@@ -1268,6 +1271,7 @@ export class DatabaseService {
       reference.identityCoveragePercent, reference.coverageStatus,
       reference.sourceProvider, reference.sourceReference,
     ]);
+    this.teamHistoricalCoverageCache?.clear();
   }
 
   async hasCompleteTransitionSeasonReference(sourceCompetitionId: string, sourceSeason: string): Promise<boolean> {
@@ -1558,6 +1562,7 @@ export class DatabaseService {
       transition.sourceReference, transition.notes, transition.transitionSequence ?? null,
       transition.sourceIdentityStatus ?? 'unknown',
     ]);
+    this.teamHistoricalCoverageCache?.clear();
   }
 
   async getSourceSeasonReferences(): Promise<any[]> {
@@ -1739,7 +1744,19 @@ export class DatabaseService {
     return result[teamId];
   }
 
-  async getTeamHistoricalCoverageBatch(teamIds: string[], targetSeason?: string, windowSize = 5): Promise<Record<string, {
+  async getTeamHistoricalCoverageBatch(teamIds: string[], targetSeason?: string, windowSize = 5) {
+    const ids = [...new Set((teamIds ?? []).map((id) => String(id).trim()).filter(Boolean))].sort();
+    if (ids.length === 0) return {};
+    // Team order must not duplicate the shared read; callers receive isolated objects.
+    this.teamHistoricalCoverageCache ??= new ShortReadCache();
+    const value = await this.teamHistoricalCoverageCache.get(
+      JSON.stringify([ids, targetSeason ?? null, windowSize]),
+      () => this.loadTeamHistoricalCoverageBatch(ids, targetSeason, windowSize),
+    );
+    return structuredClone(value);
+  }
+
+  private async loadTeamHistoricalCoverageBatch(teamIds: string[], targetSeason?: string, windowSize = 5): Promise<Record<string, {
     teamId: string;
     seasonsExpected: number;
     seasonsAvailable: number;
@@ -1891,7 +1908,7 @@ export class DatabaseService {
     leagues.forEach((league) => {
       out[league] = { players: 0, teamsWithPlayers: 0, avgGamesPlayed: 0 };
     });
-    if (!Array.isArray(leagues) || leagues.length === 0) return out;
+    if (!isPlayerDataEnabled() || !Array.isArray(leagues) || leagues.length === 0) return out;
 
     const placeholders = leagues.map(() => '?').join(', ');
     const rows = await this.all(
@@ -3162,6 +3179,7 @@ export class DatabaseService {
   // Only running loads need invalidation. No versions or cached team ids are
   // retained after completion, and callers still share unchanged snapshots.
   markTeamAveragesDirty(teamIds: string[]): void {
+    this.teamHistoricalCoverageCache?.clear();
     for (const value of teamIds) {
       const id = String(value ?? '').trim();
       if (this.teamAverageLoads.has(id)) this.dirtyTeamAverageLoads.add(id);

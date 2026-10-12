@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PLAYER_DATA_ENABLED } from '../config/playerAvailability';
 import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
 import {
   buildBetKey,
@@ -350,8 +351,10 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     { id: 'cards', label: 'Cartellini' },
     { id: 'fouls', label: 'Falli' },
     { id: 'shots', label: 'Tiri' },
-    { id: 'players', label: 'Giocatori', count: pp.length },
-    { id: 'playerProps', label: 'Mercati giocatore', count: playerValueOpportunities.length },
+    ...(PLAYER_DATA_ENABLED ? [
+      { id: 'players', label: 'Giocatori', count: pp.length },
+      { id: 'playerProps', label: 'Mercati giocatore', count: playerValueOpportunities.length },
+    ] : []),
     { id: 'strategy', label: 'Pronostico Finale' },
     { id: 'method', label: 'Algoritmo' },
     { id: 'value', label: 'Scommesse', count: vbRanked.length },

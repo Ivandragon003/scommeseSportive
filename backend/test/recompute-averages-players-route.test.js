@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+// Characterize the retained opt-in path; production defaults to the player pause.
+process.env.PLAYER_DATA_ENABLED = 'true';
 const { createApiRouter } = require('../dist/api/routes.js');
 const { rebuildPlayerDerivedStats } = require('../dist/services/PlayerDerivedStatsService.js');
 

@@ -84,6 +84,7 @@ test('upcoming refresh reuses reconciled squads, keeps injuries fresh and stops 
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getUpcomingMatches: async () => [match], getMatchById: async () => match,
       getPlayerLineupStatuses: async () => statuses,
@@ -148,6 +149,7 @@ test('GET player-availability restituisce undici probabili titolari e rimuove gl
   const awayPlayers = players.map((player) => ({ ...player, player_id: `a-${player.player_id}`, team_id: 'away' }));
   const requestedHistoryLimits = [];
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'future', date: '2026-08-25T20:00:00Z',
@@ -237,6 +239,7 @@ test('refresh vicino al kickoff salva arbitro, indisponibili e formazione uffici
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'future', date: kickoff, home_team_id: 'home', away_team_id: 'away',
@@ -296,6 +299,7 @@ test('refresh injury vuoto rimuove una vecchia indisponibilita prima di rigenera
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'recovery', date: kickoff,
@@ -345,6 +349,7 @@ test('refresh mantiene la formazione locale se injury e lineup provider fallisco
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'provider-down', date: kickoff,
@@ -391,6 +396,7 @@ test('sync manuale condivide il cooldown e non interroga due volte il provider',
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'manual-sync', date: kickoff,
@@ -431,6 +437,7 @@ test('refresh dopo il kickoff non interroga API-Football', async () => {
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'past', date: kickoff, home_team_id: 'home', away_team_id: 'away',
@@ -466,6 +473,7 @@ test('sync-upcoming salva la previsione locale anche con API-Football disabilita
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'local-fallback', date: kickoff,
@@ -517,6 +525,7 @@ test('refresh usa il fallback locale quando API-Football non abbina la fixture',
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'fixture-missing', date: kickoff,
@@ -558,6 +567,7 @@ test('refresh locale concorrente crea un solo batch grazie al cooldown condiviso
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
+    playerAvailabilityEnabled: true,
     db: {
       getMatchById: async () => ({
         match_id: 'local-race', date: kickoff,

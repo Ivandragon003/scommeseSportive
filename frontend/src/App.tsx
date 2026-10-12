@@ -4,6 +4,7 @@ import { Activity, Archive, BarChart3, Database, FlaskConical, HelpCircle, LogOu
 import Predictions from './pages/Predictions';
 import { GlossaryProvider } from './features/glossary/GlossaryProvider';
 import { AdminSession, getAdminSession, getSystemHealth, loginSharedAdmin, logoutSharedAdmin, syncUpcomingKickoffs, syncUpcomingPlayerAvailability } from './utils/api';
+import { PLAYER_AVAILABILITY_ENABLED } from './config/playerAvailability';
 import ToastStack from './components/common/ToastStack';
 import { useToastState } from './hooks/useToastState';
 import { currentSeason } from './components/predictions/predictionWorkbenchUtils';
@@ -122,11 +123,13 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ activeUser, onLogou
           const kickoff = await syncUpcomingKickoffs({ mode: 'top5', season: currentSeason(), limit: 160 });
           corrected = Number(kickoff?.data?.corrected ?? 0);
           changed = corrected > 0;
-          const availability = await syncUpcomingPlayerAvailability(48) as {
-            saved?: number; predictedSaved?: number; teamsReconciled?: number;
-          };
-          changed = changed || Number(availability?.saved ?? 0) > 0
-            || Number(availability?.predictedSaved ?? 0) > 0 || Number(availability?.teamsReconciled ?? 0) > 0;
+          if (PLAYER_AVAILABILITY_ENABLED) {
+            const availability = await syncUpcomingPlayerAvailability(48) as {
+              saved?: number; predictedSaved?: number; teamsReconciled?: number;
+            };
+            changed = changed || Number(availability?.saved ?? 0) > 0
+              || Number(availability?.predictedSaved ?? 0) > 0 || Number(availability?.teamsReconciled ?? 0) > 0;
+          }
         } catch (error: any) {
           warning = error?.response?.data?.error || error?.message || 'Sync calendario non riuscito';
         }

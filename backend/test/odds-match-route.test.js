@@ -397,8 +397,8 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
       assert.ok(requests[0].extraEventMarkets.includes(eventOnlyMarket));
     }
     // Solo chiavi VALIDE di the-odds-api (verificate live 2026-07).
-    assert.ok(requests[0].extraEventMarkets.includes('player_shots'));
-    assert.ok(requests[0].extraEventMarkets.includes('player_shots_on_target'));
+    assert.ok(!requests[0].extraEventMarkets.includes('player_shots'));
+    assert.ok(!requests[0].extraEventMarkets.includes('player_shots_on_target'));
     assert.ok(requests[0].extraEventMarkets.includes('alternate_totals_cards'));
     // Corner: prima non venivano mai richiesti (si usava 'corners', inesistente).
     assert.ok(requests[0].extraEventMarkets.includes('alternate_totals_corners'));

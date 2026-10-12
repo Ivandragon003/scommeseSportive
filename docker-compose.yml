@@ -17,8 +17,10 @@ services:
       UNDERSTAT_SCHEDULER_ENABLED: "false"
       ODDS_SNAPSHOT_SCHEDULER_ENABLED: "false"
       LEARNING_REVIEW_SCHEDULER_ENABLED: "false"
-      # Keep near-kickoff lineup refresh independent of the nightly.
-      LINEUP_REFRESH_SCHEDULER_ENABLED: ${LINEUP_REFRESH_SCHEDULER_ENABLED:-true}
+      # Lineups are paused to reduce reads and provider calls.
+      PLAYER_DATA_ENABLED: ${PLAYER_DATA_ENABLED:-false}
+      PLAYER_AVAILABILITY_ENABLED: ${PLAYER_AVAILABILITY_ENABLED:-false}
+      LINEUP_REFRESH_SCHEDULER_ENABLED: ${LINEUP_REFRESH_SCHEDULER_ENABLED:-false}
     ports:
       - "3001:3001"
     restart: unless-stopped

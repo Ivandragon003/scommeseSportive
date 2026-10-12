@@ -11,6 +11,9 @@ EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-03}"
 SCHEDULE_CRON="${SCHEDULE_CRON:-}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 API_FOOTBALL_ENABLED="${API_FOOTBALL_ENABLED:-false}"
+PLAYER_AVAILABILITY_ENABLED="${PLAYER_AVAILABILITY_ENABLED:-false}"
+IMPORT_PLAYERS=false
+if [[ "${PLAYER_DATA_ENABLED:-false}" == "true" ]]; then IMPORT_PLAYERS=true; fi
 ODDS_SYNC_COMPETITIONS="${ODDS_SYNC_COMPETITIONS:-Serie A|Premier League|La Liga|Bundesliga|Ligue 1}"
 ODDS_SYNC_MARKETS="${ODDS_SYNC_MARKETS:-h2h,totals,spreads}"
 # SofaScore RIMOSSO: falli/corner/tiri/cartellini/arbitro ora da football-data.co.uk
@@ -153,7 +156,7 @@ done
 echo "Running Understat sync..."
 if ! post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
-  "{\"mode\":\"top5\",\"yearsBack\":5,\"importPlayers\":true,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+  "{\"mode\":\"top5\",\"yearsBack\":5,\"importPlayers\":$IMPORT_PLAYERS,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"; then
   REQUIRED_SYNC_FAILURES+=("understat")
   UNDERSTAT_SYNC_FAILED=true
@@ -169,12 +172,16 @@ if ! post_json \
   echo "Required gate failed: football-data. Continuing with independent data gates."
 fi
 
-echo "Saving local last-five lineup predictions; API-Football enrichment is optional..."
-post_json \
-  "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
-  '{"windowHours":24}' \
-  "$API_FOOTBALL_TIMEOUT_SECONDS" || \
-  echo "Warning: lineup sync failed; the on-demand local fallback remains available."
+if [[ "$PLAYER_AVAILABILITY_ENABLED" == "true" ]]; then
+  echo "Saving local last-five lineup predictions; API-Football enrichment is optional..."
+  post_json \
+    "http://127.0.0.1:$PORT/api/player-availability/sync-upcoming" \
+    '{"windowHours":24}' \
+    "$API_FOOTBALL_TIMEOUT_SECONDS" || \
+    echo "Warning: lineup sync failed; the on-demand local fallback remains available."
+else
+  echo "Skipping lineup sync. PLAYER_AVAILABILITY_ENABLED=false."
+fi
 
 if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
   echo "Syncing second-division seasonal references (idempotent)..."

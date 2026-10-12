@@ -24,6 +24,10 @@ import { rebuildRefereeDerivedStats } from '../services/RefereeDerivedStatsServi
 import { recomputeTeamAveragesForTeamIds } from '../services/TeamAveragesService';
 import { rebuildPlayerDerivedStats } from '../services/PlayerDerivedStatsService';
 import { ApiFootballService } from '../services/ApiFootballService';
+import { isPlayerAvailabilityEnabled } from '../services/PlayerAvailabilityConfig';
+import { isPlayerDataEnabled } from '../services/PlayerDataConfig';
+import { understatCommitState } from '../services/UnderstatCommitState';
+import { ShortReadCache } from '../services/ShortReadCache';
 import {
   assessPlayerLineup,
   buildPredictedLineup,
@@ -37,7 +41,7 @@ import {
   planAutomatedBetOpportunities,
 } from '../services/AutomatedBetPlanningService';
 import { buildCoherentBookmakerOddsBundle } from '../services/BookmakerOddsSelectionService';
-import { hasCurrentMatchMarketCoverage, MATCH_EVENT_ADDITIONAL_MARKETS } from '../services/OddsMarketPolicy';
+import { hasCurrentMatchMarketCoverage, enabledMatchEventMarkets } from '../services/OddsMarketPolicy';
 import {
   syncFootballData,
   createLibsqlFootballDataDb,
@@ -89,6 +93,7 @@ export type ApiRouterDependencies = {
     'syncUpcomingKickoffsFromOddsApi' | 'syncSingleMatchKickoffFromOddsApi'
   >;
   heavyJobService?: Pick<HeavyJobService, 'runWalkForwardBacktest'>;
+  playerAvailabilityEnabled?: boolean;
   apiFootballService?: Pick<
     ApiFootballService,
     'enabled' | 'getConfirmedLineups' | 'getFixturesByDate' | 'getSquad' | 'getInjuries'
@@ -514,6 +519,13 @@ const archivePayloadCache = new Map<string, { expiresAt: number; payload: any }>
 const archivePayloadLoads = new Map<string, Promise<any>>();
 const ARCHIVE_PAYLOAD_CACHE_TTL_MS = 30_000;
 const ARCHIVE_PAYLOAD_CACHE_MAX_ENTRIES = 40;
+const statsOverviewCache = new ShortReadCache<Awaited<ReturnType<typeof loadStatsOverviewPayload>>>(undefined, 1);
+router.use((req, res, next) => {
+  if (req.method !== 'GET' && /^\/(scraper|model|matches|teams|players|competition-transitions)(?:\/|$)/.test(req.path)) {
+    res.on('finish', () => statsOverviewCache.clear());
+  }
+  next();
+});
 
 const clearArchivePayloadCache = (): void => {
   archivePayloadCache.clear();
@@ -534,11 +546,15 @@ const applyBacktestRouteTimeout = (req: Request, res: Response): void => {
 };
 
 async function buildStatsOverviewPayload() {
+  return structuredClone(await statsOverviewCache.get('overview', loadStatsOverviewPayload));
+}
+
+async function loadStatsOverviewPayload() {
   const top5 = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
   const [coverage, leagues, playersByLeague] = await Promise.all([
     db.getMatchesCoverageStats(),
     db.getLeagueSummaries(top5),
-    db.getPlayerCoverageByLeague(top5),
+    isPlayerDataEnabled() ? db.getPlayerCoverageByLeague(top5) : Promise.resolve({} as Record<string, any>),
   ]);
 
   const leaguesWithPlayers = leagues.map((league) => ({
@@ -548,6 +564,7 @@ async function buildStatsOverviewPayload() {
 
   return {
     generatedAt: new Date().toISOString(),
+    playerDataEnabled: isPlayerDataEnabled(),
     checks: {
       allCoreStatsLoaded:
         coverage.fields.xg.pct >= 60 &&
@@ -578,6 +595,10 @@ router.post('/teams', async (req: Request, res: Response) => {
 });
 
 // ====== PLAYERS ======
+router.use('/players', (_req, res, next) => {
+  if (isPlayerDataEnabled()) return next();
+  return res.json({ success: true, enabled: false, skipped: 'player_data_disabled', data: [] });
+});
 router.get('/players/:teamId', async (req: Request, res: Response) => {
   try { res.json({ success: true, data: await db.getPlayersByTeam(req.params.teamId) }); }
   catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -604,6 +625,14 @@ router.post('/players/bulk', async (req: Request, res: Response) => {
 });
 
 const apiFootball = deps.apiFootballService ?? new ApiFootballService();
+// This guard also protects requests from older APKs: no database/provider access.
+router.use('/player-availability', (_req, res, next) => {
+  if (deps.playerAvailabilityEnabled ?? isPlayerAvailabilityEnabled()) return next();
+  return res.json({
+    success: true, enabled: false, skipped: 'player_availability_disabled',
+    saved: 0, predictedSaved: 0, teamsReconciled: 0, data: null,
+  });
+});
 const lineupRefreshReservations = new Map<string, number>();
 const reconciledSquads = new Map<string, number>();
 const SQUAD_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -1304,7 +1333,7 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
     const teams = await db.getTeams(competition);
     const teamsUpdated = await recomputeTeamAveragesForTeamIds(db, teams.map((t) => t.team_id));
 
-    const playerStats = recomputePlayers
+    const playerStats = recomputePlayers && isPlayerDataEnabled()
       ? await rebuildPlayerDerivedStats(db, {
         competition: normalizedCompetition || undefined,
         season: String(season ?? '').trim() || undefined,
@@ -1335,7 +1364,7 @@ router.post('/model/recompute-averages', async (req: Request, res: Response) => 
     res.json({
       success: true,
       teamsUpdated,
-      playersRecomputeEnabled: Boolean(recomputePlayers),
+      playersRecomputeEnabled: Boolean(recomputePlayers) && isPlayerDataEnabled(),
       refereesRecomputeEnabled: Boolean(recomputeReferees),
       ...playerStats,
       ...refereeStats,
@@ -2585,11 +2614,12 @@ async function runUnderstatImport(req: Request, res: Response) {
       mode = 'single',
       competition = 'Serie A',
       competitions,
-      importPlayers = true,
+      importPlayers: requestedImportPlayers = true,
       includeMatchDetails = true,
       forceRefresh = false,
     } = req.body ?? {};
 
+    const importPlayers = Boolean(requestedImportPlayers) && isPlayerDataEnabled();
     const competitionsToRun: string[] = mode === 'top5'
       ? UnderstatScraper.getTop5Competitions()
       : Array.isArray(competitions) && competitions.length > 0
@@ -2604,6 +2634,7 @@ async function runUnderstatImport(req: Request, res: Response) {
     // Non dipendere dal successo di football-data.co.uk: ogni entry point di
     // ingest applica autonomamente la finestra tecnica esatta.
     const retentionPrune = await pruneOldSeasons((db as any).db, retentionPolicy.keepSeasons);
+    if (retentionPrune.matchesDeleted > 0) db.markAllTeamAveragesDirty();
 
     understatActiveImportMeta = {
       startedAt: new Date().toISOString(),
@@ -2657,6 +2688,7 @@ async function runUnderstatImport(req: Request, res: Response) {
       updatedPlayed: number;
     }> = {};
     const deletedMatchesByCompetition: Record<string, number> = {};
+    const affectedTeamsByCompetition = new Map<string, Set<string>>();
 
     if (forceRefresh) {
       for (const comp of competitionsToRun) {
@@ -2865,7 +2897,7 @@ async function runUnderstatImport(req: Request, res: Response) {
         const playersRebuildSkippedReason = batchError
           ? 'match_batch_partial_failure'
           : null;
-        if (shouldRebuildUnderstatPlayers(committedWrites, batchError)) {
+        if (importPlayers && shouldRebuildUnderstatPlayers(committedWrites, batchError)) {
           for (const internalizedMatch of internalizedPlayedMatches) {
             for (const player of internalizedMatch.playerStats) {
               const agg = playersAgg.get(player.playerId) ?? {
@@ -2923,7 +2955,7 @@ async function runUnderstatImport(req: Request, res: Response) {
             }),
           });
         }
-        if (typeof (db as any).upsertPlayers === 'function') {
+        if (seasonPlayerWrites.length > 0 && typeof (db as any).upsertPlayers === 'function') {
           playersUpdated += await db.upsertPlayers(seasonPlayerWrites);
         } else {
           for (const payload of seasonPlayerWrites) {
@@ -2942,8 +2974,12 @@ async function runUnderstatImport(req: Request, res: Response) {
         competitionActivity[competitionName].newPlayed += importedPlayed;
         competitionActivity[competitionName].updatedPlayed += updatedExistingPlayed;
 
-        const persistedAfter = await db.getMatches({ competition: competitionName, season });
-        const persistedIds = new Set(persistedAfter.map((row: any) => String(row.match_id)));
+        const { persistedIds, affectedTeamIds } = understatCommitState(
+          existingMatchCache.keys(), matchWrites, committedCount,
+        );
+        const affected = affectedTeamsByCompetition.get(competitionName) ?? new Set<string>();
+        for (const teamId of affectedTeamIds) affected.add(teamId);
+        affectedTeamsByCompetition.set(competitionName, affected);
         const sourceIds = [...new Set(matchesToImport.map((match: any) => String(match.matchId)))];
         const missingSourceMatches = sourceIds.filter((matchId) => !persistedIds.has(matchId)).length;
         const detail = {
@@ -2979,6 +3015,11 @@ async function runUnderstatImport(req: Request, res: Response) {
     );
 
     let teamsRecomputed = 0;
+    if (retentionPrune.matchesDeleted > 0) {
+      // Retention changes historical aggregates even in leagues with no new matches.
+      const allTeams = await db.getTeams();
+      teamsRecomputed += await recomputeTeamAveragesForTeamIds(db, allTeams.map((team) => team.team_id));
+    }
     let playersMarkedUnavailable = 0;
     let playersDerivedDetected = 0;
     let playersDerivedUpdated = 0;
@@ -2988,9 +3029,12 @@ async function runUnderstatImport(req: Request, res: Response) {
     let refereesDerivedUpdated = 0;
     let refereeMatchesConsidered = 0;
     for (const comp of competitionsNeedingPostProcessing) {
-      const teams = await db.getTeams(comp);
-      teamsRecomputed += await recomputeTeamAveragesForTeamIds(db, teams.map((team) => team.team_id));
-      const playerStats = await rebuildPlayerDerivedStats(db, { competition: comp });
+      if (retentionPrune.matchesDeleted === 0) {
+        teamsRecomputed += await recomputeTeamAveragesForTeamIds(db, [...(affectedTeamsByCompetition.get(comp) ?? [])]);
+      }
+      const playerStats = importPlayers
+        ? await rebuildPlayerDerivedStats(db, { competition: comp })
+        : { playersMarkedUnavailable: 0, playersDetected: 0, playersUpdated: 0, playedMatchesConsidered: 0, matchesWithShotmap: 0 };
       playersMarkedUnavailable += playerStats.playersMarkedUnavailable;
       playersDerivedDetected += playerStats.playersDetected;
       playersDerivedUpdated += playerStats.playersUpdated;
@@ -3119,6 +3163,8 @@ async function runUnderstatImport(req: Request, res: Response) {
         source: 'understat',
         mode,
         competitions: competitionsToRun,
+        playerDataEnabled: isPlayerDataEnabled(),
+        importPlayers,
         seasons: seasonsToScrape,
         retentionPolicy,
         retentionPrune,
@@ -3728,10 +3774,11 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       markets = [...DEFAULT_BULK_ODDS_MARKETS],
     } = req.body;
 
-    const normalizedMarkets =
+    const normalizedMarkets = (
       Array.isArray(markets) && markets.length > 0
         ? markets.map((m: unknown) => String(m)).filter(Boolean)
-        : [...DEFAULT_BULK_ODDS_MARKETS];
+        : [...DEFAULT_BULK_ODDS_MARKETS]
+    ).filter((market: string) => isPlayerDataEnabled() || !market.startsWith('player_'));
     const {
       coordinator,
       primaryProviderName,
@@ -4204,7 +4251,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       // matched event with those markets below.
       const fallbackMarkets = [...preferredMarkets];
       const eventAdditionalMarkets = [
-        ...MATCH_EVENT_ADDITIONAL_MARKETS,
+        ...enabledMatchEventMarkets(),
         // Rimosse 'shots', 'shots_on_target', 'cards': NON sono chiavi valide di
         // the-odds-api (verificato live 2026-07, "Invalid markets") e ogni giro
         // produceva richieste destinate a fallire. Gli equivalenti validi sono

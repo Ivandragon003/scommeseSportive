@@ -8,6 +8,7 @@ import MethodologyDrawer from './MethodologyDrawer';
 import ShotsSection from './ShotsSection';
 import PlayerPropsSection from './PlayerPropsSection';
 import LineupPanel from './LineupPanel';
+import { PLAYER_AVAILABILITY_ENABLED } from '../../config/playerAvailability';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { DistChart, ProbBar } from './PredictionStatPrimitives';
 import { formatCompactOuKey, fmtN, fmtPct, fmtSelection } from './predictionFormatting';
@@ -1142,7 +1143,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 <div className="pr-hero-center"><div className="pr-hero-vs">VS</div>{loading && <div className="pr-spin" style={{ margin: '0 auto' }} />}</div>
                 <div className="pr-hero-team right"><div className="pr-hero-name">{activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div><div className="pr-hero-lambda">Trasferta</div></div>
               </div>
-              <LineupPanel matchId={String(activeMatchRow.match_id)} />
+              {PLAYER_AVAILABILITY_ENABLED && <LineupPanel matchId={String(activeMatchRow.match_id)} />}
               <div className="pr-kpi-row" aria-label="Probabilità in attesa di analisi">
                 {[['1', 'Vittoria casa'], ['X', 'Pareggio'], ['2', 'Vittoria ospite']].map(([value, label]) => <div className="pr-kpi" key={value}><div className="pr-kpi-val">{value}</div><div className="pr-kpi-lbl">{label}</div></div>)}
               </div>
@@ -1200,7 +1201,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 }
               />
 
-              <LineupPanel matchId={String(activeMatchRow?.match_id ?? pred.matchId ?? '')} />
+              {PLAYER_AVAILABILITY_ENABLED && <LineupPanel matchId={String(activeMatchRow?.match_id ?? pred.matchId ?? '')} />}
 
               <div className="pr-decision-layout">
                 <BestValueCard

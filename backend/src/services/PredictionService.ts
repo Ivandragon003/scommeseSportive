@@ -26,6 +26,8 @@ import {
   sourceCompetitionIdFor,
 } from './PromotedTeamPriorService';
 import { assessPlayerLineup, completeOfficialTeamIds } from './PlayerLineupProbabilityService';
+import { isPlayerAvailabilityEnabled } from './PlayerAvailabilityConfig';
+import { isPlayerDataEnabled } from './PlayerDataConfig';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { BacktestingEngine, BacktestProbabilityMetrics, HistoricalOddsContextEntry, WalkForwardBacktestResult } from '../models/backtesting/BacktestingEngine';
 import { DatabaseService } from '../db/DatabaseService';
@@ -1519,6 +1521,9 @@ export class PredictionService {
     leagueAvgYellowPerMatch: number;
     lineupStatuses?: Map<string, { status: string; probability: number | null }>;
   }): PlayerPropBuildResult {
+    if (!isPlayerDataEnabled()) {
+      return { odds: {}, bookmakerBySelection: {}, probabilities: {}, marketNames: {}, diagnostics: {}, warnings: [] };
+    }
     const players = [
       ...(params.homePlayers ?? []).map((player) => ({ row: player, teamName: params.homeTeamName })),
       ...(params.awayPlayers ?? []).map((player) => ({ row: player, teamName: params.awayTeamName })),
@@ -1925,7 +1930,7 @@ export class PredictionService {
     const teamsPromise = typeof (this.db as any).getTeamsByIds === 'function'
       ? (this.db as any).getTeamsByIds(teamIds)
       : Promise.all(teamIds.map((teamId) => this.db.getTeam(teamId)));
-    const playersPromise = typeof (this.db as any).getPlayersByTeams === 'function'
+    const playersPromise = !isPlayerDataEnabled() ? Promise.resolve([]) : typeof (this.db as any).getPlayersByTeams === 'function'
       ? (this.db as any).getPlayersByTeams(teamIds)
       : Promise.all(teamIds.map((teamId) => this.db.getPlayersByTeam(teamId))).then((groups) => groups.flat());
     const coveragePromise = typeof (this.db as any).getTeamHistoricalCoverageBatch === 'function'
@@ -1975,7 +1980,7 @@ export class PredictionService {
     }
     const homePromotedPrior = buildPromotedTeamPrior(homePromotedHistory, targetSeason);
     const awayPromotedPrior = buildPromotedTeamPrior(awayPromotedHistory, targetSeason);
-    const lineupStatusRows = request.matchId
+    const lineupStatusRows = request.matchId && isPlayerAvailabilityEnabled()
       ? await this.db.getPlayerLineupStatuses(
           request.matchId,
           referenceDate && Date.parse(referenceDate) < Date.now() ? referenceDate : undefined,

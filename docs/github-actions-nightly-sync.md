@@ -1,7 +1,9 @@
 # GitHub Actions per sync notturna
 
-La nightly è orchestrata da GitHub Actions. Il backend web serve UI e API;
-il collector delle formazioni vicino al kickoff rimane indipendente.
+La nightly è orchestrata da GitHub Actions. Il backend web serve UI e API.
+Dal 12 ottobre 2026 le formazioni sono temporaneamente sospese per ridurre
+letture, scritture e chiamate provider. Anche import, statistiche derivate,
+letture e mercati giocatore sono temporaneamente sospesi; lo storico resta salvato.
 
 ## Flusso
 
@@ -10,8 +12,9 @@ il collector delle formazioni vicino al kickoff rimane indipendente.
 - Supplemento HTTP/CSV `football-data.co.uk`: riempie solo i campi mancanti di
   tiri, tiri in porta, falli, corner, cartellini e arbitro; conserva le quote
   storiche di apertura/chiusura nella loro colonna dedicata. Non fornisce il possesso.
-- Aggiornamento dei riferimenti per le transizioni tra competizioni e dei
-  kickoff/formazioni quando il provider configurato è disponibile.
+- Aggiornamento dei riferimenti per le transizioni tra competizioni. Il recupero
+  dei kickoff resta disponibile; lo step formazioni è saltato quando
+  `PLAYER_AVAILABILITY_ENABLED=false` (default).
 - Settlement delle prediction, raccolta quote reali tramite il provider
   configurato e registrazione delle giocate nel budget interno secondo i flag
   del workflow. Non vengono effettuate puntate sui siti bookmaker.
@@ -53,7 +56,8 @@ risolvere un limite di letture.
 `NIGHTLY_ORCHESTRATOR=github_actions` è il default anche per un avvio diretto
 con Node. Disabilita bootstrap, scheduler Understat, quote e learning persino
 quando vecchi flag in ambiente sono `true`. Docker Compose imposta questo
-valore esplicitamente. API manuali e collector formazioni restano disponibili.
+valore esplicitamente. API manuali squadra restano disponibili. Il collector formazioni
+richiede sia `PLAYER_DATA_ENABLED=true` sia `PLAYER_AVAILABILITY_ENABLED=true`.
 
 Per una scelta esplicita di esecuzione nel backend si può impostare
 `NIGHTLY_ORCHESTRATOR=backend` e abilitare i relativi flag. In quel caso
@@ -64,8 +68,33 @@ Gli aggiornamenti si applicano dopo il riavvio/redeploy dei processi esistenti.
 
 Secrets obbligatori: `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`.
 `ODDS_API_KEY` abilita la raccolta quote prevista dal workflow;
-`API_FOOTBALL_KEY` è necessaria per i relativi aggiornamenti di kickoff/formazioni.
+`API_FOOTBALL_KEY` è necessaria per il relativo provider di formazioni quando riabilitato.
 Non pubblicare i valori dei secrets nei log o nel repository.
+
+La pausa giocatori usa `PLAYER_DATA_ENABLED=false` nel backend e nel workflow:
+anche una richiesta manuale `importPlayers=true` non riattiva il percorso.
+Il predittore evita le rose e non genera player props; le richieste quote
+escludono i mercati `player_*`. Il frontend nasconde le sezioni giocatore con
+`REACT_APP_PLAYER_DATA_ENABLED=false`. La pausa delle formazioni usa
+`PLAYER_AVAILABILITY_ENABLED=false` nel backend e
+nel workflow; `LINEUP_REFRESH_SCHEDULER_ENABLED=false` in Compose. Le route
+availability rispondono con uno stato disabilitato prima di accedere al DB o al
+provider, anche alle richieste degli APK precedenti. Il predittore evita le letture
+dei relativi snapshot. Il frontend nasconde il pannello e non effettua refresh
+availability: per riabilitarlo occorre ricompilare con
+`REACT_APP_PLAYER_DATA_ENABLED=true` e `REACT_APP_PLAYER_AVAILABILITY_ENABLED=true`
+oltre ad abilitare entrambi i flag backend e il workflow. Nessuno storico viene
+cancellato. Vedi [diagnosi iniziale](performance/lineup-pause-2026-10-12.md) e
+[riduzione letture e pausa completa](performance/db-read-reduction-2026-10-12.md).
+
+L'import Understat riutilizza gli ID letti prima delle scritture e aggiunge solo
+quelli confermati dal batch, evitando una seconda lettura di ogni stagione.
+Le medie si aggiornano sulle squadre delle partite concluse modificate; la
+retention mantiene il ricalcolo globale necessario. Il riepilogo statistiche e
+la copertura storica delle squadre condividono letture concorrenti con cache
+in memoria di 10 minuti, invalidata dalle scritture locali pertinenti. Le
+scritture di un processo esterno possono restare invisibili alla cache fino
+alla scadenza. Cambiare squadra nella UI non ricarica l'intero riepilogo.
 
 L'orario previsto è **03:00 Europe/Rome**: cron `0 1 * * *` in estate e
 `0 2 * * *` in inverno. Lo script sceglie il cron attivo dall'offset e dal

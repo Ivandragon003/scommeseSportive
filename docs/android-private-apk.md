@@ -86,6 +86,11 @@ Senza il nuovo backend autenticato l'APK non può completare il login.
 
 ## 4. Verificare il filtro nativo delle giocate
 
+L'aggiornamento 1.1.2 (`versionCode=4`) mantiene la firma privata esistente e
+distribuisce la UI con giocatori, player props e formazioni sospesi. Le
+ottimizzazioni letture e la pausa server richiedono anche il deploy backend;
+installare il nuovo APK da solo non aggiorna il server.
+
 La versione 1.1.1 limita lo sfondo dello splash alla finestra Android, evitando
 che le righe del selettore degli esiti ereditino l'altezza dell'immagine.
 Il test `NativeFilterLayoutTest` verifica le quattro opzioni dopo il passaggio

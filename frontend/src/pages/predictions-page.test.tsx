@@ -378,8 +378,8 @@ describe('Predictions page', () => {
     expect(valueBets.textContent).not.toContain('Riccardo Orsolini');
     expect(screen.queryByText(/Nessuna giocata supera i criteri operativi/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: /Mercati giocatore\s*1/i }));
-    expect(await screen.findByText('Riccardo Orsolini')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Mercati giocatore\s*1/i })).toBeNull();
+    expect(screen.queryByText('Riccardo Orsolini')).toBeNull();
   });
 
   test('non presenta come operativa una giocata solo speculativa', async () => {

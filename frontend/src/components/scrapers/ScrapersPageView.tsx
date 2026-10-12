@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PLAYER_DATA_ENABLED } from '../../config/playerAvailability';
 import ProviderStatusSummary from '../common/ProviderStatusSummary';
 import {
   runFootballDataSync,
@@ -185,7 +186,7 @@ export default function ScrapersPageView() {
   const [competition, setCompetition] = useState('Serie A');
   const yearsBack = 5;
   const [includeMatchDetails, setIncludeMatchDetails] = useState(true);
-  const [importPlayers, setImportPlayers] = useState(true);
+  const [importPlayers, setImportPlayers] = useState(PLAYER_DATA_ENABLED);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [understatLoading, setUnderstatLoading] = useState(false);
   const [understatStartedAt, setUnderstatStartedAt] = useState<number | null>(null);
@@ -521,8 +522,8 @@ export default function ScrapersPageView() {
                   Importa dettagli match completi
                 </label>
                 <label className="sc-check">
-                  <input type="checkbox" checked={importPlayers} onChange={(e) => setImportPlayers(e.target.checked)} />
-                  Aggiorna anche statistiche giocatori
+                  <input type="checkbox" checked={importPlayers} disabled={!PLAYER_DATA_ENABLED} onChange={(e) => setImportPlayers(e.target.checked)} />
+                  {PLAYER_DATA_ENABLED ? 'Aggiorna anche statistiche giocatori' : 'Aggiornamento giocatori sospeso'}
                 </label>
                 <label className="sc-check" style={{ marginBottom: 0 }}>
                   <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} />

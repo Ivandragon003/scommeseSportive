@@ -2,6 +2,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import App from './App';
 import * as api from './utils/api';
 
+let mockPlayerAvailabilityEnabled = false;
+jest.mock('./config/playerAvailability', () => ({
+  get PLAYER_AVAILABILITY_ENABLED() { return mockPlayerAvailabilityEnabled; },
+}));
+
 jest.mock('./utils/api');
 jest.mock('./pages/Predictions', () => ({
   __esModule: true,
@@ -39,6 +44,7 @@ jest.mock('./pages/DataCenter', () => ({
 const mockedApi = api as jest.Mocked<typeof api>;
 
 beforeEach(() => {
+  mockPlayerAvailabilityEnabled = false;
   jest.resetAllMocks();
   window.localStorage.clear();
   window.history.pushState({}, '', '/');
@@ -288,6 +294,7 @@ test('la prima sync dopo uno stato iniziale senza aggiornamenti ricarica le pagi
 });
 
 test('il refresh manuale senza modifiche evita reload e con disponibilita aggiornata ne emette uno', async () => {
+  mockPlayerAvailabilityEnabled = true;
   const complete = jest.fn();
   window.addEventListener('data-sync-complete', complete);
   try {
@@ -301,7 +308,22 @@ test('il refresh manuale senza modifiche evita reload e con disponibilita aggior
   } finally { window.removeEventListener('data-sync-complete', complete); }
 });
 
+test('con formazioni sospese il refresh aggiorna il calendario senza chiamare availability', async () => {
+  const complete = jest.fn();
+  window.addEventListener('data-sync-complete', complete);
+  try {
+    render(<App />);
+    await screen.findByText('Predictions page');
+    mockedApi.syncUpcomingKickoffs.mockResolvedValue({ data: { corrected: 2 } } as any);
+    await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
+    expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(1);
+    expect(mockedApi.syncUpcomingPlayerAvailability).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledTimes(1);
+  } finally { window.removeEventListener('data-sync-complete', complete); }
+});
+
 test('sync nuova e correzioni manuali ricaricano le pagine una sola volta anche con disponibilita fallita', async () => {
+  mockPlayerAvailabilityEnabled = true;
   const complete = jest.fn();
   window.addEventListener('data-sync-complete', complete);
   try {

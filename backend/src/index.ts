@@ -15,6 +15,8 @@ import { getProviderTimeoutMs } from './services/odds-provider/OddsProviderCoord
 import { PredictionService } from './services/PredictionService';
 import { shouldRetryBootstrapSync } from './services/SchedulerRetryPolicy';
 import { loadNightlySchedulerConfig } from './services/NightlySchedulerConfig';
+import { isPlayerAvailabilityEnabled } from './services/PlayerAvailabilityConfig';
+import { isPlayerDataEnabled } from './services/PlayerDataConfig';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
 
@@ -53,6 +55,7 @@ const UNDERSTAT_SCHEDULER_COMPETITION = String(process.env.UNDERSTAT_SCHEDULER_C
 // Policy dati bloccata: stagione corrente + quattro precedenti.
 const UNDERSTAT_SCHEDULER_YEARS_BACK = 5;
 const UNDERSTAT_SCHEDULER_IMPORT_PLAYERS =
+  isPlayerDataEnabled() &&
   String(process.env.UNDERSTAT_SCHEDULER_IMPORT_PLAYERS ?? 'true').trim().toLowerCase() === 'true';
 const UNDERSTAT_SCHEDULER_INCLUDE_MATCH_DETAILS =
   String(process.env.UNDERSTAT_SCHEDULER_INCLUDE_MATCH_DETAILS ?? 'true').trim().toLowerCase() === 'true';
@@ -79,6 +82,7 @@ const LEARNING_REVIEW_MATCH_LIMIT = Math.max(
   Math.min(Number(process.env.LEARNING_REVIEW_MATCH_LIMIT ?? 80), 250)
 );
 const LINEUP_REFRESH_SCHEDULER_ENABLED =
+  isPlayerAvailabilityEnabled() &&
   String(process.env.LINEUP_REFRESH_SCHEDULER_ENABLED ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
     .trim().toLowerCase() === 'true';
 const LINEUP_REFRESH_INTERVAL_MINUTES = Math.max(
@@ -442,7 +446,7 @@ async function runBootDataSync(): Promise<void> {
           body: JSON.stringify({
             mode: 'top5',
             yearsBack: 5,
-            importPlayers: true,
+            importPlayers: isPlayerDataEnabled(),
             includeMatchDetails: true,
             forceRefresh: false,
           }),

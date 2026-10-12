@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PLAYER_DATA_ENABLED } from '../../config/playerAvailability';
 import {
   bulkImportMatches, getMatches,
   getUnderstatTeamSeasonStats, getPlayersByTeam, getStatsOverview, getTeams,
@@ -346,7 +347,7 @@ const DataManagerPageView: React.FC = () => {
     if (teamsRes.status === 'fulfilled') {
       const t = teamsRes.value.data ?? [];
       setTeams(t);
-      if (!selectedTeamId && t.length > 0) setSelectedTeamId(String(t[0].team_id));
+      if (t.length > 0) setSelectedTeamId((current) => current || String(t[0].team_id));
     }
 
     if (overviewRes.status === 'fulfilled') {
@@ -358,7 +359,7 @@ const DataManagerPageView: React.FC = () => {
     }
 
     setLoading(false);
-  }, [selectedTeamId]);
+  }, []);
 
   useEffect(() => {
     void loadData();
@@ -375,7 +376,7 @@ const DataManagerPageView: React.FC = () => {
   }, [competitionFilter, loadMatchesForCompetition, selectedTeam?.competition, teams]);
 
   const loadPlayers = useCallback(async (teamId: string) => {
-    if (!teamId || playersByTeamRef.current[teamId]) return;
+    if (!PLAYER_DATA_ENABLED || !teamId || playersByTeamRef.current[teamId]) return;
     setPlayersLoading(teamId);
     try {
       const res = await getPlayersByTeam(teamId);
@@ -728,7 +729,7 @@ const DataManagerPageView: React.FC = () => {
                   <div className="dm-recent-import__row"><span>Ultimo controllo dati</span><strong>{statsOverview?.generatedAt ? new Date(statsOverview.generatedAt).toLocaleString('it-IT') : 'Non disponibile'}</strong></div>
                   <div className="dm-recent-import__row"><span>Match completi</span><strong>{statsOverview?.coverage?.totals?.completedMatches ?? 0}</strong></div>
                   <div className="dm-recent-import__row"><span>Match in programma</span><strong>{statsOverview?.coverage?.totals?.upcomingMatches ?? 0}</strong></div>
-                  <div className="dm-recent-import__row"><span>Giocatori disponibili</span><strong>{statsOverview?.coverage?.players?.totalPlayers ?? 0}</strong></div>
+                  {PLAYER_DATA_ENABLED && <div className="dm-recent-import__row"><span>Giocatori disponibili</span><strong>{statsOverview?.coverage?.players?.totalPlayers ?? 0}</strong></div>}
                 </div>
               </div>
             </div>
@@ -754,7 +755,7 @@ const DataManagerPageView: React.FC = () => {
                           <span>Copertura xG</span>
                           <strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong>
                         </div>
-                        <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>
+                        {PLAYER_DATA_ENABLED && <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>}
                       </div>
                     ))}
                   </div>
@@ -969,6 +970,7 @@ const DataManagerPageView: React.FC = () => {
                 </div>
 
                 {/* PLAYERS */}
+                {PLAYER_DATA_ENABLED && <>
                 <div className="dm-players-head">
                   <div className="dm-players-title"> Giocatori</div>
                   <span className="fp-badge fp-badge-blue">
@@ -1013,6 +1015,7 @@ const DataManagerPageView: React.FC = () => {
                     </table>
                   </div>
                 )}
+                </>}
               </div>
             )}
           </div>
