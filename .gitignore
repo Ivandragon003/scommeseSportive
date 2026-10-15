@@ -30,6 +30,12 @@ backend/.tmp-fbref-profile/
 backend/tmp_script_*.js
 backend-nightly-sync.log
 
+# Environment files may contain credentials. Keep only examples in Git.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
 # Databases
 *.db
 *.db-*
