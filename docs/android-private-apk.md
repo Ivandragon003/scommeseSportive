@@ -86,6 +86,11 @@ Senza il nuovo backend autenticato l'APK non può completare il login.
 
 ## 4. Verificare il filtro nativo delle giocate
 
+La release 1.1.3 (`versionCode=5`) rigenera il pacchetto firmato con lo stesso
+backend Hostless. Il riuso persistente della calibrazione richiede la pubblicazione
+del backend e del workflow nightly aggiornati: non viene eseguito nell'APK.
+Le credenziali Turso e dei provider restano sul server.
+
 L'aggiornamento 1.1.2 (`versionCode=4`) mantiene la firma privata esistente e
 distribuisce la UI con giocatori, player props e formazioni sospesi. Le
 ottimizzazioni letture e la pausa server richiedono anche il deploy backend;

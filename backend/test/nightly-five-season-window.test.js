@@ -185,6 +185,7 @@ test('i timeout distinti restano entro il budget totale del job', () => {
     + envTimeout('PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS')
     + envTimeout('ODDS_SYNC_TIMEOUT_SECONDS') * 5
     + envTimeout('AUTO_BET_TIMEOUT_SECONDS')
+    + envTimeout('CALIBRATION_WARM_TIMEOUT_SECONDS')
     + envTimeout('LEARNING_SYNC_TIMEOUT_SECONDS')
     + envTimeout('FINAL_STATUS_TIMEOUT_SECONDS');
   assert.ok(Number.isFinite(totalSeconds));

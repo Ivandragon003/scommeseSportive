@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import App from './App';
+import App, { AppShell } from './App';
+import { MemoryRouter } from 'react-router-dom';
 import * as api from './utils/api';
 
 let mockPlayerAvailabilityEnabled = false;
@@ -201,7 +202,12 @@ test('il comando nell header apre il glossario rapido', async () => {
 });
 
 test('il menu mobile Strumenti si comporta come dialog e restituisce il focus alla chiusura', async () => {
-  render(<App />);
+  // Test the menu on a settled route, independently of asynchronous login,
+  // initial redirects and status polling (covered by the integration tests).
+  render(<MemoryRouter initialEntries={['/predictions']}><AppShell
+    activeUser="user1" statusRefreshing={false} onRefreshStatus={jest.fn()}
+    onLogout={jest.fn()} theme="dark" onThemeToggle={jest.fn()}
+  /></MemoryRouter>);
 
   await screen.findByText('Predictions page');
   const trigger = await screen.findByRole('button', { name: 'Strumenti' });
@@ -213,7 +219,7 @@ test('il menu mobile Strumenti si comporta come dialog e restituisce il focus al
 
   fireEvent.keyDown(document, { key: 'Escape' });
 
-  expect(screen.queryByRole('dialog', { name: /Altre sezioni/i })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: /Strumenti/i })).toBeNull();
   expect(trigger.matches(':focus')).toBe(true);
 });
 

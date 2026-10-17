@@ -25,6 +25,7 @@ API_FOOTBALL_TIMEOUT_SECONDS="${API_FOOTBALL_TIMEOUT_SECONDS:-120}"
 PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS="${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"
 ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-300}"
 AUTO_BET_TIMEOUT_SECONDS="${AUTO_BET_TIMEOUT_SECONDS:-900}"
+CALIBRATION_WARM_TIMEOUT_SECONDS="${CALIBRATION_WARM_TIMEOUT_SECONDS:-600}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
@@ -235,6 +236,18 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
   done
 else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
+fi
+
+# Compute on the existing CI runner, not on the hosted web service. The shared
+# database only supplies profiles whose full inputs/configuration/code match.
+if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
+  echo "Preparing persistent calibration profiles for all five leagues..."
+  if ! post_json \
+    "http://127.0.0.1:$PORT/api/model/calibration/warm" \
+    '{}' \
+    "$CALIBRATION_WARM_TIMEOUT_SECONDS"; then
+    echo "Warning: calibration warmup failed; predictions retain the full on-demand calculation."
+  fi
 fi
 
 if [[ "$UNDERSTAT_SYNC_FAILED" == "true" ]]; then

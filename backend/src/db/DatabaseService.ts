@@ -4072,6 +4072,28 @@ export class DatabaseService {
 
   // ==================== MODEL PARAMS ====================
 
+  async getCalibrationProfileCache(cacheKey: string): Promise<{ payloadJson: string; payloadSha256: string } | null> {
+    const row = await this.get(
+      'SELECT payload_json, payload_sha256 FROM runtime_calibration_profiles WHERE cache_key = ?', [cacheKey],
+    );
+    return row ? { payloadJson: String(row.payload_json), payloadSha256: String(row.payload_sha256) } : null;
+  }
+
+  async saveCalibrationProfileCache(cacheKey: string, competition: string, payloadJson: string, payloadSha256: string): Promise<void> {
+    await this.run(
+      `INSERT INTO runtime_calibration_profiles (cache_key, competition, payload_json, payload_sha256)
+       VALUES (?, ?, ?, ?) ON CONFLICT(cache_key) DO UPDATE SET
+       payload_json = excluded.payload_json, payload_sha256 = excluded.payload_sha256,
+       created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+      [cacheKey, competition, payloadJson, payloadSha256],
+    );
+    // Bound only this disposable cache, never the underlying history or archives.
+    await this.run(`DELETE FROM runtime_calibration_profiles WHERE cache_key IN (
+      SELECT cache_key FROM runtime_calibration_profiles
+      ORDER BY created_at DESC, cache_key DESC LIMIT -1 OFFSET 128
+    )`);
+  }
+
   async saveModelParams(competition: string, season: string, params: object, trainingMatches: number, logLikelihood?: number): Promise<void> {
     await this.run(
       'INSERT INTO model_params (competition, season, params_json, training_matches, log_likelihood) VALUES (?, ?, ?, ?, ?)',

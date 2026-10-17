@@ -53,6 +53,26 @@ risolvere un limite di letture.
 
 ## Un solo orchestratore
 
+Prima delle giocate automatiche, la nightly prepara i profili di calibrazione
+delle cinque leghe tramite `/api/model/calibration/warm` sul proprio backend
+temporaneo. Il calcolo resta sul runner GitHub Actions; Hostless legge i profili
+da una cache additiva libSQL/Turso, senza servizi aggiuntivi.
+
+Il riuso richiede la stessa impronta dei dati e delle quote storiche ammesse,
+della configurazione effettiva e del codice backend. La coorte include solo
+risultati disponibili entro il cutoff richiesto, con le stesse due ore di
+ritardo del percorso cronologico. Cambiamenti dei dati, del codice o delle
+impostazioni provocano un nuovo calcolo. Non vengono ridotti i 450 target,
+i refit settimanali o le iterazioni del modello. Profili danneggiati o cache
+indisponibile usano il calcolo completo; il primo caricamento di una nuova
+coorte non ancora preparata resta più costoso. La cache persistente conserva
+al massimo 128 profili; le cache in RAM e il loro TTL di sei ore restano attivi.
+La nuova tabella viene creata dalla migrazione additiva
+`014_runtime_calibration_cache.sql` durante l'avvio del backend.
+Se Hostless usa valori personalizzati `MODEL_*` o `PLAYER_GOALS_XG_SHRINK`,
+configurare gli stessi valori anche nel workflow per condividere i profili.
+Impostazioni diverse non riusano risultati incompatibili: provocano un miss.
+
 `NIGHTLY_ORCHESTRATOR=github_actions` è il default anche per un avvio diretto
 con Node. Disabilita bootstrap, scheduler Understat, quote e learning persino
 quando vecchi flag in ambiente sono `true`. Docker Compose imposta questo

@@ -1311,6 +1311,22 @@ router.get('/referees/:name', async (req: Request, res: Response) => {
 });
 
 // ====== MODEL ======
+router.post('/model/calibration/warm', async (req: Request, res: Response) => {
+  applyBacktestRouteTimeout(req, res);
+  try {
+    const supported = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
+    const competitions = req.body?.competitions ?? supported;
+    if (!Array.isArray(competitions) || competitions.length === 0
+      || competitions.some((competition) => !supported.includes(competition))) {
+      return res.status(400).json({ success: false, error: 'Competizioni di calibrazione non valide.' });
+    }
+    const profiles = await svc.warmCalibrationProfiles(competitions);
+    return res.json({ success: true, data: profiles });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 router.post('/model/fit', async (req: Request, res: Response) => {
   try {
     const result = await svc.fitModelForCompetition(req.body.competition, req.body.season, req.body.fromDate, req.body.toDate);

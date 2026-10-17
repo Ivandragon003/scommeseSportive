@@ -1,7 +1,8 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
-import { buildChronologicalForecastsAsync } from './ChronologicalForecastService';
+import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
+import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
   ValueBettingEngine,
   BetOpportunity,
@@ -78,13 +79,6 @@ export function applyCalibrationSampleGate(opportunity: any, minimumCalibrationS
     dataWarnings: Array.from(warnings),
   };
 }
-
-type CalibrationProfile = {
-  calibrationPoints: Array<{ x: number; y: number }>;
-  nObservations: number;
-  byFamily: Record<string, FamilyCalibrationCurve>;
-  learnedBlendWeights: Record<string, { modelWeight: number; sampleSize: number }>;
-};
 
 /**
  * `analyzeMarketsEnhanced` calibra le probabilita con le curve isotoniche
@@ -741,6 +735,7 @@ export class PredictionService {
   }> = new Map();
   private calibrationLoads: Map<string, Promise<CalibrationProfile>> = new Map();
   private calibrationGenerations = new Map<string, number>();
+  private calibrationCacheWarningLogged = false;
   private calibrationInputs = new Map<string, {
     expiresAt: number;
     rows: any[];
@@ -904,8 +899,32 @@ export class PredictionService {
 
     const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh);
     const matches = this.mapCompletedMatches(rows);
+    const cutoff = asOf ?? new Date(now);
+    let persistentKey: string | null = null;
+    if (typeof this.db.getCalibrationProfileCache === 'function' && typeof this.db.saveCalibrationProfileCache === 'function') {
+      try {
+        const eligible = matches.filter((match) => match.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
+        const eligibleIds = new Set(eligible.map((match) => match.matchId));
+        persistentKey = calibrationProfileFingerprint({
+          competition: competitionKey,
+          // Include label rows as well as model inputs, preserving ordering and missing values.
+          rows: rows.filter((row: any) => eligibleIds.has(String(row.match_id))),
+          odds: eligible.map((match) => [match.matchId, historicalOdds[match.matchId]?.odds ?? null]),
+        }, { predictionConfig, predictionEngineConfig });
+        if (!forceRefresh) {
+          const stored = await this.db.getCalibrationProfileCache(persistentKey);
+          const profile = stored && decodeCalibrationProfile(stored.payloadJson, stored.payloadSha256);
+          if (profile) {
+            this.rememberCalibrationProfile(cacheKey, competitionKey, generation, now, profile);
+            return profile;
+          }
+        }
+      } catch {
+        this.warnCalibrationCacheUnavailable();
+      }
+    }
     const forecasts = await buildChronologicalForecastsAsync(matches, {
-      asOf: asOf ?? new Date(now),
+      asOf: cutoff,
       createPredictor: (past, referenceDate) => {
         const historicalModel = new DixonColesModel();
         const teams = [...new Set(past.flatMap((match) => [match.homeTeamId, match.awayTeamId]))];
@@ -1001,7 +1020,8 @@ export class PredictionService {
     const blendSamples: BlendLearningSample[] = [];
     if (Object.keys(historicalOdds).length > 0) {
       const groupsByMatch = new Map<string, ReturnType<ValueBettingEngine['buildMarketGroups']>>();
-      const priorCurves = new Map<string, { points: Array<{ x: number; y: number }>; byFamily: Record<string, FamilyCalibrationCurve>; n: number }>();
+      const priorCurves = new Map<number, { points: Array<{ x: number; y: number }>; byFamily: Record<string, FamilyCalibrationCurve>; n: number }>();
+      let priorSampleCount = 0;
       for (const sample of replaySamples) {
         const detail = historicalOdds[sample.matchId];
         if (!detail) continue;
@@ -1018,9 +1038,14 @@ export class PredictionService {
         const marketProb = noVigProbability(group.odds, group.companions);
         if (marketProb === null) continue;
 
-        let prior = priorCurves.get(sample.matchId);
+        // Replay samples are chronological. Matches with the same available
+        // prefix must share the exact same prior curves, including simultaneous kickoffs.
+        while (priorSampleCount < replaySamples.length && replaySamples[priorSampleCount].availableAt <= sample.forecastAt) {
+          priorSampleCount++;
+        }
+        let prior = priorCurves.get(priorSampleCount);
         if (!prior) {
-          const pastSamples = replaySamples.filter((item) => item.availableAt <= sample.forecastAt);
+          const pastSamples = replaySamples.slice(0, priorSampleCount);
           const fit = this.engine.fitIsotonicCalibration(pastSamples.map((item) => item.raw), pastSamples.map((item) => item.outcome));
           const priorFamilies: Record<string, FamilyCalibrationCurve> = {};
           if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
@@ -1032,7 +1057,7 @@ export class PredictionService {
             }
           }
           prior = { points: fit.calibrationPoints, byFamily: priorFamilies, n: pastSamples.length };
-          priorCurves.set(sample.matchId, prior);
+          priorCurves.set(priorSampleCount, prior);
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
         const familyCurve = prior.byFamily[sample.family];
@@ -1061,21 +1086,49 @@ export class PredictionService {
     }
 
     const result = { calibrationPoints, nObservations, byFamily, learnedBlendWeights };
+    this.rememberCalibrationProfile(cacheKey, competitionKey, generation, now, result);
+    if (persistentKey && (this.calibrationGenerations.get(competitionKey) ?? 0) === generation) {
+      try {
+        const payload = JSON.stringify(result);
+        await this.db.saveCalibrationProfileCache(persistentKey, competitionKey, payload, calibrationPayloadHash(payload));
+      } catch {
+        this.warnCalibrationCacheUnavailable();
+      }
+    }
+    return result;
+  }
 
+  private warnCalibrationCacheUnavailable(): void {
+    if (this.calibrationCacheWarningLogged) return;
+    this.calibrationCacheWarningLogged = true;
+    console.warn('[calibration-cache] Persistent cache unavailable; retaining full chronological calculation.');
+  }
+
+  private rememberCalibrationProfile(cacheKey: string, competitionKey: string, generation: number, now: number, profile: CalibrationProfile): void {
     if ((this.calibrationGenerations.get(competitionKey) ?? 0) === generation) {
       this.calibrationCache.set(cacheKey, {
         expiresAt: now + (6 * 60 * 60 * 1000),
-        points: calibrationPoints,
-        observations: nObservations,
-        byFamily,
-        blendWeights: learnedBlendWeights,
+        points: profile.calibrationPoints,
+        observations: profile.nObservations,
+        byFamily: profile.byFamily,
+        blendWeights: profile.learnedBlendWeights,
       });
       while (this.calibrationCache.size > 32) {
         this.calibrationCache.delete(this.calibrationCache.keys().next().value!);
       }
     }
 
-    return result;
+  }
+
+  async warmCalibrationProfiles(competitions: string[]): Promise<Array<{ competition: string; observations: number }>> {
+    const profiles: Array<{ competition: string; observations: number }> = [];
+    for (const competition of [...new Set(competitions)]) {
+      // Refresh DB inputs after nightly writes, but reuse an exactly matching persisted result.
+      this.invalidateCalibrationForCompetition(competition);
+      const profile = await this.getCalibrationProfile(competition);
+      profiles.push({ competition, observations: profile.nObservations });
+    }
+    return profiles;
   }
 
   private async loadCalibrationInputs(competition?: string, forceRefresh = false) {
