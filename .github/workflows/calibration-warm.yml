@@ -1,0 +1,46 @@
+name: Prepare prediction calibration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**'
+      - 'backend/migrations/**'
+      - 'backend/package*.json'
+      - 'backend/tsconfig.json'
+      - 'backend/scripts/clean-build.js'
+      - 'backend/scripts/warm-calibration.js'
+      - '.github/workflows/calibration-warm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-prediction-calibration
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Rome
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      PLAYER_DATA_ENABLED: 'false'
+      PLAYER_AVAILABILITY_ENABLED: 'false'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Prepare and verify all five league profiles
+        run: npm run calibration:warm

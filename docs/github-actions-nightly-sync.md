@@ -126,3 +126,24 @@ Dopo il push, la CI verifica il codice. Per verificare l'intera nightly contro
 il DB configurato usare `Actions → Nightly Sync → Run workflow` e controllare
 gate, copertura delle stagioni, snapshot e conclusione del run effettivo.
 Questa verifica esegue gli import e le scritture del normale job.
+
+## Preparazione dei pronostici dopo il deploy
+
+`Prepare prediction calibration` (`calibration-warm.yml`) prepara i profili
+delle cinque leghe a ogni push pertinente su `main`, senza aspettare la nightly.
+È disponibile anche da **Actions → Prepare prediction calibration → Run workflow**.
+Richiede solo i due secrets Turso già previsti. Esegue la calibrazione completa
+sul runner e verifica il riuso persistito da un nuovo servizio; non importa dati,
+non richiama provider quote e non registra giocate. Applica solamente la migrazione
+additiva della cache, quando necessaria.
+
+Il comando equivalente, con le credenziali già nell'ambiente, è
+`cd backend` seguito da `npm run build` e `npm run calibration:warm`.
+La build pulisce `dist` per evitare che moduli compilati rimossi in passato
+alterino l'impronta rispetto al container. Il workflow e Hostless devono avere
+la stessa configurazione dei modelli (`MODEL_*`, se personalizzata).
+
+Attendere il risultato verde **calibration_verified** del job: un deploy può
+diventare disponibile prima che la preparazione termini. Se la coorte cambia
+prima della nightly o la configurazione differisce, resta necessario il calcolo
+completo; la preparazione non autorizza l'uso di profili obsoleti.

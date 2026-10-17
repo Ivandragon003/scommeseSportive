@@ -8,7 +8,8 @@ RUN npm install
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npx tsc
+COPY scripts/clean-build.js ./scripts/clean-build.js
+RUN npm run build
 
 # Stage 2: runtime
 FROM node:20 AS runtime

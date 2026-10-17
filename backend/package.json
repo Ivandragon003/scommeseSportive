@@ -7,7 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "prebuild": "node scripts/clean-build.js",
     "build": "tsc",
+    "calibration:warm": "node scripts/warm-calibration.js",
     "typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project tsconfig.scripts.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"test/**/*.{js,ts}\" --max-warnings=0",
     "benchmark:performance": "npm run build && node benchmarks/run-performance-benchmarks.js",

@@ -72,6 +72,34 @@ Occorrono la pubblicazione del backend e del workflow aggiornati. La migrazione
 viene applicata all'avvio; la nightly popola la cache. Non è necessario
 ricompilare il frontend o il pacchetto Android.
 
+### Correzione dell'attivazione iniziale
+
+La prima versione aspettava la nightly per preparare i profili sul runner.
+Il timeout di 120 secondi poteva quindi restare alla prima apertura dopo il
+deploy: la cache persistente, da sola, non evita il primo calcolo sul server.
+Il workflow `calibration-warm.yml` ora prepara e verifica le cinque leghe anche
+a ogni push pertinente. Non cambia il codice dei modelli o del pronostico.
+
+La diagnosi sul database condiviso ha trovato un profilo Serie A compatibile
+con una build pulita. La build locale conteneva anche dieci moduli JavaScript
+obsoleti, assenti dal sorgente: `prebuild` ora pulisce `dist`, anche nel Dockerfile,
+per ottenere l'impronta coerente prima di preparare la cache da altre macchine.
+
+Sono stati preparati i cinque profili sul database condiviso e verificati da
+servizi nuovi, bloccando il refit in questa verifica: tutti e cinque hanno
+riusato la cache (circa 0,4–1,2 secondi locali per lettura/validazione profilo).
+Il pronostico Roma–Genoa è stato poi verificato nella scheda reale su Hostless:
+dopo il ricaricamento mostra probabilità, consiglio finale e quote bookmaker.
+Questi tempi dei profili non misurano il caricamento completo del sito.
+
+Verifiche aggiuntive: build e 534 test backend superati, typecheck e lint
+superati, inclusi i nuovi script. Il comando di preparazione verifica checksum
+e riuso da un nuovo servizio e termina in errore se il risultato non è
+persistito. Durante la preparazione locale si è verificato un errore transitorio
+di accesso al database; la ripetizione completa ha concluso con
+`calibration_verified` per tutte e cinque le leghe. Docker Desktop resta spento:
+il controllo Compose non è disponibile. Frontend e Android non sono modificati.
+
 La prima coorte mai calcolata resta costosa, soprattutto prima della prima
 nightly della nuova versione. Un aggiornamento del codice invalida i profili
 precedenti per prudenza. Parametri personalizzati su Hostless devono coincidere

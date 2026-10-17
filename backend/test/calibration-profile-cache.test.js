@@ -52,6 +52,28 @@ function stubFits(t) {
   return () => fits;
 }
 
+test('deployment preparation verifies persisted hits in a fresh service for every league', async (t) => {
+  stubFits(t);
+  const { warmAndVerify } = require('../scripts/warm-calibration');
+  const store = sharedStore();
+  const originalRead = store.db.getCalibrationProfileCache;
+  const profiles = await warmAndVerify(store.db, store.service, ['Serie A'], () => {});
+  assert.equal(profiles.length, 1);
+  assert.ok(profiles[0].observations > 0);
+  assert.equal(store.db.getCalibrationProfileCache, originalRead);
+  assert.equal(store.cache.size, 1);
+});
+
+test('deployment preparation fails if storage is unavailable even when live calculation succeeds', async (t) => {
+  stubFits(t);
+  const { warmAndVerify } = require('../scripts/warm-calibration');
+  const store = sharedStore();
+  store.db.saveCalibrationProfileCache = async () => {};
+  const originalRead = store.db.getCalibrationProfileCache;
+  await assert.rejects(warmAndVerify(store.db, store.service, ['Serie A'], () => {}), /could not all be reused/);
+  assert.equal(store.db.getCalibrationProfileCache, originalRead);
+});
+
 test('a restarted service reuses the identical real calibration without fitting; force refresh still rebuilds', async (t) => {
   const store = sharedStore();
   let fits = 0;
