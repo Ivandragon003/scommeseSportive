@@ -71,6 +71,26 @@ per gli ultimi bit delle funzioni matematiche tra Windows/Node24 e Linux/Node20.
 
 ## Attivazione e limiti
 
+### Diagnosi successiva direttamente su Hostless
+
+Il codice distribuito aveva la stessa impronta del build locale, ma una nuova
+istanza del servizio falliva sistematicamente la prima lettura del profilo dopo
+aver caricato lo storico. L'errore era `TypeError: fetch failed`, con causa
+`UND_ERR_SOCKET`. Il fallback corretto dal punto di vista numerico attivava così
+il ricalcolo completo sul container limitato dalla CPU.
+
+Nel terminale del container, impedendo esplicitamente qualsiasi fit storico,
+la ripetizione della sola lettura interrotta ha recuperato il profilo valido:
+165 ms per la lettura con recupero, 8.571 ms per il pronostico completo nel
+processo diagnostico. Non sono stati scritti pronostici durante questa prova.
+
+La lettura persistente ora ammette al massimo due nuovi tentativi, con attese
+di 100 e 200 ms, solo per `UND_ERR_SOCKET`, `ECONNRESET` ed `EPIPE`.
+Le query, le chiavi, i checksum e i payload restano identici. Errori SQL,
+autorizzazione o errori senza codice di trasporto vengono propagati subito.
+I nuovi test coprono il recupero e il limite dei tentativi. Non vengono
+ripetute scritture o operazioni sulle giocate.
+
 Occorrono il deploy del backend aggiornato e il job di preparazione verde.
 Frontend e APK non cambiano. La nightly mantiene la preparazione dopo i nuovi
 dati. Replay più vecchi delle dieci partite preparate per lega, coorti nuove,

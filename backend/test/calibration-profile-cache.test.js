@@ -229,6 +229,36 @@ test('separate processes reject changed implementation code while sharing identi
   }
 });
 
+test('cache reads recover interrupted sockets without changing keys or stored probabilities', async () => {
+  const { DatabaseService } = require('../dist/db/DatabaseService.js');
+  for (const code of ['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']) {
+    const db = Object.create(DatabaseService.prototype);
+    const calls = [];
+    db.get = async (sql, args) => {
+      calls.push({ sql, args });
+      if (calls.length === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('closed'), { code }) });
+      return { payload_json: 'unchanged-profile', payload_sha256: 'unchanged-checksum' };
+    };
+    assert.deepEqual(await db.getCalibrationProfileCache('same-key'), {
+      payloadJson: 'unchanged-profile', payloadSha256: 'unchanged-checksum',
+    });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], calls[1]);
+  }
+});
+
+test('cache read retries are bounded and do not retry SQL, authorization or unknown failures', async () => {
+  const { DatabaseService } = require('../dist/db/DatabaseService.js');
+  for (const code of ['UND_ERR_SOCKET', 'SQLITE_ERROR', 'UNAUTHORIZED', undefined]) {
+    const db = Object.create(DatabaseService.prototype);
+    let calls = 0;
+    const failure = Object.assign(new Error('read failed'), { code });
+    db.get = async () => { calls++; throw failure; };
+    await assert.rejects(db.getCalibrationProfileCache('key'), (error) => error === failure);
+    assert.equal(calls, code === 'UND_ERR_SOCKET' ? 3 : 1);
+  }
+});
+
 test('libSQL cache migration is additive and cache writes stay bounded without touching match history', async () => {
   process.env.TURSO_DATABASE_URL = 'file::memory:';
   process.env.TURSO_AUTH_TOKEN = 'test-token';

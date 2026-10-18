@@ -4073,10 +4073,23 @@ export class DatabaseService {
   // ==================== MODEL PARAMS ====================
 
   async getCalibrationProfileCache(cacheKey: string): Promise<{ payloadJson: string; payloadSha256: string } | null> {
-    const row = await this.get(
-      'SELECT payload_json, payload_sha256 FROM runtime_calibration_profiles WHERE cache_key = ?', [cacheKey],
-    );
-    return row ? { payloadJson: String(row.payload_json), payloadSha256: String(row.payload_sha256) } : null;
+    // A reused HTTP socket can close while the calibration inputs are processed.
+    // Retry only this idempotent read and only explicit transport failures: a
+    // lost socket must not turn an already prepared profile into expensive fits.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const row = await this.get(
+          'SELECT payload_json, payload_sha256 FROM runtime_calibration_profiles WHERE cache_key = ?', [cacheKey],
+        );
+        return row ? { payloadJson: String(row.payload_json), payloadSha256: String(row.payload_sha256) } : null;
+      } catch (error) {
+        const failure = error as { code?: string; cause?: { code?: string } };
+        const code = failure?.cause?.code ?? failure?.code;
+        if (attempt >= 2 || !code || !['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE'].includes(code)) throw error;
+        console.warn(`[calibration-cache] Retrying interrupted read (${code}, retry ${attempt + 1}/2).`);
+        await new Promise<void>((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      }
+    }
   }
 
   async saveCalibrationProfileCache(cacheKey: string, competition: string, payloadJson: string, payloadSha256: string): Promise<void> {
