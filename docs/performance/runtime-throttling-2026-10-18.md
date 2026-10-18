@@ -91,6 +91,17 @@ autorizzazione o errori senza codice di trasporto vengono propagati subito.
 I nuovi test coprono il recupero e il limite dei tentativi. Non vengono
 ripetute scritture o operazioni sulle giocate.
 
+Verifica conclusiva sul sito pubblico, dopo il deploy Hostless `37289f66`
+del commit `274c797c` e il job GitHub `39141074809` completato con successo
+(44 profili, 5 leghe): Milan–Atalanta carica probabilità e quote reali.
+Il log Hostless del 18 ottobre alle 17:41:24 Europe/Rome registra
+`POST /predict`, HTTP 200, `durationMs: 9981`; la lettura quote da snapshot
+risponde HTTP 200 in 214 ms. `/api/system/health` risponde HTTP 200.
+La CI `39141074877` è verde; localmente 541 test backend, typecheck e lint
+superati. Docker è rimasto spento durante questa diagnosi e verifica.
+Questa prova conferma la risoluzione del timeout riprodotto; non costituisce
+una garanzia contro ogni futura saturazione o interruzione del provider.
+
 Occorrono il deploy del backend aggiornato e il job di preparazione verde.
 Frontend e APK non cambiano. La nightly mantiene la preparazione dopo i nuovi
 dati. Replay più vecchi delle dieci partite preparate per lega, coorti nuove,
