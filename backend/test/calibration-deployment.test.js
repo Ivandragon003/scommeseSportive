@@ -34,4 +34,8 @@ test('push preparation builds matching code and only prepares calibration, indep
   assert.doesNotMatch(workflow, /nightly-sync\.sh|ODDS_API_KEY|API_FOOTBALL_KEY|AUTO_BET/);
   assert.equal(pkg.scripts.prebuild, 'node scripts/clean-build.js');
   assert.match(docker, /COPY scripts\/clean-build.js[\s\S]*RUN npm run build/);
+  const nightly = readFileSync(join(__dirname, '../../scripts/ci/nightly-sync.sh'), 'utf8');
+  assert.match(nightly, /timeout "\$CALIBRATION_WARM_TIMEOUT_SECONDS" npm --prefix "\$BACKEND_DIR" run calibration:warm/);
+  const warmer = readFileSync(join(__dirname, '../scripts/warm-calibration.js'), 'utf8');
+  assert.match(warmer, /recentReplayLimit: 10/);
 });

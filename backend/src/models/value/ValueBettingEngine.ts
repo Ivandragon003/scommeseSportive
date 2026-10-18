@@ -3162,15 +3162,20 @@ export class ValueBettingEngine {
 
   fitIsotonicCalibration(
     predictions: number[],
-    outcomes: number[]
+    outcomes: number[],
+    options: { presorted?: boolean } = {},
   ): { calibrationPoints: Array<{ x: number; y: number }> } {
     if (predictions.length !== outcomes.length || predictions.length === 0)
       return { calibrationPoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
 
     const paired = predictions
       .map((p, i) => ({ p, o: outcomes[i] }))
-      .filter(({ p }) => isFinite(p) && p >= 0 && p <= 1)
-      .sort((a, b) => a.p - b.p);
+      .filter(({ p }) => isFinite(p) && p >= 0 && p <= 1);
+    // Historical prefixes can share one stable ordering. Validate that promise
+    // so an accidental unsorted caller still receives the original calculation.
+    if (!options.presorted || paired.some((item, index) => index > 0 && paired[index - 1].p > item.p)) {
+      paired.sort((a, b) => a.p - b.p);
+    }
 
     const nBuckets = Math.min(10, Math.floor(paired.length / 5));
     if (nBuckets < 2) return { calibrationPoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };

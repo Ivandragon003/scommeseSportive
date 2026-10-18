@@ -242,10 +242,7 @@ fi
 # database only supplies profiles whose full inputs/configuration/code match.
 if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
   echo "Preparing persistent calibration profiles for all five leagues..."
-  if ! post_json \
-    "http://127.0.0.1:$PORT/api/model/calibration/warm" \
-    '{}' \
-    "$CALIBRATION_WARM_TIMEOUT_SECONDS"; then
+  if ! timeout "$CALIBRATION_WARM_TIMEOUT_SECONDS" npm --prefix "$BACKEND_DIR" run calibration:warm; then
     echo "Warning: calibration warmup failed; predictions retain the full on-demand calculation."
   fi
 fi

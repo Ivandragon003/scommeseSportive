@@ -7,7 +7,7 @@ const { decodeCalibrationProfile } = require('../dist/services/CalibrationProfil
 
 const COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
 
-async function warmAndVerify(db, createService, competitions = COMPETITIONS, log = console.log) {
+async function warmAndVerify(db, createService, competitions = COMPETITIONS, log = console.log, options = {}) {
   let validReads = 0;
   const originalRead = db.getCalibrationProfileCache;
   db.getCalibrationProfileCache = async function (...args) {
@@ -20,18 +20,19 @@ async function warmAndVerify(db, createService, competitions = COMPETITIONS, log
     const profiles = [];
     for (const competition of competitions) {
       const start = Date.now();
-      profiles.push(...await service.warmCalibrationProfiles([competition]));
+      profiles.push(...await service.warmCalibrationProfiles([competition], options));
       log(JSON.stringify({ event: 'calibration_prepared', competition, durationMs: Date.now() - start }));
     }
     // A successful calculation alone is insufficient: storage failures are
     // deliberately tolerated by live predictions. Require a persisted hit for
     // every league from a fresh service before marking this job successful.
     const before = validReads;
-    await createService().warmCalibrationProfiles(competitions);
-    if (validReads - before !== competitions.length) {
+    await createService().warmCalibrationProfiles(competitions, options);
+    const expectedProfiles = profiles.reduce((sum, profile) => sum + 1 + (profile.replayProfiles ?? 0), 0);
+    if (validReads - before !== expectedProfiles) {
       throw new Error('Calibration profiles could not all be reused after restart');
     }
-    log(JSON.stringify({ event: 'calibration_verified', competitions: competitions.length }));
+    log(JSON.stringify({ event: 'calibration_verified', competitions: competitions.length, profiles: expectedProfiles }));
     return profiles;
   } finally {
     db.getCalibrationProfileCache = originalRead;
@@ -51,7 +52,7 @@ async function main() {
     client.close();
   }
   const db = new DatabaseService({ skipSchemaBootstrap: true });
-  return warmAndVerify(db, () => new PredictionService(db));
+  return warmAndVerify(db, () => new PredictionService(db), COMPETITIONS, console.log, { recentReplayLimit: 10 });
 }
 
 if (require.main === module) {

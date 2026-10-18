@@ -177,6 +177,33 @@ test('cache decoder rejects a valid checksum with invalid curves or sample count
   assert.notEqual(calibrationProfileFingerprint({ result: 1 }, { scale: 0.5 }), calibrationProfileFingerprint({ result: 2 }, { scale: 0.5 }));
 });
 
+test('warmup prepares bounded prematch cutoffs for recent replays without leaking results', async (t) => {
+  const fits = stubFits(t);
+  const store = sharedStore();
+  const warmed = await store.service().warmCalibrationProfiles(['Serie A'], { recentReplayLimit: 3 });
+  assert.equal(warmed[0].replayProfiles, 3);
+  const afterWarm = fits();
+  for (const row of store.rows.slice(-3)) {
+    const profile = await store.service().getCalibrationProfile('Serie A', false, new Date(row.date));
+    assert.ok(profile.nObservations > 0);
+  }
+  assert.equal(fits(), afterWarm, 'new services reuse replay profiles without fitting');
+  store.rows[89].home_goals++;
+  await store.service().getCalibrationProfile('Serie A', false, new Date(store.rows[89].date));
+  assert.equal(fits(), afterWarm, 'the target outcome is excluded at its prematch cutoff');
+  await assert.rejects(store.service().warmCalibrationProfiles(['Serie A'], { recentReplayLimit: 21 }), /recentReplayLimit/);
+});
+
+test('deployment verification includes every prepared replay profile', async (t) => {
+  stubFits(t);
+  const { warmAndVerify } = require('../scripts/warm-calibration');
+  const store = sharedStore();
+  const logs = [];
+  const profiles = await warmAndVerify(store.db, store.service, ['Serie A'], (line) => logs.push(JSON.parse(line)), { recentReplayLimit: 3 });
+  assert.equal(profiles[0].replayProfiles, 3);
+  assert.equal(logs.at(-1).profiles, 4);
+});
+
 test('separate processes reject changed implementation code while sharing identical LF/CRLF deployments', () => {
   const root = mkdtempSync(join(tmpdir(), 'calibration-code-'));
   const directory = join(root, 'services');
@@ -247,6 +274,8 @@ test('the warmup API validates league requests and returns useful failures witho
     const post = (body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const invalid = await post({ competitions: ['Invalid league'] });
     assert.equal(invalid.status, 400);
+    assert.equal(called, 0);
+    assert.equal((await post({ competitions: ['Serie A'], recentReplayLimit: 21 })).status, 400);
     assert.equal(called, 0);
     const valid = await post({ competitions: ['Serie A'] });
     assert.equal(valid.status, 200);

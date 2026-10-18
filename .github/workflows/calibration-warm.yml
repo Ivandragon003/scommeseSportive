@@ -8,6 +8,7 @@ on:
       - 'backend/migrations/**'
       - 'backend/package*.json'
       - 'backend/tsconfig.json'
+      - 'backend/Dockerfile'
       - 'backend/scripts/clean-build.js'
       - 'backend/scripts/warm-calibration.js'
       - '.github/workflows/calibration-warm.yml'
@@ -42,5 +43,5 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - name: Prepare and verify all five league profiles
+      - name: Prepare and verify live and recent replay profiles
         run: npm run calibration:warm

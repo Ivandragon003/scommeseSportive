@@ -1138,6 +1138,33 @@ export class DixonColesModel {
         ? (this.params.homeAdvantagePerTeam[homeId] ?? this.params.homeAdvantage)
         : this.params.homeAdvantage;
 
+    // Within an optimizer step every occurrence of the same pairing has
+    // identical lambdas. Evaluate the unchanged expressions once per pairing,
+    // then refresh after parameter updates, preserving match accumulation order.
+    const pairings: Array<{ home: string; away: string; lH: number; lA: number }> = [];
+    const pairIndices = new Map<string, Map<string, number>>();
+    const matchPairings = validMatches.map((match) => {
+      let awayIndices = pairIndices.get(match.homeTeamId);
+      if (!awayIndices) {
+        awayIndices = new Map();
+        pairIndices.set(match.homeTeamId, awayIndices);
+      }
+      let index = awayIndices.get(match.awayTeamId);
+      if (index === undefined) {
+        index = pairings.length;
+        awayIndices.set(match.awayTeamId, index);
+        pairings.push({ home: match.homeTeamId, away: match.awayTeamId, lH: 0, lA: 0 });
+      }
+      return pairings[index];
+    });
+    const refreshPairings = (): void => {
+      for (const pair of pairings) {
+        pair.lH = this.safeExp((this.params.attackParams[pair.home] ?? 0) - (this.params.defenceParams[pair.away] ?? 0) + getHA(pair.home));
+        pair.lA = this.safeExp((this.params.attackParams[pair.away] ?? 0) - (this.params.defenceParams[pair.home] ?? 0));
+      }
+    };
+    refreshPairings();
+
     // Quasi-log-likelihood Poisson sui pseudo-goal (il termine log k! è
     // costante nei parametri, quindi ometterlo non cambia la convergenza).
     // La componente tau usa i goal interi reali.
@@ -1147,8 +1174,7 @@ export class DixonColesModel {
         const m = validMatches[i];
         const w = weights[i];
         if (w <= 0) continue;
-        const lH  = this.safeExp((this.params.attackParams[m.homeTeamId]??0) - (this.params.defenceParams[m.awayTeamId]??0) + getHA(m.homeTeamId));
-        const lA  = this.safeExp((this.params.attackParams[m.awayTeamId]??0) - (this.params.defenceParams[m.homeTeamId]??0));
+        const { lH, lA } = matchPairings[i];
         const { x: effX, y: effY } = effectiveGoals[i];
         const tauC  = Math.max(1e-8, this.tauCorrection(m.homeGoals!, m.awayGoals!, lH, lA, this.params.rho));
         ll += w * (
@@ -1228,15 +1254,7 @@ export class DixonColesModel {
         const m = validMatches[i];
         const w = weights[i];
         if (w <= 0) continue;
-        const lH = this.safeExp(
-          (this.params.attackParams[m.homeTeamId]??0) -
-          (this.params.defenceParams[m.awayTeamId]??0) +
-          getHA(m.homeTeamId)
-        );
-        const lA = this.safeExp(
-          (this.params.attackParams[m.awayTeamId]??0) -
-          (this.params.defenceParams[m.homeTeamId]??0)
-        );
+        const { lH, lA } = matchPairings[i];
         const { x: effX, y: effY } = effectiveGoals[i];
         const errH = effX - lH, errA = effY - lA;
 
@@ -1316,6 +1334,8 @@ export class DixonColesModel {
       m2Rho = β2 * m2Rho + (1 - β2) * gRhoNorm * gRhoNorm;
       const stepRho = lr * (m1Rho / bc1) / (Math.sqrt(m2Rho / bc2) + ε);
       this.params.rho = clamp(this.params.rho + stepRho, -0.5, 0.0);
+
+      refreshPairings();
 
       // ---- criterio di arresto ----
       // Adam converge più velocemente: tolleranza più stretta (1e-7 vs 1e-6)

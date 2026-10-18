@@ -1021,6 +1021,10 @@ export class PredictionService {
     if (Object.keys(historicalOdds).length > 0) {
       const groupsByMatch = new Map<string, ReturnType<ValueBettingEngine['buildMarketGroups']>>();
       const priorCurves = new Map<number, { points: Array<{ x: number; y: number }>; byFamily: Record<string, FamilyCalibrationCurve>; n: number }>();
+      // Stable-sort once. Filtering original indices preserves the exact order
+      // (including ties) of sorting each chronological prefix independently.
+      const sortedSampleIndices = replaySamples.map((_, index) => index)
+        .sort((a, b) => replaySamples[a].raw - replaySamples[b].raw);
       let priorSampleCount = 0;
       for (const sample of replaySamples) {
         const detail = historicalOdds[sample.matchId];
@@ -1045,18 +1049,35 @@ export class PredictionService {
         }
         let prior = priorCurves.get(priorSampleCount);
         if (!prior) {
-          const pastSamples = replaySamples.slice(0, priorSampleCount);
-          const fit = this.engine.fitIsotonicCalibration(pastSamples.map((item) => item.raw), pastSamples.map((item) => item.outcome));
-          const priorFamilies: Record<string, FamilyCalibrationCurve> = {};
-          if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
-            for (const family of new Set(pastSamples.map((item) => item.family))) {
-              const subset = pastSamples.filter((item) => item.family === family);
-              if (subset.length < predictionEngineConfig.calibration.perFamilyMinSamples) continue;
-              const familyFit = this.engine.fitIsotonicCalibration(subset.map((item) => item.raw), subset.map((item) => item.outcome));
-              if (familyFit.calibrationPoints.length >= 3) priorFamilies[family] = { points: familyFit.calibrationPoints, nObservations: subset.length };
+          const pastPredicted: number[] = [];
+          const pastObserved: number[] = [];
+          const pastByFamily = new Map<string, { predicted: number[]; observed: number[] }>();
+          for (const index of sortedSampleIndices) {
+            if (index >= priorSampleCount) continue;
+            const item = replaySamples[index];
+            pastPredicted.push(item.raw);
+            pastObserved.push(item.outcome);
+            if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+              let bucket = pastByFamily.get(item.family);
+              if (!bucket) {
+                bucket = { predicted: [], observed: [] };
+                pastByFamily.set(item.family, bucket);
+              }
+              bucket.predicted.push(item.raw);
+              bucket.observed.push(item.outcome);
             }
           }
-          prior = { points: fit.calibrationPoints, byFamily: priorFamilies, n: pastSamples.length };
+          const fit = this.engine.fitIsotonicCalibration(pastPredicted, pastObserved, { presorted: true });
+          const priorFamilies: Record<string, FamilyCalibrationCurve> = {};
+          if (predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+            for (const family of familyPairs.keys()) {
+              const bucket = pastByFamily.get(family);
+              if (!bucket || bucket.predicted.length < predictionEngineConfig.calibration.perFamilyMinSamples) continue;
+              const familyFit = this.engine.fitIsotonicCalibration(bucket.predicted, bucket.observed, { presorted: true });
+              if (familyFit.calibrationPoints.length >= 3) priorFamilies[family] = { points: familyFit.calibrationPoints, nObservations: bucket.predicted.length };
+            }
+          }
+          prior = { points: fit.calibrationPoints, byFamily: priorFamilies, n: priorSampleCount };
           priorCurves.set(priorSampleCount, prior);
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
@@ -1120,13 +1141,29 @@ export class PredictionService {
 
   }
 
-  async warmCalibrationProfiles(competitions: string[]): Promise<Array<{ competition: string; observations: number }>> {
-    const profiles: Array<{ competition: string; observations: number }> = [];
+  async warmCalibrationProfiles(
+    competitions: string[],
+    options: { recentReplayLimit?: number } = {},
+  ): Promise<Array<{ competition: string; observations: number; replayProfiles?: number }>> {
+    const limit = options.recentReplayLimit ?? 0;
+    if (!Number.isInteger(limit) || limit < 0 || limit > 20) throw new Error('recentReplayLimit must be an integer from 0 to 20');
+    const profiles: Array<{ competition: string; observations: number; replayProfiles?: number }> = [];
     for (const competition of [...new Set(competitions)]) {
       // Refresh DB inputs after nightly writes, but reuse an exactly matching persisted result.
       this.invalidateCalibrationForCompetition(competition);
       const profile = await this.getCalibrationProfile(competition);
-      profiles.push({ competition, observations: profile.nObservations });
+      if (limit > 0) {
+        const { rows } = await this.loadCalibrationInputs(competition);
+        const recent = this.mapCompletedMatches(rows)
+          .filter((match) => match.date.getTime() < Date.now())
+          .sort((a, b) => b.date.getTime() - a.date.getTime() || a.matchId.localeCompare(b.matchId))
+          .slice(0, limit);
+        const cutoffs = [...new Set(recent.map((match) => match.date.toISOString()))];
+        for (const cutoff of cutoffs) await this.getCalibrationProfile(competition, false, new Date(cutoff));
+        profiles.push({ competition, observations: profile.nObservations, replayProfiles: cutoffs.length });
+      } else {
+        profiles.push({ competition, observations: profile.nObservations });
+      }
     }
     return profiles;
   }

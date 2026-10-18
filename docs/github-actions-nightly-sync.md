@@ -131,6 +131,9 @@ Questa verifica esegue gli import e le scritture del normale job.
 
 `Prepare prediction calibration` (`calibration-warm.yml`) prepara i profili
 delle cinque leghe a ogni push pertinente su `main`, senza aspettare la nightly.
+Include il profilo live e i cutoff prematch delle ultime dieci partite concluse
+per lega. Anche la nightly usa il comando con verifica del riuso persistito,
+entro il timeout previsto, invece della sola risposta della route di warmup.
 È disponibile anche da **Actions → Prepare prediction calibration → Run workflow**.
 Richiede solo i due secrets Turso già previsti. Esegue la calibrazione completa
 sul runner e verifica il riuso persistito da un nuovo servizio; non importa dati,
@@ -147,3 +150,6 @@ Attendere il risultato verde **calibration_verified** del job: un deploy può
 diventare disponibile prima che la preparazione termini. Se la coorte cambia
 prima della nightly o la configurazione differisce, resta necessario il calcolo
 completo; la preparazione non autorizza l'uso di profili obsoleti.
+
+Diagnosi e misure del percorso replay:
+[riduzione CPU del 18 ottobre](performance/runtime-throttling-2026-10-18.md).

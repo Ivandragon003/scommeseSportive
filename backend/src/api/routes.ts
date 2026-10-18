@@ -1320,7 +1320,11 @@ router.post('/model/calibration/warm', async (req: Request, res: Response) => {
       || competitions.some((competition) => !supported.includes(competition))) {
       return res.status(400).json({ success: false, error: 'Competizioni di calibrazione non valide.' });
     }
-    const profiles = await svc.warmCalibrationProfiles(competitions);
+    const recentReplayLimit = req.body?.recentReplayLimit ?? 0;
+    if (!Number.isInteger(recentReplayLimit) || recentReplayLimit < 0 || recentReplayLimit > 20) {
+      return res.status(400).json({ success: false, error: 'Limite replay non valido (0–20).' });
+    }
+    const profiles = await svc.warmCalibrationProfiles(competitions, { recentReplayLimit });
     return res.json({ success: true, data: profiles });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });

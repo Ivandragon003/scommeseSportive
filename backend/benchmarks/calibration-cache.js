@@ -75,4 +75,5 @@ async function run() {
     client.close();
   }
 }
-run().catch((error) => { console.error(error); process.exitCode = 1; });
+if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });
+module.exports = { rows, odds, run };
