@@ -24,7 +24,6 @@ TRANSITION_REFERENCE_TIMEOUT_SECONDS="${TRANSITION_REFERENCE_TIMEOUT_SECONDS:-60
 API_FOOTBALL_TIMEOUT_SECONDS="${API_FOOTBALL_TIMEOUT_SECONDS:-120}"
 PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS="${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"
 ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-300}"
-AUTO_BET_TIMEOUT_SECONDS="${AUTO_BET_TIMEOUT_SECONDS:-900}"
 CALIBRATION_WARM_TIMEOUT_SECONDS="${CALIBRATION_WARM_TIMEOUT_SECONDS:-600}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
@@ -120,6 +119,7 @@ for name in "${required_envs[@]}"; do
 done
 
 cd "$BACKEND_DIR"
+NIGHTLY_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 echo "Starting backend for CI sync..."
 NODE_ENV=ci \
@@ -132,6 +132,7 @@ UNDERSTAT_SCHEDULER_ENABLED=false \
 ODDS_SNAPSHOT_SCHEDULER_ENABLED=false \
 LEARNING_REVIEW_SCHEDULER_ENABLED=false \
 LINEUP_REFRESH_SCHEDULER_ENABLED=false \
+RESEARCH_T15_SCHEDULER_ENABLED=false \
 nohup node dist/index.js >"$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 
@@ -228,7 +229,7 @@ if [[ "$RUN_ODDS_SYNC" == "true" && -n "${ODDS_API_KEY:-}" ]]; then
     echo "Running odds snapshot sync for: $competition"
     if ! post_json \
       "http://127.0.0.1:$PORT/api/scraper/odds" \
-      "{\"competition\":\"$competition\",\"markets\":[\"h2h\",\"totals\",\"spreads\"]}" \
+      "{\"competition\":\"$competition\",\"markets\":[\"h2h\",\"totals\",\"spreads\"],\"requestOrigin\":\"nightly\"}" \
       "$ODDS_SYNC_TIMEOUT_SECONDS"; then
       REQUIRED_SYNC_FAILURES+=("odds:$competition")
       echo "Required gate failed: odds for $competition. Continuing with the remaining competitions."
@@ -247,17 +248,7 @@ if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
   fi
 fi
 
-if [[ "$UNDERSTAT_SYNC_FAILED" == "true" ]]; then
-  echo "Skipping automated bets: Understat did not complete, so the core match data is not reliable enough."
-else
-  # A failure in a bulk-odds request for another league must not discard valid
-  # Serie A candidates: this endpoint verifies data and real odds per match.
-  echo "Creating valid internal bets for matches in the next ${AUTO_BET_WINDOW_HOURS:-24} hours..."
-  post_json \
-    "http://127.0.0.1:$PORT/api/automation/place-valid-bets" \
-    "{\"userId\":\"${AUTO_BET_USER_ID:-user1}\",\"windowHours\":${AUTO_BET_WINDOW_HOURS:-24},\"maxMatches\":${AUTO_BET_MAX_MATCHES:-100}}" \
-    "$AUTO_BET_TIMEOUT_SECONDS"
-fi
+echo "Nightly maintenance does not create future bets or reserve betting decisions."
 
 if (( ${#REQUIRED_SYNC_FAILURES[@]} == 0 )); then
   echo "Running learning review sync..."
@@ -275,6 +266,15 @@ get_json "http://127.0.0.1:$PORT/api/scraper/status" "$FINAL_STATUS_TIMEOUT_SECO
 if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then
   echo "Nightly sync completed with required data-gate failures: ${REQUIRED_SYNC_FAILURES[*]}."
   exit 1
+fi
+
+if ! post_json \
+  "http://127.0.0.1:$PORT/api/research/nightly-complete" \
+  "{\"startedAt\":\"$NIGHTLY_STARTED_AT\"}" \
+  "$FINAL_STATUS_TIMEOUT_SECONDS"; then
+  # Transitional compatibility: the emergency two-file nightly patch can run
+  # against the old backend before the full, authorized deployment.
+  echo "Warning: nightly completion marker unavailable; data maintenance completed."
 fi
 
 echo "Nightly sync workflow completed."
