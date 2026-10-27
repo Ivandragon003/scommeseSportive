@@ -440,6 +440,9 @@ export class OddsProviderCoordinator {
     const isMerged = Boolean(primaryMatch && fallbackMatch && mergeMarkets);
     const baseMatch = primaryMatch ?? fallbackMatch!;
     const mergedMatch = isMerged ? mergeOddsMatchMarkets(primaryMatch!, fallbackMatch!) : baseMatch;
+    const observedTimes = [primaryMatch?.capturedAt, fallbackMatch?.capturedAt]
+      .filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+    const capturedAt = observedTimes.length ? new Date(Math.min(...observedTimes.map(Date.parse))).toISOString() : fetchedAt;
     const providerMatches: Partial<Record<string, OddsMatch>> = {
       [primaryName]: primaryMatch ?? undefined,
       ...(fallbackName ? { [fallbackName]: fallbackMatch ?? undefined } : {}),
@@ -511,7 +514,7 @@ export class OddsProviderCoordinator {
       oddsSource,
       fallbackReason,
       providerHealth,
-      fetchedAt,
+      fetchedAt: capturedAt,
       isMerged,
       marketSources,
       bestOddsByProvider,

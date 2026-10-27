@@ -1,4 +1,4 @@
-import { OddsApiService, OddsMatch, SelectedBookmaker } from '../OddsApiService';
+import { OddsApiService, OddsMatch, SelectedBookmaker, OddsApiRequestOptions } from '../OddsApiService';
 import { createHash } from 'node:crypto';
 import {
   OddsProviderAdapter,
@@ -10,13 +10,17 @@ import { matchFixturesToMatches, mergeOddsMatchMarkets } from './oddsProviderUti
 
 export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
   private readonly service: OddsApiService | null;
+  private readonly extraEventService: OddsApiService | null;
   private readonly cooldownScope: string;
   private static readonly authCooldowns = new Map<string, { until: number; message: string }>();
   private static readonly AUTH_COOLDOWN_CACHE_MAX_ENTRIES = 100;
 
-  constructor(apiKey?: string | null) {
+  constructor(apiKey?: string | null, options: OddsApiRequestOptions = {}) {
     const normalizedApiKey = apiKey?.trim() ?? '';
-    this.service = normalizedApiKey ? new OddsApiService(normalizedApiKey) : null;
+    this.service = normalizedApiKey ? new OddsApiService(normalizedApiKey, options) : null;
+    this.extraEventService = normalizedApiKey ? new OddsApiService(normalizedApiKey, { ...options,
+      operation: `${options.operation ?? 'unattributed'}_extra`,
+      allowNetwork: options.allowNetwork === true && process.env.ODDS_EXTRA_EVENT_NETWORK_ENABLED === 'true' }) : null;
     // Keep a process-local, non-reversible key scope so a 401 for one account
     // never suppresses a newly configured account in the same Node process.
     this.cooldownScope = normalizedApiKey
@@ -139,12 +143,15 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
   private async loadCompetitionOdds(request: OddsProviderRequest): Promise<OddsProviderFetchResult<OddsMatch>> {
     const cooldown = this.getActiveAuthCooldown(request.competition);
     if (cooldown) throw new Error(cooldown.message);
-    const markets = request.markets && request.markets.length > 0
+    const requestedMarkets = request.markets && request.markets.length > 0
       ? request.markets
       : ['h2h', 'totals', 'spreads'];
-    const fallbackMarkets = request.fallbackMarkets && request.fallbackMarkets.length > 0
+    const featured = (values: string[]) => [...new Set(values)].filter((market) => ['h2h', 'totals', 'spreads'].includes(market));
+    const markets = featured(requestedMarkets);
+    if (!markets.length) throw Object.assign(new Error('odds_unsupported_market'), { code: 'odds_unsupported_market' });
+    const fallbackMarkets = featured(request.fallbackMarkets && request.fallbackMarkets.length > 0
       ? request.fallbackMarkets
-      : [];
+      : []);
     const attempts = [
       { label: 'primary', markets },
       { label: 'fallback', markets: fallbackMarkets },
@@ -153,7 +160,8 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       attempt.markets.length > 0
       && all.findIndex((entry) => entry.markets.join('|') === attempt.markets.join('|')) === index
     );
-    const warnings: string[] = [];
+    const warnings: string[] = requestedMarkets.length === markets.length ? []
+      : ['Unsupported competition markets excluded; extended markets require event-specific cache.'];
 
     for (const attempt of attempts) {
       try {
@@ -164,7 +172,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
         }
       return {
         matches,
-        fetchedAt: new Date().toISOString(),
+        fetchedAt: matches[0]?.capturedAt ?? new Date().toISOString(),
           fallbackReason: usedFallbackAttempt
             ? `Mercati primari Odds API non disponibili, uso set ${attempt.label}: ${attempt.markets.join(', ')}`
             : null,
@@ -185,6 +193,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
           // obscures the original diagnostic, so do not attempt market fallbacks.
           throw new Error(message);
         }
+        if (this.isManagedFailure(error)) throw error;
         warnings.push(`Odds API ${attempt.label} markets failed (${attempt.markets.join(', ')}): ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -236,8 +245,12 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
 
   private getErrorStatus(error: unknown): number {
     if (!error || typeof error !== 'object') return 0;
-    const candidate = error as { response?: { status?: unknown }; status?: unknown };
-    return Number(candidate.response?.status ?? candidate.status ?? 0);
+    const candidate = error as { response?: { status?: unknown }; status?: unknown; httpStatus?: unknown };
+    return Number(candidate.response?.status ?? candidate.status ?? candidate.httpStatus ?? 0);
+  }
+
+  private isManagedFailure(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && 'code' in error && String(error.code).startsWith('odds_'));
   }
 
   private async enrichEventMarkets(
@@ -255,7 +268,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
     if (!eventId) return match;
 
     try {
-      const extra = await this.service!.getEventOdds(request.competition, eventId, eventMarkets);
+      const extra = await this.extraEventService!.getEventOdds(request.competition, eventId, eventMarkets);
       for (const market of eventMarkets) {
         loadedEventMarkets?.add(market);
       }
@@ -263,6 +276,10 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
     } catch (error) {
       if (this.isAuthenticationFailure(error)) {
         warnings.push(this.startAuthCooldown(request.competition, error));
+        return match;
+      }
+      if (this.isManagedFailure(error) && ![400, 422].includes(this.getErrorStatus(error))) {
+        warnings.push(String((error as Error).message));
         return match;
       }
       warnings.push(
@@ -275,7 +292,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
     const uniqueMarkets = Array.from(new Set(eventMarkets.map((market) => String(market).trim()).filter(Boolean)));
     for (const market of uniqueMarkets) {
       try {
-        const extra = await this.service!.getEventOdds(request.competition, eventId, [market]);
+        const extra = await this.extraEventService!.getEventOdds(request.competition, eventId, [market]);
         if (!extra) continue;
         enriched = mergeOddsMatchMarkets(enriched, extra);
         loadedMarkets.push(market);
@@ -283,6 +300,10 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       } catch (marketError) {
         if (this.isAuthenticationFailure(marketError)) {
           warnings.push(this.startAuthCooldown(request.competition, marketError));
+          break;
+        }
+        if (this.isManagedFailure(marketError) && ![400, 422].includes(this.getErrorStatus(marketError))) {
+          warnings.push(String((marketError as Error).message));
           break;
         }
         warnings.push(

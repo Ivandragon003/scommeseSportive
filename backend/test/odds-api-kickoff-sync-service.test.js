@@ -44,6 +44,49 @@ const createHarness = ({ dbMatches, providerMatches, providerScores }) => {
   };
 };
 
+test('calendar sync uses the free events endpoint exclusively when available', async () => {
+  const updates = [], calls = [];
+  const service = new OddsApiKickoffSyncService({
+    getUpcomingMatches: async () => [buildDbMatch()],
+    updateMatchKickoff: async (...args) => updates.push(args),
+  }, {
+    getEvents: async (competition) => { calls.push(competition); return [buildOddsMatch()]; },
+    getOdds: async () => { throw new Error('paid odds must not run'); },
+    getScores: async () => { throw new Error('paid scores must not run'); },
+  });
+  assert.equal((await service.syncUpcomingKickoffsFromOddsApi({ competition: 'Serie A' })).corrected, 1);
+  assert.deepEqual(calls, ['Serie A']);
+  assert.equal(updates.length, 1);
+});
+
+test('free calendar failure cannot silently fall back to credit-consuming odds or scores', async () => {
+  const service = new OddsApiKickoffSyncService({ getUpcomingMatches: async () => [buildDbMatch()], updateMatchKickoff: async () => {} }, {
+    getEvents: async () => { throw new Error('provider unavailable'); },
+    getOdds: async () => assert.fail('paid odds fallback'), getScores: async () => assert.fail('paid scores fallback'),
+  });
+  await assert.rejects(service.syncUpcomingKickoffsFromOddsApi({ competition: 'Serie A' }), /odds_calendar_events_unavailable/);
+});
+
+test('the production calendar client uses shared persistent zero-credit requests', async (t) => {
+  const previousKey = process.env.ODDS_API_KEY; process.env.ODDS_API_KEY = 'unit-test-only';
+  t.after(() => { if (previousKey === undefined) delete process.env.ODDS_API_KEY; else process.env.ODDS_API_KEY = previousKey; });
+  const requests = [];
+  const service = new OddsApiKickoffSyncService({ getUpcomingMatches: async () => [buildDbMatch()], updateMatchKickoff: async () => {},
+    oddsRequests: { execute: async (request) => {
+      requests.push(request);
+      return { cacheHit: true, fetchedAt: '2026-05-23T12:00:00Z', headers: {}, data: [{ id: 'id', home_team: 'Bologna',
+        away_team: 'Internazionale', commence_time: '2026-05-23T16:00:00Z' }] };
+    } },
+  });
+  assert.equal((await service.syncUpcomingKickoffsFromOddsApi({ competition: 'Serie A' })).corrected, 1);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].operation, 'calendar');
+  assert.equal(requests[0].priority, 'essential');
+  assert.equal(requests[0].expectedCredits, 0);
+  assert.equal(requests[0].cacheMaxAgeMs, 1800000);
+  assert.match(requests[0].endpoint, /\/events$/);
+});
+
 test('OddsApiKickoffSyncService corregge Bologna-Inter se Odds API espone kickoff canonico', async () => {
   const { service, updates } = createHarness({
     dbMatches: [buildDbMatch()],

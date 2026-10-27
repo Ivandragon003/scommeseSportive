@@ -2,6 +2,92 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const axios = require('axios');
 const { OddsApiService } = require('../dist/services/OddsApiService.js');
+// Explicit fake persistence boundary: all HTTP below is intercepted by axios stubs.
+const interceptedTransport = { execute: async (_request, fetcher) => ({ ...(await fetcher()), fetchedAt: '2026-10-27T10:00:00.000Z', cacheHit: false }) };
+
+test('measured quota is unknown before provider headers and cache restoration cannot invent an observation', () => {
+  const service = new OddsApiService('test-key');
+  assert.deepEqual(service.getQuotaStatus(), { remaining: null, used: null, lastCost: null, observedAt: null, source: null });
+  service.setRemainingRequests(123);
+  assert.equal(service.getRemainingRequests(), 123);
+  assert.equal(service.getQuotaStatus().remaining, null);
+});
+
+test('quota telemetry records actual header credits and retains their timestamp when a response has no usable headers', async () => {
+  const originalGet = axios.get;
+  let responseHeaders = { 'X-Requests-Remaining': '473', 'X-Requests-Used': '27', 'X-Requests-Last': '3' };
+  axios.get = async () => ({ headers: responseHeaders, data: [] });
+  try {
+    const service = new OddsApiService('test-key', { store: interceptedTransport });
+    await service.getOdds('Serie A');
+    const measured = service.getQuotaStatus();
+    assert.equal(measured.remaining, 473); assert.equal(measured.used, 27); assert.equal(measured.lastCost, 3);
+    assert.equal(measured.source, 'provider_headers'); assert.ok(Number.isFinite(Date.parse(measured.observedAt)));
+    responseHeaders = { 'X-Requests-Remaining': '999garbage' };
+    await service.getOdds('Serie A');
+    assert.deepEqual(service.getQuotaStatus(), measured);
+    measured.remaining = 1;
+    assert.equal(service.getQuotaStatus().remaining, 473);
+  } finally { axios.get = originalGet; }
+});
+
+test('network requests fail closed without the persistent manager, while extraction remains available', async () => {
+  const service = new OddsApiService('test-key');
+  await assert.rejects(service.getOdds('Serie A'), { code: 'odds_persistent_manager_required' });
+  await assert.rejects(service.getScores('Serie A'), { code: 'odds_persistent_manager_required' });
+  await assert.rejects(service.getEvents('Serie A'), { code: 'odds_persistent_manager_required' });
+  await assert.rejects(service.getEventOdds('Serie A', 'event1', ['h2h']), { code: 'odds_persistent_manager_required' });
+});
+
+test('managed metadata preserves the original snapshot and scores/calendar costs differ', async () => {
+  const requests = [];
+  const capturedAt = '2026-10-27T10:00:00.000Z';
+  const service = new OddsApiService('test-key', { operation: 't15', priority: 'essential', store: { execute: async (request) => {
+    requests.push(request);
+    return { data: [{ id: 'event1', home_team: 'Home', away_team: 'Away', commence_time: '2026-10-27T20:00:00Z', bookmakers: [] }], headers: {}, fetchedAt: capturedAt, cacheHit: true };
+  } } });
+  const events = await service.getEvents('Serie A');
+  const odds = await service.getOdds('Serie A', ['totals', 'h2h', 'h2h']);
+  await service.getScores('Serie A');
+  assert.deepEqual(requests.map((request) => request.expectedCredits), [0, 2, 2]);
+  assert.ok(requests.every((request) => request.operation === 't15' && !JSON.stringify(request).includes('test-key')));
+  assert.equal(events[0].source, 'events');
+  assert.equal(odds[0].capturedAt, capturedAt);
+  assert.equal(odds[0].cacheHit, true);
+  assert.equal(service.getQuotaStatus().observedAt, null);
+});
+
+test('new planning month confirms quota with a fresh free probe before retrying the paid request', async () => {
+  const requests = [];
+  let confirmed = false;
+  const service = new OddsApiService('test-key', { priority: 'essential', store: { execute: async (request) => {
+    requests.push(request);
+    if (request.expectedCredits > 0 && !confirmed) throw Object.assign(new Error('blocked'), { code: 'odds_reset_unconfirmed' });
+    if (request.expectedCredits === 0) confirmed = true;
+    return { data: [], headers: {}, fetchedAt: '2026-11-01T10:00:00Z', cacheHit: false };
+  } } });
+  await service.getOdds('Serie A');
+  assert.deepEqual(requests.map((request) => request.expectedCredits), [2, 0, 2]);
+  assert.equal(requests[1].cacheMaxAgeMs, 0);
+  assert.match(requests[1].endpoint, /\/events$/);
+});
+
+test('unsupported competition markets are rejected before any request reservation', async () => {
+  let calls = 0;
+  const service = new OddsApiService('test-key', { store: { execute: async () => { calls++; throw new Error('unexpected'); } } });
+  await assert.rejects(service.getOdds('Serie A', ['h2h', 'correct_score']), { code: 'odds_unsupported_market' });
+  assert.equal(calls, 0);
+});
+
+test('Eurobet is preferred only when its actual price sheet exists; alternatives retain their identity', () => {
+  const service = new OddsApiService('test-key');
+  const sheet = (bookmakerKey, bookmakerName) => ({ bookmakerKey, bookmakerName,
+    markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Home', price: 1.9 }, { name: 'Draw', price: 3 }, { name: 'Away', price: 4 }] }] });
+  const match = { matchId: 'fixture', homeTeam: 'Home', awayTeam: 'Away', commenceTime: '2026-10-27T20:00:00Z',
+    bookmakers: [sheet('pinnacle', 'Pinnacle'), sheet('codere_it', 'Codere IT'), sheet('eurobet_it', 'Eurobet IT')] };
+  assert.equal(service.getSelectedBookmaker(match).bookmakerName, 'Eurobet IT');
+  assert.equal(service.getSelectedBookmaker({ ...match, bookmakers: match.bookmakers.slice(0, 2) }).bookmakerName, 'Codere IT');
+});
 
 test('compareBookmakers keeps non-h2h soccer markets such as corners and cards', () => {
   const service = new OddsApiService('test-key');
@@ -178,7 +264,7 @@ test('getScores normalizza eventi scores senza quote per correzione calendario',
   };
 
   try {
-    const service = new OddsApiService('test-key');
+    const service = new OddsApiService('test-key', { store: interceptedTransport });
     const scores = await service.getScores('Serie A', 3);
 
     assert.equal(scores.length, 1);

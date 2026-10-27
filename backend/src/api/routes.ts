@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { randomUUID } from 'node:crypto';
+import { buildResearchOverview } from '../research/ResearchOverview';
+import { settleResearchBets } from '../research/ResearchRuntime';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
+import { forecastRemainingOddsDemand } from '../services/odds-provider/OddsDemandSimulation';
 import {
   createOddsProviderCoordinatorBundle,
   getConfiguredOddsApiKey,
@@ -38,7 +40,6 @@ import {
 import { normalizePlayerNameForProp } from '../services/playerProps';
 import {
   automatedSavedDecisionId,
-  planAutomatedBetOpportunities,
 } from '../services/AutomatedBetPlanningService';
 import { buildCoherentBookmakerOddsBundle } from '../services/BookmakerOddsSelectionService';
 import { hasCurrentMatchMarketCoverage, enabledMatchEventMarkets } from '../services/OddsMarketPolicy';
@@ -58,35 +59,11 @@ const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
   Math.min(Number(process.env.UNDERSTAT_DETAIL_CONCURRENCY ?? 10), 24)
 );
 
-class AutomationAuditError extends Error {
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = 'AutomationAuditError';
-    (this as any).cause = cause;
-  }
-}
-
-class AutomationPlacementUnknownError extends Error {
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = 'AutomationPlacementUnknownError';
-    (this as any).cause = cause;
-  }
-}
-
-function isAlreadyPlacedBetError(error: unknown): boolean {
-  return String((error as any)?.message ?? error)
-    .trim()
-    .toLocaleLowerCase('it-IT') === 'scommessa gia fatta';
-}
-
 export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
   observability?: SystemObservabilityService;
   sharedDataUserId?: string;
-  internalAccessToken?: string;
-  getInternalApiBaseUrl?: () => string;
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
   createOddsApiKickoffSyncService?: (db: DatabaseService) => Pick<
     OddsApiKickoffSyncService,
@@ -270,18 +247,6 @@ export const shouldRebuildUnderstatPlayers = (
   committedWrites: Array<{ isPlayed: boolean }>,
   batchError?: unknown
 ): boolean => !batchError && committedWrites.some((write) => write.isPlayed);
-
-export const resolveInternalApiBaseUrl = (configuredValue?: string): string => {
-  const candidate = String(
-    configuredValue ?? `http://127.0.0.1:${process.env.PORT ?? 3001}/api`,
-  ).replace(/\/$/, '');
-  const parsed = new URL(candidate);
-  const loopbackHost = parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]';
-  if (parsed.protocol !== 'http:' || !loopbackHost || parsed.username || parsed.password) {
-    throw new Error('Internal API base URL must use loopback HTTP.');
-  }
-  return parsed.toString().replace(/\/$/, '');
-};
 
 function sameTeamName(left: string, right: string): boolean {
   const a = normalizePlayerNameForProp(left);
@@ -510,7 +475,10 @@ const router = Router();
 const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
 const observability = deps.observability;
-const createOddsBundle = deps.createOddsProviderCoordinatorBundle ?? createOddsProviderCoordinatorBundle;
+const createOddsBundle = (operation = 'dashboard'): OddsProviderCoordinatorBundle => deps.createOddsProviderCoordinatorBundle
+  ? deps.createOddsProviderCoordinatorBundle()
+  : createOddsProviderCoordinatorBundle({ store: db.oddsRequests, operation, priority: 'informational',
+    allowNetwork: process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED === 'true', cacheMaxAgeMs: 30 * 60_000 });
 const createKickoffSyncService = deps.createOddsApiKickoffSyncService
   ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
 const heavyJobService = deps.heavyJobService ?? new HeavyJobService();
@@ -1642,7 +1610,9 @@ router.post('/bets/:betId/settle', async (req: Request, res: Response) => {
 
 router.post('/bets/sync', async (_req: Request, res: Response) => {
   try {
-    return res.json({ success: true, data: await svc.syncPendingBets(sharedDataUserId) });
+    const legacy = await svc.syncPendingBets(sharedDataUserId);
+    const research = db.research ? await settleResearchBets(db) : undefined;
+    return res.json({ success: true, data: legacy, research });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
@@ -1800,396 +1770,67 @@ router.post('/bet-opportunities/archive/manual', async (req: Request, res: Respo
   }
 });
 
-// ====== AUTOMATED INTERNAL BET CARD ======
-// This endpoint is intended for the nightly GitHub Actions runner. It deliberately
-// reuses the public odds/prediction/bet paths so the automation behaves exactly like
-// the UI button, while querying the DB first and never scanning an entire league.
-router.post('/automation/place-valid-bets', async (req: Request, res: Response) => {
-  const configuredToken = String(process.env.AUTO_BET_AUTOMATION_TOKEN ?? '').trim();
-  const suppliedToken = String(req.header('x-automation-token') ?? '').trim();
-  const remoteAddress = String(req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
-  const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1';
-  const isProduction = String(process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production';
-  if (
-    (configuredToken && suppliedToken !== configuredToken)
-    || (!configuredToken && (isProduction || !isLoopback))
-  ) {
-    return res.status(401).json({ success: false, error: 'Automazione non autorizzata.' });
-  }
+// Legacy nightly placement is retired permanently. A stale deployment flag or
+// caller cannot re-enable it: only the T-15 research runtime creates automatic bets.
+router.post('/automation/place-valid-bets', (_req: Request, res: Response) => {
+  return res.status(410).json({ success: false, error: 'Legacy automatic placement retired. Use the remote T-15 process.' });
+});
 
+router.get('/research/overview', async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await buildResearchOverview(db) }); }
+  catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research database unavailable.' }); }
+});
+
+router.get('/research/odds-status', async (_req: Request, res: Response) => {
   try {
-  const enabled = String(process.env.AUTO_BET_ENABLED ?? 'false').trim().toLowerCase() === 'true';
-  const dryRun = req.body?.dryRun === true || String(process.env.AUTO_BET_DRY_RUN ?? 'false').trim().toLowerCase() === 'true';
-  if (!enabled && !dryRun) {
-    return res.status(409).json({ success: false, error: 'AUTO_BET_ENABLED=false: automazione disattivata.' });
-  }
-
-  const userId = sharedDataUserId;
-  const windowHoursRaw = Number(req.body?.windowHours ?? process.env.AUTO_BET_WINDOW_HOURS ?? 24);
-  const windowHours = Number.isFinite(windowHoursRaw) ? Math.max(1, Math.min(windowHoursRaw, 48)) : 24;
-  const maxMatchesRaw = Number(req.body?.maxMatches ?? process.env.AUTO_BET_MAX_MATCHES ?? 100);
-  const maxMatches = Number.isFinite(maxMatchesRaw) ? Math.max(1, Math.min(Math.trunc(maxMatchesRaw), 200)) : 100;
-  const maxOperationalBetsPerMatchRaw = Number(
-    req.body?.maxOperationalBetsPerMatch
-      ?? process.env.AUTO_BET_MAX_OPERATIONAL_BETS_PER_MATCH
-      ?? req.body?.maxOperationalBets
-      ?? process.env.AUTO_BET_MAX_OPERATIONAL_BETS
-      ?? 3
-  );
-  const maxOperationalBetsPerMatch = Number.isFinite(maxOperationalBetsPerMatchRaw)
-    ? Math.max(1, Math.min(Math.trunc(maxOperationalBetsPerMatchRaw), 3))
-    : 3;
-  const maxSnapshotAgeHoursRaw = Number(process.env.AUTO_BET_MAX_SNAPSHOT_AGE_HOURS ?? 36);
-  const maxSnapshotAgeHours = Number.isFinite(maxSnapshotAgeHoursRaw) ? Math.max(1, Math.min(maxSnapshotAgeHoursRaw, 168)) : 36;
-  const apiBase = resolveInternalApiBaseUrl(deps.getInternalApiBaseUrl?.());
-  const now = new Date();
-  const until = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
-  const matches = await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: until.toISOString(), limit: maxMatches });
-  // One settlement pass is enough for the whole automation run. Calling it
-  // again for every planned bet multiplies the same reads without new data.
-  if (!dryRun && typeof (svc as any).syncPendingBets === 'function') {
-    await svc.syncPendingBets(userId);
-  }
-  const results: any[] = [];
-  let simulatedAvailableBudget: number | null = null;
-  let operationalBetCount = 0;
-
-  const callApi = async (path: string, body: any) => {
-    const response = await fetch(`${apiBase}${path}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(deps.internalAccessToken ? { 'x-internal-admin-token': deps.internalAccessToken } : {}),
-      },
-      body: JSON.stringify(body),
+    const overview = await db.oddsRequests.overview();
+    const configured = Boolean(getConfiguredOddsApiKey() || getConfiguredOddsApiKey('t15'));
+    const fixtures = typeof db.getUpcomingMatches === 'function' ? await db.getUpcomingMatches({ limit: 1000 }) : [];
+    const remaining = forecastRemainingOddsDemand(fixtures, new Date().toISOString(), {
+      markets: ['h2h', 'totals', 'spreads'], retryRate: .1,
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.success === false) {
-      throw new Error(String(payload?.error ?? `HTTP ${response.status}`));
-    }
-    return payload?.data ?? payload;
-  };
-
-  for (const match of matches) {
-    const matchId = String(match.match_id ?? '').trim();
-    const homeTeam = String(match.home_team_name ?? '').trim();
-    const awayTeam = String(match.away_team_name ?? '').trim();
-    const competition = String(match.competition ?? '').trim();
-    const matchDate = String(match.date ?? '').trim();
-    const base = { matchId, homeTeam, awayTeam, competition, matchDate };
-    if (!matchId || !homeTeam || !awayTeam) {
-      results.push({ ...base, status: 'skipped', reason: 'fixture_incompleta' });
-      continue;
-    }
-
-    try {
-      let oddsData: any = await db.getLatestOddsSnapshotForMatch(matchId);
-      const snapshotAgeMs = oddsData?.captured_at ? Date.now() - Date.parse(String(oddsData.captured_at)) : Infinity;
-      const snapshotMarkets = Array.isArray(oddsData?.marketsRequested) ? oddsData.marketsRequested : [];
-      const snapshotUsable = oddsData
-        && String(oddsData.source ?? '').trim() === 'odds_api'
-        && !oddsData.usedSyntheticOdds
-        && Boolean(String(oddsData.selectedBookmakerName ?? '').trim())
-        && Object.keys(oddsData.liveSelectedOdds ?? oddsData.selectedOdds ?? {}).length > 0
-        && (snapshotMarkets.length === 0 || hasCurrentMatchMarketCoverage(snapshotMarkets))
-        && Number.isFinite(snapshotAgeMs)
-        && snapshotAgeMs <= maxSnapshotAgeHours * 60 * 60 * 1000;
-
-      if (!snapshotUsable) {
-        oddsData = await callApi('/scraper/odds/match', {
-          matchId,
-          competition,
-          homeTeam,
-          awayTeam,
-          commenceTime: matchDate,
-        });
-      }
-
-      const fallbackSelectedOdds = sanitizeOddsMap(oddsData?.liveSelectedOdds ?? oddsData?.selectedOdds ?? {});
-      const automatedAnalysisBundle = buildCoherentBookmakerOddsBundle(
-        Object.keys(oddsData?.allBookmakerOdds ?? {}).length > 0
-          ? oddsData.allBookmakerOdds
-          : (oddsData?.selectedBookmakerName
-              ? { [String(oddsData.selectedBookmakerName)]: fallbackSelectedOdds }
-              : {})
-      );
-      const odds = sanitizeOddsMap(oddsData?.analysisOdds ?? automatedAnalysisBundle.odds ?? fallbackSelectedOdds);
-      const bookmakerBySelection = oddsData?.bookmakerBySelection ?? automatedAnalysisBundle.bookmakerBySelection;
-      const realOdds = String(oddsData?.source ?? '').trim() === 'odds_api'
-        && oddsData?.usedSyntheticOdds !== true
-        && Object.keys(odds).length > 0;
-      if (!realOdds) {
-        results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_disponibile' });
-        continue;
-      }
-
-      const prediction = await callApi('/predict', {
-        homeTeamId: String(match.home_team_id),
-        awayTeamId: String(match.away_team_id),
-        matchId,
-        competition,
-        oddsSource: String(oddsData?.source ?? '').trim() || 'unknown',
-        bookmakerOdds: odds,
-        bookmakerBySelection,
-      });
-      const valueOpportunities = Array.isArray(prediction?.valueOpportunities)
-        ? prediction.valueOpportunities
-        : [];
-      const speculativeOpportunities = Array.isArray(prediction?.speculativeOpportunities)
-        ? prediction.speculativeOpportunities
-        : [];
-      const opportunities = [...valueOpportunities, ...speculativeOpportunities];
-      if (opportunities.length === 0 && prediction?.bestValueOpportunity) {
-        opportunities.push(prediction.bestValueOpportunity);
-      }
-      if (opportunities.length === 0) {
-        results.push({ ...base, status: 'skipped', reason: 'nessuna_giocata_valida' });
-        continue;
-      }
-
-      const plannedDecisions = planAutomatedBetOpportunities(
-        opportunities.map((opportunity: any) => ({
-          ...opportunity,
-          matchId: opportunity?.matchId ?? matchId,
-          realBookmakerOdds: realOdds,
-        })),
-        maxOperationalBetsPerMatch,
-      );
-
-      let budgetLookupError: string | null = null;
-      let matchAvailableBudget = dryRun ? simulatedAvailableBudget : null;
-      if (matchAvailableBudget === null) {
-        try {
-          const currentBudget = await svc.getBudget(userId);
-          matchAvailableBudget = Number(currentBudget?.available_budget ?? 0);
-        } catch (error: any) {
-          budgetLookupError = String(error?.message ?? error);
-        }
-      }
-      if (simulatedAvailableBudget === null && Number.isFinite(matchAvailableBudget)) {
-        simulatedAvailableBudget = matchAvailableBudget;
-      }
-
-      for (const decision of plannedDecisions) {
-        const opportunity = decision.opportunity as any;
-        const betStatus = String(opportunity?.bestBetStatus ?? 'VALUE').toUpperCase();
-        const availableBudget = Number(matchAvailableBudget ?? Number.NaN);
-        const suggestedStakePercent = Number(opportunity?.suggestedStakePercent ?? 0);
-        const theoreticalStakeAmount = Number.isFinite(availableBudget)
-          && availableBudget > 0
-          && Number.isFinite(suggestedStakePercent)
-          && suggestedStakePercent > 0
-          ? Math.max(1, Number((availableBudget * suggestedStakePercent / 100).toFixed(2)))
-          : null;
-        const decisionRecord = (decisionId: string = randomUUID()) => ({
-          decisionId,
-          userId,
-          matchId,
-          marketName: String(opportunity?.marketName ?? ''),
-          selection: String(opportunity?.selection ?? ''),
-          confidence: String(opportunity?.confidence ?? '').toUpperCase() || null,
-          bookmakerOdds: Number.isFinite(Number(opportunity?.bookmakerOdds)) ? Number(opportunity.bookmakerOdds) : null,
-          bookmakerName: String(
-            opportunity?.bookmakerName
-            ?? bookmakerBySelection?.[String(opportunity?.selection ?? '')]
-            ?? oddsData?.selectedBookmakerName
-            ?? ''
-          ).trim() || null,
-          theoreticalStakePercent: Number.isFinite(suggestedStakePercent) ? suggestedStakePercent : null,
-          theoreticalStakeAmount,
-          rankingPosition: decision.rankingPosition,
-        });
-        const archiveSavedOnly = async (exclusionReason: string | null) => {
-          try {
-            await db.appendAutomatedBetDecision({
-              ...decisionRecord(automatedSavedDecisionId(
-                userId,
-                matchId,
-                opportunity?.marketName,
-                opportunity?.selection,
-              )),
-              operationalSlot: null,
-              decisionStatus: 'saved_only',
-              exclusionReason,
-              betId: null,
-            });
-          } catch (error: any) {
-            throw new AutomationAuditError(`Audit decision persistence failed: ${String(error?.message ?? error)}`, error);
-          }
-        };
-        const finalizeReservedDecision = async (
-          decisionId: string,
-          decisionStatus: 'placed' | 'dry_run' | 'saved_only',
-          options: { betId?: string | null; exclusionReason?: string | null } = {},
-        ) => {
-          try {
-            await db.finalizeAutomatedBetDecision(decisionId, decisionStatus, options);
-          } catch (error: any) {
-            throw new AutomationAuditError(`Audit decision finalization failed: ${String(error?.message ?? error)}`, error);
-          }
-        };
-        const markPlacementUnknown = async (decisionId: string, reason: string) => {
-          try {
-            await db.markAutomatedBetDecisionPlacementUnknown(decisionId, reason);
-          } catch (error: any) {
-            throw new AutomationAuditError(`Audit ambiguous placement persistence failed: ${String(error?.message ?? error)}`, error);
-          }
-        };
-
-        if (decision.action === 'saved_only') {
-          await archiveSavedOnly(decision.reason);
-          results.push({
-            ...base,
-            status: 'skipped',
-            reason: decision.reason,
-            selection: opportunity?.selection ?? null,
-            confidence: opportunity?.confidence ?? null,
-            rankingPosition: decision.rankingPosition,
-            suggestedStakePercent: Number.isFinite(suggestedStakePercent) ? suggestedStakePercent : null,
-            theoreticalStake: theoreticalStakeAmount,
-          });
-          continue;
-        }
-
-        if (budgetLookupError) {
-          const reason = `budget_lookup_failed: ${budgetLookupError}`;
-          await archiveSavedOnly(reason);
-          results.push({ ...base, status: 'skipped', reason, selection: opportunity.selection });
-          continue;
-        }
-
-        const bookmakerOdds = Number(opportunity?.bookmakerOdds);
-        if (!opportunity || !Number.isFinite(bookmakerOdds) || bookmakerOdds <= 1) {
-          await archiveSavedOnly('quota_reale_non_valida');
-          results.push({ ...base, status: 'skipped', reason: 'quota_reale_non_valida', selection: opportunity?.selection ?? null });
-          continue;
-        }
-
-        if (!Number.isFinite(availableBudget) || availableBudget <= 0) {
-          await archiveSavedOnly('budget_non_disponibile');
-          results.push({ ...base, status: 'skipped', reason: 'budget_non_disponibile', selection: opportunity.selection });
-          continue;
-        }
-        if (!Number.isFinite(suggestedStakePercent) || suggestedStakePercent <= 0) {
-          await archiveSavedOnly('percentuale_stake_non_valida');
-          results.push({ ...base, status: 'skipped', reason: 'percentuale_stake_non_valida', selection: opportunity.selection });
-          continue;
-        }
-        const calculatedStake = theoreticalStakeAmount as number;
-        const reservationId = randomUUID();
-        let reservation: { reserved: boolean; decisionId: string; operationalSlot: number | null };
-        try {
-          reservation = await db.reserveAutomatedBetDecision({
-            ...decisionRecord(reservationId),
-            operationalSlot: decision.operationalSlot,
-          }, maxOperationalBetsPerMatch);
-        } catch (error: any) {
-          throw new AutomationAuditError(`Audit decision reservation failed: ${String(error?.message ?? error)}`, error);
-        }
-        if (!reservation.reserved) {
-          await archiveSavedOnly('operational_slot_or_opportunity_already_reserved');
-          results.push({
-            ...base,
-            status: 'skipped',
-            reason: 'operational_slot_or_opportunity_already_reserved',
-            selection: opportunity.selection,
-            rankingPosition: decision.rankingPosition,
-          });
-          continue;
-        }
-
-        const betPayload = {
-          userId,
-          matchId,
-          marketName: String(opportunity.marketName ?? ''),
-          selection: String(opportunity.selection ?? ''),
-          odds: bookmakerOdds,
-          stake: calculatedStake,
-          ourProbability: Number(opportunity.ourProbability ?? 0) / 100,
-          expectedValue: Number(opportunity.expectedValue ?? 0) / 100,
-          homeTeamName: homeTeam,
-          awayTeamName: awayTeam,
-          competition,
-          matchDate,
-        };
-        if (dryRun) {
-          simulatedAvailableBudget = Number((availableBudget - calculatedStake).toFixed(2));
-          matchAvailableBudget = simulatedAvailableBudget;
-          operationalBetCount++;
-          await finalizeReservedDecision(reservation.decisionId, 'dry_run');
-          results.push({ ...base, status: 'dry_run', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, rankingPosition: decision.rankingPosition, operationalSlot: reservation.operationalSlot });
-          continue;
-        }
-
-        let placed: any;
-        try {
-          placed = await svc.placeBet(
-            betPayload.userId,
-            betPayload.matchId,
-            betPayload.marketName,
-            betPayload.selection,
-            betPayload.odds,
-            betPayload.stake,
-            betPayload.ourProbability,
-            betPayload.expectedValue,
-            { homeTeamName: homeTeam, awayTeamName: awayTeam, competition, matchDate, source: 'automation', skipPendingSync: true }
-          );
-        } catch (error: any) {
-          if (isAlreadyPlacedBetError(error)) {
-            const reason = 'scommessa_gia_registrata';
-            await finalizeReservedDecision(reservation.decisionId, 'saved_only', { exclusionReason: reason });
-            results.push({
-              ...base,
-              status: 'skipped',
-              reason,
-              selection: betPayload.selection,
-              marketName: betPayload.marketName,
-              rankingPosition: decision.rankingPosition,
-            });
-            continue;
-          }
-          const reason = `esito_piazzamento_incerto: ${String(error?.message ?? error)}`;
-          await markPlacementUnknown(reservation.decisionId, reason);
-          throw new AutomationPlacementUnknownError(reason, error);
-        }
-        const betId = placed?.bet?.betId ?? null;
-        const placedAvailableBudget = Number(placed?.budget?.available_budget);
-        matchAvailableBudget = Number.isFinite(placedAvailableBudget)
-          ? placedAvailableBudget
-          : Number((availableBudget - calculatedStake).toFixed(2));
-        operationalBetCount++;
-        await finalizeReservedDecision(reservation.decisionId, 'placed', { betId });
-        results.push({ ...base, status: 'placed', betStatus, selection: betPayload.selection, marketName: betPayload.marketName, odds: bookmakerOdds, suggestedStakePercent, stake: calculatedStake, betId, rankingPosition: decision.rankingPosition, operationalSlot: reservation.operationalSlot });
-      }
-    } catch (error: any) {
-      if (error instanceof AutomationAuditError || error instanceof AutomationPlacementUnknownError) throw error;
-      results.push({ ...base, status: 'skipped', reason: String(error?.message ?? error) });
-    }
+    const accountScope = process.env.ODDS_API_ACCOUNT_SCOPE?.trim() || 'primary';
+    const spentAndReserved = overview.providers.filter((provider) => provider.provider === 'odds_api' && provider.accountScope === accountScope)
+      .reduce((sum, provider) => sum + provider.chargedCredits + provider.reservedCredits, 0);
+    return res.json({ success: true, data: { ...overview,
+      plannedForecast: { ...remaining, projectedTotalCredits: spentAndReserved + remaining.estimatedCredits },
+      configuredProviders: [{ provider: 'odds_api', accountScope,
+        configured, status: configured ? 'CONFIGURED_NOT_PROBED' : 'NOT_CONFIGURED',
+        note: 'Configurazione locale: questo endpoint non contatta il provider.' }],
+      fallback: { status: 'UNAVAILABLE', provider: null,
+        reason: 'Nessun fallback gratuito autorizzato con freschezza T−15 verificata è configurato.' },
+    } });
   }
+  catch { return res.status(503).json({ success: false, error: 'Stato persistente del budget quote non disponibile.' }); }
+});
 
-  return res.json({
-    success: true,
-    data: {
-      enabled,
-      dryRun,
-      userId,
-      windowHours,
-      maxOperationalBets: maxOperationalBetsPerMatch,
-      maxOperationalBetsPerMatch,
-      from: now.toISOString(),
-      until: until.toISOString(),
-      candidates: matches.length,
-      placed: results.filter((item) => item.status === 'placed').length,
-      dryRunCount: results.filter((item) => item.status === 'dry_run').length,
-      operationalBetCount,
-      skipped: results.filter((item) => item.status === 'skipped').length,
-      results,
-    },
-  });
-  } catch (error: any) {
-    console.error('[Automation] Errore creazione giocate:', error?.message ?? error);
-    return res.status(500).json({ success: false, error: error?.message ?? 'Errore automazione giocate.' });
+router.get('/research/decisions', async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await db.research.listDecisions() }); }
+  catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research decisions unavailable.' }); }
+});
+
+router.post('/research/settle', async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await settleResearchBets(db) }); }
+  catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research settlement failed.' }); }
+});
+
+router.post('/research/nightly-complete', async (req: Request, res: Response) => {
+  // Only the isolated maintenance runner can report completion of its full path.
+  if (process.env.NODE_ENV !== 'ci' || process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') {
+    return res.status(409).json({ success: false, error: 'Nightly completion is restricted to the maintenance runner.' });
   }
+  const startedAt = String(req.body?.startedAt ?? '');
+  const started = Date.parse(startedAt), now = Date.now();
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(startedAt) || !Number.isFinite(started)
+    || started > now || now - started > 8 * 3600000) {
+    return res.status(400).json({ success: false, error: 'A valid nightly start timestamp is required.' });
+  }
+  try {
+    const runId = await db.saveSchedulerRun({ schedulerName: 'nightly', trigger: 'github_actions',
+      startedAt, endedAt: new Date(now).toISOString(), success: true, durationMs: now - started,
+      summary: { requiredDataGatesCompleted: true, createsNewBets: false } });
+    return res.json({ success: true, data: { runId } });
+  } catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Nightly completion could not be recorded.' }); }
 });
 
 // ====== BACKTEST ======
@@ -3609,6 +3250,7 @@ const persistOddsSnapshot = async (input: {
   usedFallbackBookmaker?: boolean;
   usedSyntheticOdds?: boolean;
   confidenceScore?: number;
+  capturedAt?: string;
 }): Promise<{ saved: boolean; matchId: string | null }> => {
   const liveSelectedOdds = sanitizeOddsMap(input.liveSelectedOdds ?? {});
   const legacyOdds = sanitizeOddsMap(input.legacyOdds ?? {});
@@ -3648,6 +3290,7 @@ const persistOddsSnapshot = async (input: {
     usedFallbackBookmaker: Boolean(input.usedFallbackBookmaker),
     usedSyntheticOdds: Boolean(input.usedSyntheticOdds),
     confidenceScore: Number.isFinite(Number(input.confidenceScore)) ? Number(input.confidenceScore) : null,
+    capturedAt: input.capturedAt,
   });
 
   return { saved: true, matchId: resolvedMatchId };
@@ -3804,7 +3447,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
       primaryProviderName,
       fallbackProviderName,
       apiKey,
-    } = createOddsBundle();
+    } = createOddsBundle(req.body?.requestOrigin === 'nightly' ? 'nightly' : 'dashboard');
     if (primaryProviderName === 'odds_api' && !apiKey) {
       return res.status(503).json({
         success: false,
@@ -3967,6 +3610,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
           marketsRequested: normalizedMarkets,
           usedFallbackBookmaker,
           usedSyntheticOdds: false,
+          capturedAt: entry.match.capturedAt ?? entry.fetchedAt,
         });
         if (snapshot.saved) savedSnapshots++;
       } catch (snapshotErr: any) {
@@ -4265,10 +3909,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       const preferredMarkets = [
         'h2h',
         'totals',
+        'spreads',
       ];
-      // This is the provider-verified competition-level set. Requesting even
-      // h2h_3_way/spreads here can produce a predictable 422; enrich only the
-      // matched event with those markets below.
+      // Match the T-15 core cache key. Informational requests are cache-only
+      // unless their separate network opt-in and shared budget permit a fetch.
       const fallbackMarkets = [...preferredMarkets];
       const eventAdditionalMarkets = [
         ...enabledMatchEventMarkets(),
@@ -4534,6 +4178,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           usedFallbackBookmaker,
           usedSyntheticOdds,
           confidenceScore,
+          capturedAt: selectedProviderMatch?.capturedAt ?? coordinatedMatch.fetchedAt,
         });
         historicalSnapshotSaved = snapshot.saved;
         snapshotMatchId = snapshot.matchId;

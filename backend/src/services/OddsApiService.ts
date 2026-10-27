@@ -3,12 +3,9 @@
  * ====================
  * Integrazione con https://the-odds-api.com
  *
- * Piano gratuito: 500 richieste/mese
- * Ogni richiesta = 1 sport  1 regione  1 mercato
- *
- * STIMA CONSUMO per uso personale Serie A:
- * - 1 richiesta/giorno per le quote aggiornate = ~30/mese
- * - Abbondante margine con il piano gratuito
+ * Il piano Starter verificato offre 500 crediti/mese. Il costo del feed odds
+ * è mercati x regioni: h2h,totals,spreads in EU possono costare 3 crediti,
+ * non una sola richiesta. Il residuo misurato proviene soltanto dagli header.
  *
  * Nota: The Odds API non elenca attualmente Eurobet tra i bookmaker EU supportati.
  * Per il feed live usiamo quindi un ordine di preferenza su bookmaker realmente disponibili
@@ -25,6 +22,16 @@
  */
 
 import axios from 'axios';
+import { createHash } from 'node:crypto';
+import type { SmartOddsRequestStore } from './odds-provider/SmartOddsRequestStore';
+
+export type OddsApiRequestOptions = {
+  store?: Pick<SmartOddsRequestStore, 'execute'>;
+  operation?: string;
+  priority?: 'essential' | 'informational';
+  allowNetwork?: boolean;
+  cacheMaxAgeMs?: number;
+};
 
 export interface OddsMatch {
   matchId: string;
@@ -35,12 +42,16 @@ export interface OddsMatch {
   completed?: boolean;
   live?: boolean;
   scores?: Array<{ name: string; score: string | null }>;
-  source?: 'odds' | 'scores';
+  source?: 'odds' | 'scores' | 'events';
+  provider?: string;
+  capturedAt?: string;
+  cacheHit?: boolean;
 }
 
 export interface BookmakerOdds {
   bookmakerKey: string;       // es. "codere_it"
   bookmakerName: string;
+  updatedAt?: string;          // Provider observation time, never replaced with fetch time.
   markets: MarketOdds[];
 }
 
@@ -51,6 +62,7 @@ export type SelectedBookmaker = {
 
 export interface MarketOdds {
   marketKey: string;          // "h2h", "totals", "spreads"
+  updatedAt?: string;
   outcomes: OutcomeOdds[];
 }
 
@@ -59,6 +71,14 @@ export interface OutcomeOdds {
   price: number;              // quota decimale
   point?: number;             // linea per totals/spreads (es. 2.5)
   description?: string;       // contesto outcome (es. nome squadra nei team totals)
+}
+
+export interface OddsQuotaStatus {
+  remaining: number | null;
+  used: number | null;
+  lastCost: number | null;
+  observedAt: string | null;
+  source: 'provider_headers' | null;
 }
 
 export class OddsApiService {
@@ -90,12 +110,59 @@ export class OddsApiService {
   private readonly BASE_URL = 'https://api.the-odds-api.com/v4';
   private apiKey: string;
   private remainingRequests: number = 500;
+  private quotaStatus: OddsQuotaStatus = { remaining: null, used: null, lastCost: null, observedAt: null, source: null };
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, private readonly requestOptions: OddsApiRequestOptions = {}) {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('The Odds API key mancante. Registrati su https://the-odds-api.com per ottenerne una gratuita.');
     }
     this.apiKey = apiKey.trim();
+  }
+
+  /** Every network edge is governed by the same persistent budget and cache. */
+  private async managedGet(endpoint: string, params: Record<string, string>, expectedCredits: number, cacheMaxAgeMs?: number) {
+    if (!this.requestOptions.store) {
+      throw Object.assign(new Error('odds_persistent_manager_required'), { code: 'odds_persistent_manager_required' });
+    }
+    const list = (value?: string) => Array.from(new Set((value ?? '').split(',').filter(Boolean))).sort();
+    const safeParams = Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'apiKey').sort(([a], [b]) => a.localeCompare(b)));
+    for (const key of ['markets', 'regions', 'bookmakers']) if (safeParams[key]) safeParams[key] = list(safeParams[key]).join(',');
+    const request = {
+      provider: 'odds_api', accountScope: process.env.ODDS_API_ACCOUNT_SCOPE?.trim() || 'primary', endpoint,
+      operation: this.requestOptions.operation ?? 'unattributed', markets: list(params.markets),
+      regions: list(params.regions), bookmakers: list(params.bookmakers),
+      requestKey: createHash('sha256').update(JSON.stringify({ endpoint, params: safeParams })).digest('hex'),
+      expectedCredits, priority: this.requestOptions.priority ?? 'informational' as const,
+      allowNetwork: this.requestOptions.allowNetwork !== false,
+      cacheMaxAgeMs: cacheMaxAgeMs ?? this.requestOptions.cacheMaxAgeMs ?? 30 * 60_000,
+    };
+    const fetcher = async () => {
+      try {
+        const response = await axios.get(`${this.BASE_URL}${endpoint}`, { params, timeout: 15000 });
+        return { data: response.data, headers: response.headers };
+      } catch (error: any) {
+        // Axios errors may contain the API key in their authenticated request URL.
+        const status = Number(error?.response?.status) || 0;
+        throw Object.assign(new Error(status ? `odds_provider_http_${status}` : 'odds_provider_unavailable'),
+          { response: { status, headers: error?.response?.headers } });
+      }
+    };
+    let result;
+    try { result = await this.requestOptions.store.execute<any>(request, fetcher); }
+    catch (error: any) {
+      const sport = /^\/sports\/([^/]+)/.exec(endpoint)?.[1];
+      if (error?.code !== 'odds_reset_unconfirmed' || expectedCredits === 0 || !sport) throw error;
+      // A free fresh event response may confirm a reset; rotating a key never does.
+      await this.managedGet(`/sports/${sport}/events`, { apiKey: this.apiKey, dateFormat: 'iso' }, 0, 0);
+      result = await this.requestOptions.store.execute<any>(request, fetcher);
+    }
+    // Cached headers retain their original observation time, not this read time.
+    if (!result.cacheHit) this.observeQuota(result.headers);
+    return result;
+  }
+
+  private requestCost(markets: string[], bookmakers: string[]): number {
+    return new Set(markets).size * (bookmakers.length ? Math.ceil(new Set(bookmakers).size / 10) : 1);
   }
 
   private readHeaderValue(headers: unknown, name: string): string | undefined {
@@ -122,6 +189,21 @@ export class OddsApiService {
     return undefined;
   }
 
+  private observeQuota(headers: unknown): OddsQuotaStatus {
+    const read = (name: string): number | null => {
+      const raw = this.readHeaderValue(headers, name)?.trim();
+      if (!raw || !/^\d+$/.test(raw)) return null;
+      const value = Number(raw);
+      return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    };
+    const observed = { remaining: read('x-requests-remaining'), used: read('x-requests-used'), lastCost: read('x-requests-last') };
+    if (Object.values(observed).some((value) => value !== null)) {
+      this.quotaStatus = { ...observed, observedAt: new Date().toISOString(), source: 'provider_headers' };
+      if (observed.remaining !== null) this.remainingRequests = observed.remaining;
+    }
+    return this.getQuotaStatus();
+  }
+
   /**
    * Scarica le quote per una competizione.
    *
@@ -134,6 +216,11 @@ export class OddsApiService {
     markets: string[] = ['h2h', 'totals'],
     bookmakers: string[] = []
   ): Promise<OddsMatch[]> {
+    markets = Array.from(new Set(markets.map((market) => market.trim()).filter(Boolean))).sort();
+    bookmakers = Array.from(new Set(bookmakers.map((bookmaker) => bookmaker.trim()).filter(Boolean))).sort();
+    if (!markets.length || markets.some((market) => !['h2h', 'totals', 'spreads'].includes(market))) {
+      throw Object.assign(new Error('odds_unsupported_market'), { code: 'odds_unsupported_market' });
+    }
     const sportKey = OddsApiService.SPORT_KEYS[competition];
     if (!sportKey) {
       throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(OddsApiService.SPORT_KEYS).join(', ')}`);
@@ -154,27 +241,15 @@ export class OddsApiService {
       }`
     );
 
-    const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/odds`, {
-      params,
-      timeout: 15000,
-    });
-
-    // Leggi header con richieste rimanenti (robusto su casing/proxy diversi)
-    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
-    const usedRaw = this.readHeaderValue(response.headers, 'x-requests-used');
-    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
-
-    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
-      this.remainingRequests = parsedRemaining;
-    }
+    const response = await this.managedGet(`/sports/${sportKey}/odds`, params, this.requestCost(markets, bookmakers));
+    const quota = this.getQuotaStatus();
 
     console.log(
-      `[OddsApi] Richieste usate: ${usedRaw ?? '?'} | Rimanenti: ${
-        Number.isFinite(parsedRemaining) ? parsedRemaining : '?'
-      }/500`
+      `[OddsApi] Crediti usati: ${quota.used ?? '?'} | Rimanenti: ${quota.remaining ?? '?'}`
     );
 
-    return this.parseOddsResponse(response.data);
+    return this.parseOddsResponse(response.data).map((event) => ({ ...event,
+      provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit }));
   }
 
   async getEventOdds(
@@ -183,6 +258,11 @@ export class OddsApiService {
     markets: string[] = [],
     bookmakers: string[] = []
   ): Promise<OddsMatch | null> {
+    markets = Array.from(new Set(markets.map((market) => market.trim()).filter(Boolean))).sort();
+    bookmakers = Array.from(new Set(bookmakers.map((bookmaker) => bookmaker.trim()).filter(Boolean))).sort();
+    if (markets.some((market) => !/^[a-z0-9_]+$/.test(market) || market === 'correct_score')) {
+      throw Object.assign(new Error('odds_unsupported_market'), { code: 'odds_unsupported_market' });
+    }
     const sportKey = OddsApiService.SPORT_KEYS[competition];
     if (!sportKey) {
       throw new Error(`Competizione non supportata: ${competition}. Disponibili: ${Object.keys(OddsApiService.SPORT_KEYS).join(', ')}`);
@@ -199,18 +279,10 @@ export class OddsApiService {
     };
     if (bookmakers.length > 0) params.bookmakers = bookmakers.join(',');
 
-    const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/events/${eventId}/odds`, {
-      params,
-      timeout: 15000,
-    });
-
-    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
-    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
-    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
-      this.remainingRequests = parsedRemaining;
-    }
-
-    return this.parseSingleEventResponse(response.data);
+    if (!/^[a-zA-Z0-9_-]+$/.test(eventId)) throw new Error('Invalid odds event identifier');
+    const response = await this.managedGet(`/sports/${sportKey}/events/${eventId}/odds`, params, this.requestCost(markets, bookmakers));
+    const event = this.parseSingleEventResponse(response.data);
+    return event ? { ...event, provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit } : null;
   }
 
   async getScores(competition: string, daysFrom = 3): Promise<OddsMatch[]> {
@@ -220,22 +292,25 @@ export class OddsApiService {
     }
 
     const safeDaysFrom = Math.max(1, Math.min(Math.trunc(Number(daysFrom) || 3), 3));
-    const response = await axios.get(`${this.BASE_URL}/sports/${sportKey}/scores/`, {
-      params: {
+    const response = await this.managedGet(`/sports/${sportKey}/scores/`, {
         apiKey: this.apiKey,
         daysFrom: String(safeDaysFrom),
         dateFormat: 'iso',
-      },
-      timeout: 15000,
-    });
+    }, 2);
+    return this.parseScoresResponse(response.data).map((event) => ({ ...event,
+      provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit }));
+  }
 
-    const remainingRaw = this.readHeaderValue(response.headers, 'x-requests-remaining');
-    const parsedRemaining = Number.parseInt(String(remainingRaw ?? ''), 10);
-    if (Number.isFinite(parsedRemaining) && parsedRemaining >= 0) {
-      this.remainingRequests = parsedRemaining;
-    }
-
-    return this.parseScoresResponse(response.data);
+  /** Upcoming event metadata is a documented zero-credit calendar endpoint. */
+  async getEvents(competition: string): Promise<OddsMatch[]> {
+    const sportKey = OddsApiService.SPORT_KEYS[competition];
+    if (!sportKey) throw new Error(`Competizione non supportata: ${competition}`);
+    const response = await this.managedGet(`/sports/${sportKey}/events`, { apiKey: this.apiKey, dateFormat: 'iso' }, 0);
+    if (!Array.isArray(response.data)) return [];
+    return response.data.filter((event: any) => event?.id && event?.commence_time && event?.home_team && event?.away_team)
+      .map((event: any) => ({ matchId: `odds_${event.id}`, homeTeam: event.home_team, awayTeam: event.away_team,
+        commenceTime: event.commence_time, bookmakers: [], source: 'events' as const,
+        provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit }));
   }
 
   private parseOddsResponse(data: any[]): OddsMatch[] {
@@ -250,8 +325,10 @@ export class OddsApiService {
       bookmakers: (event.bookmakers ?? []).map((bm: any) => ({
         bookmakerKey: bm.key,
         bookmakerName: bm.title,
+        updatedAt: bm.last_update,
         markets: (bm.markets ?? []).map((m: any) => ({
           marketKey: m.key,
+          updatedAt: m.last_update,
           outcomes: (m.outcomes ?? []).map((o: any) => ({
             name: o.name,
             price: o.price,
@@ -276,8 +353,10 @@ export class OddsApiService {
       bookmakers: (event.bookmakers ?? []).map((bm: any) => ({
         bookmakerKey: bm.key,
         bookmakerName: bm.title,
+        updatedAt: bm.last_update,
         markets: (bm.markets ?? []).map((m: any) => ({
           marketKey: m.key,
+          updatedAt: m.last_update,
           outcomes: (m.outcomes ?? []).map((o: any) => ({
             name: o.name,
             price: o.price,
@@ -521,6 +600,8 @@ export class OddsApiService {
   getSelectedBookmaker(match: OddsMatch, preferredBookmaker?: string): SelectedBookmaker | null {
     const preferredKeys = [
       preferredBookmaker,
+      ...match.bookmakers.filter((bookmaker) => /eurobet/i.test(bookmaker.bookmakerKey)).map((bookmaker) => bookmaker.bookmakerKey),
+      ...match.bookmakers.filter((bookmaker) => /_it$/.test(bookmaker.bookmakerKey)).map((bookmaker) => bookmaker.bookmakerKey),
       ...OddsApiService.PREFERRED_BOOKMAKERS,
       ...match.bookmakers.map((bookmaker) => bookmaker.bookmakerKey),
     ].filter((key): key is string => Boolean(key));
@@ -582,6 +663,11 @@ export class OddsApiService {
 
   getRemainingRequests(): number {
     return this.remainingRequests;
+  }
+
+  /** Unknown is distinct from the legacy fallback/cached counter. */
+  getQuotaStatus(): OddsQuotaStatus {
+    return { ...this.quotaStatus };
   }
 
   setRemainingRequests(value: number): void {

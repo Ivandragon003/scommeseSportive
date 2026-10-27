@@ -184,7 +184,6 @@ test('i timeout distinti restano entro il budget totale del job', () => {
     + envTimeout('API_FOOTBALL_TIMEOUT_SECONDS')
     + envTimeout('PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS')
     + envTimeout('ODDS_SYNC_TIMEOUT_SECONDS') * 5
-    + envTimeout('AUTO_BET_TIMEOUT_SECONDS')
     + envTimeout('CALIBRATION_WARM_TIMEOUT_SECONDS')
     + envTimeout('LEARNING_SYNC_TIMEOUT_SECONDS')
     + envTimeout('FINAL_STATUS_TIMEOUT_SECONDS');
@@ -212,7 +211,7 @@ test('lo script nightly tratta football-data e transizioni come gate obbligatori
   assert.ok(failureGate > nightly.indexOf('/api/scraper/understat'));
   assert.ok(failureGate > nightly.indexOf('/api/scraper/football-data'));
   assert.ok(failureGate > nightly.indexOf('/api/competition-transitions/sync-references'));
-  assert.ok(failureGate > nightly.indexOf('/api/automation/place-valid-bets'));
+  assert.doesNotMatch(nightly, /place-valid-bets|AUTO_BET/);
 });
 
 test('la route football-data accetta solo stagioni complete o pending espliciti', () => {

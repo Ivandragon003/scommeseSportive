@@ -145,6 +145,59 @@ const getJson = async (baseUrl, path) => {
   };
 };
 
+test('odds status reads persisted quota and calendar without touching a provider or inventing coverage', async () => {
+  let providerCalls = 0, overviewCalls = 0;
+  const server = await startRouter({ snapshots: [], coordinator: { getCompetitionOdds: async () => { providerCalls++; throw new Error('must not call provider'); } },
+    dbOverrides: { oddsRequests: { overview: async () => {
+      overviewCalls++;
+      return { observedAt: null, providers: [], usage: [], events: [], plannedForecast: null };
+    } } },
+  });
+  try {
+    const result = await getJson(server.baseUrl, '/research/odds-status');
+    assert.equal(result.status, 200);
+    assert.equal(overviewCalls, 1); assert.equal(providerCalls, 0);
+    assert.equal(result.json.data.configuredProviders[0].provider, 'odds_api');
+    assert.ok(['CONFIGURED_NOT_PROBED', 'NOT_CONFIGURED'].includes(result.json.data.configuredProviders[0].status));
+    assert.equal(result.json.data.fallback.status, 'UNAVAILABLE');
+    assert.equal(result.json.data.plannedForecast.completeCalendarVerified, false);
+    assert.equal(result.json.data.plannedForecast.futureKickoffsVerified, false);
+    assert.equal(result.json.data.plannedForecast.measuredQuota, null);
+    assert.equal(result.json.data.plannedForecast.estimatedCredits, 0);
+    assert.equal(result.json.data.plannedForecast.projectedTotalCredits, 0);
+    assert.equal(result.json.data.bookmakers, undefined);
+  } finally { await server.close(); }
+});
+
+test('the production dashboard client is cache-only and shares the three-market T-15 request key semantics', async (t) => {
+  const keys = ['ODDS_API_KEY', 'ODDS_INFORMATIONAL_NETWORK_ENABLED'];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.ODDS_API_KEY = 'unit-test-only'; delete process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED;
+  t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
+  const requests = [], app = express(); app.use(express.json());
+  app.use('/api', createApiRouter({ svc: {}, db: {
+    getLatestOddsSnapshotForMatch: async () => null, getLatestRealOddsSnapshotForMatch: async () => null,
+    findMatchByTeams: async () => null, getMatchById: async () => null,
+    oddsRequests: { execute: async (request) => {
+      requests.push(request); throw Object.assign(new Error('odds_cache_only'), { code: 'odds_cache_only' });
+    } },
+  } }));
+  const server = app.listen(0); await new Promise((resolve) => server.once('listening', resolve));
+  try {
+    const response = await postMatchOdds(`http://127.0.0.1:${server.address().port}/api`, {
+      competition: 'Serie A', homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-11-01T19:45:00Z',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.json.data.found, false);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].operation, 'dashboard');
+    assert.equal(requests[0].priority, 'informational');
+    assert.equal(requests[0].allowNetwork, false);
+    assert.equal(requests[0].cacheMaxAgeMs, 1800000);
+    assert.deepEqual(requests[0].markets, ['h2h', 'spreads', 'totals']);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 const withProviderEnv = (nextEnv, fn) => {
   const keys = ['ODDS_API_KEY', 'THE_ODDS_API_KEY', 'ODDS_PRIMARY_PROVIDER'];
   for (const key of Object.keys(nextEnv)) {
@@ -289,6 +342,7 @@ test('match odds route timeout non taglia il coordinatore prima del provider fix
 test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con match locale', async () => {
   const snapshots = [];
   const oddsMatch = buildOddsApiMatch();
+  oddsMatch.capturedAt = '2026-04-25T11:58:00.000Z';
   const selectedOdds = {
     homeWin: 1.91,
     draw: 3.45,
@@ -386,10 +440,10 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(json.data.match.commenceTime, '2026-04-25T18:45:00.000Z');
     // The competition endpoint only accepts the small, documented base set.
     // Extended markets are requested after fixture matching, per event.
-    assert.deepEqual(requests[0].markets, ['h2h', 'totals']);
-    assert.deepEqual(requests[0].fallbackMarkets, ['h2h', 'totals']);
+    assert.deepEqual(requests[0].markets, ['h2h', 'totals', 'spreads']);
+    assert.deepEqual(requests[0].fallbackMarkets, ['h2h', 'totals', 'spreads']);
     for (const eventOnlyMarket of [
-      'h2h_3_way', 'spreads', 'alternate_totals', 'alternate_spreads', 'btts', 'double_chance',
+      'h2h_3_way', 'alternate_totals', 'alternate_spreads', 'btts', 'double_chance',
       'draw_no_bet', 'team_totals', 'alternate_team_totals',
     ]) {
       assert.ok(!requests[0].markets.includes(eventOnlyMarket));
@@ -416,6 +470,7 @@ test('/scraper/odds/match ritorna selectedOdds da Odds API e salva snapshot con 
     assert.equal(snapshots[0].matchId, 'understat_match_1');
     assert.equal(snapshots[0].oddsProviderMatchId, 'event_123');
     assert.equal(snapshots[0].source, 'odds_api');
+    assert.equal(snapshots[0].capturedAt, oddsMatch.capturedAt);
     assert.equal(snapshots[0].selectedBookmakerKey, 'pinnacle');
     assert.equal(snapshots[0].selectedBookmakerName, 'Pinnacle');
     assert.equal(snapshots[0].commenceTime, '2026-04-25T18:45:00.000Z');

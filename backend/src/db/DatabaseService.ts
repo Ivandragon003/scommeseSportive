@@ -6,6 +6,11 @@ import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningServ
 import type { LowerDivisionHistoryBatch } from '../services/FootballDataService';
 import { ShortReadCache } from '../services/ShortReadCache';
 import { isPlayerDataEnabled } from '../services/PlayerDataConfig';
+import { ResearchStore } from '../research/ResearchStore';
+import { ResearchMonitoringStore } from '../research/ResearchMonitoring';
+import { ResearchWorkerCoordinator } from '../research/ResearchWorkerCoordinator';
+import { ResearchExperimentStore } from '../research/ResearchExperimentStore';
+import { SmartOddsRequestStore } from '../services/odds-provider/SmartOddsRequestStore';
 
 type SqlArgs = Record<string, any> | any[];
 const MATCH_UPSERT_CHUNK_SIZE = 100;
@@ -158,6 +163,11 @@ export const isPredictionReportEligible = (row: Record<string, any> | null | und
 
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
+  public readonly research: ResearchStore;
+  public readonly researchMonitoring: ResearchMonitoringStore;
+  public readonly researchWorker: ResearchWorkerCoordinator;
+  public readonly researchExperiments: ResearchExperimentStore;
+  public readonly oddsRequests: SmartOddsRequestStore;
   private static optionalColumnsCheckPromise: Promise<void> | null = null;
   private initPromise: Promise<void>;
   private schedulerRunRetention: number;
@@ -184,6 +194,11 @@ export class DatabaseService {
     this.initPromise = options?.skipSchemaBootstrap
       ? this.execute('PRAGMA foreign_keys = ON', undefined, true).then(() => undefined)
       : this.initialize();
+    this.research = new ResearchStore(this.db, () => this.initPromise);
+    this.researchMonitoring = new ResearchMonitoringStore(this.db, () => this.initPromise);
+    this.researchWorker = new ResearchWorkerCoordinator(this.db, () => this.initPromise);
+    this.researchExperiments = new ResearchExperimentStore(this.db, () => this.initPromise);
+    this.oddsRequests = new SmartOddsRequestStore(this.db, () => this.initPromise);
   }
 
   private normalizeValue(value: unknown): unknown {
@@ -5332,23 +5347,32 @@ export class DatabaseService {
     const result = await this.execute(
       `DELETE FROM scheduler_runs
        WHERE run_id NOT IN (
-         SELECT run_id
-         FROM scheduler_runs
-         ORDER BY datetime(started_at) DESC, run_id DESC
-         LIMIT ?
+         SELECT run_id FROM (
+           SELECT run_id, ROW_NUMBER() OVER (
+             PARTITION BY scheduler_name ORDER BY datetime(started_at) DESC, run_id DESC
+           ) AS position FROM scheduler_runs
+         ) WHERE position <= ?
        )`,
       [safeLimit]
     );
     return Number(result?.rowsAffected ?? 0);
   }
 
+  async listRecentSchedulerRunsByName(name: string, limit = 7): Promise<any[]> {
+    return this.readSchedulerRuns(limit, name);
+  }
+
   async listRecentSchedulerRuns(limit = 7): Promise<any[]> {
+    return this.readSchedulerRuns(limit);
+  }
+
+  private async readSchedulerRuns(limit: number, name?: string): Promise<any[]> {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 7, 50));
     const rows = await this.all(
-      `SELECT * FROM scheduler_runs
+      `SELECT * FROM scheduler_runs ${name ? 'WHERE scheduler_name=?' : ''}
        ORDER BY datetime(started_at) DESC, run_id DESC
        LIMIT ?`,
-      [safeLimit]
+      name ? [name, safeLimit] : [safeLimit]
     );
     return rows.map((row) => {
       let summary: any = null;

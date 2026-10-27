@@ -73,6 +73,7 @@ test('OddsApiProvider degrada i mercati evento singolarmente se il batch esteso 
       return eventMarket(markets[0]);
     },
   };
+  provider.extraEventService = provider.service;
 
   const result = await provider.getOddsForFixtures({
     competition: 'Serie A',
@@ -102,6 +103,7 @@ test('OddsApiProvider non ripete il fallback minimal quando coincide con i merca
     },
     getEventOdds: async () => baseMatch,
   };
+  provider.extraEventService = provider.service;
 
   await provider.getOddsForFixtures({
     competition: 'Serie A',
@@ -111,6 +113,26 @@ test('OddsApiProvider non ripete il fallback minimal quando coincide con i merca
   });
 
   assert.deepEqual(requests, [['h2h', 'totals']]);
+});
+
+test('OddsApiProvider does not retry market bundles after a persistent budget denial', async () => {
+  const provider = new OddsApiProvider('budget-test-key');
+  let calls = 0;
+  provider.service = { getOdds: async () => { calls++; throw Object.assign(new Error('odds_credit_budget_exhausted'), { code: 'odds_credit_budget_exhausted' }); } };
+  await assert.rejects(provider.getCompetitionOdds({ competition: 'Serie A', markets: ['h2h', 'totals', 'spreads'], fallbackMarkets: ['h2h'] }), /odds_credit_budget_exhausted/);
+  assert.equal(calls, 1);
+});
+
+test('competition requests exclude event-only markets before transport and preserve cache observation time', async () => {
+  const provider = new OddsApiProvider('filtered-test-key');
+  const requested = [];
+  provider.service = { getRemainingRequests: () => 490, getOdds: async (_competition, markets) => {
+    requested.push(markets);
+    return [{ ...baseMatch, capturedAt: '2026-04-25T18:28:00.000Z' }];
+  } };
+  const result = await provider.getCompetitionOdds({ competition: 'Serie A', markets: ['h2h', 'btts', 'alternate_totals_cards'] });
+  assert.deepEqual(requested, [['h2h']]);
+  assert.equal(result.fetchedAt, '2026-04-25T18:28:00.000Z');
 });
 
 test('OddsApiProvider ferma gli extra event market dopo un 401 batch e avvia il cooldown', async () => {
@@ -127,6 +149,7 @@ test('OddsApiProvider ferma gli extra event market dopo un 401 batch e avvia il 
       throw error;
     },
   };
+  provider.extraEventService = provider.service;
 
   await provider.getOddsForFixtures({
     competition: 'Serie A',

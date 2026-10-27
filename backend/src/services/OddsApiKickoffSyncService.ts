@@ -47,8 +47,8 @@ export type OddsApiSingleKickoffSyncResult = {
   warnings: string[];
 };
 
-type KickoffSyncDb = Pick<DatabaseService, 'getUpcomingMatches' | 'updateMatchKickoff'>;
-type OddsApiKickoffProvider = Pick<OddsApiService, 'getOdds'> & Partial<Pick<OddsApiService, 'getScores'>>;
+type KickoffSyncDb = Pick<DatabaseService, 'getUpcomingMatches' | 'updateMatchKickoff'> & Partial<Pick<DatabaseService, 'oddsRequests'>>;
+type OddsApiKickoffProvider = Partial<Pick<OddsApiService, 'getOdds' | 'getScores' | 'getEvents'>>;
 
 const MIN_MATCH_SCORE = 1.8;
 const AMBIGUOUS_SCORE_DELTA = 0.15;
@@ -64,6 +64,13 @@ export class OddsApiKickoffSyncService {
     private readonly db: KickoffSyncDb,
     private readonly oddsApiService: OddsApiKickoffProvider | null = null
   ) {}
+
+  private createCalendarProvider(): OddsApiService {
+    return new OddsApiService(String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? ''), {
+      store: this.db.oddsRequests, operation: 'calendar', priority: 'essential',
+      cacheMaxAgeMs: 30 * 60_000,
+    });
+  }
 
   private eventKey(event: OddsMatch): string {
     const home = String(event.homeTeam ?? '')
@@ -114,12 +121,18 @@ export class OddsApiKickoffSyncService {
     service: OddsApiKickoffProvider,
     competition: string
   ): Promise<{ events: OddsMatch[]; warnings: string[] }> {
+    if (typeof service.getEvents === 'function') {
+      try { return { events: await service.getEvents(competition), warnings: [] }; }
+      catch { throw new Error('odds_calendar_events_unavailable'); }
+    }
+    // Compatibility for injected legacy providers. Production uses the free
+    // events endpoint above and never falls back silently to paid credits.
     const warnings: string[] = [];
     let oddsEvents: OddsMatch[] = [];
     let scoreEvents: OddsMatch[] = [];
 
     try {
-      oddsEvents = await service.getOdds(competition, ['h2h']);
+      oddsEvents = typeof service.getOdds === 'function' ? await service.getOdds(competition, ['h2h']) : [];
     } catch (error: any) {
       warnings.push(`odds_events_failed:${error?.message ?? String(error)}`);
     }
@@ -217,7 +230,7 @@ export class OddsApiKickoffSyncService {
     options: Pick<OddsApiKickoffSyncOptions, 'competition'>
   ): Promise<OddsApiSingleKickoffSyncResult> {
     const competition = String(options.competition ?? match?.competition ?? '').trim() || 'Serie A';
-    const service = this.oddsApiService ?? new OddsApiService(String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? ''));
+    const service = this.oddsApiService ?? this.createCalendarProvider();
     const { events: providerMatches, warnings } = await this.loadProviderKickoffEvents(service, competition);
     const decision = this.buildCorrectionDecision(match, providerMatches);
     decision.warnings.push(...warnings);
@@ -252,7 +265,7 @@ export class OddsApiKickoffSyncService {
       warnings: [],
     };
 
-    const service = this.oddsApiService ?? new OddsApiService(String(process.env.ODDS_API_KEY ?? process.env.THE_ODDS_API_KEY ?? ''));
+    const service = this.oddsApiService ?? this.createCalendarProvider();
     const upcoming = await this.db.getUpcomingMatches({
       competition,
       season: options.season,

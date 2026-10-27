@@ -14,11 +14,17 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"test/**/*.{js,ts}\" --max-warnings=0",
     "benchmark:performance": "npm run build && node benchmarks/run-performance-benchmarks.js",
     "benchmark:calibration": "npm run build && node benchmarks/calibration-cache.js",
-    "test": "npm run build && node --test",
-    "test:ci": "node --test",
+    "test": "npm run build && node scripts/run-tests.js",
+    "test:ci": "node scripts/run-tests.js",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "auth:hash": "npm run build && node scripts/generate-shared-admin-password-hash.js"
+    "auth:hash": "npm run build && node scripts/generate-shared-admin-password-hash.js",
+    "research": "node scripts/research.js",
+    "research:lifecycle": "node scripts/research-lifecycle.js",
+    "research:experiments": "node scripts/research-experiments.js",
+    "research:worker": "node scripts/research-worker.js",
+    "research:watchdog": "node scripts/check-research-worker.js",
+    "hostless:integration": "node scripts/hostless-integration.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

@@ -314,8 +314,7 @@ app.use((req, res, next) => {
 app.get('/api/health', (_req, res) => res.json({ success: true, status: 'ok', version: '2.0' }));
 app.use('/api', sharedAdminAuth.publicRouter);
 app.use('/api', (req, res, next) => {
-  // The automation endpoint has its own dedicated token check and is also
-  // invoked by an external scheduled workflow, so it does not use the browser session.
+  // Return the retired automation endpoint's permanent 410 response without a browser session.
   if (req.path === '/automation/place-valid-bets') {
     next();
     return;
@@ -327,7 +326,6 @@ app.use('/api', createApiRouter({
   svc,
   observability,
   sharedDataUserId: sharedAdminConfig.sharedDataUserId,
-  internalAccessToken: internalAdminToken,
 }));
 
 const getSchedulerSnapshot = () => ({
@@ -357,7 +355,10 @@ app.get('/api/system/provider-health', async (req, res) => {
     return res.json({ success: true, data: payload });
   }
 
-  const { coordinator, primaryProviderName, fallbackProviderName } = createOddsProviderCoordinatorBundle();
+  const { coordinator, primaryProviderName, fallbackProviderName } = createOddsProviderCoordinatorBundle({
+    store: db.oddsRequests, operation: 'health', priority: 'informational', allowNetwork: false,
+    cacheMaxAgeMs: 30 * 60_000,
+  });
   const liveHealth = await coordinator.healthCheck({ competition });
   const existingWarnings = Array.isArray(payload.warnings) ? payload.warnings.map(String) : [];
   const mergedWarnings = Array.from(new Set([...existingWarnings, ...liveHealth.warnings]));
@@ -846,6 +847,7 @@ async function runOddsSnapshotCapture(trigger: 'boot' | 'scheduled'): Promise<vo
         const { response, payload } = await postInternal('/api/scraper/odds', {
           competition,
           markets: DEFAULT_ODDS_MARKETS,
+          requestOrigin: 'nightly',
         });
         const entry = {
           competition,
@@ -1110,6 +1112,9 @@ app.listen(PORT, () => {
   startOddsSnapshotScheduler();
   startLearningReviewScheduler();
   startLineupRefreshScheduler();
+  // The web process never owns automatic decisions, including when a stale
+  // deployment retains the worker's enable flag. Start the dedicated worker.
+  console.log('[research-t15] Web process does not run automatic decisions; use the dedicated worker.');
 });
 
 export default app;
