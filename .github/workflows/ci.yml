@@ -68,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          npm run test 2>&1 | tee ../ci-logs/backend/test.log
+          npm run test:ci 2>&1 | tee ../ci-logs/backend/test.log
 
       - name: Upload backend CI logs
         if: always()

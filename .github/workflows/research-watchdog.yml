@@ -1,0 +1,46 @@
+name: Research worker watchdog (manual)
+
+# No scheduled execution until the owner completes the remote acceptance gate.
+on:
+  workflow_dispatch:
+    inputs:
+      expect_enabled:
+        description: Require an enabled worker with fresh heartbeat and completed ticks
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-watchdog
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Read shared database without contacting the backend or odds provider
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          # Dedicated read-only token. Never silently fall back to the write token.
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
+          RESEARCH_WATCHDOG_EXPECT_ENABLED: ${{ inputs.expect_enabled }}
+        shell: bash
+        run: |
+          test -n "$TURSO_DATABASE_URL" || { echo "Missing database URL"; exit 1; }
+          test -n "$TURSO_AUTH_TOKEN" || { echo "Missing read-only watchdog token"; exit 1; }
+          node scripts/check-research-worker.js

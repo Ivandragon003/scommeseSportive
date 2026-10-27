@@ -7,6 +7,8 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 artifacts/
 backend/artifacts/
 backend/dist/
@@ -25,6 +27,8 @@ backend/data/
 data/
 .playwright/
 .playwright-mcp/
+.playwright-cli/
+output/playwright/
 backend/.playwright/
 backend/.tmp-fbref-profile/
 backend/tmp_script_*.js

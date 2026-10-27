@@ -6,6 +6,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY public ./public
 COPY src ./src
+ARG REACT_APP_API_URL=""
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine

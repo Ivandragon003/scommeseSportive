@@ -17,6 +17,9 @@ services:
       UNDERSTAT_SCHEDULER_ENABLED: "false"
       ODDS_SNAPSHOT_SCHEDULER_ENABLED: "false"
       LEARNING_REVIEW_SCHEDULER_ENABLED: "false"
+      # Enable only on a persistent remote host after the complete T-15 acceptance gate.
+      RESEARCH_T15_SCHEDULER_ENABLED: "false"
+      AUTO_BET_ENABLED: "false"
       # Lineups are paused to reduce reads and provider calls.
       PLAYER_DATA_ENABLED: ${PLAYER_DATA_ENABLED:-false}
       PLAYER_AVAILABILITY_ENABLED: ${PLAYER_AVAILABILITY_ENABLED:-false}
@@ -26,7 +29,7 @@ services:
     restart: unless-stopped
     init: true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -45,3 +48,32 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+  research-worker:
+    profiles: ["research-worker"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: football-predictor-backend:current
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      TZ: UTC
+      NIGHTLY_ORCHESTRATOR: github_actions
+      AUTO_SYNC_ON_BOOT: "false"
+      UNDERSTAT_SCHEDULER_ENABLED: "false"
+      ODDS_SNAPSHOT_SCHEDULER_ENABLED: "false"
+      LEARNING_REVIEW_SCHEDULER_ENABLED: "false"
+      LINEUP_REFRESH_SCHEDULER_ENABLED: "false"
+      AUTO_BET_ENABLED: "false"
+      RESEARCH_T15_SCHEDULER_ENABLED: ${RESEARCH_T15_SCHEDULER_ENABLED:-false}
+    command: ["node", "scripts/research-worker.js"]
+    # Workers expose no HTTP port. The external DB watchdog checks progress.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 35s
+    security_opt:
+      - no-new-privileges:true

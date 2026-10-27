@@ -21,6 +21,9 @@ jobs:
         working-directory: backend
     env:
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY || secrets.THE_ODDS_API_KEY }}
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ODDS_INFORMATIONAL_NETWORK_ENABLED: ${{ vars.ODDS_INFORMATIONAL_NETWORK_ENABLED || 'false' }}
       SMOKE_COMPETITION: ${{ inputs.competition }}
       SMOKE_VERBOSE: ${{ inputs.verbose }}
     steps:
@@ -46,6 +49,7 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const { OddsApiService } = require('./dist/services/OddsApiService.js');
+          const { DatabaseService } = require('./dist/db/DatabaseService.js');
 
           const reportFile = 'artifacts/odds-api-smoke-report.json';
           const logFile = 'artifacts/odds-api-smoke.log';
@@ -78,9 +82,21 @@ jobs:
             }, 1);
           }
 
+          if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+            writeReport({ success: false, skipped: true, competition, source: 'odds_api', matchesFound: 0,
+              durationMs: Date.now() - startedAt, errorCategory: 'persistent_manager_unavailable',
+              warnings: ['Smoke saltato: il budget quote richiede il database condiviso configurato.'] }, 0);
+          }
+
           (async () => {
-            const service = new OddsApiService(process.env.ODDS_API_KEY);
-            const matches = await service.getOdds(competition, ['h2h']);
+            const db = new DatabaseService();
+            let matches;
+            try {
+              const service = new OddsApiService(process.env.ODDS_API_KEY, { store: db.oddsRequests,
+                operation: 'smoke', priority: 'informational', cacheMaxAgeMs: 30 * 60 * 1000,
+                allowNetwork: process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED === 'true' });
+              matches = await service.getOdds(competition, ['h2h', 'totals', 'spreads']);
+            } finally { await db.close(); }
             const warnings = [];
             if (matches.length === 0) warnings.push('Odds API non ha restituito eventi per la competizione richiesta.');
             if (verbose) console.log(JSON.stringify(matches.slice(0, 3), null, 2));
@@ -101,7 +117,8 @@ jobs:
               matchesFound: 0,
               durationMs: Date.now() - startedAt,
               errorCategory: 'odds_api_smoke_failed',
-              warnings: [error?.message || String(error)],
+              warnings: [typeof error?.code === 'string' && /^odds_[a-z_]{1,64}$/.test(error.code)
+                ? error.code : 'odds_api_smoke_failed'],
             }, 1);
           });
           NODE
