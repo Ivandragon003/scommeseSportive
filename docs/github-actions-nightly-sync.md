@@ -1,5 +1,19 @@
 # GitHub Actions per sync notturna
 
+**Stato al 27 ottobre 2026:** il vecchio workflow remoto, che conteneva ancora
+`AUTO_BET_ENABLED=true` e la chiamata legacy, è stato sospeso tramite GitHub CLI.
+Verificato workflow ID `253787848` in stato `disabled_manually` e nessun run
+attivo o in coda. La patch permanente workflow/script è nel commit locale
+`e046bc4f`, non ancora pubblicato. Anche import e liquidazioni della nightly
+sono temporaneamente sospesi: non è ancora una nightly remota maintenance-only.
+
+Il [piano operativo T−15](operations/t15-readiness-2026-10-27.md) distingue la
+correzione preferita di workflow/script dalla sospensione temporanea dell'intera
+nightly, che interrompe anche la manutenzione. Il
+[report corrente](operations/production-status-2026-10-27.md) documenta le
+operazioni effettive e i blocchi. Nessun cambio di
+repository variable può sovrascrivere il vecchio flag scritto nel workflow.
+
 La nightly è orchestrata da GitHub Actions. Il backend web serve UI e API.
 Dal 12 ottobre 2026 le formazioni sono temporaneamente sospese per ridurre
 letture, scritture e chiamate provider. Anche import, statistiche derivate,
@@ -15,9 +29,10 @@ letture e mercati giocatore sono temporaneamente sospesi; lo storico resta salva
 - Aggiornamento dei riferimenti per le transizioni tra competizioni. Il recupero
   dei kickoff resta disponibile; lo step formazioni è saltato quando
   `PLAYER_AVAILABILITY_ENABLED=false` (default).
-- Settlement delle prediction, raccolta quote reali tramite il provider
-  configurato e registrazione delle giocate nel budget interno secondo i flag
-  del workflow. Non vengono effettuate puntate sui siti bookmaker.
+- Settlement delle prediction e delle giocate concluse e preparazione delle
+  analisi. La raccolta quote è disabilitata per default (`RUN_ODDS_SYNC=false`);
+  se riabilitata esplicitamente usa il budget persistente comune. La nightly
+  non registra nuove giocate e non riserva decisioni di puntata future.
 - Learning review solo quando i gate obbligatori sono soddisfatti.
 - Stato finale e log come artifact GitHub Actions; un gate fallito mantiene il run fallito.
 
@@ -53,7 +68,7 @@ risolvere un limite di letture.
 
 ## Un solo orchestratore
 
-Prima delle giocate automatiche, la nightly prepara i profili di calibrazione
+La nightly prepara i profili di calibrazione
 delle cinque leghe tramite `/api/model/calibration/warm` sul proprio backend
 temporaneo. Il calcolo resta sul runner GitHub Actions; Hostless legge i profili
 da una cache additiva libSQL/Turso, senza servizi aggiuntivi.
@@ -84,10 +99,73 @@ Per una scelta esplicita di esecuzione nel backend si può impostare
 disabilitare prima il workflow GitHub e mantenere un unico processo scheduler.
 Gli aggiornamenti si applicano dopo il riavvio/redeploy dei processi esistenti.
 
+La route legacy `/api/automation/place-valid-bets` è ritirata e risponde `410`:
+i vecchi flag `AUTO_BET_*` non devono riattivarla. L'unico percorso nuovo di
+registrazione automatica è il processo T−15 separato dalla manutenzione,
+descritto in [piattaforma A/C](research-platform.md). Il workflow imposta
+`RESEARCH_T15_SCHEDULER_ENABLED=false` sul backend temporaneo: il runner non
+deve diventare una seconda istanza decisionale. `RUN_ODDS_SYNC=false` nel
+workflow e come default dello script evita richieste quote periodiche;
+`ODDS_INFORMATIONAL_NETWORK_ENABLED=false` impedisce che letture informative
+consumino crediti. La presenza della chiave non riattiva da sola la raccolta.
+Un opt-in futuro deve impostare entrambi i permessi e resta soggetto al budget.
+Il recupero kickoff usa l'endpoint gratuito eventi: non richiede h2h/scores.
+La raccolta di quote durante la nightly, se autorizzata, non è uno snapshot
+osservato a T−15. Registro, cache e consumo sono descritti nella
+[gestione quote](operations/smart-odds-2026-10-27.md).
+
+Il gate locale `backend/test/nightly-maintenance.test.js` controlla la
+separazione. Per la conferma remota occorre pubblicare la versione verificata,
+riavviare i processi e controllare un run effettivo: una modifica locale non
+cambia un workflow già pubblicato o un backend già in esecuzione.
+
+Il backend web (`node dist/index.js`) non avvia più `ResearchRuntime`, anche
+se eredita `RESEARCH_T15_SCHEDULER_ENABLED=true`. La sola registrazione
+automatica nuova appartiene al worker dedicato; non esiste una route HTTP
+per avviare tick o registrazioni A/C. Le route manuali restano esplicitamente
+manuali e non ricevono il tipo di origine dal client. Il vecchio
+`AUTO_BET_ENABLED` non è letto dal codice operativo e non può riattivare la
+route ritirata. I metodi DB legacy restano per compatibilità con lo storico.
+
+### Passaggio manuale dal workflow remoto precedente
+
+Le seguenti operazioni richiedono pubblicazione autorizzata e non sono state
+eseguite durante la preparazione locale:
+
+1. Confrontare la revisione remota effettiva con lo script e il workflow locali.
+   Pubblicare lo script di manutenzione senza chiamata a
+   `/automation/place-valid-bets` e il workflow corrispondente, con raccolta
+   quote disabilitata e processo T−15 disabilitato.
+2. Attendere l'eventuale run già avviato con la vecchia revisione, oppure
+   annullarlo esplicitamente prima di autorizzare il worker. Pubblicare un
+   workflow nuovo non modifica i job già in corso.
+3. Aggiornare il backend affinché la route legacy restituisca `410` e il
+   processo web non avvii decisioni. Togliere i vecchi `AUTO_BET_*` dagli
+   ambienti effettivi: è igiene di configurazione, non il blocco primario.
+4. Eseguire una nightly manuale e controllare import, gate e liquidazioni.
+   Verificare sul DB condiviso che non siano state create nuove puntate
+   future o nuove prenotazioni legacy durante il run. Mantenere attiva la
+   nightly per dati e liquidazioni.
+5. Solo dopo questi controlli, seguire il collaudo Hostless del worker
+   disabilitato e l'abilitazione graduale. Non abilitare due sistemi di
+   registrazione durante il passaggio.
+
+In caso di rollback della release web, **non ripristinare** il vecchio
+workflow che registrava puntate. Disabilitare prima il worker e mantenere
+la nightly di sola manutenzione; un rollback della UI/API non deve
+riattivare `AUTO_BET_ENABLED` o la chiamata legacy.
+
+Il training ML settimanale è nel workflow separato
+[`research-training.yml`](../.github/workflows/research-training.yml), martedì
+alle 04:30 UTC. Il candidato viene registrato sul DB e sottoposto ai gate solo
+quando `RESEARCH_REGISTRY_WRITES_ENABLED=true` nelle variabili repository;
+per default il job conserva artefatti. Non crea nuove puntate e non abilita
+mercati o processo T−15. Il suo trigger non richiede precisione al minuto.
+
 ## Configurazione e verifica
 
 Secrets obbligatori: `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`.
-`ODDS_API_KEY` abilita la raccolta quote prevista dal workflow;
+`ODDS_API_KEY` configura il provider, ma non abilita la raccolta di default;
 `API_FOOTBALL_KEY` è necessaria per il relativo provider di formazioni quando riabilitato.
 Non pubblicare i valori dei secrets nei log o nel repository.
 

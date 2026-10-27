@@ -1,0 +1,498 @@
+{
+  "date": "2026-10-27",
+  "purpose": "recorded probability-only research run; no production activation",
+  "conclusion": "inconclusive",
+  "productionPromotion": false,
+  "source": "real_historical_top5_archive_read_only_export",
+  "asOf": "2026-10-27T07:30:00.000Z",
+  "datasetHash": "e6aa69e65ce1fcd7dd0a4fc974e703c78e36300ed98fe943bcfe48e7831d0fe4",
+  "sourceFiles": {
+    "report.json": {
+      "path": "backend/artifacts/research/run-20261027/report.json",
+      "sha256": "b3d551fefd62aee7e2fe14ef5c373496389f0716870c8af662723139e879feb6"
+    },
+    "pipeline-report.json": {
+      "path": "backend/artifacts/research/run-20261027/pipeline-report.json",
+      "sha256": "05da04f1a08eddaa912a97e81320f210241c1627b6a0787cb269d19794c4549a"
+    },
+    "artifact.json": {
+      "path": "backend/artifacts/research/run-20261027/artifact.json",
+      "sha256": "f6d792ffae265bbd396d4ea529d405cfe7ad26db6aca457101b7c89a354fae96"
+    }
+  },
+  "baseline": {
+    "version": "A-80cb25df5552621e",
+    "fingerprint": "80cb25df5552621ec2cac26ba72c5096eaeabbe0abaf35312af9cb79a03f784f",
+    "protocolVersion": "statistical-asof-v1"
+  },
+  "candidate": {
+    "version": "C-13e4fc04b804facc",
+    "candidateKind": "calibrated_ensemble",
+    "weight": 0.75,
+    "temperature": 0.8,
+    "hyperparameters": {
+      "iterations": 120,
+      "depth": 5,
+      "learningRate": 0.05,
+      "seed": 20261027,
+      "threadCount": 2
+    },
+    "catboostVersion": "1.2.8",
+    "createdAt": "2026-10-27T09:05:06.479970Z",
+    "datasetHash": "e6aa69e65ce1fcd7dd0a4fc974e703c78e36300ed98fe943bcfe48e7831d0fe4",
+    "trainerHash": "5b340861b9198cee5157050853d0f618aa07bbb443ad76c7445fd0366264999c",
+    "pipelineHash": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1"
+  },
+  "dataset": {
+    "rows": 7323,
+    "exclusions": {
+      "insufficientHistory": 153,
+      "incomplete": 1358,
+      "outsideTop5": 0
+    },
+    "featureSchema": "prematch-numeric-v1",
+    "featureCount": 40,
+    "firstForecastAt": "2022-08-27T11:15:00.000Z",
+    "lastForecastAt": "2026-10-26T19:45:00.000Z",
+    "byLeague": {
+      "Bundesliga": 1254,
+      "La Liga": 1589,
+      "Ligue 1": 1340,
+      "Premier League": 1570,
+      "Serie A": 1570
+    }
+  },
+  "raw": {
+    "A": {
+      "n": 2168,
+      "logLoss": 0.9937542228889857,
+      "brier": 0.5914522280647169,
+      "ece": 0.02461285832957585
+    },
+    "C": {
+      "n": 2168,
+      "logLoss": 0.9874867559756403,
+      "brier": 0.5878782552991424,
+      "ece": 0.014856297913157766
+    },
+    "pairedLogLossDifference": {
+      "mean": -0.006267466913345615,
+      "lower": -0.010768130251616045,
+      "upper": -0.0018063989932325857,
+      "n": 2168,
+      "blocks": 47,
+      "method": "paired-week-block-bootstrap",
+      "conclusive": true
+    },
+    "pairedBrierDifference": {
+      "mean": -0.0035739727655744557,
+      "lower": -0.006136180581673406,
+      "upper": -0.0010221144294779879,
+      "n": 2168,
+      "blocks": 47,
+      "method": "paired-week-block-bootstrap",
+      "conclusive": true
+    },
+    "trainerConclusion": "C_probabilistically_better",
+    "eceDefinition": "all three class probabilities pooled into ten bins"
+  },
+  "calibrated": {
+    "A": {
+      "n": 2168,
+      "logLoss": 0.9928424310784915,
+      "brier": 0.590639018893606,
+      "ece": 0.021174079595675663
+    },
+    "C": {
+      "n": 2168,
+      "logLoss": 0.9876004288932485,
+      "brier": 0.5878129870661941,
+      "ece": 0.018294595728656445
+    },
+    "paired": {
+      "n": 2168,
+      "deltaLogLoss": -0.005242002185239696,
+      "deltaBrier": -0.0028260318274132773,
+      "logLossCI": [
+        -0.009518662097290092,
+        -0.0005431118620146855
+      ],
+      "brierCI": [
+        -0.0051269359699213386,
+        -0.0001233672918526217
+      ],
+      "weekLogLossCI": [
+        -0.010620480778706186,
+        -0.00027789326483174185
+      ],
+      "weekBrierCI": [
+        -0.005887360919333497,
+        0.00010042899450884667
+      ],
+      "matchClusters": 2168,
+      "weekClusters": 48
+    },
+    "conclusion": "inconclusive",
+    "eceDefinition": "maximum class probability versus whether selected class is correct; ten bins",
+    "probabilityPipeline": "existing_isotonic_v1_no_bookmaker_prices_available"
+  },
+  "finalHoldout": {
+    "fold": 2,
+    "version": "C-13e4fc04b804facc",
+    "testFrom": "2026-04-04T18:45:00.000Z",
+    "testTo": "2026-10-26T19:45:00.000Z",
+    "trainN": 5527,
+    "selectionN": 706,
+    "calibrationN": 335,
+    "selected": "calibrated_ensemble",
+    "raw": {
+      "A": {
+        "n": 745,
+        "logLoss": 1.0043266210031576,
+        "brier": 0.5992183349723681,
+        "ece": 0.02550654798917838
+      },
+      "C": {
+        "n": 745,
+        "logLoss": 0.9993459141579216,
+        "brier": 0.5961097937368176,
+        "ece": 0.02776100313757577
+      },
+      "pairedLogLossDifference": {
+        "mean": -0.004980706845236168,
+        "lower": -0.015246998967578388,
+        "upper": 0.00436449406045605,
+        "n": 745,
+        "blocks": 17,
+        "method": "paired-week-block-bootstrap",
+        "conclusive": false
+      },
+      "pairedBrierDifference": {
+        "mean": -0.0031085412355505698,
+        "lower": -0.009032406458145141,
+        "upper": 0.002746345026491054,
+        "n": 745,
+        "blocks": 17,
+        "method": "paired-week-block-bootstrap",
+        "conclusive": false
+      }
+    },
+    "calibrated": {
+      "A": {
+        "n": 745,
+        "logLoss": 1.0032118855478316,
+        "brier": 0.5984634615429709,
+        "ece": 0.025809952509230252
+      },
+      "C": {
+        "n": 745,
+        "logLoss": 0.9984516452129913,
+        "brier": 0.5952540076970277,
+        "ece": 0.03368522689986369
+      },
+      "paired": {
+        "n": 745,
+        "deltaLogLoss": -0.004760240334840823,
+        "deltaBrier": -0.0032094538459426533,
+        "logLossCI": [
+          -0.014527088797751391,
+          0.00479263661638029
+        ],
+        "brierCI": [
+          -0.008798231733791385,
+          0.0026458618883400888
+        ],
+        "weekLogLossCI": [
+          -0.015693619756888613,
+          0.008156224996808955
+        ],
+        "weekBrierCI": [
+          -0.009537083504251474,
+          0.004594114943400076
+        ],
+        "matchClusters": 745,
+        "weekClusters": 18
+      },
+      "conclusion": "inconclusive"
+    }
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "version": "C-de736904bfa230af",
+      "testFrom": "2025-05-24T18:45:00.000Z",
+      "testTo": "2025-12-13T19:50:00.000Z",
+      "trainN": 4075,
+      "selectionN": 688,
+      "calibrationN": 387,
+      "testN": 739,
+      "selected": "intensity_correction",
+      "A": {
+        "n": 739,
+        "logLoss": 0.9745296312074523,
+        "brier": 0.5777595813825015,
+        "ece": 0.038719825481506154
+      },
+      "C": {
+        "n": 739,
+        "logLoss": 0.9729166446862364,
+        "brier": 0.5769657131889879,
+        "ece": 0.04701886110246825
+      },
+      "conclusion": "inconclusive"
+    },
+    {
+      "fold": 1,
+      "version": "C-e11cfacff967e059",
+      "testFrom": "2025-12-14T11:15:00.000Z",
+      "testTo": "2026-04-04T18:30:00.000Z",
+      "trainN": 4766,
+      "selectionN": 756,
+      "calibrationN": 366,
+      "testN": 684,
+      "selected": "intensity_correction",
+      "A": {
+        "n": 684,
+        "logLoss": 1.0013335356472561,
+        "brier": 0.5960318471785935,
+        "ece": 0.029224769314027964
+      },
+      "C": {
+        "n": 684,
+        "logLoss": 0.9916459849908781,
+        "brier": 0.5914278628341515,
+        "ece": 0.02424452612189933
+      },
+      "conclusion": "C_supported_on_primary_holdout"
+    },
+    {
+      "fold": 2,
+      "version": "C-13e4fc04b804facc",
+      "testFrom": "2026-04-04T18:45:00.000Z",
+      "testTo": "2026-10-26T19:45:00.000Z",
+      "trainN": 5527,
+      "selectionN": 706,
+      "calibrationN": 335,
+      "testN": 745,
+      "selected": "calibrated_ensemble",
+      "A": {
+        "n": 745,
+        "logLoss": 1.0032118855478316,
+        "brier": 0.5984634615429709,
+        "ece": 0.025809952509230252
+      },
+      "C": {
+        "n": 745,
+        "logLoss": 0.9984516452129913,
+        "brier": 0.5952540076970277,
+        "ece": 0.03368522689986369
+      },
+      "conclusion": "inconclusive"
+    }
+  ],
+  "byLeague": {
+    "Bundesliga": {
+      "n": 369,
+      "A": {
+        "n": 369,
+        "logLoss": 0.9736202077221827,
+        "brier": 0.5750405946351574,
+        "ece": 0.06217347352421178
+      },
+      "C": {
+        "n": 369,
+        "logLoss": 0.9686737503775206,
+        "brier": 0.5733089094655799,
+        "ece": 0.0274308397027095
+      }
+    },
+    "La Liga": {
+      "n": 485,
+      "A": {
+        "n": 485,
+        "logLoss": 0.979760562332283,
+        "brier": 0.5809297031155102,
+        "ece": 0.06061752453848269
+      },
+      "C": {
+        "n": 485,
+        "logLoss": 0.9718503617727728,
+        "brier": 0.5749707837544451,
+        "ece": 0.0526155310526184
+      }
+    },
+    "Ligue 1": {
+      "n": 378,
+      "A": {
+        "n": 378,
+        "logLoss": 0.9935862237604207,
+        "brier": 0.5927595649207412,
+        "ece": 0.034151099308733085
+      },
+      "C": {
+        "n": 378,
+        "logLoss": 0.9898198049050292,
+        "brier": 0.5910645346448501,
+        "ece": 0.056974177467184646
+      }
+    },
+    "Premier League": {
+      "n": 470,
+      "A": {
+        "n": 470,
+        "logLoss": 1.0265393682695807,
+        "brier": 0.6152936266682713,
+        "ece": 0.0387599467391865
+      },
+      "C": {
+        "n": 470,
+        "logLoss": 1.0212014150217852,
+        "brier": 0.6139421635100953,
+        "ece": 0.04316752676730285
+      }
+    },
+    "Serie A": {
+      "n": 466,
+      "A": {
+        "n": 466,
+        "logLoss": 0.9870891964149832,
+        "brier": 0.5865094151412366,
+        "ece": 0.055585777585016934
+      },
+      "C": {
+        "n": 466,
+        "logLoss": 0.9832899982341796,
+        "brier": 0.5836728053654616,
+        "ece": 0.04670800826737315
+      }
+    }
+  },
+  "bySeason": {
+    "2024/2025": {
+      "n": 22,
+      "A": {
+        "n": 22,
+        "logLoss": 1.0354515878521071,
+        "brier": 0.6140976100052803,
+        "ece": 0.25772286282903273
+      },
+      "C": {
+        "n": 22,
+        "logLoss": 1.0418024396574839,
+        "brier": 0.6127079198856877,
+        "ece": 0.24616290760039336
+      }
+    },
+    "2025/2026": {
+      "n": 1752,
+      "A": {
+        "n": 1752,
+        "logLoss": 0.9954154638891567,
+        "brier": 0.5925079625787821,
+        "ece": 0.02140428242944637
+      },
+      "C": {
+        "n": 1752,
+        "logLoss": 0.9908551984173456,
+        "brier": 0.5904223633527467,
+        "ece": 0.017937061975187782
+      }
+    },
+    "2026/2027": {
+      "n": 394,
+      "A": {
+        "n": 394,
+        "logLoss": 0.9790217332782205,
+        "brier": 0.5810185154903453,
+        "ece": 0.04473819912050524
+      },
+      "C": {
+        "n": 394,
+        "logLoss": 0.9701009353830234,
+        "brier": 0.5748197998172817,
+        "ece": 0.03577035703051339
+      }
+    }
+  },
+  "economic": {
+    "historicalBookmakerPricesLoaded": false,
+    "bookmakerBenchmarkN": 0,
+    "A": {
+      "bets": 0,
+      "totalStaked": 0,
+      "roi": null,
+      "winRate": null,
+      "clvN": 0,
+      "averageClv": null
+    },
+    "C": {
+      "bets": 0,
+      "totalStaked": 0,
+      "roi": null,
+      "winRate": null,
+      "clvN": 0,
+      "averageClv": null
+    },
+    "decisionDifferences": {
+      "same": 0,
+      "different": 0,
+      "onlyA": 0,
+      "onlyC": 0,
+      "neither": 2168
+    },
+    "decisionExclusions": {
+      "A": {
+        "quotes_missing": 2168
+      },
+      "C": {
+        "quotes_missing": 2168
+      }
+    }
+  },
+  "limitations": [
+    "No historical bookmaker prices loaded into this probability-only report; market blending is a no-op.",
+    "No independent quote-labelled prudential calibration cohort; economic decisions abstain.",
+    "Historical result availability uses a conservative two-hour delay and does not prove contemporaneous provider observation.",
+    "A is the frozen as-of statistical protocol; current live context may contain additional information.",
+    "Final holdout is independent of parameter selection within this recorded run; repeated development against it requires a new untouched holdout."
+  ],
+  "delivery": {
+    "scope": "local_only",
+    "userChoseNoCommitOrPush": true,
+    "userHasVm": false,
+    "newRemoteSchedulerDeployed": false,
+    "remoteLegacyNightlyDisabled": false,
+    "remoteWorkflowReadAudit": {
+      "workflowActive": true,
+      "AUTO_BET_ENABLED": "true",
+      "legacyPlacementRouteCallPresent": true
+    },
+    "applicationChecks": {
+      "backendTestsPassed": 635,
+      "backendTestsSkipped": 0,
+      "backendTypecheck": "passed",
+      "backendLint": "passed",
+      "frontendSuitesPassed": 22,
+      "frontendTestsPassed": 148,
+      "frontendBuild": "passed",
+      "frontendTypecheck": "passed",
+      "frontendLint": "passed"
+    },
+    "finalDockerRebuild": "passed_local_isolated",
+    "localDockerChecks": {
+      "healthHttp": 200,
+      "researchOverviewHttp": 200,
+      "legacyPlacementHttp": 410,
+      "realCatBoostInference": "passed",
+      "normalizedJointMass": true,
+      "schedulerEnabled": false,
+      "portsBoundTo": "127.0.0.1",
+      "browserDesktopMobile": "passed",
+      "localBackupRestoreIntegrity": "ok",
+      "restoredPortfolioEquityCents": {
+        "shadow_A": 100000,
+        "shadow_C": 100000
+      }
+    }
+  }
+}

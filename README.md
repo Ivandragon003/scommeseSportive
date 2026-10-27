@@ -3,6 +3,58 @@
 Sistema completo per l'analisi predittiva di partite di calcio con stima probabilistica
 delle scommesse sportive basata sul **modello Dixon-Coles** esteso.
 
+Per una spiegazione completa dell'architettura, dei componenti e dei flussi di dati,
+senza entrare nel codice o nelle formule, leggi il [System design dell'app](docs/SYSTEM-DESIGN.md).
+
+## Confronto sperimentale A/C e automazione T−15
+
+Il repository estende il sistema esistente con un candidato CatBoost ibrido C,
+benchmark cronologico, registry, validazione dei mercati e portafogli virtuali
+separati A/C. La guida [piattaforma A/C](docs/research-platform.md) descrive
+componenti, comandi, verifiche e requisiti ancora da dimostrare sul deploy.
+Il [training ML](backend/ml/README.md) è locale/offline e non usa API LLM.
+
+La nightly gestisce manutenzione e risultati: **non crea nuove giocate future**.
+La vecchia route `/api/automation/place-valid-bets` è ritirata con `410`.
+Il nuovo processo T−15 è disabilitato per default e richiede un backend remoto
+e un worker dedicato sempre acceso, modelli e mercati validati, quote reali
+fresche e test operativi. Il backend web non avvia lo scheduler.
+Target = kickoff − 15 minuti; tolleranza massima +60 secondi, senza recuperi
+retroattivi. Una modifica locale non aggiorna il workflow o il backend remoto.
+
+Il codice ML non dimostra che C sia migliore di A. Backtest, shadow prospettico
+e saldi legacy restano distinti. Non sono effettuate scommesse con denaro reale.
+
+**Stato operativo del 27 ottobre 2026:** la nightly GitHub precedente è stata
+sospesa e verificata `disabled_manually`, senza run attivi o in coda. Anche la
+manutenzione notturna resta temporaneamente sospesa. La correzione permanente
+è preparata in Git locale; nessun push o nuovo deploy Hostless è stato eseguito.
+Accesso al pannello Hostless e verifica delle quote Turso bloccano il backup e
+il rilascio completo. Worker e shadow remoti non sono attivati.
+Il [report operativo corrente](docs/operations/production-status-2026-10-27.md)
+separa verifiche remote, test locali e passaggi ancora bloccati.
+
+La [preparazione Hostless](docs/operations/hostless-deployment.md) descrive il
+worker separato sulla piattaforma esistente, variabili, passaggio dalla nightly,
+monitor esterno, collaudo e rollback. Il [report delle verifiche locali](docs/operations/hostless-readiness-2026-10-27.md)
+separa risultati Linux, misure sintetiche e condizioni dell'account ancora da verificare.
+Non occorre una VM Oracle per l'architettura preparata.
+
+Il [follow-up A–I](docs/performance/research-followup-2026-10-27.md) approfondisce
+la diagnosi e la nuova pipeline coerente V2, mantenendo immutabile il primo
+benchmark. La scheda Esperimenti conserva le analisi di sviluppo separatamente
+dal registry operativo. Il [piano di attivazione T−15](docs/operations/t15-readiness-2026-10-27.md)
+espone blocchi remoti, crediti gratuiti e passaggi futuri da autorizzare.
+
+La [gestione quote e crediti](docs/operations/smart-odds-2026-10-27.md) introduce
+cache e budget persistenti condivisi fra processi. Nel codice locale la nightly
+non raccoglie quote per default e la UI legge la cache senza consumare crediti.
+T−15 conserva tre mercati essenziali e la freschezza massima di cinque minuti.
+I 500 crediti Starter non garantiscono tutte le partite delle cinque leghe:
+la [simulazione offline](docs/performance/odds-demand-2026-10-27.md) mostra anche
+mesi oltre il limite. Consumo misurato e disponibilità reale restano distinti
+dalle stime; nessun nuovo provider o piano a pagamento è stato attivato.
+
 ---
 
 ## 🧮 Modello Matematico
@@ -248,7 +300,7 @@ Comandi root: `npm run dev`, `npm run dev:backend`, `npm run dev:frontend`, `npm
 
 Per setup completo, deploy, GitHub Actions e troubleshooting usa la sezione `Onboarding operativo` in fondo a questo README.
 
-Compatibili: `start.bat`, `start.sh`, `docker-compose.yml`, `docker-compose.prod.yml`.
+Compatibili: `start.bat`, `start.sh`, `docker-compose.yml`.
 
 ---
 
@@ -948,13 +1000,13 @@ evDelta = clamp(raw x confidenceScale, -0.012, +0.008)
 
 - In GitHub Actions usa sempre `Settings > Secrets and variables > Actions` per salvare chiavi API, token DB e credenziali runtime.
 - Nei workflow referenzia i segreti solo tramite `${{ secrets.NOME_SECRET }}`.
-- In `docker-compose.yml` e `docker-compose.prod.yml` il runtime deve leggere i valori solo da variabili ambiente interpolate, non da file committati con valori reali.
+- In `docker-compose.yml` il runtime deve leggere i valori solo da variabili ambiente interpolate, non da file committati con valori reali.
 - `.env.example` deve contenere solo placeholder sicuri.
 
 ### Secret scan locale
 
 - Il workflow GitHub Actions di Secret Scan e stato rimosso: non blocca piu `push` e `pull_request`.
-- La configurazione Gitleaks sta in [`.gitleaks.toml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.gitleaks.toml).
+- La configurazione Gitleaks sta in [`.gitleaks.toml`](.gitleaks.toml).
 - Lo scan locale richiede `gitleaks` installato sulla macchina oppure Docker disponibile.
 - Lo scan locale equivalente e:
 
@@ -967,7 +1019,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\security\run-secret-scan.ps1 
 1. revoca o ruota subito la credenziale compromessa
 2. aggiorna GitHub Secrets, variabili ambiente locali e ambiente di deploy
 3. riesegui lo scan locale se usi Gitleaks in sviluppo
-4. valuta la bonifica history seguendo [docs/security/history-cleanup.md](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/security/history-cleanup.md)
+4. valuta la bonifica history seguendo [docs/security/history-cleanup.md](docs/security/history-cleanup.md)
 5. registra data, impatto e credenziali ruotate nel changelog operativo interno
 
 ### Come ruotare le credenziali applicative
@@ -978,7 +1030,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\security\run-secret-scan.ps1 
 
 ### Bonifica history
 
-- La guida operativa e in [docs/security/history-cleanup.md](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docs/security/history-cleanup.md).
+- La guida operativa e in [docs/security/history-cleanup.md](docs/security/history-cleanup.md).
 - Nessuna bonifica distruttiva viene eseguita automaticamente in questo repository.
 
 ## Onboarding operativo
@@ -990,7 +1042,7 @@ resta collegata allo stesso backend e allo stesso bankroll della versione deskto
 ### Setup locale raccomandato
 
 1. Clona il repository.
-2. Crea `./.env` nella root a partire da [`.env.example`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.env.example).
+2. Crea `./.env` nella root a partire da [`.env.example`](.env.example).
 3. Installa le dipendenze:
 
 ```powershell
@@ -1017,20 +1069,24 @@ Servizi previsti:
 - Frontend:
   nessun segreto runtime richiesto in locale; `FRONTEND_PORT` serve per Docker.
 
-Configurazione quote raccomandata:
+Configurazione quote e automazioni predefinita:
 
 ```dotenv
 ODDS_API_KEY=your-odds-api-key
 ODDS_PRIMARY_PROVIDER=odds_api
-ODDS_SNAPSHOT_SCHEDULER_ENABLED=true
-ODDS_SNAPSHOT_RUN_ON_BOOT=true
-LINEUP_REFRESH_SCHEDULER_ENABLED=true
-LINEUP_REFRESH_INTERVAL_MINUTES=10
-LINEUP_REFRESH_WINDOW_HOURS=2
+NIGHTLY_ORCHESTRATOR=github_actions
+ODDS_SNAPSHOT_SCHEDULER_ENABLED=false
+LINEUP_REFRESH_SCHEDULER_ENABLED=false
+PLAYER_DATA_ENABLED=false
+PLAYER_AVAILABILITY_ENABLED=false
+RESEARCH_T15_SCHEDULER_ENABLED=false
 ```
 
 Il runtime quote e Odds API only. `ODDS_PRIMARY_PROVIDER` deve restare `odds_api`.
-Il refresh lineup gira nel backend Docker (non in GitHub Actions): negli ultimi due ore prima del calcio d'inizio controlla le formazioni ufficiali ogni dieci minuti.
+Le formazioni e i giocatori sono in pausa per default; i dati storici restano
+salvati. Non abilitare collector duplicati rispetto alla nightly. Per T−15
+seguire la [guida deployment](docs/oracle-cloud-free-deploy.md); la disponibilità
+del piano gratuito quote e la puntualità remota devono essere verificate.
 
 ### Docker
 
@@ -1040,23 +1096,20 @@ Avvio standard:
 docker compose up -d --build
 ```
 
-Avvio produzione-like:
-
-```powershell
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-```
-
 Compatibilita preservata:
-- [start.bat](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/start.bat)
-- [start.sh](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/start.sh)
-- [docker-compose.yml](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docker-compose.yml)
-- [docker-compose.prod.yml](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/docker-compose.prod.yml)
+- [start.bat](start.bat)
+- [start.sh](start.sh)
+- [docker-compose.yml](docker-compose.yml)
+
+La configurazione fornita è `docker-compose.yml` con il file `.env` alla root.
+Non è presente un Compose di produzione separato. L'esposizione pubblica
+richiede configurazione e verifica di HTTPS/proxy/autenticazione.
 
 ### GitHub Actions e deploy
 
-- CI generale: [`.github/workflows/ci.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/ci.yml)
-- Nightly sync: [`.github/workflows/nightly-sync.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/nightly-sync.yml)
-- Odds API smoke manuale: [`.github/workflows/odds-api-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/odds-api-smoke.yml)
+- CI generale: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- Nightly sync: [`.github/workflows/nightly-sync.yml`](.github/workflows/nightly-sync.yml)
+- Odds API smoke manuale: [`.github/workflows/odds-api-smoke.yml`](.github/workflows/odds-api-smoke.yml)
 
 Per GitHub Actions e deploy usa solo GitHub Secrets o variabili ambiente del runtime:
 - `TURSO_DATABASE_URL`
@@ -1065,17 +1118,13 @@ Per GitHub Actions e deploy usa solo GitHub Secrets o variabili ambiente del run
 
 ### Smoke Odds API
 
-Il controllo manuale gira da GitHub Actions tramite [`.github/workflows/odds-api-smoke.yml`](/c:/Users/ACER/Desktop/DANIELE/scommeseSportive/.github/workflows/odds-api-smoke.yml) e carica report/log come artifact.
+Il controllo manuale gira da GitHub Actions tramite [`.github/workflows/odds-api-smoke.yml`](.github/workflows/odds-api-smoke.yml) e carica report/log come artifact.
 Richiede `ODDS_API_KEY` nei GitHub Secrets.
 
 ### Troubleshooting
 
-- Playwright/Chromium per SofaScore supplemental:
-
-```powershell
-cd backend
-npx playwright install --with-deps chromium
-```
+- Il supplemento statistico usa HTTP/CSV `football-data.co.uk`; non richiede
+  Playwright/Chromium o riattivazione dello scraper SofaScore.
 
 - Porte:
   `3000` per frontend locale, `3001` per backend; in Docker puoi cambiare la porta frontend con `FRONTEND_PORT`.
