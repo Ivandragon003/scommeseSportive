@@ -6,7 +6,7 @@ const { join, dirname, resolve } = require('node:path');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { createClient } = require('@libsql/client');
-const { databaseEndpoint, preflight, downloadDump } = require('../scripts/backup-turso');
+const { databaseEndpoint, preflight, downloadDump, restoreAndVerify } = require('../scripts/backup-turso');
 
 function verify(dump, database) {
   return spawnSync(process.execPath, [join(__dirname, '../scripts/backup-turso.js'), 'verify', '--dump', dump, '--database', database],
@@ -117,5 +117,69 @@ test('offline restore rejects a truncated dump before creating a database', asyn
     assert.equal(restored.status, 1);
     assert.equal(existsSync(target), false);
     assert.doesNotMatch(restored.stderr, /fixture only|INSERT INTO|Bearer/);
+  });
+});
+
+test('large overall dump streams through download and restore without whole-file JavaScript reads', async () => {
+  await withTemp(async (directory) => {
+    const rows = 8000;
+    const sql = `PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE many_rows(id INTEGER PRIMARY KEY, value TEXT);\n${
+      Array.from({ length: rows }, (_, i) => `INSERT INTO many_rows VALUES(${i},'${'fixture-'.repeat(32)}');\n`).join('')}COMMIT;\n`;
+    const encoded = Buffer.from(sql);
+    const dump = join(directory, 'streamed.sql');
+    let chunks = 0;
+    const body = new ReadableStream({ pull(controller) {
+      const start = chunks++ * 4096;
+      if (start < encoded.length) controller.enqueue(encoded.subarray(start, start + 4096));
+      else controller.close();
+    } });
+    const fs = require('node:fs');
+    const originalRead = fs.readFileSync;
+    try {
+      fs.readFileSync = () => { throw new Error('Whole-file reads are forbidden in this test'); };
+      const result = await downloadDump({ endpoint: new URL('https://fixture.turso.io/'), token: 'fixture-token', outputFile: dump,
+        maxBytes: encoded.length, fetchImpl: async () => new Response(body) });
+      const restored = await restoreAndVerify(dump, join(directory, 'streamed.db'));
+      assert.equal(result.bytes, encoded.length);
+      assert.ok(chunks > 100);
+      assert.deepEqual(restored.tableCounts, { many_rows: String(rows) });
+      assert.deepEqual(restored.integrity, ['ok']);
+    } finally { fs.readFileSync = originalRead; }
+  });
+});
+
+test('streamed SQL parser preserves trigger bodies, quotes, semicolons and multiline Unicode text', async () => {
+  await withTemp(async (directory) => {
+    const dump = join(directory, 'triggers.sql');
+    const target = join(directory, 'triggers.db');
+    writeFileSync(dump, `PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;
+CREATE TABLE events(id INTEGER PRIMARY KEY, value TEXT);
+CREATE TABLE audit(value TEXT);
+CREATE TRIGGER events_audit AFTER INSERT ON events BEGIN
+  INSERT INTO audit VALUES(NEW.value);
+  INSERT INTO audit VALUES('trigger; ''quoted''');
+END;
+INSERT INTO events VALUES(1,'first; line
+second ''quoted'' 🧪');
+COMMIT;
+`);
+    const restored = await restoreAndVerify(dump, target);
+    assert.deepEqual(restored.tableCounts, { audit: '2', events: '1' });
+    const check = spawnSync(process.env.BACKUP_PYTHON || 'python', ['-I', '-c',
+      'import sqlite3,sys,json; c=sqlite3.connect(sys.argv[1]); print(json.dumps(c.execute("SELECT value FROM audit ORDER BY rowid").fetchall())); c.close()', target],
+    { encoding: 'utf8', timeout: 10000 });
+    assert.equal(check.status, 0);
+    assert.deepEqual(JSON.parse(check.stdout), [["first; line\nsecond 'quoted' 🧪"], ["trigger; 'quoted'"]]);
+  });
+});
+
+test('malformed SQL fails even when its transaction envelope looks complete', async () => {
+  await withTemp(async (directory) => {
+    const dump = join(directory, 'malformed.sql');
+    writeFileSync(dump, DUMP.replace('CREATE TABLE users', 'NOT VALID SQL users'));
+    const result = verify(dump, join(directory, 'malformed.db'));
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.doesNotMatch(result.stderr, /fixture only|NOT VALID SQL|INSERT INTO|Bearer|Traceback/);
   });
 });

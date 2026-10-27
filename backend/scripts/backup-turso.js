@@ -1,10 +1,14 @@
 /* Production backup reads only; all restore operations use a new local database. */
 const { createClient } = require('@libsql/client');
 const { createHash } = require('node:crypto');
-const { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } = require('node:fs');
+const { createReadStream, createWriteStream, existsSync, mkdirSync, writeFileSync } = require('node:fs');
+const { open } = require('node:fs/promises');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 const { resolve, join, dirname } = require('node:path');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const executeFile = promisify(execFile);
 
 function databaseEndpoint(value, expectedHost) {
   const url = new URL(String(value).replace(/^libsql:/, 'https:'));
@@ -45,15 +49,22 @@ async function downloadDump({ endpoint, token, outputFile, maxBytes, fetchImpl =
   } });
   await pipeline(Readable.fromWeb(response.body), counter, createWriteStream(outputFile, { flags: 'wx', mode: 0o600 }));
   // A truncated export is never accepted as a complete backup.
-  const sql = readFileSync(outputFile, 'utf8');
-  requireCompleteDump(sql);
+  await requireCompleteDump(outputFile);
   return { bytes, sha256: hash.digest('hex') };
 }
 
-function requireCompleteDump(sql) {
-  if (!/^\s*PRAGMA foreign_keys=OFF;\s*BEGIN TRANSACTION;/i.test(sql) || !/\bCOMMIT;\s*$/i.test(sql)) {
-    throw new Error('Dump transaction envelope is incomplete');
-  }
+async function requireCompleteDump(path) {
+  const file = await open(path, 'r');
+  try {
+    const { size } = await file.stat();
+    const length = Math.min(size, 4096);
+    const first = Buffer.alloc(length);
+    const last = Buffer.alloc(length);
+    await file.read(first, 0, length, 0);
+    await file.read(last, 0, length, Math.max(0, size - length));
+    if (!/^\s*PRAGMA foreign_keys=OFF;\s*BEGIN TRANSACTION;/i.test(first.toString('utf8'))
+      || !/\bCOMMIT;\s*$/i.test(last.toString('utf8'))) throw new Error('Dump transaction envelope is incomplete');
+  } finally { await file.close(); }
 }
 
 async function fileHash(path) {
@@ -62,26 +73,18 @@ async function fileHash(path) {
   return hash.digest('hex');
 }
 
-async function restoreAndVerify(dumpFile, databaseFile) {
+async function restoreAndVerify(dumpFile, databaseFile, { python = process.env.BACKUP_PYTHON || 'python' } = {}) {
   const target = resolve(databaseFile);
   if (existsSync(target)) throw new Error('Restore target already exists');
-  const sql = readFileSync(dumpFile, 'utf8');
-  requireCompleteDump(sql);
-  const client = createClient({ url: `file:${target}`, intMode: 'bigint' });
-  let result;
-  try {
-    await client.executeMultiple(sql);
-    const integrity = (await client.execute('PRAGMA integrity_check')).rows.map((row) => String(row.integrity_check));
-    const foreignKeys = (await client.execute('PRAGMA foreign_key_check')).rows;
-    const tables = (await client.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")).rows;
-    const counts = {};
-    for (const row of tables) {
-      const quoted = `"${String(row.name).replaceAll('"', '""')}"`;
-      counts[row.name] = String((await client.execute(`SELECT COUNT(*) AS count FROM ${quoted}`)).rows[0].count);
-    }
-    result = { integrity, foreignKeyViolations: foreignKeys.length, tableCounts: counts,
-      readable: integrity.length === 1 && integrity[0] === 'ok' };
-  } finally { client.close(); if (existsSync(target)) chmodSync(target, 0o600); }
+  await requireCompleteDump(dumpFile);
+  // Python's standard SQLite library reads one complete statement at a time.
+  // Never convert an entire large dump into a JavaScript string.
+  const { stdout } = await executeFile(python, ['-I', join(__dirname, 'restore-turso-backup.py'), resolve(dumpFile), target],
+    { encoding: 'utf8', timeout: 30 * 60 * 1000, maxBuffer: 16 * 1024 * 1024,
+      // The offline restore process receives no database or provider credentials.
+      env: Object.fromEntries(['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL']
+        .filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]])) });
+  const result = JSON.parse(stdout);
   return { ...result, databaseSha256: await fileHash(target) };
 }
 
@@ -100,7 +103,7 @@ async function main(args = process.argv.slice(2)) {
   if (!['preflight', 'backup', 'verify'].includes(options.command)) throw new Error('Expected preflight, backup or verify');
   if (options.command === 'verify') {
     if (!options.dump || !options.database) throw new Error('--dump and a new --database path are required');
-    const verification = await restoreAndVerify(resolve(options.dump), resolve(options.database));
+    const verification = await restoreAndVerify(resolve(options.dump), resolve(options.database), { python: options.python });
     console.log(JSON.stringify({ action: 'isolated_restore', ...verification }));
     if (!verification.readable || verification.foreignKeyViolations) process.exitCode = 1;
     return;
@@ -125,7 +128,7 @@ async function main(args = process.argv.slice(2)) {
   const startedAt = new Date().toISOString();
   const dumpFile = join(output, 'database.sql');
   const dump = await downloadDump({ endpoint, token, outputFile: dumpFile, maxBytes });
-  const verification = await restoreAndVerify(dumpFile, join(output, 'restore.db'));
+  const verification = await restoreAndVerify(dumpFile, join(output, 'restore.db'), { python: options.python });
   const manifest = { format: 'turso-sql-dump-v1', startedAt, completedAt: new Date().toISOString(),
     databaseHost: endpoint.hostname, method: 'official_GET_dump', quotaReviewedByOperator: true,
     preflight: inspection, dump, verification,
