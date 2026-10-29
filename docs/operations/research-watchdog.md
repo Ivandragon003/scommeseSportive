@@ -29,6 +29,13 @@ Questi nuovi controlli operativi, e gli errori ripetuti di scheduler/provider, n
 
 `.github/workflows/research-watchdog.yml` è pronto per l'esecuzione manuale. Richiede il nuovo secret `TURSO_WATCHDOG_READONLY_TOKEN`, che il proprietario dovrà creare e autorizzare separatamente; non riutilizza automaticamente il token di scrittura. Non abbiamo creato né modificato chiavi. Non richiede accesso a Hostless, chiavi quote o servizi a pagamento. Le notifiche di fallimento dipendono dalle preferenze GitHub del proprietario.
 
+Il riepilogo giornaliero nell'app riporta il giorno precedente e viene creato
+alla prima riconciliazione con contabilità stabile dalle **09:00 Europe/Rome**
+in poi, rispettando automaticamente ora legale e solare. Polling e riavvii
+mantengono un solo riepilogo per giorno. Gli incidenti tecnici importanti
+restano immediati e non attendono le 09:00. Questa regola non avvia un processo
+di monitoraggio e non configura un canale esterno.
+
 Dopo il collaudo remoto il mandato di produzione autorizza una pianificazione
 indipendente su GitHub Actions, per esempio ogni cinque minuti (`*/5 * * * *`),
 impostando `RESEARCH_WATCHDOG_EXPECT_ENABLED=true` anche per l'evento pianificato.

@@ -91,6 +91,40 @@ test('summary day uses Europe/Rome across the repeated autumn hour and midnight'
   assert.equal(summary.portfolios[0].registeredBets, 4);
 });
 
+for (const [day, beforeNine, atNine] of [
+  ['2026-03-28', '2026-03-28T07:59:59Z', '2026-03-28T08:00:00Z'],
+  ['2026-03-29', '2026-03-29T06:59:59Z', '2026-03-29T07:00:00Z'],
+  ['2026-10-24', '2026-10-24T06:59:59Z', '2026-10-24T07:00:00Z'],
+  ['2026-10-25', '2026-10-25T07:59:59Z', '2026-10-25T08:00:00Z'],
+]) {
+  test(`daily reconciliation waits for 09:00 Rome on ${day}, without delaying technical incidents`, async (t) => {
+    const { store } = await setup(t);
+    const opening = { portfolioId: 'shadow_A', event: 'OPEN', createdAt: '2026-03-01T10:00:00Z',
+      availableDeltaCents: 100000, committedDeltaCents: 0 };
+    const failures = [1, 2, 3].map((minutes) => ({ schedulerName: 'research_settlement', success: false,
+      endedAt: new Date(Date.parse(beforeNine) - minutes * 60000).toISOString() }));
+    const db = { researchMonitoring: store, research: {
+      getModels: async () => [], listMarkets: async () => [], listJobs: async () => [], listBets: async () => [],
+      listPortfolios: async () => [{ id: 'shadow_A', family: 'A', availableCents: 100000, committedCents: 0, equityCents: 100000 }],
+      listLedger: async () => [opening],
+    }, listRecentSchedulerRuns: async () => failures };
+    await reconcileResearchMonitoring(db, beforeNine, { schedulerEnabled: false });
+    const early = await readResearchMonitoring(db);
+    assert.equal(early.dailySummary, null);
+    assert.equal(early.notifications.length, 1);
+    assert.equal(early.notifications[0].kind, 'technical_error');
+
+    await reconcileResearchMonitoring(db, atNine, { schedulerEnabled: false });
+    await reconcileResearchMonitoring(db, new Date(Date.parse(atNine) + 60000), { schedulerEnabled: false });
+    const due = await readResearchMonitoring(db);
+    const summaries = due.notifications.filter((notification) => notification.kind === 'daily_summary');
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0].createdAt, new Date(atNine).toISOString());
+    assert.equal(summaries[0].day, new Date(Date.parse(`${day}T12:00:00Z`) - 86400000).toISOString().slice(0, 10));
+    assert.equal(due.notifications.filter((notification) => notification.kind === 'technical_error').length, 1);
+  });
+}
+
 test('critical rules require measured failures, respect disabled scheduler and detect ledger disagreement', () => {
   const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
   assert.deepEqual(researchCriticalIncidents(base), []);

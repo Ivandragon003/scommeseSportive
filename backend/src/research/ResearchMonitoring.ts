@@ -17,6 +17,7 @@ const romeDay = (at: string | Date): string => new Intl.DateTimeFormat('en-CA', 
 }).format(new Date(at));
 const previousDay = (day: string): string => new Date(Date.parse(`${day}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
 const onDay = (at: string | undefined, day: string): boolean => !!at && Number.isFinite(Date.parse(at)) && romeDay(at) === day;
+const summaryHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' });
 
 /** One persistent notification per incident generation; polling/restarts do not resend it. */
 export class ResearchMonitoringStore {
@@ -187,7 +188,10 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
   await db.researchMonitoring.reconcile(incidents, timestamp);
   const day = previousDay(romeDay(timestamp));
   const summary = researchDailySummary(day, portfolios, bets, ledger);
-  if (stableAccounting && summary.portfolios.length) await db.researchMonitoring.saveDailySummary(day, summary, timestamp);
+  // Publish yesterday's summary on the first stable reconciliation at or after 09:00 Rome.
+  if (stableAccounting && summary.portfolios.length && Number(summaryHour.format(new Date(timestamp))) >= 9) {
+    await db.researchMonitoring.saveDailySummary(day, summary, timestamp);
+  }
 }
 
 /** Safe for GET: no alerts, summaries, bankrolls or jobs are created by reading. */
