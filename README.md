@@ -6,81 +6,80 @@ delle scommesse sportive basata sul **modello Dixon-Coles** esteso.
 Per una spiegazione completa dell'architettura, dei componenti e dei flussi di dati,
 senza entrare nel codice o nelle formule, leggi il [System design dell'app](docs/SYSTEM-DESIGN.md).
 
-## Confronto sperimentale A/C e automazione T−15
+## Confronto A/C e Nightly Pre-Match Virtual Betting
 
-Il repository estende il sistema esistente con un candidato CatBoost ibrido C,
-benchmark cronologico, registry, validazione dei mercati e portafogli virtuali
-separati A/C. La guida [piattaforma A/C](docs/research-platform.md) descrive
-componenti, comandi, verifiche e requisiti ancora da dimostrare sul deploy.
-Il [training ML](backend/ml/README.md) è locale/offline e non usa API LLM.
+Il confronto usa il modello statistico A come riferimento e il modello ibrido
+statistico + CatBoost C come **Challenger**. GitHub Actions aggiorna i dati e,
+quando esplicitamente abilitata, esegue una sola elaborazione notturna sulle
+partite future. Ogni modello sceglie al massimo una puntata virtuale per partita
+oppure nessuna, usando lo stesso snapshot reale di dati e quote.
 
-La nightly gestisce manutenzione e risultati: **non crea nuove giocate future**.
-La vecchia route `/api/automation/place-valid-bets` è ritirata con `410`,
-verificato anche sul backend Hostless aggiornato il 29 ottobre 2026.
-Il nuovo processo T−15 è disabilitato per default e richiede un backend remoto
-e un worker dedicato sempre acceso, modelli e mercati validati, quote reali
-fresche e test operativi. Il backend web non avvia lo scheduler.
-Target = kickoff − 15 minuti; tolleranza massima +60 secondi, senza recuperi
-retroattivi. Una modifica locale non aggiorna il workflow o il backend remoto.
+Il riferimento è 03:00 Europe/Rome, con ora legale. La finestra parte dall'avvio
+effettivo del job e termina alla successiva nightly prevista, oppure usa una
+durata configurata. Non sono ammesse registrazioni dopo il calcio d'inizio o
+ricostruzioni retroattive di una notte saltata. Il training settimanale resta
+separato; non occorre un worker Hostless sempre acceso o un timer sul telefono.
 
-Il codice ML non dimostra che C sia migliore di A. Backtest, shadow prospettico
-e saldi legacy restano distinti. Non sono effettuate scommesse con denaro reale.
+Esistono due portafogli indipendenti, A e C, con capitale iniziale di 1.000 euro,
+stake 1% ed esposizione massima 5%. Gli identificatori persistenti `shadow_A` e
+`shadow_C` vengono riutilizzati per conservare ledger, saldi e giocate: non sono
+una modalità Shadow Betting separata. Nessun terzo portafoglio, reset o denaro
+reale. Lo storico precedente mantiene il protocollo e i timestamp originari.
 
-**Stato del 29 ottobre 2026: deploy web completato, automazione T−15 bloccata.**
-Backend e frontend `122fd360` sono online su Hostless, collegati al Turso
-esistente. Login e sessione persistente, calendario e dashboard A/C sono stati
-verificati. La nightly è riuscita senza nuove giocate; la route legacy remota
-risponde `410`. Backup, ripristino e migrazioni `015–019` sono verificati.
-A e C sono registrati e l'inferenza C dal registry è riuscita su Hostless con
-input sintetico. C resta Challenger e i 26 mercati sono `EXPERIMENTAL`.
-I portafogli A/C contengono 1.000 EUR ciascuno, separati, senza puntate.
-Il worker embedded resta non operativo (`missing`, ambiente `404`). Dopo
-l'autorizzazione GitHub del proprietario è stato creato lo standalone gratuito
-`footpredictor-t15-standalone`, ma entrambi i deployment `ed9e58ad`/`cc842005`
-sono falliti in coda (`Deployment waited too long in the queue`), senza
-esecuzione o log di build dimostrati. Il cron standalone watchdog ha due
-deployment `cc842005` riusciti e 14 check reali `ok` nei Logs ogni cinque
-minuti, dalle 14:10:21 alle 15:15:13 CET. La lista Runs resta vuota e non
-rappresenta le esecuzioni effettive. Monitor SELECT-only operativo con worker
-intenzionalmente spento; notifiche esterne non collaudate. Nessun heartbeat o decisione T−15:
-scheduler T−15 e nuove registrazioni shadow restano disabilitati. Nightly di
-manutenzione e cron watchdog sono attivi. Il codice nativo `cc842005`
-è pubblicato e ha CI verde; il web LIVE resta `122fd360`. Una correzione dei
-falsi errori per quote assenti in cache è pubblicata in `60a6baac`, con 66/66
-test mirati e revisione senza blocchi. La CI è riuscita (777 test backend,
-776 passati e un opzionale saltato); calibrazione riuscita. Dopo il gate cache
-SELECT-only dell'immagine di produzione (80 hit validi, zero fit/scritture/provider),
-il deployment backend `60a6baac` è stato richiesto alle 15:18 CET ed è in coda.
-Al controllo delle 15:21 il web LIVE resta `122fd360`; frontend non ridistribuito. Linux QA è passato (777 test, 776 superati, un
-opzionale saltato); Windows mantiene un crash nativo non risolto. Hostless
-Support ha confermato la ricezione del report autorizzato, senza diagnosi o fix.
-Un audit reale quote da Linux locale verso provider/Turso ha misurato cinque
-richieste, 15 crediti e 205 residui, senza modificare otto tabelle protette;
-non è il collaudo T−15 del worker Hostless.
-Non sono state aggiunte carte o attivati piani a pagamento.
-Il [report operativo corrente](docs/operations/production-status-2026-10-29.md)
-separa operazioni completate e verifiche ancora pendenti.
+Un mercato `EXPERIMENTAL` può raccogliere risultati virtuali se dati,
+probabilità, quota reale, bookmaker, timestamp, liquidazione e controlli
+contabili sono idonei. Questo non promuove il mercato o il modello C e non
+richiede una redditività già dimostrata per iniziare la simulazione.
 
-La [preparazione Hostless](docs/operations/hostless-deployment.md) descrive il
-worker separato sulla piattaforma esistente, variabili, passaggio dalla nightly,
-monitor esterno, collaudo e rollback. Il [report delle verifiche locali](docs/operations/hostless-readiness-2026-10-27.md)
-separa risultati Linux, misure sintetiche e condizioni dell'account ancora da verificare.
-Non occorre una VM Oracle per l'architettura preparata.
+La dashboard mostra saldi attuali e rendimento per 7/30/60/90 giorni, intera
+simulazione o date personalizzate: profitto, ROI sullo stake liquidato,
+registrazioni, vinte/perse, stake, drawdown, capitale nel tempo e differenze
+A/C per campionato e mercato. Il maggiore profitto del periodo è distinto
+dalla qualità probabilistica e non dimostra superiorità statistica. Il
+benchmark storico conserva log loss, Brier score, calibrazione e limiti del test.
 
-Il [follow-up A–I](docs/performance/research-followup-2026-10-27.md) approfondisce
-la diagnosi e la nuova pipeline coerente V2, mantenendo immutabile il primo
-benchmark. La scheda Esperimenti conserva le analisi di sviluppo separatamente
-dal registry operativo. Il [piano di attivazione T−15](docs/operations/t15-readiness-2026-10-27.md)
-espone blocchi remoti, crediti gratuiti e passaggi futuri da autorizzare.
+L'[assemblatore prospettico](docs/operations/nightly-model-runtime-2026-10-29.md)
+congela osservazioni reali anche quando A/C si astengono, prima dei risultati e
+senza puntate o movimenti del ledger. Il registro iniziale non ha campioni
+idonei: il percorso parte con astensioni, non con BET garantite. Il minimo di
+50 partite per mercato/fascia e il limite prudenziale di Hoeffding restano
+invariati; non si inventano calibrazioni, refit o promozioni.
 
-La [gestione quote e crediti](docs/operations/smart-odds-2026-10-27.md) introduce
-cache e budget persistenti condivisi fra processi. Nel codice locale la nightly
-non raccoglie quote per default e la UI legge la cache senza consumare crediti.
-T−15 conserva tre mercati essenziali e la freschezza massima di cinque minuti.
-I 500 crediti Starter non garantiscono tutte le partite delle cinque leghe:
-la [simulazione offline](docs/performance/odds-demand-2026-10-27.md) mostra anche
-mesi oltre il limite. Consumo misurato e disponibilità reale restano distinti
-dalle stime; nessun nuovo provider o piano a pagamento è stato attivato.
+La [guida operativa canonica](docs/operations/nightly-pre-match-2026-10-29.md)
+descrive il nuovo percorso. Riferimenti complementari:
+
+- [Piattaforma A/C](docs/research-platform.md) e [training ML](backend/ml/README.md).
+- [Nightly GitHub Actions](docs/github-actions-nightly-sync.md).
+- [Hostless](docs/operations/hostless-deployment.md).
+- [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
+- [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
+
+**Stato di preparazione del 29 ottobre 2026:** nuovo percorso e dashboard
+implementati localmente; nuove registrazioni nightly ancora disabilitate
+(`RESEARCH_NIGHTLY_ENABLED=false`). La route legacy resta ritirata con `410`:
+la nightly non usa `/bets/place` né `AUTO_BET_ENABLED=true`. Il nuovo codice non
+è ancora pubblicato; la preparazione avverrà su branch `codex/` e PR, senza
+push diretto su `main` che avvierebbe il warmup prima del cutover.
+
+Il backup aggiornato della sorgente è privato, 459.806.723 byte, 52 tabelle,
+integrità `ok` e zero violazioni FK; hash completo nel relativo manifest.
+L'account Turso personale gratuito è verificato via CLI ufficiale operativa,
+con overage disabilitati. **La copia iniziale è importata e confrontata
+integralmente**: schema, conteggi e hash di tutte le tabelle, integrità e FK
+coincidono con lo snapshot sorgente. Questo non è parità live
+(`liveParityVerified=false`) o cutover: servono sincronizzazione finale,
+conferma dell'utente e deployment Hostless riuscito. Backend, nightly, training e calibrazione devono passare
+insieme allo stesso database. Cutover definitivo e attivazione remota delle
+nuove puntate richiedono due conferme esplicite sul piano concreto, come da mandato.
+
+Il vecchio cron Hostless `footpredictor-watchdog` è `PAUSED`; per lo standalone
+è stata accettata una richiesta di pausa, ma `Sleeping`/`scaledDown=false` non
+provano la pausa completata. Nessun servizio è stato eliminato e il blocco del
+vecchio worker non è più un requisito da risolvere. I
+[report T−15 precedenti](docs/operations/production-status-2026-10-29.md)
+restano snapshot storici, superati dalla nuova guida per la direzione operativa.
+Nessun nuovo piano a pagamento è stato attivato. I controlli locali non provano
+il funzionamento della nuova nightly sul cloud o un ciclo reale già concluso.
 
 ---
 
@@ -1106,14 +1105,16 @@ ODDS_SNAPSHOT_SCHEDULER_ENABLED=false
 LINEUP_REFRESH_SCHEDULER_ENABLED=false
 PLAYER_DATA_ENABLED=false
 PLAYER_AVAILABILITY_ENABLED=false
+RESEARCH_NIGHTLY_ENABLED=false
 RESEARCH_T15_SCHEDULER_ENABLED=false
 ```
 
 Il runtime quote e Odds API only. `ODDS_PRIMARY_PROVIDER` deve restare `odds_api`.
 Le formazioni e i giocatori sono in pausa per default; i dati storici restano
-salvati. Non abilitare collector duplicati rispetto alla nightly. Per T−15
-seguire la [guida deployment](docs/oracle-cloud-free-deploy.md); la disponibilità
-del piano gratuito quote e la puntualità remota devono essere verificate.
+salvati. Non abilitare collector duplicati rispetto alla nightly. Per la nuova
+elaborazione seguire la [guida nightly](docs/operations/nightly-pre-match-2026-10-29.md)
+e la [guida Hostless](docs/operations/hostless-deployment.md). Registrazioni
+remote e cutover richiedono le conferme separate previste dal mandato.
 
 ### Docker
 

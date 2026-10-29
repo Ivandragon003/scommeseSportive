@@ -183,3 +183,18 @@ decisioni persistenti: il forecast non legge quel registro.
 Verifica mirata: `test/nightly-odds-demand.test.js` insieme a
 `test/odds-demand-simulation.test.js`; compilazione isolata del modulo senza
 pulire `dist`, vecchie simulazioni preservate e nessuna chiamata provider/DB.
+
+## Baseline Hostless osservata prima della nuova release
+
+Il pannello del backend `scommese-sportive-backend` mostra `Free / Running`.
+Nella finestra del 29 ottobre 2026, 10:59–16:59 Europe/Rome, il riepilogo
+ufficiale riporta 160 richieste, un errore server, 2,6 MiB trasferiti e un tempo
+medio di risposta di 1.684,3 ms. L'ultimo campione di memoria visualizzato è
+122,141 MiB alle 16:55.
+
+La serie CPU visualizzata contiene soltanto 11 campioni e termina alle 11:45,
+con valore 0 vCPU, mentre la memoria prosegue fino alle 16:55. Questo campione
+vecchio non descrive il consumo CPU attuale, non dimostra assenza di throttling
+e non identifica la causa degli avvisi precedenti. Non è disponibile una misura
+remota confrontabile prima/dopo della nuova release, ancora non distribuita.
+I risultati locali sopra riportati restano separati dalle metriche ufficiali.
