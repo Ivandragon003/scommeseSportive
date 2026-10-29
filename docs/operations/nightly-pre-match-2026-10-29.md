@@ -5,7 +5,7 @@ prospettico consiste in due portafogli virtuali A/C, elaborati dalla nightly
 GitHub Actions. Non richiede un worker sempre acceso o una modalità Shadow
 parallela. Non effettua scommesse con denaro reale.
 
-**Stato: implementazione locale verificata; nuove registrazioni remote e
+**Stato: codice verificato e pubblicato in PR; nuove registrazioni remote e
 cutover Turso non attivati.** La produzione continua a usare il database
 originale. Questo documento sostituisce le precedenti istruzioni di attivazione
 T−15; i report scientifici e gli snapshot operativi datati restano storici.
@@ -161,21 +161,30 @@ scritture live successive. [Procedura completa](turso-personal-migration-2026-10
 
 ### Piano da approvare prima del passaggio definitivo
 
-1. Risolvere l'accesso/import ufficiale, verificare piano e parità della copia.
-2. Identificare tutte le connessioni: backend, nightly, training, warmup,
-   watchdog e script locali. Registrare i riferimenti dei secret senza valori.
-3. Verificare che Hostless possa applicare la configurazione: una coda bloccata
-   impedisce il cutover, non autorizza un cambio parziale della sola nightly.
-4. Sospendere temporaneamente gli scrittori e l'accesso alle operazioni mutanti;
+1. Dopo l'approvazione, unire la PR verificata e pubblicare il codice con
+   registrazioni e monitoraggio spenti. Il push su `main` può avviare il warmup
+   sul database attuale: attenderne la conclusione prima del blocco scritture.
+2. Distribuire prima il backend e poi il frontend, verificando API, sessioni,
+   dashboard e saldi sul database originale. Se Hostless resta in coda, fermarsi
+   prima del cutover, preservando la versione funzionante.
+3. Inventariare backend, nightly, training, warmup, watchdog e script locali;
+   registrare i riferimenti dei secret senza valori. Verificare che Hostless
+   possa applicare anche la configurazione del database: nessuno switch parziale.
+4. Sospendere temporaneamente tutti gli scrittori e l'accesso alle operazioni mutanti;
    controllare i job in corso e acquisire il dump finale coerente.
-5. Riconciliare la destinazione e verificarla rispetto al dump finale. Qualsiasi
-   ricreazione o sovrascrittura della copia di destinazione richiede un piano
-   concreto e autorizzazione distinta; l'originale non viene cancellato.
+5. Sincronizzare la destinazione e verificarla rispetto al dump finale. Se
+   occorre ricrearla, l'autorizzazione deve nominare esclusivamente la copia
+   personale `footpredictor` in `selloneciompi`, attualmente non usata dalle app.
+   Conservare il suo backup verificato; l'originale del collaboratore non viene
+   cancellato o sovrascritto. Senza questo consenso, niente ricreazione.
 6. Aggiornare URL/token coordinati, verificare un solo database effettivo,
    applicare solo le migrazioni additive collaudate e preparare la calibrazione
    della stessa implementazione che verrà distribuita.
 7. Riattivare manutenzione e verificare backend, sessioni, dashboard e saldi;
-   soltanto dopo il consenso abilitare nuove registrazioni A/C e monitor.
+   soltanto dopo il consenso abilitare la nightly A/C e il monitor GitHub.
+   All'inizio saranno possibili soltanto osservazioni/astensioni, finché i
+   residui indipendenti non superano i controlli invariati. L'eventuale successiva
+   puntata resta virtuale e subordinata a tutti i gate.
 8. Osservare una nightly reale e successive liquidazioni, senza forzare puntate.
 
 Rollback: spegnere il nuovo flag di registrazione mantenendo storico e
@@ -282,6 +291,7 @@ statistica.
   zero gruppi nightly visualizzato correttamente. Nessuna fixture in produzione.
 - Avvio Compose e inferenza sull'artefatto C reale riconfermati nell'immagine
   finale dopo l'integrazione della coorte; health HTTP 200.
+- Nessun nuovo APK o collaudo su dispositivo Android eseguito in questa fase.
 - Revisione indipendente della nuova coorte: 34/34 test e nessun P1/P2 residuo.
   Il gate completo finale è passato; CI della pubblicazione da registrare.
 
@@ -294,6 +304,10 @@ Commit funzionali: `22a54e8b` (I/O database), `e4c7f6d8` (nightly e coorte),
 `a4af9018` (dashboard), `eae7c4b7` (verifica migrazione). La documentazione di
 rilascio è inclusa. I check remoti della PR sono il riferimento per la CI della
 revisione pubblicata; le verifiche locali sopra non li sostituiscono.
+La [CI 40919808475](https://github.com/Ivandragon003/scommeseSportive/actions/runs/40919808475)
+ha completato Backend e Frontend con successo sulla revisione `d4f16d25`, che
+contiene tutto il codice funzionale; gli aggiornamenti successivi a questo
+report sono documentali. Nessuna attivazione segue automaticamente quei check.
 Scansioni Gitleaks delle patch pubblicate superate. Non sono state
 attivate le nuove registrazioni, cambiati secret di produzione o eseguito un
 cutover. Nessuna risorsa a pagamento, carta o cambio di piano autorizzato.
