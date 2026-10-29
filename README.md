@@ -15,7 +15,8 @@ componenti, comandi, verifiche e requisiti ancora da dimostrare sul deploy.
 Il [training ML](backend/ml/README.md) è locale/offline e non usa API LLM.
 
 La nightly gestisce manutenzione e risultati: **non crea nuove giocate future**.
-La vecchia route `/api/automation/place-valid-bets` è ritirata con `410`.
+La vecchia route `/api/automation/place-valid-bets` è ritirata con `410`,
+verificato anche sul backend Hostless aggiornato il 29 ottobre 2026.
 Il nuovo processo T−15 è disabilitato per default e richiede un backend remoto
 e un worker dedicato sempre acceso, modelli e mercati validati, quote reali
 fresche e test operativi. Il backend web non avvia lo scheduler.
@@ -25,14 +26,25 @@ retroattivi. Una modifica locale non aggiorna il workflow o il backend remoto.
 Il codice ML non dimostra che C sia migliore di A. Backtest, shadow prospettico
 e saldi legacy restano distinti. Non sono effettuate scommesse con denaro reale.
 
-**Stato operativo del 27 ottobre 2026:** la nightly GitHub precedente è stata
-sospesa e verificata `disabled_manually`, senza run attivi o in coda. Anche la
-manutenzione notturna resta temporaneamente sospesa. La correzione permanente
-è preparata in Git locale; nessun push o nuovo deploy Hostless è stato eseguito.
-Accesso al pannello Hostless e verifica delle quote Turso bloccano il backup e
-il rilascio completo. Worker e shadow remoti non sono attivati.
-Il [report operativo corrente](docs/operations/production-status-2026-10-27.md)
-separa verifiche remote, test locali e passaggi ancora bloccati.
+**Stato del 29 ottobre 2026: deploy web completato, automazione T−15 bloccata.**
+Backend e frontend `122fd360` sono online su Hostless, collegati al Turso
+esistente. Login e sessione persistente, calendario e dashboard A/C sono stati
+verificati. La nightly è riuscita senza nuove giocate; la route legacy remota
+risponde `410`. Backup, ripristino e migrazioni `015–019` sono verificati.
+A e C sono registrati e l'inferenza C dal registry è riuscita su Hostless con
+input sintetico. C resta Challenger e i 26 mercati sono `EXPERIMENTAL`.
+I portafogli A/C contengono 1.000 EUR ciascuno, separati, senza puntate.
+Il worker embedded da 0,1 vCPU/256 MiB esiste ma Hostless non lo avvia:
+lo stato deployment è `missing` e la gestione ambiente risponde `404`.
+Anche la creazione del cron watchdog fallisce con `400`. È stata esplorata
+l'alternativa ufficiale standalone, senza crearla: il wizard non trova repository
+accessibili e richiede al proprietario/admin GitHub `Ivandragon003` di installare
+la GitHub App Hostless per il solo repository `scommeseSportive`. La risposta
+dell'utente è pendente. Questa alternativa non identifica la causa del guasto
+embedded e non richiede entrambe le soluzioni. Scheduler e Shadow Betting
+restano disabilitati. Nessun piano a pagamento è stato attivato.
+Il [report operativo corrente](docs/operations/production-status-2026-10-29.md)
+separa operazioni completate e verifiche ancora pendenti.
 
 La [preparazione Hostless](docs/operations/hostless-deployment.md) descrive il
 worker separato sulla piattaforma esistente, variabili, passaggio dalla nightly,

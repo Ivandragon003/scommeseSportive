@@ -1,10 +1,13 @@
 # FootPredictor su Hostless: procedura manuale
 
-Procedura preparata il 27 ottobre 2026. La vecchia nightly remota è stata
-temporaneamente sospesa; nessun nuovo deploy Hostless è stato eseguito.
-Per prove e blocchi correnti leggere il [report operativo](production-status-2026-10-27.md).
-Non abilitare il worker prima dei controlli qui descritti.
-Il [report locale](hostless-readiness-2026-10-27.md) contiene risultati e limiti.
+Procedura aggiornata il 29 ottobre 2026. Backend e frontend `122fd360` sono online,
+la nightly di manutenzione è collaudata e il Turso esistente è aggiornato.
+**Il sistema automatico resta bloccato su Hostless:** il worker creato non viene
+distribuito e il cron watchdog non viene salvato. Scheduler e registrazioni
+restano disabilitati. Non considerare il deploy web una prova di T−15.
+Per fatti, prove e ripresa leggere il [report operativo](production-status-2026-10-29.md)
+e la [scheda del blocco Hostless](hostless-blocker-2026-10-29.md).
+Il [report locale](hostless-readiness-2026-10-27.md) conserva misure e limiti storici.
 
 ## Scelta del processo
 
@@ -23,8 +26,9 @@ ResearchRuntime nemmeno se conserva un vecchio flag true. Non si riattiva B
 automaticamente se il piano non permette A: si rivalutano prima le risorse.
 
 Non è stato aggiunto un `hostless.yaml` attivo: il file applica automaticamente
-anche scaling e worker al deploy, mentre root di build, piano e risorse delle
-app esistenti non sono ancora noti. Usare le impostazioni manuali sottostanti
+anche scaling e worker al deploy. Root e contesto backend sono ora verificati
+come `/backend`, ma capacità residua e costo del worker non sono visibili con
+i permessi correnti. Usare le impostazioni manuali sottostanti
 senza sovrascrivere quelle del frontend. Un eventuale file IaC va derivato solo
 dalla configurazione dell'account verificata.
 [Riferimento ufficiale YAML](https://docs.hostless.cloud/app/hostlessfile).
@@ -52,6 +56,63 @@ dalla configurazione dell'account verificata.
 - Eseguire il [backup con ripristino isolato](turso-backup.md) dopo verifica
   delle quote account. Non interpretare il solo preflight come backup.
 
+## Stato verificato del rilascio
+
+Il progetto è `Ivandragon003's Project`, ID `6a838a83424e48848fce82b0`.
+L'account ha ruolo `Editor` e può ora aprire le impostazioni. Backend e Site
+puntano a `Ivandragon003/scommeseSportive`, branch `main`. Il backend usa Docker,
+directory e contesto `/backend`, `Dockerfile`; start e post-build personalizzati
+sono vuoti. Le risorse correnti sono 0,1 vCPU, 256 MiB e una replica, massimo uno.
+Il Site usa `/frontend`, installazione `npm ci`, build `npm run build` e output
+`./build`. L'auto-deploy di entrambi è stato disattivato e salvato per evitare
+pubblicazioni premature; le altre modifiche salvate si applicano al deploy.
+
+Il pannello non consente la lettura della fatturazione del progetto. L'utente
+ha chiesto esplicitamente di procedere senza attendere la verifica delle quote
+account: questo è registrato come verifica omessa, non come gratuità confermata.
+Non autorizza nuovi piani, carte, overage o servizi a pagamento.
+
+Il token Turso esistente è valido per SQL in lettura/scrittura sul database
+atteso: non occorre accesso amministrativo alla piattaforma per le migrazioni
+additive. Backup remoto e ripristino isolato sono completati; `015–019` hanno
+preservato i dati preesistenti dopo due applicazioni sulla copia. Le migrazioni
+`015–019` sono poi state applicate in produzione e il registro contiene 20
+versioni. Il backend `122fd360`, deploy `6ae3213f30465a147074f461`, risponde con
+health `200`, vecchia route `410` e API research anonima `401`. Il registry
+contiene A e il candidato C senza promozioni; i 26 mercati restano sperimentali.
+Il frontend `122fd360`, deploy `6ae322cd7b2d5d826aa0c130`, è anch'esso online:
+login reale, sessione dopo reload, calendario e dashboard A/C verificati.
+
+La richiesta worker a 512 MiB ha mostrato il requisito di aggiungere una carta
+ed è stata annullata. È stato creato soltanto il worker embedded Small
+`footpredictor-t15`, ID `6ae3240430465a1470752801`, 0,1 vCPU/256 MiB, una replica.
+Non è operativo: UI `DEPLOYING`/`Not deployed`, stato deployment `missing`,
+`ready=false`; il record esiste ma la gestione ambiente restituisce `404`
+`App worker not found`. Redeploy e restart non hanno prodotto un processo
+osservabile. Non è stata determinata la causa radice e non sono state create
+risorse alternative o copie del worker.
+
+Il comando iniziale conserva inferenza di collaudo, fixture E2E isolate e
+`RESEARCH_T15_SCHEDULER_ENABLED=false`: un'eventuale partenza successiva non
+abilita registrazioni. L'inferenza C dal registry è stata verificata separatamente
+nel terminale del backend; l'E2E nel worker Hostless non è stato eseguito.
+Anche il cron watchdog è bloccato: il salvataggio restituisce `400` con comando
+minimo e pianificazione UTC ogni cinque minuti. La lista cron resta vuota.
+
+`Prepare prediction calibration` è stato riattivato (`active`) dopo la verifica
+delle migrazioni. Il watchdog GitHub resta manuale; manca il token dedicato di
+sola lettura. Nessuna pianificazione o nuova notifica esterna è dichiarata.
+Per riprendere si può riparare l'embedded tramite proprietario/assistenza
+Hostless oppure usare l'alternativa ufficiale standalone nello stesso progetto.
+Non occorrono entrambe. Il wizard standalone è stato esplorato senza creare
+risorse: Source mostra `No repositories accessible`; Repository spiega che
+autorizzare Hostless non installa la GitHub App. Serve il proprietario/admin
+GitHub `Ivandragon003` per installare Hostless sul solo repository
+`scommeseSportive` tramite `Manage GitHub access`, poi aggiornare l'accesso.
+È stato chiesto all'utente, con risposta pendente; nessun nuovo grant eseguito.
+Questo riscontro non dimostra la causa del guasto embedded. Preservare web e
+database e impedire due worker operativi durante l'eventuale sostituzione.
+
 ## Impostazioni Hostless
 
 Backend: build Docker con **contesto `backend/` e Dockerfile `Dockerfile` dentro
@@ -71,10 +132,12 @@ assenza di job, richieste e puntate nuove. Il processo disabilitato non è prova
 di heartbeat operativo. Non configurare un cron: 15 secondi richiedono processo
 persistente. Non usare endpoint HTTP o browser come trigger.
 
-Punto di partenza da verificare nell'account: web 0,25 vCPU/256 MiB, worker
-0,25 vCPU/512 MiB. I test sullo storico locale sono passati anche con 256 MiB
-per il processo misurato, ma 512 lascia margine al ciclo completo. Il totale
-proposto è 0,5 vCPU/768 MiB, prima di eventuali altre risorse dell'account.
+Le risorse proposte inizialmente erano web 0,25 vCPU/256 MiB e worker
+0,25 vCPU/512 MiB. La richiesta worker a 512 MiB ha però richiesto una carta:
+non è stata attivata. Il backend conserva 0,1 vCPU/256 MiB e il worker creato
+usa 0,1 vCPU/256 MiB, una replica. Prima della creazione, il ciclo E2E locale
+isolato è passato con questi limiti (picco 168,76 MiB); questa prova non
+sostituisce l'accettazione e l'uptime Hostless, attualmente bloccati.
 L'healthcheck HTTP dell'immagine riguarda solo il web: nel worker Compose è
 disabilitato; su Hostless non configurare una sonda HTTP su un processo senza
 porta. Il watchdog diretto Turso controlla avanzamento, heartbeat e liquidazioni.

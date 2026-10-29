@@ -1,18 +1,29 @@
 # System design di FootPredictor
 
-> Architettura aggiornata sul repository il 27 ottobre 2026.
+> Architettura e stato del rilascio aggiornati il 29 ottobre 2026.
 > Questo documento spiega responsabilità, dati e interazioni tra i componenti, senza descrivere l'implementazione del codice o le formule matematiche.
 > La verifica riguarda sorgenti e configurazioni presenti nel workspace: non certifica lo stato del deploy, dei provider o del database remoto.
 
-**Stato remoto verificato il 27 ottobre 2026:** frontend e health del backend
-Hostless rispondono HTTPS 200; le API riservate senza sessione rispondono 401.
-Turso e Actions restano condivisi. La vecchia nightly è stata sospesa e
-verificata `disabled_manually`, senza esecuzioni attive o in coda; import e
-liquidazioni notturni sono temporaneamente sospesi insieme al workflow.
-Il nuovo backend e il worker non sono stati distribuiti. La correzione
-permanente della registrazione legacy è solo in Git locale, in attesa di
-accesso Hostless e backup verificato. Dettagli nel
-[report operativo](operations/production-status-2026-10-27.md).
+**Stato remoto del 29 ottobre 2026:** frontend e backend `122fd360` sono online
+sull'Hostless esistente, con login/sessione, calendario e dashboard A/C verificati.
+La nightly di manutenzione è riuscita senza nuove giocate; la route legacy
+risponde `410`. Il Turso esistente contiene le migrazioni `015–019`, A/C nel
+registry e due portafogli indipendenti da 1.000 EUR senza puntate. Backup,
+ripristino e conservazione della contabilità legacy sono verificati.
+L'inferenza C dal registry è riuscita su Hostless con input sintetico, senza
+promozioni; i 26 mercati restano `EXPERIMENTAL`. Il processo automatico è
+**bloccato**: il worker embedded esiste ma non è distribuito, la gestione del suo
+ambiente restituisce `404` e la creazione del cron watchdog fallisce con `400`.
+L'alternativa ufficiale standalone non è stata creata: il wizard non vede
+repository accessibili e richiede l'installazione della GitHub App Hostless
+da parte del proprietario/admin `Ivandragon003`, limitata a `scommeseSportive`.
+La risposta dell'utente è pendente; nessun nuovo accesso è stato concesso.
+Riparare l'embedded oppure sbloccare lo standalone sono alternative: questa
+richiesta GitHub non dimostra la causa del guasto embedded.
+Non ci sono heartbeat o decisioni T−15 remote. Il web funziona senza il PC;
+il ciclo automatico completo non è operativo. Dettagli nel
+[report operativo](operations/production-status-2026-10-29.md) e nella
+[scheda del blocco Hostless](operations/hostless-blocker-2026-10-29.md).
 La [procedura Hostless](operations/hostless-deployment.md) sostituisce la
 precedente ipotesi di una VM: non occorre migrare per eseguire questo monolite.
 
@@ -400,9 +411,10 @@ Il flusso generale è:
 
 La modalità predefinita disabilita bootstrap e scheduler notturni nel backend web, evitando che due processi ripetano lo stesso lavoro. È disponibile una modalità alternativa con scheduler nel backend: richiede configurazione esplicita e disattivazione dell'orchestrazione concorrente su GitHub.
 
-Il processo decisionale T−15 è indipendente dalla nightly. Gira in un worker
-separato sempre acceso, dalla stessa immagine del backend; il processo web non
-lo avvia. Turso coordina proprietario, lease, heartbeat e job; transazioni e
+Il processo decisionale T−15 è indipendente dalla nightly. È progettato per un
+worker separato sempre acceso, dalla stessa immagine del backend; il processo
+web non lo avvia. Il 29 ottobre il worker Hostless risulta creato ma non
+operativo per il blocco descritto nel report corrente. Turso coordina proprietario, lease, heartbeat e job; transazioni e
 vincoli univoci impediscono registrazioni doppie. Browser e Android sono
 soltanto client. GitHub
 Scheduled Workflows può ritardare o perdere esecuzioni ed è adatto alla

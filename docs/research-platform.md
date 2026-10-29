@@ -1,6 +1,6 @@
 # FootPredictor: piattaforma sperimentale A/C
 
-Stato del codice: 27 ottobre 2026. Questo documento descrive il repository;
+Stato del codice e del rilascio: 29 ottobre 2026. Questo documento descrive il repository;
 non certifica un deploy remoto, la copertura dei provider o la redditività.
 Tutti gli importi sono virtuali. Non esiste un collegamento per piazzare
 scommesse presso gli operatori.
@@ -12,15 +12,33 @@ C non viene promosso, i mercati restano sperimentali e non esiste evidenza
 economica A/C perché nel run non sono state caricate quote. Avvio Docker,
 health e overview sono stati verificati localmente in ambiente isolato.
 Anche il caricamento del candidato reale nel container e il backup/ripristino
-SQLite locale sono verificati; il backup remoto resta da collaudare.
+SQLite locale sono verificati. Il 29 ottobre è stato completato anche il backup
+Turso remoto, con ripristino isolato integro e prova delle migrazioni `015–019`.
 L’anteprima su `http://localhost:3000/research` usa un database isolato,
 due portafogli da 1.000 EUR e nessun job automatico attivo.
-Frontend e health del backend esistenti rispondono su Hostless. Nessuna nuova
-versione o worker remoto è distribuito o attivato. Il 27 ottobre la vecchia
-nightly è stata sospesa e verificata `disabled_manually`, senza run attivi o
-in coda. La patch permanente rimane in Git locale; anche la manutenzione
-notturna è temporaneamente sospesa. Accesso Hostless, backup e collaudo remoto
-restano necessari: [stato operativo corrente](operations/production-status-2026-10-27.md).
+Il 29 ottobre backend e frontend `122fd360` sono distribuiti su Hostless.
+Login, sessione persistente, calendario e dashboard A/C funzionano; health `200`,
+route legacy `410` e API research anonima `401` sono verificati. La nightly di
+manutenzione è riuscita senza nuove giocate. Le migrazioni `015–019` sono
+applicate al Turso esistente e A/C sono nel registry, senza Champion C.
+L'inferenza C reale dal registry è stata provata su Hostless con 1.000 inferenze
+su input sintetico: probabilità valide, senza scritture o chiamate provider. Non è un
+ciclo pre-match reale né una validazione della qualità predittiva.
+I due portafogli shadow sono inizializzati a 1.000 EUR ciascuno, senza puntate;
+i 26 mercati `EXPERIMENTAL` restano esclusi dalle registrazioni anche shadow.
+Il worker embedded è creato a 0,1 vCPU/256 MiB ma non è operativo: Hostless
+riporta deployment `missing` e `404` nella gestione ambiente. La creazione del
+cron watchdog fallisce con `400`. Scheduler, heartbeat, notifiche esterne e
+ciclo shadow prospettico non sono attivi. Servono il ripristino del worker da
+parte di Hostless oppure l'alternativa ufficiale standalone, più il superamento
+dei gate di mercato, senza promozioni fittizie. Lo standalone è stato esplorato
+ma non creato: nessun repository è accessibile al wizard. Il proprietario/admin
+GitHub `Ivandragon003` deve installare la GitHub App Hostless per il solo
+`scommeseSportive`; la risposta dell'utente è pendente e nessun nuovo accesso
+è stato concesso. Non servono entrambe le soluzioni e il blocco standalone
+non dimostra la causa del guasto embedded.
+Dettagli nello [stato operativo](operations/production-status-2026-10-29.md) e
+nella [scheda del blocco Hostless](operations/hostless-blocker-2026-10-29.md).
 
 Il [follow-up tecnico A–I](performance/research-followup-2026-10-27.md)
 documenta i difetti successivamente individuati, gli esperimenti di sviluppo e
@@ -376,7 +394,8 @@ delle quote o il successo della nightly. Il monitoraggio da un processo spento
 richiede un osservatore esterno: non dichiararlo attivo senza configurazione.
 
 `ResearchMonitoring` conserva nell'app un riepilogo del giorno precedente in
-Europe/Rome, distinto per portafoglio, e un incidente tecnico per ogni errore
+Europe/Rome, dalla prima riconciliazione stabile dalle 09:00 e distinto per
+portafoglio, e un incidente tecnico per ogni errore
 persistente. Riavvii e polling non duplicano lo stesso incidente; una risoluzione
 seguita da un nuovo errore apre una nuova generazione. Non genera notifiche per
 ogni puntata. Il canale disponibile è `in_app`; l'invio esterno non è configurato.
@@ -474,7 +493,7 @@ un'alternativa storica, non la destinazione richiesta né una migrazione necessa
 Non viene creato automaticamente alcun account, VM o servizio a pagamento.
 
 I riferimenti ad altri host sotto restano confronti storici; per limiti correnti
-e verifiche dell'account usare il [report Hostless](operations/hostless-readiness-2026-10-27.md).
+e verifiche dell'account usare il [report operativo corrente](operations/production-status-2026-10-29.md).
 
 Riferimenti del precedente audit del 27 ottobre 2026:
 
