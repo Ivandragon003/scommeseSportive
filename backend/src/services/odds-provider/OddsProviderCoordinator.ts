@@ -5,6 +5,7 @@ import {
   OddsProviderHealth,
   OddsProviderHealthStatus,
   OddsProviderRequest,
+  oddsPolicySkipReason,
 } from './OddsProvider';
 import { collectMarketSources, findBestMatchIndex, mergeOddsMatchMarkets } from './oddsProviderUtils';
 
@@ -232,7 +233,9 @@ export class OddsProviderCoordinator {
           error
         );
         warnings.push(`${this.primaryProvider.getProviderName()}: ${error instanceof Error ? error.message : String(error)}`);
-        fallbackReason = `Provider primario ${this.primaryProvider.getProviderName()} non disponibile`;
+        fallbackReason = oddsPolicySkipReason(error)
+          ? 'Quote non presenti nella cache; accesso di rete disabilitato'
+          : `Provider primario ${this.primaryProvider.getProviderName()} non disponibile`;
       }
 
       const needFallback = Boolean(this.fallbackProvider)
@@ -325,6 +328,13 @@ export class OddsProviderCoordinator {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const skipReason = oddsPolicySkipReason(error);
+      if (skipReason) {
+        console.info(`[OddsProviderCoordinator] provider ${providerName} skipped`, {
+          provider: providerName, fixtureScoped, durationMs: Date.now() - startedAt, skipReason,
+        });
+        throw error;
+      }
       const event = /timeout/i.test(message) ? 'timeout' : 'error';
       console.warn(`[OddsProviderCoordinator] provider ${providerName} ${event}`, {
         provider: providerName,
@@ -552,6 +562,8 @@ export class OddsProviderCoordinator {
 
   private buildHealthFromError(provider: string, error: unknown): OddsProviderHealth {
     const message = error instanceof Error ? error.message : String(error);
+    const skipReason = oddsPolicySkipReason(error);
+    if (skipReason) return this.buildHealth(provider, 'not_checked', message, { skipReason });
     const status: OddsProviderHealthStatus = /missing|disabled/i.test(message) ? 'disabled' : 'unhealthy';
     return this.buildHealth(provider, status, message);
   }

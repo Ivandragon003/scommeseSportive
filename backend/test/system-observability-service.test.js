@@ -53,6 +53,37 @@ test('SystemObservabilityService registra provider run e aggiorna snapshot', asy
   assert.equal(db.savedRuns[0].runType, 'provider_fetch');
 });
 
+test('typed cache-policy skips are informational while mixed failures and explicit errors remain errors', async (t) => {
+  const info = [], errors = [];
+  t.mock.method(console, 'info', (line) => info.push(JSON.parse(line)));
+  t.mock.method(console, 'error', (line) => errors.push(JSON.parse(line)));
+  const db = createDbStub();
+  const svc = new SystemObservabilityService(db);
+  const skipped = { provider: 'odds_api', status: 'not_checked', message: 'odds_cache_only',
+    details: { skipReason: 'odds_cache_only' } };
+  const entry = { runId: 'cache-skip', provider: 'odds_api', sourceUsed: 'odds_api', matchCount: 0,
+    marketCount: 0, success: false, warnings: ['odds_api: odds_cache_only'], errorCategory: null,
+    providerHealth: { odds_api: skipped }, startedAt: '2026-10-29T12:00:00Z' };
+  await svc.recordProviderRun(entry);
+  assert.equal(info[0].level, 'info');
+  assert.equal(info[0].outcome, 'skipped');
+  assert.equal(errors.length, 0);
+  assert.equal(db.savedRuns[0].success, false);
+  assert.equal(db.savedRuns[0].metadata.skipReason, 'odds_cache_only');
+  const health = await svc.getProviderHealthPayload();
+  assert.equal(health.status, 'unknown');
+  assert.equal(health.activeProvider, null);
+  assert.equal(health.matchCount, 0);
+  await svc.recordProviderRun({ ...entry, runId: 'explicit-timeout', errorCategory: 'timeout' });
+  await svc.recordProviderRun({ ...entry, runId: 'mixed-failure', providerHealth: {
+    odds_api: skipped, another: { status: 'unhealthy', message: 'provider unavailable' },
+  } });
+  assert.equal(errors.length, 2);
+  assert.ok(errors.every((log) => log.level === 'error' && log.outcome === undefined));
+  assert.equal(db.savedRuns[1].errorCategory, 'timeout');
+  assert.equal(db.savedRuns[2].metadata.outcome, undefined);
+});
+
 test('SystemObservabilityService aggrega metriche provider e sync', async () => {
   const db = createDbStub([
     {
@@ -113,6 +144,76 @@ test('SystemObservabilityService aggrega metriche provider e sync', async () => 
   assert.equal(metrics.provider.avgScrapeLatencyMs, 15000);
   assert.equal(metrics.sync.successRatePct, 100);
   assert.equal(metrics.trends.topErrorCategories[0].category, 'provider_degraded');
+});
+
+const skippedProviderRun = (runId) => ({
+  runId, runType: 'provider_fetch', provider: 'odds_api', success: false, matchCount: 0,
+  fixtureCount: 10, marketCount: 0, durationMs: 50, fallbackUsed: false,
+  warningCount: 1, warnings: ['odds_api: odds_cache_only'], errorCategory: null,
+  metadata: { outcome: 'skipped', skipReason: 'odds_cache_only', providerHealth: {
+    odds_api: { status: 'not_checked', details: { skipReason: 'odds_cache_only' } },
+  } }, startedAt: '2026-10-29T12:00:00Z',
+});
+
+test('all skipped provider lookups report zero attempts without successes, failures or latency', async () => {
+  const runs = [skippedProviderRun('skip-1'), skippedProviderRun('skip-2')];
+  const svc = new SystemObservabilityService(createDbStub(runs));
+  const metrics = await svc.getMetricsPayload();
+  assert.equal(metrics.provider.requestsObserved, 2);
+  assert.equal(metrics.provider.attemptsObserved, 0);
+  assert.equal(metrics.provider.requestsSkipped, 2);
+  assert.equal(metrics.provider.oddsApiSuccessRatePct, 0);
+  assert.equal(metrics.provider.fallbackRatePct, 0);
+  assert.equal(metrics.provider.fixtureMatchRatePct, 0);
+  assert.equal(metrics.provider.avgScrapeLatencyMs, null);
+  assert.equal(metrics.provider.avgMarketsFound, null);
+  assert.equal(metrics.trends.errorRuns, 0);
+  assert.equal(metrics.trends.skippedRuns, 2);
+  assert.deepEqual(metrics.trends.topErrorCategories, []);
+  const recent = await svc.getRecentRunsPayload();
+  assert.equal(recent.count, 2);
+  assert.ok(recent.runs.every((run) => run.status === 'skipped' && run.success === false));
+});
+
+test('mixed provider summaries exclude only explicit skips from rates and preserve genuine errors', async () => {
+  const runs = [skippedProviderRun('skip-1'), skippedProviderRun('skip-2'), {
+    runId: 'success', runType: 'provider_fetch', provider: 'odds_api', success: true,
+    matchCount: 3, fixtureCount: 5, marketCount: 4, durationMs: 1000, fallbackUsed: true,
+    metadata: { providerHealth: { odds_api: { status: 'healthy' } } }, startedAt: '2026-10-29T11:00:00Z',
+  }, {
+    runId: 'failure', runType: 'provider_fetch', provider: 'odds_api', success: false,
+    matchCount: 0, fixtureCount: 1, marketCount: 0, durationMs: 3000, errorCategory: 'timeout',
+    metadata: { providerHealth: { odds_api: { status: 'unhealthy' } } }, startedAt: '2026-10-29T10:00:00Z',
+  }];
+  const svc = new SystemObservabilityService(createDbStub(runs));
+  const metrics = await svc.getMetricsPayload();
+  assert.equal(metrics.provider.requestsObserved, 4);
+  assert.equal(metrics.provider.attemptsObserved, 2);
+  assert.equal(metrics.provider.requestsSkipped, 2);
+  assert.equal(metrics.provider.oddsApiSuccessRatePct, 50);
+  assert.equal(metrics.provider.fallbackRatePct, 50);
+  assert.equal(metrics.provider.fixtureMatchRatePct, 50);
+  assert.equal(metrics.provider.avgScrapeLatencyMs, 2000);
+  assert.equal(metrics.provider.avgMarketsFound, 2);
+  assert.equal(metrics.trends.errorRuns, 1);
+  assert.equal(metrics.trends.skippedRuns, 2);
+  assert.deepEqual(metrics.trends.topErrorCategories, [{ category: 'timeout', count: 1 }]);
+  const recent = await svc.getRecentRunsPayload();
+  assert.deepEqual(recent.runs.map(({ runId, status }) => [runId, status]), [
+    ['skip-1', 'skipped'], ['skip-2', 'skipped'], ['success', 'ok'], ['failure', 'error'],
+  ]);
+});
+
+test('a failed lookup without explicit skipped metadata or with a real error remains an error', async () => {
+  const unmarked = skippedProviderRun('unmarked'); delete unmarked.metadata.outcome;
+  const conflicting = { ...skippedProviderRun('conflicting'), errorCategory: 'timeout' };
+  const svc = new SystemObservabilityService(createDbStub([unmarked, conflicting]));
+  const metrics = await svc.getMetricsPayload();
+  assert.equal(metrics.provider.attemptsObserved, 2);
+  assert.equal(metrics.provider.requestsSkipped, 0);
+  assert.equal(metrics.trends.errorRuns, 2);
+  assert.equal(metrics.trends.skippedRuns, 0);
+  assert.ok((await svc.getRecentRunsPayload()).runs.every((run) => run.status === 'error'));
 });
 
 test('SystemObservabilityService coalesces and caches repeated metrics reads', async () => {

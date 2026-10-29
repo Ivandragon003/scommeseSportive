@@ -10,6 +10,21 @@ export type OddsProviderHealth = {
   details?: Record<string, unknown>;
 };
 
+/** Only a structured cache-policy denial is an expected request skip. */
+export const oddsPolicySkipReason = (error: unknown): 'odds_cache_only' | null =>
+  error !== null && typeof error === 'object' && (error as { code?: unknown }).code === 'odds_cache_only'
+    ? 'odds_cache_only' : null;
+
+export const providerPolicySkipReason = (health?: Record<string, OddsProviderHealth> | null): 'odds_cache_only' | null => {
+  const providers = Object.values(health ?? {});
+  if (providers.some((provider) => !provider || typeof provider !== 'object')) return null;
+  const attempted = providers.filter((provider) =>
+    provider.status !== 'not_checked' || provider.message || provider.details?.skipReason);
+  return attempted.length > 0 && attempted.every((provider) =>
+    provider.status === 'not_checked' && provider.details?.skipReason === 'odds_cache_only')
+    ? 'odds_cache_only' : null;
+};
+
 export type OddsProviderFixture = {
   homeTeam: string;
   awayTeam: string;

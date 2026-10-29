@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const axios = require('axios');
+const { createClient } = require('@libsql/client');
+const { readFileSync, rmSync } = require('node:fs');
+const { join } = require('node:path');
+const { tmpdir } = require('node:os');
+const { randomUUID } = require('node:crypto');
+const { SmartOddsRequestStore, SmartOddsRequestError } = require('../dist/services/odds-provider/SmartOddsRequestStore.js');
+const { SystemObservabilityService } = require('../dist/services/SystemObservabilityService.js');
 const {
   createApiRouter,
   getBulkOddsRouteTimeoutMs,
@@ -57,7 +65,7 @@ const buildOddsApiMatch = () => ({
   ],
 });
 
-const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots, dbOverrides = {}, kickoffSyncService = null }) => {
+const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots, dbOverrides = {}, kickoffSyncService = null, observability = null }) => {
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter({
@@ -74,6 +82,7 @@ const startRouter = async ({ coordinator, bundleOverrides = {}, snapshots, dbOve
       ...dbOverrides,
     },
     svc: {},
+    ...(observability ? { observability } : {}),
     createOddsProviderCoordinatorBundle: () => ({
       coordinator,
       primaryProviderName: 'odds_api',
@@ -174,14 +183,33 @@ test('the production dashboard client is cache-only and shares the three-market 
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   process.env.ODDS_API_KEY = 'unit-test-only'; delete process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED;
   t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
-  const requests = [], app = express(); app.use(express.json());
-  app.use('/api', createApiRouter({ svc: {}, db: {
+  let httpCalls = 0;
+  const errors = [], warnings = [], infos = [], savedRuns = [], requests = [];
+  t.mock.method(axios, 'get', async () => { httpCalls++; throw new Error('unexpected provider HTTP request'); });
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  t.mock.method(console, 'info', (...args) => infos.push(args));
+  const path = join(tmpdir(), `odds-route-cache-policy-${randomUUID()}.db`);
+  const client = createClient({ url: `file:${path}` });
+  t.after(() => {
+    client.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { rmSync(path + suffix, { force: true }); }
+      catch (error) { if (!['EPERM', 'EBUSY'].includes(error.code)) throw error; }
+    }
+  });
+  await client.executeMultiple(readFileSync(join(__dirname, '../migrations/018_smart_odds.sql'), 'utf8'));
+  const manager = new SmartOddsRequestStore(client, async () => {});
+  const app = express(); app.use(express.json());
+  const db = {
     getLatestOddsSnapshotForMatch: async () => null, getLatestRealOddsSnapshotForMatch: async () => null,
     findMatchByTeams: async () => null, getMatchById: async () => null,
-    oddsRequests: { execute: async (request) => {
-      requests.push(request); throw Object.assign(new Error('odds_cache_only'), { code: 'odds_cache_only' });
+    saveSystemRun: async (entry) => savedRuns.push(entry),
+    oddsRequests: { execute: async (request, fetcher) => {
+      requests.push(request); return manager.execute(request, fetcher);
     } },
-  } }));
+  };
+  app.use('/api', createApiRouter({ svc: {}, db, observability: new SystemObservabilityService(db) }));
   const server = app.listen(0); await new Promise((resolve) => server.once('listening', resolve));
   try {
     const response = await postMatchOdds(`http://127.0.0.1:${server.address().port}/api`, {
@@ -189,6 +217,25 @@ test('the production dashboard client is cache-only and shares the three-market 
     });
     assert.equal(response.status, 200);
     assert.equal(response.json.data.found, false);
+    assert.equal(response.json.data.selectedOddsCount, 0);
+    assert.deepEqual(response.json.data.selectedOdds, {});
+    assert.equal(response.json.data.usedSyntheticOdds, false);
+    assert.match(response.json.data.warnings.join(' '), /odds_cache_only/);
+    assert.equal(response.json.data.providerHealth.odds_api.status, 'not_checked');
+    assert.equal(httpCalls, 0);
+    assert.equal(errors.length, 0);
+    assert.equal(warnings.length, 0);
+    assert.equal(savedRuns.length, 1);
+    assert.equal(savedRuns[0].success, false);
+    assert.equal(savedRuns[0].errorCategory, null);
+    assert.equal(savedRuns[0].metadata.outcome, 'skipped');
+    assert.equal(savedRuns[0].metadata.skipReason, 'odds_cache_only');
+    const loggedRun = infos.map(([line]) => String(line).startsWith('{') ? JSON.parse(line) : null)
+      .find((entry) => entry?.event === 'provider_run');
+    assert.equal(loggedRun.level, 'info');
+    assert.equal(loggedRun.outcome, 'skipped');
+    assert.ok(infos.some(([line]) => String(line).includes('provider odds_api skipped')));
+    assert.equal((await client.execute('SELECT COUNT(*) AS n FROM smart_odds_requests')).rows[0].n, 0);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].operation, 'dashboard');
     assert.equal(requests[0].priority, 'informational');
@@ -280,6 +327,67 @@ const createRouteProvider = (name, options = {}) => ({
   },
   async close() {},
 });
+
+test('bulk cache-policy skip preserves HTTP 503 while its provider_run is informational', async (t) => {
+  const errorLogs = [], snapshots = [], savedRuns = [];
+  t.mock.method(console, 'error', (...args) => errorLogs.push(args));
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'info', () => {});
+  const provider = createRouteProvider('odds_api', { calls: { count: 0 } });
+  provider.getCompetitionOdds = async () => { throw new SmartOddsRequestError('odds_cache_only'); };
+  const server = await startRouter({ snapshots, coordinator: new OddsProviderCoordinator(provider),
+    observability: new SystemObservabilityService({ saveSystemRun: async (entry) => savedRuns.push(entry) }),
+  });
+  try {
+    const response = await fetch(`${server.baseUrl}/scraper/odds`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ competition: 'Serie A' }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(payload.success, false);
+    assert.match(payload.warnings.join(' '), /odds_cache_only/);
+    assert.equal(errorLogs.length, 0);
+    assert.equal(snapshots.length, 0);
+    assert.equal(savedRuns[0].metadata.outcome, 'skipped');
+    assert.equal(savedRuns[0].errorCategory, null);
+  } finally { await server.close(); }
+});
+
+for (const scenario of [
+  { name: 'transport failure', error: new SmartOddsRequestError('odds_transport_failed', 502) },
+  { name: 'timeout', error: new Error('Provider odds_api timeout after 25ms') },
+  { name: 'untyped cache-policy message', error: new Error('odds_cache_only') },
+  { name: 'genuine missing fixture', error: null },
+]) {
+  test(`match odds retains technical ERROR logging for ${scenario.name}`, async (t) => {
+    const errorLogs = [], savedRuns = [];
+    t.mock.method(console, 'error', (line) => errorLogs.push(JSON.parse(line)));
+    t.mock.method(console, 'warn', () => {});
+    t.mock.method(console, 'info', () => {});
+    const provider = createRouteProvider('odds_api', { calls: { count: 0 } });
+    provider.getOddsForFixtures = async () => {
+      if (scenario.error) throw scenario.error;
+      return { matches: [], fetchedAt: fixedFetchedAt, fallbackReason: null, warnings: [] };
+    };
+    const server = await startRouter({ snapshots: [], coordinator: new OddsProviderCoordinator(provider),
+      observability: new SystemObservabilityService({ saveSystemRun: async (entry) => savedRuns.push(entry) }),
+    });
+    try {
+      const response = await postMatchOdds(server.baseUrl, {
+        competition: 'Serie A', homeTeam: 'Inter', awayTeam: 'Milan', commenceTime: '2026-11-01T19:45:00Z',
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.json.data.found, false);
+      assert.equal(response.json.data.selectedOddsCount, 0);
+      assert.equal(errorLogs.length, 1);
+      assert.equal(errorLogs[0].event, 'provider_run');
+      assert.equal(errorLogs[0].level, 'error');
+      assert.equal(savedRuns[0].success, false);
+      assert.equal(savedRuns[0].metadata.outcome, undefined);
+      assert.equal(savedRuns[0].errorCategory, scenario.name === 'timeout' ? 'timeout' : 'fixture_matching_failed');
+    } finally { await server.close(); }
+  });
+}
 
 test('provider runtime defaulta a Odds API', () => {
   withProviderEnv({}, () => {

@@ -6,6 +6,7 @@ import { PredictionService } from '../services/PredictionService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
+import { providerPolicySkipReason } from '../services/odds-provider/OddsProvider';
 import { forecastRemainingOddsDemand } from '../services/odds-provider/OddsDemandSimulation';
 import {
   createOddsProviderCoordinatorBundle,
@@ -3500,7 +3501,8 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
     const providerFailed = Object.values(coordination.providerHealth).some(
       (health) => health.status === 'unhealthy' || health.status === 'disabled'
     );
-    if (coordination.matches.length === 0 && (!apiKey || providerFailed)) {
+    const policySkipReason = providerPolicySkipReason(coordination.providerHealth);
+    if (coordination.matches.length === 0 && (!apiKey || providerFailed || policySkipReason)) {
       await observability?.recordProviderRun({
         requestId,
         runId,
@@ -3519,7 +3521,7 @@ router.post('/scraper/odds', async (req: Request, res: Response) => {
         fallbackReason: coordination.fallbackReason ?? 'Provider quote non disponibile e fallback non configurato',
         warningCount: coordination.warnings.length,
         warnings: coordination.warnings,
-        errorCategory: errorCategory ?? 'provider_unavailable',
+        errorCategory: policySkipReason ? null : errorCategory ?? 'provider_unavailable',
         providerHealth: coordination.providerHealth,
         metadata: {
           remainingRequests: coordination.providerRuntime.odds_api?.remainingRequests ?? null,
@@ -4028,6 +4030,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
         : 0;
 
       if (!coordinatedMatch) {
+        const policySkipReason = providerPolicySkipReason(providerHealth);
         const diagnosticWarnings = Array.from(new Set([
           ...coordination.warnings,
           ...retryWarnings,
@@ -4051,7 +4054,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
           fallbackReason: coordination.fallbackReason ?? 'Nessun match trovato per la fixture richiesta',
           warningCount: diagnosticWarnings.length,
           warnings: diagnosticWarnings,
-          errorCategory: errorCategory ?? 'fixture_matching_failed',
+          errorCategory: policySkipReason ? null : errorCategory ?? 'fixture_matching_failed',
           providerHealth,
           metadata: {
             ...requestedFixture,

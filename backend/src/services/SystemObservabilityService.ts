@@ -1,5 +1,6 @@
 import { DatabaseService } from '../db/DatabaseService';
 import { getConfiguredFallbackProviderName, getConfiguredPrimaryProviderName } from './odds-provider/providerRuntimeConfig';
+import { providerPolicySkipReason } from './odds-provider/OddsProvider';
 
 type StructuredLogLevel = 'info' | 'warn' | 'error';
 
@@ -93,6 +94,9 @@ const percent = (value: number, total: number): number => {
   return Number(((value / total) * 100).toFixed(1));
 };
 
+const isSkippedProviderRun = (run: { runType?: string; success?: boolean; errorCategory?: string | null; metadata?: Record<string, any> | null }): boolean =>
+  run.runType === 'provider_fetch' && run.success === false && !run.errorCategory && run.metadata?.outcome === 'skipped';
+
 const minutesSince = (value?: string | null): number | null => {
   if (!value) return null;
   const parsed = Date.parse(value);
@@ -163,10 +167,14 @@ export class SystemObservabilityService {
       ?? detectErrorCategoryFromText(this.extractProviderHealthMessage(entry.providerHealth))
       ?? null;
 
+    const skipReason = !entry.success && safeNumber(entry.matchCount, 0) === 0 && errorCategory === null
+      ? providerPolicySkipReason(entry.providerHealth) : null;
+
     const metadata = {
       ...(entry.metadata ?? {}),
       fallbackReason: entry.fallbackReason ?? null,
       providerHealth: entry.providerHealth ?? {},
+      ...(skipReason ? { outcome: 'skipped', skipReason } : {}),
     };
 
     this.lastProviderSnapshot = {
@@ -197,7 +205,7 @@ export class SystemObservabilityService {
     this.providerSnapshotRevision += 1;
     this.providerSnapshotExpiresAt = Date.now() + PROVIDER_SNAPSHOT_CACHE_TTL_MS;
 
-    this.log(entry.success ? 'info' : 'error', 'provider_run', {
+    this.log(entry.success || skipReason ? 'info' : 'error', 'provider_run', {
       requestId: entry.requestId ?? null,
       runId: entry.runId,
       provider: entry.provider,
@@ -209,6 +217,7 @@ export class SystemObservabilityService {
       fallbackUsed: Boolean(entry.fallbackUsed),
       sourceUsed: entry.sourceUsed ?? null,
       warningCount,
+      ...(skipReason ? { outcome: 'skipped', skipReason } : {}),
     });
 
     await this.db.saveSystemRun({
@@ -302,7 +311,7 @@ export class SystemObservabilityService {
         ? 'healthy'
         : primaryStatus === 'degraded'
           ? 'degraded'
-          : primaryStatus === 'unknown'
+          : primaryStatus === 'unknown' || primaryStatus === 'not_checked'
             ? 'unknown'
             : 'unhealthy';
     const fetchedAt = snapshot?.fetchedAt ?? null;
@@ -345,8 +354,10 @@ export class SystemObservabilityService {
   private async loadMetricsPayload(): Promise<Record<string, unknown>> {
     const recentRuns = await this.db.listRecentSystemRuns(MAX_RECENT_RUNS);
     const providerRuns = recentRuns.filter((run) => run.runType === 'provider_fetch');
+    const providerAttempts = providerRuns.filter((run) => !isSkippedProviderRun(run));
+    const skippedRuns = recentRuns.filter(isSkippedProviderRun);
     const syncRuns = recentRuns.filter((run) => run.runType === 'sync');
-    const oddsApiObservedRuns = providerRuns.filter((run) => {
+    const oddsApiObservedRuns = providerAttempts.filter((run) => {
       const providerHealth = run?.metadata?.providerHealth ?? {};
       return run.provider === 'odds_api' || providerHealth.odds_api !== undefined;
     });
@@ -355,24 +366,25 @@ export class SystemObservabilityService {
       if (status) return status === 'healthy' || status === 'degraded';
       return run.success === true && run.fallbackUsed === false;
     });
-    const fixtureRuns = providerRuns.filter((run) => safeNumber(run.fixtureCount, 0) > 0);
+    const fixtureRuns = providerAttempts.filter((run) => safeNumber(run.fixtureCount, 0) > 0);
     const matchedFixtures = fixtureRuns.reduce(
       (sum, run) => sum + Math.min(safeNumber(run.matchCount, 0), safeNumber(run.fixtureCount, 0)),
       0
     );
     const requestedFixtures = fixtureRuns.reduce((sum, run) => sum + safeNumber(run.fixtureCount, 0), 0);
     const avgScrapeLatency = average(
-      providerRuns
+      providerAttempts
         .map((run) => (run.durationMs === null ? null : Number(run.durationMs)))
         .filter((value): value is number => value !== null && Number.isFinite(value))
     );
     const avgMarketsFound = average(
-      providerRuns
+      providerAttempts
         .map((run) => (run.marketCount === null ? null : Number(run.marketCount)))
         .filter((value): value is number => value !== null && Number.isFinite(value))
     );
     const latestSyncRun = syncRuns[0] ?? null;
     const errorCategories = recentRuns.reduce((acc, run) => {
+      if (isSkippedProviderRun(run)) return acc;
       const key = String(run.errorCategory ?? '').trim();
       if (!key) return acc;
       acc[key] = (acc[key] ?? 0) + 1;
@@ -383,17 +395,20 @@ export class SystemObservabilityService {
       .slice(0, 5)
       .map(([category, count]) => ({ category, count }));
     const warningRuns = recentRuns.filter((run) => safeNumber(run.warningCount, 0) > 0).length;
-    const errorRuns = recentRuns.filter((run) => run.success === false).length;
+    const errorRuns = recentRuns.filter((run) => run.success === false && !isSkippedProviderRun(run)).length;
 
     return {
       generatedAt: nowIso(),
       provider: {
         oddsApiSuccessRatePct: percent(oddsApiSuccessfulRuns.length, oddsApiObservedRuns.length),
-        fallbackRatePct: percent(providerRuns.filter((run) => Boolean(run.fallbackUsed)).length, providerRuns.length),
+        fallbackRatePct: percent(providerAttempts.filter((run) => Boolean(run.fallbackUsed)).length, providerAttempts.length),
         fixtureMatchRatePct: percent(matchedFixtures, requestedFixtures),
         avgScrapeLatencyMs: avgScrapeLatency === null ? null : Math.round(avgScrapeLatency),
         avgMarketsFound: avgMarketsFound === null ? null : Number(avgMarketsFound.toFixed(1)),
+        // Preserve the total lookup count; declined requests are not provider attempts.
         requestsObserved: providerRuns.length,
+        attemptsObserved: providerAttempts.length,
+        requestsSkipped: skippedRuns.length,
       },
       sync: {
         successRatePct: percent(syncRuns.filter((run) => run.success).length, syncRuns.length),
@@ -411,6 +426,7 @@ export class SystemObservabilityService {
       trends: {
         warningRuns,
         errorRuns,
+        skippedRuns: skippedRuns.length,
         topErrorCategories,
       },
     };
@@ -421,7 +437,7 @@ export class SystemObservabilityService {
     const normalizedSystemRuns = systemRuns.map((run) => ({
       ...run,
       kind: run.runType,
-      status: run.success ? 'ok' : 'error',
+      status: isSkippedProviderRun(run) ? 'skipped' : run.success ? 'ok' : 'error',
     }));
     const normalizedSchedulerRuns = schedulerRuns.map((run) => ({
       runId: run.runId,
@@ -556,6 +572,7 @@ export class SystemObservabilityService {
     primaryProvider: string,
     fallbackProvider: string | null
   ): string | null {
+    if (providerPolicySkipReason(snapshot?.providerHealth)) return null;
     const sourceUsed = String(snapshot?.sourceUsed ?? '').trim();
     if (!sourceUsed) {
       if (snapshot?.fallbackUsed && fallbackProvider) return fallbackProvider;
