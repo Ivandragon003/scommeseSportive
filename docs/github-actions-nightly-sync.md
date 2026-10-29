@@ -2,9 +2,15 @@
 
 Direzione aggiornata il 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
 La [guida canonica](operations/nightly-pre-match-2026-10-29.md) conserva il
-piano di attivazione e i risultati effettivi. Il codice descritto è locale:
-`RESEARCH_NIGHTLY_ENABLED=false`, nuove registrazioni remote non attivate e
-cutover Turso personale non eseguito. Non si ripristina il vecchio auto-betting.
+piano di attivazione e i risultati effettivi. Il backend `63d7cb96` è LIVE
+sul personale, con health, route legacy HTTP 410 e sessione verificati. Il cutover è
+effettivo; nightly attiva, flag `true` e workflow attivo. Primo run manuale
+`40944747548`, creato alle 19:57:46 UTC, è SUCCESS; job finito alle
+20:04:35 UTC. Il riepilogo registra zero nuove puntate; un
+ciclo reale con liquidazione non è ancora attestato. Il training
+settimanale e Odds Smoke manuale sono riattivati, Registry writes `false`.
+L'adozione del dump 15:17 UTC resta la baseline autorizzata, con delta
+successivi della sorgente bloccata non verificabili e accettati.
 
 ## Orchestrazione e orario
 
@@ -78,8 +84,8 @@ ammesse BET iniziali.
 | `RUN_ODDS_SYNC` | `false`, raccolta informativa generale disattivata |
 | `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`, dashboard prevalentemente su cache |
 
-Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. Nessuna
-variabile remota è stata impostata per attivarlo. Il flag nel backend Hostless
+Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. La
+variabile remota è ora `true`. Il flag nel backend Hostless
 può dichiarare la configurazione per la dashboard, ma il web non avvia il job.
 
 Secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e `ODDS_API_KEY` per le decisioni
@@ -106,9 +112,9 @@ negli input prepartita. Non si riducono gate o finestre scientifiche per
 nascondere un costo di calcolo.
 
 Il workflow `Prepare prediction calibration` può partire su push pertinente
-in `main` e scrive nel DB dei secret correnti. La pubblicazione di questo
-mandato si prepara perciò su branch `codex/` e PR, senza push prematuro su
-`main`. `research-training.yml` resta distinto: registry, validazione
+in `main` e scrive nel DB dei secret correnti. La pubblicazione tramite PR e il cutover sono
+avvenuti; i workflow riattivati usano i secret personali RW/RO. Training
+settimanale attivo, Registry writes `false`; evitare futuri collegamenti divergenti. `research-training.yml` resta distinto: registry, validazione
 cronologica, Champion–Challenger e rollback sono preservati. C resta Challenger;
 ROI migliore o mercati `EXPERIMENTAL` tecnicamente idonei non ne autorizzano
 la promozione statistica.
@@ -120,44 +126,55 @@ lo storico per ridurre i consumi e non si riattivano fonti ritirate.
 
 ## Monitoraggio e riepilogo
 
-Il nuovo watchdog GitHub osserva esecuzioni e ritardi tramite GitHub API con
-`actions:read`; è indipendente dal runner monitorato. L'allarme per job
-mancante è opt-in con `RESEARCH_NIGHTLY_MONITOR_ENABLED`. I controlli DB sono
-un opt-in distinto con `RESEARCH_NIGHTLY_DB_MONITOR_ENABLED` e
-`TURSO_WATCHDOG_READONLY_TOKEN`, senza fallback al token in lettura/scrittura.
-Non viene più richiesto un heartbeat del worker T−15.
+Il monitor GitHub e il controllo DB periodico sono attivi, con token DB
+in sola lettura e nessun fallback RW. Il monitor `4dff28f4` è pubblicato:
+CI `40944506327` SUCCESS, dieci test mirati e revisione DST superati; smoke RO
+`40945351072` SUCCESS. Audit RO 20:07 UTC PASS e quattro fingerprint finanziari
+invariati. Anche `RESEARCH_NIGHTLY_MONITOR_ENABLED=true` è ora attivo: le
+attese della nightly delle 03:00 sono abilitate, separatamente dal flag BET.
+
+Contabilità, quota, errori e stalli recenti oltre quattro ore non dipendono
+dall'aspettativa programmata. Il watchdog con attese attive `40946558140`
+è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi. Il vecchio
+heartbeat T−15 non è un requisito.
 
 La dashboard distingue abilitazione dichiarata dal backend web, `enabled`
 realmente osservato nell'ultimo job, manutenzione completa, import ed esito
 A/C. Mostra partite analizzate, registrazioni, salti, API, quota e liquidazioni.
 Gli orari attesi rispettano DST e tolleranza; assenza di misure resta esplicita.
-Il riepilogo del giorno precedente è consultabile dalle 09:00 Europe/Rome.
-Nessuna notifica per ogni puntata; la memorizzazione in-app non prova invio a
-un canale esterno. Non è stato autorizzato un nuovo servizio a pagamento.
+Solo con la nuova nightly abilitata e il reconcile eseguito viene preparata
+la riga del riepilogo precedente, con `publishAfter` alle 09:00 Europe/Rome.
+Il GET filtra la visibilità senza scritture o invio esterno. Nessuna notifica
+per ogni puntata. Il job SUCCESS non prova da solo un nuovo riepilogo:
+la riga pubblicabile va verificata dopo il reconcile. Nessun nuovo servizio a pagamento
+è stato attivato.
 
 ## Pubblicazione, migrazione e rollback
 
-Il backup sorgente aggiornato è privato e verificato; l'account Turso personale
-Starter gratuito è stato controllato. La CLI ufficiale è autorizzata e
-operativa, con overage disabilitati
-verificati sul piano gratuito. La copia iniziale è importata e confrontata
-integralmente, con schema/conteggi/hash corrispondenti, integrità `ok` e FK0.
-La parità riguarda i due snapshot (`liveParityVerified=false`): migrazione
-delle connessioni e cutover non eseguiti. Restano sincronizzazione finale,
-conferma dell'utente e deployment Hostless riuscito. Seguire la
-[procedura Turso](operations/turso-personal-migration-2026-10-29.md) e la
-[guida Hostless](operations/hostless-deployment.md). Non aggiornare soltanto i
-secret della nightly mentre Hostless continua a scrivere sul vecchio DB.
+Il personale è ora il canonico unico di web e GitHub. 020/021 applicate,
+export finale 18:58 UTC e parità 19:00 UTC PASS: 57 tabelle e 133 oggetti di schema,
+storico 52 tabelle preservato. Secret GitHub RW/RO personali aggiornati alle
+19:03 UTC, ambiente Hostless distribuito e configurazione locale produzione
+allineata. Warmup `40937894463` e probe C `40936914212` sono riusciti.
 
-Prima del cutover: backup finale, writer sospesi in modo controllato, parità,
-configurazione coordinata di web/nightly/training/calibrazione e piano di
-rollback da presentare all'utente. Sono richieste conferme separate prima
-del cutover definitivo e dell'attivazione remota delle registrazioni A/C.
-Le modifiche locali o una PR non attestano deploy o attivazione.
+L'adozione del dump 15:17 UTC / 16:17 Roma è quella autorizzata dall'utente,
+con accettazione dei delta successivi non verificabili sulla sorgente bloccata.
+Questo limite non è diventato una parità live. L'originale non è eliminato:
+la CLI è personale, quindi serve il proprietario per la dismissione dopo
+verifica della nuova applicazione. Vedi
+[procedura Turso](operations/turso-personal-migration-2026-10-29.md) e
+[guida Hostless](operations/hostless-deployment.md).
+
+La nightly è attiva e il run manuale `40944747548` è SUCCESS, senza nuove
+puntate. L’audit RO 20:10:52 UTC conferma `missedMatches=2`: due partite già
+iniziate e correttamente escluse, senza job o decisioni di modello. Nessun evento eleggibile nella finestra restante, nessuna puntata
+retroattiva; ciclo prospettico reale fino alla liquidazione ancora pendente.
+Il flag del backend non avvia autonomamente il job; la richiesta usa GitHub.
 
 Rollback: impostare `RESEARCH_NIGHTLY_ENABLED=false`, preservare liquidazioni
 e storico e non ripristinare la chiamata automatica legacy o `AUTO_BET_*`.
-Non sovrascrivere il database corrente con un backup vecchio. I test sintetici
+Usare i backup verificati del nuovo canonico per il rollback; non riaprire
+collegamenti all’originale bloccato o dichiarare recuperati delta ignoti. I test sintetici
 vanno su DB isolati; il collaudo remoto deve includere un ciclo prospettico
 reale senza forzare una puntata. Il precedente
 [report T−15](operations/production-status-2026-10-29.md) resta storico e non è

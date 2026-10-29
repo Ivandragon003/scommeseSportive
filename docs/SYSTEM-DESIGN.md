@@ -2,17 +2,27 @@
 
 Aggiornato al mandato del 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
 La [guida canonica](operations/nightly-pre-match-2026-10-29.md) definisce
-configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono
-implementate localmente, con registrazioni disabilitate per default; non sono
-ancora attivate in remoto. Il cutover al Turso personale non è eseguito.
+configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono pubblicate. Il backend `63d7cb96`
+è LIVE sul Turso personale dopo Resume e deploy del nuovo ambiente; health,
+route legacy HTTP 410, login, sessione e dashboard A/C sono verificati. Il cutover è
+effettivo, sulla baseline del dump 15:17 UTC adottata con autorizzazione e
+accettazione dei delta sorgente successivi non verificabili.
 
-Hostless serve web e API, GitHub Actions svolge l'elaborazione notturna finita,
-Turso conserva dati e due portafogli. Non occorre il worker T−15 sempre acceso.
-I precedenti [report operativi](operations/production-status-2026-10-29.md)
-restano snapshot storici, superati per la direzione di automazione; benchmark
-e risultati scientifici non vengono riscritti. C resta Challenger e nessuna
-puntata usa denaro reale. Pubblicazione prevista su branch `codex/` e PR,
-prima del consenso separato per cutover e attivazione remota.
+La nightly è attiva (`RESEARCH_NIGHTLY_ENABLED=true`); primo run manuale
+`40944747548` SUCCESS, job concluso alle 20:04:35 UTC senza nuove puntate.
+L’audit RO 20:10:52 UTC conferma `missedMatches=2`: due partite già iniziate
+e correttamente escluse, senza job o decisioni di modello retroattive.
+Non è attestato un ciclo reale
+con decisione, risultato e liquidazione. I due portafogli mantengono
+1.000 euro ciascuno, senza puntate o capitale impegnato osservati.
+
+Hostless, GitHub Actions e Turso restano i componenti. Non occorre il worker
+T−15 sempre acceso. I precedenti
+[report operativi](operations/production-status-2026-10-29.md) restano snapshot
+storici, superati per la direzione di automazione; benchmark e risultati
+scientifici non vengono riscritti. C resta Challenger e nessuna puntata usa
+denaro reale. La guida canonica conserva l'esito del primo job e dei cicli
+successivi quando effettivamente disponibili.
 
 ## 1. Scopo e confini del sistema
 
@@ -395,8 +405,8 @@ vincoli univoci proteggono retry e workflow concorrenti senza doppio impegno.
 obbligatori dati e probabilità coerenti, prezzo reale identificato, timestamp,
 liquidazione, capitale e controlli tecnici. Validazione statistica e promozione
 restano separate; C non diventa Champion perché guadagna nel periodo.
-`RESEARCH_NIGHTLY_ENABLED=false` è il default; attivazione remota ancora
-pendente. Nessun percorso di questo confronto invia puntate ai bookmaker.
+`RESEARCH_NIGHTLY_ENABLED=false` resta il default sicuro del codice;
+l’ambiente remoto è ora abilitato e il primo run è SUCCESS senza nuove puntate. Nessun percorso di questo confronto invia puntate ai bookmaker.
 
 ## 10. Replay, archivio e backtest
 
@@ -437,18 +447,28 @@ l'ammissione delle nuove puntate. Il vecchio watchdog Hostless è in pausa.
 La richiesta di pausa standalone è stata accettata, ma lo stato effettivo
 non è ancora confermato. Nessun servizio è stato eliminato.
 
-Il nuovo monitor osserva ultima nightly, esito, conteggi, errori, crediti e
-liquidazioni. Il controllo GitHub indipendente non richiede un worker attivo;
-il controllo DB è un opt-in con credenziale dedicata di sola lettura.
-I riepiloghi giornalieri in-app sono visibili dalle 09:00 Europe/Rome, senza
-notifiche per ogni puntata. Una notifica salvata non prova consegna esterna.
+La dashboard espone ultima nightly, esito, conteggi, errori, crediti e
+liquidazioni osservati. Monitor GitHub, controllo DB periodico RO e attese
+delle 03:00 sono attivi; l'opt-in delle attese è separato dal flag delle puntate.
+Contabilità, quota, errori e stalli recenti oltre quattro ore vengono controllati
+anche indipendentemente dall'aspettativa programmata. Audit finanziario RO
+20:07 UTC PASS, senza variazioni ai quattro fingerprint finanziari.
+Il monitor `4dff28f4` è pubblicato; il watchdog con attese attive `40946558140`
+è SUCCESS: tutti i passi GitHub e DB RO completati in 26 secondi.
+La nightly è abilitata; quando esegue il reconcile, prepara il
+riepilogo del giorno precedente con `publishAfter` alle 09:00 Europe/Rome.
+Il GET ne filtra la visibilità senza scrivere o inviare all’esterno. Non ci
+sono notifiche per ogni puntata. L’esito SUCCESS del job non viene usato
+come prova di consegna esterna o di un nuovo riepilogo senza verifica della riga.
 
 Training settimanale, promozione condizionata e rollback restano separati dal
 job giornaliero. `Prepare prediction calibration` calcola i profili sul runner
 e li salva nel DB, senza chiamare provider quote o registrare puntate. Il suo
-trigger su `main` rende necessario pianificare prima il cutover: si prepara un
-branch `codex/` e PR, non un push prematuro. CI, build e unit test non provano
-pubblicazione o funzionamento remoto della nuova architettura.
+trigger su `main` scrive sul personale. I workflow sono stati riattivati
+in modo selettivo:
+nightly e training attivi, Registry writes disabilitate. La pubblicazione
+tramite PR e il cutover sono avvenuti; CI e build non attestano un ciclo
+automatico reale concluso.
 
 ## 12. Cache e prestazioni
 
@@ -501,12 +521,13 @@ In Compose, Nginx serve gli asset e inoltra le richieste `/api` al backend; il f
 Per browser e Android la destinazione API dipende dalla configurazione della build. Il client Android ha anche un indirizzo Hostless predefinito. Questi riferimenti descrivono il collegamento previsto, non una verifica di disponibilità dell'hosting.
 
 La [migrazione Turso personale](operations/turso-personal-migration-2026-10-29.md)
-ha completato import e confronto integrale della copia iniziale via CLI:
-schema, conteggi e hash coincidono, integrità `ok` e zero violazioni FK.
-La parità riguarda gli snapshot, non lo stato live; cutover non eseguito.
-Il piano Starter gratuito ha overage disabilitati, verificati via CLI. Tutti i processi devono usare lo stesso database dopo il passaggio
-coordinato; servono conferme separate per cutover e attivazione delle nuove
-registrazioni. Non basta modificare i secret della sola nightly.
+è completata come adozione autorizzata della copia esistente. Migrazioni 020/021,
+export finale 18:58 UTC e parità 19:00 UTC sono riusciti: target 57 tabelle e
+133 oggetti di schema, con le 52 tabelle dello storico preservate. Backend,
+configurazione locale produzione e secret GitHub RW/RO puntano al personale.
+La sorgente resta bloccata: il delta dopo il dump 15:17 UTC non è verificabile
+ed è stato esplicitamente accettato. L'originale non è eliminato; la gestione
+è del proprietario, fuori dall'accesso CLI personale disponibile.
 
 Il comando di avvio completo previsto è `docker compose up -d --build`. L'endpoint essenziale è `http://localhost:3001/api/health`. HTTPS esterno, DNS e modalità di deploy dipendono dall'ambiente scelto.
 

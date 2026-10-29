@@ -8,24 +8,30 @@ non è più un requisito da risolvere per le nuove puntate virtuali.
 
 ## Stato effettivo e confini
 
-Il nuovo percorso nightly e la dashboard sono implementati localmente, con
-`RESEARCH_NIGHTLY_ENABLED=false`. Non sono attestati pubblicazione, deploy o
-attivazione remota di questo mandato. Il cutover Turso personale non è eseguito.
-Il codice verrà preparato su branch `codex/` e PR; nessun push diretto su `main`
-prima del piano di passaggio, perché il warmup esistente usa i secret correnti.
+**Cutover effettivo; nightly attiva e primo run SUCCESS.** Il proprietario ha
+eseguito Resume e il nuovo ambiente è stato salvato e distribuito. Backend
+`63d7cb96` LIVE, deployment `6ae39db2025871fe6d073d62`, sul Turso personale;
+frontend Site `afda73be` resta distribuito. Health HTTP 200, route legacy POST HTTP 410,
+login/sessione e dashboard 30 giorni sono verificati dal browser. A e C
+mantengono 1.000 euro ciascuno, zero puntate e zero capitale impegnato.
 
-La manutenzione notturna esistente e lo storico restano conservati. La route
-`/api/automation/place-valid-bets` rimane `410`; il nuovo job non chiama questa
-route o `/bets/place`. Non abilitare il percorso legacy con `AUTO_BET_*`.
-Le conferme per cutover definitivo e nuove registrazioni remote sono separate
-e richieste dal nuovo mandato, dopo preparazione e verifiche del piano concreto.
+Il workflow nightly è attivo, flag `true`. Il run `40944747548`, creato alle
+19:57:46 UTC, è SUCCESS; job concluso alle 20:04:35 UTC. Zero analizzati,
+nuove puntate, skip ed errori nel riepilogo A/C; `missedMatches=2` indica due
+partite già iniziate, correttamente escluse secondo l’audit RO 20:10:52 UTC. Il ciclo reale completo resta
+pendente. Training settimanale e Odds Smoke manuale sono riattivati;
+Registry writes resta `false`.
 
-Ultimo riscontro backend: LIVE `122fd360`; il tentativo `60a6baac`, deployment
-`6ae355cd7b2d5d826aa4c4c4`, è fallito con `Deployment waited too long in the queue`.
-Le impostazioni sono ora accessibili, auto-deploy OFF, repository
-`Ivandragon003/scommeseSportive`, branch `main`, build Docker con contesto e
-working directory `backend`. Il vecchio diniego alle impostazioni non è il
-blocco attuale; non è dimostrata la causa del timeout di coda.
+L'adozione autorizzata della copia del dump 15:17 UTC / 16:17 Roma è il cutover
+eseguito: nessun recupero dei delta sorgente successivi non verificabili.
+L'originale resta non eliminato, perché occorre la gestione del proprietario;
+la CLI disponibile opera soltanto sul personale. La causa del blocco della
+sorgente non è stata attribuita con certezza a quota o fatturazione.
+
+Le impostazioni dell'app sono accessibili, auto-deploy OFF, repository
+`Ivandragon003/scommeseSportive`, branch `main`, Docker con contesto e working
+directory `backend`. La route automatica legacy resta HTTP 410 e non è usata dal
+job A/C; nessun `AUTO_BET_*` è riattivato. Le risorse restano 0,1 vCPU/256 MiB.
 
 Il vecchio cron `footpredictor-watchdog` è `PAUSED`, verificato nel pannello.
 La richiesta di pausa dello standalone è stata accettata dall'API, ma lo stato
@@ -43,7 +49,7 @@ storici, non la nuova procedura operativa.
 | Frontend Hostless Site esistente | React, dashboard e accesso privato |
 | Backend Hostless esistente | Express/Node, sessioni, API e consultazione delle previsioni |
 | Runner GitHub Actions | Import, calibrazione, job finito A/C e liquidazioni |
-| Turso condiviso, poi personale dopo cutover | Unico archivio per tutti i processi |
+| Turso personale | Unico database canonico per tutti i processi dopo il cutover |
 | Worker T−15 e relativo watchdog | Non richiesti; dismissione controllata senza cancellare storico |
 
 Non occorre un PC o telefono acceso per il flusso previsto. Questo descrive
@@ -66,7 +72,7 @@ frontend, log o chat. Le variabili React sono pubbliche nella build.
 | --- | --- |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Stesso DB per web, nightly, calibrazione, training e manutenzione |
 | `NIGHTLY_ORCHESTRATOR` | `github_actions`; gli scheduler interni web non duplicano il job |
-| `RESEARCH_NIGHTLY_ENABLED` | `false` fino alla conferma di attivazione remota |
+| `RESEARCH_NIGHTLY_ENABLED` | Default codice `false`; configurazione remota corrente `true` |
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false`, mai concorrente con la nightly |
 | `ODDS_API_KEY` | Solo backend/runner, provider reale autorizzato |
 | `ODDS_API_MONTHLY_CREDITS`, `ODDS_API_RESERVE_CREDITS` | 500 e 50, pianificazione interna distinta dal residuo provider |
@@ -76,7 +82,7 @@ frontend, log o chat. Le variabili React sono pubbliche nella build.
 | Sessioni, origini CORS e HTTPS | Conservare protezioni e verificare browser/Android sul backend corretto |
 
 Il workflow legge la variabile repository `RESEARCH_NIGHTLY_ENABLED`, con
-default `false`; non è stata impostata una nuova variabile remota. Il flag
+default `false`; la variabile remota è ora attiva. Il flag
 Hostless serve alla dichiarazione di stato della dashboard: il web non avvia
 la nightly nemmeno quando dichiara la configurazione abilitata.
 
@@ -88,54 +94,57 @@ nightly non garantiscono copertura delle cinque leghe. La
 
 ## Database personale e backup
 
-Backup sorgente aggiornato: dump privato 459.806.723 byte, 52 tabelle,
-integrità `ok`, zero violazioni FK; SHA-256 completo nel manifest privato
-(inizio `9b2018ac`, finale `a7b5a`). Il dump precedente resta uno snapshot
-storico e non sostituisce la sincronizzazione finale prima del passaggio.
+Il punto di ripristino autorizzato è il dump sorgente delle 15:17 UTC /
+16:17 Europe/Rome, privato, 459.806.723 byte, con integrità `ok` e FK0 già
+verificati. La copia personale iniziale è importata e confrontata integralmente;
+il backup target delle 17:59:54 UTC e la parità iniziale verificano 52 tabelle,
+125 oggetti di schema e 314.089 righe. Queste prove riguardano gli snapshot,
+non la sorgente live e non recuperano gli aggiornamenti successivi.
 
-Nell'account personale autenticato è stato osservato Starter Free: 0 USD,
-capacità 5 GB, 500 milioni di letture e 10 milioni di scritture mensili, senza
-carta aggiunta. Sono limiti osservati nell'account, non consumi trasferiti dal
-vecchio DB o una garanzia sul consumo futuro. La CLI ufficiale è ora
-autorizzata e operativa; Starter Free e overage disabilitati sono verificati
-anche tramite CLI. La copia iniziale nel target
-`footpredictor-selloneciompi.aws-eu-west-1.turso.io` (SQLite, gruppo default
-Ireland) è importata e confrontata integralmente alle 16:49:31 UTC del
-29 ottobre: 53 tabelle ispezionate, 52 applicative più `sqlite_sequence`,
-schema/conteggi/hash coincidenti, integrità `ok`, FK0. Il confronto riguarda
-la sorgente delle 15:18:10 UTC e l'export target delle 16:46:36 UTC:
-`liveParityVerified=false`, nessun cambio dei secret di produzione o cutover.
-Restano sincronizzazione finale, approvazione e deployment Hostless riuscito.
+Il target è `footpredictor-selloneciompi.aws-eu-west-1.turso.io`, SQLite EU,
+account personale gestibile dalla CLI. Ultimo piano osservato: Starter/free,
+overage disabilitati. Contatori ufficiali delle 19:33:57 UTC: storage
+526 MB/5 GB, letture 0,1M/500M, scritture meno di 0,1M/10M ed embedded sync
+1,6 GB/3 GB (52%). Storage e sync sono contatori distinti, non capacità da
+sommare. Nessun piano o servizio a pagamento è stato attivato; le fatture Hostless non sono accessibili e non
+si certifica un consuntivo di costo.
 
-Seguire la [procedura di migrazione](turso-personal-migration-2026-10-29.md):
-la copia iniziale e la sua parità sono verificate; prima del passaggio
-servono sospensione controllata dei writer, sincronizzazione finale e nuova
-verifica di integrità/parità sullo snapshot definitivo. Prima del
-cutover presentare all'utente tutti i reader/writer e il rollback. Se Hostless
-non può applicare la nuova configurazione, non collegare soltanto Actions al
-nuovo DB creando due archivi divergenti. Il database originale resta intatto.
-Le migrazioni additive 020 (nightly) e 021 (evidenza prospettica) vanno
-verificate su copia e applicate sul DB di riferimento nella sequenza
-concordata. Non sono state applicate ai database remoti.
+La richiesta di backup finale sulla sorgente è bloccata: non si attribuisce
+il motivo a quota o billing senza prova. L'utente ha accettato esplicitamente
+il limite di recupero della copia esistente; questa adozione sostituisce il
+piano ordinario che richiedeva una sincronizzazione finale sorgente.
+L'originale non deve ricevere nuovi collegamenti. La sua eventuale dismissione
+richiede prima verifica del target e accesso di gestione del proprietario:
+la CLI disponibile opera solo sull'account personale.
+
+020/021 sono applicate sul target. Export finale 18:58 UTC e parità 19:00 UTC
+PASS: 57 tabelle e 133 oggetti di schema, con storico 52 tabelle preservato.
+Le credenziali DB limitate sono predisposte; secret GitHub RW/RO personali
+aggiornati alle 19:03 UTC. La configurazione produzione locale è aggiornata e
+quella precedente archiviata privatamente. Il backend `63d7cb96` è distribuito
+con l'ambiente personale: web e job puntano al medesimo canonico.
+La [procedura Turso](turso-personal-migration-2026-10-29.md) e il report
+canonico conservano hash e dettagli di verifica.
 
 ## Rilascio e collaudo
 
-1. Completare gate locali e scansione dei secret; preparare branch `codex/` e
-   PR con configurazione e documenti coerenti. Il consenso al cutover non è
-   implicito nella preparazione della PR.
-2. Verificare che vecchio T−15 e vecchio percorso automatico non possano creare
-   puntate. Conservare dati, versioni ML e due wallet esistenti senza reset.
-3. Ripetere parità dopo la sincronizzazione finale e completare il piano di
-   passaggio univoco del database; ottenere
-   conferma esplicita prima del cutover definitivo, senza cambio parziale.
-4. Distribuire backend e frontend con registrazioni ancora spente. Allineare
-   warmup e deploy sullo stesso hash `dist`; controllare login, sessione,
-   API, dashboard, legacy 410 e collegamento del client Android.
-5. Verificare sul remoto quote reali, cache, budget, idempotenza, riavvio del
-   job, liquidazioni e ledger; fixture soltanto in ambienti isolati.
-6. Presentare l'esito e ottenere conferma separata prima di abilitare le nuove
-   registrazioni nightly. Osservare un ciclo con partita reale e risultato
-   ufficiale, accettando un'astensione se le condizioni non sono idonee.
+Sono conclusi deploy del nuovo ambiente, controlli health/legacy, login,
+sessione e dashboard sul personale. Warmup `40937894463` SUCCESS; probe C
+`40936914212` SUCCESS sull'artefatto reale, 100 inferenze solo in RAM, zero scritture
+o provider, p95 circa 0,532 ms e RSS 156,98 MiB. Verifica contabile in sola
+lettura sul monitor aggiornato `40945351072` SUCCESS. Sono prove specifiche, non il ciclo nightly.
+
+La nightly manuale `40944747548` è SUCCESS, senza eventi eleggibili nella
+finestra restante e senza puntate retroattive. L’audit RO conferma che
+`missedMatches=2` conta due partite già iniziate, senza job o decisioni di modello. Solo una partita reale seguita fino al risultato
+e alla liquidazione può completare il collaudo prospettico; non forzare una BET.
+
+L'audit RO delle 20:07 UTC è PASS: quattro fingerprint finanziari invariati,
+portafogli A/C da 1.000 euro, zero capitale impegnato e zero puntate. La
+dashboard mostra Nightly riuscita alle 21:04 Roma e prossima esecuzione il 30 ottobre alle 03:00.
+Monitor GitHub, DB periodico RO e attese delle 03:00 sono abilitati. Il watchdog
+con attese attive `40946558140` è SUCCESS, tutti i passi GitHub e DB RO completati
+in 26 secondi; nessun ciclo reale completo viene dedotto da questi controlli.
 
 Il confronto economico usa due portafogli da 1.000 euro iniziali, stake 1%,
 esposizione 5%, una puntata per partita/modello. `EXPERIMENTAL` può essere
@@ -155,17 +164,24 @@ puntate e non autorizza a ridurre questi gate per mostrarne una.
 
 ## Monitoraggio e CPU
 
-Il monitor GitHub controlla ultima nightly, esito, partite analizzate/saltate,
-API, crediti e liquidazioni. I controlli del workflow sono indipendenti dal
-vecchio worker; quelli DB richiedono credenziale dedicata di sola lettura.
-Nessun falso allarme per heartbeat intenzionalmente dismesso. Riepilogo in-app
-dalle 09:00 Europe/Rome, nessuna notifica per ogni puntata. Non è attestato un
-nuovo canale esterno gratuito o l'invio di notifiche del nuovo flusso.
+La dashboard espone ultima nightly, esito, partite analizzate/saltate, API,
+crediti e liquidazioni osservati. Il monitor GitHub legge il DB periodicamente
+in sola lettura; anche le attese delle 03:00 sono ora attive, con opt-in
+separato dal flag delle puntate. La revisione `4dff28f4` è pubblicata, CI
+`40944506327` e smoke RO `40945351072` riusciti. Contabilità, quota, errori e
+stalli recenti oltre quattro ore restano indipendenti dall'attesa programmata.
+Nessun falso allarme per heartbeat intenzionalmente dismesso. La nightly è
+abilitata; quando esegue il reconcile prepara la riga del
+riepilogo, con `publishAfter` alle 09:00 Europe/Rome. Il GET filtra senza
+scrivere o inviare all’esterno. Il job SUCCESS non sostituisce la verifica
+di una riga riepilogo effettivamente generata dopo reconcile.
+Nessuna notifica per ogni puntata o nuovo canale esterno attestato.
 
 L'[audit locale Turso/CPU](turso-cpu-audit-2026-10-29.md) misura payload ridotto
 e scritture identiche evitate. Non certifica minori righe fatturate, CPU web
-risolta o causa dei precedenti avvisi Hostless. Non confondere throttling e
-attesa in coda di deploy. Nessun aumento automatico delle risorse.
+risolta o causa dei precedenti avvisi Hostless. Una singola misura prima della pausa ha rilevato overview 2.826 ms e
+comparison 315 ms; non prova throttling risolto. Non confondere throttling e
+attesa in coda di deploy. Backend 0,1 vCPU/256 MiB invariato.
 
 ## Rollback
 
@@ -175,7 +191,8 @@ conservando import e liquidazioni delle giocate esistenti. Non riattivare
 ledger, quote, versioni, artifact e giocate aperte.
 
 Per il codice usare una release precedente compatibile con le migrazioni
-additive. Per il DB serve un passaggio coordinato di tutti i processi e la
-riconciliazione delle scritture successive, con l'autorizzazione prevista:
-non sovrascrivere la produzione con un backup più vecchio. Nessuna cancellazione
-di servizi, database o storico è parte del rollback ordinario.
+additive, mantenendo il nuovo DB canonico. Il rollback coordina tutti i
+processi e usa backup verificati del target; non riapre collegamenti alla
+sorgente bloccata né inventa una riconciliazione dei delta ignoti accettati.
+L’eventuale dismissione dell’originale resta subordinata a verifica del target
+e gestione del proprietario; nessuna eliminazione è dichiarata eseguita.

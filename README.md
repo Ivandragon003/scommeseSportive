@@ -54,23 +54,39 @@ descrive il nuovo percorso. Riferimenti complementari:
 - [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
 - [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
 
-**Stato di preparazione del 29 ottobre 2026:** nuovo percorso e dashboard
-implementati localmente; nuove registrazioni nightly ancora disabilitate
-(`RESEARCH_NIGHTLY_ENABLED=false`). La route legacy resta ritirata con `410`:
-la nightly non usa `/bets/place` né `AUTO_BET_ENABLED=true`. Il nuovo codice non
-è ancora pubblicato; la preparazione avverrà su branch `codex/` e PR, senza
-push diretto su `main` che avvierebbe il warmup prima del cutover.
+**Stato del 29 ottobre 2026: cutover effettivo e nightly attiva.** Il backend
+`63d7cb96`, deployment `6ae39db2025871fe6d073d62`, è LIVE sul Turso personale.
+Health HTTP 200, route automatica legacy POST HTTP 410, login/sessione e dashboard a 30 giorni
+sono verificati dal browser: A e C hanno 1.000 euro ciascuno, zero puntate e
+zero impegnato. Il Site frontend resta sulla release `afda73be` della PR #1.
 
-Il backup aggiornato della sorgente è privato, 459.806.723 byte, 52 tabelle,
-integrità `ok` e zero violazioni FK; hash completo nel relativo manifest.
-L'account Turso personale gratuito è verificato via CLI ufficiale operativa,
-con overage disabilitati. **La copia iniziale è importata e confrontata
-integralmente**: schema, conteggi e hash di tutte le tabelle, integrità e FK
-coincidono con lo snapshot sorgente. Questo non è parità live
-(`liveParityVerified=false`) o cutover: servono sincronizzazione finale,
-conferma dell'utente e deployment Hostless riuscito. Backend, nightly, training e calibrazione devono passare
-insieme allo stesso database. Cutover definitivo e attivazione remota delle
-nuove puntate richiedono due conferme esplicite sul piano concreto, come da mandato.
+Il flag nightly è `true` e il workflow è attivo. Il run manuale `40944747548`,
+creato alle 19:57:46 UTC, è **SUCCESS**, job concluso alle 20:04:35 UTC:
+zero analizzati, puntate, skip ed errori nel riepilogo A/C. Il contatore
+`missedMatches=2` indica due partite già iniziate, come confermato dall’audit
+RO delle 20:10:52 UTC; sono state escluse correttamente. Nessun evento eleggibile nella finestra restante, nessuna
+puntata retroattiva. Il ciclo reale fino a risultato e liquidazione resta
+pendente. Training settimanale e Odds Smoke manuale sono riattivati;
+le scritture di registry restano disabilitate.
+
+L'adozione della copia del dump 15:17 UTC / 16:17 Roma è eseguita come autorizzato,
+con delta successivi della sorgente bloccata accettati e non verificabili.
+Migrazioni 020/021 applicate, export finale 18:58 UTC e parità 19:00 UTC riusciti:
+57 tabelle e 133 oggetti di schema, con storico 52 tabelle preservato. Web,
+configurazione di produzione locale e secret GitHub RW/RO usano il personale;
+la configurazione precedente è archiviata privatamente. Non è parità live
+con la sorgente oltre il punto di ripristino accettato.
+
+Warmup e probe C sull'artefatto reale sono riusciti. Audit RO delle 20:07 UTC
+PASS: quattro fingerprint finanziari invariati, portafogli 1.000 euro ciascuno,
+zero impegnati e zero giocate A/C. Il monitor `4dff28f4` è pubblicato, DB
+periodico e attese della nightly delle 03:00 entrambi abilitati. Il watchdog
+con attese attive `40946558140` è SUCCESS: tutti i passi GitHub e DB RO completati in 26 secondi. Contabilità, quota, errori e stalli recenti
+oltre quattro ore sono controllati senza dipendere dal flag delle puntate.
+Il backend resta 0,1 vCPU/256 MiB, senza nuovi piani o servizi a pagamento
+attivati; le fatture Hostless non sono verificate e la risoluzione del
+throttling non è dimostrata. L'originale non è stato eliminato:
+serve la gestione del proprietario, perché la CLI disponibile è solo personale.
 
 Il vecchio cron Hostless `footpredictor-watchdog` è `PAUSED`; per lo standalone
 è stata accettata una richiesta di pausa, ma `Sleeping`/`scaledDown=false` non
@@ -1113,8 +1129,9 @@ Il runtime quote e Odds API only. `ODDS_PRIMARY_PROVIDER` deve restare `odds_api
 Le formazioni e i giocatori sono in pausa per default; i dati storici restano
 salvati. Non abilitare collector duplicati rispetto alla nightly. Per la nuova
 elaborazione seguire la [guida nightly](docs/operations/nightly-pre-match-2026-10-29.md)
-e la [guida Hostless](docs/operations/hostless-deployment.md). Registrazioni
-remote e cutover richiedono le conferme separate previste dal mandato.
+e la [guida Hostless](docs/operations/hostless-deployment.md). L’esempio sopra
+mantiene la nightly disabilitata per default; in produzione è ora abilitata
+dopo il cutover autorizzato, come indicato nello stato iniziale del documento.
 
 ### Docker
 

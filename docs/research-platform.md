@@ -8,12 +8,19 @@ attestano l'attivazione della nuova nightly.
 
 ## Stato e confini
 
-Il nuovo percorso e la dashboard sono implementati localmente. Le nuove
-registrazioni restano opt-in, `RESEARCH_NIGHTLY_ENABLED=false`; la nuova
-nightly non è attivata in remoto e il cutover Turso personale non è eseguito.
-Il codice verrà preparato su branch `codex/` e PR: nessun push di questo
-mandato è ancora attestato. Prima di attivazione remota e cutover definitivo
-servono le conferme separate richieste dal mandato.
+Il percorso e la dashboard sono pubblicati: frontend `afda73be` e backend
+`63d7cb96` LIVE sul database personale. Il cutover è effettivo; health HTTP 200,
+route legacy POST HTTP 410, login, sessione e vista 30 giorni A/C sono verificati.
+La nightly è attiva con flag `true` e workflow attivo; il primo run manuale
+`40944747548` è SUCCESS, job concluso alle 20:04:35 UTC senza nuove puntate.
+L’audit RO 20:10:52 UTC conferma `missedMatches=2` come due partite già
+iniziate ed escluse, senza decisioni retroattive. Training settimanale e Odds
+Smoke manuale sono riattivati, mentre Registry writes resta `false`.
+
+Il database canonico è la copia personale del dump 15:17 UTC, adottata con
+approvazione del punto di ripristino e dei delta successivi non verificabili.
+Non è una parità live con la sorgente bloccata. Il primo ciclo con partita
+reale e liquidazione rimane da osservare; una corretta astensione è valida.
 
 A è il riferimento statistico; C integra CatBoost e resta Challenger. Non
 vengono ottimizzati nuovamente i modelli né riutilizzato il test finale per
@@ -197,8 +204,10 @@ invariati; 50 osservazioni non garantiscono una BET. L'assemblatore non esegue
 training, refit o promozioni e non inventa calibratori. Il nome `CALIBRATION`
 identifica qui i residui prudenziali, non un nuovo fit dei calibratori. La raccolta richiede
 comunque prezzi reali e rispetta il budget quote. Il percorso è verificato
-localmente; le migrazioni 020/021 non sono applicate ai database remoti e la
-raccolta prospettica remota non è attivata.
+localmente; 020/021 sono ora applicate sul target personale. La nightly
+remota è abilitata. Il primo job SUCCESS ha registrato zero osservazioni
+prospettiche e zero BET: nessun evento eleggibile nella finestra restante,
+senza puntate retroattive o evidenze inventate.
 
 ## Due portafogli e contabilità
 
@@ -256,10 +265,15 @@ Il monitoraggio riguarda ultima nightly, esito, partite analizzate/saltate,
 registrazioni, crediti, liquidazioni ed errori contabili. Distingue flag
 dichiarato nel web da `enabled` realmente osservato nel job. Il watchdog GitHub
 può controllare esecuzioni e ritardi senza dipendere dal processo monitorato;
-i controlli DB sono separati e richiedono il token dedicato di sola lettura.
+il monitor GitHub, il controllo DB periodico RO e le attese delle 03:00 sono
+attivi. L'opt-in delle attese è separato dal flag delle puntate; contabilità,
+quota, errori e stalli recenti oltre quattro ore sono controllati anche
+indipendentemente dall'aspettativa programmata. Audit finanziario RO 20:07 UTC
+PASS; il watchdog con attese attive `40946558140` è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi. Il monitor `4dff28f4` è pubblicato.
 Nessun falso allarme per il vecchio worker intenzionalmente dismesso.
-Il riepilogo giornaliero è consultabile dalle 09:00 Europe/Rome; la
-persistenza in-app non attesta consegna a un canale esterno.
+La generazione del riepilogo richiede nightly abilitata e reconcile: viene
+preparata la riga con `publishAfter` alle 09:00 Europe/Rome. Il GET filtra
+soltanto la visibilità, senza scritture o invio esterno.
 
 ## Quote e consumi
 
@@ -351,27 +365,29 @@ necessario e non vengono richieste nuove VM. Il vecchio cron Hostless
 completata. Nessun servizio è eliminato. La
 [guida Hostless](operations/hostless-deployment.md) descrive il nuovo perimetro.
 
-Il backup aggiornato della sorgente è privato: 459.806.723 byte, 52 tabelle,
-integrità `ok`, zero violazioni FK, SHA-256 completo nel manifest. La CLI
-ufficiale è autorizzata e operativa sul piano personale gratuito,
-con overage disabilitati verificati. La copia iniziale è importata e
-confrontata integralmente: 53 tabelle ispezionate (52 applicative e
-`sqlite_sequence`), schema, conteggi e hash corrispondenti, integrità `ok` e
-zero violazioni FK. `liveParityVerified=false`: il risultato riguarda lo
-snapshot sorgente delle 15:18:10 UTC e l'export target delle 16:46:36 UTC,
-confrontati con successo alle 16:49:31 UTC del 29 ottobre. Non è un cutover o
-una parità live; servono final sync e passaggio coordinato approvato. La
-[guida di migrazione](operations/turso-personal-migration-2026-10-29.md) richiede
-parità offline e passaggio coordinato di tutti i lettori e writer; niente
-nightly sul nuovo DB con Hostless ancora sul vecchio. L'
-[audit Turso/CPU](operations/turso-cpu-audit-2026-10-29.md) riporta misure locali,
-non una risoluzione certificata del throttling Hostless.
+Il personale è ora l'unico database canonico di web e GitHub. L'export finale
+delle 18:58 UTC e la parità delle 19:00 UTC sono riusciti dopo 020/021: 57 tabelle,
+133 oggetti di schema, storico 52 tabelle preservato. I due portafogli osservati
+nel browser mantengono 1.000 euro ciascuno, zero puntate e zero impegnato.
+Configurazione locale produzione e secret GitHub RW/RO sono aggiornati al
+personale; la precedente configurazione resta in archivio privato.
 
-Prima della pubblicazione si prepara un branch `codex/` e una PR. Il push su
-`main` avvierebbe la calibrazione collegata ai secret correnti: non è il passo
-previsto prima del piano di cutover. Non sono attestati push o attivazioni di
-questo nuovo mandato. Le nuove registrazioni restano disabilitate fino alla
-conferma separata dell'utente, dopo verifica del database univoco e dei gate.
+L'adozione usa il dump 15:17 UTC / 16:17 Roma, con il limite di recupero e i
+delta sorgente successivi non verificabili autorizzati dall'utente. Non si
+presenta il confronto target come recupero di questi delta. L'originale non
+è eliminato: la CLI disponibile gestisce solo il personale e serve il
+proprietario per la dismissione autorizzata. Vedi la
+[guida di migrazione](operations/turso-personal-migration-2026-10-29.md).
+
+Hostless ha ripreso il backend e distribuito `63d7cb96`, con 0,1 vCPU/256 MiB
+invariati. Warmup `40937894463`, probe C `40936914212` e verifica contabile RO
+`40945351072` sono riusciti. Il probe reale ha eseguito 100 inferenze solo in
+RAM, zero scritture/provider (p95 circa 0,532 ms, RSS 156,98 MiB); non è una
+prova di puntualità della nightly o di throttling risolto. Il primo run
+manuale `40944747548`, creato alle 19:57:46 UTC, è SUCCESS; job finito
+alle 20:04:35 UTC. Il ciclo completo su evento reale resta pendente. L'
+[audit Turso/CPU](operations/turso-cpu-audit-2026-10-29.md) conserva le misure
+precedenti distinte da questi riscontri.
 
 Le [prove runtime](operations/nightly-model-runtime-2026-10-29.md) descrivono
 parità numerica dell'inferenza e accumulo prospettico su Linux. Per i conteggi
@@ -382,17 +398,18 @@ un ciclo reale remoto.
 
 ## Backup e rollback
 
-Prima di migrazioni e cutover sospendere in modo controllato i writer,
-esportare un backup coerente, verificarne hash, integrità e ripristino e
-conservare codice, migrazioni e artifact ML. Non usare una serie di SELECT
-indipendenti come prova di uno snapshot consistente.
+Nel caso ordinario, prima di una migrazione si sospendono i writer e si
+verifica un backup finale coerente. In questa adozione il nuovo dump sorgente
+è impossibile: l’utente ha approvato come base il dump delle 15:17 UTC con il suo
+limite di recupero. La verifica finale deve riguardare il target preparato,
+senza dichiarare recuperati o riconciliati delta sorgente non leggibili.
 
 Per fermare nuove decisioni disabilitare `RESEARCH_NIGHTLY_ENABLED`, conservando
 liquidazioni e storico. Il rollback del codice non deve ripristinare il
 vecchio auto-betting legacy. Non cancellare ledger, reimpostare portafogli o
-sovrascrivere un database con un backup vecchio. Un rollback del cutover deve
-coinvolgere insieme Hostless, nightly, calibrazione, training e monitoraggio;
-la riconciliazione di scritture successive richiede un piano esplicito.
+sovrascrivere un database con un backup vecchio. Il rollback deve coordinare
+Hostless, nightly, calibrazione, training e monitoraggio sul nuovo canonico;
+non riapre collegamenti all’originale bloccato né ricostruisce delta ignoti.
 
 Resta da verificare sul runtime realmente pubblicato il ciclo partita reale →
 dati → probabilità A/C → quote notturne → eventuale puntata → risultato →

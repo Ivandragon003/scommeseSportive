@@ -7,8 +7,10 @@ T−15/worker sempre acceso. I numeri delle simulazioni e i test del 27 ottobre
 restano storici nelle sezioni A, D e G: non sono riscritti per dimostrare il
 funzionamento o la sostenibilità del nuovo job notturno.
 
-Il nuovo percorso è locale e opt-in, `RESEARCH_NIGHTLY_ENABLED=false`;
-registrazioni remote non attivate e cutover Turso personale non eseguito.
+Il percorso è pubblicato e attivato: backend `63d7cb96` LIVE sul personale,
+cutover effettivo, flag nightly `true` e workflow attivo. Primo run manuale
+`40944747548` SUCCESS, job finito alle 20:04:35 UTC senza nuove puntate.
+Il ciclo completo con evento reale resta pendente.
 C resta Challenger, A riferimento; due portafogli esistenti e nessuna modalità
 Shadow Betting aggiuntiva. Probabilità, artifact e benchmark non vengono
 ottimizzati da questa modifica di orchestrazione.
@@ -193,11 +195,14 @@ quando necessario, quote vere entro lo stesso budget.
 
 ## F. Stato locale, remoto e rilascio
 
-La nuova nightly è preparata localmente e disabilitata per default; non sono
-attestati attivazione remota, nuova simulazione reale completata o cutover.
-La route automatica legacy resta ritirata con `410` e non si riabilita con
-`AUTO_BET_*`. La pubblicazione verrà preparata su branch `codex/` e PR per
-non avviare un warmup su `main` prima del passaggio del database.
+La nuova nightly è pubblicata e attiva, sul database personale. Backend
+`63d7cb96` LIVE dopo Resume e deploy del nuovo ambiente; frontend `afda73be`.
+Health HTTP 200, route legacy POST HTTP 410, login/sessione e dashboard 30 giorni sono verificati:
+A/C 1.000 euro ciascuno, zero puntate e impegnato. Primo run `40944747548`
+creato alle 19:57:46 UTC, SUCCESS; job concluso alle 20:04:35 UTC. Il riepilogo
+A/C registra zero puntate; l’audit RO 20:10:52 UTC conferma che `missedMatches=2`
+conta due partite già iniziate ed escluse, senza decisioni retroattive. Training settimanale e Odds Smoke
+manuale riattivati; Registry writes `false`. Nessun auto-betting legacy riattivato.
 
 Si mantengono Hostless, Turso e GitHub Actions: nessuna VM alternativa o nuovo
 servizio a pagamento è necessario. Il cron Hostless del vecchio worker è
@@ -211,20 +216,27 @@ della nuova nightly su Hostless/GitHub o una garanzia per il mese futuro.
 I bookmaker mantengono il proprio nome. Nessun provider alternativo gratuito
 viene dichiarato disponibile senza evidenza.
 
-Il backup aggiornato è verificato e l'account personale Turso gratuito è
-stato controllato anche via CLI ufficiale, ora autorizzata e operativa, con
-overage disabilitati. La copia iniziale è importata e confrontata
-integralmente per schema, conteggi e hash, con integrità `ok` e FK0.
-La parità riguarda gli snapshot (`liveParityVerified=false`), non il database
-live; cutover e cambio dei secret di produzione non sono eseguiti. Restano
-sincronizzazione finale e passaggio approvato con deployment Hostless riuscito. La [procedura Turso](turso-personal-migration-2026-10-29.md)
-e la [guida Hostless](hostless-deployment.md) richiedono un database univoco
-per web, nightly, calibrazione e training. Le conferme per cutover definitivo
-e attivazione delle nuove registrazioni remote sono separate.
+Il target personale è il canonico dopo l'adozione autorizzata della copia
+15:17 UTC / 16:17 Roma. Il limite dei delta successivi non verificabili sulla
+sorgente bloccata resta accettato, non recuperato. 020/021 applicate, export
+finale 18:58 UTC e parità 19:00 UTC PASS,57 tabelle/133 oggetti di schema e
+storico 52 tabelle preservato. Secret GitHub RW/RO, ambiente Hostless e
+configurazione locale produzione puntano al personale. L'originale non è
+eliminato: serve la gestione del proprietario, fuori dalla CLI personale.
 
-Il monitoraggio ora riguarda la nightly e le liquidazioni, non heartbeat del
-worker dismesso. Riepilogo in-app dalle 09:00 Rome, segnalazioni immediate solo
-per problemi importanti; non è attestata consegna a un nuovo canale esterno.
+Warmup, probe reale C solo in RAM e nuovo smoke contabile RO `40945351072`
+sono riusciti; nessuno sostituisce il primo ciclo reale della nuova nightly.
+Il monitor `4dff28f4` è pubblicato: controllo DB periodico RO e attese delle
+03:00 sono entrambi attivi. Audit finanziario RO 20:07 UTC PASS; quattro
+fingerprint invariati, A/C 1.000 euro ciascuno senza impegnato o nuove giocate.
+Il watchdog con attese attive `40946558140` è SUCCESS, tutti i passi GitHub e DB RO
+completati in 26 secondi. Contabilità, quota, errori e stalli recenti oltre
+quattro ore non dipendono dall'aspettativa programmata.
+La nightly attiva prepara il riepilogo solo dopo reconcile, con `publishAfter`
+09:00 Europe/Rome; il GET filtra senza scrivere o inviare all'esterno. Il job
+è SUCCESS, ma la generazione del riepilogo richiede una verifica della riga.
+Non c’erano eventi eleggibili nella finestra restante, senza puntate retroattive;
+non è ancora il ciclo completo quote/decisione/risultato/liquidazione.
 L'[audit Turso/CPU](turso-cpu-audit-2026-10-29.md) distingue risparmi locali da
 throttling e consumi effettivamente misurati sul provider.
 
@@ -303,7 +315,7 @@ cloud a T−15. Lo scheduler resta disabilitato e i mercati sperimentali.
 | Eurobet? | Priorità solo per una quota autentica realmente ricevuta; assente nella prova del 29 ottobre. Nessuna quota rietichettata. |
 | Quando deve essere fresca la quota? | Alla decisione notturna: default 300 s su acquisizione e aggiornamento originario, non cinque minuti prima del calcio d'inizio. |
 | Serve un worker T−15? | No. GitHub esegue il job finito; browser e smartphone sono client. |
-| Le nuove registrazioni sono attive? | No, flag `false` e attivazione remota ancora da confermare dopo i gate. |
+| Le nuove registrazioni sono attive? | Sì, flag `true` e workflow attivo; primo job manuale SUCCESS, zero nuove puntate; ciclo reale con liquidazione ancora pendente. |
 | I vecchi risultati cambiano? | No: benchmark, registrazioni e quote storiche conservano il proprio protocollo. |
 | C viene promosso perché guadagna? | No, il confronto economico non sostituisce la validazione probabilistica; C resta Challenger. |
 | Costi aggiuntivi? | Nessun nuovo piano o servizio a pagamento attivato; proiezioni e capacità gratuite non sono un consuntivo futuro. |
