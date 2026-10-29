@@ -189,6 +189,71 @@ regressioni su prezzi non prematch, correzione ufficiale e lettura `asOf`
 antecedente alla quarantena. TypeScript e lint mirato superati. Il gate completo
 di integrazione resta separato da questi controlli mirati.
 
+## Probe manuale GitHub sul registro personale
+
+È disponibile `backend/scripts/probe-research-ml-runtime.js`, richiamato dal
+workflow esclusivamente manuale `research-runtime-verification.yml`. Il probe
+non viene eseguito dalla normale nightly e non dipende dalla presenza di
+partite o quote nella sua finestra. Questo evita di scambiare una nightly
+riuscita con zero partite per una verifica dell'inferenza C remota.
+
+La connessione usa direttamente `@libsql/client`, senza bootstrap applicativo,
+`DatabaseService` o metodi `ResearchStore`. È accettato soltanto l'host
+`footpredictor-selloneciompi.aws-eu-west-1.turso.io`; URL con credenziali
+incorporate, query o percorsi inattesi vengono rifiutati prima della connessione.
+Il workflow fornisce soltanto `TURSO_DATABASE_URL` e il secret dedicato
+`TURSO_WATCHDOG_READONLY_TOKEN` nello step del probe. Quest'ultimo deve essere
+stato emesso con permessi di sola lettura per il target. Non esiste fallback
+al token RW e non viene tentata alcuna scrittura per verificare i permessi.
+
+Una sola SELECT legge l'artefatto C: precedenza al champion registrato, altrimenti
+ultimo candidato ordinato per creazione e versione, come nel runtime. Il probe
+verifica hash del contenuto, versione, schema delle feature, baseline, protocollo
+e hash della pipeline, compatibilità e disponibilità temporale. Un artefatto
+diagnostico, futuro o incompatibile fa fallire il job, senza scegliere
+silenziosamente un modello diverso.
+
+Il modello viene eseguito con feature numeriche e baseline Poisson sintetiche,
+create soltanto in RAM e riferite all'ora effettiva del probe. Nessuna riga di
+partite, previsioni, quote, osservazioni o portafogli viene letta o creata.
+L'output contiene solo identificativi/hash, controlli di probabilità finite e
+massa, p95 di 100 inferenze, memoria e durata, insieme a
+`syntheticInput=true`, `databaseWrites=0` e `providerRequests=0`. Non contiene
+artefatti, feature, credenziali, URI della connessione o stack degli errori.
+Anche gli errori del client vengono ridotti a codici fissi e il client viene
+chiuso su successo e fallimento.
+
+Il workflow usa Node 20, `npm ci`, build e timeout di cinque minuti, con soli
+permessi GitHub `contents: read`. Non installa Python, non allena o promuove
+modelli, non avvia nightly o scheduler e non carica artifact GitHub. Non aggiunge
+letture periodiche del modello al watchdog.
+
+Dopo pubblicazione e configurazione dei secret del target, il comando manuale è:
+
+```powershell
+gh workflow run research-runtime-verification.yml --ref main
+```
+
+Il comando è documentato, non è stato eseguito durante l'implementazione del
+probe. Finché non esiste un run GitHub concluso con successo e il relativo
+report, l'inferenza remota rimane non verificata da questo strumento.
+
+Un eventuale successo proverà la lettura del modello reale e la sua inferenza
+JSON Node nel runner GitHub. Non ripete la parità Python/CatBoost nativa dei
+6.146 confronti già eseguiti localmente e non certifica dati reali, calibrazione
+con quote, gate prudenziale, registrazioni, liquidazioni o ciclo prospettico
+completo: `fixtureCycleVerified=false` e `nativeParityExecuted=false` rendono
+espliciti questi confini. Il traffico di questa SELECT non viene attribuito
+alla voce Turso Embedded Sync senza una misura ufficiale distinta.
+
+Verifica locale del probe: 7/7 test passati su Windows e Linux Node 20 senza
+rete. Il client fake rifiuta SQL non SELECT; una fixture SQLite soltanto in RAM
+verifica realmente la precedenza SQL champion/candidato e lo spareggio di
+versione. Sono coperti host errato, token RO mancante anche in presenza di RW,
+artefatti non validi, chiusura del client e redazione di errori contenenti URI,
+token e stack. Lint mirato superato. Nessun accesso remoto o dato operativo è
+stato usato in questi test.
+
 ## Riproduzione nella stessa postazione
 
 ### Letture del registro durante una coorte nightly

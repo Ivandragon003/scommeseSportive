@@ -1,0 +1,33 @@
+name: Verify registered C runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-runtime-verification
+  cancel-in-progress: false
+
+jobs:
+  verify-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Infer registered C using only the target read-only connection
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_WATCHDOG_READONLY_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
+        run: node scripts/probe-research-ml-runtime.js
