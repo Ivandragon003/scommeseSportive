@@ -1,47 +1,18 @@
 # System design di FootPredictor
 
-> Architettura e stato del rilascio aggiornati il 29 ottobre 2026.
-> Questo documento spiega responsabilità, dati e interazioni tra i componenti, senza descrivere l'implementazione del codice o le formule matematiche.
-> La verifica riguarda sorgenti e configurazioni presenti nel workspace: non certifica lo stato del deploy, dei provider o del database remoto.
+Aggiornato al mandato del 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
+La [guida canonica](operations/nightly-pre-match-2026-10-29.md) definisce
+configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono
+implementate localmente, con registrazioni disabilitate per default; non sono
+ancora attivate in remoto. Il cutover al Turso personale non è eseguito.
 
-**Stato remoto del 29 ottobre 2026:** frontend e backend `122fd360` sono online
-sull'Hostless esistente, con login/sessione, calendario e dashboard A/C verificati.
-La nightly di manutenzione è riuscita senza nuove giocate; la route legacy
-risponde `410`. Il Turso esistente contiene le migrazioni `015–019`, A/C nel
-registry e due portafogli indipendenti da 1.000 EUR senza puntate. Backup,
-ripristino e conservazione della contabilità legacy sono verificati.
-L'inferenza C dal registry è riuscita su Hostless con input sintetico, senza
-promozioni; i 26 mercati restano `EXPERIMENTAL`. Il processo automatico è
-**bloccato**: l'embedded resta privo di deployment (`missing`, ambiente `404`).
-L'autorizzazione GitHub del proprietario è ora riuscita e lo standalone gratuito
-è creato, ma entrambi i deployment `ed9e58ad`/`cc842005` sono falliti con
-`Deployment waited too long in the queue`; non è dimostrato un avvio della build. Il cron standalone watchdog ha
-due deployment `cc842005` riusciti: i Logs attestano 14 check reali `ok`
-ogni cinque minuti dalle 14:10:21 alle 15:15:13 CET, benché Runs resti vuoto.
-Il monitor SELECT-only opera con worker atteso spento; la puntualità T−15
-e la consegna delle notifiche restano da verificare. Il backend web resta LIVE `122fd360`;
-la correzione nativa `cc842005` è pubblicata con CI verde. L'astensione attesa
-quando mancano quote in cache è stata erroneamente registrata come errore:
-la relativa correzione `60a6baac` è pubblicata, CI riuscita (777 test backend,
-776 passati e un opzionale saltato), calibrazione riuscita. Non è sul web LIVE: 66 test mirati e revisione superati,
-gate Linux QA riuscito (777 test, 776 superati e un opzionale saltato),
-gate Windows non superato per crash nativo. L'audit quote reale ha osservato
-89 eventi futuri, 3.585 record di mercato, 15 crediti consumati e 205 residui;
-46 record obsoleti esclusi, nessun cambiamento alle otto tabelle protette.
-È una prova Linux locale → provider/Turso, non del worker Hostless. Il supporto
-Hostless ha confermato ricezione del report autorizzato, senza diagnosi o fix.
-La cache calibrazione dipende dall'intero `dist`: warmup `60a6baac` riuscito e
-gate locale dall'immagine di produzione al Turso reale superato (40 profili
-per passaggio, 80 hit validi, 100 SELECT, zero fit/scritture/provider). Il deploy
-manuale backend della stessa revisione è in coda dalle 15:18 CET; al checkpoint
-15:21 web e frontend restano `122fd360`. Questo gate non certifica la correzione
-quote sul runtime Hostless né dimostra la causa degli avvisi CPU.
-Non ci sono heartbeat o decisioni T−15 remote. Il web funziona senza il PC;
-il ciclo automatico completo non è operativo. Dettagli nel
-[report operativo](operations/production-status-2026-10-29.md) e nella
-[scheda del blocco Hostless](operations/hostless-blocker-2026-10-29.md).
-La [procedura Hostless](operations/hostless-deployment.md) sostituisce la
-precedente ipotesi di una VM: non occorre migrare per eseguire questo monolite.
+Hostless serve web e API, GitHub Actions svolge l'elaborazione notturna finita,
+Turso conserva dati e due portafogli. Non occorre il worker T−15 sempre acceso.
+I precedenti [report operativi](operations/production-status-2026-10-29.md)
+restano snapshot storici, superati per la direzione di automazione; benchmark
+e risultati scientifici non vengono riscritti. C resta Challenger e nessuna
+puntata usa denaro reale. Pubblicazione prevista su branch `codex/` e PR,
+prima del consenso separato per cutover e attivazione remota.
 
 ## 1. Scopo e confini del sistema
 
@@ -76,7 +47,7 @@ flowchart TB
     B -->|Supplemento CSV e quote storiche| FD[football-data.co.uk]
     B -->|Quote bookmaker e orari eventi| O[The Odds API]
     B -.->|Solo se abilitato: disponibilità e formazioni| AF[API-Football]
-    G[GitHub Actions] -->|Avvia una copia temporanea del backend| T[Backend sul runner]
+    G[GitHub Actions] -->|Avvia una copia temporanea del backend| T[Backend temporaneo e job nightly sul runner]
     T <-->|Stesso database configurato| D
     T --> US
     T --> FD
@@ -93,7 +64,7 @@ La copia sul runner GitHub usa lo stesso progetto backend, non un servizio indip
 | Servizi applicativi | Coordinare import, previsioni, quote, archivio, budget e verifiche | Sostituire una quota mancante con una quota bookmaker inventata |
 | Modelli statistici e motore decisionale | Stimare probabilità, valutare rischio e opportunità, scegliere il consiglio | Recuperare autonomamente dati dal browser dell'utente |
 | Livello database | Persistenza, query, aggiornamenti coerenti e migrazioni dello schema | Decidere quali mercati siano validi come prodotto |
-| GitHub Actions | Aggiornamenti programmati, preparazione della calibrazione e controlli CI | Servire l'interfaccia agli utenti |
+| GitHub Actions | Aggiornamenti, calibrazione, decisioni virtuali A/C opt-in, liquidazioni e controlli CI | Servire l’interfaccia agli utenti |
 
 ## 3. Interfaccia e comunicazione con il backend
 
@@ -105,7 +76,7 @@ Le sezioni principali sono:
 - **Archivio giocate:** opportunità operative e salvate a fini di analisi.
 - **Backtest:** valutazione storica del modello.
 - **Centro dati:** dati importati, fonti, sincronizzazione e integrità.
-- **Confronto A/C:** benchmark storico, portafogli shadow, mercati, modelli e stato del processo T−15.
+- **Confronto A/C:** due portafogli A/C, rendimento per periodo, differenze decisionali, benchmark probabilistico separato e stato nightly.
 - **Glossario:** spiegazione dei termini mostrati nell'app.
 
 Il frontend comunica tramite richieste HTTP con risposte JSON. Le operazioni interattive ricevono la risposta dal backend; lo stato generale viene aggiornato anche con controlli periodici. Non è previsto un canale WebSocket per gli aggiornamenti in tempo reale.
@@ -194,7 +165,7 @@ Tutte le richieste HTTP a The Odds API attraversano ora un gestore persistente
 nel medesimo database libSQL/Turso. Prima del trasporto prenota il costo stimato,
 riusa una risposta ancora valida oppure acquisisce una lease esclusiva della
 richiesta. La chiave normalizzata comprende endpoint e parametri, senza secrets.
-Ciò condivide raccolta, budget e deduplicazione fra UI, nightly e processo T−15,
+Ciò condivide raccolta, budget e deduplicazione fra UI e job nightly,
 anche dopo un riavvio o fra istanze concorrenti. Nessuna transazione DB resta
 aperta durante la chiamata HTTP. I risultati conservano costo osservato negli
 header, stime prudenziali quando manca, timestamp originari e motivo dei blocchi.
@@ -206,16 +177,25 @@ residuo dell'account. Il consumo osservato resta sconosciuto fino agli header.
 Il mese UTC è una convenzione locale; il reset del provider deve essere
 riconciliato con una verifica gratuita, senza ricarica presunta.
 
-Per default la UI è cache-only e la raccolta quote notturna è disabilitata.
-Il calendario usa l'endpoint gratuito degli eventi, senza richiedere prezzi
-o scores per conoscere il kickoff. T−15 richiede insieme `h2h`, `totals` e
-`spreads`, una regione, condivisi da A/C e dalle partite simultanee della lega.
-Cache informativa fino a trenta minuti e cache T−15 al massimo cinque minuti
-hanno scopi distinti: il dato mostrato dalla UI non è automaticamente ammissibile
-per una puntata. Anche l'aggiornamento originario del mercato deve rispettare
-i cinque minuti. Crediti insufficienti o quote mancanti provocano astensione.
-Lo [stato quote](operations/smart-odds-2026-10-27.md) descrive controlli, limiti
-dei provider e simulazioni; nessuno di questi dimostra un deploy remoto attivo.
+Per default la UI è cache-only e `RUN_ODDS_SYNC=false` disabilita la raccolta
+informativa generale. Il job A/C opt-in usa il canale essenziale separato:
+`h2h`, `totals` e `spreads`, una regione e snapshot condivisi per lega/finestra.
+Entrambi i modelli vedono gli stessi prezzi, con bookmaker e provenienza reali.
+Il calendario usa eventi gratuiti, senza richiedere prezzi o scores per il kickoff.
+
+L'età massima iniziale della quota è 300 secondi alla decisione notturna,
+controllando acquisizione e aggiornamento originario; non è un requisito di
+quota a cinque minuti dal calcio d'inizio. Cache informativa di trenta minuti
+non autorizza una decisione con prezzi scaduti. Budget insufficiente o assenza
+di quota reale provocano astensione, senza abbassare la freschezza.
+
+La proiezione `forecastRemainingNightlyOddsDemand` raggruppa lega/finestra
+03:00 Roma, gestisce DST e mese contabile UTC ed esclude leghe senza incontri
+previsti. È una stima, distinta dai crediti osservati dal provider. Il caso
+teorico di cinque leghe per 31 notti costa 465 crediti; con 16 richieste retry
+sale a 513 e richiede esclusioni entro il limite 500. Le precedenti stime
+T−15 restano storiche. La [gestione quote](operations/smart-odds-2026-10-27.md)
+distingue i due metodi e non garantisce copertura integrale gratuita.
 
 Il sistema contiene anche stime e completamenti prodotti dal modello per analisi interne o replay. Questi non costituiscono quote bookmaker reali e non possono dimostrare convenienza, ROI o qualità rispetto al mercato. La UI deve distinguere gli stati e mostrare come indisponibile una quota reale assente.
 
@@ -300,16 +280,33 @@ valida l'ultimo holdout e può promuovere o ripristinare versioni solo con
 evidenze prestabilite. La policy protegge le 745 partite finali già osservate
 e richiede un nuovo periodo futuro per le promozioni; tre retry dello stesso
 snapshot non bastano come controlli operativi. La promozione del modello è distinta dall'abilitazione
-di un mercato. In assenza di evidenze il mercato resta sperimentale e il
-Decision Engine si astiene.
+di un mercato. In assenza di evidenze il mercato resta sperimentale. La nuova simulazione
+nightly può ammetterlo solo con idoneità tecnica verificata, senza promuoverlo
+o considerare dimostrata una redditività.
 Modalità, temperatura e hash della configurazione effettiva restano espliciti
 nei report e nelle prove operative, senza ricorrere a un calibratore implicito.
 
 Il training CatBoost avviene tramite comando Python locale o workflow
 settimanale. L'inferenza web resta nel monolite TypeScript; non viene aggiunto
-un microservizio ML. `ResearchRuntime` collega i servizi reali al processo
-T−15, al settlement e al monitoraggio. La sezione Confronto A/C legge lo stesso
+un microservizio ML. `ResearchRuntime` fornisce preparazione, probabilità e snapshot al job finito
+`ResearchNightly`, al settlement e al monitoraggio. Il precedente T−15 resta
+codice di compatibilità, non un processo richiesto. La sezione Confronto A/C legge lo stesso
 database; non simula saldi nel telefono.
+
+`ResearchProspectiveEvidence` aggiunge raccolta prepartita e risultati
+append-only con la migrazione additiva 021. Congela osservazioni anche sulle
+astensioni, senza creare puntate o movimenti del ledger; le risolve soltanto quando il
+risultato ufficiale è realmente osservato. La partizione nominale 80/20 usa
+l'hash della partita, comune per A/C: `FUTURE_TEST` non entra nei campioni
+prudenziali. Si riutilizzano soltanto osservazioni `CALIBRATION` già risolte e
+compatibili con versione, artefatto e configurazione al momento della nuova
+previsione. Nessun refit, calibrazione ricostruita o promozione implicita.
+
+Il registro iniziale non contiene campioni ammissibili: anche con inferenza
+corretta e quote reali, i gate di almeno 50 partite per mercato/fascia e
+Hoeffding possono imporre astensione. Non è richiesta una redditività già
+dimostrata per raccogliere osservazioni, ma non si forza una BET per iniziare
+il confronto. Vedi il [riscontro runtime](operations/nightly-model-runtime-2026-10-29.md).
 
 Il registry `research_experiments`, aggiunto dalla migrazione 017, conserva
 separatamente diagnosi e confronti di sviluppo. I relativi artefatti restano
@@ -335,8 +332,9 @@ Il database libSQL/Turso è il punto di condivisione tra interfaccia web, Androi
 | Riferimenti tra competizioni | Identità e passaggi di squadra utili ai controlli e ai percorsi previsti |
 | Registry e benchmark A/C | Artefatti, hash, metriche, holdout, Champion e transizioni versionate |
 | Mercati della ricerca | Stato ed evidenze per famiglia/versione/mercato, separati dalla promozione del modello |
-| Job e input T−15 | Kickoff/target UTC, lease, motivi di mancata decisione e snapshot condivisi congelati |
-| Portafogli della ricerca | Puntate e ledger indipendenti per A/C ed eventuale main; nessuna fusione con il budget legacy |
+| Job e input prepartita | Finestra nightly, kickoff UTC, lease, motivi di astensione e snapshot condivisi; vecchi record T−15 preservati |
+| Esecuzioni nightly A/C | Migrazione additiva 020: finestra e policy persistenti, lease, retry e riepilogo del job |
+| Portafogli A/C | Due ledger indipendenti, ID storici preservati e nessun nuovo main o fusione con il budget legacy |
 | Monitoraggio della ricerca | Incidenti deduplicati e riepiloghi quotidiani nell'app; canale esterno non configurato |
 | Esperimenti diagnostici | Configurazioni e risultati di sviluppo con hash/versioni, separati dai candidati runtime e non promuovibili |
 
@@ -363,36 +361,42 @@ Le migrazioni versionate aggiornano lo schema all'inizializzazione del backend. 
 
 ## 9. Giocate, automazione e chiusura degli esiti
 
-### 9.1 Registrazione manuale
+### 9.1 Portafogli A/C e storico legacy
 
-L'utente può registrare una selezione nell'app con quota e importo. Il backend usa l'identità dati condivisa, controlla il budget e registra la giocata con i metadati disponibili, incluso il riferimento alla previsione quando presente.
+Il confronto A/C non espone registrazioni manuali: il solo percorso nuovo è
+la nightly. I due portafogli esistenti `shadow_A` e `shadow_C` conservano gli
+ID storici, i ledger e il capitale; non rappresentano una modalità Shadow
+Betting aggiuntiva. Non viene creato un terzo portafoglio. Le API manuali del
+budget legacy, fra cui `/bets/place`, appartengono al sistema precedente e
+non sono invocate per le registrazioni notturne A/C.
 
-La giocata rimane aperta finché il risultato necessario non è disponibile. Il **settlement** è la valutazione dell'esito: vinta, persa, annullata o ancora non risolvibile. I ritorni aggiornano il budget interno. I dati insufficienti possono lasciare l'esito in sospeso.
+Il settlement liquida soltanto giocate già registrate quando i dati necessari
+sono disponibili. Rimborsi, mezzi esiti e risultati incompleti mantengono le
+regole implementate; storico e saldi legacy restano separati.
 
-### 9.2 Registrazione automatica
+### 9.2 Nightly Pre-Match Virtual Betting
 
-La route legacy `/api/automation/place-valid-bets` è ritirata con risposta
-`410`. I vecchi flag `AUTO_BET_*` non autorizzano nuove registrazioni. Le sue
-decisioni, giocate e saldi storici restano conservati; non vengono trasferiti
-nei portafogli sperimentali.
+La route legacy automatica `/api/automation/place-valid-bets` rimane ritirata
+con `410`; `AUTO_BET_*` non abilita la nuova nightly. Il job finito usa i servizi
+esistenti direttamente sul runner GitHub, dopo sincronizzazione e gate dati.
 
-Il nuovo processo T−15 usa job persistenti nello stesso database, con target
-quindici minuti prima del kickoff UTC e tolleranza massima di sessanta secondi.
-Il polling previsto è ogni quindici secondi. La finestra viene controllata di
-nuovo nella transazione di registrazione: dopo la scadenza non si recupera una
-puntata retroattiva. Provider, calcoli e database devono completare il percorso
-entro la finestra; questi valori sono vincoli software, non una garanzia del cloud.
+La finestra parte dall'avvio effettivo e arriva alla successiva nightly delle
+03:00 Europe/Rome, oppure usa una durata configurata. Orario legale, ritardi,
+rinvii e cambi di kickoff non autorizzano una puntata retroattiva. Il kickoff
+viene ricontrollato nel commit, senza nuova registrazione dopo l'inizio.
 
-A e C ricevono un unico snapshot congelato di dati e quote reali. Per ogni
-portafoglio sono ammessi al massimo una puntata per partita, stake dell'1% del
-patrimonio contabile ed esposizione aperta del 5%. La selezione fra partite
-simultanee è deterministica. Vincoli persistenti, lease e transazioni impediscono
-duplicazioni e doppio impegno del capitale anche nei retry. La validazione dei
-mercati è specifica per famiglia e versione; i mercati sperimentali non entrano
-nel portafoglio principale.
+A/C usano lo stesso snapshot dati e quote. Ogni modello può scegliere una
+puntata oppure nessuna. Con 1.000 euro iniziali per portafoglio, lo stake è
+1% del patrimonio contabile e l'esposizione aperta massima 5%; una sola
+puntata per partita/modello. Selezione deterministica, lease persistenti e
+vincoli univoci proteggono retry e workflow concorrenti senza doppio impegno.
 
-Il processo è disabilitato per default. La sua attivazione richiede modelli,
-mercati e infrastruttura verificati. Nessun percorso invia puntate ai bookmaker.
+`EXPERIMENTAL` non impedisce da solo la simulazione virtuale: restano
+obbligatori dati e probabilità coerenti, prezzo reale identificato, timestamp,
+liquidazione, capitale e controlli tecnici. Validazione statistica e promozione
+restano separate; C non diventa Champion perché guadagna nel periodo.
+`RESEARCH_NIGHTLY_ENABLED=false` è il default; attivazione remota ancora
+pendente. Nessun percorso di questo confronto invia puntate ai bookmaker.
 
 ## 10. Replay, archivio e backtest
 
@@ -412,36 +416,45 @@ Le learning review confrontano probabilità, consiglio ed esito. I moduli di app
 
 ## 11. Aggiornamenti programmati
 
-L'orchestratore predefinito è **GitHub Actions**. Il workflow nightly è programmato per le 03:00 Europe/Rome, gestendo ora solare e legale. GitHub può ritardare l'avvio: l'orario programmato non garantisce l'ora effettiva di completamento.
+GitHub Actions rimane l'orchestratore. Il workflow usa `0 1 * * *` e
+`0 2 * * *` UTC con gate sul trigger originale, per eseguire quello corretto
+alle 03:00 Europe/Rome in estate/inverno. Concurrency e lease DB evitano
+duplicazioni; GitHub può comunque ritardare o saltare un job.
 
-Il flusso generale è:
+Il flusso mantiene import Understat, supplemento HTTP/CSV consentito,
+normalizzazione, calendari, risultati, liquidazioni legacy e A/C e preparazione
+calibrazione. Dopo i gate, se abilitato, lo script `research-nightly.js` carica
+A/C, raccoglie prezzi essenziali, decide, registra e aggiorna i portafogli.
+Learning review e stato finale restano distinti dai requisiti di ammissione.
+Un gate fallito impedisce nuove decisioni su dati non idonei; i risultati
+precedenti non vengono cancellati. I dettagli sono nella
+[guida nightly](github-actions-nightly-sync.md).
 
-1. Avviare un backend temporaneo sul runner con le credenziali del database condiviso.
-2. Importare e verificare i dati Understat nella finestra prevista.
-3. Completare i dati con football-data.co.uk e aggiornare i riferimenti tra competizioni.
-4. Eseguire i passaggi abilitati su orari e disponibilità, rispettando la pausa giocatori/formazioni.
-5. Valutare previsioni e giocate delle partite concluse e raccogliere le quote reali per quelle future secondo i flag.
-6. Preparare i profili di calibrazione per le analisi successive.
-7. Eseguire le learning review solo quando i controlli preliminari richiesti sono superati; non creare nuove giocate future.
-8. Salvare stato, risultati dei controlli e log dell'esecuzione.
+Il backend web usa `NIGHTLY_ORCHESTRATOR=github_actions` e non ripete gli
+scheduler interni. `RESEARCH_T15_SCHEDULER_ENABLED=false` rimane impostato;
+non occorrono worker Hostless, polling ogni 15 secondi o heartbeat per
+l'ammissione delle nuove puntate. Il vecchio watchdog Hostless è in pausa.
+La richiesta di pausa standalone è stata accettata, ma lo stato effettivo
+non è ancora confermato. Nessun servizio è stato eliminato.
 
-La modalità predefinita disabilita bootstrap e scheduler notturni nel backend web, evitando che due processi ripetano lo stesso lavoro. È disponibile una modalità alternativa con scheduler nel backend: richiede configurazione esplicita e disattivazione dell'orchestrazione concorrente su GitHub.
+Il nuovo monitor osserva ultima nightly, esito, conteggi, errori, crediti e
+liquidazioni. Il controllo GitHub indipendente non richiede un worker attivo;
+il controllo DB è un opt-in con credenziale dedicata di sola lettura.
+I riepiloghi giornalieri in-app sono visibili dalle 09:00 Europe/Rome, senza
+notifiche per ogni puntata. Una notifica salvata non prova consegna esterna.
 
-Il processo decisionale T−15 è indipendente dalla nightly. È progettato per un
-worker separato sempre acceso, dalla stessa immagine del backend; il processo
-web non lo avvia. Il 29 ottobre il worker Hostless risulta creato ma non
-operativo per il blocco descritto nel report corrente. Turso coordina proprietario, lease, heartbeat e job; transazioni e
-vincoli univoci impediscono registrazioni doppie. Browser e Android sono
-soltanto client. GitHub
-Scheduled Workflows può ritardare o perdere esecuzioni ed è adatto alla
-manutenzione, non a garantire la finestra decisionale. Training e promozione
-hanno un ciclo distinto e non modificano le evidenze già congelate.
-
-Un secondo workflow prepara e verifica la calibrazione dopo modifiche pertinenti su `main`, oltre all'avvio manuale. Esegue il calcolo sul runner e salva i profili nel DB; non importa partite, non recupera quote dai provider e non registra giocate.
-
-La CI è un terzo percorso: controlla codice, tipi, lint, test e build. Un esito positivo della CI non prova che la nightly abbia importato dati né che il deploy sia aggiornato.
+Training settimanale, promozione condizionata e rollback restano separati dal
+job giornaliero. `Prepare prediction calibration` calcola i profili sul runner
+e li salva nel DB, senza chiamare provider quote o registrare puntate. Il suo
+trigger su `main` rende necessario pianificare prima il cutover: si prepara un
+branch `codex/` e PR, non un push prematuro. CI, build e unit test non provano
+pubblicazione o funzionamento remoto della nuova architettura.
 
 ## 12. Cache e prestazioni
+
+L’[audit locale Turso/CPU](operations/turso-cpu-audit-2026-10-29.md) distingue
+riduzione dei payload e UPDATE inutili dalle righe fatturate dal provider.
+Queste misure offline non provano risoluzione del CPU throttling Hostless.
 
 Il sistema usa cache locali e una cache persistente specifica, senza un servizio Redis o un message broker dedicato.
 
@@ -468,8 +481,8 @@ Il backend controlla le origini autorizzate, limita i tentativi di login e
 protegge le operazioni amministrative. Le chiamate interne usano i meccanismi
 dedicati alla manutenzione. La route legacy di registrazione automatica è
 ritirata e risponde sempre 410; non avvia decisioni né richiede una sessione
-browser. Il worker T−15 è un processo separato con accesso diretto al database
-condiviso. L'healthcheck essenziale resta pubblico.
+browser. Il job nightly usa direttamente il database con i secret del runner,
+mai quelli del frontend. L'healthcheck essenziale resta pubblico.
 
 Le chiavi del database e dei provider restano nell'ambiente backend o nei GitHub Secrets. Le variabili frontend vengono incluse nella build: non devono contenere credenziali riservate. L'APK contiene interfaccia e configurazione di collegamento, non un'autorizzazione permanente alle API.
 
@@ -486,6 +499,14 @@ Le chiavi del database e dei provider restano nell'ambiente backend o nei GitHub
 In Compose, Nginx serve gli asset e inoltra le richieste `/api` al backend; il frontend parte dopo il superamento dell'healthcheck del backend. Non è presente un container database nello stack Compose corrente.
 
 Per browser e Android la destinazione API dipende dalla configurazione della build. Il client Android ha anche un indirizzo Hostless predefinito. Questi riferimenti descrivono il collegamento previsto, non una verifica di disponibilità dell'hosting.
+
+La [migrazione Turso personale](operations/turso-personal-migration-2026-10-29.md)
+ha completato import e confronto integrale della copia iniziale via CLI:
+schema, conteggi e hash coincidono, integrità `ok` e zero violazioni FK.
+La parità riguarda gli snapshot, non lo stato live; cutover non eseguito.
+Il piano Starter gratuito ha overage disabilitati, verificati via CLI. Tutti i processi devono usare lo stesso database dopo il passaggio
+coordinato; servono conferme separate per cutover e attivazione delle nuove
+registrazioni. Non basta modificare i secret della sola nightly.
 
 Il comando di avvio completo previsto è `docker compose up -d --build`. L'endpoint essenziale è `http://localhost:3001/api/health`. HTTPS esterno, DNS e modalità di deploy dipendono dall'ambiente scelto.
 
@@ -529,7 +550,7 @@ Questa è la lettura d'insieme dell'app. Gli altri documenti approfondiscono sin
 - [Nightly GitHub Actions](github-actions-nightly-sync.md): ordine operativo, gate e configurazione dei job.
 - [Android privato](android-private-apk.md): distribuzione e collegamento dell'APK.
 - [Transizioni tra competizioni](competition-transitions/README.md): riferimenti e limiti dei dati.
-- [Piattaforma A/C](research-platform.md): audit, ML, benchmark, mercati, portafogli, T−15, configurazione e limiti effettivi.
+- [Piattaforma A/C](research-platform.md): ML, benchmark, mercati, portafogli e nightly opt-in.
 
 I principali riscontri per mantenere questo documento aggiornato sono:
 

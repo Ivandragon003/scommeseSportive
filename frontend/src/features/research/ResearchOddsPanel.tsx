@@ -6,7 +6,7 @@ import {
   oddsEventLabel, oddsLimitationLabel, oddsOperationLabel, oddsProviderLabel, oddsReasonLabel,
   oddsStatusLabel, utcDateTime, validCacheRate,
 } from './researchOddsPresentation';
-import { ResearchOddsForecast, ResearchOddsProvider, ResearchOddsStatus } from './researchOddsTypes';
+import { NightlyDemandScenario, ResearchOddsForecast, ResearchOddsProvider, ResearchOddsStatus } from './researchOddsTypes';
 
 const PAGE_SIZE = 20;
 const accountKey = (value: { provider: string; accountScope: string }) => JSON.stringify([value.provider, value.accountScope]);
@@ -34,7 +34,7 @@ const ProviderBudget = ({ provider }: { provider: ResearchOddsProvider }) => (
       <Metric label="Usati osservati dal provider" value={count(provider.observedUsed)} />
     </dl>
     <p className="research-help">Ultima misura della quota API: {dateTime(provider.observedAt)}.<br />Ultimo recupero del provider: {dateTime(provider.lastFetch)}.<br />Ultima acquisizione quote con bookmaker: {provider.actualCoverageAsOf ? dateTime(provider.actualCoverageAsOf) : 'Nessuna osservazione quote'}.</p>
-    <p className="research-help">L’acquisizione salvata non certifica l’età delle singole quote. Il percorso T−15 controlla separatamente l’aggiornamento di ogni mercato.</p>
+    <p className="research-help">L’acquisizione salvata non certifica l’età delle singole quote. La nightly controlla l’aggiornamento di ogni mercato al momento della decisione notturna.</p>
     <details className="research-breakdown">
       <summary>Contabilità dei crediti e verifiche</summary>
       <dl className="research-system">
@@ -65,35 +65,75 @@ const ProviderBudget = ({ provider }: { provider: ResearchOddsProvider }) => (
   </article>
 );
 
+const BudgetScenario = ({ title, scenario }: { title: string; scenario?: NightlyDemandScenario }) => (
+  <article className="research-portfolio" aria-label={title}><h3>{title}</h3>
+    <dl className="research-metrics">
+      <Metric label="Capacità residua ipotizzata" value={count(scenario?.availableCredits)} />
+      <Metric label="Crediti ammessi nello scenario" value={count(scenario?.admittedCredits)} />
+      <Metric label="Gruppi nightly ammessi" value={count(scenario?.admittedGroups)} />
+      <Metric label="Gruppi nightly esclusi" value={count(scenario?.skippedGroups)} />
+      <Metric label="Partite del calendario entro il budget" value={count(scenario?.assumedCoveredFixtures)} />
+      <Metric label="Partite del calendario fuori budget" value={count(scenario?.skippedFixtures)} />
+    </dl>
+  </article>
+);
+
 const Forecast = ({ forecast }: { forecast: ResearchOddsForecast | null }) => {
   if (!forecast) return <section className="research-panel">
-    <h2>Previsione del fabbisogno</h2><Empty>Non misurata: nessuna stima sul calendario disponibile.</Empty>
+    <h2>Previsione del fabbisogno nightly</h2><Empty>Non disponibile: nessuna stima sul calendario ricevuta.</Empty>
   </section>;
+  if (forecast.mode !== 'NIGHTLY' || forecast.scope !== 'remaining_scheduled_nightly_runs_in_current_utc_month') {
+    return <section className="research-panel"><h2>Previsione del fabbisogno nightly</h2>
+      <Empty>Il formato ricevuto non descrive le finestre della nuova nightly. Nessun conteggio viene ricostruito dal precedente protocollo.</Empty>
+    </section>;
+  }
   const assumptions = forecast.assumptions;
+  const schedule = finiteNumber(assumptions?.hour) && finiteNumber(assumptions?.minute)
+    ? `${String(assumptions.hour).padStart(2, '0')}:${String(assumptions.minute).padStart(2, '0')}` : 'Non documentato';
   return <section className="research-panel">
-    <h2>Previsione del fabbisogno</h2>
+    <h2>Previsione del fabbisogno nightly</h2>
     <p className="research-conclusion">{forecast.completeCalendarVerified && forecast.futureKickoffsVerified
       ? 'Stima sul calendario disponibile.' : 'Stima sul calendario disponibile: incompleto oppure con orari futuri non verificati.'}</p>
-    <p className="research-help">La proiezione riguarda i target decisionali restanti nel mese UTC. Non garantisce il consumo mensile e non rappresenta la quota effettiva del provider.</p>
+    <p className="research-help">La proiezione raggruppa per campionato e finestra notturna, con una richiesta condivisa da A/C. Considera le nightly programmate restanti nel mese UTC della richiesta, non gruppi per orario del calcio d’inizio. Non misura il consumo o la quota effettiva del provider.</p>
     <dl className="research-system">
-      <Metric label="Crediti stimati per i target restanti" value={count(forecast.estimatedCredits)} />
+      <Metric label="Crediti stimati per le nightly restanti" value={count(forecast.estimatedCredits)} />
       <Metric label="Richieste HTTP stimate" value={count(forecast.estimatedHttpRequests)} />
+      <Metric label="Crediti base senza retry" value={count(forecast.baseCredits)} />
+      <Metric label="Crediti aggiuntivi ipotizzati per retry" value={count(forecast.retryCreditAllowance)} />
       <Metric label="Totale mensile di pianificazione" value={count(forecast.projectedTotalCredits)} />
       <Metric label="Partite considerate nella stima" value={count(forecast.calendarFixtures)} />
-      <Metric label="Gruppi campionato / orario" value={count(forecast.competitionKickoffGroups)} />
-      <Metric label="Soglia temporale della stima" value={utcDateTime(forecast.through)} />
+      <Metric label="Gruppi campionato / finestra nightly" value={count(forecast.competitionNightlyGroups)} />
+      <Metric label="Prossima nightly inclusa nella stima" value={dateTime(forecast.nextScheduledAt)} />
+      <Metric label="Soglia temporale della stima · UTC" value={utcDateTime(forecast.through)} />
       <Metric label="Quota misurata associata alla proiezione" value={count(forecast.measuredQuota)} />
+      <Metric label="Registrazioni nightly dichiarate nel backend" value={forecast.enabled === true ? 'Abilitate' : forecast.enabled === false ? 'Disabilitate' : 'Non verificate'} />
     </dl>
-    {assumptions && <details className="research-breakdown"><summary>Ipotesi della stima</summary>
-      {Array.isArray(assumptions) ? <ul className="research-notes">{assumptions.map((assumption, index) => <li key={`${assumption}-${index}`}>{assumption}</li>)}</ul>
-        : <dl className="research-system">
-          <Metric label="Margine di retry stimato" value={validCacheRate(assumptions.retryRate) ? percent(assumptions.retryRate) : '—'} />
-          <Metric label="Numero di regioni ipotizzato" value={count(assumptions.regionCount)} />
-          <Metric label="Mercati ipotizzati insieme" value={assumptions.markets?.length ? assumptions.markets.join(', ') : 'Non documentati'} />
-          <Metric label="Modelli che condividono la richiesta" value={assumptions.sharedByModels?.length ? assumptions.sharedByModels.join(', ') : 'Non documentati'} />
-          <Metric label="Finestra cache ipotizzata (secondi)" value={count(assumptions.cacheWindowSeconds)} />
-        </dl>}
+    <p className="research-help">Il calendario vuoto produce zero gruppi stimati, non una misura di zero consumo del provider. L’ultima finestra può includere partite del mese successivo; ritardi, run saltati o supplementari e altre richieste possono cambiare la domanda.</p>
+    {assumptions && <details className="research-breakdown"><summary>Ipotesi della stima nightly</summary>
+      <dl className="research-system">
+        <Metric label="Margine di retry stimato" value={validCacheRate(assumptions.retryRate) ? percent(assumptions.retryRate) : '—'} />
+        <Metric label="Gruppi con un retry ipotizzato" value={count(assumptions.retryGroups)} />
+        <Metric label="Numero di regioni ipotizzato" value={count(assumptions.regionCount)} />
+        <Metric label="Mercati ipotizzati insieme" value={assumptions.markets?.length ? assumptions.markets.join(', ') : 'Non documentati'} />
+        <Metric label="Modelli che condividono la richiesta" value={assumptions.sharedByModels?.length ? assumptions.sharedByModels.join(', ') : 'Non documentati'} />
+        <Metric label="Fuso della programmazione" value={assumptions.scheduleTimezone || 'Non documentato'} />
+        <Metric label="Orario locale ipotizzato" value={schedule} />
+        <Metric label="Fuso del mese contabile" value={assumptions.accountingTimezone || 'Non documentato'} />
+        <Metric label="Finestra delle partite" value={assumptions.windowHours === null ? 'Fino alla prossima nightly prevista'
+          : finiteNumber(assumptions.windowHours) ? `${count(assumptions.windowHours)} ore` : 'Non documentata'} />
+      </dl>
+      <p className="research-help">Le leghe senza incontri non richiedono un feed. Il retry è un’ipotesi di capacità, non un tasso di guasto misurato; numero di modelli e partite della stessa lega/finestra non moltiplicano le richieste.</p>
     </details>}
+    <details className="research-breakdown"><summary>Scenari di capacità entro il budget</summary>
+      <dl className="research-system">
+        <Metric label="Limite mensile interno" value={count(forecast.budget?.monthlyLimit)} />
+        <Metric label="Riserva protetta per richieste informative" value={count(forecast.budget?.reserveCredits)} />
+        <Metric label="Limite ordinario di pianificazione" value={count(forecast.budget?.ordinaryMonthlyLimit)} />
+        <Metric label="Limite essenziale di pianificazione" value={count(forecast.budget?.essentialMonthlyLimit)} />
+      </dl>
+      <p className="research-help">La nightly è essenziale e può usare la riserva entro il limite totale. La capacità è una stima prudenziale del gestore, non il saldo osservato del provider. Le partite entro budget non rappresentano quote disponibili o copertura reale delle puntate.</p>
+      <div className="research-portfolios"><BudgetScenario title="Scenario ordinario" scenario={forecast.ordinaryScenario} /><BudgetScenario title="Scenario essenziale nightly" scenario={forecast.essentialScenario} /></div>
+    </details>
   </section>;
 };
 

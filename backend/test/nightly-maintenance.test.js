@@ -9,18 +9,22 @@ const root = join(__dirname, '../..');
 const script = readFileSync(join(root, 'scripts/ci/nightly-sync.sh'), 'utf8');
 const workflow = readFileSync(join(root, '.github/workflows/nightly-sync.yml'), 'utf8');
 
-test('nightly has no path or stale flag that can register or reserve future betting decisions', () => {
+test('nightly uses only the explicit opt-in A/C script and retains the legacy placement retirement', () => {
   assert.doesNotMatch(script, /place-valid-bets|AUTO_BET|\/bets\/place|research\/t15|research\/tick/);
   assert.doesNotMatch(workflow, /AUTO_BET|place-valid-bets/);
   assert.match(script, /RESEARCH_T15_SCHEDULER_ENABLED=false \\\r?\n/);
   assert.match(workflow, /RESEARCH_T15_SCHEDULER_ENABLED: 'false'/);
   assert.match(workflow, /RUN_ODDS_SYNC: 'false'/);
   assert.match(workflow, /ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'/);
+  assert.ok(workflow.includes("RESEARCH_NIGHTLY_ENABLED: ${{ vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}"));
+  assert.match(script, /RESEARCH_NIGHTLY_ENABLED="\$\{RESEARCH_NIGHTLY_ENABLED:-false\}"/);
+  assert.match(script, /node scripts\/research-nightly\.js/);
+  assert.match(script, /RESEARCH_NIGHTLY_DATA_GATES_PASSED="\$RESEARCH_NIGHTLY_DATA_GATES_PASSED"/);
   assert.match(script, /RUN_ODDS_SYNC="\$\{RUN_ODDS_SYNC:-false\}"/);
   for (const route of [
     '/api/scraper/understat', '/api/scraper/football-data',
     '/api/competition-transitions/sync-references', '/api/bets/sync',
-    '/api/predictions/settle-completed', '/api/learning/reviews/sync',
+    '/api/predictions/settle-completed', '/api/learning/reviews/sync', '/api/research/settle',
   ]) assert.ok(script.includes(route), `maintenance retained: ${route}`);
   assert.match(script, /run calibration:warm/);
   assert.ok(script.indexOf('/api/research/nightly-complete') > script.indexOf('if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 ))'));
@@ -47,7 +51,7 @@ test('manual odds smoke cannot bypass the persistent shared budget or silently e
   assert.doesNotMatch(smoke, /apiKey.*console\.log|console\.log.*apiKey/);
 });
 
-test('actual nightly shell path performs maintenance only even when legacy betting flags are enabled', (t) => {
+test('actual nightly shell keeps legacy flags inert and invokes only the explicit nightly opt-in after data gates', (t) => {
   const bash = process.platform === 'win32'
     ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
   if (!existsSync(bash)) return t.skip('Bash is unavailable; static and scheduler tests still run.');
@@ -67,9 +71,11 @@ test('actual nightly shell path performs maintenance only even when legacy betti
     };
     writeExecutable('curl', 'printf "%s\\n" "$*" >> "$CALL_LOG"\nprintf \'{"success":true}\\n\'');
     writeExecutable('npm', 'printf "%s\\n" "$*" >> "$NPM_LOG"');
-    writeExecutable('node', 'printf "%s\\n" "$RESEARCH_T15_SCHEDULER_ENABLED" >> "$NODE_LOG"\nwhile true; do sleep 1; done');
+    writeExecutable('node', 'if [[ "$1" == "scripts/research-nightly.js" ]]; then\n  printf "nightly:%s:%s:%s\\n" "$RESEARCH_NIGHTLY_ENABLED" "$RESEARCH_T15_SCHEDULER_ENABLED" "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" >> "$NODE_LOG"\n  exit 0\nfi\nprintf "%s\\n" "$RESEARCH_T15_SCHEDULER_ENABLED" >> "$NODE_LOG"\nwhile true; do sleep 1; done');
     writeFileSync(join(temp, 'bash-env'), `export PATH="${posix(bin)}:$PATH"\n`);
-    execFileSync(bash, ['--noprofile', '--norc', posix(shellPath)], {
+    for (const enabled of ['false', 'true']) {
+      writeFileSync(join(temp, 'node.log'), '');
+      execFileSync(bash, ['--noprofile', '--norc', posix(shellPath)], {
       timeout: 15000,
       env: {
         ...process.env, BASH_ENV: posix(join(temp, 'bash-env')),
@@ -80,8 +86,13 @@ test('actual nightly shell path performs maintenance only even when legacy betti
         GITHUB_EVENT_NAME: 'workflow_dispatch', PLAYER_AVAILABILITY_ENABLED: 'false',
         AUTO_BET_ENABLED: 'true', AUTO_BET_DRY_RUN: 'false',
         RESEARCH_T15_SCHEDULER_ENABLED: 'true',
+        RESEARCH_NIGHTLY_ENABLED: enabled,
       },
-    });
+      });
+      const nodeCalls = readFileSync(join(temp, 'node.log'), 'utf8').trim().split('\n');
+      assert.equal(nodeCalls[0], 'false');
+      assert.deepEqual(nodeCalls.slice(1), enabled === 'true' ? ['nightly:true:false:true'] : []);
+    }
     const calls = readFileSync(join(temp, 'calls.log'), 'utf8');
     assert.doesNotMatch(calls, /place-valid-bets|\/bets\/place|research\/t15|research\/tick/);
     assert.match(calls, /\/api\/scraper\/understat/);
@@ -89,7 +100,7 @@ test('actual nightly shell path performs maintenance only even when legacy betti
     assert.match(calls, /\/api\/bets\/sync/);
     assert.match(calls, /\/api\/predictions\/settle-completed/);
     assert.match(calls, /\/api\/learning\/reviews\/sync/);
-    assert.equal(readFileSync(join(temp, 'node.log'), 'utf8').trim(), 'false');
+    assert.match(calls, /\/api\/research\/settle/);
     assert.match(readFileSync(join(temp, 'npm.log'), 'utf8'), /run calibration:warm/);
   } finally {
     const target = resolve(temp);

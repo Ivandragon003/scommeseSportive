@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import ResearchOddsPanel from './ResearchOddsPanel';
 import { getResearchOddsStatus } from '../../utils/researchApi';
-import { ResearchOddsProvider, ResearchOddsStatus } from './researchOddsTypes';
+import { ResearchOddsForecast, ResearchOddsProvider, ResearchOddsStatus } from './researchOddsTypes';
+import emptyNightlyForecast from './__fixtures__/nightly-odds-forecast-empty.json';
+import calendarNightlyForecast from './__fixtures__/nightly-odds-forecast-calendar.json';
 
 jest.mock('../../utils/researchApi');
 const mockedStatus = getResearchOddsStatus as jest.MockedFunction<typeof getResearchOddsStatus>;
@@ -83,18 +85,66 @@ test('consumi numerosi sono paginati e il costo del gruppo mercati non viene div
   expect(within(table).getAllByText('h2h, totals')).toHaveLength(5);
 });
 
-test('la stima futura resta incompleta e separata dalla quota del provider', async () => {
-  const payload = status(); payload.plannedForecast = { calendarFixtures: 25, competitionKickoffGroups: 8,
-    estimatedCredits: 30, estimatedHttpRequests: 10, projectedTotalCredits: 40, completeCalendarVerified: false,
-    futureKickoffsVerified: false, through: payload.resetAt, scope: 'remaining_decision_targets_in_current_utc_month',
-    measuredQuota: null, assumptions: { retryRate: .1, markets: ['h2h', 'totals', 'spreads'], regionCount: 1, sharedByModels: ['A', 'C'] } };
+// Fixtures generated offline by the real backend forecastRemainingNightlyOddsDemand
+// at 2026-10-29T14:20:00Z, then wrapped exactly like /research/odds-status.
+test('il nuovo payload nightly mostra gruppi per lega/finestra, crediti base e retry', async () => {
+  const payload = status(); payload.plannedForecast = calendarNightlyForecast as ResearchOddsForecast;
+  payload.providers = [provider()];
   mockedStatus.mockResolvedValue(payload);
   render(<ResearchOddsPanel />);
-  expect(await screen.findByText(/Stima sul calendario disponibile: incompleto/)).toBeTruthy();
+  await screen.findByText(/Stima sul calendario disponibile: incompleto/);
+  expect(screen.getByRole('definition', { name: 'Gruppi campionato / finestra nightly' }).textContent).toBe('2');
+  expect(screen.getByRole('definition', { name: 'Crediti base senza retry' }).textContent).toBe('6');
+  expect(screen.getByRole('definition', { name: 'Crediti aggiuntivi ipotizzati per retry' }).textContent).toBe('3');
+  expect(screen.getByRole('definition', { name: 'Crediti stimati per le nightly restanti' }).textContent).toBe('9');
+  expect(screen.getByRole('definition', { name: 'Richieste HTTP stimate' }).textContent).toBe('3');
+  expect(screen.getByRole('definition', { name: 'Orario locale ipotizzato' }).textContent).toBe('03:00');
+  expect(screen.getByRole('definition', { name: 'Finestra delle partite' }).textContent).toBe('Fino alla prossima nightly prevista');
   expect(screen.getByRole('definition', { name: 'Quota misurata associata alla proiezione' }).textContent).toBe('—');
-  expect(screen.getByRole('definition', { name: 'Margine di retry stimato' }).textContent).toBe('10%');
+  expect(screen.getByRole('definition', { name: 'Residui osservati dal provider' }).textContent).toBe('—');
   expect(screen.getByRole('definition', { name: 'Prossima soglia di pianificazione · UTC' }).textContent).toContain('00:00 UTC');
   expect(screen.getByText(/il fuso e l’istante del reset del provider non sono garantiti/)).toBeTruthy();
+  expect(screen.queryByText('Gruppi campionato / orario')).toBeNull();
+  expect(screen.queryByText('Finestra cache ipotizzata (secondi)')).toBeNull();
+});
+
+test('calendario vuoto del vero builder rende zero numerico senza inventare quote osservate', async () => {
+  const payload = status(); payload.plannedForecast = emptyNightlyForecast as ResearchOddsForecast;
+  mockedStatus.mockResolvedValue(payload);
+  render(<ResearchOddsPanel />);
+  await screen.findByText(/Stima sul calendario disponibile: incompleto/);
+  for (const name of ['Gruppi campionato / finestra nightly', 'Partite considerate nella stima',
+    'Crediti stimati per le nightly restanti', 'Crediti base senza retry', 'Crediti aggiuntivi ipotizzati per retry', 'Richieste HTTP stimate']) {
+    expect(screen.getByRole('definition', { name }).textContent).toBe('0');
+  }
+  const essential = within(screen.getByRole('article', { name: 'Scenario essenziale nightly' }));
+  expect(essential.getByRole('definition', { name: 'Gruppi nightly ammessi' }).textContent).toBe('0');
+  expect(essential.getByRole('definition', { name: 'Gruppi nightly esclusi' }).textContent).toBe('0');
+  expect(screen.getByRole('definition', { name: 'Quota misurata associata alla proiezione' }).textContent).toBe('—');
+  expect(screen.getByRole('definition', { name: 'Limite ordinario di pianificazione' }).textContent).toBe('450');
+  expect(screen.getByRole('definition', { name: 'Limite essenziale di pianificazione' }).textContent).toBe('500');
+  expect(screen.getByText(/Il saldo del provider resta sconosciuto/)).toBeTruthy();
+  expect(screen.queryByText('Eurobet')).toBeNull();
+});
+
+test('gruppi mancanti restano ignoti senza recuperare il vecchio campo per kickoff', async () => {
+  const payload = status(); payload.plannedForecast = { ...emptyNightlyForecast, competitionNightlyGroups: undefined,
+    competitionKickoffGroups: 99 } as ResearchOddsForecast;
+  mockedStatus.mockResolvedValue(payload);
+  render(<ResearchOddsPanel />);
+  await screen.findByText(/Stima sul calendario disponibile: incompleto/);
+  expect(screen.getByRole('definition', { name: 'Gruppi campionato / finestra nightly' }).textContent).toBe('—');
+  expect(screen.queryByText('99')).toBeNull();
+});
+
+test('una proiezione del vecchio protocollo non viene presentata come domanda nightly', async () => {
+  const payload = status(); payload.plannedForecast = { ...emptyNightlyForecast, mode: undefined,
+    scope: 'remaining_decision_targets_in_current_utc_month', competitionKickoffGroups: 99 } as unknown as ResearchOddsForecast;
+  mockedStatus.mockResolvedValue(payload);
+  render(<ResearchOddsPanel />);
+  expect(await screen.findByText(/Il formato ricevuto non descrive le finestre della nuova nightly/)).toBeTruthy();
+  expect(screen.queryByText('99')).toBeNull();
+  expect(screen.queryByText('Gruppi campionato / finestra nightly')).toBeNull();
 });
 
 test('l’errore non diventa uno stato vuoto e un aggiornamento fallito preserva le misure precedenti', async () => {

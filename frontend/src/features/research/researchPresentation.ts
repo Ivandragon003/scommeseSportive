@@ -30,7 +30,7 @@ export const marketLabel = (market: string): string => ({
 }[market] || market);
 
 export const stateLabel = (state: string): string => ({
-  EXPERIMENTAL: 'Sperimentale', SHADOW: 'Shadow', ACTIVE: 'Attivo', SUSPENDED: 'Sospeso',
+  EXPERIMENTAL: 'Sperimentale', SHADOW: 'Sperimentale storico', ACTIVE: 'Attivo', SUSPENDED: 'Sospeso',
   CHAMPION: 'Champion', CANDIDATE: 'Candidato', VALIDATED: 'Validato', REJECTED: 'Non promosso',
   RETIRED: 'Archiviato', PENDING: 'Aperta', OPEN: 'Aperta', WON: 'Vinta', LOST: 'Persa',
   VOID: 'Rimborsata', HALF_WON: 'Mezza vincita', HALF_LOST: 'Mezza perdita', SETTLED: 'Liquidata',
@@ -47,7 +47,10 @@ const DECISION_REASONS: Record<string, string> = {
   hybrid_model_unavailable_or_incompatible: 'Modello C assente o incompatibile.',
   validated_calibration_unavailable: 'Calibrazione validata non disponibile.',
   quotes_missing: 'Quote reali non disponibili.',
-  stale_t15_quote: 'Quote troppo vecchie per la decisione T−15.',
+  stale_nightly_quote: 'Quote troppo vecchie al momento della decisione notturna.',
+  match_already_started: 'Partita già iniziata: nessuna registrazione retroattiva.',
+  outside_nightly_window: 'Partita fuori dalla finestra della nightly.',
+  stale_t15_quote: 'Quota scaduta nel precedente protocollo temporale.',
   real_fresh_quote_required: 'Serve una quota reale aggiornata.',
   market_not_allowed: 'Mercato non abilitato per questa versione.',
   market_not_validated: 'Mercato non ancora validato.',

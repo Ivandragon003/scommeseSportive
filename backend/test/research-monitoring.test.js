@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { randomUUID } = require('node:crypto');
 const { ResearchMonitoringStore, researchDailySummary, researchCriticalIncidents, readResearchMonitoring,
-  reconcileResearchMonitoring } = require('../dist/research/ResearchMonitoring');
+  reconcileResearchMonitoring, nightlySchedule, researchNightlyStatus } = require('../dist/research/ResearchMonitoring');
 
 async function setup(t) {
   const path = join(tmpdir(), `footpredictor-monitor-${randomUUID()}.db`);
@@ -52,7 +52,7 @@ test('daily summary is idempotent and GET monitoring is read-only with explicit 
   assert.equal(state.dailySummary.portfolios[0].profitCents, 900);
   assert.equal(state.delivery.channel, 'in_app');
   assert.equal(state.delivery.externalConfigured, false);
-  assert.match(state.delivery.blocker, /processo remoto fermo/);
+  assert.match(state.delivery.blocker, /mancata nightly/);
 });
 
 test('daily A/C accounting is independent and excludes initial capital from profit', () => {
@@ -109,17 +109,18 @@ for (const [day, beforeNine, atNine] of [
       listLedger: async () => [opening],
     }, listRecentSchedulerRuns: async () => failures };
     await reconcileResearchMonitoring(db, beforeNine, { schedulerEnabled: false });
-    const early = await readResearchMonitoring(db);
+    const early = await readResearchMonitoring(db, beforeNine);
     assert.equal(early.dailySummary, null);
     assert.equal(early.notifications.length, 1);
     assert.equal(early.notifications[0].kind, 'technical_error');
 
     await reconcileResearchMonitoring(db, atNine, { schedulerEnabled: false });
     await reconcileResearchMonitoring(db, new Date(Date.parse(atNine) + 60000), { schedulerEnabled: false });
-    const due = await readResearchMonitoring(db);
+    const due = await readResearchMonitoring(db, atNine);
     const summaries = due.notifications.filter((notification) => notification.kind === 'daily_summary');
     assert.equal(summaries.length, 1);
-    assert.equal(summaries[0].createdAt, new Date(atNine).toISOString());
+    assert.equal(summaries[0].createdAt, new Date(beforeNine).toISOString());
+    assert.equal(summaries[0].publishAfter, new Date(atNine).toISOString());
     assert.equal(summaries[0].day, new Date(Date.parse(`${day}T12:00:00Z`) - 86400000).toISOString().slice(0, 10));
     assert.equal(due.notifications.filter((notification) => notification.kind === 'technical_error').length, 1);
   });
@@ -129,7 +130,7 @@ test('critical rules require measured failures, respect disabled scheduler and d
   const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
   assert.deepEqual(researchCriticalIncidents(base), []);
   const enabled = researchCriticalIncidents({ ...base, schedulerEnabled: true });
-  assert.deepEqual(enabled.map((row) => row.key), ['scheduler_heartbeat_missing', 'no_validated_model']);
+  assert.deepEqual(enabled.map((row) => row.key), ['nightly_execution_missing']);
   const runs = [0, 1, 2].map((minute) => ({ schedulerName: 'research_settlement', endedAt: `2026-10-27T11:5${9 - minute}:00Z`, success: false }));
   assert.equal(researchCriticalIncidents({ ...base, runs }).filter((row) => row.key === 'research_settlement_repeated_failure').length, 1);
   assert.equal(researchCriticalIncidents({ ...base, runs: [{ ...runs[0], success: true }, ...runs.slice(1)] }).length, 0);
@@ -139,7 +140,7 @@ test('critical rules require measured failures, respect disabled scheduler and d
 });
 
 test('successful A checks and other competitions cannot hide persistent C or provider failures', () => {
-  const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: false, models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
+  const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: true, models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
   const runs = [];
   for (let minute = 0; minute < 3; minute++) {
     const endedAt = `2026-10-27T11:5${7 + minute}:00Z`;
@@ -150,7 +151,7 @@ test('successful A checks and other competitions cannot hide persistent C or pro
     runs.push({ schedulerName: 'research_provider', endedAt, success: true, summary: { provider: 'odds_api', competition: 'Premier League' } });
   }
   const incidents = researchCriticalIncidents({ ...base, runs });
-  assert.deepEqual(incidents.map((incident) => incident.key).sort(), [
+  assert.deepEqual(incidents.map((incident) => incident.key).filter((key) => key !== 'nightly_execution_missing').sort(), [
     'research_model_check_repeated_failure:C:C-failed', 'research_provider_repeated_failure:odds_api:Serie A',
   ]);
   const recovered = [...runs, { schedulerName: 'research_model_check', endedAt: '2026-10-27T11:59:30Z', success: true,
@@ -165,14 +166,14 @@ test('reconciliation isolates scheduler components and does not create an empty 
     getModels: async () => [], listMarkets: async () => [], listJobs: async () => [],
     listPortfolios: async () => [], listBets: async () => [], listLedger: async () => [],
   }, listRecentSchedulerRuns: async () => { throw new Error('Unfiltered heartbeats hide component history'); },
-  listRecentSchedulerRunsByName: async (name) => { requested.push(name); return name === 'research_t15'
-    ? [{ schedulerName: name, endedAt: '2026-10-27T11:59:00Z', success: true }] : []; } };
+  listRecentSchedulerRunsByName: async (name) => { requested.push(name); return name === 'research_nightly'
+    ? [{ schedulerName: name, startedAt: '2026-10-27T02:05:00Z', endedAt: '2026-10-27T03:00:00Z', success: true }] : []; } };
   await reconcileResearchMonitoring(db, '2026-10-27T12:00:00Z', { schedulerEnabled: true });
-  assert.deepEqual(requested.sort(), ['research_model_check', 'research_provider', 'research_settlement', 'research_t15']);
+  assert.deepEqual(requested.sort(), ['research_model_check', 'research_nightly', 'research_provider', 'research_settlement']);
   const result = await readResearchMonitoring(db);
   assert.equal(result.dailySummary, null);
-  assert.equal(result.notifications.length, 1);
-  assert.equal(result.incidents[0].key, 'no_validated_model');
+  assert.equal(result.notifications.length, 0);
+  assert.equal(result.incidents.length, 0);
 });
 
 test('a ledger commit during monitoring defers integrity and summary rather than raising or resolving an incident', async (t) => {
@@ -189,4 +190,48 @@ test('a ledger commit during monitoring defers integrity and summary rather than
   assert.equal(result.notifications.length, 1);
   assert.equal(result.incidents[0].key, prior.key);
   assert.equal(result.dailySummary, null);
+});
+
+for (const [now, expected, next] of [
+  ['2026-03-29T06:00:00Z','2026-03-29T01:00:00.000Z','2026-03-30T01:00:00.000Z'],
+  ['2026-10-25T06:00:00Z','2026-10-25T02:00:00.000Z','2026-10-26T02:00:00.000Z'],
+  ['2026-03-28T23:00:00Z','2026-03-28T02:00:00.000Z','2026-03-29T01:00:00.000Z'],
+]) test(`nightly schedule follows Rome DST for ${now}`, () => {
+  const schedule = nightlySchedule(now);
+  assert.equal(schedule.expectedAt, expected); assert.equal(schedule.nextAt, next);
+});
+
+test('nightly monitor uses actual starts, four-hour grace, latest failure and measured metrics', () => {
+  const runs = [{ schedulerName: 'research_nightly', startedAt: '2026-10-27T02:30:00Z', endedAt: '2026-10-27T03:00:00Z',
+    success: false, summary: { mode: 'NIGHTLY', analyzedMatches: 5, registeredBets: 0, skippedMatches: 5, apiErrors: 3,
+      quota: { remaining: 0 } } }];
+  assert.equal(researchNightlyStatus([], '2026-10-27T05:59:59Z', true).overdue, false);
+  assert.equal(researchNightlyStatus([], '2026-10-27T06:00:01Z', true).state, 'MISSED');
+  const state = researchNightlyStatus(runs, '2026-10-27T12:00:00Z', true);
+  assert.equal(state.state, 'FAILED'); assert.equal(state.metrics.analyzedMatches, 5);
+  assert.equal(state.metrics.missedMatches, null);
+  assert.equal(researchNightlyStatus([], '2026-10-27T12:00:00Z', false).state, 'DISABLED');
+  const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: true, runs, models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
+  assert.deepEqual(researchCriticalIncidents(base).map((row) => row.key), ['nightly_execution_failed','nightly_api_errors','nightly_odds_credits_exhausted']);
+  assert.deepEqual(researchCriticalIncidents({ ...base, schedulerEnabled: false, runs: [{ schedulerName: 'research_t15', success: false }] }), []);
+  const disabledRun = { ...runs[0], success: true, summary: { enabled: false } };
+  assert.equal(researchNightlyStatus([disabledRun], base.now, true).executionEnabled, false);
+  assert.deepEqual(researchCriticalIncidents({ ...base, runs: [disabledRun] }).map((row) => row.key), ['nightly_registration_disabled']);
+});
+
+test('03:00 prepares an invisible 09:00 summary without another writer and rejects future evidence', async (t) => {
+  const { store } = await setup(t);
+  const opening = { portfolioId: 'shadow_A', event: 'OPEN', createdAt: '2026-10-27T01:00:00Z', availableDeltaCents: 100000, committedDeltaCents: 0 };
+  const db = { researchMonitoring: store, research: { listBets: async () => [],
+    listPortfolios: async () => [{ id: 'shadow_A', family: 'A', availableCents: 100000, committedCents: 0, equityCents: 100000 }],
+    listLedger: async () => [opening] }, listRecentSchedulerRuns: async () => [] };
+  await reconcileResearchMonitoring(db, '2026-10-27T02:30:00Z', { schedulerEnabled: false });
+  assert.equal((await store.read()).notifications.length, 1);
+  assert.equal((await readResearchMonitoring(db, '2026-10-27T07:59:59Z')).dailySummary, null);
+  const visible = await readResearchMonitoring(db, '2026-10-27T08:00:00Z');
+  assert.equal(visible.dailySummary.createdAt, '2026-10-27T02:30:00.000Z');
+  assert.equal(visible.dailySummary.publishAfter, '2026-10-27T08:00:00.000Z');
+  opening.createdAt = '2026-10-29T01:00:00Z';
+  await reconcileResearchMonitoring(db, '2026-10-28T02:30:00Z', { schedulerEnabled: false });
+  assert.equal((await store.read()).notifications.filter((row) => row.kind === 'daily_summary').length, 1);
 });

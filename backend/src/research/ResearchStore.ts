@@ -1,5 +1,8 @@
 import type { Client, Transaction } from '@libsql/client';
 import { createHash, randomUUID } from 'node:crypto';
+import { settleGoalQuote } from './GoalSettlement';
+import { prospectiveBucket, prospectivePartition, FrozenProspectiveObservation, buildFrozenProspectiveObservations } from './ResearchProspectiveEvidence';
+import { ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
 
 export type ResearchFamily = 'A' | 'C';
 export type ResearchMarketState = 'EXPERIMENTAL' | 'SHADOW' | 'ACTIVE' | 'SUSPENDED';
@@ -12,6 +15,11 @@ export type ResearchDecision = {
 export type ResearchCommit = {
   jobId: string; leaseToken: string; now?: string | Date;
   inputSnapshot: Record<string, any>; decisions: ResearchDecision[];
+  observations?: FrozenProspectiveObservation[];
+};
+export type NightlyBatchClaim = {
+  startedAt: string; windowEndAt: string; fixtures: Array<{ matchId: string; kickoffAt: string }>;
+  runId?: string; leaseMs?: number; quoteMaxAgeMs?: number; minEv?: number; minPrudentialEv?: number;
 };
 type Executor = Pick<Client, 'execute'> | Pick<Transaction, 'execute'>;
 const TOLERANCE_MS = 60_000;
@@ -57,6 +65,8 @@ export class ResearchStore {
   private guards: Promise<void> | undefined;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly clock: () => Date;
+  private nightlySchema: boolean | undefined;
+  private prospectiveSchema: boolean | undefined;
 
   constructor(private readonly client: Client, private readonly ready: () => Promise<void> = async () => {},
     options: { now?: () => Date } = {}) {
@@ -77,6 +87,16 @@ export class ResearchStore {
           // Remote Turso manages its journal. Local multi-process clients need WAL.
           if (this.client.protocol === 'file') await this.client.execute('PRAGMA journal_mode=WAL');
           await this.client.executeMultiple(statements.join('\n'));
+          this.nightlySchema = Boolean(await first(this.client,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='research_nightly_jobs'"));
+          this.prospectiveSchema = Boolean(await first(this.client,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='research_prospective_observations'"));
+          if (this.prospectiveSchema) {
+            const guards = ['research_prospective_observations', 'research_prospective_results', 'research_prospective_invalidations'].flatMap((table) =>
+              ['UPDATE', 'DELETE'].map((operation) => `CREATE TRIGGER IF NOT EXISTS ${table}_immutable_${operation.toLowerCase()}
+                BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT, 'prospective evidence is immutable'); END;`));
+            await this.client.executeMultiple(guards.join('\n'));
+          }
           break;
         } catch (error: any) {
           if (!/SQLITE_BUSY|database is locked/i.test(String(error?.code) + String(error?.message))) throw error;
@@ -380,6 +400,8 @@ export class ResearchStore {
         if (!fixture.matchId?.trim()) throw new Error('Fixture identity required');
         const kickoff = iso(fixture.kickoffAt); const target = iso(Date.parse(kickoff) - 15 * 60_000); const now = iso(this.clock());
         const existing = await first(tx, 'SELECT * FROM research_jobs WHERE match_id=?', [fixture.matchId]);
+        // Retired T15 synchronization must never rewrite a nightly allocation.
+        if (existing && this.nightlySchema && await first(tx, 'SELECT job_id FROM research_nightly_jobs WHERE job_id=?', [existing.id])) continue;
         const blocked = fixture.status && fixture.status !== 'upcoming';
         if (!existing) {
           await tx.execute({ sql: `INSERT INTO research_jobs(id,match_id,kickoff_at,target_at,score,status,created_at,updated_at)
@@ -411,7 +433,181 @@ export class ResearchStore {
 
   async listJobs(): Promise<any[]> {
     await this.ensureGuards();
+    if (this.nightlySchema) return rows(this.client, `SELECT j.*,CASE WHEN n.job_id IS NULL THEN 'T15' ELSE 'NIGHTLY' END AS mode,
+      n.run_id,n.window_start_at,n.window_end_at FROM research_jobs j LEFT JOIN research_nightly_jobs n ON n.job_id=j.id
+      ORDER BY j.target_at,j.score DESC,j.match_id`);
     return rows(this.client, 'SELECT * FROM research_jobs ORDER BY target_at,score DESC,match_id');
+  }
+
+  /** A single persistent lease covers the whole nightly allocation, including retries. */
+  async claimNightlyBatch(input: NightlyBatchClaim): Promise<any> {
+    await this.ensureGuards();
+    if (!this.nightlySchema) throw new Error('Research nightly migration 020 is required');
+    const startedAt = iso(input.startedAt); const windowEndAt = iso(input.windowEndAt);
+    if (Date.parse(startedAt) > this.clock().getTime() || Date.parse(windowEndAt) <= Date.parse(startedAt)) {
+      throw new Error('Invalid nightly decision window');
+    }
+    const runId = input.runId ?? `nightly:${windowEndAt}`;
+    const quoteMaxAgeMs = input.quoteMaxAgeMs ?? QUOTE_MAX_AGE_MS;
+    const minEv = input.minEv ?? .04; const minPrudentialEv = input.minPrudentialEv ?? .01;
+    if (!runId.trim() || !Number.isSafeInteger(quoteMaxAgeMs) || quoteMaxAgeMs < 1
+      || !Number.isFinite(minEv) || minEv < 0 || !Number.isFinite(minPrudentialEv) || minPrudentialEv < 0) {
+      throw new Error('Invalid nightly admission policy');
+    }
+    return this.write(async (tx) => {
+      const timestamp = iso(this.clock());
+      const existing = await first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]);
+      if (existing && (existing.windowEndAt !== windowEndAt || existing.quoteMaxAgeMs !== quoteMaxAgeMs
+        || existing.minEv !== minEv || existing.minPrudentialEv !== minPrudentialEv)) throw new Error('Nightly run policy is immutable');
+      if (existing?.status === 'COMPLETED') return { run: existing, jobs: [], skipped: [], busy: false, alreadyCompleted: true };
+      const active = await first(tx, "SELECT * FROM research_nightly_runs WHERE status='RUNNING' AND lease_expires_at>? LIMIT 1", [timestamp]);
+      if (active) return { run: active, jobs: [], skipped: [], busy: true, alreadyCompleted: false };
+      if (Date.parse(windowEndAt) <= Date.parse(timestamp)) throw new Error('Nightly decision window closed');
+      const token = randomUUID(); const expires = this.nightlyLeaseExpiry(timestamp, windowEndAt, input.leaseMs);
+      const effectiveStart = existing?.startedAt ?? startedAt;
+      if (existing) await tx.execute({ sql: `UPDATE research_nightly_runs SET status='RUNNING',lease_token=?,lease_expires_at=?,
+        ended_at=NULL,updated_at=? WHERE id=?`, args: [token, expires, timestamp, runId] });
+      else await tx.execute({ sql: `INSERT INTO research_nightly_runs
+        (id,started_at,window_end_at,status,lease_token,lease_expires_at,quote_max_age_ms,min_ev,min_prudential_ev,updated_at)
+        VALUES (?,?,?,'RUNNING',?,?,?,?,?,?)`, args: [runId, effectiveStart, windowEndAt, token, expires, quoteMaxAgeMs, minEv, minPrudentialEv, timestamp] });
+      const claimed: any[] = []; const skipped: any[] = [];
+      const seen = new Set<string>();
+      for (const fixture of input.fixtures) {
+        if (!fixture.matchId?.trim() || seen.has(fixture.matchId)) throw new Error('Unique nightly fixture identity required');
+        seen.add(fixture.matchId);
+        const kickoff = iso(fixture.kickoffAt);
+        if (kickoff < effectiveStart || kickoff > windowEndAt || kickoff <= timestamp) {
+          skipped.push({ matchId: fixture.matchId, reason: kickoff <= timestamp ? 'match_started' : 'outside_nightly_window' });
+          continue;
+        }
+        let job = await first(tx, 'SELECT * FROM research_jobs WHERE match_id=?', [fixture.matchId]);
+        if (job && await first(tx, 'SELECT id FROM research_inputs WHERE job_id=?', [job.id])) {
+          skipped.push({ matchId: fixture.matchId, reason: 'decision_already_recorded' });
+          continue;
+        }
+        if (await first(tx, 'SELECT id FROM research_bets WHERE match_id=? LIMIT 1', [fixture.matchId])) {
+          skipped.push({ matchId: fixture.matchId, reason: 'bet_already_recorded' });
+          continue;
+        }
+        if (job?.status === 'CLAIMED' && job.leaseExpiresAt > timestamp) {
+          skipped.push({ matchId: fixture.matchId, reason: 'fixture_lease_active' });
+          continue;
+        }
+        const jobId = job?.id ?? randomUUID();
+        const jobExpires = expires < kickoff ? expires : kickoff;
+        if (job) await tx.execute({ sql: `UPDATE research_jobs SET kickoff_at=?,target_at=?,status='CLAIMED',
+          lease_token=?,lease_expires_at=?,reason=NULL,updated_at=? WHERE id=?`,
+        args: [kickoff, effectiveStart, token, jobExpires, timestamp, jobId] });
+        else await tx.execute({ sql: `INSERT INTO research_jobs
+          (id,match_id,kickoff_at,target_at,status,lease_token,lease_expires_at,created_at,updated_at)
+          VALUES (?,?,?,?,'CLAIMED',?,?,?,?)`, args: [jobId, fixture.matchId, kickoff, effectiveStart, token, jobExpires, timestamp, timestamp] });
+        await tx.execute({ sql: `INSERT INTO research_nightly_jobs(job_id,run_id,window_start_at,window_end_at) VALUES (?,?,?,?)
+          ON CONFLICT(job_id) DO UPDATE SET run_id=excluded.run_id,window_start_at=excluded.window_start_at,window_end_at=excluded.window_end_at`,
+        args: [jobId, runId, effectiveStart, windowEndAt] });
+        job = await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [jobId]);
+        claimed.push({ ...job, mode: 'NIGHTLY', runId, windowStartAt: effectiveStart, windowEndAt });
+      }
+      return { run: await first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]), jobs: claimed, skipped, busy: false, alreadyCompleted: false };
+    });
+  }
+
+  private nightlyLeaseExpiry(now: string, windowEndAt: string, leaseMs = 180_000): string {
+    if (!Number.isFinite(leaseMs)) throw new Error('Invalid nightly lease duration');
+    return iso(Math.min(Date.parse(windowEndAt), Date.parse(now) + Math.max(1000, Math.min(leaseMs, 900_000))));
+  }
+
+  async renewNightlyLease(runId: string, leaseToken: string, leaseMs?: number): Promise<any> {
+    return this.write(async (tx) => {
+      const run = await first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]);
+      const now = iso(this.clock());
+      this.assertNightlyRunLease(run, leaseToken, Date.parse(now));
+      const expires = this.nightlyLeaseExpiry(now, run.windowEndAt, leaseMs);
+      await tx.execute({ sql: 'UPDATE research_nightly_runs SET lease_expires_at=?,updated_at=? WHERE id=? AND lease_token=?',
+        args: [expires, now, runId, leaseToken] });
+      await tx.execute({ sql: `UPDATE research_jobs SET lease_expires_at=MIN(kickoff_at,?),updated_at=?
+        WHERE status='CLAIMED' AND lease_token=? AND id IN (SELECT job_id FROM research_nightly_jobs WHERE run_id=?)`,
+      args: [expires, now, leaseToken, runId] });
+      return { ...run, leaseExpiresAt: expires, updatedAt: now };
+    });
+  }
+
+  async finishNightlyRun(runId: string, leaseToken: string, outcome: { status: 'COMPLETED' | 'ERROR'; summary: Record<string, unknown> }): Promise<any> {
+    return this.write(async (tx) => {
+      const run = await first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]);
+      if (!run || run.leaseToken !== leaseToken) throw new Error('Research nightly lease lost');
+      if (run.status === 'COMPLETED') return run;
+      if (!['COMPLETED', 'ERROR'].includes(outcome.status)) throw new Error('Invalid nightly outcome');
+      const now = iso(this.clock());
+      await tx.execute({ sql: `UPDATE research_nightly_runs SET status=?,summary_json=?,ended_at=?,lease_expires_at=?,updated_at=?
+        WHERE id=? AND lease_token=?`, args: [outcome.status, researchJson(outcome.summary), now, now, now, runId, leaseToken] });
+      if (outcome.status === 'ERROR') await tx.execute({ sql: `UPDATE research_jobs SET status='PENDING',lease_expires_at=?,updated_at=?
+        WHERE status='CLAIMED' AND lease_token=? AND id IN (SELECT job_id FROM research_nightly_jobs WHERE run_id=?)`,
+      args: [now, now, leaseToken, runId] });
+      return first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]);
+    });
+  }
+
+  async listNightlyRuns(limit = 30): Promise<any[]> {
+    if (!await this.hasNightlySchema()) return [];
+    return rows(this.client, 'SELECT * FROM research_nightly_runs ORDER BY started_at DESC,id DESC LIMIT ?',
+      [Math.max(1, Math.min(365, Math.floor(Number(limit) || 30)))]);
+  }
+
+  async getNightlyRun(runId: string): Promise<any> {
+    if (!await this.hasNightlySchema()) return null;
+    return first(this.client, 'SELECT * FROM research_nightly_runs WHERE id=?', [runId]);
+  }
+
+  /** Count persisted results, including a committed transaction whose response was lost. */
+  async getNightlyRunMetrics(runId: string): Promise<{
+    analyzedMatches: number; registeredBets: number; abstainedMatches: number; reasonCounts: Record<string, number>;
+  }> {
+    if (!await this.hasNightlySchema()) return { analyzedMatches: 0, registeredBets: 0, abstainedMatches: 0, reasonCounts: {} };
+    const records = await rows(this.client, `WITH per_job AS (
+      SELECT j.id,j.status,CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS analyzed,COUNT(DISTINCT b.id) AS bet_count
+      FROM research_nightly_jobs n JOIN research_jobs j ON j.id=n.job_id
+      LEFT JOIN research_inputs i ON i.job_id=j.id
+      LEFT JOIN research_decisions d ON d.job_id=j.id
+      LEFT JOIN research_bets b ON b.decision_id=d.id
+      WHERE n.run_id=? GROUP BY j.id,j.status,i.id
+    ), totals AS (SELECT COALESCE(SUM(analyzed),0) AS analyzed_matches,COALESCE(SUM(bet_count),0) AS registered_bets,
+      COALESCE(SUM(CASE WHEN status='COMPLETED' AND analyzed=1 AND bet_count=0 THEN 1 ELSE 0 END),0) AS abstained_matches
+      FROM per_job), reasons AS (SELECT COALESCE(d.reason,'model_abstained') AS reason,COUNT(*) AS count
+      FROM research_nightly_jobs n JOIN research_decisions d ON d.job_id=n.job_id
+      WHERE n.run_id=? AND d.action='ABSTAIN' GROUP BY COALESCE(d.reason,'model_abstained'))
+      SELECT totals.*,reasons.reason,reasons.count FROM totals LEFT JOIN reasons ON 1=1 ORDER BY reasons.reason`, [runId, runId]);
+    // A reason count describes decisions: A and C may independently abstain on one match.
+    const result = records[0];
+    return { analyzedMatches: Number(result.analyzedMatches), registeredBets: Number(result.registeredBets),
+      abstainedMatches: Number(result.abstainedMatches),
+      reasonCounts: Object.fromEntries(records.filter((entry) => entry.reason !== null).map((entry) => [entry.reason, Number(entry.count)])) };
+  }
+
+  private async hasNightlySchema(): Promise<boolean> {
+    await this.ready();
+    // Monitoring reads must not initialize write guards or modify the journal.
+    this.nightlySchema ??= Boolean(await first(this.client,
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='research_nightly_jobs'"));
+    return this.nightlySchema;
+  }
+
+  private async hasProspectiveSchema(): Promise<boolean> {
+    await this.ready();
+    this.prospectiveSchema ??= Boolean(await first(this.client,
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='research_prospective_observations'"));
+    return this.prospectiveSchema;
+  }
+
+  private assertNightlyRunLease(run: any, token: string, now: number): void {
+    if (run?.status !== 'RUNNING' || run.leaseToken !== token || now >= Date.parse(run.leaseExpiresAt)) throw new Error('Research nightly lease lost');
+    if (now < Date.parse(run.startedAt) || now >= Date.parse(run.windowEndAt)) throw new Error('Research nightly decision window closed');
+  }
+
+  private async attachNightlyJob(db: Executor, job: any): Promise<any> {
+    if (!job || !this.nightlySchema) return job;
+    const metadata = await first(db, `SELECT n.*,r.quote_max_age_ms,r.min_ev,r.min_prudential_ev
+      FROM research_nightly_jobs n JOIN research_nightly_runs r ON r.id=n.run_id WHERE n.job_id=?`, [job.id]);
+    return metadata ? { ...job, ...metadata, mode: 'NIGHTLY' } : job;
   }
 
   async claimDueJobs(now: string | Date, leaseMs = 30_000): Promise<any[]> {
@@ -420,6 +616,7 @@ export class ResearchStore {
       // The process clock is authoritative. A caller cannot move a job into its window.
       const timestamp = iso(this.clock());
       const due = await rows(tx, `SELECT * FROM research_jobs WHERE target_at<=?
+        ${this.nightlySchema ? 'AND id NOT IN (SELECT job_id FROM research_nightly_jobs)' : ''}
         AND (status='PENDING' OR (status='CLAIMED' AND lease_expires_at<=?)) ORDER BY target_at,score DESC,match_id`, [timestamp, timestamp]);
       const claimed = [];
       for (const job of due) {
@@ -438,7 +635,7 @@ export class ResearchStore {
 
   async finishJob(jobId: string, leaseToken: string, outcome: { status?: string; reason?: string } = {}): Promise<any> {
     return this.write(async (tx) => {
-      const job = await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [jobId]);
+      const job = await this.attachNightlyJob(tx, await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [jobId]));
       if (!job || job.leaseToken !== leaseToken) throw new Error('Research job lease lost');
       if (job.status === 'COMPLETED' || job.status === 'MISSED') return job;
       let status = outcome.status ?? 'COMPLETED';
@@ -467,12 +664,13 @@ export class ResearchStore {
   }
 
   private inWindow(job: any, now: number): boolean {
+    if (job.mode === 'NIGHTLY') return now >= Date.parse(job.windowStartAt) && now < Date.parse(job.windowEndAt) && now < Date.parse(job.kickoffAt);
     return now >= Date.parse(job.targetAt) && now <= Date.parse(job.targetAt) + TOLERANCE_MS && now < Date.parse(job.kickoffAt);
   }
 
   private assertCommitWindow(job: any, token: string, now: number): void {
     if (job?.status !== 'CLAIMED' || job.leaseToken !== token || now >= Date.parse(job.leaseExpiresAt)) throw new Error('Research job lease lost');
-    if (!this.inWindow(job, now)) throw new Error('Research T15 commit window closed');
+    if (!this.inWindow(job, now)) throw new Error(`Research ${job.mode === 'NIGHTLY' ? 'nightly' : 'T15'} commit window closed`);
   }
 
   async commitDecisions(input: ResearchCommit): Promise<any> {
@@ -486,21 +684,33 @@ export class ResearchStore {
     const at = () => this.clock().getTime();
     const guardedJobs: Array<{ job: any; token: string }> = [];
     return this.write(async (tx) => {
-      const committedDecisions: any[] = []; const bets: any[] = []; const completedJobs: any[] = [];
+      const committedDecisions: any[] = []; const bets: any[] = []; const completedJobs: any[] = []; const observations: any[] = [];
       const plans: Array<{ input: ResearchCommit; job: any; inputId: string; decision: ResearchDecision }> = [];
       const hasFixtures = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
       for (const input of preparedJobs) {
-        const job = await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [input.jobId]);
+        if (input.observations !== undefined && (!Array.isArray(input.observations)
+          || researchHash(input.observations) !== researchHash(input.inputSnapshot.prospectiveObservations))) {
+          throw new Error('Prospective observations must be frozen in the shared input');
+        }
+        if (input.observations?.length && !this.prospectiveSchema) throw new Error('Research prospective migration 021 is required');
+        const job = await this.attachNightlyJob(tx, await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [input.jobId]));
         if (!job) throw new Error('Research job not found');
         if (job.status === 'COMPLETED') {
           const storedInput = await first(tx, 'SELECT * FROM research_inputs WHERE job_id=?', [job.id]);
           if (!storedInput || storedInput.inputHash !== researchHash(input.inputSnapshot)) throw new Error('Completed job input is immutable');
           committedDecisions.push(...await rows(tx, 'SELECT * FROM research_decisions WHERE job_id=?', [job.id]));
           bets.push(...await rows(tx, 'SELECT * FROM research_bets WHERE match_id=?', [job.matchId]));
+          if (input.observations?.length) observations.push(...await rows(tx, 'SELECT * FROM research_prospective_observations WHERE job_id=?', [job.id]));
           completedJobs.push(job);
           continue;
         }
         this.assertCommitWindow(job, input.leaseToken, at());
+        if (job.mode === 'NIGHTLY') {
+          const run = await first(tx, 'SELECT * FROM research_nightly_runs WHERE id=?', [job.runId]);
+          this.assertNightlyRunLease(run, input.leaseToken, at());
+          if (input.inputSnapshot.mode !== 'NIGHTLY' || input.inputSnapshot.runId !== job.runId
+            || input.inputSnapshot.windowStartAt !== job.windowStartAt) throw new Error('Shared nightly input identity mismatch');
+        }
         // Nightly may change the official fixture after model preparation. This
         // read shares the write transaction, so that update cannot race admission.
         if (hasFixtures) {
@@ -510,6 +720,7 @@ export class ResearchStore {
         }
         const observedAt = Date.parse(iso(input.inputSnapshot?.observedAt));
         if (observedAt > at() || observedAt >= Date.parse(job.kickoffAt)) throw new Error('Shared input must be observed before decision and kickoff');
+        if (job.mode === 'NIGHTLY' && observedAt < Date.parse(job.windowStartAt)) throw new Error('Shared nightly input predates execution');
         if (!Array.isArray(input.inputSnapshot.quotes)) throw new Error('Shared quote snapshot required');
         if (guardedJobs.some((entry) => entry.job.id === job.id)) throw new Error('Duplicate research job in batch');
         const identities = input.decisions.map((decision) => `${decision.family}:${decision.portfolioId ?? `shadow_${decision.family}`}`);
@@ -520,15 +731,22 @@ export class ResearchStore {
         const inputId = randomUUID();
         await tx.execute({ sql: `INSERT INTO research_inputs(id,job_id,input_hash,snapshot_json,captured_at,kickoff_at) VALUES (?,?,?,?,?,?)`,
           args: [inputId, job.id, researchHash(input.inputSnapshot), researchJson(input.inputSnapshot), iso(at()), job.kickoffAt] });
+        if (input.observations?.length) observations.push(...await this.freezeProspectiveObservations(tx, input, job, inputId, at));
         for (const decision of input.decisions) plans.push({ input, job, inputId, decision });
       }
       // All candidates are prepared first. This order determines allocation for simultaneous targets.
-      plans.sort((a, b) => a.job.targetAt.localeCompare(b.job.targetAt)
+      plans.sort((a, b) => (a.job.mode === 'NIGHTLY' && b.job.mode === 'NIGHTLY'
+        ? a.decision.family.localeCompare(b.decision.family)
+          || Number(b.decision.prudentialEv ?? -Infinity) - Number(a.decision.prudentialEv ?? -Infinity)
+          || Number(b.decision.ev ?? -Infinity) - Number(a.decision.ev ?? -Infinity)
+        : a.job.targetAt.localeCompare(b.job.targetAt))
         || Number(b.decision.score ?? b.job.score ?? 0) - Number(a.decision.score ?? a.job.score ?? 0)
         || a.job.matchId.localeCompare(b.job.matchId) || a.decision.family.localeCompare(b.decision.family));
       for (const plan of plans) {
         const decision = plan.decision; family(decision.family);
+        const nightly = plan.job.mode === 'NIGHTLY';
         const portfolioId = decision.portfolioId ?? `shadow_${decision.family}`;
+        if (nightly && portfolioId !== `shadow_${decision.family}`) throw new Error('Nightly uses only independent virtual A/C portfolios');
         if (portfolioId !== 'main' && portfolioId !== `shadow_${decision.family}`) throw new Error('Research portfolio family mismatch');
         const portfolio = await first(tx, `${this.portfolioSql} WHERE p.id=? GROUP BY p.id`, [portfolioId]);
         if (!portfolio) throw new Error('Research portfolio is not initialized');
@@ -539,16 +757,28 @@ export class ResearchStore {
         const abstain = (message: string) => { reason ??= message; };
         if (decision.action === 'ABSTAIN') abstain('model_abstained');
         if (!model) abstain('model_not_registered');
-        if (!market || !['SHADOW', 'ACTIVE'].includes(market.state)) abstain('market_not_validated');
+        if (!market || !(nightly ? ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'] : ['SHADOW', 'ACTIVE']).includes(market.state)) abstain('market_not_validated');
         const configuration = decision.probabilityConfiguration;
         if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)
           || configuration.family !== decision.family || configuration.version !== 'probability-configuration-v1'
           || configuration.probabilityProtocol !== 'joint-goal-coherent-v2'
           || !/^[a-f0-9]{64}$/.test(decision.probabilityConfigurationHash ?? '')
           || researchHash(configuration) !== decision.probabilityConfigurationHash
-          || decision.probabilityConfigurationHash !== market?.evidence?.approvedProbabilityConfigurationHash) {
+          || (!nightly && decision.probabilityConfigurationHash !== market?.evidence?.approvedProbabilityConfigurationHash)) {
           abstain('probability_configuration_not_validated');
         }
+        const calibrationAt = typeof decision.calibrationAvailableAt === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(decision.calibrationAvailableAt)
+          ? Date.parse(decision.calibrationAvailableAt) : Number.NaN;
+        if (nightly && (decision.validated !== true || !configuration?.baselineVersion
+          || !/^[a-f0-9]{64}$/.test(configuration?.pipelineHashV2 ?? '')
+          || !/^[a-f0-9]{64}$/.test(configuration?.calibratorHash ?? '')
+          || !['identity', 'isotonic_1x2', 'temperature'].includes(configuration?.mode)
+          || !Number.isFinite(configuration?.temperature) || configuration.temperature <= 0
+          || (plan.input.inputSnapshot.forecast?.baselineVersion && configuration.baselineVersion !== plan.input.inputSnapshot.forecast.baselineVersion)
+          || (decision.calibrationPipelineHash && configuration.pipelineHashV2 !== decision.calibrationPipelineHash)
+          || !Number.isFinite(calibrationAt) || calibrationAt > Date.parse(plan.input.inputSnapshot.observedAt)
+          || (model && Date.parse(model.createdAt) > Date.parse(plan.input.inputSnapshot.observedAt))
+          || calibrationAt >= Date.parse(plan.job.kickoffAt))) abstain('probability_configuration_not_technically_eligible');
         if (portfolioId === 'main') {
           const champion = await first(tx, 'SELECT * FROM research_champions WHERE family=? AND version=?', [decision.family, decision.modelVersion]);
           if (!champion || market?.state !== 'ACTIVE') abstain('main_requires_active_champion');
@@ -559,15 +789,19 @@ export class ResearchStore {
           ? Date.parse(value) : Number.NaN;
         const captured = quoteTime(quote?.capturedAt ?? quote?.captured_at);
         const updated = quoteTime(quote?.updatedAt);
-        const validTime = (time: number) => Number.isFinite(time) && time <= at() && at() - time <= QUOTE_MAX_AGE_MS && time < Date.parse(plan.job.kickoffAt);
+        const maxQuoteAge = nightly ? plan.job.quoteMaxAgeMs : QUOTE_MAX_AGE_MS;
+        const validTime = (time: number) => Number.isFinite(time) && time <= at() && at() - time <= maxQuoteAge
+          && (!nightly || time <= Date.parse(plan.input.inputSnapshot.observedAt)) && time < Date.parse(plan.job.kickoffAt);
         if (!quote || !Number.isFinite(odds) || odds <= 1 || !String(quote.bookmaker ?? quote.bookmakerName ?? '').trim()
           || quote.source !== 'odds_api' || quote.usedSyntheticOdds === true
           || !validTime(captured) || !validTime(updated)) abstain('real_fresh_quote_required');
         if (quote && !plan.input.inputSnapshot.quotes.some((shared: unknown) => researchHash(shared) === researchHash(quote))) abstain('quote_not_in_shared_snapshot');
+        if (nightly && (quote?.market !== decision.market || quote?.selection !== decision.selection
+          || settleGoalQuote(quote as any, 0, 0).status === 'UNRESOLVED')) abstain('market_settlement_not_supported');
         const probability = Number(decision.probability);
         if (!Number.isFinite(probability) || probability <= 0 || probability >= 1
-          || !Number.isFinite(Number(decision.ev)) || Number(decision.ev) < .04
-          || !Number.isFinite(Number(decision.prudentialEv)) || Number(decision.prudentialEv) < .01) abstain('prudential_value_threshold_required');
+          || !Number.isFinite(Number(decision.ev)) || Number(decision.ev) < (nightly ? plan.job.minEv : .04)
+          || !Number.isFinite(Number(decision.prudentialEv)) || Number(decision.prudentialEv) < (nightly ? plan.job.minPrudentialEv : .01)) abstain('prudential_value_threshold_required');
         if (!decision.selection?.trim()) abstain('selection_required');
         const stakeCents = Math.floor(Number(portfolio.equityCents) * .01);
         if (stakeCents <= 0 || stakeCents > Number(portfolio.availableCents)) abstain('insufficient_virtual_capital');
@@ -575,7 +809,11 @@ export class ResearchStore {
         const duplicate = await first(tx, 'SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, plan.job.matchId]);
         if (duplicate) abstain('one_bet_per_portfolio_match');
         const id = randomUUID(); const createdAt = iso(at()); const action = reason ? 'ABSTAIN' : 'BET';
-        const evidence = { ...decision, quote: quote ?? null, inputId: plan.inputId, inputHash: researchHash(plan.input.inputSnapshot), stakeCents: action === 'BET' ? stakeCents : 0 };
+        const evidence = { ...decision, ...(nightly ? { ...plan.input.inputSnapshot.match,
+          matchId: plan.job.matchId, kickoffAt: plan.job.kickoffAt, decisionMode: 'NIGHTLY', runId: plan.job.runId,
+          experimental: market?.state === 'EXPERIMENTAL', quoteLeadTimeMs: Number.isFinite(captured) ? Date.parse(plan.job.kickoffAt) - captured : null,
+          decisionLeadTimeMs: Date.parse(plan.job.kickoffAt) - at() } : {}),
+        quote: quote ?? null, inputId: plan.inputId, inputHash: researchHash(plan.input.inputSnapshot), stakeCents: action === 'BET' ? stakeCents : 0 };
         await tx.execute({ sql: `INSERT INTO research_decisions(id,job_id,input_id,family,model_version,market,selection,portfolio_id,action,reason,snapshot_json,created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, args: [id, plan.job.id, plan.inputId, decision.family, decision.modelVersion, decision.market ?? '',
           decision.selection ?? null, portfolioId, action, reason, researchJson(evidence), createdAt] });
@@ -596,8 +834,185 @@ export class ResearchStore {
         await tx.execute({ sql: `UPDATE research_jobs SET status='COMPLETED',updated_at=? WHERE id=? AND lease_token=?`, args: [iso(at()), job.id, token] });
         completedJobs.push({ ...job, status: 'COMPLETED' });
       }
-      return { decisions: committedDecisions, bets, jobs: completedJobs };
+      return { decisions: committedDecisions, bets, jobs: completedJobs, observations };
     }, () => { for (const { job, token } of guardedJobs) this.assertCommitWindow(job, token, at()); });
+  }
+
+  private async freezeProspectiveObservations(tx: Transaction, input: ResearchCommit, job: any, inputId: string,
+    at: () => number): Promise<any[]> {
+    if (job.mode !== 'NIGHTLY') throw new Error('Prospective observations require a nightly job');
+    const observedAt = iso(input.inputSnapshot.observedAt), observed = Date.parse(observedAt);
+    if (observed <= Date.parse(ORIGINAL_HOLDOUT_POLICY.newIndependentForecastsAfter)
+      || ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds.includes(job.matchId)) throw new Error('Protected historical evidence cannot become prospective');
+    const allowedByFamily = new Map<string, Set<string>>(), models = new Map<string, any>();
+    for (const modelFamily of new Set((input.observations ?? []).map((entry) => entry.family))) {
+      const decision = input.decisions.find((entry) => entry.family === modelFamily);
+      const markets = await rows(tx, `SELECT market FROM research_markets WHERE family=? AND model_version=?
+        AND state IN ('EXPERIMENTAL','SHADOW','ACTIVE')`, [modelFamily, decision?.modelVersion ?? '']);
+      if (!decision?.prospectiveMatrix || !decision.probabilityStages?.decision) throw new Error('Frozen prospective probability stages are required');
+      const expected = buildFrozenProspectiveObservations({ matchId: job.matchId, family: modelFamily,
+        modelVersion: decision.modelVersion, probabilityConfigurationHash: decision.probabilityConfigurationHash,
+        matrix: decision.prospectiveMatrix, probabilities: decision.probabilityStages.decision,
+        quotes: input.inputSnapshot.quotes, allowedMarkets: markets.map((market) => market.market),
+        forecastAt: observedAt, kickoffAt: job.kickoffAt, quoteMaxAgeMs: job.quoteMaxAgeMs });
+      if (researchHash(expected) !== researchHash(input.observations!.filter((entry) => entry.family === modelFamily))) {
+        throw new Error('Prospective selection must match the frozen probability pipeline');
+      }
+      allowedByFamily.set(modelFamily, new Set(markets.map((market) => market.market)));
+    }
+    const selected: any[] = [], identities = new Set<string>();
+    for (const observation of input.observations ?? []) {
+      const decision = input.decisions.find((entry) => entry.family === observation.family);
+      const configuration = decision?.probabilityConfiguration;
+      const modelKey = `${observation.family}:${observation.modelVersion}`;
+      if (!models.has(modelKey)) models.set(modelKey,
+        await first(tx, 'SELECT * FROM research_models WHERE family=? AND version=?', [observation.family, observation.modelVersion]));
+      const model = models.get(modelKey);
+      const calibrationAt = decision?.calibrationAvailableAt;
+      if (!decision || decision.validated !== true || decision.modelVersion !== observation.modelVersion
+        || decision.probabilityConfigurationHash !== observation.probabilityConfigurationHash
+        || !configuration || configuration.family !== observation.family || configuration.version !== 'probability-configuration-v1'
+        || configuration.probabilityProtocol !== 'joint-goal-coherent-v2'
+        || !configuration.baselineVersion || !/^[a-f0-9]{64}$/.test(configuration.pipelineHashV2 ?? '')
+        || !/^[a-f0-9]{64}$/.test(configuration.calibratorHash ?? '')
+        || !['identity', 'isotonic_1x2', 'temperature'].includes(configuration.mode)
+        || !Number.isFinite(configuration.temperature) || configuration.temperature <= 0
+        || (input.inputSnapshot.forecast?.baselineVersion && input.inputSnapshot.forecast.baselineVersion !== configuration.baselineVersion)
+        || (decision.calibrationPipelineHash && decision.calibrationPipelineHash !== configuration.pipelineHashV2)
+        || researchHash(configuration) !== observation.probabilityConfigurationHash
+        || !model || Date.parse(model.createdAt) > observed || !allowedByFamily.get(observation.family)?.has(observation.market)
+        || typeof calibrationAt !== 'string' || !/(?:z|[+-]\d{2}:\d{2})$/i.test(calibrationAt)
+        || !Number.isFinite(Date.parse(calibrationAt)) || Date.parse(calibrationAt) > observed) {
+        throw new Error('Prospective model configuration is not technically eligible');
+      }
+      const quote = observation.quote;
+      const quoteTime = (value: unknown) => typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
+      if (observation.protocol !== 'prospective-residual-v1' || observation.partition !== prospectivePartition(job.matchId)
+        || observation.bucket !== prospectiveBucket(observation.probability) || !Number.isFinite(observation.probability)
+        || observation.probability <= 0 || observation.probability >= 1 || !quote || quote.source !== 'odds_api'
+        || (quote as any).usedSyntheticOdds === true || !quote.bookmaker?.trim() || quote.market !== observation.market
+        || quote.selection !== observation.selection || settleGoalQuote(quote, 0, 0).status === 'UNRESOLVED'
+        || !Number.isFinite(observation.expectedValue) || observation.expectedValue < -1 || observation.expectedValue > quote.odds - 1 + 1e-8
+        || ![quoteTime(quote.capturedAt), quoteTime(quote.updatedAt)].every((time) => Number.isFinite(time)
+          && time <= observed && observed - time <= job.quoteMaxAgeMs)
+        || !input.inputSnapshot.quotes.some((entry: unknown) => researchHash(entry) === researchHash(quote))) {
+        throw new Error('Invalid frozen prospective observation');
+      }
+      const identity = `${observation.family}:${observation.market}:${observation.bucket}`;
+      if (identities.has(identity)) throw new Error('One prospective observation per match, market and bucket required');
+      identities.add(identity);
+      const id = researchHash({ protocol: observation.protocol, matchId: job.matchId, family: observation.family,
+        modelVersion: observation.modelVersion, configurationHash: observation.probabilityConfigurationHash,
+        market: observation.market, bucket: observation.bucket });
+      const snapshot = { ...observation, matchId: job.matchId, inputId, inputHash: researchHash(input.inputSnapshot),
+        modelArtifactHash: model.artifactHash, observedAt, frozenAt: iso(at()), kickoffAt: job.kickoffAt };
+      await tx.execute({ sql: `INSERT INTO research_prospective_observations
+        (id,job_id,input_id,match_id,family,model_version,model_artifact_hash,configuration_hash,market,bucket,partition,protocol,
+        probability,expected_value,odds,observed_at,frozen_at,kickoff_at,snapshot_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      args: [id, job.id, inputId, job.matchId, observation.family, observation.modelVersion, model.artifactHash,
+        observation.probabilityConfigurationHash, observation.market, observation.bucket, observation.partition, observation.protocol,
+        observation.probability, observation.expectedValue, quote.odds, observedAt, snapshot.frozenAt, job.kickoffAt, researchJson(snapshot)] });
+      selected.push({ id, ...snapshot });
+    }
+    return selected;
+  }
+
+  async listPendingProspectiveObservations(): Promise<any[]> {
+    if (!await this.hasProspectiveSchema()) return [];
+    return rows(this.client, `SELECT o.* FROM research_prospective_observations o
+      LEFT JOIN research_prospective_results r ON r.observation_id=o.id WHERE r.observation_id IS NULL
+      ORDER BY o.kickoff_at,o.match_id,o.family,o.market,o.bucket`);
+  }
+
+  async countNightlyProspectiveObservations(runId: string): Promise<number> {
+    if (!await this.hasProspectiveSchema()) return 0;
+    const result = await first(this.client, `SELECT COUNT(*) AS count FROM research_prospective_observations o
+      JOIN research_nightly_jobs n ON n.job_id=o.job_id WHERE n.run_id=?`, [runId]);
+    return Number(result?.count ?? 0);
+  }
+
+  async settleProspectiveObservation(id: string, multiplier: number, evidence: any): Promise<any> {
+    return this.write(async (tx) => {
+      if (!this.prospectiveSchema) throw new Error('Research prospective migration 021 is required');
+      const observation = await first(tx, 'SELECT * FROM research_prospective_observations WHERE id=?', [id]);
+      if (!observation) throw new Error('Prospective observation not found');
+      const observedAvailableAt = iso(this.clock());
+      const kickoffAt = evidence?.resultKickoffAt ?? observation.kickoffAt;
+      if (!evidence || !Number.isInteger(evidence.homeGoals) || !Number.isInteger(evidence.awayGoals)
+        || evidence.homeGoals < 0 || evidence.awayGoals < 0 || !String(evidence.source ?? '').trim()
+        || Date.parse(observedAvailableAt) < Date.parse(observation.kickoffAt)
+        || Date.parse(iso(kickoffAt)) > Date.parse(observedAvailableAt)) throw new Error('Official prospective result is unavailable');
+      const fixtureTable = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
+      if (fixtureTable) {
+        const match = await first(tx, 'SELECT date,home_goals,away_goals,source FROM matches WHERE match_id=?', [observation.matchId]);
+        if (!match || match.homeGoals !== evidence.homeGoals || match.awayGoals !== evidence.awayGoals
+          || Date.parse(match.date) !== Date.parse(kickoffAt) || (match.source && match.source !== evidence.source)) {
+          throw new Error('Official prospective result does not match the stored fixture');
+        }
+      }
+      const outcome = settleGoalQuote(observation.snapshot.quote, evidence.homeGoals, evidence.awayGoals);
+      if (outcome.returnMultiplier === null || !Number.isFinite(multiplier)
+        || Math.abs(multiplier - outcome.returnMultiplier) > 1e-9) throw new Error('Prospective payout must match the frozen quote');
+      const official = { matchId: observation.matchId, homeGoals: evidence.homeGoals, awayGoals: evidence.awayGoals,
+        source: evidence.source, resultKickoffAt: iso(kickoffAt), status: outcome.status };
+      const existing = await first(tx, 'SELECT * FROM research_prospective_results WHERE observation_id=?', [id]);
+      if (existing) {
+        if (existing.returnMultiplier !== multiplier || existing.evidenceHash !== researchHash(official)) throw new Error('Prospective result evidence is immutable');
+        return { ...existing, settled: false };
+      }
+      await tx.execute({ sql: `INSERT INTO research_prospective_results
+        (observation_id,return_multiplier,evidence_hash,evidence_json,available_at) VALUES (?,?,?,?,?)`,
+      args: [id, multiplier, researchHash(official), researchJson(official), observedAvailableAt] });
+      return { observationId: id, returnMultiplier: multiplier, evidence: official, availableAt: observedAvailableAt, settled: true };
+    });
+  }
+
+  async listProspectiveCalibrationSamples(input: { family: ResearchFamily; modelVersion: string;
+    probabilityConfigurationHash: string; asOf: string | Date }): Promise<any[]> {
+    if (!await this.hasProspectiveSchema()) return [];
+    const asOf = iso(input.asOf);
+    if (Date.parse(asOf) > this.clock().getTime()) throw new Error('Prospective evidence cannot be read from the future');
+    await this.reconcileProspectiveEvidence();
+    const samples = await rows(this.client, `SELECT o.match_id,o.market,o.probability,o.odds,o.expected_value,r.return_multiplier,r.available_at
+      FROM research_prospective_observations o JOIN research_prospective_results r ON r.observation_id=o.id
+      WHERE o.family=? AND o.model_version=? AND o.configuration_hash=? AND o.partition='CALIBRATION'
+        AND o.protocol='prospective-residual-v1' AND r.available_at<=? AND o.observed_at<r.available_at AND o.frozen_at<r.available_at
+        AND NOT EXISTS (SELECT 1 FROM research_prospective_invalidations v WHERE v.observation_id=o.id AND v.detected_at<=?)
+      ORDER BY o.match_id,o.market,o.bucket,o.id`, [family(input.family), input.modelVersion, input.probabilityConfigurationHash, asOf, asOf]);
+    return samples.map((sample) => ({ matchId: sample.matchId, market: sample.market, probability: sample.probability,
+      odds: sample.odds, expectedValue: sample.expectedValue, returnMultiplier: sample.returnMultiplier,
+      outcomeAvailableAt: sample.availableAt, phase: 'validation' }));
+  }
+
+  /** Quarantine newly contradicted labels without changing the original forecast or payout. */
+  async reconcileProspectiveEvidence(): Promise<{ checked: number; invalidated: number }> {
+    if (!await this.hasProspectiveSchema()) return { checked: 0, invalidated: 0 };
+    await this.ready();
+    if (!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'")) {
+      return { checked: 0, invalidated: 0 };
+    }
+    return this.write(async (tx) => {
+      const detectedAt = iso(this.clock());
+      const records = await rows(tx, `SELECT r.observation_id,r.evidence_json,r.available_at,
+        m.date AS current_kickoff_at,m.home_goals AS current_home_goals,m.away_goals AS current_away_goals
+        FROM research_prospective_results r JOIN research_prospective_observations o ON o.id=r.observation_id
+        JOIN matches m ON m.match_id=o.match_id
+        LEFT JOIN research_prospective_invalidations v ON v.observation_id=r.observation_id
+        WHERE v.observation_id IS NULL AND r.available_at<=?`, [detectedAt]);
+      let invalidated = 0;
+      for (const row of records) {
+        const official = row.evidence;
+        const complete = Number.isInteger(row.currentHomeGoals) && Number.isInteger(row.currentAwayGoals);
+        const kickoffChanged = Number.isFinite(Date.parse(row.currentKickoffAt))
+          && Date.parse(row.currentKickoffAt) !== Date.parse(official.resultKickoffAt);
+        const scoreChanged = complete && (row.currentHomeGoals !== official.homeGoals || row.currentAwayGoals !== official.awayGoals);
+        if (!kickoffChanged && !scoreChanged) continue;
+        await tx.execute({ sql: `INSERT OR IGNORE INTO research_prospective_invalidations(observation_id,detected_at,reason)
+          VALUES (?,?,?)`, args: [row.observationId, detectedAt, scoreChanged ? 'official_result_corrected' : 'official_kickoff_changed'] });
+        invalidated++;
+      }
+      return { checked: records.length, invalidated };
+    });
   }
 
   async settleBet(id: string, multiplier: number, evidence: any): Promise<any> {

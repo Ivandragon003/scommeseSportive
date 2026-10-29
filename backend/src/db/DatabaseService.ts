@@ -26,6 +26,16 @@ export class MatchBatchCommitError extends Error {
     this.committedCount = committedCount;
   }
 }
+// A NULL supplement never replaces stored data; identical imports need no UPDATE.
+const MATCH_UPDATE_COLUMNS = [
+  'home_team_id', 'away_team_id', 'home_team_name', 'away_team_name', 'date',
+  'home_goals', 'away_goals', 'home_xg', 'away_xg',
+  'home_shots', 'away_shots', 'home_shots_on_target', 'away_shots_on_target',
+  'home_possession', 'away_possession', 'home_fouls', 'away_fouls',
+  'home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards',
+  'home_corners', 'away_corners', 'referee', 'competition', 'season',
+  'source', 'source_match_id', 'raw_json',
+];
 const MATCH_UPSERT_SQL = `
       INSERT INTO matches (
         match_id, home_team_id, away_team_id, home_team_name, away_team_name,
@@ -45,35 +55,8 @@ const MATCH_UPSERT_SQL = `
         :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
       ON CONFLICT(match_id) DO UPDATE SET
-        home_team_id = COALESCE(excluded.home_team_id, matches.home_team_id),
-        away_team_id = COALESCE(excluded.away_team_id, matches.away_team_id),
-        home_team_name = COALESCE(excluded.home_team_name, matches.home_team_name),
-        away_team_name = COALESCE(excluded.away_team_name, matches.away_team_name),
-        date = COALESCE(excluded.date, matches.date),
-        home_goals = COALESCE(excluded.home_goals, matches.home_goals),
-        away_goals = COALESCE(excluded.away_goals, matches.away_goals),
-        home_xg = COALESCE(excluded.home_xg, matches.home_xg),
-        away_xg = COALESCE(excluded.away_xg, matches.away_xg),
-        home_shots = COALESCE(excluded.home_shots, matches.home_shots),
-        away_shots = COALESCE(excluded.away_shots, matches.away_shots),
-        home_shots_on_target = COALESCE(excluded.home_shots_on_target, matches.home_shots_on_target),
-        away_shots_on_target = COALESCE(excluded.away_shots_on_target, matches.away_shots_on_target),
-        home_possession = COALESCE(excluded.home_possession, matches.home_possession),
-        away_possession = COALESCE(excluded.away_possession, matches.away_possession),
-        home_fouls = COALESCE(excluded.home_fouls, matches.home_fouls),
-        away_fouls = COALESCE(excluded.away_fouls, matches.away_fouls),
-        home_yellow_cards = COALESCE(excluded.home_yellow_cards, matches.home_yellow_cards),
-        away_yellow_cards = COALESCE(excluded.away_yellow_cards, matches.away_yellow_cards),
-        home_red_cards = COALESCE(excluded.home_red_cards, matches.home_red_cards),
-        away_red_cards = COALESCE(excluded.away_red_cards, matches.away_red_cards),
-        home_corners = COALESCE(excluded.home_corners, matches.home_corners),
-        away_corners = COALESCE(excluded.away_corners, matches.away_corners),
-        referee = COALESCE(excluded.referee, matches.referee),
-        competition = COALESCE(excluded.competition, matches.competition),
-        season = COALESCE(excluded.season, matches.season),
-        source = COALESCE(excluded.source, matches.source),
-        source_match_id = COALESCE(excluded.source_match_id, matches.source_match_id),
-        raw_json = COALESCE(excluded.raw_json, matches.raw_json)
+        ${MATCH_UPDATE_COLUMNS.map((column) => `${column} = COALESCE(excluded.${column}, matches.${column})`).join(',\n        ')}
+      WHERE ${MATCH_UPDATE_COLUMNS.map((column) => `(excluded.${column} IS NOT NULL AND excluded.${column} IS NOT matches.${column})`).join('\n         OR ')}
     `;
 // Listing endpoints never consume the potentially large raw provider payload. Keeping
 // this projection explicit also makes accidental SELECT * regressions visible in review.
@@ -2410,8 +2393,13 @@ export class DatabaseService {
   }
 
   async getHistoricalOddsDetailMap(filters?: { competition?: string; season?: string }): Promise<Record<string, HistoricalOddsDetail>> {
+    // Calibration consumes the selected price sheet and provenance, not every
+    // bookmaker payload, synthetic completion or requested-market diagnostic.
     let q = `
-      SELECT os.*, m.season, m.date AS match_date, m.home_goals, m.away_goals
+      SELECT os.match_id, os.source, os.selected_odds_json, os.live_selected_odds_json,
+        os.eurobet_odds_json, os.selected_bookmaker_key, os.selected_bookmaker_name,
+        os.used_fallback_bookmaker, os.used_synthetic_odds, os.captured_at,
+        m.date AS match_date
       FROM odds_snapshots os
       INNER JOIN matches m ON m.match_id = os.match_id
       WHERE m.home_goals IS NOT NULL

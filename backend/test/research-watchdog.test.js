@@ -206,10 +206,13 @@ test('watchdog reports decision delay, skipped jobs, quota and an unprocessed se
   } finally { db.close(); }
 });
 
-test('watchdog default workflow is manual and uses a dedicated read-only database token', () => {
+test('watchdog workflow monitors nightly independently and uses a dedicated read-only database token', () => {
   const workflow = readFileSync(join(__dirname, '../../.github/workflows/research-watchdog.yml'), 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
-  assert.doesNotMatch(workflow, /^\s+schedule:/m);
+  assert.match(workflow, /^\s+schedule:/m);
+  assert.match(workflow, /actions: read/);
+  assert.match(workflow, /check-research-nightly\.js/);
+  assert.doesNotMatch(workflow, /node scripts\/check-research-worker\.js/);
   assert.match(workflow, /secrets\.TURSO_WATCHDOG_READONLY_TOKEN/);
   assert.doesNotMatch(workflow, /secrets\.TURSO_AUTH_TOKEN/);
   const script = readFileSync(join(__dirname, '../scripts/check-research-worker.js'), 'utf8');

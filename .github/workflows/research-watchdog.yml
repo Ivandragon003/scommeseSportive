@@ -1,17 +1,23 @@
-name: Research worker watchdog (manual)
+name: Nightly virtual betting watchdog
 
-# No scheduled execution until the owner completes the remote acceptance gate.
+# Replaces the retired T-15 heartbeat monitor. Missing-run alerts are opt-in.
 on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_run:
+    workflows: ['Nightly Sync']
+    types: [completed]
   workflow_dispatch:
     inputs:
       expect_enabled:
-        description: Require an enabled worker with fresh heartbeat and completed ticks
+        description: Require a measured nightly decision run (never a worker heartbeat)
         type: boolean
         default: false
         required: true
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: research-watchdog
@@ -26,21 +32,30 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v5
+      - name: Check GitHub nightly execution independently of Hostless and Turso
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESEARCH_NIGHTLY_MONITOR_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_MONITOR_ENABLED || 'false' }}
+        run: node scripts/check-research-nightly.js --github-only
       - uses: actions/setup-node@v5
+        if: ${{ always() && vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED == 'true' }}
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+        if: ${{ always() && vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED == 'true' }}
       - run: npm run build
+        if: ${{ always() && vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED == 'true' }}
       - name: Read shared database without contacting the backend or odds provider
+        if: ${{ always() && vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED == 'true' }}
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           # Dedicated read-only token. Never silently fall back to the write token.
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
-          RESEARCH_WATCHDOG_EXPECT_ENABLED: ${{ inputs.expect_enabled }}
+          TURSO_WATCHDOG_READONLY_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
+          RESEARCH_NIGHTLY_EXPECT_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}
         shell: bash
         run: |
           test -n "$TURSO_DATABASE_URL" || { echo "Missing database URL"; exit 1; }
-          test -n "$TURSO_AUTH_TOKEN" || { echo "Missing read-only watchdog token"; exit 1; }
-          node scripts/check-research-worker.js
+          test -n "$TURSO_WATCHDOG_READONLY_TOKEN" || { echo "Missing dedicated read-only watchdog token; no write-token fallback"; exit 1; }
+          node scripts/check-research-nightly.js --database-only

@@ -1,11 +1,45 @@
-# Quote automatiche e budget condiviso — 27 ottobre 2026
+# Quote automatiche e budget condiviso
 
-Intervento locale, senza commit, push, deploy, acquisti o modifiche remote.
-Non cambia probabilità, modelli, mercati validati o artefatti del confronto A/C.
-Tutte le puntate restano virtuali. Questo report distingue comportamento del
-codice, simulazione offline e verifiche ancora necessarie sull'infrastruttura.
+Documento iniziale del 27 ottobre 2026, aggiornato il 29 ottobre per
+**Nightly Pre-Match Virtual Betting**. La
+[guida canonica](nightly-pre-match-2026-10-29.md) sostituisce il requisito
+T−15/worker sempre acceso. I numeri delle simulazioni e i test del 27 ottobre
+restano storici nelle sezioni A, D e G: non sono riscritti per dimostrare il
+funzionamento o la sostenibilità del nuovo job notturno.
 
-## A. Origine del consumo e problemi individuati
+Il nuovo percorso è locale e opt-in, `RESEARCH_NIGHTLY_ENABLED=false`;
+registrazioni remote non attivate e cutover Turso personale non eseguito.
+C resta Challenger, A riferimento; due portafogli esistenti e nessuna modalità
+Shadow Betting aggiuntiva. Probabilità, artifact e benchmark non vengono
+ottimizzati da questa modifica di orchestrazione.
+
+## Proiezione della nuova nightly
+
+[`forecastRemainingNightlyOddsDemand`](../../backend/src/services/odds-provider/OddsDemandSimulation.ts)
+raggruppa le partite per lega e finestra 03:00 Europe/Rome → prossima 03:00,
+gestisce DST e mese contabile UTC ed esclude le leghe senza incontri nella
+finestra. Una richiesta essenziale per lega/finestra è condivisa da A/C;
+`h2h`, `totals`, `spreads` e una regione comportano tre crediti stimati.
+Il calendario recuperato per la proiezione non dimostra disponibilità dei prezzi.
+
+Esempio teorico massimo di base, non consuntivo: cinque leghe ogni notte per
+31 giorni sono 155 richieste e **465 crediti**. Un margine del 10% arrotondato
+in alto aggiunge 16 richieste/48 crediti: **513**, oltre 500. Il gestore non
+può soddisfare tutta questa domanda e deve registrare esclusioni. Notti senza
+partite possono ridurla; quote mancanti, refresh, retry e altri client possono
+peggiorare il risultato. Non è garantita copertura integrale Top5.
+
+La dashboard distingue lo scenario ordinario da 450 crediti, con riserva 50,
+da quello essenziale entro 500 che può usarla. La previsione residua usa il
+budget prudenziale effettivamente disponibile; non sostituisce gli header del
+provider o un piano contrattuale. I 447/654 crediti della sezione D si riferiscono
+al calendario e ai gruppi del vecchio T−15, non alla strategia nightly.
+
+La nuova proiezione ha superato 21 test mirati locali, senza chiamate provider;
+non è una misura del consumo remoto dopo l'attivazione. La riduzione reale
+mensile richiede osservazioni del job pubblicato.
+
+## A. Origine del consumo nell’audit del 27 ottobre
 
 La cifra precedente **855** proveniva da 135 gruppi lega/kickoff × tre crediti
 T−15, più cinque leghe × tre mercati × trenta notti: 405 + 450. Era un esempio
@@ -25,59 +59,46 @@ Prima di header reali `used`, `remaining` e timestamp osservato restano `null`;
 500 è il piano pubblicizzato e il limite locale predefinito, non il residuo
 certificato. È un problema distinto dalla disponibilità effettiva delle quote.
 
-## B. Modifiche implementate
+## B. Meccanismi persistenti conservati
 
-Il monolite e libSQL/Turso restano gli stessi. Il nuovo
+Il monolite e libSQL/Turso restano gli stessi.
 [SmartOddsRequestStore](../../backend/src/services/odds-provider/SmartOddsRequestStore.ts),
-esposto da `DatabaseService.oddsRequests`, coordina tutti i metodi HTTP di
-[OddsApiService](../../backend/src/services/OddsApiService.ts). Senza il gestore
-persistente il trasporto rifiuta la chiamata prima della rete. La migrazione
-[018_smart_odds.sql](../../backend/migrations/018_smart_odds.sql) è additiva.
+[trasporto](../../backend/src/services/OddsApiService.ts) e migrazione additiva
+[018](../../backend/migrations/018_smart_odds.sql) gestiscono:
 
-- Cache persistente per provider, account logico, endpoint e parametri
-  normalizzati; nessuna chiave segreta nell'identificativo o nei log. La
-  risposta mantiene `capturedAt` e timestamp originario del mercato.
-- Lease e prenotazione atomica dei crediti deduplicano richieste equivalenti
-  concorrenti. La transazione DB termina prima dell'HTTP. Un risultato tardivo
-  non sovrascrive la cache dopo la perdita della lease.
-- Il costo preventivo usa mercati e regioni, oppure blocchi di dieci bookmaker.
-  Gli header riconciliano il costo effettivo. Timeout/crash senza prova del
-  costo conservano un addebito prudenziale, distinto dalle misure certe:
-  non si presume che il provider non abbia elaborato una richiesta interrotta.
-- Budget di pianificazione 500 crediti/mese, riserva 50 protetta per le letture
-  informative. T−15 può usare la riserva; non viene aumentato il limite mensile.
-  Header fuori ordine non ricaricano il budget. Il mese UTC è locale, non il
-  fuso confermato del provider; il nuovo mese richiede una verifica gratuita
-  del reset prima di ammettere richieste a consumo. La verifica considera anche
-  quota piena osservata con usato zero; richieste a cavallo del mese conservano
-  una passività prudenziale separata, senza sparire al cambio di calendario.
-- Nightly: `RUN_ODDS_SYNC=false` nel workflow e come default dello script;
-  sincronizzazione dati, risultati e liquidazione restano. Non registra nuove
-  puntate e non avvia il processo T−15 temporaneo del runner.
-- UI e analisi informative: `ODDS_INFORMATIONAL_NETWORK_ENABLED=false` per
-  default, quindi letture da cache; cache informativa fino a trenta minuti.
-  I mercati evento extra richiedono anche `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`.
-  Una semplice apertura della dashboard non autorizza richieste a consumo.
-- Calendario: `/sports/{sport}/events` a zero crediti, senza fallback a h2h o
-  scores a consumo se gli eventi non sono disponibili. La sua cache di trenta
-  minuti non eredita il limite di cinque minuti riservato alle quote essenziali.
-- T−15: stessa raccolta essenziale `h2h,totals,spreads`, una regione, per A/C
-  e partite simultanee della stessa lega. Cache al massimo cinque minuti,
-  senza prolungare la freschezza del prezzo del bookmaker.
+- cache per provider, scope account, endpoint e parametri normalizzati, senza
+  chiavi nei nomi/log e senza modificare il timestamp originario del prezzo;
+- prenotazione atomica del costo, lease e deduplicazione fra processi,
+  con transazione chiusa prima dell'HTTP;
+- riconciliazione dagli header; in caso di costo non misurabile resta una
+  passività prudenziale, senza presumere una chiamata gratuita;
+- limite 500 e riserva informativa 50; le decisioni nightly essenziali possono
+  usare la riserva entro il limite complessivo, senza aumentarlo;
+- mese UTC come convenzione di pianificazione, non reset contrattuale
+  certificato; il reset richiede verifica, non ricarica presunta;
+- UI cache-only (`ODDS_INFORMATIONAL_NETWORK_ENABLED=false`) e raccolta
+  informativa generale `RUN_ODDS_SYNC=false`, distinte dal feed essenziale
+  del job A/C quando esplicitamente abilitato;
+- calendario tramite eventi gratuiti, senza fallback a prezzi/scores a consumo;
+- snapshot reali comuni per A/C e quote entro 300 secondi alla decisione
+  notturna, considerando sia acquisizione sia aggiornamento del bookmaker.
 
-`ODDS_API_T15_KEY` permette di scegliere esplicitamente una chiave già
-autorizzata per T−15; se appartiene alla stessa sottoscrizione deve conservare
-lo stesso `ODDS_API_ACCOUNT_SCOPE`. Una chiave separata non prova l'esistenza
-di crediti aggiuntivi e non viene creata automaticamente.
+Una cache informativa di trenta minuti non rende un prezzo valido per le
+registrazioni. Non occorre un aggiornamento al kickoff o a T−15. Non si
+abbassano freschezza e qualità per produrre una puntata; quota mancante o
+fuori budget significa astensione. Nessuna rotazione di account o chiavi.
 
-`GET /api/research/odds-status` è una lettura dello stato persistito e della
-proiezione locale: distingue piano, prenotazioni, costo osservato, costo incerto,
-cache e blocchi. Non sonda automaticamente i provider. Il dettaglio per mercato
-è per insieme richiesto: un costo congiunto non viene arbitrariamente spartito
-fra le singole chiavi. Le informazioni di provider configurato non significano
-account o copertura già verificati. La UI mantiene espliciti i dati sconosciuti.
+`GET /api/research/odds-status` legge contabilità e proiezioni senza sondare i
+provider. `plannedForecast` usa il contratto `NIGHTLY` e
+`competitionNightlyGroups`: la UI mostra gruppi lega/finestra e gli scenari
+ordinario/essenziale. Zero gruppi del calendario è uno zero stimato, non una
+misura del consumo o del residuo provider; campi mancanti restano sconosciuti.
+Configurato, osservato, costo certo/incerto e disponibilità reale
+restano distinti. La proiezione nightly non assegna una disponibilità fittizia
+alle partite ancora senza quota. Il vecchio nome di chiave `ODDS_API_T15_KEY`,
+se conservato per compatibilità, non crea un account o crediti aggiuntivi.
 
-## C. Provider, Eurobet e mercati
+## C. Provider: riscontri documentali del 27 ottobre
 
 Il provider integrato rimane **The Odds API**, dominio `the-odds-api.com` e host
 `api.the-odds-api.com/v4`. L'[audit documentale](odds-provider-audit-2026-10-27.md)
@@ -97,14 +118,18 @@ Le cinque leghe restano configurabili: Serie A, Premier League, La Liga,
 Bundesliga e Ligue 1. Il feed essenziale richiede **1X2, totali gol e handicap**
 (`h2h`, `totals`, `spreads`). Non include automaticamente DC/DNB, BTTS, totali
 squadra o mercati specialistici. Il codice di questi mercati è preservato, ma
-servono quote reali del mercato e validazione prima delle puntate. Non derivare
+servono quote reali del mercato e idoneità tecnica; la validazione statistica
+resta separata per le nuove simulazioni virtuali. Non derivare
 una quota bookmaker mancante da altre quote o dal modello.
 
 La scelta fra bookmaker reali resta nel coordinatore esistente, con nome e
 provenienza corretti. Nessun secondo provider gratuito già utilizzabile è stato
 dimostrato e configurato: il fallback automatico verificato ha capacità zero.
 
-## D. Sostenibilità entro 500 crediti
+## D. Simulazione T−15 storica del 27 ottobre, immutata
+
+I numeri seguenti appartengono al vecchio protocollo T−15. Non sono la
+proiezione della nuova nightly e non diventano un consumo misurato dell’account.
 
 La [simulazione ripetibile](../performance/odds-demand-2026-10-27.md), con
 [dati JSON](../performance/odds-demand-2026-10-27.json), usa calendario locale,
@@ -115,8 +140,8 @@ I mesi sono quelli della decisione T−15 in UTC, non necessariamente del kickof
 | Scenario sul calendario ottobre 2026 | Crediti richiesti | HTTP richiesti | Interpretazione |
 |---|---:|---:|---|
 | Vecchia raccolta notturna, 31 giorni, retry inclusi | 912 | 304 | Scenario controfattuale; senza UI o extra |
-| Nuovi default, nightly quote OFF e UI cache-only | 447 | 149 | 189 fixture/135 gruppi, copertura condizionata al calendario e ai prezzi |
-| Nuovi default nel mese storico più oneroso, ottobre 2022 | 654 | — | 261 fixture/198 gruppi: supera il limite anche dopo l'ottimizzazione |
+| Default del 27/10, quote nightly OFF e T−15 | 447 | 149 | 189 fixture/135 gruppi, copertura condizionata al calendario e ai prezzi |
+| Default del 27/10 nel mese storico più oneroso, ottobre 2022 | 654 | — | 261 fixture/198 gruppi: supera il limite anche dopo l'ottimizzazione |
 
 Nel primo scenario il gestore non autorizza l'intera domanda. Nel secondo la
 domanda stimata lascia 53 crediti su 500, o tre oltre la riserva ordinaria di
@@ -138,59 +163,77 @@ limite, né si attiva un piano a pagamento. Se la domanda eccede la capacità,
 il sistema salta e registra il motivo. Una riduzione programmata della copertura
 richiederebbe una scelta esplicita, basata su mercati validati e calendario.
 
-## E. Percorso T−15 e stato locale/remoto
+## E. Dalla quota alla decisione notturna
 
-Target kickoff − 15 minuti, polling 15 secondi e tolleranza massima +60 secondi
-restano invariati. L'età sia dell'acquisizione sia del prezzo originario deve
-essere al massimo cinque minuti. Cache informativa vecchia, assenza di quota,
-budget insufficiente o reset non confermato non producono una quota sostitutiva.
-Il job conserva il motivo della decisione saltata; errori temporanei possono
-essere ritentati soltanto nella stessa finestra. Non si recupera con una puntata
-retroattiva. Vincoli di unicità e commit atomico restano distinti dalla lease
-HTTP: nessun retry può creare due puntate nello stesso portafoglio/partita.
+Il job finito GitHub, non il worker Hostless, carica A/C e conserva un unico
+snapshot per il confronto. Prezzo reale, bookmaker, mercato/linea, timestamp
+originari e distanza dal kickoff sono tracciati. Il prezzo ha tipo `prematch`;
+i vecchi record `t15` restano tali e non vengono rietichettati. Il commit
+ricontrolla che la partita non sia iniziata e che capitale e vincoli univoci
+consentano la registrazione. Retry e riavvii non duplicano giocate o stake.
 
-Locale: route legacy HTTP 410, niente nuove puntate notturne, quote notturne
-OFF, UI network OFF e scheduler T−15 OFF. Modelli e mercati restano sottoposti
-ai gate precedenti; le ottimizzazioni quote non li promuovono.
+`EXPERIMENTAL` può essere ammesso alla simulazione con idoneità tecnica:
+probabilità coerenti, dati essenziali, prezzo autentico e liquidazione testata.
+Non è una promozione statistica e non sblocca corner/falli senza condizioni
+minime. Ogni modello può astenersi; non si forza una giocata per partita.
 
-Remoto: l'audit GitHub in sola lettura ha ancora trovato la nightly attiva,
-`AUTO_BET_ENABLED=true`, `AUTO_BET_DRY_RUN=false`, `RUN_ODDS_SYNC=true` e la
-chiamata legacy. Nessun cambiamento locale la disattiva. Il
-[piano operativo](t15-readiness-2026-10-27.md#patch-minima-futura-della-nightly-due-file)
-descrive la patch minima dei due file workflow/script e l'alternativa di stop
-temporaneo, entrambe future e da autorizzare. Il successivo backend distribuito
-deve ritirare la route: la sola patch nightly non neutralizza altri chiamanti.
+I due portafogli `shadow_A`/`shadow_C` sono riutilizzati, senza reset o terzo
+portafoglio. Stake 1%, esposizione aperta 5%, una puntata per partita/modello.
+La dashboard confronta profitto, ROI, esiti e drawdown per periodo senza
+confonderli con log loss, Brier e calibrazione del benchmark.
 
-Non esiste una VM disponibile e nessun nuovo processo remoto T−15 è distribuito.
-Il percorso con PC/smartphone spenti resta un requisito non soddisfatto. Il
-telefonino consulta lo stato, non deve sostenere timer o chiamate decisionali.
+L'[assemblatore prospettico](nightly-model-runtime-2026-10-29.md) conserva
+osservazioni reali anche in astensione, prima dell'esito e senza ledger. Il
+registro iniziale non ha campioni idonei: minimo 50 per mercato/fascia e
+Hoeffding restano invariati; il registro attuale inizialmente non ammette BET.
+Risultati e payout sono append-only al clock effettivo; l'80/20 nominale per
+hash esclude `FUTURE_TEST` dai residui prudenziali. Non crea calibratori,
+refit o promozioni. Anche raccogliere osservazioni senza puntate consuma,
+quando necessario, quote vere entro lo stesso budget.
 
-## F. Deployment gratuito e passi necessari
+## F. Stato locale, remoto e rilascio
 
-La scelta rimane un backend Node persistente su VM gratuita, con lo stesso
-Turso e inferenza JSON. La [guida al deploy](../oracle-cloud-free-deploy.md)
-descrive configurazione, backup, verifica e rollback. Oracle Always Free può
-ospitarlo se risorse e account sono disponibili: la
-[documentazione](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
-indica fino a 2 OCPU/12 GB A1 complessivi, capacità regionale variabile e possibile
-recupero di VM inattive. Non è una VM ottenuta né una garanzia di servizio.
+La nuova nightly è preparata localmente e disabilitata per default; non sono
+attestati attivazione remota, nuova simulazione reale completata o cutover.
+La route automatica legacy resta ritirata con `410` e non si riabilita con
+`AUTO_BET_*`. La pubblicazione verrà preparata su branch `codex/` e PR per
+non avviare un warmup su `main` prima del passaggio del database.
 
-[GitHub schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
-può ritardare o perdere job: resta per manutenzione e training. I
-[limiti Workers Free](https://developers.cloudflare.com/workers/platform/limits/)
-di 128 MB e 10 ms CPU non permettono di considerarlo un trasferimento diretto
-del monolite. Nessun secondo scheduler o infrastruttura complessa è introdotto.
+Si mantengono Hostless, Turso e GitHub Actions: nessuna VM alternativa o nuovo
+servizio a pagamento è necessario. Il cron Hostless del vecchio worker è
+`PAUSED`; richiesta di pausa standalone accettata, ma stato finale non ancora
+confermato. Il vecchio timeout del worker non è un requisito da risolvere.
 
-Prima dell'attivazione servono autorizzazione alla pubblicazione e modifica
-remota, disponibilità di una VM gratuita e accesso amministrativo, backup e
-restore remoto provati, applicazione delle migrazioni, rete HTTPS e orologio
-sincronizzato. Occorre verificare crediti reali, rollover, cache/concorrenza,
-puntualità entro la finestra e liquidazione su quel runtime. T−15 resta OFF fino
-ai gate. Watchdog e canale notifiche esterno richiedono configurazione e consenso:
-la sola notifica in-app non raggiunge un utente con app chiusa né rileva da sola
-un host completamente fermo. Nessun account o messaggio è stato creato/inviato.
+La verifica quote del 29 ottobre precedente al nuovo mandato ha osservato
+cinque richieste reali, 15 crediti, residuo 220 → 205, Eurobet assente nelle
+cinque leghe. È una prova locale Linux verso provider/Turso, non l'esecuzione
+della nuova nightly su Hostless/GitHub o una garanzia per il mese futuro.
+I bookmaker mantengono il proprio nome. Nessun provider alternativo gratuito
+viene dichiarato disponibile senza evidenza.
 
-## G. File, verifiche e documentazione
+Il backup aggiornato è verificato e l'account personale Turso gratuito è
+stato controllato anche via CLI ufficiale, ora autorizzata e operativa, con
+overage disabilitati. La copia iniziale è importata e confrontata
+integralmente per schema, conteggi e hash, con integrità `ok` e FK0.
+La parità riguarda gli snapshot (`liveParityVerified=false`), non il database
+live; cutover e cambio dei secret di produzione non sono eseguiti. Restano
+sincronizzazione finale e passaggio approvato con deployment Hostless riuscito. La [procedura Turso](turso-personal-migration-2026-10-29.md)
+e la [guida Hostless](hostless-deployment.md) richiedono un database univoco
+per web, nightly, calibrazione e training. Le conferme per cutover definitivo
+e attivazione delle nuove registrazioni remote sono separate.
+
+Il monitoraggio ora riguarda la nightly e le liquidazioni, non heartbeat del
+worker dismesso. Riepilogo in-app dalle 09:00 Rome, segnalazioni immediate solo
+per problemi importanti; non è attestata consegna a un nuovo canale esterno.
+L'[audit Turso/CPU](turso-cpu-audit-2026-10-29.md) distingue risparmi locali da
+throttling e consumi effettivamente misurati sul provider.
+
+<a id="g-file-verifiche-e-documentazione"></a>
+
+## G. Verifiche storiche del 27 ottobre, conservate
+
+Questa sezione conserva i file e gli esiti del report originario. Non è il
+gate della nuova nightly del 29 ottobre e non certifica lo stato remoto attuale.
 
 I punti principali sono gestore persistente, migrazione 018, trasporto quote,
 provider coordinator/runtime, route informative e stato, calendario gratuito,
@@ -251,20 +294,20 @@ non osservata, senza inventare percentuali o provider disponibili. Il backup
 provato è locale: non è una verifica di backup Turso remoto né di puntualità
 cloud a T−15. Lo scheduler resta disabilitato e i mercati sperimentali.
 
-## H. Risposte operative
+## H. Risposte operative attuali
 
 | Domanda | Risposta verificabile |
-|---|---|
-| Si rimane entro 500? | Il gestore limita le richieste autorizzate; non garantisce tutta la domanda. Ottobre simulato 447, stress storico 654. Residuo dell'account non misurato nell'audit. |
-| Quanti campionati Top5? | Cinque configurati. Nessuna promessa di copertura mensile integrale; fixture saltate quando manca budget o quota valida. |
-| Quali mercati? | Feed essenziale `h2h`, `totals`, `spreads`; altri preservati ma fuori stima e soggetti a quote/opt-in/validazione. |
-| Eurobet gratuitamente? | Non dimostrato. Preferenza soltanto per Eurobet realmente presente nel payload. |
-| Bookmaker alternativi? | Quelli reali restituiti dal provider, con il proprio nome. Nessun secondo provider gratuito operativo dimostrato. |
-| Quote fresche entro cinque minuti? | Requisito applicato a acquisizione e prezzo provider; assenza della prova significa astensione, non garanzia di disponibilità. |
-| Cosa blocca le nuove puntate? | Budget/reset/freschezza e dati, stato mercato/configurazione/modello, orario, unicità e limiti portafoglio; scheduler nuovo resta OFF. |
-| È pronto per la pubblicazione operativa? | No attivazione remota verificata. Mancano autorizzazione, VM, correzione nightly remota, crediti/copertura misurati e collaudo T−15 su host. |
-| Quali autorizzazioni servono? | Pubblicazione/commit/push e modifiche remote, accesso VM gratuita e servizi già previsti; eventuale canale esterno. Nessun abbonamento paid autorizzato o richiesto per completare le parti locali. |
+| --- | --- |
+| Si rimane entro 500? | Il gestore impone il limite; 465 crediti teorici base o 513 con retry non garantiscono tutta la domanda. Esclusioni tracciate quando necessario. |
+| Quali leghe/mercati? | Cinque leghe configurate, feed essenziale h2h/totals/spreads; nessuna promessa di quota presente per ogni partita. |
+| Eurobet? | Priorità solo per una quota autentica realmente ricevuta; assente nella prova del 29 ottobre. Nessuna quota rietichettata. |
+| Quando deve essere fresca la quota? | Alla decisione notturna: default 300 s su acquisizione e aggiornamento originario, non cinque minuti prima del calcio d'inizio. |
+| Serve un worker T−15? | No. GitHub esegue il job finito; browser e smartphone sono client. |
+| Le nuove registrazioni sono attive? | No, flag `false` e attivazione remota ancora da confermare dopo i gate. |
+| I vecchi risultati cambiano? | No: benchmark, registrazioni e quote storiche conservano il proprio protocollo. |
+| C viene promosso perché guadagna? | No, il confronto economico non sostituisce la validazione probabilistica; C resta Challenger. |
+| Costi aggiuntivi? | Nessun nuovo piano o servizio a pagamento attivato; proiezioni e capacità gratuite non sono un consuntivo futuro. |
 
-Il risultato è una riduzione verificabile della domanda e un controllo persistente
-del consumo, non una dimostrazione di copertura gratuita totale o di affidabilità
-remota. I report A/C precedenti e la conclusione scientifica restano invariati.
+I controlli locali e le stime non provano copertura gratuita totale,
+redditività o affidabilità del nuovo ciclo remoto. Consultare la guida
+canonica per gli esiti effettivamente completati.

@@ -1,233 +1,164 @@
-# GitHub Actions per sync notturna
+# Nightly GitHub Actions e puntate virtuali A/C
 
-**Stato al 27 ottobre 2026:** il vecchio workflow remoto, che conteneva ancora
-`AUTO_BET_ENABLED=true` e la chiamata legacy, è stato sospeso tramite GitHub CLI.
-Verificato workflow ID `253787848` in stato `disabled_manually` e nessun run
-attivo o in coda. La patch permanente workflow/script è nel commit locale
-`e046bc4f`, non ancora pubblicato. Anche import e liquidazioni della nightly
-sono temporaneamente sospesi: non è ancora una nightly remota maintenance-only.
+Direzione aggiornata il 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
+La [guida canonica](operations/nightly-pre-match-2026-10-29.md) conserva il
+piano di attivazione e i risultati effettivi. Il codice descritto è locale:
+`RESEARCH_NIGHTLY_ENABLED=false`, nuove registrazioni remote non attivate e
+cutover Turso personale non eseguito. Non si ripristina il vecchio auto-betting.
 
-Il [piano operativo T−15](operations/t15-readiness-2026-10-27.md) distingue la
-correzione preferita di workflow/script dalla sospensione temporanea dell'intera
-nightly, che interrompe anche la manutenzione. Il
-[report corrente](operations/production-status-2026-10-27.md) documenta le
-operazioni effettive e i blocchi. Nessun cambio di
-repository variable può sovrascrivere il vecchio flag scritto nel workflow.
+## Orchestrazione e orario
 
-La nightly è orchestrata da GitHub Actions. Il backend web serve UI e API.
-Dal 12 ottobre 2026 le formazioni sono temporaneamente sospese per ridurre
-letture, scritture e chiamate provider. Anche import, statistiche derivate,
-letture e mercati giocatore sono temporaneamente sospesi; lo storico resta salvato.
+Si estendono il [workflow esistente](../.github/workflows/nightly-sync.yml) e
+lo [script](../scripts/ci/nightly-sync.sh), senza un secondo scheduler cloud.
+Il workflow usa cron `0 1 * * *` UTC e `0 2 * * *` UTC; il gate sul trigger
+originale seleziona quello delle **03:00 Europe/Rome**, gestendo l'ora legale
+anche quando GitHub avvia il job in ritardo. Il run escluso dal gate non è
+una sync riuscita. `concurrency: nightly-sync` evita sovrapposizioni del
+workflow; lease e vincoli DB proteggono anche retry e chiamanti concorrenti.
 
-## Flusso
+GitHub non garantisce avvio esatto al minuto. La finestra delle decisioni
+parte dall'istante effettivo del job finito A/C e arriva alla successiva
+nightly prevista. `RESEARCH_NIGHTLY_WINDOW_HOURS`, se impostato, sceglie una
+durata tra 1 e 48 ore. Un retry conserva finestra e policy originarie;
+rinvii, nuovi kickoff e partite già iniziate vengono ricontrollati nel commit.
+Una notte persa non viene ricostruita con puntate retroattive.
 
-- Avvio di un backend temporaneo con bootstrap e tutti i collector periodici disabilitati.
-- Import Understat su stagione corrente e quattro precedenti, con verifica di copertura.
-- Supplemento HTTP/CSV `football-data.co.uk`: riempie solo i campi mancanti di
-  tiri, tiri in porta, falli, corner, cartellini e arbitro; conserva le quote
-  storiche di apertura/chiusura nella loro colonna dedicata. Non fornisce il possesso.
-- Aggiornamento dei riferimenti per le transizioni tra competizioni. Il recupero
-  dei kickoff resta disponibile; lo step formazioni è saltato quando
-  `PLAYER_AVAILABILITY_ENABLED=false` (default).
-- Settlement delle prediction e delle giocate concluse e preparazione delle
-  analisi. La raccolta quote è disabilitata per default (`RUN_ODDS_SYNC=false`);
-  se riabilitata esplicitamente usa il budget persistente comune. La nightly
-  non registra nuove giocate e non riserva decisioni di puntata future.
-- Learning review solo quando i gate obbligatori sono soddisfatti.
-- Stato finale e log come artifact GitHub Actions; un gate fallito mantiene il run fallito.
+## Flusso e gate
 
-Riferimenti: [workflow](../.github/workflows/nightly-sync.yml) e
-[script](../scripts/ci/nightly-sync.sh). Le quote sintetiche restano interne;
-bookmaker e provenienza delle quote reali vengono conservati.
+1. Avviare il backend temporaneo sul runner con bootstrap e collector periodici
+   disabilitati, sul database condiviso configurato.
+2. Importare calendario, risultati e statistiche Understat e verificarne la
+   copertura; applicare il supplemento HTTP/CSV consentito di football-data.co.uk
+   solo ai campi mancanti, mantenendo provenienza e quote storiche distinte.
+3. Aggiornare riferimenti fra competizioni e kickoff, rispettando la pausa
+   giocatori/formazioni; normalizzare dati e verificare i gate obbligatori.
+4. Liquidare le giocate esistenti quando gli esiti sono disponibili, mantenendo
+   separati budget legacy e portafogli A/C; aggiornare le prediction concluse.
+5. Preparare feature e cache di calibrazione per il codice/configurazione
+   effettivi. Il training settimanale resta un workflow separato, non un
+   riaddestramento per ogni previsione.
+6. Se `RESEARCH_NIGHTLY_ENABLED=true` e i gate dati sono idonei, eseguire
+   `backend/scripts/research-nightly.js`: caricare A/C, selezionare le partite
+   future, acquisire snapshot reali comuni e applicare il Decision Engine.
+7. Registrare al massimo una puntata per partita/modello o l'astensione, con
+   capitale, idempotenza e kickoff ricontrollati atomicamente. Conservare
+   motivi, timestamp, versione del modello e distanza della quota dal kickoff.
+8. Salvare risultati del job, quote residue, liquidazioni, errori e riepilogo;
+   mantenere learning review e stato finale subordinati ai rispettivi gate.
 
-## Consumo del database
+Lo script A/C è un processo finito sul runner, senza polling o heartbeat
+Hostless. Non chiama `/bets/place` o `/automation/place-valid-bets`; la seconda
+route resta ritirata con `410`. `AUTO_BET_ENABLED=true` non è il nuovo opt-in.
+Se il percorso A/C è disabilitato, import, manutenzione e liquidazioni previste
+dallo script continuano; non vengono create nuove puntate virtuali A/C.
 
-I CSV storici già verificati evitano nuovi download, ma la copertura nel DB
-continua a essere controllata. Il supplemento legge solo le finestre stagionali
-richieste. Le righe già identiche non generano UPDATE; le condizioni SQL
-proteggono comunque le scritture concorrenti. Le statistiche cambiano solo se
-la fonte può riempire un campo mancante e le quote solo quando cambiano.
-Le medie vengono ricalcolate sulle sole squadre con statistiche modificate,
-anche quando un'altra stagione è incompleta. Il gate di completezza rimane obbligatorio.
-Se la retention elimina partite, si ricalcolano invece tutte le squadre per
-rimuovere dai valori derivati lo storico eliminato; le elaborazioni già in
-corso vengono invalidate prima di attendere il download supplementare.
+Il [percorso prospettico](operations/nightly-model-runtime-2026-10-29.md)
+congela osservazioni anche sulle astensioni prima degli esiti, senza creare
+puntate o movimenti contabili. La migrazione additiva 021 e i risultati
+append-only conservano timestamp ufficialmente osservati e identità del
+modello/configurazione. Partizione nominale 80/20 tramite hash partita;
+`FUTURE_TEST` escluso dai residui prudenziali. Il registro iniziale privo di
+campioni idonei impone astensione: minimo 50 e Hoeffding non sono ridotti,
+nessun refit o calibratore inventato; con il registro attuale non sono
+ammesse BET iniziali.
 
-Per Rennes–PSG del 23 agosto 2026, Ligue 1 2026/27, la
-[LFP ha invertito il campo](https://ligue1.com/fr/articles/l1_article_5699-j1-psg-rennes-inverse-l1-2627).
-Understat conserva l'ordine PSG–Rennes. Solo per questa partita, risultato
-ufficiale 2–2 e un unico candidato inverso nella stessa data, il supplemento
-orienta statistiche e quote per squadra. Il JSON delle quote conserva ordine
-originale della fonte, mapping e riferimento ufficiale. L'identità primaria
-rimane invariata: l'etichetta casa/trasferta Understat resta una discrepanza
-nota. Nessun matching inverso generico viene abilitato.
+## Configurazione dichiarata nel codice
 
-Il batching riduce le richieste di rete; i contatori Turso di righe lette e
-scritte devono essere misurati separatamente. Non cancellare lo storico per
-risolvere un limite di letture.
+| Variabile | Default / ruolo |
+| --- | --- |
+| `NIGHTLY_ORCHESTRATOR` | `github_actions`, disabilita gli scheduler periodici duplicati nel web |
+| `RESEARCH_NIGHTLY_ENABLED` | Variabile repository omonima, default `false`; unico opt-in delle nuove registrazioni notturne A/C |
+| `RESEARCH_NIGHTLY_HOUR`, `RESEARCH_NIGHTLY_MINUTE` | 3 e 0, confine della finestra in Europe/Rome; modificare coerentemente col workflow |
+| `RESEARCH_NIGHTLY_WINDOW_HOURS` | Non impostata: fino alla prossima 03:00 Roma; durata configurabile 1–48 ore |
+| `RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS` | 300 alla decisione notturna, controlla acquisizione e aggiornamento del mercato |
+| `RESEARCH_NIGHTLY_MIN_EV` | 0,04, soglia sperimentale configurabile |
+| `RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV` | 0,01, soglia sperimentale configurabile |
+| `RESEARCH_NIGHTLY_TIMEOUT_SECONDS` | 1200 per il processo A/C nello script |
+| `RESEARCH_T15_SCHEDULER_ENABLED` | `false`, percorso precedente non necessario e non concorrente |
+| `RUN_ODDS_SYNC` | `false`, raccolta informativa generale disattivata |
+| `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`, dashboard prevalentemente su cache |
 
-## Un solo orchestratore
+Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. Nessuna
+variabile remota è stata impostata per attivarlo. Il flag nel backend Hostless
+può dichiarare la configurazione per la dashboard, ma il web non avvia il job.
 
-La nightly prepara i profili di calibrazione
-delle cinque leghe tramite `/api/model/calibration/warm` sul proprio backend
-temporaneo. Il calcolo resta sul runner GitHub Actions; Hostless legge i profili
-da una cache additiva libSQL/Turso, senza servizi aggiuntivi.
+Secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e `ODDS_API_KEY` per le decisioni
+con quote reali. Le credenziali non appartengono a codice, frontend, log o
+artifact pubblici. La chiave opzionale API-Football non riattiva da sola i
+percorsi sospesi. `PLAYER_DATA_ENABLED=false` e
+`PLAYER_AVAILABILITY_ENABLED=false` mantengono la pausa giocatori/formazioni;
+non sono riattivati da questo mandato.
 
-Il riuso richiede la stessa impronta dei dati e delle quote storiche ammesse,
-della configurazione effettiva e del codice backend. La coorte include solo
-risultati disponibili entro il cutoff richiesto, con le stesse due ore di
-ritardo del percorso cronologico. Cambiamenti dei dati, del codice o delle
-impostazioni provocano un nuovo calcolo. Non vengono ridotti i 450 target,
-i refit settimanali o le iterazioni del modello. Profili danneggiati o cache
-indisponibile usano il calcolo completo; il primo caricamento di una nuova
-coorte non ancora preparata resta più costoso. La cache persistente conserva
-al massimo 128 profili; le cache in RAM e il loro TTL di sei ore restano attivi.
-La nuova tabella viene creata dalla migrazione additiva
-`014_runtime_calibration_cache.sql` durante l'avvio del backend.
-Se Hostless usa valori personalizzati `MODEL_*` o `PLAYER_GOALS_XG_SHRINK`,
-configurare gli stessi valori anche nel workflow per condividere i profili.
-Impostazioni diverse non riusano risultati incompatibili: provocano un miss.
+`RUN_ODDS_SYNC=false` non vieta il feed essenziale del job A/C abilitato: sono
+scopi diversi. Il gestore persistente prenota il costo e condivide cache e
+snapshot fra A/C, con limite 500 crediti e riserva informativa 50. Quote
+mancanti, obsolete, sintetiche, senza bookmaker o fuori budget restano escluse.
+La freschezza è misurata alla decisione notturna, non a T−15. Vedi
+[quote e proiezioni](operations/smart-odds-2026-10-27.md).
 
-`NIGHTLY_ORCHESTRATOR=github_actions` è il default anche per un avvio diretto
-con Node. Disabilita bootstrap, scheduler Understat, quote e learning persino
-quando vecchi flag in ambiente sono `true`. Docker Compose imposta questo
-valore esplicitamente. API manuali squadra restano disponibili. Il collector formazioni
-richiede sia `PLAYER_DATA_ENABLED=true` sia `PLAYER_AVAILABILITY_ENABLED=true`.
+## Calibrazione, letture e modello
 
-Per una scelta esplicita di esecuzione nel backend si può impostare
-`NIGHTLY_ORCHESTRATOR=backend` e abilitare i relativi flag. In quel caso
-disabilitare prima il workflow GitHub e mantenere un unico processo scheduler.
-Gli aggiornamenti si applicano dopo il riavvio/redeploy dei processi esistenti.
+La nightly prepara i profili delle cinque leghe sul runner; Hostless li legge
+dalla cache additiva Turso. Il riuso richiede gli stessi dati e quote ammessi,
+configurazione effettiva e hash del codice `dist`. Un warmup di un altro commit
+non è una prova di riuso. Dati fuori cutoff e risultati successivi non entrano
+negli input prepartita. Non si riducono gate o finestre scientifiche per
+nascondere un costo di calcolo.
 
-La route legacy `/api/automation/place-valid-bets` è ritirata e risponde `410`:
-i vecchi flag `AUTO_BET_*` non devono riattivarla. L'unico percorso nuovo di
-registrazione automatica è il processo T−15 separato dalla manutenzione,
-descritto in [piattaforma A/C](research-platform.md). Il workflow imposta
-`RESEARCH_T15_SCHEDULER_ENABLED=false` sul backend temporaneo: il runner non
-deve diventare una seconda istanza decisionale. `RUN_ODDS_SYNC=false` nel
-workflow e come default dello script evita richieste quote periodiche;
-`ODDS_INFORMATIONAL_NETWORK_ENABLED=false` impedisce che letture informative
-consumino crediti. La presenza della chiave non riattiva da sola la raccolta.
-Un opt-in futuro deve impostare entrambi i permessi e resta soggetto al budget.
-Il recupero kickoff usa l'endpoint gratuito eventi: non richiede h2h/scores.
-La raccolta di quote durante la nightly, se autorizzata, non è uno snapshot
-osservato a T−15. Registro, cache e consumo sono descritti nella
-[gestione quote](operations/smart-odds-2026-10-27.md).
+Il workflow `Prepare prediction calibration` può partire su push pertinente
+in `main` e scrive nel DB dei secret correnti. La pubblicazione di questo
+mandato si prepara perciò su branch `codex/` e PR, senza push prematuro su
+`main`. `research-training.yml` resta distinto: registry, validazione
+cronologica, Champion–Challenger e rollback sono preservati. C resta Challenger;
+ROI migliore o mercati `EXPERIMENTAL` tecnicamente idonei non ne autorizzano
+la promozione statistica.
 
-Il gate locale `backend/test/nightly-maintenance.test.js` controlla la
-separazione. Per la conferma remota occorre pubblicare la versione verificata,
-riavviare i processi e controllare un run effettivo: una modifica locale non
-cambia un workflow già pubblicato o un backend già in esecuzione.
+L'[audit Turso/CPU](operations/turso-cpu-audit-2026-10-29.md) misura riduzione del
+payload delle quote storiche e UPDATE evitati su partite identiche. I dati
+locali non certificano righe fatturate o CPU Hostless risolti. Non si cancella
+lo storico per ridurre i consumi e non si riattivano fonti ritirate.
 
-Il backend web (`node dist/index.js`) non avvia più `ResearchRuntime`, anche
-se eredita `RESEARCH_T15_SCHEDULER_ENABLED=true`. La sola registrazione
-automatica nuova appartiene al worker dedicato; non esiste una route HTTP
-per avviare tick o registrazioni A/C. Le route manuali restano esplicitamente
-manuali e non ricevono il tipo di origine dal client. Il vecchio
-`AUTO_BET_ENABLED` non è letto dal codice operativo e non può riattivare la
-route ritirata. I metodi DB legacy restano per compatibilità con lo storico.
+## Monitoraggio e riepilogo
 
-### Passaggio manuale dal workflow remoto precedente
+Il nuovo watchdog GitHub osserva esecuzioni e ritardi tramite GitHub API con
+`actions:read`; è indipendente dal runner monitorato. L'allarme per job
+mancante è opt-in con `RESEARCH_NIGHTLY_MONITOR_ENABLED`. I controlli DB sono
+un opt-in distinto con `RESEARCH_NIGHTLY_DB_MONITOR_ENABLED` e
+`TURSO_WATCHDOG_READONLY_TOKEN`, senza fallback al token in lettura/scrittura.
+Non viene più richiesto un heartbeat del worker T−15.
 
-Le seguenti operazioni richiedono pubblicazione autorizzata e non sono state
-eseguite durante la preparazione locale:
+La dashboard distingue abilitazione dichiarata dal backend web, `enabled`
+realmente osservato nell'ultimo job, manutenzione completa, import ed esito
+A/C. Mostra partite analizzate, registrazioni, salti, API, quota e liquidazioni.
+Gli orari attesi rispettano DST e tolleranza; assenza di misure resta esplicita.
+Il riepilogo del giorno precedente è consultabile dalle 09:00 Europe/Rome.
+Nessuna notifica per ogni puntata; la memorizzazione in-app non prova invio a
+un canale esterno. Non è stato autorizzato un nuovo servizio a pagamento.
 
-1. Confrontare la revisione remota effettiva con lo script e il workflow locali.
-   Pubblicare lo script di manutenzione senza chiamata a
-   `/automation/place-valid-bets` e il workflow corrispondente, con raccolta
-   quote disabilitata e processo T−15 disabilitato.
-2. Attendere l'eventuale run già avviato con la vecchia revisione, oppure
-   annullarlo esplicitamente prima di autorizzare il worker. Pubblicare un
-   workflow nuovo non modifica i job già in corso.
-3. Aggiornare il backend affinché la route legacy restituisca `410` e il
-   processo web non avvii decisioni. Togliere i vecchi `AUTO_BET_*` dagli
-   ambienti effettivi: è igiene di configurazione, non il blocco primario.
-4. Eseguire una nightly manuale e controllare import, gate e liquidazioni.
-   Verificare sul DB condiviso che non siano state create nuove puntate
-   future o nuove prenotazioni legacy durante il run. Mantenere attiva la
-   nightly per dati e liquidazioni.
-5. Solo dopo questi controlli, seguire il collaudo Hostless del worker
-   disabilitato e l'abilitazione graduale. Non abilitare due sistemi di
-   registrazione durante il passaggio.
+## Pubblicazione, migrazione e rollback
 
-In caso di rollback della release web, **non ripristinare** il vecchio
-workflow che registrava puntate. Disabilitare prima il worker e mantenere
-la nightly di sola manutenzione; un rollback della UI/API non deve
-riattivare `AUTO_BET_ENABLED` o la chiamata legacy.
+Il backup sorgente aggiornato è privato e verificato; l'account Turso personale
+Starter gratuito è stato controllato. La CLI ufficiale è autorizzata e
+operativa, con overage disabilitati
+verificati sul piano gratuito. La copia iniziale è importata e confrontata
+integralmente, con schema/conteggi/hash corrispondenti, integrità `ok` e FK0.
+La parità riguarda i due snapshot (`liveParityVerified=false`): migrazione
+delle connessioni e cutover non eseguiti. Restano sincronizzazione finale,
+conferma dell'utente e deployment Hostless riuscito. Seguire la
+[procedura Turso](operations/turso-personal-migration-2026-10-29.md) e la
+[guida Hostless](operations/hostless-deployment.md). Non aggiornare soltanto i
+secret della nightly mentre Hostless continua a scrivere sul vecchio DB.
 
-Il training ML settimanale è nel workflow separato
-[`research-training.yml`](../.github/workflows/research-training.yml), martedì
-alle 04:30 UTC. Il candidato viene registrato sul DB e sottoposto ai gate solo
-quando `RESEARCH_REGISTRY_WRITES_ENABLED=true` nelle variabili repository;
-per default il job conserva artefatti. Non crea nuove puntate e non abilita
-mercati o processo T−15. Il suo trigger non richiede precisione al minuto.
+Prima del cutover: backup finale, writer sospesi in modo controllato, parità,
+configurazione coordinata di web/nightly/training/calibrazione e piano di
+rollback da presentare all'utente. Sono richieste conferme separate prima
+del cutover definitivo e dell'attivazione remota delle registrazioni A/C.
+Le modifiche locali o una PR non attestano deploy o attivazione.
 
-## Configurazione e verifica
-
-Secrets obbligatori: `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`.
-`ODDS_API_KEY` configura il provider, ma non abilita la raccolta di default;
-`API_FOOTBALL_KEY` è necessaria per il relativo provider di formazioni quando riabilitato.
-Non pubblicare i valori dei secrets nei log o nel repository.
-
-La pausa giocatori usa `PLAYER_DATA_ENABLED=false` nel backend e nel workflow:
-anche una richiesta manuale `importPlayers=true` non riattiva il percorso.
-Il predittore evita le rose e non genera player props; le richieste quote
-escludono i mercati `player_*`. Il frontend nasconde le sezioni giocatore con
-`REACT_APP_PLAYER_DATA_ENABLED=false`. La pausa delle formazioni usa
-`PLAYER_AVAILABILITY_ENABLED=false` nel backend e
-nel workflow; `LINEUP_REFRESH_SCHEDULER_ENABLED=false` in Compose. Le route
-availability rispondono con uno stato disabilitato prima di accedere al DB o al
-provider, anche alle richieste degli APK precedenti. Il predittore evita le letture
-dei relativi snapshot. Il frontend nasconde il pannello e non effettua refresh
-availability: per riabilitarlo occorre ricompilare con
-`REACT_APP_PLAYER_DATA_ENABLED=true` e `REACT_APP_PLAYER_AVAILABILITY_ENABLED=true`
-oltre ad abilitare entrambi i flag backend e il workflow. Nessuno storico viene
-cancellato. Vedi [diagnosi iniziale](performance/lineup-pause-2026-10-12.md) e
-[riduzione letture e pausa completa](performance/db-read-reduction-2026-10-12.md).
-
-L'import Understat riutilizza gli ID letti prima delle scritture e aggiunge solo
-quelli confermati dal batch, evitando una seconda lettura di ogni stagione.
-Le medie si aggiornano sulle squadre delle partite concluse modificate; la
-retention mantiene il ricalcolo globale necessario. Il riepilogo statistiche e
-la copertura storica delle squadre condividono letture concorrenti con cache
-in memoria di 10 minuti, invalidata dalle scritture locali pertinenti. Le
-scritture di un processo esterno possono restare invisibili alla cache fino
-alla scadenza. Cambiare squadra nella UI non ricarica l'intero riepilogo.
-
-L'orario previsto è **03:00 Europe/Rome**: cron `0 1 * * *` in estate e
-`0 2 * * *` in inverno. Lo script sceglie il cron attivo dall'offset e dal
-trigger originale, anche in caso di ritardo GitHub; l'altro run termina senza
-sync. Il gruppo di concurrency impedisce sovrapposizioni tra run del workflow.
-Un run verde con `Skip scheduled run` non dimostra che la sync sia riuscita.
-
-Dopo il push, la CI verifica il codice. Per verificare l'intera nightly contro
-il DB configurato usare `Actions → Nightly Sync → Run workflow` e controllare
-gate, copertura delle stagioni, snapshot e conclusione del run effettivo.
-Questa verifica esegue gli import e le scritture del normale job.
-
-## Preparazione dei pronostici dopo il deploy
-
-`Prepare prediction calibration` (`calibration-warm.yml`) prepara i profili
-delle cinque leghe a ogni push pertinente su `main`, senza aspettare la nightly.
-Include il profilo live e i cutoff prematch delle ultime dieci partite concluse
-per lega. Anche la nightly usa il comando con verifica del riuso persistito,
-entro il timeout previsto, invece della sola risposta della route di warmup.
-È disponibile anche da **Actions → Prepare prediction calibration → Run workflow**.
-Richiede solo i due secrets Turso già previsti. Esegue la calibrazione completa
-sul runner e verifica il riuso persistito da un nuovo servizio; non importa dati,
-non richiama provider quote e non registra giocate. Applica solamente la migrazione
-additiva della cache, quando necessaria.
-
-Il comando equivalente, con le credenziali già nell'ambiente, è
-`cd backend` seguito da `npm run build` e `npm run calibration:warm`.
-La build pulisce `dist` per evitare che moduli compilati rimossi in passato
-alterino l'impronta rispetto al container. Il workflow e Hostless devono avere
-la stessa configurazione dei modelli (`MODEL_*`, se personalizzata).
-
-Attendere il risultato verde **calibration_verified** del job: un deploy può
-diventare disponibile prima che la preparazione termini. Se la coorte cambia
-prima della nightly o la configurazione differisce, resta necessario il calcolo
-completo; la preparazione non autorizza l'uso di profili obsoleti.
-
-Diagnosi e misure del percorso replay:
-[riduzione CPU del 18 ottobre](performance/runtime-throttling-2026-10-18.md).
+Rollback: impostare `RESEARCH_NIGHTLY_ENABLED=false`, preservare liquidazioni
+e storico e non ripristinare la chiamata automatica legacy o `AUTO_BET_*`.
+Non sovrascrivere il database corrente con un backup vecchio. I test sintetici
+vanno su DB isolati; il collaudo remoto deve includere un ciclo prospettico
+reale senza forzare una puntata. Il precedente
+[report T−15](operations/production-status-2026-10-29.md) resta storico e non è
+la procedura di attivazione di questa nightly.

@@ -14,6 +14,7 @@ import { reconcileResearchMonitoring } from './ResearchMonitoring';
 import { rollbackUnhealthyChampion } from './ResearchLifecycle';
 import { randomUUID } from 'node:crypto';
 import { ResearchWorkerCoordinator, WorkerLease, WORKER_RENEWAL_MS } from './ResearchWorkerCoordinator';
+import { buildFrozenProspectiveObservations, FrozenProspectiveObservation } from './ResearchProspectiveEvidence';
 
 type RuntimeDb = Pick<DatabaseService, 'research' | 'getUpcomingMatches' | 'getMatchById' | 'getMatches'
   | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests'>>;
@@ -73,7 +74,7 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): L
   return [...groups.values()].flatMap((sheet) => sheet.quotes);
 }
 
-function matchingEvent(row: Record<string, any>, events: OddsMatch[]): OddsMatch | null {
+export function matchingResearchEvent(row: Record<string, any>, events: OddsMatch[]): OddsMatch | null {
   const ranked = events.map((event) => ({ event, evidence: scoreFixtureCandidate(event, row.home_team_name, row.away_team_name, row.date) }))
     .filter(({ evidence }) => evidence.straightTeamScore >= 1.8 && !evidence.warnings.includes('home_away_inverted_candidate') && evidence.score > 0)
     .sort((a, b) => b.evidence.score - a.evidence.score);
@@ -140,19 +141,24 @@ export class ResearchRuntime {
   private readonly coordinator?: ResearchWorkerCoordinator;
   private readonly onTick?: (summary: T15TickSummary) => void;
   private claimedJobs: T15Job[] = [];
+  private readonly nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number };
+  private readonly prospectiveSamples = new Map<string, { asOf: string; samples: CalibrationSample[] }>();
   private readonly state: { enabled: boolean; lastTick: T15TickSummary | null; lastError: string | null;
     targetLeadMinutes: number; toleranceSeconds: number; quoteMaxAgeSeconds: number } = {
       enabled: false, lastTick: null, lastError: null, targetLeadMinutes: 15, toleranceSeconds: 60, quoteMaxAgeSeconds: 300,
     };
 
   constructor(private readonly db: RuntimeDb, options: { clock?: () => Date; odds?: OddsFeed;
-    coordinator?: ResearchWorkerCoordinator; ownerId?: string; onTick?: (summary: T15TickSummary) => void } = {}) {
+    coordinator?: ResearchWorkerCoordinator; ownerId?: string; onTick?: (summary: T15TickSummary) => void;
+    nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number } } = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.coordinator = options.coordinator;
     this.ownerId = options.ownerId ?? randomUUID();
     this.onTick = options.onTick;
-    this.odds = options.odds ?? new OddsApiService(getConfiguredOddsApiKey('t15'), {
-      store: this.db.oddsRequests, operation: 't15', priority: 'essential', cacheMaxAgeMs: 300_000,
+    this.nightly = options.nightly;
+    this.odds = options.odds ?? new OddsApiService(getConfiguredOddsApiKey(options.nightly ? 'default' : 't15'), {
+      store: this.db.oddsRequests, operation: options.nightly ? 'nightly' : 't15', priority: 'essential',
+      cacheMaxAgeMs: options.nightly?.quoteMaxAgeMs ?? 300_000,
     });
     this.scheduler = new T15Scheduler({ clock: this.clock,
       synchronize: (now) => this.synchronize(now),
@@ -289,7 +295,7 @@ export class ResearchRuntime {
 
   private sharedOdds(competition: string): Promise<{ events: OddsMatch[]; capturedAt: string }> {
     const now = this.clock().getTime(); const cached = this.competitionRequests.get(competition);
-    if (cached && now - cached.at < 30_000) return cached.value;
+    if (cached && now - cached.at < (this.nightly?.quoteMaxAgeMs ?? 30_000)) return cached.value;
     const startedAt = this.clock().toISOString();
     const markets = ['h2h', 'totals', 'spreads'];
     const record = async (success: boolean, eventCount?: number, failureCode?: string | null) => {
@@ -325,15 +331,15 @@ export class ResearchRuntime {
     if (!row) return { ...base, status: 'unknown' };
     if (row.home_goals != null || row.away_goals != null) return { ...base, status: 'finished' };
     if (Date.parse(row.date) !== Date.parse(job.kickoffAt)) {
-      await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: row.date }]);
+      if (!this.nightly) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: row.date }]);
       return { ...base, status: 'upcoming' };
     }
     const feed = await this.sharedOdds(row.competition);
-    const event = matchingEvent(row, feed.events);
+    const event = matchingResearchEvent(row, feed.events);
     if (!event) return { ...base, status: 'unknown' };
     if (Date.parse(event.commenceTime) !== Date.parse(row.date)) {
       await this.db.updateMatchKickoff(job.matchId, event.commenceTime);
-      await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: event.commenceTime }]);
+      if (!this.nightly) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: event.commenceTime }]);
       return { ...base, kickoffAt: event.commenceTime, status: 'upcoming' };
     }
     if (event.completed || event.live || Date.parse(event.commenceTime) <= this.clock().getTime()) return { ...base, status: 'started' };
@@ -342,12 +348,14 @@ export class ResearchRuntime {
     }
     const snapshotAt = this.clock().toISOString();
     const input = buildForecastInput(this.historyCache.rows, researchMatchFromRow(row), snapshotAt);
-    const quotes = researchQuotesFromEvent(event, feed.capturedAt);
+    const quotes = researchQuotesFromEvent(event, feed.capturedAt).map((quote) => this.nightly
+      ? { ...quote, priceType: 'prematch' as const } : quote);
     const championC = await this.db.research.getChampion('C');
     const candidatesC = await this.db.research.getModels('C').catch((error) => { if (championC) return []; throw error; });
     const latestCandidate = candidatesC[candidatesC.length - 1];
     const candidateC = championC ?? latestCandidate;
     const decisions: T15Decision[] = [];
+    const prospectiveObservations: FrozenProspectiveObservation[] = [];
     for (const family of ['A', 'C'] as const) {
       const modelVersion = family === 'A' ? input.baselineVersion : candidateC?.version ?? 'C-unavailable';
       const artifact = candidateC?.artifact as HybridArtifact | undefined;
@@ -371,7 +379,10 @@ export class ResearchRuntime {
       const evidence = await this.db.research.getLatestBenchmark(family, modelVersion);
       const calibrationEvidence = evidence?.report?.probabilityProtocol === COHERENT_PROBABILITY_PROTOCOL
         ? evidence.report : artifact;
-      const samples = calibrationEvidence?.calibrationSamples?.[family] as CalibrationSample[] | undefined;
+      // Historical/T15 protocols retain their frozen inputs. The nightly must
+      // never recycle labels used to fit an artifact's calibration profile.
+      let samples = this.nightly ? undefined : calibrationEvidence?.calibrationSamples?.[family] as CalibrationSample[] | undefined;
+      let prudentialEvidenceAsOf: string | null = null;
       const profile = calibrationEvidence?.calibrationProfilesV2?.[family] as CoherentCalibrationProfile | undefined;
       const mode = (calibrationEvidence?.probabilityCalibrationMode ?? 'isotonic_1x2') as CoherentCalibrationMode;
       if (!failure && (calibrationEvidence?.diagnosticOnly === true || calibrationEvidence?.runtimeCompatible === false)) failure = 'diagnostic_model_not_operational';
@@ -423,12 +434,35 @@ export class ResearchRuntime {
             saveSchedulerRun: this.db.saveSchedulerRun.bind(this.db) }, this.clock());
         }
       }
-      const advertisedMarkets = markets.filter((market) => ['SHADOW', 'ACTIVE'].includes(market.state));
+      const advertisedMarkets = markets.filter((market) => (this.nightly
+        ? ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'] : ['SHADOW', 'ACTIVE']).includes(market.state));
       const matchingConfiguration = (market: { evidence?: { approvedProbabilityConfigurationHash?: string } }) =>
         probabilityConfiguration !== null && market.evidence?.approvedProbabilityConfigurationHash === probabilityConfiguration.hash;
-      const allowed = advertisedMarkets.filter(matchingConfiguration).map((market) => market.market);
+      // Economic validation remains unchanged in the registry. The nightly virtual
+      // comparison needs technical calibration coherence, not a prior ROI result.
+      const allowed = advertisedMarkets.filter((market) => this.nightly ? probabilityConfiguration !== null
+        : matchingConfiguration(market)).map((market) => market.market);
+      if (this.nightly && !failure && probabilityConfiguration) {
+        if (!coherentMatrixProbabilities(matrix, probabilities)) failure = 'incoherent_probability_distribution';
+        else {
+          const key = `${job.runId ?? job.id}:${family}:${modelVersion}:${probabilityConfiguration.hash}`;
+          const cached = this.prospectiveSamples.get(key);
+          if (cached && Date.parse(cached.asOf) <= Date.parse(snapshotAt)) {
+            samples = cached.samples; prudentialEvidenceAsOf = cached.asOf;
+          } else {
+            samples = await this.db.research.listProspectiveCalibrationSamples({ family, modelVersion,
+              probabilityConfigurationHash: probabilityConfiguration.hash, asOf: snapshotAt });
+            if (this.prospectiveSamples.size >= 8) this.prospectiveSamples.delete(this.prospectiveSamples.keys().next().value!);
+            this.prospectiveSamples.set(key, { asOf: snapshotAt, samples }); prudentialEvidenceAsOf = snapshotAt;
+          }
+          prospectiveObservations.push(...buildFrozenProspectiveObservations({ matchId: row.match_id, family, modelVersion,
+            probabilityConfigurationHash: probabilityConfiguration.hash, matrix, probabilities, quotes, allowedMarkets: allowed,
+            forecastAt: snapshotAt, kickoffAt: row.date, quoteMaxAgeMs: this.nightly.quoteMaxAgeMs }));
+        }
+      }
       const result = failure ? null : explainResearchDecision({ matrix, probabilities, quotes, calibrationSamples: samples,
-        allowedMarkets: allowed, now: snapshotAt, historical: false });
+        allowedMarkets: allowed, now: snapshotAt, historical: false,
+        ...(this.nightly ? { minEv: this.nightly.minEv, minPrudentialEv: this.nightly.minPrudentialEv } : {}) });
       const selected = result?.decision;
       decisions.push({ family, modelVersion, validated: !failure, action: selected ? 'BET' : 'ABSTAIN',
         market: selected?.quote.market ?? '', selection: selected?.quote.selection,
@@ -441,9 +475,11 @@ export class ResearchRuntime {
         calibrationPipelineHash: calibrationEvidence?.pipelineHashV2 ?? null,
         calibrationArtifactVersion: calibrationEvidence?.version ?? evidence?.modelVersion ?? null,
         calibrationAvailableAt: configurationAvailable ? new Date(Math.max(...configurationTimes.map((value) => Date.parse(value)))).toISOString() : null,
+        ...(this.nightly && !failure ? { prospectiveMatrix: matrix, prudentialEvidenceAsOf,
+          prudentialEvidenceProtocol: 'prospective-residual-v1', prudentialSamplesAvailable: samples?.length ?? 0 } : {}),
         probabilityStages: stages, bookmakerProbabilities: researchBookmakerProbabilities(quotes), forecastAt: snapshotAt,
         score: selected?.score ?? 0, reason: failure ?? (selected ? undefined
-          : advertisedMarkets.some((market) => !matchingConfiguration(market)) ? 'probability_configuration_not_validated'
+          : !this.nightly && advertisedMarkets.some((market) => !matchingConfiguration(market)) ? 'probability_configuration_not_validated'
             : JSON.stringify(result?.reasons ?? { model_unavailable: 1 })),
       });
     }
@@ -452,8 +488,20 @@ export class ResearchRuntime {
       await this.probeChallenger(input, latestCandidate.version, latestCandidate.artifact, quotes, snapshotAt);
     }
     return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions,
-      inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime } };
+      ...(this.nightly ? { prospectiveObservations } : {}),
+      inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
+        ...(this.nightly ? { mode: 'NIGHTLY', match: { matchId: row.match_id, competition: row.competition,
+          kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name,
+          matchLabel: [row.home_team_name, row.away_team_name].filter(Boolean).join(' – ') } } : {}) } };
   }
+
+  /** One finite nightly preparation: does not start polling, train or register bets. */
+  async prepareNightly(job: T15Job): Promise<PreparedT15Job> {
+    if (!this.nightly) throw new Error('Nightly preparation requires the nightly policy');
+    return this.prepare(job, this.clock().toISOString());
+  }
+
+  getQuotaStatus(): unknown { return this.odds.getQuotaStatus?.() ?? null; }
 
   /** One bounded compatibility probe; challenger output never enters a portfolio or replaces the champion here. */
   private async probeChallenger(input: ForecastInput, modelVersion: string, artifact: HybridArtifact, quotes: ResearchQuote[], snapshotAt: string): Promise<void> {

@@ -1,7 +1,6 @@
 import { DatabaseService } from '../db/DatabaseService';
 import { baselineManifest } from './ForecastCore';
-import { T15_EXECUTION_TOLERANCE_MS } from './T15Scheduler';
-import { readResearchMonitoring } from './ResearchMonitoring';
+import { readResearchMonitoring, researchNightlyStatus } from './ResearchMonitoring';
 
 type Row = Record<string, any>;
 const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -61,18 +60,17 @@ export function benchmarkOverview(raw: Row | null): Row | null {
 }
 
 /** Read-only DTO shared by web and Android. It never initializes a bankroll on GET. */
-export async function buildResearchOverview(db: DatabaseService): Promise<Row> {
-  const [models, rawPortfolios, bets, markets, jobs, ledger, latestBenchmark, runs, decisions, monitoring, registeredExperiments, modelEvents, benchmarks, worker] = await Promise.all([
+export async function buildResearchOverview(db: DatabaseService, options: { now?: string | Date; nightlyEnabled?: boolean } = {}): Promise<Row> {
+  const [models, rawPortfolios, bets, markets, jobs, ledger, latestBenchmark, runs, decisions, monitoring, registeredExperiments, modelEvents, benchmarks] = await Promise.all([
     db.research.getModels(), db.research.listPortfolios(), db.research.listBets(), db.research.listMarkets(),
     db.research.listJobs(), db.research.listLedger(), db.research.getLatestBenchmark('PAIR'), db.listRecentSchedulerRuns(50),
-    db.research.listDecisions(), readResearchMonitoring(db),
+    db.research.listDecisions(), readResearchMonitoring(db, options.now ?? new Date()),
     db.researchExperiments?.list() ?? Promise.resolve([]), db.research.listModelEvents(), db.research.listBenchmarks({ limit: 1 }),
-    db.researchWorker?.status() ?? Promise.resolve(null),
   ]);
   const named = async (name: string) => db.listRecentSchedulerRunsByName
     ? db.listRecentSchedulerRunsByName(name, 5) : runs.filter((run) => run.schedulerName === name);
-  const [nightlyRuns, trainingRuns, dataRuns, providerRuns] = await Promise.all([
-    named('nightly'), named('research_training'), named('understat'), named('research_provider'),
+  const [nightlyRuns, trainingRuns, dataRuns, providerRuns, researchNightlyRuns] = await Promise.all([
+    named('nightly'), named('research_training'), named('understat'), named('research_provider'), named('research_nightly'),
   ]);
   const portfolios = rawPortfolios.map((portfolio) => {
     const movements = ledger.filter((row) => row.portfolioId === portfolio.id);
@@ -109,17 +107,14 @@ export async function buildResearchOverview(db: DatabaseService): Promise<Row> {
     findings: [...(diagnosticRecord.report?.findings ?? []), ...rejectionFindings] } } : null;
   const experiments = registeredExperiments.filter((experiment) => experiment.kind !== 'DIAGNOSTIC_RUN');
   const blockers: string[] = [];
-  // Web environment flags and old scheduler runs cannot establish whether the
-  // separate worker currently owns a live lease in the shared database.
-  const enabled = worker ? worker.active === true && worker.heartbeatFresh === true : null;
-  const schedulerState = !worker ? 'UNKNOWN' : enabled ? 'ACTIVE' : worker.enabled ? 'STALE' : 'STOPPED';
-  if (schedulerState === 'UNKNOWN') blockers.push('Stato del worker T−15 non ancora osservato nel database condiviso.');
-  if (schedulerState === 'STOPPED') blockers.push('Worker T−15 fermo secondo lo stato nel database condiviso.');
-  if (schedulerState === 'STALE') blockers.push('Worker T−15 senza lease o heartbeat valido: controllare il processo remoto.');
+  const enabled = options.nightlyEnabled ?? process.env.RESEARCH_NIGHTLY_ENABLED === 'true';
+  const nightlyStatus = researchNightlyStatus(researchNightlyRuns, options.now ?? new Date(), enabled);
+  const schedulerState = nightlyStatus.state;
+  if (!enabled) blockers.push('Registrazione virtuale notturna disabilitata: l’attivazione richiede conferma esplicita.');
+  if (nightlyStatus.overdue) blockers.push('Elaborazione notturna non osservata entro il margine previsto.');
+  if (enabled && schedulerState === 'DISABLED') blockers.push('Il run osservato dichiara la registrazione virtuale disabilitata.');
+  if (schedulerState === 'FAILED') blockers.push('L’ultima elaborazione notturna è fallita.');
   if (!models.some((model) => model.family === 'C')) blockers.push('Nessun artefatto CatBoost C registrato.');
-  if (!markets.some((market) => market.state === 'SHADOW' || market.state === 'ACTIVE')) {
-    blockers.push('Nessun mercato ha superato i controlli per le puntate prospettiche.');
-  }
   return {
     baseline: baselineManifest(),
     models: models.map((model) => ({ family: model.family, version: model.version,
@@ -138,21 +133,18 @@ export async function buildResearchOverview(db: DatabaseService): Promise<Row> {
       bookmakerProbabilities: decision.snapshot?.bookmakerProbabilities,
       probabilityStages: decision.snapshot?.probabilityStages,
     })),
-    status: { nightlyCreatesBets: false, legacyAutomationDisabled: true, schedulerEnabled: enabled,
+    status: { mode: 'NIGHTLY_PRE_MATCH', nightlyCreatesBets: enabled, legacyAutomationDisabled: true, schedulerEnabled: enabled,
       schedulerState,
       automationScope: 'local_code', remoteVerification: 'not_verified_from_backend',
-      heartbeatAt: worker?.heartbeatAt ?? null, toleranceSeconds: T15_EXECUTION_TOLERANCE_MS / 1000,
-      lastSchedulerJobAt: worker?.lastTickAt ?? null,
+      heartbeatAt: null, toleranceSeconds: null, nightly: nightlyStatus,
+      lastSchedulerJobAt: nightlyStatus.lastRun?.endedAt ?? null,
       lastNightlyAt: nightly?.endedAt ?? null, training: training ? { lastAt: training.endedAt, status: training.success ? 'success' : 'failed' } : undefined,
       lastDataUpdateAt: dataUpdate?.endedAt ?? null, dbStatus: 'raggiungibile',
       lastProviderAt: provider?.endedAt ?? null, apiQuota: quotaRun?.summary?.quota ?? null,
       lastValidationAt: benchmarks[0]?.createdAt ?? null,
       lastPromotionAt: [...modelEvents].reverse().find((event) => event.action === 'PROMOTE')?.createdAt ?? null,
       lastRollbackAt: [...modelEvents].reverse().find((event) => event.action === 'ROLLBACK')?.createdAt ?? null,
-      blockers, deployment: schedulerState === 'ACTIVE'
-        ? 'Worker con lease e heartbeat validi nel database condiviso; il collaudo remoto resta separato.'
-        : schedulerState === 'STOPPED' ? 'Worker fermo.' : schedulerState === 'STALE'
-          ? 'Il worker non risulta attivo: lease o heartbeat scaduto.' : 'Stato del worker non verificato.',
+      blockers, deployment: 'Decisioni tramite GitHub Actions nightly; il backend web non registra puntate automaticamente. Stato remoto da collaudare separatamente.',
       providerStatus: provider ? (provider.success ? 'Ultima richiesta riuscita; controllare timestamp e copertura.' : 'Ultima richiesta fallita.')
         : 'Nessuna richiesta al provider misurata da questo processo.' },
     notifications: monitoring.notifications, dailySummary: monitoring.dailySummary, notificationDelivery: monitoring.delivery,

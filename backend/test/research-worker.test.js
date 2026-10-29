@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createClient } = require('@libsql/client');
-const { readFileSync, rmSync } = require('node:fs');
+const { readFileSync, rmSync, existsSync } = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { randomUUID } = require('node:crypto');
@@ -31,6 +32,18 @@ test('disabled worker stays disconnected and does not initialize models or portf
   assert.equal(worker.runtime, undefined);
   await worker.stop();
   assert.equal(logs[0].event, 'worker_disabled');
+});
+
+test('retired CLI exits without polling or IO even when a stale environment enables T-15', () => {
+  const stateFile = join(tmpdir(), `retired-worker-${randomUUID()}.json`);
+  const output = execFileSync(process.execPath, [join(__dirname, '../scripts/research-worker.js')], {
+    encoding: 'utf8', timeout: 5000,
+    env: { ...process.env, RESEARCH_T15_SCHEDULER_ENABLED: 'true', RESEARCH_WORKER_STATE_FILE: stateFile,
+      TURSO_DATABASE_URL: 'libsql://retired-worker.invalid', TURSO_AUTH_TOKEN: 'test-not-a-token' },
+  });
+  assert.equal(JSON.parse(output).event, 'worker_retired');
+  assert.equal(JSON.parse(output).enabled, false);
+  assert.equal(existsSync(stateFile), false);
 });
 
 test('separate database clients elect exactly one persistent worker, including simultaneous startup', async (t) => {
