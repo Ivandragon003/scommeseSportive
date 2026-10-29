@@ -289,9 +289,20 @@ statistica.
 
 Preparazione su branch `codex/nightly-ac-personal-turso`, evitando un push su
 `main` che avvierebbe il warmup con le credenziali di produzione precedenti.
-Commit/PR e relativa CI vanno registrati dopo i controlli finali. Non sono state
+Il branch è pubblicato nella [PR #1, in bozza](https://github.com/Ivandragon003/scommeseSportive/pull/1).
+Commit funzionali: `22a54e8b` (I/O database), `e4c7f6d8` (nightly e coorte),
+`a4af9018` (dashboard), `eae7c4b7` (verifica migrazione). La documentazione di
+rilascio è inclusa. I check remoti della PR sono il riferimento per la CI della
+revisione pubblicata; le verifiche locali sopra non li sostituiscono.
+Scansioni Gitleaks delle patch pubblicate superate. Non sono state
 attivate le nuove registrazioni, cambiati secret di produzione o eseguito un
 cutover. Nessuna risorsa a pagamento, carta o cambio di piano autorizzato.
+
+`main` resta `0c8b2c7`. Nightly Sync è Active, soltanto manutenzione:
+ultimo run remoto verificato `40857398332`, riuscito il 29 ottobre alle
+10:25:06 UTC, revisione `e046bc4`. Al controllo non risultavano workflow in
+esecuzione. Il nuovo percorso e il nuovo watchdog non sono ancora pubblicati
+nel branch di default; la PR non ne costituisce l'attivazione.
 
 Restano necessari: sincronizzazione finale della copia personale, cutover
 coordinato autorizzato, deploy Hostless riuscito e verificato, notifiche esterne
