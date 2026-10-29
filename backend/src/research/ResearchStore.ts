@@ -74,12 +74,14 @@ export class ResearchStore {
       }
       for (let attempt = 0; ; attempt++) {
         try {
-          // Remote Turso manages its journal. Local multi-process fixtures need WAL.
+          // Remote Turso manages its journal. Local multi-process clients need WAL.
           if (this.client.protocol === 'file') await this.client.execute('PRAGMA journal_mode=WAL');
           await this.client.executeMultiple(statements.join('\n'));
           break;
         } catch (error: any) {
-          if (attempt >= 6 || !/SQLITE_BUSY|database is locked/i.test(String(error?.code) + String(error?.message))) throw error;
+          if (!/SQLITE_BUSY|database is locked/i.test(String(error?.code) + String(error?.message))) throw error;
+          await this.releaseFailedLocalConnection();
+          if (attempt >= 6) throw error;
           await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
         }
       }
@@ -91,6 +93,15 @@ export class ResearchStore {
     await this.guards;
   }
 
+  private async releaseFailedLocalConnection(): Promise<void> {
+    if (this.client.protocol !== 'file') return;
+    // A failed native startup statement can remain unfinished on its connection.
+    // A deferred, empty transaction detaches that idle connection from the client.
+    // Other transactions own separate connections; never close the shared client.
+    const abandoned = await this.client.transaction('deferred');
+    try { await abandoned.rollback(); } finally { abandoned.close(); }
+  }
+
   private async write<T>(work: (tx: Transaction) => Promise<T>, beforeCommit?: () => void): Promise<T> {
     await this.ensureGuards();
     const run = async () => {
@@ -98,7 +109,9 @@ export class ResearchStore {
       for (let attempt = 0; ; attempt++) {
         try { tx = await this.client.transaction('write'); break; }
         catch (error: any) {
-          if (!/SQLITE_BUSY|database is locked/i.test(String(error?.code) + String(error?.message)) || attempt >= 5) throw error;
+          if (!/SQLITE_BUSY|database is locked/i.test(String(error?.code) + String(error?.message))) throw error;
+          await this.releaseFailedLocalConnection();
+          if (attempt >= 5) throw error;
           await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
         }
       }

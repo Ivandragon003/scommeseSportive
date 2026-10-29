@@ -505,6 +505,110 @@ test('exhausted guard initialization resets its promise so the next poll can rec
   } finally { h.client.close(); }
 });
 
+test('a real contended WAL initialization recovers before creating guards and opening balances', async () => {
+  const path = join(tmpdir(), `research-wal-startup-${randomUUID()}.db`);
+  const owner = createClient({ url: `file:${path}` });
+  const contender = createClient({ url: `file:${path}` });
+  let blocker, busyFailures = 0;
+  try {
+    await owner.executeMultiple(readFileSync(join(__dirname, '../migrations/015_research_platform.sql'), 'utf8'));
+    blocker = await owner.transaction('read');
+    await blocker.execute('SELECT * FROM research_portfolios');
+    const observed = new Proxy(contender, { get(target, property) {
+      if (property === 'execute') return async (...args) => {
+        try { return await target.execute(...args); }
+        catch (error) {
+          assert.equal(args[0], 'PRAGMA journal_mode=WAL');
+          assert.match(String(error.code), /SQLITE_BUSY/);
+          busyFailures++;
+          await blocker.rollback(); blocker.close(); blocker = undefined;
+          throw error;
+        }
+      };
+      const value = target[property]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const store = new ResearchStore(observed);
+    assert.equal((await store.initializePortfolios()).length, 2);
+    assert.equal(busyFailures, 1);
+    assert.equal(contender.closed, false);
+    assert.equal((await owner.execute('PRAGMA journal_mode')).rows[0].journal_mode, 'wal');
+    assert.equal((await store.listLedger()).filter((entry) => entry.event === 'OPEN').length, 2);
+    await assert.rejects(owner.execute("DELETE FROM research_portfolios WHERE id='shadow_A'"), /immutable/);
+  } finally {
+    if (blocker) { await blocker.rollback(); blocker.close(); }
+    contender.close(); owner.close();
+    if (process.platform !== 'win32') rmSync(path, { force: true });
+  }
+});
+
+test('a real failed native BEGIN releases its connection before retrying without replaying writes', async () => {
+  const h = await setup();
+  const contender = createClient({ url: `file:${h.path}` });
+  let blocker, reader, busyFailures = 0, workWrites = 0;
+  try {
+    const observed = new Proxy(contender, { get(target, property) {
+      if (property === 'transaction') return async (...args) => {
+        try {
+          const transaction = await target.transaction(...args);
+          if (args[0] !== 'write') return transaction;
+          return new Proxy(transaction, { get(tx, method) {
+            if (method === 'execute') return (...parameters) => { workWrites++; return tx.execute(...parameters); };
+            const value = tx[method]; return typeof value === 'function' ? value.bind(tx) : value;
+          } });
+        }
+        catch (error) {
+          // The error comes from the real file driver, not an injected exception.
+          assert.equal(args[0], 'write');
+          assert.match(String(error.code), /SQLITE_BUSY/);
+          busyFailures++;
+          await blocker.rollback(); blocker.close(); blocker = undefined;
+          throw error;
+        }
+      };
+      const value = target[property]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const store = new ResearchStore(observed);
+    await store.getModels(); // Install guards before deliberately holding the write lock.
+    reader = await contender.transaction('read');
+    await reader.execute('SELECT * FROM research_ledger');
+    blocker = await h.client.transaction('write');
+    const portfolios = await store.initializePortfolios();
+    assert.equal(busyFailures, 1);
+    assert.equal(workWrites, 4);
+    assert.equal(contender.closed, false);
+    assert.equal(reader.closed, false);
+    assert.equal((await reader.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE event='OPEN'")).rows[0].n, 2);
+    assert.equal(portfolios.length, 2);
+    assert.ok(portfolios.every((portfolio) => portfolio.equityCents === 100000));
+    assert.equal((await store.listLedger()).filter((entry) => entry.event === 'OPEN').length, 2);
+    await assert.rejects(contender.execute("DELETE FROM research_portfolios WHERE id='shadow_A'"), /immutable/);
+  } finally {
+    if (blocker) { await blocker.rollback(); blocker.close(); }
+    if (reader) { await reader.rollback(); reader.close(); }
+    contender.close(); h.client.close();
+  }
+});
+
+test('remote BEGIN contention never rotates the client connection', async () => {
+  const h = await setup();
+  const modes = [];
+  try {
+    const remote = new Proxy(h.client, { get(target, property) {
+      if (property === 'protocol') return 'https';
+      if (property === 'transaction') return async (mode) => {
+        modes.push(mode);
+        if (modes.length === 1) throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+        return target.transaction(mode);
+      };
+      const value = target[property]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    assert.equal((await new ResearchStore(remote).initializePortfolios()).length, 2);
+    assert.deepEqual(modes, ['write', 'write']);
+    assert.equal(h.client.closed, false);
+    assert.equal((await h.store.listLedger()).filter((entry) => entry.event === 'OPEN').length, 2);
+  } finally { h.client.close(); }
+});
+
 test('two independent processes initialize research guards and opening ledger exactly once', async () => {
   const path = join(tmpdir(), `research-guard-startup-${randomUUID()}.db`);
   const client = createClient({ url: `file:${path}` });
@@ -518,7 +622,10 @@ test('two independent processes initialize research guards and opening ledger ex
       const store = new ResearchStore(client);
       store.initializePortfolios().then((rows) => {
         console.log(JSON.stringify({ portfolios: rows.length })); client.close();
-      }).catch(() => { client.close(); process.exitCode = 1; });
+      }).catch((error) => {
+        console.error(error);
+        client.close(); process.exitCode = 1;
+      });
     `;
     const outcomes = await Promise.all([1, 2].map(() => promisify(execFile)(process.execPath,
       ['-e', run, modulePath, path], { cwd: join(__dirname, '..'), timeout: 15000 })));
