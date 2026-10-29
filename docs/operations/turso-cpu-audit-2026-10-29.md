@@ -269,9 +269,117 @@ Nessuna chiamata provider, modifica del database remoto, nuova dipendenza,
 cache persistente o indice è stata introdotta. La suite completa e il collaudo
 remoto restano gate separati di pubblicazione.
 
-Il gate integrale successivo, con entrambe le ottimizzazioni I/O incluse, ha
+## Letture Turso: indice del batch lineup, verifica del 30 ottobre
+
+L'Analytics ufficiale Turso consultato nella notte tra il 29 e il 30 ottobre
+ha individuato un costo diverso dai payload della dashboard: la pulizia dei
+contenitori lineup orfani in `FootballDataService.ts` risultava eseguita tre
+volte, con circa 36,85 milioni di righe lette per esecuzione e zero scritture.
+Il totale approssimato di 110,55 milioni spiega circa il 98,5% delle
+112.234.122 letture mostrate in quel riepilogo. Non viene attribuito questo
+consumo ai modelli o ai benchmark. Il periodo e il residuo del piano vanno
+letti nel pannello ufficiale; questi valori non sono una proiezione mensile.
+
+La query cerca batch senza riferimenti né in `player_lineup_snapshots` né in
+`player_injury_refresh_batches`. L'indice snapshot esistente cominciava con
+`match_id, team_id, is_official`: non permetteva una ricerca puntuale sulla
+sola colonna `batch_id`. Ogni batch poteva quindi scandire ripetutamente gli
+snapshot. La tabella injury disponeva già dell'indice UNIQUE con prefisso
+`batch_id, team_id`.
+
+La migrazione additiva `022_lineup_batch_read_index.sql` crea soltanto
+`idx_lineup_snapshots_batch ON player_lineup_snapshots(batch_id)`, con
+`IF NOT EXISTS`. La query applicativa, i dati, la retention, i modelli e i
+portafogli restano invariati. Il normale runner delle migrazioni scopre il
+nuovo file; i test mirati lo applicano direttamente in memoria senza bootstrap.
+
+Verifica offline sul restore privato `target-cli-export-20261029T185811Z`,
+aperto in sola lettura con `mode=ro&immutable=1`: 1.066 contenitori, 69.697
+snapshot lineup e 286 record di refresh injury. Sono state copiate in memoria
+soltanto queste tre tabelle, conservando schema, indici e tutti i valori.
+La query `DELETE` esatta è stata letta dal sorgente e realmente eseguita sul
+clone prima e dopo l'indice, con chiavi esterne abilitate. Il backup originale
+non è stato migrato o modificato.
+
+| Misura locale, SQLite 3.49.1 | Prima | Dopo l'indice |
+| --- | ---: | ---: |
+| Tempo della stessa DELETE | 1.484,889 ms | 0,682 ms |
+| Istruzioni VM approssimate, contatore ogni 1.000 | 147.385.000 | 12.000 |
+| Righe applicative cancellate | 0 | 0 |
+| Ricerca snapshot nel piano | SCAN sull'indice match | SEARCH sull'indice batch |
+
+`EXPLAIN QUERY PLAN` conferma `SEARCH snapshot USING COVERING INDEX
+idx_lineup_snapshots_batch (batch_id=?)`, al posto della scansione ripetuta.
+Anche il controllo dei riferimenti snapshot necessario alla DELETE usa il
+nuovo indice. Tutti i conteggi e gli hash dei valori delle tre tabelle sono
+rimasti identici; nessuna violazione di chiave esterna. SHA-256 del restore
+prima e dopo: `03df131729ea4352c3e235b0c16821ccbaa013c2294df9219fac7497d8883618`.
+
+La costruzione locale dell'indice ha richiesto 26,865 ms e circa 627.000
+istruzioni VM; la seconda applicazione è un no-op (0,010 ms nel campione).
+L'indice contiene logicamente 69.697 riferimenti e il clone è cresciuto di
+767 pagine da 4.096 byte, **3.141.632 byte, circa 3 MiB**. Questa è una stima
+di spazio basata sulle pagine allocate nel clone: l'estensione `dbstat` non è
+disponibile nel Python locale. La creazione legge lo storico una volta e
+costruisce quelle entrate; i futuri inserimenti/cancellazioni di snapshot
+mantengono anche questo indice. `rowsAffected = 0` indica assenza di modifiche
+alle righe applicative, non costo zero di costruzione o garanzia sulle unità
+fatturate da Turso. Il consumo reale del rilascio va confrontato nell'Analytics.
+
+Controlli ripetibili, dalla directory `backend`, con il build corrente:
+
+```powershell
+node --test --test-concurrency=1 test/lineup-batch-read-index.test.js test/football-data-service.test.js
+npx eslint test/lineup-batch-read-index.test.js --max-warnings=0
+```
+
+Esito: **39/39 test** superati. I nuovi test verificano applicazione ripetuta,
+valori invariati, piano indicizzato e identità della query, confrontando batch
+orfano, solo injury, solo snapshot ed entrambi. Solo l'orfano viene rimosso e
+una seconda pulizia non cambia nulla. Nessuna nuova compilazione, connessione
+remota, chiamata provider o applicazione della migrazione in produzione è stata
+eseguita per questa prova. Il beneficio sulle righe lette remote resta da
+misurare dopo il rilascio; è distinto dal precedente -99,9398% sui byte della
+dashboard, che non dimostrava una riduzione delle righe lette.
+
+Il gate integrale precedente alla migrazione 022, con entrambe le ottimizzazioni I/O incluse, ha
 eseguito la suite backend in Linux/Node 20, senza rete, con 2 CPU e 1 GiB:
 **886 test, 885 PASS, zero errori, uno skip opzionale del runtime Python
 CatBoost**. La revisione indipendente del diff ha inoltre superato 49 test
 mirati senza rilevare problemi bloccanti. Questi esiti non attestano ancora
 la risoluzione del throttling sul servizio Hostless.
+
+### Applicazione sul database personale: 30 ottobre, 00:43 Roma
+
+Il pannello ufficiale dell'account `selloneciompi` ha mostrato, prima del fix,
+112,23 milioni di righe lette su 500 milioni, circa 1.250 scritte su 10 milioni,
+1,57 GB di sync su 3 GB e 525,98 MB di storage su 5 GB. Piano Starter Free,
+ciclo 1 ottobre–1 novembre, prossima fattura mostrata $0,00. La query orfani
+risultava eseguita tre volte, circa 36,85 milioni di righe lette per chiamata:
+circa il 98,5% delle letture osservate era attribuibile a questa query.
+Le medie arrotondate del pannello non sostituiscono contatori esatti per query.
+
+La 022 è stata applicata realmente sul solo database canonico personale alle
+23:43:57 UTC del 29 ottobre, 00:43:57 Roma del 30 ottobre, con batch atomico:
+creazione dell'indice e registrazione del nome completo della migrazione.
+Il controllo remoto prima/dopo conferma `SEARCH snapshot USING COVERING INDEX
+idx_lineup_snapshots_batch (batch_id=?)`, al posto di `SCAN snapshot`.
+Anche il controllo FK della DELETE pianificata usa il nuovo indice.
+
+Sono invariati i conteggi delle tre tabelle tecniche e gli hash di portafogli,
+ledger, budget, sessioni budget e puntate legacy. Nessuna DELETE di collaudo
+è stata eseguita in produzione; il piano è stato letto con `EXPLAIN QUERY PLAN`.
+Nessun nuovo token o servizio, richiesta al provider quote o riavvio Hostless.
+Il backend già pubblicato usa immediatamente l'indice persistente: il suo
+codice applicativo rimane `63d7cb96`; il nuovo file serve anche alle successive
+installazioni. Le prove private sono in
+`backend/artifacts/backups/personal-migration-20261029/consumption-audit-20261030/`.
+
+Compilazione, typecheck, 39 test mirati, lint e revisione indipendente superati.
+Il piano remoto indicizzato è verificato; il nuovo costo fatturato della
+successiva pulizia reale e il ritmo ordinario di più Nightly restano da
+misurare. I 112,23 milioni già consumati non vengono annullati dal fix.
+La precedente riduzione dei byte non era una misura di righe fatturate:
+[Turso spiega la distinzione fra righe restituite e righe esaminate](https://turso.tech/blog/tips-for-maximizing-your-turso-billing-allowances-48a0fca163e9).
+Non è ancora dimostrato, sulla sola prova locale o sul primo giorno di
+migrazione/collaudo, il consumo di un intero mese ordinario sotto 500 milioni.

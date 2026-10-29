@@ -88,6 +88,11 @@ attivati; le fatture Hostless non sono verificate e la risoluzione del
 throttling non è dimostrata. L'originale non è stato eliminato:
 serve la gestione del proprietario, perché la CLI disponibile è solo personale.
 
+Aggiornamento 30 ottobre: migrazione additiva 022 applicata al Turso personale,
+indice della pulizia lineup verificato nel piano remoto e dati invariati.
+Prima del fix il contatore mostrava 112,23M / 500M letture; il consumo di un
+mese ordinario non è ancora certificato. [Misure e limiti](docs/operations/turso-cpu-audit-2026-10-29.md#letture-turso-indice-del-batch-lineup-verifica-del-30-ottobre).
+
 Il vecchio cron Hostless `footpredictor-watchdog` è `PAUSED`; per lo standalone
 è stata accettata una richiesta di pausa, ma `Sleeping`/`scaledDown=false` non
 provano la pausa completata. Nessun servizio è stato eliminato e il blocco del

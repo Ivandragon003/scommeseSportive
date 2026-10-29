@@ -11,6 +11,13 @@ La baseline canonica autorizzata è il dump delle 16:17 Roma; gli aggiornamenti
 successivi della sorgente bloccata non sono attestati. Questo documento sostituisce le precedenti istruzioni di attivazione
 T−15; i report scientifici e gli snapshot operativi datati restano storici.
 
+Il 30 ottobre alle 00:43 Roma è stata applicata sul Turso personale la
+sola migrazione additiva 022: indice per la pulizia dei batch lineup.
+Il piano remoto usa l'indice; dati e hash finanziari sono invariati.
+La [verifica delle letture](turso-cpu-audit-2026-10-29.md#letture-turso-indice-del-batch-lineup-verifica-del-30-ottobre)
+documenta 112,23M / 500M letture prima del fix e distingue il beneficio
+dimostrato dal consumo mensile ordinario ancora da misurare.
+
 ## A. Nightly e quote
 
 Il [workflow esistente](../../.github/workflows/nightly-sync.yml) mantiene

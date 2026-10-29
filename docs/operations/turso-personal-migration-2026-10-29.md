@@ -6,6 +6,15 @@ GitHub Actions, dati e due portafogli A/C. Il database personale esistente è
 stato adottato come punto di verità con una scelta esplicita del punto di
 ripristino. Le verifiche e i limiti effettivi sono descritti qui sotto.
 
+Aggiornamento del 30 ottobre, 00:43 Roma: applicata sul canonico la migrazione
+additiva `022_lineup_batch_read_index.sql`. L'indice elimina la scansione
+ripetuta della pulizia lineup; piano remoto verificato, conteggi tecnici e
+hash finanziari invariati. I contatori ufficiali precedenti al fix sono
+112,23M letture / 500M e circa 1.250 scritture / 10M. Sono distinti dal
+checkpoint CLI del 29 ottobre e non dimostrano un mese ordinario sostenibile.
+Dettagli, costo dell'indice e limiti di misura nell'[audit aggiornato](turso-cpu-audit-2026-10-29.md#letture-turso-indice-del-batch-lineup-verifica-del-30-ottobre).
+Il backend Hostless esistente beneficia dell'indice senza riavvio.
+
 ## Stato verificato del 29 ottobre
 
 Il database operativo è `footpredictor` dell'account personale `selloneciompi`,
