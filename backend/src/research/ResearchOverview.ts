@@ -61,11 +61,14 @@ export function benchmarkOverview(raw: Row | null): Row | null {
 
 /** Read-only DTO shared by web and Android. It never initializes a bankroll on GET. */
 export async function buildResearchOverview(db: DatabaseService, options: { now?: string | Date; nightlyEnabled?: boolean } = {}): Promise<Row> {
-  const [models, rawPortfolios, bets, markets, jobs, ledger, latestBenchmark, runs, decisions, monitoring, registeredExperiments, modelEvents, benchmarks] = await Promise.all([
-    db.research.getModels(), db.research.listPortfolios(), db.research.listBets(), db.research.listMarkets(),
+  const [models, rawPortfolios, bets, markets, jobs, ledger, latestBenchmark, runs, decisions, monitoring, registeredExperiments, modelEvents, latestValidation] = await Promise.all([
+    db.research.getOverviewModels ? db.research.getOverviewModels() : db.research.getModels(),
+    db.research.listPortfolios(), db.research.listBets(), db.research.listMarkets(),
     db.research.listJobs(), db.research.listLedger(), db.research.getLatestBenchmark('PAIR'), db.listRecentSchedulerRuns(50),
     db.research.listDecisions(), readResearchMonitoring(db, options.now ?? new Date()),
-    db.researchExperiments?.list() ?? Promise.resolve([]), db.research.listModelEvents(), db.research.listBenchmarks({ limit: 1 }),
+    db.researchExperiments?.list() ?? Promise.resolve([]), db.research.listModelEvents(),
+    db.research.getLatestValidationSummary ? db.research.getLatestValidationSummary()
+      : db.research.listBenchmarks({ limit: 1 }).then((records) => records[0] ?? null),
   ]);
   const named = async (name: string) => db.listRecentSchedulerRunsByName
     ? db.listRecentSchedulerRunsByName(name, 5) : runs.filter((run) => run.schedulerName === name);
@@ -91,7 +94,7 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
   const provider = providerRuns[0];
   const quotaRun = providerRuns.find((row) => row.summary?.quota?.observedAt);
   const diagnosticRecord = registeredExperiments.find((experiment) => experiment.kind === 'DIAGNOSTIC_RUN');
-  const rejected = benchmarks[0]?.report;
+  const rejected = latestValidation?.report;
   const rejectionLabels: Record<string, string> = {
     protected_original_final_reused: 'Il test finale precedente è già stato consultato e resta protetto.',
     new_independent_future_holdout_required: 'Serve un nuovo periodo futuro indipendente.',
@@ -102,7 +105,7 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
   const rejectionFindings = (Array.isArray(rejected?.warnings) ? rejected.warnings : [])
     .filter((warning) => warning?.invalidating === true && typeof warning.code === 'string')
     .map((warning) => ({ severity: 'high', code: warning.code,
-      message: `${benchmarks[0].modelVersion ?? 'Candidato'}: ${rejectionLabels[warning.code] ?? warning.code}` }));
+      message: `${latestValidation.modelVersion ?? 'Candidato'}: ${rejectionLabels[warning.code] ?? warning.code}` }));
   const latestDiagnostics = diagnosticRecord ? { ...diagnosticRecord, report: { ...diagnosticRecord.report,
     findings: [...(diagnosticRecord.report?.findings ?? []), ...rejectionFindings] } } : null;
   const experiments = registeredExperiments.filter((experiment) => experiment.kind !== 'DIAGNOSTIC_RUN');
@@ -141,7 +144,7 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
       lastNightlyAt: nightly?.endedAt ?? null, training: training ? { lastAt: training.endedAt, status: training.success ? 'success' : 'failed' } : undefined,
       lastDataUpdateAt: dataUpdate?.endedAt ?? null, dbStatus: 'raggiungibile',
       lastProviderAt: provider?.endedAt ?? null, apiQuota: quotaRun?.summary?.quota ?? null,
-      lastValidationAt: benchmarks[0]?.createdAt ?? null,
+      lastValidationAt: latestValidation?.createdAt ?? null,
       lastPromotionAt: [...modelEvents].reverse().find((event) => event.action === 'PROMOTE')?.createdAt ?? null,
       lastRollbackAt: [...modelEvents].reverse().find((event) => event.action === 'ROLLBACK')?.createdAt ?? null,
       blockers, deployment: 'Decisioni tramite GitHub Actions nightly; il backend web non registra puntate automaticamente. Stato remoto da collaudare separatamente.',

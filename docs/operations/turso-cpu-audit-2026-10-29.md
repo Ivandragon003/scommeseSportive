@@ -198,3 +198,80 @@ vecchio non descrive il consumo CPU attuale, non dimostra assenza di throttling
 e non identifica la causa degli avvisi precedenti. Non è disponibile una misura
 remota confrontabile prima/dopo della nuova release, ancora non distribuita.
 I risultati locali sopra riportati restano separati dalle metriche ufficiali.
+
+## Dashboard ricerca: letture di metadati dopo il primo rilascio
+
+Il monitor Hostless ha rilevato nuovamente throttling del backend il 29 ottobre
+alle 17:55:33 UTC (18:55:33 Europe/Rome), sulla finestra 17:45:33–17:55:33 UTC:
+11 campioni, picco 47,04%, ultimo campione 41%, limite 0,1 CPU e 256 MiB.
+Nei log `GET /research/overview` ha richiesto 11.849 ms alle 17:53:03 UTC.
+Queste osservazioni attestano il problema remoto; non ne isolano la causa.
+
+L'audit del percorso GET ha individuato due letture complete evitabili:
+`getModels()` caricava gli artefatti A/C per mostrarne soltanto metadati e
+metriche; `listBenchmarks({ limit: 1 })` caricava l'intero ultimo report per
+mostrarne soltanto data e warning di validazione. Il mapper conservava sia la
+stringa JSON sia l'oggetto completamente decodificato. Nessuna inferenza C,
+nuova calibrazione o valutazione del test finale avviene in questo endpoint.
+I controlli dei trigger sono memorizzati per processo: possono contribuire al
+primo accesso, ma non sono DDL ripetuto a ogni richiesta.
+
+Le nuove letture `getOverviewModels()` e `getLatestValidationSummary()`
+proiettano in SQL soltanto i campi consumati dalla dashboard. Il DTO, l'ordine
+dei modelli e la scelta dell'ultima validazione restano identici, incluso lo
+spareggio con `rowid`. Chiavi assenti, `null`, metriche scalari e documenti JSON
+corrotti mantengono il comportamento precedente. I reader completi rimangono
+disponibili al runtime e al lifecycle. Gli adapter parziali che non espongono
+i nuovi metodi conservano il percorso precedente; un errore del nuovo reader
+non attiva un fallback silenzioso. Il report PAIR completo resta necessario
+per il confronto già esposto: non è stato ridotto o reinterpretato.
+
+Le query effettive sono state misurate sul backup privato verificato delle
+15:17:22 UTC, aperto con SQLite `mode=ro&immutable=1`. Mediane di cinque letture
+successive alla prima, sul PC locale:
+
+| Lettura | Byte dei valori prima | Dopo | Tempo SQLite prima → dopo |
+| --- | ---: | ---: | ---: |
+| Modelli A/C | 4.702.387 | 5.229 | 20,18 → 11,26 ms |
+| Ultima validazione | 4.401.358 | 254 | 15,32 → 12,21 ms |
+| Totale | 9.103.745 | 5.483 | — |
+
+La riduzione dei valori restituiti è **99,9398%**; non rappresenta una riduzione
+delle righe percorse o fatturate da Turso. Il JSON viene ancora esaminato dal
+database per estrarre i metadati. Sullo stesso dump risultano due modelli, un
+report C, nessun report PAIR, zero puntate/job/decisioni e due movimenti iniziali
+del ledger: le aggregazioni contabili hanno quindi un carico minimo in questo
+snapshot. L'impronta SHA-256 del backup è rimasta invariata:
+`883d673eec9c864582e495c8f8dc1eaa24d0e1c0f9befcc092847ce7344390d7`.
+
+La decodifica completa in Node dei record già memorizzati, senza rete, richiedeva
+circa 41 ms reali e 47 ms CPU mediani. Non spiega da sola gli 11,849 secondi
+remoti: trasferimento libSQL, decodifica del protocollo, attese, concorrenza e
+throttling non sono stati separati sul runtime Hostless. Il miglioramento remoto
+e la risoluzione dell'incidente restano da verificare dopo il rilascio di questo
+intervento, mantenendo gli stessi limiti gratuiti.
+
+Controlli mirati, dalla directory `backend`:
+
+```powershell
+npx tsc --project tsconfig.json
+npm run typecheck
+npx eslint src/research/ResearchStore.ts src/research/ResearchOverview.ts test/research-overview-metadata.test.js --max-warnings=0
+node --test --test-concurrency=1 test/research-overview-metadata.test.js test/research-overview.test.js test/research-lifecycle.test.js
+node --test --test-concurrency=1 test/research-store.test.js
+```
+
+Esito: compilazione senza pulire `dist`, typecheck, lint e **57/57 test**
+superati. I sette nuovi test confrontano integralmente il DTO vecchio/nuovo,
+vietano le due letture complete sostituite e conservano i reader del lifecycle.
+Le fixture sono isolate in memoria; non sono un nuovo benchmark predittivo.
+Nessuna chiamata provider, modifica del database remoto, nuova dipendenza,
+cache persistente o indice è stata introdotta. La suite completa e il collaudo
+remoto restano gate separati di pubblicazione.
+
+Il gate integrale successivo, con entrambe le ottimizzazioni I/O incluse, ha
+eseguito la suite backend in Linux/Node 20, senza rete, con 2 CPU e 1 GiB:
+**886 test, 885 PASS, zero errori, uno skip opzionale del runtime Python
+CatBoost**. La revisione indipendente del diff ha inoltre superato 49 test
+mirati senza rilevare problemi bloccanti. Questi esiti non attestano ancora
+la risoluzione del throttling sul servizio Hostless.

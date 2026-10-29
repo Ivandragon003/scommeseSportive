@@ -20,6 +20,8 @@ type RuntimeDb = Pick<DatabaseService, 'research' | 'getUpcomingMatches' | 'getM
   | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests'>>;
 type OddsFeed = Pick<OddsApiService, 'getOdds'> & Partial<Pick<OddsApiService, 'getQuotaStatus'>>;
 type LiveResearchQuote = ResearchQuote & { updatedAt: string };
+type RuntimeModelContext = { championC: any; latestCandidate: any; candidateC: any; cacheable: boolean;
+  benchmarks?: { A: any; C: any } };
 
 export function researchMatchFromRow(row: Record<string, any>): ResearchMatch {
   const result: any = { matchId: row.match_id, homeTeamId: row.home_team_id, awayTeamId: row.away_team_id,
@@ -143,6 +145,8 @@ export class ResearchRuntime {
   private claimedJobs: T15Job[] = [];
   private readonly nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number };
   private readonly prospectiveSamples = new Map<string, { asOf: string; samples: CalibrationSample[] }>();
+  private nightlyCohortId: string | undefined;
+  private nightlyModelContext: Promise<RuntimeModelContext> | undefined;
   private readonly state: { enabled: boolean; lastTick: T15TickSummary | null; lastError: string | null;
     targetLeadMinutes: number; toleranceSeconds: number; quoteMaxAgeSeconds: number } = {
       enabled: false, lastTick: null, lastError: null, targetLeadMinutes: 15, toleranceSeconds: 60, quoteMaxAgeSeconds: 300,
@@ -350,10 +354,8 @@ export class ResearchRuntime {
     const input = buildForecastInput(this.historyCache.rows, researchMatchFromRow(row), snapshotAt);
     const quotes = researchQuotesFromEvent(event, feed.capturedAt).map((quote) => this.nightly
       ? { ...quote, priceType: 'prematch' as const } : quote);
-    const championC = await this.db.research.getChampion('C');
-    const candidatesC = await this.db.research.getModels('C').catch((error) => { if (championC) return []; throw error; });
-    const latestCandidate = candidatesC[candidatesC.length - 1];
-    const candidateC = championC ?? latestCandidate;
+    const context = this.nightly ? await this.modelsForNightlyCohort(input.baselineVersion) : await this.loadModelContext();
+    const { championC, latestCandidate, candidateC } = context;
     const decisions: T15Decision[] = [];
     const prospectiveObservations: FrozenProspectiveObservation[] = [];
     for (const family of ['A', 'C'] as const) {
@@ -376,7 +378,7 @@ export class ResearchRuntime {
         raw: rawProbabilities, calibrated: null, decision: null,
       };
       const markets = await this.db.research.listMarkets({ family, modelVersion });
-      const evidence = await this.db.research.getLatestBenchmark(family, modelVersion);
+      const evidence = context.benchmarks ? context.benchmarks[family] : await this.db.research.getLatestBenchmark(family, modelVersion);
       const calibrationEvidence = evidence?.report?.probabilityProtocol === COHERENT_PROBABILITY_PROTOCOL
         ? evidence.report : artifact;
       // Historical/T15 protocols retain their frozen inputs. The nightly must
@@ -498,7 +500,48 @@ export class ResearchRuntime {
   /** One finite nightly preparation: does not start polling, train or register bets. */
   async prepareNightly(job: T15Job): Promise<PreparedT15Job> {
     if (!this.nightly) throw new Error('Nightly preparation requires the nightly policy');
+    const cohortId = String(job.runId ?? job.id);
+    if (this.nightlyCohortId !== cohortId) this.beginNightlyCohort(cohortId);
     return this.prepare(job, this.clock().toISOString());
+  }
+
+  /** New attempts may explicitly reset the same run; ordinary fixture calls share one snapshot. */
+  beginNightlyCohort(cohortId: string): void {
+    if (!this.nightly || !cohortId.trim()) throw new Error('A nightly cohort identity is required');
+    this.nightlyCohortId = cohortId;
+    this.nightlyModelContext = undefined;
+    this.prospectiveSamples.clear();
+  }
+
+  private async loadModelContext(): Promise<RuntimeModelContext> {
+    const championC = await this.db.research.getChampion('C');
+    let cacheable = true;
+    const candidatesC = await this.db.research.getModels('C').catch((error) => {
+      if (!championC) throw error;
+      cacheable = false;
+      return [];
+    });
+    const latestCandidate = candidatesC[candidatesC.length - 1];
+    return { championC, latestCandidate, candidateC: championC ?? latestCandidate, cacheable };
+  }
+
+  private modelsForNightlyCohort(baselineVersion: string): Promise<RuntimeModelContext> {
+    if (this.nightlyModelContext) return this.nightlyModelContext;
+    const pending = (async () => {
+      const context = await this.loadModelContext();
+      const [A, C] = await Promise.all([
+        this.db.research.getLatestBenchmark('A', baselineVersion),
+        this.db.research.getLatestBenchmark('C', context.candidateC?.version ?? 'C-unavailable'),
+      ]);
+      return { ...context, benchmarks: { A, C } };
+    })();
+    this.nightlyModelContext = pending;
+    // Rejected reads and a degraded optional-candidate read remain retryable.
+    // Never let an older request clear the snapshot of a newer cohort.
+    void pending.then((context) => {
+      if (!context.cacheable && this.nightlyModelContext === pending) this.nightlyModelContext = undefined;
+    }, () => { if (this.nightlyModelContext === pending) this.nightlyModelContext = undefined; });
+    return pending;
   }
 
   getQuotaStatus(): unknown { return this.odds.getQuotaStatus?.() ?? null; }

@@ -191,6 +191,47 @@ di integrazione resta separato da questi controlli mirati.
 
 ## Riproduzione nella stessa postazione
 
+### Letture del registro durante una coorte nightly
+
+Il runtime conserva ora un solo contesto di modelli e report per coorte
+nightly: champion C, lista dei candidati C e ultimo report delle precise
+versioni A/C sono letti una volta e riutilizzati fra le partite della coorte.
+La chiave effettiva è `job.runId`, condivisa dai job della stessa esecuzione;
+`beginNightlyCohort` permette anche il reset esplicito di un nuovo tentativo.
+Il reset invalida insieme contesto e residui. Anche l'assenza di un report
+viene conservata come parte di quel contesto, senza interrogare ripetutamente
+il registro per ogni partita.
+
+Questo congela la selezione del modello e la configurazione del report durante
+la coorte. Una rotazione del registro viene osservata nella coorte successiva;
+la versione e l'hash di configurazione effettivamente usati restano registrati
+nelle decisioni. I mercati e gli stati di sicurezza vengono invece riletti per
+ogni partita: una sospensione resta efficace, così come i controlli atomici di
+lease, kickoff e ammissione nello store. Il percorso storico/T−15 mantiene le
+letture precedenti per partita.
+
+Un errore nella lettura di modello/report elimina la promise fallita dalla
+cache e consente un nuovo tentativo. Il fallback già esistente al champion,
+quando fallisce la lista opzionale dei candidati, rimane disponibile ma non
+conserva un contesto degradato per tutta la coorte.
+
+La riduzione verificata è nel numero di letture: due partite della stessa
+coorte effettuano una sola `getModels('C')` e una sola lettura del report C;
+due coorti effettuano due letture. I payload osservati nel registro sono circa
+4,70 MB per il modello e 4,40 MB per il report C: il volume logico di questi
+due payload passa da circa 9,1 MB per partita a circa 9,1 MB per coorte in quella configurazione,
+escludendo altri report/champion e l'overhead del trasporto. Questa è una stima
+dai payload, non una misura dei consumi ufficiali Turso o una garanzia sul
+rispetto del limite mensile dell'account. Il normale traffico di query HTTP
+libSQL non viene attribuito automaticamente alla voce Turso «Embedded Sync»:
+quella categoria è stata verificata per gli export nativi, non per queste query.
+
+`research-nightly-model-context.test.js` verifica i contatori, il reset tra
+coorti, i retry dopo errori, il fallback, la sospensione dei mercati, l'identità
+delle decisioni con registro invariato e il mancato cambiamento del T−15.
+
+### Prova nativa e runtime senza Python
+
 I file privati del collaudo sono in
 `backend/artifacts/backups/personal-migration-20261029/catboost-inference-verification/`:
 `verify_native.py`, `artifact.json`, `parity.json`, `native-report.json` e

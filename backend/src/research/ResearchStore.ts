@@ -226,6 +226,20 @@ export class ResearchStore {
       ${modelFamily ? 'WHERE m.family=?' : ''} ORDER BY m.created_at,m.version`, modelFamily ? [modelFamily] : []);
   }
 
+  /** Dashboard metadata excludes immutable trees and calibration samples. */
+  async getOverviewModels(): Promise<any[]> {
+    await this.ensureGuards();
+    const models = await rows(this.client, `SELECT m.family,m.version,m.created_at,
+      CASE WHEN c.version=m.version THEN 1 ELSE 0 END AS is_champion,
+      CASE WHEN json_valid(m.artifact_json) THEN m.artifact_json -> '$.trainedThrough' ELSE m.artifact_json END AS trained_through_json,
+      CASE WHEN json_valid(m.artifact_json) THEN m.artifact_json -> '$.metrics' ELSE m.artifact_json END AS metrics_json
+      FROM research_models m LEFT JOIN research_champions c ON c.family=m.family
+      ORDER BY m.created_at,m.version`);
+    // JSON text extraction preserves missing keys, explicit null, booleans and scalars.
+    // Invalid documents still reach rowObject's JSON.parse and fail like full reads.
+    return models.map((model) => ({ ...model, artifact: { trainedThrough: model.trainedThrough, metrics: model.metrics } }));
+  }
+
   async getChampion(modelFamily: ResearchFamily): Promise<any> {
     await this.ensureGuards();
     return first(this.client, `SELECT m.*,c.benchmark_id FROM research_models m JOIN research_champions c
@@ -285,6 +299,15 @@ export class ResearchStore {
     args.push(limit);
     return rows(this.client, `SELECT * FROM research_benchmarks ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
       ORDER BY created_at DESC,rowid DESC LIMIT ?`, args);
+  }
+
+  /** Latest validation selection matches listBenchmarks({ limit: 1 }) exactly. */
+  async getLatestValidationSummary(): Promise<any> {
+    await this.ensureGuards();
+    const record = await first(this.client, `SELECT model_version,created_at,
+      CASE WHEN json_valid(report_json) THEN report_json -> '$.warnings' ELSE report_json END AS warnings_json
+      FROM research_benchmarks ORDER BY created_at DESC,rowid DESC LIMIT 1`);
+    return record ? { ...record, report: { warnings: record.warnings } } : null;
   }
 
   async listModelEvents(modelFamily?: ResearchFamily): Promise<any[]> {
