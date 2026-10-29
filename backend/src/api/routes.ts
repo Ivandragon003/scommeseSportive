@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { buildResearchOverview } from '../research/ResearchOverview';
+import { buildResearchComparison } from '../research/ResearchComparison';
 import { settleResearchBets } from '../research/ResearchRuntime';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
@@ -7,7 +8,8 @@ import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
 import { providerPolicySkipReason } from '../services/odds-provider/OddsProvider';
-import { forecastRemainingOddsDemand } from '../services/odds-provider/OddsDemandSimulation';
+import { forecastRemainingNightlyOddsDemand } from '../services/odds-provider/OddsDemandSimulation';
+import { loadNightlyPolicy } from '../research/ResearchNightly';
 import {
   createOddsProviderCoordinatorBundle,
   getConfiguredOddsApiKey,
@@ -1772,9 +1774,9 @@ router.post('/bet-opportunities/archive/manual', async (req: Request, res: Respo
 });
 
 // Legacy nightly placement is retired permanently. A stale deployment flag or
-// caller cannot re-enable it: only the T-15 research runtime creates automatic bets.
+// caller cannot re-enable it. Nightly A/C uses a finite CI script instead.
 router.post('/automation/place-valid-bets', (_req: Request, res: Response) => {
-  return res.status(410).json({ success: false, error: 'Legacy automatic placement retired. Use the remote T-15 process.' });
+  return res.status(410).json({ success: false, error: 'Legacy automatic placement retired. Use Nightly Pre-Match Virtual Betting.' });
 });
 
 router.get('/research/overview', async (_req: Request, res: Response) => {
@@ -1782,24 +1784,41 @@ router.get('/research/overview', async (_req: Request, res: Response) => {
   catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research database unavailable.' }); }
 });
 
+router.get('/research/comparison', async (req: Request, res: Response) => {
+  const query = Object.fromEntries(['period', 'from', 'to'].flatMap((key) => typeof req.query[key] === 'string' ? [[key, req.query[key]]] : []));
+  try { return res.json({ success: true, data: await buildResearchComparison(db.research, query) }); }
+  catch (error: any) {
+    const invalid = /^Invalid comparison|^Custom comparison|^Comparison end date/.test(error?.message ?? '');
+    return res.status(invalid ? 400 : 503).json({ success: false, error: invalid ? error.message : 'Virtual comparison unavailable.' });
+  }
+});
+
 router.get('/research/odds-status', async (_req: Request, res: Response) => {
   try {
     const overview = await db.oddsRequests.overview();
-    const configured = Boolean(getConfiguredOddsApiKey() || getConfiguredOddsApiKey('t15'));
-    const fixtures = typeof db.getUpcomingMatches === 'function' ? await db.getUpcomingMatches({ limit: 1000 }) : [];
-    const remaining = forecastRemainingOddsDemand(fixtures, new Date().toISOString(), {
-      markets: ['h2h', 'totals', 'spreads'], retryRate: .1,
-    });
+    const configured = Boolean(getConfiguredOddsApiKey());
+    const now = new Date(), policy = loadNightlyPolicy();
+    const calendarUntil = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) + 48 * 3600000).toISOString();
+    const fixtures = typeof db.getUpcomingMatches === 'function'
+      ? await db.getUpcomingMatches({ nowIso: now.toISOString(), untilIso: calendarUntil, limit: 10000 }) : [];
     const accountScope = process.env.ODDS_API_ACCOUNT_SCOPE?.trim() || 'primary';
     const spentAndReserved = overview.providers.filter((provider) => provider.provider === 'odds_api' && provider.accountScope === accountScope)
       .reduce((sum, provider) => sum + provider.chargedCredits + provider.reservedCredits, 0);
+    const provider = overview.providers.find((entry) => entry.provider === 'odds_api' && entry.accountScope === accountScope);
+    const monthlyLimit = provider?.monthlyLimit ?? Number(process.env.ODDS_API_MONTHLY_CREDITS ?? 500);
+    const usedCredits = Math.max(spentAndReserved, provider ? monthlyLimit - provider.availableCredits : 0);
+    const remaining = forecastRemainingNightlyOddsDemand(fixtures, now.toISOString(), {
+      markets: ['h2h', 'totals', 'spreads'], retryRate: .1, hour: policy.hour, minute: policy.minute, windowHours: policy.windowHours,
+      monthlyBudgetCredits: monthlyLimit, reserveCredits: provider?.reserveCredits ?? Number(process.env.ODDS_API_RESERVE_CREDITS ?? 50),
+      usedCredits, ...(provider ? { availableCredits: provider.availableCredits } : {}),
+    });
     return res.json({ success: true, data: { ...overview,
-      plannedForecast: { ...remaining, projectedTotalCredits: spentAndReserved + remaining.estimatedCredits },
+      plannedForecast: { ...remaining, enabled: policy.enabled, projectedTotalCredits: usedCredits + remaining.estimatedCredits },
       configuredProviders: [{ provider: 'odds_api', accountScope,
         configured, status: configured ? 'CONFIGURED_NOT_PROBED' : 'NOT_CONFIGURED',
         note: 'Configurazione locale: questo endpoint non contatta il provider.' }],
       fallback: { status: 'UNAVAILABLE', provider: null,
-        reason: 'Nessun fallback gratuito autorizzato con freschezza T−15 verificata è configurato.' },
+        reason: 'Nessun fallback gratuito autorizzato con freschezza pre-match verificata è configurato.' },
     } });
   }
   catch { return res.status(503).json({ success: false, error: 'Stato persistente del budget quote non disponibile.' }); }
@@ -1829,7 +1848,7 @@ router.post('/research/nightly-complete', async (req: Request, res: Response) =>
   try {
     const runId = await db.saveSchedulerRun({ schedulerName: 'nightly', trigger: 'github_actions',
       startedAt, endedAt: new Date(now).toISOString(), success: true, durationMs: now - started,
-      summary: { requiredDataGatesCompleted: true, createsNewBets: false } });
+      summary: { requiredDataGatesCompleted: true, createsNewBets: process.env.RESEARCH_NIGHTLY_ENABLED === 'true', mode: 'NIGHTLY' } });
     return res.json({ success: true, data: { runId } });
   } catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Nightly completion could not be recorded.' }); }
 });

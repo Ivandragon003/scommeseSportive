@@ -64,48 +64,24 @@ test('overview distinguishes a complete nightly from an import and never invents
   assert.equal(measured.status.apiQuota.remaining, 0);
 });
 
-test('overview reads the separate worker from shared state independently of the web enable flag', async () => {
-  const previous = process.env.RESEARCH_T15_SCHEDULER_ENABLED;
-  process.env.RESEARCH_T15_SCHEDULER_ENABLED = 'false';
-  const worker = { enabled: true, active: true, heartbeatFresh: true,
-    heartbeatAt: '2026-10-27T12:00:00Z', lastTickAt: '2026-10-27T11:59:55Z' };
-  try {
-    const active = await buildResearchOverview(overviewDb(worker));
-    assert.equal(active.status.schedulerEnabled, true);
-    assert.equal(active.status.schedulerState, 'ACTIVE');
-    assert.equal(active.status.heartbeatAt, worker.heartbeatAt);
-    assert.equal(active.status.lastSchedulerJobAt, worker.lastTickAt);
-    assert.ok(!active.status.blockers.some((blocker) => /Scheduler.*disabilitato/.test(blocker)));
-
-    process.env.RESEARCH_T15_SCHEDULER_ENABLED = 'true';
-    const stopped = await buildResearchOverview(overviewDb({ ...worker, enabled: false, active: false }));
-    assert.equal(stopped.status.schedulerEnabled, false);
-    assert.equal(stopped.status.schedulerState, 'STOPPED');
-    const stale = await buildResearchOverview(overviewDb({ ...worker, active: false, heartbeatFresh: false }));
-    assert.equal(stale.status.schedulerEnabled, false);
-    assert.equal(stale.status.schedulerState, 'STALE');
-    assert.ok(stale.status.blockers.some((blocker) => /lease o heartbeat/.test(blocker)));
-    const invalidHeartbeat = await buildResearchOverview(overviewDb({ ...worker, heartbeatFresh: false }));
-    assert.equal(invalidHeartbeat.status.schedulerEnabled, false);
-    assert.equal(invalidHeartbeat.status.schedulerState, 'STALE');
-  } finally {
-    if (previous === undefined) delete process.env.RESEARCH_T15_SCHEDULER_ENABLED;
-    else process.env.RESEARCH_T15_SCHEDULER_ENABLED = previous;
-  }
-});
-
-test('an old scheduler run or web flag never replaces a missing worker observation', async () => {
-  const previous = process.env.RESEARCH_T15_SCHEDULER_ENABLED;
-  process.env.RESEARCH_T15_SCHEDULER_ENABLED = 'true';
-  try {
-    const overview = await buildResearchOverview(overviewDb(undefined, [{ schedulerName: 'research_t15',
-      success: true, endedAt: new Date().toISOString() }]));
-    assert.equal(overview.status.schedulerEnabled, null);
-    assert.equal(overview.status.schedulerState, 'UNKNOWN');
-    assert.equal(overview.status.heartbeatAt, null);
-    assert.equal(overview.status.lastSchedulerJobAt, null);
-  } finally {
-    if (previous === undefined) delete process.env.RESEARCH_T15_SCHEDULER_ENABLED;
-    else process.env.RESEARCH_T15_SCHEDULER_ENABLED = previous;
-  }
+test('overview reports nightly configuration and outcomes without reading retired worker state', async () => {
+  const db = overviewDb({ enabled: true, active: true });
+  db.researchWorker.status = async () => { throw new Error('Retired heartbeat must not be read'); };
+  const now = '2026-10-27T12:00:00Z';
+  const disabled = await buildResearchOverview(db, { now, nightlyEnabled: false });
+  assert.equal(disabled.status.mode, 'NIGHTLY_PRE_MATCH');
+  assert.equal(disabled.status.schedulerState, 'DISABLED');
+  assert.equal(disabled.status.schedulerEnabled, false);
+  assert.equal(disabled.status.heartbeatAt, null);
+  assert.equal(disabled.status.nightly.metrics.analyzedMatches, null);
+  assert.ok(!disabled.status.blockers.some((value) => /worker|heartbeat|T−15/.test(value)));
+  const missed = await buildResearchOverview(db, { now, nightlyEnabled: true });
+  assert.equal(missed.status.schedulerState, 'MISSED');
+  const runs = [{ schedulerName: 'research_nightly', startedAt: '2026-10-27T02:20:00Z', endedAt: '2026-10-27T03:30:00Z',
+    success: true, summary: { enabled: true, analyzedMatches: 7, registeredBets: 2, skippedMatches: 5 } }];
+  const measured = await buildResearchOverview(overviewDb(undefined, runs), { now, nightlyEnabled: true });
+  assert.equal(measured.status.schedulerState, 'SUCCESS');
+  assert.equal(measured.status.nightly.metrics.registeredBets, 2);
+  assert.equal(measured.status.lastNightlyAt, null, 'decision run does not prove complete data maintenance');
+  assert.equal(measured.status.lastSchedulerJobAt, runs[0].endedAt);
 });

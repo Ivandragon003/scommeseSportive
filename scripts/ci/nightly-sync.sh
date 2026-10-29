@@ -28,6 +28,8 @@ CALIBRATION_WARM_TIMEOUT_SECONDS="${CALIBRATION_WARM_TIMEOUT_SECONDS:-600}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
+RESEARCH_NIGHTLY_ENABLED="${RESEARCH_NIGHTLY_ENABLED:-false}"
+RESEARCH_NIGHTLY_TIMEOUT_SECONDS="${RESEARCH_NIGHTLY_TIMEOUT_SECONDS:-1200}"
 
 BACKEND_PID=""
 REQUIRED_SYNC_FAILURES=()
@@ -209,6 +211,12 @@ if ! post_json \
   echo "Warning: budget bet settlement batch timed out/failed; continuing with the remaining nightly jobs."
 fi
 
+# Existing virtual A/C bets settle even when new nightly registrations are disabled.
+echo "Settling pending virtual A/C bets..."
+if ! post_json "http://127.0.0.1:$PORT/api/research/settle" "{}" "$PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS"; then
+  REQUIRED_SYNC_FAILURES+=("virtual-settlement")
+fi
+
 # The Understat route already settles the small user-facing opportunity archive.
 # Keep the complete raw prediction settlement as a separate maintenance step:
 # it can be slower and remains useful for calibration/backtest history.
@@ -248,7 +256,18 @@ if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
   fi
 fi
 
-echo "Nightly maintenance does not create future bets or reserve betting decisions."
+if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
+  RESEARCH_NIGHTLY_DATA_GATES_PASSED=true
+  if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then RESEARCH_NIGHTLY_DATA_GATES_PASSED=false; fi
+  echo "Running explicit Nightly Pre-Match Virtual Betting A/C..."
+  if ! RESEARCH_NIGHTLY_ENABLED=true RESEARCH_T15_SCHEDULER_ENABLED=false \
+    RESEARCH_NIGHTLY_DATA_GATES_PASSED="$RESEARCH_NIGHTLY_DATA_GATES_PASSED" \
+    timeout "$RESEARCH_NIGHTLY_TIMEOUT_SECONDS" node scripts/research-nightly.js; then
+    REQUIRED_SYNC_FAILURES+=("virtual-nightly")
+  fi
+else
+  echo "New virtual A/C registrations disabled. RESEARCH_NIGHTLY_ENABLED=false."
+fi
 
 if (( ${#REQUIRED_SYNC_FAILURES[@]} == 0 )); then
   echo "Running learning review sync..."

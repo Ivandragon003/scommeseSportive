@@ -23,7 +23,8 @@
     "research:lifecycle": "node scripts/research-lifecycle.js",
     "research:experiments": "node scripts/research-experiments.js",
     "research:worker": "node scripts/research-worker.js",
-    "research:watchdog": "node scripts/check-research-worker.js",
+    "research:nightly": "node scripts/research-nightly.js",
+    "research:watchdog": "node scripts/check-research-nightly.js",
     "hostless:integration": "node scripts/hostless-integration.js"
   },
   "dependencies": {

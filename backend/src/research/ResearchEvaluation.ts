@@ -22,6 +22,7 @@ export type ResearchDecision = {
 export type ResearchDecisionInput = {
   matrix: number[][]; probabilities?: Record<string, number>; quotes: ResearchQuote[];
   calibrationSamples?: CalibrationSample[]; allowedMarkets?: string[]; now?: string | Date; historical?: boolean;
+  minEv?: number; minPrudentialEv?: number;
 };
 export type ResearchEvaluationOptions = { seed?: number; bootstrapSamples?: number; initialBankroll?: number; allowedMarkets?: string[] };
 
@@ -73,7 +74,7 @@ function canonicalKey(quote: MarketQuote): string | null {
   return null;
 }
 
-function quoteForecast(matrix: number[][], quote: MarketQuote, probabilities?: Record<string, number>) {
+export function quoteForecast(matrix: number[][], quote: MarketQuote, probabilities?: Record<string, number>) {
   const evaluated = evaluateGoalQuote(matrix, quote);
   const canonical = canonicalKey(quote);
   const supplied = probabilities?.[quote.selection] ?? (canonical ? probabilities?.[canonical] : undefined);
@@ -93,6 +94,10 @@ export function explainResearchDecision(input: ResearchDecisionInput): { decisio
   const exclude = (reason: string) => { reasons[reason] = (reasons[reason] ?? 0) + 1; };
   const now = at(input.now);
   const historical = input.historical !== false;
+  const minEv = input.minEv ?? MIN_EV, minPrudentialEv = input.minPrudentialEv ?? MIN_PRUDENTIAL_EV;
+  if (![minEv, minPrudentialEv].every((value) => Number.isFinite(value) && value >= 0)) {
+    return { decision: null, reasons: { invalid_value_threshold: 1 } };
+  }
   if (!Number.isFinite(now)) return { decision: null, reasons: { forecast_time_required: 1 } };
   let matrix: number[][];
   try { matrix = normalizeScoreMatrix(input.matrix); } catch { return { decision: null, reasons: { invalid_matrix: 1 } }; }
@@ -103,7 +108,7 @@ export function explainResearchDecision(input: ResearchDecisionInput): { decisio
     if (invalidPrice) { exclude(invalidPrice); continue; }
     let forecast: ReturnType<typeof quoteForecast>;
     try { forecast = quoteForecast(matrix, quote, input.probabilities); } catch { exclude('invalid_probability'); continue; }
-    if (forecast.expectedValue + 1e-12 < MIN_EV) { exclude('central_ev_below_threshold'); continue; }
+    if (forecast.expectedValue + 1e-12 < minEv) { exclude('central_ev_below_threshold'); continue; }
     // Freeze outcome knowledge at the forecast time and use one label per match in each bucket.
     const bucket = Math.min(4, Math.floor(forecast.probability * 5));
     const unique = new Map<string, CalibrationSample>();
@@ -125,7 +130,7 @@ export function explainResearchDecision(input: ResearchDecisionInput): { decisio
     const uncertainty = Math.sqrt(Math.log(20) * samples.reduce((sum, sample) => sum + sample.odds ** 2, 0)
       / (2 * samples.length ** 2));
     const prudentialEv = Math.min(forecast.expectedValue, forecast.expectedValue + residual - uncertainty);
-    if (prudentialEv + 1e-12 < MIN_PRUDENTIAL_EV) { exclude('prudential_ev_below_threshold'); continue; }
+    if (prudentialEv + 1e-12 < minPrudentialEv) { exclude('prudential_ev_below_threshold'); continue; }
     candidates.push({ quote, probability: forecast.probability, ev: forecast.expectedValue, prudentialEv,
       score: prudentialEv, uncertainty, calibrationN: samples.length,
       prudentialMethod: 'validation_payout_residual_hoeffding',

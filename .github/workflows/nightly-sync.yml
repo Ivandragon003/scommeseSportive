@@ -1,4 +1,5 @@
 name: Nightly Sync
+run-name: Nightly Sync (${{ github.event.schedule || 'manual' }})
 
 on:
   schedule:
@@ -35,7 +36,7 @@ jobs:
       PLAYER_AVAILABILITY_ENABLED: 'false'
       PLAYER_DATA_ENABLED: 'false'
       API_FOOTBALL_ENABLED: 'false'
-      # Periodic odds collection is optional and must not consume the T-15 reserve.
+      # Informational collection stays off; essential nightly snapshots share the credit budget.
       RUN_ODDS_SYNC: 'false'
       ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'
       RUN_TRANSITION_REFERENCE_SYNC: 'true'
@@ -49,7 +50,13 @@ jobs:
       CALIBRATION_WARM_TIMEOUT_SECONDS: '600'
       LEARNING_SYNC_TIMEOUT_SECONDS: '600'
       FINAL_STATUS_TIMEOUT_SECONDS: '120'
-      # Maintenance only: the remote T-15 process exclusively creates new bets.
+      # Remote activation requires a separate, explicit confirmation after cutover.
+      RESEARCH_NIGHTLY_ENABLED: ${{ vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}
+      RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '1200'
+      RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS: '300'
+      RESEARCH_NIGHTLY_MIN_EV: '0.04'
+      RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV: '0.01'
+      # Retired automation cannot run alongside the finite nightly A/C job.
       RESEARCH_T15_SCHEDULER_ENABLED: 'false'
     steps:
       - name: Checkout repository

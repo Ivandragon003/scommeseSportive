@@ -248,7 +248,9 @@ export function simulateOddsDemandScenarios(fixtures: DemandFixture[], month: st
     originalApproximation30Days: originalMonthlyApproximation() };
 }
 
-export type RemainingDemandFixture = Partial<DemandFixture> & { match_id?: string; kickoff_at?: string };
+export type RemainingDemandFixture = Partial<DemandFixture> & {
+  match_id?: string; kickoff_at?: string; home_goals?: number | null; away_goals?: number | null;
+};
 /** Admin-safe projection: current UTC decision month, no quota reads or HTTP. */
 export function forecastRemainingOddsDemand(fixtures: RemainingDemandFixture[], asOf: string,
   options: { markets?: string[]; retryRate?: number; regionCount?: number; through?: string } = {}) {
@@ -279,4 +281,147 @@ export function forecastRemainingOddsDemand(fixtures: RemainingDemandFixture[], 
       sharedByModels: ['A', 'C'], cacheWindowSeconds: 30,
       note: 'Nominal charged cost for available future calendar targets; not measured usage, coverage or a promise that fixture times are final.' },
     exclusions: simulation.calendar.exclusions };
+}
+
+export type RemainingNightlyDemandOptions = {
+  markets?: string[]; retryRate?: number; regionCount?: number; through?: string;
+  monthlyBudgetCredits?: number; reserveCredits?: number; usedCredits?: number; availableCredits?: number;
+  hour?: number; minute?: number; windowHours?: number | null;
+};
+const romeDemandFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome',
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const romeDemandParts = (at: number): Record<string, number> => Object.fromEntries(romeDemandFormatter
+  .formatToParts(new Date(at)).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+
+/** Convert local calendar days through IANA offsets, verifying real DST instants. */
+function remainingNightlyBoundaries(from: number, through: number, hour: number, minute: number): number[] {
+  const dayMs = 86400_000, boundaries = new Set<number>();
+  for (let day = Math.floor(from / dayMs) * dayMs - 2 * dayMs; day <= through + 3 * dayMs; day += dayMs) {
+    const target = new Date(day), localTarget = day + (hour * 60 + minute) * MINUTE;
+    for (const probe of [day - 12 * 60 * MINUTE, day + 12 * 60 * MINUTE]) {
+      const parts = romeDemandParts(probe);
+      const offset = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - probe;
+      const candidate = localTarget - offset, actual = romeDemandParts(candidate);
+      if (actual.year === target.getUTCFullYear() && actual.month === target.getUTCMonth() + 1
+        && actual.day === target.getUTCDate() && actual.hour === hour && actual.minute === minute) boundaries.add(candidate);
+    }
+  }
+  return [...boundaries].sort((a, b) => a - b);
+}
+
+/** Future scheduled nightly feeds; offline estimates never stand in for measured quota or complete coverage. */
+export function forecastRemainingNightlyOddsDemand(fixtures: RemainingDemandFixture[], asOf: string,
+  options: RemainingNightlyDemandOptions = {}) {
+  const observedAt = iso(asOf), now = Date.parse(observedAt), date = new Date(now), month = observedAt.slice(0, 7);
+  const monthEnd = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  const through = options.through ? Math.min(Date.parse(iso(options.through)), monthEnd) : monthEnd;
+  if (through < now) throw new Error('Forecast through precedes asOf');
+  const hour = integer(options.hour ?? 3, 'nightly hour'), minute = integer(options.minute ?? 0, 'nightly minute');
+  if (hour > 23 || minute > 59) throw new Error('Invalid nightly time');
+  const windowHours = options.windowHours == null ? null : integer(options.windowHours, 'nightly window', 1);
+  if (windowHours !== null && windowHours > 48) throw new Error('Invalid nightly window');
+  const budget = integer(options.monthlyBudgetCredits ?? 500, 'monthly budget');
+  const reserve = integer(options.reserveCredits ?? 50, 'reserve');
+  if (reserve > budget) throw new Error('Reserve exceeds budget');
+  const nonnegative = (value: number, name: string): number => {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Invalid ${name}`);
+    return value;
+  };
+  const used = nonnegative(options.usedCredits ?? 0, 'used credits');
+  const available = Math.min(Math.max(0, budget - used), options.availableCredits === undefined
+    ? Infinity : nonnegative(options.availableCredits, 'available credits'));
+  const retryRate = options.retryRate ?? .1;
+  if (!Number.isFinite(retryRate) || retryRate < 0 || retryRate > 1) throw new Error('Invalid retry rate');
+  const markets = [...new Set(options.markets ?? ['h2h', 'totals', 'spreads'])].sort();
+  if (!markets.length || markets.some((market) => !['h2h', 'totals', 'spreads'].includes(market))) throw new Error('Invalid nightly markets');
+  const regionCount = integer(options.regionCount ?? 1, 'region count', 1);
+  const cost = quoteRequestCredits(markets.length, regionCount);
+  const boundaries = remainingNightlyBoundaries(now, through, hour, minute);
+  const windows = boundaries.filter((at) => at >= now && at < through).map((at) => ({ at,
+    end: windowHours === null ? boundaries.find((boundary) => boundary > at)! : at + windowHours * 3600_000 }));
+  const exclusions: Record<string, number> = {};
+  const exclude = (reason: string) => { exclusions[reason] = (exclusions[reason] ?? 0) + 1; };
+  const unique = new Map<string, { id: string; competition: string; kickoff: string }>(), conflicts = new Set<string>();
+  for (const fixture of fixtures) {
+    if (!(ODDS_DEMAND_COMPETITIONS as readonly string[]).includes(fixture.competition ?? '')) { exclude('outside_top_five'); continue; }
+    const id = String(fixture.matchId ?? fixture.match_id ?? '').trim();
+    if (!id) { exclude('missing_match_identity'); continue; }
+    if (fixture.kickoffKnown === false || (fixture.kickoffPrecision && fixture.kickoffPrecision !== 'exact')
+      || (fixture.timePrecision && fixture.timePrecision !== 'exact')) { exclude('unknown_or_date_only_kickoff'); continue; }
+    if (['cancelled', 'canceled', 'postponed', 'unknown', 'finished', 'completed', 'live', 'abandoned', 'suspended']
+      .includes(String(fixture.status ?? '').toLowerCase()) || fixture.homeGoals != null || fixture.awayGoals != null
+      || fixture.home_goals != null || fixture.away_goals != null) { exclude('fixture_not_scheduled'); continue; }
+    let kickoff: string;
+    try { kickoff = iso(fixture.kickoffAt ?? fixture.kickoff_at ?? fixture.date ?? ''); }
+    catch { exclude('invalid_or_timezone_missing_kickoff'); continue; }
+    const existing = unique.get(id);
+    if (existing) {
+      if (existing.kickoff !== kickoff || existing.competition !== fixture.competition) {
+        conflicts.add(id); exclude('conflicting_duplicate_identity');
+      } else exclude('duplicate_identity');
+      continue;
+    }
+    unique.set(id, { id, competition: fixture.competition!, kickoff });
+  }
+  for (const id of conflicts) unique.delete(id);
+  type Group = { competition: string; decisionAt: string; windowEndAt: string; ids: string[] };
+  const grouped = new Map<string, Group>(), eligible = new Set<string>();
+  for (const fixture of unique.values()) {
+    const kickoff = Date.parse(fixture.kickoff);
+    if (kickoff <= now) { exclude('already_started'); continue; }
+    const applicable = windows.filter((window) => kickoff > window.at && kickoff <= window.end);
+    if (!applicable.length) { exclude('outside_remaining_nightly_windows'); continue; }
+    eligible.add(fixture.id);
+    for (const window of applicable) {
+      const key = `${window.at}:${fixture.competition}`;
+      const group = grouped.get(key) ?? { competition: fixture.competition, decisionAt: new Date(window.at).toISOString(),
+        windowEndAt: new Date(window.end).toISOString(), ids: [] };
+      group.ids.push(fixture.id); grouped.set(key, group);
+    }
+  }
+  const groups = [...grouped.values()].sort((a, b) => a.decisionAt.localeCompare(b.decisionAt) || a.competition.localeCompare(b.competition));
+  const retries = Math.ceil(groups.length * retryRate);
+  const retryIndices = new Set(Array.from({ length: retries }, (_, index) => Math.floor((index + 1) * groups.length / (retries + 1))));
+  const scenario = (capacity: number) => {
+    let admittedCredits = 0, admittedGroups = 0, admittedHttpRequests = 0;
+    const covered = new Set<string>();
+    for (const [index, group] of groups.entries()) {
+      const requests = retryIndices.has(index) ? 2 : 1, credits = cost * requests;
+      if (admittedCredits + credits > capacity) continue;
+      admittedCredits += credits; admittedGroups++; admittedHttpRequests += requests;
+      for (const id of group.ids) covered.add(id);
+    }
+    return { availableCredits: capacity, admittedCredits, admittedHttpRequests, admittedGroups,
+      skippedGroups: groups.length - admittedGroups, assumedCoveredFixtures: covered.size,
+      skippedFixtures: eligible.size - covered.size, fractionOfObservedCalendar: eligible.size ? covered.size / eligible.size : null,
+      claim: 'calendar_budget_capacity_not_actual_quote_or_betting_coverage' };
+  };
+  const ordinaryScenario = scenario(Math.max(0, available - reserve)), essentialScenario = scenario(available);
+  return { kind: 'offline_remaining_nightly_calendar_projection', mode: 'NIGHTLY', month, asOf: observedAt,
+    through: new Date(through).toISOString(), throughExclusive: true, scope: 'remaining_scheduled_nightly_runs_in_current_utc_month',
+    nextScheduledAt: windows[0] ? new Date(windows[0].at).toISOString() : null,
+    calendarFixtures: eligible.size, competitionNightlyGroups: groups.length,
+    baseCredits: groups.length * cost, retryCreditAllowance: retries * cost,
+    estimatedCredits: (groups.length + retries) * cost, estimatedHttpRequests: groups.length + retries,
+    completeCalendarVerified: false, futureKickoffsVerified: false, measuredQuota: null,
+    assumptions: { markets, regionCount, retryRate, retryGroups: retries, sharedByModels: ['A', 'C'],
+      scheduleTimezone: 'Europe/Rome', accountingTimezone: 'UTC', hour, minute, windowHours,
+      window: 'kickoff_after_run_and_at_or_before_window_end',
+      retryScope: 'one extra charged request for a deterministic subset of league/nightly groups',
+      note: 'Future scheduled slots only; actual delayed, skipped or additional runs can change demand. No request for empty leagues.' },
+    budget: { monthlyLimit: budget, reserveCredits: reserve, ordinaryMonthlyLimit: budget - reserve,
+      essentialMonthlyLimit: budget, usedCredits: used, availableCredits: available,
+      availableSource: options.availableCredits === undefined ? 'nominal_budget_less_supplied_usage' : 'capped_by_supplied_conservative_availability',
+      nightlyPriority: 'essential', reservePolicy: 'ordinary_informational_protected_nightly_essential_may_use_reserve' },
+    ordinaryScenario, essentialScenario, exclusions,
+    groups: groups.map((group, index) => ({ competition: group.competition, decisionAt: group.decisionAt,
+      windowEndAt: group.windowEndAt, fixtureCount: group.ids.length, retryAllowance: retryIndices.has(index),
+      estimatedCredits: cost * (retryIndices.has(index) ? 2 : 1) })),
+    limitations: ['Calendar completeness, live quote availability, bookmaker coverage and freshness are not verified by this projection.',
+      'A/C share one league snapshot; model count does not multiply requests.',
+      'Retry allowance is a capacity scenario, not a measured failure rate; actual requests remain subject to atomic admission.',
+      'The UTC month belongs to the scheduled request, so its final window can contain kickoffs in the following UTC month.',
+      'Elapsed scheduled slots are not replayed or charged again; this is not a catch-up betting plan.',
+      'Overlapping custom windows may overestimate requests because prior recorded decisions are unavailable to this calendar-only projection.',
+      'UI requests, extra markets and other consumers are excluded; supplied usage and availability must include their actual consumption.'] };
 }

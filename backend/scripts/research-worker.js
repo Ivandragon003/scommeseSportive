@@ -1,9 +1,9 @@
-/* Persistent T-15 process. Disabled startup opens no database or provider connection. */
+/* Retired T-15 entrypoint; explicit injected fixtures retain the historical harness. */
 const { randomUUID } = require('node:crypto');
 const { writeFileSync } = require('node:fs');
 
 async function startWorker(options = {}) {
-  const enabled = options.enabled ?? process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true';
+  const enabled = options.enabled === true;
   const log = options.log ?? ((record) => console.log(JSON.stringify(record)));
   const ownerId = options.ownerId ?? randomUUID();
   const stateFile = options.stateFile ?? process.env.RESEARCH_WORKER_STATE_FILE;
@@ -49,16 +49,7 @@ async function startWorker(options = {}) {
 }
 
 if (require.main === module) {
-  startWorker().then((worker) => {
-    let stopping = false;
-    const stop = () => {
-      if (stopping) return;
-      stopping = true;
-      const deadline = setTimeout(() => process.exit(1), 25_000);
-      void worker.stop().then(() => { clearTimeout(deadline); process.exitCode = 0; })
-        .catch(() => { clearTimeout(deadline); console.error('research_worker_stop_failed'); process.exitCode = 1; });
-    };
-    process.once('SIGTERM', stop); process.once('SIGINT', stop);
-  }).catch(() => { console.error('research_worker_start_failed'); process.exitCode = 1; });
+  console.log(JSON.stringify({ component: 'research_t15', event: 'worker_retired', enabled: false,
+    replacement: 'node scripts/research-nightly.js' }));
 }
 module.exports = { startWorker };
