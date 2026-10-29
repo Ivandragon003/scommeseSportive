@@ -53,7 +53,7 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           # Dedicated read-only token. Never silently fall back to the write token.
           TURSO_WATCHDOG_READONLY_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
-          RESEARCH_NIGHTLY_EXPECT_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}
+          RESEARCH_NIGHTLY_EXPECT_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_MONITOR_ENABLED || 'false' }}
         shell: bash
         run: |
           test -n "$TURSO_DATABASE_URL" || { echo "Missing database URL"; exit 1; }

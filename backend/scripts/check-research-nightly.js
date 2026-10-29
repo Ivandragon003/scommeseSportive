@@ -6,9 +6,11 @@ const GRACE_SECONDS = 4 * 3600;
 const romeDay = (at) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 const romeHour = (at) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' }).format(at);
 
+const atThree = (day) => [1, 2].map((hour) => new Date(`${day}T0${hour}:00:00Z`))
+  .find((at) => romeDay(at) === day && romeHour(at) === '03');
+const cronOnRomeDate = (at) => `0 ${atThree(romeDay(at)).getUTCHours()} * * *`;
+
 function expectedSchedule(now) {
-  const atThree = (day) => [1, 2].map((hour) => new Date(`${day}T0${hour}:00:00Z`))
-    .find((at) => romeDay(at) === day && romeHour(at) === '03');
   const today = atThree(romeDay(now));
   const expected = now >= today ? today : atThree(new Date(Date.parse(`${romeDay(now)}T12:00:00Z`) - 86400000).toISOString().slice(0, 10));
   return { expectedAt: expected.toISOString(), cron: `0 ${expected.getUTCHours()} * * *`, graceSeconds: GRACE_SECONDS };
@@ -25,18 +27,25 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
   const payload = await response.json();
   if (!Array.isArray(payload.workflow_runs)) throw new Error('github_nightly_response_invalid');
   const valid = payload.workflow_runs.filter((run) => Number.isFinite(Date.parse(run.created_at)) && Date.parse(run.created_at) <= now.getTime())
-    .filter((run) => run.event === 'workflow_dispatch' || run.event === 'schedule' && run.display_title === `Nightly Sync (${schedule.cron})`)
+    // Validate historical runs against 03:00 on their own Rome date, including
+    // transition-day runs created before 03:00. The expected run is separate.
+    .filter((run) => run.event === 'workflow_dispatch' || run.event === 'schedule'
+      && run.display_title === `Nightly Sync (${cronOnRomeDate(new Date(run.created_at))})`)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const current = valid.find((run) => Date.parse(run.created_at) >= Date.parse(schedule.expectedAt));
+  const current = valid.find((run) => Date.parse(run.created_at) >= Date.parse(schedule.expectedAt)
+    && (run.event === 'workflow_dispatch' || run.display_title === `Nightly Sync (${schedule.cron})`));
   const latest = current ?? valid[0] ?? null;
   const overdue = expectScheduled && now.getTime() > Date.parse(schedule.expectedAt) + GRACE_SECONDS * 1000;
   const issues = [];
   if (overdue && !current) issues.push('github_nightly_missing');
-  if (overdue && current && current.status !== 'completed'
-    && now.getTime() - Date.parse(current.created_at) > GRACE_SECONDS * 1000) issues.push('github_nightly_stalled');
+  const stalled = valid.find((run) => run.status !== 'completed'
+    && now.getTime() - Date.parse(run.created_at) > GRACE_SECONDS * 1000
+    && now.getTime() - Date.parse(run.created_at) <= 36 * 3600000);
+  if (stalled) issues.push('github_nightly_stalled');
   if (latest && Date.parse(latest.created_at) >= now.getTime() - 36 * 3600000
     && latest.status === 'completed' && latest.conclusion !== 'success') issues.push('github_nightly_failed');
   return { checkedAt: now.toISOString(), ...schedule, expectedScheduled: expectScheduled, ok: issues.length === 0, issues,
+    stalledRun: stalled ? { id: stalled.id, createdAt: stalled.created_at, status: stalled.status, url: stalled.html_url } : null,
     lastRun: latest ? { id: latest.id, event: latest.event, createdAt: latest.created_at, status: latest.status,
       conclusion: latest.conclusion, url: latest.html_url } : null,
     limitation: 'A successful GitHub job proves workflow completion; database decisions require the optional read-only database check.' };
@@ -70,9 +79,12 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
   const issues = [];
   if (nightly.overdue) issues.push('nightly_execution_missing');
   if (expectEnabled && nightly.lastRun && nightly.state === 'DISABLED') issues.push('nightly_registration_disabled');
-  if (expectEnabled && nightly.state === 'FAILED') issues.push('nightly_execution_failed');
-  if (expectEnabled && odds.providers.some((provider) => provider.availableCredits <= 0)) issues.push('nightly_odds_credits_exhausted');
-  if (expectEnabled && Number(nightly.metrics.apiErrors) >= 3) issues.push('nightly_api_errors');
+  const recentCompleted = nightly.lastRun && Number.isFinite(Date.parse(nightly.lastRun.endedAt))
+    && Date.parse(nightly.lastRun.endedAt) <= now.getTime()
+    && now.getTime() - Date.parse(nightly.lastRun.startedAt) <= 36 * 3600000;
+  if (recentCompleted && nightly.lastRun.success === false) issues.push('nightly_execution_failed');
+  if (odds.providers.some((provider) => provider.availableCredits <= 0)) issues.push('nightly_odds_credits_exhausted');
+  if (recentCompleted && Number(nightly.metrics.apiErrors) >= 3) issues.push('nightly_api_errors');
   const pendingSettlements = Number(pending.rows[0]?.count ?? 0);
   if (pendingSettlements && now.getTime() > Date.parse(nightly.expectedAt) + GRACE_SECONDS * 1000) issues.push('settlement_backlog');
   const accountingErrors = accounting.rows.filter((row) => Number(row.available) < 0 || Number(row.committed) < 0
