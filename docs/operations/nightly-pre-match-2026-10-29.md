@@ -293,7 +293,7 @@ statistica.
   finale dopo l'integrazione della coorte; health HTTP 200.
 - Nessun nuovo APK o collaudo su dispositivo Android eseguito in questa fase.
 - Revisione indipendente della nuova coorte: 34/34 test e nessun P1/P2 residuo.
-  Il gate completo finale è passato; CI della pubblicazione da registrare.
+  Il gate completo finale è passato; riferimenti della CI remota nella sezione G.
 
 ## G. Pubblicazione e verifiche remote pendenti
 
