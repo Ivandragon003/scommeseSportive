@@ -34,15 +34,30 @@ risponde `410`. Backup, ripristino e migrazioni `015–019` sono verificati.
 A e C sono registrati e l'inferenza C dal registry è riuscita su Hostless con
 input sintetico. C resta Challenger e i 26 mercati sono `EXPERIMENTAL`.
 I portafogli A/C contengono 1.000 EUR ciascuno, separati, senza puntate.
-Il worker embedded da 0,1 vCPU/256 MiB esiste ma Hostless non lo avvia:
-lo stato deployment è `missing` e la gestione ambiente risponde `404`.
-Anche la creazione del cron watchdog fallisce con `400`. È stata esplorata
-l'alternativa ufficiale standalone, senza crearla: il wizard non trova repository
-accessibili e richiede al proprietario/admin GitHub `Ivandragon003` di installare
-la GitHub App Hostless per il solo repository `scommeseSportive`. La risposta
-dell'utente è pendente. Questa alternativa non identifica la causa del guasto
-embedded e non richiede entrambe le soluzioni. Scheduler e Shadow Betting
-restano disabilitati. Nessun piano a pagamento è stato attivato.
+Il worker embedded resta non operativo (`missing`, ambiente `404`). Dopo
+l'autorizzazione GitHub del proprietario è stato creato lo standalone gratuito
+`footpredictor-t15-standalone`, ma entrambi i deployment `ed9e58ad`/`cc842005`
+sono falliti in coda (`Deployment waited too long in the queue`), senza
+esecuzione o log di build dimostrati. Il cron standalone watchdog ha due
+deployment `cc842005` riusciti e 14 check reali `ok` nei Logs ogni cinque
+minuti, dalle 14:10:21 alle 15:15:13 CET. La lista Runs resta vuota e non
+rappresenta le esecuzioni effettive. Monitor SELECT-only operativo con worker
+intenzionalmente spento; notifiche esterne non collaudate. Nessun heartbeat o decisione T−15:
+scheduler T−15 e nuove registrazioni shadow restano disabilitati. Nightly di
+manutenzione e cron watchdog sono attivi. Il codice nativo `cc842005`
+è pubblicato e ha CI verde; il web LIVE resta `122fd360`. Una correzione dei
+falsi errori per quote assenti in cache è pubblicata in `60a6baac`, con 66/66
+test mirati e revisione senza blocchi. La CI è riuscita (777 test backend,
+776 passati e un opzionale saltato); calibrazione riuscita. Dopo il gate cache
+SELECT-only dell'immagine di produzione (80 hit validi, zero fit/scritture/provider),
+il deployment backend `60a6baac` è stato richiesto alle 15:18 CET ed è in coda.
+Al controllo delle 15:21 il web LIVE resta `122fd360`; frontend non ridistribuito. Linux QA è passato (777 test, 776 superati, un
+opzionale saltato); Windows mantiene un crash nativo non risolto. Hostless
+Support ha confermato la ricezione del report autorizzato, senza diagnosi o fix.
+Un audit reale quote da Linux locale verso provider/Turso ha misurato cinque
+richieste, 15 crediti e 205 residui, senza modificare otto tabelle protette;
+non è il collaudo T−15 del worker Hostless.
+Non sono state aggiunte carte o attivati piani a pagamento.
 Il [report operativo corrente](docs/operations/production-status-2026-10-29.md)
 separa operazioni completate e verifiche ancora pendenti.
 

@@ -12,14 +12,30 @@ registry e due portafogli indipendenti da 1.000 EUR senza puntate. Backup,
 ripristino e conservazione della contabilità legacy sono verificati.
 L'inferenza C dal registry è riuscita su Hostless con input sintetico, senza
 promozioni; i 26 mercati restano `EXPERIMENTAL`. Il processo automatico è
-**bloccato**: il worker embedded esiste ma non è distribuito, la gestione del suo
-ambiente restituisce `404` e la creazione del cron watchdog fallisce con `400`.
-L'alternativa ufficiale standalone non è stata creata: il wizard non vede
-repository accessibili e richiede l'installazione della GitHub App Hostless
-da parte del proprietario/admin `Ivandragon003`, limitata a `scommeseSportive`.
-La risposta dell'utente è pendente; nessun nuovo accesso è stato concesso.
-Riparare l'embedded oppure sbloccare lo standalone sono alternative: questa
-richiesta GitHub non dimostra la causa del guasto embedded.
+**bloccato**: l'embedded resta privo di deployment (`missing`, ambiente `404`).
+L'autorizzazione GitHub del proprietario è ora riuscita e lo standalone gratuito
+è creato, ma entrambi i deployment `ed9e58ad`/`cc842005` sono falliti con
+`Deployment waited too long in the queue`; non è dimostrato un avvio della build. Il cron standalone watchdog ha
+due deployment `cc842005` riusciti: i Logs attestano 14 check reali `ok`
+ogni cinque minuti dalle 14:10:21 alle 15:15:13 CET, benché Runs resti vuoto.
+Il monitor SELECT-only opera con worker atteso spento; la puntualità T−15
+e la consegna delle notifiche restano da verificare. Il backend web resta LIVE `122fd360`;
+la correzione nativa `cc842005` è pubblicata con CI verde. L'astensione attesa
+quando mancano quote in cache è stata erroneamente registrata come errore:
+la relativa correzione `60a6baac` è pubblicata, CI riuscita (777 test backend,
+776 passati e un opzionale saltato), calibrazione riuscita. Non è sul web LIVE: 66 test mirati e revisione superati,
+gate Linux QA riuscito (777 test, 776 superati e un opzionale saltato),
+gate Windows non superato per crash nativo. L'audit quote reale ha osservato
+89 eventi futuri, 3.585 record di mercato, 15 crediti consumati e 205 residui;
+46 record obsoleti esclusi, nessun cambiamento alle otto tabelle protette.
+È una prova Linux locale → provider/Turso, non del worker Hostless. Il supporto
+Hostless ha confermato ricezione del report autorizzato, senza diagnosi o fix.
+La cache calibrazione dipende dall'intero `dist`: warmup `60a6baac` riuscito e
+gate locale dall'immagine di produzione al Turso reale superato (40 profili
+per passaggio, 80 hit validi, 100 SELECT, zero fit/scritture/provider). Il deploy
+manuale backend della stessa revisione è in coda dalle 15:18 CET; al checkpoint
+15:21 web e frontend restano `122fd360`. Questo gate non certifica la correzione
+quote sul runtime Hostless né dimostra la causa degli avvisi CPU.
 Non ci sono heartbeat o decisioni T−15 remote. Il web funziona senza il PC;
 il ciclo automatico completo non è operativo. Dettagli nel
 [report operativo](operations/production-status-2026-10-29.md) e nella

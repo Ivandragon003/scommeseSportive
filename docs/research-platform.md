@@ -26,17 +26,44 @@ su input sintetico: probabilità valide, senza scritture o chiamate provider. No
 ciclo pre-match reale né una validazione della qualità predittiva.
 I due portafogli shadow sono inizializzati a 1.000 EUR ciascuno, senza puntate;
 i 26 mercati `EXPERIMENTAL` restano esclusi dalle registrazioni anche shadow.
-Il worker embedded è creato a 0,1 vCPU/256 MiB ma non è operativo: Hostless
-riporta deployment `missing` e `404` nella gestione ambiente. La creazione del
-cron watchdog fallisce con `400`. Scheduler, heartbeat, notifiche esterne e
-ciclo shadow prospettico non sono attivi. Servono il ripristino del worker da
-parte di Hostless oppure l'alternativa ufficiale standalone, più il superamento
-dei gate di mercato, senza promozioni fittizie. Lo standalone è stato esplorato
-ma non creato: nessun repository è accessibile al wizard. Il proprietario/admin
-GitHub `Ivandragon003` deve installare la GitHub App Hostless per il solo
-`scommeseSportive`; la risposta dell'utente è pendente e nessun nuovo accesso
-è stato concesso. Non servono entrambe le soluzioni e il blocco standalone
-non dimostra la causa del guasto embedded.
+Il worker embedded resta non operativo (`missing`, ambiente `404`). Dopo
+l'autorizzazione GitHub del proprietario è stato creato lo standalone gratuito
+`footpredictor-t15-standalone`: una replica, CPU 0,01–0,1 vCPU, RAM 128–256 MiB,
+22 variabili protette, rilascio automatico disabilitato. Dopo la lunga coda,
+entrambi i deployment `ed9e58ad`/`cc842005` sono falliti: `Deployment waited
+too long in the queue`. Nessun heartbeat, processo o avvio build verificato. Il comando
+iniziale conserva collaudi isolati e attesa inattiva con scheduler `false`.
+Il cron standalone watchdog è creato a 0,1 vCPU/128 MiB ogni cinque minuti UTC,
+con due deployment `cc842005` riusciti e 14 check reali `ok` nei Logs dalle
+14:10:21 alle 15:15:13 CET, ogni cinque minuti. Runs resta vuoto e gli stati
+UI oscillano: non descrivono le esecuzioni effettive. Il comando SELECT-only
+è operativo su Hostless con `expectedEnabled=false`, coerente con il worker
+intenzionalmente spento. Non sono attesi allarmi per questo stop; consegna
+notifiche e canale esterno gratuito non sono collaudati. I timestamp di output
+sono 7–21 s dopo l'intervallo cron, non misure del runtime o della puntualità
+T−15. Lo script è passato anche separatamente in Docker sul Turso reale,
+senza scritture/provider, con worker `UNOBSERVED`. Nessun job o puntata shadow.
+La correzione nativa locale `cc842005` è pubblicata con CI verde; il web resta
+LIVE `122fd360`. La correzione dei falsi errori cache-only `60a6baac` è
+pubblicata con 66/66 mirati e revisione finale senza blocchi. CI riuscita:
+777 test backend, 776 passati e un opzionale saltato; calibrazione riuscita,
+web non ancora aggiornato a tale revisione. Il gate SELECT-only dall'immagine
+di produzione `60a6baac` al Turso reale è passato: 40 profili per passaggio,
+80 hit validi, 100 SELECT, zero fit/scritture/provider, cinque leghe e due
+istanze fresche di PredictionService. Il deployment backend manuale è in coda
+dalle 15:18 CET; al checkpoint 15:21 il web resta `122fd360`, senza nuovo
+deploy frontend. Questa prova locale non certifica il fix quote su Hostless. Il gate Windows completo
+non è passato per un crash nativo; Linux QA è riuscito: 777 test, 776 passati,
+un opzionale CatBoost saltato, zero fallimenti. Nessuna quota o validazione
+inventata. L'audit quote reale separato ha consumato 15 crediti in cinque
+richieste (residuo 205): 89 eventi futuri, 3.539 record di mercato freschi al
+controllo e 46 obsoleti esclusi, zero timestamp mancanti, Eurobet assente. Le
+otto tabelle protette sono invariate. Scheduler T−15 e nuove registrazioni
+shadow restano disabilitati; nightly di manutenzione e cron watchdog sono
+attivi. Non è un ciclo T−15 Hostless. Il supporto ha confermato ricezione del report autorizzato,
+senza diagnosi o correzione.
+Non creare altri worker per superare la coda; completare i collaudi
+e i gate di mercato dopo un deployment realmente pronto.
 Dettagli nello [stato operativo](operations/production-status-2026-10-29.md) e
 nella [scheda del blocco Hostless](operations/hostless-blocker-2026-10-29.md).
 

@@ -63,17 +63,55 @@ comunicati durante la verifica della patch:
 
 | Controllo | Risultato |
 | --- | --- |
-| Suite backend completa Windows | 768/768 superati, circa 18,604 s |
+| Prima suite backend completa Windows della correzione | 768/768 superati, circa 18,604 s |
 | Typecheck e lint backend | Superati |
 | Controlli mirati Windows | 70/70 superati |
 | Test store su Linux | 31/31 superati |
 | Variante equivalente di stress 200 × 4, 800 processi | Zero errori, risultato confermato dal tool |
 | Stress finale separato | Esito non recuperabile dopo interruzione, non conteggiato |
 
-La revisione non ha individuato blocchi per database locali persistenti o
-protocolli remoti. Per lo stress finale separato, il container temporaneo è
+La revisione della correzione non ha individuato blocchi per database locali
+persistenti o protocolli remoti; non sostituisce i gate di esecuzione successivi.
+Per lo stress finale separato, il container temporaneo è
 terminato ed è stato rimosso automaticamente dopo l'interruzione; la sessione
 non è recuperabile. Il suo tentativo non viene sommato alle prove riuscite.
+
+## Verifica successiva: gate Windows non superato
+
+Durante il gate completo della successiva patch di osservabilità quote,
+777 asserzioni singole sono passate, ma il processo del file ResearchStore
+è terminato con crash nativo `0xC0000005`, pur avendo passato le sue 31
+asserzioni. Il gate Windows complessivo **non è passato**. Il precedente
+768/768 resta un risultato storico vero, non l'esito dell'ultimo gate.
+
+L'indagine limitata ha prodotto questi riscontri: su baseline precedente a
+`cc842005`, 12 run con 11 successi e un `SQLITE_BUSY` legacy, senza crash nativo;
+il file corrente può andare in crash anche con il vecchio corpus di 26 test,
+escludendo i cinque nuovi test di lock; un riproduttore del solo driver con
+1.360 cicli di contesa non è andato in crash. Non è dimostrato che il crash
+sia preesistente o causato dalla correzione. Nessuna modifica speculativa o
+nuova dipendenza è stata applicata.
+
+Il gate Linux Node 20 è preparato da 534 soli file tracciati, circa 10 MB,
+senza credenziali e con rete disabilitata. I suoi 2 CPU/1 GiB sono limiti
+della suite QA, non risorse richieste per il worker di produzione. Il primo
+run ha contato 777 test: 772 superati, quattro fallimenti dei test backup
+per Python assente nell'immagine QA, un opzionale saltato. Dopo aver aggiunto
+`python3` e `python-is-python3` alla sola immagine privata, il nuovo gate Linux
+completo è riuscito: **777 test, 776 superati, un opzionale CatBoost saltato,
+zero fallimenti**. Il gate Windows con crash nativo resta non superato. Il
+Dockerfile di produzione non è stato modificato: l'inferenza CatBoost rimane
+in Node senza Python.
+
+La successiva correzione di osservabilità quote è stata pubblicata in
+`60a6baac`, con CI `40889233354` riuscita: 777 test backend, 776 passati,
+un opzionale saltato, zero fallimenti. Anche calibrazione `40889233171`
+riuscita, warmup compreso. Questo non risolve il limite nativo
+Windows. Il gate cache SELECT-only dall'immagine di produzione `60a6baac`
+al Turso reale è passato: 40 profili per passaggio, 80 hit validi, 100 SELECT,
+zero fit/scritture/provider. Non esercita il percorso di scrittura nativo locale.
+Deployment backend manuale richiesto alle 15:18 CET e in coda; al checkpoint
+15:21 web LIVE ancora `122fd360`, senza nuovo deploy frontend.
 
 Queste prove verificano recupero della contesa locale e assenza di scritture
 duplicate nelle fixture. Non certificano avvio, uptime o puntualità di un

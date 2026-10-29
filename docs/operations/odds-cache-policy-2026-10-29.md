@@ -12,7 +12,7 @@ Il coordinatore e l'osservabilità hanno però emesso due log di errore,
 alle 13:42. Non dimostrano un timeout o un'indisponibilità di The Odds API.
 Sono distinti dai warning CPU e dalla coda di deployment Hostless.
 
-## Correzione locale
+## Correzione pubblicata su GitHub
 
 [OddsProvider](../../backend/src/services/odds-provider/OddsProvider.ts)
 riconosce soltanto il codice strutturato `odds_cache_only`. Il
@@ -50,14 +50,24 @@ Dockerfile di produzione non cambia. L'ultimo run Windows ha invece asserzioni
 verdi ma un crash nativo del file ResearchStore: resta un limite non risolto,
 non un gate passato. Questi fatti non dimostrano che il crash sia causato
 dalla patch odds o dalla correzione nativa.
-Il web LIVE `122fd360` mantiene la classificazione precedente.
+La correzione e questa nota sono pubblicate in
+`60a6baac666920ec494dd416e064990cd220435b`. CI `40889233354` e calibrazione
+`40889233171` riuscite. Gate cache locale dall'immagine di produzione della
+stessa revisione al Turso reale: 40 profili per passaggio, 80 hit validi,
+100 SELECT, cinque leghe e due nuove istanze di PredictionService; zero fit,
+scritture o chiamate provider.
+
+Il deployment manuale backend `6ae355cd7b2d5d826aa4c4c4` è stato richiesto
+alle 15:18 CET ed è ancora in coda. Al checkpoint 15:21 il web LIVE `122fd360`
+mantiene la classificazione precedente; nessun nuovo deploy frontend e
+auto-deploy disattivato. Il gate locale non è un test remoto del fix cache-only.
 
 Il percorso bulk continua a restituire `503` quando previsto e il relativo
 `http_request` rimane un log di errore intenzionale. La correzione elimina la
 classificazione falsa del provider nel percorso match HTTP `200`; non promette
 assenza di qualsiasi ERROR per una richiesta bulk fallita.
 
-Per la pubblicazione conservare questa distinzione tra Linux e Windows, distribuire la stessa
+Per il rilascio Hostless conservare questa distinzione tra Linux e Windows, distribuire la stessa
 revisione del warmup calibrazione e ripetere la richiesta cache-only sul
 remoto: quote ancora indisponibili, zero nuovo consumo API, skip tracciato e
 nessun nuovo falso errore applicativo. Questi risultati remoti non sono ancora
@@ -66,4 +76,5 @@ dichiarati. [Stato operativo](production-status-2026-10-29.md).
 L'audit quote reale successivo (cinque richieste, 15 crediti, residuo 205) è
 separato dalla prova cache-only: usa Linux locale verso provider/Turso e non
 certifica il comportamento del worker Hostless. I digest delle otto tabelle
-protette sono invariati e gli scheduler restano disabilitati.
+protette sono invariati. Scheduler T−15 e nuove registrazioni shadow restano
+disabilitati; nightly di manutenzione e cron watchdog sono attivi.

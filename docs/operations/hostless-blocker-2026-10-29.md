@@ -1,75 +1,130 @@
-# Hostless: worker non distribuito e cron non salvato, 29 ottobre 2026
+# Hostless: deployment standalone accodati, 29 ottobre 2026
 
-Scheda tecnica pronta per il proprietario o per l'assistenza Hostless.
-**Nessuna richiesta è stata inviata automaticamente.** Non contiene credenziali.
+Scheda tecnica senza credenziali, indirizzi o identificatori di posta.
+Il report è stato inviato su esplicita autorizzazione dell'utente nella chat
+ufficiale Hostless Support, circa alle 14:29 CET del 29 ottobre; invio
+verificato subito dopo alle 13:30:17 UTC. Hostless ha confermato la ricezione
+dei dettagli e delle richieste di preservare servizi/database senza risorse a
+pagamento; nessuna diagnosi o correzione comunicata.
+Testo e screenshot di prova restano artifact privati del backup, esclusi da Git.
+Il web funziona; T−15 non è operativo.
 
-## Risorse interessate
+## Risorse
 
-- Progetto: `Ivandragon003's Project`, ID `6a838a83424e48848fce82b0`.
-- Backend funzionante: `scommese-sportive-backend`, deploy LIVE
-  `6ae3213f30465a147074f461`, revisione `122fd360`.
-- Frontend funzionante: `scommese-sportive-frontend`, deploy LIVE
-  `6ae322cd7b2d5d826aa0c130`.
-- Worker embedded: `footpredictor-t15`, ID `6ae3240430465a1470752801`,
-  0,1 vCPU/256 MiB, una replica. Ruolo account osservato: `Editor`.
+- Progetto `Ivandragon003's Project`, ID `6a838a83424e48848fce82b0`.
+- Backend LIVE `6ae3213f30465a147074f461`, frontend LIVE
+  `6ae322cd7b2d5d826aa0c130`, entrambi revisione `122fd360`.
+- Embedded preservato e disabilitato: `footpredictor-t15`, ID
+  `6ae3240430465a1470752801`, 0,1 vCPU/256 MiB, una replica.
+- Standalone: `footpredictor-t15-standalone`, ID `6ae33d3659ba816e50f640fd`,
+  creato alle 13:33 CET, tier `FREE`, una replica, CPU 0,01–0,1 vCPU,
+  RAM 128–256 MiB, `scaledDown=false`, `overdue=false`, `autorelease=false`.
+  Ventidue variabili necessarie configurate senza esporne i valori sensibili.
 
-## Riscontri ripetibili
+## Accesso GitHub risolto
 
-1. La creazione Small è stata accettata; lista worker e lettura del record
-   restituiscono `200`. La richiesta precedente a 512 MiB è stata annullata
-   al requisito di aggiungere una carta; nessun upgrade effettuato.
-2. La UI resta `DEPLOYING`/`Not deployed`. La lettura dello stato tramite
-   `.../worker-processes/6ae3240430465a1470752801/deployment-status` restituisce
-   `200` con `state: missing` e `ready: false`.
-3. Il record del worker è leggibile con `200`, ma la lettura
-   `.../6ae3240430465a1470752801/environment-variables` restituisce `404`,
-   messaggio `App worker not found`. La pagina di modifica mostra errore di
-   caricamento. Nessun heartbeat o runtime worker osservabile.
-4. Redeploy esplicito e restart accodato non hanno prodotto un deployment
-   pronto. Non sono stati ripetuti creazione o duplicazione della risorsa.
-5. Il salvataggio di un cron embedded nell'app restituisce `400`, anche con
-   timezone UTC, `*/5 * * * *` e comando minimo
-   `node scripts/check-research-worker.js`. Messaggio:
-   `Hostless could not save the cron job. Check the schedule and the command, then try again.`
-   Anche il tentativo con prefisso ambiente fallisce; le liste cron sono vuote.
+Il proprietario ha completato l'autorizzazione della GitHub App. Il wizard
+conferma `Connected as Ivandragon003`, un repository accessibile; repository
+`scommeseSportive` e branch `main` sono stati verificati. Il collegamento
+legacy è stato preservato. Il precedente limite di accesso non blocca più la
+creazione standalone e non prova la causa del guasto embedded.
 
-La causa radice non è dimostrata: non si attribuisce il problema a permessi,
-configurazione ereditata o servizio della piattaforma senza ulteriori prove.
-Il backend e il frontend rimangono funzionanti.
+## Blocchi attuali
 
-## Alternativa standalone, non creata
+- Il wizard aveva selezionato `ed9e58ad`: primo deployment standalone
+  `6ae33d3659ba816e50f6410b`. Dopo il push della correzione nativa è stato
+  richiesto esplicitamente alle 13:37 CET il deployment
+  `6ae33df530465a14707721ec`, revisione
+  `cc842005dfd994bc21f787604b107436f5544bc1`.
+- Lista verificata alle 15:14 CET: entrambi i deployment, `ed9e58ad` e
+  `cc842005`, sono falliti con `Deployment waited too long in the queue`.
+  La risorsa resta `Sleeping`; nessun processo, heartbeat o avvio build è
+  dimostrato dalle icone o dalle etichette del wizard. Nessun nuovo tentativo
+  worker creato. Il timeout non dimostra la causa della coda.
+- Il dialogo Restart richiede un ultimo deployment riuscito, che non esiste:
+  è stato annullato con `No`, senza effettuare un restart generico.
+- Il comando iniziale conserva C smoke in sola lettura, E2E sintetico con
+  ambiente isolato e poi attesa inattiva con scheduler `false`. Non rilancia
+  automaticamente i test in ciclo e non abilita registrazioni.
+- L'embedded precedente resta incoerente: record leggibile `200`, deployment
+  `missing`/`ready=false`, gestione ambiente `404`/`App worker not found`.
+  Redeploy e restart non avevano prodotto un processo. È mantenuto disabilitato.
+- Il precedente cron embedded falliva con `400`, anche con comando minimo.
+  È stato poi creato il cron standalone `footpredictor-watchdog`, ID
+  `6ae3434030465a1470779a0f`, alle 13:59 CET
+  (`2026-10-29T12:59:44.237Z`): tier `FREE`, sorgente `cc842005`, Custom
+  0,1 vCPU/128 MiB, ogni cinque minuti UTC, auto-deploy disattivato, otto
+  variabili senza chiave quote, worker atteso disabilitato.
+- Il cron mostra due deployment riusciti, entrambi `cc842005`: LIVE delle
+  15:11 `6ae3540c7b2d5d826aa4a15c` e originale delle 13:59
+  `6ae3434030465a1470779a1f`. Anche l'avviso piattaforma conferma il deployment.
+  Runs resta vuoto e gli stati UI oscillano, ma la ricerca `"ok"` nei Logs
+  attesta 14 check reali riusciti ogni cinque minuti, dalle 14:10:21 alle
+  15:15:13 CET (`13:10:21Z`–`14:15:13Z`). Il comando SELECT-only è operativo
+  con `expectedEnabled=false`, mentre il worker è intenzionalmente spento.
+  La lista Runs non rappresenta le esecuzioni effettive; non prova uno stop.
+  Ritardi di output di 7–21 s rispetto all'intervallo cron non sono runtime
+  del comando o misure T−15. Nessun allarme worker atteso in questa modalità;
+  nessun canale esterno gratuito nuovo e nessuna consegna notifiche collaudata.
+  Lo script è passato anche separatamente in Docker, senza scritture/provider.
+- Alle 14:04 CET l'endpoint operativo dello stato fatturazione visibile nella
+  UI restituisce `200`, `state=current`, `restoring=false`. Nessun saldo o
+  documento di fatturazione letto: non prova costi retroattivi o causa della coda.
 
-Il wizard ufficiale standalone è stato esplorato nello stesso progetto senza
-creare una risorsa. Source mostra `No repositories accessible`. Repository
-mostra: `No accessible GitHub accounts were found. Authorizing Hostless does not install the GitHub App. Use Manage GitHub access to install it on the account that owns your repository and select the repository, then refresh access.`
+## Riscontri separati
 
-Serve l'intervento del proprietario/admin GitHub `Ivandragon003` per installare
-la GitHub App Hostless e autorizzare il solo repository `scommeseSportive`, poi
-aggiornare l'accesso. La richiesta all'utente è pendente; nessun nuovo grant è
-stato eseguito e nessuno standalone è stato creato. È un'alternativa alla
-riparazione embedded, non un passaggio aggiuntivo obbligatorio e non una prova
-della causa del guasto embedded. Evitare due worker operativi intenzionali.
+La CI e la calibrazione `60a6baac` sono riuscite. Gate cache locale dalla
+relativa immagine di produzione al Turso reale: 40 profili per passaggio,
+80 hit validi, 100 SELECT e zero fit/scritture/provider. Non certifica l'avvio
+del worker o il fix quote remoto. La cache usa l'intero `dist`; il deployment
+backend manuale della stessa revisione, ID `6ae355cd7b2d5d826aa4c4c4`, è in coda
+dalle 15:18 CET. Al checkpoint 15:21 web/frontend ancora LIVE `122fd360`;
+nessun nuovo deploy frontend. Non è dimostrata la causa dei warning CPU.
 
-Il collegamento legacy in `Git Connections` è ancora `Ivandragon003`,
-`Connected`/`Healthy`, con due risorse e ultimo uso visualizzato 34 minuti
-prima del controllo; non è stato disconnesso o alterato. `Manage GitHub Access`
-ha aperto l'installer ufficiale Hostless App nella sessione GitHub
-`Daniele04-creator`. I soli target disponibili sono `Daniele04-creator` e
-`Betting1`: `Ivandragon003` non è selezionabile. La sessione corrente non può
-quindi concedere il nuovo accesso sul repository del proprietario. Nessuna
-installazione o autorizzazione è stata concessa. Questo è un limite verificato
-dell'alternativa standalone e non spiega il guasto embedded.
+La piattaforma aveva segnalato il 26 ottobre vincoli di capacità e possibili
+ritardi/degrado. È un contesto compatibile con la coda, non una diagnosi di
+queste risorse. Alert osservati: CPU alle 11:45 CET, rientro alle 12:28,
+nuovo CPU alle 13:44; l'ultimo avviso CPU è poi `Recovered`/`Resolved`.
+Fallimento embedded alle 11:46. Nessuna regola alterata. Un ulteriore avviso
+appErrors riporta un errore senza stack e non consente di attribuirne la causa.
+L'avviso appErrors delle 13:42 è distinto: due log erronei hanno classificato
+come guasto una risposta cache-only prevista, pur con HTTP `200` in circa
+345 ms. La [correzione](odds-cache-policy-2026-10-29.md) è ora pubblicata in
+`60a6baac`, ancora non sul web LIVE; CI `40889233354` riuscita (777 test,
+776 passati, un opzionale saltato, zero fallimenti), calibrazione `40889233171`
+riuscita. Include anche le statistiche API degli skip; 66/66
+test mirati e revisione finale senza blocchi. Il gate QA Linux Node 20 è ora
+riuscito: 777 test, 776 superati, un opzionale saltato e zero fallimenti.
+Il crash nativo Windows resta irrisolto e non è un controllo superato.
+Il percorso bulk con HTTP `503` e il suo log HTTP di errore restano
+intenzionalmente invariati: la correzione mira al falso errore provider del match.
 
-## Richiesta tecnica da sottoporre al proprietario/assistenza
+Un audit quote separato da Linux locale verso provider/Turso ha misurato cinque
+richieste e 15 crediti (residuo 220 → 205), 89 eventi futuri e record reali di
+mercato senza cambiare otto tabelle protette. Non è una prova del worker Hostless
+o di puntualità T−15. Scheduler T−15 e nuove registrazioni shadow restano
+disabilitati; nightly di manutenzione e cron watchdog sono attivi.
 
-Verificare la coerenza tra record embedded e runtime/deployment del worker,
-la risoluzione della sua configurazione ambiente e l'errore `App worker not found`.
-Verificare inoltre perché il cron viene rifiutato con una pianificazione e un
-comando minimi. Indicare eventuali permessi mancanti oppure la correzione della
-piattaforma, senza eliminare o duplicare risorse e senza attivare piani a pagamento.
+## Ripresa sicura
 
-Il comando iniziale del worker conserva collaudi isolati e
-`RESEARCH_T15_SCHEDULER_ENABLED=false`; lasciarlo disabilitato anche dopo la
-riparazione finché non sono superati i controlli remoti. Non serve ricevere
-password o token nella conversazione. Il [report operativo](production-status-2026-10-29.md)
-distingue prove web, inferenza sintetica e ciclo T−15 ancora assente.
+Il timeout del deployment standalone è stato comunicato nello stesso caso di
+assistenza autorizzato, dopo la conferma di ricezione iniziale. Anche la
+discrepanza Runs vuoto/14 check riusciti è stata comunicata; nessuna nuova
+diagnosi ricevuta. Verificare perché l'attesa in coda scade senza build osservabile
+e segnalare separatamente l'incompletezza della lista Runs del cron, che ha
+14 check riusciti nei Logs. Il cron SELECT-only è operativo con worker spento. Controllare
+coda, capacità e stato runtime tramite gli strumenti ufficiali, senza assumere
+la causa o alterare web/database funzionanti. Non ricreare altri worker per
+forzare la coda e non attivare due processi decisionali intenzionali.
+Contesto di accesso: proprietario GitHub ha autorizzato il repository; l'account
+Hostless opera con ruolo `Editor`. Verificare eventuali ulteriori permessi
+necessari come ipotesi da provare, senza attribuire loro il guasto.
+
+Nessuna carta o cambio di piano: la richiesta embedded 512 MiB e il preset
+cron Small da 0,25 vCPU hanno richiesto una carta e sono stati annullati.
+Il Custom cron da 0,1 vCPU è stato accettato nella capacità gratuita indicata.
+La fatturazione effettiva resta non verificata.
+
+Dopo uno stato realmente pronto verificare log, collaudi e monitor prima di
+abilitare T−15. Il [report operativo](production-status-2026-10-29.md) conserva
+backup, migrazioni, saldo legacy e confini delle prove remote già riuscite.

@@ -2,9 +2,11 @@
 
 Procedura aggiornata il 29 ottobre 2026. Backend e frontend `122fd360` sono online,
 la nightly di manutenzione è collaudata e il Turso esistente è aggiornato.
-**Il sistema automatico resta bloccato su Hostless:** il worker creato non viene
-distribuito e il cron watchdog non viene salvato. Scheduler e registrazioni
-restano disabilitati. Non considerare il deploy web una prova di T−15.
+**Il sistema automatico resta bloccato su Hostless:** entrambi i deployment
+standalone sono falliti per timeout di coda. Il watchdog SELECT-only è operativo
+con worker spento, con 14 check reali `ok` nei Logs benché Runs resti vuoto.
+Scheduler T−15 e nuove registrazioni shadow restano disabilitati; nightly di
+manutenzione e cron watchdog sono attivi. Non considerare il deploy web una prova di T−15.
 Per fatti, prove e ripresa leggere il [report operativo](production-status-2026-10-29.md)
 e la [scheda del blocco Hostless](hostless-blocker-2026-10-29.md).
 Il [report locale](hostless-readiness-2026-10-27.md) conserva misure e limiti storici.
@@ -83,35 +85,86 @@ contiene A e il candidato C senza promozioni; i 26 mercati restano sperimentali.
 Il frontend `122fd360`, deploy `6ae322cd7b2d5d826aa0c130`, è anch'esso online:
 login reale, sessione dopo reload, calendario e dashboard A/C verificati.
 
-La richiesta worker a 512 MiB ha mostrato il requisito di aggiungere una carta
-ed è stata annullata. È stato creato soltanto il worker embedded Small
-`footpredictor-t15`, ID `6ae3240430465a1470752801`, 0,1 vCPU/256 MiB, una replica.
-Non è operativo: UI `DEPLOYING`/`Not deployed`, stato deployment `missing`,
-`ready=false`; il record esiste ma la gestione ambiente restituisce `404`
-`App worker not found`. Redeploy e restart non hanno prodotto un processo
-osservabile. Non è stata determinata la causa radice e non sono state create
-risorse alternative o copie del worker.
+La richiesta embedded a 512 MiB ha richiesto una carta ed è stata annullata.
+L'embedded Small `footpredictor-t15`, ID `6ae3240430465a1470752801`, resta
+preservato e disabilitato: `missing`, `ready=false`, gestione ambiente `404`.
 
-Il comando iniziale conserva inferenza di collaudo, fixture E2E isolate e
-`RESEARCH_T15_SCHEDULER_ENABLED=false`: un'eventuale partenza successiva non
-abilita registrazioni. L'inferenza C dal registry è stata verificata separatamente
-nel terminale del backend; l'E2E nel worker Hostless non è stato eseguito.
-Anche il cron watchdog è bloccato: il salvataggio restituisce `400` con comando
-minimo e pianificazione UTC ogni cinque minuti. La lista cron resta vuota.
+Il proprietario ha poi autorizzato la GitHub App: wizard `Connected as
+Ivandragon003`, un repository accessibile, `scommeseSportive` e `main` verificati.
+È stato creato lo standalone ufficiale `footpredictor-t15-standalone`, ID
+`6ae33d3659ba816e50f640fd`, alle 13:33 CET: tier `FREE`, una replica, CPU
+0,01–0,1 vCPU, RAM 128–256 MiB, `scaledDown=false`, `overdue=false`,
+`autorelease=false`. Ventidue variabili necessarie copiate in modo protetto.
 
-`Prepare prediction calibration` è stato riattivato (`active`) dopo la verifica
-delle migrazioni. Il watchdog GitHub resta manuale; manca il token dedicato di
-sola lettura. Nessuna pianificazione o nuova notifica esterna è dichiarata.
-Per riprendere si può riparare l'embedded tramite proprietario/assistenza
-Hostless oppure usare l'alternativa ufficiale standalone nello stesso progetto.
-Non occorrono entrambe. Il wizard standalone è stato esplorato senza creare
-risorse: Source mostra `No repositories accessible`; Repository spiega che
-autorizzare Hostless non installa la GitHub App. Serve il proprietario/admin
-GitHub `Ivandragon003` per installare Hostless sul solo repository
-`scommeseSportive` tramite `Manage GitHub access`, poi aggiornare l'accesso.
-È stato chiesto all'utente, con risposta pendente; nessun nuovo grant eseguito.
-Questo riscontro non dimostra la causa del guasto embedded. Preservare web e
-database e impedire due worker operativi durante l'eventuale sostituzione.
+Il wizard aveva selezionato `ed9e58ad`: deployment `6ae33d3659ba816e50f6410b`.
+Dopo il push della correzione nativa è stato richiesto esplicitamente alle
+13:37 CET il deployment `6ae33df530465a14707721ec` da
+`cc842005dfd994bc21f787604b107436f5544bc1`. Lista verificata alle 15:14 CET:
+entrambi i deployment `ed9e58ad`/`cc842005` falliti con `Deployment waited too
+long in the queue`. Risorsa `Sleeping`, nessun avvio build o collaudo dimostrato.
+Nessun nuovo tentativo worker creato e nessuna causa della coda dedotta.
+Il comando iniziale conserva smoke C in sola lettura, E2E con ambiente isolato
+e poi attesa inattiva con scheduler `false`, senza ciclo automatico di test.
+
+Il cron embedded aveva fallito con `400`. Il cron standalone
+`footpredictor-watchdog` è ora creato tramite UI con Custom 0,1 vCPU/128 MiB,
+ogni cinque minuti UTC, auto-deploy disattivato, otto variabili senza chiave
+quote. Il preset Small 0,25 vCPU richiedeva una carta, con 0,2 vCPU gratuite
+residue indicate: annullato; Custom accettato senza cambiare piano.
+Il cron ha due deployment riusciti `cc842005`: LIVE delle 15:11
+`6ae3540c7b2d5d826aa4a15c` e originale delle 13:59
+`6ae3434030465a1470779a1f`. Runs resta vuoto e gli stati UI oscillano, ma
+la ricerca `"ok"` nei Logs attesta 14 check reali riusciti ogni cinque minuti,
+dalle 14:10:21 alle 15:15:13 CET (`13:10:21Z`–`14:15:13Z`). Il comando
+SELECT-only è quindi operativo su Hostless con worker atteso spento e
+`expectedEnabled=false`. I ritardi di output rispetto all'intervallo cron,
+7–21 s, non misurano runtime o puntualità T−15. La lista Runs non rappresenta
+le esecuzioni effettive; non va usata da sola per concludere che il cron è fermo.
+Con il worker intenzionalmente spento non sono attesi allarmi di interruzione;
+nessun nuovo canale gratuito connesso e nessuna consegna di notifica collaudata.
+
+Lo script watchdog è stato provato in Docker 0,1 vCPU/128 MiB sul Turso reale:
+exit 0, `ok`, worker `UNOBSERVED`, nessuna issue o arretrato liquidazioni,
+zero scritture/provider. Riusa il token `rw` già disponibile, ma esegue solo
+SELECT; questo non trasforma il token in sola lettura. Il workflow GitHub
+resta manuale e richiede ancora `TURSO_WATCHDOG_READONLY_TOKEN`, senza fallback.
+`Prepare prediction calibration` è `active`; il run di `cc842005` è riuscito.
+
+Il warmup calibrazione `60a6baac` è riuscito. Il gate locale dall'immagine di
+produzione della stessa revisione al Turso reale ha superato 40 profili per
+passaggio, 80 hit validi e 100 SELECT, su cinque leghe con due nuove istanze di
+PredictionService: zero fit, scritture o chiamate provider. La cache dipende
+dall'intero `dist`, quindi la revisione del deploy deve corrispondere al warmup.
+Non è una diagnosi dei warning CPU o un test del nuovo fix sul runtime Hostless.
+
+Il deployment manuale backend `60a6baac` è stato richiesto alle 15:18 CET,
+ID `6ae355cd7b2d5d826aa4c4c4`, ed è in coda. Al checkpoint 15:21 il web LIVE
+resta `122fd360`, auto-deploy disattivato; nessun nuovo deploy frontend.
+L'app autenticata e le sessioni funzionano; health `200`, route legacy POST
+`410`, ricerca anonima `401`, portafogli da 1.000 euro ciascuno e zero
+impegnato/puntate riconfermati in sola lettura. L'esito del nuovo deploy e
+la richiesta cache-only sul nuovo runtime restano da verificare.
+Il falso allarme per `odds_cache_only` ha una correzione pubblicata in
+`60a6baac`, con 66/66 test mirati e revisione finale senza blocchi. CI
+`40889233354` riuscita: 777 test backend, 776 passati, un opzionale saltato e
+zero fallimenti; calibrazione `40889233171` riuscita. Il web LIVE
+resta `122fd360`. Per questa correzione, il gate Windows
+completo è fallito per crash nativo; il gate Linux QA è invece passato,
+777 test, 776 superati, un opzionale CatBoost saltato e zero fallimenti.
+Il limite Windows resta dichiarato; non attestare un deploy non eseguito.
+[Nota tecnica](odds-cache-policy-2026-10-29.md). Il report tecnico è stato inviato
+al supporto ufficiale Hostless circa alle 14:29 CET, su autorizzazione esplicita
+dell'utente; Hostless ha confermato ricezione di dettagli e richieste di
+preservare servizi/DB senza risorse a pagamento, ma non ha fornito diagnosi o fix.
+Il timeout di coda e la discrepanza tra Runs vuoto e 14 check riusciti nei Logs
+sono stati poi comunicati nello stesso caso, senza nuova diagnosi. Le prove
+dell'invio restano artifact privati esclusi da Git.
+L'audit quote da Linux locale verso provider/Turso è completato: cinque
+richieste, 15 crediti, residuo 205, nessuna variazione delle otto tabelle
+protette. Non è il collaudo del worker Hostless né della finestra T−15.
+Preservare web e storico mentre l'assistenza esamina il timeout dei worker.
+Il watchdog è già operativo nella modalità worker spento; prima dell'attivazione
+T−15 restano collaudo del worker, rilevamento guasti e consegna notifiche.
 
 ## Impostazioni Hostless
 
@@ -233,7 +286,7 @@ watchdog programmato: non è un controllo subminuto né un sostituto del worker.
    legacy: se si ripristina una vecchia immagine, controllare prima che non
    riattivi quella route e bloccarne l'accesso durante la transizione.
 4. Ripristinare la release web/Site precedente dal pannello solo se necessario,
-   conservando `AUTO_BET_ENABLED=false` e tutte le disattivazioni scheduler.
+   conservando `AUTO_BET_ENABLED=false`, T−15 e scheduler interni web disattivati.
 5. Verificare health/login, saldi, liquidazione idempotente e watchdog che segnala
    lo stop atteso. Riparare in locale e ripetere il gate prima di riabilitare.
 
