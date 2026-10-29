@@ -1,43 +1,50 @@
 import React from 'react';
 import { ResearchOverview } from './researchTypes';
-import { count, dateTime, finiteNumber } from './researchPresentation';
+import { count, dateTime } from './researchPresentation';
 import { Metric } from './ResearchPrimitives';
 
-const ResearchAutomationStatus = ({ status }: { status: ResearchOverview['status'] }) => (
-  <section className="research-panel">
+const booleanLabel = (value?: boolean | null) => value === true ? 'Sì' : value === false ? 'No' : 'Non verificato';
+const nightlyState = (value?: string) => ({
+  DISABLED: 'Disabilitata nella configurazione web', NOT_OBSERVED: 'Non ancora osservata',
+  PENDING: 'In attesa', RUNNING: 'In esecuzione', SUCCESS: 'Riuscita', FAILED: 'Fallita', MISSED: 'Esecuzione attesa mancante',
+}[value || ''] || 'Non ancora osservata');
+
+const ResearchAutomationStatus = ({ status }: { status: ResearchOverview['status'] }) => {
+  const nightly = status?.nightly;
+  const run = nightly?.lastRun;
+  const metrics = nightly?.metrics;
+  return <section className="research-panel">
     <h2>Stato delle automazioni</h2>
-    <p className="research-conclusion">
-      Questa schermata descrive il codice corrente e lo stato del worker registrato nel database condiviso.
-      La nightly pubblicata su GitHub e il collaudo remoto richiedono una verifica separata sul rispettivo servizio.
-    </p>
+    <p className="research-conclusion">Nightly Pre-Match Virtual Betting</p>
+    <p>La nightly aggiorna i dati e valuta le puntate virtuali A/C prima delle partite. Questa schermata legge le esecuzioni registrate nel database; la configurazione dichiarata dal backend web non certifica i secret o il workflow pubblicato su GitHub.</p>
     <dl className="research-system">
-      <Metric label="Ambito della verifica" value={status?.automationScope === 'local_code'
-        ? 'Codice e processo corrente' : 'Ambito non certificato'} />
-      <Metric label="Verifica remota di GitHub e scheduler" value="Non verificata dal backend" />
-      <Metric label="Nightly crea nuove puntate · codice corrente" value={status?.nightlyCreatesBets === false
-        ? 'No' : status?.nightlyCreatesBets === true ? 'Sì · configurazione da correggere' : 'Non verificato'} />
-      <Metric label="Vecchio percorso disabilitato · codice corrente" value={status?.legacyAutomationDisabled === true
-        ? 'Sì' : status?.legacyAutomationDisabled === false ? 'Da disabilitare' : 'Non verificato'} />
-      <Metric label="Scheduler T−15 · stato condiviso" value={status?.schedulerState === 'STALE'
-        ? 'Segnale scaduto' : status?.schedulerEnabled === true
-          ? 'Attivo' : status?.schedulerEnabled === false ? 'Fermo' : 'Non verificato'} />
-      <Metric label="Ultimo segnale dello scheduler registrato" value={dateTime(status?.heartbeatAt)} />
-      <Metric label="Ultima nightly completa riuscita" value={dateTime(status?.lastNightlyAt)} />
+      <Metric label="Abilitazione dichiarata dal backend web" value={status?.mode === 'NIGHTLY_PRE_MATCH' ? booleanLabel(status?.schedulerEnabled) : 'Non verificato'} />
+      <Metric label="Registrazioni abilitate nell’ultimo job osservato" value={booleanLabel(nightly?.executionEnabled ?? run?.summary?.enabled)} />
+      <Metric label="Stato nightly osservato" value={nightlyState(status?.schedulerState)} />
+      <Metric label="Ultima elaborazione virtuale avviata" value={dateTime(run?.startedAt)} />
+      <Metric label="Ultima elaborazione virtuale terminata" value={dateTime(run?.endedAt)} />
+      <Metric label="Esito dell’ultima elaborazione" value={!run ? 'Non disponibile' : run.success === true ? 'Riuscita' : run.success === false ? 'Fallita' : 'In esecuzione'} />
+      <Metric label="Ultima nightly manutenzione completa riuscita" value={dateTime(status?.lastNightlyAt)} />
       <Metric label="Ultimo aggiornamento dei dati" value={dateTime(status?.lastDataUpdateAt)} />
-      <Metric label="Tolleranza configurata" value={finiteNumber(status?.toleranceSeconds)
-        ? `${status.toleranceSeconds} secondi` : 'Non disponibile'} />
+      <Metric label="Esecuzione notturna attesa" value={dateTime(nightly?.expectedAt)} />
+      <Metric label="Prossima esecuzione prevista" value={dateTime(nightly?.nextAt)} />
+      <Metric label="Partite analizzate" value={count(metrics?.analyzedMatches)} />
+      <Metric label="Puntate virtuali registrate" value={count(metrics?.registeredBets)} />
+      <Metric label="Partite saltate" value={count(metrics?.skippedMatches)} />
+      <Metric label="Partite perse per ritardo" value={count(metrics?.missedMatches)} />
+      <Metric label="Errori dell’elaborazione" value={count(metrics?.errors)} />
+      <Metric label="Errori API" value={count(metrics?.apiErrors)} />
+      <Metric label="Puntate controllate per liquidazione" value={count(metrics?.settlement?.checked)} />
+      <Metric label="Puntate liquidate nell’ultimo job" value={count(metrics?.settlement?.settled)} />
+      <Metric label="Liquidazioni ancora in attesa" value={count(metrics?.settlement?.unresolved)} />
+      <Metric label="Percorso legacy disabilitato" value={booleanLabel(status?.legacyAutomationDisabled)} />
       <Metric label="Stato API" value={status?.providerStatus || 'Non verificato'} />
       <Metric label="Ultima osservazione del provider" value={dateTime(status?.lastProviderAt)} />
-      <Metric label="Freschezza quote" value={dateTime(status?.quotesFreshThrough)} />
       <Metric label="Stato database" value={status?.dbStatus || 'Non verificato'} />
-      <Metric label="Configurazione del processo" value={status?.deployment === 'not_verified'
-        ? 'Non verificata' : status?.deployment || 'Non verificata'} />
     </dl>
-    <p className="research-help">
-      Lo stato del worker deriva dal database condiviso. Per accertare che la vecchia nightly remota abbia smesso
-      di registrare puntate servono il workflow pubblicato e i log delle esecuzioni su GitHub.
-      Gli orari sono mostrati in Europe/Rome; il target è T−15 e una finestra persa resta mancata.
-    </p>
+    <p className="research-help">Orario di riferimento: 03:00 Europe/Rome, con ora legale. Il timestamp effettivo del job determina le decisioni; un’esecuzione mancata non genera puntate retroattive. Le osservazioni non misurate restano non disponibili.</p>
+    {nightly?.overdue && <div className="research-blockers" role="status"><h3>Nightly attesa non osservata</h3><p>È trascorsa la tolleranza prevista: controllare l’esecuzione programmata su GitHub.</p></div>}
+    {run?.error && <p className="fp-alert fp-alert-danger">Ultimo errore registrato: {run.error}</p>}
     <h3>Consumo delle API quote</h3>
     <dl className="research-system">
       <Metric label="Crediti residui osservati" value={count(status?.apiQuota?.remaining)} />
@@ -45,14 +52,12 @@ const ResearchAutomationStatus = ({ status }: { status: ResearchOverview['status
       <Metric label="Costo dell’ultima richiesta" value={count(status?.apiQuota?.lastCost)} />
       <Metric label="Ultima misura della quota API" value={dateTime(status?.apiQuota?.observedAt)} />
     </dl>
-    {!status?.apiQuota && <p className="research-help">
-      Il provider non ha fornito una misura recente dei crediti in questo processo.
-    </p>}
+    {!status?.apiQuota && <p className="research-help">Il database non contiene una misura recente dei crediti del provider.</p>}
     {!!status?.blockers?.length && <div className="research-blockers" role="status">
-      <h3>Requisiti ancora bloccati</h3>
+      <h3>Problemi tecnici da verificare</h3>
       <ul>{status.blockers.map((blocker, index) => <li key={`${blocker}-${index}`}>{blocker}</li>)}</ul>
     </div>}
-  </section>
-);
+  </section>;
+};
 
 export default ResearchAutomationStatus;

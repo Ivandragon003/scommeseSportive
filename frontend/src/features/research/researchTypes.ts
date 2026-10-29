@@ -27,7 +27,7 @@ export interface ResearchBet {
   createdAt: string;
   settledAt?: string;
   profitCents?: number;
-  quote?: { bookmaker?: string; source?: string; capturedAt?: string; updatedAt?: string };
+  quote?: { bookmaker?: string; source?: string; capturedAt?: string; updatedAt?: string; priceType?: string };
 }
 
 export interface ResearchModel {
@@ -222,9 +222,24 @@ export interface ResearchOverview {
     nightlyCreatesBets: boolean;
     legacyAutomationDisabled: boolean;
     schedulerEnabled: boolean | null;
-    schedulerState?: 'ACTIVE' | 'STOPPED' | 'STALE' | 'UNKNOWN';
+    mode?: 'NIGHTLY_PRE_MATCH';
+    schedulerState?: 'ACTIVE' | 'STOPPED' | 'STALE' | 'UNKNOWN' | 'DISABLED' | 'NOT_OBSERVED' | 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'MISSED';
+    nightly?: {
+      executionEnabled?: boolean | null;
+      lastRun?: { startedAt?: string; endedAt?: string; success?: boolean; error?: string | null; summary?: { enabled?: boolean; [key: string]: unknown } } | null;
+      expectedAt?: string | null;
+      nextAt?: string | null;
+      graceSeconds?: number;
+      overdue?: boolean;
+      metrics?: {
+        analyzedMatches?: number | null; registeredBets?: number | null; skippedMatches?: number | null;
+        missedMatches?: number | null; errors?: number | null; apiErrors?: number | null;
+        settlement?: { checked?: number | null; settled?: number | null; unresolved?: number | null } | null;
+        reasonCounts?: Record<string, number> | null;
+      };
+    };
     heartbeatAt?: string | null;
-    toleranceSeconds: number;
+    toleranceSeconds: number | null;
     training?: { lastAt?: string; status?: string; nextAt?: string; lastPromotionAt?: string; lastRollbackAt?: string; [key: string]: unknown };
     blockers: string[];
     deployment: string;

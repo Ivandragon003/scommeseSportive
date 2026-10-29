@@ -49,27 +49,69 @@ export interface ResearchOddsEvent {
   lastAt: string;
 }
 
+export interface NightlyDemandScenario {
+  availableCredits?: number | null;
+  admittedCredits?: number | null;
+  admittedHttpRequests?: number | null;
+  admittedGroups?: number | null;
+  skippedGroups?: number | null;
+  assumedCoveredFixtures?: number | null;
+  skippedFixtures?: number | null;
+  fractionOfObservedCalendar?: number | null;
+  claim?: string;
+}
+
 export interface ResearchOddsForecast {
+  kind: 'offline_remaining_nightly_calendar_projection';
+  mode: 'NIGHTLY';
+  scope: 'remaining_scheduled_nightly_runs_in_current_utc_month';
+  enabled?: boolean;
+  month: string;
+  asOf: string;
+  through: string;
+  throughExclusive: boolean;
+  nextScheduledAt?: string | null;
   calendarFixtures: number;
-  competitionKickoffGroups: number;
+  competitionNightlyGroups?: number | null;
+  baseCredits?: number | null;
+  retryCreditAllowance?: number | null;
   estimatedCredits: number;
   estimatedHttpRequests: number;
+  projectedTotalCredits: number;
   completeCalendarVerified: boolean;
   futureKickoffsVerified: boolean;
-  through: string;
-  scope: 'remaining_decision_targets_in_current_utc_month';
   measuredQuota: number | null;
-  assumptions: string[] | {
+  assumptions: {
     markets?: string[];
     regionCount?: number;
     retryRate?: number;
-    calendarSource?: string;
-    cacheHitRate?: number;
+    retryGroups?: number;
     sharedByModels?: string[];
-    cacheWindowSeconds?: number;
+    scheduleTimezone?: string;
+    accountingTimezone?: string;
+    hour?: number;
+    minute?: number;
+    windowHours?: number | null;
+    window?: string;
+    retryScope?: string;
     note?: string;
   };
-  projectedTotalCredits: number;
+  budget?: {
+    monthlyLimit?: number;
+    reserveCredits?: number;
+    ordinaryMonthlyLimit?: number;
+    essentialMonthlyLimit?: number;
+    usedCredits?: number;
+    availableCredits?: number;
+    availableSource?: string;
+    nightlyPriority?: string;
+    reservePolicy?: string;
+  };
+  ordinaryScenario?: NightlyDemandScenario;
+  essentialScenario?: NightlyDemandScenario;
+  exclusions?: Record<string, number>;
+  groups?: Array<{ competition: string; decisionAt: string; windowEndAt: string; fixtureCount: number; retryAllowance: boolean; estimatedCredits: number }>;
+  limitations?: string[];
 }
 
 export interface ResearchOddsStatus {

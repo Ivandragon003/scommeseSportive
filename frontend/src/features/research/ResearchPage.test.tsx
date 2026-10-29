@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import ResearchPage from './ResearchPage';
-import { getResearchOddsStatus, getResearchOverview } from '../../utils/researchApi';
+import { getResearchComparison, getResearchOddsStatus, getResearchOverview } from '../../utils/researchApi';
 import { ResearchOverview } from './researchTypes';
+import { ResearchComparison } from './researchComparisonTypes';
 
 jest.mock('../../utils/researchApi');
 jest.mock('recharts', () => ({
@@ -11,18 +12,26 @@ jest.mock('recharts', () => ({
   XAxis: () => null, YAxis: () => null,
 }));
 
+const mockedComparison = getResearchComparison as jest.MockedFunction<typeof getResearchComparison>;
+const emptyComparison = (): ResearchComparison => ({
+  period: { key: '30d', from: '2026-10-01T00:00:00Z', to: '2026-10-30T00:00:00Z', timezone: 'Europe/Rome', label: 'Ultimi 30 giorni' },
+  portfolios: [], leader: null, byLeague: [], byMarket: [],
+  decisionDifferences: { comparedCount: 0, differentCount: 0, total: 0, truncated: false, rows: [] },
+  bets: { total: 0, truncated: false, rows: [] },
+});
 const mockedOverview = getResearchOverview as jest.MockedFunction<typeof getResearchOverview>;
 const mockedOddsStatus = getResearchOddsStatus as jest.MockedFunction<typeof getResearchOddsStatus>;
 const emptyOverview = (): ResearchOverview => ({
   models: [], portfolios: [], bets: [], markets: [], jobs: [], latestBenchmark: null, notifications: [],
   status: {
-    nightlyCreatesBets: false, legacyAutomationDisabled: true, schedulerEnabled: null, schedulerState: 'UNKNOWN',
+    mode: 'NIGHTLY_PRE_MATCH', nightlyCreatesBets: false, legacyAutomationDisabled: true, schedulerEnabled: false, schedulerState: 'NOT_OBSERVED',
     toleranceSeconds: 60, blockers: ['Deployment remoto non verificato.'], deployment: 'not_verified',
   },
 });
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockedComparison.mockResolvedValue(emptyComparison());
   mockedOddsStatus.mockResolvedValue({ observedAt: '2026-10-27T09:00:00Z', month: '2026-10', resetAt: '2026-11-01T00:00:00Z',
     providers: [], usage: [], events: [], plannedForecast: null, limitations: [] });
 });
@@ -38,10 +47,12 @@ test('mostra il caricamento senza assumere saldi o benchmark', () => {
 test('stato vuoto esplicito e navigazione accessibile nei sei pannelli', async () => {
   mockedOverview.mockResolvedValue(emptyOverview());
   render(<ResearchPage />);
-  expect(await screen.findByText('Nessun benchmark eseguito.')).toBeTruthy();
-  expect(screen.getByRole('tab', { name: 'Storico' }).getAttribute('aria-selected')).toBe('true');
-  fireEvent.keyDown(screen.getByRole('tab', { name: 'Storico' }), { key: 'ArrowRight' });
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   expect(screen.getByRole('tab', { name: 'Portafogli' }).getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(screen.getByRole('tab', { name: 'Portafogli' }), { key: 'ArrowRight' });
+  expect(screen.getByRole('tab', { name: 'Storico' }).getAttribute('aria-selected')).toBe('true');
+  expect(screen.getByText('Nessun benchmark eseguito.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
   expect(screen.getByText(/Portafogli non inizializzati/)).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   expect(screen.getByText(/Nessuna validazione di mercato registrata/)).toBeTruthy();
@@ -53,8 +64,9 @@ test('stato vuoto esplicito e navigazione accessibile nei sei pannelli', async (
   expect(mockedOddsStatus).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('tab', { name: 'Sistema' }));
   expect(screen.getByText('Deployment remoto non verificato.')).toBeTruthy();
-  expect(within(screen.getByRole('definition', { name: 'Scheduler T−15 · stato condiviso' }))
-    .getByText('Non verificato')).toBeTruthy();
+  expect(within(screen.getByRole('definition', { name: 'Stato nightly osservato' }))
+    .getByText('Non ancora osservata')).toBeTruthy();
+  expect(screen.queryByText(/Scheduler T−15/)).toBeNull();
   expect(screen.getByText('No')).toBeTruthy();
 });
 
@@ -78,7 +90,7 @@ test('errore backend non diventa un risultato vuoto o una falsa disponibilità',
   expect(screen.queryByText('Nessun benchmark eseguito.')).toBeNull();
   mockedOverview.mockResolvedValue(emptyOverview());
   fireEvent.click(screen.getByRole('button', { name: 'Aggiorna confronto' }));
-  expect(await screen.findByText('Nessun benchmark eseguito.')).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' })).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
@@ -93,8 +105,9 @@ test('i portafogli A e C e le registrazioni restano indipendenti', async () => {
     { id: 'c1', portfolioId: 'shadow_C', matchId: 'fixture-C', modelVersion: 'C-real-catboost', selection: 'under25', stakeCents: 1000, odds: 1.9, status: 'WON', createdAt: '2026-10-27T19:30:00Z', profitCents: 900, quote: { bookmaker: 'Bookmaker C' } },
   ];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
   const portfolioA = screen.getByRole('article', { name: 'Portafoglio A' });
   const portfolioC = screen.getByRole('article', { name: 'Portafoglio C' });
@@ -103,8 +116,8 @@ test('i portafogli A e C e le registrazioni restano indipendenti', async () => {
   expect(within(portfolioA).getByText(/10,00\s€/)).toBeTruthy();
   expect(within(portfolioC).getAllByText(/1\.?009,00\s€/).length).toBe(2);
   expect(screen.queryByText(/2\.?009,00\s€/)).toBeNull();
-  fireEvent.change(screen.getByLabelText('Portafoglio'), { target: { value: 'shadow_A' } });
-  expect(screen.getByText('fixture-A')).toBeTruthy();
+  fireEvent.change(await screen.findByLabelText('Portafoglio'), { target: { value: 'A' } });
+  expect(await screen.findByText('fixture-A')).toBeTruthy();
   expect(screen.queryByText('fixture-C')).toBeNull();
   expect(screen.queryByRole('button', { name: /Punta|Registra giocata|Promuovi/i })).toBeNull();
 });
@@ -116,8 +129,9 @@ test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i m
     { family: 'C', modelVersion: 'C-candidate', market: '1x2', state: 'EXPERIMENTAL', evidence: { n: 40 }, reason: 'Campione prospettico insufficiente.' },
   ];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   const marketA = screen.getByRole('region', { name: 'Esito finale 1X2 modello A' });
   const marketC = screen.getByRole('region', { name: 'Esito finale 1X2 modello C' });
@@ -137,7 +151,10 @@ test('benchmark mostra osservazioni, intervalli appaiati e limiti senza proclama
     decisionDifferences: { same: 10, different: 12, onlyA: 3, onlyC: 4, neither: 71 },
   } };
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   expect(await screen.findByText(/Confronto non conclusivo: intervallo/)).toBeTruthy();
   expect(screen.getByText('[-0,04; 0,02]')).toBeTruthy();
   expect(screen.getByText('Quote storiche mancanti: valutazione economica non eseguita.')).toBeTruthy();
@@ -154,14 +171,15 @@ test('mostra tutte le configurazioni di un mercato senza nascondere le versioni 
     { family: 'A', modelVersion: 'A-retrained', market: '1x2', state: 'EXPERIMENTAL', reason: 'Nuova configurazione da verificare.' },
   ];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   const market = screen.getByRole('region', { name: 'Esito finale 1X2 modello A' });
   expect(within(market).getByText('A-reference')).toBeTruthy();
   expect(within(market).getByText('A-retrained')).toBeTruthy();
   expect(within(market).getByText('280')).toBeTruthy();
-  expect(within(market).getByText('Shadow')).toBeTruthy();
+  expect(within(market).getByText('Sperimentale storico')).toBeTruthy();
   expect(within(market).getByText('Sperimentale')).toBeTruthy();
 });
 
@@ -170,13 +188,14 @@ test('mostra provenienza dello snapshot e stato aperto con esposizione del singo
   overview.portfolios = [{ id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 99000, committedCents: 1000, equityCents: 100000, profitCents: 0, betCount: 1, settledCount: 0 }];
   overview.bets = [{ id: 'a1', portfolioId: 'shadow_A', matchId: 'fixture-A', modelVersion: 'A-reference', selection: 'homeWin', stakeCents: 1000, odds: 1.9, status: 'PENDING', createdAt: '2026-10-27T19:30:00Z', quote: { bookmaker: 'Bookmaker A', source: 'the_odds_api', updatedAt: '2026-10-27T19:28:00Z' } }];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
   const portfolio = screen.getByRole('article', { name: 'Portafoglio A' });
   expect(within(portfolio).getByText('1%')).toBeTruthy();
   expect(within(portfolio).getByText('Puntate aperte')).toBeTruthy();
-  expect(screen.getByText('Fonte: the_odds_api')).toBeTruthy();
+  expect(await screen.findByText('Fonte: the_odds_api')).toBeTruthy();
   expect(screen.getByText(/Quota del/)).toBeTruthy();
 });
 
@@ -187,7 +206,10 @@ test('calibrazione e intervalli temporali compaiono solo quando presenti nel rep
     conclusion: 'Campione non conclusivo.',
   } };
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   await screen.findByText('Campione non conclusivo.');
   expect(screen.getByText('Calibrazione delle probabilità')).toBeTruthy();
   expect(screen.getByText('60%')).toBeTruthy();
@@ -202,8 +224,9 @@ test('le decisioni congelate mantengono probabilità distinte e il modello assen
     { id: 'dC', matchId: 'fixture-T15', family: 'C', modelVersion: 'C-unavailable', action: 'ABSTAIN', reason: 'hybrid_model_unavailable_or_incompatible', createdAt: '2026-10-27T19:30:10Z', inputId: 'shared-snapshot', probabilityStages: { raw: {}, calibrated: null, decision: null } },
   ];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
   expect(screen.getByText('60% / 57% / 55%')).toBeTruthy();
   expect(screen.getByText('1: 49%')).toBeTruthy();
@@ -219,11 +242,12 @@ test('riepilogo giornaliero mantiene variazioni e risultati distinti per portafo
     { portfolioId: 'shadow_C', family: 'C', registeredBets: 1, settledBets: 0, profitCents: 0, portfolioDeltaCents: 0, startEquityCents: 100000, endEquityCents: 100000, endAvailableCents: 99000, endCommittedCents: 1000 },
   ] };
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Sistema' }));
-  const a = screen.getByRole('article', { name: 'Riepilogo shadow_A' });
-  const c = screen.getByRole('article', { name: 'Riepilogo shadow_C' });
+  const a = screen.getByRole('article', { name: 'Riepilogo A' });
+  const c = screen.getByRole('article', { name: 'Riepilogo C' });
   expect(within(a).getByText(/1\.?009,00\s€/)).toBeTruthy();
   expect(within(c).getByText(/1\.?000,00\s€/)).toBeTruthy();
   expect(screen.queryByText(/2\.?009,00\s€/)).toBeNull();
@@ -233,9 +257,10 @@ test('la sola inizializzazione dei portafogli non diventa una curva di rendiment
   const overview = emptyOverview();
   overview.portfolios = [{ id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 100000, committedCents: 0, equityCents: 100000, profitCents: 0, history: [{ at: '2026-10-27T09:00:00Z', equityCents: 100000 }] }];
   mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByText('Nessun benchmark eseguito.');
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
   fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  expect(screen.getByText('Il grafico comparirà quando saranno disponibili più movimenti per almeno un portafoglio.')).toBeTruthy();
+  expect(await screen.findByText('Il grafico comparirà quando saranno disponibili più movimenti per almeno un portafoglio.')).toBeTruthy();
   expect(screen.queryByRole('figure')).toBeNull();
 });

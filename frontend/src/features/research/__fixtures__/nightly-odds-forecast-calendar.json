@@ -1,0 +1,104 @@
+{
+  "kind": "offline_remaining_nightly_calendar_projection",
+  "mode": "NIGHTLY",
+  "month": "2026-10",
+  "asOf": "2026-10-29T14:20:00.000Z",
+  "through": "2026-11-01T00:00:00.000Z",
+  "throughExclusive": true,
+  "scope": "remaining_scheduled_nightly_runs_in_current_utc_month",
+  "nextScheduledAt": "2026-10-30T02:00:00.000Z",
+  "calendarFixtures": 2,
+  "competitionNightlyGroups": 2,
+  "baseCredits": 6,
+  "retryCreditAllowance": 3,
+  "estimatedCredits": 9,
+  "estimatedHttpRequests": 3,
+  "completeCalendarVerified": false,
+  "futureKickoffsVerified": false,
+  "measuredQuota": null,
+  "assumptions": {
+    "markets": [
+      "h2h",
+      "spreads",
+      "totals"
+    ],
+    "regionCount": 1,
+    "retryRate": 0.1,
+    "retryGroups": 1,
+    "sharedByModels": [
+      "A",
+      "C"
+    ],
+    "scheduleTimezone": "Europe/Rome",
+    "accountingTimezone": "UTC",
+    "hour": 3,
+    "minute": 0,
+    "windowHours": null,
+    "window": "kickoff_after_run_and_at_or_before_window_end",
+    "retryScope": "one extra charged request for a deterministic subset of league/nightly groups",
+    "note": "Future scheduled slots only; actual delayed, skipped or additional runs can change demand. No request for empty leagues."
+  },
+  "budget": {
+    "monthlyLimit": 500,
+    "reserveCredits": 50,
+    "ordinaryMonthlyLimit": 450,
+    "essentialMonthlyLimit": 500,
+    "usedCredits": 0,
+    "availableCredits": 500,
+    "availableSource": "nominal_budget_less_supplied_usage",
+    "nightlyPriority": "essential",
+    "reservePolicy": "ordinary_informational_protected_nightly_essential_may_use_reserve"
+  },
+  "ordinaryScenario": {
+    "availableCredits": 450,
+    "admittedCredits": 9,
+    "admittedHttpRequests": 3,
+    "admittedGroups": 2,
+    "skippedGroups": 0,
+    "assumedCoveredFixtures": 2,
+    "skippedFixtures": 0,
+    "fractionOfObservedCalendar": 1,
+    "claim": "calendar_budget_capacity_not_actual_quote_or_betting_coverage"
+  },
+  "essentialScenario": {
+    "availableCredits": 500,
+    "admittedCredits": 9,
+    "admittedHttpRequests": 3,
+    "admittedGroups": 2,
+    "skippedGroups": 0,
+    "assumedCoveredFixtures": 2,
+    "skippedFixtures": 0,
+    "fractionOfObservedCalendar": 1,
+    "claim": "calendar_budget_capacity_not_actual_quote_or_betting_coverage"
+  },
+  "exclusions": {},
+  "groups": [
+    {
+      "competition": "Serie A",
+      "decisionAt": "2026-10-30T02:00:00.000Z",
+      "windowEndAt": "2026-10-31T02:00:00.000Z",
+      "fixtureCount": 1,
+      "retryAllowance": false,
+      "estimatedCredits": 3
+    },
+    {
+      "competition": "Serie A",
+      "decisionAt": "2026-10-31T02:00:00.000Z",
+      "windowEndAt": "2026-11-01T02:00:00.000Z",
+      "fixtureCount": 1,
+      "retryAllowance": true,
+      "estimatedCredits": 6
+    }
+  ],
+  "limitations": [
+    "Calendar completeness, live quote availability, bookmaker coverage and freshness are not verified by this projection.",
+    "A/C share one league snapshot; model count does not multiply requests.",
+    "Retry allowance is a capacity scenario, not a measured failure rate; actual requests remain subject to atomic admission.",
+    "The UTC month belongs to the scheduled request, so its final window can contain kickoffs in the following UTC month.",
+    "Elapsed scheduled slots are not replayed or charged again; this is not a catch-up betting plan.",
+    "Overlapping custom windows may overestimate requests because prior recorded decisions are unavailable to this calendar-only projection.",
+    "UI requests, extra markets and other consumers are excluded; supplied usage and availability must include their actual consumption."
+  ],
+  "enabled": false,
+  "projectedTotalCredits": 9
+}
