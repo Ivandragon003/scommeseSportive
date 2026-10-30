@@ -16,6 +16,7 @@ test('nightly uses only the explicit opt-in A/C script and retains the legacy pl
   assert.match(workflow, /RESEARCH_T15_SCHEDULER_ENABLED: 'false'/);
   assert.match(workflow, /RUN_ODDS_SYNC: 'false'/);
   assert.match(workflow, /ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'/);
+  assert.match(workflow, /ODDS_EXTRA_EVENT_NETWORK_ENABLED: 'true'/);
   assert.ok(workflow.includes("RESEARCH_NIGHTLY_ENABLED: ${{ vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}"));
   assert.match(script, /RESEARCH_NIGHTLY_ENABLED="\$\{RESEARCH_NIGHTLY_ENABLED:-false\}"/);
   assert.match(script, /node scripts\/research-nightly\.js/);

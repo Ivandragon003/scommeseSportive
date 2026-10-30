@@ -1,4 +1,4 @@
-import { OddsApiService, OddsMatch, SelectedBookmaker, OddsApiRequestOptions } from '../OddsApiService';
+import { OddsApiService, OddsMatch, SelectedBookmaker, OddsApiRequestOptions, OddsQuotaStatus } from '../OddsApiService';
 import { createHash } from 'node:crypto';
 import {
   OddsProviderAdapter,
@@ -132,6 +132,14 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
       remainingRequests: this.service?.getRemainingRequests() ?? null,
       authCooldownUntil: cooldown ? new Date(cooldown.until).toISOString() : null,
     };
+  }
+
+  getQuotaStatus(): OddsQuotaStatus | null {
+    const measured = [this.service?.getQuotaStatus(), this.extraEventService?.getQuotaStatus()]
+      .filter((status): status is OddsQuotaStatus => status?.source === 'provider_headers'
+        && Number.isFinite(Date.parse(status.observedAt ?? '')))
+      .sort((left, right) => Date.parse(right.observedAt!) - Date.parse(left.observedAt!));
+    return measured[0] ?? null;
   }
 
   private ensureConfigured(): void {

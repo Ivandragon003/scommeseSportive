@@ -2,8 +2,32 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   matchFixturesToMatches,
+  mergeOddsMatchMarkets,
   normalizeTeamForOdds,
 } = require('../dist/services/odds-provider/oddsProviderUtils.js');
+
+test('market merge preserves originating captures and does not combine different provider updates', () => {
+  const older = '2026-10-30T09:59:00.000Z', newer = '2026-10-30T10:00:00.000Z';
+  const event = (capturedAt, markets) => ({ matchId: 'odds_1', homeTeam: 'Inter', awayTeam: 'Milan',
+    commenceTime: '2026-10-30T19:00:00Z', capturedAt,
+    bookmakers: [{ bookmakerKey: 'real', bookmakerName: 'Real', updatedAt: capturedAt, markets }] });
+  const base = event(older, [{ marketKey: 'totals', updatedAt: older,
+    outcomes: [{ name: 'Over', point: 2.5, price: 2.1 }] }]);
+  const extra = event(newer, [{ marketKey: 'totals', updatedAt: newer,
+    outcomes: [{ name: 'Under', point: 2.5, price: 2 }] }, { marketKey: 'alternate_totals_cards', updatedAt: newer,
+    outcomes: [{ name: 'Over', point: 4.5, price: 1.9 }] }]);
+  const merged = mergeOddsMatchMarkets(base, extra);
+  const totals = merged.bookmakers[0].markets.find((market) => market.marketKey === 'totals');
+  const cards = merged.bookmakers[0].markets.find((market) => market.marketKey === 'alternate_totals_cards');
+  assert.deepEqual(totals.outcomes, extra.bookmakers[0].markets[0].outcomes);
+  assert.equal(totals.updatedAt, newer); assert.equal(totals.capturedAt, newer);
+  assert.equal(cards.capturedAt, newer);
+  assert.equal(merged.capturedAt, older, 'the original core response is not retimestamped');
+  assert.equal(base.bookmakers[0].markets[0].outcomes.length, 1);
+  assert.equal(base.bookmakers[0].markets[0].capturedAt, undefined);
+  const reversed = mergeOddsMatchMarkets(extra, base);
+  assert.equal(reversed.bookmakers[0].markets.find((market) => market.marketKey === 'totals').updatedAt, newer);
+});
 
 const buildMatch = (overrides = {}) => ({
   matchId: overrides.matchId ?? 'odds_1',

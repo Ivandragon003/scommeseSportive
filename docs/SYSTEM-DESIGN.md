@@ -1,5 +1,14 @@
 # System design di FootPredictor
 
+**Correzione locale v2: ogni modello conserva il proprio motore e i propri mercati.**
+A usa il `PredictionService` esistente, inclusi cartellini e tiri quando
+coperti da dati e quote reali; C conserva il catalogo gol concordato.
+L'automazione esegue i consigli prodotti dai due percorsi e applica soltanto
+i controlli tecnici e contabili. Non definisce un terzo modello o un insieme
+obbligatoriamente comune di mercati. Il rilascio remoto di questa correzione
+non è ancora attestato; gli snapshot v1 sottostanti restano storici.
+[Specifica corrente](operations/recommendation-execution-2026-10-30.md).
+
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
 modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
@@ -9,8 +18,25 @@ e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
 dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
-modelli e infrastruttura non cambiano.
+cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+integrazione della navigazione non cambia modelli e infrastruttura; la
+correzione locale v2 dei mercati è descritta separatamente sopra.
+
+Codice `7f9ab7cf2f10938a8fd52421eb7df2994afe338f` pubblicato su main;
+CI `41085821060` Backend/Frontend SUCCESS. Gate locale: backend Linux Node20
+1.024 test totali, 1.023 PASS e uno SKIP opzionale di training. Il cleanup
+frontend finale `225e8c0b81468fa58f86559ae1f641410ae2278f` è pubblicato:
+rimuove il vecchio pannello autonomo ormai irraggiungibile e relativi wrapper/test,
+senza modifiche backend. Gate frontend finale: 32 suite/229 test PASS,
+typecheck/lint e dieci controlli mirati PASS; 239 test era il gate prima della
+rimozione di due suite obsolete. CI e deployment di questo ultimo frontend
+restano da attestare. Compose isolato e controlli delle cinque BET reali,
+filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
+storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
+Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
+(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
+remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
+remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
 **Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
@@ -258,9 +284,11 @@ Il mese UTC è una convenzione locale; il reset del provider deve essere
 riconciliato con una verifica gratuita, senza ricarica presunta.
 
 Per default la UI è cache-only e `RUN_ODDS_SYNC=false` disabilita la raccolta
-informativa generale. Il job A/C opt-in usa il canale essenziale separato:
-`h2h`, `totals` e `spreads`, una regione e snapshot condivisi per lega/finestra.
-Entrambi i modelli vedono gli stessi prezzi, con bookmaker e provenienza reali.
+informativa generale. Il job opt-in di C mantiene il feed essenziale
+`h2h`, `totals` e `spreads`, una regione. A riusa i prezzi base disponibili
+e i mercati per evento configurati nell'app, con gli stessi controlli del
+provider, senza una restrizione al catalogo di C. Cache, budget e provenienza
+sono condivisi; la copertura dei due motori può differire.
 Il calendario usa eventi gratuiti, senza richiedere prezzi o scores per il kickoff.
 
 L'età massima iniziale della quota è 300 secondi alla decisione notturna,
@@ -337,6 +365,18 @@ Il servizio previsioni carica i parametri salvati e li riusa in memoria. Non avv
 La calibrazione è un'elaborazione diversa: costruisce correzioni da previsioni storiche cronologiche e le conserva in profili compatibili. Preparare questa cache anticipatamente non equivale a importare dati nuovi o a registrare giocate.
 
 ### 7.3 Percorso sperimentale A/C
+
+L'A operativo è il servizio descritto in 7.1–7.2: conserva tutti i propri
+mercati squadra abilitati, la selezione canonica e lo stake consigliato.
+`AppPredictionOddsService` prepara le quote secondo le regole dell'app;
+`ResearchRecommendationRuntime` registra quel risultato senza rifare la
+selezione su un sottoinsieme gol. La descrizione research qui sotto riguarda
+la baseline A80 usata da C e dal benchmark, distinta dall'A operativo.
+La policy di esecuzione `virtual-recommendation-v2` non sostituisce i motori:
+valida quota, kickoff e capitale e preserva i pacchetti originali. Le player
+props restano separate, corner e falli bloccati. Per liquidare tiri e
+cartellini A occorrono le statistiche effettive richieste; i mancanti non
+vengono interpretati come zero.
 
 `ForecastCore` ricostruisce il nucleo A dal solo passato ammissibile e produce
 feature comuni per training, benchmark e inferenza. `CatBoostModel` carica
@@ -574,7 +614,8 @@ locale Partite è una policy separata, con freschezza e kickoff sempre controlla
 Il flusso mantiene import Understat, supplemento HTTP/CSV consentito,
 normalizzazione, calendari, risultati, liquidazioni legacy e A/C e preparazione
 calibrazione. Dopo i gate, se abilitato, lo script `research-nightly.js` carica
-A/C, raccoglie prezzi essenziali, decide, registra e aggiorna i portafogli.
+A/C, raccoglie le quote ammesse per ciascun modello, acquisisce i rispettivi
+consigli, registra e aggiorna i portafogli.
 Learning review e stato finale restano distinti dai requisiti di ammissione.
 Un gate fallito impedisce nuove decisioni su dati non idonei; i risultati
 precedenti non vengono cancellati. I dettagli sono nella

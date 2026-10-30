@@ -2,6 +2,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { OddsApiProvider } = require('../dist/services/odds-provider/OddsApiProvider.js');
 
+test('quota status selects only the latest real provider-header observation across core and event services', () => {
+  const provider = new OddsApiProvider('test-quota-only');
+  assert.equal(provider.getQuotaStatus(), null);
+  const core = { remaining: 200, used: 300, lastCost: 3, source: 'provider_headers', observedAt: '2026-10-30T09:59:00Z' };
+  const extra = { remaining: 190, used: 310, lastCost: 10, source: 'provider_headers', observedAt: '2026-10-30T10:00:00Z' };
+  provider.service = { getQuotaStatus: () => core };
+  provider.extraEventService = { getQuotaStatus: () => extra };
+  assert.deepEqual(provider.getQuotaStatus(), extra);
+  provider.extraEventService = { getQuotaStatus: () => ({ ...extra, source: null }) };
+  assert.deepEqual(provider.getQuotaStatus(), core);
+});
+
 test('authentication cooldown is shared across leagues and instances but isolated by API key', async () => {
   let calls = 0;
   const service = {

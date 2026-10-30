@@ -103,6 +103,43 @@ const walletAmounts = async research => (await research.listPortfolios())
   .map(wallet => [wallet.id, wallet.availableCents, wallet.committedCents, wallet.equityCents]);
 const count = async (client, table) => Number((await client.execute(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n);
 
+test('app A cards and shots bypass research promotion states while C keeps goal-only settlement', async () => {
+  const f = await setup({ matches: 2 });
+  try {
+    const { appRecommendationQuote } = require('../dist/research/AppRecommendationQuotes');
+    const { settleResearchBets } = require('../dist/research/ResearchRuntime');
+    const jobs = (await claim(f)).jobs;
+    const commits = jobs.map((job, index) => {
+      const commit = prepared(f, job);
+      const quote = appRecommendationQuote(index === 0 ? 'cards_total_over_3.5' : 'shots_total_over_19.5', commit.inputSnapshot.quotes[0]);
+      commit.inputSnapshot.quotes = [quote];
+      for (const decision of commit.decisions) Object.assign(decision, { quote, market: quote.market, selection: quote.selection });
+      return commit;
+    });
+    // A's old research state is diagnostic only; its canonical app engine controls support.
+    await f.research.setMarketState({ family: 'A', modelVersion: 'A-app-fixture', market: 'cards_total', state: 'SUSPENDED' });
+    for (const market of ['cards_total', 'shots']) await f.research.setMarketState({ family: 'C', modelVersion: 'C-fixture', market, state: 'EXPERIMENTAL' });
+    const committed = await f.execution.commitBatch(commits);
+    assert.equal(committed.bets.length, 2);
+    assert.ok(committed.bets.every(bet => bet.family === 'A'));
+    assert.ok(committed.decisions.filter(decision => decision.family === 'C')
+      .every(decision => decision.action === 'ABSTAIN' && decision.reason === 'market_settlement_not_supported'));
+    const replay = await f.execution.commitBatch(commits);
+    assert.equal(replay.bets.length, 2);
+    assert.equal(await count(f.client, 'research_bets'), 2);
+    const result = { home_goals: 1, away_goals: 0, home_yellow_cards: 1, away_yellow_cards: 1,
+      home_red_cards: 1, away_red_cards: 0, home_shots: 12, away_shots: 8, source: 'understat', date: KICKOFF };
+    assert.deepEqual(await settleResearchBets({ research: f.research, getMatchById: async () => ({ ...result, away_red_cards: null }) }),
+      { checked: 2, settled: 1, unresolved: 1 });
+    assert.deepEqual(await settleResearchBets({ research: f.research, getMatchById: async () => result }),
+      { checked: 1, settled: 1, unresolved: 0 });
+    assert.deepEqual(await settleResearchBets({ research: f.research, getMatchById: async () => result }),
+      { checked: 0, settled: 0, unresolved: 0 });
+    assert.equal(await count(f.client, 'research_settlements'), 2);
+    assert.equal(await originalRecords(f.client), f.originalBeforeMigration);
+  } finally { await f.close(); }
+});
+
 test('migration and five versioned abstentions preserve ten original immutable decisions without resetting wallets', async () => {
   const f = await setup();
   try {
@@ -133,7 +170,7 @@ test('policy registration is content-addressed and its recorded descriptor canno
     const duplicate = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY });
     assert.equal(duplicate.hash, f.policy.hash);
     assert.equal(await count(f.client, 'research_execution_policies'), 1);
-    const changed = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v2' });
+    const changed = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-fixture-next' });
     assert.notEqual(changed.hash, f.policy.hash);
     await assert.rejects(f.client.execute("UPDATE research_execution_policies SET descriptor_json='{}'"), /immutable/i);
     await assert.rejects(f.client.execute('DELETE FROM research_execution_policies'), /immutable/i);
@@ -202,7 +239,7 @@ test('a different policy cannot create a second bet for the same portfolio and m
   try {
     const first = await claim(f);
     await f.execution.commitBatch([prepared(f, first.jobs[0])]);
-    const policy = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v2' });
+    const policy = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'fixture-next-policy' });
     const second = await claim(f, f.fixtures, { policyHash: policy.hash, runId: RUN + ':v2' });
     if (second.jobs.length) await f.execution.commitBatch(second.jobs.map(job => prepared(f, job)));
     assert.equal(await count(f.client, 'research_bets'), 2);
@@ -474,7 +511,7 @@ test('later-policy abstention preserves the earlier authorized bet identity and 
     const actualBet = first.bets.find(bet => bet.family === 'A');
     assert.ok(actualBet);
     f.setTime('2026-10-30T12:30:10.000Z');
-    const later = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v2' });
+    const later = await f.execution.registerPolicy({ ...VIRTUAL_RECOMMENDATION_POLICY, version: 'fixture-next-policy' });
     const job = (await claim(f, f.fixtures, { policyHash: later.hash, runId: RUN + ':v2' })).jobs[0];
     const second = await f.execution.commitBatch([prepared(f, job, { decisions: {
       A: { action: 'ABSTAIN', reason: 'new_policy_has_no_positive_recommendation' },

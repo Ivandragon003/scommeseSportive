@@ -2,10 +2,11 @@ import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import { ResearchStore, researchHash, researchJson, ResearchFamily } from './ResearchStore';
 import { settleGoalQuote } from './GoalSettlement';
+import { appQuoteSettlementSupported } from './AppRecommendationQuotes';
 
 export type RecommendationPolicyDescriptor = { version: string; [key: string]: any };
 export const VIRTUAL_RECOMMENDATION_POLICY: RecommendationPolicyDescriptor = {
-  version: 'virtual-recommendation-v1', virtualOnly: true, stakeModeA: 'RECOMMENDED_PERCENT',
+  version: 'virtual-recommendation-v2', virtualOnly: true, stakeModeA: 'RECOMMENDED_PERCENT',
   stakeModeC: 'FIXED_ONE_PERCENT', maxExposureFraction: .05, quoteMaxAgeMs: 300000,
   independentCalibrationRequired: false, maxBetsPerMatchPerFamily: 1,
 };
@@ -166,10 +167,11 @@ export class ResearchRecommendationStore {
     if (now < Date.parse(job.windowStartAt) || now >= Date.parse(job.windowEndAt) || now >= Date.parse(job.kickoffAt)) throw new Error('Execution commit window closed');
   }
 
-  private quoteReason(quote: any, observed: number, now: number, kickoff: number): string | null {
+  private quoteReason(quote: any, observed: number, now: number, kickoff: number, family: ResearchFamily = 'C'): string | null {
     if (!quote || quote.source !== 'odds_api' || quote.usedSyntheticOdds === true || quote.timestampEvidence === 'observed_snapshot'
       || quote.priceType !== 'prematch' || !String(quote.bookmaker ?? '').trim() || !Number.isFinite(quote.odds) || quote.odds <= 1) return 'real_fresh_quote_required';
-    if (settleGoalQuote(quote, 0, 0).status === 'UNRESOLVED') return 'market_settlement_not_supported';
+    if (family === 'A' ? !appQuoteSettlementSupported(quote)
+      : settleGoalQuote(quote, 0, 0).status === 'UNRESOLVED') return 'market_settlement_not_supported';
     for (const value of [quote.capturedAt, quote.updatedAt]) {
       const time = typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
       if (!Number.isFinite(time) || time > observed || time > now || time >= kickoff || now - time > 300000 || observed - time > 300000) return 'real_fresh_quote_required';
@@ -209,7 +211,7 @@ export class ResearchRecommendationStore {
     iso(now); if (!prepared.length) return { decisions: [], bets: [], jobs: [] };
     if (new Set(prepared.map((item) => item.jobId)).size !== prepared.length) throw new Error('Duplicate execution job in batch');
     await this.ensureGuards();
-    const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number }> = [];
+    const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily }> = [];
     return this.research.runResearchTransaction(async (tx) => {
       const decisions: any[] = [], bets: any[] = [], completedJobs: any[] = [];
       const plans: Array<{ item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any }> = [];
@@ -270,7 +272,7 @@ export class ResearchRecommendationStore {
         else if (!Number.isFinite(Date.parse(model.createdAt)) || Date.parse(model.createdAt) > Date.parse(item.inputSnapshot.observedAt)) abstain('model_not_available_at_forecast');
         if (decision.family === 'C' && plan.policy.descriptor.familyC?.modelVersion
           && decision.modelVersion !== plan.policy.descriptor.familyC.modelVersion) abstain('policy_model_version_mismatch');
-        if (!market || !['EXPERIMENTAL','SHADOW','ACTIVE'].includes(market.state)) abstain('market_not_allowed_for_virtual_execution');
+        if (decision.family === 'C' && (!market || !['EXPERIMENTAL','SHADOW','ACTIVE'].includes(market.state))) abstain('market_not_allowed_for_virtual_execution');
         if (decision.recommended !== true || decision.validated !== true || decision.action !== 'BET') abstain('positive_valid_recommendation_required');
         if (decision.family === 'A' && !['HIGH', 'MEDIUM', 'LOW'].includes(decision.confidence ?? '')) abstain('recommendation_confidence_required');
         if (!Number.isFinite(decision.probability) || decision.probability <= 0 || decision.probability >= 1
@@ -281,7 +283,7 @@ export class ResearchRecommendationStore {
           abstain('probability_configuration_identity_required');
         }
         const observed = Date.parse(item.inputSnapshot.observedAt), quote = decision.quote;
-        const quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt)); if (quoteReason) abstain(quoteReason);
+        const quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family); if (quoteReason) abstain(quoteReason);
         if (quote && !item.inputSnapshot.quotes.some((shared: any) => researchHash(shared) === researchHash(quote))) abstain('quote_not_in_shared_snapshot');
         if (!decision.selection?.trim() || quote?.selection !== decision.selection || quote?.market !== decision.market) abstain('selection_quote_mismatch');
         const percent = decision.family === 'C' ? 1 : decision.suggestedStakePercent;
@@ -314,7 +316,7 @@ export class ResearchRecommendationStore {
           bets.push({ id: betId, decisionId: decision.originDecisionId, originDecisionId: decision.originDecisionId, executionDecisionId: id,
             effectiveExecutionDecisionId: id, portfolioId, matchId: job.matchId, family: decision.family, modelVersion: decision.modelVersion,
             market: decision.market, selection: decision.selection, odds: quote.odds, stakeCents, snapshot: evidence, placedAt: createdAt, status: 'PENDING' });
-          finalChecks.push({ job, token: item.leaseToken, quote, observed });
+          finalChecks.push({ job, token: item.leaseToken, quote, observed, family: decision.family });
         }
       }
       for (const entry of finalChecks) this.assertLease(entry.job, entry.token, this.clock().getTime());
@@ -326,7 +328,7 @@ export class ResearchRecommendationStore {
     }, () => {
       for (const entry of finalChecks) {
         const at = this.clock().getTime(); this.assertLease(entry.job, entry.token, at);
-        if (entry.quote && this.quoteReason(entry.quote, entry.observed, at, Date.parse(entry.job.kickoffAt))) throw new Error('Execution quote expired before commit');
+        if (entry.quote && this.quoteReason(entry.quote, entry.observed, at, Date.parse(entry.job.kickoffAt), entry.family)) throw new Error('Execution quote expired before commit');
       }
     });
   }

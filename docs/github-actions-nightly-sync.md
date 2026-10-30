@@ -1,5 +1,13 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
+**Correzione locale v2 dei mercati — rilascio remoto non attestato.**
+A mantiene il proprio motore e tutti i mercati squadra già supportati,
+inclusi cartellini e tiri con dati e quote reali sufficienti. C conserva il
+catalogo gol concordato. La Nightly esegue i consigli dei due percorsi con
+i rispettivi stake e i controlli tecnici/contabili; non crea un terzo modello
+né restringe A al catalogo di C. Gli snapshot cloud sotto restano evidenze
+della policy v1 precedente. [Specifica corrente](operations/recommendation-execution-2026-10-30.md).
+
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
 modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
@@ -9,8 +17,25 @@ e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
 dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
-modelli e infrastruttura non cambiano.
+cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+integrazione della navigazione non cambia modelli e infrastruttura; la
+correzione locale v2 dei mercati è descritta separatamente sopra.
+
+Codice `7f9ab7cf2f10938a8fd52421eb7df2994afe338f` pubblicato su main;
+CI `41085821060` Backend/Frontend SUCCESS. Gate locale: backend Linux Node20
+1.024 test totali, 1.023 PASS e uno SKIP opzionale di training. Il cleanup
+frontend finale `225e8c0b81468fa58f86559ae1f641410ae2278f` è pubblicato:
+rimuove il vecchio pannello autonomo ormai irraggiungibile e relativi wrapper/test,
+senza modifiche backend. Gate frontend finale: 32 suite/229 test PASS,
+typecheck/lint e dieci controlli mirati PASS; 239 test era il gate prima della
+rimozione di due suite obsolete. CI e deployment di questo ultimo frontend
+restano da attestare. Compose isolato e controlli delle cinque BET reali,
+filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
+storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
+Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
+(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
+remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
+remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
 **Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
@@ -159,7 +184,9 @@ La pubblicazione e la verifica remota di queste viste restano pendenti.
    riaddestramento per ogni previsione.
 6. Se `RESEARCH_NIGHTLY_ENABLED=true` e i gate dati sono idonei, eseguire
    `backend/scripts/research-nightly.js`: caricare A/C, selezionare le partite
-   future, acquisire snapshot reali comuni e applicare il Decision Engine.
+    future e acquisire i consigli dei rispettivi motori con quote reali.
+    A conserva il catalogo del proprio `PredictionService`; C i mercati gol
+    concordati. L'esecuzione non rifà il ranking di A su un sottoinsieme comune.
 7. Registrare al massimo una puntata per partita/modello o l'astensione, con
    capitale, idempotenza e kickoff ricontrollati atomicamente. Conservare
    motivi, timestamp, versione del modello e distanza della quota dal kickoff.
@@ -221,6 +248,7 @@ un backend vecchio non deve attribuire nuove BET alle origini diagnostiche a sta
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false`, percorso precedente non necessario e non concorrente |
 | `RUN_ODDS_SYNC` | `false`, raccolta informativa generale disattivata |
 | `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`, dashboard prevalentemente su cache |
+| `ODDS_EXTRA_EVENT_NETWORK_ENABLED` | `true` nel workflow locale v2, mercati per evento A entro cache e budget esistenti; non ancora attestato nel rilascio remoto |
 
 Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. La
 variabile remota è `true` dalle 10:04 UTC dopo il recupero controllato. Il flag nel backend Hostless
@@ -235,8 +263,13 @@ non sono riattivati da questo mandato.
 
 `RUN_ODDS_SYNC=false` non vieta il feed essenziale del job A/C abilitato: sono
 scopi diversi. Il gestore persistente prenota il costo e condivide cache e
-snapshot fra A/C, con limite 500 crediti e riserva informativa 50. Quote
+prezzi base fra A/C, con limite 500 crediti e riserva informativa 50. I mercati
+per evento di A restano soggetti ai flag e al costo del provider; non sono
+trasferiti a C e non rientrano nella stima del solo feed base. Quote
 mancanti, obsolete, sintetiche, senza bookmaker o fuori budget restano escluse.
+L'opt-in locale `.env` resta separato e Docker non abilita l'automazione per
+default. L'abilitazione degli extra nel job finito non abilita la rete
+informativa della dashboard e non garantisce copertura dei mercati aggiuntivi.
 La freschezza è misurata alla decisione notturna, non a T−15. Vedi
 [quote e proiezioni](operations/smart-odds-2026-10-27.md).
 

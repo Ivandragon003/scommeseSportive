@@ -1,109 +1,44 @@
 import { DatabaseService } from '../db/DatabaseService';
-import { ValueBettingEngine, MarketOddsGroup, BetOpportunity } from '../models/value/ValueBettingEngine';
 import { PredictionService } from '../services/PredictionService';
 import { OddsApiService } from '../services/OddsApiService';
-import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
-import { CanonicalRecommendationPacket, pickCanonicalBetRecommendation,
+import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
+import { CanonicalRecommendationPacket,
   SharedPredictionOdds, CANONICAL_RECOMMENDATION_POLICY } from '../services/CanonicalBetRecommendation';
-import { ResearchRuntime, matchingResearchEvent, researchQuotesFromEvent } from './ResearchRuntime';
-import { ResearchQuote, quoteForecast } from './ResearchEvaluation';
-import { normalizeScoreMatrix, scoreMatrixMarkets } from './GoalSettlement';
-import { COHERENT_PROBABILITY_PROTOCOL, coherentProbabilityPipelineHash } from './CoherentProbabilityPipeline';
+import { ResearchRuntime } from './ResearchRuntime';
+import { RecommendationQuote } from './AppRecommendationQuotes';
+import type { ResearchQuote } from './ResearchEvaluation';
+import { buildChallengerRecommendation, challengerTechnicalReason } from './ChallengerRecommendation';
 import { researchHash } from './ResearchStore';
 import type { RecommendationJob, RecommendationCommit, RecommendationDecision } from './ResearchRecommendationStore';
-import { recommendationQuoteReason, RECOMMENDATION_BASELINE_C, RECOMMENDATION_MODEL_C,
+import { recommendationQuoteReason, RECOMMENDATION_MODEL_C,
   VIRTUAL_RECOMMENDATION_POLICY } from './ResearchRecommendationPolicy';
-import { PreparedT15Job, T15Decision, safeOddsFailureCode } from './T15Scheduler';
+import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 
 type ResearchPreparation = Pick<ResearchRuntime, 'prepareNightly' | 'beginNightlyCohort' | 'getQuotaStatus'>;
 type AppPrediction = Pick<PredictionService, 'predict'>;
 type OddsFeed = Pick<OddsApiService, 'getOdds' | 'getQuotaStatus'>;
+type AppOddsFeed = Pick<AppPredictionOddsService, 'load' | 'getQuotaStatus'>;
 const finiteProbability = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1;
 const hashValid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
-const keyOf = (quote: ResearchQuote): string => [quote.market, quote.bookmaker, quote.source, quote.capturedAt,
-  quote.market === 'asian_handicap' && quote.side === 'away' ? -quote.line! : quote.line ?? '', quote.team ?? ''].join('|');
-
-export function challengerTechnicalReason(decision: T15Decision | undefined, observedAt: string): string | null {
-  if (!decision?.validated) return 'challenger_technical_validation_failed';
-  if (decision.modelVersion !== RECOMMENDATION_MODEL_C) return 'challenger_model_version_mismatch';
-  if (decision.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL
-    || decision.calibrationPipelineHash !== coherentProbabilityPipelineHash()) return 'challenger_pipeline_mismatch';
-  const configuration = object(decision.probabilityConfiguration);
-  if (configuration.family !== 'C' || configuration.baselineVersion !== RECOMMENDATION_BASELINE_C
-    || researchHash(configuration) !== decision.probabilityConfigurationHash) return 'challenger_configuration_mismatch';
-  if (!Number.isFinite(Date.parse(String(decision.calibrationAvailableAt)))
-    || Date.parse(String(decision.calibrationAvailableAt)) > Date.parse(observedAt)) return 'challenger_configuration_unavailable';
-  try {
-    const matrix = decision.prospectiveMatrix as number[][];
-    const normalized = normalizeScoreMatrix(matrix);
-    if (Math.abs(matrix.flat().reduce((sum, value) => sum + value, 0) - 1) > 1e-8) return 'challenger_incoherent_probabilities';
-    const probabilities = object(object(decision.probabilityStages).decision);
-    if (Object.values(probabilities).some((value) => typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)
-      || Object.entries(scoreMatrixMarkets(normalized)).some(([key, value]) => typeof probabilities[key] !== 'number'
-        || !Number.isFinite(probabilities[key]) || Math.abs(Number(probabilities[key]) - value) > 1e-8)) return 'challenger_incoherent_probabilities';
-  } catch { return 'challenger_incoherent_probabilities'; }
-  return null;
-}
-
-/** Already calibrated C probabilities enter the ordinary engine exactly once, without a second calibration/blend. */
-export function buildChallengerRecommendation(input: { decision: T15Decision; quotes: ResearchQuote[];
-  observedAt: string; competition?: string; allowedMarkets: string[] }) {
-  const exclusions: Record<string, number> = {};
-  const exclude = (reason: string) => { exclusions[reason] = (exclusions[reason] ?? 0) + 1; };
-  const technicalFailure = challengerTechnicalReason(input.decision, input.observedAt);
-  if (technicalFailure) return { ...pickCanonicalBetRecommendation({ valueOpportunities: [] as BetOpportunity[] }),
-    opportunities: [] as BetOpportunity[], exclusions: { [technicalFailure]: 1 } };
-  const probabilities: Record<string, number> = {}, groups: Record<string, MarketOddsGroup> = {}, names: Record<string, string> = {};
-  const matrix = input.decision.prospectiveMatrix as number[][];
-  for (const quote of input.quotes) {
-    const invalid = recommendationQuoteReason(quote, new Date(input.observedAt));
-    if (invalid) { exclude(invalid); continue; }
-    if (!input.allowedMarkets.includes(quote.market)) { exclude('market_not_allowed'); continue; }
-    let forecast: ReturnType<typeof quoteForecast>;
-    try { forecast = quoteForecast(matrix, quote, object(object(input.decision.probabilityStages).decision) as Record<string, number>); }
-    catch { exclude('invalid_quote_probability'); continue; }
-    // The app engine has binary confidence/Kelly semantics. Do not invent a confidence for a refunded or split stake.
-    if (Math.abs(forecast.activeStake - 1) > 1e-8) { exclude('non_binary_payout_not_supported_by_canonical_engine'); continue; }
-    if (!finiteProbability(forecast.probability)) { exclude('invalid_quote_probability'); continue; }
-    const companions = input.quotes.filter((other) => other.selection !== quote.selection && keyOf(other) === keyOf(quote)
-      && !recommendationQuoteReason(other, new Date(input.observedAt)));
-    const required = quote.market === '1x2' ? 2 : 1;
-    if (companions.length !== required) { exclude('complete_bookmaker_market_required'); continue; }
-    probabilities[quote.selection] = forecast.probability;
-    groups[quote.selection] = { selection: quote.selection, odds: quote.odds, companions: companions.map((other) => other.odds) };
-    names[quote.selection] = quote.selection;
-  }
-  const engine = new ValueBettingEngine();
-  const opportunities = engine.analyzeMarketsWithVigRemoval(probabilities, groups, names, {
-    competition: input.competition, enableMarketCalibration: false, enableMarketBlending: false,
-  });
-  const recommendation = pickCanonicalBetRecommendation({ valueOpportunities: opportunities });
-  const policyStake = (opportunity: BetOpportunity) => ({ ...opportunity,
-    engineSuggestedStakePercent: opportunity.suggestedStakePercent, suggestedStakePercent: 1 });
-  // Selection/confidence/ranking are already final. Only the displayed execution stake follows C's fixed policy.
-  const ranked = recommendation.ranked.map(policyStake);
-  return { ...recommendation, selected: ranked[0] ?? null, ranked, opportunities: opportunities.map(policyStake), exclusions };
-}
-
 /** Prepares immutable packets only. Claiming, registry initialization and money admission belong to the orchestrator/store. */
 export class ResearchRecommendationRuntime {
   private readonly clock: () => Date;
   private readonly researchRuntime: ResearchPreparation;
   private readonly predictionService: AppPrediction;
-  private fallbackOdds: OddsFeed | undefined;
+  private readonly appOdds: AppOddsFeed;
   constructor(private readonly db: DatabaseService, options: { clock?: () => Date; researchRuntime?: ResearchPreparation;
-    predictionService?: AppPrediction; odds?: OddsFeed } = {}) {
+    predictionService?: AppPrediction; odds?: OddsFeed; appOdds?: AppOddsFeed } = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.researchRuntime = options.researchRuntime ?? new ResearchRuntime(db, { clock: this.clock, odds: options.odds,
       nightly: { quoteMaxAgeMs: VIRTUAL_RECOMMENDATION_POLICY.quoteMaxAgeMs, minEv: .04, minPrudentialEv: .01 },
       candidateVersionC: RECOMMENDATION_MODEL_C });
     this.predictionService = options.predictionService ?? new PredictionService(db);
-    this.fallbackOdds = options.odds;
+    this.appOdds = options.appOdds ?? new AppPredictionOddsService(db, { clock: this.clock });
   }
   beginCohort(runId: string): void { this.researchRuntime.beginNightlyCohort(runId); }
-  getQuotaStatus(): unknown { return this.fallbackOdds?.getQuotaStatus() ?? this.researchRuntime.getQuotaStatus(); }
+  getQuotaStatus(): unknown { return this.appOdds.getQuotaStatus() ?? this.researchRuntime.getQuotaStatus(); }
 
   async prepare(job: RecommendationJob): Promise<RecommendationCommit> {
     const row = await this.db.getMatchById(job.matchId);
@@ -115,22 +50,15 @@ export class ResearchRecommendationRuntime {
     let preparationFailure: string | null = null;
     try { prepared = await this.researchRuntime.prepareNightly({ ...job, targetAt: job.windowStartAt }); }
     catch (error) {
-      if (safeOddsFailureCode(error)) throw error;
-      preparationFailure = 'research_forecast_unavailable';
+      preparationFailure = safeOddsFailureCode(error) ?? 'research_forecast_unavailable';
     }
-    let quotes = (prepared?.quotes ?? []) as ResearchQuote[];
-    let metadata = prepared?.inputSnapshot as Record<string, any> | undefined;
-    if (!prepared) {
-      // C's technical failure must not veto app A. An earlier successful fetch is reused through the same persistent cache.
-      this.fallbackOdds ??= new OddsApiService(getConfiguredOddsApiKey(), { store: this.db.oddsRequests,
-        operation: 'nightly', priority: 'essential', cacheMaxAgeMs: VIRTUAL_RECOMMENDATION_POLICY.quoteMaxAgeMs });
-      const events = await this.fallbackOdds.getOdds(row.competition, ['h2h', 'totals', 'spreads']);
-      const event = matchingResearchEvent(row, events);
-      if (event && !event.live && !event.completed && Date.parse(event.commenceTime) === Date.parse(row.date)) {
-        quotes = researchQuotesFromEvent(event, event.capturedAt ?? at).map((quote) => ({ ...quote, priceType: 'prematch' }));
-        metadata = { providerEventId: event.matchId, providerKickoffAt: event.commenceTime };
-      }
-    }
+    const quotes = (prepared?.quotes ?? []) as ResearchQuote[];
+    const metadata = prepared?.inputSnapshot as Record<string, any> | undefined;
+    // A loads the app's complete quote universe independently of C's goal-only inputs.
+    let appInput: Awaited<ReturnType<AppOddsFeed['load']>> | undefined;
+    let appFailure: string | null = null;
+    try { appInput = await this.appOdds.load(row); }
+    catch (error) { appFailure = safeOddsFailureCode(error) ?? 'app_odds_unavailable'; }
     if (prepared && (prepared.status !== 'upcoming' || Date.parse(prepared.kickoffAt) !== Date.parse(job.kickoffAt))) {
       throw new Error('recommendation_fixture_changed');
     }
@@ -138,13 +66,13 @@ export class ResearchRecommendationRuntime {
     if (Date.parse(observedAt) >= Date.parse(job.kickoffAt) || Date.parse(observedAt) >= Date.parse(job.windowEndAt)) {
       throw new Error('recommendation_fixture_not_eligible');
     }
-    const usableQuotes = quotes.filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt)));
-    const sharedOdds: SharedPredictionOdds = { odds: Object.fromEntries(usableQuotes.map((quote) => [quote.selection, quote.odds])),
-      bookmakerBySelection: Object.fromEntries(usableQuotes.map((quote) => [quote.selection, quote.bookmaker])),
-      source: 'odds_api', capturedAt: usableQuotes.length
-        ? new Date(Math.min(...usableQuotes.map((quote) => Date.parse(quote.capturedAt)))).toISOString() : observedAt };
+    const usableQuotes = quotes.filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'C'));
+    const usableAppQuotes = (appInput?.quotes ?? []).filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'A'));
+    const sharedOdds: SharedPredictionOdds = appInput?.sharedOdds ?? {
+      odds: {}, bookmakerBySelection: {}, source: 'odds_api', capturedAt: observedAt,
+    };
     let packetA: CanonicalRecommendationPacket | null = null;
-    let appFailure: string | null = usableQuotes.length ? null : 'real_fresh_quotes_unavailable';
+    if (!appFailure && !usableAppQuotes.length) appFailure = 'real_fresh_quotes_unavailable';
     if (!appFailure) {
       try {
         const prediction = await this.predictionService.predict({ homeTeamId: row.home_team_id, awayTeamId: row.away_team_id,
@@ -177,12 +105,12 @@ export class ResearchRecommendationRuntime {
         && [...Object.values(rawAppProbabilities), ...Object.values(decisionAppProbabilities)]
           .every((value) => Number.isFinite(value) && value >= 0 && value <= 1),
       selectionProbability: !selectedA || finiteProbability(Number(selectedA.ourProbability) / 100),
-      selectionProvenance: !selectedA || usableQuotes.some((quote) => quote.selection === selectedA.selection
+      selectionProvenance: !selectedA || usableAppQuotes.some((quote) => quote.selection === selectedA.selection
         && quote.odds === Number(selectedA.bookmakerOdds) && packetA?.odds?.bookmakerBySelection?.[quote.selection] === quote.bookmaker),
     };
     if (!appFailure && !Object.values(appChecks).every(Boolean)) appFailure = 'invalid_app_recommendation_packet';
     if (!appFailure && selectedA) {
-      const quote = usableQuotes.find((value) => value.selection === selectedA.selection
+      const quote = usableAppQuotes.find((value) => value.selection === selectedA.selection
         && value.odds === Number(selectedA.bookmakerOdds) && packetA?.odds?.bookmakerBySelection?.[value.selection] === value.bookmaker);
       const probability = Number(selectedA.ourProbability) / 100;
       if (!quote || packetA?.odds?.source !== 'odds_api') appFailure = 'app_recommendation_quote_mismatch';
@@ -224,7 +152,7 @@ export class ResearchRecommendationRuntime {
     if (!appFailure && modelDescriptorA) {
       await this.db.research.saveModel({ family: 'A', version: modelDescriptorA.version, artifact: modelDescriptorA });
       const existing = await this.db.research.listMarkets({ family: 'A', modelVersion: modelDescriptorA.version });
-      for (const market of [...new Set(usableQuotes.map((quote) => quote.market))]) {
+      for (const market of [...new Set(usableAppQuotes.map((quote) => quote.market))]) {
         if (!existing.some((entry) => entry.market === market)) await this.db.research.setMarketState({
           family: 'A', modelVersion: modelDescriptorA.version, market, state: 'EXPERIMENTAL',
           reason: 'App recommendation virtual execution; no economic promotion',
@@ -237,7 +165,7 @@ export class ResearchRecommendationRuntime {
       summary: { family: 'A', source: 'PredictionService', modelVersion: modelA?.version ?? 'APP-A-unavailable',
         executionContext: job.preview === true ? 'recommendations-preview' : 'virtual-recommendation',
         jobId: job.id, runId: job.runId, matchId: job.matchId, checks: appChecks,
-        snapshotHash: researchHash({ observedAt, model: modelA ?? null, quotes: usableQuotes }),
+        snapshotHash: researchHash({ observedAt, model: modelA ?? null, quotes: usableAppQuotes }),
         ...(!appHealthy ? { errorCode: appFailure ?? 'invalid_app_recommendation_packet' } : {}) } });
     const finalObservedAt = this.clock().toISOString();
     if (Date.parse(finalObservedAt) >= Date.parse(job.kickoffAt) || Date.parse(finalObservedAt) >= Date.parse(job.windowEndAt)) {
@@ -246,14 +174,16 @@ export class ResearchRecommendationRuntime {
     for (let index = 0; index < decisions.length; index++) {
       const decision = decisions[index];
       if (decision.action !== 'BET') continue;
-      const invalid = recommendationQuoteReason(decision.quote as ResearchQuote, new Date(finalObservedAt));
+      const invalid = recommendationQuoteReason(decision.quote as RecommendationQuote, new Date(finalObservedAt), decision.family);
       if (invalid) decisions[index] = abstain(decision.family, decision.modelVersion, invalid);
     }
     return { jobId: job.id, leaseToken: job.leaseToken, originInputId: job.originInputId,
-      inputSnapshot: { observedAt: finalObservedAt, quotes, match: metadata?.match ?? { matchId: job.matchId,
+      inputSnapshot: { observedAt: finalObservedAt, quotes: [...usableAppQuotes, ...quotes],
+        quoteSnapshots: { A: usableAppQuotes, C: quotes }, match: metadata?.match ?? { matchId: job.matchId,
         competition: row.competition, kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name },
       metadata: { ...metadata, policy: VIRTUAL_RECOMMENDATION_POLICY,
-        originInputId: job.originInputId, diagnosticResearchA: true },
+        originInputId: job.originInputId, diagnosticResearchA: true,
+        appOdds: appInput?.metadata ?? null, independentModelInputs: true },
       modelDescriptorA,
       forecasts: { A: packetA, C: { decision: decisionC ?? null, recommendation: packetC } } }, decisions };
   }

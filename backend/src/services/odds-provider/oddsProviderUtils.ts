@@ -274,7 +274,8 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
   for (const bookmaker of base.bookmakers ?? []) {
     byBookmaker.set(String(bookmaker.bookmakerKey), {
       ...bookmaker,
-      markets: [...(bookmaker.markets ?? [])],
+      markets: (bookmaker.markets ?? []).map((market) => ({ ...market,
+        capturedAt: market.capturedAt ?? base.capturedAt, updatedAt: market.updatedAt ?? bookmaker.updatedAt })),
     });
   }
 
@@ -284,7 +285,8 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
     if (!existing) {
       byBookmaker.set(key, {
         ...bookmaker,
-        markets: [...(bookmaker.markets ?? [])],
+        markets: (bookmaker.markets ?? []).map((market) => ({ ...market,
+          capturedAt: market.capturedAt ?? extra.capturedAt, updatedAt: market.updatedAt ?? bookmaker.updatedAt })),
       });
       continue;
     }
@@ -297,7 +299,9 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
       });
     }
 
-    for (const market of bookmaker.markets ?? []) {
+    for (const rawMarket of bookmaker.markets ?? []) {
+      const market = { ...rawMarket, capturedAt: rawMarket.capturedAt ?? extra.capturedAt,
+        updatedAt: rawMarket.updatedAt ?? bookmaker.updatedAt };
       const marketKey = String(market.marketKey);
       const previous = marketMap.get(marketKey);
       if (!previous) {
@@ -305,6 +309,17 @@ export const mergeOddsMatchMarkets = (base: OddsMatch, extra: OddsMatch): OddsMa
           ...market,
           outcomes: [...(market.outcomes ?? [])],
         });
+        continue;
+      }
+
+      // Outcomes from different provider snapshots must never form one price sheet.
+      if (previous.updatedAt !== market.updatedAt || previous.capturedAt !== market.capturedAt) {
+        const previousTime = Date.parse(previous.updatedAt ?? previous.capturedAt ?? '');
+        const extraTime = Date.parse(market.updatedAt ?? market.capturedAt ?? '');
+        if (Number.isFinite(extraTime) && (!Number.isFinite(previousTime) || extraTime > previousTime
+          || (extraTime === previousTime && Date.parse(market.capturedAt ?? '') > Date.parse(previous.capturedAt ?? '')))) {
+          marketMap.set(marketKey, { ...market, outcomes: [...market.outcomes] });
+        }
         continue;
       }
 

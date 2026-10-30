@@ -1,5 +1,23 @@
 # Nightly Pre-Match Virtual Betting: stato e pubblicazione
 
+**Correzione locale v2 dei mercati — rilascio remoto non attestato.**
+A conserva il proprio `PredictionService` e i mercati squadra già supportati,
+inclusi cartellini e tiri con dati e quote reali sufficienti. C mantiene i
+mercati gol concordati. L'automazione registra i rispettivi consigli e stake,
+senza sostituire i due motori con un catalogo comune. Rimangono obbligatori
+freschezza, kickoff, capitale, esposizione e deduplicazione. Gli snapshot
+cloud sotto descrivono la v1 precedente e non attestano la correzione v2.
+[Specifica corrente](recommendation-execution-2026-10-30.md).
+
+Il workflow locale abilita i mercati per evento A con
+`ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`, mantenendo la rete informativa
+della dashboard disabilitata. Gli extra consumano il budget esistente oltre
+al feed base; la loro presenza non è garantita. C produce il proprio consiglio
+in `ChallengerRecommendation.ts`; l'esecuzione consuma i due pacchetti senza
+classifica comune. Un errore diagnostico research è registrato come tale e
+non vieta da solo un consiglio A valido; i gate dati e le garanzie contabili
+restano bloccanti.
+
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
 modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
@@ -9,8 +27,27 @@ e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
 dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
-modelli e infrastruttura non cambiano.
+cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+integrazione della navigazione non cambia modelli e infrastruttura; la
+correzione locale v2 dei mercati è descritta separatamente sopra.
+
+[Guida dell’integrazione nelle pagine dell’app](app-wallet-integration-2026-10-30.md).
+
+Codice `7f9ab7cf2f10938a8fd52421eb7df2994afe338f` pubblicato su main;
+CI `41085821060` Backend/Frontend SUCCESS. Gate locale: backend Linux Node20
+1.024 test totali, 1.023 PASS e uno SKIP opzionale di training. Il cleanup
+frontend finale `225e8c0b81468fa58f86559ae1f641410ae2278f` è pubblicato:
+rimuove il vecchio pannello autonomo ormai irraggiungibile e relativi wrapper/test,
+senza modifiche backend. Gate frontend finale: 32 suite/229 test PASS,
+typecheck/lint e dieci controlli mirati PASS; 239 test era il gate prima della
+rimozione di due suite obsolete. CI e deployment di questo ultimo frontend
+restano da attestare. Compose isolato e controlli delle cinque BET reali,
+filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
+storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
+Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
+(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
+remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
+remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
 **Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
@@ -103,16 +140,21 @@ i controlli dati; non chiama la vecchia registrazione HTTP.
   inammissibili non possono generare nuove puntate. Le assenze reali sono
   conteggiate senza ricostruire puntate retroattive; decisioni già completate
   e skip intenzionali non diventano falsi "missed" al retry.
-- Un solo snapshot autentico per A/C, con bookmaker, fonte, acquisizione,
-  aggiornamento e distanza dal kickoff. Freschezza rispetto alla decisione
+- Snapshot autentici per ciascun motore, con bookmaker, fonte, acquisizione,
+  aggiornamento e distanza dal kickoff. I prezzi base possono essere riusati
+  dalla cache, senza limitare A ai mercati di C. Freschezza rispetto alla decisione
   notturna; default 300 secondi, non un controllo a T−15.
-- Mercati richiesti insieme: `h2h,spreads,totals`, regione `eu`. Quote assenti,
+- C conserva il feed `h2h,spreads,totals`, regione `eu`. A usa le regole e i
+  mercati per evento già configurati nell'app, rispettando flag e budget.
+  Corner/falli restano bloccati e le player props separate. Quote assenti,
   vecchie, sintetiche o prive di provenienza sono escluse. Eurobet non viene
   simulato quando il provider restituisce altri operatori.
 
 La nuova [proiezione](../../backend/src/services/odds-provider/OddsDemandSimulation.ts)
-raggruppa una richiesta per lega/finestra, senza raddoppiare i crediti per A/C,
-e salta leghe senza incontri. Nel controfattuale di cinque leghe tutti i giorni
+raggruppa il feed base in una richiesta per lega/finestra, senza raddoppiarne
+i crediti per A/C; i mercati per evento di A possono aggiungere costi e non
+sono compresi in questa stima. La proiezione salta le leghe senza incontri.
+Nel controfattuale di cinque leghe tutti i giorni
 di un mese di 31 giorni servono 465 crediti senza retry, 513 con allowance del
 10% arrotondata. Sono stime, non consumo o copertura misurati.
 Il manager mantiene limite 500, riserva ordinaria 50, cache, deduplicazione,

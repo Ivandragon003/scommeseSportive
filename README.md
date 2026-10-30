@@ -1,5 +1,23 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
+**Correzione locale dei mercati A/C — non ancora attestata online.**
+La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,
+con i mercati squadra già supportati, inclusi cartellini e tiri quando esistono
+quote reali e dati sufficienti. C conserva i propri mercati gol concordati.
+L'automazione registra i consigli dei due motori con i rispettivi stake e i
+controlli contabili; non costituisce un terzo modello e non restringe A al
+catalogo di C. Corner/falli restano bloccati e player props separate.
+Decisioni storiche e snapshot cloud v1 qui sotto restano invariati.
+[Specifica della separazione dei motori](docs/operations/recommendation-execution-2026-10-30.md).
+
+Verifica locale v2: build/typecheck/lint backend e test mirati Linux/Node20
+riusciti; healthcheck isolato HTTP 200. L'avvio con Turso remoto resta bloccato
+da `SQL read operations are forbidden`; nessun deploy di questa correzione
+è attestato. [Dettagli e limiti delle verifiche](docs/operations/recommendation-execution-2026-10-30.md#verifiche-della-correzione-locale-v2).
+Il workflow locale abilita i mercati per
+evento A con `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`, entro il budget esistente;
+la rete informativa della dashboard resta disabilitata.
+
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
 modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
@@ -9,8 +27,27 @@ e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
 dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
-modelli e infrastruttura non cambiano.
+cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+integrazione della navigazione non cambia modelli e infrastruttura; la
+correzione locale v2 dei mercati è descritta separatamente sopra.
+
+[Guida dell’integrazione nelle pagine dell’app](docs/operations/app-wallet-integration-2026-10-30.md).
+
+Codice `7f9ab7cf2f10938a8fd52421eb7df2994afe338f` pubblicato su main;
+CI `41085821060` Backend/Frontend SUCCESS. Gate locale: backend Linux Node20
+1.024 test totali, 1.023 PASS e uno SKIP opzionale di training. Il cleanup
+frontend finale `225e8c0b81468fa58f86559ae1f641410ae2278f` è pubblicato:
+rimuove il vecchio pannello autonomo ormai irraggiungibile e relativi wrapper/test,
+senza modifiche backend. Gate frontend finale: 32 suite/229 test PASS,
+typecheck/lint e dieci controlli mirati PASS; 239 test era il gate prima della
+rimozione di due suite obsolete. CI e deployment di questo ultimo frontend
+restano da attestare. Compose isolato e controlli delle cinque BET reali,
+filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
+storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
+Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
+(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
+remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
+remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
 **Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
@@ -49,13 +86,15 @@ senza entrare nel codice o nelle formule, leggi il [System design dell'app](docs
 
 ## Confronto A/C e Nightly Pre-Match Virtual Betting
 
-Nella nuova policy attiva e verificata A è il consiglio effettivo della pagina Partite,
+Nella policy di esecuzione A è il consiglio effettivo della pagina Partite,
 prodotto da PredictionService e tracciato come `APP-A` con hash di stato/versione.
 Non è la vecchia A research `A-80cb25df5552621e`. C `C-906371b0b3a1e2c8`
 mantiene la baseline A research 80 e resta **Challenger**. GitHub Actions aggiorna i dati e,
 quando esplicitamente abilitata, esegue una sola elaborazione notturna sulle
 partite future. Ogni modello sceglie al massimo una puntata virtuale per partita
-oppure nessuna, usando lo stesso snapshot reale di dati e quote.
+oppure nessuna. Nella correzione locale v2 A mantiene tutti i mercati del proprio
+motore; C usa solo quelli concordati. Cache e budget quote sono condivisi,
+ma l'insieme di mercati di C non limita quello di A.
 
 Il programma pubblicato usa 03:07 Europe/Rome con timezone nativa e recuperi
 alle 04:17 e 05:27. Il rollout è distinto dalla verifica dei trigger reali. La finestra parte dall'avvio
@@ -85,7 +124,7 @@ non inizializzano saldi e non invocano POST legacy di sincronizzazione o
 piazzamento. Pubblicazione e verifica remota della nuova navigazione sono
 ancora da completare; le cinque BET dello snapshot non vengono generate di nuovo.
 
-Un mercato `EXPERIMENTAL` può raccogliere risultati virtuali se dati,
+Per C, un mercato `EXPERIMENTAL` può raccogliere risultati virtuali se dati,
 probabilità, quota reale, bookmaker, timestamp, liquidazione e controlli
 contabili sono idonei. Questo non promuove il mercato o il modello C e non
 richiede una redditività già dimostrata per iniziare la simulazione.
@@ -594,7 +633,10 @@ prior empiriche Serie A.
 
 ### Mercati analizzati
 
-L'endpoint `/api/scraper/odds/match` richiede mercati `h2h`, `totals`, `spreads`.
+L'endpoint `/api/scraper/odds/match` richiede i mercati base `h2h`, `totals`,
+`spreads` e può arricchirli con i mercati per evento già configurati nell'app.
+La raccolta A usa le stesse regole, senza restringerla al feed gol di C;
+restano attivi i flag, la cache e il budget per le richieste aggiuntive.
 The Odds API e il provider primario quando `ODDS_API_KEY` o `THE_ODDS_API_KEY` e configurata.
 Se `spreads` non e disponibile, il backend ritenta con `h2h`, `totals`. Il matching fixture
 usa anche `commenceTime`, cosi eventi con gli stessi nomi squadra ma kickoff diverso non vengono

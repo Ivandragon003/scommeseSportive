@@ -1,5 +1,13 @@
 # Piattaforma di confronto A/C
 
+**Correzione locale v2 dei mercati, non ancora attestata online.**
+A usa il proprio `PredictionService` con i mercati squadra già supportati,
+compresi cartellini e tiri quando dati e quote reali lo consentono. C conserva
+il catalogo gol concordato e il proprio registry. L'automazione registra i
+consigli dei due motori, non li sostituisce con un motore o un catalogo comuni.
+La policy `virtual-recommendation-v2` conserva le registrazioni precedenti.
+[Specifica corrente](operations/recommendation-execution-2026-10-30.md).
+
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
 modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
@@ -9,8 +17,25 @@ e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
 dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
-modelli e infrastruttura non cambiano.
+cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+integrazione della navigazione non cambia modelli e infrastruttura; la
+correzione locale v2 dei mercati è descritta separatamente sopra.
+
+Codice `7f9ab7cf2f10938a8fd52421eb7df2994afe338f` pubblicato su main;
+CI `41085821060` Backend/Frontend SUCCESS. Gate locale: backend Linux Node20
+1.024 test totali, 1.023 PASS e uno SKIP opzionale di training. Il cleanup
+frontend finale `225e8c0b81468fa58f86559ae1f641410ae2278f` è pubblicato:
+rimuove il vecchio pannello autonomo ormai irraggiungibile e relativi wrapper/test,
+senza modifiche backend. Gate frontend finale: 32 suite/229 test PASS,
+typecheck/lint e dieci controlli mirati PASS; 239 test era il gate prima della
+rimozione di due suite obsolete. CI e deployment di questo ultimo frontend
+restano da attestare. Compose isolato e controlli delle cinque BET reali,
+filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
+storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
+Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
+(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
+remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
+remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
 **Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
@@ -94,10 +119,11 @@ un ciclo reale concluso sul cloud.
 | Componente | Responsabilità corrente |
 | --- | --- |
 | Understat e supplemento HTTP/CSV consentito | Calendari, risultati e statistiche, con provenienza e campi esistenti preservati |
-| `ForecastCore` e pipeline coerente V2 | Feature prepartita e probabilità A/C sul passato ammissibile |
+| `PredictionService` | Motore operativo A, con i suoi mercati, calibrazione, filtri e consiglio esistenti |
+| `ForecastCore` e pipeline coerente V2 | Feature e probabilità della baseline research A80 e di C sul passato ammissibile |
 | CatBoost JSON | Inferenza nel processo Node; training Python separato |
-| Decision Engine | Stesse soglie e controlli per A/C; al massimo una puntata o astensione |
-| `ResearchNightly` | Job finito sul runner GitHub, finestra reale e commit persistenti |
+| `ResearchRecommendationRuntime` | Acquisisce il consiglio A e quello C dai rispettivi percorsi; al massimo una puntata o astensione per modello |
+| Nightly e store di esecuzione | Job finito sul runner GitHub, controlli tecnici/contabili e registrazione dei consigli senza rifare il ranking |
 | Turso | Portafogli, ledger, quote, versioni, job e decisioni condivisi |
 | Hostless web e React/Capacitor | API, dashboard e consultazione; nessun timer di puntata nel browser |
 | Backtest in `HeavyJobService` | Thread interno per il calcolo storico, distinto dal worker cloud dismesso |
@@ -154,11 +180,12 @@ applicato e i limiti sono in [ML README](../backend/ml/README.md).
 
 ## Benchmark cronologico e Decision Engine
 
-Il confronto ufficiale comprende soltanto A e C, con gli stessi match, cutoff,
+Il benchmark storico research comprende soltanto A80 e C, con gli stessi match, cutoff,
 snapshot di prezzo, mercati comuni, regole decisionali e bankroll iniziali.
 Training crescente, selezione, calibrazione e test sono finestre cronologiche
 separate. I kickoff simultanei restano nello stesso intervallo. L'ultimo test resta fuori dalla
-selezione del candidato. Riutilizzare ripetutamente lo stesso test per scegliere
+selezione del candidato. Queste condizioni comuni del benchmark non restringono
+i mercati dell'A operativo `PredictionService`. Riutilizzare ripetutamente lo stesso test per scegliere
 nuove configurazioni ne compromette l'indipendenza: conservare run, input e hash.
 
 Le 745 partite finali già consultate sono protette per ID nella policy
@@ -376,8 +403,10 @@ Un'esecuzione ripresa non sposta arbitrariamente la finestra originaria.
 La registrazione ricontrolla kickoff e capitale nella transazione. Partite
 già iniziate, salti o ritardi non generano puntate retroattive.
 
-A/C ricevono gli stessi snapshot, con versione del modello, selezione,
-probabilità, EV, quota, bookmaker, timestamp, motivazione e distanza dal kickoff.
+A e C conservano snapshot con versione del modello, selezione, probabilità,
+EV, quota, bookmaker, timestamp, motivazione e distanza dal kickoff. La cache
+dei prezzi base può essere riusata, ma A riceve anche i mercati supportati
+dal proprio motore e configurati nell'app; C mantiene il solo catalogo ammesso.
 La freschezza predefinita massima è 300 secondi **alla decisione notturna**, sia
 per l'acquisizione sia per l'aggiornamento originario della quota. Non serve
 un recupero a cinque minuti dal kickoff o una chiamata a ogni polling.
@@ -409,8 +438,10 @@ The Odds API e Smart Odds Manager restano invariati come infrastruttura:
 cache condivisa, deduplicazione, prenotazione atomica, limite 500 e riserva 50
 per le richieste informative. La nightly usa richieste essenziali, può usare
 la riserva entro il limite totale e riutilizza la raccolta per lega/finestra
-fra A/C. Mercati essenziali `h2h`, `totals`, `spreads`, una regione; gli altri
-richiedono una quota autentica specifica. Eurobet è prioritario solo se
+fra A/C. C mantiene i mercati base `h2h`, `totals`, `spreads`, una regione.
+A usa anche i mercati per evento configurati nell'app, soggetti ai rispettivi
+flag e al budget; le loro quote non vengono generate dal modello. La stima
+del solo feed base non include i costi di questi arricchimenti. Eurobet è prioritario solo se
 realmente restituito, senza rietichettare quote di altri operatori.
 
 `forecastRemainingNightlyOddsDemand` raggruppa per lega/finestra notturna,

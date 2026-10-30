@@ -63,8 +63,15 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     summary.prospectiveEvidence = diagnostic.prospectiveEvidence;
     summary.missedMatches = diagnostic.missedMatches;
     summary.quota = diagnostic.quota;
-    if (options.dataGatesPassed === false || diagnostic.errors || diagnostic.reasonCounts.nightly_run_busy) {
-      summary.apiErrors = diagnostic.apiErrors;
+    summary.apiErrors = diagnostic.apiErrors;
+    summary.diagnosticPreparationErrors = diagnostic.diagnosticPreparationErrors ?? 0;
+    summary.errors = diagnostic.errors;
+    if (summary.diagnosticPreparationErrors) summary.reasonCounts.diagnostic_preparation_failed = summary.diagnosticPreparationErrors;
+    // Failed research inference must not veto A. Only failures with safely stored
+    // unavailable diagnostic origins can continue to the independent model engines.
+    if (options.dataGatesPassed === false || diagnostic.errors > summary.diagnosticPreparationErrors
+      || diagnostic.reasonCounts.nightly_run_busy || diagnostic.reasonCounts.nightly_execution_failed
+      || diagnostic.reasonCounts.nightly_lease_lost) {
       reason(options.dataGatesPassed === false ? 'required_data_gates_failed' : 'diagnostic_stage_failed');
       throw new Error('recommendation_diagnostic_failed');
     }

@@ -6,10 +6,28 @@ Il 30 ottobre l'utente ha chiarito che le giocate automatiche devono essere
 gestite nelle normali pagine **Giocate, Budget e Archivio**, con filtro A/C
 e confronto dei due portafogli. Tutti gli importi restano virtuali.
 
-L'integrazione è implementata localmente e in verifica. Il rilascio remoto
+Il successivo chiarimento sui motori è recepito localmente dalla policy
+`virtual-recommendation-v2`: A conserva `PredictionService` e tutti i mercati
+squadra già supportati, inclusi cartellini e tiri se coperti da quote reali e
+dati sufficienti. C conserva i mercati gol concordati. L'automazione esegue
+i rispettivi consigli e stake; non è un terzo motore e non impone ad A il
+catalogo di C. Le pagine normali continuano a leggere gli stessi due ledger.
+Corner/falli restano bloccati e player props separate, senza aumentare le
+giocate principali per partita. Le decisioni v1 esistenti non vengono
+modificate o rigenerate. Il rilascio remoto della correzione v2 non è attestato.
+[Specifica corrente](recommendation-execution-2026-10-30.md).
+
+L'integrazione è pubblicata su GitHub e verificata localmente. Il rilascio remoto
 precedente rimane backend `eb5d838e` e frontend `3c503fa9`: le cinque puntate
 erano già finanziate, ma comparivano nella gestione separata del confronto.
 Non si attribuisce a quel rilascio la nuova navigazione ordinaria.
+
+Backend candidato `7f9ab7cf`, deployment Hostless
+`6ae4bf80475f3a60ae37bd72` richiesto il 30 ottobre alle 17:02 Europe/Rome;
+frontend candidato `225e8c0b`, dopo rimozione del vecchio pannello non più
+raggiungibile. Le CI `41085821060` e `41087310272` hanno entrambi i job
+Backend/Frontend riusciti. La pubblicazione dei nuovi servizi deve ancora
+essere attestata: queste prove non equivalgono allo stato LIVE.
 
 ## Unica fonte contabile
 
@@ -58,8 +76,11 @@ POST di sincronizzazione o registrazione legacy. I comandi legacy di
 inizializzazione/piazzamento rifiutano con HTTP 409 i target A/C espliciti,
 incluse varianti camel/snake case e alias dei portafogli.
 
-Restano invariati selezione, matematica dei modelli, registrazione atomica,
-deduplicazione e liquidazione. A usa la percentuale consigliata; C rimane
+La sola integrazione delle pagine conserva selezione, matematica dei modelli,
+registrazione atomica e deduplicazione. La correzione v2 elimina invece il
+filtro gol comune che restringeva A e consente la liquidazione delle sue
+giocate statistiche soltanto quando i dati necessari sono disponibili.
+A usa la percentuale consigliata; C rimane
 Challenger con 1% fisso. L'esposizione massima resta 5% per portafoglio e
 massimo una puntata per partita/modello. Il cambio di schermata non promuove
 mercati sperimentali né autorizza scommesse con denaro reale.
@@ -88,9 +109,13 @@ Controlli completati prima della pubblicazione:
 
 - Backend Linux Node 20 isolato dalla rete: 1.023 test superati su 1.024,
   zero errori, un test opzionale di training Python CatBoost escluso.
-- Frontend: 34 suite e 239 test superati; typecheck e lint dei file
+- Frontend finale: 32 suite e 229 test superati; typecheck e lint dei file
   interessati superati. Review indipendente conclusa dopo le regressioni
   su dettaglio aggiornato e guard dei portafogli.
+- Pulizia successiva: rimossi il vecchio pannello portafogli irraggiungibile,
+  il suo client dedicato e due suite ormai senza codice utilizzatore. Le
+  34 suite/239 verifiche precedenti sono distinte dal gate finale 32/229;
+  tipi condivisi, grafico e API backend per vecchi client sono preservati.
 - Build Compose backend/frontend completata; health HTTP 200 e nuova API
   `/wallets` verificata con cinque BET effettive.
 - Browser locale: Giocate filtra tre A e due C; Budget mostra i due saldi
@@ -100,7 +125,7 @@ Controlli completati prima della pubblicazione:
 - Le impronte complete di undici tabelle finanziarie e storiche sono rimaste
   identiche dopo avvio e navigazione, incluse cinque BET, sette movimenti e
   258 giocate precedenti. Non è stata reinserita nessuna puntata.
-- Il registro quote live è disabilitato nella copia locale isolata; un
+- Il recupero quote live è disabilitato nella copia locale isolata; un
   messaggio di chiave quote assente in Partite non invalida i prezzi
   archiviati, che rimangono visibili con la loro provenienza.
 

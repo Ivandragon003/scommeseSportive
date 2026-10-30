@@ -55,7 +55,7 @@ async function fixture(t, options = {}) {
   saveSchedulerRun: async (run) => { runs.push(run); return runs.length; } };
   const diagnosticPreparer = { getQuotaStatus: () => ({ remaining: 190 }), prepareNightly: async (job) => {
     counters.diagnosticPreparations++;
-    if (options.diagnosticThrows) throw new Error('Private diagnostic preparation failure');
+    if (options.diagnosticThrows) throw options.diagnosticError ?? new Error('Private diagnostic preparation failure');
     const shared = quote();
     return { job, kickoffAt: job.kickoffAt, status: 'upcoming', quotes: [shared], prospectiveObservations: [],
       inputSnapshot: { observedAt: START, forecast: {}, quotes: [shared] }, decisions: ['A', 'C'].map((family) => ({
@@ -75,7 +75,7 @@ async function fixture(t, options = {}) {
       inputSnapshot: { observedAt: START, quotes: [shared], match: { matchId: job.matchId }, runId: job.runId, policyHash: job.policyHash },
       decisions: ['A', 'C'].map((family) => {
         const configuration = { fixtureOnly: true, family };
-        const abstained = options.noRecommendation || family === 'C' && options.invalidC;
+        const abstained = options.noRecommendation || family === 'C' && (options.invalidC || options.diagnosticThrows);
         return { family, modelVersion: family === 'A' ? 'A-app-fixture' : RECOMMENDATION_MODEL_C, originDecisionId: job.originDecisionIds[family],
           action: abstained ? 'ABSTAIN' : 'BET', ...(abstained ? { reason: options.noRecommendation ? 'no_app_recommendation' : 'research_forecast_unavailable' } : {}),
           recommended: !abstained, validated: family !== 'C' || !options.invalidC, confidence: 'MEDIUM', market: '1x2', selection: 'homeWin',
@@ -205,13 +205,65 @@ test('execution still requires real fresh prices and settles new virtual bets wi
     [['shadow_A', 103000, 0], ['shadow_C', 102000, 0]]);
 });
 
-test('data-gate failure and real diagnostic preparation errors prevent every new execution claim and stake', async (t) => {
-  for (const diagnosticThrows of [false, true]) {
-    const f = await fixture(t, { diagnosticThrows });
-    const result = await execute(f, diagnosticThrows ? {} : { dataGatesPassed: false });
+test('data-gate failure and diagnostic database errors prevent every new execution claim and stake', async (t) => {
+  for (const databaseFailure of [false, true]) {
+    const f = await fixture(t, { diagnosticThrows: databaseFailure,
+      diagnosticError: Object.assign(new Error('Private database error'), { name: 'LibsqlError', code: 'SQLITE_BUSY' }) });
+    const result = await execute(f, databaseFailure ? {} : { dataGatesPassed: false });
     assert.ok(result.errors > 0); assert.equal(f.counters.claims, 0); assert.equal(f.counters.executionPreparations, 0);
     assert.equal((await f.research.listBets()).length, 0);
     assert.equal(f.runs.at(-1).schedulerName, 'research_nightly'); assert.equal(f.runs.at(-1).success, false);
+  }
+});
+
+test('failed diagnostic inference records unavailable origins while independent A advice still executes', async (t) => {
+  const f = await fixture(t, { diagnosticThrows: true });
+  const result = await execute(f);
+  assert.equal(result.diagnosticPreparationErrors, 2); assert.equal(result.errors, 2);
+  assert.equal(result.reasonCounts.diagnostic_preparation_failed, 2);
+  assert.equal(result.reasonCounts.diagnostic_stage_failed, undefined);
+  assert.equal(result.registeredBets, 2); assert.equal(result.decisionCount, 4);
+  assert.equal(f.counters.executionPreparations, 2);
+  const bets = await f.research.listBets();
+  assert.ok(bets.every((bet) => bet.family === 'A' && bet.executionDecisionId));
+  const origins = await f.research.listDecisions();
+  assert.equal(origins.length, 4);
+  assert.ok(origins.every((decision) => decision.action === 'ABSTAIN' && decision.snapshot.stakeCents === 0
+    && decision.snapshot.diagnosticOriginalDecision.reason === 'diagnostic_unavailable'
+    && decision.snapshot.diagnosticOriginalDecision.validated === false));
+  const inputs = (await f.client.execute('SELECT snapshot_json FROM research_inputs')).rows
+    .map((row) => JSON.parse(row.snapshot_json));
+  assert.ok(inputs.every((input) => input.observedAt === START && input.quotes.length === 0
+    && input.diagnosticPreparation.reason === 'research_forecast_unavailable'
+    && !input.forecast && !input.probabilities));
+  assert.ok((await f.recommendations.listDecisions()).filter((decision) => decision.family === 'C')
+    .every((decision) => decision.action === 'ABSTAIN'));
+  assert.ok(f.runs.every((run) => run.success === false));
+  assert.doesNotMatch(JSON.stringify(f.runs), /Private diagnostic/);
+  const before = JSON.stringify(origins);
+  await execute(f, { runId: 'diagnostic-failure-repeat' });
+  assert.equal((await f.research.listBets()).length, 2);
+  assert.equal(JSON.stringify(await f.research.listDecisions()), before);
+});
+
+test('invalid diagnostic job identity and changed fixture do not become fallback origins', async (t) => {
+  for (const fault of ['job_identity', 'changed_fixture', 'origin_commit']) {
+    const f = await fixture(t, { matches: 1, diagnosticThrows: fault === 'changed_fixture' });
+    const originalPrepare = f.diagnosticPreparer.prepareNightly;
+    f.diagnosticPreparer.prepareNightly = async (job) => {
+      if (fault === 'changed_fixture') {
+        f.matches[0].date = '2026-10-30T19:00:00Z';
+        return originalPrepare(job);
+      }
+      const prepared = await originalPrepare(job);
+      return fault === 'job_identity' ? { ...prepared, job: { ...job, matchId: 'another-match' } } : prepared;
+    };
+    if (fault === 'origin_commit') f.research.commitBatch = async () => { throw new Error('Origin store unavailable'); };
+    const result = await execute(f);
+    assert.ok(result.errors > 0); assert.equal(result.diagnosticPreparationErrors, 0);
+    assert.equal(f.counters.claims, 0); assert.equal(f.counters.executionPreparations, 0);
+    assert.equal((await f.research.listDecisions()).length, 0);
+    assert.equal((await f.research.listBets()).length, 0);
   }
 });
 

@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ResearchRecommendationRuntime, buildChallengerRecommendation, challengerTechnicalReason } = require('../dist/research/ResearchRecommendationRuntime');
+const { ResearchRecommendationRuntime } = require('../dist/research/ResearchRecommendationRuntime');
+const { buildChallengerRecommendation, challengerTechnicalReason } = require('../dist/research/ChallengerRecommendation');
 const { RECOMMENDATION_MODEL_C, RECOMMENDATION_BASELINE_C } = require('../dist/research/ResearchRecommendationPolicy');
 const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
 const { coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } = require('../dist/research/CoherentProbabilityPipeline');
@@ -30,13 +31,13 @@ const opportunity = (overrides = {}) => ({ selection: 'homeWin', marketName: 'Vi
   edge: 10, edgeNoVig: 10, kellyFraction: 5, suggestedStakePercent: 2.34, isValueBet: true, ...overrides });
 function fixture(options = {}) {
   let now = Date.parse(at);
-  const calls = { prepare: 0, predict: [], registered: [], marketWrites: [], cohort: [], odds: 0, modelChecks: [] };
+  const calls = { prepare: 0, predict: [], registered: [], marketWrites: [], cohort: [], odds: 0, modelChecks: [], appOdds: 0 };
   const model = { source: 'PredictionService', version: `APP-A-${'a'.repeat(20)}`, codeHash: '1'.repeat(64),
     configHash: '2'.repeat(64), stateHash: '3'.repeat(64) };
   const selected = options.selected === undefined ? opportunity() : options.selected;
   const packet = { policyVersion: CANONICAL_RECOMMENDATION_POLICY, selected, ranked: selected ? [selected] : [],
     decisionStatus: selected ? 'RECOMMENDED' : 'NO_BET', asOf: at, model,
-    odds: { source: 'odds_api', capturedAt: at, bookmakerBySelection: Object.fromEntries((options.quotes ?? quotes()).map((value) => [value.selection, value.bookmaker])) },
+    odds: { source: 'odds_api', capturedAt: at, bookmakerBySelection: Object.fromEntries((options.appQuotes ?? options.quotes ?? quotes()).map((value) => [value.selection, value.bookmaker])) },
     probabilities: { raw: { homeWin: .61 }, decision: { homeWin: .6 } } };
   const row = { match_id: 'm1', home_team_id: 'h', away_team_id: 'a', home_team_name: 'Home', away_team_name: 'Away',
     competition: 'Serie A', season: '2026/2027', date: '2026-10-30T19:00:00Z', home_goals: null, away_goals: null };
@@ -65,16 +66,28 @@ function fixture(options = {}) {
       capturedAt: at, provider: 'odds_api', bookmakers: [{ bookmakerName: 'Real Book', bookmakerKey: 'real', updatedAt: at,
         markets: [{ marketKey: 'h2h', outcomes: [{ name: 'Home', price: 2 }, { name: 'Draw', price: 4 }, { name: 'Away', price: 4 }] }] }] }];
   } };
-  const runtime = new ResearchRecommendationRuntime(db, { clock: () => new Date(now), researchRuntime, predictionService, odds });
-  return { runtime, job, packet, prepared, row, calls, db, researchRuntime, predictionService, odds, clock: () => new Date(now),
+  const appOdds = { getQuotaStatus: () => ({ remaining: 205 }), load: async () => {
+    calls.appOdds++;
+    if (options.appOddsFailure) throw options.appOddsFailure;
+    const sheet = (options.appQuotes ?? options.quotes ?? quotes()).filter((value) =>
+      !require('../dist/research/ResearchRecommendationPolicy').recommendationQuoteReason(value, new Date(now), 'A'));
+    return { quotes: sheet, sharedOdds: { odds: Object.fromEntries(sheet.map((value) => [value.selection, value.odds])),
+      bookmakerBySelection: Object.fromEntries(sheet.map((value) => [value.selection, value.bookmaker])),
+      source: 'odds_api', capturedAt: at }, metadata: { providerEventId: 'app-full-fixture' } };
+  } };
+  const runtime = new ResearchRecommendationRuntime(db, { clock: () => new Date(now), researchRuntime, predictionService, odds, appOdds });
+  return { runtime, job, packet, prepared, row, calls, db, researchRuntime, predictionService, odds, appOdds, clock: () => new Date(now),
     setTime: (value) => { now = Date.parse(value); } };
 }
 
-test('runtime accepts aliases emitted by the real app predictor while binding the actual pick to the original price sheet', async () => {
+test('runtime preserves the ordinary A predictor advice and stake with its full quote sheet independent of C', async () => {
   const { PredictionService } = require('../dist/services/PredictionService');
   const { DixonColesModel } = require('../dist/models/core/DixonColesModel');
   const sheet = [quote('homeWin', 'home', 3.6), quote('draw', 'draw', 3.9), quote('awayWin', 'away', 2.1)];
-  const f = fixture({ quotes: sheet });
+  const appSheet = [...sheet,
+    quote('cards_total_over_4.5', 'over', 2, { market: 'cards_total', line: 4.5 }),
+    quote('cards_total_under_4.5', 'under', 1.9, { market: 'cards_total', line: 4.5 })];
+  const f = fixture({ quotes: sheet, appQuotes: appSheet });
   f.row.home_team_id = 'home'; f.row.away_team_id = 'away'; f.row.competition = 'Test League';
   const params = new DixonColesModel().getParams();
   params.attackParams = { home: .4, away: -.4 }; params.defenceParams = { home: 0, away: 0 };
@@ -89,10 +102,17 @@ test('runtime accepts aliases emitted by the real app predictor while binding th
   // Preserve real DC/Poisson/engine inference; isolate only expensive calibration fitting with truthful zero observations.
   predictor.getCalibrationProfile = async () => ({ calibrationPoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
     nObservations: 0, byFamily: {}, learnedBlendWeights: {} });
+  const ordinary = await predictor.predict({ homeTeamId: f.row.home_team_id, awayTeamId: f.row.away_team_id,
+    matchId: f.job.matchId, competition: f.row.competition, season: f.row.season },
+  { asOf: at, recordAudit: false, sharedOdds: (await f.appOdds.load(f.row)).sharedOdds });
   const runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, researchRuntime: f.researchRuntime,
-    predictionService: predictor, odds: f.odds });
+    predictionService: predictor, odds: f.odds, appOdds: f.appOdds });
   const result = await runtime.prepare(f.job);
   const packet = result.inputSnapshot.forecasts.A;
+  assert.deepEqual(packet.selected, ordinary.canonicalRecommendation.selected);
+  assert.deepEqual(packet.ranked, ordinary.canonicalRecommendation.ranked);
+  assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'cardsTotalOver45'));
+  assert.ok(!result.inputSnapshot.quoteSnapshots.C.some((value) => value.market === 'cards_total'));
   assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'homewin'));
   assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'awaywin'));
   assert.equal(packet.selected.selection, 'homeWin');
@@ -156,7 +176,7 @@ test('market companions never cross bookmakers, lines or incompatible challenger
   }
 });
 
-test('runtime preserves exact app A pick/stake and independent C1%, origin lineage and shared quote snapshot', async () => {
+test('runtime preserves each model advice and stake with independent quote snapshots and origin lineage', async () => {
   const f = fixture(); f.runtime.beginCohort('real-run');
   const result = await f.runtime.prepare(f.job);
   assert.equal(f.calls.prepare, 1); assert.equal(f.calls.odds, 0); assert.deepEqual(f.calls.cohort, ['real-run']);
@@ -191,12 +211,14 @@ test('technical C failure and zero independent residuals cannot silently veto ex
   assert.equal(result.decisions[1].reason, 'challenger_technical_validation_failed');
   const unavailable = fixture({ prepareFailure: Error('private-history-failure') });
   const recovered = await unavailable.runtime.prepare(unavailable.job);
-  assert.equal(unavailable.calls.odds, 1); assert.equal(recovered.decisions[0].action, 'BET');
+  assert.equal(unavailable.calls.odds, 0); assert.equal(unavailable.calls.appOdds, 1); assert.equal(recovered.decisions[0].action, 'BET');
   assert.equal(recovered.decisions[1].reason, 'research_forecast_unavailable');
   assert.doesNotMatch(JSON.stringify(recovered), /private-history/);
   const blocked = fixture({ prepareFailure: Object.assign(Error('private-request'), { code: 'odds_credit_budget_exhausted' }) });
-  await assert.rejects(blocked.runtime.prepare(blocked.job), { code: 'odds_credit_budget_exhausted' });
-  assert.equal(blocked.calls.odds, 0); assert.equal(blocked.calls.predict.length, 0);
+  const independent = await blocked.runtime.prepare(blocked.job);
+  assert.equal(independent.decisions[0].action, 'BET');
+  assert.equal(independent.decisions[1].reason, 'odds_credit_budget_exhausted');
+  assert.equal(blocked.calls.odds, 0); assert.equal(blocked.calls.predict.length, 1);
 });
 
 test('the actual recommendation preparer pins C906 and keeps app A available when only a newer candidate exists', async () => {
@@ -212,7 +234,7 @@ test('the actual recommendation preparer pins C906 and keeps app A available whe
     getChampion: async () => assert.fail('Pinned preparation must not follow the champion'),
     getLatestBenchmark: async () => null, listProspectiveCalibrationSamples: async () => [],
   });
-  const runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, predictionService: f.predictionService, odds: f.odds });
+  const runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, predictionService: f.predictionService, odds: f.odds, appOdds: f.appOdds });
   const result = await runtime.prepare(f.job);
   assert.deepEqual(exactReads, [{ family: 'C', version: RECOMMENDATION_MODEL_C }]);
   assert.equal(result.decisions[0].action, 'BET'); assert.equal(result.decisions[0].modelVersion, f.packet.model.version);
@@ -294,4 +316,48 @@ test('pre-kickoff/window and quote truth guards stop synthetic, stale or unavail
     assert.equal(f.calls.predict.length, 0); assert.ok(result.decisions.every((value) => value.action === 'ABSTAIN'));
     assert.equal(result.decisions[0].reason, 'real_fresh_quotes_unavailable');
   }
+});
+
+
+test('A keeps its own cards and shots advice and stake outside C goal-only quote universe', async () => {
+  for (const [selection, market, category, line] of [
+    ['cards_total_over_4.5', 'cards_total', 'yellow_cards', 4.5],
+    ['shots_total_over_23.5', 'shots', 'shots', 23.5],
+    ['sot_total_under_9.5', 'shots_on_target', 'shots_ot', 9.5],
+    ['btts', 'btts', 'goal_btts', undefined],
+  ]) {
+    const appQuote = quote(selection, selection.includes('under') ? 'under' : selection === 'btts' ? 'yes' : 'over', 2,
+      { market, ...(line === undefined ? {} : { line }) });
+    const selected = opportunity({ selection, marketCategory: category, suggestedStakePercent: 1.87 });
+    const f = fixture({ appQuotes: [...quotes(), appQuote], selected });
+    const result = await f.runtime.prepare(f.job);
+    assert.equal(result.decisions[0].action, 'BET', selection);
+    assert.equal(result.decisions[0].selection, selection);
+    assert.equal(result.decisions[0].suggestedStakePercent, 1.87);
+    assert.equal(result.inputSnapshot.forecasts.A.selected, selected);
+    assert.equal(f.calls.predict[0].settings.sharedOdds.odds[selection], 2);
+    assert.ok(!result.inputSnapshot.quoteSnapshots.C.some((value) => value.selection === selection));
+    assert.equal(result.decisions[1].selection, 'homeWin');
+    assert.equal(result.decisions[1].suggestedStakePercent, 1);
+    assert.ok(f.calls.marketWrites.some((value) => value.family === 'A' && value.market === market));
+  }
+});
+
+test('A odds failure does not block the independent C engine or trigger a replacement A pick', async () => {
+  const f = fixture({ appOddsFailure: Object.assign(Error('private provider URL'), { code: 'odds_cache_only' }) });
+  const result = await f.runtime.prepare(f.job);
+  assert.equal(result.decisions[0].action, 'ABSTAIN');
+  assert.equal(result.decisions[0].reason, 'odds_cache_only');
+  assert.equal(result.decisions[1].action, 'BET');
+  assert.equal(f.calls.predict.length, 0);
+  assert.doesNotMatch(JSON.stringify(result), /private provider/);
+});
+
+test('C refuses app statistical markets even if accidentally supplied in its quote sheet and registry', () => {
+  const stat = quote('cards_total_over_4.5', 'over', 2, { market: 'cards_total', line: 4.5 });
+  const result = buildChallengerRecommendation({ decision: challenger(), quotes: [...quotes(), stat], observedAt: at,
+    allowedMarkets: ['1x2', 'cards_total'] });
+  assert.equal(result.selected.selection, 'homeWin');
+  assert.ok(!result.opportunities.some((value) => value.selection === stat.selection));
+  assert.equal(result.exclusions.unsupported_quote_settlement, 1);
 });

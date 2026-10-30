@@ -6,6 +6,7 @@ import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
 import { normalizeScoreMatrix, scoreMatrixMarkets, settleGoalQuote } from './GoalSettlement';
+import { settleAppRecommendationQuote } from './AppRecommendationQuotes';
 import { CoherentCalibrationMode, CoherentCalibrationProfile, COHERENT_PROBABILITY_PROTOCOL, applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash } from './CoherentProbabilityPipeline';
 import { researchHash } from './ResearchStore';
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
@@ -105,11 +106,18 @@ export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: numb
     const match = await db.getMatchById(bet.matchId);
     if (!match || match.home_goals == null || match.away_goals == null) continue;
     const quote = bet.snapshot?.quote;
-    const outcome = settleGoalQuote(quote, Number(match.home_goals), Number(match.away_goals));
+    const appExecution = bet.family === 'A' && !!bet.executionDecisionId;
+    const outcome = appExecution ? settleAppRecommendationQuote(quote, match)
+      : settleGoalQuote(quote, Number(match.home_goals), Number(match.away_goals));
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }
     const result = await db.research.settleBet(bet.id, outcome.returnMultiplier, { matchId: bet.matchId,
       homeGoals: Number(match.home_goals), awayGoals: Number(match.away_goals), source: match.source,
-      resultKickoffAt: match.date, status: outcome.status });
+      resultKickoffAt: match.date, status: outcome.status,
+      ...(appExecution && ['cards_total', 'yellow_cards', 'shots', 'shots_on_target'].includes(quote?.market)
+        ? { market: quote.market, selection: quote.selection, statistics: Object.fromEntries([
+          'home_shots', 'away_shots', 'home_shots_on_target', 'away_shots_on_target',
+          'home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards',
+        ].filter((field) => match[field] !== undefined).map((field) => [field, match[field]])) } : {}) });
     if (result.settled) summary.settled++;
   }
   return summary;

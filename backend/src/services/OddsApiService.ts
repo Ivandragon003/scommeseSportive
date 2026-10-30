@@ -63,6 +63,7 @@ export type SelectedBookmaker = {
 export interface MarketOdds {
   marketKey: string;          // "h2h", "totals", "spreads"
   updatedAt?: string;
+  capturedAt?: string;         // Observation of this market's originating response/cache entry.
   outcomes: OutcomeOdds[];
 }
 
@@ -258,8 +259,7 @@ export class OddsApiService {
       `[OddsApi] Crediti usati: ${quota.used ?? '?'} | Rimanenti: ${quota.remaining ?? '?'}`
     );
 
-    return this.parseOddsResponse(response.data).map((event) => ({ ...event,
-      provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit }));
+    return this.parseOddsResponse(response.data).map((event) => this.withObservation(event, response.fetchedAt, response.cacheHit));
   }
 
   async getEventOdds(
@@ -292,7 +292,13 @@ export class OddsApiService {
     if (!/^[a-zA-Z0-9_-]+$/.test(eventId)) throw new Error('Invalid odds event identifier');
     const response = await this.managedGet(`/sports/${sportKey}/events/${eventId}/odds`, params, this.requestCost(markets, bookmakers));
     const event = this.parseSingleEventResponse(response.data);
-    return event ? { ...event, provider: 'odds_api', capturedAt: response.fetchedAt, cacheHit: response.cacheHit } : null;
+    return event ? this.withObservation(event, response.fetchedAt, response.cacheHit) : null;
+  }
+
+  private withObservation(event: OddsMatch, capturedAt: string, cacheHit: boolean): OddsMatch {
+    return { ...event, provider: 'odds_api', capturedAt, cacheHit,
+      bookmakers: event.bookmakers.map((bookmaker) => ({ ...bookmaker,
+        markets: bookmaker.markets.map((market) => ({ ...market, capturedAt })) })) };
   }
 
   async getScores(competition: string, daysFrom = 3): Promise<OddsMatch[]> {

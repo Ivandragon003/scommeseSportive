@@ -1,6 +1,78 @@
 # Consigli dell'app e registrazione virtuale A/C — 30 ottobre 2026
 
-## Stato del rilascio
+## Correzione locale: autonomia dei motori A e C
+
+La policy `virtual-recommendation-v2` corregge la restrizione introdotta dal
+percorso precedente: A riceve le quote dei mercati già supportati dal proprio
+`PredictionService`, senza essere limitato al catalogo gol di C. Mantiene
+modelli statistici, calibrazione, filtri, ranking, consiglio canonico e
+percentuale di puntata esistenti. Include cartellini, tiri e tiri in porta
+quando esistono quote reali e dati sufficienti, oltre a esito, doppia chance,
+draw no bet, BTTS, over/under e handicap già gestiti.
+
+C conserva artefatto, baseline, configurazione e mercati concordati: il feed
+`h2h`, `totals`, `spreads` alimenta soltanto i mercati gol ammessi dal suo
+registry. La preparazione del consiglio C appartiene a
+`ChallengerRecommendation.ts`; il runtime di esecuzione consuma i pacchetti
+dei due motori senza una classifica comune. I mercati aggiuntivi di A non
+vengono trasferiti a C. Corner e falli
+restano bloccati; le player props restano nella sezione distinta già prevista
+e non aumentano il numero di giocate automatiche principali.
+
+L'automazione esegue il consiglio di ciascun motore: non è un terzo modello,
+non impone un insieme comune di mercati e non sostituisce la selezione di A.
+Registra la quota e il pacchetto originali dopo i controlli su freschezza,
+kickoff, stake, capitale, esposizione e duplicati. Gli importi restano virtuali.
+Il confronto dei rendimenti deve quindi considerare anche la diversa copertura
+dei mercati e le diverse regole di stake.
+
+La raccolta di A riusa provider, selezione coerente del bookmaker e mercati
+per evento già configurati nell'app, rispettando flag, cache e budget.
+Il workflow Nightly locale imposta `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`
+per consentire la raccolta dei mercati aggiuntivi di A, mantenendo
+`ODDS_INFORMATIONAL_NETWORK_ENABLED=false` per la dashboard. La configurazione
+locale `.env` conserva l'opt-in separato e Docker non avvia l'automazione per
+default. Le richieste extra consumano il budget esistente oltre al feed base:
+non ne aumentano il limite e non garantiscono la disponibilità dei mercati.
+Un mercato supportato ma senza quota reale resta indisponibile. Per liquidare
+cartellini e tiri A servono le statistiche reali richieste: un dato mancante
+lascia la giocata aperta; i cartellini totali valgono gialli + 2 × rossi.
+
+Questa correzione è locale e richiede ancora attestazione del rilascio remoto.
+Non modifica decisioni, puntate o policy storiche. I riscontri cloud v1
+riportati sotto descrivono il comportamento precedente, con quote limitate e
+condivise: non dimostrano che la copertura completa di A fosse già online.
+
+Un errore nella preparazione diagnostica research non vieta da solo una
+giocata valida di A. Viene conservata un'origine diagnostica indisponibile,
+senza inventare quote o previsioni, e le decisioni effettive restano separate.
+Il riepilogo conserva `diagnosticPreparationErrors` e l'esito operativo
+segnala l'errore anche se A riesce a eseguire il proprio consiglio. Restano
+bloccanti gli errori di database, identità, lease, gate dati e commit
+dell'origine: l'indipendenza dei motori non aggira questi vincoli.
+
+### Verifiche della correzione locale v2
+
+Build, typecheck e lint backend riusciti. Nell'immagine runtime Linux/Node20,
+con rete disabilitata e database temporanei, sono passati 165/165 test mirati
+su 13 file: quote A, runtime, policy, store, Nightly, proiezione, merge provider,
+motore value e previsioni. Un successivo caso positivo di opt-in degli extra
+è passato separatamente nello stesso ambiente Linux: 166 casi unici verificati.
+
+In Windows sono passati 49/49 test mirati e 7/7 del loader provider. La suite
+completa Windows non è attestata verde: ha incontrato i crash nativi già
+documentati e un errore `EPERM` durante il cleanup. Anche la ripetizione
+sequenziale ha riportato un arresto nativo in `research-prospective-store`
+e il cleanup `EPERM` di `research-recommendation-view`; i controlli mirati
+Linux non equivalgono all'intera suite.
+
+Le immagini Docker Compose sono state costruite. L'avvio con la configurazione
+Turso remota è stato bloccato da `SQL read operations are forbidden`; il backend
+che riprovava è stato fermato. L'healthcheck isolato con database locale e
+rete provider disabilitata restituisce HTTP 200. Questo controllo non dimostra
+il funzionamento con Turso remoto, la copertura quote reale o il rilascio online.
+
+## Stato del rilascio precedente (policy v1)
 
 Rilascio e prima esecuzione reale completati il 30 ottobre 2026:
 
@@ -26,7 +98,8 @@ di una futura esecuzione schedulata soltanto in base a questo run manuale.
 
 ## Comportamento richiesto
 
-- **A:** il modello operativo della pagina Partite, con il suo consiglio
+- **A:** il modello operativo della pagina Partite, con tutti i propri mercati
+  squadra già abilitati e quote reali disponibili, il suo consiglio
   canonico LOW/MEDIUM/HIGH e il suo `suggestedStakePercent`, applicato al
   patrimonio del portafoglio virtuale A. Nessun secondo fattore di confidenza
   o minimo automatico di un euro.
@@ -59,7 +132,8 @@ stake provengono dal vero `PredictionService`, con hash di codice,
 configurazione e stato del modello tracciati separatamente.
 
 C conserva probabilità e artefatto registrati; non si applica nuovamente
-calibrazione o blending. Usa il picker comune sulle alternative supportate.
+calibrazione o blending. Il suo adattatore seleziona fra le alternative
+supportate da C; il riuso del picker di presentazione non limita i mercati di A.
 L'adattatore corrente esclude le linee C con rimborso o payout parziale
 quando il calcolo dell'engine non consente una confidenza coerente; il
 motivo è esplicito e viene cercata un'altra alternativa valida. A conserva

@@ -8,7 +8,10 @@ const quote = { selection: 'homeWin', market: '1x2', side: 'home', odds: 2, book
 
 test('virtual policy identifies actual app A, frozen challenger C and separate stake rules without a residual veto', () => {
   assert.equal(VIRTUAL_RECOMMENDATION_POLICY.virtualOnly, true);
+  assert.equal(VIRTUAL_RECOMMENDATION_POLICY.version, 'virtual-recommendation-v2');
   assert.equal(VIRTUAL_RECOMMENDATION_POLICY.familyA.source, 'PredictionService');
+  assert.equal(VIRTUAL_RECOMMENDATION_POLICY.familyA.marketCoverage, 'existing-supported-team-markets');
+  assert.equal(VIRTUAL_RECOMMENDATION_POLICY.familyA.playerProps, false);
   assert.equal(VIRTUAL_RECOMMENDATION_POLICY.familyC.modelVersion, 'C-906371b0b3a1e2c8');
   assert.equal(VIRTUAL_RECOMMENDATION_POLICY.familyC.baselineVersion, 'A-80cb25df5552621e');
   assert.equal(VIRTUAL_RECOMMENDATION_POLICY.stakeModeA, 'RECOMMENDED_PERCENT');

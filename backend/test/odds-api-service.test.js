@@ -89,6 +89,25 @@ test('managed metadata preserves the original snapshot and scores/calendar costs
   assert.equal(service.getQuotaStatus().observedAt, null);
 });
 
+test('core and extra markets retain their own cache observation without replacing provider update time', async () => {
+  const coreCapture = '2026-10-30T09:59:00.000Z', extraCapture = '2026-10-30T10:00:00.000Z';
+  const providerUpdate = '2026-10-30T09:58:30.000Z';
+  const service = new OddsApiService('test-key', { store: { execute: async (request) => {
+    const extra = request.endpoint.includes('/events/');
+    const event = { id: 'e1', home_team: 'Inter', away_team: 'Milan', commence_time: '2026-10-30T19:00:00Z',
+      bookmakers: [{ key: 'real', title: 'Real', last_update: providerUpdate,
+        markets: [{ key: extra ? 'alternate_totals_cards' : 'totals', last_update: providerUpdate,
+          outcomes: [{ name: 'Over', point: extra ? 4.5 : 2.5, price: 1.9 }] }] }] };
+    return { data: extra ? event : [event], headers: {}, fetchedAt: extra ? extraCapture : coreCapture, cacheHit: true };
+  } } });
+  const [core] = await service.getOdds('Serie A');
+  const extra = await service.getEventOdds('Serie A', 'e1', ['alternate_totals_cards']);
+  assert.equal(core.bookmakers[0].markets[0].capturedAt, coreCapture);
+  assert.equal(extra.bookmakers[0].markets[0].capturedAt, extraCapture);
+  assert.equal(core.bookmakers[0].markets[0].updatedAt, providerUpdate);
+  assert.equal(extra.bookmakers[0].markets[0].updatedAt, providerUpdate);
+});
+
 test('new planning month confirms quota with a fresh free probe before retrying the paid request', async () => {
   const requests = [];
   let confirmed = false;

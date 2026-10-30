@@ -144,6 +144,10 @@ test('actual runtime technical abstentions with a null A forecast remain readabl
     research: { listMarkets: async () => [] }, saveSchedulerRun: async () => {} }, {
       clock: () => NOW, researchRuntime: { prepareNightly: async () => ({ job, kickoffAt, status: 'upcoming', quotes,
         decisions: [], inputSnapshot: {} }) }, predictionService: { predict: async () => { throw new Error('fixture private provider detail'); } },
+      appOdds: { getQuotaStatus: () => null, load: async () => ({ quotes, sharedOdds: {
+        odds: Object.fromEntries(quotes.map((quote) => [quote.selection, quote.odds])),
+        bookmakerBySelection: Object.fromEntries(quotes.map((quote) => [quote.selection, quote.bookmaker])),
+        source: 'odds_api', capturedAt: NOW.toISOString() }, metadata: {} }) },
     });
     const prepared = await runtime.prepare(job);
     assert.equal(prepared.inputSnapshot.forecasts.A, null);

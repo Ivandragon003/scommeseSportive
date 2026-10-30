@@ -1,6 +1,6 @@
 import { ResearchRuntime, settleResearchBets } from './ResearchRuntime';
 import { baselineManifest, TOP5_COMPETITIONS } from './ForecastCore';
-import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
+import { PreparedT15Job, safeOddsFailureCode, T15Job } from './T15Scheduler';
 import { reconcileResearchMonitoring } from './ResearchMonitoring';
 import { settleProspectiveEvidence } from './ResearchProspectiveEvidence';
 
@@ -74,7 +74,34 @@ export type NightlySummary = {
   settlement: { checked: number; settled: number; unresolved: number }; quota: unknown; reasonCounts: Record<string, number>;
   prospectiveEvidence?: { checked: number; settled: number; unresolved: number; frozen: number };
   diagnosticOnly?: boolean;
+  diagnosticPreparationErrors?: number;
 };
+
+const isDiagnosticInfrastructureFailure = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const { code, name, message, cause } = error as { code?: unknown; name?: unknown; message?: unknown; cause?: unknown };
+  return /^(?:SQLITE|LIBSQL|HRANA|TRANSACTION|SERVER_ERROR)/i.test(String(code ?? ''))
+    || /^(?:Libsql|Sqlite|Database).*Error$/i.test(String(name ?? ''))
+    || /(?:lease|database|libsql|sqlite|migration|transaction|commit|origin|job[_ ]identity)/i.test(String(message ?? ''))
+    || (cause !== error && isDiagnosticInfrastructureFailure(cause));
+};
+
+/** A failed research forecast is evidence of unavailability, never a substitute forecast. */
+async function unavailableDiagnostic(db: RuntimeDb, job: T15Job, clock: () => Date, failureCode: string): Promise<PreparedT15Job> {
+  const match = await db.getMatchById(job.matchId), observedAt = clock().toISOString();
+  if (!match || match.match_id !== job.matchId || !TOP5_COMPETITIONS.includes(match.competition)
+    || match.home_goals != null || match.away_goals != null || Date.parse(match.date) !== Date.parse(job.kickoffAt)
+    || !Number.isFinite(Date.parse(match.date)) || Date.parse(observedAt) >= Date.parse(match.date)) {
+    throw new Error('diagnostic_fixture_not_eligible');
+  }
+  return { job, kickoffAt: match.date, status: 'upcoming', quotes: [], prospectiveObservations: [],
+    inputSnapshot: { observedAt, quotes: [], match: { matchId: job.matchId, competition: match.competition,
+      kickoffAt: match.date, homeTeamName: match.home_team_name, awayTeamName: match.away_team_name },
+    diagnosticPreparation: { status: 'UNAVAILABLE', reason: failureCode } },
+    decisions: (['A', 'C'] as const).map((family) => ({ family,
+      modelVersion: family === 'A' ? baselineManifest().version : 'C-unavailable',
+      action: 'ABSTAIN', reason: 'diagnostic_unavailable', validated: false, score: 0 })) };
+}
 
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
@@ -86,7 +113,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   const summary: NightlySummary = { mode: 'NIGHTLY', enabled: policy.enabled, runId: null, startedAt, endedAt: null, windowEndAt,
     analyzedMatches: 0, registeredBets: 0, skippedMatches: 0, missedMatches: 0, errors: 0, apiErrors: 0,
     settlement: { checked: 0, settled: 0, unresolved: 0 }, quota: null, reasonCounts: {},
-    ...(options.diagnosticOnly ? { diagnosticOnly: true } : {}) };
+    ...(options.diagnosticOnly ? { diagnosticOnly: true, diagnosticPreparationErrors: 0 } : {}) };
   const reason = (code: string) => { summary.reasonCounts[code] = (summary.reasonCounts[code] ?? 0) + 1; };
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
@@ -162,7 +189,17 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
       }
       summary.analyzedMatches++;
       try {
-        const result = await preparer!.prepareNightly(job);
+        let result: PreparedT15Job;
+        try { result = await preparer!.prepareNightly(job); }
+        catch (error) {
+          if (!options.diagnosticOnly || isDiagnosticInfrastructureFailure(error)) throw error;
+          const failureCode = safeOddsFailureCode(error) ?? 'research_forecast_unavailable';
+          result = await unavailableDiagnostic(db, job, clock, failureCode);
+          summary.errors++;
+          summary.diagnosticPreparationErrors = (summary.diagnosticPreparationErrors ?? 0) + 1;
+          summary.apiErrors += safeOddsFailureCode(error) ? 1 : 0;
+          reason('diagnostic_preparation_failed'); reason(failureCode);
+        }
         if (result.job.id !== job.id || result.job.leaseToken !== job.leaseToken || result.job.matchId !== job.matchId) throw new Error('nightly_job_identity_mismatch');
         if (result.status !== 'upcoming' || Date.parse(result.kickoffAt) !== Date.parse(job.kickoffAt)) {
           const code = Date.parse(result.kickoffAt) !== Date.parse(job.kickoffAt) ? 'kickoff_changed' : `fixture_${result.status}`;
