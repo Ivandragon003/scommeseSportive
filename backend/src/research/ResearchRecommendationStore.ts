@@ -52,6 +52,7 @@ export class ResearchRecommendationStore {
   private readonly research: ResearchStore;
   private guards: Promise<void> | undefined;
   private schemaPresent: boolean | undefined;
+  private cancellationSchemaPresent: boolean | undefined;
   constructor(private readonly client: Client, private readonly ready: () => Promise<void> = async () => {},
     options: { now?: () => Date; research?: ResearchStore } = {}) {
     this.clock = options.now ?? (() => new Date()); this.research = options.research ?? new ResearchStore(client, ready, { now: this.clock });
@@ -357,12 +358,24 @@ export class ResearchRecommendationStore {
       ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY d.created_at DESC,d.id LIMIT ?`, [...args, limit]);
   }
 
+  private async activeExecutionFilter(): Promise<string | null> {
+    if (!this.cancellationSchemaPresent) {
+      this.cancellationSchemaPresent = !!await first(this.client,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='research_bet_cancellations'");
+    }
+    return this.cancellationSchemaPresent
+      ? "NOT EXISTS(SELECT 1 FROM research_bet_cancellations cancelled WHERE json_extract(cancelled.bet_json,'$.execution_decision_id')=d.id)"
+      : null;
+  }
+
   async listDecisionViews(options: { policyHash?: string; runId?: string; matchId?: string; family?: ResearchFamily;
     limit?: number; includeForecasts?: boolean; includeProbabilityStages?: boolean } = {}): Promise<any[]> {
     if (!await this.hasSchema()) return [];
     const limit = options.limit ?? 200;
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || options.includeForecasts && !options.matchId) throw new Error('Invalid execution view scope');
     const filters: string[] = [], args: any[] = [];
+    const activeExecution = await this.activeExecutionFilter();
+    if (activeExecution) filters.push(activeExecution);
     for (const [key, column] of [['policyHash', 'j.policy_hash'], ['runId', 'j.run_id'], ['matchId', 'j.match_id'], ['family', 'd.family']] as const) {
       if (options[key]) { filters.push(`${column}=?`); args.push(options[key]); }
     }
@@ -401,6 +414,7 @@ export class ResearchRecommendationStore {
     const from = iso(options.from), to = iso(options.to), limit = options.limit ?? 500;
     if (Date.parse(to) <= Date.parse(from) || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('Invalid comparison decision scope');
     const hasExecution = await this.hasSchema();
+    const activeExecution = hasExecution ? await this.activeExecutionFilter() : null;
     const fields = ['quote','probability','ev','confidence','suggestedStakePercent','stakePercent','stakeCents','decisionMode','policyHash','policyVersion',
       'matchId','competition','league','matchLabel','homeTeamName','awayTeamName','kickoffAt'];
     const compact = (alias: string) => fields.flatMap((key) => [`'${key}'`, `json_extract(${alias}.snapshot_json,'$.${key}')`]).join(',');
@@ -421,7 +435,7 @@ export class ResearchRecommendationStore {
       FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id
       JOIN research_execution_policies p ON p.hash=j.policy_hash LEFT JOIN research_bets b ON b.execution_decision_id=d.id
       LEFT JOIN research_settlements s ON s.bet_id=b.id
-      WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family` : '';
+      WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family${activeExecution ? ` AND ${activeExecution}` : ''}` : '';
     const quoteDifferences = ['odds','bookmaker','source','line','side','team'].map((key) =>
       `json_extract(a.quote_json,'$.${key}') IS NOT json_extract(c.quote_json,'$.${key}')`).join(' OR ');
     const cte = `WITH candidates AS (${legacy}${execution}), ranked AS (
