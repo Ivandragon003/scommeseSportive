@@ -20,6 +20,7 @@ services:
       # Betting runs only in the finite GitHub Actions nightly, never in the web process.
       RESEARCH_T15_SCHEDULER_ENABLED: "false"
       RESEARCH_NIGHTLY_ENABLED: "false"
+      RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: "false"
       AUTO_BET_ENABLED: "false"
       # Lineups are paused to reduce reads and provider calls.
       PLAYER_DATA_ENABLED: ${PLAYER_DATA_ENABLED:-false}

@@ -1,7 +1,13 @@
 /* Finite CI-only Nightly Pre-Match Virtual Betting. Disabled by default. */
+function recommendationEnabled(env = process.env) {
+  const value = env.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED;
+  if (value !== undefined && !['true', 'false'].includes(value)) throw new Error('Invalid RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED');
+  return value === 'true';
+}
 async function runNightly(options = {}) {
   const { loadNightlyPolicy, runResearchNightly } = require('../dist/research/ResearchNightly');
   const policy = options.policy ?? loadNightlyPolicy();
+  const useRecommendations = recommendationEnabled(options.env ?? process.env);
   const log = options.log ?? ((record) => console.log(JSON.stringify(record)));
   if (!policy.enabled) {
     const result = { mode: 'NIGHTLY', enabled: false, reason: 'nightly_disabled' };
@@ -14,7 +20,10 @@ async function runNightly(options = {}) {
   const { DatabaseService } = require('../dist/db/DatabaseService');
   const db = options.db ?? new DatabaseService();
   try {
-    const result = await runResearchNightly(db, { ...options, policy, runId,
+    const execute = useRecommendations
+      ? require('../dist/research/ResearchRecommendationNightly').runRecommendationNightly : runResearchNightly;
+    const result = await execute(db, { ...options, policy, runId,
+      ...(!useRecommendations ? { diagnosticOnly: true } : {}),
       dataGatesPassed: options.dataGatesPassed ?? process.env.RESEARCH_NIGHTLY_DATA_GATES_PASSED !== 'false' });
     log(result); return result;
   } finally { if (!options.db) await db.close(); }
@@ -23,4 +32,4 @@ if (require.main === module) {
   runNightly().then((result) => { if (result.errors) process.exitCode = 1; })
     .catch(() => { console.error('research_nightly_failed'); process.exitCode = 1; });
 }
-module.exports = { runNightly };
+module.exports = { runNightly, recommendationEnabled };

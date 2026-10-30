@@ -233,7 +233,7 @@ test('custom-duration retries preserve the original persisted window before quer
         if (github) assert.equal(first.runId, 'github-actions:991122');
         f.advance(600000);
         const retry = await invoke();
-        assert.equal(retry.errors, 0); assert.equal(retry.registeredBets, 2);
+        assert.equal(retry.errors, 0); assert.equal(retry.registeredBets, github ? 0 : 2);
         assert.equal(retry.runId, first.runId); assert.equal(retry.startedAt, START);
         assert.equal(retry.windowEndAt, first.windowEndAt);
         assert.equal(queries[1].nowIso, '2026-10-29T02:22:00.000Z');

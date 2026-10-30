@@ -94,6 +94,65 @@ export interface BestValueOpportunity {
   commenceTime?: string | null;
 }
 
+export interface CanonicalRecommendationPacket {
+  policyVersion: string;
+  selected: BestValueOpportunity | null;
+  ranked: BestValueOpportunity[];
+  decisionStatus: 'RECOMMENDED' | 'NO_BET';
+  asOf: string;
+  model: {
+    source: string;
+    version: string;
+    codeHash: string;
+    configHash: string;
+    stateHash: string;
+  };
+  odds: {
+    source: string;
+    capturedAt: string | null;
+    bookmakerBySelection: Record<string, string>;
+  };
+  probabilities: { raw: Record<string, number>; decision: Record<string, number> };
+}
+
+export interface AutomaticRecommendationPacket extends CanonicalRecommendationPacket {
+  actualStakeAmount: number;
+  status: string;
+  placedAt?: string | null;
+}
+
+/** A recorded abstention can legitimately have no completed forecast or quote packet. */
+export interface TechnicalRecommendationAbstention {
+  projectionKind: 'technical_abstention';
+  selected: null;
+  ranked: [];
+  decisionStatus: 'NO_BET';
+  actualStakeAmount: 0;
+  status: 'ABSTAIN';
+  reason: string;
+  asOf: string;
+  placedAt: null;
+  model: null;
+  probabilities: null;
+  odds: null;
+  source: null;
+  quoteArchived: false;
+  quoteStatus: 'UNAVAILABLE';
+  quoteCapturedAt: null;
+  decisionId?: string;
+  policyHash?: string;
+  recordedModelVersion?: string | null;
+  recordedAction?: 'ABSTAIN';
+}
+
+export type CanonicalRecommendationProjection = CanonicalRecommendationPacket | TechnicalRecommendationAbstention;
+export type AutomaticRecommendationProjection = AutomaticRecommendationPacket | TechnicalRecommendationAbstention;
+
+export interface PredictionRecommendationProjection {
+  canonicalRecommendation?: CanonicalRecommendationProjection | null;
+  automaticRecommendation?: AutomaticRecommendationProjection | null;
+}
+
 export interface PredictionOddsProvenance {
   oddsSource?: string | null;
   oddsBookmaker?: string | null;

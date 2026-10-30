@@ -10,7 +10,7 @@ const policy = { quoteMaxAgeMs: 300000, minEv: .04, minPrudentialEv: .01 };
 function harness(options = {}) {
   const baselineVersion = baselineManifest().version;
   const tree = { oblivious_trees: [{ leaf_values: [.1] }], scale_and_bias: [1, [0]] };
-  const artifact = { family: 'C', version: 'C-cohort-fixture', featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION,
+  const artifact = { family: 'C', version: options.modelVersion ?? 'C-cohort-fixture', featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION,
     baselineVersion, candidateKind: 'intensity_correction', weight: .5, temperature: 1,
     trainedThrough: '2026-09-01T00:00:00Z', validationThrough: '2026-10-01T00:00:00Z', createdAt: '2026-10-02T00:00:00Z',
     models: { home: tree, away: tree }, probabilityProtocol: COHERENT_PROBABILITY_PROTOCOL,
@@ -33,14 +33,20 @@ function harness(options = {}) {
     targetAt: AT, leaseToken: `lease-${index}`, runId });
   const commits = [];
   let claimed = false;
+  const exactReads = [];
   const research = {
     getChampion: async () => { counts.champions++; return options.champion ? state.model : null; },
-    getModels: async () => { counts.models++; if (state.modelFailures-- > 0) throw new Error('fixture_models_transient'); return [state.model]; },
+    getModels: async () => { counts.models++; if (state.modelFailures-- > 0) throw new Error('fixture_models_transient'); return state.models ?? [state.model]; },
+    getModelByVersion: async (family, version) => {
+      counts.models++; exactReads.push({ family, version });
+      return (state.models ?? [state.model]).find((model) => model.version === version) ?? null;
+    },
     getLatestBenchmark: async (family, version) => {
       counts.reports[family]++;
       if (family === 'C' && state.reportFailures-- > 0) throw new Error('fixture_report_transient');
+      const model = (state.models ?? [state.model]).find((entry) => entry.version === version) ?? state.model;
       return family === 'A' ? null : { modelVersion: version, createdAt: '2026-10-28T00:00:00Z',
-        report: { ...state.model.artifact, calibrationSamples: { A: samples, C: samples } } };
+        report: { ...model.artifact, calibrationSamples: { A: samples, C: samples } } };
     },
     listMarkets: async ({ family }) => { counts.markets++; return [{ family, market: '1x2', state: state.market, evidence: {} }]; },
     listProspectiveCalibrationSamples: async () => { counts.samples++; return samples; },
@@ -53,9 +59,36 @@ function harness(options = {}) {
     awayTeam: row.away_team_name, commenceTime: row.date, capturedAt: AT, bookmakers: [{ bookmakerKey: 'fixture', bookmakerName: 'Fixture Book',
       updatedAt: AT, markets: [{ marketKey: 'h2h', outcomes: [{ name: row.home_team_name, price: 10 }, { name: 'Draw', price: 10 },
         { name: row.away_team_name, price: 10 }] }] }] })) };
-  const runtime = new ResearchRuntime(db, { clock: () => new Date(AT), odds, ...(options.legacy ? {} : { nightly: policy }) });
-  return { runtime, state, counts, job, commits };
+  const runtime = new ResearchRuntime(db, { clock: () => new Date(AT), odds, candidateVersionC: options.candidateVersionC,
+    ...(options.legacy ? {} : { nightly: policy }) });
+  return { runtime, state, counts, job, commits, exactReads };
 }
+
+test('an explicit C pin reads only its exact artifact and ignores later weekly candidates and champion selection', async () => {
+  const version = 'C-906371b0b3a1e2c8';
+  const h = harness({ modelVersion: version, candidateVersionC: version, champion: true });
+  const fixed = h.state.model;
+  const weekly = { version: 'C-weekly-next', artifact: { ...fixed.artifact, version: 'C-weekly-next' } };
+  h.state.models = [fixed, weekly]; h.state.model = weekly;
+  const first = await h.runtime.prepareNightly(h.job(0));
+  const second = await h.runtime.prepareNightly(h.job(1));
+  for (const result of [first, second]) {
+    const c = result.decisions.find((decision) => decision.family === 'C');
+    assert.equal(c.modelVersion, version); assert.equal(c.validated, true);
+    assert.ok(c.probabilityStages.decision);
+  }
+  assert.deepEqual(h.exactReads, [{ family: 'C', version }]);
+  assert.equal(h.counts.models, 1); assert.equal(h.counts.champions, 0); assert.equal(h.counts.reports.C, 1);
+});
+
+test('missing pinned C is an explicit technical abstention and never falls back to a newer registry candidate', async () => {
+  const h = harness({ candidateVersionC: 'C-906371b0b3a1e2c8' });
+  const result = await h.runtime.prepareNightly(h.job(0));
+  const c = result.decisions.find((decision) => decision.family === 'C');
+  assert.equal(c.modelVersion, 'C-unavailable'); assert.equal(c.action, 'ABSTAIN'); assert.equal(c.validated, false);
+  assert.equal(c.reason, 'hybrid_model_unavailable_or_incompatible');
+  assert.equal(h.counts.champions, 0); assert.equal(h.exactReads.length, 1);
+});
 
 test('two nightly fixtures share one model/report snapshot, retain identical decisions and still read every safety market', async () => {
   const h = harness();

@@ -1,4 +1,7 @@
-import { OddsSourceBadgeInfo } from './predictionTypes';
+import {
+  BestValueOpportunity, CanonicalRecommendationProjection, OddsSourceBadgeInfo,
+  PredictionRecommendationProjection, TechnicalRecommendationAbstention,
+} from './predictionTypes';
 import {
   formatMatchDate,
   formatMatchTime,
@@ -49,9 +52,10 @@ export const formatDayLabel = (key: string) => {
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
 
-export const confidenceRank = (value?: string): number => (value === 'HIGH' ? 3 : value === 'MEDIUM' ? 2 : 1);
-
 export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): OddsSourceBadgeInfo => {
+  if (isTechnicalRecommendationAbstention(prediction?.automaticRecommendation)) {
+    return { label: 'Quota Nightly non disponibile', className: 'pr-badge-gray' };
+  }
   if (isReplay) {
     return prediction?.oddsReplaySource === 'historical_bookmaker_snapshot'
       ? { label: 'Snapshot Eurobet storico', className: 'pr-badge-green' }
@@ -66,31 +70,35 @@ export const buildOddsReliabilityBadge = (prediction: any, isReplay: boolean): O
   return { label: 'Quota bookmaker non disponibile', className: 'pr-badge-gray' };
 };
 
-export const rankOpportunity = (opportunity: any): number => {
-  const expectedValue = Number(opportunity?.expectedValue ?? 0);
-  const edge = Number(opportunity?.edge ?? 0);
-  const probability = Number(opportunity?.ourProbability ?? 0);
-  const normalizedProbability = probability > 1 ? probability / 100 : probability;
-  return (expectedValue * 0.55) + (edge * 0.30) + (normalizedProbability * 8) + (confidenceRank(opportunity?.confidence) * 4);
+export const isTechnicalRecommendationAbstention = (
+  packet: CanonicalRecommendationProjection | null | undefined,
+): packet is TechnicalRecommendationAbstention => packet != null && 'projectionKind' in packet
+  && packet.projectionKind === 'technical_abstention';
+
+/** A persisted Nightly decision remains authoritative even when it abstained. */
+export const canonicalRecommendationForPrediction = (
+  prediction: PredictionRecommendationProjection | null | undefined,
+): CanonicalRecommendationProjection | null => prediction?.automaticRecommendation ?? prediction?.canonicalRecommendation ?? null;
+
+/** Consume the server order; neither confidence nor EV is ranked again in the browser. */
+export const canonicalRankedOpportunities = (prediction: PredictionRecommendationProjection | null | undefined): BestValueOpportunity[] => {
+  const packet = canonicalRecommendationForPrediction(prediction);
+  if (!packet?.selected) return [];
+  const selectedKey = `${packet.selected.selection}::${packet.selected.marketName}`;
+  return [packet.selected, ...(packet.ranked ?? []).filter((opportunity) =>
+    `${opportunity.selection}::${opportunity.marketName}` !== selectedKey)].slice(0, 3);
 };
 
-export const isWorthwhileLowConfidenceOpportunity = (opportunity: any): boolean => {
-  if (String(opportunity?.confidence ?? '').toUpperCase() !== 'LOW') return false;
-  const status = String(opportunity?.bestBetStatus ?? '').toUpperCase();
-  const tier = String(opportunity?.marketTier ?? '').toUpperCase();
-  const odds = Number(opportunity?.bookmakerOdds);
-  const expectedValue = Number(opportunity?.expectedValue);
-  const edgeNoVig = Number(opportunity?.edgeNoVig);
-  const kelly = Number(opportunity?.kellyFraction);
-  const stake = Number(opportunity?.suggestedStakePercent);
-  return status !== 'SPECULATIVE'
-    && tier !== 'SPECULATIVE'
-    && opportunity?.isValueBet !== false
-    && Number.isFinite(odds) && odds > 1
-    && Number.isFinite(expectedValue) && expectedValue > 0
-    && Number.isFinite(edgeNoVig) && edgeNoVig > 0
-    && Number.isFinite(kelly) && kelly > 0
-    && Number.isFinite(stake) && stake > 0;
+export const canonicalSuggestedStakeAmount = (
+  prediction: PredictionRecommendationProjection | null | undefined, bankroll: number,
+): number => {
+  const packet = canonicalRecommendationForPrediction(prediction);
+  if (!packet?.selected) return 0;
+  if (prediction?.automaticRecommendation) {
+    const amount = Number(prediction.automaticRecommendation.actualStakeAmount);
+    return Number.isFinite(amount) && amount >= 0 ? amount : 0;
+  }
+  return bankroll > 0 ? Number(packet.selected.suggestedStakePercent ?? 0) / 100 * bankroll : 0;
 };
 
 export const formatMarketKey = (market: string): string => {
@@ -157,6 +165,9 @@ export const sanitizePredictionForBookmakerOdds = (prediction: any, oddsSource?:
     usedSyntheticOdds: false,
     usedFallbackBookmaker: resolvedSource === 'fallback_provider',
     valueOpportunities: [],
+    canonicalRecommendation: prediction.canonicalRecommendation
+      ? { ...prediction.canonicalRecommendation, selected: null, ranked: [], decisionStatus: 'NO_BET' }
+      : null,
     bestValueOpportunity: null,
     bestBetStatus: 'NO_MARKET',
     oddsBookmaker: null,

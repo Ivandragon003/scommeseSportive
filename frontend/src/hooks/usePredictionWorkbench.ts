@@ -4,11 +4,13 @@ import { BestValueOpportunity as BestValueOpportunityModel } from '../components
 import {
   buildBetKey,
   buildOddsReliabilityBadge,
+  canonicalRankedOpportunities,
+  canonicalRecommendationForPrediction,
+  canonicalSuggestedStakeAmount,
   currentSeason,
   formatMarketKey,
-  isWorthwhileLowConfidenceOpportunity,
+  isTechnicalRecommendationAbstention,
   oddsCategoryLabel,
-  rankOpportunity,
 } from '../components/predictions/predictionWorkbenchUtils';
 import { fmtSelection } from '../components/predictions/predictionFormatting';
 import { useToastState } from './useToastState';
@@ -161,50 +163,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const methodology = predictionAnalysis.pred?.methodology ?? {};
 
   const vbRanked = useMemo<BestValueOpportunityModel[]>(
-    () => {
-      const isVisibleTeamBet = (opportunity: BestValueOpportunityModel): boolean => {
-        const confidence = String(opportunity.confidence ?? '').toUpperCase();
-        const status = String(opportunity.bestBetStatus ?? '').toUpperCase();
-        const tier = String(opportunity.marketTier ?? '').toUpperCase();
-        const bookmakerOdds = Number(opportunity.bookmakerOdds);
-        return (
-          !isPlayerPropOpportunity(opportunity) &&
-          status !== 'SPECULATIVE' &&
-          tier !== 'SPECULATIVE' &&
-          (
-            confidence === 'MEDIUM' ||
-            confidence === 'HIGH' ||
-            isWorthwhileLowConfidenceOpportunity(opportunity)
-          ) &&
-          Number.isFinite(bookmakerOdds) &&
-          bookmakerOdds > 1
-        );
-      };
-      const opportunityKey = (opportunity: BestValueOpportunityModel): string =>
-        `${String(opportunity.selection ?? '')}::${String(opportunity.marketName ?? '')}`;
-      const recommendedOpportunity = bestValueOpp && isVisibleTeamBet(bestValueOpp)
-        ? bestValueOpp
-        : null;
-      const candidatesByKey = new Map<string, BestValueOpportunityModel>();
-      if (recommendedOpportunity) {
-        candidatesByKey.set(opportunityKey(recommendedOpportunity), recommendedOpportunity);
-      }
-      for (const opportunity of matchValueOpportunities) {
-        if (!isVisibleTeamBet(opportunity)) continue;
-        const key = opportunityKey(opportunity);
-        if (candidatesByKey.has(key)) continue;
-        candidatesByKey.set(key, opportunity);
-      }
-      return Array.from(candidatesByKey.values())
-        .sort((left, right) => {
-          const confidenceBand = (opportunity: BestValueOpportunityModel) =>
-            ['HIGH', 'MEDIUM'].includes(String(opportunity.confidence ?? '').toUpperCase()) ? 1 : 0;
-          return confidenceBand(right) - confidenceBand(left)
-            || rankOpportunity(right) - rankOpportunity(left);
-        })
-        .slice(0, 3);
-    },
-    [bestValueOpp, isPlayerPropOpportunity, matchValueOpportunities]
+    () => canonicalRankedOpportunities(predictionAnalysis.pred),
+    [predictionAnalysis.pred]
   );
 
   const allOddsEntries = useMemo(
@@ -241,7 +201,9 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const recommendedBetResult = predictionAnalysis.pred?.recommendedBetResult ?? null;
   const oddsReliabilityBadge = buildOddsReliabilityBadge(predictionAnalysis.pred, isReplayAnalysis);
   const oddsSourceWarning =
-    isReplayAnalysis
+    predictionAnalysis.pred?.automaticRecommendation
+      ? null
+      : isReplayAnalysis
       ? (predictionAnalysis.pred?.oddsReplaySource === 'historical_bookmaker_snapshot'
           ? 'Replay costruito su snapshot Eurobet storico.'
           : 'Quota Eurobet storica non disponibile: il replay non espone prezzi stimati o di altri provider.')
@@ -271,16 +233,13 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const maxExposureAmount = userBudget.bankroll > 0 ? (userBudget.bankroll * maxExposurePct) / 100 : 0;
 
   const finalRecommendedChoice = useMemo(() => {
-    const match = vbRanked[0] ?? null;
+    const match = canonicalRecommendationForPrediction(predictionAnalysis.pred)?.selected ?? null;
     if (!match) return null;
-    const suggestedStakeAmount = userBudget.bankroll > 0
-      ? (Number(match.suggestedStakePercent ?? 0) / 100) * userBudget.bankroll
-      : 0;
     return {
       ...match,
-      suggestedStakeAmount,
+      suggestedStakeAmount: canonicalSuggestedStakeAmount(predictionAnalysis.pred, userBudget.bankroll),
     };
-  }, [userBudget.bankroll, vbRanked]);
+  }, [userBudget.bankroll, predictionAnalysis.pred]);
 
   const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
   const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
@@ -301,9 +260,10 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   }, []);
 
   const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => {
+    if (isTechnicalRecommendationAbstention(predictionAnalysis.pred?.automaticRecommendation)) return [];
     if (!bestValueOpp || !manualArchiveClassification(bestValueOpp)) return [];
     return [bestValueOpp];
-  }, [bestValueOpp, manualArchiveClassification]);
+  }, [bestValueOpp, manualArchiveClassification, predictionAnalysis.pred?.automaticRecommendation]);
 
   const handleArchiveOpportunity = useCallback(async (opportunity: BestValueOpportunityModel) => {
     if (isReplayAnalysis) {

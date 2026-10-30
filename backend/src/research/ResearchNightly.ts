@@ -73,18 +73,20 @@ export type NightlySummary = {
   analyzedMatches: number; registeredBets: number; skippedMatches: number; missedMatches: number; errors: number; apiErrors: number;
   settlement: { checked: number; settled: number; unresolved: number }; quota: unknown; reasonCounts: Record<string, number>;
   prospectiveEvidence?: { checked: number; settled: number; unresolved: number; frozen: number };
+  diagnosticOnly?: boolean;
 };
 
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
-  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean } = {}): Promise<NightlySummary> {
+  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean } = {}): Promise<NightlySummary> {
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()
     : nextNightlyBoundary(new Date(startedAt), policy.hour, policy.minute).toISOString();
   const summary: NightlySummary = { mode: 'NIGHTLY', enabled: policy.enabled, runId: null, startedAt, endedAt: null, windowEndAt,
     analyzedMatches: 0, registeredBets: 0, skippedMatches: 0, missedMatches: 0, errors: 0, apiErrors: 0,
-    settlement: { checked: 0, settled: 0, unresolved: 0 }, quota: null, reasonCounts: {} };
+    settlement: { checked: 0, settled: 0, unresolved: 0 }, quota: null, reasonCounts: {},
+    ...(options.diagnosticOnly ? { diagnosticOnly: true } : {}) };
   const reason = (code: string) => { summary.reasonCounts[code] = (summary.reasonCounts[code] ?? 0) + 1; };
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
@@ -169,6 +171,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
         }
         result.inputSnapshot = { ...(result.inputSnapshot as object), mode: 'NIGHTLY', runId: run.id,
           windowStartAt: run.startedAt, windowEndAt: run.windowEndAt,
+          ...(options.diagnosticOnly ? { diagnosticOnly: true } : {}),
           prospectiveObservations: Array.isArray(result.prospectiveObservations) ? result.prospectiveObservations : [] };
         prepared.push(result);
       } catch (error) {
@@ -186,6 +189,8 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
         await db.research.finishJob(item.job.id, item.job.leaseToken, { status: 'MISSED', reason: 'match_started' }); continue;
       }
       item.decisions = item.decisions.map((decision) => {
+        if (options.diagnosticOnly) return { ...decision, action: 'ABSTAIN', reason: 'diagnostic_only',
+          diagnosticOriginalDecision: { ...decision } };
         const invalid = decision.action === 'BET' ? nightlyQuoteReason(item.quotes[Number(decision.quoteIndex)], clock().getTime(), effectivePolicy.quoteMaxAgeMs) : null;
         return invalid ? { ...decision, action: 'ABSTAIN', reason: invalid } : decision;
       });
@@ -215,10 +220,10 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
     if (leaseLost && !summary.errors) { summary.errors++; reason('nightly_lease_lost'); }
     summary.endedAt = clock().toISOString();
     await db.research.finishNightlyRun(run.id, run.leaseToken, { status: summary.errors ? 'ERROR' : 'COMPLETED', summary });
-    await db.saveSchedulerRun({ schedulerName: 'research_nightly', trigger: 'github_actions', startedAt: summary.startedAt,
+    await db.saveSchedulerRun({ schedulerName: options.diagnosticOnly ? 'research_nightly_diagnostic' : 'research_nightly', trigger: 'github_actions', startedAt: summary.startedAt,
       endedAt: summary.endedAt, success: summary.errors === 0, summary,
       ...(summary.errors ? { error: 'research_nightly_failed' } : {}) });
-    if (db.researchMonitoring && db.listRecentSchedulerRuns) {
+    if (!options.diagnosticOnly && db.researchMonitoring && db.listRecentSchedulerRuns) {
       await reconcileResearchMonitoring({ research: db.research, researchMonitoring: db.researchMonitoring,
         listRecentSchedulerRuns: db.listRecentSchedulerRuns.bind(db),
         listRecentSchedulerRunsByName: db.listRecentSchedulerRunsByName?.bind(db) }, clock(), { schedulerEnabled: true });

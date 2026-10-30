@@ -1,5 +1,16 @@
 # System design di FootPredictor
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md).
+
+
 Aggiornato al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
 La [guida canonica](operations/nightly-pre-match-2026-10-29.md) definisce
 configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono pubblicate. Il backend `01320941`
@@ -339,11 +350,11 @@ prudenziali. Si riutilizzano soltanto osservazioni `CALIBRATION` già risolte e
 compatibili con versione, artefatto e configurazione al momento della nuova
 previsione. Nessun refit, calibrazione ricostruita o promozione implicita.
 
-Il registro iniziale non contiene campioni ammissibili: anche con inferenza
-corretta e quote reali, i gate di almeno 50 partite per mercato/fascia e
-Hoeffding possono imporre astensione. Non è richiesta una redditività già
-dimostrata per raccogliere osservazioni, ma non si forza una BET per iniziare
-il confronto. Vedi il [riscontro runtime](operations/nightly-model-runtime-2026-10-29.md).
+Nel benchmark e nella diagnosi research, almeno50 partite per mercato/fascia
+e Hoeffding possono imporre astensione. Questi criteri restano conservati:
+non sono il veto della nuova esecuzione virtuale basata sul consiglio Partite.
+La diagnosi ha stake zero; eventuali nuove BET appartengono a record di
+esecuzione distinti e non promuovono automaticamente un modello. Vedi il [riscontro runtime](operations/nightly-model-runtime-2026-10-29.md).
 
 Il registry `research_experiments`, aggiunto dalla migrazione 017, conserva
 separatamente diagnosi e confronti di sviluppo. I relativi artefatti restano
@@ -422,10 +433,11 @@ La finestra parte dall'avvio effettivo e arriva alla successiva nightly delle
 rinvii e cambi di kickoff non autorizzano una puntata retroattiva. Il kickoff
 viene ricontrollato nel commit, senza nuova registrazione dopo l'inizio.
 
-A/C usano lo stesso snapshot dati e quote. Ogni modello può scegliere una
-puntata oppure nessuna. Con 1.000 euro iniziali per portafoglio, lo stake è
-1% del patrimonio contabile e l'esposizione aperta massima 5%; una sola
-puntata per partita/modello. Selezione deterministica, lease persistenti e
+La nuova policy locale riusa due portafogli da 1.000 euro: A esegue esattamente
+il consiglio Partite con la sua percentuale di stake, C usa 1% fisso. Ogni
+modello può astenersi, esposizione aperta massima 5%, una puntata per partita
+e portafoglio. Il picker backend mantiene livelli/ranking della pagina; la
+UI non applica un ranking autonomo. Selezione deterministica, lease persistenti e
 vincoli univoci proteggono retry e workflow concorrenti senza doppio impegno.
 
 `EXPERIMENTAL` non impedisce da solo la simulazione virtuale: restano
@@ -435,6 +447,33 @@ restano separate; C non diventa Champion perché guadagna nel periodo.
 `RESEARCH_NIGHTLY_ENABLED=false` resta il default sicuro del codice;
 il 30 ottobre le nuove registrazioni sono state riattivate dopo il recupero
 controllato verificato. Il run riuscito del 29 ottobre resta un riscontro datato. Nessun percorso di questo confronto invia puntate ai bookmaker.
+
+### Nuova esecuzione del consiglio: codice locale opt-in
+
+A usa PredictionService corrente, versione/hash `APP-A` distinta da A research 80;
+C906 e la sua baseline 80 restano immutati. La nightly conserva prima origini
+DIAGNOSTIC a stake zero; la migrazione additiva 023 prepara quattro tabelle
+`research_execution_policies`, `research_execution_jobs`,
+`research_execution_inputs`, `research_execution_decisions` e il FK nullable
+`research_bets.execution_decision_id`. I vecchi dieci ABSTAIN non vengono
+riscritti. Le nuove valutazioni hanno policy/input propri e quote ≤300 secondi.
+Ledger e unicità globale impediscono doppie puntate per match/modello/portafoglio.
+
+Il frontend locale preferisce il pacchetto A congelato e gli importi effettivi,
+con stato e timestamp della quota storica: non è una quota live. Non ricostruisce
+un consiglio live per coprire un ABSTAIN tecnico. Replay senza pacchetto,
+risposte tecniche e confronti troncati sono ancora oggetto della review locale.
+C esclude push/quarti non supportati dal proprio engine e cerca un'altra
+opportunità ammessa; A conserva i quarti supportati da GoalSettlement.
+Mercati EXPERIMENTAL ammessi se tecnicamente idonei, senza promessa di profitto,
+commissioni reali, copertura totale o superiorità statistica.
+
+Backup personale ufficiale di circa 530 MB verificato con due ripristini,
+integrità e FK0; rehearsal 023 e ripresa dopo crash mantengono 57 tabelle
+precedenti immutate. Sono prove locali:023 non è applicata in produzione.
+Rollback: spegnere il nuovo flag, conservando settlement, record e letture
+compatibili con le nuove esecuzioni. Non attribuire BET nuove alle origini a
+stake zero e non ripristinare un vecchio reader incompatibile come soluzione.
 
 ## 10. Replay, archivio e backtest
 
@@ -480,8 +519,9 @@ Il recupero `recover_missing_fixtures` è manuale e default `false`: richiede
 un vero successo A/C nello stesso giorno e nessuna esecuzione attiva. Il
 percorso standard continua a saltare dopo il successo. ResearchStore esclude
 gli input esistenti prima di API quote/inferenza, preservando il confronto
-precedente e valutando solo le partite mancanti. Non cambia minimo 50 campioni,
-EV 4%, EV prudenziale 1% o regole di freschezza/inizio partita.
+precedente e valutando solo le partite mancanti. Il recupero verificato usava
+la precedente diagnosi EV 4%/prudenziale 1% e minimo 50; la nuova esecuzione
+locale Partite è una policy separata, con freschezza e kickoff sempre controllati.
 
 Il flusso mantiene import Understat, supplemento HTTP/CSV consentito,
 normalizzazione, calendari, risultati, liquidazioni legacy e A/C e preparazione

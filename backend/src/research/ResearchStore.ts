@@ -67,6 +67,7 @@ export class ResearchStore {
   private readonly clock: () => Date;
   private nightlySchema: boolean | undefined;
   private prospectiveSchema: boolean | undefined;
+  private executionDecisionColumn: boolean | undefined;
 
   constructor(private readonly client: Client, private readonly ready: () => Promise<void> = async () => {},
     options: { now?: () => Date } = {}) {
@@ -150,6 +151,23 @@ export class ResearchStore {
     return pending;
   }
 
+  /** Share one financial write queue with additive virtual-execution policies. */
+  async runResearchTransaction<T>(work: (tx: Transaction) => Promise<T>, beforeCommit?: () => void): Promise<T> {
+    return this.write(work, beforeCommit);
+  }
+
+  private async hasExecutionDecisionColumn(refreshMissing = false): Promise<boolean> {
+    await this.ready();
+    if (this.executionDecisionColumn === undefined || refreshMissing && !this.executionDecisionColumn) {
+      const columns = await rows(this.client, 'PRAGMA table_info(research_bets)');
+      this.executionDecisionColumn = columns.some((column) => column.name === 'execution_decision_id');
+    }
+    return this.executionDecisionColumn;
+  }
+
+  /** Refresh a previously missing additive column after migration in the same process. */
+  async refreshExecutionSchema(): Promise<boolean> { return this.hasExecutionDecisionColumn(true); }
+
   async initializePortfolios(options: { includeMain?: boolean } = {}): Promise<any[]> {
     await this.write(async (tx) => {
       for (const id of ['shadow_A', 'shadow_C', ...(options.includeMain ? ['main'] : [])]) {
@@ -181,11 +199,37 @@ export class ResearchStore {
     if (options.portfolioId) { filters.push('b.portfolio_id=?'); args.push(options.portfolioId); }
     if (options.status === 'PENDING') filters.push('s.bet_id IS NULL');
     else if (options.status === 'SETTLED') filters.push('s.bet_id IS NOT NULL');
-    return rows(this.client, `SELECT b.*,s.multiplier,s.return_cents,s.settled_at,s.evidence_json,
+    const executionIdentity = await this.hasExecutionDecisionColumn(true) ? 'COALESCE(b.execution_decision_id,b.decision_id)' : 'b.decision_id';
+    return rows(this.client, `SELECT b.*,b.decision_id AS origin_decision_id,${executionIdentity} AS effective_execution_decision_id,
+      s.multiplier,s.return_cents,s.settled_at,s.evidence_json,
       CASE WHEN s.bet_id IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS status,
       CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
       ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
+  }
+
+  /** Complete accounting rows with a compact evidence projection, never truncated by a row limit. */
+  async listBetViews(options: { portfolioId?: string; status?: string; from?: string; until?: string } = {}): Promise<any[]> {
+    await this.ready(); const hasExecution = await this.hasExecutionDecisionColumn(true);
+    const filters: string[] = [], args: any[] = [];
+    if (options.portfolioId) { filters.push('b.portfolio_id=?'); args.push(options.portfolioId); }
+    if (options.status === 'PENDING') filters.push('s.bet_id IS NULL');
+    else if (options.status === 'SETTLED') filters.push('s.bet_id IS NOT NULL');
+    if (options.from) { filters.push('julianday(b.placed_at)>=julianday(?)'); args.push(iso(options.from)); }
+    if (options.until) { filters.push('julianday(b.placed_at)<julianday(?)'); args.push(iso(options.until)); }
+    const fields = ['quote','matchId','competition','league','matchLabel','homeTeamName','awayTeamName','kickoffAt','forecastAt','probability','ev','confidence',
+      'stakeCents','stakePercent','suggestedStakePercent','stakeMode','decisionMode','experimental','policyHash','policyVersion','reason','originDecisionId','effectiveExecutionDecisionId'];
+    const snapshot = fields.flatMap((key) => [`'${key}'`, `json_extract(b.snapshot_json,'$.${key}')`]).join(',');
+    const result = await rows(this.client, `SELECT b.id,b.decision_id,b.decision_id AS origin_decision_id,
+      ${hasExecution ? 'b.execution_decision_id' : 'NULL'} AS execution_decision_id,
+      ${hasExecution ? 'COALESCE(b.execution_decision_id,b.decision_id)' : 'b.decision_id'} AS effective_execution_decision_id,
+      b.portfolio_id,b.match_id,b.family,b.model_version,b.market,b.selection,b.odds,b.stake_cents,b.placed_at,
+      json_object(${snapshot}) AS snapshot_json,s.multiplier,s.return_cents,s.settled_at,
+      CASE WHEN s.bet_id IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS status,
+      CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
+      FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
+      ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
+    return result.map((row) => { delete row.snapshotJson; return row; });
   }
 
   async listLedger(portfolioId?: string): Promise<any[]> {
@@ -201,6 +245,31 @@ export class ResearchStore {
     if (options.family) { filters.push('family=?'); args.push(options.family); }
     return rows(this.client, `SELECT * FROM research_decisions ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
       ORDER BY created_at,id`, args);
+  }
+
+  /** Compact historical provenance for effective-policy views, including before migration 023. */
+  async listLegacyDecisionViews(options: { matchId?: string; family?: ResearchFamily; limit?: number; includeProbabilityStages?: boolean } = {}): Promise<any[]> {
+    await this.ready();
+    const limit = options.limit ?? 200;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Invalid research decision read limit');
+    const hasExecution = await this.hasExecutionDecisionColumn(true), filters: string[] = [], args: any[] = [];
+    if (options.matchId) { filters.push('j.match_id=?'); args.push(options.matchId); }
+    if (options.family) { filters.push('d.family=?'); args.push(options.family); }
+    const fields = ['probability', 'ev', 'prudentialEv', 'confidence', 'stakeCents', 'inputHash', 'quote', 'decisionMode', 'experimental',
+      'matchId', 'competition', 'league', 'matchLabel', 'homeTeamName', 'awayTeamName', 'kickoffAt',
+      'probabilityConfigurationHash', 'forecastAt'];
+    if (options.includeProbabilityStages) fields.push('probabilityStages');
+    const snapshot = fields.flatMap((key) => [`'${key}'`, `json_extract(d.snapshot_json,'$.${key}')`]).join(',');
+    const result = await rows(this.client, `SELECT d.id,d.job_id,d.input_id,d.family,d.model_version,d.market,d.selection,d.portfolio_id,d.action,d.reason,d.created_at,
+      j.match_id,j.kickoff_at,json_object(${snapshot}) AS snapshot_json,b.id AS bet_id,b.stake_cents AS bet_stake_cents,b.placed_at AS bet_placed_at,
+      CASE WHEN b.id IS NULL THEN NULL WHEN s.bet_id IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS bet_status,
+      xb.id AS existing_bet_id,${hasExecution ? 'xb.execution_decision_id' : 'NULL'} AS existing_bet_execution_decision_id,
+      xb.decision_id AS existing_bet_origin_decision_id
+      FROM research_decisions d JOIN research_jobs j ON j.id=d.job_id
+      LEFT JOIN research_bets b ON b.decision_id=d.id${hasExecution ? ' AND b.execution_decision_id IS NULL' : ''}
+      LEFT JOIN research_settlements s ON s.bet_id=b.id LEFT JOIN research_bets xb ON xb.match_id=j.match_id AND xb.portfolio_id=d.portfolio_id
+      ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY julianday(d.created_at) DESC,d.id DESC LIMIT ?`, [...args, limit]);
+    return result.map((row) => { delete row.snapshotJson; return row; });
   }
 
   async saveModel(input: { family: ResearchFamily; version: string; artifact: any; status?: string }): Promise<any> {
@@ -224,6 +293,14 @@ export class ResearchStore {
     return rows(this.client, `SELECT m.*,CASE WHEN c.version=m.version THEN 1 ELSE 0 END AS is_champion
       FROM research_models m LEFT JOIN research_champions c ON c.family=m.family
       ${modelFamily ? 'WHERE m.family=?' : ''} ORDER BY m.created_at,m.version`, modelFamily ? [modelFamily] : []);
+  }
+
+  /** Load one explicitly selected artifact without reading every historical candidate. */
+  async getModelByVersion(modelFamily: ResearchFamily, version: string): Promise<any> {
+    await this.ensureGuards();
+    return first(this.client, `SELECT m.*,CASE WHEN c.version=m.version THEN 1 ELSE 0 END AS is_champion
+      FROM research_models m LEFT JOIN research_champions c ON c.family=m.family
+      WHERE m.family=? AND m.version=?`, [family(modelFamily), version]);
   }
 
   /** Dashboard metadata excludes immutable trees and calibration samples. */
@@ -586,12 +663,13 @@ export class ResearchStore {
     analyzedMatches: number; registeredBets: number; abstainedMatches: number; reasonCounts: Record<string, number>;
   }> {
     if (!await this.hasNightlySchema()) return { analyzedMatches: 0, registeredBets: 0, abstainedMatches: 0, reasonCounts: {} };
+    const originOnly = await this.hasExecutionDecisionColumn() ? ' AND b.execution_decision_id IS NULL' : '';
     const records = await rows(this.client, `WITH per_job AS (
       SELECT j.id,j.status,CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS analyzed,COUNT(DISTINCT b.id) AS bet_count
       FROM research_nightly_jobs n JOIN research_jobs j ON j.id=n.job_id
       LEFT JOIN research_inputs i ON i.job_id=j.id
       LEFT JOIN research_decisions d ON d.job_id=j.id
-      LEFT JOIN research_bets b ON b.decision_id=d.id
+      LEFT JOIN research_bets b ON b.decision_id=d.id${originOnly}
       WHERE n.run_id=? GROUP BY j.id,j.status,i.id
     ), totals AS (SELECT COALESCE(SUM(analyzed),0) AS analyzed_matches,COALESCE(SUM(bet_count),0) AS registered_bets,
       COALESCE(SUM(CASE WHEN status='COMPLETED' AND analyzed=1 AND bet_count=0 THEN 1 ELSE 0 END),0) AS abstained_matches
@@ -609,8 +687,13 @@ export class ResearchStore {
   private async hasNightlySchema(): Promise<boolean> {
     await this.ready();
     // Monitoring reads must not initialize write guards or modify the journal.
-    this.nightlySchema ??= Boolean(await first(this.client,
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='research_nightly_jobs'"));
+    if (this.nightlySchema === undefined) {
+      const schema = await first(this.client, `SELECT
+        EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_nightly_jobs') AS nightly_exists,
+        EXISTS(SELECT 1 FROM pragma_table_info('research_bets') WHERE name='execution_decision_id') AS execution_exists`);
+      this.nightlySchema = Boolean(schema.nightlyExists);
+      this.executionDecisionColumn = Boolean(schema.executionExists);
+    }
     return this.nightlySchema;
   }
 
@@ -706,6 +789,7 @@ export class ResearchStore {
     iso(now);
     const at = () => this.clock().getTime();
     const guardedJobs: Array<{ job: any; token: string }> = [];
+    const originOnly = await this.hasExecutionDecisionColumn(true) ? ' AND execution_decision_id IS NULL' : '';
     return this.write(async (tx) => {
       const committedDecisions: any[] = []; const bets: any[] = []; const completedJobs: any[] = []; const observations: any[] = [];
       const plans: Array<{ input: ResearchCommit; job: any; inputId: string; decision: ResearchDecision }> = [];
@@ -722,7 +806,7 @@ export class ResearchStore {
           const storedInput = await first(tx, 'SELECT * FROM research_inputs WHERE job_id=?', [job.id]);
           if (!storedInput || storedInput.inputHash !== researchHash(input.inputSnapshot)) throw new Error('Completed job input is immutable');
           committedDecisions.push(...await rows(tx, 'SELECT * FROM research_decisions WHERE job_id=?', [job.id]));
-          bets.push(...await rows(tx, 'SELECT * FROM research_bets WHERE match_id=?', [job.matchId]));
+          bets.push(...await rows(tx, `SELECT * FROM research_bets WHERE match_id=?${originOnly}`, [job.matchId]));
           if (input.observations?.length) observations.push(...await rows(tx, 'SELECT * FROM research_prospective_observations WHERE job_id=?', [job.id]));
           completedJobs.push(job);
           continue;

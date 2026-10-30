@@ -1,6 +1,7 @@
 import { DatabaseService } from '../db/DatabaseService';
 import { baselineManifest } from './ForecastCore';
 import { readResearchMonitoring, researchNightlyStatus } from './ResearchMonitoring';
+import { readEffectiveResearchDecisions } from './ResearchRecommendationView';
 
 type Row = Record<string, any>;
 const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -63,9 +64,9 @@ export function benchmarkOverview(raw: Row | null): Row | null {
 export async function buildResearchOverview(db: DatabaseService, options: { now?: string | Date; nightlyEnabled?: boolean } = {}): Promise<Row> {
   const [models, rawPortfolios, bets, markets, jobs, ledger, latestBenchmark, runs, decisions, monitoring, registeredExperiments, modelEvents, latestValidation] = await Promise.all([
     db.research.getOverviewModels ? db.research.getOverviewModels() : db.research.getModels(),
-    db.research.listPortfolios(), db.research.listBets(), db.research.listMarkets(),
+    db.research.listPortfolios(), db.research.listBetViews ? db.research.listBetViews() : db.research.listBets(), db.research.listMarkets(),
     db.research.listJobs(), db.research.listLedger(), db.research.getLatestBenchmark('PAIR'), db.listRecentSchedulerRuns(50),
-    db.research.listDecisions(), readResearchMonitoring(db, options.now ?? new Date()),
+    readEffectiveResearchDecisions(db.research, db.recommendations), readResearchMonitoring(db, options.now ?? new Date()),
     db.researchExperiments?.list() ?? Promise.resolve([]), db.research.listModelEvents(),
     db.research.getLatestValidationSummary ? db.research.getLatestValidationSummary()
       : db.research.listBenchmarks({ limit: 1 }).then((records) => records[0] ?? null),
@@ -118,8 +119,17 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
   if (enabled && schedulerState === 'DISABLED') blockers.push('Il run osservato dichiara la registrazione virtuale disabilitata.');
   if (schedulerState === 'FAILED') blockers.push('L’ultima elaborazione notturna è fallita.');
   if (!models.some((model) => model.family === 'C')) blockers.push('Nessun artefatto CatBoost C registrato.');
+  const effectiveDecisions = decisions.effective;
+  const latestA = [...effectiveDecisions].reverse().find((decision) => decision.family === 'A' && decision.authority === 'execution');
+  const latestC = [...effectiveDecisions].reverse().find((decision) => decision.family === 'C' && decision.authority === 'execution');
   return {
     baseline: baselineManifest(),
+    operationalModels: {
+      A: { source: 'PredictionService', version: latestA?.modelVersion ?? [...models].reverse().find((model) => model.family === 'A' && model.version?.startsWith('APP-A-'))?.version ?? null, role: 'REFERENCE',
+        historicalResearchBaseline: baselineManifest().version, metrics: null },
+      C: { source: 'CatBoost hybrid research pipeline', version: latestC?.modelVersion ?? [...models].reverse().find((model) => model.family === 'C')?.version ?? null, role: 'CHALLENGER',
+        baselineSource: 'Historical research baseline', baselineVersion: baselineManifest().version, metrics: null },
+    },
     models: models.map((model) => ({ family: model.family, version: model.version,
       status: model.isChampion ? 'CHAMPION' : 'CANDIDATE', createdAt: model.createdAt,
       trainedThrough: model.artifact?.trainedThrough, metrics: model.artifact?.metrics })),
@@ -127,15 +137,24 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
       status: bet.status !== 'SETTLED' ? 'PENDING' : bet.multiplier === 0 ? 'LOST' : bet.multiplier === 1 ? 'VOID'
         : bet.multiplier === .5 ? 'HALF_LOST' : bet.multiplier === bet.odds ? 'WON' : 'HALF_WON' })),
     markets, jobs, latestBenchmark: benchmarkOverview(latestBenchmark), experiments, latestDiagnostics: latestDiagnostics ?? null, modelEvents,
-    decisions: decisions.slice(-50).reverse().map((decision) => ({
-      id: decision.id, matchId: jobs.find((job) => job.id === decision.jobId)?.matchId,
+    decisions: effectiveDecisions.slice(-50).reverse().map((decision) => ({
+      id: decision.id, matchId: decision.matchId ?? jobs.find((job) => job.id === decision.jobId)?.matchId,
       family: decision.family, modelVersion: decision.modelVersion, action: decision.action,
       selection: decision.selection, market: decision.market, reason: decision.reason, createdAt: decision.createdAt,
-      quote: decision.snapshot?.quote, probability: decision.snapshot?.probability,
-      inputId: decision.inputId, forecastAt: decision.snapshot?.forecastAt,
+      quote: decision.quote, probability: decision.probability,
+      inputId: decision.inputId, forecastAt: decision.forecastAt ?? decision.snapshot?.forecastAt,
       bookmakerProbabilities: decision.snapshot?.bookmakerProbabilities,
-      probabilityStages: decision.snapshot?.probabilityStages,
+      probabilityStages: decision.probabilityStages,
+      authority: decision.authority, effective: decision.effective, originDecisionId: decision.originDecisionId,
+      policyHash: decision.policyHash, policyVersion: decision.policyVersion,
+      confidence: decision.confidence, suggestedStakePercent: decision.suggestedStakePercent,
+      stakeCents: decision.stakeCents, modelSource: decision.modelSource, probabilitySource: decision.probabilitySource,
     })),
+    decisionHistory: { effectiveCount: effectiveDecisions.length, preservedCount: decisions.historical.length,
+      superseded: decisions.historical.filter((decision) => !decision.effective).slice(-50).reverse().map((decision) => ({
+        id: decision.id, matchId: decision.matchId, family: decision.family, action: decision.action,
+        modelVersion: decision.modelVersion, createdAt: decision.createdAt, supersededBy: decision.supersededBy,
+      })) },
     status: { mode: 'NIGHTLY_PRE_MATCH', nightlyCreatesBets: enabled, legacyAutomationDisabled: true, schedulerEnabled: enabled,
       schedulerState,
       automationScope: 'local_code', remoteVerification: 'not_verified_from_backend',

@@ -7,6 +7,7 @@ import type { LowerDivisionHistoryBatch } from '../services/FootballDataService'
 import { ShortReadCache } from '../services/ShortReadCache';
 import { isPlayerDataEnabled } from '../services/PlayerDataConfig';
 import { ResearchStore } from '../research/ResearchStore';
+import { ResearchRecommendationStore } from '../research/ResearchRecommendationStore';
 import { ResearchMonitoringStore } from '../research/ResearchMonitoring';
 import { ResearchWorkerCoordinator } from '../research/ResearchWorkerCoordinator';
 import { ResearchExperimentStore } from '../research/ResearchExperimentStore';
@@ -147,6 +148,7 @@ export const isPredictionReportEligible = (row: Record<string, any> | null | und
 export class DatabaseService {
   private db: ReturnType<typeof createClient>;
   public readonly research: ResearchStore;
+  public readonly recommendations: ResearchRecommendationStore;
   public readonly researchMonitoring: ResearchMonitoringStore;
   public readonly researchWorker: ResearchWorkerCoordinator;
   public readonly researchExperiments: ResearchExperimentStore;
@@ -178,6 +180,7 @@ export class DatabaseService {
       ? this.execute('PRAGMA foreign_keys = ON', undefined, true).then(() => undefined)
       : this.initialize();
     this.research = new ResearchStore(this.db, () => this.initPromise);
+    this.recommendations = new ResearchRecommendationStore(this.db, () => this.initPromise, { research: this.research });
     this.researchMonitoring = new ResearchMonitoringStore(this.db, () => this.initPromise);
     this.researchWorker = new ResearchWorkerCoordinator(this.db, () => this.initPromise);
     this.researchExperiments = new ResearchExperimentStore(this.db, () => this.initPromise);
@@ -326,6 +329,7 @@ export class DatabaseService {
         const executable = statement.replace(/(^|\r?\n)\s*--[^\r\n]*/g, '$1').trim();
         if (!executable) continue;
         try {
+          if (await this.recommendationColumnAlreadyApplied(filename, executable)) continue;
           await this.execute(executable, undefined, true);
         } catch (error) {
           const diagnostic = executable.slice(0, 240);
@@ -341,6 +345,22 @@ export class DatabaseService {
       );
       appliedVersions.add(filename);
     }
+  }
+
+  private async recommendationColumnAlreadyApplied(filename: string, statement: string): Promise<boolean> {
+    if (filename !== '023_research_recommendation_execution.sql'
+      || !/^ALTER\s+TABLE\s+research_bets\s+ADD\s+COLUMN\s+execution_decision_id\s+TEXT\b/i.test(statement)) return false;
+    const columns = await this.execute('PRAGMA table_info(research_bets)', undefined, true);
+    const column = columns.rows.find((row: any) => row.name === 'execution_decision_id');
+    if (!column) return false;
+    const foreignKeys = await this.execute('PRAGMA foreign_key_list(research_bets)', undefined, true);
+    const reference = foreignKeys.rows.filter((row: any) => row.from === 'execution_decision_id');
+    if (String(column.type).toUpperCase() !== 'TEXT' || Number(column.notnull) !== 0
+      || column.dflt_value !== null || Number(column.pk) !== 0 || reference.length !== 1
+      || reference[0].table !== 'research_execution_decisions' || reference[0].to !== 'id') {
+      throw new Error('Existing execution_decision_id does not match migration 023');
+    }
+    return true;
   }
 
   private splitMigrationStatements(sql: string): string[] {

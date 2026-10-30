@@ -1,5 +1,16 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md).
+
+
 Direzione aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
 Il recupero calendario `41044931407` è verificato: cinque incontri cumulativi,
 dieci decisioni, zero puntate; dettagli nella sezione seguente. Il riepilogo
@@ -52,8 +63,9 @@ impegnati. Un solo fetch quote Nightly da 3 crediti: 307 usati/193 residui;
 nessun altro caller. Backend e frontend LIVE restano `01320941`/`fb0e30f8`.
 
 L'input resta manuale e default `false`; il percorso standard continua a
-saltare dopo un vero successo giornaliero. Nessun override: minimo 50 campioni,
-EV 4%, EV prudenziale 1% e freschezza restano invariati. Il recupero è verificato,
+saltare dopo un vero successo giornaliero. Quel recupero verificato manteneva
+i gate della precedente diagnosi50/EV 4%/prudenziale 1%; la nuova esecuzione
+locale Partite non eredita il veto statistico, ma mantiene la freschezza. Il recupero è verificato,
 ma cron 31 ottobre 03:07 e risultati/liquidazioni ufficiali restano futuri.
 [Report completo](operations/nightly-fixture-recovery-2026-10-30.md).
 
@@ -126,21 +138,43 @@ puntate o movimenti contabili. La migrazione additiva 021 e i risultati
 append-only conservano timestamp ufficialmente osservati e identità del
 modello/configurazione. Partizione nominale 80/20 tramite hash partita;
 `FUTURE_TEST` escluso dai residui prudenziali. Il registro iniziale privo di
-campioni idonei impone astensione: minimo 50 e Hoeffding non sono ridotti,
-nessun refit o calibratore inventato; con il registro attuale non sono
-ammesse BET iniziali.
+campioni idonei impone astensione nella diagnosi research: minimo 50 e
+Hoeffding restano nel benchmark/diagnostica, senza refit o calibratori inventati.
+La nuova esecuzione Partite locale è separata e non usa quel veto.
+
+## Nuova policy locale del consiglio Partite
+
+Dopo le origini DIAGNOSTIC a stake zero, il nuovo ramo opt-in valuta esecuzioni
+con policy/input distinti, senza riscrivere i dieci ABSTAIN precedenti. A usa
+PredictionService `APP-A` con versione/hash di stato, consiglio e stake esatti
+della pagina Partite; C906/baseline 80 usa 1%. Esposizione5%, massimo una puntata
+per match/modello, stessi due portafogli da 1.000 euro e ledger esistente.
+Il picker canonico backend replica Low/Medium/High e ranking; nessun riordino UI.
+
+La migrazione additiva 023 e il suo FK bet→execution sono solo collaudati su
+ripristino: produzione non migrata. Quote reali ≤300 secondi, settlement
+supportato, capitale e unicità globale restano richiesti. Il benchmark e le
+origini research mantengono 50/Hoeffding; non bloccano questa nuova esecuzione
+virtuale. C scarta push/quarti non supportati e cerca un altro candidato;
+A conserva le linee supportate da GoalSettlement. Nessuna promozione C.
+
+Il nuovo flag è `false`: codice non pubblicato/attivato, preview senza
+scritture finanziarie e CI remota ancora pendenti. Per rollback disabilitare
+questo flag e mantenere settlement e viste aggiornate delle esecuzioni;
+un backend vecchio non deve attribuire nuove BET alle origini diagnostiche a stake zero.
 
 ## Configurazione dichiarata nel codice
 
 | Variabile | Default / ruolo |
 | --- | --- |
 | `NIGHTLY_ORCHESTRATOR` | `github_actions`, disabilita gli scheduler periodici duplicati nel web |
-| `RESEARCH_NIGHTLY_ENABLED` | Variabile repository omonima, default `false`; unico opt-in delle nuove registrazioni notturne A/C |
+| `RESEARCH_NIGHTLY_ENABLED` | Opt-in del processo A/C, default `false` |
+| `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` | Nuovo opt-in locale della policy Partite, variabile repository omonima, default `false`; non attivata remotamente |
 | `RESEARCH_NIGHTLY_HOUR`, `RESEARCH_NIGHTLY_MINUTE` | Default locale 3/0; produzione, monitor e dashboard 3/7, coerenti col workflow |
 | `RESEARCH_NIGHTLY_WINDOW_HOURS` | Non impostata: fino alla prossima 03:07 Roma; durata configurabile 1–48 ore |
 | `RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS` | 300 alla decisione notturna, controlla acquisizione e aggiornamento del mercato |
-| `RESEARCH_NIGHTLY_MIN_EV` | 0,04, soglia sperimentale configurabile |
-| `RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV` | 0,01, soglia sperimentale configurabile |
+| `RESEARCH_NIGHTLY_MIN_EV` | 0,04, soglia della diagnosi research precedente |
+| `RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV` | 0,01, soglia prudenziale della diagnosi/benchmark |
 | `RESEARCH_NIGHTLY_TIMEOUT_SECONDS` | 1200 per il processo A/C nello script |
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false`, percorso precedente non necessario e non concorrente |
 | `RUN_ODDS_SYNC` | `false`, raccolta informativa generale disattivata |

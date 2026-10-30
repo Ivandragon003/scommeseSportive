@@ -144,6 +144,7 @@ export class ResearchRuntime {
   private readonly onTick?: (summary: T15TickSummary) => void;
   private claimedJobs: T15Job[] = [];
   private readonly nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number };
+  private readonly candidateVersionC?: string;
   private readonly prospectiveSamples = new Map<string, { asOf: string; samples: CalibrationSample[] }>();
   private nightlyCohortId: string | undefined;
   private nightlyModelContext: Promise<RuntimeModelContext> | undefined;
@@ -154,12 +155,16 @@ export class ResearchRuntime {
 
   constructor(private readonly db: RuntimeDb, options: { clock?: () => Date; odds?: OddsFeed;
     coordinator?: ResearchWorkerCoordinator; ownerId?: string; onTick?: (summary: T15TickSummary) => void;
-    nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number } } = {}) {
+    nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number }; candidateVersionC?: string } = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.coordinator = options.coordinator;
     this.ownerId = options.ownerId ?? randomUUID();
     this.onTick = options.onTick;
     this.nightly = options.nightly;
+    if (options.candidateVersionC !== undefined && !/^C-[a-zA-Z0-9._-]{1,128}$/.test(options.candidateVersionC)) {
+      throw new Error('Invalid pinned C model version');
+    }
+    this.candidateVersionC = options.candidateVersionC;
     this.odds = options.odds ?? new OddsApiService(getConfiguredOddsApiKey(options.nightly ? 'default' : 't15'), {
       store: this.db.oddsRequests, operation: options.nightly ? 'nightly' : 't15', priority: 'essential',
       cacheMaxAgeMs: options.nightly?.quoteMaxAgeMs ?? 300_000,
@@ -514,6 +519,11 @@ export class ResearchRuntime {
   }
 
   private async loadModelContext(): Promise<RuntimeModelContext> {
+    if (this.candidateVersionC) {
+      const candidateC = await this.db.research.getModelByVersion('C', this.candidateVersionC);
+      // A fixed execution policy never follows a champion change, a weekly candidate or an optional probe.
+      return { championC: null, latestCandidate: candidateC, candidateC, cacheable: true };
+    }
     const championC = await this.db.research.getChampion('C');
     let cacheable = true;
     const candidatesC = await this.db.research.getModels('C').catch((error) => {

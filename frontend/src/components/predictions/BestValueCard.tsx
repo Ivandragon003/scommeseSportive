@@ -1,8 +1,9 @@
 import React from 'react';
 import OddsSourceBadge from './OddsSourceBadge';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
-import { formatMarketKey } from './predictionWorkbenchUtils';
+import { formatKickoff, formatMarketKey, isTechnicalRecommendationAbstention } from './predictionWorkbenchUtils';
 import {
+  AutomaticRecommendationProjection,
   BestBetAlternative,
   BestValueOpportunity,
   OddsSourceBadgeInfo,
@@ -22,6 +23,7 @@ interface BestValueCardProps {
   bestBetStatus?: string | null;
   bestBetReason?: string | null;
   bestBetAlternatives?: BestBetAlternative[];
+  automaticRecommendation?: AutomaticRecommendationProjection | null;
 }
 
 const formatMetricNumber = (
@@ -59,18 +61,47 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   emptyMessage = 'Quote o probabilità insufficienti per scegliere una giocata.',
   bestBetStatus,
   bestBetReason,
+  automaticRecommendation,
 }) => {
-  if (!opportunity) {
+  const technicalAbstention = isTechnicalRecommendationAbstention(automaticRecommendation) ? automaticRecommendation : null;
+  const automaticNotice = technicalAbstention ? (
+    <div className="pr-alert pr-alert-warning" aria-label="Decisione Nightly A">
+      <strong>Astensione tecnica della Nightly A</strong>
+      <p>Valutazione non completata. Motivo: {technicalAbstention.reason}</p>
+      <p>Importo registrato nel portafoglio virtuale A: EUR 0.00. Nessuna puntata registrata.</p>
+      <p>Valutata il {formatKickoff(technicalAbstention.asOf)}. Quota della decisione non disponibile.</p>
+    </div>
+  ) : automaticRecommendation ? (
+    <div className="pr-alert pr-alert-info" aria-label="Decisione Nightly A">
+      <strong>Decisione Nightly del portafoglio virtuale A</strong>
+      <p>
+        Importo registrato: EUR {Number(automaticRecommendation.actualStakeAmount ?? 0).toFixed(2)}.
+        {' '}Stato: {({ OPEN: 'In corso', WON: 'Vinta', LOST: 'Persa', VOID: 'Annullata',
+          BET: 'Registrata', ABSTAIN: 'Nessuna puntata', SKIPPED: 'Non registrata' } as Record<string, string>)[automaticRecommendation.status]
+          ?? automaticRecommendation.status}.
+      </p>
+      <p>Quota rilevata il {formatKickoff(automaticRecommendation.odds?.capturedAt ?? undefined)}: prezzo archiviato, non quota corrente.</p>
+      {automaticRecommendation.placedAt && Number(automaticRecommendation.actualStakeAmount) > 0 && (
+        <p>Registrata il {formatKickoff(automaticRecommendation.placedAt)}.</p>
+      )}
+    </div>
+  ) : null;
+  if (!opportunity || technicalAbstention) {
     return (
       <section aria-label={title} data-testid="best-value-card" className="pr-decision-report is-empty">
         <div className="pr-decision-report__head">
           <div>
             <div className="pr-decision-report__eyebrow">{title}</div>
-            <strong className="pr-decision-report__title">Nessuna giocata consigliata</strong>
+            <strong className="pr-decision-report__title">{technicalAbstention ? 'Valutazione Nightly non completata' : 'Nessuna giocata consigliata'}</strong>
           </div>
-          <OddsSourceBadge badge={oddsBadge} testId="odds-source-badge" />
+          <OddsSourceBadge badge={technicalAbstention
+            ? { label: 'Quota Nightly non disponibile', className: 'pr-badge-gray' }
+            : oddsBadge} testId="odds-source-badge" />
         </div>
-        <p className="pr-decision-report__summary">{bestBetReason ?? emptyMessage}</p>
+        <p className="pr-decision-report__summary">{technicalAbstention
+          ? 'La Nightly non ha completato una previsione utilizzabile per questa partita.'
+          : bestBetReason ?? emptyMessage}</p>
+        {automaticNotice}
         {oddsWarning && <div className="pr-alert pr-alert-warning">{oddsWarning}</div>}
       </section>
     );
@@ -92,7 +123,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   const confidenceLabel = CONFIDENCE_LABELS[String(opportunity.confidence ?? '')] ?? 'Non disponibile';
   const opportunityBookmaker = String(opportunity.bookmakerName ?? '').trim();
   const resolvedOddsBadge = opportunityBookmaker
-    ? { label: `Quota bookmaker verificata: ${opportunityBookmaker}`, className: 'pr-badge-green' }
+    ? { label: `${automaticRecommendation ? 'Quota archiviata' : 'Quota bookmaker verificata'}: ${opportunityBookmaker}`, className: 'pr-badge-green' }
     : oddsBadge;
   const metrics = [
     {
@@ -112,8 +143,10 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
     },
     {
       id: 'puntata-suggerita',
-      label: 'Puntata suggerita',
-      value: formatMetricNumber(opportunity.suggestedStakePercent, 2, '% bankroll'),
+      label: automaticRecommendation ? 'Puntata virtuale registrata' : 'Puntata suggerita',
+      value: automaticRecommendation
+        ? `EUR ${Number(automaticRecommendation.actualStakeAmount ?? 0).toFixed(2)}`
+        : formatMetricNumber(opportunity.suggestedStakePercent, 2, '% bankroll'),
     },
   ];
   const statusClass =
@@ -173,6 +206,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
       </dl>
 
       <div className="pr-decision-report__body">
+        {automaticNotice}
         {recommendedBetResult && (
           <div className={`pr-alert pr-alert-${replayTone}`}>
             <strong>{recommendedBetResult.status}</strong>

@@ -1,5 +1,16 @@
 # Monitoraggio Nightly Pre-Match Virtual Betting
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](recommendation-execution-2026-10-30.md).
+
+
 Configurazione aggiornata al 30 ottobre 2026. Scheduler e runtime usano 03:07
 Europe/Rome, con recuperi 04:17/05:27. Backend `01320941` LIVE e registrazione
 A/C riattivata dalle 10:04 UTC dopo riconciliazione quota. Run reale `41038096151`
@@ -77,6 +88,24 @@ JSON ed exit code distinguono successo (`0`) e problemi (`1`). Gli errori di acc
 
 Senza opzioni il comando verifica GitHub e, soltanto se sono presenti le credenziali dedicate, anche il database. In loro assenza restituisce esplicitamente `NOT_CHECKED` per il database. Con `--database-only`, credenziali mancanti causano errore.
 
+## Nuova policy del consiglio: confine del monitor
+
+Il ramo locale `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false` è separato
+dalla diagnosi research e dalla sua aspettativa di run. A usa il pacchetto
+Partite `APP-A` e stake indicato; C906 usa 1%, due portafogli da 1.000 euro,
+esposizione 5%, max 1 per match/modello. Le origini DIAGNOSTIC restano a zero
+stake e i dieci ABSTAIN precedenti non vengono modificati; il monitor non
+deve interpretarle come BET del nuovo ramo. I nuovi record 023 e il FK bet→
+execution distinguono esecuzione effettiva e origine. 50/Hoeffding resta nel
+benchmark/diagnostica, senza veto per questa nuova esecuzione virtuale.
+
+Il checker non attiva la policy. CI remota, migrazione 023 in produzione e
+preview senza scritture finanziarie restano pendenti; controlli sulle nuove
+viste e correzioni UI sono ancora in review locale. Le quote esposte hanno
+stato e timestamp storico, non una nuova verifica prezzo live. Il rollback
+spegne il nuovo flag ma conserva settlement e letture compatibili con le
+esecuzioni, senza attribuire le nuove BET alle origini a stake zero.
+
 ## Workflow e notifiche
 
 [research-watchdog.yml](../../.github/workflows/research-watchdog.yml) è predisposto ogni ora al minuto 37, dopo il completamento di `Nightly Sync` e su avvio manuale. È indipendente dal backend Hostless e non attiva le puntate.
@@ -86,7 +115,8 @@ Configurazione nel repository GitHub (verificare lo stato remoto nel report di r
 - `vars.RESEARCH_NIGHTLY_MONITOR_ENABLED`: aspettativa del run programmato sia su GitHub sia nel database, default `false`. Un input manuale `expect_enabled=true` la richiede per quel controllo.
 - `vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED`: controllo database opzionale, indipendente dalla registrazione A/C.
 - `secrets.TURSO_DATABASE_URL` e `secrets.TURSO_WATCHDOG_READONLY_TOKEN`: necessari soltanto per il controllo database.
-- `vars.RESEARCH_NIGHTLY_ENABLED`: abilita separatamente la registrazione virtuale; riattivata alle 10:04 UTC dopo il recupero controllato. Il watchdog non lo usa per pretendere retroattivamente una sync.
+- `vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED`: nuovo opt-in della policy Partite, default `false`, non attivato remotamente.
+- `vars.RESEARCH_NIGHTLY_ENABLED`: abilita il processo A/C; riattivata alle 10:04 UTC dopo il recupero controllato. Il watchdog non lo usa per pretendere retroattivamente una sync.
 - `vars.RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS`: eventuale riconoscimento esplicito del solo `40940944902` nelle condizioni descritte sopra; non è una cancellazione.
 - `RESEARCH_NIGHTLY_MINUTE=7`: allineamento del runtime di produzione e del monitor DB al nuovo programma, con default locale 0 invariato.
 

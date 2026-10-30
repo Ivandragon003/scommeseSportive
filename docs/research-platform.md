@@ -1,5 +1,16 @@
 # Piattaforma di confronto A/C
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md).
+
+
 Direzione operativa aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual
 Betting**. La [guida canonica](operations/nightly-pre-match-2026-10-29.md)
 sostituisce i requisiti di worker persistente, polling e decisione T−15 dei
@@ -39,7 +50,10 @@ approvazione del punto di ripristino e dei delta successivi non verificabili.
 Non è una parità live con la sorgente bloccata. Il primo ciclo con partita
 reale e liquidazione rimane da osservare; una corretta astensione è valida.
 
-A è il riferimento statistico; C integra CatBoost e resta Challenger. Non
+Per la nuova policy locale A usa PredictionService e il consiglio Partite
+`APP-A` con hash/versione di stato, distinto da A research 80. C906 conserva
+la sua baseline A80, integra CatBoost e resta Challenger. Il benchmark
+statistico A80/C906 non viene riscritto per rappresentare questa nuova A. Non
 vengono ottimizzati nuovamente i modelli né riutilizzato il test finale per
 migliorare artificialmente i risultati economici. Registry, benchmark,
 calibratori, tracciabilità e lifecycle restano conservati. La sola presenza
@@ -136,7 +150,8 @@ contabilità in centesimi, stake arrotondato per difetto e ritorni arrotondati
 come il ledger persistente. V1 rimane consultabile come evidenza storica,
 senza retrocedere queste correzioni sul report originale.
 
-La selezione comune usa EV centrale almeno +4% ed EV prudenziale almeno +1%.
+La selezione comune del benchmark `ResearchEvaluation` usa EV centrale almeno
++4% ed EV prudenziale almeno +1%: non è la nuova esecuzione virtuale Partite.
 La prudenza usa residui di rendimento su una coorte di validazione pregressa,
 un'osservazione per match nel bucket e un limite unilaterale Hoeffding al 95%.
 Non è una sottrazione arbitraria fissa. Il limite dipende dall'ipotesi di unità
@@ -191,16 +206,17 @@ appaiati, calibrazione e stabilità. Il test finale già consultato resta
 protetto; per una nuova promozione serve nuova evidenza indipendente.
 `ProbabilityConfiguration` lega l'evidenza a modalità, temperatura, protocollo
 e hash effettivi. Non si ricostruisce un'approvazione assente dai vecchi record.
-Le soglie decisionali iniziali restano configurabili: EV centrale 4% ed EV
-prudenziale 1%, senza dichiararle ottimali.
+Le soglie della diagnosi/benchmark restano configurabili: EV centrale 4% ed EV
+prudenziale 1%, senza dichiararle ottimali né usarle come veto della nuova
+policy virtuale basata sul consiglio Partite.
 
-## Evidenza prospettica prima delle puntate
+## Evidenza prospettica e diagnosi del benchmark
 
 L'[audit runtime e l'assemblatore](operations/nightly-model-runtime-2026-10-29.md)
-distinguono inferenza CatBoost riuscita e ammissione di una BET. Nel registro
-iniziale mancano campioni prudenziali ammissibili: i profili di calibrazione
-esistenti non sostituiscono evidenza indipendente. Le prime elaborazioni
-possono quindi registrare soltanto `ABSTAIN`, con portafogli invariati.
+distinguono inferenza CatBoost e decisione diagnostica del protocollo precedente.
+Senza campioni prudenziali, le dieci origini già osservate sono ABSTAIN;
+restano immutabili. La nuova esecuzione virtuale non eredita il veto 50/Hoeffding
+e non modifica queste origini: eventuali BET hanno record e policy separati.
 
 La migrazione additiva `021_research_prospective.sql` prepara osservazioni e
 risultati append-only. La stessa transazione prepartita congela quota reale,
@@ -212,12 +228,13 @@ retrodata e non si ricalcola una previsione usando il risultato.
 Il protocollo assegna le partite tramite hash a un 80% nominale `CALIBRATION`
 e 20% `FUTURE_TEST`, con la stessa partizione per A/C e mercati. Le proporzioni
 su piccoli campioni possono differire; il futuro test e gli ID storici
-protetti non entrano mai nei residui prudenziali. Le nuove decisioni leggono
+protetti non entrano mai nei residui prudenziali. Le decisioni diagnostiche leggono
 soltanto osservazioni già risolte e disponibili a quel timestamp, con stessa
 famiglia, versione e identità dell'artefatto/configurazione.
 
-Il minimo di 50 partite per mercato/fascia e la prudenza di Hoeffding restano
-invariati; 50 osservazioni non garantiscono una BET. L'assemblatore non esegue
+Il minimo di 50 partite per mercato/fascia e Hoeffding restano nel benchmark
+e nelle decisioni diagnostiche; non sono il veto della nuova esecuzione
+virtuale. Non si trasformano 50 osservazioni in una validazione del modello. L'assemblatore non esegue
 training, refit o promozioni e non inventa calibratori. Il nome `CALIBRATION`
 identifica qui i residui prudenziali, non un nuovo fit dei calibratori. La raccolta richiede
 comunque prezzi reali e rispetta il budget quote. Il percorso è verificato
@@ -227,19 +244,51 @@ del 29 ottobre ha registrato zero osservazioni
 prospettiche e zero BET: nessun evento eleggibile nella finestra restante,
 senza puntate retroattive o evidenze inventate.
 
+## Nuova policy di esecuzione — solo locale
+
+Il picker backend canonico conserva selezione e percentuale stake della pagina
+Partite. A usa il pacchetto PredictionService `APP-A` effettivo, con versione
+ed hash di stato tracciabili; C `C-906371b0b3a1e2c8` e baseline A80 sono immutati.
+Il confronto economico include politiche di stake diverse: non isola da solo
+la superiorità probabilistica di un modello. C rimane Challenger.
+
+La nightly locale conserva prima origini DIAGNOSTIC a zero stake; solo il nuovo
+opt-in `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` può creare esecuzioni con
+nuove quote reali ≤300 secondi e record separati, senza riscrivere i dieci ABSTAIN.
+023 prepara quattro tabelle `research_execution_policies`,
+`research_execution_jobs`, `research_execution_inputs`, `research_execution_decisions`
+e il nullable `research_bets.execution_decision_id`. Il ledger esistente è
+riusato e l'unicità resta globale per partita/modello/portafoglio.
+
+Il frontend locale usa il pacchetto congelato e gli euro effettivi, con stato
+e timestamp della quota storica, senza presentarla come prezzo live. Un ABSTAIN
+tecnico non viene coperto da un nuovo consiglio live. Replay senza pacchetto,
+risposte tecniche 503 e confronti troncati sono ancora in review locale.
+C scarta push/quarti non supportati e cerca un altro candidato idoneo; A
+mantiene i quarti supportati da GoalSettlement. Mercati EXPERIMENTAL ammessi
+se tecnicamente idonei, senza promessa di copertura totale, profitto o promozione.
+
+Il flag è `false`; release, 023 in produzione, CI remota e preview senza
+scritture finanziarie restano pendenti. Il backup ufficiale personale di circa
+530 MB è verificato con due restore, integrità/FK0; rehearsal 023 e crash-resume
+preservano 57 tabelle precedenti. Rollback: spegnere il nuovo flag mantenendo
+settlement e nuove viste; non attribuire BET eseguite alle origini diagnostiche a stake zero.
+
 ## Due portafogli e contabilità
 
 Si riutilizzano `research_portfolios`, `research_bets` e `research_ledger`.
 Gli ID esistenti `shadow_A` e `shadow_C` identificano i portafogli A/C: non
 vengono rinominati distruttivamente o duplicati. Capitale iniziale 100.000
-centesimi ciascuno, stake 1% del patrimonio contabile, esposizione aperta
-massima 5%, una puntata per partita/modello. Nessun `main` aggiuntivo, reset,
+centesimi ciascuno. Nella nuova policy locale lo stake A è esattamente la
+percentuale del consiglio Partite, C usa 1%; esposizione aperta massima 5%,
+una puntata per partita/modello. Nessun `main` aggiuntivo, reset,
 ricarica automatica, Martingala o puntata manuale A/C.
 
 Il patrimonio è disponibile più impegnato. Ledger, impegno e liquidazione sono
 atomici e idempotenti; i vincoli persistenti evitano duplicazioni fra retry e
 job concorrenti. Più partite nella stessa notte non possono oltrepassare il
-5%: l'ordine di ammissione è deterministico per valore prudenziale e qualità.
+5%. La nuova policy replica livelli Low/Medium/High e ranking effettivi della
+pagina tramite picker backend canonico; la UI non riordina autonomamente.
 Esiti rimborsati e mezzi esiti mantengono la propria regola di liquidazione.
 Saldi legacy e A/C restano distinti, senza sommare i due patrimoni.
 

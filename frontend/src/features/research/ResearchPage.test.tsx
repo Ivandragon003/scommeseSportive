@@ -122,6 +122,32 @@ test('i portafogli A e C e le registrazioni restano indipendenti', async () => {
   expect(screen.queryByRole('button', { name: /Punta|Registra giocata|Promuovi/i })).toBeNull();
 });
 
+test('la policy corrente distingue stake A variabile e C fisso senza riscrivere patrimonio o stake storici', async () => {
+  const overview = emptyOverview();
+  overview.portfolios = [
+    Object.assign({ id: 'shadow_A', family: 'A' as const, initialCents: 100000, availableCents: 97263,
+      committedCents: 2737, equityCents: 100000, profitCents: 0 }, { policy: { stakeFraction: .01 } }),
+    { id: 'shadow_C', family: 'C', initialCents: 100000, availableCents: 100000,
+      committedCents: 0, equityCents: 100000, profitCents: 0 },
+  ];
+  overview.bets = [{ id: 'actual-a', portfolioId: 'shadow_A', matchId: 'actual-fixture', modelVersion: 'APP-A-recorded',
+    selection: 'homeWin', stakeCents: 2737, odds: 1.9, status: 'PENDING', createdAt: '2026-10-29T03:07:00Z' }];
+  mockedOverview.mockResolvedValue(overview);
+  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: 1, truncated: false, rows: overview.bets } });
+  render(<ResearchPage />);
+  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  const a = screen.getByRole('article', { name: 'Portafoglio A' });
+  const c = screen.getByRole('article', { name: 'Portafoglio C' });
+  expect(within(a).getByText('Stake del consiglio')).toBeTruthy();
+  expect(within(a).queryByText('1% fisso')).toBeNull();
+  expect(within(c).getByText('1% fisso')).toBeTruthy();
+  expect(within(a).getByRole('definition', { name: 'Esposizione massima' }).textContent).toBe('5%');
+  expect(within(c).getByRole('definition', { name: 'Esposizione massima' }).textContent).toBe('5%');
+  expect(within(a).getByRole('definition', { name: 'Capitale iniziale' }).textContent).toMatch(/1\.?000,00\s€/);
+  const recordedBet = await screen.findByRole('row', { name: /actual-fixture/ });
+  expect(within(recordedBet).getByText(/27,37\s€/)).toBeTruthy();
+});
+
 test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i motivi', async () => {
   const overview = emptyOverview();
   overview.markets = [

@@ -1,5 +1,16 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](docs/operations/recommendation-execution-2026-10-30.md).
+
+
 Sistema completo per l'analisi predittiva di partite di calcio con stima probabilistica
 delle scommesse sportive basata sul **modello Dixon-Coles** esteso.
 
@@ -8,8 +19,10 @@ senza entrare nel codice o nelle formule, leggi il [System design dell'app](docs
 
 ## Confronto A/C e Nightly Pre-Match Virtual Betting
 
-Il confronto usa il modello statistico A come riferimento e il modello ibrido
-statistico + CatBoost C come **Challenger**. GitHub Actions aggiorna i dati e,
+Nella nuova policy locale A è il consiglio effettivo della pagina Partite,
+prodotto da PredictionService e tracciato come `APP-A` con hash di stato/versione.
+Non è la vecchia A research `A-80cb25df5552621e`. C `C-906371b0b3a1e2c8`
+mantiene la baseline A research 80 e resta **Challenger**. GitHub Actions aggiorna i dati e,
 quando esplicitamente abilitata, esegue una sola elaborazione notturna sulle
 partite future. Ogni modello sceglie al massimo una puntata virtuale per partita
 oppure nessuna, usando lo stesso snapshot reale di dati e quote.
@@ -30,7 +43,8 @@ Recuperi dopo un errore possono ripetere lavoro, restando entro cache, lease e
 budget atomico. Non è garantito un avvio preciso alle 03:07.
 
 Esistono due portafogli indipendenti, A e C, con capitale iniziale di 1.000 euro,
-stake 1% ed esposizione massima 5%. Gli identificatori persistenti `shadow_A` e
+stake A uguale alla percentuale del consiglio, stake C 1% ed esposizione
+massima 5% per portafoglio. Gli identificatori persistenti `shadow_A` e
 `shadow_C` vengono riutilizzati per conservare ledger, saldi e giocate: non sono
 una modalità Shadow Betting separata. Nessun terzo portafoglio, reset o denaro
 reale. Lo storico precedente mantiene il protocollo e i timestamp originari.
@@ -47,12 +61,13 @@ A/C per campionato e mercato. Il maggiore profitto del periodo è distinto
 dalla qualità probabilistica e non dimostra superiorità statistica. Il
 benchmark storico conserva log loss, Brier score, calibrazione e limiti del test.
 
-L'[assemblatore prospettico](docs/operations/nightly-model-runtime-2026-10-29.md)
-congela osservazioni reali anche quando A/C si astengono, prima dei risultati e
-senza puntate o movimenti del ledger. Il registro iniziale non ha campioni
-idonei: il percorso parte con astensioni, non con BET garantite. Il minimo di
-50 partite per mercato/fascia e il limite prudenziale di Hoeffding restano
-invariati; non si inventano calibrazioni, refit o promozioni.
+Il picker canonico backend replica livelli Low/Medium/High e ranking della
+pagina; il frontend non riordina i candidati. La nuova esecuzione virtuale
+non usa il veto di 50 campioni/Hoeffding: quei controlli restano nel benchmark
+e nelle origini diagnostiche. Prima si conservano diagnosi a stake zero,
+poi eventuali esecuzioni separate; i dieci vecchi ABSTAIN restano immutati.
+Quote reali entro 300 secondi, mercati liquidabili, capitale, deduplicazione
+e kickoff restano obbligatori. Non si promettono copertura totale o profitto.
 
 La [guida operativa canonica](docs/operations/nightly-pre-match-2026-10-29.md)
 descrive il nuovo percorso. Riferimenti complementari:
@@ -77,8 +92,9 @@ Audit RO 11:10:02 UTC PASS: cinque input, dieci decisioni e dieci marker di
 inferenza complessivi; digest dei quattro input e delle otto decisioni
 precedenti invariati. Wallet 1.000 euro ciascuno, zero impegnati, 258 giocate
 legacy e sette hash finanziari preservati. Cinque chiamate calendario a costo 0,
-una richiesta quote Nightly da 3 crediti: 307 usati/193 residui. Modelli, minimo 50
-campioni ed EV 4%/prudenziale 1% invariati. Backend `01320941` e UI `fb0e30f8`
+una richiesta quote Nightly da 3 crediti: 307 usati/193 residui. Nel recupero precedente erano
+invariati modello e gate diagnostici 50/EV 4%/prudenziale 1%; questa è evidenza
+datata, distinta dalla nuova esecuzione virtuale locale. Backend `01320941` e UI `fb0e30f8`
 restano LIVE senza nuovo deploy web. [Report dei cinque incontri](docs/operations/nightly-fixture-recovery-2026-10-30.md).
 Il precedente verde su quattro partite non attestava il calendario completo;
 restano da osservare cron 31 ottobre 03:07 e risultati/liquidazioni ufficiali.
@@ -1188,6 +1204,7 @@ LINEUP_REFRESH_SCHEDULER_ENABLED=false
 PLAYER_DATA_ENABLED=false
 PLAYER_AVAILABILITY_ENABLED=false
 RESEARCH_NIGHTLY_ENABLED=false
+RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false
 RESEARCH_T15_SCHEDULER_ENABLED=false
 ```
 

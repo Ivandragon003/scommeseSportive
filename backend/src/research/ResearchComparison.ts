@@ -1,10 +1,11 @@
 import type { ResearchStore } from './ResearchStore';
+import { readEffectiveResearchDecisions, researchDecisionView, RecommendationReader } from './ResearchRecommendationView';
 
 type Row = Record<string, any>;
 type Family = 'A' | 'C';
 export type ResearchComparisonQuery = { period?: string; from?: string; to?: string };
 type ComparisonStore = Pick<ResearchStore, 'listPortfolios' | 'listBets' | 'listLedger' | 'listDecisions'>
-  & Partial<Pick<ResearchStore, 'listJobs'>>;
+  & Partial<Pick<ResearchStore, 'listJobs' | 'listLegacyDecisionViews' | 'listBetViews'>>;
 const ZONE = 'Europe/Rome';
 const ROW_LIMIT = 500;
 const DAY = 86_400_000;
@@ -81,9 +82,9 @@ function metadata(row: Row, job?: Row): Row {
   const matchId = row.matchId ?? match.matchId ?? forecast.matchId ?? job?.matchId ?? null;
   const home = match.homeTeam ?? match.homeTeamName ?? snapshot.homeTeamName;
   const away = match.awayTeam ?? match.awayTeamName ?? snapshot.awayTeamName;
-  return { matchId, matchLabel: match.matchLabel ?? snapshot.matchLabel ?? (home && away ? `${home} – ${away}` : matchId),
-    league: match.competition ?? match.league ?? snapshot.competition ?? snapshot.league ?? forecast.competition ?? null,
-    kickoffAt: match.kickoffAt ?? snapshot.kickoffAt ?? forecast.kickoffAt ?? job?.kickoffAt ?? null };
+  return { matchId, matchLabel: row.matchLabel ?? match.matchLabel ?? snapshot.matchLabel ?? (home && away ? `${home} – ${away}` : matchId),
+    league: row.competition ?? row.league ?? match.competition ?? match.league ?? snapshot.competition ?? snapshot.league ?? forecast.competition ?? null,
+    kickoffAt: row.kickoffAt ?? match.kickoffAt ?? snapshot.kickoffAt ?? forecast.kickoffAt ?? job?.kickoffAt ?? null };
 }
 
 function settled(row: Row, end: number): boolean {
@@ -143,9 +144,12 @@ function equityPeriod(movements: Row[], from: number, end: number): Row {
 }
 
 function decisionView(row: Row): Row {
-  const quote = quoteView(row.snapshot?.quote);
+  const quote = quoteView(row.quote ?? row.snapshot?.quote);
   return { action: row.action, market: row.market, selection: row.selection, modelVersion: row.modelVersion,
-    reason: row.reason ?? null, quote, bookmaker: quote?.bookmaker ?? null };
+    reason: row.reason ?? null, quote, bookmaker: quote?.bookmaker ?? null,
+    authority: row.authority, policyHash: row.policyHash ?? null, policyVersion: row.policyVersion ?? null,
+    confidence: row.confidence ?? null, suggestedStakePercent: row.suggestedStakePercent ?? null,
+    stakeCents: row.stakeCents ?? null, modelSource: row.modelSource, probabilitySource: row.probabilitySource };
 }
 
 function sameDecision(a: Row, c: Row): boolean {
@@ -157,20 +161,29 @@ function sameDecision(a: Row, c: Row): boolean {
 }
 
 /** Read-only economic comparison. It never creates wallets or substitutes historical model backtests. */
-export async function buildResearchComparison(store: ComparisonStore, query: ResearchComparisonQuery = {}, now = new Date()): Promise<Row> {
+export async function buildResearchComparison(store: ComparisonStore, query: ResearchComparisonQuery = {}, now = new Date(), recommendations?: RecommendationReader): Promise<Row> {
   const [rawPortfolios, rawBets, rawLedger, rawDecisions, jobs] = await Promise.all([
-    store.listPortfolios(), store.listBets(), store.listLedger(), store.listDecisions(), store.listJobs?.() ?? Promise.resolve([]),
+    store.listPortfolios(), store.listBetViews ? store.listBetViews() : store.listBets(), store.listLedger(), readEffectiveResearchDecisions(store, recommendations), store.listJobs?.() ?? Promise.resolve([]),
   ]);
   const wallets = new Set(['shadow_A', 'shadow_C']);
   const validTime = (row: Row, key: string) => Number.isFinite(timestamp(row[key])) && timestamp(row[key]) <= now.getTime();
   const bets = rawBets.filter((row) => wallets.has(row.portfolioId) && validTime(row, 'placedAt'));
   const ledger = rawLedger.filter((row) => wallets.has(row.portfolioId) && validTime(row, 'createdAt'))
     .map((row, index) => ({ ...row, order: index })).sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || a.order - b.order);
-  const decisions = rawDecisions.filter((row) => wallets.has(row.portfolioId) && validTime(row, 'createdAt'));
+  const decisions = rawDecisions.effective.filter((row) => wallets.has(row.portfolioId) && validTime(row, 'createdAt'));
   const timestamps = [...ledger.map((row) => row.createdAt), ...bets.map((row) => row.placedAt), ...decisions.map((row) => row.createdAt)]
     .sort((a, b) => timestamp(a) - timestamp(b));
-  const period = comparisonPeriod(query, now, timestamps[0]);
-  const from = timestamp(period.from); const end = Math.min(timestamp(period.to), now.getTime() + 1);
+  let period = comparisonPeriod(query, now, timestamps[0]);
+  let from = timestamp(period.from); const end = Math.min(timestamp(period.to), now.getTime() + 1);
+  let aggregatedDecisions = await recommendations?.getComparisonDecisionPairs?.({ from: period.from,
+    to: new Date(end).toISOString(), limit: ROW_LIMIT });
+  // A bounded metadata preview must not move the beginning of an all-history comparison.
+  if (period.key === 'all' && timestamp(aggregatedDecisions?.earliestCreatedAt) < from) {
+    period = comparisonPeriod(query, now, aggregatedDecisions!.earliestCreatedAt!);
+    from = timestamp(period.from);
+    aggregatedDecisions = await recommendations!.getComparisonDecisionPairs!({ from: period.from,
+      to: new Date(end).toISOString(), limit: ROW_LIMIT });
+  }
   const contains = (at: unknown) => timestamp(at) >= from && timestamp(at) < end;
   const placed = bets.filter((row) => contains(row.placedAt));
   const liquidated = bets.filter((row) => contains(row.settledAt));
@@ -198,13 +211,18 @@ export async function buildResearchComparison(store: ComparisonStore, query: Res
   const decisionsByJob = new Map<string, Partial<Record<Family, Row>>>();
   for (const row of decisions.filter((row) => contains(row.createdAt)).sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || String(a.id).localeCompare(String(b.id)))) {
     if (row.family !== 'A' && row.family !== 'C') continue;
-    const group = decisionsByJob.get(row.jobId) ?? {};
+    const key = String(meta(row).matchId ?? row.jobId);
+    const group = decisionsByJob.get(key) ?? {};
     group[row.family as Family] = row;
-    decisionsByJob.set(row.jobId, group);
+    decisionsByJob.set(key, group);
   }
   const pairs = [...decisionsByJob.values()].filter((row) => row.A && row.C) as Array<{ A: Row; C: Row }>;
-  const differences = pairs.filter((row) => !sameDecision(row.A, row.C)).map<Row>(({ A, C }) => ({
-    ...meta(A), at: A.createdAt, A: decisionView(A), C: decisionView(C),
+  const differencePairs = aggregatedDecisions
+    ? aggregatedDecisions.pairs.map(({ A, C }) => ({ A: researchDecisionView(A), C: researchDecisionView(C) }))
+    : pairs.filter((row) => !sameDecision(row.A, row.C));
+  const differences = differencePairs.map<Row>(({ A, C }) => ({
+    ...meta(A), at: timestamp(A.createdAt) >= timestamp(C.createdAt) ? A.createdAt : C.createdAt,
+    A: decisionView(A), C: decisionView(C),
   })).sort((a, b) => timestamp(b.at) - timestamp(a.at) || String(a.matchId).localeCompare(String(b.matchId)));
   const betRows = [...placed].sort((a, b) => timestamp(b.placedAt) - timestamp(a.placedAt) || String(a.id).localeCompare(String(b.id)))
     .slice(0, ROW_LIMIT).map((row) => ({ id: row.id, family: row.family, portfolioId: row.portfolioId, modelVersion: row.modelVersion,
@@ -212,13 +230,21 @@ export async function buildResearchComparison(store: ComparisonStore, query: Res
       odds: row.odds, stakeCents: row.stakeCents, quote: quoteView(row.snapshot?.quote),
       bookmaker: row.snapshot?.quote?.bookmaker ?? null, source: row.snapshot?.quote?.source ?? null,
       reason: row.snapshot?.reason ?? null, status: settled(row, end) ? outcome(row) : 'PENDING',
+      confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,
+      policyHash: row.snapshot?.policyHash ?? null, policyVersion: row.snapshot?.policyVersion ?? null,
+      originDecisionId: row.originDecisionId ?? row.decisionId, effectiveExecutionDecisionId: row.effectiveExecutionDecisionId ?? row.decisionId,
       settledAt: settled(row, end) ? row.settledAt : null, profitCents: settled(row, end) ? betProfit(row) : null }));
   const [a, c] = portfolios;
   const leader = !a.initialized || !c.initialized ? null : a.profitCents === c.profitCents ? 'TIE' : a.profitCents > c.profitCents ? 'A' : 'C';
   return { period, observedAt: now.toISOString(), portfolios, leader, byLeague: breakdown('league'), byMarket: breakdown('market'),
-    decisionDifferences: { comparedCount: pairs.length, differentCount: differences.length,
-      sameCount: pairs.length - differences.length, incompleteCount: decisionsByJob.size - pairs.length,
-      total: differences.length, truncated: differences.length > ROW_LIMIT, rows: differences.slice(0, ROW_LIMIT) },
+    decisionDifferences: { comparedCount: aggregatedDecisions?.comparedCount ?? pairs.length,
+      differentCount: aggregatedDecisions?.differentCount ?? differences.length,
+      sameCount: aggregatedDecisions ? aggregatedDecisions.comparedCount - aggregatedDecisions.differentCount : pairs.length - differences.length,
+      incompleteCount: aggregatedDecisions?.incompleteCount ?? decisionsByJob.size - pairs.length,
+      total: aggregatedDecisions?.differentCount ?? differences.length,
+      truncated: aggregatedDecisions?.truncated ?? differences.length > ROW_LIMIT,
+      countScope: aggregatedDecisions ? 'all_effective_decisions_in_period' : 'bounded_legacy_adapter',
+      rows: differences.slice(0, ROW_LIMIT) },
     bets: { total: placed.length, truncated: placed.length > ROW_LIMIT, rows: betRows },
     semantics: { intervals: 'from_inclusive_to_exclusive', timezone: ZONE, money: 'integer_cents', rates: 'fractions',
       counts: 'betCount/stakeCents: placements in period; settledCount/outcomes/settledStakeCents: settlements in period, including earlier placements',
@@ -228,5 +254,8 @@ export async function buildResearchComparison(store: ComparisonStore, query: Res
       halfResults: 'half wins included in wonCount; half losses included in lostCount; separate half counts are also provided',
       equity: 'available plus committed capital; opening capital is not profit; drawdown restarts at period baseline',
       leader: 'higher virtual profit in selected period; no claim of statistical model superiority',
-      history: 'preserved A/C portfolio history; protocol is the recorded quote priceType when available', rowLimit: ROW_LIMIT } };
+      history: 'preserved A/C portfolio history; latest effective decision per match/family/portfolio, original superseded decisions excluded from comparisons',
+      stakePolicy: 'A: recorded canonical recommendation percent; C: fixed 1 percent; exposure cap 5 percent per independent portfolio',
+      probabilitySources: 'A execution: operational PredictionService APP-A; C: recorded hybrid research pipeline; historical research A remains separate',
+      rowLimit: ROW_LIMIT } };
 }

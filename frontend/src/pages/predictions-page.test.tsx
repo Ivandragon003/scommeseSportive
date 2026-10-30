@@ -45,6 +45,14 @@ const valueOpportunity = {
   suggestedStakePercent: 2.5,
 };
 
+const canonicalPacket = (ranked: any[] = [valueOpportunity]) => ({
+  policyVersion: 'match-page-recommendation-v1', selected: ranked[0] ?? null, ranked,
+  decisionStatus: ranked.length ? 'RECOMMENDED' : 'NO_BET', asOf: '2026-05-23T03:07:01Z',
+  model: { source: 'PredictionService', version: 'APP-A-test', codeHash: 'code', configHash: 'config', stateHash: 'state' },
+  odds: { source: 'odds_api', capturedAt: '2026-05-23T03:07:00Z', bookmakerBySelection: { over25: 'Pinnacle' } },
+  probabilities: { raw: { over25: .561 }, decision: { over25: .561 } },
+});
+
 const buildPrediction = (overrides: Record<string, any> = {}) => ({
   matchId: 'match_1',
   homeTeam: 'Inter',
@@ -82,6 +90,7 @@ const buildPrediction = (overrides: Record<string, any> = {}) => ({
   playerShotsPredictions: [],
   valueOpportunities: [valueOpportunity],
   bestValueOpportunity: valueOpportunity,
+  canonicalRecommendation: canonicalPacket(),
   analysisFactors: {
     homeAdvantage: 'moderato',
   },
@@ -171,6 +180,77 @@ describe('Predictions page', () => {
     expect(screen.queryByText(/Pronta per l’analisi/i)).toBeNull();
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
+  });
+
+  test('mostra il packet A archiviato e non ripropone la registrazione della stessa puntata', async () => {
+    const archivedPick = { ...valueOpportunity, bookmakerName: 'Pinnacle', bookmakerOdds: 1.77, suggestedStakePercent: .37 };
+    const automaticRecommendation = { ...canonicalPacket([archivedPick]), actualStakeAmount: 3.7,
+      status: 'OPEN', placedAt: '2026-05-23T03:07:02Z' };
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ automaticRecommendation }) } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api',
+      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
+
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    await screen.findByTestId('best-value-card');
+    expect(screen.getByTestId('best-value-metric-quota-bookmaker').textContent).toBe('1.77');
+    expect(screen.getByTestId('best-value-metric-puntata-suggerita').textContent).toBe('EUR 3.70');
+    expect(screen.getByText(/prezzo archiviato, non quota corrente/)).toBeTruthy();
+    expect(screen.queryByTestId('stake-planner')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: /Scommesse/i }));
+    expect(await screen.findByText('Scommessa gia fatta')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Scommetti/ })).toBeNull();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+
+  test('mostra una astensione tecnica registrata senza sostituirla con consigli live o azioni di puntata', async () => {
+    const automaticRecommendation = { projectionKind: 'technical_abstention', selected: null, ranked: [],
+      decisionStatus: 'NO_BET', actualStakeAmount: 0, status: 'ABSTAIN',
+      reason: 'Calendario incompleto al momento della valutazione.', asOf: '2026-05-23T03:07:01Z',
+      placedAt: null, model: null, probabilities: null, odds: null, source: null,
+      quoteArchived: false, quoteStatus: 'UNAVAILABLE', quoteCapturedAt: null };
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ automaticRecommendation,
+      bestValueOpportunity: { ...valueOpportunity, confidence: 'LOW', edgeNoVig: 2 },
+    }) } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api',
+      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
+
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    expect(await screen.findByText('Valutazione Nightly non completata')).toBeTruthy();
+    expect(screen.getByLabelText('Decisione Nightly A').textContent).toContain(automaticRecommendation.reason);
+    expect(screen.getByLabelText('Decisione Nightly A').textContent).toContain('EUR 0.00');
+    expect(screen.queryByTestId('best-value-metric-quota-bookmaker')).toBeNull();
+    expect(screen.queryByTestId('stake-planner')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: /Scommesse/i }));
+    expect(screen.queryByRole('button', { name: /Scommetti/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Archivia/ })).toBeNull();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+
+  test('il replay storico conserva il consiglio canonico e non richiede quote correnti o nuove registrazioni', async () => {
+    const played = { ...matchRow, date: '2026-05-22T18:00:00Z', home_goals: 2, away_goals: 1 };
+    mockedApi.getRecentMatches.mockResolvedValue({ data: [played] } as any);
+    const replayPick = { ...valueOpportunity, bookmakerName: 'Eurobet', bookmakerOdds: 2.23 };
+    mockedApi.replayPlayedMatchPrediction.mockResolvedValue({ data: buildPrediction({
+      analysisMode: 'played_match_replay', oddsReplaySource: 'historical_bookmaker_snapshot',
+      canonicalRecommendation: canonicalPacket([replayPick]), replayOddsUsed: { over25: 2.23 },
+      actualMatch: { date: played.date, actualScore: '2-1' },
+      recommendedBetResult: { selection: 'over25', status: 'WON', reason: 'Esito storico verificato.' },
+    }) } as any);
+
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Recenti' }));
+    await waitFor(() => expect(mockedApi.getRecentMatches).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    await waitFor(() => expect(mockedApi.replayPlayedMatchPrediction).toHaveBeenCalledWith('match_1'));
+    expect(await screen.findByTestId('best-value-card')).toBeTruthy();
+    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
+    expect(screen.getByTestId('best-value-metric-quota-bookmaker').textContent).toBe('2.23');
+    expect(screen.getByTestId('best-value-card').textContent).toContain('WON');
+    expect(mockedApi.getPrediction).not.toHaveBeenCalled();
+    expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
 
   test('apre il dettaglio di una sola partita e permette di tornare alla lista', async () => {
@@ -274,7 +354,7 @@ describe('Predictions page', () => {
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
   });
 
-  test('usa i 3 slot per HIGH/MEDIUM prima di una LOW consigliata anche se conveniente', async () => {
+  test('consuma i 3 slot canonici del backend e mantiene il consiglio LOW aggiuntivo nel solo archivio', async () => {
     const lowPlayerOpportunity = {
       ...valueOpportunity,
       selection: 'player_orsolini_shots_over_1_5',
@@ -338,9 +418,10 @@ describe('Predictions page', () => {
       highTeamOpportunity,
       thirdPriorityTeamOpportunity,
     ];
+    const canonicalRecommendation = canonicalPacket([highTeamOpportunity, mediumTeamOpportunity, thirdPriorityTeamOpportunity]);
     mockedApi.getPrediction
-      .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb }) } as any)
-      .mockResolvedValueOnce({ data: buildPrediction({ valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb, oddsSource: 'odds_api' }) } as any);
+      .mockResolvedValueOnce({ data: buildPrediction({ canonicalRecommendation, valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb }) } as any)
+      .mockResolvedValueOnce({ data: buildPrediction({ canonicalRecommendation, valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb, oddsSource: 'odds_api' }) } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({
       data: {
         found: true,
@@ -386,6 +467,7 @@ describe('Predictions page', () => {
     mockedApi.getPrediction.mockResolvedValue({
       data: buildPrediction({
         valueOpportunities: [],
+        canonicalRecommendation: canonicalPacket([]),
         bestValueOpportunity: {
           ...valueOpportunity,
           confidence: 'LOW',
@@ -440,6 +522,7 @@ describe('Predictions page', () => {
       data: buildPrediction({
         valueOpportunities: [],
         bestValueOpportunity: null,
+        canonicalRecommendation: canonicalPacket([]),
         bestBetStatus: 'NO_MARKET',
         bestBetReason: 'Quote o probabilita insufficienti per scegliere una giocata.',
         bestBetAlternatives: [],

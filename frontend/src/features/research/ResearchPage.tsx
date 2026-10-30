@@ -103,6 +103,9 @@ const HistoryPanel = ({ overview }: { overview: ResearchOverview }) => {
 const PortfolioCard = ({ portfolio }: { portfolio: ResearchPortfolio }) => <article className="research-portfolio" aria-label={portfolioLabel(portfolio)}>
   <div className="research-section-heading"><h3>{portfolioLabel(portfolio)}</h3><span className="fp-badge fp-badge-blue">Modello {portfolio.family}</span></div>
   <dl className="research-metrics">
+    <Metric label="Stake corrente" value={portfolio.family === 'A' ? 'Stake del consiglio' : '1% fisso'}
+      help={portfolio.family === 'A' ? 'Percentuale variabile indicata nel consiglio della pagina Partite.' : undefined} />
+    <Metric label="Esposizione massima" value="5%" />
     <Metric label="Patrimonio contabile" value={money(portfolio.equityCents)} help="Disponibile + capitale impegnato" />
     <Metric label="Disponibile" value={money(portfolio.availableCents)} />
     <Metric label="Impegnato" value={money(portfolio.committedCents)} />
@@ -135,7 +138,7 @@ const PortfolioPanel = ({ overview, revision }: { overview: ResearchOverview; re
   return <div className="research-stack">
     <section className="research-panel"><h2>Portafogli virtuali A e C</h2>
       <p>Saldi attuali di due portafogli indipendenti. La nightly valuta le stesse partite e quote; ogni modello sceglie una puntata oppure nessuna. C resta Challenger.</p>
-      <p className="research-help">Stake 1%, esposizione massima 5%, massimo una puntata per partita e modello. I patrimoni non si sommano e non comprendono il budget legacy. Nessun denaro reale.</p>
+      <p className="research-help">A usa lo stake variabile del consiglio della pagina Partite; C usa uno stake fisso dell’1%. Esposizione massima 5% per ciascun portafoglio, massimo una puntata per partita e modello. I patrimoni non si sommano e non comprendono il budget legacy. Nessun denaro reale.</p>
       {portfolios.length ? <div className="research-portfolios">{portfolios.map((portfolio) => <PortfolioCard key={portfolio.id} portfolio={portfolio} />)}</div>
         : <Empty>Portafogli non inizializzati. Nessun capitale o risultato viene presunto.</Empty>}
     </section>

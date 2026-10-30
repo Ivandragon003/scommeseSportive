@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { buildResearchOverview } from '../research/ResearchOverview';
 import { buildResearchComparison } from '../research/ResearchComparison';
+import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
@@ -1421,8 +1422,13 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
 router.post('/predict', async (req: Request, res: Response) => {
   try {
     const pred = await svc.predict(req.body);
-    res.json({ success: true, data: formatPrediction(pred) });
-  } catch (e: any) { res.status(400).json({ success: false, error: e.message }); }
+    const matchId = String(req.body?.matchId ?? '').trim();
+    const recorded = matchId ? await readEffectiveResearchDecisions(db.research, db.recommendations,
+      { matchId, family: 'A', limit: 20, includeForecasts: true }) : null;
+    const automatic = recorded?.effective.find((decision) => decision.family === 'A');
+    res.json({ success: true, data: projectAutomaticRecommendationA({ ...formatPrediction(pred),
+      canonicalRecommendation: pred.canonicalRecommendation }, automatic) });
+  } catch (e: any) { res.status(e.message === 'Recorded recommendation packet unavailable' ? 503 : 400).json({ success: false, error: e.message }); }
 });
 
 router.post('/predict/replay', async (req: Request, res: Response) => {
@@ -1488,8 +1494,15 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
       bookmakerOdds: replayOddsUsed,
     });
 
-    const formatted = formatPrediction(replayPred);
-    const recommended = replayPred.bestValueOpportunity ?? null;
+    const recorded = await readEffectiveResearchDecisions(db.research, db.recommendations,
+      { matchId, family: 'A', limit: 20, includeForecasts: true });
+    const replayPacket = replayPred.canonicalRecommendation;
+    const historicalPacket = replayPacket && replaySource === 'historical_bookmaker_snapshot'
+      ? { ...replayPacket, odds: { ...replayPacket.odds,
+        capturedAt: historicalSnapshot?.captured_at ?? replayPacket.odds.capturedAt } } : replayPacket;
+    const formatted = projectAutomaticRecommendationA({ ...formatPrediction(replayPred), canonicalRecommendation: historicalPacket },
+      recorded.effective.find((decision) => decision.family === 'A'));
+    const recommended = formatted.canonicalRecommendation?.selected ?? null;
     const recommendedBetResult = recommended
       ? svc.evaluateSelectionAgainstMatch(String(recommended.selection ?? ''), match)
       : null;
@@ -1539,7 +1552,7 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
       },
     });
   } catch (e: any) {
-    res.status(400).json({ success: false, error: e.message });
+    res.status(e.message === 'Recorded recommendation packet unavailable' ? 503 : 400).json({ success: false, error: e.message });
   }
 });
 
@@ -1786,7 +1799,7 @@ router.get('/research/overview', async (_req: Request, res: Response) => {
 
 router.get('/research/comparison', async (req: Request, res: Response) => {
   const query = Object.fromEntries(['period', 'from', 'to'].flatMap((key) => typeof req.query[key] === 'string' ? [[key, req.query[key]]] : []));
-  try { return res.json({ success: true, data: await buildResearchComparison(db.research, query) }); }
+  try { return res.json({ success: true, data: await buildResearchComparison(db.research, query, new Date(), db.recommendations) }); }
   catch (error: any) {
     const invalid = /^Invalid comparison|^Custom comparison|^Comparison end date/.test(error?.message ?? '');
     return res.status(invalid ? 400 : 503).json({ success: false, error: invalid ? error.message : 'Virtual comparison unavailable.' });
@@ -1824,9 +1837,24 @@ router.get('/research/odds-status', async (_req: Request, res: Response) => {
   catch { return res.status(503).json({ success: false, error: 'Stato persistente del budget quote non disponibile.' }); }
 });
 
-router.get('/research/decisions', async (_req: Request, res: Response) => {
-  try { return res.json({ success: true, data: await db.research.listDecisions() }); }
+router.get('/research/decisions', async (req: Request, res: Response) => {
+  try {
+    const matchId = typeof req.query.matchId === 'string' ? req.query.matchId.trim() : undefined;
+    const view = await readEffectiveResearchDecisions(db.research, db.recommendations, { matchId, limit: 500 });
+    return res.json({ success: true, data: req.query.includeHistorical === 'true' ? view : view.effective });
+  }
   catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research decisions unavailable.' }); }
+});
+
+router.get('/research/forecasts', async (req: Request, res: Response) => {
+  const matchId = typeof req.query.matchId === 'string' ? req.query.matchId.trim() : '';
+  if (!matchId) return res.status(400).json({ success: false, error: 'matchId obbligatorio.' });
+  try {
+    const view = await readEffectiveResearchDecisions(db.research, db.recommendations,
+      { matchId, limit: 20, includeForecasts: true, includeProbabilityStages: true });
+    return res.json({ success: true, data: { matchId, decisions: view.effective,
+      superseded: view.historical.filter((decision) => !decision.effective).map((decision) => ({ id: decision.id, supersededBy: decision.supersededBy })) } });
+  } catch { return res.status(503).json({ success: false, error: 'Recorded forecasts unavailable.' }); }
 });
 
 router.post('/research/settle', async (_req: Request, res: Response) => {

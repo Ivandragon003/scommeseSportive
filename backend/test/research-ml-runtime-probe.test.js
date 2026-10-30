@@ -123,12 +123,16 @@ test('a close failure is also sanitized and cannot turn a failed probe into succ
   assert.equal(code, 1); assert.equal(JSON.parse(errors[0]).code, 'runtime_probe_close_failed'); assert.doesNotMatch(errors[0], /never-log/);
 });
 
-test('manual workflow has no schedule, RW fallback, artifact upload, training or betting bootstrap', () => {
+test('manual registered-C job remains isolated from preview write credentials, training and betting bootstrap', () => {
   const workflow = readFileSync(join(__dirname, '../../.github/workflows/research-runtime-verification.yml'), 'utf8');
   const script = readFileSync(join(__dirname, '../scripts/probe-research-ml-runtime.js'), 'utf8');
   assert.match(workflow, /on:\s*\n\s+workflow_dispatch:/);
   assert.match(workflow, /contents: read/); assert.match(workflow, /timeout-minutes: 5/); assert.match(workflow, /node-version: 20/);
   assert.match(workflow, /secrets\.TURSO_WATCHDOG_READONLY_TOKEN/);
-  assert.doesNotMatch(workflow, /schedule:|workflow_run:|push:|pull_request:|upload-artifact|secrets\.TURSO_AUTH_TOKEN|research-nightly|research-lifecycle|pip install/);
+  const readOnlyJob = workflow.slice(workflow.indexOf('  verify-runtime:'), workflow.indexOf('  preview-recommendations:'));
+  assert.match(readOnlyJob, /inputs\.mode == 'registered-c'/);
+  assert.match(readOnlyJob, /secrets\.TURSO_WATCHDOG_READONLY_TOKEN/);
+  assert.doesNotMatch(readOnlyJob, /TURSO_AUTH_TOKEN|ODDS_API_KEY|preview-recommendations\.js/);
+  assert.doesNotMatch(workflow, /schedule:|workflow_run:|push:|pull_request:|upload-artifact|research-nightly|research-lifecycle|pip install/);
   assert.doesNotMatch(script, /require\([^\n]*(?:DatabaseService|ResearchStore|OddsApi)|writeFile|mkdir|child_process/);
 });

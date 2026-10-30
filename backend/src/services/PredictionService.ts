@@ -4,6 +4,14 @@ import { blendGoalProbabilities } from './ProbabilityEnsembleService';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
+  CanonicalRecommendationPacket,
+  SharedPredictionOdds,
+  operationalPredictionCodeHash,
+  pickCanonicalBetRecommendation,
+  recommendationStateHash,
+  validateSharedPredictionOdds,
+} from './CanonicalBetRecommendation';
+import {
   ValueBettingEngine,
   BetOpportunity,
   ComboBetOpportunity,
@@ -343,6 +351,15 @@ export interface PredictionRequest {
   awayAbsentPlayers?: string[];
 }
 
+export interface PredictionExecutionOptions {
+  /** Operational snapshot time; this does not refit models or reconstruct a historical model. */
+  asOf?: string;
+  /** Nightly already archives its immutable input and decisions. */
+  recordAudit?: boolean;
+  /** Authoritative real prices shared with the Challenger; no quote provider is called here. */
+  sharedOdds?: SharedPredictionOdds;
+}
+
 export function resolvePredictionRefereeName(requestReferee: unknown, persistedReferee: unknown): string | null {
   const requested = String(requestReferee ?? '').trim();
   if (requested) return requested;
@@ -494,6 +511,7 @@ interface BestSingleMatchExplanationResult {
 }
 
 export interface PredictionResponse {
+  canonicalRecommendation?: CanonicalRecommendationPacket<BetOpportunity | BestValueOpportunityExplanation>;
   algorithmVersion: string;
   rankingVersion: string;
   backtestEngineVersion: string;
@@ -2013,7 +2031,15 @@ export class PredictionService {
     return ll;
   }
 
-  async predict(request: PredictionRequest): Promise<PredictionResponse> {
+  async predict(request: PredictionRequest, options: PredictionExecutionOptions = {}): Promise<PredictionResponse> {
+    const operationalTime = options.asOf == null ? new Date() : new Date(options.asOf);
+    if (!Number.isFinite(operationalTime.getTime())) throw new Error('invalid_prediction_as_of');
+    const asOf = operationalTime.toISOString();
+    if (options.sharedOdds) {
+      validateSharedPredictionOdds(options.sharedOdds, asOf);
+      request = { ...request, bookmakerOdds: { ...options.sharedOdds.odds },
+        bookmakerBySelection: { ...options.sharedOdds.bookmakerBySelection }, oddsSource: options.sharedOdds.source };
+    }
     // These are independent read-only lookups. Keep the subsequent schedule query
     // dependent on matchRow so its reference date remains exactly unchanged.
     const teamIds = [request.homeTeamId, request.awayTeamId];
@@ -2323,6 +2349,7 @@ export class PredictionService {
       learnedBlendWeights: calibrationProfile.learnedBlendWeights,
       modelUncertainty,
     };
+    const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
       marketGroups,
@@ -2342,7 +2369,7 @@ export class PredictionService {
     // catalogo calcolato, non solo le opportunita sopravvissute ai filtri.
     // EV/Kelly sono calcolati solo con una quota reale valida; senza quota
     // restano NULL e il motivo e' esplicito. Non usiamo quote sintetiche.
-    if (request.matchId) {
+    if (request.matchId && options.recordAudit !== false) {
       try {
         const auditOdds = request.bookmakerOdds ?? {};
         const auditGroups = this.engine.buildMarketGroups(auditOdds);
@@ -2453,7 +2480,33 @@ export class PredictionService {
       odds: alignedOdds, opportunity: bestValue.bestValueOpportunity,
     });
 
+    const hasRealOdds = request.oddsSource === 'odds_api' || request.oddsSource === 'historical_bookmaker_snapshot';
+    const canonical = pickCanonicalBetRecommendation<BetOpportunity | BestValueOpportunityExplanation>({
+      bestValueOpportunity: hasRealOdds ? bestValue.bestValueOpportunity : null,
+      valueOpportunities: hasRealOdds ? valueOpportunities : [],
+    });
+    const codeHash = operationalPredictionCodeHash();
+    const configHash = recommendationStateHash({ predictionConfig, predictionEngineConfig,
+      minimumCalibrationSample, anomalousEvPercent });
+    const modelState = { dc: model.getParams(), poisson: ensemblePoisson?.getParams() ?? null,
+      calibrationProfile, adaptiveTuning: engineTuningAtAnalysis };
+    const modelHash = recommendationStateHash(modelState);
+    const canonicalRecommendation: CanonicalRecommendationPacket<BetOpportunity | BestValueOpportunityExplanation> = {
+      ...canonical,
+      asOf,
+      model: { source: 'PredictionService', version: `APP-A-${recommendationStateHash({ codeHash, configHash, modelHash }).slice(0, 20)}`,
+        codeHash, configHash, stateHash: recommendationStateHash({ modelState, request: derivedRequest,
+          context, modelUncertainty, probabilities: probs.flatProbabilities, opportunities: valueOpportunities,
+          selected: canonical.selected }) },
+      odds: { source: String(request.oddsSource ?? 'unknown'), capturedAt: options.sharedOdds?.capturedAt ?? null,
+        bookmakerBySelection: { ...alignedBookmakerBySelection } },
+      probabilities: { raw: { ...probs.flatProbabilities }, decision: Object.fromEntries([
+        ...valueOpportunities, ...canonical.ranked,
+      ].map((opportunity) => [opportunity.selection, Number(opportunity.ourProbability) / 100])) },
+    };
+
     return {
+      canonicalRecommendation,
       algorithmVersion: ALGORITHM_VERSION,
       rankingVersion: RANKING_VERSION,
       backtestEngineVersion: BACKTEST_ENGINE_VERSION,
@@ -2479,7 +2532,7 @@ export class PredictionService {
       dataQuality,
       modelUncertainty,
       lineupXgAdjustments,
-      computedAt: new Date(),
+      computedAt: options.asOf == null ? new Date() : operationalTime,
     };
   }
 

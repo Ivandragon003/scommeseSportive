@@ -2,6 +2,15 @@ name: Verify registered C runtime
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Verification to run; preview prepares recommendations without registering bets
+        required: true
+        type: choice
+        default: registered-c
+        options:
+          - registered-c
+          - recommendations-preview
 
 permissions:
   contents: read
@@ -12,6 +21,7 @@ concurrency:
 
 jobs:
   verify-runtime:
+    if: ${{ inputs.mode == 'registered-c' || inputs.mode == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
@@ -31,3 +41,31 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_WATCHDOG_READONLY_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
         run: node scripts/probe-research-ml-runtime.js
+
+  preview-recommendations:
+    if: ${{ inputs.mode == 'recommendations-preview' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Prepare actual A/C recommendations without financial execution
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          RESEARCH_NIGHTLY_MINUTE: '7'
+          RESEARCH_T15_SCHEDULER_ENABLED: 'false'
+          RESEARCH_NIGHTLY_ENABLED: 'false'
+          RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: 'false'
+          RESEARCH_REGISTRY_WRITES_ENABLED: 'false'
+        run: node scripts/preview-recommendations.js

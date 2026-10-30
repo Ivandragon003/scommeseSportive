@@ -1,5 +1,16 @@
 # Nightly Pre-Match Virtual Betting: stato e pubblicazione
 
+**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
+pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
+sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
+esposizione 5% e massimo una puntata per partita/modello. Il flag
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
+e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
+remoti descritti sotto non attestano questa nuova policy. CI remota, preview
+senza scritture finanziarie e attivazione restano pendenti.
+[Specifica e avanzamento](recommendation-execution-2026-10-30.md).
+
+
 Il mandato del 29 ottobre 2026 sostituisce il requisito T−15. Il confronto
 prospettico consiste in due portafogli virtuali A/C, elaborati dalla nightly
 GitHub Actions. Non richiede un worker sempre acceso o una modalità Shadow
@@ -275,49 +286,66 @@ dopo il rilascio I/O ha osservato overview 2.826 ms e confronto 315 ms; non è
 un benchmark statistico confrontabile direttamente con i vecchi log server,
 né una prova che tutti gli alert CPU siano risolti.
 
-## E. Modelli, portafogli e confronto
+## E. Modelli, portafogli e nuova esecuzione locale
 
-Lo snapshot aggiornato conserva A `A-80cb25df5552621e` e
-C `C-906371b0b3a1e2c8`, 258 giocate legacy e zero nuove giocate research.
-Il ledger ricostruisce `shadow_A` e `shadow_C` a 100.000 centesimi disponibili
-ciascuno, zero impegnato. Gli ID rimangono per compatibilità: non sono una
-modalità parallela, non sono capitali da sommare e non vengono resettati.
+I collaudi remoti precedenti usavano A `A-80cb25df5552621e` e C
+`C-906371b0b3a1e2c8`: dieci origini ABSTAIN, portafogli A/C da 100.000 centesimi,
+zero impegnato, 258 giocate legacy preservate. Sono evidenze storiche; non
+attestano la nuova esecuzione del consiglio Partite.
 
-L'[inferenza Linux sull'artefatto C reale](nightly-model-runtime-2026-10-29.md)
-coincide con CatBoost nativo su 6.146 confronti, errore massimo `5,55e-17`.
-Il runtime usa il JSON in Node, senza Python: nel container locale a
-0,25 CPU / 256 MiB, RSS massimo 80,62 MiB e inferenza p95 0,316 ms. Questa prova
-non certifica la nuova release su Hostless o il consumo del backend completo.
+La nuova A locale usa PredictionService e il pacchetto esatto della pagina,
+identità `APP-A` con versione/hash di stato, distinta dalla research A80.
+Il picker backend replica Low/Medium/High e ranking effettivi; la UI non
+riordina i candidati. C906 e la sua baseline 80 restano immutati e Challenger.
 
-Il registro iniziale non contiene residui indipendenti ammissibili: A/C devono
-astenersi finché l'evidenza è insufficiente. La migrazione additiva 021 e
-l'assemblatore prospettico conservano quote, probabilità, EV e configurazione
-anche per ABSTAIN, prima del kickoff. La partizione per partita è fissata prima
-dell'esito: 80/20 nominale CALIBRATION/FUTURE_TEST, con la seconda esclusa dai
-residui. Solo dopo un risultato ufficiale si aggiunge il payout osservato, con
-timestamp effettivo, senza giocate o movimenti dei portafogli. Le correzioni
-ufficiali producono quarantene datate e preservano le letture storiche `asOf`.
-Il lookup richiede la stessa versione/configurazione; non riutilizza il test
-finale storico o i dati già usati per adattare il calibratore. Soglia minima
-50 e limite Hoeffding invariati: 50 osservazioni non garantiscono una puntata.
+La prova Linux precedente sull'artefatto C reale coincide con CatBoost nativo
+su 6.146 confronti, errore massimo `5,55e-17`; runtime JSON Node senza Python.
+Il container locale 0,25 CPU/256 MiB misurava RSS 80,62 MiB e p95 inferenza 0,316 ms.
+Sono misure storiche, non la verifica della nuova policy o del backend completo;
+il [report runtime](nightly-model-runtime-2026-10-29.md) ne conserva i confini.
 
-Stake 1%, esposizione 5%, massimo una puntata per partita/modello. L'ordinamento
-prudenziale è deterministico quando le opportunità superano il capitale
-allocabile. Commit atomico, lease e vincoli persistenti proteggono i retry.
-Settlement conserva handicap, mezzi esiti e rimborsi; nessun saldo negativo.
+| Regola della nuova policy | A | C |
+| --- | --- | --- |
+| Scelta | Consiglio canonico della pagina Partite | Candidato C supportato dal proprio engine |
+| Stake | Esatta percentuale indicata dal consiglio | 1% fisso |
+| Capitale iniziale, portafogli distinti | 1.000 euro | 1.000 euro |
+| Esposizione massima | 5% | 5% |
+| Puntate per partita/modello | Max 1 | Max 1 |
 
-EXPERIMENTAL descrive la validazione statistica e non blocca da solo una
-simulazione tecnicamente valida. Restano obbligatori probabilità coerenti,
-quote autentiche, selezione/linea/settlement supportati, timestamp e capitale.
-Non sono promossi mercati o modello C, che resta Challenger. Backtest storici,
-qualità probabilistica e rendimento virtuale prospettico rimangono distinti.
+L'esecuzione virtuale non usa il veto 50/Hoeffding. `ResearchEvaluation` e
+origini diagnostiche mantengono i propri controlli statistici: non vengono
+cancellati né trasformati in una validazione della nuova policy. Prima si
+conservano origini DIAGNOSTIC a stake zero, poi si valutano nuove esecuzioni
+con policy e snapshot propri. I dieci vecchi ABSTAIN restano immutabili.
+Quote reali ≤300 secondi, dati, capitale, kickoff e settlement supportato
+rimangono obbligatori; nessuna puntata dopo l'inizio.
 
-La dashboard usa aggregati completi del periodo da `/api/research/comparison`:
-7/30/60/90 giorni, intera simulazione o date personalizzate. Mostra patrimonio,
-profitto, ROI, stake, esiti, drawdown, curve, differenze e dettaglio quote.
-Le liste di dettaglio hanno limiti espliciti; il totale non dipende dalla loro
-paginazione. Il leader economico del periodo non è una prova di superiorità
-statistica.
+023 aggiunge soltanto `research_execution_policies`, `research_execution_jobs`,
+`research_execution_inputs`, `research_execution_decisions` e il FK nullable
+`research_bets.execution_decision_id`. Il ledger esistente resta l'unico
+registro finanziario dei portafogli, con unicità globale anti-duplicati.
+Il rehearsal locale e la ripresa dopo crash preservano 57 tabelle precedenti;
+backup ufficiale personale circa 530 MB, due restore con integrità/FK0.
+023 non è ancora applicata in produzione.
+
+Il frontend locale preferisce pacchetto A congelato ed euro effettivi, con
+stato/timestamp della quota storica: non è un prezzo live. Non usa un nuovo
+consiglio live per mascherare un ABSTAIN tecnico. Replay senza pacchetto,
+risposte tecniche 503 e aggregati su liste troncate sono ancora in review.
+C esclude push/quarti non supportati e cerca un'altra opportunità ammessa;
+A conserva i quarti supportati da GoalSettlement. EXPERIMENTAL è ammesso con
+idoneità tecnica, senza promessa di profitto, copertura totale o superiorità C.
+Le politiche di stake diverse rendono il profitto un confronto di esecuzioni,
+non una prova isolata della qualità dei modelli. Nessun denaro o commissione reale.
+
+`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`: codice non pubblicato,
+nuovo ramo non attivato, CI remota e preview senza scritture finanziarie ancora
+pendenti. Backend `01320941` e frontend `fb0e30f8` rimangono sulla release LIVE precedente.
+Rollback: spegnere il nuovo flag mantenendo settlement e viste compatibili;
+non attribuire nuove BET alle origini diagnostiche a zero stake e non
+sovrascrivere il DB con un vecchio backup. La
+[nuova guida](recommendation-execution-2026-10-30.md) separa le prove locali
+dagli esiti remoti ancora da ottenere.
 
 ## F. Gate di verifica
 

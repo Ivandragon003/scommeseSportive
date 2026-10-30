@@ -884,7 +884,11 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     handleAnalyze: analyzeSelectedMatch,
   } = predictionAnalysis;
   const budget = userBudget.budget;
-  const placedBetKeySet = userBudget.placedBetKeySet;
+  const placedBetKeySet = new Set(userBudget.placedBetKeySet);
+  const automaticPick = pred?.automaticRecommendation?.selected;
+  if (automaticPick && Number(pred.automaticRecommendation.actualStakeAmount) > 0) {
+    placedBetKeySet.add(oppStakeKey(automaticPick));
+  }
 
   const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
   const marketOddsGroups = useMemo(() => {
@@ -1206,12 +1210,17 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
               <div className="pr-decision-layout">
                 <BestValueCard
                   opportunity={finalRecommendedChoice as BestValueOpportunityModel | null}
+                  automaticRecommendation={pred.automaticRecommendation ?? null}
                   oddsBadge={oddsReliabilityBadge}
                   oddsWarning={oddsSourceWarning}
-                  bestBetStatus={finalRecommendedChoice ? pred.bestBetStatus : 'NO_MARKET'}
+                  bestBetStatus={finalRecommendedChoice
+                    ? finalRecommendedChoice.bestBetStatus ?? (pred.automaticRecommendation ? undefined : pred.bestBetStatus)
+                    : 'NO_MARKET'}
                   bestBetReason={finalRecommendedChoice
-                    ? pred.bestBetReason
-                    : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
+                    ? finalRecommendedChoice.bestBetReason ?? (pred.automaticRecommendation ? undefined : pred.bestBetReason)
+                    : pred.automaticRecommendation
+                      ? 'Decisione Nightly archiviata: nessuna puntata virtuale registrata per questa partita.'
+                      : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
                   emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
                   recommendedBetResult={
                     recommendedBetResult
@@ -1225,7 +1234,12 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                   showConfidence={false}
                 />
                 <div>
-                  <StakePlanner
+                  {pred.automaticRecommendation ? (
+                    <div className="pr-info">
+                      Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata.
+                      Il portafoglio virtuale A resta separato dal budget delle registrazioni manuali.
+                    </div>
+                  ) : <StakePlanner
                     isReplayAnalysis={isReplayAnalysis}
                     actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
                     actualScore={actualMatch?.actualScore ?? '-'}
@@ -1234,7 +1248,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                     maxExposurePct={maxExposurePct}
                     maxExposureAmount={maxExposureAmount}
                     exposureRatio={exposureRatio}
-                  />
+                  />}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                     <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
                       Approfondisci i mercati
