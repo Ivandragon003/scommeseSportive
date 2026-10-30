@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import BudgetManager from './BudgetManager';
+import { LegacyBudgetManager as BudgetManager } from './BudgetManager';
 import * as api from '../utils/api';
 
 jest.mock('../utils/api');

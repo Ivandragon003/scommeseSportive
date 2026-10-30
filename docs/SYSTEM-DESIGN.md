@@ -1,6 +1,18 @@
 # System design di FootPredictor
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -144,7 +156,7 @@ Le sezioni principali sono:
 - **Archivio giocate:** opportunità operative e salvate a fini di analisi.
 - **Backtest:** valutazione storica del modello.
 - **Centro dati:** dati importati, fonti, sincronizzazione e integrità.
-- **Confronto A/C:** due portafogli A/C, rendimento per periodo, differenze decisionali, benchmark probabilistico separato e stato nightly.
+- **Confronto A/C nella UI LIVE precedente:** saldi e rendimento A/C erano raccolti nella vista dedicata, insieme al benchmark e allo stato nightly. La nuova integrazione locale, ancora in verifica, porta la gestione contabile in Giocate/Budget/Archivio con filtri A/C e confronto; Research conserva benchmark, modelli e stato tecnico.
 - **Glossario:** spiegazione dei termini mostrati nell'app.
 
 Il frontend comunica tramite richieste HTTP con risposte JSON. Le operazioni interattive ricevono la risposta dal backend; lo stato generale viene aggiornato anche con controlli periodici. Non è previsto un canale WebSocket per gli aggiornamenti in tempo reale.
@@ -437,6 +449,15 @@ ID storici, i ledger e il capitale; non rappresentano una modalità Shadow
 Betting aggiuntiva. Non viene creato un terzo portafoglio. Le API manuali del
 budget legacy, fra cui `/bets/place`, appartengono al sistema precedente e
 non sono invocate per le registrazioni notturne A/C.
+
+L’integrazione locale usa `GET /api/wallets`: un adattatore sottile sopra
+`ResearchComparison`, in sola lettura, con gli stessi ID e movimenti.
+Aggregati dell’intero periodo e dettagli fino a 500 righe rimangono distinti,
+con troncamento esplicito. Giocate/Budget/Archivio leggono questi dati senza
+inizializzazione, sync o placement legacy. Le 258 giocate precedenti restano
+in uno storico separato, senza modello A inventato né patrimonio cumulato.
+Nessuna tabella o esposizione viene duplicata; il deployment di questa
+integrazione non è ancora verificato.
 
 Il settlement liquida soltanto giocate già registrate quando i dati necessari
 sono disponibili. Rimborsi, mezzi esiti e risultati incompleti mantengono le

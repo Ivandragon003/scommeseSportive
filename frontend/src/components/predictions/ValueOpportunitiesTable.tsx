@@ -8,6 +8,8 @@ interface ValueOpportunitiesTableProps {
   recommendedOpportunity?: BestValueOpportunity | null;
   bankroll: number;
   budgetReady: boolean;
+  automaticFamily?: 'A' | 'C' | null;
+  alreadyPlacedForMatch?: boolean;
   isReplayAnalysis: boolean;
   oddsSource?: string | null;
   oddsBookmaker?: string | null;
@@ -68,6 +70,8 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
   recommendedOpportunity,
   bankroll,
   budgetReady,
+  automaticFamily,
+  alreadyPlacedForMatch = false,
   isReplayAnalysis,
   oddsSource,
   oddsBookmaker,
@@ -104,7 +108,9 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
 
   return (
     <div data-testid="value-opportunities-table">
-      {!budgetReady && <div className="pr-alert pr-alert-warning">ATTENZIONE: inizializza il bankroll in Budget Manager.</div>}
+      {!budgetReady && <div className="pr-alert pr-alert-warning">{automaticFamily
+        ? `Dati del portafoglio ${automaticFamily} non disponibili: verifica la sezione Budget.`
+        : 'ATTENZIONE: inizializza il bankroll in Budget Manager.'}</div>}
       {providerWarning && <div className="pr-alert pr-alert-warning">{providerWarning}</div>}
       {isReplayAnalysis && (
         <div className="pr-alert pr-alert-warning">
@@ -205,7 +211,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                 )}
                 <div className="pr-vb-bottom">
                   <div className="pr-stake-wrap">
-                    <span className="pr-stake-lbl">Puntata EUR</span>
+                    <span className="pr-stake-lbl">{automaticFamily ? 'Importo indicativo EUR' : 'Puntata EUR'}</span>
                     <input
                       className="pr-stake-input"
                       type="number"
@@ -213,7 +219,7 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                       step={0.1}
                       value={stakes[stakeKey] ?? ''}
                       placeholder={suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '1.00'}
-                      disabled={isReplayAnalysis}
+                      disabled={isReplayAnalysis || Boolean(automaticFamily)}
                       onChange={(event) => onStakeChange(stakeKey, event.target.value)}
                     />
                     {budgetReady && (
@@ -237,6 +243,10 @@ const ValueOpportunitiesTable: React.FC<ValueOpportunitiesTableProps> = ({
                     </span>
                   ) : alreadyPlaced ? (
                     <span className="pr-badge pr-badge-green">Scommessa gia fatta</span>
+                  ) : automaticFamily ? (
+                    <span className="pr-info">{alreadyPlacedForMatch
+                      ? `Il modello ${automaticFamily} ha già una puntata su questa partita.`
+                      : `Portafoglio ${automaticFamily}: registrazione automatica dalla Nightly.`} <a href="/bets">Apri Giocate</a></span>
                   ) : (
                     <>
                       {classification && onArchive && (

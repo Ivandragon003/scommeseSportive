@@ -1,6 +1,18 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -121,6 +133,15 @@ nightly prevista. `RESEARCH_NIGHTLY_WINDOW_HOURS`, se impostato, sceglie una
 durata tra 1 e 48 ore. Un retry conserva finestra e policy originarie;
 rinvii, nuovi kickoff e partite già iniziate vengono ricontrollati nel commit.
 Una notte persa non viene ricostruita con puntate retroattive.
+
+## Integrazione delle viste contabili: locale, in verifica
+
+La nuova disposizione di Giocate/Budget/Archivio legge gli stessi A/C tramite
+`GET /api/wallets`. Non aggiunge workflow, scritture finanziarie, una seconda
+esecuzione notturna o POST legacy. I cinque BET già registrati non sono un
+nuovo risultato della UI. Research conserva benchmark e modelli; il contratto
+dei dati mantiene aggregati completi e dettaglio massimo 500 esplicito.
+La pubblicazione e la verifica remota di queste viste restano pendenti.
 
 ## Flusso e gate
 

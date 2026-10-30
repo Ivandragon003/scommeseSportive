@@ -1,6 +1,18 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -66,6 +78,12 @@ massima 5% per portafoglio. Gli identificatori persistenti `shadow_A` e
 `shadow_C` vengono riutilizzati per conservare ledger, saldi e giocate: non sono
 una modalità Shadow Betting separata. Nessun terzo portafoglio, reset o denaro
 reale. Lo storico precedente mantiene il protocollo e i timestamp originari.
+
+Nell’integrazione locale, la gestione principale legge le finanze A e C è
+consultabile con filtro modello o confronto nelle normali pagine. Le letture
+non inizializzano saldi e non invocano POST legacy di sincronizzazione o
+piazzamento. Pubblicazione e verifica remota della nuova navigazione sono
+ancora da completare; le cinque BET dello snapshot non vengono generate di nuovo.
 
 Un mercato `EXPERIMENTAL` può raccogliere risultati virtuali se dati,
 probabilità, quota reale, bookmaker, timestamp, liquidazione e controlli

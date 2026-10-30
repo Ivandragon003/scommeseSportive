@@ -5,6 +5,8 @@ import { buildBetKey } from '../components/predictions/predictionWorkbenchUtils'
 import type { ToastTone } from './useToastState';
 
 interface UseBetPlacementParams {
+  mode?: 'automatic' | 'legacy';
+  automaticFamily?: 'A' | 'C' | null;
   activeUser: string;
   budget: any;
   pred: any;
@@ -25,6 +27,8 @@ interface UseBetPlacementParams {
 }
 
 export function useBetPlacement({
+  mode = 'automatic',
+  automaticFamily,
   activeUser,
   budget,
   pred,
@@ -38,6 +42,11 @@ export function useBetPlacement({
   showToast,
 }: UseBetPlacementParams) {
   const handleBet = useCallback(async (opportunity: any) => {
+    if (mode !== 'legacy') {
+      showToast({ tone: 'info', title: `Portafoglio ${automaticFamily ?? 'A'}`,
+        message: 'Le giocate sono registrate automaticamente dalla Nightly e sono consultabili in Giocate.' });
+      return;
+    }
     if (pred?.analysisMode === 'played_match_replay') {
       showToast({
         tone: 'warning',
@@ -118,6 +127,8 @@ export function useBetPlacement({
       });
     }
   }, [
+    mode,
+    automaticFamily,
     activeMatchRow?.date,
     activeUser,
     bankroll,

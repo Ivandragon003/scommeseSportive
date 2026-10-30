@@ -1,6 +1,18 @@
 # Piattaforma di confronto A/C
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -298,6 +310,19 @@ sotto 5%. Audit71/71 PASS e watchdog automatico SUCCESS. Il backup ufficiale
 preparazione;023 è applicata e le esecuzioni effettive hanno i propri record.
 Rollback: spegnere il nuovo flag mantenendo settlement e nuove viste; non
 attribuire BET eseguite alle origini diagnostiche a stake zero.
+
+## Confine fra Research e pagine dell’app
+
+Nella nuova integrazione locale, ancora in verifica, Research ospita benchmark,
+modelli e diagnostica. Giocate, Budget e Archivio diventano le viste normali
+dei portafogli A/C, con filtro modello e confronto. `GET /api/wallets` delega
+al DTO contabile di `ResearchComparison`, senza inizializzare fondi o scrivere
+puntate. I totali coprono l’intero periodo; le liste indicano il limite di
+500 dettagli e l’eventuale troncamento. La gestione principale usa A; C resta
+indipendente. Lo storico precedente è consultabile senza attribuzione A/C.
+Il nome tecnico `research_*` delle tabelle non impone una modalità separata
+all’utente. Le viste della release cloud precedente non dimostrano che questa
+integrazione sia già pubblicata.
 
 ## Due portafogli e contabilità
 

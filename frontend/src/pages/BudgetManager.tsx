@@ -10,15 +10,17 @@ import { useToastState } from '../hooks/useToastState';
 import { initBudget } from '../utils/api';
 import { getErrorMessage } from '../utils/errorUtils';
 import './budget-manager.css';
+import { WalletBudgetPage } from '../features/wallets/WalletPages';
 
 interface BudgetManagerProps {
   activeUser: string;
+  readOnly?: boolean;
 }
 
 const toAmount = (value: unknown) => Number(value ?? 0);
 const formatMoney = (value: unknown) => `EUR ${Number(value ?? 0).toFixed(2)}`;
 
-const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
+export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, readOnly = false }) => {
   const [initAmount, setInitAmount] = useState('1000');
   const [showReset, setShowReset] = useState(false);
   const toastState = useToastState();
@@ -33,9 +35,10 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
     lossesCount,
     voidCount,
     loadAll,
-  } = useBudgetManagerData(activeUser);
+  } = useBudgetManagerData(activeUser, { readOnly });
 
   const initializeBudget = async () => {
+    if (readOnly) return;
     const amount = Number(initAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toastState.showToast({ tone: 'warning', message: 'Inserisci un importo valido.' });
@@ -94,14 +97,16 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
       <main className="bm-wrap budget-page">
         <header className="bm-head">
           <div>
-            <h1 className="bm-title">Budget</h1>
-            <p className="bm-sub">Gestisci il tuo bankroll e monitora i risultati nel tempo.</p>
+            <h1 className="bm-title">{readOnly ? 'Budget precedente' : 'Budget'}</h1>
+            <p className="bm-sub">{readOnly ? 'Riepilogo della gestione precedente, conservato in sola lettura.' : 'Gestisci il tuo bankroll e monitora i risultati nel tempo.'}</p>
           </div>
           <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
         </header>
 
         {loading ? (
           <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento budget"><span /><span /><span /></div>
+        ) : !budget && readOnly ? (
+          <section className="budget-init"><p>Nessun bankroll precedente disponibile.</p></section>
         ) : !budget ? (
           <section className="budget-init" aria-labelledby="budget-init-title">
             <div className="budget-init__icon"><WalletCards size={28} aria-hidden="true" /></div>
@@ -139,11 +144,11 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
               <section className="budget-management" aria-labelledby="budget-management-title">
                 <h2 id="budget-management-title">Gestione bankroll</h2>
                 <div className="budget-current"><span>Bankroll attuale</span><strong>{formatMoney(availableBudget)}</strong></div>
-                <form onSubmit={(event) => { event.preventDefault(); void startNewSession(); }}>
+                {!readOnly && <form onSubmit={(event) => { event.preventDefault(); void startNewSession(); }}>
                   <label htmlFor="budget-initial-input">Budget iniziale</label>
                   <div className="budget-amount-input"><span>EUR</span><input id="budget-initial-input" aria-label="Budget iniziale" type="number" min="0.01" value={initAmount} onChange={(event) => setInitAmount(event.target.value)} /></div>
                   <button className="fp-btn fp-btn-green" type="submit">Aggiorna budget</button>
-                </form>
+                </form>}
                 <Link className="budget-open-bets-link" to="/bets">Vai alle giocate aperte <ArrowRight size={18} aria-hidden="true" /></Link>
               </section>
             </div>
@@ -153,7 +158,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
               <div role="progressbar" aria-label="Budget utilizzato" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(usedPct.toFixed(1))}>{usedPct.toFixed(1)}%</div>
             </div>
 
-            <section className={`bm-maintenance${showReset ? ' is-open' : ''}`} aria-labelledby="budget-maintenance-title">
+            {!readOnly && <section className={`bm-maintenance${showReset ? ' is-open' : ''}`} aria-labelledby="budget-maintenance-title">
               <span className="bm-maintenance__icon"><RotateCcw size={24} aria-hidden="true" /></span>
               <div className="bm-maintenance__copy"><h2 id="budget-maintenance-title">Manutenzione budget</h2><p>Avvia una nuova sessione senza cancellare le giocate già archiviate.</p></div>
               <button className="bm-maintenance__toggle" type="button" aria-expanded={showReset} onClick={() => setShowReset((value) => !value)}><span>{showReset ? 'Chiudi' : 'Gestisci'}</span><ChevronDown size={20} aria-hidden="true" /></button>
@@ -164,7 +169,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
                   <button className="fp-btn fp-btn-red" type="button" onClick={startNewSession}>Avvia nuova sessione</button>
                 </div>
               )}
-            </section>
+            </section>}
           </>
         )}
       </main>
@@ -173,5 +178,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => {
     </>
   );
 };
+
+const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => <WalletBudgetPage legacy={<LegacyBudgetManager activeUser={activeUser} readOnly />} />;
 
 export default BudgetManager;

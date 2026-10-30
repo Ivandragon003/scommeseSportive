@@ -65,17 +65,17 @@ export function usePredictionAnalysis({
   const recalculateStakes = useCallback((prediction: any, resolvedMatchId: string) => {
     const nextStakes: Record<string, string> = {};
     for (const opportunity of prediction?.valueOpportunities ?? []) {
-      if (budget?.available_budget) {
+      if (budget?.stake_base_budget ?? budget?.available_budget) {
         const key = buildBetKey(
           String(prediction?.matchId ?? resolvedMatchId),
           String(opportunity.selection),
           String(opportunity.marketName)
         );
-        nextStakes[key] = ((opportunity.suggestedStakePercent / 100) * budget.available_budget).toFixed(2);
+        nextStakes[key] = ((opportunity.suggestedStakePercent / 100) * (budget.stake_base_budget ?? budget.available_budget)).toFixed(2);
       }
     }
     setStakes(nextStakes);
-  }, [budget?.available_budget]);
+  }, [budget?.available_budget, budget?.stake_base_budget]);
 
   const clearAnalysisState = useCallback(() => {
     analyzeReqRef.current += 1;

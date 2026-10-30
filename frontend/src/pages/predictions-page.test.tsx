@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Predictions from './Predictions';
 import * as api from '../utils/api';
+import { getAppWallets } from '../utils/walletApi';
 
 jest.mock('../utils/api');
+jest.mock('../utils/walletApi');
+const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 
 const mockedApi = api as jest.Mocked<typeof api>;
 
@@ -99,6 +102,13 @@ const buildPrediction = (overrides: Record<string, any> = {}) => ({
 });
 
 const setupBaseMocks = () => {
+  mockedWallets.mockResolvedValue({
+    period: { key: 'all', from: null, to: '2026-05-23T08:00:00Z', timezone: 'Europe/Rome', label: 'Tutto lo storico' },
+    portfolios: [{ family: 'A', portfolioId: 'shadow_A', initialized: true, initialCents: 100000,
+      currentEquityCents: 100000, currentAvailableCents: 100000, currentCommittedCents: 0, equity: [] }],
+    bets: { rows: [], total: 0, truncated: false }, leader: null, byLeague: [], byMarket: [],
+    decisionDifferences: { comparedCount: 0, differentCount: 0, total: 0, truncated: false, rows: [] },
+  });
   mockedApi.getTeams.mockResolvedValue({
     data: [
       { team_id: 'team_inter', name: 'Inter', competition: 'Serie A' },
@@ -154,9 +164,10 @@ describe('Predictions page', () => {
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
     expect(mockedApi.getRecentMatches).toHaveBeenCalledTimes(0);
     expect(mockedApi.getMatchdayMap).toHaveBeenCalledTimes(1);
-    expect(mockedApi.syncSharedBets).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getBudget).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
+    expect(mockedWallets).toHaveBeenCalledTimes(1);
+    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
+    expect(mockedApi.getBudget).not.toHaveBeenCalled();
+    expect(mockedApi.getBets).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
     expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
@@ -354,7 +365,7 @@ describe('Predictions page', () => {
     expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
   });
 
-  test('consuma i 3 slot canonici del backend e mantiene il consiglio LOW aggiuntivo nel solo archivio', async () => {
+  test('consuma i 3 slot canonici senza creare archiviazioni manuali simulate', async () => {
     const lowPlayerOpportunity = {
       ...valueOpportunity,
       selection: 'player_orsolini_shots_over_1_5',
@@ -451,8 +462,10 @@ describe('Predictions page', () => {
     expect(valueBets.textContent).toContain('GG Si');
     expect(valueBets.textContent).toContain('Over 2.5 Goal');
     expect(valueBets.textContent).toContain('Vittoria Ospite');
-    expect(valueBets.textContent).toContain('Pareggio non conta (DNB) · Ospite');
-    expect(valueBets.textContent).toContain('Solo archivio · LOW');
+    expect(valueBets.textContent).not.toContain('Pareggio non conta (DNB) · Ospite');
+    expect(valueBets.textContent).not.toContain('Solo archivio · LOW');
+    expect(valueBets.textContent).toContain('registrazione automatica dalla Nightly');
+    expect(mockedApi.archiveManualBetOpportunity).not.toHaveBeenCalled();
     expect(valueBets.textContent).not.toContain('Under 2.5 Goal');
     expect(valueBets.textContent).not.toContain('Double Chance 1X');
     expect(valueBets.textContent).toContain('Consigliata');

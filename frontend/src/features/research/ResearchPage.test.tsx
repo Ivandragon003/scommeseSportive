@@ -44,16 +44,15 @@ test('mostra il caricamento senza assumere saldi o benchmark', () => {
   expect(screen.queryByText('Nessun benchmark eseguito.')).toBeNull();
 });
 
-test('stato vuoto esplicito e navigazione accessibile nei sei pannelli', async () => {
+test('stato vuoto esplicito e navigazione accessibile nei cinque pannelli', async () => {
   mockedOverview.mockResolvedValue(emptyOverview());
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  expect(screen.getByRole('tab', { name: 'Portafogli' }).getAttribute('aria-selected')).toBe('true');
-  fireEvent.keyDown(screen.getByRole('tab', { name: 'Portafogli' }), { key: 'ArrowRight' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   expect(screen.getByRole('tab', { name: 'Storico' }).getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(screen.getByRole('tab', { name: 'Storico' }), { key: 'ArrowRight' });
+  expect(screen.getByRole('tab', { name: 'Mercati' }).getAttribute('aria-selected')).toBe('true');
+  fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   expect(screen.getByText('Nessun benchmark eseguito.')).toBeTruthy();
-  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  expect(screen.getByText(/Portafogli non inizializzati/)).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   expect(screen.getByText(/Nessuna validazione di mercato registrata/)).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Esperimenti' }));
@@ -86,66 +85,12 @@ test('errore backend non diventa un risultato vuoto o una falsa disponibilità',
   mockedOverview.mockRejectedValue(new Error('Database non raggiungibile'));
   render(<ResearchPage />);
   expect((await screen.findByRole('alert')).textContent).toMatch(/Database non raggiungibile/);
-  expect(screen.getByText(/Non è possibile mostrare saldi o metriche/)).toBeTruthy();
+  expect(screen.getByText(/Non è possibile mostrare benchmark o stato dei modelli/)).toBeTruthy();
   expect(screen.queryByText('Nessun benchmark eseguito.')).toBeNull();
   mockedOverview.mockResolvedValue(emptyOverview());
   fireEvent.click(screen.getByRole('button', { name: 'Aggiorna confronto' }));
-  expect(await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: /Benchmark storico/ })).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
-});
-
-test('i portafogli A e C e le registrazioni restano indipendenti', async () => {
-  const overview = emptyOverview();
-  overview.portfolios = [
-    { id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 99000, committedCents: 1000, equityCents: 100000, profitCents: 0, betCount: 1, settledCount: 0 },
-    { id: 'shadow_C', family: 'C', initialCents: 100000, availableCents: 100900, committedCents: 0, equityCents: 100900, profitCents: 900, betCount: 1, settledCount: 1 },
-  ];
-  overview.bets = [
-    { id: 'a1', portfolioId: 'shadow_A', matchId: 'fixture-A', modelVersion: 'A-frozen', selection: 'homeWin', stakeCents: 1000, odds: 1.9, status: 'PENDING', createdAt: '2026-10-27T19:30:00Z', quote: { bookmaker: 'Bookmaker A' } },
-    { id: 'c1', portfolioId: 'shadow_C', matchId: 'fixture-C', modelVersion: 'C-real-catboost', selection: 'under25', stakeCents: 1000, odds: 1.9, status: 'WON', createdAt: '2026-10-27T19:30:00Z', profitCents: 900, quote: { bookmaker: 'Bookmaker C' } },
-  ];
-  mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
-  render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  const portfolioA = screen.getByRole('article', { name: 'Portafoglio A' });
-  const portfolioC = screen.getByRole('article', { name: 'Portafoglio C' });
-  expect(within(portfolioA).getAllByText(/1\.?000,00\s€/).length).toBe(2);
-  expect(within(portfolioA).getByText(/990,00\s€/)).toBeTruthy();
-  expect(within(portfolioA).getByText(/10,00\s€/)).toBeTruthy();
-  expect(within(portfolioC).getAllByText(/1\.?009,00\s€/).length).toBe(2);
-  expect(screen.queryByText(/2\.?009,00\s€/)).toBeNull();
-  fireEvent.change(await screen.findByLabelText('Portafoglio'), { target: { value: 'A' } });
-  expect(await screen.findByText('fixture-A')).toBeTruthy();
-  expect(screen.queryByText('fixture-C')).toBeNull();
-  expect(screen.queryByRole('button', { name: /Punta|Registra giocata|Promuovi/i })).toBeNull();
-});
-
-test('la policy corrente distingue stake A variabile e C fisso senza riscrivere patrimonio o stake storici', async () => {
-  const overview = emptyOverview();
-  overview.portfolios = [
-    Object.assign({ id: 'shadow_A', family: 'A' as const, initialCents: 100000, availableCents: 97263,
-      committedCents: 2737, equityCents: 100000, profitCents: 0 }, { policy: { stakeFraction: .01 } }),
-    { id: 'shadow_C', family: 'C', initialCents: 100000, availableCents: 100000,
-      committedCents: 0, equityCents: 100000, profitCents: 0 },
-  ];
-  overview.bets = [{ id: 'actual-a', portfolioId: 'shadow_A', matchId: 'actual-fixture', modelVersion: 'APP-A-recorded',
-    selection: 'homeWin', stakeCents: 2737, odds: 1.9, status: 'PENDING', createdAt: '2026-10-29T03:07:00Z' }];
-  mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: 1, truncated: false, rows: overview.bets } });
-  render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  const a = screen.getByRole('article', { name: 'Portafoglio A' });
-  const c = screen.getByRole('article', { name: 'Portafoglio C' });
-  expect(within(a).getByText('Stake del consiglio')).toBeTruthy();
-  expect(within(a).queryByText('1% fisso')).toBeNull();
-  expect(within(c).getByText('1% fisso')).toBeTruthy();
-  expect(within(a).getByRole('definition', { name: 'Esposizione massima' }).textContent).toBe('5%');
-  expect(within(c).getByRole('definition', { name: 'Esposizione massima' }).textContent).toBe('5%');
-  expect(within(a).getByRole('definition', { name: 'Capitale iniziale' }).textContent).toMatch(/1\.?000,00\s€/);
-  const recordedBet = await screen.findByRole('row', { name: /actual-fixture/ });
-  expect(within(recordedBet).getByText(/27,37\s€/)).toBeTruthy();
 });
 
 test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i motivi', async () => {
@@ -157,7 +102,7 @@ test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i m
   mockedOverview.mockResolvedValue(overview);
   mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   const marketA = screen.getByRole('region', { name: 'Esito finale 1X2 modello A' });
   const marketC = screen.getByRole('region', { name: 'Esito finale 1X2 modello C' });
@@ -179,7 +124,7 @@ test('benchmark mostra osservazioni, intervalli appaiati e limiti senza proclama
   mockedOverview.mockResolvedValue(overview);
   mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   expect(await screen.findByText(/Confronto non conclusivo: intervallo/)).toBeTruthy();
   expect(screen.getByText('[-0,04; 0,02]')).toBeTruthy();
@@ -199,7 +144,7 @@ test('mostra tutte le configurazioni di un mercato senza nascondere le versioni 
   mockedOverview.mockResolvedValue(overview);
   mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   const market = screen.getByRole('region', { name: 'Esito finale 1X2 modello A' });
   expect(within(market).getByText('A-reference')).toBeTruthy();
@@ -207,22 +152,6 @@ test('mostra tutte le configurazioni di un mercato senza nascondere le versioni 
   expect(within(market).getByText('280')).toBeTruthy();
   expect(within(market).getByText('Sperimentale storico')).toBeTruthy();
   expect(within(market).getByText('Sperimentale')).toBeTruthy();
-});
-
-test('mostra provenienza dello snapshot e stato aperto con esposizione del singolo portafoglio', async () => {
-  const overview = emptyOverview();
-  overview.portfolios = [{ id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 99000, committedCents: 1000, equityCents: 100000, profitCents: 0, betCount: 1, settledCount: 0 }];
-  overview.bets = [{ id: 'a1', portfolioId: 'shadow_A', matchId: 'fixture-A', modelVersion: 'A-reference', selection: 'homeWin', stakeCents: 1000, odds: 1.9, status: 'PENDING', createdAt: '2026-10-27T19:30:00Z', quote: { bookmaker: 'Bookmaker A', source: 'the_odds_api', updatedAt: '2026-10-27T19:28:00Z' } }];
-  mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
-  render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  const portfolio = screen.getByRole('article', { name: 'Portafoglio A' });
-  expect(within(portfolio).getByText('1%')).toBeTruthy();
-  expect(within(portfolio).getByText('Puntate aperte')).toBeTruthy();
-  expect(await screen.findByText('Fonte: the_odds_api')).toBeTruthy();
-  expect(screen.getByText(/Quota del/)).toBeTruthy();
 });
 
 test('calibrazione e intervalli temporali compaiono solo quando presenti nel report', async () => {
@@ -234,31 +163,13 @@ test('calibrazione e intervalli temporali compaiono solo quando presenti nel rep
   mockedOverview.mockResolvedValue(overview);
   mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   await screen.findByText('Campione non conclusivo.');
   expect(screen.getByText('Calibrazione delle probabilità')).toBeTruthy();
   expect(screen.getByText('60%')).toBeTruthy();
   expect(screen.getByText('55%')).toBeTruthy();
   expect(screen.getByText('Intervallo log loss per settimane C − A')).toBeTruthy();
-});
-
-test('le decisioni congelate mantengono probabilità distinte e il modello assente non copia A', async () => {
-  const overview = emptyOverview();
-  overview.decisions = [
-    { id: 'dA', matchId: 'fixture-T15', family: 'A', modelVersion: 'A-reference', action: 'BET', selection: 'homeWin', market: '1x2', createdAt: '2026-10-27T19:30:10Z', inputId: 'shared-snapshot', probabilityStages: { raw: { homeWin: .60 }, calibrated: { homeWin: .57 }, decision: { homeWin: .55 } }, bookmakerProbabilities: { homeWin: { bookmaker: 'Bookmaker A', source: 'odds_api', raw: .51, noVig: .49 } } },
-    { id: 'dC', matchId: 'fixture-T15', family: 'C', modelVersion: 'C-unavailable', action: 'ABSTAIN', reason: 'hybrid_model_unavailable_or_incompatible', createdAt: '2026-10-27T19:30:10Z', inputId: 'shared-snapshot', probabilityStages: { raw: {}, calibrated: null, decision: null } },
-  ];
-  mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
-  render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  expect(screen.getByText('60% / 57% / 55%')).toBeTruthy();
-  expect(screen.getByText('1: 49%')).toBeTruthy();
-  expect(screen.getByText('Modello C assente o incompatibile.')).toBeTruthy();
-  expect(screen.getAllByText('— / — / —')).toHaveLength(3);
-  expect(screen.getAllByText('Snapshot shared-snapshot')).toHaveLength(2);
 });
 
 test('riepilogo giornaliero mantiene variazioni e risultati distinti per portafoglio', async () => {
@@ -270,7 +181,7 @@ test('riepilogo giornaliero mantiene variazioni e risultati distinti per portafo
   mockedOverview.mockResolvedValue(overview);
   mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Sistema' }));
   const a = screen.getByRole('article', { name: 'Riepilogo A' });
   const c = screen.getByRole('article', { name: 'Riepilogo C' });
@@ -279,14 +190,22 @@ test('riepilogo giornaliero mantiene variazioni e risultati distinti per portafo
   expect(screen.queryByText(/2\.?009,00\s€/)).toBeNull();
 });
 
-test('la sola inizializzazione dei portafogli non diventa una curva di rendimento', async () => {
+
+test('i portafogli attivi sono gestiti nelle pagine normali e non duplicati nel confronto', async () => {
   const overview = emptyOverview();
-  overview.portfolios = [{ id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 100000, committedCents: 0, equityCents: 100000, profitCents: 0, history: [{ at: '2026-10-27T09:00:00Z', equityCents: 100000 }] }];
+  overview.portfolios = [
+    { id: 'shadow_A', family: 'A', initialCents: 100000, availableCents: 95580, committedCents: 4420, equityCents: 100000, profitCents: 0 },
+    { id: 'shadow_C', family: 'C', initialCents: 100000, availableCents: 98000, committedCents: 2000, equityCents: 100000, profitCents: 0 },
+  ];
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
-  await screen.findByRole('heading', { name: 'Portafogli virtuali A e C' });
-  fireEvent.click(screen.getByRole('tab', { name: 'Portafogli' }));
-  expect(await screen.findByText('Il grafico comparirà quando saranno disponibili più movimenti per almeno un portafoglio.')).toBeTruthy();
-  expect(screen.queryByRole('figure')).toBeNull();
+  await screen.findByRole('heading', { name: /Benchmark storico/ });
+  expect(screen.getByRole('heading', { name: 'Confronto modelli' })).toBeTruthy();
+  expect(screen.queryByRole('tab', { name: 'Portafogli' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Portafogli virtuali A e C' })).toBeNull();
+  expect(screen.queryByText(/955,80/)).toBeNull();
+  expect(screen.getByRole('link', { name: 'Apri Budget' }).getAttribute('href')).toBe('/budget');
+  expect(screen.getByRole('link', { name: 'Apri Giocate' }).getAttribute('href')).toBe('/bets');
+  expect(screen.getByRole('link', { name: 'Apri Archivio' }).getAttribute('href')).toBe('/prediction-archive');
+  expect(mockedComparison).not.toHaveBeenCalled();
 });

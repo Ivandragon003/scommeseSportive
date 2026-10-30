@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import BetsManager from './BetsManager';
+import { LegacyBetsManager as BetsManager } from './BetsManager';
 import * as api from '../utils/api';
 
 jest.mock('../utils/api');

@@ -26,6 +26,7 @@ import {
   typeBadge,
 } from './predictionArchivePresentation';
 import './prediction-archive.css';
+import WalletArchivePage from '../wallets/WalletArchivePage';
 
 const RISK_FILTERS: Array<{ value: BetOpportunityClassification; label: string }> = [
   { value: 'high', label: 'High' },
@@ -76,7 +77,7 @@ const completedScore = (row: MatchWithoutArchivedOpportunityRecord) => {
   return Number.isFinite(home) && Number.isFinite(away) ? `${home}–${away}` : 'Conclusa';
 };
 
-const PredictionArchivePage: React.FC = () => {
+export const LegacyPredictionArchivePage: React.FC = () => {
   const [category, setCategory] = useState<BetOpportunityArchiveCategory>('played');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -444,5 +445,7 @@ const PredictionArchivePage: React.FC = () => {
     </div>
   );
 };
+
+const PredictionArchivePage: React.FC = () => <WalletArchivePage legacy={<LegacyPredictionArchivePage />} />;
 
 export default PredictionArchivePage;

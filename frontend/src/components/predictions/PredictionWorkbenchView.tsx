@@ -884,6 +884,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     handleAnalyze: analyzeSelectedMatch,
   } = predictionAnalysis;
   const budget = userBudget.budget;
+  const automaticFamily = userBudget.automaticFamily;
+  const alreadyPlacedForMatch = Boolean(automaticFamily && userBudget.placedMatchKeySet.has(`${automaticFamily}:${String(pred?.matchId ?? '')}`));
   const placedBetKeySet = new Set(userBudget.placedBetKeySet);
   const automaticPick = pred?.automaticRecommendation?.selected;
   if (automaticPick && Number(pred.automaticRecommendation.actualStakeAmount) > 0) {
@@ -998,7 +1000,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
           <section className="pr-schedule" aria-label="Filtri e partite">
             <header className="pr-schedule__heading">
               <div>
-                <p className="pr-schedule__eyebrow">Partite · {matchMode === 'upcoming' ? 'in programma' : 'concluse'}</p>
+                <p className="pr-schedule__eyebrow">Partite · Modello A · {matchMode === 'upcoming' ? 'in programma' : 'concluse'}</p>
                 <h1>{matchMode === 'upcoming' ? 'Giocate di oggi' : 'Partite recenti'}</h1>
                 <p>Seleziona una partita per vedere quote, pronostico e tutti i mercati disponibili.</p>
               </div>
@@ -1158,7 +1160,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                   <strong className="pr-decision-report__title">{loading ? 'Sto preparando il pronostico' : 'Analisi non disponibile'}</strong>
                   <p className="pr-decision-report__summary">{loading ? (oddsMsg || 'Calcolo probabilità e verifico le quote disponibili.') : (oddsMsg || 'Non è stato possibile completare l’analisi. Torna all’elenco e seleziona di nuovo la partita.')}</p>
                 </div>
-                <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Impatto sul budget</div></div><div className="pr-card-body"><div className="pr-info">Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong></div></div></div>
+                <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Portafoglio A</div></div><div className="pr-card-body">{budget ? <div className="pr-info">Disponibile: <strong>EUR {Number(budget.available_budget).toFixed(2)}</strong><br />Impegnato: <strong>EUR {Number(budget.committed_budget).toFixed(2)}</strong><br />Patrimonio usato come base dello stake: <strong>EUR {bankroll.toFixed(2)}</strong></div> : <p role={userBudget.loading ? 'status' : 'alert'}>{userBudget.loading ? 'Caricamento del portafoglio A…' : userBudget.error ?? 'Portafoglio A non disponibile.'}</p>}</div></div>
               </div>
             </>
           ) : !pred ? (
@@ -1237,18 +1239,19 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                   {pred.automaticRecommendation ? (
                     <div className="pr-info">
                       Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata.
-                      Il portafoglio virtuale A resta separato dal budget delle registrazioni manuali.
+                      Le giocate registrate e i saldi A/C sono consultabili in Giocate, Budget e Archivio.
                     </div>
-                  ) : <StakePlanner
+                  ) : budget ? <StakePlanner
                     isReplayAnalysis={isReplayAnalysis}
                     actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
                     actualScore={actualMatch?.actualScore ?? '-'}
                     bankroll={bankroll}
+                    availableBankroll={Number(budget?.available_budget ?? 0)}
                     suggestedTotalStake={suggestedTotalStake}
                     maxExposurePct={maxExposurePct}
                     maxExposureAmount={maxExposureAmount}
                     exposureRatio={exposureRatio}
-                  />}
+                  /> : <div className="pr-info">{userBudget.loading ? 'Caricamento del portafoglio A…' : userBudget.error ?? 'Portafoglio A non disponibile.'}</div>}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                     <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
                       Approfondisci i mercati
@@ -1661,6 +1664,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                       recommendedOpportunity={finalRecommendedChoice}
                       bankroll={bankroll}
                       budgetReady={Boolean(budget)}
+                      automaticFamily={automaticFamily}
+                      alreadyPlacedForMatch={alreadyPlacedForMatch}
                       isReplayAnalysis={isReplayAnalysis}
                       oddsSource={pred?.oddsSource ?? null}
                       oddsBookmaker={pred?.oddsBookmaker ?? null}

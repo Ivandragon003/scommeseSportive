@@ -1,6 +1,18 @@
 # Monitoraggio Nightly Pre-Match Virtual Betting
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -28,6 +40,13 @@ precede il gate A/C; sola CLI diagnostica o retry saltato non garantiscono
 liquidazioni. Non fermare il processo completo confidando in quei soli percorsi.
 [Specifica e avanzamento](recommendation-execution-2026-10-30.md)
 
+
+L’integrazione locale di Giocate/Budget/Archivio non modifica il controllo
+contabile: il monitor continua a leggere gli stessi A/C, ledger e BET, senza
+creare nuovi patrimoni o attribuire lo storico precedente ad A. La nuova
+`GET /api/wallets` è una lettura; la sua verifica UI remota resta distinta
+dall’esito del watchdog già osservato. Nessun worker o controllo T−15 viene
+attivato da questa revisione.
 
 Configurazione aggiornata al 30 ottobre 2026. Scheduler e runtime usano 03:07
 Europe/Rome, con recuperi 04:17/05:27. Nel precedente recupero era LIVE il backend `01320941`, con registrazione

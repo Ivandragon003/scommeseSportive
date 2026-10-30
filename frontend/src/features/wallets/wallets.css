@@ -1,0 +1,26 @@
+.app-wallet-page { display: grid; gap: 1.3rem; max-width: 1240px; margin: 0 auto; }
+.app-wallet-head,.app-wallet-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+.app-wallet-head h1 { margin-bottom: .3rem; }
+.app-wallet-head p,.app-wallet-help { color: var(--text-2, #64748b); }
+.app-wallet-filter { display: grid; gap: .35rem; font-size: .9rem; }
+.app-wallet-filter select,.app-wallet-filter input { min-height: 42px; padding: .5rem .7rem; color: inherit; background: var(--surface, #fff); border: 1px solid var(--border, #ccd5df); border-radius: 8px; }
+.app-wallet-balances { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 1rem; }
+.app-wallet-card,.app-wallet-bet,.app-wallet-section { padding: 1.3rem; border: 1px solid var(--border, #dce3ea); border-radius: 14px; background: var(--surface, #fff); }
+.app-wallet-card h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
+.app-wallet-card>p { color: var(--text-2, #64748b); font-size: .9rem; }
+.app-wallet-card dl,.app-wallet-bet-detail dl,.app-wallet-period-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.app-wallet-card dt,.app-wallet-bet-detail dt,.app-wallet-period-metrics dt { color: var(--text-2, #64748b); font-size: .85rem; }
+.app-wallet-card dd,.app-wallet-bet-detail dd,.app-wallet-period-metrics dd { margin: .25rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.app-wallet-card dd { font-size: 1.3rem; }
+.app-wallet-bets { display: grid; gap: .8rem; }
+.app-wallet-bet-main { display: grid; grid-template-columns: auto minmax(180px,1fr) minmax(95px,.4fr) minmax(75px,.3fr) auto; align-items: center; gap: 1rem; }
+.app-wallet-bet h3 { margin: 0 0 .25rem; font-size: 1rem; }
+.app-wallet-bet p { margin: .3rem 0; }
+.app-wallet-bet small { display: block; color: var(--text-2, #64748b); margin: .2rem 0; }
+.app-wallet-model,.app-wallet-status { display: inline-block; padding: .35rem .6rem; border-radius: 8px; font-size: .8rem; font-weight: 700; background: rgba(45,185,124,.12); color: var(--text, #214936); }
+.app-wallet-bet-detail { border-top: 1px solid var(--border, #dce3ea); margin-top: 1rem; padding-top: .8rem; }
+.app-wallet-bet-detail summary { cursor: pointer; font-size: .9rem; font-weight: 600; }
+.app-wallet-bet-detail p,.app-wallet-empty { color: var(--text-2, #64748b); font-size: .9rem; }
+.app-wallet-legacy { margin-top: 1rem; border-top: 1px solid var(--border, #dce3ea); padding-top: 1rem; }
+.app-wallet-error { padding: 1rem; border: 1px solid #cc5c5c; border-radius: 10px; }
+@media(max-width:800px) { .app-wallet-bet-main { grid-template-columns: 1fr 1fr; gap: .8rem; } .app-wallet-match { grid-column: 1 / -1; grid-row: 2; } .app-wallet-status { justify-self: end; grid-column: 2; grid-row: 1; } .app-wallet-model { justify-self: start; } }

@@ -5,6 +5,7 @@ interface StakePlannerProps {
   actualMatchDate?: string;
   actualScore?: string | null;
   bankroll: number;
+  availableBankroll?: number;
   suggestedTotalStake: number;
   maxExposurePct: number;
   maxExposureAmount: number;
@@ -16,6 +17,7 @@ const StakePlanner: React.FC<StakePlannerProps> = ({
   actualMatchDate,
   actualScore,
   bankroll,
+  availableBankroll,
   suggestedTotalStake,
   maxExposurePct,
   maxExposureAmount,
@@ -34,7 +36,8 @@ const StakePlanner: React.FC<StakePlannerProps> = ({
         </>
       ) : (
         <>
-          Bankroll disponibile: <strong>EUR {bankroll.toFixed(2)}</strong>
+          {availableBankroll === undefined ? 'Bankroll disponibile' : 'Patrimonio usato come base dello stake'}: <strong>EUR {bankroll.toFixed(2)}</strong>
+          {availableBankroll !== undefined && <><br />Disponibile: <strong>EUR {availableBankroll.toFixed(2)}</strong></>}
           <br />
           Esposizione suggerita: <strong>EUR {suggestedTotalStake.toFixed(2)}</strong>
           <br />
@@ -68,7 +71,9 @@ const StakePlanner: React.FC<StakePlannerProps> = ({
           Utilizzo cap rischio: {(exposureRatio * 100).toFixed(1)}%
         </div>
         <div className="pr-alert pr-alert-warning" style={{ marginTop: 12, marginBottom: 0 }}>
-          Stake indicativo: non aumentare l'esposizione per inseguire recuperi. Se il bankroll reale o il rischio percepito non sono coerenti, riduci la puntata.
+          {availableBankroll === undefined
+            ? "Stake indicativo: non aumentare l'esposizione per inseguire recuperi. Se il bankroll reale o il rischio percepito non sono coerenti, riduci la puntata."
+            : 'La Nightly registra le giocate nel portafoglio A rispettando saldo disponibile ed esposizione massima. L’importo effettivo resta consultabile in Giocate.'}
         </div>
       </>
     )}

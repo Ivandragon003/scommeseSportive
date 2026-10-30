@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { buildResearchOverview } from '../research/ResearchOverview';
 import { buildResearchComparison } from '../research/ResearchComparison';
+import { buildAppWallets, isAppWalletQueryError, parseAppWalletQuery, targetsAppWallet } from '../services/AppWalletService';
 import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
@@ -1557,6 +1558,17 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
 });
 
 // ====== BUDGET & BETS ======
+router.get('/wallets', async (req: Request, res: Response) => {
+  try {
+    const query = parseAppWalletQuery(req.query);
+    return res.json({ success: true, data: await buildAppWallets(db.research, query, new Date(), db.recommendations) });
+  } catch (error: any) {
+    const invalid = isAppWalletQueryError(error);
+    return res.status(invalid ? 400 : 503).json({ success: false,
+      error: invalid ? error.message : 'Portafogli non disponibili.' });
+  }
+});
+
 router.get('/budget/:userId', async (req: Request, res: Response) => {
   try {
     res.json({ success: true, data: await svc.getBudget(sharedDataUserId) });
@@ -1566,6 +1578,8 @@ router.get('/budget/:userId', async (req: Request, res: Response) => {
 
 router.post('/budget/:userId/init', async (req: Request, res: Response) => {
   try {
+    if (targetsAppWallet(req.body, req.params.userId)) return res.status(409).json({ success: false,
+      code: 'APP_WALLET_MANAGED_AUTOMATICALLY', error: 'Il comando della gestione precedente non modifica i portafogli A/C.' });
     const amount = parseFloat(req.body.amount);
     if (isNaN(amount) || amount <= 0) return res.status(400).json({ success: false, error: 'Importo non valido' });
     return res.json({ success: true, data: await svc.initBudget(sharedDataUserId, amount) });
@@ -1582,6 +1596,8 @@ router.get('/budget/:userId/sessions', async (req: Request, res: Response) => {
 
 router.post('/bets/place', async (req: Request, res: Response) => {
   try {
+    if (targetsAppWallet(req.body)) return res.status(409).json({ success: false,
+      code: 'APP_WALLET_MANAGED_AUTOMATICALLY', error: 'Le giocate A/C vengono registrate automaticamente dalla Nightly.' });
     const {
       userId: _requestedUserId,
       matchId,

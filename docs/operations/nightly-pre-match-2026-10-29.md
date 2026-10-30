@@ -1,6 +1,18 @@
 # Nightly Pre-Match Virtual Betting: stato e pubblicazione
 
-**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
+modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
+finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+`GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
+e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
+giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
+il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
+dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
+cloud qui sotto riguarda la UI precedente e la policy già attiva. Nightly,
+modelli e infrastruttura non cambiano.
+
+**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -623,3 +635,24 @@ mantenere il workflow intero e il backend compatibile 023. Lo shell chiama
 `POST /api/research/settle` prima del gate `RESEARCH_NIGHTLY_ENABLED`, con
 settlement delle nuove BET 023. Sola CLI diagnostica, retry saltato o gate dati
 non dimostrano liquidazioni eseguite. Non riattivare legacy o sovrascrivere il DB.
+
+
+## K. Portafogli nelle pagine normali: integrazione locale in verifica
+
+Il requisito aggiornato porta A/C in Giocate, Budget e Archivio, con filtri
+modello e confronto. La gestione principale usa A; C mantiene saldo e storico
+indipendenti. Research conserva benchmark e modelli, senza essere una modalità
+alternativa per gestire denaro virtuale.
+
+L’implementazione locale legge `GET /api/wallets`, adattatore sopra
+`ResearchComparison`: aggregati contabili completi, massimo 500 dettagli con
+troncamento esplicito. Usa gli stessi ID `shadow_A`/`shadow_C`, cinque BET e
+ledger già finanziati. Nessuna copia, migrazione, reinizializzazione,
+registrazione o nuovo addebito; nessun POST legacy di sync/placement dalle
+viste principali. Le 258 giocate precedenti restano consultabili in uno
+storico distinto, senza attribuirle ad A né sommare i capitali.
+
+Il risultato LIVE della sezione J precede questa integrazione UI. Pubblicazione
+e collaudo remoto delle nuove pagine sono ancora da verificare; non costituiscono
+una nuova esecuzione Nightly. Modelli, stake, liquidazione, infrastruttura e
+limiti del primo ciclo sportivo rimangono quelli già descritti.

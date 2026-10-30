@@ -25,10 +25,10 @@ const PRIMARY_NAV_ITEMS = [
   { path: '/budget', label: 'Budget', meta: 'gestione bankroll', icon: Wallet },
 ];
 const ADVANCED_NAV_ITEMS = [
-  { path: '/prediction-archive', label: 'Archivio giocate', meta: 'operative e simulate', icon: Archive },
+  { path: '/prediction-archive', label: 'Archivio giocate', meta: 'giocate A/C e storico', icon: Archive },
   { path: '/glossary', label: 'Glossario', meta: 'termini e interpretazione', icon: HelpCircle },
   { path: '/backtest', label: 'Backtest', meta: 'validazione', icon: FlaskConical },
-  { path: '/research', label: 'Confronto A/C', meta: 'modelli e portafogli virtuali', icon: BarChart3 },
+  { path: '/research', label: 'Confronto modelli', meta: 'benchmark e validazione', icon: BarChart3 },
   { path: '/data', label: 'Centro dati', meta: 'dati, quote e integrità', icon: Database },
 ];
 const NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...ADVANCED_NAV_ITEMS];

@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { getResearchOverview } from '../../utils/researchApi';
 import {
   ComparisonBreakdown, EconomicMetrics, ProbabilityMetrics, ResearchBenchmarkReport, ResearchMarket,
-  ResearchOverview, ResearchPortfolio, ResearchDecision,
+  ResearchOverview,
 } from './researchTypes';
 import {
-  breakdownLabel, confidenceInterval, count, dateTime, decisionReason, finiteNumber, marketLabel,
+  breakdownLabel, confidenceInterval, count, dateTime, marketLabel,
   metric, money, percent, portfolioLabel,
 } from './researchPresentation';
 import { Badge, Empty, Metric } from './ResearchPrimitives';
@@ -13,12 +13,11 @@ import ResearchAutomationStatus from './ResearchAutomationStatus';
 import ResearchExperimentsPanel from './ResearchExperimentsPanel';
 import ResearchOddsPanel from './ResearchOddsPanel';
 import EquityChart from './ResearchEquityChart';
-import ResearchComparisonPanel from './ResearchComparisonPanel';
 import './research.css';
 
-type ResearchTab = 'history' | 'portfolios' | 'markets' | 'experiments' | 'odds' | 'system';
+type ResearchTab = 'history' | 'markets' | 'experiments' | 'odds' | 'system';
 const TABS: Array<{ id: ResearchTab; label: string }> = [
-  { id: 'portfolios', label: 'Portafogli' }, { id: 'history', label: 'Storico' },
+  { id: 'history', label: 'Storico' },
   { id: 'markets', label: 'Mercati' }, { id: 'experiments', label: 'Esperimenti' },
   { id: 'odds', label: 'API quote' },
   { id: 'system', label: 'Sistema' },
@@ -45,7 +44,7 @@ const CalibrationTable = ({ a, c }: { a?: ProbabilityMetrics; c?: ProbabilityMet
 const EconomicTable = ({ a, c }: { a?: EconomicMetrics; c?: EconomicMetrics }) => (
   <div className="research-table-wrap"><table className="fp-table research-compare-table">
     <caption>Simulazione economica storica con quote verificabili</caption>
-    <thead><tr><th>Misura</th><th>Portafoglio storico A</th><th>Portafoglio storico C</th></tr></thead>
+    <thead><tr><th>Misura</th><th>Backtest A</th><th>Backtest C</th></tr></thead>
     <tbody>{[
       { label: 'Capitale iniziale', key: 'initialCents' as const, format: money },
       { label: 'Capitale finale', key: 'finalCents' as const, format: money },
@@ -92,58 +91,11 @@ const HistoryPanel = ({ overview }: { overview: ResearchOverview }) => {
       <h3>Confronto appaiato e incertezza</h3>
       <PairedEvidence paired={report.probabilistic?.paired} />
     </section>
-    <section className="research-panel"><h2>Portafogli storici</h2><p>Queste simulazioni restano separate dalle puntate virtuali della nightly e dai saldi legacy.</p>{report.economic ? <><EconomicTable a={report.economic.A} c={report.economic.C} /><EquityChart a={report.economic.A?.equity} c={report.economic.C?.equity} title="Patrimoni storici A e C" /></> : <Empty>Backtest economico non disponibile: nessun rendimento ricostruito da quote stimate.</Empty>}</section>
+    <section className="research-panel"><h2>Backtest economico storico</h2><p>Risultati del solo backtest. I saldi correnti e le puntate registrate sono in Budget e Giocate.</p>{report.economic ? <><EconomicTable a={report.economic.A} c={report.economic.C} /><EquityChart a={report.economic.A?.equity} c={report.economic.C?.equity} title="Patrimoni storici A e C" /></> : <Empty>Backtest economico non disponibile: nessun rendimento ricostruito da quote stimate.</Empty>}</section>
     <section className="research-panel"><h2>Decisioni differenti</h2>{differences ? <dl className="research-metrics research-metrics--decisions">{[
       ['Stessa puntata', differences.same], ['Puntate differenti', differences.different], ['Solo A', differences.onlyA], ['Solo C', differences.onlyC], ['Nessuna puntata', differences.neither],
     ].map(([label, value]) => <Metric key={String(label)} label={String(label)} value={count(value)} />)}</dl> : <Empty>Confronto delle decisioni non ancora disponibile.</Empty>}</section>
     {(report.byLeague?.length || report.byMarket?.length || report.bySeason?.length || report.byOddsBand?.length) ? <section className="research-panel"><h2>Stabilità e segmenti</h2><Breakdown title="Per campionato" rows={report.byLeague} /><Breakdown title="Per mercato" rows={report.byMarket} /><Breakdown title="Per stagione" rows={report.bySeason} /><Breakdown title="Per fascia di quota" rows={report.byOddsBand} /></section> : null}
-  </div>;
-};
-
-const PortfolioCard = ({ portfolio }: { portfolio: ResearchPortfolio }) => <article className="research-portfolio" aria-label={portfolioLabel(portfolio)}>
-  <div className="research-section-heading"><h3>{portfolioLabel(portfolio)}</h3><span className="fp-badge fp-badge-blue">Modello {portfolio.family}</span></div>
-  <dl className="research-metrics">
-    <Metric label="Stake corrente" value={portfolio.family === 'A' ? 'Stake del consiglio' : '1% fisso'}
-      help={portfolio.family === 'A' ? 'Percentuale variabile indicata nel consiglio della pagina Partite.' : undefined} />
-    <Metric label="Esposizione massima" value="5%" />
-    <Metric label="Patrimonio contabile" value={money(portfolio.equityCents)} help="Disponibile + capitale impegnato" />
-    <Metric label="Disponibile" value={money(portfolio.availableCents)} />
-    <Metric label="Impegnato" value={money(portfolio.committedCents)} />
-    <Metric label="Profitto / perdita dall’apertura" value={money(portfolio.profitCents)} />
-    <Metric label="Capitale iniziale" value={money(portfolio.initialCents)} />
-    <Metric label="Puntate liquidate" value={count(portfolio.settledCount)} />
-    <Metric label="Puntate aperte" value={count(portfolio.openCount ?? (finiteNumber(portfolio.betCount) && finiteNumber(portfolio.settledCount) ? Math.max(0, portfolio.betCount - portfolio.settledCount) : undefined))} />
-    <Metric label="Esposizione attuale" value={finiteNumber(portfolio.equityCents) && portfolio.equityCents > 0 && finiteNumber(portfolio.committedCents) ? percent(portfolio.committedCents / portfolio.equityCents) : '—'} />
-  </dl>
-</article>;
-
-const DecisionEvidence = ({ decisions }: { decisions?: ResearchDecision[] }) => {
-  if (!decisions?.length) return <section className="research-panel"><h2>Previsioni e decisioni congelate</h2><Empty>Nessuno snapshot decisionale A/C registrato. Le probabilità registrate compariranno dopo un'esecuzione della nightly.</Empty></section>;
-  const rows = [...decisions].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.matchId.localeCompare(b.matchId) || a.family.localeCompare(b.family));
-  const labels: Record<string, string> = { homeWin: '1', draw: 'X', awayWin: '2' };
-  return <section className="research-panel"><h2>Previsioni e decisioni congelate</h2><p>Registro recente indipendente dal filtro periodo. Le probabilità registrate restano legate alla versione e allo snapshot prepartita. Grezza, calibrata e decisionale sono fasi distinte; la quota bookmaker conserva il proprio operatore.</p><details className="research-breakdown"><summary>Leggi le ultime {rows.length} decisioni A/C</summary><div className="research-table-wrap"><table className="fp-table"><caption>Decisioni prospettiche conservate prima della partita</caption><thead><tr><th>Partita e modello</th><th>Decisione</th><th>Probabilità grezza / calibrata / decisionale</th><th>Bookmaker senza margine</th><th>Motivazione</th></tr></thead><tbody>{rows.map((decision) => {
-    const selections = decision.selection ? [decision.selection] : ['homeWin', 'draw', 'awayWin'];
-    return <tr key={decision.id}><td><strong>{decision.matchId}</strong><span>Modello {decision.family}</span><small className="research-version">{decision.modelVersion}</small><small>{dateTime(decision.forecastAt || decision.createdAt)}</small>{decision.inputId && <small className="research-version">Snapshot {decision.inputId}</small>}</td><td>{decision.action === 'BET' ? <><strong>{decision.selection}</strong>{decision.market && <small>{marketLabel(decision.market)}</small>}</> : 'Nessuna puntata'}</td><td><ul className="research-probability-list">{selections.map((selection) => <li key={selection}><strong>{labels[selection] || selection}</strong><span>{percent(decision.probabilityStages?.raw?.[selection])} / {percent(decision.probabilityStages?.calibrated?.[selection])} / {percent(decision.probabilityStages?.decision?.[selection] ?? (selection === decision.selection ? decision.probability : undefined))}</span></li>)}</ul></td><td><ul className="research-probability-list">{selections.map((selection) => {
-      const bookmaker = decision.bookmakerProbabilities?.[selection];
-      return <li key={selection}><span>{labels[selection] || selection}: {percent(bookmaker?.noVig)}</span>{bookmaker && <small>{bookmaker.bookmaker} · {bookmaker.source}</small>}</li>;
-    })}</ul></td><td>{decisionReason(decision.reason)}</td></tr>;
-  })}</tbody></table></div></details></section>;
-};
-
-const PortfolioPanel = ({ overview, revision }: { overview: ResearchOverview; revision: number }) => {
-  const portfolios = (['A', 'C'] as const).flatMap((family) => {
-    const portfolio = overview.portfolios?.find((item) => item.family === family && item.id !== 'main');
-    return portfolio ? [portfolio] : [];
-  });
-  return <div className="research-stack">
-    <section className="research-panel"><h2>Portafogli virtuali A e C</h2>
-      <p>Saldi attuali di due portafogli indipendenti. La nightly valuta le stesse partite e quote; ogni modello sceglie una puntata oppure nessuna. C resta Challenger.</p>
-      <p className="research-help">A usa lo stake variabile del consiglio della pagina Partite; C usa uno stake fisso dell’1%. Esposizione massima 5% per ciascun portafoglio, massimo una puntata per partita e modello. I patrimoni non si sommano e non comprendono il budget legacy. Nessun denaro reale.</p>
-      {portfolios.length ? <div className="research-portfolios">{portfolios.map((portfolio) => <PortfolioCard key={portfolio.id} portfolio={portfolio} />)}</div>
-        : <Empty>Portafogli non inizializzati. Nessun capitale o risultato viene presunto.</Empty>}
-    </section>
-    <ResearchComparisonPanel revision={revision} />
-    <DecisionEvidence decisions={overview.decisions} />
   </div>;
 };
 
@@ -184,7 +136,7 @@ const SystemPanel = ({ overview }: { overview: ResearchOverview }) => {
 };
 
 const ResearchPage: React.FC = () => {
-  const [tab, setTab] = useState<ResearchTab>('portfolios');
+  const [tab, setTab] = useState<ResearchTab>('history');
   const [overview, setOverview] = useState<ResearchOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,8 +154,8 @@ const ResearchPage: React.FC = () => {
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
   }, [revision]);
-  return <div className="tool-page research-page"><header className="tool-page__header research-header"><div><span className="tool-page__eyebrow">Laboratorio personale</span><h1 className="tool-page__title">Confronto A/C</h1><p className="tool-page__subtitle">Modello statistico A e modello ibrido C: evidenze, portafogli virtuali e affidabilità.</p></div>{tab !== 'odds' && <button type="button" className="fp-btn fp-btn-ghost" disabled={loading} onClick={() => setRevision((value) => value + 1)}>{loading ? 'Caricamento…' : 'Aggiorna confronto'}</button>}</header>
-    <p className="research-scope">Nightly Pre-Match Virtual Betting. Due portafogli indipendenti, solo capitale virtuale; benchmark storico distinto dai risultati registrati.</p>
+  return <div className="tool-page research-page"><header className="tool-page__header research-header"><div><span className="tool-page__eyebrow">Validazione</span><h1 className="tool-page__title">Confronto modelli</h1><p className="tool-page__subtitle">Modello statistico A e modello ibrido C: benchmark e validazione delle previsioni.</p></div>{tab !== 'odds' && <button type="button" className="fp-btn fp-btn-ghost" disabled={loading} onClick={() => setRevision((value) => value + 1)}>{loading ? 'Caricamento…' : 'Aggiorna confronto'}</button>}</header>
+    <p className="research-scope">I portafogli A/C e le puntate registrate sono gestiti nelle normali sezioni dell’app. Qui restano benchmark storici e controlli dei modelli.</p><nav className="research-scope" aria-label="Gestione portafogli A/C"><a className="fp-btn fp-btn-ghost" href="/budget">Apri Budget</a> <a className="fp-btn fp-btn-ghost" href="/bets">Apri Giocate</a> <a className="fp-btn fp-btn-ghost" href="/prediction-archive">Apri Archivio</a></nav>
     <div className="research-tabs" role="tablist" aria-label="Sezioni confronto modelli">{TABS.map((item, index) => <button type="button" key={item.id} role="tab" id={`research-tab-${item.id}`} aria-controls={`research-panel-${item.id}`} aria-selected={tab === item.id} tabIndex={tab === item.id ? 0 : -1} onClick={() => setTab(item.id)} onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
@@ -212,8 +164,8 @@ const ResearchPage: React.FC = () => {
     }}>{item.label}</button>)}</div>
     {tab !== 'odds' && error && <div className="fp-alert fp-alert-danger research-error" role="alert"><strong>Confronto non aggiornato</strong><p>{error}</p>{overview && <small>Restano visibili i dati caricati il {dateTime(loadedAt)}.</small>}</div>}
     {tab !== 'odds' && loading && !overview && <p role="status" className="research-empty">Caricamento del confronto A/C…</p>}
-    {tab !== 'odds' && !loading && !overview && error && <Empty>Non è possibile mostrare saldi o metriche senza una risposta valida del backend.</Empty>}
-    {(overview || tab === 'odds') && <div role="tabpanel" id={`research-panel-${tab}`} aria-labelledby={`research-tab-${tab}`} aria-busy={tab === 'odds' ? undefined : loading} tabIndex={0}>{tab === 'odds' && <ResearchOddsPanel />}{overview && <>{tab === 'history' && <HistoryPanel overview={overview} />}{tab === 'portfolios' && <PortfolioPanel overview={overview} revision={revision} />}{tab === 'markets' && <MarketsPanel markets={overview.markets} />}{tab === 'experiments' && <ResearchExperimentsPanel overview={overview} />}{tab === 'system' && <SystemPanel overview={overview} />}</>}</div>}
+    {tab !== 'odds' && !loading && !overview && error && <Empty>Non è possibile mostrare benchmark o stato dei modelli senza una risposta valida del backend.</Empty>}
+    {(overview || tab === 'odds') && <div role="tabpanel" id={`research-panel-${tab}`} aria-labelledby={`research-tab-${tab}`} aria-busy={tab === 'odds' ? undefined : loading} tabIndex={0}>{tab === 'odds' && <ResearchOddsPanel />}{overview && <>{tab === 'history' && <HistoryPanel overview={overview} />}{tab === 'markets' && <MarketsPanel markets={overview.markets} />}{tab === 'experiments' && <ResearchExperimentsPanel overview={overview} />}{tab === 'system' && <SystemPanel overview={overview} />}</>}</div>}
   </div>;
 };
 

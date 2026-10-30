@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { PLAYER_DATA_ENABLED } from '../config/playerAvailability';
 import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
 import {
@@ -9,7 +9,6 @@ import {
   canonicalSuggestedStakeAmount,
   currentSeason,
   formatMarketKey,
-  isTechnicalRecommendationAbstention,
   oddsCategoryLabel,
 } from '../components/predictions/predictionWorkbenchUtils';
 import { fmtSelection } from '../components/predictions/predictionFormatting';
@@ -19,7 +18,6 @@ import { useUserBudget } from './useUserBudget';
 import { useMatchSelection } from './useMatchSelection';
 import { usePredictionAnalysis } from './usePredictionAnalysis';
 import { useBetPlacement } from './useBetPlacement';
-import { archiveManualBetOpportunity } from '../utils/api';
 
 export interface PredictionWorkbenchViewModel {
   activeUser: string;
@@ -73,8 +71,8 @@ export interface PredictionWorkbenchViewModel {
 export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchViewModel {
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
-  const [manuallyArchivedOpportunityKeys, setManuallyArchivedOpportunityKeys] = useState<Set<string>>(new Set());
-  const userBudget = useUserBudget(activeUser);
+  const manuallyArchivedOpportunityKeys = useMemo(() => new Set<string>(), []);
+  const userBudget = useUserBudget(activeUser, { mode: 'automatic', family: 'A' });
   const matchSelection = useMatchSelection();
   const predictionAnalysis = usePredictionAnalysis({
     budget: userBudget.budget,
@@ -123,6 +121,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   ]);
 
   const { handleBet } = useBetPlacement({
+    automaticFamily: userBudget.automaticFamily,
     activeUser,
     budget: userBudget.budget,
     pred: predictionAnalysis.pred,
@@ -229,7 +228,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
           : '';
 
   const leftPanelTitle = matchSelection.matchMode === 'recent' ? 'Partite recenti giocate' : 'Partite in programma';
-  const maxExposurePct = 8;
+  const maxExposurePct = 5;
   const maxExposureAmount = userBudget.bankroll > 0 ? (userBudget.bankroll * maxExposurePct) / 100 : 0;
 
   const finalRecommendedChoice = useMemo(() => {
@@ -242,7 +241,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   }, [userBudget.bankroll, predictionAnalysis.pred]);
 
   const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
-  const exposureRatio = maxExposureAmount > 0 ? Math.min(1, suggestedTotalStake / maxExposureAmount) : 0;
+  const committedAmount = Number(userBudget.budget?.committed_budget ?? 0);
+  const exposureRatio = maxExposureAmount > 0 ? (committedAmount + suggestedTotalStake) / maxExposureAmount : 0;
 
   const oppStakeKey = useCallback((opportunity: BestValueOpportunityModel) =>
     buildBetKey(currentMatchId, String(opportunity.selection ?? ''), String(opportunity.marketName ?? '')),
@@ -252,52 +252,11 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     Number(predictionAnalysis.stakes[oppStakeKey(opportunity)] ?? 0),
   [oppStakeKey, predictionAnalysis.stakes]);
 
-  const manualArchiveClassification = useCallback((opportunity: BestValueOpportunityModel): 'LOW' | 'SPECULATIVE' | null => {
-    const status = String(opportunity.bestBetStatus ?? opportunity.bestBetDecision?.status ?? '').toUpperCase();
-    const tier = String(opportunity.marketTier ?? '').toUpperCase();
-    if (status === 'SPECULATIVE' || tier === 'SPECULATIVE') return 'SPECULATIVE';
-    return String(opportunity.confidence ?? '').toUpperCase() === 'LOW' ? 'LOW' : null;
-  }, []);
-
-  const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => {
-    if (isTechnicalRecommendationAbstention(predictionAnalysis.pred?.automaticRecommendation)) return [];
-    if (!bestValueOpp || !manualArchiveClassification(bestValueOpp)) return [];
-    return [bestValueOpp];
-  }, [bestValueOpp, manualArchiveClassification, predictionAnalysis.pred?.automaticRecommendation]);
-
-  const handleArchiveOpportunity = useCallback(async (opportunity: BestValueOpportunityModel) => {
-    if (isReplayAnalysis) {
-      toastState.showToast({ tone: 'warning', title: 'Replay retrospettivo', message: 'Una partita gia giocata non puo essere archiviata come opportunita futura.' });
-      return;
-    }
-    const classification = manualArchiveClassification(opportunity);
-    const bookmakerOdds = Number(opportunity.bookmakerOdds);
-    const bookmakerName = String(opportunity.bookmakerName ?? predictionAnalysis.bookmakerBySelection[opportunity.selection] ?? '').trim();
-    if (!classification || !currentMatchId || !Number.isFinite(bookmakerOdds) || bookmakerOdds <= 1 || !bookmakerName) {
-      toastState.showToast({ tone: 'warning', title: 'Archiviazione non disponibile', message: 'Servono una LOW/SPECULATIVE e una quota bookmaker reale verificata.' });
-      return;
-    }
-
-    try {
-      await archiveManualBetOpportunity({
-        matchId: currentMatchId,
-        marketName: String(opportunity.marketName),
-        selection: String(opportunity.selection),
-        classification,
-        bookmakerOdds,
-        bookmakerName,
-        suggestedStakePercent: Number(opportunity.suggestedStakePercent),
-      });
-      setManuallyArchivedOpportunityKeys((previous) => {
-        const next = new Set(previous);
-        next.add(oppStakeKey(opportunity));
-        return next;
-      });
-      toastState.showToast({ tone: 'success', title: 'Opportunita archiviata', message: 'Salvata come simulata: il budget non e stato modificato.' });
-    } catch (error) {
-      toastState.showToast({ tone: 'error', title: 'Archiviazione non riuscita', message: error instanceof Error ? error.message : 'Riprova aggiornando la partita.' });
-    }
-  }, [currentMatchId, isReplayAnalysis, manualArchiveClassification, oppStakeKey, predictionAnalysis.bookmakerBySelection, toastState]);
+  const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => [], []);
+  const showToast = toastState.showToast;
+  const handleArchiveOpportunity = useCallback(async () => {
+    showToast({ tone: 'info', title: 'Archivio giocate', message: 'Le decisioni A/C sono archiviate automaticamente dalla Nightly.' });
+  }, [showToast]);
 
   const handleRefresh = useCallback(() => {
     refreshAnalysis(matchSelection.activeMatchRow);

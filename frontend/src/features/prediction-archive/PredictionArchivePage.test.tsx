@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import PredictionArchivePage from './PredictionArchivePage';
+import { LegacyPredictionArchivePage as PredictionArchivePage } from './PredictionArchivePage';
 import * as api from '../../utils/api';
 
 jest.mock('../../utils/api');

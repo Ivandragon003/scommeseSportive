@@ -25,9 +25,11 @@ import {
   isLegacyBet,
 } from '../utils/betPresentation';
 import './budget-manager.css';
+import { WalletBetsPage } from '../features/wallets/WalletPages';
 
 interface BetsManagerProps {
   activeUser: string;
+  readOnly?: boolean;
 }
 
 interface DateRange {
@@ -136,7 +138,7 @@ const BetRow: React.FC<{
   );
 };
 
-const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
+export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, readOnly = false }) => {
   const initialFilters = useMemo(readFiltersFromUrl, []);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState(initialFilters.search);
@@ -155,7 +157,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
     winsCount,
     lossesCount,
     voidCount,
-  } = useBudgetManagerData(activeUser);
+  } = useBudgetManagerData(activeUser, { readOnly });
 
   useEffect(() => {
     const writeFilters = () => {
@@ -246,7 +248,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
       <header className="bm-head bets-page-head">
         <div>
           <span className="bets-page-eyebrow"><Ticket size={15} aria-hidden="true" /> Registro bankroll</span>
-          <h1 className="bm-title">Giocate</h1>
+          <h1 className="bm-title">{readOnly ? 'Giocate precedenti' : 'Giocate'}</h1>
           <p className="bm-sub">Monitora le tue giocate in attesa e consulta lo storico dei risultati.</p>
         </div>
         <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
@@ -358,5 +360,7 @@ const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
     </div>
   );
 };
+
+const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => <WalletBetsPage legacy={<LegacyBetsManager activeUser={activeUser} readOnly />} />;
 
 export default BetsManager;
