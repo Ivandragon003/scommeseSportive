@@ -1,18 +1,36 @@
 # Monitoraggio Nightly Pre-Match Virtual Betting
 
-**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
-pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
-sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
-esposizione 5% e massimo una puntata per partita/modello. Il flag
-`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
-e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
-remoti descritti sotto non attestano questa nuova policy. CI remota, preview
-senza scritture finanziarie e attivazione restano pendenti.
-[Specifica e avanzamento](recommendation-execution-2026-10-30.md).
+**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
+deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
+Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
+puntate virtuali, tre A e due C. Audit RO 71/71 PASS. A disponibile 955,80 euro,
+impegnato 44,20; C disponibile 980 euro, impegnato 20; equity 1.000 euro ciascuno.
+Stake A 0,42%/1,8%/2,2%, C 1%, esposizione massima 5% rispettata, senza promozione C.
+
+Quote reali Codere IT/Betsson, fresche 51,6–79,3 secondi alla decisione. Provider
+325 usati/175 residui osservati alle 14:16:55 UTC. Il suo stato DEGRADED include
+l’unico errore mensile precedente nel ledger; ultima acquisizione SUCCESS
+14:16:54 UTC. Lo stato non viene ripulito o dichiarato tutto verde.
+Watchdog automatico `41070547360` SUCCESS (GitHub/DB `ok=true`, `issues=[]`,
+Nightly SUCCESS/non scaduta). Duplicato `41071349342` SUCCESS con gate
+`daily_sync_already_succeeded` e ciclo applicativo/provider saltato.
+Controllo RO dopo il duplicato: invariati 5 BET, 7 movimenti, 5 job, 10 decisioni,
+saldi e 325/175 crediti.
+Pagina Partite autenticata verificata: Le Havre–PSG, A quota 8 Codere IT,
+importo archiviato 4,20 euro, uguale alla Nightly. Risultati/liquidazioni e
+primo trigger programmato restano da osservare; il ciclo sportivo non è completo.
+APK Android non aggiornato, keystore originale assente; nessun piano/provider
+cambiato, servizio a pagamento aggiunto o T−15 operativo.
+Rollback delle nuove puntate: `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
+workflow completo attivo e backend compatibile con la 023. Il POST `/api/research/settle`
+precede il gate A/C; sola CLI diagnostica o retry saltato non garantiscono
+liquidazioni. Non fermare il processo completo confidando in quei soli percorsi.
+[Specifica e avanzamento](recommendation-execution-2026-10-30.md)
 
 
 Configurazione aggiornata al 30 ottobre 2026. Scheduler e runtime usano 03:07
-Europe/Rome, con recuperi 04:17/05:27. Backend `01320941` LIVE e registrazione
+Europe/Rome, con recuperi 04:17/05:27. Nel precedente recupero era LIVE il backend `01320941`, con registrazione
 A/C riattivata dalle 10:04 UTC dopo riconciliazione quota. Run reale `41038096151`
 SUCCESS con quattro incontri e otto astensioni A/C; watchdog indipendente
 `41039066641` e `41039490287` SUCCESS. Il duplicato `41039455356` è fermato prima di npm/build
@@ -88,9 +106,9 @@ JSON ed exit code distinguono successo (`0`) e problemi (`1`). Gli errori di acc
 
 Senza opzioni il comando verifica GitHub e, soltanto se sono presenti le credenziali dedicate, anche il database. In loro assenza restituisce esplicitamente `NOT_CHECKED` per il database. Con `--database-only`, credenziali mancanti causano errore.
 
-## Nuova policy del consiglio: confine del monitor
+## Nuova policy del consiglio: confine del monitor e rollout
 
-Il ramo locale `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false` è separato
+Il ramo attivo `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` è separato
 dalla diagnosi research e dalla sua aspettativa di run. A usa il pacchetto
 Partite `APP-A` e stake indicato; C906 usa 1%, due portafogli da 1.000 euro,
 esposizione 5%, max 1 per match/modello. Le origini DIAGNOSTIC restano a zero
@@ -99,9 +117,14 @@ deve interpretarle come BET del nuovo ramo. I nuovi record 023 e il FK bet→
 execution distinguono esecuzione effettiva e origine. 50/Hoeffding resta nel
 benchmark/diagnostica, senza veto per questa nuova esecuzione virtuale.
 
-Il checker non attiva la policy. CI remota, migrazione 023 in produzione e
-preview senza scritture finanziarie restano pendenti; controlli sulle nuove
-viste e correzioni UI sono ancora in review locale. Le quote esposte hanno
+Il checker non attiva la policy. Il nuovo flag è stato abilitato dopo i
+rilasci LIVE backend eb5/UI3c. Il run reale `41069572500` ha cinque BET
+(3 A/2 C), audit 71/71 PASS; watchdog automatico `41070547360` SUCCESS, controlli
+GitHub e DB `ok=true`/`issues=[]`, Nightly SUCCESS e `overdue=false`.
+Lo stato provider DEGRADED include un errore storico nel ledger: non va
+confuso con un guasto corrente del job o cancellato per mostrare tutto verde.
+Il duplicato `41071349342` è stato saltato prima di app/provider.
+Le quote esposte hanno
 stato e timestamp storico, non una nuova verifica prezzo live. Il rollback
 spegne il nuovo flag ma conserva settlement e letture compatibili con le
 esecuzioni, senza attribuire le nuove BET alle origini a stake zero.
@@ -115,7 +138,7 @@ Configurazione nel repository GitHub (verificare lo stato remoto nel report di r
 - `vars.RESEARCH_NIGHTLY_MONITOR_ENABLED`: aspettativa del run programmato sia su GitHub sia nel database, default `false`. Un input manuale `expect_enabled=true` la richiede per quel controllo.
 - `vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED`: controllo database opzionale, indipendente dalla registrazione A/C.
 - `secrets.TURSO_DATABASE_URL` e `secrets.TURSO_WATCHDOG_READONLY_TOKEN`: necessari soltanto per il controllo database.
-- `vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED`: nuovo opt-in della policy Partite, default `false`, non attivato remotamente.
+- `vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED`: opt-in della policy Partite, default `false`, ora `true` e verificato remotamente.
 - `vars.RESEARCH_NIGHTLY_ENABLED`: abilita il processo A/C; riattivata alle 10:04 UTC dopo il recupero controllato. Il watchdog non lo usa per pretendere retroattivamente una sync.
 - `vars.RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS`: eventuale riconoscimento esplicito del solo `40940944902` nelle condizioni descritte sopra; non è una cancellazione.
 - `RESEARCH_NIGHTLY_MINUTE=7`: allineamento del runtime di produzione e del monitor DB al nuovo programma, con default locale 0 invariato.
@@ -142,7 +165,7 @@ La configurazione GitHub è stata riallineata alle 09:29 UTC. Il probe remoto
 non riceve token Turso e non acquisisce prezzi partita. CI quote `41035190628`
 e warmup `41035190648` sono SUCCESS. Il salvataggio Hostless è write-only;
 quel probe da solo non provava il riallineamento. Successivamente il backend
-`01320941` è LIVE e la riconciliazione COMMITTED alle 10:01:04 UTC ha corretto
+`01320941` era LIVE in quel checkpoint e la riconciliazione COMMITTED alle10:01:04 UTC aveva corretto
 500/0 in 295/205, preservando i tracciati preesistenti. Tre fetch reali del
 recupero hanno poi consumato 9 crediti: 304 usati/196 residui; limite 500/riserva 50
 invariati. Il watchdog `41039066641` è SUCCESS dopo il run A/C reale.

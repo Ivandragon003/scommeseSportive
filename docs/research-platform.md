@@ -1,14 +1,32 @@
 # Piattaforma di confronto A/C
 
-**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
-pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
-sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
-esposizione 5% e massimo una puntata per partita/modello. Il flag
-`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
-e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
-remoti descritti sotto non attestano questa nuova policy. CI remota, preview
-senza scritture finanziarie e attivazione restano pendenti.
-[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md).
+**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
+deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
+Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
+puntate virtuali, tre A e due C. Audit RO 71/71 PASS. A disponibile 955,80 euro,
+impegnato 44,20; C disponibile 980 euro, impegnato 20; equity 1.000 euro ciascuno.
+Stake A 0,42%/1,8%/2,2%, C 1%, esposizione massima 5% rispettata, senza promozione C.
+
+Quote reali Codere IT/Betsson, fresche 51,6–79,3 secondi alla decisione. Provider
+325 usati/175 residui osservati alle 14:16:55 UTC. Il suo stato DEGRADED include
+l’unico errore mensile precedente nel ledger; ultima acquisizione SUCCESS
+14:16:54 UTC. Lo stato non viene ripulito o dichiarato tutto verde.
+Watchdog automatico `41070547360` SUCCESS (GitHub/DB `ok=true`, `issues=[]`,
+Nightly SUCCESS/non scaduta). Duplicato `41071349342` SUCCESS con gate
+`daily_sync_already_succeeded` e ciclo applicativo/provider saltato.
+Controllo RO dopo il duplicato: invariati 5 BET, 7 movimenti, 5 job, 10 decisioni,
+saldi e 325/175 crediti.
+Pagina Partite autenticata verificata: Le Havre–PSG, A quota 8 Codere IT,
+importo archiviato 4,20 euro, uguale alla Nightly. Risultati/liquidazioni e
+primo trigger programmato restano da osservare; il ciclo sportivo non è completo.
+APK Android non aggiornato, keystore originale assente; nessun piano/provider
+cambiato, servizio a pagamento aggiunto o T−15 operativo.
+Rollback delle nuove puntate: `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
+workflow completo attivo e backend compatibile con la 023. Il POST `/api/research/settle`
+precede il gate A/C; sola CLI diagnostica o retry saltato non garantiscono
+liquidazioni. Non fermare il processo completo confidando in quei soli percorsi.
+[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md)
 
 
 Direzione operativa aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual
@@ -19,10 +37,11 @@ attestano l'attivazione della nuova nightly.
 
 ## Stato e confini
 
-Il percorso e la dashboard sono pubblicati: frontend `fb0e30f8` e backend
-`01320941` LIVE sul database personale. Il cutover è effettivo; health HTTP 200,
+Il percorso e la dashboard sono pubblicati: frontend `3c503fa9` e backend
+`eb5d838e` LIVE sul database personale. Il cutover è effettivo; health HTTP 200,
 route legacy POST HTTP 410, login, sessione e vista 30 giorni A/C sono verificati.
-Il 30 ottobre la registrazione A/C è riattivata dalle 10:04 UTC, dopo deploy
+Nel primo recupero precedente alla nuova policy, la registrazione A/C era
+riattivata dalle10:04 UTC del30 ottobre, dopo deploy
 backend `01320941` e riconciliazione quota. Il run `41038096151` SUCCESS ha
 verificato quattro incontri reali, otto decisioni e inferenze A/C, quattro
 snapshot condivisi con quote fresche (massimo 205,314 secondi). Distribuzioni
@@ -50,7 +69,7 @@ approvazione del punto di ripristino e dei delta successivi non verificabili.
 Non è una parità live con la sorgente bloccata. Il primo ciclo con partita
 reale e liquidazione rimane da osservare; una corretta astensione è valida.
 
-Per la nuova policy locale A usa PredictionService e il consiglio Partite
+Per la nuova policy attiva e verificata A usa PredictionService e il consiglio Partite
 `APP-A` con hash/versione di stato, distinto da A research 80. C906 conserva
 la sua baseline A80, integra CatBoost e resta Challenger. Il benchmark
 statistico A80/C906 non viene riscritto per rappresentare questa nuova A. Non
@@ -244,7 +263,7 @@ del 29 ottobre ha registrato zero osservazioni
 prospettiche e zero BET: nessun evento eleggibile nella finestra restante,
 senza puntate retroattive o evidenze inventate.
 
-## Nuova policy di esecuzione — solo locale
+## Nuova policy di esecuzione — attiva e verificata
 
 Il picker backend canonico conserva selezione e percentuale stake della pagina
 Partite. A usa il pacchetto PredictionService `APP-A` effettivo, con versione
@@ -260,26 +279,32 @@ nuove quote reali ≤300 secondi e record separati, senza riscrivere i dieci ABS
 e il nullable `research_bets.execution_decision_id`. Il ledger esistente è
 riusato e l'unicità resta globale per partita/modello/portafoglio.
 
-Il frontend locale usa il pacchetto congelato e gli euro effettivi, con stato
+Il frontend LIVE usa il pacchetto congelato e gli euro effettivi, con stato
 e timestamp della quota storica, senza presentarla come prezzo live. Un ABSTAIN
-tecnico non viene coperto da un nuovo consiglio live. Replay senza pacchetto,
-risposte tecniche 503 e confronti troncati sono ancora in review locale.
+tecnico non viene coperto da un nuovo consiglio live. Il replay conserva selezione e
+quota congelate; un ABSTAIN tecnico senza pacchetto restituisce
+`technical_abstention`, dati mancanti espliciti e stake zero, senza fallback.
+Una BET senza pacchetto è errore 503. I conteggi dei confronti sono completi
+prima del limite 500 ai dettagli, con troncamento dichiarato.
 C scarta push/quarti non supportati e cerca un altro candidato idoneo; A
 mantiene i quarti supportati da GoalSettlement. Mercati EXPERIMENTAL ammessi
 se tecnicamente idonei, senza promessa di copertura totale, profitto o promozione.
 
-Il flag è `false`; release, 023 in produzione, CI remota e preview senza
-scritture finanziarie restano pendenti. Il backup ufficiale personale di circa
-530 MB è verificato con due restore, integrità/FK0; rehearsal 023 e crash-resume
-preservano 57 tabelle precedenti. Rollback: spegnere il nuovo flag mantenendo
-settlement e nuove viste; non attribuire BET eseguite alle origini diagnostiche a stake zero.
+Il flag è ora `true`: dopo preview e migrazione023, backend eb5 e UI3c sono
+LIVE. Il run `41069572500` ha registrato tre puntate A e due C. A ha955,80 euro
+disponibili/44,20 impegnati; C980/20, equity 1.000 euro ciascuno, esposizione
+sotto 5%. Audit71/71 PASS e watchdog automatico SUCCESS. Il backup ufficiale
+530.429.352 byte con WAL e il rehearsal/crash-resume restano le prove di
+preparazione;023 è applicata e le esecuzioni effettive hanno i propri record.
+Rollback: spegnere il nuovo flag mantenendo settlement e nuove viste; non
+attribuire BET eseguite alle origini diagnostiche a stake zero.
 
 ## Due portafogli e contabilità
 
 Si riutilizzano `research_portfolios`, `research_bets` e `research_ledger`.
 Gli ID esistenti `shadow_A` e `shadow_C` identificano i portafogli A/C: non
 vengono rinominati distruttivamente o duplicati. Capitale iniziale 100.000
-centesimi ciascuno. Nella nuova policy locale lo stake A è esattamente la
+centesimi ciascuno. Nella nuova policy attiva e verificata lo stake A è esattamente la
 percentuale del consiglio Partite, C usa 1%; esposizione aperta massima 5%,
 una puntata per partita/modello. Nessun `main` aggiuntivo, reset,
 ricarica automatica, Martingala o puntata manuale A/C.
@@ -446,7 +471,9 @@ completata. Nessun servizio è eliminato. La
 Il personale è ora l'unico database canonico di web e GitHub. L'export finale
 delle 18:58 UTC e la parità delle 19:00 UTC sono riusciti dopo 020/021: 57 tabelle,
 133 oggetti di schema, storico 52 tabelle preservato. I due portafogli osservati
-nel browser mantengono 1.000 euro ciascuno, zero puntate e zero impegnato.
+nel browser di quel checkpoint avevano1.000 euro ciascuno e zero impegnato.
+Il run attivo successivo ha tre BET A/due C: 955,80/44,20 e 980/20
+(disponibile/impegnato), equity 1.000 euro separata per modello.
 Configurazione locale produzione e secret GitHub RW/RO sono aggiornati al
 personale; la precedente configurazione resta in archivio privato.
 

@@ -1,21 +1,39 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
-**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
-pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
-sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
-esposizione 5% e massimo una puntata per partita/modello. Il flag
-`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
-e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
-remoti descritti sotto non attestano questa nuova policy. CI remota, preview
-senza scritture finanziarie e attivazione restano pendenti.
-[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md).
+**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
+deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
+Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
+puntate virtuali, tre A e due C. Audit RO 71/71 PASS. A disponibile 955,80 euro,
+impegnato 44,20; C disponibile 980 euro, impegnato 20; equity 1.000 euro ciascuno.
+Stake A 0,42%/1,8%/2,2%, C 1%, esposizione massima 5% rispettata, senza promozione C.
+
+Quote reali Codere IT/Betsson, fresche 51,6–79,3 secondi alla decisione. Provider
+325 usati/175 residui osservati alle 14:16:55 UTC. Il suo stato DEGRADED include
+l’unico errore mensile precedente nel ledger; ultima acquisizione SUCCESS
+14:16:54 UTC. Lo stato non viene ripulito o dichiarato tutto verde.
+Watchdog automatico `41070547360` SUCCESS (GitHub/DB `ok=true`, `issues=[]`,
+Nightly SUCCESS/non scaduta). Duplicato `41071349342` SUCCESS con gate
+`daily_sync_already_succeeded` e ciclo applicativo/provider saltato.
+Controllo RO dopo il duplicato: invariati 5 BET, 7 movimenti, 5 job, 10 decisioni,
+saldi e 325/175 crediti.
+Pagina Partite autenticata verificata: Le Havre–PSG, A quota 8 Codere IT,
+importo archiviato 4,20 euro, uguale alla Nightly. Risultati/liquidazioni e
+primo trigger programmato restano da osservare; il ciclo sportivo non è completo.
+APK Android non aggiornato, keystore originale assente; nessun piano/provider
+cambiato, servizio a pagamento aggiunto o T−15 operativo.
+Rollback delle nuove puntate: `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
+workflow completo attivo e backend compatibile con la 023. Il POST `/api/research/settle`
+precede il gate A/C; sola CLI diagnostica o retry saltato non garantiscono
+liquidazioni. Non fermare il processo completo confidando in quei soli percorsi.
+[Specifica e avanzamento](operations/recommendation-execution-2026-10-30.md)
 
 
 Direzione aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
-Il recupero calendario `41044931407` è verificato: cinque incontri cumulativi,
-dieci decisioni, zero puntate; dettagli nella sezione seguente. Il riepilogo
+Nello snapshot delle 11:08 UTC il recupero `41044931407` aveva cinque incontri
+cumulativi, dieci decisioni e zero puntate; dettagli nella sezione seguente. Il riepilogo
 del predecessore qui sotto resta il risultato delle 10:12 UTC, non il totale odierno.
-Backend `01320941` LIVE, quota riconciliata alle 10:01:04 UTC e registrazione
+Nel primo recupero delle10:12 UTC era LIVE il backend `01320941`, quota riconciliata alle 10:01:04 UTC e registrazione
 A/C attiva dalle 10:04 UTC. Run `41038096151` su `8bf17826` SUCCESS 10:12:43 UTC,
 con `Run nightly sync` e `Confirm enabled A/C completion` entrambi riusciti.
 Quattro partite reali, otto decisioni/inferenze e quattro snapshot condivisi,
@@ -60,7 +78,8 @@ Audit RO 11:10:02 UTC PASS: cinque input, dieci decisioni e dieci marker modello
 complessivi, digest dei quattro input e delle otto decisioni precedenti
 invariati. Sette hash finanziari e 258 legacy preservati, A/C 1.000 euro e zero
 impegnati. Un solo fetch quote Nightly da 3 crediti: 307 usati/193 residui;
-nessun altro caller. Backend e frontend LIVE restano `01320941`/`fb0e30f8`.
+nessun altro caller. Erano allora LIVE `01320941`/`fb0e30f8`, prima del rilascio
+attuale eb5/3c e delle cinque nuove puntate della policy Partite.
 
 L'input resta manuale e default `false`; il percorso standard continua a
 saltare dopo un vero successo giornaliero. Quel recupero verificato manteneva
@@ -142,7 +161,7 @@ campioni idonei impone astensione nella diagnosi research: minimo 50 e
 Hoeffding restano nel benchmark/diagnostica, senza refit o calibratori inventati.
 La nuova esecuzione Partite locale è separata e non usa quel veto.
 
-## Nuova policy locale del consiglio Partite
+## Nuova policy pubblicata del consiglio Partite
 
 Dopo le origini DIAGNOSTIC a stake zero, il nuovo ramo opt-in valuta esecuzioni
 con policy/input distinti, senza riscrivere i dieci ABSTAIN precedenti. A usa
@@ -151,15 +170,17 @@ della pagina Partite; C906/baseline 80 usa 1%. Esposizione5%, massimo una puntat
 per match/modello, stessi due portafogli da 1.000 euro e ledger esistente.
 Il picker canonico backend replica Low/Medium/High e ranking; nessun riordino UI.
 
-La migrazione additiva 023 e il suo FK bet→execution sono solo collaudati su
-ripristino: produzione non migrata. Quote reali ≤300 secondi, settlement
+La migrazione additiva023 e il suo FK bet→execution sono applicati sul
+personale alle 13:14 UTC, inizialmente con quattro tabelle vuote. La policy
+finanziaria è ora attiva e ha registrato cinque puntate verificate. Quote reali ≤300 secondi, settlement
 supportato, capitale e unicità globale restano richiesti. Il benchmark e le
 origini research mantengono 50/Hoeffding; non bloccano questa nuova esecuzione
 virtuale. C scarta push/quarti non supportati e cerca un altro candidato;
 A conserva le linee supportate da GoalSettlement. Nessuna promozione C.
 
-Il nuovo flag è `false`: codice non pubblicato/attivato, preview senza
-scritture finanziarie e CI remota ancora pendenti. Per rollback disabilitare
+Il nuovo flag è ora `true`: dopo preview e migrazione, backend eb5 e UI3c
+sono LIVE. Il run `41069572500` ha registrato cinque puntate virtuali
+(3 A/2 C), con audit 71/71 PASS e saldi verificati. Il settlement resta da osservare. Per rollback disabilitare
 questo flag e mantenere settlement e viste aggiornate delle esecuzioni;
 un backend vecchio non deve attribuire nuove BET alle origini diagnostiche a stake zero.
 
@@ -169,7 +190,7 @@ un backend vecchio non deve attribuire nuove BET alle origini diagnostiche a sta
 | --- | --- |
 | `NIGHTLY_ORCHESTRATOR` | `github_actions`, disabilita gli scheduler periodici duplicati nel web |
 | `RESEARCH_NIGHTLY_ENABLED` | Opt-in del processo A/C, default `false` |
-| `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` | Nuovo opt-in locale della policy Partite, variabile repository omonima, default `false`; non attivata remotamente |
+| `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` | Default `false`; variabile repository ora `true`, esecuzione Partite attiva e verificata |
 | `RESEARCH_NIGHTLY_HOUR`, `RESEARCH_NIGHTLY_MINUTE` | Default locale 3/0; produzione, monitor e dashboard 3/7, coerenti col workflow |
 | `RESEARCH_NIGHTLY_WINDOW_HOURS` | Non impostata: fino alla prossima 03:07 Roma; durata configurabile 1–48 ore |
 | `RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS` | 300 alla decisione notturna, controlla acquisizione e aggiornamento del mercato |
@@ -270,7 +291,8 @@ quattro incontri reali, otto astensioni e 58 osservazioni congelate, con
 risultati/liquidazioni ancora futuri. Il trigger 31 ottobre 03:07 resta da osservare.
 Il flag del backend non avvia autonomamente il job; la richiesta usa GitHub.
 
-Rollback: impostare `RESEARCH_NIGHTLY_ENABLED=false`, preservare liquidazioni
+Rollback delle nuove puntate: impostare `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
+mantenere workflow completo e backend compatibile 023; preservare liquidazioni
 e storico e non ripristinare la chiamata automatica legacy o `AUTO_BET_*`.
 Usare i backup verificati del nuovo canonico per il rollback; non riaprire
 collegamenti all’originale bloccato o dichiarare recuperati delta ignoti. I test sintetici

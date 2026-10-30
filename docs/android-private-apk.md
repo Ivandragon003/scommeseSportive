@@ -1,8 +1,32 @@
 # FootPredictor su Android (APK privato)
 
-L'app Android usa la stessa UI React e lo stesso backend Hostless della versione desktop.
+L'app Android include una copia della UI React e usa lo stesso backend Hostless della versione web.
+Capacitor usa `webDir: 'build'` e non configura `server.url`: l'APK carica gli asset
+inclusi nel pacchetto, non il sito frontend remoto. Un deploy web non aggiorna la UI dell'APK.
 Non contiene database, budget o password: budget, giocate e archivio restano nel database
 Turso condiviso sotto l'utente canonico `user1`.
+
+## Stato al 30 ottobre 2026: web aggiornato, APK non aggiornato
+
+Il frontend web `3c503fa9` è stato pubblicato e verificato su Hostless. Include stake A
+variabile dal consiglio, stake C fisso all'1% e consiglio Nightly archiviato con quota e
+importo effettivamente registrati. Per avere questa UI su Android serve un nuovo APK.
+Il backend configurato resta `https://scommese-sportive-backend.hostless.app/api`.
+
+La preparazione dell'APK firmato è bloccata: nel checkout manca
+`frontend/android/key.properties` e non sono disponibili un keystore release identificato
+come quello originale e un precedente APK release con cui confrontare il certificato.
+JDK 21 e SDK Android 36 sono presenti, ma non sostituiscono la firma mancante.
+Non sono state create nuove chiavi né generati APK non firmati o con firma debug; versione Gradle
+`1.1.3`/`versionCode=5` e asset Android sono rimasti invariati. Nessun APK 1.1.4 è stato generato.
+
+Per riprendere servono il keystore originale e la sua configurazione locale privata,
+oltre al precedente APK firmato o a un riferimento verificato del certificato. Non
+inserire password o chiavi nella conversazione. Prima della distribuzione occorre
+confrontare la firma e verificare aggiornamento, login, cookie e nuova UI su Android.
+La compatibilità osservata nel browser non prova il comportamento della WebView su telefono.
+Nel frattempo si può usare il sito web aggiornato; la Nightly cloud non richiede l'APK,
+né PC o smartphone accesi.
 
 ## 1. Configurare l'accesso condiviso su Hostless
 
@@ -57,10 +81,11 @@ Può essere copiato sui due telefoni e installato abilitando temporaneamente
 
 ## 3. APK release firmato per gli aggiornamenti
 
-Perché gli aggiornamenti si installino sopra la versione precedente, conserva sempre lo
-stesso keystore. Crealo una volta sola in una cartella privata, poi copia
-`frontend/android/key.properties.example` in `frontend/android/key.properties` e inserisci
-percorso, alias e password reali. Il file `key.properties` e i file `*.jks` sono esclusi da Git.
+Perché gli aggiornamenti si installino sopra la versione precedente, usa sempre il
+keystore originale. Se manca, recuperalo dal backup privato: crearne un altro non
+produce un aggiornamento con firma compatibile. La configurazione prevista è
+`frontend/android/key.properties`, secondo [key.properties.example](../frontend/android/key.properties.example), con percorso,
+alias e password originali. Il file `key.properties` e i file `*.jks` sono esclusi da Git.
 
 ```powershell
 cd frontend
@@ -86,8 +111,9 @@ Senza il nuovo backend autenticato l'APK non può completare il login.
 
 ## 4. Verificare il filtro nativo delle giocate
 
-La release 1.1.3 (`versionCode=5`) rigenera il pacchetto firmato con lo stesso
-backend Hostless. Il riuso persistente della calibrazione richiede la pubblicazione
+La configurazione 1.1.3 (`versionCode=5`) usa lo stesso backend Hostless; il numero
+di versione nel progetto non dimostra la disponibilità di un APK release firmato.
+Il riuso persistente della calibrazione richiede la pubblicazione
 del backend e del workflow nightly aggiornati: non viene eseguito nell'APK.
 Le credenziali Turso e dei provider restano sul server.
 

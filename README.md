@@ -1,14 +1,32 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
-**Nuova policy richiesta il 30 ottobre: implementata solo localmente, non
-pubblicata né attivata.** A riproduce il consiglio della pagina Partite e la
-sua percentuale di stake; C mantiene stake 1%. Due portafogli da 1.000 euro,
-esposizione 5% e massimo una puntata per partita/modello. Il flag
-`RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` resta `false`. Backend `01320941`
-e frontend `fb0e30f8` LIVE continuano sulla release precedente: i collaudi
-remoti descritti sotto non attestano questa nuova policy. CI remota, preview
-senza scritture finanziarie e attivazione restano pendenti.
-[Specifica e avanzamento](docs/operations/recommendation-execution-2026-10-30.md).
+**Policy attiva e verificata sul cloud, 30 ottobre 2026.** Backend `eb5d838e`
+LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
+deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
+Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
+puntate virtuali, tre A e due C. Audit RO 71/71 PASS. A disponibile 955,80 euro,
+impegnato 44,20; C disponibile 980 euro, impegnato 20; equity 1.000 euro ciascuno.
+Stake A 0,42%/1,8%/2,2%, C 1%, esposizione massima 5% rispettata, senza promozione C.
+
+Quote reali Codere IT/Betsson, fresche 51,6–79,3 secondi alla decisione. Provider
+325 usati/175 residui osservati alle 14:16:55 UTC. Il suo stato DEGRADED include
+l’unico errore mensile precedente nel ledger; ultima acquisizione SUCCESS
+14:16:54 UTC. Lo stato non viene ripulito o dichiarato tutto verde.
+Watchdog automatico `41070547360` SUCCESS (GitHub/DB `ok=true`, `issues=[]`,
+Nightly SUCCESS/non scaduta). Duplicato `41071349342` SUCCESS con gate
+`daily_sync_already_succeeded` e ciclo applicativo/provider saltato.
+Controllo RO dopo il duplicato: invariati 5 BET, 7 movimenti, 5 job, 10 decisioni,
+saldi e 325/175 crediti.
+Pagina Partite autenticata verificata: Le Havre–PSG, A quota 8 Codere IT,
+importo archiviato 4,20 euro, uguale alla Nightly. Risultati/liquidazioni e
+primo trigger programmato restano da osservare; il ciclo sportivo non è completo.
+APK Android non aggiornato, keystore originale assente; nessun piano/provider
+cambiato, servizio a pagamento aggiunto o T−15 operativo.
+Rollback delle nuove puntate: `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
+workflow completo attivo e backend compatibile con la 023. Il POST `/api/research/settle`
+precede il gate A/C; sola CLI diagnostica o retry saltato non garantiscono
+liquidazioni. Non fermare il processo completo confidando in quei soli percorsi.
+[Specifica e avanzamento](docs/operations/recommendation-execution-2026-10-30.md)
 
 
 Sistema completo per l'analisi predittiva di partite di calcio con stima probabilistica
@@ -19,7 +37,7 @@ senza entrare nel codice o nelle formule, leggi il [System design dell'app](docs
 
 ## Confronto A/C e Nightly Pre-Match Virtual Betting
 
-Nella nuova policy locale A è il consiglio effettivo della pagina Partite,
+Nella nuova policy attiva e verificata A è il consiglio effettivo della pagina Partite,
 prodotto da PredictionService e tracciato come `APP-A` con hash di stato/versione.
 Non è la vecchia A research `A-80cb25df5552621e`. C `C-906371b0b3a1e2c8`
 mantiene la baseline A research 80 e resta **Challenger**. GitHub Actions aggiorna i dati e,
@@ -78,7 +96,7 @@ descrive il nuovo percorso. Riferimenti complementari:
 - [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
 - [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
 
-**Recupero calendario verificato il 30 ottobre: cinque partite, dieci decisioni A/C.**
+**Snapshot recupero calendario,30 ottobre 11:08 UTC, prima delle puntate Partite.**
 Il run `41044931407` su `fd97d145` è SUCCESS alle 11:08:12 UTC; CI
 `41044683537` Backend/Frontend SUCCESS. Dopo cinque GET eventi gratuiti,
 800 record controllati e 43 kickoff futuri corretti, Nice–Rennes è passata
@@ -94,14 +112,14 @@ precedenti invariati. Wallet 1.000 euro ciascuno, zero impegnati, 258 giocate
 legacy e sette hash finanziari preservati. Cinque chiamate calendario a costo 0,
 una richiesta quote Nightly da 3 crediti: 307 usati/193 residui. Nel recupero precedente erano
 invariati modello e gate diagnostici 50/EV 4%/prudenziale 1%; questa è evidenza
-datata, distinta dalla nuova esecuzione virtuale locale. Backend `01320941` e UI `fb0e30f8`
-restano LIVE senza nuovo deploy web. [Report dei cinque incontri](docs/operations/nightly-fixture-recovery-2026-10-30.md).
+datata, distinta dalla nuova esecuzione virtuale attuale. Backend `01320941` e UI `fb0e30f8`
+erano allora LIVE senza necessità di deploy web per quella correzione. [Report dei cinque incontri](docs/operations/nightly-fixture-recovery-2026-10-30.md).
 Il precedente verde su quattro partite non attestava il calendario completo;
 restano da osservare cron 31 ottobre 03:07 e risultati/liquidazioni ufficiali.
 
 **Prima fase delle 10:12 UTC del 30 ottobre, prima del recupero calendario.**
-**Verificato il 30 ottobre 2026: backend e A/C reali operativi sul cloud.**
-Backend `01320941` LIVE; health200, legacy410 e sessione autenticata verificati.
+**Snapshot del primo recupero,30 ottobre 10:12 UTC, prima della nuova policy.**
+Backend `01320941` LIVE; health 200, legacy410 e sessione autenticata verificati.
 Quota riconciliata alle 10:01:04 UTC, registrazione riattivata alle 10:04 UTC.
 Il run `41038096151` (`8bf17826`) è SUCCESS alle 10:12:43 UTC: quattro partite
 reali, otto decisioni e inferenze A/C, quattro snapshot quote condivisi,
