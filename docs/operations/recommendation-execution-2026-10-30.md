@@ -1,5 +1,10 @@
 # Consigli dell'app e registrazione virtuale A/C — 30 ottobre 2026
 
+Le guide [modello A](../models/MODEL-A.md), [modello C](../models/MODEL-C.md)
+e [architettura A/C](../models/README.md) descrivono i due algoritmi, il codice
+condiviso e i limiti. Questo documento descrive l'esecuzione e i riscontri
+operativi; i due livelli vanno letti insieme.
+
 ## Correzione pubblicata: autonomia dei motori A e C
 
 La policy `virtual-recommendation-v2` corregge la restrizione introdotta dal
@@ -162,13 +167,20 @@ APP-A è distinto dalla precedente variante Research A80: probabilità e
 stake provengono dal vero `PredictionService`, con hash di codice,
 configurazione e stato del modello tracciati separatamente.
 
-C conserva probabilità e artefatto registrati; non si applica nuovamente
-calibrazione o blending. Il suo adattatore seleziona fra le alternative
-supportate da C; il riuso del picker di presentazione non limita i mercati di A.
+C conserva probabilità e artefatto registrati. La pipeline coerente C applica
+il post-processing configurato, inclusi calibrazione e blending quando
+previsti e disponibili. Il successivo adattatore riusa `ValueBettingEngine`
+per EV, filtri e confidenza, con una seconda calibrazione/blend disabilitati,
+e il picker canonico per la scelta finale. Il riuso non riguarda soltanto la
+presentazione e non impone ad A il catalogo di C.
 L'adattatore corrente esclude le linee C con rimborso o payout parziale
 quando il calcolo dell'engine non consente una confidenza coerente; il
-motivo è esplicito e viene cercata un'altra alternativa valida. A conserva
-il consiglio originale quando la liquidazione è già supportata.
+conteggio è conservato e vengono valutate le altre alternative ammesse.
+Se non emerge un consiglio, la causale globale `non_binary_payout_not_supported_by_canonical_engine`
+è assegnata anche quando soltanto alcune quote avevano quel limite e le
+altre non hanno superato i filtri: non prova l'esistenza di un consiglio già
+valido poi bloccato dalla Nightly. Vedere il [limite diagnostico C](../models/MODEL-C.md).
+A conserva il consiglio originale quando la liquidazione è già supportata.
 
 Le politiche di stake A e C sono diverse per scelta dell'utente. Differenze
 di profitto dei portafogli non dimostrano, da sole, superiorità predittiva.

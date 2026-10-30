@@ -1,13 +1,30 @@
 # System design di FootPredictor
 
-**Correzione locale v2: ogni modello conserva il proprio motore e i propri mercati.**
+**Architettura verificata sui sorgenti del 30 ottobre 2026: percorsi A/C distinti.**
 A usa il `PredictionService` esistente, inclusi cartellini e tiri quando
 coperti da dati e quote reali; C conserva il catalogo gol concordato.
 L'automazione esegue i consigli prodotti dai due percorsi e applica soltanto
 i controlli tecnici e contabili. Non definisce un terzo modello o un insieme
-obbligatoriamente comune di mercati. Il rilascio remoto di questa correzione
-non è ancora attestato; gli snapshot v1 sottostanti restano storici.
+obbligatoriamente comune di mercati. C riusa le funzioni di valutazione
+`ValueBettingEngine` e il picker canonico, con le proprie probabilità e senza
+una seconda calibrazione o un secondo blend: i due algoritmi non sono due
+codebase interamente separate.
+
+Le guide separate [Modello A](models/MODEL-A.md) e [Modello C](models/MODEL-C.md)
+descrivono input, formule, mercati, scelta, importi e limiti;
+l'[indice dei modelli](models/README.md) mostra anche i componenti condivisi.
+Il codice v2 è pubblicato e la Nightly `41098979782` è riuscita, con quattro
+puntate virtuali A e due C. La conferma LIVE dei deploy web richiesti resta
+distinta da quel riscontro. Per stato e cronologia del rilascio usare la
 [Specifica corrente](operations/recommendation-execution-2026-10-30.md).
+
+## Snapshot storici delle attivazioni precedenti
+
+I paragrafi seguenti conservano le verifiche delle diverse fasi del 30 ottobre.
+I conteggi delle cinque puntate v1 e gli stati intermedi dei deploy non sono
+lo stato successivo al ritiro v1 e alla nuova esecuzione v2; valgono per il
+momento descritto. Il ritiro e la nuova Nightly sono documentati nella
+[correzione operativa](operations/nightly-engine-correction-2026-10-30.md).
 
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
@@ -377,6 +394,15 @@ valida quota, kickoff e capitale e preserva i pacchetti originali. Le player
 props restano separate, corner e falli bloccati. Per liquidare tiri e
 cartellini A occorrono le statistiche effettive richieste; i mancanti non
 vengono interpretati come zero.
+
+La [guida A](models/MODEL-A.md) segue il percorso operativo dell'app e la
+[guida C](models/MODEL-C.md) segue baseline, CatBoost e selezione del Challenger.
+In C la pipeline coerente applica il post-processing previsto prima di
+`ChallengerRecommendation`: quest'ultimo riusa `ValueBettingEngine` per
+filtri/EV/confidenza con calibrazione e blend disabilitati in quello stadio,
+poi il picker canonico. Non confronta il ranking C con quello A.
+Il limite sulle quote con rimborso o puntata suddivisa e la causale globale
+di astensione talvolta troppo generica sono spiegati nella guida C.
 
 `ForecastCore` ricostruisce il nucleo A dal solo passato ammissibile e produce
 feature comuni per training, benchmark e inferenza. `CatBoostModel` carica
@@ -751,6 +777,7 @@ Questa è la lettura d'insieme dell'app. Gli altri documenti approfondiscono sin
 
 - [README](../README.md): ingresso al progetto e comandi principali.
 - [Formulario](FORMULARIO-sistema-scommesse.md): dettagli matematici e configurazione dei modelli.
+- [Indice A/C](models/README.md), [modello A](models/MODEL-A.md) e [modello C](models/MODEL-C.md): percorsi separati, componenti condivisi e limiti verificati nel codice.
 - [Nightly GitHub Actions](github-actions-nightly-sync.md): ordine operativo, gate e configurazione dei job.
 - [Android privato](android-private-apk.md): distribuzione e collegamento dell'APK.
 - [Transizioni tra competizioni](competition-transitions/README.md): riferimenti e limiti dei dati.

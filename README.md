@@ -1,5 +1,9 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
+**Documentazione dei due modelli:** [architettura](docs/SYSTEM-DESIGN.md),
+[algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
+e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
+
 **Correzione A/C pubblicata su GitHub — rilascio web ancora da attestare.**
 La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,
 con i mercati squadra già supportati, inclusi cartellini e tiri quando esistono
@@ -759,6 +763,11 @@ Le scommesse comportano rischi finanziari significativi. Gioca sempre responsabi
 ---
 
 ## FORMULARIO COMPLETO DEL SISTEMA
+
+Questa sezione conserva il riepilogo storico della linea A; non descrive
+l'algoritmo C né sostituisce le guide correnti [A](docs/models/MODEL-A.md)
+e [C](docs/models/MODEL-C.md). Per formule e risultati datati vedere il
+[formulario A](docs/FORMULARIO-sistema-scommesse.md).
 Football Prediction & Value Betting Engine  
 Versione 4.0 — Aprile 2026
 

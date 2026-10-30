@@ -1,7 +1,18 @@
 # Formulario del sistema — Football Prediction & Value Betting Engine
 
-**Versione 5.1 — allineata al codice `main` (2026-07-26, batch audit A1–A7 + B4/B6 + D1 + E5).**
-Sostituisce `FormularioSistemaScommesse_v4_allineato.docx` (v4.1, maggio 2026), che era indietro di un intero ciclo di lavoro. Questo documento descrive **ciò che il codice fa davvero oggi**, con i valori di configurazione reali. Le voci nuove rispetto alla v4.1 sono marcate 🆕; il codice presente ma non collegato al runtime è marcato ⚠️.
+**Versione 5.1 — formulario della linea A, snapshot del 26 luglio 2026 (batch audit A1–A7 + B4/B6 + D1 + E5).**
+Sostituisce `FormularioSistemaScommesse_v4_allineato.docx` (v4.1, maggio 2026).
+Formule, configurazioni numeriche e risultati sperimentali sotto descrivono
+quella revisione; non sono una verifica completa del runtime successivo.
+Le voci nuove rispetto alla v4.1 sono marcate 🆕; il codice presente ma non
+collegato al runtime è marcato ⚠️.
+
+**Lettura corrente, 30 ottobre 2026:** [guida del modello A](models/MODEL-A.md),
+[guida del modello C](models/MODEL-C.md) e [architettura A/C](models/README.md).
+Il presente formulario approfondisce la matematica di A; non descrive
+l'algoritmo CatBoost e il post-processing coerente di C, né sostituisce le
+regole della registrazione virtuale v2. L'A operativo non è la baseline A80
+fissata per C.
 
 Aggiornamenti v5.1 (report in [`docs/performance/`](performance/)): A1 segno difesa tiri, A2 corner concessi, A3/A4 share tiri giocatore, A6/B4 booking points, A7 handicap 3 vie, B6 baseline gialli per-lega, D1 termine avversario gialli, E5 marcatore anytime. Scartati: B1, D2, D3, D5.
 
@@ -13,8 +24,8 @@ Per le idee valutate e **scartate** (e il perché) vedere il documento compagno 
 
 - Stack: React frontend · Node.js + Express + TypeScript backend · libSQL/Turso · Docker · modular monolith.
 - Fonte dati calcio: **Understat** (rose, tiri, xG per-match nel `raw_json`). FotMob/Transfermarkt/FBref non attivi.
-- Fonte quote: **Eurobet / The Odds API**. Quote sintetiche solo per diagnostica/backtest.
-- Mercati value attivi: `goal_1x2`, `goal_ou`, `btts`, `shots`, `shots_ot`, `yellow_cards`, `exact_score`, `handicap`, player props. **Corners e fouls** hanno ora i dati reali (~100% via football-data.co.uk, §13) ma restano fuori dal filtro value finché i modelli non sono validati in backtest.
+- Fonte quote: **The Odds API, con il bookmaker realmente indicato nello snapshot**; non necessariamente Eurobet. Quote sintetiche interne, mai quote bookmaker né base per value/ROI/CLV.
+- Mercati operativi A: esito, doppia chance, DNB, gol, BTTS, tiri, tiri in porta, cartellini e handicap quando dati e quote reali lo consentono. Player props separate. `exact_score` resta un calcolo interno e non un mercato operativo. **Corners e fouls** restano bloccati: la copertura statistica storica del §13 non è una validazione di mercato o una misura della copertura corrente.
 - `maxOdds = 8.00`, `applyMaxOddsToAllMarkets = true`, `sofascoreSupplementalEnabled = false`.
 
 ## 1. Configurazione tipizzata
@@ -99,7 +110,12 @@ La griglia Poisson è normalizzata → mercati esattamente coerenti (1X2=1, over
 ```
 p = (1 − w_famiglia)·p_DixonColes + w_famiglia·p_PoissonXg     w = 0.5 (1X2 / OverUnder / BTTS)
 ```
-Combinazione convessa → preserva i vincoli di coerenza. Persistito in `model_params.poissonXg`; assente → no-op. Impatto: **−0.63% logLoss cal, ECE 0.0057→0.0018, t=−5.70 p<1e-5**, consistente su tutti i mercati goal. Non tocca i mercati non-goal.
+La combinazione convessa conserva i complementi entro la stessa famiglia.
+Non garantisce che, dopo calibrazione e blending separati per mercato, tutte
+le probabilità A derivino da una sola matrice finale: quel vincolo appartiene
+al protocollo coerente C. Persistito in `model_params.poissonXg`; assente →
+no-op. Impatto storico: **−0.63% logLoss cal, ECE 0.0057→0.0018, t=−5.70 p<1e-5**,
+consistente su tutti i mercati goal. Non tocca i mercati non-goal.
 
 ## 4. Modelli count specializzati
 
@@ -197,6 +213,11 @@ EV = p_model·odds − 1     implied_raw = 1/odds     edge = p_model − implied
 ```
 Soglie EV base (`EV_THRESHOLDS`): goal_1x2 3.0% · btts_yes 3.4% · btts_no 5.5% · goal_over 2.8% · goal_under 4.5% · goal_ou 2.5% (legacy) · shots/shots_ot 4.0% · yellow_cards 4.5% · exact_score/handicap 5.0% · other 4.0% · **corners/fouls 12% e comunque disabilitati**. `maxOdds = 8.00`; `MAX_STAKE_PERCENT = 4.0%`.
 
+Questi sono valori base, non tutte le soglie effettive: quando è disponibile
+il margine del gruppo quote, `minEvForCategory` considera margine e buffer;
+seguono tuning, contesto e controlli di rischio. Vedere la [guida A](models/MODEL-A.md)
+e `ValueBettingEngine` per l'ordine dei controlli correnti.
+
 **Stake — Quarter Kelly** con incertezza bootstrap 🆕:
 ```
 kelly = (p·(odds−1) − (1−p)) / (odds−1)     stake = quarterKelly · confidence
@@ -282,7 +303,6 @@ Il gap storico (falli/corner all'1–2%) è **risolto** da football-data.co.uk (
 | `services/RefereeDerivedStatsService.ts` | stats arbitro |
 | `services/UnderstatScraper.ts`, `services/odds-provider/*`, `OddsApiService.ts` | ingestione dati e quote |
 | `config/predictionConfig.ts` | override da env (homeAdvantageScale, context weights, min sample) |
-```
 
 ## 16. Appendice — servizi operativi e infrastrutturali
 
@@ -290,7 +310,7 @@ Componenti non-modello (plumbing), elencati per completezza. Non contengono form
 
 | File | Ruolo |
 |---|---|
-| `services/OddsApiService.ts`, `odds-provider/OddsApiProvider.ts`, `OddsProvider.ts`, `OddsProviderCoordinator.ts`, `oddsProviderUtils.ts`, `providerRuntimeConfig.ts` | Recupero e normalizzazione quote (The Odds API/Eurobet), coordinamento provider, config runtime |
+| `services/OddsApiService.ts`, `odds-provider/OddsApiProvider.ts`, `OddsProvider.ts`, `OddsProviderCoordinator.ts`, `oddsProviderUtils.ts`, `providerRuntimeConfig.ts` | Recupero e normalizzazione quote The Odds API, bookmaker effettivo nello snapshot, coordinamento provider, config runtime |
 | `services/OddsApiKickoffSyncService.ts` | Sincronizza gli orari di kickoff con le quote |
 | `services/playerProps.ts` | Parsing/normalizzazione delle chiavi mercato player prop (`player_<id>_<market>_<side>_<line>`) |
 | `services/BacktestReportService.ts` | Formattazione dei report di backtest |
@@ -301,7 +321,11 @@ Componenti non-modello (plumbing), elencati per completezza. Non contengono form
 | `config/algorithmVersions.ts` | Versioning degli algoritmi |
 | `api/routes.ts`, `api/predictionPayloadFormatter.ts` | Layer HTTP: endpoint e formattazione payload di predizione |
 
-Con questa appendice il formulario copre **tutti** i file sorgente del backend: strato modello (§2–5), dati (§5b), contesto/value/calibrazione (§6–12), realtà dati (§13), pipeline (§14) e infrastruttura (§16).
+L'appendice elenca i componenti principali della revisione A di luglio:
+modello (§2–5), dati (§5b), contesto/value/calibrazione (§6–12), copertura
+misurata allora (§13), pipeline (§14) e infrastruttura (§16). Non è un
+inventario completo del backend corrente. Per C e l'esecuzione v2 usare
+le [guide separate A/C](models/README.md).
 
 ---
 

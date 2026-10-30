@@ -1,12 +1,23 @@
 # Piattaforma di confronto A/C
 
-**Correzione locale v2 dei mercati, non ancora attestata online.**
+**Percorsi A/C v2 pubblicati; verifica dei sorgenti al 30 ottobre 2026.**
 A usa il proprio `PredictionService` con i mercati squadra già supportati,
 compresi cartellini e tiri quando dati e quote reali lo consentono. C conserva
 il catalogo gol concordato e il proprio registry. L'automazione registra i
 consigli dei due motori, non li sostituisce con un motore o un catalogo comuni.
 La policy `virtual-recommendation-v2` conserva le registrazioni precedenti.
+[Modello A](models/MODEL-A.md), [modello C](models/MODEL-C.md) e
+[indice architetturale A/C](models/README.md) descrivono separatamente gli
+algoritmi e il riuso delle funzioni di valutazione/selezione. La Nightly
+`41098979782` ha già registrato sei nuove puntate virtuali v2; la conferma dei
+deploy web è una verifica distinta.
 [Specifica corrente](operations/recommendation-execution-2026-10-30.md).
+
+## Snapshot storici delle attivazioni precedenti
+
+I conteggi delle cinque puntate v1 e gli stati di deploy nei paragrafi seguenti
+riguardano le fasi precedenti del 30 ottobre, non lo stato successivo al ritiro
+v1 e alla nuova Nightly v2. Vedere la [correzione operativa](operations/nightly-engine-correction-2026-10-30.md).
 
 **Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
