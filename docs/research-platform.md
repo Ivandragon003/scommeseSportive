@@ -1,6 +1,6 @@
 # Piattaforma di confronto A/C
 
-Direzione operativa aggiornata al 29 ottobre 2026: **Nightly Pre-Match Virtual
+Direzione operativa aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual
 Betting**. La [guida canonica](operations/nightly-pre-match-2026-10-29.md)
 sostituisce i requisiti di worker persistente, polling e decisione T−15 dei
 precedenti report. Questi restano evidenze storiche: non sono riscritti e non
@@ -8,14 +8,31 @@ attestano l'attivazione della nuova nightly.
 
 ## Stato e confini
 
-Il percorso e la dashboard sono pubblicati: frontend `afda73be` e backend
-`63d7cb96` LIVE sul database personale. Il cutover è effettivo; health HTTP 200,
+Il percorso e la dashboard sono pubblicati: frontend `fb0e30f8` e backend
+`01320941` LIVE sul database personale. Il cutover è effettivo; health HTTP 200,
 route legacy POST HTTP 410, login, sessione e vista 30 giorni A/C sono verificati.
-La nightly è attiva con flag `true` e workflow attivo; il primo run manuale
-`40944747548` è SUCCESS, job concluso alle 20:04:35 UTC senza nuove puntate.
-L’audit RO 20:10:52 UTC conferma `missedMatches=2` come due partite già
-iniziate ed escluse, senza decisioni retroattive. Training settimanale e Odds
-Smoke manuale sono riattivati, mentre Registry writes resta `false`.
+Il 30 ottobre la registrazione A/C è riattivata dalle 10:04 UTC, dopo deploy
+backend `01320941` e riconciliazione quota. Il run `41038096151` SUCCESS ha
+verificato quattro incontri reali, otto decisioni e inferenze A/C, quattro
+snapshot condivisi con quote fresche (massimo 205,314 secondi). Distribuzioni
+valide e diverse, zero errori/API errori e zero BET: valore sotto soglia o
+evidenza prudenziale insufficiente hanno prodotto astensioni corrette.
+Sono congelate 58 osservazioni, 29 per modello, tutte CALIBRATION, su quattro
+incontri indipendenti; nessun FUTURE_TEST o campione prudenziale completato.
+Non sono 58 incontri o prova di superiorità/profitto. Wallet 1.000 euro ciascuno,
+zero impegnati, 258 giocate legacy e modelli preservati; C Challenger.
+Tre fetch reali consumano 9 crediti: 304 usati/196 residui, limite 500/riserva 50.
+Duplicato fermato prima di npm/build e DB/provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider. Watchdog `41039066641` e `41039490287` SUCCESS. Frontend
+`fb0e30f8` Deployed LIVE, Site Running, deployment `6ae46ff81a67b8db20fa2f2e`;
+CI `41039799271` SUCCESS. Puntualità del 31 ottobre 03:07 e ciclo fino alla
+liquidazione restano da osservare. [Riscontri](operations/nightly-recovery-2026-10-30.md).
+
+Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
+Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
+verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
+restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
 Il database canonico è la copia personale del dump 15:17 UTC, adottata con
 approvazione del punto di ripristino e dei delta successivi non verificabili.
@@ -205,7 +222,8 @@ training, refit o promozioni e non inventa calibratori. Il nome `CALIBRATION`
 identifica qui i residui prudenziali, non un nuovo fit dei calibratori. La raccolta richiede
 comunque prezzi reali e rispetta il budget quote. Il percorso è verificato
 localmente; 020/021 sono ora applicate sul target personale. La nightly
-remota è abilitata. Il primo job SUCCESS ha registrato zero osservazioni
+remota è riattivata al 30 ottobre dopo il recupero. Il primo job SUCCESS
+del 29 ottobre ha registrato zero osservazioni
 prospettiche e zero BET: nessun evento eleggibile nella finestra restante,
 senza puntate retroattive o evidenze inventate.
 
@@ -239,9 +257,19 @@ promozione statistica. I record vecchi conservano il protocollo delle quote.
 Il job GitHub esistente continua import, controlli e liquidazioni. Dopo i gate
 dati e la preparazione delle feature/calibrazione richiama lo script finito
 `backend/scripts/research-nightly.js`, senza route legacy di piazzamento.
-L'orario di riferimento è 03:00 Europe/Rome. La finestra predefinita parte dal
+Il programma pubblicato usa 03:07 Europe/Rome, con recuperi 04:17 e 05:27
+e timezone nativa. La finestra predefinita parte dal
 timestamp effettivo del job e finisce alla prossima esecuzione prevista;
 `RESEARCH_NIGHTLY_WINDOW_HOURS` può fissare una durata tra 1 e 48 ore.
+
+Prima di npm/build, il guard legge soltanto GitHub API. Il passo `Run nightly
+sync` e il marker `Confirm enabled A/C completion` devono riuscire nello stesso
+job e nella giornata Roma: solo allora un secondo ciclo con scritture/provider
+viene impedito. Una manutenzione con A/C disabilitate o uno stato verde/cancellato
+senza questi passi non consuma la giornata. Timestamp incoerenti o API incerte
+bloccano il gate. I recuperi dopo failure non promettono un solo tentativo o
+un orario preciso. Produzione, monitor e dashboard ricevono minuto 7; il default
+locale resta 0.
 
 `research_nightly_runs` e i job persistenti conservano finestra e policy per
 retry; la migrazione additiva `020_research_nightly.sql` prepara questo stato.
@@ -265,11 +293,12 @@ Il monitoraggio riguarda ultima nightly, esito, partite analizzate/saltate,
 registrazioni, crediti, liquidazioni ed errori contabili. Distingue flag
 dichiarato nel web da `enabled` realmente osservato nel job. Il watchdog GitHub
 può controllare esecuzioni e ritardi senza dipendere dal processo monitorato;
-il monitor GitHub, il controllo DB periodico RO e le attese delle 03:00 sono
-attivi. L'opt-in delle attese è separato dal flag delle puntate; contabilità,
+il monitor GitHub e il controllo DB RO rimangono distinti dal flag BET.
+L’allineamento runtime al nuovo orario 03:07 è caricato; resta da osservare
+il trigger programmato del 31 ottobre. L'opt-in delle attese è separato dal flag delle puntate; contabilità,
 quota, errori e stalli recenti oltre quattro ore sono controllati anche
-indipendentemente dall'aspettativa programmata. Audit finanziario RO 20:07 UTC
-PASS; il watchdog con attese attive `40946558140` è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi. Il monitor `4dff28f4` è pubblicato.
+indipendentemente dall'aspettativa programmata. Audit finanziario RO del 29 ottobre 20:07 UTC
+PASS; il watchdog con attese attive `40946558140` è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi. Il monitor `4dff28f4` è il riscontro storico del 29 ottobre.
 Nessun falso allarme per il vecchio worker intenzionalmente dismesso.
 La generazione del riepilogo richiede nightly abilitata e reconcile: viene
 preparata la riga con `publishAfter` alle 09:00 Europe/Rome. Il GET filtra
@@ -379,11 +408,11 @@ presenta il confronto target come recupero di questi delta. L'originale non
 proprietario per la dismissione autorizzata. Vedi la
 [guida di migrazione](operations/turso-personal-migration-2026-10-29.md).
 
-Hostless ha ripreso il backend e distribuito `63d7cb96`, con 0,1 vCPU/256 MiB
+Hostless ha distribuito il backend `01320941`, con 0,1 vCPU/256 MiB
 invariati. Warmup `40937894463`, probe C `40936914212` e verifica contabile RO
 `40945351072` sono riusciti. Il probe reale ha eseguito 100 inferenze solo in
 RAM, zero scritture/provider (p95 circa 0,532 ms, RSS 156,98 MiB); non è una
-prova di puntualità della nightly o di throttling risolto. Il primo run
+prova di puntualità della nightly o di throttling risolto. Il primo run storico del 29 ottobre
 manuale `40944747548`, creato alle 19:57:46 UTC, è SUCCESS; job finito
 alle 20:04:35 UTC. Il ciclo completo su evento reale resta pendente. L'
 [audit Turso/CPU](operations/turso-cpu-audit-2026-10-29.md) conserva le misure
@@ -411,8 +440,8 @@ sovrascrivere un database con un backup vecchio. Il rollback deve coordinare
 Hostless, nightly, calibrazione, training e monitoraggio sul nuovo canonico;
 non riapre collegamenti all’originale bloccato né ricostruisce delta ignoti.
 
-Resta da verificare sul runtime realmente pubblicato il ciclo partita reale →
-dati → probabilità A/C → quote notturne → eventuale puntata → risultato →
-liquidazione → dashboard. Un'astensione corretta è un esito valido. Nessun
+Il 30 ottobre sono verificati dati, probabilità A/C, quote reali e astensioni
+congelate su quattro partite. Restano futuri risultato ufficiale e liquidazione,
+oltre all’osservazione del trigger programmato: il ciclo completo non è concluso. Un'astensione corretta è un esito valido. Nessun
 test sintetico dimostra redditività, superiorità C, consegna notifiche,
 sostenibilità mensile o copertura bookmaker continua.

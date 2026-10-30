@@ -14,11 +14,20 @@ quando esplicitamente abilitata, esegue una sola elaborazione notturna sulle
 partite future. Ogni modello sceglie al massimo una puntata virtuale per partita
 oppure nessuna, usando lo stesso snapshot reale di dati e quote.
 
-Il riferimento è 03:00 Europe/Rome, con ora legale. La finestra parte dall'avvio
+Il programma pubblicato usa 03:07 Europe/Rome con timezone nativa e recuperi
+alle 04:17 e 05:27. Il rollout è distinto dalla verifica dei trigger reali. La finestra parte dall'avvio
 effettivo del job e termina alla successiva nightly prevista, oppure usa una
 durata configurata. Non sono ammesse registrazioni dopo il calcio d'inizio o
 ricostruzioni retroattive di una notte saltata. Il training settimanale resta
 separato; non occorre un worker Hostless sempre acceso o un timer sul telefono.
+
+Il nuovo guard usa soltanto letture GitHub API prima di npm/build. Il passo
+`Run nightly sync` e il marker `Confirm enabled A/C completion` realmente
+riusciti nello stesso job e nella giornata Roma impediscono un secondo
+ciclo con scritture/provider; uno stato verde o cancellato da solo non basta.
+Senza quel passo riuscito la giornata non è consumata. API o metadati incerti bloccano il gate.
+Recuperi dopo un errore possono ripetere lavoro, restando entro cache, lease e
+budget atomico. Non è garantito un avvio preciso alle 03:07.
 
 Esistono due portafogli indipendenti, A e C, con capitale iniziale di 1.000 euro,
 stake 1% ed esposizione massima 5%. Gli identificatori persistenti `shadow_A` e
@@ -54,13 +63,44 @@ descrive il nuovo percorso. Riferimenti complementari:
 - [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
 - [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
 
-**Stato del 29 ottobre 2026: cutover effettivo e nightly attiva.** Il backend
+**Verificato il 30 ottobre 2026: backend e A/C reali operativi sul cloud.**
+Backend `01320941` LIVE; health200, legacy410 e sessione autenticata verificati.
+Quota riconciliata alle 10:01:04 UTC, registrazione riattivata alle 10:04 UTC.
+Il run `41038096151` (`8bf17826`) è SUCCESS alle 10:12:43 UTC: quattro partite
+reali, otto decisioni e inferenze A/C, quattro snapshot quote condivisi,
+freschezza massima 205,314 secondi. Probabilità valide e diverse fra i modelli;
+entrambe le strategie si sono astenute per valore sotto soglia o evidenza
+prudenziale insufficiente. Zero BET ed errori, portafogli 1.000 euro ciascuno,
+zero impegnati e 258 giocate legacy preservate. C resta Challenger.
+
+Sono congelate 58 osservazioni (29 A/29 C) su quattro incontri, tutte CALIBRATION,
+nessuna FUTURE_TEST: non sono 58 campioni indipendenti né prova di redditività.
+Tre acquisizioni reali hanno consumato 9 crediti inclusi: 304 usati, 196 residui,
+limite 500 e riserva 50 invariati. Nessun nuovo piano, account o chiave.
+
+Il duplicato `41039455356` è SUCCESS con lavoro saltato prima di npm/build,
+backend, DB e provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider.
+Watchdog `41039066641` e `41039490287` SUCCESS. Frontend `fb0e30f8`
+Deployed LIVE su Hostless, Site Running, deployment `6ae46ff81a67b8db20fa2f2e`;
+CI `41039799271` SUCCESS.
+Restano da osservare il trigger del 31 ottobre 03:07 e risultati/liquidazioni;
+il recupero manuale non dimostra puntualità automatica o ciclo sportivo completo.
+Dettagli: [recupero del 30 ottobre](docs/operations/nightly-recovery-2026-10-30.md).
+
+Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
+Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
+verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
+restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
+
+**Snapshot verificato del 29 ottobre 2026: cutover e prima nightly.** Il backend
 `63d7cb96`, deployment `6ae39db2025871fe6d073d62`, è LIVE sul Turso personale.
 Health HTTP 200, route automatica legacy POST HTTP 410, login/sessione e dashboard a 30 giorni
 sono verificati dal browser: A e C hanno 1.000 euro ciascuno, zero puntate e
-zero impegnato. Il Site frontend resta sulla release `afda73be` della PR #1.
+zero impegnato. In quello snapshot il Site frontend era sulla release `afda73be` della PR #1.
 
-Il flag nightly è `true` e il workflow è attivo. Il run manuale `40944747548`,
+In quello snapshot il flag nightly era `true` e il workflow attivo. Il run manuale `40944747548`,
 creato alle 19:57:46 UTC, è **SUCCESS**, job concluso alle 20:04:35 UTC:
 zero analizzati, puntate, skip ed errori nel riepilogo A/C. Il contatore
 `missedMatches=2` indica due partite già iniziate, come confermato dall’audit
@@ -79,7 +119,7 @@ con la sorgente oltre il punto di ripristino accettato.
 
 Warmup e probe C sull'artefatto reale sono riusciti. Audit RO delle 20:07 UTC
 PASS: quattro fingerprint finanziari invariati, portafogli 1.000 euro ciascuno,
-zero impegnati e zero giocate A/C. Il monitor `4dff28f4` è pubblicato, DB
+zero impegnati e zero giocate A/C. Nel riscontro del 29 ottobre il monitor `4dff28f4` era pubblicato, DB
 periodico e attese della nightly delle 03:00 entrambi abilitati. Il watchdog
 con attese attive `40946558140` è SUCCESS: tutti i passi GitHub e DB RO completati in 26 secondi. Contabilità, quota, errori e stalli recenti
 oltre quattro ore sono controllati senza dipendere dal flag delle puntate.
@@ -1135,8 +1175,9 @@ Le formazioni e i giocatori sono in pausa per default; i dati storici restano
 salvati. Non abilitare collector duplicati rispetto alla nightly. Per la nuova
 elaborazione seguire la [guida nightly](docs/operations/nightly-pre-match-2026-10-29.md)
 e la [guida Hostless](docs/operations/hostless-deployment.md). L’esempio sopra
-mantiene la nightly disabilitata per default; in produzione è ora abilitata
-dopo il cutover autorizzato, come indicato nello stato iniziale del documento.
+mantiene la nightly disabilitata per default. Dopo l’attivazione autorizzata
+del 29 ottobre e la sospensione di sicurezza del 30, la registrazione è stata
+riattivata alle 10:04 UTC dopo il recupero verificato; vedi lo stato iniziale.
 
 ### Docker
 

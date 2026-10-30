@@ -1,20 +1,32 @@
 # System design di FootPredictor
 
-Aggiornato al mandato del 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
+Aggiornato al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
 La [guida canonica](operations/nightly-pre-match-2026-10-29.md) definisce
-configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono pubblicate. Il backend `63d7cb96`
+configurazione, gate e attivazione. La nuova nightly A/C e la dashboard sono pubblicate. Il backend `01320941`
 è LIVE sul Turso personale dopo Resume e deploy del nuovo ambiente; health,
 route legacy HTTP 410, login, sessione e dashboard A/C sono verificati. Il cutover è
 effettivo, sulla baseline del dump 15:17 UTC adottata con autorizzazione e
 accettazione dei delta sorgente successivi non verificabili.
 
-La nightly è attiva (`RESEARCH_NIGHTLY_ENABLED=true`); primo run manuale
-`40944747548` SUCCESS, job concluso alle 20:04:35 UTC senza nuove puntate.
-L’audit RO 20:10:52 UTC conferma `missedMatches=2`: due partite già iniziate
-e correttamente escluse, senza job o decisioni di modello retroattive.
-Non è attestato un ciclo reale
-con decisione, risultato e liquidazione. I due portafogli mantengono
-1.000 euro ciascuno, senza puntate o capitale impegnato osservati.
+Il 30 ottobre il backend `013209419ef25b949525485a92fb0448ed5d6b8b` è LIVE,
+deployment `6ae468ad1a67b8db20f91272`, con minuto 7 e chiave write-only caricati.
+Quota riconciliata alle 10:01:04 UTC; registrazione A/C attiva dalle 10:04 UTC.
+Run `41038096151` SUCCESS: quattro partite reali, otto decisioni/inferenze e
+quattro snapshot condivisi; tutte astensioni, zero BET/errori/API errori.
+Sono congelate 58 osservazioni CALIBRATION su quattro incontri; nessun nuovo
+FUTURE_TEST o campione prudenziale completato. A riferimento, C Challenger,
+portafogli 1.000 euro ciascuno senza impegnato; 258 giocate legacy preservate.
+Il duplicato ha saltato il ciclo prima di npm/build e DB/provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider. Watchdog `41039066641` e `41039490287` SUCCESS. Frontend
+`fb0e30f8` Deployed LIVE, Site Running, deployment `6ae46ff81a67b8db20fa2f2e`,
+CI `41039799271` SUCCESS. Restano da osservare il trigger programmato
+31 ottobre 03:07 e risultati/liquidazioni reali. Vedi il [recupero](operations/nightly-recovery-2026-10-30.md).
+
+Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
+Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
+verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
+restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
 Hostless, GitHub Actions e Turso restano i componenti. Non occorre il worker
 T−15 sempre acceso. I precedenti
@@ -200,7 +212,7 @@ non autorizza una decisione con prezzi scaduti. Budget insufficiente o assenza
 di quota reale provocano astensione, senza abbassare la freschezza.
 
 La proiezione `forecastRemainingNightlyOddsDemand` raggruppa lega/finestra
-03:00 Roma, gestisce DST e mese contabile UTC ed esclude leghe senza incontri
+configurata in Europe/Rome (produzione 03:07), gestisce DST e mese contabile UTC ed esclude leghe senza incontri
 previsti. È una stima, distinta dai crediti osservati dal provider. Il caso
 teorico di cinque leghe per 31 notti costa 465 crediti; con 16 richieste retry
 sale a 513 e richiede esclusioni entro il limite 500. Le precedenti stime
@@ -391,7 +403,7 @@ con `410`; `AUTO_BET_*` non abilita la nuova nightly. Il job finito usa i serviz
 esistenti direttamente sul runner GitHub, dopo sincronizzazione e gate dati.
 
 La finestra parte dall'avvio effettivo e arriva alla successiva nightly delle
-03:00 Europe/Rome, oppure usa una durata configurata. Orario legale, ritardi,
+03:07 Europe/Rome nel nuovo assetto, oppure usa una durata configurata. Orario legale, ritardi,
 rinvii e cambi di kickoff non autorizzano una puntata retroattiva. Il kickoff
 viene ricontrollato nel commit, senza nuova registrazione dopo l'inizio.
 
@@ -406,7 +418,8 @@ obbligatori dati e probabilità coerenti, prezzo reale identificato, timestamp,
 liquidazione, capitale e controlli tecnici. Validazione statistica e promozione
 restano separate; C non diventa Champion perché guadagna nel periodo.
 `RESEARCH_NIGHTLY_ENABLED=false` resta il default sicuro del codice;
-l’ambiente remoto è ora abilitato e il primo run è SUCCESS senza nuove puntate. Nessun percorso di questo confronto invia puntate ai bookmaker.
+il 30 ottobre le nuove registrazioni sono state riattivate dopo il recupero
+controllato verificato. Il run riuscito del 29 ottobre resta un riscontro datato. Nessun percorso di questo confronto invia puntate ai bookmaker.
 
 ## 10. Replay, archivio e backtest
 
@@ -426,10 +439,18 @@ Le learning review confrontano probabilità, consiglio ed esito. I moduli di app
 
 ## 11. Aggiornamenti programmati
 
-GitHub Actions rimane l'orchestratore. Il workflow usa `0 1 * * *` e
-`0 2 * * *` UTC con gate sul trigger originale, per eseguire quello corretto
-alle 03:00 Europe/Rome in estate/inverno. Concurrency e lease DB evitano
-duplicazioni; GitHub può comunque ritardare o saltare un job.
+GitHub Actions rimane l'orchestratore su runner standard Linux del repository
+pubblico. Il nuovo workflow usa timezone nativa `Europe/Rome`: principale
+`7 3 * * *` e recuperi `17 4 * * *`, `27 5 * * *` (03:07/04:17/05:27 locali).
+Il guard legge soltanto GitHub API prima di npm/build: solo il successo reale
+del passo `Run nightly sync` e del marker `Confirm enabled A/C completion`
+nello stesso job e nella giornata Roma consuma la giornata. Uno
+stato verde/cancellato da solo non basta, senza quel passo riuscito. Dopo un vero
+successo, un secondo trigger non esegue il ciclo con DB/provider; dati API
+incerti bloccano il gate. Concorrenza seriale e lease DB restano attivi.
+Recuperi dopo failure possono ripetere lavoro: non è una promessa di un'unica
+richiesta dopo errori, né un SLA al minuto. `RESEARCH_NIGHTLY_MINUTE=7` viene
+allineato in produzione, monitor e dashboard; il default locale resta 0.
 
 Il flusso mantiene import Understat, supplemento HTTP/CSV consentito,
 normalizzazione, calendari, risultati, liquidazioni legacy e A/C e preparazione
@@ -449,13 +470,14 @@ non è ancora confermato. Nessun servizio è stato eliminato.
 
 La dashboard espone ultima nightly, esito, conteggi, errori, crediti e
 liquidazioni osservati. Monitor GitHub, controllo DB periodico RO e attese
-delle 03:00 sono attivi; l'opt-in delle attese è separato dal flag delle puntate.
+del nuovo orario 03:07 sono attivi; l'opt-in delle attese è separato dal flag delle puntate.
 Contabilità, quota, errori e stalli recenti oltre quattro ore vengono controllati
 anche indipendentemente dall'aspettativa programmata. Audit finanziario RO
-20:07 UTC PASS, senza variazioni ai quattro fingerprint finanziari.
-Il monitor `4dff28f4` è pubblicato; il watchdog con attese attive `40946558140`
-è SUCCESS: tutti i passi GitHub e DB RO completati in 26 secondi.
-La nightly è abilitata; quando esegue il reconcile, prepara il
+del 29 ottobre alle 20:07 UTC PASS, senza variazioni ai quattro fingerprint finanziari.
+Nello snapshot del 29 ottobre il monitor `4dff28f4` era pubblicato; il watchdog
+con attese attive `40946558140` è SUCCESS: tutti i passi GitHub e DB RO completati in 26 secondi.
+La registrazione A/C è riattivata; quando la nightly abilitata
+esegue il reconcile, prepara il
 riepilogo del giorno precedente con `publishAfter` alle 09:00 Europe/Rome.
 Il GET ne filtra la visibilità senza scrivere o inviare all’esterno. Non ci
 sono notifiche per ogni puntata. L’esito SUCCESS del job non viene usato
@@ -466,7 +488,8 @@ job giornaliero. `Prepare prediction calibration` calcola i profili sul runner
 e li salva nel DB, senza chiamare provider quote o registrare puntate. Il suo
 trigger su `main` scrive sul personale. I workflow sono stati riattivati
 in modo selettivo:
-nightly e training attivi, Registry writes disabilitate. La pubblicazione
+training e nuove registrazioni nightly attivi,
+Registry writes disabilitate. La pubblicazione
 tramite PR e il cutover sono avvenuti; CI e build non attestano un ciclo
 automatico reale concluso.
 

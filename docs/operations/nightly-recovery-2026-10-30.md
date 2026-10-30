@@ -1,5 +1,19 @@
 # Recupero Nightly e configurazione quote — 30 ottobre 2026
 
+## Stato verificato
+
+Backend aggiornato su Hostless e credenziale quote riallineata con GitHub.
+Il [recupero reale A/C](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41038096151)
+è riuscito: quattro incontri, otto decisioni, quote reali fresche, zero errori
+e zero puntate approvate dai filtri invariati. L'audit sul database e il secondo
+avvio controllato confermano assenza di doppie elaborazioni e dati finanziari
+preservati. Restano 196 crediti inclusi; nessun nuovo servizio o piano a pagamento.
+
+Lo stato è consultabile in [Confronto A/C](https://scommese-sportive-frontend.hostless.site/research),
+schede Portafogli e Sistema. Il primo trigger automatico del nuovo programma,
+31 ottobre alle 03:07 Roma, e il ciclo con risultati ufficiali restano da osservare.
+Il recupero manuale non certifica la puntualità futura o la redditività dei modelli.
+
 ## Incidente osservato
 
 Il run GitHub `41024605166`, cron invernale previsto alle 03:00 Roma,
@@ -148,9 +162,17 @@ installazione, build, sincronizzazione e conferma A/C risultano SKIPPED.
 Non ha avviato processi applicativi o richieste quote. Il watchdog indipendente
 `41039066641` è SUCCESS dopo il recupero reale.
 
+L'audit RO successivo al duplicato, alle 10:22 UTC, conferma l'assenza del
+run duplicato nel database: nessuna nuova richiesta, risultato o evento del
+provider; stessi quattro input, otto decisioni e 58 osservazioni. Quota
+304/196 e tutti e sette gli hash finanziari invariati. Anche il watchdog
+successivo al duplicato, `41039490287`, è SUCCESS.
+
 La descrizione statica delle 03:00 nel frontend è corretta usando l'orario
-del DTO: il messaggio mostra le 03:07 e gestisce il cambio d'ora. Il rilascio
-del sito va verificato separatamente da questo controllo locale dell'interfaccia.
+del DTO: il messaggio mostra le 03:07 e gestisce il cambio d'ora. La verifica
+nell'app pubblicata conferma il testo aggiornato, la sessione autenticata,
+nightly Riuscita alle 11:12 Roma, prossimo avvio 31 ottobre 03:07,
+database raggiungibile e quota osservata 304/196.
 
 ## Verifica locale del rilascio
 
@@ -159,3 +181,19 @@ Node 20, senza rete, con 2 CPU e 1 GiB. Su Windows Node 24 tutte le asserzioni
 passano, ma il driver nativo termina il file con `0xC0000005`: quel controllo
 non è dichiarato verde. Gli otto test del probe usano fetch simulato e passano
 senza richieste al provider. Questi test non dimostrano un ciclo sportivo reale.
+
+Il frontend ha superato 17 test mirati, typecheck, lint, build e review
+indipendente. La CI della revisione `fb0e30f8`, run `41039799271`, è SUCCESS.
+Il rilascio sul sito statico esistente è stato richiesto una sola volta,
+deployment `6ae46ff81a67b8db20fa2f2e`: Deployed LIVE, sito Running, durata
+12 minuti. Non sono state modificate risorse o piano. Il backend resta sulla
+revisione `01320941`, la Nightly verificata sulla `8bf17826`.
+
+## Allerta Hostless storica
+
+Nel pannello resta un incidente «Service is unstable» marcato Active.
+L'ultima osservazione mostrata è del 29 ottobre alle 20:30 Roma, con log
+`BLOCKED` sulle letture SQL e arresto registrato alle 19:23:25 UTC, prima
+del rilascio corrente. Non è prova di un nuovo arresto del backend aggiornato.
+L'incidente non è stato chiuso manualmente per nasconderlo; lo stato storico
+del pannello resta distinto dalle verifiche correnti di runtime e dashboard.

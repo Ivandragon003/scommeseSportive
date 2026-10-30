@@ -5,8 +5,34 @@ prospettico consiste in due portafogli virtuali A/C, elaborati dalla nightly
 GitHub Actions. Non richiede un worker sempre acceso o una modalità Shadow
 parallela. Non effettua scommesse con denaro reale.
 
-**Stato: cutover al Turso personale completato; backend e dashboard verificati,
-Nightly A/C abilitata e run manuale `40944747548` SUCCESS alle 20:04:35 UTC.**
+**Verificato il 30 ottobre 2026: backend e A/C reali operativi sul cloud.**
+Backend `013209419ef25b949525485a92fb0448ed5d6b8b` LIVE, deployment
+`6ae468ad1a67b8db20f91272`; health200, legacy410 e sessione autenticata verificati.
+Quota riconciliata alle 10:01:04 UTC, registrazione attiva dalle 10:04 UTC.
+Run `41038096151` (`8bf17826`) SUCCESS 10:12:43 UTC: quattro incontri reali,
+otto decisioni e inferenze, quattro snapshot condivisi con quote fresche;
+zero puntate/errori/API errori, astensioni corrette. C resta Challenger.
+58 osservazioni CALIBRATION congelate su quattro incontri, nessun FUTURE_TEST
+né campione prudenziale completato: non è prova di redditività o superiorità.
+Tre fetch consumano 9 crediti inclusi (304 usati/196 residui), senza cambiare
+limite 500 e riserva 50. Wallet 1.000 euro ciascuno, zero impegnati, 258 legacy invariati.
+
+Duplicato `41039455356` fermato prima di npm/build e DB/provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider. Watchdog `41039066641` e `41039490287` SUCCESS. Frontend
+`fb0e30f8` Deployed LIVE, Site Running, deployment `6ae46ff81a67b8db20fa2f2e`;
+CI `41039799271` SUCCESS.
+Restano da osservare puntualità del 31 ottobre 03:07 e ciclo risultato/liquidazione.
+Il recupero manuale non è il ciclo sportivo completo. La
+[nota del 30 ottobre](nightly-recovery-2026-10-30.md) conserva la procedura e le prove.
+
+Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
+Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
+verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
+restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
+
+Il run `40944747548` SUCCESS alle 20:04:35 UTC appartiene al 29 ottobre:
+è una prova storica, non l'esito del nuovo recupero.
 La baseline canonica autorizzata è il dump delle 16:17 Roma; gli aggiornamenti
 successivi della sorgente bloccata non sono attestati. Questo documento sostituisce le precedenti istruzioni di attivazione
 T−15; i report scientifici e gli snapshot operativi datati restano storici.
@@ -26,10 +52,10 @@ calibrazione, manutenzione e liquidazioni. Il [runner](../../scripts/ci/nightly-
 esegue il comando finito `node scripts/research-nightly.js` soltanto dopo
 i controlli dati; non chiama la vecchia registrazione HTTP.
 
-- Programmazione: `0 1 * * *` e `0 2 * * *` UTC, con gate del trigger attivo
-  per le 03:00 Europe/Rome e gestione dell'ora legale. GitHub può ritardare il job.
+- Programmazione pubblicata: 03:07 principale, 04:17 e 05:27 recuperi, con
+  `timezone: Europe/Rome` nativa. GitHub può ritardare o perdere un trigger.
 - Finestra ordinaria: dall'effettivo avvio delle decisioni alla successiva
-  soglia delle 03:00 Roma. Durata personalizzabile fra una e 48 ore.
+  soglia delle 03:07 Roma nel nuovo assetto. Durata personalizzabile fra una e 48 ore.
 - Il retry conserva identità, inizio, fine e policy del run originale; la CLI
   usa `GITHUB_RUN_ID` quando disponibile. Non sposta la finestra dopo un errore.
 - Kickoff iniziati, rinvii, risultati già disponibili e dati temporalmente
@@ -63,15 +89,15 @@ complessivi. Restituivano 25 bookmaker, fra cui Codere (IT), Pinnacle, Betfair,
 Unibet e Winamax; Eurobet non compariva. Erano osservazioni pre-match di collaudo,
 non esecuzioni nightly o T−15. Alcune schede La Liga/Bundesliga superavano già
 cinque minuti all'acquisizione: devono essere escluse. Il timestamp HTTP non
-garantisce la freschezza di ogni singola quota. Nessuna nuova chiamata al
-provider è stata necessaria durante questo mandato.
+garantisce la freschezza di ogni singola quota. Queste sono prove del 29 ottobre. Il 30 ottobre il probe gratuito ha verificato
+soltanto la quota crediti, senza nuovi prezzi partita.
 
-### Configurazione prima dell'attivazione
+### Configurazione e rollout
 
 | Variabile | Default preparato | Significato |
 | --- | --- | --- |
 | `RESEARCH_NIGHTLY_ENABLED` | `false` | Opt-in esplicito del nuovo percorso |
-| `RESEARCH_NIGHTLY_HOUR` / `MINUTE` | `3` / `0` | Soglia locale Europe/Rome |
+| `RESEARCH_NIGHTLY_HOUR` / `MINUTE` | Default 3/0; produzione 3/7 | Soglia Europe/Rome allineata con monitor e dashboard |
 | `RESEARCH_NIGHTLY_WINDOW_HOURS` | vuoto | Successiva soglia; opzionale 1–48 ore |
 | `RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS` | `300` | Età massima alla decisione |
 | `RESEARCH_NIGHTLY_MIN_EV` | `0.04` | EV centrale minimo configurabile |
@@ -79,26 +105,32 @@ provider è stata necessaria durante questo mandato.
 | `RESEARCH_NIGHTLY_TIMEOUT_SECONDS` | `1200` | Limite del passo shell |
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false` | Percorso operativo ritirato |
 
-Il workflow legge la variabile repository `RESEARCH_NIGHTLY_ENABLED`, con
-fallback `false`. Sul repository il flag è ora `true`; il primo run controllato
-è `40944747548`, creato alle 19:57:46 UTC sulla revisione `4dff28f4`,
-SUCCESS con job concluso alle 20:04:35 UTC. Dopo audit RO PASS sono attive
-anche le attese programmate delle 03:00, con opt-in separato dal flag delle
-puntate. `RESEARCH_NIGHTLY_MONITOR_ENABLED=true` e
-`RESEARCH_NIGHTLY_DB_MONITOR_ENABLED=true` sono confermati. Contabilità, quota,
-errori e stalli recenti oltre quattro ore sono controllati indipendentemente
-dall'aspettativa programmata. Il watchdog con attese attive `40946558140`
-è SUCCESS nei controlli GitHub e DB RO.
+Il workflow legge `RESEARCH_NIGHTLY_ENABLED`, default `false`; il flag GitHub
+è `true` dalle 10:04 UTC del 30 ottobre dopo il recupero controllato. Il nuovo guard usa
+soltanto metadati GitHub prima di npm/build e richiede il successo effettivo
+del passo `Run nightly sync` e del marker `Confirm enabled A/C completion`
+nello stesso job e nella giornata Roma: stati verdi o cancellati
+senza quel passo riuscito non consumano la giornata. Dopo un vero successo non riparte
+il ciclo con scritture/provider; API incerte bloccano il gate. Concorrenza
+seriale e vincoli DB restano attivi, senza garanzia di puntualità al minuto.
+
 Il flag del backend dichiara lo stato atteso per la dashboard: il processo web
 non avvia la nightly, neppure quando la configurazione viene dichiarata attiva.
 La vecchia `/api/automation/place-valid-bets` resta `410`. `/api/bets/place`
 appartiene alle operazioni manuali legacy e non viene usata dalla nuova A/C.
 
+Il monitor aggiornato segue 03:07 e ammette soltanto il riconoscimento
+esplicito dell'orfano `40940944902` tramite
+`RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS`, se queued, zero job e di una
+giornata precedente. L'orfano non è cancellato; ogni sua riattivazione torna
+fatale, anche oltre 36 ore o dopo completamento. Il rollout aggiornato e la
+riconciliazione della quota non sono attestati dai run storici qui sotto.
+
 ## B. Worker e monitoraggio
 
-Backend Hostless attuale: `63d7cb96` LIVE, deployment
-`6ae39db2025871fe6d073d62`, collegato al Turso personale. Frontend `afda73be`
-LIVE, deployment `6ae388d4880feac1b600f02b`. Le impostazioni verificate sono: repository
+Backend Hostless attuale: `013209419ef25b949525485a92fb0448ed5d6b8b` LIVE, deployment
+`6ae468ad1a67b8db20f91272`, collegato al Turso personale. Frontend `fb0e30f8`
+Deployed LIVE, Site Running, deployment `6ae46ff81a67b8db20fa2f2e`. Le impostazioni verificate sono: repository
 `Ivandragon003/scommeseSportive`, branch `main`, Docker con directory e contesto
 `/backend`, auto-deploy disattivato. Health HTTP 200, sessione autenticata,
 portafogli A/C e confronto a 30 giorni verificati nella produzione aggiornata;
@@ -137,11 +169,11 @@ reale e `publishAfter` alle 09:00 Roma, visibile da quell'ora anche attraverso
 i GET. Il manuale serale ha creato `daily:2026-10-28` alle 20:04:28.689 UTC,
 con `publishAfter` già trascorso (29 ottobre, 09:00 Roma): è visibile nell'app.
 Non è una consegna email o push. Un flag spento non produce un nuovo
-riepilogo. Il monitor `4dff28f4` è pubblicato: CI `40944506327` SUCCESS,
+riepilogo. Il monitor `4dff28f4` era pubblicato nel 29 ottobre: CI `40944506327` SUCCESS,
 dieci test mirati e revisione DST superati. Il nuovo smoke GitHub e DB RO
 `40945351072` è riuscito. Dopo l'audit finanziario RO PASS sono stati abilitati
-anche gli allarmi delle 03:00: monitor GitHub, controllo DB periodico e attese
-programmate sono ora attivi. Il watchdog `40946558140` con `expect_enabled=true`
+anche gli allarmi delle 03:00 nello snapshot del 29 ottobre: monitor GitHub, controllo DB periodico e attese
+programmate erano attivi in quello snapshot. Il watchdog `40946558140` con `expect_enabled=true`
 è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi, job
 `123703354298`. Rilevazione degli stalli recenti oltre quattro ore, contabilità,
 quota ed errori restano indipendenti dall'aspettativa programmata. La consegna
@@ -334,7 +366,7 @@ statistica.
   Non è una prova di qualità predittiva, di inferenza Python su Hostless o di
   un ciclo completo con partita reale.
 
-## G. Pubblicazione e verifiche remote
+## G. Pubblicazione e verifiche remote — snapshot del 29 ottobre
 
 [PR #1](https://github.com/Ivandragon003/scommeseSportive/pull/1) unita in
 `afda73be`. Revisione backend distribuita `63d7cb96`: include il fix I/O `2834ed0c` e il
@@ -395,10 +427,12 @@ puntata legacy mantengono i fingerprint finanziari invariati.
 Il run persistito è `COMPLETED`. La dashboard autenticata mostra Nightly
 riuscita alle 21:04 Roma e prossima esecuzione il 30 ottobre alle 03:00 Roma.
 
-Nightly Sync è riabilitata, variabile `RESEARCH_NIGHTLY_ENABLED=true`.
+Nello snapshot del 29 ottobre Nightly Sync era riabilitata,
+`RESEARCH_NIGHTLY_ENABLED=true`; il 30 ottobre è stata riattivata alle 10:04 UTC
+dopo il recupero controllato, descritto all’inizio del documento.
 Training settimanale e diagnostica quote manuale riabilitati; pubblicazione
 nel registro modelli ancora disabilitata. Monitor GitHub, controllo DB
-periodico RO e attese delle 03:00 sono attivi. Il watchdog `40946558140`
+periodico RO e attese delle 03:00 erano attivi nello snapshot del 29 ottobre. Il watchdog `40946558140`
 è SUCCESS con aspettativa abilitata: tutti i passi GitHub e DB RO completati.
 Nessun servizio a pagamento, carta o aumento CPU/RAM è stato attivato.
 La fatturazione completa Hostless non è accessibile al ruolo Editor.
@@ -409,3 +443,51 @@ con quote, decisione, risultato ufficiale, liquidazione e aggiornamento
 portafogli resta da osservare. Nessuna puntata
 è forzata per superare il collaudo. Nessuna consegna esterna email/push e nessun
 test su dispositivo Android sono attestati.
+
+## H. Recupero verificato del 30 ottobre
+
+Alle10:01:04 UTC la riconciliazione atomica COMMITTED ha riallineato il budget
+da 500/0 a 295/205 usati/residui, con un solo append `QUOTA_RECONCILED`.
+Durante questa correzione gli hash di richieste, risultati, cache, eventi
+preesistenti e sette insiemi finanziari restano invariati. Anchor 15 e reset 1
+sono conservati; non è un reset mensile o un cambio account per aggirare limiti.
+
+[Run reale 41038096151](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41038096151)
+SUCCESS 10:12:43 UTC su `8bf17826`. Runner avviato quattro secondi dopo il
+dispatch: misura manuale, non puntualità del cron. Sync e marker A/C entrambi
+SUCCESS 10:12:38 UTC. Fase modelli 10:11:38.809→10:12:25.923 UTC, finestra fino
+al 31 ottobre 02:07 UTC / 03:07 Roma. Audit RO 10:14 UTC PASS:
+
+- Quattro incontri reali, otto decisioni e otto inferenze A/C, quattro snapshot
+  condivisi; distribuzioni diverse, finite, normalizzate e coerenti.
+- Quote reali fresche anche al commit, età massima 205,314 secondi.
+- 58 osservazioni congelate (29 A/29 C), tutte CALIBRATION, zero FUTURE_TEST.
+  Sono quattro incontri indipendenti e zero campioni prudenziali completati.
+- Zero puntate/errori/API errori; astensioni per valore sotto soglia o evidenza
+  prudenziale insufficiente, senza abbassare i gate. C resta Challenger.
+- A/C 1.000 euro ciascuno, zero impegnati; 258 giocate legacy e hash finanziari
+  preservati. Nessuna nuova chiave, account, piano o risorsa a pagamento.
+
+Tre fetch da tre crediti hanno consumato nove crediti inclusi: 304 usati/196
+residui e anchor 24, con limite 500, riserva 50 e reset invariati.
+[Duplicato 41039455356](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41039455356)
+SUCCESS con installazione/build/Sync/marker SKIPPED prima di backend, DB e
+provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider.
+[Watchdog 41039066641](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41039066641)
+SUCCESS dopo il recupero. Il sistema esegue queste operazioni su GitHub,
+Hostless e Turso, senza PC o telefono accesi.
+
+Frontend `fb0e30f8` Deployed LIVE, Site Running, deployment
+`6ae46ff81a67b8db20fa2f2e`. Diciassette test mirati, build/typecheck/lint e
+review superati; CI `41039799271` SUCCESS. La release contiene il fix che
+ricava l'orario dal DTO, coerente con 03:07; piattaforma e app autenticata
+sono verificate, compreso il testo 03:07.
+Restano futuri il trigger programmato 31 ottobre 03:07, risultati ufficiali e
+liquidazioni: non è ancora il ciclo sportivo completo né prova di profitto.
+
+Audit RO post-duplicato delle 10:22:18 UTC PASS: nessun run DB `41039455356`,
+nessun nuovo job, richiesta, risultato o evento provider; stessi quattro input,
+otto decisioni, 58 osservazioni e zero puntate. Quota 304/196 e anchor 24,
+sette hash finanziari e 258 giocate legacy invariati; A/C 1.000 euro ciascuno,
+zero impegnati. Anche il secondo watchdog `41039490287` è SUCCESS.

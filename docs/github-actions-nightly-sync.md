@@ -1,26 +1,51 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
-Direzione aggiornata il 29 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
-La [guida canonica](operations/nightly-pre-match-2026-10-29.md) conserva il
-piano di attivazione e i risultati effettivi. Il backend `63d7cb96` è LIVE
-sul personale, con health, route legacy HTTP 410 e sessione verificati. Il cutover è
-effettivo; nightly attiva, flag `true` e workflow attivo. Primo run manuale
-`40944747548`, creato alle 19:57:46 UTC, è SUCCESS; job finito alle
-20:04:35 UTC. Il riepilogo registra zero nuove puntate; un
-ciclo reale con liquidazione non è ancora attestato. Il training
-settimanale e Odds Smoke manuale sono riattivati, Registry writes `false`.
-L'adozione del dump 15:17 UTC resta la baseline autorizzata, con delta
-successivi della sorgente bloccata non verificabili e accettati.
+Direzione aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
+Backend `01320941` LIVE, quota riconciliata alle 10:01:04 UTC e registrazione
+A/C attiva dalle 10:04 UTC. Run `41038096151` su `8bf17826` SUCCESS 10:12:43 UTC,
+con `Run nightly sync` e `Confirm enabled A/C completion` entrambi riusciti.
+Quattro partite reali, otto decisioni/inferenze e quattro snapshot condivisi,
+zero BET/errori/API errori; astensioni corrette, non un malfunzionamento.
+Il duplicato `41039455356` salta npm/build/Sync/marker, senza avviare backend,
+DB o provider; audit RO del duplicato PASS alle 10:22:18 UTC, senza nuovi run DB
+o record provider. Watchdog `41039066641`
+e `41039490287` SUCCESS. Restano da osservare trigger 31 ottobre 03:07 e risultati/liquidazioni.
+[Nota del 30 ottobre](operations/nightly-recovery-2026-10-30.md); i run del 29
+restano storici. Frontend `fb0e30f8` Deployed LIVE su Hostless, Site Running,
+deployment `6ae46ff81a67b8db20fa2f2e`; CI `41039799271` SUCCESS.
+
+Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
+Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
+verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
+restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
 ## Orchestrazione e orario
 
 Si estendono il [workflow esistente](../.github/workflows/nightly-sync.yml) e
 lo [script](../scripts/ci/nightly-sync.sh), senza un secondo scheduler cloud.
-Il workflow usa cron `0 1 * * *` UTC e `0 2 * * *` UTC; il gate sul trigger
-originale seleziona quello delle **03:00 Europe/Rome**, gestendo l'ora legale
-anche quando GitHub avvia il job in ritardo. Il run escluso dal gate non è
-una sync riuscita. `concurrency: nightly-sync` evita sovrapposizioni del
-workflow; lease e vincoli DB proteggono anche retry e chiamanti concorrenti.
+Il nuovo workflow usa timezone nativa `Europe/Rome`, con principale 03:07 e
+recuperi 04:17/05:27. La copia della programmazione è:
+
+```yaml
+schedule:
+  - cron: '7 3 * * *'
+    timezone: Europe/Rome
+  - cron: '17 4 * * *'
+    timezone: Europe/Rome
+  - cron: '27 5 * * *'
+    timezone: Europe/Rome
+```
+
+Il [guard](../backend/scripts/nightly-schedule-guard.js) legge soltanto GitHub
+API prima di installazione npm e build. Verifica la giornata Europe/Rome e
+l'esito effettivo del passo `Run nightly sync` seguito nello stesso job dal
+marker `Confirm enabled A/C completion`: uno stato verde/cancellato
+da solo non consuma la giornata senza quel passo riuscito. Un vero successo impedisce
+un secondo ciclo con scritture/provider; API incerte, metadati incompleti o
+identità incoerente bloccano il gate. La concorrenza `nightly-sync` rimane
+seriale, con lease e vincoli DB contro duplicati. Un recupero dopo failure
+può ripetere lavoro: non garantisce un'unica richiesta dopo un errore.
 
 GitHub non garantisce avvio esatto al minuto. La finestra delle decisioni
 parte dall'istante effettivo del job finito A/C e arriva alla successiva
@@ -74,8 +99,8 @@ ammesse BET iniziali.
 | --- | --- |
 | `NIGHTLY_ORCHESTRATOR` | `github_actions`, disabilita gli scheduler periodici duplicati nel web |
 | `RESEARCH_NIGHTLY_ENABLED` | Variabile repository omonima, default `false`; unico opt-in delle nuove registrazioni notturne A/C |
-| `RESEARCH_NIGHTLY_HOUR`, `RESEARCH_NIGHTLY_MINUTE` | 3 e 0, confine della finestra in Europe/Rome; modificare coerentemente col workflow |
-| `RESEARCH_NIGHTLY_WINDOW_HOURS` | Non impostata: fino alla prossima 03:00 Roma; durata configurabile 1–48 ore |
+| `RESEARCH_NIGHTLY_HOUR`, `RESEARCH_NIGHTLY_MINUTE` | Default locale 3/0; produzione, monitor e dashboard 3/7, coerenti col workflow |
+| `RESEARCH_NIGHTLY_WINDOW_HOURS` | Non impostata: fino alla prossima 03:07 Roma; durata configurabile 1–48 ore |
 | `RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS` | 300 alla decisione notturna, controlla acquisizione e aggiornamento del mercato |
 | `RESEARCH_NIGHTLY_MIN_EV` | 0,04, soglia sperimentale configurabile |
 | `RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV` | 0,01, soglia sperimentale configurabile |
@@ -85,7 +110,7 @@ ammesse BET iniziali.
 | `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`, dashboard prevalentemente su cache |
 
 Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. La
-variabile remota è ora `true`. Il flag nel backend Hostless
+variabile remota è `true` dalle 10:04 UTC dopo il recupero controllato. Il flag nel backend Hostless
 può dichiarare la configurazione per la dashboard, ma il web non avvia il job.
 
 Secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e `ODDS_API_KEY` per le decisioni
@@ -126,17 +151,19 @@ lo storico per ridurre i consumi e non si riattivano fonti ritirate.
 
 ## Monitoraggio e riepilogo
 
-Il monitor GitHub e il controllo DB periodico sono attivi, con token DB
-in sola lettura e nessun fallback RW. Il monitor `4dff28f4` è pubblicato:
-CI `40944506327` SUCCESS, dieci test mirati e revisione DST superati; smoke RO
-`40945351072` SUCCESS. Audit RO 20:07 UTC PASS e quattro fingerprint finanziari
-invariati. Anche `RESEARCH_NIGHTLY_MONITOR_ENABLED=true` è ora attivo: le
-attese della nightly delle 03:00 sono abilitate, separatamente dal flag BET.
+Il monitor GitHub e il controllo DB periodico RO restano separati dal flag
+BET: spegnere le nuove registrazioni non nasconde contabilità incoerente,
+crediti esauriti o errori osservati. Il nuovo orario atteso è 03:07 Europe/Rome,
+con runtime `RESEARCH_NIGHTLY_MINUTE=7`; default locale 0 per compatibilità.
+Il recupero A/C reale è verificato; il watchdog aggiornato `41039066641` è SUCCESS.
+Il trigger programmato del 31 ottobre 03:07 resta da osservare.
+Il watchdog riuscito `40946558140` è una prova del 29 ottobre, non del rollout.
 
-Contabilità, quota, errori e stalli recenti oltre quattro ore non dipendono
-dall'aspettativa programmata. Il watchdog con attese attive `40946558140`
-è SUCCESS, tutti i passi GitHub e DB RO completati in 26 secondi. Il vecchio
-heartbeat T−15 non è un requisito.
+L'orfano noto `40940944902` può essere riconosciuto solo tramite
+`RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS`: l'eccezione è limitata a quel
+run ancora queued, senza job e di una giornata precedente. Non è cancellato.
+Se acquista un job o cambia stato, torna fatale anche oltre 36 ore: non è una
+soppressione generale degli allarmi. Vedi [watchdog](operations/research-watchdog.md).
 
 La dashboard distingue abilitazione dichiarata dal backend web, `enabled`
 realmente osservato nell'ultimo job, manutenzione completa, import ed esito
@@ -165,10 +192,11 @@ verifica della nuova applicazione. Vedi
 [procedura Turso](operations/turso-personal-migration-2026-10-29.md) e
 [guida Hostless](operations/hostless-deployment.md).
 
-La nightly è attiva e il run manuale `40944747548` è SUCCESS, senza nuove
-puntate. L’audit RO 20:10:52 UTC conferma `missedMatches=2`: due partite già
-iniziate e correttamente escluse, senza job o decisioni di modello. Nessun evento eleggibile nella finestra restante, nessuna puntata
-retroattiva; ciclo prospettico reale fino alla liquidazione ancora pendente.
+Nello snapshot del 29 ottobre il run `40944747548` è SUCCESS senza puntate.
+L'audit di quel giorno conferma due partite già iniziate escluse senza job o
+decisioni retroattive. È un risultato distinto dal recupero del 30 ottobre:
+quattro incontri reali, otto astensioni e 58 osservazioni congelate, con
+risultati/liquidazioni ancora futuri. Il trigger 31 ottobre 03:07 resta da osservare.
 Il flag del backend non avvia autonomamente il job; la richiesta usa GitHub.
 
 Rollback: impostare `RESEARCH_NIGHTLY_ENABLED=false`, preservare liquidazioni
