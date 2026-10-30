@@ -69,6 +69,33 @@ Nessuna nuova chiave, account, piano o risorsa a pagamento è stata creata.
 
 ## Controlli locali
 
+## Recupero dello scheduler
+
+La nuova programmazione usa `timezone: Europe/Rome`: 03:07 principale,
+04:17 e 05:27 di recupero. La policy decisionale, il monitor e la dashboard
+di produzione ricevono `RESEARCH_NIGHTLY_MINUTE=7`; il default locale resta
+zero per compatibilità. Il cambio d'ora è gestito dalla timezone nativa.
+
+Il gate legge soltanto metadati GitHub prima di installazione e build. Verifica
+data Roma e successo effettivo dello step `Run nightly sync`: un workflow
+verde che ha saltato il lavoro non esaurisce la giornata. Un successo reale
+impedisce nuove elaborazioni; un errore può essere recuperato. Errori API o
+metadati insufficienti bloccano il gate. Concorrenza seriale e vincoli del DB
+restano attivi. Il recupero non promette una sola richiesta giornaliera dopo
+una vera failure: cache e budget atomico limitano anche i tentativi successivi.
+
+L'orfano `40940944902` può essere riconosciuto con la sola variabile esplicita
+`RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS`. Solo quel run, se ancora queued,
+privo di job e di giornata precedente, resta informativo. Non viene cancellato.
+Ogni riattivazione genera `github_acknowledged_orphan_revived`, anche dopo
+36 ore e anche se termina, senza nascondere fallimenti correnti o altri stalli.
+
+GitHub [documenta ritardi e possibili eventi persi](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
+specialmente al minuto zero. Questi controlli aumentano la resilienza, ma non
+garantiscono le 03:07. La puntualità va misurata sui prossimi trigger reali.
+
+## Verifica locale del rilascio
+
 Build e lint superati. Le tre suite quote hanno 40/40 test passati su Linux
 Node 20, senza rete, con 2 CPU e 1 GiB. Su Windows Node 24 tutte le asserzioni
 passano, ma il driver nativo termina il file con `0xC0000005`: quel controllo

@@ -25,9 +25,12 @@ export const NIGHTLY_GRACE_SECONDS = 4 * 60 * 60;
 export function nightlySchedule(now: string | Date, graceSeconds = NIGHTLY_GRACE_SECONDS): Row {
   const at = new Date(iso(now));
   const day = romeDay(at);
+  const minute = Number(process.env.RESEARCH_NIGHTLY_MINUTE || 0);
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) throw new Error('Invalid RESEARCH_NIGHTLY_MINUTE');
+  const minuteText = String(minute).padStart(2, '0');
   const onDayAtThree = (date: string): Date => {
     for (const hour of [1, 2]) {
-      const candidate = new Date(`${date}T0${hour}:00:00Z`);
+      const candidate = new Date(`${date}T0${hour}:${minuteText}:00Z`);
       if (romeDay(candidate) === date && summaryHour.format(candidate) === '03') return candidate;
     }
     throw new Error('Nightly Rome schedule could not be resolved');
@@ -36,7 +39,7 @@ export function nightlySchedule(now: string | Date, graceSeconds = NIGHTLY_GRACE
   const expected = at >= today ? today : onDayAtThree(previousDay(day));
   const nextDay = new Date(Date.parse(`${day}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const next = at < today ? today : onDayAtThree(nextDay);
-  return { timezone: 'Europe/Rome', scheduledHour: '03:00', expectedAt: expected.toISOString(),
+  return { timezone: 'Europe/Rome', scheduledHour: `03:${minuteText}`, expectedAt: expected.toISOString(),
     nextAt: next.toISOString(), graceSeconds, overdue: at.getTime() > expected.getTime() + graceSeconds * 1000 };
 }
 
@@ -149,7 +152,7 @@ export function researchCriticalIncidents(input: { now: string; schedulerEnabled
   const now = Date.parse(input.now);
   const nightly = researchNightlyStatus(input.runs, input.now, input.schedulerEnabled);
   if (nightly.overdue) incidents.push({ key: 'nightly_execution_missing', title: 'Nightly non osservata',
-    message: 'Non risulta una decisione notturna dopo le 03:00 Europe/Rome e il margine di quattro ore.',
+    message: `Non risulta una decisione notturna dopo le ${nightly.scheduledHour} Europe/Rome e il margine di quattro ore.`,
     details: { expectedAt: nightly.expectedAt, graceSeconds: nightly.graceSeconds } });
   if (input.schedulerEnabled && nightly.lastRun && nightly.lastRun.success === false
     && now - Date.parse(nightly.lastRun.startedAt) <= 36 * 3600000) incidents.push({ key: 'nightly_execution_failed',

@@ -7,7 +7,6 @@ BACKEND_LOG="$ROOT_DIR/backend-nightly-sync.log"
 
 PORT="${PORT:-3001}"
 SYNC_TIMEZONE="${SYNC_TIMEZONE:-Europe/Rome}"
-EXPECTED_LOCAL_HOUR="${EXPECTED_LOCAL_HOUR:-03}"
 SCHEDULE_CRON="${SCHEDULE_CRON:-}"
 RUN_ODDS_SYNC="${RUN_ODDS_SYNC:-false}"
 API_FOOTBALL_ENABLED="${API_FOOTBALL_ENABLED:-false}"
@@ -79,33 +78,19 @@ get_json() {
   echo
 }
 
-if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" ]]; then
-  # GitHub Actions puo avviare il cron con ritardo. Controllare solo l'ora
-  # locale farebbe saltare il run valido; usare invece il cron originale,
-  # che resta disponibile in github.event.schedule anche dopo il ritardo.
-  if [[ -n "$SCHEDULE_CRON" ]]; then
-    CURRENT_OFFSET="$(TZ="$SYNC_TIMEZONE" date +%z)"
-    case "$CURRENT_OFFSET" in
-      +0200) EXPECTED_SCHEDULE_CRON="0 1 * * *" ;;
-      +0100) EXPECTED_SCHEDULE_CRON="0 2 * * *" ;;
-      *)
-        echo "Skip scheduled run: unsupported $SYNC_TIMEZONE UTC offset '$CURRENT_OFFSET'."
-        exit 0
-        ;;
-    esac
-
-    if [[ "$SCHEDULE_CRON" != "$EXPECTED_SCHEDULE_CRON" ]]; then
-      echo "Skip scheduled run: cron '$SCHEDULE_CRON' is not the active $SYNC_TIMEZONE cron '$EXPECTED_SCHEDULE_CRON' (offset $CURRENT_OFFSET)."
-      exit 0
-    fi
-  else
-    # Fallback per esecuzioni esterne che non espongono github.event.schedule.
-    CURRENT_LOCAL_HOUR="$(TZ="$SYNC_TIMEZONE" date +%H)"
-    if [[ "$CURRENT_LOCAL_HOUR" != "$EXPECTED_LOCAL_HOUR" ]]; then
-      echo "Skip scheduled run: local hour in $SYNC_TIMEZONE is $CURRENT_LOCAL_HOUR, expected $EXPECTED_LOCAL_HOUR."
-      exit 0
-    fi
+# GitHub admission is checked before npm/build using read-only workflow metadata.
+# Refuse an unguarded scheduled call rather than falling back to the retired UTC gate.
+if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" || "${NIGHTLY_GUARD_PASSED:-}" == "true" ]]; then
+  if [[ "${NIGHTLY_GUARD_PASSED:-}" != "true" || "${NIGHTLY_GUARD_DAY:-}" != "$(TZ="$SYNC_TIMEZONE" date +%F)" ]]; then
+    echo "Nightly requires admission for the current Rome day."
+    exit 1
   fi
+fi
+if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" ]]; then
+  case "$SCHEDULE_CRON" in
+    "7 3 * * *"|"17 4 * * *"|"27 5 * * *") ;;
+    *) echo "Unsupported nightly trigger; no maintenance started."; exit 1 ;;
+  esac
 fi
 
 required_envs=(

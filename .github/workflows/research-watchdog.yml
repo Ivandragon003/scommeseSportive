@@ -36,6 +36,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RESEARCH_NIGHTLY_MONITOR_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_MONITOR_ENABLED || 'false' }}
+          RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS: ${{ vars.RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS || '' }}
         run: node scripts/check-research-nightly.js --github-only
       - uses: actions/setup-node@v5
         if: ${{ always() && vars.RESEARCH_NIGHTLY_DB_MONITOR_ENABLED == 'true' }}
@@ -53,6 +54,7 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           # Dedicated read-only token. Never silently fall back to the write token.
           TURSO_WATCHDOG_READONLY_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
+          RESEARCH_NIGHTLY_MINUTE: '7'
           RESEARCH_NIGHTLY_EXPECT_ENABLED: ${{ inputs.expect_enabled || vars.RESEARCH_NIGHTLY_MONITOR_ENABLED || 'false' }}
         shell: bash
         run: |

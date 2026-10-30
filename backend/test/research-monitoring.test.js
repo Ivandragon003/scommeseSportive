@@ -235,3 +235,30 @@ test('03:00 prepares an invisible 09:00 summary without another writer and rejec
   await reconcileResearchMonitoring(db, '2026-10-28T02:30:00Z', { schedulerEnabled: false });
   assert.equal((await store.read()).notifications.filter((row) => row.kind === 'daily_summary').length, 1);
 });
+
+
+test('explicit nightly minute aligns expected/next Rome boundaries through DST while the local default remains 00', () => {
+  const original = process.env.RESEARCH_NIGHTLY_MINUTE;
+  try {
+    process.env.RESEARCH_NIGHTLY_MINUTE = '7';
+    for (const [now, expected, next] of [
+      ['2026-03-29T06:00:00Z', '2026-03-29T01:07:00.000Z', '2026-03-30T01:07:00.000Z'],
+      ['2026-10-25T06:00:00Z', '2026-10-25T02:07:00.000Z', '2026-10-26T02:07:00.000Z'],
+      ['2026-03-29T01:06:00Z', '2026-03-28T02:07:00.000Z', '2026-03-29T01:07:00.000Z'],
+    ]) {
+      const value = nightlySchedule(now);
+      assert.equal(value.expectedAt, expected); assert.equal(value.nextAt, next); assert.equal(value.scheduledHour, '03:07');
+    }
+    assert.equal(researchNightlyStatus([], '2026-10-25T06:06:59Z', true).overdue, false);
+    assert.equal(researchNightlyStatus([], '2026-10-25T06:07:01Z', true).overdue, true);
+    assert.match(researchCriticalIncidents({ now: '2026-10-25T06:07:01Z', schedulerEnabled: true,
+      runs: [], models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] })[0].message, /03:07/);
+    delete process.env.RESEARCH_NIGHTLY_MINUTE;
+    assert.equal(nightlySchedule('2026-10-25T06:00:00Z').scheduledHour, '03:00');
+    process.env.RESEARCH_NIGHTLY_MINUTE = '60';
+    assert.throws(() => nightlySchedule('2026-10-25T06:00:00Z'), /Invalid RESEARCH_NIGHTLY_MINUTE/);
+  } finally {
+    if (original === undefined) delete process.env.RESEARCH_NIGHTLY_MINUTE;
+    else process.env.RESEARCH_NIGHTLY_MINUTE = original;
+  }
+});

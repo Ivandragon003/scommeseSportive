@@ -2,53 +2,76 @@
 // Independent nightly monitor. No application bootstrap, provider calls or writes.
 const safeCode = (value) => typeof value === 'string' && /^[a-z][a-z0-9_]{0,100}$/.test(value) ? value : null;
 const parse = (value) => { try { return JSON.parse(String(value)); } catch { return null; } };
+const { primarySchedule, supportedRun, successfulSync, githubReader, romeDay, validTime, SYNC_STEP } = require('./nightly-schedule-guard');
 const GRACE_SECONDS = 4 * 3600;
-const romeDay = (at) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
-const romeHour = (at) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' }).format(at);
+const expectedSchedule = (now) => ({ ...primarySchedule(now), graceSeconds: GRACE_SECONDS });
+const publicRun = (run) => ({ id: run.id, event: run.event, createdAt: run.created_at,
+  status: run.status, conclusion: run.conclusion, url: run.html_url });
 
-const atThree = (day) => [1, 2].map((hour) => new Date(`${day}T0${hour}:00:00Z`))
-  .find((at) => romeDay(at) === day && romeHour(at) === '03');
-const cronOnRomeDate = (at) => `0 ${atThree(romeDay(at)).getUTCHours()} * * *`;
-
-function expectedSchedule(now) {
-  const today = atThree(romeDay(now));
-  const expected = now >= today ? today : atThree(new Date(Date.parse(`${romeDay(now)}T12:00:00Z`) - 86400000).toISOString().slice(0, 10));
-  return { expectedAt: expected.toISOString(), cron: `0 ${expected.getUTCHours()} * * *`, graceSeconds: GRACE_SECONDS };
-}
-
-async function inspectGithub({ now = new Date(), token, repository, expectScheduled = false, fetchImpl = fetch }) {
-  if (!token || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(repository || '')) throw new Error('github_configuration_missing');
+async function inspectGithub({ now = new Date(), token, repository, expectScheduled = false,
+  acknowledgedOrphanRunIds = '', fetchImpl = fetch }) {
+  const ids = String(acknowledgedOrphanRunIds).split(/[,\s]+/).filter(Boolean);
+  if (ids.length > 10 || ids.some((id) => !/^\d{1,30}$/.test(id))) throw new Error('github_orphan_acknowledgement_invalid');
+  const acknowledgedIds = new Set(ids);
+  const api = githubReader({ token, repository, fetchImpl });
   const schedule = expectedSchedule(now);
-  const response = await fetchImpl(`https://api.github.com/repos/${repository}/actions/workflows/nightly-sync.yml/runs?per_page=30&branch=main`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-    redirect: 'error', signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) throw new Error('github_nightly_unavailable');
-  const payload = await response.json();
-  if (!Array.isArray(payload.workflow_runs)) throw new Error('github_nightly_response_invalid');
-  const valid = payload.workflow_runs.filter((run) => Number.isFinite(Date.parse(run.created_at)) && Date.parse(run.created_at) <= now.getTime())
-    // Validate historical runs against 03:00 on their own Rome date, including
-    // transition-day runs created before 03:00. The expected run is separate.
-    .filter((run) => run.event === 'workflow_dispatch' || run.event === 'schedule'
-      && run.display_title === `Nightly Sync (${cronOnRomeDate(new Date(run.created_at))})`)
+  const runs = await api.runs(new Date(now.getTime() - 36 * 3600000).toISOString());
+  // Explicit acknowledgements stay observable after the ordinary history window.
+  // If an old orphan acquires jobs later, the next check must make it fatal again.
+  for (const id of acknowledgedIds) if (!runs.some((run) => String(run.id) === id)) {
+    const run = await api.run(id);
+    if (String(run.id) !== id || run.head_branch !== 'main'
+      || run.path?.split('@')[0] !== '.github/workflows/nightly-sync.yml') throw new Error('github_orphan_acknowledgement_invalid');
+    runs.push(run);
+  }
+  const valid = runs.filter((run) => supportedRun(run, now)
+    && (now.getTime() - Date.parse(run.created_at) <= 36 * 3600000 || acknowledgedIds.has(String(run.id))))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const current = valid.find((run) => Date.parse(run.created_at) >= Date.parse(schedule.expectedAt)
-    && (run.event === 'workflow_dispatch' || run.display_title === `Nightly Sync (${schedule.cron})`));
-  const latest = current ?? valid[0] ?? null;
+  if (valid.length > 30) throw new Error('github_nightly_history_incomplete');
+  const observed = [], notExecutedRuns = [], acknowledgedOrphans = [], revivedOrphans = [];
+  for (const run of valid) {
+    const jobs = await api.jobs(run.id);
+    if (acknowledgedIds.has(String(run.id)) && run.status === 'queued' && jobs.length === 0
+      && romeDay(run.created_at) < romeDay(now)) {
+      acknowledgedOrphans.push({ ...publicRun(run), reason: 'explicit_previous_day_zero_job_ack', cancelled: false });
+      continue;
+    }
+    const syncSteps = jobs.flatMap((job) => job.steps ?? []).filter((step) => step.name === SYNC_STEP);
+    const started = syncSteps.some((step) => step.conclusion !== 'skipped'
+      && validTime(step.started_at) && Date.parse(step.started_at) <= now.getTime());
+    const succeeded = successfulSync(jobs, romeDay(run.created_at), now);
+    const completedLate = syncSteps.some((step) => step.status === 'completed' && step.conclusion === 'success'
+      && validTime(step.completed_at) && Date.parse(step.completed_at) <= now.getTime());
+    if (acknowledgedIds.has(String(run.id))) revivedOrphans.push({ ...publicRun(run),
+      reason: 'acknowledged_orphan_state_changed', jobsObserved: jobs.length,
+      executionObserved: started || completedLate });
+    if (run.status === 'completed' && !started && !completedLate
+      && ['success', 'cancelled', 'skipped'].includes(run.conclusion)) {
+      notExecutedRuns.push({ ...publicRun(run), state: 'NOT_EXECUTED' });
+      continue;
+    }
+    observed.push({ ...run, executionObserved: started || completedLate, syncSucceeded: succeeded });
+  }
+  const current = observed.filter((run) => romeDay(run.created_at) === schedule.day
+    && Date.parse(run.created_at) >= Date.parse(schedule.expectedAt));
+  const fullSuccess = current.some((run) => run.syncSucceeded);
+  const latest = current[0] ?? observed[0] ?? null;
   const overdue = expectScheduled && now.getTime() > Date.parse(schedule.expectedAt) + GRACE_SECONDS * 1000;
   const issues = [];
-  if (overdue && !current) issues.push('github_nightly_missing');
-  const stalled = valid.find((run) => run.status !== 'completed'
-    && now.getTime() - Date.parse(run.created_at) > GRACE_SECONDS * 1000
-    && now.getTime() - Date.parse(run.created_at) <= 36 * 3600000);
+  if (overdue && !fullSuccess) issues.push('github_nightly_missing');
+  const stalled = observed.find((run) => run.status !== 'completed'
+    && now.getTime() - Date.parse(run.created_at) > GRACE_SECONDS * 1000);
   if (stalled) issues.push('github_nightly_stalled');
-  if (latest && Date.parse(latest.created_at) >= now.getTime() - 36 * 3600000
+  if (latest && now.getTime() - Date.parse(latest.created_at) <= 36 * 3600000
     && latest.status === 'completed' && latest.conclusion !== 'success') issues.push('github_nightly_failed');
+  // Acknowledgement covers one observed queued/zero-job state, not future execution.
+  // Keep this independent of created_at: a very old orphan can start much later.
+  if (revivedOrphans.length) issues.push('github_acknowledged_orphan_revived');
   return { checkedAt: now.toISOString(), ...schedule, expectedScheduled: expectScheduled, ok: issues.length === 0, issues,
-    stalledRun: stalled ? { id: stalled.id, createdAt: stalled.created_at, status: stalled.status, url: stalled.html_url } : null,
-    lastRun: latest ? { id: latest.id, event: latest.event, createdAt: latest.created_at, status: latest.status,
-      conclusion: latest.conclusion, url: latest.html_url } : null,
-    limitation: 'A successful GitHub job proves workflow completion; database decisions require the optional read-only database check.' };
+    syncCompleted: fullSuccess, acknowledgedOrphans, revivedOrphans, notExecutedRuns,
+    stalledRun: stalled ? publicRun(stalled) : null,
+    lastRun: latest ? { ...publicRun(latest), executionObserved: latest.executionObserved } : null,
+    limitation: 'Only a successful Run nightly sync step proves full maintenance execution; database decisions require the read-only database check.' };
 }
 
 async function inspectDatabase(client, { now = new Date(), expectEnabled = false } = {}) {
@@ -100,7 +123,8 @@ async function main() {
   const databaseOnly = process.argv.includes('--database-only');
   const output = {};
   if (!databaseOnly) output.github = await inspectGithub({ token: process.env.GITHUB_TOKEN, repository: process.env.GITHUB_REPOSITORY,
-    expectScheduled: process.env.RESEARCH_NIGHTLY_MONITOR_ENABLED === 'true' });
+    expectScheduled: process.env.RESEARCH_NIGHTLY_MONITOR_ENABLED === 'true',
+    acknowledgedOrphanRunIds: process.env.RESEARCH_NIGHTLY_ACKNOWLEDGED_ORPHAN_RUN_IDS });
   if (!githubOnly && process.env.TURSO_WATCHDOG_READONLY_TOKEN && process.env.TURSO_DATABASE_URL) {
     const { createClient } = require('@libsql/client');
     const client = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_WATCHDOG_READONLY_TOKEN });

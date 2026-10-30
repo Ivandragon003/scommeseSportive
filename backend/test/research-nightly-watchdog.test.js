@@ -6,15 +6,29 @@ const { join } = require('node:path');
 const { expectedSchedule, inspectGithub, inspectDatabase } = require('../scripts/check-research-nightly');
 
 const NOW = new Date('2026-10-29T08:00:00Z');
-const run = (overrides = {}) => ({ id: 123, event: 'schedule', display_title: 'Nightly Sync (0 2 * * *)',
+const run = (overrides = {}) => ({ id: 123, head_branch: 'main', path: '.github/workflows/nightly-sync.yml', event: 'schedule', display_title: 'Nightly Sync (0 2 * * *)',
   created_at: '2026-10-29T02:20:00Z', status: 'completed', conclusion: 'success', html_url: 'https://github.com/fixture/repo/actions/runs/123', ...overrides });
-const github = (runs, options = {}) => inspectGithub({ now: NOW, token: 'fixture-only', repository: 'fixture/repo', expectScheduled: true,
-  fetchImpl: async (url, request) => {
-    assert.equal(request.headers.Authorization, 'Bearer fixture-only');
-    assert.equal(url.includes('fixture-only'), false);
-    assert.equal(request.redirect, 'error');
-    return new Response(JSON.stringify({ workflow_runs: runs }));
-  }, ...options });
+const github = (runs, options = {}) => {
+  const { jobs = {}, metadata = {}, ...rest } = options;
+  return inspectGithub({ now: NOW, token: 'fixture-only', repository: 'fixture/repo', expectScheduled: true,
+    fetchImpl: async (url, request) => {
+      assert.equal(request.headers.Authorization, 'Bearer fixture-only');
+      assert.equal(url.includes('fixture-only'), false);
+      assert.equal(request.redirect, 'error'); assert.equal(request.method, 'GET');
+      const id = /\/runs\/(\d+)\/jobs/.exec(url)?.[1];
+      if (id) {
+        const item = runs.find((entry) => String(entry.id) === id) ?? metadata[id];
+        const defaults = item.status === 'queued' ? [] : [{ status: item.status, steps: [{ name: 'Run nightly sync',
+          status: item.status, conclusion: item.conclusion, started_at: item.created_at,
+          completed_at: item.status === 'completed' ? new Date(Date.parse(item.created_at) + 60000).toISOString() : null }] }];
+        const rows = jobs[id] ?? defaults;
+        return new Response(JSON.stringify({ total_count: rows.length, jobs: rows }));
+      }
+      const runId = /\/runs\/(\d+)$/.exec(url)?.[1];
+      if (runId) return new Response(JSON.stringify(metadata[runId] ?? runs.find((entry) => String(entry.id) === runId)));
+      return new Response(JSON.stringify({ total_count: runs.length, workflow_runs: runs }));
+    }, ...rest });
+};
 
 test('GitHub-only watchdog catches missing scheduled run independently of Hostless, DB and provider', async () => {
   assert.deepEqual((await github([])).issues, ['github_nightly_missing']);
@@ -26,18 +40,18 @@ test('GitHub-only watchdog catches missing scheduled run independently of Hostle
 });
 
 test('GitHub watchdog reports failure, queued jobs beyond grace and accepts a current manual recovery', async () => {
-  assert.deepEqual((await github([run({ conclusion: 'failure' })])).issues, ['github_nightly_failed']);
-  assert.deepEqual((await github([run({ status: 'queued', conclusion: null })])).issues, ['github_nightly_stalled']);
+  assert.deepEqual((await github([run({ conclusion: 'failure' })])).issues, ['github_nightly_missing', 'github_nightly_failed']);
+  assert.deepEqual((await github([run({ status: 'queued', conclusion: null })])).issues, ['github_nightly_missing', 'github_nightly_stalled']);
   assert.deepEqual((await github([run({ event: 'workflow_dispatch', display_title: 'manual recovery' })])).issues, []);
-  assert.deepEqual((await github([run({ event: 'workflow_dispatch', created_at: '2026-10-29T07:59:00Z', status: 'queued', conclusion: null })])).issues, []);
-  assert.deepEqual((await github([run({ conclusion: 'skipped' })])).issues, ['github_nightly_failed']);
+  assert.deepEqual((await github([run({ event: 'workflow_dispatch', created_at: '2026-10-29T07:59:00Z', status: 'queued', conclusion: null })], { expectScheduled: false })).issues, []);
+  assert.deepEqual((await github([run({ conclusion: 'skipped' })], { jobs: { 123: [] } })).issues, ['github_nightly_missing']);
   await assert.rejects(github([], { repository: '../invalid' }), /github_configuration_missing/);
 });
 
 test('GitHub watchdog chooses the active Rome schedule across daylight saving changes', () => {
-  assert.equal(expectedSchedule(new Date('2026-03-29T06:00:00Z')).cron, '0 1 * * *');
-  assert.equal(expectedSchedule(new Date('2026-10-25T06:00:00Z')).cron, '0 2 * * *');
-  assert.equal(expectedSchedule(new Date('2026-03-28T23:00:00Z')).expectedAt, '2026-03-28T02:00:00.000Z');
+  assert.equal(expectedSchedule(new Date('2026-03-29T06:00:00Z')).expectedAt, '2026-03-29T01:07:00.000Z');
+  assert.equal(expectedSchedule(new Date('2026-10-25T06:00:00Z')).expectedAt, '2026-10-25T02:07:00.000Z');
+  assert.equal(expectedSchedule(new Date('2026-03-28T23:00:00Z')).expectedAt, '2026-03-28T02:07:00.000Z');
 });
 
 async function database() {
@@ -160,7 +174,78 @@ for (const change of [
   assert.deepEqual((await inspect([earlyInactive])).issues, []);
   assert.deepEqual((await github([earlyActive], { now: new Date(Date.parse(change.beforeThree) + 60000),
     expectScheduled: true })).issues, ['github_nightly_missing']);
-  const missing = await github([old], { now: new Date(now.getTime() + 1000), expectScheduled: true });
+  const missing = await github([old], { now: new Date(Date.parse(expectedSchedule(now).expectedAt) + 4 * 3600000 + 1000), expectScheduled: true });
   assert.deepEqual(missing.issues, ['github_nightly_missing', 'github_nightly_stalled']);
   assert.deepEqual((await inspect([success, old], true)).issues, ['github_nightly_stalled']);
+});
+
+
+test('timezone recovery success is measured by the sync step, never a guard-only green run or a cancelled pending backup', async () => {
+  const primary = run({ id: 301, display_title: 'Nightly Sync (7 3 * * *)', created_at: '2026-10-29T02:07:00Z' });
+  const backup = run({ id: 302, display_title: 'Nightly Sync (17 4 * * *)', created_at: '2026-10-29T03:17:00Z' });
+  const skip = [{ status: 'completed', steps: [{ name: 'Run nightly sync', status: 'completed', conclusion: 'skipped' }] }];
+  const good = await github([backup, primary], { jobs: { 302: skip } });
+  assert.equal(good.syncCompleted, true); assert.deepEqual(good.issues, []);
+  assert.equal(good.lastRun.id, primary.id); assert.equal(good.notExecutedRuns[0].id, backup.id);
+  assert.deepEqual((await github([backup], { jobs: { 302: skip } })).issues, ['github_nightly_missing']);
+  const cancelled = { ...backup, conclusion: 'cancelled' };
+  assert.deepEqual((await github([cancelled, primary], { jobs: { 302: [] } })).issues, []);
+  const skippedWithTimestamp = [{ steps: [{ name: 'Run nightly sync', status: 'completed', conclusion: 'skipped',
+    started_at: backup.created_at, completed_at: backup.created_at }] }];
+  assert.deepEqual((await github([cancelled, primary], { jobs: { 302: skippedWithTimestamp } })).issues, []);
+  assert.deepEqual((await github([cancelled], { jobs: { 302: [] } })).issues, ['github_nightly_missing']);
+  const late = [{ steps: [{ name: 'Run nightly sync', status: 'completed', conclusion: 'success',
+    started_at: '2026-10-28T23:00:00Z', completed_at: '2026-10-29T03:00:00Z' }] }];
+  const yesterday = run({ id: 303, event: 'workflow_dispatch', created_at: '2026-10-28T22:30:00Z' });
+  assert.deepEqual((await github([yesterday], { jobs: { 303: late } })).issues, ['github_nightly_missing']);
+});
+
+test('explicit orphan acknowledgement covers only that previous-day queued ID with zero jobs and reports no cancellation', async () => {
+  const orphan = run({ id: 40940944902, event: 'workflow_dispatch', created_at: '2026-10-28T18:00:00Z', status: 'queued', conclusion: null });
+  const result = await github([orphan], { expectScheduled: false, acknowledgedOrphanRunIds: '40940944902' });
+  assert.deepEqual(result.issues, []); assert.equal(result.acknowledgedOrphans[0].id, orphan.id);
+  assert.equal(result.acknowledgedOrphans[0].cancelled, false); assert.equal(result.lastRun, null);
+  assert.deepEqual((await github([orphan], { expectScheduled: true, acknowledgedOrphanRunIds: '40940944902' })).issues, ['github_nightly_missing']);
+});
+
+test('an acknowledged ID becomes fatal again if jobs appear or status is in progress, and other stalled IDs remain fatal', async () => {
+  const orphan = run({ id: 40940944902, event: 'workflow_dispatch', created_at: '2026-10-28T18:00:00Z', status: 'queued', conclusion: null });
+  const settings = { expectScheduled: false, acknowledgedOrphanRunIds: '40940944902' };
+  for (const [item, jobs] of [[orphan, [{ status: 'in_progress', steps: [] }]], [{ ...orphan, status: 'in_progress' }, []],
+    [{ ...orphan, id: 999 }, []], [{ ...orphan, created_at: '2026-10-29T02:07:00Z' }, []]]) {
+    const result = await github([item], { ...settings, metadata: { 40940944902: orphan }, jobs: { [item.id]: jobs } });
+    assert.deepEqual(result.issues, item.id === orphan.id ? ['github_nightly_stalled', 'github_acknowledged_orphan_revived']
+      : ['github_nightly_stalled']); assert.equal(result.acknowledgedOrphans.length, item.id === orphan.id ? 0 : 1);
+  }
+});
+
+
+test('explicit old orphan IDs are rechecked beyond 36 hours and cannot hide newly acquired jobs', async () => {
+  const orphan = run({ id: 40940944902, event: 'workflow_dispatch', created_at: '2026-10-27T18:00:00Z', status: 'queued', conclusion: null,
+    head_branch: 'main', path: '.github/workflows/nightly-sync.yml' });
+  const settings = { expectScheduled: false, acknowledgedOrphanRunIds: '40940944902', metadata: { 40940944902: orphan } };
+  const acknowledged = await github([], settings);
+  assert.deepEqual(acknowledged.issues, []); assert.equal(acknowledged.acknowledgedOrphans.length, 1);
+  const activated = await github([], { ...settings, jobs: { 40940944902: [{ status: 'in_progress', steps: [] }] } });
+  assert.deepEqual(activated.issues, ['github_nightly_stalled', 'github_acknowledged_orphan_revived']);
+  assert.equal(activated.acknowledgedOrphans.length, 0);
+});
+
+test('an acknowledged orphan completed beyond 36 hours is a revived incident even when its new execution succeeded', async () => {
+  const orphan = run({ id: 40940944902, event: 'workflow_dispatch', created_at: '2026-10-27T18:00:00Z', status: 'completed' });
+  for (const conclusion of ['failure', 'success']) {
+    const seen = { ...orphan, conclusion };
+    const result = await github([], { expectScheduled: false, acknowledgedOrphanRunIds: '40940944902', metadata: { 40940944902: seen },
+      jobs: { 40940944902: [{ status: 'completed', steps: [{ name: 'Run nightly sync', status: 'completed', conclusion,
+        started_at: '2026-10-29T07:00:00Z', completed_at: '2026-10-29T07:30:00Z' }] }] } });
+    assert.equal(result.ok, false); assert.deepEqual(result.issues, ['github_acknowledged_orphan_revived']);
+    assert.equal(result.acknowledgedOrphans.length, 0); assert.equal(result.revivedOrphans.length, 1);
+    assert.equal(result.revivedOrphans[0].id, orphan.id); assert.equal(result.revivedOrphans[0].status, 'completed');
+    assert.equal(result.revivedOrphans[0].conclusion, conclusion); assert.equal(result.revivedOrphans[0].jobsObserved, 1);
+    assert.equal(result.revivedOrphans[0].executionObserved, true);
+  }
+  const noJobs = await github([], { expectScheduled: false, acknowledgedOrphanRunIds: '40940944902', metadata: { 40940944902: orphan },
+    jobs: { 40940944902: [] } });
+  assert.equal(noJobs.ok, false); assert.deepEqual(noJobs.issues, ['github_acknowledged_orphan_revived']);
+  assert.equal(noJobs.revivedOrphans[0].jobsObserved, 0);
 });

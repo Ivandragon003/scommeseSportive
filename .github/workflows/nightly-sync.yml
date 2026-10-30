@@ -3,15 +3,18 @@ run-name: Nightly Sync (${{ github.event.schedule || 'manual' }})
 
 on:
   schedule:
-    # Obiettivo: 03:00 ora di Roma (partite finite, dati completi).
-    # Due trigger per coprire ora legale/solare; il gate EXPECTED_LOCAL_HOUR
-    # in nightly-sync.sh fa girare solo quello che cade davvero alle 03:00 Roma.
-    - cron: '0 1 * * *'   # 03:00 Roma d'estate (UTC+2)
-    - cron: '0 2 * * *'   # 03:00 Roma d'inverno (UTC+1)
+    # Off-peak primary and two recovery opportunities; GitHub is not a real-time scheduler.
+    - cron: '7 3 * * *'
+      timezone: Europe/Rome
+    - cron: '17 4 * * *'
+      timezone: Europe/Rome
+    - cron: '27 5 * * *'
+      timezone: Europe/Rome
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: nightly-sync
@@ -24,9 +27,7 @@ jobs:
     env:
       TZ: Europe/Rome
       SYNC_TIMEZONE: Europe/Rome
-      EXPECTED_LOCAL_HOUR: '03'
-      # github.event.schedule identifica quale dei due cron ha avviato il run,
-      # anche quando GitHub Actions lo esegue in ritardo.
+      # Preserve the originating timezone-aware trigger even after queue delay.
       SCHEDULE_CRON: ${{ github.event.schedule }}
       PORT: '3001'
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -52,6 +53,7 @@ jobs:
       FINAL_STATUS_TIMEOUT_SECONDS: '120'
       # Remote activation requires a separate, explicit confirmation after cutover.
       RESEARCH_NIGHTLY_ENABLED: ${{ vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}
+      RESEARCH_NIGHTLY_MINUTE: '7'
       RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '1200'
       RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS: '300'
       RESEARCH_NIGHTLY_MIN_EV: '0.04'
@@ -69,15 +71,28 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
+      - name: Check daily execution before installation or database access
+        id: nightly_guard
+        timeout-minutes: 3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node backend/scripts/nightly-schedule-guard.js
+
       - name: Install backend dependencies
+        if: steps.nightly_guard.outputs.run == 'true'
         working-directory: backend
         run: npm ci
 
       - name: Build backend
+        if: steps.nightly_guard.outputs.run == 'true'
         working-directory: backend
         run: npm run build
 
       - name: Run nightly sync
+        if: steps.nightly_guard.outputs.run == 'true'
+        env:
+          NIGHTLY_GUARD_PASSED: 'true'
+          NIGHTLY_GUARD_DAY: ${{ steps.nightly_guard.outputs.day }}
         run: bash scripts/ci/nightly-sync.sh
 
       - name: Upload backend sync log
