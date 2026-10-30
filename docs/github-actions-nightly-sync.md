@@ -1,6 +1,9 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
 Direzione aggiornata al 30 ottobre 2026: **Nightly Pre-Match Virtual Betting**.
+Il recupero calendario `41044931407` è verificato: cinque incontri cumulativi,
+dieci decisioni, zero puntate; dettagli nella sezione seguente. Il riepilogo
+del predecessore qui sotto resta il risultato delle 10:12 UTC, non il totale odierno.
 Backend `01320941` LIVE, quota riconciliata alle 10:01:04 UTC e registrazione
 A/C attiva dalle 10:04 UTC. Run `41038096151` su `8bf17826` SUCCESS 10:12:43 UTC,
 con `Run nightly sync` e `Confirm enabled A/C completion` entrambi riusciti.
@@ -14,36 +17,45 @@ e `41039490287` SUCCESS. Restano da osservare trigger 31 ottobre 03:07 e risulta
 restano storici. Frontend `fb0e30f8` Deployed LIVE su Hostless, Site Running,
 deployment `6ae46ff81a67b8db20fa2f2e`; CI `41039799271` SUCCESS.
 
-Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+Snapshot browser dopo il LIVE, prima del recupero Nice–Rennes: sessione autenticata conservata, Sistema
 mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
 Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
 verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
 restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
-## Gap calendario e recupero delle partite mancanti
+## Recupero calendario verificato
 
-Il 30 ottobre il run `41038096151` riuscito copriva quattro partite, non tutte
-le cinque previste. Nice–Rennes era ancora nel DB al 31 ottobre, mentre il
-[comunicato ufficiale](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html)
-la anticipa al 30. Successo della pipeline e completezza del calendario sono
-verifiche distinte. Correzione locale preparata, rilascio e nuovo recupero
-remoto ancora pendenti.
+Il verde `41038096151` copriva quattro partite su cinque: Nice–Rennes era
+ancora nel DB al 31 ottobre. Il nuovo run `41044931407`, source `fd97d145`,
+è SUCCESS 11:08:12 UTC, con Sync e marker enabled entrambi SUCCESS 11:08:07.
+CI `41044683537` Backend/Frontend SUCCESS. Il guard ha ammesso il solo input
+manuale `recover_missing_fixtures` con motivo `manual_missing_fixtures_recovery`,
+dopo il predecessore riuscito `41038096151` e senza run attivi concorrenti.
 
-La patch collega `POST /api/system/sync-upcoming-kickoffs` dopo Understat e
-prima del passo Nightly A/C, solo con A/C abilitate, sulle Top 5 e limite 160.
-Usa il [GET eventi gratuito del provider](https://the-odds-api.com/liveapi/guides/v4/#get-events),
-non una nuova acquisizione di quote: zero crediti per gli eventi. Se questo
-controllo richiesto fallisce, blocca le nuove decisioni A/C; manutenzione e
-liquidazione delle posizioni esistenti restano consentite.
+`POST /api/system/sync-upcoming-kickoffs` viene eseguito dopo Understat e
+prima di A/C, solo con A/C abilitate, Top 5 limite 160. La verifica remota ha
+controllato 800 record e corretto 43 kickoff futuri con cinque
+[GET eventi gratuiti](https://the-odds-api.com/liveapi/guides/v4/#get-events),
+zero crediti. Nice–Rennes è passata da 31 ottobre 16:15 UTC a 30 ottobre 18:00 UTC
+(19:00 Roma), coerente con il
+[club](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html).
+Un errore del controllo calendario richiesto blocca nuove decisioni A/C,
+conservando manutenzione e liquidazioni esistenti.
 
-Il nuovo input `recover_missing_fixtures`, default `false`, consente soltanto
-un avvio manuale dopo un vero successo A/C della stessa giornata, senza altre
-esecuzioni attive. L'avvio standard continua a saltare il ciclo dopo quel
-successo. Il recupero riusa l'esclusione ResearchStore degli input già
-presenti prima di API quote e inferenza: i quattro input e le decisioni
-precedenti non vengono ricalcolati. Restano minimo 50 campioni prudenziali,
-EV 4%, EV prudenziale 1%, freschezza e nessuna puntata retroattiva. Non è un
-bypass della qualità né una prova che la quinta partita sia già elaborata.
+La fase A/C 11:07:41.440→11:08:04.729 UTC ha elaborato solo Nice–Rennes:
+un nuovo input, due decisioni, 16 osservazioni e zero BET/errori/API errori/missed;
+quattro esclusioni `decision_already_recorded` prima di API/inferenza.
+Audit RO 11:10:02 UTC PASS: cinque input, dieci decisioni e dieci marker modello
+complessivi, digest dei quattro input e delle otto decisioni precedenti
+invariati. Sette hash finanziari e 258 legacy preservati, A/C 1.000 euro e zero
+impegnati. Un solo fetch quote Nightly da 3 crediti: 307 usati/193 residui;
+nessun altro caller. Backend e frontend LIVE restano `01320941`/`fb0e30f8`.
+
+L'input resta manuale e default `false`; il percorso standard continua a
+saltare dopo un vero successo giornaliero. Nessun override: minimo 50 campioni,
+EV 4%, EV prudenziale 1% e freschezza restano invariati. Il recupero è verificato,
+ma cron 31 ottobre 03:07 e risultati/liquidazioni ufficiali restano futuri.
+[Report completo](operations/nightly-fixture-recovery-2026-10-30.md).
 
 ## Orchestrazione e orario
 

@@ -8,7 +8,7 @@ route legacy HTTP 410, login, sessione e dashboard A/C sono verificati. Il cutov
 effettivo, sulla baseline del dump 15:17 UTC adottata con autorizzazione e
 accettazione dei delta sorgente successivi non verificabili.
 
-Il 30 ottobre il backend `013209419ef25b949525485a92fb0448ed5d6b8b` è LIVE,
+La prima fase del 30 ottobre (run delle 10:12 UTC) usa il backend `013209419ef25b949525485a92fb0448ed5d6b8b` è LIVE,
 deployment `6ae468ad1a67b8db20f91272`, con minuto 7 e chiave write-only caricati.
 Quota riconciliata alle 10:01:04 UTC; registrazione A/C attiva dalle 10:04 UTC.
 Run `41038096151` SUCCESS: quattro partite reali, otto decisioni/inferenze e
@@ -22,18 +22,26 @@ o record provider. Watchdog `41039066641` e `41039490287` SUCCESS. Frontend
 CI `41039799271` SUCCESS. Restano da osservare il trigger programmato
 31 ottobre 03:07 e risultati/liquidazioni reali. Vedi il [recupero](operations/nightly-recovery-2026-10-30.md).
 
-Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+Snapshot browser dopo il LIVE, prima del recupero Nice–Rennes: sessione autenticata conservata, Sistema
 mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
 Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
 verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
 restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
-**Gap calendario del 30 ottobre, rimedio remoto ancora pendente:** il run
-riuscito copriva quattro incontri su cinque. Il DB conservava Nice–Rennes al 31,
-mentre il [club ne annunciava l'anticipo al 30 ottobre](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html).
-Lo stato verde non certifica la completezza del calendario. La patch locale
-collega l'aggiornamento kickoff già disponibile al job; rilascio e recupero
-della partita mancante non sono qui attestati.
+**Recupero calendario verificato il 30 ottobre:** il verde precedente copriva
+quattro incontri su cinque. `41044931407` su `fd97d145` è SUCCESS 11:08:12 UTC,
+CI Backend/Frontend `41044683537` SUCCESS. Con cinque GET eventi gratuiti sono
+controllati 800 record e corretti 43 kickoff futuri, incluso Nice–Rennes:
+31 ottobre 16:15 UTC→30 ottobre 18:00 UTC, oggi 19:00 Roma.
+A/C ha valutato solo il nuovo incontro, aggiungendo due decisioni e 16
+osservazioni, zero BET/errori/API errori/missed. Quattro incontri esistenti
+esclusi prima di quote/inferenza. Audit RO 11:10:02 PASS: cinque input e dieci
+decisioni/marker cumulativi; quattro input e otto decisioni precedenti invariati.
+Wallet 1.000 euro ciascuno, zero impegnati, 258 legacy e sette hash finanziari
+preservati. Una richiesta quote da 3 crediti porta a 307 usati/193 residui.
+Backend `01320941` e UI `fb0e30f8` restano LIVE, senza necessità di deploy web.
+[Report](operations/nightly-fixture-recovery-2026-10-30.md); cron 31 ottobre 03:07
+e ciclo ufficiale risultato/liquidazione ancora da osservare.
 
 Hostless, GitHub Actions e Turso restano i componenti. Non occorre il worker
 T−15 sempre acceso. I precedenti
@@ -459,12 +467,14 @@ Recuperi dopo failure possono ripetere lavoro: non è una promessa di un'unica
 richiesta dopo errori, né un SLA al minuto. `RESEARCH_NIGHTLY_MINUTE=7` viene
 allineato in produzione, monitor e dashboard; il default locale resta 0.
 
-Il correttivo locale aggiunge, dopo Understat e prima del job A/C,
+Il correttivo pubblicato `fd97d145`, verificato dal run `41044931407`, aggiunge
+dopo Understat e prima del job A/C,
 `POST /api/system/sync-upcoming-kickoffs`, solo quando A/C sono abilitate,
 Top 5 e limite 160. Il GET eventi del provider è gratuito e non richiede prezzi.
 Se l'aggiornamento richiesto fallisce, impedisce nuove decisioni A/C senza
 impedire manutenzione e liquidazioni esistenti. La completezza va comunque
-verificata sui dati reali: il rilascio del correttivo è ancora pendente.
+verificata sui dati reali: il recupero remoto dei cinque incontri è attestato
+dall’audit RO 11:10:02 UTC.
 
 Il recupero `recover_missing_fixtures` è manuale e default `false`: richiede
 un vero successo A/C nello stesso giorno e nessuna esecuzione attiva. Il

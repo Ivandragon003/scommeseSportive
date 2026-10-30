@@ -1,5 +1,11 @@
 # Recupero Nightly e configurazione quote — 30 ottobre 2026
 
+**Aggiornamento successivo:** il run qui descritto copriva quattro incontri.
+La verifica del calendario ha individuato Nice–Rennes anticipata e ancora
+datata al giorno successivo nel DB. Il [recupero della quinta partita](nightly-fixture-recovery-2026-10-30.md)
+è ora verificato: cinque incontri e dieci decisioni complessive, zero puntate,
+193 crediti residui. I numeri 304/196 seguenti descrivono il primo checkpoint.
+
 ## Stato verificato
 
 Backend aggiornato su Hostless e credenziale quote riallineata con GitHub.

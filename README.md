@@ -63,17 +63,27 @@ descrive il nuovo percorso. Riferimenti complementari:
 - [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
 - [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
 
-**Limite emerso il 30 ottobre: calendario incompleto, recupero aggiuntivo pendente.**
-Il run riuscito qui sotto aveva elaborato quattro partite, ma gli incontri
-odierni sono cinque. [Nice–Rennes è stata anticipata al 30 ottobre](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html),
-mentre il DB la conservava al 31: un esito verde non prova la completezza del
-calendario. La patch locale collega l'endpoint già esistente di aggiornamento
-kickoff dopo Understat e prima delle decisioni, usando gli eventi gratuiti
-Top 5, limite 160. Il rilascio e il recupero remoto non sono ancora completati.
-Il recupero manuale delle sole partite mancanti usa `recover_missing_fixtures`
-(default `false`), dopo un vero successo A/C giornaliero e senza run attivi;
-non ricalcola gli input esistenti né riduce i gate di qualità.
+**Recupero calendario verificato il 30 ottobre: cinque partite, dieci decisioni A/C.**
+Il run `41044931407` su `fd97d145` è SUCCESS alle 11:08:12 UTC; CI
+`41044683537` Backend/Frontend SUCCESS. Dopo cinque GET eventi gratuiti,
+800 record controllati e 43 kickoff futuri corretti, Nice–Rennes è passata
+dal 31 ottobre 16:15 UTC al 30 ottobre 18:00 UTC (oggi 19:00 Roma), coerente con
+il [comunicato ufficiale](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html).
+Il recupero ha valutato solo il nuovo incontro: due decisioni, 16 nuove
+osservazioni, zero BET/errori/API errori/missed; i quattro incontri precedenti
+sono esclusi come `decision_already_recorded`.
 
+Audit RO 11:10:02 UTC PASS: cinque input, dieci decisioni e dieci marker di
+inferenza complessivi; digest dei quattro input e delle otto decisioni
+precedenti invariati. Wallet 1.000 euro ciascuno, zero impegnati, 258 giocate
+legacy e sette hash finanziari preservati. Cinque chiamate calendario a costo 0,
+una richiesta quote Nightly da 3 crediti: 307 usati/193 residui. Modelli, minimo 50
+campioni ed EV 4%/prudenziale 1% invariati. Backend `01320941` e UI `fb0e30f8`
+restano LIVE senza nuovo deploy web. [Report dei cinque incontri](docs/operations/nightly-fixture-recovery-2026-10-30.md).
+Il precedente verde su quattro partite non attestava il calendario completo;
+restano da osservare cron 31 ottobre 03:07 e risultati/liquidazioni ufficiali.
+
+**Prima fase delle 10:12 UTC del 30 ottobre, prima del recupero calendario.**
 **Verificato il 30 ottobre 2026: backend e A/C reali operativi sul cloud.**
 Backend `01320941` LIVE; health200, legacy410 e sessione autenticata verificati.
 Quota riconciliata alle 10:01:04 UTC, registrazione riattivata alle 10:04 UTC.
@@ -99,7 +109,7 @@ Restano da osservare il trigger del 31 ottobre 03:07 e risultati/liquidazioni;
 il recupero manuale non dimostra puntualità automatica o ciclo sportivo completo.
 Dettagli: [recupero del 30 ottobre](docs/operations/nightly-recovery-2026-10-30.md).
 
-Verifica browser dopo il LIVE: sessione autenticata conservata, Sistema
+Snapshot browser dopo il LIVE, prima del recupero Nice–Rennes: sessione autenticata conservata, Sistema
 mostra Riuscita alle 11:12 Roma, quattro partite e zero errori/API errori.
 Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome»
 verificati; quota 196 residui/304 usati e database raggiungibile. Le prove

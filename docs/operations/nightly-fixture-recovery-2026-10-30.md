@@ -1,5 +1,44 @@
 # Calendario e decisioni A/C — 30 ottobre 2026
 
+## Stato verificato dopo il recupero
+
+Il [run `41044931407`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41044931407)
+è SUCCESS alle 11:08:12 UTC / 12:08:12 Roma, revisione `fd97d145`.
+La CI `41044683537` della stessa revisione è SUCCESS sia Backend sia Frontend.
+47 test mirati e la revisione indipendente sono passati, senza abbassare
+soglie o modificare i modelli. La modifica riguarda workflow, guard e shell
+GitHub: backend Hostless `01320941` e frontend `fb0e30f8` restano LIVE.
+
+Il calendario ha controllato 800 incontri futuri e aggiornato 43 orari,
+incluso Nice–Rennes al 30 ottobre alle 19:00 Roma. Cinque chiamate calendario
+sono riuscite con costo zero. La nuova elaborazione A/C, dalle 11:07:41 alle
+11:08:04 UTC, ha valutato soltanto Nice–Rennes: un input, due decisioni,
+zero puntate, errori o partite perse. Le altre quattro sono escluse con
+`decision_already_recorded`, prima di nuove richieste quote o inferenze.
+
+L'audit RO delle 11:10:02 UTC è PASS: cinque input, dieci decisioni e dieci
+verifiche d'inferenza A/C complessive. I quattro input e le otto decisioni precedenti
+conservano identità e digest registrati; tutti i sette hash finanziari sono
+identici ai baseline. Restano 258 giocate legacy e due portafogli virtuali
+indipendenti da 1.000 euro, zero impegnati.
+
+La dashboard autenticata è stata ricaricata: mostra cinque partite confrontate
+e il registro con dieci decisioni A/C, incluse le due nuove delle 12:07 Roma.
+
+Nice dispone di 17 quote reali, fonte `odds_api`, bookmaker Codere (IT),
+BetOnline.ag, Coolbet, GTbets, Marathon Bet e Pinnacle. L'età massima
+dell'aggiornamento al freeze è 72,647 secondi. A e C producono distribuzioni
+diverse e coerenti, ma si astengono: A ha 14 quote sotto soglia EV e tre
+senza calibrazione sufficiente; C rispettivamente dodici e cinque. Il
+campione prudenziale resta zero per entrambi.
+
+Sono congelate 16 nuove osservazioni CALIBRATION, sette A e nove C: totale
+74 su cinque incontri, non 74 partite indipendenti. Zero FUTURE_TEST,
+risultati ufficiali e liquidazioni. Una nuova acquisizione quote ha consumato
+tre crediti inclusi: usati 304→307, residui 196→193. Nessun altro caller
+rilevato nell'audit, nessun servizio o piano a pagamento aggiunto.
+Il watchdog indipendente successivo, `41045882229`, è SUCCESS.
+
 ## Problema verificato
 
 Il recupero `41038096151` ha eseguito correttamente A/C su quattro incontri,
@@ -60,10 +99,8 @@ nella giornata Roma e assenza di altri run attivi. Non cambia il comportamento
 dei cron o degli avvii ordinari. Il vincolo persistente sugli input esistenti
 esclude le partite già valutate prima di nuove inferenze o richieste quote.
 
-Stato a questo checkpoint: patch e test in verifica, pubblicazione e recupero
-reale di Nice–Rennes ancora da attestare. Nessuna puntata sul quinto incontro
-è dichiarata registrata. L'audit successivo deve dimostrare cinque incontri
-complessivi, dieci decisioni, immutabilità delle otto precedenti e saldi corretti.
+Pubblicazione, recupero e audit sono completati come riportato sopra.
+Non è stata forzata alcuna puntata sul quinto incontro.
 
 Resta da osservare il primo trigger automatico del nuovo programma e il ciclo
 con risultati ufficiali. La correzione del calendario non dimostra redditività
