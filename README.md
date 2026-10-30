@@ -1292,6 +1292,19 @@ Servizi previsti:
 ### Variabili ambiente: verita unica
 
 - Il file `.env` nella root e la sola sorgente di verita locale.
+- Non serve una copia `.env.production`: sviluppo da root, Compose e deploy
+  Compose standard usano lo stesso `.env`. `.env.example` resta solo il modello
+  senza credenziali da versionare.
+- Salvare il file in UTF-8 e racchiudere tra apici singoli i valori che
+  contengono `$`, come l'hash della password. Il comando di sviluppo root usa
+  `dotenv --no-expand` per conservarli letteralmente.
+- Le CLI lanciate direttamente non caricano il file da sole: dalla cartella
+  `backend` usare `node --env-file=../.env scripts/<comando>.js` con una versione
+  Node che supporta l'opzione. Per il backend nativo usare `npm run dev` dalla
+  root oppure `node --env-file=../.env dist/index.js` dalla cartella `backend`
+  dopo la build.
+- GitHub Actions e Hostless ricevono le variabili dai rispettivi Secrets e
+  pannelli: non leggono né sincronizzano automaticamente il file del PC.
 - Backend:
   `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ODDS_API_KEY`, `THE_ODDS_API_KEY`, `ODDS_PRIMARY_PROVIDER`, `UNDERSTAT_*`, `ODDS_SNAPSHOT_*`, `LEARNING_REVIEW_*`, `LINEUP_REFRESH_*`, `TZ`, `AUTO_SYNC_ON_BOOT`.
 - Frontend:

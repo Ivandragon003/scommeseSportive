@@ -40,12 +40,14 @@ i mode POSIX non sostituiscono le ACL di Windows.
 
 ## Comandi dalla directory backend
 
+Il file locale canonico è il solo `.env` nella root del repository; una copia
+`.env.production` non è necessaria. Conservarlo in UTF-8, senza versionarlo.
 Caricare le credenziali già esistenti tramite l'ambiente privato. Con Node
 che supporta `--env-file`, è possibile leggere il file locale senza copiarne
 il contenuto nella shell o nella conversazione:
 
 ```powershell
-node --env-file=../.env.production scripts/backup-turso.js preflight --expected-host <host-Turso-verificato>
+node --env-file=../.env scripts/backup-turso.js preflight --expected-host <host-Turso-verificato>
 ```
 
 Dopo aver verificato identità del DB, quota account e spazio locale sufficiente,
@@ -56,7 +58,7 @@ SQL può essere più grande del database: 512 MiB non costituiscono un limite
 sufficiente garantito per un database vicino a quella dimensione.
 
 ```powershell
-node --env-file=../.env.production scripts/backup-turso.js backup --expected-host <host-Turso-verificato> --out artifacts/backups/<data-ora-univoca> --max-bytes 536870912 --quota-reviewed
+node --env-file=../.env scripts/backup-turso.js backup --expected-host <host-Turso-verificato> --out artifacts/backups/<data-ora-univoca> --max-bytes 536870912 --quota-reviewed
 ```
 
 Il risultato contiene `database.sql`, `restore.db` e `manifest.json`.
