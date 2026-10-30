@@ -1,8 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import ResearchPage from './ResearchPage';
-import { getResearchComparison, getResearchOddsStatus, getResearchOverview } from '../../utils/researchApi';
+import { getResearchOddsStatus, getResearchOverview } from '../../utils/researchApi';
 import { ResearchOverview } from './researchTypes';
-import { ResearchComparison } from './researchComparisonTypes';
 
 jest.mock('../../utils/researchApi');
 jest.mock('recharts', () => ({
@@ -12,13 +11,6 @@ jest.mock('recharts', () => ({
   XAxis: () => null, YAxis: () => null,
 }));
 
-const mockedComparison = getResearchComparison as jest.MockedFunction<typeof getResearchComparison>;
-const emptyComparison = (): ResearchComparison => ({
-  period: { key: '30d', from: '2026-10-01T00:00:00Z', to: '2026-10-30T00:00:00Z', timezone: 'Europe/Rome', label: 'Ultimi 30 giorni' },
-  portfolios: [], leader: null, byLeague: [], byMarket: [],
-  decisionDifferences: { comparedCount: 0, differentCount: 0, total: 0, truncated: false, rows: [] },
-  bets: { total: 0, truncated: false, rows: [] },
-});
 const mockedOverview = getResearchOverview as jest.MockedFunction<typeof getResearchOverview>;
 const mockedOddsStatus = getResearchOddsStatus as jest.MockedFunction<typeof getResearchOddsStatus>;
 const emptyOverview = (): ResearchOverview => ({
@@ -31,7 +23,6 @@ const emptyOverview = (): ResearchOverview => ({
 
 beforeEach(() => {
   jest.resetAllMocks();
-  mockedComparison.mockResolvedValue(emptyComparison());
   mockedOddsStatus.mockResolvedValue({ observedAt: '2026-10-27T09:00:00Z', month: '2026-10', resetAt: '2026-11-01T00:00:00Z',
     providers: [], usage: [], events: [], plannedForecast: null, limitations: [] });
 });
@@ -100,7 +91,6 @@ test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i m
     { family: 'C', modelVersion: 'C-candidate', market: '1x2', state: 'EXPERIMENTAL', evidence: { n: 40 }, reason: 'Campione prospettico insufficiente.' },
   ];
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
   await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
@@ -122,7 +112,6 @@ test('benchmark mostra osservazioni, intervalli appaiati e limiti senza proclama
     decisionDifferences: { same: 10, different: 12, onlyA: 3, onlyC: 4, neither: 71 },
   } };
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
   await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
@@ -142,7 +131,6 @@ test('mostra tutte le configurazioni di un mercato senza nascondere le versioni 
     { family: 'A', modelVersion: 'A-retrained', market: '1x2', state: 'EXPERIMENTAL', reason: 'Nuova configurazione da verificare.' },
   ];
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
   await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
@@ -161,7 +149,6 @@ test('calibrazione e intervalli temporali compaiono solo quando presenti nel rep
     conclusion: 'Campione non conclusivo.',
   } };
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
   await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
@@ -179,7 +166,6 @@ test('riepilogo giornaliero mantiene variazioni e risultati distinti per portafo
     { portfolioId: 'shadow_C', family: 'C', registeredBets: 1, settledBets: 0, profitCents: 0, portfolioDeltaCents: 0, startEquityCents: 100000, endEquityCents: 100000, endAvailableCents: 99000, endCommittedCents: 1000 },
   ] };
   mockedOverview.mockResolvedValue(overview);
-  mockedComparison.mockResolvedValue({ ...emptyComparison(), bets: { total: overview.bets.length, truncated: false, rows: overview.bets }, portfolios: overview.portfolios.map((portfolio) => ({ family: portfolio.family, portfolioId: portfolio.id, equity: portfolio.history || [] })) });
   render(<ResearchPage />);
   await screen.findByRole('heading', { name: /Benchmark storico/ });
   fireEvent.click(screen.getByRole('tab', { name: 'Sistema' }));
@@ -207,5 +193,4 @@ test('i portafogli attivi sono gestiti nelle pagine normali e non duplicati nel 
   expect(screen.getByRole('link', { name: 'Apri Budget' }).getAttribute('href')).toBe('/budget');
   expect(screen.getByRole('link', { name: 'Apri Giocate' }).getAttribute('href')).toBe('/bets');
   expect(screen.getByRole('link', { name: 'Apri Archivio' }).getAttribute('href')).toBe('/prediction-archive');
-  expect(mockedComparison).not.toHaveBeenCalled();
 });
