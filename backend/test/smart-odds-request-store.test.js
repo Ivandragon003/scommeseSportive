@@ -194,6 +194,54 @@ test('safe HTTP authentication, quota and rate-limit status survives without pro
   } finally { ctx.close(); }
 });
 
+test('exhausted provider credits on HTTP 401 update telemetry and block later HTTP without key-based reset', async () => {
+  const axios = require('axios');
+  const { OddsApiService } = require('../dist/services/OddsApiService.js');
+  const ctx = await setup(); const originalGet = axios.get;
+  let httpCalls = 0;
+  axios.get = async () => { httpCalls++; throw {
+    message: 'private-request-url-sentinel',
+    response: { status: 401, headers: headers(500, 0, 0),
+      data: { error_code: 'OUT_OF_USAGE_CREDITS', message: 'private-body-sentinel' } },
+  }; };
+  try {
+    const service = new OddsApiService('private-key-first', { store: ctx.stores[0], priority: 'essential' });
+    await assert.rejects(service.getOdds('Ligue 1', ['h2h', 'totals', 'spreads']),
+      (error) => error.code === 'odds_credit_budget_exhausted' && error.httpStatus === 401);
+    assert.equal(service.getQuotaStatus().remaining, 0); assert.equal(service.getQuotaStatus().used, 500);
+    for (const league of ['Bundesliga', 'La Liga', 'Ligue 1']) {
+      await assert.rejects(service.getOdds(league, ['h2h', 'totals', 'spreads']), { code: 'odds_credit_budget_exhausted' });
+    }
+    const rotated = new OddsApiService('private-key-second', { store: ctx.stores[1], priority: 'essential' });
+    await assert.rejects(rotated.getOdds('Serie A'), { code: 'odds_credit_budget_exhausted' });
+    assert.equal(httpCalls, 1);
+    const summary = await provider(ctx.stores[0]);
+    assert.equal(summary.observedRemaining, 0); assert.equal(summary.observedUsed, 500);
+    assert.equal(summary.availableCredits, 0); assert.equal(summary.chargedCredits, 0);
+    assert.equal(summary.measuredCredits, 0); assert.equal(summary.requests, 1);
+    const overview = await ctx.stores[0].overview();
+    assert.equal(overview.events.find((event) => event.type === 'DENIED' && event.reason === 'odds_credit_budget_exhausted').count, 4);
+    assert.equal(overview.events.find((event) => event.type === 'FETCH_FAILED').reason, 'odds_credit_budget_exhausted');
+    assert.doesNotMatch(JSON.stringify((await ctx.clients[0].execute('SELECT * FROM smart_odds_results')).rows), /private-/);
+  } finally { axios.get = originalGet; ctx.close(); }
+});
+
+test('INVALID_KEY remains an authentication failure and unrecognized provider codes cannot claim exhausted credits', async () => {
+  const ctx = await setup();
+  try {
+    for (const [providerErrorCode, expected] of [['INVALID_KEY', 'odds_provider_authentication_failed'],
+      ['OUT_OF_USAGE_CREDITS_WITH_SECRET', 'odds_provider_authentication_failed'],
+      ['OUT_OF_USAGE_CREDITS', 'odds_credit_budget_exhausted']]) {
+      await assert.rejects(ctx.stores[0].execute(request({ requestKey: providerErrorCode }), async () => {
+        throw { providerErrorCode, response: { status: 401, headers: { 'x-requests-last': '0' } } };
+      }), (error) => error.code === expected && error.httpStatus === 401 && !JSON.stringify(error).includes('WITH_SECRET'));
+    }
+    const summary = await provider(ctx.stores[0]);
+    assert.equal(summary.availableCredits, 500); assert.equal(summary.observedRemaining, null);
+    assert.equal(summary.chargedCredits, 0);
+  } finally { ctx.close(); }
+});
+
 test('overview is read-only and reports cache denominator and only bookmakers/markets observed in payloads', async () => {
   const ctx = await setup();
   try {

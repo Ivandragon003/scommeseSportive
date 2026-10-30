@@ -3,6 +3,11 @@ name: Odds API Smoke
 on:
   workflow_dispatch:
     inputs:
+      quota_only:
+        description: Verifica chiave e contatori senza richiedere quote (zero crediti)
+        required: false
+        type: boolean
+        default: true
       competition:
         description: Competizione da verificare su Odds API
         required: false
@@ -13,8 +18,28 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
+  quota:
+    if: ${{ inputs.quota_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Verify zero-credit provider quota
+        run: node backend/scripts/probe-odds-quota.js
+
   odds-api-smoke:
+    if: ${{ !inputs.quota_only }}
     runs-on: ubuntu-latest
     defaults:
       run:

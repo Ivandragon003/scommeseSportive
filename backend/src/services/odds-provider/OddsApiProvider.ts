@@ -218,6 +218,7 @@ export class OddsApiProvider implements OddsProviderAdapter<OddsMatch> {
   }
 
   private isAuthenticationFailure(error: unknown): boolean {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'odds_credit_budget_exhausted') return false;
     const status = this.getErrorStatus(error);
     return status === 401 || status === 403;
   }

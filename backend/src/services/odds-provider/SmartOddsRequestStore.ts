@@ -28,7 +28,7 @@ const object = (value: unknown): Record<string, unknown> => value !== null && ty
 function errorDetails(value: unknown) {
   const error = object(value), response = object(error.response);
   return { code: error.code, message: error.message, headers: response.headers ?? error.headers,
-    status: response.status ?? error.httpStatus ?? error.status };
+    status: response.status ?? error.httpStatus ?? error.status, providerErrorCode: error.providerErrorCode };
 }
 async function retryLocked<T>(work: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
@@ -224,9 +224,12 @@ export class SmartOddsRequestStore {
         try { serialized = JSON.stringify(data!); if (serialized === undefined) throw new Error('missing payload'); }
         catch { failure = new Error('odds_invalid_json_payload'); }
       }
-      const rawStatus = Number(errorDetails(failure).status);
+      const details = errorDetails(failure);
+      const rawStatus = Number(details.status);
       const failureStatus = Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599 ? rawStatus : undefined;
-      const failureCode = failureStatus === 401 || failureStatus === 403 ? 'odds_provider_authentication_failed'
+      // The Odds API also returns HTTP 401 when a valid account has exhausted its credits.
+      const failureCode = request.provider === 'odds_api' && details.providerErrorCode === 'OUT_OF_USAGE_CREDITS'
+        ? 'odds_credit_budget_exhausted' : failureStatus === 401 || failureStatus === 403 ? 'odds_provider_authentication_failed'
         : failureStatus === 429 ? 'odds_provider_rate_limited' : failureStatus === 402 ? 'odds_provider_quota_exhausted' : 'odds_transport_failed';
       const fetchedAt = this.clock().toISOString();
       const accepted = await this.write(async (tx) => {

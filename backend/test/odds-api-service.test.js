@@ -39,6 +39,38 @@ test('network requests fail closed without the persistent manager, while extract
   await assert.rejects(service.getEventOdds('Serie A', 'event1', ['h2h']), { code: 'odds_persistent_manager_required' });
 });
 
+test('HTTP failures retain only approved provider codes and numeric quota headers, including zero', async () => {
+  const originalGet = axios.get;
+  try {
+    for (const rawCode of ['OUT_OF_USAGE_CREDITS', 'INVALID_KEY', 'UNKNOWN_CODE_WITH_SECRET', null]) {
+      const service = new OddsApiService('private-key-sentinel', { store: interceptedTransport });
+      axios.get = async () => { throw {
+        message: 'https://provider.invalid/?apiKey=private-key-sentinel',
+        response: { status: 401, data: { error_code: rawCode, message: 'private-body-sentinel' },
+          headers: { 'X-Requests-Used': '500', 'X-Requests-Remaining': '0', 'X-Requests-Last': '0',
+            authorization: 'private-header-sentinel', 'set-cookie': 'private-cookie-sentinel' } },
+      }; };
+      await assert.rejects(service.getOdds('Serie A'), (error) => {
+        assert.deepEqual(error.response, { status: 401,
+          headers: { 'x-requests-used': '500', 'x-requests-remaining': '0', 'x-requests-last': '0' } });
+        assert.equal(error.providerErrorCode, ['OUT_OF_USAGE_CREDITS', 'INVALID_KEY'].includes(rawCode) ? rawCode : undefined);
+        assert.doesNotMatch(`${error.message} ${JSON.stringify(error)}`, /private-|provider\.invalid|UNKNOWN_CODE/);
+        return true;
+      });
+      const quota = service.getQuotaStatus();
+      assert.equal(quota.remaining, 0); assert.equal(quota.used, 500); assert.equal(quota.lastCost, 0);
+      assert.equal(quota.source, 'provider_headers'); assert.ok(Number.isFinite(Date.parse(quota.observedAt)));
+      assert.equal(service.getRemainingRequests(), 0);
+      axios.get = async () => { throw { response: { status: 403, data: { error_code: 'INVALID_KEY' },
+        headers: { 'x-requests-remaining': 'private-invalid-header' } } }; };
+      await assert.rejects(service.getOdds('Serie A'), (error) => {
+        assert.deepEqual(error.response.headers, {}); return true;
+      });
+      assert.deepEqual(service.getQuotaStatus(), quota);
+    }
+  } finally { axios.get = originalGet; }
+});
+
 test('managed metadata preserves the original snapshot and scores/calendar costs differ', async () => {
   const requests = [];
   const capturedAt = '2026-10-27T10:00:00.000Z';

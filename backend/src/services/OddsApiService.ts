@@ -143,8 +143,16 @@ export class OddsApiService {
       } catch (error: any) {
         // Axios errors may contain the API key in their authenticated request URL.
         const status = Number(error?.response?.status) || 0;
+        const headers = Object.fromEntries(['x-requests-used', 'x-requests-remaining', 'x-requests-last'].flatMap((name) => {
+          const value = this.readQuotaHeader(error?.response?.headers, name);
+          return value === null ? [] : [[name, String(value)]];
+        }));
+        // Rejected HTTP responses also carry authoritative quota observations.
+        this.observeQuota(headers);
+        const rawCode = error?.response?.data?.error_code;
+        const providerErrorCode = rawCode === 'OUT_OF_USAGE_CREDITS' || rawCode === 'INVALID_KEY' ? rawCode : undefined;
         throw Object.assign(new Error(status ? `odds_provider_http_${status}` : 'odds_provider_unavailable'),
-          { response: { status, headers: error?.response?.headers } });
+          { response: { status, headers }, ...(providerErrorCode ? { providerErrorCode } : {}) });
       }
     };
     let result;
@@ -189,14 +197,16 @@ export class OddsApiService {
     return undefined;
   }
 
+  private readQuotaHeader(headers: unknown, name: string): number | null {
+    const raw = this.readHeaderValue(headers, name)?.trim();
+    if (!raw || !/^\d+$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+
   private observeQuota(headers: unknown): OddsQuotaStatus {
-    const read = (name: string): number | null => {
-      const raw = this.readHeaderValue(headers, name)?.trim();
-      if (!raw || !/^\d+$/.test(raw)) return null;
-      const value = Number(raw);
-      return Number.isSafeInteger(value) && value >= 0 ? value : null;
-    };
-    const observed = { remaining: read('x-requests-remaining'), used: read('x-requests-used'), lastCost: read('x-requests-last') };
+    const observed = { remaining: this.readQuotaHeader(headers, 'x-requests-remaining'),
+      used: this.readQuotaHeader(headers, 'x-requests-used'), lastCost: this.readQuotaHeader(headers, 'x-requests-last') };
     if (Object.values(observed).some((value) => value !== null)) {
       this.quotaStatus = { ...observed, observedAt: new Date().toISOString(), source: 'provider_headers' };
       if (observed.remaining !== null) this.remainingRequests = observed.remaining;

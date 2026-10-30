@@ -123,6 +123,17 @@ test('OddsApiProvider does not retry market bundles after a persistent budget de
   assert.equal(calls, 1);
 });
 
+test('typed HTTP 401 credit exhaustion neither starts authentication cooldown nor retries market bundles', async () => {
+  const { SmartOddsRequestError } = require('../dist/services/odds-provider/SmartOddsRequestStore.js');
+  const provider = new OddsApiProvider('exhausted-credits-test-key');
+  let calls = 0;
+  const failure = new SmartOddsRequestError('odds_credit_budget_exhausted', 401);
+  provider.service = { getRemainingRequests: () => 0, getOdds: async () => { calls++; throw failure; } };
+  await assert.rejects(provider.getCompetitionOdds({ competition: 'Serie A', markets: ['h2h', 'totals', 'spreads'],
+    fallbackMarkets: ['h2h'] }), (error) => error === failure);
+  assert.equal(calls, 1); assert.equal(provider.getRuntimeMetadata().authCooldownUntil, null);
+});
+
 test('competition requests exclude event-only markets before transport and preserve cache observation time', async () => {
   const provider = new OddsApiProvider('filtered-test-key');
   const requested = [];
