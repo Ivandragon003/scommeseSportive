@@ -1,35 +1,50 @@
 # ⚽ FootPredictor - Sistema di Analisi Statistica Calcio
 
-**Correzione locale dei mercati A/C — non ancora attestata online.**
+**Correzione A/C pubblicata su GitHub — rilascio web ancora da attestare.**
 La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,
 con i mercati squadra già supportati, inclusi cartellini e tiri quando esistono
 quote reali e dati sufficienti. C conserva i propri mercati gol concordati.
 L'automazione registra i consigli dei due motori con i rispettivi stake e i
 controlli contabili; non costituisce un terzo modello e non restringe A al
 catalogo di C. Corner/falli restano bloccati e player props separate.
-Decisioni storiche e snapshot cloud v1 qui sotto restano invariati.
+La separazione motori `34d33d1c` e la manutenzione `983f2850` sono pubblicate.
+Le CI `41097868338` e `41098953612` hanno entrambi i job riusciti; l'ultima
+ha verificato 1.049 test backend, 1.048 passati, un opzionale saltato e zero
+fallimenti. Alle 18:26 Europe/Rome sono state ritirate le cinque puntate v1
+aperte del run `41069572500`, con archivio integro e 64,20 euro liberati:
+disponibile 1.000 euro per portafoglio e impegnato zero dopo il ritiro.
+Le dieci decisioni originarie restano conservate.
 [Specifica della separazione dei motori](docs/operations/recommendation-execution-2026-10-30.md).
 
-Verifica locale v2: build/typecheck/lint backend e test mirati Linux/Node20
-riusciti; healthcheck isolato HTTP 200. L'avvio con Turso remoto resta bloccato
-da `SQL read operations are forbidden`; nessun deploy di questa correzione
-è attestato. [Dettagli e limiti delle verifiche](docs/operations/recommendation-execution-2026-10-30.md#verifiche-della-correzione-locale-v2).
-Il workflow locale abilita i mercati per
+La nuova Nightly `41098979782`, sorgente `983f2850`, è riuscita: cinque partite,
+dieci decisioni v2 e sei nuove puntate virtuali (quattro A e due C), senza
+errori o kickoff mancati. A ha ricevuto anche quote cartellini, BTTS e DNB;
+C ha conservato il catalogo gol. I nuovi importi impegnati sono 37,90 euro
+per A e 20,00 euro per C. I deployment
+Hostless richiesti per la correzione restano in coda; prima di questi risultano
+LIVE backend `7f9ab7cf` e frontend `3c503fa9`. La configurazione Turso di
+produzione funziona; il precedente errore di lettura riguardava il vecchio
+`.env` locale. [Ritiro, rilascio e nuova esecuzione](docs/operations/nightly-engine-correction-2026-10-30.md).
+
+Build/typecheck/lint backend e verifiche mirate Linux/Node20 riusciti;
+healthcheck isolato HTTP 200. [Dettagli e limiti delle verifiche](docs/operations/recommendation-execution-2026-10-30.md#verifiche-della-correzione-locale-v2).
+Il workflow pubblicato abilita i mercati per
 evento A con `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`, entro il budget esistente;
 la rete informativa della dashboard resta disabilitata.
 
-**Portafogli nelle pagine normali dell’app — integrazione locale in verifica.**
+**Riscontro storico dell'integrazione delle pagine, precedente al ritiro v1.**
 Il nuovo requisito porta A/C in **Giocate, Budget e Archivio**, con filtro per
-modello e confronto. Sono gli stessi portafogli e le stesse cinque BET già
-finanziate: nessuna copia, migrazione, nuova puntata o addebito. La lettura
+modello e confronto. L'integrazione riusava gli stessi portafogli e le cinque
+BET allora finanziate, ritirate successivamente come descritto sopra, senza
+copie o nuovi addebiti. La lettura
 `GET /api/wallets` riusa il confronto contabile esistente; aggregati completi
 e dettaglio limitato a 500 righe sono distinti. Lo storico precedente di 258
 giocate resta consultabile separatamente, senza attribuirlo ad A o sommarne
 il capitale. Research rimane dedicato a benchmark e modelli, non alla gestione
-dei saldi. Questa integrazione non è ancora attestata LIVE: lo snapshot
-cloud qui sotto riguarda la UI precedente e la policy v1 già attiva. La sola
+dei saldi. Lo snapshot qui sotto riguarda lo stato precedente e la policy v1.
+Non descrive puntate ancora attive dopo il ritiro. La sola
 integrazione della navigazione non cambia modelli e infrastruttura; la
-correzione locale v2 dei mercati è descritta separatamente sopra.
+correzione v2 dei mercati è descritta separatamente sopra.
 
 [Guida dell’integrazione nelle pagine dell’app](docs/operations/app-wallet-integration-2026-10-30.md).
 
@@ -45,11 +60,11 @@ restano da attestare. Compose isolato e controlli delle cinque BET reali,
 filtri A3/C2, saldi e pacchetti congelati superati; undici hash finanziari e
 storici invariati prima/dopo, nessun POST legacy osservato in Nginx.
 Il backend Hostless `6ae4bf80475f3a60ae37bd72`, richiesto alle 16:02 UTC
-(17:02 Roma), è ancora **Queued**: questa integrazione non è LIVE. Frontend
-remoto ancora `3c503fa9`; auto-deploy OFF e risorse invariati. Il precheck
-remoto conferma cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
+(17:02 Roma), risultava allora **Queued**; il backend `7f9ab7cf` è stato
+successivamente osservato LIVE. Il precheck precedente al ritiro contava
+cinque BET, sette movimenti, 258 legacy e 24 righe in `schema_migrations`.
 
-**Snapshot cloud prima dell’integrazione nelle pagine normali, 30 ottobre 2026.** Backend `eb5d838e`
+**Snapshot cloud storico prima dell’integrazione e del ritiro v1, 30 ottobre 2026.** Le cinque puntate sotto sono state ritirate alle 18:26 Roma; saldi e impegni dello snapshot non sono attuali. Backend `eb5d838e`
 LIVE, deployment `6ae4984bb53426f1e55ec75c`; frontend `3c503fa9` LIVE,
 deployment `6ae49cd1e2d5898dc9ef7bb2`. Variabile GitHub `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` verificata.
 Run reale `41069572500` SUCCESS: cinque partite, dieci decisioni e cinque
@@ -92,7 +107,7 @@ Non è la vecchia A research `A-80cb25df5552621e`. C `C-906371b0b3a1e2c8`
 mantiene la baseline A research 80 e resta **Challenger**. GitHub Actions aggiorna i dati e,
 quando esplicitamente abilitata, esegue una sola elaborazione notturna sulle
 partite future. Ogni modello sceglie al massimo una puntata virtuale per partita
-oppure nessuna. Nella correzione locale v2 A mantiene tutti i mercati del proprio
+oppure nessuna. Nella correzione v2 A mantiene tutti i mercati del proprio
 motore; C usa solo quelli concordati. Cache e budget quote sono condivisi,
 ma l'insieme di mercati di C non limita quello di A.
 
@@ -118,11 +133,13 @@ massima 5% per portafoglio. Gli identificatori persistenti `shadow_A` e
 una modalità Shadow Betting separata. Nessun terzo portafoglio, reset o denaro
 reale. Lo storico precedente mantiene il protocollo e i timestamp originari.
 
-Nell’integrazione locale, la gestione principale legge le finanze A e C è
+Nell’integrazione pubblicata, la gestione principale legge le finanze A e C è
 consultabile con filtro modello o confronto nelle normali pagine. Le letture
 non inizializzano saldi e non invocano POST legacy di sincronizzazione o
 piazzamento. Pubblicazione e verifica remota della nuova navigazione sono
-ancora da completare; le cinque BET dello snapshot non vengono generate di nuovo.
+ancora da completare per l'ultima correzione; le cinque BET v1 sono state
+ritirate. La nuova Nightly deve produrre consigli v2 con quote nuove, senza
+riattivare le vecchie registrazioni o garantire le stesse selezioni.
 
 Per C, un mercato `EXPERIMENTAL` può raccogliere risultati virtuali se dati,
 probabilità, quota reale, bookmaker, timestamp, liquidazione e controlli

@@ -1,6 +1,6 @@
 # Consigli dell'app e registrazione virtuale A/C — 30 ottobre 2026
 
-## Correzione locale: autonomia dei motori A e C
+## Correzione pubblicata: autonomia dei motori A e C
 
 La policy `virtual-recommendation-v2` corregge la restrizione introdotta dal
 percorso precedente: A riceve le quote dei mercati già supportati dal proprio
@@ -28,7 +28,7 @@ dei mercati e le diverse regole di stake.
 
 La raccolta di A riusa provider, selezione coerente del bookmaker e mercati
 per evento già configurati nell'app, rispettando flag, cache e budget.
-Il workflow Nightly locale imposta `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`
+Il workflow Nightly pubblicato imposta `ODDS_EXTRA_EVENT_NETWORK_ENABLED=true`
 per consentire la raccolta dei mercati aggiuntivi di A, mantenendo
 `ODDS_INFORMATIONAL_NETWORK_ENABLED=false` per la dashboard. La configurazione
 locale `.env` conserva l'opt-in separato e Docker non avvia l'automazione per
@@ -38,10 +38,33 @@ Un mercato supportato ma senza quota reale resta indisponibile. Per liquidare
 cartellini e tiri A servono le statistiche reali richieste: un dato mancante
 lascia la giocata aperta; i cartellini totali valgono gialli + 2 × rossi.
 
-Questa correzione è locale e richiede ancora attestazione del rilascio remoto.
-Non modifica decisioni, puntate o policy storiche. I riscontri cloud v1
+La separazione dei motori `34d33d1c` e la manutenzione `983f2850` sono pubblicate
+su GitHub. La CI `41097868338` della prima ha entrambi i job riusciti, con
+1.044 test backend: 1.043 passati, un opzionale saltato e zero fallimenti.
+La CI `41098953612` della manutenzione ha entrambi i job riusciti, con 1.049
+test backend: 1.048 passati, un opzionale saltato e zero fallimenti.
+
+La separazione dei motori conserva decisioni e policy storiche. Il successivo
+ritiro autorizzato delle cinque puntate v1 aperte, verificato in produzione
+alle 18:26 Europe/Rome, è descritto nella
+[guida della correzione Nightly](nightly-engine-correction-2026-10-30.md).
+Le righe originali e i movimenti STAKE sono archiviati prima del ritiro
+operativo; 6.420 centesimi sono stati liberati. Subito dopo il ritiro entrambi
+i portafogli avevano 100.000 centesimi disponibili e zero impegnati. Le dieci
+decisioni originarie sono rimaste identiche. I riscontri cloud v1
 riportati sotto descrivono il comportamento precedente, con quote limitate e
 condivise: non dimostrano che la copertura completa di A fosse già online.
+
+Il rilascio web della correzione non è ancora attestato. Sono richiesti e
+ancora in coda i backend `6ae4d22eb23c0621142f8a58` (commit `34d33d1c`) e
+`6ae4d48d475f3a60ae3afee7` (commit `983f2850`), e il frontend
+`6ae4d3d313dc13e591bc9f0c` (commit `983f2850`). Prima di questi tentativi
+risultano LIVE backend `7f9ab7cf` e frontend `3c503fa9`. La nuova Nightly
+`41098979782`, sorgente `983f2850`, è riuscita: cinque partite, dieci decisioni
+v2, sei nuove puntate (quattro A, due C), zero errori e zero kickoff mancati.
+La verifica delle prove mostra cataloghi A/C distinti, prezzi reali freschi
+e registrazioni prima del kickoff. A impegna 37,90 euro e C 20,00 euro.
+L'esecuzione GitHub già riuscita è distinta dai deploy web ancora in coda.
 
 Un errore nella preparazione diagnostica research non vieta da solo una
 giocata valida di A. Viene conservata un'origine diagnostica indisponibile,
@@ -67,12 +90,19 @@ e il cleanup `EPERM` di `research-recommendation-view`; i controlli mirati
 Linux non equivalgono all'intera suite.
 
 Le immagini Docker Compose sono state costruite. L'avvio con la configurazione
-Turso remota è stato bloccato da `SQL read operations are forbidden`; il backend
-che riprovava è stato fermato. L'healthcheck isolato con database locale e
+Turso del vecchio `.env` locale è stato bloccato da
+`SQL read operations are forbidden`; il backend che riprovava è stato fermato.
+La configurazione di produzione è invece funzionante ed è stata usata per
+il ritiro verificato: il blocco locale non descrive il Turso di produzione.
+L'healthcheck isolato con database locale e
 rete provider disabilitata restituisce HTTP 200. Questo controllo non dimostra
 il funzionamento con Turso remoto, la copertura quote reale o il rilascio online.
 
 ## Stato del rilascio precedente (policy v1)
+
+**Snapshot storico, non stato contabile corrente.** Le cinque puntate v1
+descritte sotto sono state ritirate alle 18:26 Europe/Rome con archivio e
+decisioni originali preservati. Le cifre seguenti precedono quel ritiro.
 
 Rilascio e prima esecuzione reale completati il 30 ottobre 2026:
 
@@ -91,10 +121,11 @@ Rilascio e prima esecuzione reale completati il 30 ottobre 2026:
 | A | 1.000,00 euro | 955,80 euro | 44,20 euro | 3 |
 | C | 1.000,00 euro | 980,00 euro | 20,00 euro | 2 |
 
-Gli importi impegnati non sono perdite: le cinque partite devono ancora
-produrre un risultato ufficiale e una liquidazione. Il primo ciclo
-prospettico completo rimane **in corso**. Non è attestata la puntualità
-di una futura esecuzione schedulata soltanto in base a questo run manuale.
+Nel riscontro precedente al ritiro gli importi impegnati non erano perdite:
+le partite non avevano ancora un risultato ufficiale e una liquidazione.
+Le cinque puntate sono poi state ritirate, senza completare quel ciclo
+sportivo. Il run manuale precedente non attesta la puntualità di una futura
+esecuzione schedulata.
 
 ## Comportamento richiesto
 
