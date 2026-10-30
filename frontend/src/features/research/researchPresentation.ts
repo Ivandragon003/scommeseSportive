@@ -44,6 +44,14 @@ export const portfolioLabel = (portfolio: Pick<ResearchPortfolio, 'id' | 'family
   portfolio.id === 'main' ? 'Portafoglio principale' : `Portafoglio ${portfolio.family}`;
 
 const DECISION_REASONS: Record<string, string> = {
+  app_no_recommendation: 'Il modello A non ha trovato una giocata da consigliare.',
+  challenger_no_recommendation: 'Il modello C non ha trovato una giocata da consigliare.',
+  app_prediction_unavailable: 'La previsione del modello A non è disponibile.',
+  invalid_app_recommendation_packet: 'Il consiglio del modello A è incompleto o non verificabile.',
+  app_recommendation_quote_mismatch: 'La quota del consiglio A non corrisponde alle quote condivise.',
+  invalid_app_recommendation_value: 'Probabilità, valore atteso o stake del consiglio A non validi.',
+  non_binary_payout_not_supported_by_canonical_engine: 'Mercato non ancora supportato dalla simulazione C.',
+  invalid_recommended_stake: 'Stake consigliato non valido: nessuna puntata registrata.',
   hybrid_model_unavailable_or_incompatible: 'Modello C assente o incompatibile.',
   validated_calibration_unavailable: 'Calibrazione validata non disponibile.',
   quotes_missing: 'Quote reali non disponibili.',

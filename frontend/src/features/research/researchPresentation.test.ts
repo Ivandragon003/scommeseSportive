@@ -32,6 +32,16 @@ test('le motivazioni diventano frasi leggibili senza mostrare JSON tecnico', () 
   expect(decisionReason('{invalid')).toBe('Motivazione non leggibile; consultare il registro tecnico.');
 });
 
+test('i nuovi motivi distinguono assenza di consiglio, limiti C ed errori senza mostrare codici inglesi', () => {
+  expect([decisionReason('app_no_recommendation'), decisionReason('challenger_no_recommendation')]).toEqual(['Il modello A non ha trovato una giocata da consigliare.', 'Il modello C non ha trovato una giocata da consigliare.']);
+  expect(decisionReason('app_prediction_unavailable')).toBe('La previsione del modello A non è disponibile.');
+  expect(decisionReason('invalid_app_recommendation_packet')).toBe('Il consiglio del modello A è incompleto o non verificabile.');
+  expect(decisionReason('app_recommendation_quote_mismatch')).toBe('La quota del consiglio A non corrisponde alle quote condivise.');
+  expect(decisionReason('invalid_app_recommendation_value')).toBe('Probabilità, valore atteso o stake del consiglio A non validi.');
+  expect(decisionReason('non_binary_payout_not_supported_by_canonical_engine')).toBe('Mercato non ancora supportato dalla simulazione C.');
+  expect(decisionReason('invalid_recommended_stake')).toBe('Stake consigliato non valido: nessuna puntata registrata.');
+});
+
 test('i nomi dei mercati corrispondono anche alle chiavi usate dal registro reale', () => {
   expect(marketLabel('shots_on_target')).toBe('Tiri in porta');
   expect(marketLabel('cards_total')).toBe('Cartellini totali');

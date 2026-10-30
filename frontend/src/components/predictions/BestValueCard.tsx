@@ -1,4 +1,5 @@
 import React from 'react';
+import { decisionReason } from '../../features/research/researchPresentation';
 import OddsSourceBadge from './OddsSourceBadge';
 import { fmtSelection, marketTierBadgeClass, marketTierLabel } from './predictionFormatting';
 import { formatKickoff, formatMarketKey, isTechnicalRecommendationAbstention } from './predictionWorkbenchUtils';
@@ -67,7 +68,7 @@ const BestValueCard: React.FC<BestValueCardProps> = ({
   const automaticNotice = technicalAbstention ? (
     <div className="pr-alert pr-alert-warning" aria-label="Decisione Nightly A">
       <strong>Astensione tecnica della Nightly A</strong>
-      <p>Valutazione non completata. Motivo: {technicalAbstention.reason}</p>
+      <p>Valutazione non completata. Motivo: {decisionReason(technicalAbstention.reason)}</p>
       <p>Importo registrato nel portafoglio virtuale A: EUR 0.00. Nessuna puntata registrata.</p>
       <p>Valutata il {formatKickoff(technicalAbstention.asOf)}. Quota della decisione non disponibile.</p>
     </div>

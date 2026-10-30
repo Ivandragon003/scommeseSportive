@@ -97,3 +97,10 @@ test('technical abstention renders its real reason and zero A debit without acce
   expect(screen.queryByTestId('best-value-metric-quota-bookmaker')).toBeNull();
   expect(screen.queryByText(/prezzo archiviato, non quota corrente/)).toBeNull();
 });
+
+test('the main card translates a recorded technical reason with the common presentation formatter', () => {
+  render(<BestValueCard opportunity={null} automaticRecommendation={{ ...technicalAbstention, reason: 'app_prediction_unavailable' }}
+    oddsBadge={{ label: 'Quota non disponibile', className: 'pr-badge-gray' }} />);
+  expect(screen.getByLabelText('Decisione Nightly A').textContent).toContain('La previsione del modello A non è disponibile.');
+  expect(screen.getByLabelText('Decisione Nightly A').textContent).not.toContain('app_prediction_unavailable');
+});
