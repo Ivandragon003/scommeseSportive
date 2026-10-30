@@ -9,10 +9,19 @@ const nightlyState = (value?: string) => ({
   PENDING: 'In attesa', RUNNING: 'In esecuzione', SUCCESS: 'Riuscita', FAILED: 'Fallita', MISSED: 'Esecuzione attesa mancante',
 }[value || ''] || 'Non ancora osservata');
 
+export const nightlyReferenceTime = (value: unknown): string | null => {
+  if (!(value instanceof Date) && (typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T.*(?:z|[+-]\d{2}:\d{2})$/i.test(value))) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+};
+
 const ResearchAutomationStatus = ({ status }: { status: ResearchOverview['status'] }) => {
   const nightly = status?.nightly;
   const run = nightly?.lastRun;
   const metrics = nightly?.metrics;
+  const referenceTime = nightlyReferenceTime(nightly?.expectedAt);
   return <section className="research-panel">
     <h2>Stato delle automazioni</h2>
     <p className="research-conclusion">Nightly Pre-Match Virtual Betting</p>
@@ -42,7 +51,7 @@ const ResearchAutomationStatus = ({ status }: { status: ResearchOverview['status
       <Metric label="Ultima osservazione del provider" value={dateTime(status?.lastProviderAt)} />
       <Metric label="Stato database" value={status?.dbStatus || 'Non verificato'} />
     </dl>
-    <p className="research-help">Orario di riferimento: 03:00 Europe/Rome, con ora legale. Il timestamp effettivo del job determina le decisioni; un’esecuzione mancata non genera puntate retroattive. Le osservazioni non misurate restano non disponibili.</p>
+    <p className="research-help">{referenceTime ? <>Orario di riferimento: {referenceTime} Europe/Rome, con ora legale.</> : <>Orario non disponibile.</>} Il timestamp effettivo del job determina le decisioni; un’esecuzione mancata non genera puntate retroattive. Le osservazioni non misurate restano non disponibili.</p>
     {nightly?.overdue && <div className="research-blockers" role="status"><h3>Nightly attesa non osservata</h3><p>È trascorsa la tolleranza prevista: controllare l’esecuzione programmata su GitHub.</p></div>}
     {run?.error && <p className="fp-alert fp-alert-danger">Ultimo errore registrato: {run.error}</p>}
     <h3>Consumo delle API quote</h3>

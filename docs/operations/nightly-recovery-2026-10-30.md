@@ -113,7 +113,44 @@ e riserva 50 sono conservati. Un evento `QUOTA_RECONCILED` documenta la
 correzione; richieste, risultati, cache, eventi preesistenti e dati finanziari
 mantengono i loro hash. Non è un reset mensile né un cambio di account per
 aggirare la quota. Le prove e l'approvazione monouso sono conservate privatamente.
-La registrazione resta sospesa fino all'avvio controllato del collaudo remoto.
+La registrazione è stata riattivata alle 10:04 UTC per il recupero controllato.
+
+## Collaudo A/C reale sul cloud
+
+Il run manuale `41038096151`, revisione `8bf17826`, è partito sul runner
+quattro secondi dopo la richiesta. È SUCCESS alle 10:12:43 UTC, con entrambi
+i passi di sincronizzazione e conferma A/C riusciti. L'elaborazione A/C è
+avvenuta dalle 10:11:38 alle 10:12:25 UTC, con finestra fino al 31 ottobre
+alle 03:07 Roma. Quattro partite reali analizzate, zero errori e zero errori API.
+
+L'audit RO delle 10:14 UTC ha verificato quattro input condivisi, otto
+decisioni e otto marker di inferenza: A e C producono distribuzioni diverse,
+finite, normalizzate e coerenti con le rispettive matrici. Le quote reali nei
+quattro snapshot sono fresche anche al commit (massimo 205,314 secondi).
+Sono congelate 58 osservazioni prospettiche, 29 per modello, tutte nella
+partizione CALIBRATION: non sono 58 incontri indipendenti o un nuovo test finale.
+
+Entrambi i modelli si sono astenuti. I motivi sono valore centrale sotto
+soglia ed evidenza di validazione/calibrazione insufficiente; i campioni
+prudenziali precedenti disponibili sono zero. Nessuna puntata è stata
+forzata. Portafogli A/C ancora a 1.000 euro ciascuno, zero impegnati;
+258 giocate legacy, ledger e tutti gli hash finanziari preservati.
+Modelli e versioni immutati, C rimane Challenger.
+
+Tre acquisizioni da tre crediti hanno consumato nove crediti inclusi:
+il provider passa da 295/205 a 304/196 (usati/residui), anchor da 15 a 24,
+senza modificare reset, limite o riserva. Il risultato ufficiale delle partite
+e la successiva liquidazione/evidenza restano futuri: il ciclo sportivo completo
+non è ancora attestato. Il recupero manuale non prova la puntualità automatica.
+
+Il secondo avvio `41039455356` è stato correttamente fermato dal gate:
+installazione, build, sincronizzazione e conferma A/C risultano SKIPPED.
+Non ha avviato processi applicativi o richieste quote. Il watchdog indipendente
+`41039066641` è SUCCESS dopo il recupero reale.
+
+La descrizione statica delle 03:00 nel frontend è corretta usando l'orario
+del DTO: il messaggio mostra le 03:07 e gestisce il cambio d'ora. Il rilascio
+del sito va verificato separatamente da questo controllo locale dell'interfaccia.
 
 ## Verifica locale del rilascio
 

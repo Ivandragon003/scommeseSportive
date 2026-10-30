@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
-import ResearchAutomationStatus from './ResearchAutomationStatus';
+import ResearchAutomationStatus, { nightlyReferenceTime } from './ResearchAutomationStatus';
 import { ResearchOverview } from './researchTypes';
 
 const status = (): ResearchOverview['status'] => ({
@@ -56,4 +56,34 @@ test('quota API non misurata resta mancante e uno zero osservato rimane zero', (
   expect(valueFor('Crediti residui osservati').getByText('0')).toBeTruthy();
   expect(valueFor('Crediti usati osservati').getByText('500')).toBeTruthy();
   expect(valueFor('Costo dell’ultima richiesta').getByText('2')).toBeTruthy();
+});
+
+test.each(['2026-10-30T02:07:00.000Z', '2026-07-30T01:07:00.000Z'])(
+  'orario di riferimento usa expectedAt in Europe/Rome: %s', (expectedAt) => {
+    render(<ResearchAutomationStatus status={{ ...status(), nightly: { expectedAt } }} />);
+    expect(screen.getByText(/Orario di riferimento: 03:07 Europe\/Rome, con ora legale\./)).toBeTruthy();
+    expect(screen.queryByText(/Orario di riferimento: 03:00/)).toBeNull();
+  },
+);
+
+test.each([
+  ['2026-03-28T02:07:00Z', '2026-03-29T01:07:00Z'],
+  ['2026-10-24T01:07:00Z', '2026-10-25T02:07:00Z'],
+])('cambio ora legale conserva le 03:07 locali prima e dopo %s', (before, after) => {
+  expect(nightlyReferenceTime(before)).toBe('03:07');
+  expect(nightlyReferenceTime(after)).toBe('03:07');
+  expect(nightlyReferenceTime(new Date(after))).toBe('03:07');
+});
+
+test.each([undefined, null, '', 'invalid', '2026-10-30T02:07:00', '2026-10-30', '2026-13-30T02:07:00Z'])(
+  'orario mancante o non valido non inventa una pianificazione: %s', (expectedAt) => {
+    render(<ResearchAutomationStatus status={{ ...status(), nightly: { expectedAt } }} />);
+    expect(screen.getByText(/Orario non disponibile\./)).toBeTruthy();
+    expect(screen.queryByText(/Orario di riferimento:/)).toBeNull();
+  },
+);
+
+test('helper rifiuta Date non valida e valori non temporali', () => {
+  expect(nightlyReferenceTime(new Date('invalid'))).toBeNull();
+  expect(nightlyReferenceTime(0)).toBeNull();
 });
