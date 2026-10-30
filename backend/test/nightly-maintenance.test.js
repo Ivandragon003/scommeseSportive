@@ -69,13 +69,14 @@ test('actual nightly shell keeps legacy flags inert and invokes only the explici
       writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`);
       chmodSync(path, 0o755);
     };
-    writeExecutable('curl', 'printf "%s\\n" "$*" >> "$CALL_LOG"\nprintf \'{"success":true}\\n\'');
+    writeExecutable('curl', 'printf "curl:%s\\n" "$*" >> "$CALL_LOG"\nif [[ "$*" == *"/api/system/sync-upcoming-kickoffs"* && "$CALENDAR_FAILURE" == "true" ]]; then\n  printf \'{"success":false,"error":"odds_calendar_events_unavailable"}\\n\'\n  exit 22\nfi\nprintf \'{"success":true}\\n\'');
     writeExecutable('npm', 'printf "%s\\n" "$*" >> "$NPM_LOG"');
-    writeExecutable('node', 'if [[ "$1" == "scripts/research-nightly.js" ]]; then\n  printf "nightly:%s:%s:%s\\n" "$RESEARCH_NIGHTLY_ENABLED" "$RESEARCH_T15_SCHEDULER_ENABLED" "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" >> "$NODE_LOG"\n  exit 0\nfi\nprintf "%s\\n" "$RESEARCH_T15_SCHEDULER_ENABLED" >> "$NODE_LOG"\nwhile true; do sleep 1; done');
+    writeExecutable('node', 'if [[ "$1" == "scripts/research-nightly.js" ]]; then\n  printf "nightly:%s:%s:%s\\n" "$RESEARCH_NIGHTLY_ENABLED" "$RESEARCH_T15_SCHEDULER_ENABLED" "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" >> "$NODE_LOG"\n  printf "nightly:%s\\n" "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" >> "$CALL_LOG"\n  [[ "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" == "true" ]]\n  exit $?\nfi\nprintf "%s\\n" "$RESEARCH_T15_SCHEDULER_ENABLED" >> "$NODE_LOG"\nwhile true; do sleep 1; done');
     writeFileSync(join(temp, 'bash-env'), `export PATH="${posix(bin)}:$PATH"\n`);
-    for (const enabled of ['false', 'true']) {
+    for (const [enabled, calendarFailure] of [['false', 'false'], ['true', 'false'], ['true', 'true'], ['false', 'true']]) {
       writeFileSync(join(temp, 'node.log'), '');
-      execFileSync(bash, ['--noprofile', '--norc', posix(shellPath)], {
+      writeFileSync(join(temp, 'calls.log'), '');
+      const run = () => execFileSync(bash, ['--noprofile', '--norc', posix(shellPath)], {
       timeout: 15000,
       env: {
         ...process.env, BASH_ENV: posix(join(temp, 'bash-env')),
@@ -87,11 +88,30 @@ test('actual nightly shell keeps legacy flags inert and invokes only the explici
         AUTO_BET_ENABLED: 'true', AUTO_BET_DRY_RUN: 'false',
         RESEARCH_T15_SCHEDULER_ENABLED: 'true',
         RESEARCH_NIGHTLY_ENABLED: enabled,
+        CALENDAR_FAILURE: calendarFailure,
       },
       });
+      const failedCalendar = enabled === 'true' && calendarFailure === 'true';
+      if (failedCalendar) assert.throws(run, (error) => error.status === 1);
+      else run();
       const nodeCalls = readFileSync(join(temp, 'node.log'), 'utf8').trim().split('\n');
       assert.equal(nodeCalls[0], 'false');
-      assert.deepEqual(nodeCalls.slice(1), enabled === 'true' ? ['nightly:true:false:true'] : []);
+      assert.deepEqual(nodeCalls.slice(1), enabled === 'true' ? [`nightly:true:false:${!failedCalendar}`] : []);
+      const calls = readFileSync(join(temp, 'calls.log'), 'utf8');
+      assert.doesNotMatch(calls, /place-valid-bets|\/bets\/place|research\/t15|research\/tick/);
+      for (const route of ['/api/scraper/understat', '/api/scraper/football-data', '/api/bets/sync',
+        '/api/predictions/settle-completed', '/api/research/settle']) assert.ok(calls.includes(route));
+      const calendarCalls = calls.split('\n').filter((line) => line.includes('/api/system/sync-upcoming-kickoffs'));
+      assert.equal(calendarCalls.length, enabled === 'true' ? 1 : 0);
+      if (enabled === 'true') {
+        assert.match(calendarCalls[0], /--max-time 180/);
+        assert.ok(calendarCalls[0].includes('{"mode":"top5","limit":160}'));
+        assert.ok(calls.indexOf('/api/scraper/understat') < calls.indexOf('/api/system/sync-upcoming-kickoffs'));
+        assert.ok(calls.indexOf('/api/system/sync-upcoming-kickoffs') < calls.indexOf(`nightly:${!failedCalendar}`));
+      }
+      assert.equal(calls.includes('/api/learning/reviews/sync'), !failedCalendar);
+      assert.equal(calls.includes('/api/research/nightly-complete'), !failedCalendar);
+      assert.ok(calls.includes('/api/scraper/status'));
     }
     const calls = readFileSync(join(temp, 'calls.log'), 'utf8');
     assert.doesNotMatch(calls, /place-valid-bets|\/bets\/place|research\/t15|research\/tick/);

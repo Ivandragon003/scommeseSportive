@@ -11,6 +11,12 @@ on:
     - cron: '27 5 * * *'
       timezone: Europe/Rome
   workflow_dispatch:
+    inputs:
+      recover_missing_fixtures:
+        description: Recupera solo fixture mancanti dopo un A/C riuscito oggi; manutenzione ripetibile
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -29,6 +35,7 @@ jobs:
       SYNC_TIMEZONE: Europe/Rome
       # Preserve the originating timezone-aware trigger even after queue delay.
       SCHEDULE_CRON: ${{ github.event.schedule }}
+      RECOVER_MISSING_FIXTURES: ${{ inputs.recover_missing_fixtures || 'false' }}
       PORT: '3001'
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

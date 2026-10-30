@@ -29,6 +29,7 @@ FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
 RESEARCH_NIGHTLY_ENABLED="${RESEARCH_NIGHTLY_ENABLED:-false}"
 RESEARCH_NIGHTLY_TIMEOUT_SECONDS="${RESEARCH_NIGHTLY_TIMEOUT_SECONDS:-1200}"
+UPCOMING_KICKOFFS_TIMEOUT_SECONDS="${UPCOMING_KICKOFFS_TIMEOUT_SECONDS:-180}"
 
 BACKEND_PID=""
 REQUIRED_SYNC_FAILURES=()
@@ -242,6 +243,14 @@ if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
 fi
 
 if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
+  echo "Refreshing upcoming Top 5 kickoff times from the free event calendar..."
+  if ! post_json \
+    "http://127.0.0.1:$PORT/api/system/sync-upcoming-kickoffs" \
+    '{"mode":"top5","limit":160}' \
+    "$UPCOMING_KICKOFFS_TIMEOUT_SECONDS"; then
+    REQUIRED_SYNC_FAILURES+=("upcoming-kickoffs")
+    echo "Required gate failed: upcoming kickoff calendar. New virtual decisions are blocked."
+  fi
   RESEARCH_NIGHTLY_DATA_GATES_PASSED=true
   if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then RESEARCH_NIGHTLY_DATA_GATES_PASSED=false; fi
   echo "Running explicit Nightly Pre-Match Virtual Betting A/C..."

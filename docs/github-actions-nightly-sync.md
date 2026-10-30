@@ -20,6 +20,31 @@ Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome
 verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
 restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
+## Gap calendario e recupero delle partite mancanti
+
+Il 30 ottobre il run `41038096151` riuscito copriva quattro partite, non tutte
+le cinque previste. Nice–Rennes era ancora nel DB al 31 ottobre, mentre il
+[comunicato ufficiale](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html)
+la anticipa al 30. Successo della pipeline e completezza del calendario sono
+verifiche distinte. Correzione locale preparata, rilascio e nuovo recupero
+remoto ancora pendenti.
+
+La patch collega `POST /api/system/sync-upcoming-kickoffs` dopo Understat e
+prima del passo Nightly A/C, solo con A/C abilitate, sulle Top 5 e limite 160.
+Usa il [GET eventi gratuito del provider](https://the-odds-api.com/liveapi/guides/v4/#get-events),
+non una nuova acquisizione di quote: zero crediti per gli eventi. Se questo
+controllo richiesto fallisce, blocca le nuove decisioni A/C; manutenzione e
+liquidazione delle posizioni esistenti restano consentite.
+
+Il nuovo input `recover_missing_fixtures`, default `false`, consente soltanto
+un avvio manuale dopo un vero successo A/C della stessa giornata, senza altre
+esecuzioni attive. L'avvio standard continua a saltare il ciclo dopo quel
+successo. Il recupero riusa l'esclusione ResearchStore degli input già
+presenti prima di API quote e inferenza: i quattro input e le decisioni
+precedenti non vengono ricalcolati. Restano minimo 50 campioni prudenziali,
+EV 4%, EV prudenziale 1%, freschezza e nessuna puntata retroattiva. Non è un
+bypass della qualità né una prova che la quinta partita sia già elaborata.
+
 ## Orchestrazione e orario
 
 Si estendono il [workflow esistente](../.github/workflows/nightly-sync.yml) e

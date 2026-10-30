@@ -63,6 +63,17 @@ descrive il nuovo percorso. Riferimenti complementari:
 - [Quote e budget](docs/operations/smart-odds-2026-10-27.md), con simulazioni T−15 storiche esplicitamente distinte dalla nuova proiezione nightly.
 - [Migrazione Turso personale](docs/operations/turso-personal-migration-2026-10-29.md) e [audit locale Turso/CPU](docs/operations/turso-cpu-audit-2026-10-29.md).
 
+**Limite emerso il 30 ottobre: calendario incompleto, recupero aggiuntivo pendente.**
+Il run riuscito qui sotto aveva elaborato quattro partite, ma gli incontri
+odierni sono cinque. [Nice–Rennes è stata anticipata al 30 ottobre](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html),
+mentre il DB la conservava al 31: un esito verde non prova la completezza del
+calendario. La patch locale collega l'endpoint già esistente di aggiornamento
+kickoff dopo Understat e prima delle decisioni, usando gli eventi gratuiti
+Top 5, limite 160. Il rilascio e il recupero remoto non sono ancora completati.
+Il recupero manuale delle sole partite mancanti usa `recover_missing_fixtures`
+(default `false`), dopo un vero successo A/C giornaliero e senza run attivi;
+non ricalcola gli input esistenti né riduce i gate di qualità.
+
 **Verificato il 30 ottobre 2026: backend e A/C reali operativi sul cloud.**
 Backend `01320941` LIVE; health200, legacy410 e sessione autenticata verificati.
 Quota riconciliata alle 10:01:04 UTC, registrazione riattivata alle 10:04 UTC.

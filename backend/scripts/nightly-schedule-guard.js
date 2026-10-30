@@ -69,11 +69,16 @@ function githubReader({ token, repository, fetchImpl = fetch }) {
   return {
     run: (runId) => get(`runs/${id(runId)}`),
     runs: async (since) => completeList(await get(`workflows/nightly-sync.yml/runs?per_page=100&branch=main&created=${encodeURIComponent(`>=${since}`)}`), 'workflow_runs'),
+    activeRuns: async () => completeList(await get('workflows/nightly-sync.yml/runs?per_page=100&branch=main&status=in_progress'), 'workflow_runs'),
     jobs: async (runId) => completeList(await get(`runs/${id(runId)}/jobs?filter=all&per_page=100`), 'jobs'),
   };
 }
 
-async function guardNightly({ now = new Date(), token, repository, runId, eventName, scheduleCron, fetchImpl = fetch }) {
+async function guardNightly({ now = new Date(), token, repository, runId, eventName, scheduleCron,
+  recoverMissingFixtures = false, fetchImpl = fetch }) {
+  if (![true, false, 'true', 'false'].includes(recoverMissingFixtures)) throw new Error('nightly_recovery_flag_invalid');
+  const recovery = recoverMissingFixtures === true || recoverMissingFixtures === 'true';
+  if (recovery && eventName !== 'workflow_dispatch') throw new Error('nightly_recovery_requires_manual');
   const api = githubReader({ token, repository, fetchImpl });
   const current = await api.run(runId);
   if (String(current.id) !== String(runId) || current.head_branch !== 'main' || current.event !== eventName
@@ -91,6 +96,7 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
   const runs = await api.runs(romeTime(day, 0).toISOString());
   const candidates = runs.filter((run) => supportedRun(run, now) && romeDay(run.created_at) === day);
   if (candidates.length > 12) throw new Error('github_nightly_history_incomplete');
+  let completedSuccessId = null;
   // Check the current ID too: a rerun must see successful steps of older attempts.
   for (const run of [current, ...candidates.filter((run) => String(run.id) !== String(runId))]) {
     const jobs = await api.jobs(run.id);
@@ -107,16 +113,42 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
           && step.status === 'completed' && step.conclusion === 'success' && validTime(step.completed_at)
           && Date.parse(step.completed_at) <= Date.parse(marker.completed_at))) throw new Error('github_nightly_response_invalid');
     }
-    if (successfulSync(jobs, day, now)) return result(false, 'daily_sync_already_succeeded', String(run.id));
+    if (successfulSync(jobs, day, now)) {
+      // Rerunning the same successful ID cannot discover new jobs in its completed DB batch.
+      if (!recovery || String(run.id) === String(runId)) return result(false, 'daily_sync_already_succeeded', String(run.id));
+      if (String(run.id) !== String(runId) && run.status === 'completed' && run.conclusion === 'success'
+        && successfulSync(jobs.filter((job) => job.status === 'completed' && job.conclusion === 'success'), day, now)) {
+        completedSuccessId ??= String(run.id);
+      }
+    }
+    if (recovery && String(run.id) !== String(runId)
+      && (run.status === 'in_progress' || jobs.some((job) => job.status === 'in_progress'))) {
+      return result(false, 'daily_sync_in_progress', String(run.id));
+    }
     if (String(run.id) !== String(runId) && run.status === 'in_progress'
       && jobs.some((job) => job.status === 'in_progress')) return result(false, 'daily_sync_in_progress', String(run.id));
+  }
+  if (recovery) {
+    if (!completedSuccessId) return result(false, 'manual_recovery_requires_daily_success');
+    // Include active runs created on earlier days, without trusting the daily history filter.
+    const active = await api.activeRuns();
+    if (active.length > 12) throw new Error('github_nightly_history_incomplete');
+    for (const run of active) {
+      if (String(run.id) === String(runId)) continue;
+      if (run.head_branch !== 'main' || run.path?.split('@')[0] !== '.github/workflows/nightly-sync.yml'
+        || run.status !== 'in_progress' || !validTime(run.created_at) || Date.parse(run.created_at) > now.getTime()
+        || !/^\d{1,30}$/.test(String(run.id))) throw new Error('github_run_identity_invalid');
+      return result(false, 'daily_sync_in_progress', String(run.id));
+    }
+    return result(true, 'manual_missing_fixtures_recovery', completedSuccessId);
   }
   return result(true, 'daily_sync_admitted');
 }
 
 async function main() {
   const result = await guardNightly({ token: process.env.GITHUB_TOKEN, repository: process.env.GITHUB_REPOSITORY,
-    runId: process.env.GITHUB_RUN_ID, eventName: process.env.GITHUB_EVENT_NAME, scheduleCron: process.env.SCHEDULE_CRON });
+    runId: process.env.GITHUB_RUN_ID, eventName: process.env.GITHUB_EVENT_NAME, scheduleCron: process.env.SCHEDULE_CRON,
+    recoverMissingFixtures: process.env.RECOVER_MISSING_FIXTURES });
   if (!process.env.GITHUB_OUTPUT) throw new Error('github_output_missing');
   appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nday=${result.day}\nreason=${result.reason}\n`);
   console.log(JSON.stringify(result));

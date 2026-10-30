@@ -28,6 +28,13 @@ Prossimo run 31 ottobre 03:07 e testo «Orario di riferimento: 03:07 Europe/Rome
 verificati; quota 196 residui/304 usati e database raggiungibile. Le prove
 restano private; questa è verifica dell'app effettiva, oltre al badge Hostless.
 
+**Gap calendario del 30 ottobre, rimedio remoto ancora pendente:** il run
+riuscito copriva quattro incontri su cinque. Il DB conservava Nice–Rennes al 31,
+mentre il [club ne annunciava l'anticipo al 30 ottobre](https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html).
+Lo stato verde non certifica la completezza del calendario. La patch locale
+collega l'aggiornamento kickoff già disponibile al job; rilascio e recupero
+della partita mancante non sono qui attestati.
+
 Hostless, GitHub Actions e Turso restano i componenti. Non occorre il worker
 T−15 sempre acceso. I precedenti
 [report operativi](operations/production-status-2026-10-29.md) restano snapshot
@@ -451,6 +458,20 @@ incerti bloccano il gate. Concorrenza seriale e lease DB restano attivi.
 Recuperi dopo failure possono ripetere lavoro: non è una promessa di un'unica
 richiesta dopo errori, né un SLA al minuto. `RESEARCH_NIGHTLY_MINUTE=7` viene
 allineato in produzione, monitor e dashboard; il default locale resta 0.
+
+Il correttivo locale aggiunge, dopo Understat e prima del job A/C,
+`POST /api/system/sync-upcoming-kickoffs`, solo quando A/C sono abilitate,
+Top 5 e limite 160. Il GET eventi del provider è gratuito e non richiede prezzi.
+Se l'aggiornamento richiesto fallisce, impedisce nuove decisioni A/C senza
+impedire manutenzione e liquidazioni esistenti. La completezza va comunque
+verificata sui dati reali: il rilascio del correttivo è ancora pendente.
+
+Il recupero `recover_missing_fixtures` è manuale e default `false`: richiede
+un vero successo A/C nello stesso giorno e nessuna esecuzione attiva. Il
+percorso standard continua a saltare dopo il successo. ResearchStore esclude
+gli input esistenti prima di API quote/inferenza, preservando il confronto
+precedente e valutando solo le partite mancanti. Non cambia minimo 50 campioni,
+EV 4%, EV prudenziale 1% o regole di freschezza/inizio partita.
 
 Il flusso mantiene import Understat, supplemento HTTP/CSV consentito,
 normalizzazione, calendari, risultati, liquidazioni legacy e A/C e preparazione

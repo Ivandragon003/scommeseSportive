@@ -12,7 +12,7 @@ const enabledSteps = () => [step(), step({ name: 'Confirm enabled A/C completion
 const step = (extra = {}) => ({ name: 'Run nightly sync', status: 'completed', conclusion: 'success',
   started_at: '2026-10-30T02:10:00Z', completed_at: '2026-10-30T02:50:00Z', ...extra });
 
-function fixture({ run = current(), other = [], jobs = {}, ...options } = {}) {
+function fixture({ run = current(), other = [], jobs = {}, activeRuns, ...options } = {}) {
   const calls = [];
   const inspect = () => guardNightly({ now: NOW, token: 'fixture-token', repository: 'fixture/repo', runId: run.id,
     eventName: run.event, scheduleCron: run.display_title?.match(/\((.*)\)/)?.[1],
@@ -21,7 +21,10 @@ function fixture({ run = current(), other = [], jobs = {}, ...options } = {}) {
       assert.equal(request.headers.Authorization, 'Bearer fixture-token'); assert.equal(url.includes('fixture-token'), false);
       const id = /\/runs\/(\d+)\/jobs/.exec(url)?.[1];
       if (id) { const rows = jobs[id] ?? []; return new Response(JSON.stringify({ total_count: rows.length, jobs: rows })); }
-      if (url.includes('/workflows/')) return new Response(JSON.stringify({ total_count: other.length + 1, workflow_runs: [run, ...other] }));
+      if (url.includes('/workflows/')) {
+        const runs = url.includes('status=in_progress') ? activeRuns ?? [run, ...other].filter((item) => item.status === 'in_progress') : [run, ...other];
+        return new Response(JSON.stringify({ total_count: runs.length, workflow_runs: runs }));
+      }
       return new Response(JSON.stringify(run));
     }, ...options });
   return { inspect, calls };
@@ -112,10 +115,111 @@ test('a present successful A/C marker with inconsistent time or job evidence fai
   assert.equal((await fixture({ other: [done], jobs: { 400: [{ steps: [step(), { ...marker, conclusion: 'skipped' }] }] } }).inspect()).run, true);
 });
 
+const manual = () => current({ event: 'workflow_dispatch', display_title: 'Nightly Sync (manual)' });
+const completedRun = () => current({ id: 400, status: 'completed', conclusion: 'success' });
+const completedJob = () => ({ status: 'completed', conclusion: 'success', steps: enabledSteps() });
+
+test('explicit manual fixture recovery requires a different completed enabled success today and reports its ID', async () => {
+  for (const recoverMissingFixtures of [true, 'true']) {
+    const check = fixture({ run: manual(), other: [completedRun()], jobs: { 400: [completedJob()] }, recoverMissingFixtures });
+    assert.deepEqual(await check.inspect(), { run: true, reason: 'manual_missing_fixtures_recovery', day: '2026-10-30',
+      currentRunId: '500', existingRunId: '400' });
+    assert.ok(check.calls.some((url) => url.includes('status=in_progress')));
+  }
+  for (const recoverMissingFixtures of [false, 'false', undefined]) {
+    const result = await fixture({ run: manual(), other: [completedRun()], jobs: { 400: [completedJob()] }, recoverMissingFixtures }).inspect();
+    assert.equal(result.run, false); assert.equal(result.reason, 'daily_sync_already_succeeded');
+  }
+});
+
+test('manual recovery cannot turn absent, disabled, incomplete or failed maintenance into enabled completion', async () => {
+  const done = completedRun();
+  for (const [other, jobs] of [
+    [[], {}],
+    [[done], { 400: [{ ...completedJob(), steps: [step()] }] }],
+    [[done], { 400: [{ ...completedJob(), steps: [step(), step({ name: 'Confirm enabled A/C completion', conclusion: 'skipped' })] }] }],
+    [[done], { 400: [{ ...completedJob(), steps: [step(), step({ name: 'Confirm enabled A/C completion', conclusion: 'failure' })] }] }],
+    [[{ ...done, conclusion: 'failure' }], { 400: [completedJob()] }],
+    [[done], { 400: [{ steps: enabledSteps() }] }],
+    [[{ ...done, created_at: '2026-10-29T02:07:00Z' }], { 400: [completedJob()] }],
+  ]) {
+    const check = fixture({ run: manual(), other, jobs, recoverMissingFixtures: true });
+    const result = await check.inspect();
+    assert.equal(result.run, false); assert.equal(result.reason, 'manual_recovery_requires_daily_success');
+    assert.equal(check.calls.some((url) => url.includes('status=in_progress')), false);
+  }
+});
+
+test('rerunning a completed recovery ID skips maintenance even with a valid earlier daily success', async () => {
+  const check = fixture({ run: manual(), other: [completedRun()], jobs: { 500: [completedJob()], 400: [completedJob()] },
+    recoverMissingFixtures: true });
+  const result = await check.inspect();
+  assert.equal(result.run, false); assert.equal(result.reason, 'daily_sync_already_succeeded');
+  assert.equal(result.existingRunId, '500');
+  assert.equal(check.calls.some((url) => url.includes('status=in_progress')), false);
+});
+
+test('recovery flags are strict and scheduled or other nonmanual recoveries fail before any metadata call', async () => {
+  for (const recoverMissingFixtures of ['', null, 'TRUE', 'False', '1', 'yes', 1, 0, {}, []]) {
+    const check = fixture({ run: manual(), recoverMissingFixtures });
+    await assert.rejects(check.inspect(), /nightly_recovery_flag_invalid/);
+    assert.equal(check.calls.length, 0);
+  }
+  for (const event of ['schedule', 'push']) {
+    const check = fixture({ run: current({ event }), recoverMissingFixtures: true });
+    await assert.rejects(check.inspect(), /nightly_recovery_requires_manual/);
+    assert.equal(check.calls.length, 0);
+  }
+});
+
+test('recovery denies every other active execution even after finding success or across Rome day boundaries', async () => {
+  for (const created_at of ['2026-10-30T02:07:00Z', '2026-10-29T18:00:00Z']) {
+    const active = current({ id: 401, created_at, event: 'workflow_dispatch' });
+    const result = await fixture({ run: manual(), other: [completedRun(), active], jobs: { 400: [completedJob()] },
+      recoverMissingFixtures: true }).inspect();
+    assert.equal(result.run, false); assert.equal(result.reason, 'daily_sync_in_progress'); assert.equal(result.existingRunId, '401');
+  }
+  const pendingWithJob = current({ id: 401, status: 'queued' });
+  const result = await fixture({ run: manual(), other: [completedRun(), pendingWithJob],
+    jobs: { 400: [completedJob()], 401: [{ status: 'in_progress', steps: [] }] }, recoverMissingFixtures: true }).inspect();
+  assert.equal(result.reason, 'daily_sync_in_progress');
+});
+
+test('recovery preserves stale-day, pre-primary, identity and bounded-history admission gates', async () => {
+  const stale = fixture({ run: { ...manual(), created_at: '2026-10-29T18:00:00Z' }, recoverMissingFixtures: true });
+  assert.equal((await stale.inspect()).reason, 'stale_created_day'); assert.equal(stale.calls.length, 1);
+  const early = fixture({ run: { ...manual(), created_at: '2026-10-30T00:00:00Z' },
+    now: new Date('2026-10-30T00:30:00Z'), recoverMissingFixtures: true });
+  assert.equal((await early.inspect()).reason, 'before_primary_schedule'); assert.equal(early.calls.length, 1);
+  await assert.rejects(fixture({ run: { ...manual(), head_branch: 'other' }, recoverMissingFixtures: true }).inspect(), /github_run_identity_invalid/);
+  await assert.rejects(fixture({ run: manual(), other: Array.from({ length: 12 }, (_, index) => current({ id: index + 600 })),
+    recoverMissingFixtures: true }).inspect(), /github_nightly_history_incomplete/);
+});
+
+test('recovery fails closed on uncertain active-run metadata without a provider or database module', async () => {
+  for (const item of [current({ id: 401, head_branch: 'other' }), current({ id: 401, created_at: 'future' }),
+    current({ id: 401, path: '.github/workflows/other.yml' }), current({ id: 401, status: 'completed' })]) {
+    await assert.rejects(fixture({ run: manual(), other: [completedRun()], jobs: { 400: [completedJob()] },
+      activeRuns: [manual(), item], recoverMissingFixtures: true }).inspect(), /github_run_identity_invalid/);
+  }
+  const run = manual(), done = completedRun();
+  await assert.rejects(fixture({ run, recoverMissingFixtures: true, fetchImpl: async (url) => {
+    if (url.includes('status=in_progress')) return new Response('', { status: 403 });
+    if (url.includes('/workflows/')) return new Response(JSON.stringify({ total_count: 2, workflow_runs: [run, done] }));
+    if (url.includes('/jobs')) return new Response(JSON.stringify({ total_count: url.includes('/400/') ? 1 : 0,
+      jobs: url.includes('/400/') ? [completedJob()] : [] }));
+    return new Response(JSON.stringify(run));
+  } }).inspect(), /github_nightly_unavailable/);
+  const source = readFileSync(join(__dirname, '../scripts/nightly-schedule-guard.js'), 'utf8');
+  assert.doesNotMatch(source, /DatabaseService|ResearchStore|OddsApiService|TURSO|ODDS_API_KEY/);
+});
+
 test('workflow gates every maintenance step before npm/build and the shell accepts all three guarded cron strings', (t) => {
   const root = join(__dirname, '../..');
   const workflow = readFileSync(join(root, '.github/workflows/nightly-sync.yml'), 'utf8');
   assert.equal((workflow.match(/timezone: Europe\/Rome/g) ?? []).length, 3);
+  assert.match(workflow, /recover_missing_fixtures:\s+description:[^\r\n]+\s+type: boolean\s+required: false\s+default: false/);
+  assert.match(workflow, /RECOVER_MISSING_FIXTURES: \$\{\{ inputs.recover_missing_fixtures \|\| 'false' \}\}/);
   assert.match(workflow, /name: Confirm enabled A\/C completion\r?\n {8}if: success\(\) && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true'/);
   assert.ok(workflow.indexOf('name: Confirm enabled A/C completion') > workflow.indexOf('run: bash scripts/ci/nightly-sync.sh'));
   assert.match(workflow, /actions: read/); assert.match(workflow, /cancel-in-progress: false/);
