@@ -67,8 +67,6 @@ il collaudo A/C reale non sono attestati da questo primo checkpoint.
 I dettagli successivi devono essere aggiunti soltanto dopo verifica remota.
 Nessuna nuova chiave, account, piano o risorsa a pagamento è stata creata.
 
-## Controlli locali
-
 ## Recupero dello scheduler
 
 La nuova programmazione usa `timezone: Europe/Rome`: 03:07 principale,
@@ -77,7 +75,10 @@ di produzione ricevono `RESEARCH_NIGHTLY_MINUTE=7`; il default locale resta
 zero per compatibilità. Il cambio d'ora è gestito dalla timezone nativa.
 
 Il gate legge soltanto metadati GitHub prima di installazione e build. Verifica
-data Roma e successo effettivo dello step `Run nightly sync`: un workflow
+data Roma e successo effettivo dello step `Run nightly sync`, seguito nello
+stesso job dal marker `Confirm enabled A/C completion`. Una manutenzione
+con A/C disabilitate non consuma la giornata. Un marker riuscito con timestamp
+incoerenti blocca il gate; un workflow
 verde che ha saltato il lavoro non esaurisce la giornata. Un successo reale
 impedisce nuove elaborazioni; un errore può essere recuperato. Errori API o
 metadati insufficienti bloccano il gate. Concorrenza seriale e vincoli del DB
@@ -93,6 +94,26 @@ Ogni riattivazione genera `github_acknowledged_orphan_revived`, anche dopo
 GitHub [documenta ritardi e possibili eventi persi](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
 specialmente al minuto zero. Questi controlli aumentano la resilienza, ma non
 garantiscono le 03:07. La puntualità va misurata sui prossimi trigger reali.
+
+## Rilascio e riconciliazione verificati
+
+Il backend `013209419ef25b949525485a92fb0448ed5d6b8b` è LIVE, deployment
+`6ae468ad1a67b8db20f91272`. Health HTTP 200 e vecchia route automatica HTTP 410.
+Sono attive le 58 variabili salvate, compreso il minuto 7 e la chiave quote
+write-only. Nessuna risorsa CPU/RAM o piano è stato modificato.
+
+Il probe GitHub `41035190734`, alle 09:41 UTC, ha verificato HTTP 200,
+used 295, remaining 205 e lastCost 0. I CI `41035190628` e `41036240205`
+sono riusciti, così come le preparazioni cache `41035190648` e `41036240296`.
+
+Alle 10:01:04 UTC una riconciliazione operativa atomica ha corretto i soli
+campi quota del budget `odds_api/primary/2026-10` da 500/0 a 295/205,
+sulla base di prove fresche concordanti. Anchor 15, reset flag, limite 500
+e riserva 50 sono conservati. Un evento `QUOTA_RECONCILED` documenta la
+correzione; richieste, risultati, cache, eventi preesistenti e dati finanziari
+mantengono i loro hash. Non è un reset mensile né un cambio di account per
+aggirare la quota. Le prove e l'approvazione monouso sono conservate privatamente.
+La registrazione resta sospesa fino all'avvio controllato del collaudo remoto.
 
 ## Verifica locale del rilascio
 

@@ -20,6 +20,8 @@ const github = (runs, options = {}) => {
         const item = runs.find((entry) => String(entry.id) === id) ?? metadata[id];
         const defaults = item.status === 'queued' ? [] : [{ status: item.status, steps: [{ name: 'Run nightly sync',
           status: item.status, conclusion: item.conclusion, started_at: item.created_at,
+          completed_at: item.status === 'completed' ? new Date(Date.parse(item.created_at) + 60000).toISOString() : null },
+        { name: 'Confirm enabled A/C completion', status: item.status, conclusion: item.conclusion === 'success' ? 'success' : 'skipped',
           completed_at: item.status === 'completed' ? new Date(Date.parse(item.created_at) + 60000).toISOString() : null }] }];
         const rows = jobs[id] ?? defaults;
         return new Response(JSON.stringify({ total_count: rows.length, jobs: rows }));
@@ -248,4 +250,24 @@ test('an acknowledged orphan completed beyond 36 hours is a revived incident eve
     jobs: { 40940944902: [] } });
   assert.equal(noJobs.ok, false); assert.deepEqual(noJobs.issues, ['github_acknowledged_orphan_revived']);
   assert.equal(noJobs.revivedOrphans[0].jobsObserved, 0);
+});
+
+
+test('green maintenance without an enabled A/C confirmation never proves daily completion', async () => {
+  const runOnly = { name: 'Run nightly sync', status: 'completed', conclusion: 'success',
+    started_at: '2026-10-29T02:20:00Z', completed_at: '2026-10-29T03:00:00Z' };
+  const marker = { name: 'Confirm enabled A/C completion', status: 'completed', conclusion: 'success',
+    completed_at: '2026-10-29T03:00:01Z' };
+  for (const steps of [[runOnly], [runOnly, { ...marker, conclusion: 'skipped' }], [runOnly, { ...marker, conclusion: 'failure' }],
+    [marker]]) {
+    const result = await github([run()], { jobs: { 123: [{ steps }] } });
+    assert.equal(result.syncCompleted, false); assert.deepEqual(result.issues, ['github_nightly_missing']);
+  }
+  const enabled = await github([run()], { jobs: { 123: [{ steps: [runOnly, marker] }] } });
+  assert.equal(enabled.syncCompleted, true); assert.deepEqual(enabled.issues, []);
+  const failed = run({ id: 124, created_at: '2026-10-29T02:10:00Z', conclusion: 'failure' });
+  const maintenance = await github([run(), failed], { expectScheduled: false, jobs: { 123: [{ steps: [runOnly] }] } });
+  assert.deepEqual(maintenance.issues, ['github_nightly_failed']);
+  assert.deepEqual((await github([run()], { jobs: { 123: [{ steps: [{ ...runOnly, conclusion: 'failure' }, marker] }] } })).issues,
+    ['github_nightly_missing', 'github_nightly_failed']);
 });

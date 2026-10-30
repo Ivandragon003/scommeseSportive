@@ -8,6 +8,7 @@ const { guardNightly, romeTime, primarySchedule, NIGHTLY_CRONS, romeDay } = requ
 const NOW = new Date('2026-10-30T06:00:00Z');
 const current = (extra = {}) => ({ id: 500, event: 'schedule', head_branch: 'main', path: '.github/workflows/nightly-sync.yml',
   created_at: '2026-10-30T02:07:00Z', display_title: 'Nightly Sync (7 3 * * *)', status: 'in_progress', conclusion: null, ...extra });
+const enabledSteps = () => [step(), step({ name: 'Confirm enabled A/C completion' })];
 const step = (extra = {}) => ({ name: 'Run nightly sync', status: 'completed', conclusion: 'success',
   started_at: '2026-10-30T02:10:00Z', completed_at: '2026-10-30T02:50:00Z', ...extra });
 
@@ -40,22 +41,27 @@ test('three timezone-aware opportunities share the same Rome date across both DS
 
 test('a full sync success prevents backup writes, while a successful guard or inactive legacy trigger does not', async () => {
   const done = current({ id: 400, status: 'completed', conclusion: 'success' });
-  const actual = await fixture({ other: [done], jobs: { 400: [{ steps: [step()] }] } }).inspect();
+  const actual = await fixture({ other: [done], jobs: { 400: [{ steps: enabledSteps() }] } }).inspect();
   assert.equal(actual.run, false); assert.equal(actual.reason, 'daily_sync_already_succeeded');
   assert.equal(actual.existingRunId, '400');
+  assert.equal((await fixture({ other: [done], jobs: { 400: [{ steps: [step()] }] } }).inspect()).run, true);
+  for (const conclusion of ['skipped', 'failure']) {
+    assert.equal((await fixture({ other: [done], jobs: { 400: [{ steps: [step(),
+      step({ name: 'Confirm enabled A/C completion', conclusion })] }] } }).inspect()).run, true);
+  }
   const skipped = [{ steps: [step({ name: 'Check daily execution before installation or database access' }), step({ conclusion: 'skipped' })] }];
   assert.equal((await fixture({ other: [done], jobs: { 400: skipped } }).inspect()).run, true);
   const inactive = { ...done, display_title: 'Nightly Sync (0 1 * * *)' };
-  assert.equal((await fixture({ other: [inactive], jobs: { 400: [{ steps: [step()] }] } }).inspect()).run, true);
+  assert.equal((await fixture({ other: [inactive], jobs: { 400: [{ steps: enabledSteps() }] } }).inspect()).run, true);
   // Upload failures cannot justify repeating a successfully completed sync step.
-  assert.equal((await fixture({ other: [{ ...done, conclusion: 'failure' }], jobs: { 400: [{ steps: [step()] }] } }).inspect()).run, false);
+  assert.equal((await fixture({ other: [{ ...done, conclusion: 'failure' }], jobs: { 400: [{ steps: enabledSteps() }] } }).inspect()).run, false);
 });
 
 test('manual recovery follows a real failure, but rerunning an already successful attempt cannot repeat it', async () => {
   const failed = current({ id: 400, status: 'completed', conclusion: 'failure' });
   const run = current({ event: 'workflow_dispatch', display_title: 'Nightly Sync (manual)' });
   assert.equal((await fixture({ run, other: [failed], jobs: { 400: [{ steps: [step({ conclusion: 'failure' })] }] } }).inspect()).run, true);
-  const rerun = await fixture({ run, jobs: { 500: [{ steps: [step()] }] } }).inspect();
+  const rerun = await fixture({ run, jobs: { 500: [{ steps: enabledSteps() }] } }).inspect();
   assert.equal(rerun.run, false); assert.equal(rerun.reason, 'daily_sync_already_succeeded');
 });
 
@@ -90,10 +96,28 @@ test('API failures and incomplete pagination fail closed without database or pro
     .inspect(), /github_nightly_response_invalid/);
 });
 
+test('a present successful A/C marker with inconsistent time or job evidence fails closed instead of admitting a duplicate', async () => {
+  const done = current({ id: 400, status: 'completed', conclusion: 'success' });
+  for (const completed_at of ['invalid', '2026-10-30T07:00:00Z', '2026-10-29T22:00:00Z', '2026-10-30T02:49:59Z']) {
+    await assert.rejects(fixture({ other: [done], jobs: { 400: [{ steps: [step(),
+      step({ name: 'Confirm enabled A/C completion', completed_at })] }] } }).inspect(), /github_nightly_response_invalid/);
+  }
+  const marker = step({ name: 'Confirm enabled A/C completion' });
+  for (const jobs of [[{ steps: [marker] }], [{ steps: [step(), { ...marker, status: 'in_progress' }] }],
+    [{ steps: [step()] }, { steps: [marker] }],
+    [{ steps: [step({ conclusion: 'failure' }), marker] }]]) {
+    await assert.rejects(fixture({ other: [done], jobs: { 400: jobs } }).inspect(), /github_nightly_response_invalid/);
+  }
+  assert.equal((await fixture({ other: [done], jobs: { 400: [{ steps: [step()] }] } }).inspect()).run, true);
+  assert.equal((await fixture({ other: [done], jobs: { 400: [{ steps: [step(), { ...marker, conclusion: 'skipped' }] }] } }).inspect()).run, true);
+});
+
 test('workflow gates every maintenance step before npm/build and the shell accepts all three guarded cron strings', (t) => {
   const root = join(__dirname, '../..');
   const workflow = readFileSync(join(root, '.github/workflows/nightly-sync.yml'), 'utf8');
   assert.equal((workflow.match(/timezone: Europe\/Rome/g) ?? []).length, 3);
+  assert.match(workflow, /name: Confirm enabled A\/C completion\r?\n {8}if: success\(\) && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true'/);
+  assert.ok(workflow.indexOf('name: Confirm enabled A/C completion') > workflow.indexOf('run: bash scripts/ci/nightly-sync.sh'));
   assert.match(workflow, /actions: read/); assert.match(workflow, /cancel-in-progress: false/);
   assert.ok(workflow.indexOf('nightly-schedule-guard.js') < workflow.indexOf('run: npm ci'));
   for (const name of ['Install backend dependencies', 'Build backend', 'Run nightly sync']) {

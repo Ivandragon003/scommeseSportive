@@ -95,6 +95,10 @@ jobs:
           NIGHTLY_GUARD_DAY: ${{ steps.nightly_guard.outputs.day }}
         run: bash scripts/ci/nightly-sync.sh
 
+      - name: Confirm enabled A/C completion
+        if: success() && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true'
+        run: echo "Enabled A/C nightly completed after all required data gates."
+
       - name: Upload backend sync log
         if: always()
         uses: actions/upload-artifact@v7

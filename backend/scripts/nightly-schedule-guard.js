@@ -4,6 +4,7 @@ const { appendFileSync } = require('node:fs');
 
 const NIGHTLY_CRONS = ['7 3 * * *', '17 4 * * *', '27 5 * * *'];
 const SYNC_STEP = 'Run nightly sync';
+const AC_COMPLETION_STEP = 'Confirm enabled A/C completion';
 const dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' });
 const timeFormat = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const romeDay = (at) => dayFormat.format(new Date(at));
@@ -37,10 +38,13 @@ function supportedRun(run, now) {
 }
 
 function successfulSync(jobs, day, now) {
-  return jobs.some((job) => (job.steps ?? []).some((step) => step.name === SYNC_STEP
-    && step.status === 'completed' && step.conclusion === 'success'
-    && validTime(step.completed_at) && Date.parse(step.completed_at) <= now.getTime()
-    && romeDay(step.completed_at) === day));
+  const completed = (step, name) => step.name === name && step.status === 'completed' && step.conclusion === 'success'
+    && validTime(step.completed_at) && Date.parse(step.completed_at) <= now.getTime() && romeDay(step.completed_at) === day;
+  return jobs.some((job) => {
+    const sync = (job.steps ?? []).find((step) => completed(step, SYNC_STEP));
+    const marker = (job.steps ?? []).find((step) => completed(step, AC_COMPLETION_STEP));
+    return sync && marker && Date.parse(marker.completed_at) >= Date.parse(sync.completed_at);
+  });
 }
 
 function githubReader({ token, repository, fetchImpl = fetch }) {
@@ -96,6 +100,13 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
       && step.status === 'completed' && step.conclusion === 'success');
     if (successSteps.some((step) => !validTime(step.completed_at) || Date.parse(step.completed_at) > now.getTime()
       || romeDay(step.completed_at) !== day)) throw new Error('github_nightly_response_invalid');
+    for (const job of jobs) for (const marker of (job.steps ?? []).filter((step) => step.name === AC_COMPLETION_STEP
+      && step.conclusion === 'success')) {
+      if (marker.status !== 'completed' || !validTime(marker.completed_at) || Date.parse(marker.completed_at) > now.getTime()
+        || romeDay(marker.completed_at) !== day || !(job.steps ?? []).some((step) => step.name === SYNC_STEP
+          && step.status === 'completed' && step.conclusion === 'success' && validTime(step.completed_at)
+          && Date.parse(step.completed_at) <= Date.parse(marker.completed_at))) throw new Error('github_nightly_response_invalid');
+    }
     if (successfulSync(jobs, day, now)) return result(false, 'daily_sync_already_succeeded', String(run.id));
     if (String(run.id) !== String(runId) && run.status === 'in_progress'
       && jobs.some((job) => job.status === 'in_progress')) return result(false, 'daily_sync_in_progress', String(run.id));
@@ -111,5 +122,5 @@ async function main() {
   console.log(JSON.stringify(result));
 }
 
-module.exports = { NIGHTLY_CRONS, SYNC_STEP, romeDay, romeTime, validTime, primarySchedule, supportedRun, successfulSync, githubReader, guardNightly };
+module.exports = { NIGHTLY_CRONS, SYNC_STEP, AC_COMPLETION_STEP, romeDay, romeTime, validTime, primarySchedule, supportedRun, successfulSync, githubReader, guardNightly };
 if (require.main === module) main().catch(() => { console.error('nightly_schedule_guard_unavailable'); process.exitCode = 1; });

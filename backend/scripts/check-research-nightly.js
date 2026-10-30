@@ -42,6 +42,8 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
     const succeeded = successfulSync(jobs, romeDay(run.created_at), now);
     const completedLate = syncSteps.some((step) => step.status === 'completed' && step.conclusion === 'success'
       && validTime(step.completed_at) && Date.parse(step.completed_at) <= now.getTime());
+    const syncFailed = syncSteps.some((step) => step.status === 'completed' && ['failure', 'cancelled', 'timed_out'].includes(step.conclusion)
+      && validTime(step.completed_at) && Date.parse(step.completed_at) <= now.getTime());
     if (acknowledgedIds.has(String(run.id))) revivedOrphans.push({ ...publicRun(run),
       reason: 'acknowledged_orphan_state_changed', jobsObserved: jobs.length,
       executionObserved: started || completedLate });
@@ -50,7 +52,7 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
       notExecutedRuns.push({ ...publicRun(run), state: 'NOT_EXECUTED' });
       continue;
     }
-    observed.push({ ...run, executionObserved: started || completedLate, syncSucceeded: succeeded });
+    observed.push({ ...run, executionObserved: started || completedLate, syncSucceeded: succeeded, syncFailed });
   }
   const current = observed.filter((run) => romeDay(run.created_at) === schedule.day
     && Date.parse(run.created_at) >= Date.parse(schedule.expectedAt));
@@ -62,8 +64,11 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
   const stalled = observed.find((run) => run.status !== 'completed'
     && now.getTime() - Date.parse(run.created_at) > GRACE_SECONDS * 1000);
   if (stalled) issues.push('github_nightly_stalled');
-  if (latest && now.getTime() - Date.parse(latest.created_at) <= 36 * 3600000
-    && latest.status === 'completed' && latest.conclusion !== 'success') issues.push('github_nightly_failed');
+  // Pending recoveries and disabled maintenance cannot clear a real failure.
+  const outcome = observed.find((run) => run.status === 'completed'
+    && (run.syncSucceeded || run.syncFailed || run.conclusion !== 'success'));
+  if (outcome && now.getTime() - Date.parse(outcome.created_at) <= 36 * 3600000
+    && (outcome.conclusion !== 'success' || outcome.syncFailed)) issues.push('github_nightly_failed');
   // Acknowledgement covers one observed queued/zero-job state, not future execution.
   // Keep this independent of created_at: a very old orphan can start much later.
   if (revivedOrphans.length) issues.push('github_acknowledged_orphan_revived');
@@ -71,7 +76,7 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
     syncCompleted: fullSuccess, acknowledgedOrphans, revivedOrphans, notExecutedRuns,
     stalledRun: stalled ? publicRun(stalled) : null,
     lastRun: latest ? { ...publicRun(latest), executionObserved: latest.executionObserved } : null,
-    limitation: 'Only a successful Run nightly sync step proves full maintenance execution; database decisions require the read-only database check.' };
+    limitation: 'Full enabled A/C completion requires successful Run nightly sync and Confirm enabled A/C completion steps; database decisions require the read-only database check.' };
 }
 
 async function inspectDatabase(client, { now = new Date(), expectEnabled = false } = {}) {
