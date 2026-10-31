@@ -112,5 +112,29 @@
     "uiautomatorXml": "INCONCLUSIVE; empty trees and an external tool process crash",
     "authenticatedLoginAttempted": false,
     "physicalPhoneVerified": false
+  },
+  "webDeployment": {
+    "id": "6ae60aa058c3b12e22699992",
+    "sourceCommit": "e861e85a74f45c9aad1d6f8a2a74956eb9fd92c2",
+    "status": "Deployed LIVE",
+    "url": "https://hostless.cloud/sites/scommese-sportive-frontend/deployments/6ae60aa058c3b12e22699992",
+    "assetVerification": {
+      "date": "2026-10-31",
+      "origin": "https://scommese-sportive-frontend.hostless.site",
+      "manifestHttp": 200,
+      "publishedAdviceAsset": "/static/js/main.eec012ef.js",
+      "publishedAdviceSha256": "f4fe056eb14c6a25274696ee62cbad7ded80989ed091b150bc7385011dfb68c8",
+      "localMainAsset": "/static/js/main.9bb6077b.js",
+      "sameMainBodyIgnoringSourceMapComment": false,
+      "adviceLabelsAndReadEndpointPresent": true,
+      "matchedRuntimeFiles": [
+        "src/components/predictions/MatchModelAdvice.tsx",
+        "src/utils/matchModelAdviceApi.ts",
+        "src/components/predictions/PredictionWorkbenchView.tsx"
+      ],
+      "authenticatedMatchViewVerified": false
+    },
+    "proofScreenshot": "match-model-advice-deploy-2026-10-31.jpg",
+    "proofScreenshotSha256": "55f858904742b95a5f3d13406ea159fd95d6458e3762c91520ddf464d2318033"
   }
 }

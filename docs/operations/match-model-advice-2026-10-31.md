@@ -80,3 +80,20 @@ Telefono fisico e login autenticato restano non verificati.
 
 Il [riepilogo delle evidenze](evidence/match-model-advice-2026-10-31.json) collega
 commit, APK, bundle browser, test e verifiche native, distinguendo fixture da produzione.
+
+## Pubblicazione web
+
+Il frontend è **LIVE** dal commit `e861e85a74f45c9aad1d6f8a2a74956eb9fd92c2`,
+[deployment Hostless `6ae60aa058c3b12e22699992`](https://hostless.cloud/sites/scommese-sportive-frontend/deployments/6ae60aa058c3b12e22699992).
+Il backend non è stato ridistribuito o riconfigurato.
+
+Manifest e asset pubblici rispondono HTTP 200. Il bundle cloud
+`main.eec012ef.js` ha SHA-256
+`f4fe056eb14c6a25274696ee62cbad7ded80989ed091b150bc7385011dfb68c8`.
+La build web cloud e quella inclusa nell'APK hanno bundle differenti: non viene
+dichiarata identità binaria. La source map pubblica del cloud conferma invece la
+corrispondenza dei tre sorgenti della feature, normalizzando i fine riga:
+`MatchModelAdvice.tsx`, `matchModelAdviceApi.ts` e `PredictionWorkbenchView.tsx`.
+Il dettaglio autenticato in produzione non è stato aperto con credenziali reali.
+
+![Deployment frontend LIVE del commit verificato](evidence/match-model-advice-deploy-2026-10-31.jpg)
