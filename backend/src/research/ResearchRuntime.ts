@@ -344,12 +344,14 @@ export class ResearchRuntime {
     this.lastFixtureSync = now;
   }
 
-  private sharedOdds(competition: string): Promise<{ events: OddsMatch[]; capturedAt: string }> {
-    const now = this.clock().getTime(); const cached = this.competitionRequests.get(competition);
+  private sharedOdds(competition: string, inferenceOnlyC = false): Promise<{ events: OddsMatch[]; capturedAt: string }> {
+    const cacheKey = inferenceOnlyC ? `preview-c:${competition}` : competition;
+    const now = this.clock().getTime(); const cached = this.competitionRequests.get(cacheKey);
     if (cached && now - cached.at < (this.nightly?.quoteMaxAgeMs ?? 30_000)) return cached.value;
     const startedAt = this.clock().toISOString();
     const markets = ['h2h', 'totals', 'spreads'];
     const record = async (success: boolean, eventCount?: number, failureCode?: string | null) => {
+      if (inferenceOnlyC) return;
       try {
         await this.db.saveSchedulerRun({ schedulerName: 'research_provider', trigger: 'remote', startedAt,
           endedAt: this.clock().toISOString(), success,
@@ -368,29 +370,31 @@ export class ResearchRuntime {
     }).catch(async (error) => {
       // A transient error is not a reusable price snapshot: the next scheduled
       // retry gets a real recovery attempt instead of the same rejected promise.
-      if (this.competitionRequests.get(competition)?.value === value) this.competitionRequests.delete(competition);
+      if (this.competitionRequests.get(cacheKey)?.value === value) this.competitionRequests.delete(cacheKey);
       await record(false, undefined, safeOddsFailureCode(error));
       throw error;
     });
-    this.competitionRequests.set(competition, { at: now, value });
+    this.competitionRequests.set(cacheKey, { at: now, value });
     return value;
   }
 
-  private async prepare(job: T15Job, _nowIso: string): Promise<PreparedT15Job> {
+  private async prepare(job: T15Job, _nowIso: string, inferenceOnlyC = false): Promise<PreparedT15Job> {
     const row = await this.db.getMatchById(job.matchId);
     const base = { job, kickoffAt: row?.date ?? job.kickoffAt, quotes: [], inputSnapshot: {}, decisions: [] };
     if (!row) return { ...base, status: 'unknown' };
     if (row.home_goals != null || row.away_goals != null) return { ...base, status: 'finished' };
+    if (inferenceOnlyC && !Number.isFinite(Date.parse(row.date))) return { ...base, status: 'unknown' };
+    if (inferenceOnlyC && Date.parse(row.date) <= this.clock().getTime()) return { ...base, status: 'started' };
     if (Date.parse(row.date) !== Date.parse(job.kickoffAt)) {
-      if (!this.nightly) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: row.date }]);
+      if (!this.nightly && !inferenceOnlyC) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: row.date }]);
       return { ...base, status: 'upcoming' };
     }
-    const feed = await this.sharedOdds(row.competition);
+    const feed = await this.sharedOdds(row.competition, inferenceOnlyC);
     const event = matchingResearchEvent(row, feed.events);
     if (!event) return { ...base, status: 'unknown' };
     if (Date.parse(event.commenceTime) !== Date.parse(row.date)) {
-      await this.db.updateMatchKickoff(job.matchId, event.commenceTime);
-      if (!this.nightly) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: event.commenceTime }]);
+      if (!inferenceOnlyC) await this.db.updateMatchKickoff(job.matchId, event.commenceTime);
+      if (!this.nightly && !inferenceOnlyC) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: event.commenceTime }]);
       return { ...base, kickoffAt: event.commenceTime, status: 'upcoming' };
     }
     if (event.completed || event.live || Date.parse(event.commenceTime) <= this.clock().getTime()) return { ...base, status: 'started' };
@@ -398,16 +402,19 @@ export class ResearchRuntime {
       this.historyCache = { at: this.clock().getTime(), rows: (await this.db.getMatches()).map(researchMatchFromRow) };
     }
     const snapshotAt = this.clock().toISOString();
+    if (inferenceOnlyC && Date.parse(snapshotAt) >= Date.parse(row.date)) return { ...base, status: 'started' };
     const input = buildForecastInput(this.historyCache.rows, researchMatchFromRow(row), snapshotAt);
     const quotes = researchQuotesFromEvent(event, feed.capturedAt).map((quote) => this.nightly
       ? { ...quote, priceType: 'prematch' as const } : quote);
-    const context = this.nightly ? await this.modelsForNightlyCohort(input.baselineVersion) : await this.loadModelContext();
+    const context = inferenceOnlyC ? await this.modelsForPreviewC()
+      : this.nightly ? await this.modelsForNightlyCohort(input.baselineVersion) : await this.loadModelContext();
     const { championC, latestCandidate, candidateC } = context;
     const decisions: T15Decision[] = [];
     const prospectiveObservations: FrozenProspectiveObservation[] = [];
     let challengerInput: ForecastInput | undefined;
     let challengerDataQuality: Record<string, unknown> | undefined;
-    for (const family of ['A', 'C'] as const) {
+    const families: readonly ('A' | 'C')[] = inferenceOnlyC ? ['C'] : ['A', 'C'];
+    for (const family of families) {
       const modelVersion = family === 'A' ? input.baselineVersion : candidateC?.version ?? 'C-unavailable';
       const artifact = candidateC?.artifact as HybridArtifact | undefined;
       let familyInput = input;
@@ -422,6 +429,17 @@ export class ResearchRuntime {
           validateArtifact(artifact);
           if (artifact!.version !== modelVersion) throw new Error('registry_model_version_mismatch');
           if (this.deploymentC?.artifactHash && researchHash(artifact) !== this.deploymentC.artifactHash) throw new Error('deployment_artifact_mismatch');
+          if (inferenceOnlyC) {
+            const availableAtSnapshot = (value: unknown): boolean => typeof value === 'string'
+              && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) && Number.isFinite(Date.parse(value))
+              && Date.parse(value) <= Date.parse(snapshotAt);
+            if (!availableAtSnapshot(artifact!.createdAt)) {
+              failure = 'challenger_artifact_not_available_at_forecast'; throw new Error(failure);
+            }
+            if (!availableAtSnapshot(candidateC?.createdAt)) {
+              failure = 'challenger_registration_not_available_at_forecast'; throw new Error(failure);
+            }
+          }
           if (artifact!.dataQualityPolicyHash !== undefined) {
             if (challengerDataQualityReason(input.matchId)) {
               failure = 'challenger_target_data_quality_quarantined'; throw new Error(failure);
@@ -491,7 +509,7 @@ export class ResearchRuntime {
           }
         } catch { failure = 'invalid_probability_configuration'; }
       }
-      if (family === 'A' || candidateC) {
+      if (!inferenceOnlyC && (family === 'A' || candidateC)) {
         const checks = { inference: inferenceSucceeded,
           calibrationCompatible: !failure && stages.decision !== null,
           finiteProbabilities: !failure && Object.values(probabilities).every((value) => Number.isFinite(value) && value >= 0 && value <= 1),
@@ -532,7 +550,7 @@ export class ResearchRuntime {
       if (this.nightly && !failure && probabilityConfiguration) {
         if (!coherentMatrixProbabilities(matrix, probabilities)) failure = 'incoherent_probability_distribution';
         else {
-          const key = `${job.runId ?? job.id}:${family}:${modelVersion}:${probabilityConfiguration.hash}`;
+          const key = `${inferenceOnlyC ? 'preview-c:' : ''}${job.runId ?? job.id}:${family}:${modelVersion}:${probabilityConfiguration.hash}`;
           const cached = this.prospectiveSamples.get(key);
           if (cached && Date.parse(cached.asOf) <= Date.parse(snapshotAt)) {
             samples = cached.samples; prudentialEvidenceAsOf = cached.asOf;
@@ -542,7 +560,7 @@ export class ResearchRuntime {
             if (this.prospectiveSamples.size >= 8) this.prospectiveSamples.delete(this.prospectiveSamples.keys().next().value!);
             this.prospectiveSamples.set(key, { asOf: snapshotAt, samples }); prudentialEvidenceAsOf = snapshotAt;
           }
-          prospectiveObservations.push(...buildFrozenProspectiveObservations({ matchId: row.match_id, family, modelVersion,
+          if (!inferenceOnlyC) prospectiveObservations.push(...buildFrozenProspectiveObservations({ matchId: row.match_id, family, modelVersion,
             probabilityConfigurationHash: probabilityConfiguration.hash, matrix, probabilities, quotes, allowedMarkets: allowed,
             forecastAt: snapshotAt, kickoffAt: row.date, quoteMaxAgeMs: this.nightly.quoteMaxAgeMs }));
         }
@@ -581,18 +599,25 @@ export class ResearchRuntime {
             : JSON.stringify(result?.reasons ?? { model_unavailable: 1 })),
       });
     }
-    if (championC && latestCandidate && latestCandidate.version !== championC.version
+    if (!inferenceOnlyC && championC && latestCandidate && latestCandidate.version !== championC.version
       && latestCandidate.artifact?.diagnosticOnly !== true && latestCandidate.artifact?.runtimeCompatible !== false) {
       await this.probeChallenger(input, latestCandidate.version, latestCandidate.artifact, quotes, snapshotAt);
     }
-    const challengerCollection = await this.recordCollectingChallengers(input, quotes);
+    const challengerCollection = inferenceOnlyC ? null : await this.recordCollectingChallengers(input, quotes);
+    if (inferenceOnlyC) {
+      const current = await this.db.getMatchById(job.matchId);
+      if (!current) return { ...base, status: 'unknown' };
+      if (current.home_goals != null || current.away_goals != null) return { ...base, status: 'finished' };
+      if (Date.parse(current.date) !== Date.parse(row.date)) return { ...base, kickoffAt: current.date, status: 'upcoming' };
+      if (Date.parse(row.date) <= this.clock().getTime()) return { ...base, status: 'started' };
+    }
     return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions,
-      ...(this.nightly ? { prospectiveObservations } : {}),
+      ...(this.nightly && !inferenceOnlyC ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
         ...(challengerInput ? { challengerForecast: challengerInput } : {}),
         ...(challengerDataQuality ? { challengerDataQuality } : {}),
         ...(challengerCollection ? { challengerCollection } : {}),
-        ...(this.nightly ? { mode: 'NIGHTLY', match: { matchId: row.match_id, competition: row.competition,
+        ...(this.nightly ? { mode: inferenceOnlyC ? 'C_PREVIEW' : 'NIGHTLY', match: { matchId: row.match_id, competition: row.competition,
           kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name,
           matchLabel: [row.home_team_name, row.away_team_name].filter(Boolean).join(' – ') } } : {}) } };
   }
@@ -603,6 +628,19 @@ export class ResearchRuntime {
     const cohortId = String(job.runId ?? job.id);
     if (this.nightlyCohortId !== cohortId) this.beginNightlyCohort(cohortId);
     return this.prepare(job, this.clock().toISOString());
+  }
+
+  /** Uses the operational C pipeline without jobs, forecasts, residuals or lifecycle writes. */
+  async preparePreviewC(job: T15Job): Promise<PreparedT15Job> {
+    if (!this.nightly || !this.deploymentC) throw new Error('C preview requires the nightly policy and a pinned deployment');
+    return this.prepare(job, this.clock().toISOString(), true);
+  }
+
+  private async modelsForPreviewC(): Promise<RuntimeModelContext> {
+    const context = await this.loadModelContext();
+    const C = this.deploymentC?.probabilityConfigurationHash ? null
+      : await this.db.research.getLatestBenchmark('C', context.candidateC?.version ?? 'C-unavailable');
+    return { ...context, benchmarks: { A: null, C } };
   }
 
   /** New attempts may explicitly reset the same run; ordinary fixture calls share one snapshot. */

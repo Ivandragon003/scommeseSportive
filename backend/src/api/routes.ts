@@ -4,6 +4,7 @@ import { buildResearchComparison } from '../research/ResearchComparison';
 import { buildAppWallets, isAppWalletQueryError, parseAppWalletQuery, targetsAppWallet } from '../services/AppWalletService';
 import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
+import { ChallengerPreviewService } from '../research/ChallengerPreviewService';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
@@ -67,6 +68,7 @@ const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
 export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
+  challengerPreview?: Pick<ChallengerPreviewService, 'preview'>;
   observability?: SystemObservabilityService;
   sharedDataUserId?: string;
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
@@ -479,6 +481,7 @@ export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
+let challengerPreview = deps.challengerPreview;
 const observability = deps.observability;
 const createOddsBundle = (operation = 'dashboard'): OddsProviderCoordinatorBundle => deps.createOddsProviderCoordinatorBundle
   ? deps.createOddsProviderCoordinatorBundle()
@@ -1871,6 +1874,22 @@ router.get('/research/forecasts', async (req: Request, res: Response) => {
     return res.json({ success: true, data: { matchId, decisions: view.effective,
       superseded: view.historical.filter((decision) => !decision.effective).map((decision) => ({ id: decision.id, supersededBy: decision.supersededBy })) } });
   } catch { return res.status(503).json({ success: false, error: 'Recorded forecasts unavailable.' }); }
+});
+
+router.post('/research/challenger-preview', async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const body = req.body;
+  const matchId = typeof body?.matchId === 'string' ? body.matchId.trim() : '';
+  if (!body || typeof body !== 'object' || Array.isArray(body) || !matchId || matchId.length > 160
+    || Object.keys(body).some((key) => key !== 'matchId')) {
+    return res.status(400).json({ success: false, error: 'Indicare soltanto un matchId valido.' });
+  }
+  try {
+    challengerPreview ??= new ChallengerPreviewService(db);
+    return res.json({ success: true, data: await challengerPreview.preview(matchId) });
+  } catch {
+    return res.status(503).json({ success: false, error: 'Anteprima del modello C temporaneamente non disponibile.' });
+  }
 });
 
 router.post('/research/settle', async (_req: Request, res: Response) => {

@@ -1,5 +1,10 @@
 # Consigli A/C nel dettaglio partita — 31 ottobre 2026
 
+Questo report descrive la prima versione archiviata, inclusa nell'APK 1.1.5.
+La successiva [anteprima C su richiesta](challenger-preview-2026-10-31.md)
+estende il caso senza archivio: i vincoli sulle decisioni Nightly restano validi.
+Le frasi sotto sull'assenza di inferenza C descrivono soltanto quella versione.
+
 Aprire una partita mostra due schede separate, Modello A e Modello C. Il frontend
 legge `GET /api/research/forecasts?matchId=…` usando la sessione autenticata esistente.
 L'endpoint restituisce le decisioni effettive dopo recuperi e cancellazioni. La

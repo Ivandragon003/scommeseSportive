@@ -37,6 +37,33 @@ forecast originali, puntate o ledger.
 
 ## 1. C rispetto ad A
 
+### Anteprima su richiesta nella pagina Partite
+
+In assenza di una decisione C operativa archiviata, il dettaglio di una partita
+futura può richiedere `POST /api/research/challenger-preview`. Il servizio legge
+la versione C e il selettore dal registro di adozione operativo, li mantiene
+fissi durante il calcolo e usa `ResearchRuntime.preparePreviewC`: stessa
+preparazione C Nightly, stesso selettore, ma orario di previsione corrente e
+quote reali pre-match entro cinque minuti. Non è una ricostruzione T−15.
+Artefatto e registrazione devono avere timestamp validi e precedenti al calcolo.
+Registro illeggibile/sospeso, dati o quote inadeguati producono indisponibilità;
+solo un calcolo valido senza selezione produce un esplicito nessun consiglio.
+
+La risposta è marcata `C_PREVIEW`, `registered=false`, con stake indicativo 1%.
+Non applica esposizione o saldo, non crea puntate, forecast, residui, osservazioni
+prospettiche, job o adozioni. Non aggiorna kickoff né avvia scheduler/rollback.
+Non costituisce una nuova prova di validazione del modello. Cache tecnica e
+contabilità delle richieste quote restano attive; la riserva Nightly è protetta.
+Il flag dedicato `CHALLENGER_PREVIEW_NETWORK_ENABLED` (default `true`) permette
+il rinnovo nel budget informativo; `false` limita l'anteprima alle quote fresche
+già in cache. Non modifica `ODDS_INFORMATIONAL_NETWORK_ENABLED` o il percorso A.
+
+Una decisione Nightly prevale anche se compare durante l'inferenza o un accesso
+alla cache. Anteprime e richieste simultanee sono limitate; quote/anteprima
+scadute richiedono un nuovo tentativo esplicito. Vedi [contratto e verifiche](../operations/challenger-preview-2026-10-31.md).
+
+### Motori separati
+
 A operativo usa `PredictionService`, con i suoi modelli, mercati squadra,
 calibrazione, filtri e stake. C usa una baseline research e un artefatto
 ibrido CatBoost per produrre probabilità proprie sui gol. **La baseline

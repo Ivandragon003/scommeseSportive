@@ -3,10 +3,13 @@ import Predictions from './Predictions';
 import * as api from '../utils/api';
 import { getAppWallets } from '../utils/walletApi';
 import { getMatchModelAdvice } from '../utils/matchModelAdviceApi';
+import { getChallengerPreview } from '../utils/challengerPreviewApi';
 
 jest.mock('../utils/api');
 jest.mock('../utils/walletApi');
 jest.mock('../utils/matchModelAdviceApi');
+jest.mock('../utils/challengerPreviewApi');
+const mockedPreview = getChallengerPreview as jest.MockedFunction<typeof getChallengerPreview>;
 const mockedAdvice = getMatchModelAdvice as jest.MockedFunction<typeof getMatchModelAdvice>;
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 
@@ -106,6 +109,10 @@ const buildPrediction = (overrides: Record<string, any> = {}) => ({
 
 const setupBaseMocks = () => {
   mockedAdvice.mockResolvedValue({ A: null, C: null, errors: {} });
+  mockedPreview.mockImplementation(async (matchId) => ({ kind: 'C_PREVIEW', family: 'C', matchId,
+    asOf: '2026-05-23T08:00:00Z', kickoffAt: '2026-05-23T16:00:00Z', expiresAt: null,
+    modelVersion: null, deploymentRevision: null, status: 'UNAVAILABLE', reason: 'real_fresh_quotes_unavailable',
+    recommendationPacket: null, quote: null, suggestedStakePercent: 1, registered: false }));
   mockedWallets.mockResolvedValue({
     period: { key: 'all', from: null, to: '2026-05-23T08:00:00Z', timezone: 'Europe/Rome', label: 'Tutto lo storico' },
     portfolios: [{ family: 'A', portfolioId: 'shadow_A', initialized: true, initialCents: 100000,
@@ -178,6 +185,45 @@ describe('Predictions page', () => {
     expect(cardA.textContent).not.toContain('Under 2.5 registrato C');
     expect(cardC.textContent).not.toContain('Over 2.5 registrato A');
     expect(mockedAdvice).toHaveBeenCalledWith('match_1', expect.any(AbortSignal));
+    expect(mockedPreview).not.toHaveBeenCalled();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+
+  test('a match without Nightly C automatically shows its independent unregistered preview even while A is pending', async () => {
+    mockedApi.getPrediction.mockReturnValue(new Promise(() => {}));
+    mockedApi.getOddsForMatch.mockReturnValue(new Promise(() => {}));
+    mockedPreview.mockResolvedValue({ kind: 'C_PREVIEW', family: 'C', matchId: 'match_1',
+      asOf: '2026-05-23T08:00:00Z', kickoffAt: matchRow.date, expiresAt: '2026-05-23T08:00:30Z',
+      modelVersion: 'C-live-fixture', deploymentRevision: 'fixture-revision', status: 'RECOMMENDED', reason: null,
+      recommendationPacket: { selected: { selection: 'under25', selectionLabel: 'Under 2.5 anteprima C',
+        bookmakerOdds: 3.3, bookmakerName: 'Pinnacle' }, decisionStatus: 'RECOMMENDED' },
+      quote: { selection: 'under25', odds: 3.3, bookmaker: 'Pinnacle', source: 'odds_api',
+        capturedAt: '2026-05-23T08:00:00Z', updatedAt: '2026-05-23T08:00:00Z', priceType: 'prematch' },
+      suggestedStakePercent: 1, registered: false });
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    const cardC = await screen.findByRole('region', { name: 'Consiglio modello C' });
+    expect(await within(cardC).findByText('Under 2.5 anteprima C')).toBeTruthy();
+    expect(within(cardC).getByText('Anteprima C · non registrata')).toBeTruthy();
+    expect(within(cardC).getByText('Nessuna puntata registrata.')).toBeTruthy();
+    expect(cardC.textContent).not.toContain('Importo virtuale registrato');
+    expect(screen.getByRole('region', { name: 'Modello A' }).textContent).toContain('Analisi A in corso');
+    expect(mockedPreview).toHaveBeenCalledWith('match_1', expect.any(AbortSignal));
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
+  });
+
+  test('a slow C preview never blocks the existing A advice or changes A prediction requests', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api', primaryProvider: 'odds_api',
+      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
+    mockedPreview.mockReturnValue(new Promise(() => {}));
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    expect(await screen.findByTestId('best-value-card')).toBeTruthy();
+    await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
+    expect(screen.getByText('Calcolo dell’anteprima C…')).toBeTruthy();
     expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
 

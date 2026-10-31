@@ -218,6 +218,16 @@ Le sezioni principali sono:
 - **Confronto A/C nella UI LIVE precedente:** saldi e rendimento A/C erano raccolti nella vista dedicata, insieme al benchmark e allo stato nightly. La nuova integrazione locale, ancora in verifica, porta la gestione contabile in Giocate/Budget/Archivio con filtri A/C e confronto; Research conserva benchmark, modelli e stato tecnico.
 - **Glossario:** spiegazione dei termini mostrati nell'app.
 
+Nel dettaglio partita i consigli A/C archiviati hanno precedenza. In assenza
+di archivio, A conserva la propria analisi già esistente; C dispone di una
+[anteprima su richiesta](operations/challenger-preview-2026-10-31.md) tramite
+`POST /api/research/challenger-preview`. `ChallengerPreviewService` legge il
+modello C operativo e chiama un percorso di sola inferenza di `ResearchRuntime`.
+Non registra puntate o dati prospettici e non modifica A. Le eventuali scritture
+del gestore quote riguardano cache tecnica e contabilità del provider, entro il
+budget informativo e la riserva Nightly. La UI distingue anteprima non registrata,
+consiglio archiviato, assenza di opportunità e indisponibilità tecnica.
+
 Il frontend comunica tramite richieste HTTP con risposte JSON. Le operazioni interattive ricevono la risposta dal backend; lo stato generale viene aggiornato anche con controlli periodici. Non è previsto un canale WebSocket per gli aggiornamenti in tempo reale.
 
 Il browser conserva preferenze locali come il tema. Budget, giocate, opportunità e dati calcistici risiedono nel database condiviso. Due dispositivi vedono quindi gli stessi dati applicativi dopo il loro aggiornamento, se usano lo stesso backend e lo stesso utente condiviso.

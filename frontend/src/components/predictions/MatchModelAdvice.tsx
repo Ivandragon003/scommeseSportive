@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { dateTime, decisionReason, money, stateLabel } from '../../features/research/researchPresentation';
 import { AdviceFamily, getMatchModelAdvice, MatchModelAdviceData, RecordedModelAdvice } from '../../utils/matchModelAdviceApi';
 import { fmtSelection } from './predictionFormatting';
+import { ChallengerPreview, getChallengerPreview } from '../../utils/challengerPreviewApi';
+import ChallengerPreviewCard from './ChallengerPreviewCard';
 import './matchModelAdvice.css';
 
 interface MatchModelAdviceProps {
@@ -9,6 +11,8 @@ interface MatchModelAdviceProps {
   fallbackA: React.ReactNode;
   refreshKey?: number;
   onRecordedA?: (matchId: string, available: boolean) => void;
+  kickoffAt?: string;
+  finished?: boolean;
 }
 
 const executionBlocks = new Set(['virtual_exposure_limit', 'insufficient_virtual_capital', 'one_bet_per_portfolio_match']);
@@ -69,18 +73,37 @@ function RecordedAdvice({ decision }: { decision: RecordedModelAdvice }) {
   </>;
 }
 
-export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA }: MatchModelAdviceProps) {
-  const [state, setState] = useState<{ matchId: string; data?: MatchModelAdviceData; error?: string; loading: boolean }>({ matchId, loading: true });
+export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false }: MatchModelAdviceProps) {
+  const [state, setState] = useState<{ matchId: string; data?: MatchModelAdviceData; error?: string; loading: boolean;
+    preview?: ChallengerPreview; previewLoading?: boolean; previewError?: string; ineligible?: boolean }>({ matchId, loading: true });
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
     setState({ matchId, loading: true });
     onRecordedA?.(matchId, false);
-    getMatchModelAdvice(matchId, controller.signal).then((data) => {
-      if (active) {
-        setState({ matchId, data, loading: false });
-        onRecordedA?.(matchId, !!data.A);
+    getMatchModelAdvice(matchId, controller.signal).then(async (data) => {
+      if (!active) return;
+      const ineligible = finished || (kickoffAt !== undefined && (!Number.isFinite(Date.parse(kickoffAt)) || Date.parse(kickoffAt) <= Date.now()));
+      const needsPreview = !data.C && !data.errors.C && !ineligible;
+      setState({ matchId, data, loading: false, previewLoading: needsPreview, ineligible });
+      onRecordedA?.(matchId, !!data.A);
+      if (!needsPreview) return;
+      try {
+        const preview = await getChallengerPreview(matchId, controller.signal);
+        if (!active) return;
+        if (preview.status === 'ARCHIVED') {
+          const recorded = await getMatchModelAdvice(matchId, controller.signal);
+          if (!active) return;
+          setState({ matchId, data: recorded, loading: false, ...(recorded.C ? {} : {
+            previewError: 'La decisione Nightly segnalata non è ancora leggibile. Riprova i consigli della partita.',
+          }) });
+          onRecordedA?.(matchId, !!recorded.A);
+          return;
+        }
+        setState({ matchId, data, loading: false, preview });
+      } catch {
+        if (active) setState({ matchId, data, loading: false, previewError: 'Impossibile caricare l’anteprima del modello C.' });
       }
     }).catch(() => {
       if (active) {
@@ -89,7 +112,7 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
       }
     });
     return () => { active = false; controller.abort(); };
-  }, [matchId, refreshKey, retry, onRecordedA]);
+  }, [matchId, refreshKey, retry, onRecordedA, kickoffAt, finished]);
   const current: typeof state = state.matchId === matchId ? state : { matchId, loading: true };
   const familyCard = (family: AdviceFamily) => {
     const decision = current.data?.[family];
@@ -102,7 +125,8 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
     return <section key={family} className="match-model-advice__card" aria-label={`Consiglio modello ${family}`}>
       <h2>Modello {family}</h2>
       {decision ? <RecordedAdvice decision={decision} /> : current.loading ? <p role="status">Caricamento del consiglio Nightly {family}…</p>
-        : error ? <p role="alert">{error}</p> : <><h3>Consiglio non ancora disponibile</h3><p>Non risulta una valutazione Nightly archiviata del modello {family} per questa partita. Questo non equivale a una scelta di non puntare.</p></>}
+        : error ? <p role="alert">{error}</p> : <ChallengerPreviewCard preview={current.preview} loading={current.previewLoading}
+          error={current.previewError} ineligible={current.ineligible} onRetry={() => setRetry((value) => value + 1)} />}
     </section>;
   };
   return <div className="match-model-advice">

@@ -5,6 +5,7 @@ import MatchModelAdvice from './MatchModelAdvice';
 
 jest.mock('../../utils/api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 const get = API.get as jest.Mock;
+const post = API.post as jest.Mock;
 const row = (family: 'A' | 'C', changes: Record<string, unknown> = {}) => ({
   id: `decision-${family}`, matchId: 'match-1', family, authority: 'execution', effective: true,
   modelVersion: family === 'A' ? 'APP-A-frozen' : 'C906-frozen', modelSource: family === 'A' ? 'PredictionService' : 'CatBoost hybrid research pipeline',
@@ -21,8 +22,23 @@ const response = (decisions: unknown[], matchId = 'match-1') => ({ data: { succe
 const fallbackA = <section aria-label="Consiglio live A"><h2>Modello A</h2><p>Consiglio A già calcolato</p></section>;
 const show = () => render(<MatchModelAdvice matchId="match-1" fallbackA={fallbackA} />);
 const c = () => within(screen.getByRole('region', { name: 'Consiglio modello C' }));
+const preview = (changes: Record<string, unknown> = {}) => {
+  const now = Date.now();
+  return { kind: 'C_PREVIEW', family: 'C', matchId: 'match-1', asOf: new Date(now - 1000).toISOString(),
+    kickoffAt: new Date(now + 3600_000).toISOString(), expiresAt: new Date(now + 29_000).toISOString(),
+    modelVersion: 'C906-preview', deploymentRevision: 'fallback', status: 'RECOMMENDED', reason: null,
+    recommendationPacket: { selected: { selection: 'over35', bookmakerOdds: 2.7, bookmakerName: 'Bookmaker anteprima' }, decisionStatus: 'RECOMMENDED' },
+    quote: { selection: 'over35', odds: 2.7, bookmaker: 'Bookmaker anteprima', source: 'odds_api', priceType: 'prematch',
+      capturedAt: new Date(now - 2000).toISOString(), updatedAt: new Date(now - 2000).toISOString() },
+    suggestedStakePercent: 1, registered: false, ...changes };
+};
+const previewResponse = (changes: Record<string, unknown> = {}) => ({ data: { success: true, data: preview(changes) } });
 
-beforeEach(() => { jest.resetAllMocks(); get.mockResolvedValue(response([row('A'), row('C')])); });
+beforeEach(() => {
+  jest.resetAllMocks();
+  get.mockResolvedValue(response([row('A'), row('C')]));
+  post.mockResolvedValue(previewResponse({ status: 'UNAVAILABLE', reason: 'real_fresh_quotes_unavailable', recommendationPacket: null, quote: null }));
+});
 
 test('shows the two own recorded selections, authentic quotes and debited stakes without mutation requests', async () => {
   show();
@@ -42,11 +58,13 @@ test('shows the two own recorded selections, authentic quotes and debited stakes
   expect(API.post).not.toHaveBeenCalled();
 });
 
-test('absence of C means not yet evaluated, never an invented no-bet verdict', async () => {
+test('absence of archived C requests an independent preview and unavailable prices are never an invented no-bet verdict', async () => {
   get.mockResolvedValueOnce(response([row('A')])); show();
   expect(await screen.findByText('Consiglio non ancora disponibile')).toBeTruthy();
   expect(c().queryByText('Nessuna giocata consigliata')).toBeNull();
   expect(screen.getByRole('region', { name: 'Consiglio modello A' })).toBeTruthy();
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post).toHaveBeenCalledWith('/research/challenger-preview', { matchId: 'match-1' }, { signal: expect.anything(), timeout: 45_000 });
 });
 
 test('legacy A80 is never used as operational A and the existing A card remains intact', async () => {
@@ -194,4 +212,119 @@ test('malformed optional quote fields cannot crash the cards or become provenanc
   await screen.findByText('Under 2.5 Goal');
   expect(c().queryByText('4,63')).toBeNull();
   expect(c().getByText('La quota conservata non è disponibile o non corrisponde al consiglio.')).toBeTruthy();
+});
+
+test('a new C preview is explicitly nonregistered and leaves the recorded A decision intact', async () => {
+  get.mockResolvedValueOnce(response([row('A')]));
+  post.mockResolvedValueOnce(previewResponse());
+  show();
+  expect(await screen.findByText('Over 3.5 Goal')).toBeTruthy();
+  expect(c().getByText('Anteprima C · non registrata')).toBeTruthy();
+  expect(c().getByText('Bookmaker anteprima')).toBeTruthy();
+  expect(c().getByText('2,70')).toBeTruthy();
+  expect(c().getByText('Nessuna puntata registrata.')).toBeTruthy();
+  expect(c().getByText('Stake indicativo: 1%. L’anteprima non addebita il portafoglio.')).toBeTruthy();
+  expect(c().queryByText('Importo virtuale registrato')).toBeNull();
+  expect(c().queryByText('Decisione Nightly archiviata')).toBeNull();
+  expect(screen.getByRole('region', { name: 'Consiglio modello A' }).textContent).toContain('4,12');
+  expect(post.mock.calls.map((call) => call[0])).toEqual(['/research/challenger-preview']);
+});
+
+test('an archived C abstention always has priority and never starts preview inference', async () => {
+  get.mockResolvedValueOnce(response([row('C', { action: 'ABSTAIN', betId: null, reason: 'challenger_no_recommendation',
+    recommendationPacket: { selected: null, decisionStatus: 'NO_BET' } })]));
+  show(); await screen.findByText('Nessuna giocata consigliata');
+  expect(post).not.toHaveBeenCalled();
+  expect(c().queryByText('Anteprima C · non registrata')).toBeNull();
+});
+
+test('an unreadable or malformed C archive never falls back to a preview', async () => {
+  get.mockResolvedValueOnce(response([row('C', { matchId: 'wrong-match' })]));
+  show(); await screen.findByText('Il consiglio archiviato del modello C non è verificabile.');
+  expect(post).not.toHaveBeenCalled();
+});
+
+test('preview no-bet differs from provider unavailability', async () => {
+  get.mockResolvedValueOnce(response([]));
+  post.mockResolvedValueOnce(previewResponse({ status: 'NO_BET', reason: 'challenger_no_recommendation', quote: null,
+    recommendationPacket: { selected: null, decisionStatus: 'NO_BET' } }));
+  show();
+  expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
+  expect(c().getByText('La valutazione C non ha selezionato una giocata con le quote disponibili.')).toBeTruthy();
+  expect(c().queryByText('Bookmaker anteprima')).toBeNull();
+});
+
+test.each([
+  { finished: true, kickoffAt: new Date(Date.now() + 3600_000).toISOString() },
+  { kickoffAt: '2020-01-01T00:00:00Z' }, { kickoffAt: 'unverified' },
+])('ineligible client fixture metadata never starts a preview (%s)', async (props) => {
+  get.mockResolvedValueOnce(response([]));
+  render(<MatchModelAdvice matchId="match-1" fallbackA={fallbackA} {...props} />);
+  expect(await screen.findByText('L’anteprima C è disponibile solo prima dell’inizio della partita.')).toBeTruthy();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test('a failed preview can retry independently without registering any bet', async () => {
+  get.mockResolvedValue(response([row('A')]));
+  post.mockRejectedValueOnce(new Error('Network Error')).mockResolvedValueOnce(previewResponse());
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Riprova anteprima C' }));
+  expect(await screen.findByText('Over 3.5 Goal')).toBeTruthy();
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(post.mock.calls.every((call) => call[0] === '/research/challenger-preview')).toBe(true);
+  expect(screen.getByRole('region', { name: 'Consiglio modello A' })).toBeTruthy();
+});
+
+test('a Nightly decision created during preview is re-read once and replaces the preview', async () => {
+  get.mockResolvedValueOnce(response([row('A')])).mockResolvedValueOnce(response([row('A'), row('C')]));
+  post.mockResolvedValueOnce(previewResponse({ status: 'ARCHIVED', reason: 'nightly_decision_available', quote: null, recommendationPacket: null }));
+  show();
+  expect(await screen.findByText('Under 2.5 Goal')).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(c().getByText('Decisione Nightly archiviata')).toBeTruthy();
+  expect(c().queryByText('Anteprima C · non registrata')).toBeNull();
+});
+
+test('an unreadable newly archived decision does not start an inference loop', async () => {
+  get.mockResolvedValue(response([]));
+  post.mockResolvedValueOnce(previewResponse({ status: 'ARCHIVED', reason: 'nightly_decision_available', quote: null, recommendationPacket: null }));
+  show();
+  expect(await screen.findByText('La decisione Nightly segnalata non è ancora leggibile. Riprova i consigli della partita.')).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(c().queryByText('Over 3.5 Goal')).toBeNull();
+});
+
+test('changing matches aborts pending preview and a late preview cannot overwrite the new C decision', async () => {
+  let resolvePreview: (value: unknown) => void;
+  get.mockResolvedValueOnce(response([]));
+  post.mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve; }));
+  const view = show();
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  const previewSignal = post.mock.calls[0][2].signal;
+  get.mockResolvedValueOnce(response([{ ...row('C'), matchId: 'match-2' }], 'match-2'));
+  view.rerender(<MatchModelAdvice matchId="match-2" fallbackA={fallbackA} />);
+  expect(previewSignal.aborted).toBe(true);
+  await screen.findByText('Under 2.5 Goal');
+  await act(async () => resolvePreview(previewResponse()));
+  expect(c().queryByText('Over 3.5 Goal')).toBeNull();
+  expect(c().getByText('Under 2.5 Goal')).toBeTruthy();
+});
+
+test('an on-screen preview expires without automatic network requests', async () => {
+  jest.useFakeTimers();
+  try {
+    get.mockResolvedValueOnce(response([]));
+    post.mockResolvedValueOnce(previewResponse({ expiresAt: new Date(Date.now() + 1000).toISOString() }));
+    show();
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(c().getByText('Over 3.5 Goal')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1001); });
+    expect(c().getByText('Anteprima scaduta')).toBeTruthy();
+    expect(c().queryByText('Over 3.5 Goal')).toBeNull();
+    expect(c().queryByText('2,70')).toBeNull();
+    expect(c().getByRole('button', { name: 'Riprova anteprima C' })).toBeTruthy();
+    expect(post).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
 });

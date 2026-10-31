@@ -4,6 +4,11 @@
 [algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
 e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 
+**Anteprima C nel dettaglio partita.** Se manca una decisione Nightly, il nuovo
+percorso [calcola il consiglio C su richiesta](docs/operations/challenger-preview-2026-10-31.md)
+con il modello operativo e quote reali ammissibili. È un'anteprima esplicita:
+non registra puntate e non cambia il motore A. Un archivio C esistente prevale.
+
 **APK Android, 31 ottobre 2026.** [FootPredictor 1.1.5 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.5-debug-20261031/FootPredictor-1.1.5-debug.apk)
 include [i consigli distinti A/C nella singola partita](docs/operations/match-model-advice-2026-10-31.md),
 con quote archiviate, importi registrati e astensioni esplicite. Usa la firma debug esistente.

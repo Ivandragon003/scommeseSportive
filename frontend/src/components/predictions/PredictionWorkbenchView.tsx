@@ -1181,7 +1181,9 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
         {/*  SINGLE MATCH DETAIL  */}
         {detailOpen && <div className="pr-right" ref={rightRef}>
-          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} onRecordedA={onRecordedA} />
+          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} onRecordedA={onRecordedA}
+            kickoffAt={String(activeMatchRow?.date ?? '')}
+            finished={activeMatchRow?.home_goals != null || activeMatchRow?.away_goals != null} />
           {!pred && activeMatchRow ? (
             <>
               <div className="pr-results-head">

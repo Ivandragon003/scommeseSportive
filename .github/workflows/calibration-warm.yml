@@ -25,6 +25,8 @@ concurrency:
 
 jobs:
   prepare:
+    # A C-only API integration must not rebuild operational A calibration state.
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[c-preview-only]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
