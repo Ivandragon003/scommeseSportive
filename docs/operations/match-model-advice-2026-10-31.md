@@ -12,6 +12,8 @@ L'analisi A preesistente continua a funzionare come prima.
   A80 e le altre righe research `legacy` non sono il metodo A dell'app.
 - Una decisione archiviata prevale sull'analisi aperta successivamente. Prezzo e importo
   provengono dall'archivio: l'importo non viene ricalcolato usando il saldo corrente.
+  Il planner dello stake attuale rimane nascosto quando è disponibile la decisione A
+  archiviata, anche se la risposta dell'analisi A non contiene ancora tale proiezione.
 - Se A non ha un archivio valido, viene mantenuta la scheda A esistente, con origine
   esplicita: analisi attuale o replay retrospettivo. I calcoli A non vengono modificati.
 - C usa soltanto il suo pacchetto Nightly archiviato. Se manca, compare “Consiglio non

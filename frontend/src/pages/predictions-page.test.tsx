@@ -191,6 +191,18 @@ describe('Predictions page', () => {
     expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
 
+  test('an archived A decision hides the later live stake planner even when the analysis response lacks the projection', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+    mockedAdvice.mockResolvedValue({ A: recordedAdvice('A', 'over25', 'Consiglio A congelato', 370), C: null, errors: {} });
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    await screen.findByText('Consiglio A congelato');
+    await screen.findByRole('button', { name: 'Aggiorna' });
+    expect(screen.queryByTestId('stake-planner')).toBeNull();
+    expect(screen.getByText(/Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata/)).toBeTruthy();
+  });
+
   test('refresh reloads the recorded advice without registering bets or changing A prediction inputs', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);

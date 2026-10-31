@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
@@ -820,6 +820,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const rightRef = useRef<HTMLDivElement>(null);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
   const [adviceRefresh, setAdviceRefresh] = useState(0);
+  const [recordedA, setRecordedA] = useState<{ matchId: string; available: boolean } | null>(null);
+  const onRecordedA = useCallback((matchId: string, available: boolean) => setRecordedA({ matchId, available }), []);
   const {
     matchSelection,
     predictionAnalysis,
@@ -888,6 +890,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   } = predictionAnalysis;
   const detailMatchId = String(activeMatchRow?.match_id ?? analysisPrediction?.matchId ?? '');
   const pred = String(analysisPrediction?.matchId ?? '') === detailMatchId ? analysisPrediction : null;
+  const hasArchivedA = !!pred?.automaticRecommendation || (recordedA?.matchId === detailMatchId && recordedA.available);
   const budget = userBudget.budget;
   const automaticFamily = userBudget.automaticFamily;
   const alreadyPlacedForMatch = Boolean(automaticFamily && userBudget.placedMatchKeySet.has(`${automaticFamily}:${String(pred?.matchId ?? '')}`));
@@ -1178,7 +1181,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
         {/*  SINGLE MATCH DETAIL  */}
         {detailOpen && <div className="pr-right" ref={rightRef}>
-          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} />
+          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} onRecordedA={onRecordedA} />
           {!pred && activeMatchRow ? (
             <>
               <div className="pr-results-head">
@@ -1252,7 +1255,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
               <div className="pr-decision-layout pr-decision-layout--context">
                 <div>
-                  {pred.automaticRecommendation ? (
+                  {hasArchivedA ? (
                     <div className="pr-info">
                       Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata.
                       Le giocate registrate e i saldi A/C sono consultabili in Giocate, Budget e Archivio.

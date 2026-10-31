@@ -8,6 +8,7 @@ interface MatchModelAdviceProps {
   matchId: string;
   fallbackA: React.ReactNode;
   refreshKey?: number;
+  onRecordedA?: (matchId: string, available: boolean) => void;
 }
 
 const executionBlocks = new Set(['virtual_exposure_limit', 'insufficient_virtual_capital', 'one_bet_per_portfolio_match']);
@@ -68,7 +69,7 @@ function RecordedAdvice({ decision }: { decision: RecordedModelAdvice }) {
   </>;
 }
 
-export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0 }: MatchModelAdviceProps) {
+export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA }: MatchModelAdviceProps) {
   const [state, setState] = useState<{ matchId: string; data?: MatchModelAdviceData; error?: string; loading: boolean }>({ matchId, loading: true });
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -76,12 +77,15 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0 }:
     let active = true;
     setState({ matchId, loading: true });
     getMatchModelAdvice(matchId, controller.signal).then((data) => {
-      if (active) setState({ matchId, data, loading: false });
+      if (active) {
+        setState({ matchId, data, loading: false });
+        onRecordedA?.(matchId, !!data.A);
+      }
     }).catch(() => {
       if (active) setState({ matchId, error: 'Impossibile caricare i consigli Nightly archiviati.', loading: false });
     });
     return () => { active = false; controller.abort(); };
-  }, [matchId, refreshKey, retry]);
+  }, [matchId, refreshKey, retry, onRecordedA]);
   const current: typeof state = state.matchId === matchId ? state : { matchId, loading: true };
   const familyCard = (family: AdviceFamily) => {
     const decision = current.data?.[family];
