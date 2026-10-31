@@ -1,7 +1,8 @@
 # Nightly: quote e recupero tecnico — 31 ottobre 2026
 
-**Stato: correzione verificata localmente; recupero non ancora avviato.** Le 18 partite
-individuate sono fonti da rivalutare, non nuove puntate già registrate.
+**Stato: primo recupero parziale, 15 partite rivalutate su 18 e quattro nuove puntate.**
+Una seconda correzione, limitata al percorso C, risolve i tre errori di matching
+emersi nel recupero. Il relativo nuovo tentativo deve ancora essere eseguito.
 Tutte le operazioni descritte riguardano portafogli virtuali.
 
 ## Diagnosi verificata
@@ -39,6 +40,63 @@ La chiamata opzionale `/predictions/settle-completed` ha restituito HTTP 400
 con `fetch failed`: è un avviso del percorso di archivio. Le liquidazioni
 wallet e research hanno risposto HTTP 200. Quell'avviso non dimostra una
 perdita di fondi o l'assenza delle quattro puntate.
+Nel recupero `41197494187` lo stesso endpoint è riuscito: 25 partite controllate,
+zero liquidazioni e 2.600 pronostici non liquidabili in quel lotto. Il precedente
+errore di trasporto non si è riprodotto; ciò non certifica la liquidabilità
+dell'intero archivio legacy.
+
+## Primo recupero e secondo problema verificato
+
+Il [recupero `41197494187`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41197494187)
+ha usato il commit `d75718724c4a31b24d729c780f465ec646cd8c9e`. La fase virtuale,
+dalle 11:44:58 alle 11:48:33 UTC, ha prodotto 15 input e 30 decisioni, con quattro
+nuove puntate e tre errori di preparazione. Il workflow è correttamente fallito:
+non è una prova di recupero completo. Nessun errore del provider quote è stato
+rilevato; restavano 261 crediti su 500.
+
+| Modello | Nuova puntata virtuale | Quota reale | Bookmaker | Stake |
+| --- | --- | ---: | --- | ---: |
+| A | Troyes–Le Mans, Over 4,5 gol | 7,30 | Coolbet | 4,12 euro |
+| C | Troyes–Le Mans, vittoria ospite | 3,30 | Codere | 10,14 euro |
+| C | Tottenham–Crystal Palace, vittoria ospite | 4,80 | Codere | 10,14 euro |
+| C | Barcelona–Alaves, Under 2,5 gol | 4,63 | Betsson | 10,14 euro |
+
+L'audit SELECT dopo il run verifica che le righe della copia iniziale restano identiche,
+comprese le 258 puntate legacy. Le quattro nuove puntate corrispondono al proprio
+pacchetto motore, decisione di esecuzione e movimento STAKE; le quote salvate sono
+autentiche, fresche e precedenti al kickoff. L'esposizione ricostruita dal ledger
+è 4,6288% per A e 4,9975% per C. Le altre raccomandazioni possono quindi essere
+escluse dal limite del 5%, anche quando un motore esprime un consiglio.
+
+Le tre partite in errore hanno eventi reali nella cache autenticata del provider,
+con kickoff esatto. Il confronto riproducibile offline ha isolato gli alias:
+
+| Partita Understat | Nomi provider | Punteggio squadre precedente | Dopo alias locali C |
+| --- | --- | ---: | ---: |
+| Borussia M.Gladbach–Paderborn | Borussia Monchengladbach–SC Paderborn | 1,1933 | 2 |
+| Hull–Ipswich | Hull City–Ipswich Town | 1,72 | 2 |
+| Schalke 04–RasenBallsport Leipzig | FC Schalke 04–RB Leipzig | 1,50 | 2 |
+
+La soglia resta 1,8: non viene abbassata. Restano i controlli di ambiguità,
+inversione casa/trasferta e distanza temporale. Il matcher restituisce l'evento
+originale, senza riscrivere identificativi, bookmaker, quote o timestamp. Gli
+alias sono applicati solo da `ResearchRuntime`; il matcher condiviso con A è
+invariato. I test riproducono i tre nomi effettivamente osservati nella cache,
+acquisita alle 11:45:38 UTC per EPL e 11:46:21 UTC per Bundesliga.
+
+Un secondo difetto nel wrapper trattava lo stato C `unknown` come cambio di
+partita, bloccando A prima della previsione. Ora C indisponibile con kickoff
+invariato lascia proseguire A con il proprio loader e pacchetto. I dati C
+indisponibili sono scartati. Kickoff cambiato, partita iniziata, conclusa,
+rinviata o cancellata restano bloccanti. Il test confronta l'intero risultato
+con il caso di errore C già gestito e verifica l'identità del pacchetto A.
+L'[evidenza degli alias](evidence/nightly-provider-aliases-2026-10-31.json) contiene
+orari, nomi, identificativi e impronte delle cache, senza quote inventate o chiavi.
+
+Il secondo piano in sola lettura ammette esattamente `understat_31262`,
+`understat_32304` e `understat_32307`: 3 fonti, 6 decisioni originali, 19 esclusioni.
+Le 15 rivalutazioni concluse, incluse le astensioni, vengono preservate.
+La nuova policy è `11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013`.
 
 ## Crediti e configurazione
 
@@ -48,13 +106,23 @@ I probe di `/sports` non hanno consumato crediti; gli header hanno rilevato:
 | --- | --- | ---: | ---: | ---: |
 | Precedente | 11:09:31 | 498 | 2 | 0 |
 | Personale già attivo, fornito dall'utente | 11:19:31 | 0 | 500 | 0 |
+| Stesso account, probe nel nuovo container web | 11:48:36 | 239 | 261 | 0 |
 
 L'utente ha verificato il secondo account nella dashboard ufficiale. La
 chiave è stata configurata nel file locale `.env` e nel secret GitHub
 `ODDS_API_KEY`, senza pubblicarla. Lo scope
 `ODDS_API_ACCOUNT_SCOPE`, con etichetta `daniele-oddsapi-20261031`, identifica il relativo
-budget; il supporto nel codice esiste già, mentre il passaggio della
-variabile nel workflow fa parte della correzione da verificare.
+budget. Il supporto nel codice esisteva già; il workflow ora passa esplicitamente
+la variabile. Sono stati verificati sia il budget nuovo sia quello precedente.
+
+Il backend Hostless ha un ambiente separato. Anche lì sono stati salvati la
+chiave write-only e lo stesso scope, conservando le altre 56 variabili. Il
+[deploy `6ae5d3f37716538af9500249`](https://hostless.cloud/apps/scommese-sportive-backend/deployments/6ae5d3f37716538af9500249)
+è `Deployed LIVE` sul commit `d757187`. Nel container in esecuzione,
+`node scripts/probe-odds-quota.js` ha risposto HTTP 200 con costo 0; `printenv
+ODDS_API_ACCOUNT_SCOPE` conferma lo scope atteso. Il solo health HTTP 200 non
+viene usato come prova della chiave. Il follow-up degli alias richiede ancora
+una nuova pubblicazione e un nuovo deploy.
 
 Il precedente budget e le osservazioni storiche restano integri. Il nuovo
 scope separa contatori di account reali: non azzera artificialmente la quota
@@ -68,7 +136,7 @@ account gratuiti quando il budget termina.
 
 ## Correzione e limiti del recupero
 
-La correzione in verifica lascia in `ERROR`, con causa e conteggio degli
+La prima correzione pubblicata lascia in `ERROR`, con causa e conteggio degli
 errori, i nuovi job in cui entrambi i motori si astengono soltanto per un
 blocco tecnico delle quote, prima di congelare input e decisioni di
 esecuzione definitivi. Le astensioni sportive restano decisioni valide.
@@ -105,15 +173,15 @@ bookmaker. Riferimento: [esecuzione dei consigli A/C](recommendation-execution-2
 giocate legacy. È una copia delle righe interessate, non un backup completo
 del database.
 
-Dopo tutte le correzioni sono riusciti **143 test Node mirati**, build, typecheck e lint backend. I **63 sorgenti A e condivisi, insieme ai cinque file di fixture e regressione**, restano invariati; passano le sette regressioni A. Il recupero è disattivato per default e il piano reale in sola lettura conferma 18 fonti ammissibili, 36 decisioni sorgenti e quattro esclusioni. La revisione finale non rileva ulteriori blocchi.
+Dopo il follow-up sono riusciti **158 test Node mirati**, build, typecheck e lint backend. I **63 sorgenti A e condivisi, insieme ai cinque file di fixture e regressione**, restano invariati rispetto a `e16c9714eec0684bcbd964f4e8f41a3b4e29567e`; passano le sette regressioni A. Il recupero è disattivato per default. La revisione finale non rileva P1/P2. Il primo intervento aveva già superato 143 test mirati e la [CI completa `41197376086`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41197376086): backend 1.176 pass, zero errori e un test saltato; frontend riuscito.
 
 | Verifica finale | Stato di questo rapporto |
 | --- | --- |
-| Test e revisione della correzione completa | 143 test mirati, build, typecheck e lint PASS; CI in attesa di pubblicazione |
-| ID e risultato dell'esecuzione reale di recupero virtuale | Non ancora avviata |
-| Nuove decisioni, eventuali puntate e astensioni | Da rilevare dopo l'esecuzione |
-| Saldi e impronte delle righe protette prima/dopo | Da confrontare dopo l'esecuzione |
+| Test e revisione del follow-up | 158 test mirati, build, typecheck e lint PASS; CI del follow-up ancora da eseguire |
+| Prima esecuzione reale | `41197494187`: parziale, 15/18, quattro nuove puntate, tre errori |
+| Seconda esecuzione sulle sole tre fonti rimaste | Da avviare dopo pubblicazione e CI |
+| Saldi e impronte delle righe protette dopo il primo run | PASS; esposizione A 4,6288%, C 4,9975% |
 
-Non viene ancora dichiarato un recupero riuscito o un numero di nuove
-puntate. Gli esiti operativi devono aggiornare questa sezione mantenendo
-distinte le 18 fonti iniziali dalle puntate effettivamente finanziate.
+Non viene ancora dichiarato un recupero completo. Gli esiti successivi devono
+aggiornare questa sezione mantenendo distinte le 18 fonti iniziali dalle puntate
+effettivamente finanziate. I criteri contabili e temporali non vengono allentati.

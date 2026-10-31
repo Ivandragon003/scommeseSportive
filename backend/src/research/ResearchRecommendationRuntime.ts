@@ -70,6 +70,14 @@ export class ResearchRecommendationRuntime {
     catch (error) {
       preparationFailure = safeOddsFailureCode(error) ?? 'research_forecast_unavailable';
     }
+    if (prepared) {
+      if (Date.parse(prepared.kickoffAt) !== Date.parse(job.kickoffAt)
+        || !['upcoming', 'unknown'].includes(prepared.status)) throw new Error('recommendation_fixture_changed');
+      if (prepared.status === 'unknown') {
+        prepared = undefined;
+        preparationFailure = 'research_forecast_unavailable';
+      }
+    }
     const quotes = (prepared?.quotes ?? []) as ResearchQuote[];
     const metadata = prepared?.inputSnapshot as Record<string, any> | undefined;
     // A loads the app's complete quote universe independently of C's goal-only inputs.
@@ -77,9 +85,6 @@ export class ResearchRecommendationRuntime {
     let appFailure: string | null = null;
     try { appInput = await this.appOdds.load(row); }
     catch (error) { appFailure = safeOddsFailureCode(error) ?? 'app_odds_unavailable'; }
-    if (prepared && (prepared.status !== 'upcoming' || Date.parse(prepared.kickoffAt) !== Date.parse(job.kickoffAt))) {
-      throw new Error('recommendation_fixture_changed');
-    }
     const observedAt = this.clock().toISOString();
     if (Date.parse(observedAt) >= Date.parse(job.kickoffAt) || Date.parse(observedAt) >= Date.parse(job.windowEndAt)) {
       throw new Error('recommendation_fixture_not_eligible');

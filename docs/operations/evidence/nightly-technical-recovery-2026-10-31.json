@@ -46,7 +46,10 @@
     "typecheck": "passed",
     "lint": "passed",
     "freshReview": "no_remaining_blockers",
-    "secretScan": "passed"
+    "secretScan": "passed",
+    "followupTargetedNodeTests": 158,
+    "followupPassed": 158,
+    "followupFailed": 0
   },
   "quotaProbes": {
     "priorAccount": {
@@ -1134,10 +1137,375 @@
     "planHash": "2559fbf6cc441f8f66729e4b24dacb0da6e150afe5bc89b46e571da21c2f3962"
   },
   "execution": {
-    "status": "not_started"
+    "status": "partial",
+    "firstAttempt": {
+      "runId": 41197494187,
+      "status": "failure",
+      "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
+      "analyzedMatches": 15,
+      "decisions": 30,
+      "registeredBets": 4,
+      "errors": 3,
+      "apiErrors": 0,
+      "quota": {
+        "used": 239,
+        "remaining": 261
+      },
+      "checkedAt": "2026-10-31T11:50:36.102Z",
+      "stableSnapshot": true,
+      "credentialMode": "auth_token_with_select_only_guard",
+      "preservationScope": "Only rows present in the targeted baseline; rows outside it are not new-row counts",
+      "preservation": {
+        "policies": {
+          "beforeCount": 2,
+          "preserved": 2,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "b20b161484c27c3db0f9b5f5d091b4934e79cfe63081c666d4460d682390ddd2",
+          "oldRowsProjectedSha256": "b20b161484c27c3db0f9b5f5d091b4934e79cfe63081c666d4460d682390ddd2",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "jobs": {
+          "beforeCount": 22,
+          "preserved": 22,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "66d36c913f4c6172a7ae365536d1c33e7084d21f41a04b8d46589a2719d6451e",
+          "oldRowsProjectedSha256": "66d36c913f4c6172a7ae365536d1c33e7084d21f41a04b8d46589a2719d6451e",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "inputs": {
+          "beforeCount": 22,
+          "preserved": 22,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "c79b8f3f6443882b803f3b364a15fad21b6745aad88e409b6093b81419e04de6",
+          "oldRowsProjectedSha256": "c79b8f3f6443882b803f3b364a15fad21b6745aad88e409b6093b81419e04de6",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "decisions": {
+          "beforeCount": 44,
+          "preserved": 44,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "fcdc5ea0fa392d5c1d361d6953886cb80075d5d45e6959773789cb3d89d5a084",
+          "oldRowsProjectedSha256": "fcdc5ea0fa392d5c1d361d6953886cb80075d5d45e6959773789cb3d89d5a084",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "bets": {
+          "beforeCount": 10,
+          "preserved": 10,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "9ea07cddc5f85389a23c520f6ef7229ddbbd23c8db7fe9f998e71df3da346707",
+          "oldRowsProjectedSha256": "9ea07cddc5f85389a23c520f6ef7229ddbbd23c8db7fe9f998e71df3da346707",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "settlements": {
+          "beforeCount": 6,
+          "preserved": 6,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "oldRowsProjectedSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "cancellations": {
+          "beforeCount": 5,
+          "preserved": 5,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "oldRowsProjectedSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "ledger": {
+          "beforeCount": 18,
+          "preserved": 18,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "c8235e635800e19d90c1d632c70aaa14e7a4917ff7b9d462495067ec9a6b0633",
+          "oldRowsProjectedSha256": "c8235e635800e19d90c1d632c70aaa14e7a4917ff7b9d462495067ec9a6b0633",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "budgets": {
+          "beforeCount": 1,
+          "preserved": 1,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "fe58bf7227e04a932d3ea89d6372049f45746452acbddd26632fbe85cf227086",
+          "oldRowsProjectedSha256": "fe58bf7227e04a932d3ea89d6372049f45746452acbddd26632fbe85cf227086",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "legacyBets": {
+          "beforeCount": 258,
+          "preserved": 258,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "oldRowsProjectedSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        }
+      },
+      "newBets": [
+        {
+          "id": "30586a75-1241-40c8-a3c0-bf82e602ab33",
+          "executionDecisionId": "d51d575b-f60e-4859-ae61-a2c65c5a4c7a",
+          "originDecisionId": "5c99c219-f1b6-4259-b27e-2b7ed6640ba7",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_31266",
+          "homeTeamName": "Tottenham",
+          "awayTeamName": "Crystal Palace",
+          "competition": "Premier League",
+          "market": "1x2",
+          "selection": "awayWin",
+          "odds": 4.8,
+          "bookmaker": "Codere (IT)",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:21.405Z",
+          "observedAt": "2026-10-31T11:47:20.993Z",
+          "kickoffAt": "2026-10-31T17:30:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:45:38.890Z",
+          "quoteUpdatedAt": "2026-10-31T11:45:03Z",
+          "ageAtPlacementMs": [
+            162515,
+            198405
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "041e6f4141a92a1c5d9d6a1b4711876f02945c3b062f7abc970c9843ba6c61a0",
+          "snapshotSha256": "5cc2a1765aead34782467e3ecca3c185b189cf0d2549bce471666732fdb02905"
+        },
+        {
+          "id": "3c4aed2f-5495-4103-9a52-39f334958a9f",
+          "executionDecisionId": "a16312d0-435e-4cf1-9a41-53338be4da30",
+          "originDecisionId": "b2763622-0eb1-4059-b769-10b3d716140e",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_32020",
+          "homeTeamName": "Troyes",
+          "awayTeamName": "Le Mans",
+          "competition": "Ligue 1",
+          "market": "1x2",
+          "selection": "awayWin",
+          "odds": 3.3,
+          "bookmaker": "Codere (IT)",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:20.594Z",
+          "observedAt": "2026-10-31T11:47:36.626Z",
+          "kickoffAt": "2026-10-31T19:45:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:47:26.995Z",
+          "quoteUpdatedAt": "2026-10-31T11:47:21Z",
+          "ageAtPlacementMs": [
+            53599,
+            59594
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "e575baf77760e8462c052d0a6195b5d94a990584cb45af1cabfc7f1cae434327",
+          "snapshotSha256": "e2ec8a301af9447b8cf2d84cdc2d4a906da7054b118dd9fd72338d661f481522"
+        },
+        {
+          "id": "bd19ec73-e85b-41c1-9b51-4be4a2022659",
+          "executionDecisionId": "2d04ee0a-a913-4362-89b6-07acf65dbb60",
+          "originDecisionId": "bd021892-ec6e-430b-879e-5681e7b7d33f",
+          "portfolioId": "shadow_A",
+          "family": "A",
+          "modelVersion": "APP-A-5199efe38eb750f91299",
+          "matchId": "understat_32020",
+          "homeTeamName": "Troyes",
+          "awayTeamName": "Le Mans",
+          "competition": "Ligue 1",
+          "market": "totals",
+          "selection": "over45",
+          "odds": 7.3,
+          "bookmaker": "Coolbet",
+          "source": "odds_api",
+          "stakeCents": 412,
+          "stakePercent": 0.41,
+          "equityBasisCents": 100610,
+          "placedAt": "2026-10-31T11:48:12.736Z",
+          "observedAt": "2026-10-31T11:47:36.626Z",
+          "kickoffAt": "2026-10-31T19:45:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:47:30.627Z",
+          "quoteUpdatedAt": "2026-10-31T11:46:42Z",
+          "ageAtPlacementMs": [
+            42109,
+            90736
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "e575baf77760e8462c052d0a6195b5d94a990584cb45af1cabfc7f1cae434327",
+          "snapshotSha256": "93c1d6e89da729a6d07d652378b830b4fca07a6e22a84c907b0a2dc198d03ba0"
+        },
+        {
+          "id": "e478b553-d38b-4c79-abb4-9d3d7e6bf67d",
+          "executionDecisionId": "234df1ea-9c99-4564-875d-38d08e593bac",
+          "originDecisionId": "96e79bd4-23c8-4c84-8053-f52eb4478af5",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_30874",
+          "homeTeamName": "Barcelona",
+          "awayTeamName": "Alaves",
+          "competition": "La Liga",
+          "market": "totals",
+          "selection": "under25",
+          "odds": 4.63,
+          "bookmaker": "Betsson",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:19.762Z",
+          "observedAt": "2026-10-31T11:47:41.577Z",
+          "kickoffAt": "2026-10-31T20:00:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:45:57.552Z",
+          "quoteUpdatedAt": "2026-10-31T11:45:33Z",
+          "ageAtPlacementMs": [
+            142210,
+            166762
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "105853445a6478245727e9b43d8106056a80563bc876ee39d366fc7cdecf07e4",
+          "snapshotSha256": "d2f9259e5f4ba50b8ba32f82361816bd75594c3c78b7f90c9c6ab41de04f0380"
+        }
+      ],
+      "abstentionReasons": {
+        "app_no_recommendation": 4,
+        "non_binary_payout_not_supported_by_canonical_engine": 10,
+        "virtual_exposure_limit": 12
+      },
+      "errorJobs": [
+        {
+          "id": "10cff7e9-275d-4f20-b0ea-af06a92493ea",
+          "matchId": "understat_32307",
+          "runId": "github-actions:41197494187",
+          "status": "ERROR",
+          "kickoffAt": "2026-10-31T14:30:00.000Z",
+          "claimedAt": "2026-10-31T11:45:21.195Z",
+          "completedAt": "2026-10-31T11:46:33.135Z"
+        },
+        {
+          "id": "3c3daba3-5de4-4393-b8b0-9b33d80f1147",
+          "matchId": "understat_31262",
+          "runId": "github-actions:41197494187",
+          "status": "ERROR",
+          "kickoffAt": "2026-10-31T15:00:00.000Z",
+          "claimedAt": "2026-10-31T11:45:23.430Z",
+          "completedAt": "2026-10-31T11:46:41.229Z"
+        },
+        {
+          "id": "9663e6ef-b329-4aff-aed6-b6627747eed0",
+          "matchId": "understat_32304",
+          "runId": "github-actions:41197494187",
+          "status": "ERROR",
+          "kickoffAt": "2026-10-31T14:30:00.000Z",
+          "claimedAt": "2026-10-31T11:45:20.083Z",
+          "completedAt": "2026-10-31T11:46:29.739Z"
+        }
+      ],
+      "financial": [
+        {
+          "portfolioId": "shadow_A",
+          "family": "A",
+          "availableCents": 95953,
+          "committedCents": 4657,
+          "openings": 1,
+          "maximumNewStakeExposureFraction": 0.04628764536328397,
+          "equityCents": 100610,
+          "active": true,
+          "openStakesCents": 4657,
+          "pendingBets": 3,
+          "exposureFraction": 0.04628764536328397
+        },
+        {
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "availableCents": 96380,
+          "committedCents": 5070,
+          "openings": 1,
+          "maximumNewStakeExposureFraction": 0.04997535731887629,
+          "equityCents": 101450,
+          "active": true,
+          "openStakesCents": 5070,
+          "pendingBets": 5,
+          "exposureFraction": 0.04997535731887629
+        }
+      ],
+      "duplicatePairs": [],
+      "snapshotSha256": "8e5cb875d85f5d5a15806367f6213293d747fc149b0402d9339f6813d264f788",
+      "limitations": [
+        "Quote authenticity is checked against stored provider/source/bookmaker flags, frozen shared vectors and timestamps; no provider request is made by this audit.",
+        "The prepared decisions_hash is preserved and checked for format; it is not independently reconstructed from post-admission decision snapshots.",
+        "Two matching SELECT snapshots detect observed concurrent changes; no database transaction or external lock is acquired.",
+        "Original research origin records are read for lineage; only the execution/accounting tables present in the supplied baseline have a before/after preservation proof."
+      ]
+    },
+    "secondPlan": {
+      "policyHash": "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013",
+      "planHash": "384171bbecaf6aa9a9bccf0a0d675d1488da3c15ae8f2041f61bfdb65ff28655",
+      "matchIds": [
+        "understat_31262",
+        "understat_32304",
+        "understat_32307"
+      ],
+      "eligible": 3,
+      "sourceDecisions": 6,
+      "excluded": 19,
+      "status": "not_started"
+    }
   },
   "githubCI": {
-    "status": "pending_publication"
+    "status": "success",
+    "runId": 41197376086,
+    "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
+    "backend": {
+      "tests": 1177,
+      "passed": 1176,
+      "failed": 0,
+      "skipped": 1
+    },
+    "frontend": "success",
+    "followup": "pending_publication"
   },
-  "noRealBookmakerTransactions": true
+  "noRealBookmakerTransactions": true,
+  "hostless": {
+    "status": "Deployed LIVE",
+    "deploymentId": "6ae5d3f37716538af9500249",
+    "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
+    "scope": "daniele-oddsapi-20261031",
+    "probe": {
+      "httpStatus": 200,
+      "used": 239,
+      "remaining": 261,
+      "lastCost": 0,
+      "date": "2026-10-31T11:48:36.000Z"
+    },
+    "followupDeployment": "pending_publication"
+  }
 }

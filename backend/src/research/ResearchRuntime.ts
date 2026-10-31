@@ -1,7 +1,7 @@
 import { DatabaseService } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
-import { scoreFixtureCandidate } from '../services/odds-provider/oddsProviderUtils';
+import { normalizeTeamForOdds, scoreFixtureCandidate } from '../services/odds-provider/oddsProviderUtils';
 import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP5_COMPETITIONS } from './ForecastCore';
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
@@ -81,8 +81,22 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): L
   return [...groups.values()].flatMap((sheet) => sheet.quotes);
 }
 
+// Verified Understat/provider names from the 2026-10-31 cached EPL/Bundesliga responses.
+// Keep these aliases local: the app's quote matching and prediction engine remain unchanged.
+const researchTeamAliases = new Map([
+  ['Borussia M.Gladbach', 'Borussia Monchengladbach'],
+  ['Paderborn', 'SC Paderborn'],
+  ['Hull', 'Hull City'],
+  ['Ipswich', 'Ipswich Town'],
+  ['Schalke 04', 'FC Schalke 04'],
+  ['RasenBallsport Leipzig', 'RB Leipzig'],
+].flatMap(group => group.map(name => [normalizeTeamForOdds(name), normalizeTeamForOdds(group[0])] as const)));
+const researchTeamForOdds = (name: string): string => researchTeamAliases.get(normalizeTeamForOdds(name)) ?? name;
+
 export function matchingResearchEvent(row: Record<string, any>, events: OddsMatch[]): OddsMatch | null {
-  const ranked = events.map((event) => ({ event, evidence: scoreFixtureCandidate(event, row.home_team_name, row.away_team_name, row.date) }))
+  const homeTeam = researchTeamForOdds(row.home_team_name), awayTeam = researchTeamForOdds(row.away_team_name);
+  const ranked = events.map((event) => ({ event, evidence: scoreFixtureCandidate({ ...event,
+    homeTeam: researchTeamForOdds(event.homeTeam), awayTeam: researchTeamForOdds(event.awayTeam) }, homeTeam, awayTeam, row.date) }))
     .filter(({ evidence }) => evidence.straightTeamScore >= 1.8 && !evidence.warnings.includes('home_away_inverted_candidate') && evidence.score > 0)
     .sort((a, b) => b.evidence.score - a.evidence.score);
   if (!ranked.length || (ranked[1] && ranked[0].evidence.score - ranked[1].evidence.score < .15)) return null;

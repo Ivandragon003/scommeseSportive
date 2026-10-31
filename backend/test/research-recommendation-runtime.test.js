@@ -221,6 +221,33 @@ test('technical C failure and zero independent residuals cannot silently veto ex
   assert.equal(blocked.calls.odds, 0); assert.equal(blocked.calls.predict.length, 1);
 });
 
+test('an unknown C fixture with unchanged kickoff is unavailable C evidence and preserves the exact independent A packet', async () => {
+  const unknown = fixture(), thrown = fixture({ prepareFailure: Error('private C preparation failure') });
+  unknown.prepared.status = 'unknown';
+  unknown.prepared.inputSnapshot.untrustedMarker = 'discarded-c-only-payload';
+  const before = JSON.stringify(unknown.packet); Object.freeze(unknown.packet);
+  const actual = await unknown.runtime.prepare(unknown.job), expected = await thrown.runtime.prepare(thrown.job);
+  assert.equal(actual.inputSnapshot.forecasts.A, unknown.packet);
+  assert.equal(JSON.stringify(unknown.packet), before);
+  assert.deepEqual(actual, expected);
+  assert.deepEqual(unknown.calls.predict, thrown.calls.predict);
+  assert.equal(actual.decisions[0].action, 'BET'); assert.equal(actual.decisions[1].action, 'ABSTAIN');
+  assert.equal(actual.decisions[1].reason, 'research_forecast_unavailable');
+  assert.deepEqual(actual.inputSnapshot.quoteSnapshots.C, []);
+  assert.equal(actual.inputSnapshot.forecasts.C.decision, null);
+  assert.doesNotMatch(JSON.stringify(actual), /discarded-c-only-payload/);
+});
+
+test('a changed C kickoff or known non-upcoming fixture still fails closed before A prediction', async () => {
+  for (const [status, changedKickoff] of [['unknown', true], ['upcoming', true], ['started', false],
+    ['finished', false], ['postponed', false], ['cancelled', false]]) {
+    const f = fixture(); f.prepared.status = status;
+    if (changedKickoff) f.prepared.kickoffAt = '2026-10-30T20:00:00Z';
+    await assert.rejects(f.runtime.prepare(f.job), /recommendation_fixture_changed/);
+    assert.equal(f.calls.predict.length, 0); assert.equal(f.calls.appOdds, 0);
+  }
+});
+
 test('the actual recommendation preparer pins C906 and keeps app A available when only a newer candidate exists', async () => {
   const f = fixture(); const exactReads = [], registry = [{ family: 'C', version: 'C-weekly-next' }];
   f.db.getMatches = async () => Array.from({ length: 45 }, (_, index) => ({ ...f.row, match_id: `history-${index}`,

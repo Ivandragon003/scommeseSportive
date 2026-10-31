@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Offline diagnosis of the three existing technical-recovery fixture errors",
+  "readOnlyDiagnostic": true,
+  "providerCalls": 0,
+  "databaseCalls": 0,
+  "instrumentation": "Isolated-process observer invokes the original shared scorer unchanged and records the actual compiled research matcher inputs and scores.",
+  "sources": {
+    "coreCache": {
+      "file": "core-cache.private.json",
+      "sha256": "56615f65bfb73f0d4b787d6a9fe36db34ce1a29fe9542de051f92f96e27251cb"
+    },
+    "fixtureAudit": {
+      "file": "snapshot-after.private.json",
+      "sha256": "8e5cb875d85f5d5a15806367f6213293d747fc149b0402d9339f6813d264f788"
+    },
+    "researchRuntimeSourceSha256": "86549d5a408f58963b8366d1752725a8810146286c6ed48c154bcad3dda91a36",
+    "researchRuntimeCompiledSha256": "5b181a6a206a5a4c09744f45d9a0a83f0d5b2812e0c7e605bafb8631631332da",
+    "sharedScorerSourceSha256": "65bf3e7ce34e5079d692b55bbc77fa8838553f991b01f82842911c6831d5687b"
+  },
+  "cachedEventCount": 38,
+  "cases": [
+    {
+      "matchId": "understat_32307",
+      "understat": {
+        "home": "Borussia M.Gladbach",
+        "away": "Paderborn",
+        "kickoffAt": "2026-10-31T14:30:00.000Z"
+      },
+      "provider": {
+        "home": "Borussia Monchengladbach",
+        "away": "SC Paderborn",
+        "kickoffAt": "2026-10-31T14:30:00Z",
+        "eventId": "odds_aecb9d8c01176616c87d893bee4bc0de",
+        "capturedAt": "2026-10-31T11:46:21.485Z",
+        "endpoint": "/sports/soccer_germany_bundesliga/odds",
+        "payloadSha256": "91d5a03b603df2d93a40c65f2cef97c080a2de4aec6790bc0781a18e3e1e4a32"
+      },
+      "before": {
+        "score": 1.6933333333333334,
+        "straightTeamScore": 1.1933333333333334,
+        "warnings": [],
+        "matched": false
+      },
+      "after": {
+        "score": 2.65,
+        "straightTeamScore": 2,
+        "warnings": [],
+        "matched": true,
+        "canonicalHome": "borussia m gladbach",
+        "canonicalAway": "paderborn",
+        "matchedEventId": "odds_aecb9d8c01176616c87d893bee4bc0de",
+        "returnedOriginalObject": true,
+        "originalEventsUnchanged": true
+      }
+    },
+    {
+      "matchId": "understat_31262",
+      "understat": {
+        "home": "Hull",
+        "away": "Ipswich",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      "provider": {
+        "home": "Hull City",
+        "away": "Ipswich Town",
+        "kickoffAt": "2026-10-31T15:00:00Z",
+        "eventId": "odds_1ec76c009147b63859f68c6b5a1dd77b",
+        "capturedAt": "2026-10-31T11:45:38.890Z",
+        "endpoint": "/sports/soccer_epl/odds",
+        "payloadSha256": "9fad70825fdc968aeca73dc8dce4c3a301e8067cb2f9a762f25acc391993d62a"
+      },
+      "before": {
+        "score": 2.2199999999999998,
+        "straightTeamScore": 1.72,
+        "warnings": [],
+        "matched": false
+      },
+      "after": {
+        "score": 2.65,
+        "straightTeamScore": 2,
+        "warnings": [],
+        "matched": true,
+        "canonicalHome": "hull",
+        "canonicalAway": "ipswich",
+        "matchedEventId": "odds_1ec76c009147b63859f68c6b5a1dd77b",
+        "returnedOriginalObject": true,
+        "originalEventsUnchanged": true
+      }
+    },
+    {
+      "matchId": "understat_32304",
+      "understat": {
+        "home": "Schalke 04",
+        "away": "RasenBallsport Leipzig",
+        "kickoffAt": "2026-10-31T14:30:00.000Z"
+      },
+      "provider": {
+        "home": "FC Schalke 04",
+        "away": "RB Leipzig",
+        "kickoffAt": "2026-10-31T14:30:00Z",
+        "eventId": "odds_3966f2fe1c2f73bfa12e61db83bd0bf9",
+        "capturedAt": "2026-10-31T11:46:21.485Z",
+        "endpoint": "/sports/soccer_germany_bundesliga/odds",
+        "payloadSha256": "91d5a03b603df2d93a40c65f2cef97c080a2de4aec6790bc0781a18e3e1e4a32"
+      },
+      "before": {
+        "score": 2,
+        "straightTeamScore": 1.5,
+        "warnings": [],
+        "matched": false
+      },
+      "after": {
+        "score": 2.65,
+        "straightTeamScore": 2,
+        "warnings": [],
+        "matched": true,
+        "canonicalHome": "schalke 04",
+        "canonicalAway": "rasenballsport leipzig",
+        "matchedEventId": "odds_3966f2fe1c2f73bfa12e61db83bd0bf9",
+        "returnedOriginalObject": true,
+        "originalEventsUnchanged": true
+      }
+    }
+  ]
+}
