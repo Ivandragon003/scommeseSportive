@@ -1,0 +1,61 @@
+{
+  "readOnly": true,
+  "checkedAt": "2026-10-31T10:14:28.022Z",
+  "runId": 41191764179,
+  "runConclusion": "cancelled",
+  "warmStartedAt": "2026-10-31T10:12:47.404Z",
+  "warmCancelledAt": "2026-10-31T10:13:26.026Z",
+  "cacheWritesInRunWindow": 5,
+  "totalCacheRows": 128,
+  "cacheStateUnchanged": false,
+  "numericalProfilesChanged": false,
+  "identicalEarlierPayloads": [
+    {
+      "newKey": "b1fd3af498e08aaae4e2f2926d5e927ef16e393f95071b59f40035861b217301",
+      "earlierKey": "d9c91239d2280fe5a654d058bde5d3e9ef08041d43883930c296f243b836c5ea",
+      "earlierCreatedAt": "2026-10-30T17:27:46.400Z",
+      "exactPayloadEquality": true,
+      "newChecksumValid": true,
+      "earlierChecksumValid": true,
+      "payloadSha256": "9ee0c6f1e05af8cb04d7d5e90251a408ffccd0313da85102b39f976cb29f6e71"
+    },
+    {
+      "newKey": "1af908ee96a76c0155980af048d47746ab2750b5afeeb6dcf234da9b3d14caad",
+      "earlierKey": "329db8a05ec237646fbf0cc2ec73a8af639e9c5d0888a5b8b6cb2ed253495cd2",
+      "earlierCreatedAt": "2026-10-30T17:20:21.539Z",
+      "exactPayloadEquality": true,
+      "newChecksumValid": true,
+      "earlierChecksumValid": true,
+      "payloadSha256": "56276b9c842c6472924b0e8be84148256fad221159dfab9d8173b534401123d0"
+    },
+    {
+      "newKey": "27efc1d572f9db8fc3b616e207fcf06609b21fed92e9ade0e43197350aca2ff7",
+      "earlierKey": "2c5720f78589cb107ba7db4535b1ea9eeaa7788a7a8a4e5c9371f73f6563dd96",
+      "earlierCreatedAt": "2026-10-30T17:20:25.589Z",
+      "exactPayloadEquality": true,
+      "newChecksumValid": true,
+      "earlierChecksumValid": true,
+      "payloadSha256": "c953dd6950bf03f9f50c9d256cfc1cc3abbe7dbdecdbfeeda6f80bab5a3c9bf0"
+    },
+    {
+      "newKey": "c75d4b5ae79690b69b3cdf153c5ca4e3dc0a46105a6795f7f1ed1fdecdf49da6",
+      "earlierKey": "f6c75bb427a43ae945fcdf455ad55b96d9d147acc4dac57afd1b02dc29a7e5ef",
+      "earlierCreatedAt": "2026-10-30T17:20:29.598Z",
+      "exactPayloadEquality": true,
+      "newChecksumValid": true,
+      "earlierChecksumValid": true,
+      "payloadSha256": "60f4543652fa5566daf69969e1240fb8f19c2f8bafefa367d8201c56610faae9"
+    },
+    {
+      "newKey": "446885847f190ab50dcddc7f0598143803ce3174f21304c2d75b2d335517c7fd",
+      "earlierKey": "0207c6a81979ae3055bd772c5aa33f2e9665420b2bcd87df56a883a648c95810",
+      "earlierCreatedAt": "2026-10-30T17:20:33.652Z",
+      "exactPayloadEquality": true,
+      "newChecksumValid": true,
+      "earlierChecksumValid": true,
+      "payloadSha256": "3dccf2db8927ea388564b452b9b67298cd46a41467ddba57ee0f3ef07af0e450"
+    }
+  ],
+  "scope": "Automatic warm wrote five disposable cache records; exact payloads match earlier records. Full cache state was not snapshotted before push; no claim of zero writes or exact metadata restoration.",
+  "operationalASourceFilesChanged": 0
+}

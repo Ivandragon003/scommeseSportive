@@ -4,9 +4,17 @@
     "oldBenchmark": "arithmetically_reproduced_but_temporally_invalid_for_prematch_claims",
     "correctedBenchmark": "retrospective_development_only_not_independent_certification",
     "firstPublicationTimestampsVerified": false,
-    "operationalAChanged": false,
     "operationalC906Replaced": false,
-    "sharedDatabaseWrites": false
+    "sharedDatabaseWrites": true,
+    "operationalAMethodChanged": false,
+    "sharedFootballDataChanged": false,
+    "automaticCacheSideEffect": {
+      "writes": 5,
+      "exactEarlierPayloadMatches": 5,
+      "numericalProfilesChanged": false,
+      "fullCacheStateUnchanged": false,
+      "evidence": "evidence/c-data-audit-2026-10-31/calibration-warm-side-effect.json"
+    }
   },
   "asOf": "2026-10-30T23:49:05.257Z",
   "dataQualityPolicy": {
@@ -5440,7 +5448,19 @@
     "typecheck": "PASS",
     "lint": "PASS",
     "composeSynthetic": "PASS",
-    "fullCI": "pending_publication"
+    "fullCI": {
+      "runId": 41191764219,
+      "commit": "be6e1e6c2815b9814b73dd93fa88cccf6691e769",
+      "url": "https://github.com/Ivandragon003/scommeseSportive/actions/runs/41191764219",
+      "backend": {
+        "tests": 1134,
+        "pass": 1133,
+        "skip": 1,
+        "fail": 0
+      },
+      "frontend": "success"
+    },
+    "calibrationWorkflowFocusedTests": 2
   },
   "limitations": [
     "The statistical no-ML comparator is the frozen Research baseline, not the whole operational APP-A engine.",

@@ -2,7 +2,7 @@
 
 **Il benchmark precedente è riproducibile aritmeticamente, ma non è un benchmark pre-match temporalmente affidabile.** Cinque dei 1.975 target erano previsti dopo il programma ufficiale della partita; altri risultati e statistiche di incontri sospesi potevano entrare nella storia prima del completamento. L'accordo con Understat non bastava a verificare il calendario reale.
 
-La correzione riguarda esclusivamente C. Nessun dato condiviso è stato riscritto e nessun sorgente di A operativo è cambiato. C906 resta il riferimento operativo; nessun modello è stato adottato sulla base di queste prove di sviluppo.
+La correzione riguarda esclusivamente C. Nessun dato calcistico condiviso, parametro o sorgente di A operativo è cambiato. Un automatismo del push ha però scritto cinque record derivati di cache A con payload identici ai precedenti: il caso è documentato nella sezione 8. C906 resta il riferimento operativo; nessun modello è stato adottato sulla base di queste prove di sviluppo.
 
 ## 1. Perimetro, dati congelati e significato delle verifiche
 
@@ -180,7 +180,11 @@ Il nuovo registro di adozione rifiuta già divergenze tra kickoff congelato e ri
 
 Sono invariati byte per byte [**68 file protetti**](evidence/c-data-audit-2026-10-31/operational-a-immutability.json): tutti i sorgenti backend esterni a research e le fixture/test A. Passano inoltre le sette regressioni A contro `a474e36c`, comprendenti 36 sorgenti e sei casi completi di `PredictionService`. I nuovi test runtime confrontano esplicitamente input, consiglio e pacchetto A quando C usa dati filtrati o si astiene. Le fixture non sono una prova esaustiva su ogni input possibile; il confronto dei sorgenti rafforza l'invarianza delle matematiche.
 
-Nessuna query dell'audit ha scritto nel database condiviso. Non sono state registrate candidature, adozioni, puntate o movimenti. Stake C 1%, esposizione 5% e una puntata per partita restano invariati. La pubblicazione GitHub non attesta un nuovo deploy web.
+Le query degli auditor sono SELECT-only e non sono state registrate candidature, adozioni, puntate o movimenti. Il push ha però attivato il workflow separato di warm A: la cancellazione richiesta mentre installava le dipendenze non è stata immediata, e lo step è iniziato prima dell'interruzione. Ha scritto cinque cache Serie A. Per ciascuna ho verificato uguaglianza esatta del payload con un record precedente e ricalcolato entrambi i checksum: **nessuna differenza nei valori di calibrazione**, ma lo stato completo della cache non è rimasto identico. Non lo presento come assenza di scritture. Il limite di 128 record può espellere vecchie copie derivate; non era disponibile uno snapshot precedente completo della cache. Non sono state cancellate o riscritte altre cache per simulare un ripristino.
+
+La [prova delle cinque cache](evidence/c-data-audit-2026-10-31/calibration-warm-side-effect.json) conserva orari, chiavi e confronti. Il [run](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41191764179) è concluso come cancellato. Il filtro del workflow ora esclude i cambi esclusivamente in `backend/src/research/**`; il metodo A rimane identico e il suo normale warm per modifiche ai componenti A è preservato. Il commit di questo solo filtro/documentazione usa lo skip previsto da [GitHub](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs), per non riattivare il warm modificando il suo stesso file.
+
+ Stake C 1%, esposizione 5% e una puntata per partita restano invariati. La pubblicazione GitHub non attesta un nuovo deploy web.
 
 ## 9. Riproducibilità e controlli
 
@@ -197,7 +201,7 @@ Gli output devono essere nuovi. Il README delle evidenze descrive decompressione
 <!-- CHECKS_START -->
 Build, typecheck e lint backend riusciti; 91 test Node mirati e 73 test Python passati. Regresso A: sette controlli passati, 68 file protetti identici. Audit aritmetico prima/dopo e replay gzip passati, audit temporale del corpus ricostruito passato entro il suo perimetro dichiarato. Compose isolato con database sintetico: backend/frontend/proxy e accesso verificati; container di prova rimossi.
 
-La suite completa locale Windows ha incontrato lock SQLite nelle fixture. La regressione iniziale del conteggio `checked` introdotta dal nuovo pending C è stata corretta e ricontrollata. Un tentativo Linux con workspace in sola lettura non è presentato come gate riuscito: otto fixture cercavano di crearvi database. La CI completa su checkout pulito viene verificata sul commit pubblicato.
+La suite completa locale Windows ha incontrato lock SQLite nelle fixture. La regressione iniziale del conteggio `checked` introdotta dal nuovo pending C è stata corretta e ricontrollata. Un tentativo Linux con workspace in sola lettura non è presentato come gate riuscito: otto fixture cercavano di crearvi database. La [CI completa 41191764219](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41191764219), su `be6e1e6c`, è riuscita: backend **1.134 test, 1.133 passati, uno opzionale saltato, zero fallimenti**; frontend riuscito. Il filtro finale del workflow è verificato anche con i due test dedicati alla preparazione calibrazione.
 <!-- CHECKS_END -->
 
 ## 10. Giudizio finale sull'affidabilità

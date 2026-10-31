@@ -283,9 +283,13 @@ negli input prepartita. Non si riducono gate o finestre scientifiche per
 nascondere un costo di calcolo.
 
 Il workflow `Prepare prediction calibration` può partire su push pertinente
-in `main` e scrive nel DB dei secret correnti. La pubblicazione tramite PR e il cutover sono
+in `main` e scrive nel DB dei secret correnti. I cambi esclusivamente in
+`backend/src/research/**` sono esclusi dal trigger: modificare C non deve
+preparare automaticamente la calibrazione A. La pubblicazione tramite PR e il cutover sono
 avvenuti; i workflow riattivati usano i secret personali RW/RO. Training
-settimanale attivo, Registry writes `false`; evitare futuri collegamenti divergenti. `research-training.yml` resta distinto: registry, validazione
+settimanale attivo, Registry writes `true` per candidature con policy qualità C;
+questo non autorizza l'adozione dai soli risultati storici. Evitare futuri
+collegamenti divergenti. `research-training.yml` resta distinto: registry, validazione
 cronologica, Champion–Challenger e rollback sono preservati. C resta Challenger;
 ROI migliore o mercati `EXPERIMENTAL` tecnicamente idonei non ne autorizzano
 la promozione statistica.

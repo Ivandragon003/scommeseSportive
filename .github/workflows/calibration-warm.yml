@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'backend/src/**'
+      # C research changes must not warm operational A profiles.
+      - '!backend/src/research/**'
       - 'backend/migrations/**'
       - 'backend/package*.json'
       - 'backend/tsconfig.json'

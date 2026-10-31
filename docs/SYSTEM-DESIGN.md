@@ -698,10 +698,13 @@ come prova di consegna esterna o di un nuovo riepilogo senza verifica della riga
 Training settimanale, promozione condizionata e rollback restano separati dal
 job giornaliero. `Prepare prediction calibration` calcola i profili sul runner
 e li salva nel DB, senza chiamare provider quote o registrare puntate. Il suo
-trigger su `main` scrive sul personale. I workflow sono stati riattivati
+trigger su `main` scrive sul personale, ma esclude modifiche esclusivamente
+in `backend/src/research/**` per isolare il lavoro C dalla preparazione A.
+I workflow sono stati riattivati
 in modo selettivo:
 training e nuove registrazioni nightly attivi,
-Registry writes disabilitate. La pubblicazione
+Registry writes abilitate per nuove candidature C qualificate; l'adozione
+richiede prove future congelate, non i risultati di sviluppo. La pubblicazione
 tramite PR e il cutover sono avvenuti; CI e build non attestano un ciclo
 automatico reale concluso.
 
