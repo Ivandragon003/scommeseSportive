@@ -6,13 +6,17 @@ inclusi nel pacchetto, non il sito frontend remoto. Un deploy web non aggiorna l
 Non contiene database, budget o password: budget, giocate e archivio restano nel database
 Turso condiviso sotto l'utente canonico `user1`.
 
-## Stato al 31 ottobre 2026: APK 1.1.4 di prova
+## Stato al 31 ottobre 2026: APK 1.1.5 di prova
 
-La versione Android è `1.1.4` / `versionCode=6`. Il pacchetto di prova include la UI
-del commit `d6a93e1487fd28c0aa47d3cd30e061b266cdd206`, compilata in un worktree isolato:
+La versione Android è `1.1.5` / `versionCode=7`. Il pacchetto di prova include anche
+il confronto dei consigli A/C nel dettaglio partita, compilato in un worktree isolato:
 non include le modifiche locali non pubblicate a `walletApi.ts` e al relativo test.
 Comprende i portafogli separati A/C, stake A dal consiglio, stake C all'1% e consigli
-Nightly archiviati. Il backend resta `https://scommese-sportive-backend.hostless.app/api`;
+Nightly archiviati. Le due schede distinguono consiglio del motore, quota archiviata,
+importo effettivamente registrato, astensione e valutazione non disponibile.
+C mostra la propria decisione Nightly già archiviata: aprire la schermata non genera
+una nuova previsione C né una puntata. Senza archivio C viene indicato come non ancora disponibile.
+Il backend resta `https://scommese-sportive-backend.hostless.app/api`;
 i motori risiedono sul server e non vengono modificati dal packaging Android.
 
 Mancano ancora `frontend/android/key.properties` e il keystore release originale.
@@ -27,8 +31,9 @@ disinstallare alla cieca: per un aggiornamento compatibile serve la firma origin
 Budget e giocate rimangono sul server, ma disinstallare cancella la sessione locale.
 La Nightly cloud non richiede PC o smartphone accesi.
 
-Download: [FootPredictor 1.1.4 APK di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.4-debug-20261031/FootPredictor-1.1.4-debug.apk).
-Verifiche e limiti: [report del pacchetto](android/releases/1.1.4-2026-10-31.md).
+Download: [FootPredictor 1.1.5 APK di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.5-debug-20261031/FootPredictor-1.1.5-debug.apk).
+Funzionamento: [confronto nel dettaglio partita](operations/match-model-advice-2026-10-31.md).
+La precedente 1.1.4 e le sue verifiche restano nel [report storico](android/releases/1.1.4-2026-10-31.md).
 
 ## 1. Configurare l'accesso condiviso su Hostless
 

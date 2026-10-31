@@ -4,9 +4,9 @@
 [algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
 e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 
-**APK Android, 31 ottobre 2026.** Disponibile [FootPredictor 1.1.4 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.4-debug-20261031/FootPredictor-1.1.4-debug.apk),
-con firma debug esistente e UI aggiornata. Verificati 229 test frontend e due test
-Android su emulatore; [firma, aggiornamento, checksum e limiti](docs/android/releases/1.1.4-2026-10-31.md).
+**APK Android, 31 ottobre 2026.** [FootPredictor 1.1.5 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.5-debug-20261031/FootPredictor-1.1.5-debug.apk)
+include [i consigli distinti A/C nella singola partita](docs/operations/match-model-advice-2026-10-31.md),
+con quote archiviate, importi registrati e astensioni esplicite. Usa la firma debug esistente.
 La firma release originale resta assente; telefono fisico e login autenticato non verificati.
 
 **Manutenzione Nightly, 31 ottobre 2026.** Le email di errore hanno segnalato

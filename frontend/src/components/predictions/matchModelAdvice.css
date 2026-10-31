@@ -1,0 +1,14 @@
+.match-model-advice { min-width:0; }
+.match-model-advice__grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.match-model-advice__card { min-width:0; padding:20px; border:1px solid var(--border); border-radius:16px; background:var(--surface); color:var(--text); }
+.match-model-advice__card h2 { margin:0 0 12px; font-size:16px; }
+.match-model-advice__card h3 { margin:8px 0 12px; font-size:21px; overflow-wrap:anywhere; }
+.match-model-advice__card p,.match-model-advice__fallback>p { line-height:1.5; }
+.match-model-advice__origin,.match-model-advice__footnote { color:var(--text-2); font-size:12px; }
+.match-model-advice__metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:20px 0; }
+.match-model-advice__metrics div { min-width:0; }
+.match-model-advice__metrics dt { color:var(--text-2); font-size:12px; }
+.match-model-advice__metrics dd { margin:4px 0 0; font-weight:700; overflow-wrap:anywhere; }
+.match-model-advice>.fp-btn { margin-top:12px; }
+@media(max-width:760px) { .match-model-advice__grid { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:380px) { .match-model-advice__metrics { grid-template-columns:minmax(0,1fr); } }

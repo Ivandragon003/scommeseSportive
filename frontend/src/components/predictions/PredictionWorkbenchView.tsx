@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import PredictionHero from './PredictionHero';
 import BestValueCard from './BestValueCard';
+import MatchModelAdvice from './MatchModelAdvice';
 import StakePlanner from './StakePlanner';
 import MethodologyDrawer from './MethodologyDrawer';
 import ShotsSection from './ShotsSection';
@@ -809,6 +810,7 @@ const S = `
   .pr-filter,.pr-filter input,.pr-filter select { min-width:0; max-width:100%; }
   .pr-decision-report__title { font-size:23px; }
 }
+.pr-decision-layout--context { grid-template-columns:minmax(0,1fr); }
 `;
 
 /*  MAIN  */
@@ -817,6 +819,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const isNativeApp = Capacitor.isNativePlatform();
   const rightRef = useRef<HTMLDivElement>(null);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
+  const [adviceRefresh, setAdviceRefresh] = useState(0);
   const {
     matchSelection,
     predictionAnalysis,
@@ -873,7 +876,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     setTab,
   } = matchSelection;
   const {
-    pred,
+    pred: analysisPrediction,
     loading,
     loadingMatchId,
     oddsMsg,
@@ -883,6 +886,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     clearAnalysisState,
     handleAnalyze: analyzeSelectedMatch,
   } = predictionAnalysis;
+  const detailMatchId = String(activeMatchRow?.match_id ?? analysisPrediction?.matchId ?? '');
+  const pred = String(analysisPrediction?.matchId ?? '') === detailMatchId ? analysisPrediction : null;
   const budget = userBudget.budget;
   const automaticFamily = userBudget.automaticFamily;
   const alreadyPlacedForMatch = Boolean(automaticFamily && userBudget.placedMatchKeySet.has(`${automaticFamily}:${String(pred?.matchId ?? '')}`));
@@ -893,6 +898,46 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   }
 
   const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
+  const aAdvice = pred ? (
+    <div>
+    {!pred.automaticRecommendation && <p className="match-model-advice__origin">{isReplayAnalysis
+      ? 'Replay retrospettivo A: non è una decisione pre-partita archiviata.'
+      : 'Analisi A aperta adesso: distinta dalla decisione Nightly archiviata.'}</p>}
+    <BestValueCard
+      title="Modello A"
+      opportunity={finalRecommendedChoice as BestValueOpportunityModel | null}
+      automaticRecommendation={pred.automaticRecommendation ?? null}
+      oddsBadge={oddsReliabilityBadge}
+      oddsWarning={oddsSourceWarning}
+      bestBetStatus={finalRecommendedChoice
+        ? finalRecommendedChoice.bestBetStatus ?? (pred.automaticRecommendation ? undefined : pred.bestBetStatus)
+        : 'NO_MARKET'}
+      bestBetReason={finalRecommendedChoice
+        ? finalRecommendedChoice.bestBetReason ?? (pred.automaticRecommendation ? undefined : pred.bestBetReason)
+        : pred.automaticRecommendation
+          ? 'Decisione Nightly archiviata: nessuna puntata virtuale registrata per questa partita.'
+          : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
+      emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
+      recommendedBetResult={
+        recommendedBetResult
+          ? {
+              ...recommendedBetResult,
+              reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
+            }
+          : null
+      }
+      replayTone={replayOutcomeTone}
+      showConfidence={false}
+    />
+    </div>
+  ) : (
+    <section className="pr-decision-report is-empty" aria-label="Modello A">
+      <div className="pr-decision-report__eyebrow">Modello A</div>
+      <strong className="pr-decision-report__title">{loading ? 'Analisi A in corso…' : 'Analisi A non disponibile'}</strong>
+      <p>{loading ? 'Caricamento del consiglio del modello A.' : 'Non è stato possibile completare l’analisi A.'}</p>
+    </section>
+  );
+
   const marketOddsGroups = useMemo(() => {
     const categoriesByTab: Record<string, string[]> = {
       '1x2': ['Esito partita', 'Esiti protetti', 'Goal / No Goal', 'Totali goal'],
@@ -1133,6 +1178,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
         {/*  SINGLE MATCH DETAIL  */}
         {detailOpen && <div className="pr-right" ref={rightRef}>
+          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} />
           {!pred && activeMatchRow ? (
             <>
               <div className="pr-results-head">
@@ -1154,12 +1200,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 {[['1', 'Vittoria casa'], ['X', 'Pareggio'], ['2', 'Vittoria ospite']].map(([value, label]) => <div className="pr-kpi" key={value}><div className="pr-kpi-val">{value}</div><div className="pr-kpi-lbl">{label}</div></div>)}
               </div>
 
-              <div className="pr-decision-layout">
-                <div className="pr-decision-report is-empty">
-                  <div className="pr-decision-report__eyebrow">Giocata consigliata</div>
-                  <strong className="pr-decision-report__title">{loading ? 'Sto preparando il pronostico' : 'Analisi non disponibile'}</strong>
-                  <p className="pr-decision-report__summary">{loading ? (oddsMsg || 'Calcolo probabilità e verifico le quote disponibili.') : (oddsMsg || 'Non è stato possibile completare l’analisi. Torna all’elenco e seleziona di nuovo la partita.')}</p>
-                </div>
+              <div className="pr-decision-layout pr-decision-layout--context">
                 <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Portafoglio A</div></div><div className="pr-card-body">{budget ? <div className="pr-info">Disponibile: <strong>EUR {Number(budget.available_budget).toFixed(2)}</strong><br />Impegnato: <strong>EUR {Number(budget.committed_budget).toFixed(2)}</strong><br />Patrimonio usato come base dello stake: <strong>EUR {bankroll.toFixed(2)}</strong></div> : <p role={userBudget.loading ? 'status' : 'alert'}>{userBudget.loading ? 'Caricamento del portafoglio A…' : userBudget.error ?? 'Portafoglio A non disponibile.'}</p>}</div></div>
               </div>
             </>
@@ -1178,7 +1219,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
-                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={handleRefresh} disabled={!activeMatchRow || loading}>
+                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => { setAdviceRefresh((value) => value + 1); handleRefresh(); }} disabled={!activeMatchRow || loading}>
                     Aggiorna
                   </button>
                 </div>
@@ -1209,32 +1250,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
 
               {PLAYER_AVAILABILITY_ENABLED && <LineupPanel matchId={String(activeMatchRow?.match_id ?? pred.matchId ?? '')} />}
 
-              <div className="pr-decision-layout">
-                <BestValueCard
-                  opportunity={finalRecommendedChoice as BestValueOpportunityModel | null}
-                  automaticRecommendation={pred.automaticRecommendation ?? null}
-                  oddsBadge={oddsReliabilityBadge}
-                  oddsWarning={oddsSourceWarning}
-                  bestBetStatus={finalRecommendedChoice
-                    ? finalRecommendedChoice.bestBetStatus ?? (pred.automaticRecommendation ? undefined : pred.bestBetStatus)
-                    : 'NO_MARKET'}
-                  bestBetReason={finalRecommendedChoice
-                    ? finalRecommendedChoice.bestBetReason ?? (pred.automaticRecommendation ? undefined : pred.bestBetReason)
-                    : pred.automaticRecommendation
-                      ? 'Decisione Nightly archiviata: nessuna puntata virtuale registrata per questa partita.'
-                      : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
-                  emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
-                  recommendedBetResult={
-                    recommendedBetResult
-                      ? {
-                          ...recommendedBetResult,
-                          reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
-                        }
-                      : null
-                  }
-                  replayTone={replayOutcomeTone}
-                  showConfidence={false}
-                />
+              <div className="pr-decision-layout pr-decision-layout--context">
                 <div>
                   {pred.automaticRecommendation ? (
                     <div className="pr-info">

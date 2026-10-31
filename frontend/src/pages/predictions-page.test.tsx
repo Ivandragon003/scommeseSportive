@@ -1,10 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Predictions from './Predictions';
 import * as api from '../utils/api';
 import { getAppWallets } from '../utils/walletApi';
+import { getMatchModelAdvice } from '../utils/matchModelAdviceApi';
 
 jest.mock('../utils/api');
 jest.mock('../utils/walletApi');
+jest.mock('../utils/matchModelAdviceApi');
+const mockedAdvice = getMatchModelAdvice as jest.MockedFunction<typeof getMatchModelAdvice>;
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 
 const mockedApi = api as jest.Mocked<typeof api>;
@@ -102,6 +105,7 @@ const buildPrediction = (overrides: Record<string, any> = {}) => ({
 });
 
 const setupBaseMocks = () => {
+  mockedAdvice.mockResolvedValue({ A: null, C: null, errors: {} });
   mockedWallets.mockResolvedValue({
     period: { key: 'all', from: null, to: '2026-05-23T08:00:00Z', timezone: 'Europe/Rome', label: 'Tutto lo storico' },
     portfolios: [{ family: 'A', portfolioId: 'shadow_A', initialized: true, initialCents: 100000,
@@ -133,6 +137,14 @@ const setupBaseMocks = () => {
   mockedApi.placeBet.mockResolvedValue({ data: { bet_id: 'bet_1' } } as any);
 };
 
+const recordedAdvice = (family: 'A' | 'C', selection: string, selectionLabel: string, stakeCents: number) => ({
+  id: `recorded-${family}`, matchId: 'match_1', family, modelVersion: `${family}-recorded`,
+  action: 'BET' as const, selection, betId: `bet-${family}`, stakeCents, betStatus: 'PENDING',
+  forecastAt: '2026-05-23T03:07:01Z',
+  quote: { selection, odds: family === 'A' ? 2.1 : 3.3, bookmaker: 'Pinnacle', source: 'odds_api', capturedAt: '2026-05-23T03:07:00Z' },
+  recommendationPacket: { selected: { selection, selectionLabel, bookmakerOdds: family === 'A' ? 2.1 : 3.3 }, decisionStatus: 'RECOMMENDED' },
+});
+
 beforeAll(() => {
   Object.defineProperty(window.HTMLElement.prototype, 'scrollTo', {
     configurable: true,
@@ -152,6 +164,49 @@ afterEach(() => {
 });
 
 describe('Predictions page', () => {
+  test('opening a match shows the separate frozen A/C advice even while the live A analysis is pending', async () => {
+    mockedApi.getPrediction.mockReturnValue(new Promise(() => {}));
+    const adviceA = recordedAdvice('A', 'over25', 'Over 2.5 registrato A', 370);
+    const adviceC = recordedAdvice('C', 'under25', 'Under 2.5 registrato C', 1000);
+    mockedAdvice.mockResolvedValue({ A: adviceA, C: adviceC, errors: {} });
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    const cardA = await screen.findByRole('region', { name: 'Consiglio modello A' });
+    const cardC = await screen.findByRole('region', { name: 'Consiglio modello C' });
+    expect(within(cardA).getByText('Over 2.5 registrato A')).toBeTruthy();
+    expect(within(cardC).getByText('Under 2.5 registrato C')).toBeTruthy();
+    expect(cardA.textContent).not.toContain('Under 2.5 registrato C');
+    expect(cardC.textContent).not.toContain('Over 2.5 registrato A');
+    expect(mockedAdvice).toHaveBeenCalledWith('match_1', expect.any(AbortSignal));
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+
+  test('a technical failure of live A does not hide the archived C recommendation', async () => {
+    mockedApi.getPrediction.mockRejectedValue(new Error('A temporaneamente non disponibile'));
+    mockedAdvice.mockResolvedValue({ A: null, C: recordedAdvice('C', 'under25', 'Consiglio indipendente C', 1000), errors: {} });
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    expect(await screen.findByText('Consiglio indipendente C')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Modello A' }).textContent).toContain('Analisi A non disponibile'));
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+
+  test('refresh reloads the recorded advice without registering bets or changing A prediction inputs', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    await screen.findByRole('button', { name: 'Aggiorna' });
+    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(1));
+    const firstPredictionArguments = mockedApi.getPrediction.mock.calls[0];
+    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna' }));
+    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
+    expect(mockedApi.getPrediction.mock.calls[1]).toEqual(firstPredictionArguments);
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
+  });
+
   test('al mount carica una sola volta liste e contesto utente senza fetch prediction', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
@@ -316,7 +371,7 @@ describe('Predictions page', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Pronostico Finale/i }));
 
     await screen.findByTestId('best-value-card');
-    expect(screen.getAllByText(/Migliore giocata del match/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('region', { name: 'Modello A' })).toBeTruthy();
     expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
     expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota bookmaker verificata: 2 bookmaker reali');
     expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
