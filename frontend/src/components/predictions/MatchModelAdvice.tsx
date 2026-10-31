@@ -76,13 +76,17 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
     const controller = new AbortController();
     let active = true;
     setState({ matchId, loading: true });
+    onRecordedA?.(matchId, false);
     getMatchModelAdvice(matchId, controller.signal).then((data) => {
       if (active) {
         setState({ matchId, data, loading: false });
         onRecordedA?.(matchId, !!data.A);
       }
     }).catch(() => {
-      if (active) setState({ matchId, error: 'Impossibile caricare i consigli Nightly archiviati.', loading: false });
+      if (active) {
+        setState({ matchId, error: 'Impossibile caricare i consigli Nightly archiviati.', loading: false });
+        onRecordedA?.(matchId, false);
+      }
     });
     return () => { active = false; controller.abort(); };
   }, [matchId, refreshKey, retry, onRecordedA]);

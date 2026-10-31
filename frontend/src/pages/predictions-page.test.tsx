@@ -219,6 +219,22 @@ describe('Predictions page', () => {
     expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
   });
 
+  test('a failed archive refresh restores the live A origin and planner instead of claiming the advice is archived', async () => {
+    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
+    mockedAdvice.mockResolvedValueOnce({ A: recordedAdvice('A', 'over25', 'Consiglio A congelato', 370), C: null, errors: {} })
+      .mockRejectedValue(new Error('Archivio temporaneamente non disponibile'));
+    render(<Predictions activeUser="user1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+    await screen.findByText('Consiglio A congelato');
+    await screen.findByRole('button', { name: 'Aggiorna' });
+    expect(screen.queryByTestId('stake-planner')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna' }));
+    await screen.findByText(/Il consiglio A mostrato sopra rimane distinto da questo archivio/);
+    expect(await screen.findByTestId('stake-planner')).toBeTruthy();
+    expect(screen.queryByText(/Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata/)).toBeNull();
+  });
+
   test('al mount carica una sola volta liste e contesto utente senza fetch prediction', async () => {
     mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
     mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
