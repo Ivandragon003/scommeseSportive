@@ -21,10 +21,14 @@ Le metriche di A80 non vanno attribuite ad APP-A.
 L'automazione riceve il pacchetto di A e lo registra dopo controlli tecnici
 e contabili. Non riordina i suoi consigli, non ne limita i mercati a quelli
 di C e non crea un terzo motore. A e C riusano utility, provider, cache e
-ledger. C usa anche `ValueBettingEngine` per valutazione/filtri/confidenza
-e il picker canonico con le proprie probabilità, senza una seconda
-calibrazione/blend in quello stadio. Le previsioni e le classifiche dei due
-percorsi restano distinte; il riuso non riguarda solo la presentazione.
+ledger. Il default C906 legacy usa anche `ValueBettingEngine` per
+valutazione/filtri/confidenza e il picker canonico con le proprie
+probabilità, senza una seconda calibrazione/blend in quello stadio. Dal
+31 ottobre è disponibile un selettore C autonomo candidato, attivabile nel
+runtime soltanto da un'adozione approvata. I nuovi blocchi di feature C,
+training controllato e registro di adozione non modificano la matematica,
+la configurazione, lo stake o gli output di A. Le previsioni e le
+classifiche dei due percorsi restano distinte; vedere la [guida C](MODEL-C.md).
 
 Sorgenti: [PredictionService](../../backend/src/services/PredictionService.ts),
 [pacchetto e picker canonico](../../backend/src/services/CanonicalBetRecommendation.ts),
@@ -270,5 +274,10 @@ con i test di [selezione canonica](../../backend/test/canonical-bet-recommendati
 [quote A](../../backend/test/app-prediction-odds-service.test.js),
 [motore value](../../backend/test/value-betting-engine.test.js) e
 [esecuzione separata](../../backend/test/research-recommendation-runtime.test.js).
-La stesura di questa guida ha usato letture dei sorgenti; non ha eseguito
-nuove chiamate provider, query al database, build o test applicativi.
+La regressione [A operativo](../../backend/test/operational-a-regression.test.js)
+congela 36 sorgenti rispetto ad `a474e36c` e sei casi completi del vero
+`PredictionService.predict()`, inclusi cartellini, tiri e astensione. I sette
+controlli passano; le curve di calibrazione sono fixture congelate e non un
+nuovo fit storico. Le player props sono disabilitate nelle fixture di comportamento.
+Le verifiche complete e i limiti sono nel
+[report C del 31 ottobre](../performance/c-hybrid-improvements-2026-10-31.md).

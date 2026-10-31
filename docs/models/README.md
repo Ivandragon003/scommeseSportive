@@ -1,7 +1,9 @@
 # Architettura e algoritmi dei modelli A e C
 
-Verifica dei sorgenti: 30 ottobre 2026. Queste guide descrivono il percorso
-operativo `virtual-recommendation-v2`; i report datati restano prove storiche.
+Verifica dei sorgenti: 31 ottobre 2026. Il default conserva la policy v2 e
+C906 legacy. Il nuovo selettore autonomo C e le feature aggiuntive restano
+candidati fino a un'adozione approvata; il deployment adottato ha una propria
+identità di esecuzione v3. I report datati restano prove storiche.
 La corrispondenza con il codice non dimostra qualità delle previsioni o profitto.
 
 ## Quale documento leggere
@@ -14,6 +16,7 @@ La corrispondenza con il codice non dimostra qualità delle previsioni o profitt
 | [Formulario A](../FORMULARIO-sistema-scommesse.md) | Formule e configurazioni storiche di A, da leggere con la guida corrente |
 | [Esecuzione Nightly](../operations/recommendation-execution-2026-10-30.md) | Registrazione virtuale, controlli, dati congelati e riscontri operativi |
 | [Piattaforma research](../research-platform.md) | Benchmark, validazione, evidenze future e promozione dei modelli |
+| [Miglioramenti C, 31 ottobre](../performance/c-hybrid-improvements-2026-10-31.md) | Piano controllato, artefatti e risultati realmente ottenuti, limiti e decisione di adozione |
 
 ## Due percorsi di previsione, due decisioni
 
@@ -42,13 +45,16 @@ preparazione diagnostica e registrazione sono fasi distinte dello stesso backend
 | Probabilità | `PredictionService`, Dixon-Coles/Poisson-xG e modelli statistici specializzati | Artefatto CatBoost con baseline fissata e distribuzione congiunta dei gol |
 | Mercati | Mercati squadra già supportati dall'app, con dati e quote reali | Mercati gol ammessi dal registry C e dalle quote effettivamente disponibili |
 | Calibrazione e confronto con le quote | Percorso dell'app | Pipeline coerente C; nessuna seconda calibrazione/blend nel selettore finale |
-| Valutazione e scelta | `ValueBettingEngine` e consiglio canonico dell'app | Riusa le funzioni di valutazione e consiglio canonico, con input e probabilità C |
+| Valutazione e scelta | `ValueBettingEngine` e consiglio canonico dell'app | Legacy C906: motore value e picker condivisi. Candidato `payout-aware-v1`: selettore autonomo sui ritorni effettivi. |
 | Importo richiesto | Percentuale originale consigliata da A | 1% secondo la policy C |
 | Contabilità | Portafoglio `shadow_A` | Portafoglio `shadow_C` |
 
 L'indipendenza dei percorsi non significa che ogni funzione sia duplicata.
-C riusa `ValueBettingEngine` per filtri, valore atteso e confidenza e
-`pickCanonicalBetRecommendation` per il ranking finale. Non esiste una
+Il default legacy C906 riusa `ValueBettingEngine` e
+`pickCanonicalBetRecommendation`. Il nuovo selettore C non li usa: calcola
+EV, rischio e crescita logaritmica dalla distribuzione completa dei ritorni,
+inclusi rimborsi e mezzi esiti. Non inventa una confidenza o un'incertezza
+parametrica quando manca l'evidenza. L'adozione non è implicita. Non esiste una
 classifica congiunta che scelga una sola giocata tra A e C; i mercati aggiuntivi
 di A non vengono assegnati a C.
 
@@ -75,12 +81,38 @@ restituito una giocata. `ABSTAIN` nel registro di esecuzione può indicare quel
 risultato oppure un controllo tecnico fallito: va letto insieme al pacchetto
 e alle esclusioni delle singole quote.
 
-Per C, rimborsi e puntate suddivise non sono attualmente ammessi dal selettore
-finale. Inoltre la causale globale
+Per C906 legacy, rimborsi e puntate suddivise non sono ammessi dal selettore
+finale. Inoltre la causale globale legacy
 `non_binary_payout_not_supported_by_canonical_engine` viene usata, in assenza
 di un consiglio, anche quando soltanto alcune quote sono state escluse per
 quel motivo. Non dimostra che esistesse una giocata valida bloccata dalla
-Nightly. La [guida C](MODEL-C.md) descrive questo limite diagnostico.
+Nightly. Il candidato autonomo gestisce invece i payout non binari ed espone
+esclusioni e motivi precisi nel pacchetto, senza riscrivere lo storico.
+La [guida C](MODEL-C.md) descrive entrambi i percorsi.
+
+## Come viene valutata una modifica C
+
+Le nuove feature sono versionate in due blocchi: xG recenti corretti per
+avversario e calendario osservato. I confronti usano l'ora Nightly effettiva
+quando registrata, altrimenti una boundary nominale `Europe/Rome` esplicita,
+gestendo i cambi d'ora. Non si rinomina un dataset T−15 come Nightly.
+
+Il trainer controllato distingue sei bracci fissi e quattro intervalli
+cronologici per fold: training, selezione, calibrazione e test. Le 745
+partite finali già esposte non rientrano nei target di ottimizzazione né nelle
+feature aggiuntive. La baseline legacy può continuare a usare normale
+storia as-of ammissibile senza modificarne la matematica.
+
+Una candidate congelata deve poi superare il gate preregistrato sulle prime
+500 previsioni `FUTURE_TEST`, conservate prima dei risultati e valutate una
+sola volta contro l'incumbent C. Il registro consente adozione e rollback
+documentati, non una promozione ottenuta ripetendo lo stesso test. Lo schema
+è introdotto dalla migrazione additiva 025. L'evidenza attuale non basta a
+sostituire C906: codice candidato e risultati offline non sono adozione.
+
+Parametri incerti, disponibilità storica delle fonti e assenza di quote reali
+all'ora Nightly restano limiti espliciti. Le metriche probabilistiche non
+dimostrano ROI, profitto bookmaker o superiorità rispetto all'intero APP-A.
 
 ## Verifica e limiti delle guide
 

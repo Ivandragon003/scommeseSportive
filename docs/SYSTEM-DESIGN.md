@@ -1,11 +1,20 @@
 # System design di FootPredictor
 
+**Aggiornamento C del 31 ottobre 2026.** Il percorso candidato usa input
+Nightly, feature versionate e un selettore C autonomo per i payout completi.
+C906 legacy resta il default; un registro append-only separato raccoglie
+confronti futuri e governa adozione/rollback della sola tupla C. A operativo
+non cambia. Sono applicati il registro additivo 025 e la preregistrazione
+della candidata, senza movimenti nei portafogli; la prima raccolta Nightly
+è ancora da osservare. Il [report](performance/c-hybrid-improvements-2026-10-31.md)
+distingue implementazione, prove di sviluppo e verifica futura.
+
 **Architettura verificata sui sorgenti del 30 ottobre 2026: percorsi A/C distinti.**
 A usa il `PredictionService` esistente, inclusi cartellini e tiri quando
 coperti da dati e quote reali; C conserva il catalogo gol concordato.
 L'automazione esegue i consigli prodotti dai due percorsi e applica soltanto
 i controlli tecnici e contabili. Non definisce un terzo modello o un insieme
-obbligatoriamente comune di mercati. C riusa le funzioni di valutazione
+obbligatoriamente comune di mercati. C906 legacy riusa le funzioni di valutazione
 `ValueBettingEngine` e il picker canonico, con le proprie probabilità e senza
 una seconda calibrazione o un secondo blend: i due algoritmi non sono due
 codebase interamente separate.
@@ -403,6 +412,16 @@ filtri/EV/confidenza con calibrazione e blend disabilitati in quello stadio,
 poi il picker canonico. Non confronta il ranking C con quello A.
 Il limite sulle quote con rimborso o puntata suddivisa e la causale globale
 di astensione talvolta troppo generica sono spiegati nella guida C.
+
+Questo passaggio descrive C906 legacy. Il nuovo selettore candidato
+`ChallengerSelection` usa direttamente la distribuzione dei rendimenti e
+non richiama il motore value o il picker di A. Viene scelto soltanto da una
+tupla C approvata; in mancanza di prove non cambia la selezione operativa.
+`ChallengerAdoptionStore` congela forecast comparativi futuri senza puntate,
+con separazione CALIBRATION/FUTURE_TEST e un unico verdetto sul campione
+preregistrato. Il training settimanale registra candidature, non promozioni
+basate sui risultati storici. La migrazione 025 viene scoperta dal normale
+runner delle migrazioni, ora compatibile con i corpi completi dei trigger.
 
 `ForecastCore` ricostruisce il nucleo A dal solo passato ammissibile e produce
 feature comuni per training, benchmark e inferenza. `CatBoostModel` carica

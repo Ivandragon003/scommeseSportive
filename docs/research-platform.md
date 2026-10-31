@@ -1,5 +1,18 @@
 # Piattaforma di confronto A/C
 
+**Aggiornamento C del 31 ottobre 2026.** Il nuovo percorso candidato è
+documentato nella [guida C](models/MODEL-C.md) e nel
+[confronto riproducibile](performance/c-hybrid-improvements-2026-10-31.md).
+Le nuove feature e il selettore payout non sostituiscono automaticamente
+C906. La candidata `C-63f359b9e5cd3d89` è registrata sullo schema additivo 025;
+il riesame iniziale ha confermato evidenza futura insufficiente e nessuna
+adozione. Il workflow settimanale può ora preregistrare le candidature:
+`RESEARCH_REGISTRY_WRITES_ENABLED=true` su GitHub. La Nightly raccoglie coppie
+di forecast, comprese le astensioni, senza ulteriori puntate. L'adozione
+richiede il verdetto unico sul campione futuro congelato; la prima raccolta
+operativa della nuova candidata resta da osservare. A operativo è protetto
+da snapshot di sorgenti e regressioni del vero `PredictionService`.
+
 **Percorsi A/C v2 pubblicati; verifica dei sorgenti al 30 ottobre 2026.**
 A usa il proprio `PredictionService` con i mercati squadra già supportati,
 compresi cartellini e tiri quando dati e quote reali lo consentono. C conserva

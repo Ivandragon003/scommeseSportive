@@ -1,5 +1,15 @@
 # Consigli dell'app e registrazione virtuale A/C — 30 ottobre 2026
 
+**Estensione del 31 ottobre: C candidato con adozione controllata.** Il
+fallback C906 mantiene la policy v2; una tupla C adottata o ripristinata ha
+policy v3 con modello, configurazione, selettore e revisione congelati.
+A conserva il pacchetto originale. Se la lettura del registro fallisce C si
+astiene, senza un ritorno implicito a C906; A può proseguire. Il nuovo
+selettore autonomo gestisce payout completi ma resta candidato. Il registro
+025 e la preregistrazione sono verificati, mentre l'evidenza indipendente
+è ancora insufficiente: nessun cambio del modello attivo o movimento nei
+portafogli. Vedere [report e stato](../performance/c-hybrid-improvements-2026-10-31.md).
+
 Le guide [modello A](../models/MODEL-A.md), [modello C](../models/MODEL-C.md)
 e [architettura A/C](../models/README.md) descrivono i due algoritmi, il codice
 condiviso e i limiti. Questo documento descrive l'esecuzione e i riscontri

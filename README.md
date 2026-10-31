@@ -4,6 +4,16 @@
 [algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
 e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 
+**Aggiornamento C, 31 ottobre 2026.** Training e confronto sono allineati
+all'orario Nightly, con feature C versionate e un selettore candidato che
+gestisce rimborsi e mezzi esiti. A operativo conserva i propri sorgenti e
+output di regressione. C906 resta attivo: i risultati di sviluppo non
+dimostrano un miglioramento robusto. La candidata `C-63f359b9e5cd3d89` è
+preregistrata per raccogliere nuove prove, senza giocate aggiuntive;
+il ciclo settimanale è abilitato, l'adozione richiede 500 forecast futuri
+indipendenti secondo il protocollo congelato.
+[Risultati, verifiche e riproducibilità](docs/performance/c-hybrid-improvements-2026-10-31.md).
+
 **Correzione A/C pubblicata su GitHub — rilascio web ancora da attestare.**
 La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,
 con i mercati squadra già supportati, inclusi cartellini e tiri quando esistono
