@@ -274,8 +274,116 @@ def chronological_folds(rows, fold_count):
         yield fold_index, train, selection, calibration, test
 
 
+def checked_split_plan(document):
+    """Keep declared inclusive forecast windows; never recompute quantiles after exclusions."""
+    folds = document.get("folds") if isinstance(document, dict) else None
+    if not isinstance(folds, list) or not 1 <= len(folds) <= 8:
+        raise ValueError("invalid_frozen_split_plan")
+    previous_fold, previous_test_end = -1, float("-inf")
+    for fold in folds:
+        split = fold.get("trainingSplit") if isinstance(fold, dict) else None
+        if (not isinstance(fold, dict) or type(fold.get("fold")) is not int or fold["fold"] <= previous_fold
+                or not isinstance(split, dict) or split.get("protocol") != SPLIT_PROTOCOL):
+            raise ValueError("invalid_frozen_split_plan")
+        for part in ("train", "selection", "calibration", "test"):
+            interval = split.get(part)
+            if (not isinstance(interval, dict) or type(interval.get("n")) is not int or interval["n"] <= 0
+                    or not isinstance(interval.get("matchIdsHash"), str) or len(interval["matchIdsHash"]) != 64
+                    or any(char not in "0123456789abcdef" for char in interval["matchIdsHash"])):
+                raise ValueError("invalid_frozen_split_interval")
+            try:
+                start, end, available = (timestamp(interval[key]) for key in ("from", "to", "availableThrough"))
+            except (KeyError, TypeError, AttributeError, ValueError) as error:
+                raise ValueError("invalid_frozen_split_interval") from error
+            if start > end or available < start:
+                raise ValueError("invalid_frozen_split_interval")
+        for earlier, later in (("train", "selection"), ("selection", "calibration"), ("calibration", "test")):
+            if (timestamp(split[earlier]["to"]) >= timestamp(split[later]["from"])
+                    or timestamp(split[earlier]["availableThrough"]) >= timestamp(split[later]["from"])):
+                raise ValueError("overlapping_or_leaky_frozen_split")
+        if timestamp(split["test"]["from"]) <= previous_test_end:
+            raise ValueError("overlapping_frozen_test_windows")
+        previous_fold, previous_test_end = fold["fold"], timestamp(split["test"]["to"])
+    return folds
+
+
+def fixed_window_folds(rows, document):
+    folds = checked_split_plan(document)
+    for fold in folds:
+        split = fold["trainingSplit"]
+        groups = []
+        for part, following in (("train", "selection"), ("selection", "calibration"), ("calibration", "test"), ("test", None)):
+            start, end = timestamp(split[part]["from"]), timestamp(split[part]["to"])
+            boundary = timestamp(split[following]["from"]) if following else float("inf")
+            selected = [row for row in rows if start <= timestamp(row["forecastAt"]) <= end
+                        and timestamp(row["availableAt"]) < boundary]
+            if not selected:
+                raise ValueError(f"empty_frozen_split_interval: fold={fold['fold']} part={part}")
+            groups.append(sorted(selected, key=lambda row: (timestamp(row["forecastAt"]), row["matchId"])))
+        yield fold["fold"], *groups
+
+
+def frozen_split_manifest(groups, frozen):
+    actual = split_manifest(*groups)
+    for part in ("train", "selection", "calibration", "test"):
+        actual[part]["observedFrom"] = actual[part]["from"]
+        actual[part]["observedTo"] = actual[part]["to"]
+        actual[part]["from"] = frozen[part]["from"]
+        actual[part]["to"] = frozen[part]["to"]
+    return actual
+
+
 def protected_holdout_policy():
     return json.loads((Path(__file__).resolve().parents[1] / "src/research/original-holdout-policy.json").read_text(encoding="utf-8"))
+
+
+def challenger_data_quality_policy():
+    return json.loads((Path(__file__).resolve().parents[1] / "src/research/challenger-data-quarantine.json").read_text(encoding="utf-8"))
+
+
+def json_stringify_hash(value):
+    return hashlib.sha256(json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def checked_data_quality(dataset):
+    """Verify the declared repository policy and all clean-baseline tags, not invented source timestamps."""
+    markers = ("dataQualityPolicyHash", "dataQualityPolicy", "dataQualityBaselineClean", "dataQualityEvidence")
+    tagged = any(key in dataset for key in markers)
+    row_tagged = any("dataQualityPolicyHash" in row or "dataQualityBaselineClean" in row for row in dataset["rows"])
+    if not tagged and not row_tagged:
+        return None
+    trusted = challenger_data_quality_policy()
+    trusted_hash = json_stringify_hash(trusted)
+    if (not tagged or dataset.get("dataQualityPolicyHash") != trusted_hash
+            or dataset.get("dataQualityBaselineClean") is not True or dataset.get("dataQualityPolicy") != trusted
+            or json_stringify_hash(dataset.get("dataQualityPolicy")) != trusted_hash):
+        raise ValueError("invalid_challenger_data_quality_policy")
+    quarantined = {entry["matchId"] for entry in trusted["entries"]}
+    for row in dataset["rows"]:
+        if (row.get("dataQualityPolicyHash") != trusted_hash or row.get("dataQualityBaselineClean") is not True):
+            raise ValueError("mixed_or_unclean_challenger_data_quality_rows")
+        if row["matchId"] in quarantined:
+            raise ValueError("quarantined_challenger_training_target")
+    evidence = dataset.get("dataQualityEvidence")
+    if (not isinstance(evidence, dict) or evidence.get("policyHash") != trusted_hash
+            or evidence.get("policyVersion") != trusted["version"]
+            or evidence.get("action") != "quarantine_not_timestamp_correction"):
+        raise ValueError("invalid_challenger_data_quality_evidence")
+    for name in ("history", "targets"):
+        population = evidence.get(name)
+        if not isinstance(population, dict):
+            raise ValueError("invalid_challenger_data_quality_population")
+        if any(type(population.get(key)) is not int or population[key] < 0 for key in ("inputRows", "retainedRows", "excludedRows")):
+            raise ValueError("invalid_challenger_data_quality_population")
+        ids = population.get("excludedMatchIds")
+        if (population["inputRows"] - population["retainedRows"] != population["excludedRows"]
+                or not isinstance(ids, list) or any(not isinstance(match_id, str) or match_id not in quarantined for match_id in ids)
+                or len(ids) != len(set(ids)) or len(ids) > population["excludedRows"]
+                or bool(ids) != bool(population["excludedRows"])):
+            raise ValueError("invalid_challenger_data_quality_population")
+    return {"policyHash": trusted_hash, "policyVersion": trusted["version"],
+            "hashAlgorithm": trusted["hashAlgorithm"], "policy": trusted, "evidence": evidence,
+            "baselineClean": True, "semantics": "declared_quarantine_provenance_not_historical_first_seen_evidence"}
 
 
 def checked_dataset(dataset, controlled=False):
@@ -284,6 +392,7 @@ def checked_dataset(dataset, controlled=False):
         raise ValueError("empty_training_dataset")
     if len({row["matchId"] for row in original}) != len(original):
         raise ValueError("duplicate_training_match")
+    checked_data_quality(dataset)
     policy = protected_holdout_policy()
     protected = set(policy["protectedOriginalFinalMatchIds"])
     rows = sorted((row for row in original if row["matchId"] not in protected),
@@ -369,13 +478,24 @@ def run_controlled(args):
     dataset_bytes = Path(args.input).read_bytes()
     dataset = json.loads(dataset_bytes)
     source_names, rows, holdout = checked_dataset(dataset, controlled=True)
+    data_quality = checked_data_quality(dataset)
     output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
     dataset_hash = hashlib.sha256(dataset_bytes).hexdigest()
     trainer_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    split_plan_path = getattr(args, "split_plan", None)
+    split_plan_bytes = Path(split_plan_path).read_bytes() if split_plan_path else None
+    split_plan = json.loads(split_plan_bytes) if split_plan_bytes is not None else None
+    frozen_folds = checked_split_plan(split_plan) if split_plan is not None else None
+    if frozen_folds is not None and len(frozen_folds) != args.folds:
+        raise ValueError("frozen_split_plan_fold_count_mismatch")
+    split_plan_hash = hashlib.sha256(split_plan_bytes).hexdigest() if split_plan_bytes is not None else None
+    frozen_by_fold = {fold["fold"]: fold["trainingSplit"] for fold in frozen_folds or []}
     iterations, depth = min(args.iterations, 200), min(args.depth, 3)
     folds, predictions, last_artifacts, parity = [], [], {}, []
-    for fold_index, train, selection, calibration, test in chronological_folds(rows, args.folds):
-        split = split_manifest(train, selection, calibration, test)
+    planned = fixed_window_folds(rows, split_plan) if split_plan is not None else chronological_folds(rows, args.folds)
+    for fold_index, train, selection, calibration, test in planned:
+        groups = (train, selection, calibration, test)
+        split = frozen_split_manifest(groups, frozen_by_fold[fold_index]) if frozen_folds is not None else split_manifest(*groups)
         fold_dir = output / f"fold-{fold_index}"; fold_dir.mkdir(exist_ok=True)
         arm_outputs, comparisons = {}, []
         for arm in CONTROLLED_ARMS:
@@ -420,6 +540,12 @@ def run_controlled(args):
                     "matrixA": row["baselineMatrix"], "matrixC": matrix.tolist(), "probabilitiesA": row["baselineProbabilities"],
                     "probabilitiesC": {key: float(value) for key, value in zip(("homeWin", "draw", "awayWin"), result_probabilities(matrix))}}
                     for row, matrix in zip(calibrating, calibration_matrices)]}
+            if frozen_folds is not None:
+                artifact.update({"splitPlanHash": split_plan_hash, "frozenTrainingSplit": frozen_by_fold[fold_index],
+                                 "splitWindowSemantics": "inclusive_frozen_forecast_bounds_with_actual_counts_hashes_and_label_purge"})
+            if data_quality is not None:
+                artifact.update({"dataQualityPolicyHash": data_quality["policyHash"], "dataQualityBaselineClean": True,
+                                 "dataQualityEvidence": data_quality["evidence"]})
             artifact_path = arm_dir / "artifact.json"
             artifact_path.write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
             arm_outputs[name] = {"artifact": artifact, "test": test_matrices, "artifactPath": str(artifact_path)}
@@ -432,6 +558,8 @@ def run_controlled(args):
                 for row in testing[:min(2, len(testing))])
         chosen = min(comparisons, key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
         fold = {"fold": fold_index, "trainingSplit": split, "selectedVariant": chosen, "comparisons": comparisons}
+        if frozen_folds is not None:
+            fold.update({"splitPlanHash": split_plan_hash, "frozenTrainingSplit": frozen_by_fold[fold_index]})
         folds.append(fold)
         last_artifacts = {name: value["artifact"] for name, value in arm_outputs.items()}
         for index, row in enumerate(test):
@@ -460,6 +588,13 @@ def run_controlled(args):
             "Calendar features count only completed matches with available results; unseen fixtures are not invented.",
             "Historical result-delay assumptions do not establish actual provider capture times.",
             "No economic performance or promotion is inferred from probability metrics."]}
+    if frozen_folds is not None:
+        report["splitPlan"] = {"fileHash": split_plan_hash, "sourceDatasetHash": split_plan.get("datasetHash"),
+            "foldCount": len(frozen_folds), "protocol": SPLIT_PROTOCOL,
+            "windowSemantics": "inclusive_frozen_forecast_bounds_with_actual_counts_hashes_and_label_purge",
+            "quantilesRecomputed": False}
+    if data_quality is not None:
+        report["dataQuality"] = data_quality
     for name, artifact in last_artifacts.items():
         (output / f"artifact-{name}.json").write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     (output / "artifact.json").write_text(json.dumps(last_artifacts[folds[-1]["selectedVariant"]], separators=(",", ":"), allow_nan=False), encoding="utf-8")
@@ -474,6 +609,7 @@ def run(args):
     dataset_bytes = dataset_path.read_bytes()
     dataset = json.loads(dataset_bytes)
     features, rows, holdout_protection = checked_dataset(dataset)
+    data_quality = checked_data_quality(dataset)
     if not rows or not features:
         raise ValueError("empty_training_dataset")
     rows = sorted(rows, key=lambda row: (timestamp(row["forecastAt"]), row["matchId"]))
@@ -551,6 +687,9 @@ def run(args):
                                 "pairedBrierDifference": paired_interval(test, brier_c - brier_a)},
                     "candidateComparisons": candidate_metrics, "status": "CANDIDATE", "productionValidated": False}
         artifact["calibrationPredictions"] = calibration_predictions
+        if data_quality is not None:
+            artifact.update({"dataQualityPolicyHash": data_quality["policyHash"], "dataQualityBaselineClean": True,
+                             "dataQualityEvidence": data_quality["evidence"]})
         (fold_dir / "artifact.json").write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
         folds.append({"fold": fold_index, "version": version, "trainN": len(train), "validationN": len(validation), "calibrationN": len(calibration),
                       "testN": len(test), "trainedThrough": trained_through, "validationThrough": validation_through,
@@ -582,6 +721,8 @@ def run(args):
                   "A uses the frozen existing raw family ensemble; calibration, market blending and decision rules are separately shared downstream.",
                   "The final holdout is untouched within this run. Repeated model development against this holdout invalidates its independence.",
                   "The score grid is truncated and normalized to 0..10 goals per team; outcomes outside it remain in 1X2 metrics but exact-score likelihood is not claimed."]}
+    if data_quality is not None:
+        report["dataQuality"] = data_quality
     (output / "artifact.json").write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     (output / "report.json").write_text(json.dumps(report, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     # Numeric parity observations, including residual models before adding the A baseline.
@@ -605,7 +746,10 @@ if __name__ == "__main__":
     parser.add_argument("--depth", type=int, default=5)
     parser.add_argument("--folds", type=int, default=3)
     parser.add_argument("--experiment", choices=("legacy", "controlled-challenger"), default="legacy")
+    parser.add_argument("--split-plan", help="Frozen controlled report.json; reuse its four forecast windows per fold")
     options = parser.parse_args()
     if not (5 <= options.iterations <= 1000 and 2 <= options.depth <= 8 and 1 <= options.folds <= 8):
         parser.error("iterations must be 5..1000, depth 2..8, folds 1..8")
+    if options.split_plan and options.experiment != "controlled-challenger":
+        parser.error("--split-plan requires --experiment controlled-challenger")
     (run_controlled if options.experiment == "controlled-challenger" else run)(options)

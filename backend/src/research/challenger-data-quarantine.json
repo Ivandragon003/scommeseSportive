@@ -1,0 +1,543 @@
+{
+  "schemaVersion": "challenger-data-quarantine-v1",
+  "version": "challenger-data-quarantine-20261031-v1",
+  "scope": "C_only",
+  "action": "quarantine_not_timestamp_correction",
+  "hashAlgorithm": "sha256-json-stringify-v1",
+  "appliesTo": {
+    "targets": true,
+    "history": true
+  },
+  "reviewDate": "2026-10-31",
+  "evidenceBasis": "source_disagreement_not_verified_historical_first_seen",
+  "evidenceFiles": [
+    {
+      "name": "completed-csv-date-alternatives.json",
+      "path": "backend/artifacts/research/c-data-audit-20261031/sources/completed-csv-date-alternatives.json",
+      "sha256": "8ec4fdb9aca643be501dbc5588ce09ff8aaac931124bfd5fede0484251457baa"
+    },
+    {
+      "name": "benchmark-clock-evidence.json",
+      "path": "backend/artifacts/research/c-data-audit-20261031/sources/benchmark-clock-evidence.json",
+      "sha256": "d269201e495c851efdf246e6f7542f6f3674a62db541f64f3edc34e20fa11020"
+    },
+    {
+      "name": "historical-clock-evidence.json",
+      "path": "backend/artifacts/research/c-data-audit-20261031/sources/historical-clock-evidence.json",
+      "sha256": "d94cfde17ad232e39510de5ec12c3fd2889aa11c9a489d46298fa92be5efac05"
+    },
+    {
+      "name": "nice-rennes-kickoff-evidence.json",
+      "path": "backend/artifacts/research/c-data-audit-20261031/sources/nice-rennes-kickoff-evidence.json",
+      "sha256": "02b4001c735131564344104615aa6c22bfaa155f0c20ca7b3589fbb85202265c"
+    },
+    {
+      "name": "court-settlement-evidence.json",
+      "path": "backend/artifacts/research/c-data-audit-20261031/sources/court-settlement-evidence.json",
+      "sha256": "af4478e4fde34cb7ff75e27c83ea992d7dba641faee18e2c0334180f4d8e8a87"
+    }
+  ],
+  "entries": [
+    {
+      "matchId": "understat_19973",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Strasbourg - Lyon",
+      "archiveTimestamp": "2023-04-30T19:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2223/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2023-04-28"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json"
+      ]
+    },
+    {
+      "matchId": "understat_22621",
+      "reason": "suspended_match_completion_after_archive_date",
+      "competition": "Serie A",
+      "fixtureAsArchive": "Udinese - Roma",
+      "archiveTimestamp": "2024-04-14T16:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/I1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2024-04-25"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+          "capturedAt": "2026-10-31T09:40:18.257945Z",
+          "rawSha256": "ca1cc783b85799aa3ffa934c73dc32609c52b4b61f9eb012f550786d3b3dcbe1"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_22676",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Serie A",
+      "fixtureAsArchive": "Cagliari - Fiorentina",
+      "archiveTimestamp": "2024-05-24T16:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/I1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2024-05-23"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+          "capturedAt": "2026-10-31T09:40:20.632275Z",
+          "rawSha256": "c0c85ba00a046489c3c5e1295e1356cd668538d47b9d365767073ac77a7ec977"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_22842",
+      "reason": "resumed_match_completion_date_disagreement",
+      "competition": "La Liga",
+      "fixtureAsArchive": "Granada - Athletic Club",
+      "archiveTimestamp": "2023-12-12T15:15:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/SP1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2023-12-11"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+          "capturedAt": "2026-10-31T09:40:19.470737Z",
+          "rawSha256": "2bdf3d9eafde1b613317defbdcc31f41b6c2947c2ed6ad8e8e3aff425757568c"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_23377",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Nice - Lille",
+      "archiveTimestamp": "2023-08-12T18:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2023-08-11"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+          "capturedAt": "2026-10-31T09:40:19.846980Z",
+          "rawSha256": "062c9b09e6a1ab8180942fc282d2583a71dea774df5704d8f0474cf1d4518883"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_23378",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Brest - Lens",
+      "archiveTimestamp": "2023-08-12T18:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2023-08-13"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json"
+      ]
+    },
+    {
+      "matchId": "understat_27724",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Serie A",
+      "fixtureAsArchive": "Genoa - Atalanta",
+      "archiveTimestamp": "2025-05-18T13:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2425/I1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2025-05-17"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+          "capturedAt": "2026-10-31T09:37:53.704479Z",
+          "rawSha256": "031b6c0b085589c6bb6ed68f6f99a10deb6a5387831b146978d0e7b785421ec3"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_27849",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Bundesliga",
+      "fixtureAsArchive": "St. Pauli - Holstein Kiel",
+      "archiveTimestamp": "2024-11-30T14:30:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2425/D1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2024-11-29"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+          "capturedAt": "2026-10-31T09:40:20.952321Z",
+          "rawSha256": "8a24cf8e3efbc4d5772ea820b36716fdb97dcd2e0262d4ead09bb5e9d31680c8"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_27866",
+      "reason": "played_score_vs_court_awarded_score_disagreement",
+      "fixtureAsArchive": "Union Berlin - VfL Bochum",
+      "evidenceFiles": [
+        "court-settlement-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_dfb_court_decision",
+          "url": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+          "capturedAt": "2026-10-31T09:41:17.879407Z",
+          "rawSha256": "d4d552d7c9029324cfad37b93b0e2fdc764ed3516a74e06162f51e68a12ca19e"
+        }
+      ],
+      "sourceSemantics": {
+        "physicalScore": [
+          1,
+          1
+        ],
+        "courtAwardedScore": [
+          0,
+          2
+        ],
+        "decisionPublicationDate": "2025-01-09"
+      }
+    },
+    {
+      "matchId": "understat_29218",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "La Liga",
+      "fixtureAsArchive": "Valencia - Real Oviedo",
+      "archiveTimestamp": "2025-09-29T19:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2025-09-30"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+          "capturedAt": "2026-10-31T09:37:54.110629Z",
+          "rawSha256": "e6f08273e6e647c662b64f27e49971b0c97f2b7b7493a4c07532c09ae00c601d"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29720",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Brest - Lorient",
+      "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-02-07"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+          "capturedAt": "2026-10-31T09:37:54.397839Z",
+          "rawSha256": "05badb0cf828af0b7b9365d242de5881d10cce9087293198d447ad00e61ff877"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29722",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Lens - Rennes",
+      "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-02-07"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+          "capturedAt": "2026-10-31T09:37:54.693468Z",
+          "rawSha256": "7c083def07428bf6ffd6111fbd2c520eb8c6e039939415f627be6c3be9e765a5"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29723",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Metz - Lille",
+      "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-02-06"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+          "capturedAt": "2026-10-31T09:37:55.091655Z",
+          "rawSha256": "64e086dbfd5a3a8ad03ec25c8994a6a09098edd9b275b56d9fb96dd705fed72a"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29724",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Nantes - Lyon",
+      "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-02-07"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "benchmark-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_club_schedule",
+          "url": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+          "capturedAt": "2026-10-31T09:37:55.258703Z",
+          "rawSha256": "3d98c8e218ef21eccb60d8c0e2c025356f471b1fad7526ae692831493cfaa211"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29820",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Metz - Monaco",
+      "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-05-02"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+          "capturedAt": "2026-10-31T09:40:21.733872Z",
+          "rawSha256": "c66dc73b4efe9f36ced9a35850e2930a2dcd85ee8f5e4e75cb8141a7989f4cbe"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29821",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Nantes - Marseille",
+      "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-05-02"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+          "capturedAt": "2026-10-31T09:40:21.994355Z",
+          "rawSha256": "0f7b4451e6d9db575fc4cfe37b217169fe2d35166aba943eb891918be05b5358"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29822",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Nice - Lens",
+      "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-05-02"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+          "capturedAt": "2026-10-31T09:40:22.639659Z",
+          "rawSha256": "2089feceae88c2d21b6d5fa9c50885de1085f2ed95913b2a78425c5e498e1239"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_29824",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Paris Saint Germain - Lorient",
+      "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-05-02"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+          "capturedAt": "2026-10-31T09:40:23.512664Z",
+          "rawSha256": "e2d037ed893d93ea2e8f1a23f981aa9799b8aea69251017c20dbf79c03fd032d"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_31948",
+      "reason": "home_away_source_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Paris Saint Germain - Rennes",
+      "archiveTimestamp": "2026-08-23T18:45:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+      "diagnosticCsvAlternativeDates": [],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+          "capturedAt": "2026-10-31T09:40:25.450461Z",
+          "rawSha256": "e9674abc020e59e9bdb30d9f62f0fc2bece43556bf7a4440ba0bce72b513cf5e"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_32010",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Toulouse - Troyes",
+      "archiveTimestamp": "2026-10-24T15:15:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-10-25"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+          "capturedAt": "2026-10-31T09:40:24.685576Z",
+          "rawSha256": "187a9ff4de9dfa90b2608bc2c4b2ab85fbd6dc42f40beed468a5af4554310be8"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_32011",
+      "reason": "cross_source_calendar_disagreement",
+      "competition": "Ligue 1",
+      "fixtureAsArchive": "Paris Saint Germain - Lyon",
+      "archiveTimestamp": "2026-10-25T19:45:00.000Z",
+      "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+      "diagnosticCsvAlternativeDates": [
+        "2026-10-26"
+      ],
+      "evidenceFiles": [
+        "completed-csv-date-alternatives.json",
+        "historical-clock-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "official_historical_calendar",
+          "url": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+          "capturedAt": "2026-10-31T09:40:24.979995Z",
+          "rawSha256": "a1f3c1a338a5e28ddbf61c532f40274e3c3ff570605e9f6382ba4a3257392c48"
+        }
+      ]
+    },
+    {
+      "matchId": "understat_32017",
+      "reason": "unresolved_source_clock_disagreement",
+      "fixtureAsArchive": "Nice - Rennes",
+      "evidenceFiles": [
+        "nice-rennes-kickoff-evidence.json"
+      ],
+      "officialCaptures": [
+        {
+          "source": "ogcnice_schedule_change",
+          "url": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+          "capturedAt": "2026-10-31T09:36:17.033172Z",
+          "rawSha256": "491d4be970a280b7c725fdbdd5c54d696363f0663c8f27a3e5b468dbf1a8d893"
+        },
+        {
+          "source": "ogcnice_matchday_information",
+          "url": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+          "capturedAt": "2026-10-31T09:36:17.282535Z",
+          "rawSha256": "79220e8a515c528e46f13769335f2a380f5f17e30bec737efe49587ae6159fff"
+        },
+        {
+          "source": "staderennais_result_report",
+          "url": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+          "capturedAt": "2026-10-31T09:36:17.662810Z",
+          "rawSha256": "ef8329d0627b933394cf0e56e7d0e67710e9cdeb9c0a157308b0f25638d53032"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Current-page captures establish source disagreement, not cryptographic proof of historical first-seen availability.",
+    "Quarantine never replaces archive timestamps, scores, xG or statistics, and does not certify the remaining archive.",
+    "The policy applies only to explicitly tagged C inputs; operational A and previously frozen model inputs remain unchanged.",
+    "A court-awarded result is not silently treated as the played result or as bookmaker settlement evidence."
+  ]
+}

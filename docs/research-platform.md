@@ -1,5 +1,14 @@
 # Piattaforma di confronto A/C
 
+**Audit successivo, 31 ottobre.** Il vecchio corpus da 1.975 test non è una
+prova pre-match valida: cinque forecast sono post-evento secondo i programmi
+ufficiali. Il [report dei dati](performance/c-data-benchmark-audit-2026-10-31.md)
+documenta quarantena C di 22 ID, ricostruzione di 6.573 righe e confronto su
+1.969 test, con gli stessi confini temporali. Il candidato precedente senza
+questa policy resta nello storico ma è escluso da raccolta e adozione.
+L'aggiornamento precedente sotto descrive la preregistrazione iniziale,
+non lo stato di qualificazione dopo l'audit.
+
 **Aggiornamento C del 31 ottobre 2026.** Il nuovo percorso candidato è
 documentato nella [guida C](models/MODEL-C.md) e nel
 [confronto riproducibile](performance/c-hybrid-improvements-2026-10-31.md).

@@ -2,6 +2,10 @@ import { buildForecastInput, FEATURE_NAMES, FEATURE_SCHEMA_VERSION, ForecastInpu
   TrainingDataset, TrainingRow, baselineManifest, TOP5_COMPETITIONS } from './ForecastCore';
 import { HISTORICAL_RESULT_DELAY_MS } from '../services/ChronologicalForecastService';
 import { ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
+import { CHALLENGER_DATA_QUALITY_MANIFEST, CHALLENGER_DATA_QUALITY_POLICY_HASH,
+  ChallengerDataQualityEvidence, ChallengerDataQualityManifest, ChallengerDataQualityTag,
+  challengerDataQualityReason, filterChallengerHistory, getChallengerDataQualityEvidence,
+  hasCleanChallengerBaseline } from './ChallengerDataQuality';
 
 export const CHALLENGER_FEATURE_SCHEMA_VERSION = 'prematch-challenger-v2';
 export const CHALLENGER_FEATURE_PROTOCOL = 'asof-opponent-xg-calendar-v1';
@@ -74,14 +78,17 @@ function opponentAdjustedXg(matches: ResearchMatch[]): Map<string, { home: XgObs
 
 export type ChallengerForecastInput = ForecastInput & {
   featureBlocks: ChallengerFeatureBlock[];
+  dataQualityPolicyHash: string; dataQualityBaselineClean: boolean;
   challengerFeatureMetadata: { protocol: string; forecastAt: string; maxHistoryAvailableAt: string | null;
-    recentMatches: number; opponentPriorMatches: number; resultDelayMs: number };
+    recentMatches: number; opponentPriorMatches: number; resultDelayMs: number;
+    dataQualityPolicyHash: string; quarantinedHistoryRows: number };
 };
 
 /** Extend a clone of the frozen baseline. No A probability, feature or parameter is changed in place. */
 export function withChallengerFeatures(input: ForecastInput, history: ResearchMatch[],
   blocks: readonly ChallengerFeatureBlock[] = DEFAULT_CHALLENGER_BLOCKS): ChallengerForecastInput {
   const featureNames = challengerFeatureNames(blocks), cutoff = Date.parse(input.forecastAt), kickoff = Date.parse(input.kickoffAt);
+  if (challengerDataQualityReason(input.matchId)) throw new Error('challenger_target_data_quarantined');
   if (input.featureSchema !== FEATURE_SCHEMA_VERSION || JSON.stringify(input.featureNames) !== JSON.stringify(FEATURE_NAMES)
     || input.features.length !== FEATURE_NAMES.length || !input.features.every(finite)) throw new Error('challenger_requires_legacy_baseline_features');
   if (!Number.isFinite(cutoff) || !Number.isFinite(kickoff) || cutoff >= kickoff || !input.homeTeamId || !input.awayTeamId
@@ -91,7 +98,7 @@ export function withChallengerFeatures(input: ForecastInput, history: ResearchMa
   }
   const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
   const seen = new Set<string>();
-  const past = history.filter((match) => {
+  const past = filterChallengerHistory(history).filter((match) => {
     if (match.matchId === input.matchId || protectedIds.has(match.matchId) || seen.has(match.matchId) || !completed(match)
       || !Number.isFinite(Date.parse(match.date)) || !Number.isFinite(challengerResultAvailableAt(match))
       || challengerResultAvailableAt(match) > cutoff) return false;
@@ -117,45 +124,69 @@ export function withChallengerFeatures(input: ForecastInput, history: ResearchMa
     schedule: [...schedule(input.homeTeamId), ...schedule(input.awayTeamId)] };
   return { ...input, featureSchema: CHALLENGER_FEATURE_SCHEMA_VERSION, featureNames,
     features: [...input.features, ...blocks.flatMap((block) => extra[block])], featureBlocks: [...blocks],
+    dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH,
+    dataQualityBaselineClean: hasCleanChallengerBaseline(input as ForecastInput & ChallengerDataQualityTag),
     challengerFeatureMetadata: { protocol: CHALLENGER_FEATURE_PROTOCOL, forecastAt: input.forecastAt,
       maxHistoryAvailableAt: past.length ? new Date(Math.max(...past.map(challengerResultAvailableAt))).toISOString() : null,
-      recentMatches: 5, opponentPriorMatches: 5, resultDelayMs: HISTORICAL_RESULT_DELAY_MS } };
+      recentMatches: 5, opponentPriorMatches: 5, resultDelayMs: HISTORICAL_RESULT_DELAY_MS,
+      dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH,
+      quarantinedHistoryRows: getChallengerDataQualityEvidence(history).history.excludedRows } };
 }
 
 export type ChallengerTrainingDataset = Omit<TrainingDataset, 'rows'> & { rows: Array<TrainingRow & ChallengerForecastInput>;
   featureBlocks: ChallengerFeatureBlock[]; forecastTiming: { policy: string; resultDelayMs: number; forecastBeforeKickoff: true };
   protectedMatchesExcluded: number; protectedHoldoutPolicyVersion: string;
+  dataQualityPolicyHash: string; dataQualityPolicy: ChallengerDataQualityManifest;
+  dataQualityBaselineClean: boolean; dataQualityEvidence: ChallengerDataQualityEvidence;
   targetWindow?: { field: 'forecastAt'; from: string | null; until: string | null } };
 
-export function extendChallengerTrainingDataset(dataset: TrainingDataset & {
+export function extendChallengerTrainingDataset(dataset: TrainingDataset & ChallengerDataQualityTag & {
   forecastTiming?: ChallengerTrainingDataset['forecastTiming']; protectedMatchesExcluded?: number;
+  dataQualityPolicy?: ChallengerDataQualityManifest; dataQualityEvidence?: ChallengerDataQualityEvidence;
 }, history: ResearchMatch[],
   blocks: readonly ChallengerFeatureBlock[] = DEFAULT_CHALLENGER_BLOCKS): ChallengerTrainingDataset {
   const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
-  const rows = dataset.rows.filter((row) => !protectedIds.has(row.matchId));
+  const evidence = getChallengerDataQualityEvidence(history, dataset.rows);
+  const cleanBaseline = hasCleanChallengerBaseline(dataset)
+    && dataset.rows.every((row) => hasCleanChallengerBaseline(row as TrainingRow & ChallengerDataQualityTag));
+  if (dataset.dataQualityPolicyHash !== undefined && dataset.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH) {
+    throw new Error('challenger_data_quality_policy_mismatch');
+  }
+  // Removing rows or recalculating only extra columns cannot repair an already fitted dirty baseline.
+  if (evidence.history.excludedRows > 0 && !cleanBaseline) throw new Error('challenger_baseline_data_quality_rebuild_required');
+  const rows = filterChallengerHistory(dataset.rows).filter((row) => !protectedIds.has(row.matchId));
   return { ...dataset, schemaVersion: CHALLENGER_FEATURE_SCHEMA_VERSION, featureNames: challengerFeatureNames(blocks),
     rows: rows.map((row) => ({ ...row, ...withChallengerFeatures(row, history, blocks) })), featureBlocks: [...blocks],
     forecastTiming: dataset.forecastTiming ?? { policy: 'preserved-input-forecast-times', resultDelayMs: HISTORICAL_RESULT_DELAY_MS, forecastBeforeKickoff: true },
-    protectedMatchesExcluded: (dataset.protectedMatchesExcluded ?? 0) + dataset.rows.length - rows.length,
+    protectedMatchesExcluded: (dataset.protectedMatchesExcluded ?? 0) + dataset.rows.filter((row) => protectedIds.has(row.matchId)).length,
+    dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityPolicy: CHALLENGER_DATA_QUALITY_MANIFEST,
+    dataQualityBaselineClean: cleanBaseline, dataQualityEvidence: cleanBaseline && dataset.dataQualityEvidence
+      ? dataset.dataQualityEvidence : evidence,
     protectedHoldoutPolicyVersion: ORIGINAL_HOLDOUT_POLICY.version };
 }
 
 /** Build forecasts at the real decision boundary; a T-15 dataset must never be relabelled as nightly. */
 export function buildChallengerTrainingDataset(history: ResearchMatch[], asOf: string, options: {
   forecastAt: (kickoffAt: string) => string; forecastPolicy: string; blocks?: readonly ChallengerFeatureBlock[];
-  forecastBuilder?: typeof buildForecastInput; targetFrom?: string; targetUntil?: string;
+  forecastBuilder?: typeof buildForecastInput; targetFrom?: string; targetUntil?: string; targetCompetitions?: string[];
 }): ChallengerTrainingDataset {
   const cutoff = Date.parse(asOf); if (!Number.isFinite(cutoff) || !options.forecastPolicy) throw new Error('invalid_challenger_dataset_policy');
   const from = options.targetFrom === undefined ? -Infinity : Date.parse(options.targetFrom);
   const until = options.targetUntil === undefined ? Infinity : Date.parse(options.targetUntil);
   if (Number.isNaN(from) || Number.isNaN(until) || from >= until) throw new Error('invalid_challenger_target_window');
+  if (options.targetCompetitions && (!options.targetCompetitions.length
+    || options.targetCompetitions.some((name) => !TOP5_COMPETITIONS.includes(competition(name) as any)))) {
+    throw new Error('invalid_challenger_target_competitions');
+  }
+  const targetCompetitions = options.targetCompetitions ? new Set(options.targetCompetitions.map(competition)) : null;
+  const cleanHistory = filterChallengerHistory(history), targetPopulation: ResearchMatch[] = [];
   const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
-  const exclusions = { insufficientHistory: 0, incomplete: 0, outsideTop5: 0 }, rows: TrainingRow[] = [];
+  const exclusions = { insufficientHistory: 0, incomplete: 0, outsideTop5: 0 }, rows: Array<TrainingRow & ChallengerDataQualityTag> = [];
   let protectedMatchesExcluded = 0;
   const seen = new Set<string>();
   for (const target of [...history].sort((a, b) => Date.parse(a.date) - Date.parse(b.date) || a.matchId.localeCompare(b.matchId))) {
     if (seen.has(target.matchId)) throw new Error(`duplicate_match_id: ${target.matchId}`); seen.add(target.matchId);
-    if (protectedIds.has(target.matchId)) { protectedMatchesExcluded++; continue; }
+    if (targetCompetitions && !targetCompetitions.has(competition(target.competition))) continue;
     if (!TOP5_COMPETITIONS.includes(competition(target.competition) as any)) { exclusions.outsideTop5++; continue; }
     if (!completed(target) || !Number.isFinite(challengerResultAvailableAt(target)) || challengerResultAvailableAt(target) > cutoff) {
       exclusions.incomplete++; continue;
@@ -163,20 +194,27 @@ export function buildChallengerTrainingDataset(history: ResearchMatch[], asOf: s
     const forecastAt = options.forecastAt(target.date), forecast = Date.parse(forecastAt);
     if (!Number.isFinite(forecast) || forecast >= Date.parse(target.date)) throw new Error('invalid_challenger_decision_boundary');
     if (forecast < from || forecast >= until) continue;
+    targetPopulation.push(target);
+    const protectedTarget = protectedIds.has(target.matchId);
+    if (protectedTarget) protectedMatchesExcluded++;
+    if (challengerDataQualityReason(target.matchId) || protectedTarget) continue;
     try {
-      const input = (options.forecastBuilder ?? buildForecastInput)(history, target, forecastAt);
+      const input = (options.forecastBuilder ?? buildForecastInput)(cleanHistory, target, forecastAt);
       if (input.matchId !== target.matchId || Date.parse(input.kickoffAt) !== Date.parse(target.date)
         || Date.parse(input.forecastAt) !== forecast || Date.parse(input.modelFitAt) > forecast
         || input.maxTrainingAvailableAt && Date.parse(input.maxTrainingAvailableAt) > forecast) throw new Error('future_challenger_baseline_information');
       rows.push({ ...input, homeGoals: target.homeGoals!, awayGoals: target.awayGoals!,
+        dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true,
         availableAt: new Date(challengerResultAvailableAt(target)).toISOString() });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('insufficient_history')) { exclusions.insufficientHistory++; continue; }
       throw error;
     }
   }
-  const base: TrainingDataset = { schemaVersion: FEATURE_SCHEMA_VERSION, featureNames: [...FEATURE_NAMES],
-    asOf: new Date(cutoff).toISOString(), baselineManifest: baselineManifest(), rows, exclusions };
+  const base = { schemaVersion: FEATURE_SCHEMA_VERSION, featureNames: [...FEATURE_NAMES],
+    asOf: new Date(cutoff).toISOString(), baselineManifest: baselineManifest(), rows, exclusions,
+    dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityPolicy: CHALLENGER_DATA_QUALITY_MANIFEST,
+    dataQualityBaselineClean: true, dataQualityEvidence: getChallengerDataQualityEvidence(history, targetPopulation) };
   return { ...extendChallengerTrainingDataset(base, history, options.blocks), protectedMatchesExcluded,
     targetWindow: { field: 'forecastAt', from: options.targetFrom ?? null, until: options.targetUntil ?? null },
     forecastTiming: { policy: options.forecastPolicy, resultDelayMs: HISTORICAL_RESULT_DELAY_MS, forecastBeforeKickoff: true } };

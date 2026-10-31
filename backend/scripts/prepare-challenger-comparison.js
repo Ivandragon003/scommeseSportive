@@ -4,9 +4,31 @@ const { resolve, join, relative } = require('node:path');
 const { createHash } = require('node:crypto');
 const { enrichCoherentLifecycleArtifact } = require('../dist/research/ResearchLifecycle');
 const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
+const { researchHash } = require('../dist/research/ResearchStore');
 
 const load = file => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2), { flag: 'wx' });
+const timestamp = value => typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
+
+function frozenIncumbent(artifactPath, registryPath) {
+  const artifact = load(resolve(artifactPath)), registry = load(resolve(registryPath));
+  if (!registry || registry.modelVersion !== artifact.version) throw new Error('Incumbent model version mismatch');
+  if (typeof registry.artifactHash !== 'string' || registry.artifactHash !== researchHash(artifact)) {
+    throw new Error('Frozen incumbent artifact hash mismatch or missing');
+  }
+  if (!registry.benchmark || registry.benchmark.candidateVersion !== artifact.version) {
+    throw new Error('Incumbent benchmark version mismatch or missing');
+  }
+  const config = value => buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+    pipelineHashV2: value.pipelineHashV2, mode: value.probabilityCalibrationMode,
+    temperature: value.probabilityTemperature, profile: value.calibrationProfilesV2?.C }).hash;
+  if (config(registry.benchmark) !== config(artifact)) throw new Error('Effective incumbent configuration must match the frozen artifact');
+  const created = timestamp(artifact.createdAt), registered = timestamp(registry.artifactCreatedAt), benchmark = timestamp(registry.benchmarkCreatedAt);
+  if (![created, registered, benchmark].every(Number.isFinite) || created > registered || registered > benchmark) {
+    throw new Error('Incumbent availability must have valid coherent artifact and registry timestamps');
+  }
+  return { artifact, availableAt: new Date(benchmark).toISOString() };
+}
 
 function main(argv = process.argv.slice(2)) {
   const args = {};
@@ -26,6 +48,7 @@ function main(argv = process.argv.slice(2)) {
     || !Array.isArray(report.arms) || !report.arms.length || !Array.isArray(report.folds) || !report.folds.length
     || !Number.isFinite(Date.parse(dataset.asOf))) throw new Error('Controlled report and dataset must match');
   if (existsSync(out)) throw new Error('Output directory must be new');
+  const incumbent = args.incumbent ? frozenIncumbent(args.incumbent, args['incumbent-registry']) : null;
   mkdirSync(out, { recursive: true });
   const variants = [];
   for (const arm of report.arms) {
@@ -43,17 +66,8 @@ function main(argv = process.argv.slice(2)) {
     variants.push({ id: arm.name, role: arm.name === 'no_ml' ? 'no_ml' : 'ablation',
       availability: 'retrospective_development', selectionPolicy: 'payout-aware-v1', folds });
   }
-  if (args.incumbent) {
-    const artifact = load(resolve(args.incumbent)), registry = load(resolve(args['incumbent-registry']));
-    const config = value => buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
-      pipelineHashV2: value.pipelineHashV2, mode: value.probabilityCalibrationMode,
-      temperature: value.probabilityTemperature, profile: value.calibrationProfilesV2?.C }).hash;
-    if (registry.modelVersion !== artifact.version || config(registry.benchmark ?? artifact) !== config(artifact)) {
-      throw new Error('Effective incumbent configuration must match the frozen artifact');
-    }
-    const dates = [artifact.createdAt, registry.artifactCreatedAt, registry.benchmarkCreatedAt].filter(Boolean).map(Date.parse);
-    if (dates.some(value => !Number.isFinite(value))) throw new Error('Incumbent availability must be known');
-    const availableAt = new Date(Math.max(...dates)).toISOString();
+  if (incumbent) {
+    const { artifact, availableAt } = incumbent;
     save(join(out, 'incumbent.json'), artifact);
     const incumbentLabel = artifact.version === 'C-906371b0b3a1e2c8' ? 'C906' : 'incumbent';
     for (const selectionPolicy of ['legacy-c906', 'payout-aware-v1']) {
@@ -77,4 +91,4 @@ if (require.main === module) {
   try { console.log(JSON.stringify(main())); }
   catch (error) { console.error(`comparison_preparation_failed: ${error.message}`); process.exitCode = 1; }
 }
-module.exports = { main };
+module.exports = { main, frozenIncumbent };

@@ -30,7 +30,8 @@ export type ChallengerDevelopmentVariant = {
   from?: string; until?: string;
 };
 export type DevelopmentInputRow = TrainingRow & { challengerFeatureMetadata?: { maxHistoryAvailableAt?: string | null } };
-type Prediction = { probabilities: number[]; matrixHash: string; selected: null | {
+type Prediction = { probabilities: number[]; probabilityStages: { raw: number[]; calibrated: number[]; decision: number[] };
+  modelVersion: string; probabilityConfigurationHash: string; calibrationFittedThrough: string | null; matrixHash: string; selected: null | {
   quote: ResearchQuote; probability: number; expectedValue: number; confidence?: string | null;
 }; exclusions: Record<string, number>; retrospective: boolean };
 type EvaluationRecord = { matchId: string; competition: string; season?: string; kickoffAt: string; forecastAt: string;
@@ -154,7 +155,11 @@ function predict(row: DevelopmentInputRow, variant: ChallengerDevelopmentVariant
   const choice = selected.selected;
   const chosenQuote = choice && ('quote' in choice ? choice.quote : quotes.find((quote) => quote.selection === choice.selection
     && quote.odds === choice.bookmakerOdds));
-  return { probabilities: resultKeys.map((key) => pipeline.decision[key]), matrixHash: researchHash(pipeline.matrix),
+  return { probabilities: resultKeys.map((key) => pipeline.decision[key]),
+    probabilityStages: { raw: resultKeys.map((key) => pipeline.raw[key]), calibrated: resultKeys.map((key) => pipeline.calibrated[key]),
+      decision: resultKeys.map((key) => pipeline.decision[key]) },
+    modelVersion, probabilityConfigurationHash: configuration.hash,
+    calibrationFittedThrough: profile?.fittedThrough ?? null, matrixHash: researchHash(pipeline.matrix),
     selected: choice && chosenQuote ? { quote: chosenQuote, probability: choice.ourProbability / 100,
       expectedValue: choice.expectedValue / 100, confidence: choice.confidence } : null, exclusions: selected.exclusions, retrospective };
 }
@@ -176,7 +181,7 @@ function metrics(records: EvaluationRecord[], variant: string) {
     return { lower: index / 10, upper: (index + 1) / 10, n: bucket.length,
       predicted: mean(bucket.map((row) => row.confidence)), observed: mean(bucket.map((row) => row.correct)) };
   });
-  return { n, logLoss: mean(rows.map((row) => row.logLoss)), brier: mean(rows.map((row) => row.brier)),
+  return { n, logLoss: mean(rows.map((row) => row.logLoss)), brier: mean(rows.map((row) => row.brier)), accuracy: mean(rows.map((row) => row.correct)),
     ece: n ? calibration.reduce((sum, bin) => sum + (bin.n ? bin.n / n * Math.abs(bin.predicted! - bin.observed!) : 0), 0) : null,
     calibration, leagues: [...new Set(rows.map(({ record }) => record.competition))].sort(),
     periods: [...new Set(rows.map(({ record }) => periodKey(record.forecastAt)))].sort() };
@@ -327,7 +332,7 @@ export function evaluateChallengerDevelopment(input: { rows: DevelopmentInputRow
     conclusion: 'development_evidence_only_no_automatic_promotion',
     limitations: ['The statistical no-ML comparator is the frozen Research baseline, not the whole operational APP-A engine.',
       'Nominal Nightly times do not prove actual historical run or source availability.',
-      'AvailableAt is only as reliable as the export; missing observed times use the conservative two-hour result delay.',
+      'AvailableAt is only as reliable as the export; the fixed two-hour proxy is not verified first-publication evidence or a guaranteed upper bound on source latency.',
       'Sparse or absent fresh real Nightly prices cannot establish ROI, CLV or bookmaker profit.',
       'The previously exposed 745 final matches cannot be reused for optimization or certification.',
       'Training exclusion depends on the artifact training manifest; trees alone cannot prove which historical rows were used.',
@@ -338,10 +343,10 @@ export function challengerDevelopmentMarkdown(report: ReturnType<typeof evaluate
   const rows = ['# Confronto controllato C — orario Nightly', '',
     `Protocollo: ${report.protocol}. Fuso Europe/Rome, ${String(report.timing.schedule.hour).padStart(2, '0')}:${String(report.timing.schedule.minute).padStart(2, '0')}.`,
     'Le metriche includono anche NO_BET. I confronti appaiati usano gli stessi incontri e gli stessi istanti.', '',
-    '| Variante | Periodo | Partite | Log loss | Brier | ECE | Puntate | ROI |', '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |'];
+    '| Variante | Periodo | Partite | Log loss | Brier | ECE | Accuracy | Puntate | ROI |', '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
   const number = (value: number | null) => value === null ? 'n/d' : value.toFixed(6);
   for (const [id, variant] of Object.entries(report.variants)) for (const [phase, result] of Object.entries(variant.byPhase)) {
-    rows.push(`| ${id} | ${phase} | ${result.metrics.n} | ${number(result.metrics.logLoss)} | ${number(result.metrics.brier)} | ${number(result.metrics.ece)} | ${result.economics.betCount} | ${number(result.economics.roi)} |`);
+    rows.push(`| ${id} | ${phase} | ${result.metrics.n} | ${number(result.metrics.logLoss)} | ${number(result.metrics.brier)} | ${number(result.metrics.ece)} | ${number(result.metrics.accuracy)} | ${result.economics.betCount} | ${number(result.economics.roi)} |`);
   }
   rows.push('', 'Gli eventuali rendimenti sono simulazioni con quote realmente ammissibili. Senza quote fresche il ROI resta n/d.',
     'Questo report non certifica né adotta un modello. I 745 incontri finali già esposti sono esclusi.', '', '## Riproducibilità', '',

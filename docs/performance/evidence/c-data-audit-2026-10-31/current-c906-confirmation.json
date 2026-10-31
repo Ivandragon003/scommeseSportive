@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-10-31T10:11:12.772Z",
+  "readOnly": true,
+  "model": {
+    "family": "C",
+    "version": "C-906371b0b3a1e2c8",
+    "artifact_hash": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3",
+    "created_at": "2026-10-29T10:39:58.713Z"
+  },
+  "configurationHash": "889ec90673beee4fc6fbe485db6d5263f9c7c2e3c3eb17122e04c2a83374f2dd",
+  "adoptionEvents": 0,
+  "artifactMatchesFrozen": true,
+  "configurationMatchesFrozen": true
+}

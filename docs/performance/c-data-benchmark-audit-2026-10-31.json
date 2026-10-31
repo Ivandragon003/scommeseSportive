@@ -1,0 +1,5465 @@
+{
+  "schemaVersion": "c-data-benchmark-audit-20261031-v1",
+  "judgement": {
+    "oldBenchmark": "arithmetically_reproduced_but_temporally_invalid_for_prematch_claims",
+    "correctedBenchmark": "retrospective_development_only_not_independent_certification",
+    "firstPublicationTimestampsVerified": false,
+    "operationalAChanged": false,
+    "operationalC906Replaced": false,
+    "sharedDatabaseWrites": false
+  },
+  "asOf": "2026-10-30T23:49:05.257Z",
+  "dataQualityPolicy": {
+    "schemaVersion": "challenger-data-quarantine-v1",
+    "version": "challenger-data-quarantine-20261031-v1",
+    "scope": "C_only",
+    "action": "quarantine_not_timestamp_correction",
+    "hashAlgorithm": "sha256-json-stringify-v1",
+    "appliesTo": {
+      "targets": true,
+      "history": true
+    },
+    "reviewDate": "2026-10-31",
+    "evidenceBasis": "source_disagreement_not_verified_historical_first_seen",
+    "evidenceFiles": [
+      {
+        "name": "completed-csv-date-alternatives.json",
+        "path": "backend/artifacts/research/c-data-audit-20261031/sources/completed-csv-date-alternatives.json",
+        "sha256": "8ec4fdb9aca643be501dbc5588ce09ff8aaac931124bfd5fede0484251457baa"
+      },
+      {
+        "name": "benchmark-clock-evidence.json",
+        "path": "backend/artifacts/research/c-data-audit-20261031/sources/benchmark-clock-evidence.json",
+        "sha256": "d269201e495c851efdf246e6f7542f6f3674a62db541f64f3edc34e20fa11020"
+      },
+      {
+        "name": "historical-clock-evidence.json",
+        "path": "backend/artifacts/research/c-data-audit-20261031/sources/historical-clock-evidence.json",
+        "sha256": "d94cfde17ad232e39510de5ec12c3fd2889aa11c9a489d46298fa92be5efac05"
+      },
+      {
+        "name": "nice-rennes-kickoff-evidence.json",
+        "path": "backend/artifacts/research/c-data-audit-20261031/sources/nice-rennes-kickoff-evidence.json",
+        "sha256": "02b4001c735131564344104615aa6c22bfaa155f0c20ca7b3589fbb85202265c"
+      },
+      {
+        "name": "court-settlement-evidence.json",
+        "path": "backend/artifacts/research/c-data-audit-20261031/sources/court-settlement-evidence.json",
+        "sha256": "af4478e4fde34cb7ff75e27c83ea992d7dba641faee18e2c0334180f4d8e8a87"
+      }
+    ],
+    "entries": [
+      {
+        "matchId": "understat_19973",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Strasbourg - Lyon",
+        "archiveTimestamp": "2023-04-30T19:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2223/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2023-04-28"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json"
+        ]
+      },
+      {
+        "matchId": "understat_22621",
+        "reason": "suspended_match_completion_after_archive_date",
+        "competition": "Serie A",
+        "fixtureAsArchive": "Udinese - Roma",
+        "archiveTimestamp": "2024-04-14T16:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/I1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2024-04-25"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+            "capturedAt": "2026-10-31T09:40:18.257945Z",
+            "rawSha256": "ca1cc783b85799aa3ffa934c73dc32609c52b4b61f9eb012f550786d3b3dcbe1"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_22676",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Serie A",
+        "fixtureAsArchive": "Cagliari - Fiorentina",
+        "archiveTimestamp": "2024-05-24T16:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/I1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2024-05-23"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+            "capturedAt": "2026-10-31T09:40:20.632275Z",
+            "rawSha256": "c0c85ba00a046489c3c5e1295e1356cd668538d47b9d365767073ac77a7ec977"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_22842",
+        "reason": "resumed_match_completion_date_disagreement",
+        "competition": "La Liga",
+        "fixtureAsArchive": "Granada - Athletic Club",
+        "archiveTimestamp": "2023-12-12T15:15:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/SP1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2023-12-11"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+            "capturedAt": "2026-10-31T09:40:19.470737Z",
+            "rawSha256": "2bdf3d9eafde1b613317defbdcc31f41b6c2947c2ed6ad8e8e3aff425757568c"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_23377",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Nice - Lille",
+        "archiveTimestamp": "2023-08-12T18:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2023-08-11"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+            "capturedAt": "2026-10-31T09:40:19.846980Z",
+            "rawSha256": "062c9b09e6a1ab8180942fc282d2583a71dea774df5704d8f0474cf1d4518883"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_23378",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Brest - Lens",
+        "archiveTimestamp": "2023-08-12T18:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2324/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2023-08-13"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json"
+        ]
+      },
+      {
+        "matchId": "understat_27724",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Serie A",
+        "fixtureAsArchive": "Genoa - Atalanta",
+        "archiveTimestamp": "2025-05-18T13:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2425/I1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2025-05-17"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+            "capturedAt": "2026-10-31T09:37:53.704479Z",
+            "rawSha256": "031b6c0b085589c6bb6ed68f6f99a10deb6a5387831b146978d0e7b785421ec3"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27849",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Bundesliga",
+        "fixtureAsArchive": "St. Pauli - Holstein Kiel",
+        "archiveTimestamp": "2024-11-30T14:30:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2425/D1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2024-11-29"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+            "capturedAt": "2026-10-31T09:40:20.952321Z",
+            "rawSha256": "8a24cf8e3efbc4d5772ea820b36716fdb97dcd2e0262d4ead09bb5e9d31680c8"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27866",
+        "reason": "played_score_vs_court_awarded_score_disagreement",
+        "fixtureAsArchive": "Union Berlin - VfL Bochum",
+        "evidenceFiles": [
+          "court-settlement-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_dfb_court_decision",
+            "url": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+            "capturedAt": "2026-10-31T09:41:17.879407Z",
+            "rawSha256": "d4d552d7c9029324cfad37b93b0e2fdc764ed3516a74e06162f51e68a12ca19e"
+          }
+        ],
+        "sourceSemantics": {
+          "physicalScore": [
+            1,
+            1
+          ],
+          "courtAwardedScore": [
+            0,
+            2
+          ],
+          "decisionPublicationDate": "2025-01-09"
+        }
+      },
+      {
+        "matchId": "understat_29218",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "La Liga",
+        "fixtureAsArchive": "Valencia - Real Oviedo",
+        "archiveTimestamp": "2025-09-29T19:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2025-09-30"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+            "capturedAt": "2026-10-31T09:37:54.110629Z",
+            "rawSha256": "e6f08273e6e647c662b64f27e49971b0c97f2b7b7493a4c07532c09ae00c601d"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29720",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Brest - Lorient",
+        "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-02-07"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+            "capturedAt": "2026-10-31T09:37:54.397839Z",
+            "rawSha256": "05badb0cf828af0b7b9365d242de5881d10cce9087293198d447ad00e61ff877"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29722",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Lens - Rennes",
+        "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-02-07"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+            "capturedAt": "2026-10-31T09:37:54.693468Z",
+            "rawSha256": "7c083def07428bf6ffd6111fbd2c520eb8c6e039939415f627be6c3be9e765a5"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29723",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Metz - Lille",
+        "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-02-06"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+            "capturedAt": "2026-10-31T09:37:55.091655Z",
+            "rawSha256": "64e086dbfd5a3a8ad03ec25c8994a6a09098edd9b275b56d9fb96dd705fed72a"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29724",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Nantes - Lyon",
+        "archiveTimestamp": "2026-02-08T14:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-02-07"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "benchmark-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_club_schedule",
+            "url": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+            "capturedAt": "2026-10-31T09:37:55.258703Z",
+            "rawSha256": "3d98c8e218ef21eccb60d8c0e2c025356f471b1fad7526ae692831493cfaa211"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29820",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Metz - Monaco",
+        "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-05-02"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+            "capturedAt": "2026-10-31T09:40:21.733872Z",
+            "rawSha256": "c66dc73b4efe9f36ced9a35850e2930a2dcd85ee8f5e4e75cb8141a7989f4cbe"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29821",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Nantes - Marseille",
+        "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-05-02"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+            "capturedAt": "2026-10-31T09:40:21.994355Z",
+            "rawSha256": "0f7b4451e6d9db575fc4cfe37b217169fe2d35166aba943eb891918be05b5358"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29822",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Nice - Lens",
+        "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-05-02"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+            "capturedAt": "2026-10-31T09:40:22.639659Z",
+            "rawSha256": "2089feceae88c2d21b6d5fa9c50885de1085f2ed95913b2a78425c5e498e1239"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29824",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Paris Saint Germain - Lorient",
+        "archiveTimestamp": "2026-05-03T13:00:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-05-02"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+            "capturedAt": "2026-10-31T09:40:23.512664Z",
+            "rawSha256": "e2d037ed893d93ea2e8f1a23f981aa9799b8aea69251017c20dbf79c03fd032d"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_31948",
+        "reason": "home_away_source_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Paris Saint Germain - Rennes",
+        "archiveTimestamp": "2026-08-23T18:45:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+        "diagnosticCsvAlternativeDates": [],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+            "capturedAt": "2026-10-31T09:40:25.450461Z",
+            "rawSha256": "e9674abc020e59e9bdb30d9f62f0fc2bece43556bf7a4440ba0bce72b513cf5e"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_32010",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Toulouse - Troyes",
+        "archiveTimestamp": "2026-10-24T15:15:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-10-25"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+            "capturedAt": "2026-10-31T09:40:24.685576Z",
+            "rawSha256": "187a9ff4de9dfa90b2608bc2c4b2ab85fbd6dc42f40beed468a5af4554310be8"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_32011",
+        "reason": "cross_source_calendar_disagreement",
+        "competition": "Ligue 1",
+        "fixtureAsArchive": "Paris Saint Germain - Lyon",
+        "archiveTimestamp": "2026-10-25T19:45:00.000Z",
+        "diagnosticCsvUrl": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+        "diagnosticCsvAlternativeDates": [
+          "2026-10-26"
+        ],
+        "evidenceFiles": [
+          "completed-csv-date-alternatives.json",
+          "historical-clock-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+            "capturedAt": "2026-10-31T09:40:24.979995Z",
+            "rawSha256": "a1f3c1a338a5e28ddbf61c532f40274e3c3ff570605e9f6382ba4a3257392c48"
+          }
+        ]
+      },
+      {
+        "matchId": "understat_32017",
+        "reason": "unresolved_source_clock_disagreement",
+        "fixtureAsArchive": "Nice - Rennes",
+        "evidenceFiles": [
+          "nice-rennes-kickoff-evidence.json"
+        ],
+        "officialCaptures": [
+          {
+            "source": "ogcnice_schedule_change",
+            "url": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+            "capturedAt": "2026-10-31T09:36:17.033172Z",
+            "rawSha256": "491d4be970a280b7c725fdbdd5c54d696363f0663c8f27a3e5b468dbf1a8d893"
+          },
+          {
+            "source": "ogcnice_matchday_information",
+            "url": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+            "capturedAt": "2026-10-31T09:36:17.282535Z",
+            "rawSha256": "79220e8a515c528e46f13769335f2a380f5f17e30bec737efe49587ae6159fff"
+          },
+          {
+            "source": "staderennais_result_report",
+            "url": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+            "capturedAt": "2026-10-31T09:36:17.662810Z",
+            "rawSha256": "ef8329d0627b933394cf0e56e7d0e67710e9cdeb9c0a157308b0f25638d53032"
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Current-page captures establish source disagreement, not cryptographic proof of historical first-seen availability.",
+      "Quarantine never replaces archive timestamps, scores, xG or statistics, and does not certify the remaining archive.",
+      "The policy applies only to explicitly tagged C inputs; operational A and previously frozen model inputs remain unchanged.",
+      "A court-awarded result is not silently treated as the played result or as bookmaker settlement evidence."
+    ]
+  },
+  "dataQualityEvidence": {
+    "policyVersion": "challenger-data-quarantine-20261031-v1",
+    "policyHash": "f1e573169084d453ab0b9ab78436bd792bf06808a61f41d72f139154668fac06",
+    "action": "quarantine_not_timestamp_correction",
+    "history": {
+      "inputRows": 8834,
+      "retainedRows": 8812,
+      "excludedRows": 22,
+      "excludedMatchIds": [
+        "understat_19973",
+        "understat_22621",
+        "understat_22676",
+        "understat_22842",
+        "understat_23377",
+        "understat_23378",
+        "understat_27724",
+        "understat_27849",
+        "understat_27866",
+        "understat_29218",
+        "understat_29720",
+        "understat_29722",
+        "understat_29723",
+        "understat_29724",
+        "understat_29820",
+        "understat_29821",
+        "understat_29822",
+        "understat_29824",
+        "understat_31948",
+        "understat_32010",
+        "understat_32011",
+        "understat_32017"
+      ]
+    },
+    "targets": {
+      "inputRows": 7486,
+      "retainedRows": 7465,
+      "excludedRows": 21,
+      "excludedMatchIds": [
+        "understat_19973",
+        "understat_22621",
+        "understat_22676",
+        "understat_22842",
+        "understat_23377",
+        "understat_23378",
+        "understat_27724",
+        "understat_27849",
+        "understat_27866",
+        "understat_29218",
+        "understat_29720",
+        "understat_29722",
+        "understat_29723",
+        "understat_29724",
+        "understat_29820",
+        "understat_29821",
+        "understat_29822",
+        "understat_29824",
+        "understat_31948",
+        "understat_32010",
+        "understat_32011"
+      ]
+    }
+  },
+  "originalMetrics1975": {
+    "no_ml": {
+      "n": 1975,
+      "logLoss": 0.9836015135535451,
+      "brier": 0.5846624276241622,
+      "accuracy": 0.5306329113924051,
+      "ece": 0.01609684112199387,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 245,
+          "predicted": 0.38415746075106344,
+          "observed": 0.3877551020408163
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 803,
+          "predicted": 0.44872085443569226,
+          "observed": 0.44458281444582815
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 474,
+          "predicted": 0.5441943715822959,
+          "observed": 0.5632911392405063
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 285,
+          "predicted": 0.6453043217835166,
+          "observed": 0.6596491228070176
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 133,
+          "predicted": 0.7449067785881038,
+          "observed": 0.8195488721804511
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 34,
+          "predicted": 0.8351459002302078,
+          "observed": 0.9411764705882353
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.9144189864428965,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "development_current_replica": {
+      "n": 1975,
+      "logLoss": 0.9835388649268978,
+      "brier": 0.5852330743028864,
+      "accuracy": 0.5240506329113924,
+      "ece": 0.01897177421374515,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 271,
+          "predicted": 0.3770987760566163,
+          "observed": 0.3505535055350554
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 602,
+          "predicted": 0.45144979786001604,
+          "observed": 0.43521594684385384
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 501,
+          "predicted": 0.5461155367752247,
+          "observed": 0.5189620758483033
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 377,
+          "predicted": 0.6458805814148822,
+          "observed": 0.6525198938992043
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 196,
+          "predicted": 0.7401640386207093,
+          "observed": 0.7602040816326531
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 28,
+          "predicted": 0.8381412245627151,
+          "observed": 0.8214285714285714
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_legacy": {
+      "n": 1975,
+      "logLoss": 0.984179299247602,
+      "brier": 0.5850885287427579,
+      "accuracy": 0.5270886075949367,
+      "ece": 0.01827461000315733,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 228,
+          "predicted": 0.3864001107431441,
+          "observed": 0.3333333333333333
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 758,
+          "predicted": 0.44919666192709057,
+          "observed": 0.4472295514511873
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 525,
+          "predicted": 0.5468588355141849,
+          "observed": 0.56
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 295,
+          "predicted": 0.6445239830006213,
+          "observed": 0.6474576271186441
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 139,
+          "predicted": 0.741412972230419,
+          "observed": 0.8201438848920863
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 29,
+          "predicted": 0.8317049592570878,
+          "observed": 0.9310344827586207
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.9133703546783155,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_recent_xg": {
+      "n": 1975,
+      "logLoss": 0.9832173753738958,
+      "brier": 0.58450682866864,
+      "accuracy": 0.5265822784810127,
+      "ece": 0.01958684117412282,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 239,
+          "predicted": 0.38657208642330515,
+          "observed": 0.33472803347280333
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 739,
+          "predicted": 0.4497169503168989,
+          "observed": 0.4438430311231394
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 533,
+          "predicted": 0.5461003675387054,
+          "observed": 0.5572232645403377
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 293,
+          "predicted": 0.6447991944701831,
+          "observed": 0.658703071672355
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 138,
+          "predicted": 0.7434030403996967,
+          "observed": 0.8188405797101449
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 33,
+          "predicted": 0.8321292171943593,
+          "observed": 0.8787878787878788
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_schedule": {
+      "n": 1975,
+      "logLoss": 0.9844565127140202,
+      "brier": 0.5852524093439258,
+      "accuracy": 0.5286075949367088,
+      "ece": 0.019066337232834615,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 236,
+          "predicted": 0.3859125563352958,
+          "observed": 0.3347457627118644
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 750,
+          "predicted": 0.4495048330354121,
+          "observed": 0.4533333333333333
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 534,
+          "predicted": 0.5467680347674305,
+          "observed": 0.5543071161048689
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 290,
+          "predicted": 0.6440149544431267,
+          "observed": 0.6620689655172414
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 133,
+          "predicted": 0.7422838120699166,
+          "observed": 0.8195488721804511
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 31,
+          "predicted": 0.8302251352800212,
+          "observed": 0.9032258064516129
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.9084710695718548,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_full": {
+      "n": 1975,
+      "logLoss": 0.9839138092552613,
+      "brier": 0.5850244445432902,
+      "accuracy": 0.5265822784810127,
+      "ece": 0.017756851564438222,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 243,
+          "predicted": 0.38688519411666167,
+          "observed": 0.3292181069958848
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 726,
+          "predicted": 0.4490541298467473,
+          "observed": 0.4490358126721763
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 553,
+          "predicted": 0.5457308895624735,
+          "observed": 0.5551537070524413
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 284,
+          "predicted": 0.6439580348945377,
+          "observed": 0.6584507042253521
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 138,
+          "predicted": 0.7425355008995532,
+          "observed": 0.8188405797101449
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 31,
+          "predicted": 0.832692117325386,
+          "observed": 0.8709677419354839
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    }
+  },
+  "correctedMetrics1969": {
+    "no_ml": {
+      "n": 1969,
+      "logLoss": 0.9840311584110226,
+      "brier": 0.5848946280014762,
+      "accuracy": 0.5292026409344845,
+      "ece": 0.015408311401678958,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 242,
+          "predicted": 0.3842867296888743,
+          "observed": 0.36363636363636365
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 787,
+          "predicted": 0.44847863085903766,
+          "observed": 0.45108005082592123
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 483,
+          "predicted": 0.5454800369801641,
+          "observed": 0.5486542443064182
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 292,
+          "predicted": 0.6436930626793127,
+          "observed": 0.6678082191780822
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 130,
+          "predicted": 0.7446259841755396,
+          "observed": 0.823076923076923
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 34,
+          "predicted": 0.8350753004492574,
+          "observed": 0.9411764705882353
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.913429373134425,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "development_current_replica": {
+      "n": 1969,
+      "logLoss": 0.9812421219911557,
+      "brier": 0.583741852785904,
+      "accuracy": 0.5271711528694769,
+      "ece": 0.017163429390522674,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 276,
+          "predicted": 0.3786985131253288,
+          "observed": 0.34782608695652173
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 593,
+          "predicted": 0.4530990135043443,
+          "observed": 0.4418212478920742
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 473,
+          "predicted": 0.549749800252975,
+          "observed": 0.5264270613107822
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 413,
+          "predicted": 0.645532849554074,
+          "observed": 0.6416464891041163
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 192,
+          "predicted": 0.7415278057078815,
+          "observed": 0.7708333333333334
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 22,
+          "predicted": 0.8328592795316241,
+          "observed": 0.8181818181818182
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_legacy": {
+      "n": 1969,
+      "logLoss": 0.9843799335823846,
+      "brier": 0.5852214330183578,
+      "accuracy": 0.5276790248857288,
+      "ece": 0.017714556735036382,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 250,
+          "predicted": 0.3864449124683867,
+          "observed": 0.344
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 719,
+          "predicted": 0.4471707845584507,
+          "observed": 0.44506258692628653
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 532,
+          "predicted": 0.54748107554175,
+          "observed": 0.5545112781954887
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 302,
+          "predicted": 0.6437647593905865,
+          "observed": 0.6589403973509934
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 131,
+          "predicted": 0.7423540061248813,
+          "observed": 0.8244274809160306
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 34,
+          "predicted": 0.8303748786521875,
+          "observed": 0.9117647058823529
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.9109501973658286,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_recent_xg": {
+      "n": 1969,
+      "logLoss": 0.9840563793505664,
+      "brier": 0.5850636695408101,
+      "accuracy": 0.526663280853225,
+      "ece": 0.019361814994302395,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 249,
+          "predicted": 0.3862926544012664,
+          "observed": 0.3253012048192771
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 730,
+          "predicted": 0.4475152802826727,
+          "observed": 0.44931506849315067
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 518,
+          "predicted": 0.5465486905382205,
+          "observed": 0.5521235521235521
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 301,
+          "predicted": 0.6432813363824155,
+          "observed": 0.6710963455149501
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 141,
+          "predicted": 0.742307384605441,
+          "observed": 0.8085106382978723
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 30,
+          "predicted": 0.8324019145503457,
+          "observed": 0.8666666666666667
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_schedule": {
+      "n": 1969,
+      "logLoss": 0.9846248771098041,
+      "brier": 0.5853906739666345,
+      "accuracy": 0.5276790248857288,
+      "ece": 0.01830025606419406,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 235,
+          "predicted": 0.3862418945923196,
+          "observed": 0.3404255319148936
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 729,
+          "predicted": 0.44697191408761344,
+          "observed": 0.4444444444444444
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 544,
+          "predicted": 0.5471864886596561,
+          "observed": 0.5588235294117647
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 302,
+          "predicted": 0.6440102107792276,
+          "observed": 0.6589403973509934
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 125,
+          "predicted": 0.7430828636077093,
+          "observed": 0.816
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 33,
+          "predicted": 0.8316516609788407,
+          "observed": 0.9090909090909091
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 1,
+          "predicted": 0.9142298407778431,
+          "observed": 0
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    },
+    "intensity_full": {
+      "n": 1969,
+      "logLoss": 0.9843118634812047,
+      "brier": 0.5852122889103301,
+      "accuracy": 0.5292026409344845,
+      "ece": 0.01704404338119927,
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.2,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.3,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 243,
+          "predicted": 0.38692913493161707,
+          "observed": 0.3497942386831276
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 735,
+          "predicted": 0.4473080067623534,
+          "observed": 0.44625850340136053
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 530,
+          "predicted": 0.5462786854272252,
+          "observed": 0.5547169811320755
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 298,
+          "predicted": 0.6441068162641557,
+          "observed": 0.6677852348993288
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 132,
+          "predicted": 0.742399246479145,
+          "observed": 0.8181818181818182
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 31,
+          "predicted": 0.8312002671850458,
+          "observed": 0.9032258064516129
+        },
+        {
+          "lower": 0.9,
+          "upper": 1,
+          "n": 0,
+          "predicted": null,
+          "observed": null
+        }
+      ],
+      "leagues": [
+        "Bundesliga",
+        "La Liga",
+        "Ligue 1",
+        "Premier League",
+        "Serie A"
+      ],
+      "periods": [
+        "2025-02-24",
+        "2025-03-03",
+        "2025-03-10",
+        "2025-03-24",
+        "2025-03-31",
+        "2025-04-07",
+        "2025-04-14",
+        "2025-04-21",
+        "2025-04-28",
+        "2025-05-05",
+        "2025-05-12",
+        "2025-05-19",
+        "2025-08-11",
+        "2025-08-18",
+        "2025-08-25",
+        "2025-09-08",
+        "2025-09-15",
+        "2025-09-22",
+        "2025-09-29",
+        "2025-10-13",
+        "2025-10-20",
+        "2025-10-27",
+        "2025-11-03",
+        "2025-11-17",
+        "2025-11-24",
+        "2025-12-01",
+        "2025-12-08",
+        "2025-12-15",
+        "2025-12-22",
+        "2025-12-29",
+        "2026-01-05",
+        "2026-01-12",
+        "2026-01-19",
+        "2026-01-26",
+        "2026-02-02",
+        "2026-02-09",
+        "2026-02-16",
+        "2026-02-23",
+        "2026-03-02",
+        "2026-03-09",
+        "2026-03-16",
+        "2026-03-30",
+        "2026-10-26"
+      ]
+    }
+  },
+  "commonCohort": {
+    "schemaVersion": "independent-c-before-after-common-cohort-v1",
+    "sameFixturesAndConditions": true,
+    "cohortMatches": 1969,
+    "variants": {
+      "no_ml": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9837423140712074,
+          "brier": 0.5847484859965079,
+          "accuracy": 0.5302183849669884,
+          "ece": 0.016357988309205682,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 245,
+              "predicted": 0.38415746075106344,
+              "observed": 0.3877551020408163
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 802,
+              "predicted": 0.44874098544075863,
+              "observed": 0.44389027431421446
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 470,
+              "predicted": 0.5441366850273639,
+              "observed": 0.5617021276595745
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 284,
+              "predicted": 0.6453008039513694,
+              "observed": 0.6619718309859155
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 133,
+              "predicted": 0.7449067785881038,
+              "observed": 0.8195488721804511
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 34,
+              "predicted": 0.8351459002302078,
+              "observed": 0.9411764705882353
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.9144189864428965,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9840311584110226,
+          "brier": 0.5848946280014762,
+          "accuracy": 0.5292026409344845,
+          "ece": 0.015408311401678958,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 242,
+              "predicted": 0.3842867296888743,
+              "observed": 0.36363636363636365
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 787,
+              "predicted": 0.44847863085903766,
+              "observed": 0.45108005082592123
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 483,
+              "predicted": 0.5454800369801641,
+              "observed": 0.5486542443064182
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 292,
+              "predicted": 0.6436930626793127,
+              "observed": 0.6678082191780822
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 130,
+              "predicted": 0.7446259841755396,
+              "observed": 0.823076923076923
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 34,
+              "predicted": 0.8350753004492574,
+              "observed": 0.9411764705882353
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.913429373134425,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": 0.0002888443398152418,
+          "brier": 0.0001461420049683193,
+          "ece": -0.0009496769075267239,
+          "accuracy": -0.001015744032503818
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      },
+      "development_current_replica": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9836101077150763,
+          "brier": 0.5852801394181436,
+          "accuracy": 0.5236160487557135,
+          "ece": 0.01918455446427568,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 271,
+              "predicted": 0.3770987760566163,
+              "observed": 0.3505535055350554
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 601,
+              "predicted": 0.45148535383985305,
+              "observed": 0.43427620632279534
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 499,
+              "predicted": 0.545923194497821,
+              "observed": 0.5190380761523046
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 374,
+              "predicted": 0.6459185962605497,
+              "observed": 0.6524064171122995
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 196,
+              "predicted": 0.7401640386207093,
+              "observed": 0.7602040816326531
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 28,
+              "predicted": 0.8381412245627151,
+              "observed": 0.8214285714285714
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9812421219911557,
+          "brier": 0.583741852785904,
+          "accuracy": 0.5271711528694769,
+          "ece": 0.017163429390522674,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 276,
+              "predicted": 0.3786985131253288,
+              "observed": 0.34782608695652173
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 593,
+              "predicted": 0.4530990135043443,
+              "observed": 0.4418212478920742
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 473,
+              "predicted": 0.549749800252975,
+              "observed": 0.5264270613107822
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 413,
+              "predicted": 0.645532849554074,
+              "observed": 0.6416464891041163
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 192,
+              "predicted": 0.7415278057078815,
+              "observed": 0.7708333333333334
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 22,
+              "predicted": 0.8328592795316241,
+              "observed": 0.8181818181818182
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": -0.002367985723920607,
+          "brier": -0.0015382866322396493,
+          "ece": -0.002021125073753006,
+          "accuracy": 0.003555104113763363
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      },
+      "intensity_legacy": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9843241471467705,
+          "brier": 0.5851839302402547,
+          "accuracy": 0.526663280853225,
+          "ece": 0.0185922505137628,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 228,
+              "predicted": 0.3864001107431441,
+              "observed": 0.3333333333333333
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 757,
+              "predicted": 0.44922413070622325,
+              "observed": 0.4464993394980185
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 522,
+              "predicted": 0.5467641599306092,
+              "observed": 0.5593869731800766
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 293,
+              "predicted": 0.6446429448630218,
+              "observed": 0.6484641638225256
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 139,
+              "predicted": 0.741412972230419,
+              "observed": 0.8201438848920863
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 29,
+              "predicted": 0.8317049592570878,
+              "observed": 0.9310344827586207
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.9133703546783155,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9843799335823846,
+          "brier": 0.5852214330183578,
+          "accuracy": 0.5276790248857288,
+          "ece": 0.017714556735036382,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 250,
+              "predicted": 0.3864449124683867,
+              "observed": 0.344
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 719,
+              "predicted": 0.4471707845584507,
+              "observed": 0.44506258692628653
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 532,
+              "predicted": 0.54748107554175,
+              "observed": 0.5545112781954887
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 302,
+              "predicted": 0.6437647593905865,
+              "observed": 0.6589403973509934
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 131,
+              "predicted": 0.7423540061248813,
+              "observed": 0.8244274809160306
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 34,
+              "predicted": 0.8303748786521875,
+              "observed": 0.9117647058823529
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.9109501973658286,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": 0.00005578643561410246,
+          "brier": 0.00003750277810310454,
+          "ece": -0.000877693778726419,
+          "accuracy": 0.001015744032503818
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      },
+      "intensity_recent_xg": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9833917462497762,
+          "brier": 0.5846229098953761,
+          "accuracy": 0.5261554088369731,
+          "ece": 0.019894616143072204,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 239,
+              "predicted": 0.38657208642330515,
+              "observed": 0.33472803347280333
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 738,
+              "predicted": 0.4497375265201364,
+              "observed": 0.44308943089430897
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 530,
+              "predicted": 0.5460280977691824,
+              "observed": 0.5566037735849056
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 291,
+              "predicted": 0.6449475892820712,
+              "observed": 0.6597938144329897
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 138,
+              "predicted": 0.7434030403996967,
+              "observed": 0.8188405797101449
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 33,
+              "predicted": 0.8321292171943593,
+              "observed": 0.8787878787878788
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9840563793505664,
+          "brier": 0.5850636695408101,
+          "accuracy": 0.526663280853225,
+          "ece": 0.019361814994302395,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 249,
+              "predicted": 0.3862926544012664,
+              "observed": 0.3253012048192771
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 730,
+              "predicted": 0.4475152802826727,
+              "observed": 0.44931506849315067
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 518,
+              "predicted": 0.5465486905382205,
+              "observed": 0.5521235521235521
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 301,
+              "predicted": 0.6432813363824155,
+              "observed": 0.6710963455149501
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 141,
+              "predicted": 0.742307384605441,
+              "observed": 0.8085106382978723
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 30,
+              "predicted": 0.8324019145503457,
+              "observed": 0.8666666666666667
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": 0.0006646331007902351,
+          "brier": 0.0004407596454339968,
+          "ece": -0.0005328011487698084,
+          "accuracy": 0.000507872016251909
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      },
+      "intensity_schedule": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9846158591386671,
+          "brier": 0.5853535889766014,
+          "accuracy": 0.5281868969019807,
+          "ece": 0.01879633561255158,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 236,
+              "predicted": 0.3859125563352958,
+              "observed": 0.3347457627118644
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 749,
+              "predicted": 0.44953197406634604,
+              "observed": 0.45260347129506007
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 531,
+              "predicted": 0.5467118577141394,
+              "observed": 0.5536723163841808
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 288,
+              "predicted": 0.6441308275093987,
+              "observed": 0.6631944444444444
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 133,
+              "predicted": 0.7422838120699166,
+              "observed": 0.8195488721804511
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 31,
+              "predicted": 0.8302251352800212,
+              "observed": 0.9032258064516129
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.9084710695718548,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9846248771098041,
+          "brier": 0.5853906739666345,
+          "accuracy": 0.5276790248857288,
+          "ece": 0.01830025606419406,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 235,
+              "predicted": 0.3862418945923196,
+              "observed": 0.3404255319148936
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 729,
+              "predicted": 0.44697191408761344,
+              "observed": 0.4444444444444444
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 544,
+              "predicted": 0.5471864886596561,
+              "observed": 0.5588235294117647
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 302,
+              "predicted": 0.6440102107792276,
+              "observed": 0.6589403973509934
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 125,
+              "predicted": 0.7430828636077093,
+              "observed": 0.816
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 33,
+              "predicted": 0.8316516609788407,
+              "observed": 0.9090909090909091
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 1,
+              "predicted": 0.9142298407778431,
+              "observed": 0
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": 0.000009017971136948688,
+          "brier": 0.00003708499003307608,
+          "ece": -0.0004960795483575191,
+          "accuracy": -0.000507872016251909
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      },
+      "intensity_full": {
+        "n": 1969,
+        "beforeOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9840728090181473,
+          "brier": 0.5851271041811461,
+          "accuracy": 0.5261554088369731,
+          "ece": 0.018069066797928836,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 243,
+              "predicted": 0.38688519411666167,
+              "observed": 0.3292181069958848
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 725,
+              "predicted": 0.4490763172600682,
+              "observed": 0.4482758620689655
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 550,
+              "predicted": 0.5456532025056118,
+              "observed": 0.5545454545454546
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 282,
+              "predicted": 0.6440525656718601,
+              "observed": 0.6595744680851063
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 138,
+              "predicted": 0.7425355008995532,
+              "observed": 0.8188405797101449
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 31,
+              "predicted": 0.832692117325386,
+              "observed": 0.8709677419354839
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "afterOnSameFixtures": {
+          "n": 1969,
+          "logLoss": 0.9843118634812047,
+          "brier": 0.5852122889103301,
+          "accuracy": 0.5292026409344845,
+          "ece": 0.01704404338119927,
+          "calibration": [
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.2,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.2,
+              "upper": 0.3,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            },
+            {
+              "lower": 0.3,
+              "upper": 0.4,
+              "n": 243,
+              "predicted": 0.38692913493161707,
+              "observed": 0.3497942386831276
+            },
+            {
+              "lower": 0.4,
+              "upper": 0.5,
+              "n": 735,
+              "predicted": 0.4473080067623534,
+              "observed": 0.44625850340136053
+            },
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "n": 530,
+              "predicted": 0.5462786854272252,
+              "observed": 0.5547169811320755
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "n": 298,
+              "predicted": 0.6441068162641557,
+              "observed": 0.6677852348993288
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.8,
+              "n": 132,
+              "predicted": 0.742399246479145,
+              "observed": 0.8181818181818182
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "n": 31,
+              "predicted": 0.8312002671850458,
+              "observed": 0.9032258064516129
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "n": 0,
+              "predicted": null,
+              "observed": null
+            }
+          ],
+          "leagues": [
+            "Bundesliga",
+            "La Liga",
+            "Ligue 1",
+            "Premier League",
+            "Serie A"
+          ],
+          "periods": [
+            "2025-02-24",
+            "2025-03-03",
+            "2025-03-10",
+            "2025-03-24",
+            "2025-03-31",
+            "2025-04-07",
+            "2025-04-14",
+            "2025-04-21",
+            "2025-04-28",
+            "2025-05-05",
+            "2025-05-12",
+            "2025-05-19",
+            "2025-08-11",
+            "2025-08-18",
+            "2025-08-25",
+            "2025-09-08",
+            "2025-09-15",
+            "2025-09-22",
+            "2025-09-29",
+            "2025-10-13",
+            "2025-10-20",
+            "2025-10-27",
+            "2025-11-03",
+            "2025-11-17",
+            "2025-11-24",
+            "2025-12-01",
+            "2025-12-08",
+            "2025-12-15",
+            "2025-12-22",
+            "2025-12-29",
+            "2026-01-05",
+            "2026-01-12",
+            "2026-01-19",
+            "2026-01-26",
+            "2026-02-02",
+            "2026-02-09",
+            "2026-02-16",
+            "2026-02-23",
+            "2026-03-02",
+            "2026-03-09",
+            "2026-03-16",
+            "2026-03-30",
+            "2026-10-26"
+          ]
+        },
+        "deltaDirection": "after_minus_before",
+        "delta": {
+          "logLoss": 0.00023905446305738653,
+          "brier": 0.00008518472918395137,
+          "ece": -0.0010250234167295674,
+          "accuracy": 0.003047232097511454
+        },
+        "removedOriginalTestIds": [
+          "understat_27724",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724"
+        ],
+        "pairedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+      }
+    },
+    "independentProspectiveEvidence": false,
+    "interpretation": "Development data-pipeline correction; never an independent performance certificate.",
+    "predictionsSha256": {
+      "before": "0cc999eafe9e10b1591266861f093fc384341679d23c7591e97ddb872fe07458",
+      "after": "6dc974a6fc5bae218464fb80d891896a20c2a786b75e5d3e33cd9c14ab50e37e"
+    }
+  },
+  "correctedPairedComparisons": [
+    {
+      "left": "no_ml",
+      "right": "development_current_replica",
+      "n": 1969,
+      "deltaLogLoss": -0.002789036419863722,
+      "deltaBrier": -0.0011527752155733317,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.008841761206021325,
+          0.0034382495699076636
+        ],
+        "brier95": [
+          -0.004757975076824947,
+          0.002405650782729156
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "intensity_legacy",
+      "n": 1969,
+      "deltaLogLoss": 0.00034877517136366887,
+      "deltaBrier": 0.000326805016879983,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0012977291844758414,
+          0.002059128357548201
+        ],
+        "brier95": [
+          -0.00082076697117064,
+          0.0014989215462677338
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "intensity_recent_xg",
+      "n": 1969,
+      "deltaLogLoss": 0.000025220939546155563,
+      "deltaBrier": 0.00016904153933328114,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0015279793350049704,
+          0.0015869418513046948
+        ],
+        "brier95": [
+          -0.0008590573157824223,
+          0.001159885753323057
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "intensity_schedule",
+      "n": 1969,
+      "deltaLogLoss": 0.000593718698784107,
+      "deltaBrier": 0.0004960459651567328,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0009802208347909212,
+          0.002054722367781006
+        ],
+        "brier95": [
+          -0.0005999427964204916,
+          0.0015391468353409957
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "intensity_full",
+      "n": 1969,
+      "deltaLogLoss": 0.0002807050701862934,
+      "deltaBrier": 0.0003176609088536564,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.001136792108219238,
+          0.0017983903230811445
+        ],
+        "brier95": [
+          -0.0006833455159152342,
+          0.0013206716950286915
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": 0.0008006880212823031,
+      "deltaBrier": -0.0034764468298729145,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0.0008006880212823031,
+      "deltaBrier": -0.0034764468298729145,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "intensity_legacy",
+      "n": 1969,
+      "deltaLogLoss": 0.0031378115912273907,
+      "deltaBrier": 0.0014795802324533147,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0026119537025166835,
+          0.008783052943081626
+        ],
+        "brier95": [
+          -0.0020799203171603096,
+          0.004717004428396847
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "intensity_recent_xg",
+      "n": 1969,
+      "deltaLogLoss": 0.0028142573594098774,
+      "deltaBrier": 0.0013218167549066129,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0030398218425717514,
+          0.008275773414942261
+        ],
+        "brier95": [
+          -0.002204162092341457,
+          0.0045514328186448735
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "intensity_schedule",
+      "n": 1969,
+      "deltaLogLoss": 0.003382755118647829,
+      "deltaBrier": 0.0016488211807300646,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.002363303002733676,
+          0.008818210391440009
+        ],
+        "brier95": [
+          -0.0018549568531323187,
+          0.004776559802482816
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "intensity_full",
+      "n": 1969,
+      "deltaLogLoss": 0.0030697414900500153,
+      "deltaBrier": 0.0014704361244269881,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.002739055520863475,
+          0.008710791012087373
+        ],
+        "brier95": [
+          -0.0019691205617996498,
+          0.004722364090869495
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": -0.0016975372345122697,
+      "deltaBrier": 0.007004219580129756,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": -0.0016975372345122697,
+      "deltaBrier": 0.007004219580129756,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "intensity_recent_xg",
+      "n": 1969,
+      "deltaLogLoss": -0.0003235542318175133,
+      "deltaBrier": -0.00015776347754670184,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.001219829227212908,
+          0.0005395322035738042
+        ],
+        "brier95": [
+          -0.0006626611439727642,
+          0.00039817071112424596
+        ]
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "intensity_schedule",
+      "n": 1969,
+      "deltaLogLoss": 0.0002449435274204381,
+      "deltaBrier": 0.00016924094827674985,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.000293339878880738,
+          0.0008268492638111801
+        ],
+        "brier95": [
+          -0.00020937897089949088,
+          0.0005251458470128194
+        ]
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "intensity_full",
+      "n": 1969,
+      "deltaLogLoss": -0.00006807010117737544,
+      "deltaBrier": -0.000009144108026326592,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.0009795649138692425,
+          0.0007422315127769536
+        ],
+        "brier95": [
+          -0.00047667291822578575,
+          0.0005125189655607522
+        ]
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": 0.0005236553693023227,
+      "deltaBrier": -0.0029513439425923327,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_legacy",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0.0005236553693023227,
+      "deltaBrier": -0.0029513439425923327,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "intensity_schedule",
+      "n": 1969,
+      "deltaLogLoss": 0.0005684977592379514,
+      "deltaBrier": 0.0003270044258234517,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.00019202404604613815,
+          0.0013883127338231408
+        ],
+        "brier95": [
+          -0.00012556937735634584,
+          0.0007665627081364544
+        ]
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "intensity_full",
+      "n": 1969,
+      "deltaLogLoss": 0.00025548413064013786,
+      "deltaBrier": 0.00014861936952037524,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.00015405807189966357,
+          0.0006496278230558729
+        ],
+        "brier95": [
+          -0.00012424086971398512,
+          0.0004141465511398256
+        ]
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": 0.0028332209108054007,
+      "deltaBrier": -0.00024888360714581115,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_recent_xg",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0.0028332209108054007,
+      "deltaBrier": -0.00024888360714581115,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_schedule",
+      "right": "intensity_full",
+      "n": 1969,
+      "deltaLogLoss": -0.00031301362859781356,
+      "deltaBrier": -0.00017838505630307644,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 43,
+        "logLoss95": [
+          -0.001274584485075647,
+          0.0003805241124695112
+        ],
+        "brier95": [
+          -0.000665748797762272,
+          0.00023567831894875983
+        ]
+      }
+    },
+    {
+      "left": "intensity_schedule",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_schedule",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": 0.0021019773764370253,
+      "deltaBrier": -0.0014301926822687383,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_schedule",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_schedule",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0.0021019773764370253,
+      "deltaBrier": -0.0014301926822687383,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_full",
+      "right": "actual_C906",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_full",
+      "right": "C906_reconstructed",
+      "n": 10,
+      "deltaLogLoss": 0.002529179537327342,
+      "deltaBrier": -0.0003954049488421596,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_full",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "intensity_full",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0.002529179537327342,
+      "deltaBrier": -0.0003954049488421596,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "actual_C906",
+      "right": "C906_reconstructed",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "actual_C906",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "actual_C906",
+      "right": "C906_reconstructed_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "C906_reconstructed",
+      "right": "actual_C906_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "C906_reconstructed",
+      "right": "C906_reconstructed_new_selector",
+      "n": 10,
+      "deltaLogLoss": 0,
+      "deltaBrier": 0,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 1,
+        "logLoss95": null,
+        "brier95": null
+      }
+    },
+    {
+      "left": "actual_C906_new_selector",
+      "right": "C906_reconstructed_new_selector",
+      "n": 0,
+      "deltaLogLoss": null,
+      "deltaBrier": null,
+      "uncertainty": {
+        "method": "paired_week_block_bootstrap",
+        "samples": 500,
+        "blocks": 0,
+        "logLoss95": null,
+        "brier95": null
+      }
+    }
+  ],
+  "arithmeticVerification": {
+    "beforeMaximumDelta": 1.7763568394002505e-15,
+    "afterMaximumDelta": 2.55351295663786e-15,
+    "tolerance": 1e-12,
+    "afterProbabilityStages": {
+      "predictions": 11834,
+      "withAllStages": 11834,
+      "withoutStages": 0
+    }
+  },
+  "cohorts": {
+    "before": {
+      "n": 6587,
+      "uniqueIds": 6587,
+      "sortedIdsSha256": "8ae9d4af108ae6c86d1f8f79788b3d705b016aad64375d9f5eecc128aab338e9",
+      "byOutcome": {
+        "homeWin": 2894,
+        "draw": 1654,
+        "awayWin": 2039
+      },
+      "competition": {
+        "Bundesliga": 1134,
+        "La Liga": 1404,
+        "Ligue 1": 1207,
+        "Premier League": 1419,
+        "Serie A": 1423
+      },
+      "season": {
+        "2022/2023": 1672,
+        "2023/2024": 1752,
+        "2024/2025": 1752,
+        "2025/2026": 1401,
+        "2026/2027": 10
+      },
+      "phase": {
+        "development": 6587
+      },
+      "forecastWeeks": {
+        "2022-08-22": 21,
+        "2022-08-29": 75,
+        "2022-09-05": 42,
+        "2022-09-12": 48,
+        "2022-09-26": 46,
+        "2022-10-03": 49,
+        "2022-10-10": 49,
+        "2022-10-17": 67,
+        "2022-10-24": 50,
+        "2022-10-31": 51,
+        "2022-11-07": 69,
+        "2022-12-26": 46,
+        "2023-01-02": 41,
+        "2023-01-09": 50,
+        "2023-01-16": 38,
+        "2023-01-23": 51,
+        "2023-01-30": 59,
+        "2023-02-06": 49,
+        "2023-02-13": 53,
+        "2023-02-20": 44,
+        "2023-02-27": 52,
+        "2023-03-06": 51,
+        "2023-03-13": 50,
+        "2023-03-27": 45,
+        "2023-04-03": 58,
+        "2023-04-10": 47,
+        "2023-04-17": 49,
+        "2023-04-24": 64,
+        "2023-05-01": 62,
+        "2023-05-08": 52,
+        "2023-05-15": 50,
+        "2023-05-22": 64,
+        "2023-05-29": 30,
+        "2023-08-07": 26,
+        "2023-08-14": 45,
+        "2023-08-21": 49,
+        "2023-08-28": 51,
+        "2023-09-11": 44,
+        "2023-09-18": 51,
+        "2023-09-25": 64,
+        "2023-10-02": 53,
+        "2023-10-16": 44,
+        "2023-10-23": 48,
+        "2023-10-30": 47,
+        "2023-11-06": 50,
+        "2023-11-20": 44,
+        "2023-11-27": 51,
+        "2023-12-04": 58,
+        "2023-12-11": 49,
+        "2023-12-18": 50,
+        "2023-12-25": 28,
+        "2024-01-01": 22,
+        "2024-01-08": 38,
+        "2024-01-15": 29,
+        "2024-01-22": 39,
+        "2024-01-29": 60,
+        "2024-02-05": 49,
+        "2024-02-12": 50,
+        "2024-02-19": 46,
+        "2024-02-26": 51,
+        "2024-03-04": 48,
+        "2024-03-11": 45,
+        "2024-03-25": 42,
+        "2024-04-01": 54,
+        "2024-04-08": 42,
+        "2024-04-15": 46,
+        "2024-04-22": 58,
+        "2024-04-29": 45,
+        "2024-05-06": 48,
+        "2024-05-13": 65,
+        "2024-05-20": 22,
+        "2024-05-27": 1,
+        "2024-08-12": 34,
+        "2024-08-19": 51,
+        "2024-08-26": 59,
+        "2024-09-09": 45,
+        "2024-09-16": 52,
+        "2024-09-23": 55,
+        "2024-09-30": 51,
+        "2024-10-14": 45,
+        "2024-10-21": 49,
+        "2024-10-28": 52,
+        "2024-11-04": 52,
+        "2024-11-18": 45,
+        "2024-11-25": 48,
+        "2024-12-02": 58,
+        "2024-12-09": 49,
+        "2024-12-16": 42,
+        "2024-12-23": 26,
+        "2024-12-30": 31,
+        "2025-01-06": 35,
+        "2025-01-13": 69,
+        "2025-01-20": 48,
+        "2025-01-27": 48,
+        "2025-02-03": 40,
+        "2025-02-10": 49,
+        "2025-02-17": 49,
+        "2025-02-24": 49,
+        "2025-03-03": 45,
+        "2025-03-10": 49,
+        "2025-03-24": 36,
+        "2025-03-31": 58,
+        "2025-04-07": 47,
+        "2025-04-14": 46,
+        "2025-04-21": 52,
+        "2025-04-28": 49,
+        "2025-05-05": 49,
+        "2025-05-12": 57,
+        "2025-05-19": 33,
+        "2025-08-11": 26,
+        "2025-08-18": 46,
+        "2025-08-25": 54,
+        "2025-09-08": 45,
+        "2025-09-15": 49,
+        "2025-09-22": 55,
+        "2025-09-29": 52,
+        "2025-10-13": 45,
+        "2025-10-20": 50,
+        "2025-10-27": 64,
+        "2025-11-03": 52,
+        "2025-11-17": 44,
+        "2025-11-24": 50,
+        "2025-12-01": 57,
+        "2025-12-08": 49,
+        "2025-12-15": 36,
+        "2025-12-22": 21,
+        "2025-12-29": 50,
+        "2026-01-05": 42,
+        "2026-01-12": 59,
+        "2026-01-19": 49,
+        "2026-01-26": 49,
+        "2026-02-02": 47,
+        "2026-02-09": 49,
+        "2026-02-16": 49,
+        "2026-02-23": 49,
+        "2026-03-02": 51,
+        "2026-03-09": 46,
+        "2026-03-16": 49,
+        "2026-03-30": 17,
+        "2026-10-26": 10
+      },
+      "forecastFrom": "2022-08-27T01:07:00.000Z",
+      "forecastUntil": "2026-10-29T02:07:00.000Z"
+    },
+    "after": {
+      "n": 6573,
+      "uniqueIds": 6573,
+      "sortedIdsSha256": "a066565e43babd0f74d5b565700ac91e66f7cc8ebabb3858329f18bab1a51353",
+      "byOutcome": {
+        "homeWin": 2890,
+        "draw": 1650,
+        "awayWin": 2033
+      },
+      "competition": {
+        "Bundesliga": 1132,
+        "La Liga": 1402,
+        "Ligue 1": 1200,
+        "Premier League": 1419,
+        "Serie A": 1420
+      },
+      "season": {
+        "2022/2023": 1671,
+        "2023/2024": 1747,
+        "2024/2025": 1749,
+        "2025/2026": 1396,
+        "2026/2027": 10
+      },
+      "phase": {
+        "development": 6573
+      },
+      "forecastWeeks": {
+        "2022-08-22": 21,
+        "2022-08-29": 75,
+        "2022-09-05": 42,
+        "2022-09-12": 48,
+        "2022-09-26": 46,
+        "2022-10-03": 49,
+        "2022-10-10": 49,
+        "2022-10-17": 67,
+        "2022-10-24": 50,
+        "2022-10-31": 51,
+        "2022-11-07": 69,
+        "2022-12-26": 46,
+        "2023-01-02": 41,
+        "2023-01-09": 50,
+        "2023-01-16": 38,
+        "2023-01-23": 51,
+        "2023-01-30": 59,
+        "2023-02-06": 49,
+        "2023-02-13": 53,
+        "2023-02-20": 44,
+        "2023-02-27": 52,
+        "2023-03-06": 51,
+        "2023-03-13": 50,
+        "2023-03-27": 45,
+        "2023-04-03": 58,
+        "2023-04-10": 47,
+        "2023-04-17": 49,
+        "2023-04-24": 63,
+        "2023-05-01": 62,
+        "2023-05-08": 52,
+        "2023-05-15": 50,
+        "2023-05-22": 64,
+        "2023-05-29": 30,
+        "2023-08-07": 24,
+        "2023-08-14": 45,
+        "2023-08-21": 49,
+        "2023-08-28": 51,
+        "2023-09-11": 44,
+        "2023-09-18": 51,
+        "2023-09-25": 64,
+        "2023-10-02": 53,
+        "2023-10-16": 44,
+        "2023-10-23": 48,
+        "2023-10-30": 47,
+        "2023-11-06": 50,
+        "2023-11-20": 44,
+        "2023-11-27": 51,
+        "2023-12-04": 58,
+        "2023-12-11": 48,
+        "2023-12-18": 50,
+        "2023-12-25": 28,
+        "2024-01-01": 22,
+        "2024-01-08": 38,
+        "2024-01-15": 29,
+        "2024-01-22": 39,
+        "2024-01-29": 60,
+        "2024-02-05": 49,
+        "2024-02-12": 50,
+        "2024-02-19": 46,
+        "2024-02-26": 51,
+        "2024-03-04": 48,
+        "2024-03-11": 45,
+        "2024-03-25": 42,
+        "2024-04-01": 54,
+        "2024-04-08": 41,
+        "2024-04-15": 46,
+        "2024-04-22": 58,
+        "2024-04-29": 45,
+        "2024-05-06": 48,
+        "2024-05-13": 65,
+        "2024-05-20": 21,
+        "2024-05-27": 1,
+        "2024-08-12": 34,
+        "2024-08-19": 51,
+        "2024-08-26": 59,
+        "2024-09-09": 45,
+        "2024-09-16": 52,
+        "2024-09-23": 55,
+        "2024-09-30": 51,
+        "2024-10-14": 45,
+        "2024-10-21": 49,
+        "2024-10-28": 52,
+        "2024-11-04": 52,
+        "2024-11-18": 45,
+        "2024-11-25": 47,
+        "2024-12-02": 58,
+        "2024-12-09": 48,
+        "2024-12-16": 42,
+        "2024-12-23": 26,
+        "2024-12-30": 31,
+        "2025-01-06": 35,
+        "2025-01-13": 69,
+        "2025-01-20": 48,
+        "2025-01-27": 48,
+        "2025-02-03": 40,
+        "2025-02-10": 49,
+        "2025-02-17": 49,
+        "2025-02-24": 49,
+        "2025-03-03": 45,
+        "2025-03-10": 49,
+        "2025-03-24": 36,
+        "2025-03-31": 58,
+        "2025-04-07": 47,
+        "2025-04-14": 46,
+        "2025-04-21": 52,
+        "2025-04-28": 49,
+        "2025-05-05": 49,
+        "2025-05-12": 56,
+        "2025-05-19": 33,
+        "2025-08-11": 26,
+        "2025-08-18": 46,
+        "2025-08-25": 54,
+        "2025-09-08": 45,
+        "2025-09-15": 49,
+        "2025-09-22": 55,
+        "2025-09-29": 51,
+        "2025-10-13": 45,
+        "2025-10-20": 50,
+        "2025-10-27": 64,
+        "2025-11-03": 52,
+        "2025-11-17": 44,
+        "2025-11-24": 50,
+        "2025-12-01": 57,
+        "2025-12-08": 49,
+        "2025-12-15": 36,
+        "2025-12-22": 21,
+        "2025-12-29": 50,
+        "2026-01-05": 42,
+        "2026-01-12": 59,
+        "2026-01-19": 49,
+        "2026-01-26": 49,
+        "2026-02-02": 43,
+        "2026-02-09": 49,
+        "2026-02-16": 49,
+        "2026-02-23": 49,
+        "2026-03-02": 51,
+        "2026-03-09": 46,
+        "2026-03-16": 49,
+        "2026-03-30": 17,
+        "2026-10-26": 10
+      },
+      "forecastFrom": "2022-08-27T01:07:00.000Z",
+      "forecastUntil": "2026-10-29T02:07:00.000Z"
+    },
+    "variants": {
+      "no_ml": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      },
+      "development_current_replica": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      },
+      "intensity_legacy": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      },
+      "intensity_recent_xg": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      },
+      "intensity_schedule": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      },
+      "intensity_full": {
+        "n": 1969,
+        "uniqueIds": 1969,
+        "sortedIdsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11",
+        "byOutcome": {
+          "homeWin": 851,
+          "draw": 489,
+          "awayWin": 629
+        },
+        "competition": {
+          "Bundesliga": 349,
+          "La Liga": 423,
+          "Ligue 1": 340,
+          "Premier League": 424,
+          "Serie A": 433
+        },
+        "season": {
+          "2024/2025": 563,
+          "2025/2026": 1396,
+          "2026/2027": 10
+        },
+        "phase": {
+          "development": 1969
+        },
+        "forecastWeeks": {
+          "2025-02-24": 43,
+          "2025-03-03": 45,
+          "2025-03-10": 49,
+          "2025-03-24": 36,
+          "2025-03-31": 58,
+          "2025-04-07": 47,
+          "2025-04-14": 46,
+          "2025-04-21": 52,
+          "2025-04-28": 49,
+          "2025-05-05": 49,
+          "2025-05-12": 56,
+          "2025-05-19": 33,
+          "2025-08-11": 26,
+          "2025-08-18": 46,
+          "2025-08-25": 54,
+          "2025-09-08": 45,
+          "2025-09-15": 49,
+          "2025-09-22": 55,
+          "2025-09-29": 51,
+          "2025-10-13": 45,
+          "2025-10-20": 50,
+          "2025-10-27": 64,
+          "2025-11-03": 52,
+          "2025-11-17": 44,
+          "2025-11-24": 50,
+          "2025-12-01": 57,
+          "2025-12-08": 49,
+          "2025-12-15": 36,
+          "2025-12-22": 21,
+          "2025-12-29": 50,
+          "2026-01-05": 42,
+          "2026-01-12": 59,
+          "2026-01-19": 49,
+          "2026-01-26": 49,
+          "2026-02-02": 43,
+          "2026-02-09": 49,
+          "2026-02-16": 49,
+          "2026-02-23": 49,
+          "2026-03-02": 51,
+          "2026-03-09": 46,
+          "2026-03-16": 49,
+          "2026-03-30": 17,
+          "2026-10-26": 10
+        },
+        "forecastFrom": "2025-02-26T02:07:00.000Z",
+        "forecastUntil": "2026-10-29T02:07:00.000Z"
+      }
+    }
+  },
+  "c906": {
+    "artifactVersion": "C-906371b0b3a1e2c8",
+    "artifactSha256": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3",
+    "operationalConfigHash": "889ec90673beee4fc6fbe485db6d5263f9c7c2e3c3eb17122e04c2a83374f2dd",
+    "strictN": 0,
+    "reconstructedN": 10,
+    "actualDepth": 5,
+    "replicaDepth": 3,
+    "currentReadOnlyConfirmation": {
+      "capturedAt": "2026-10-31T10:11:12.772Z",
+      "readOnly": true,
+      "model": {
+        "family": "C",
+        "version": "C-906371b0b3a1e2c8",
+        "artifact_hash": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3",
+        "created_at": "2026-10-29T10:39:58.713Z"
+      },
+      "configurationHash": "889ec90673beee4fc6fbe485db6d5263f9c7c2e3c3eb17122e04c2a83374f2dd",
+      "adoptionEvents": 0,
+      "artifactMatchesFrozen": true,
+      "configurationMatchesFrozen": true
+    }
+  },
+  "reproductionHashes": {
+    "rebuilt/matches.json": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+    "rebuilt/nightly-extended-canonical.json": "b9de693888d5ba5f982bd4cd7d38515ec547c306aacd1371f38a7edd021b64e2",
+    "rebuilt/training-canonical/report.json": "410ea101ba8692cc5b2f191c97a08230ccd03155c47a216b824bcfd446102eb6",
+    "rebuilt/comparison-canonical-inputs/variants.json": "24f9d1af3915529eed734a750c236ce7505fe26fb9822bfdca7372469161c53b",
+    "rebuilt/comparison-canonical-inputs/plan.json": "7d8fd401ceb412b0a227e5194d9c3e5e2e0898b69312546305815e66c4c7a137",
+    "rebuilt/comparison-canonical.json": "85abfa907caacb2019a435b9151d9db8bd83376b7bc2474eb815a2c8e9a03cb6",
+    "temporal-rebuilt-policy-and-plan-audit.json": "b42648ab2cb1b4733527c9235ba2cd839eb2c03aff04e7fb748dc56ec7632ece"
+  },
+  "verification": {
+    "protectedFiles": 68,
+    "changedProtectedFiles": [],
+    "operationalARegressions": 7,
+    "targetedNodePass": 91,
+    "pythonPass": 73,
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "composeSynthetic": "PASS",
+    "fullCI": "pending_publication"
+  },
+  "limitations": [
+    "The statistical no-ML comparator is the frozen Research baseline, not the whole operational APP-A engine.",
+    "Nominal Nightly times do not prove actual historical run or source availability.",
+    "AvailableAt is only as reliable as the export; the fixed two-hour proxy is not verified first-publication evidence or a guaranteed upper bound on source latency.",
+    "Sparse or absent fresh real Nightly prices cannot establish ROI, CLV or bookmaker profit.",
+    "The previously exposed 745 final matches cannot be reused for optimization or certification.",
+    "Training exclusion depends on the artifact training manifest; trees alone cannot prove which historical rows were used.",
+    "Independent-period offline replay cannot replace immutable pre-result prospective forecasts."
+  ],
+  "sourceAudit": {
+    "publicFile": "evidence/c-data-audit-2026-10-31/source-evidence.json",
+    "captures": 122,
+    "scriptSha256": "b726b229110d8df236bca68814ea66954e81f9a1c3465b2739cbdac4a34d5e96",
+    "persistedComparedFields": 59880,
+    "persistedDifferingFields": 0,
+    "persistedUnverifiedFields": 8,
+    "persistedUnverifiedMatchIds": [
+      "understat_27930"
+    ]
+  }
+}

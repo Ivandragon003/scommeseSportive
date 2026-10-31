@@ -1,0 +1,506 @@
+{
+  "protocol": "independent-temporal-audit-v1",
+  "auditImplementationHash": "2cce3de1c99aefad2a914f0e75bfdd16dc30099921b34350e7e0174079dbeefc",
+  "sourceFiles": {
+    "backend/src/research/ForecastCore.ts": {
+      "sha256": "dd81fb7bc11de83f4a7e92a47d7d67f8a0b01605236e29fbe8ccea8cadac362c",
+      "unchanged": true
+    },
+    "backend/src/research/ChallengerFeatures.ts": {
+      "sha256": "17de2473cf84b9831955b4b488da65ad052229b1131378c9db7ce107d0713f0c",
+      "unchanged": true
+    },
+    "backend/src/research/ForecastDecisionTime.ts": {
+      "sha256": "5c793aec760c84dda084ec6402fbac2f0f7a8eb89c5e7f343a0afe47a61d1eef",
+      "unchanged": true
+    },
+    "backend/src/research/ChallengerDataQuality.ts": {
+      "sha256": "98f09fc15cf30fb185bbfcd2be0b6838a59870b2d78e81c0747c0e1e0865073b",
+      "unchanged": true
+    },
+    "backend/src/research/challenger-data-quarantine.json": {
+      "sha256": "1350f1fa837196ca57029946fe5b8a1bea5cd90cdbc0e72886a9dc19dc770d7d",
+      "unchanged": true
+    },
+    "backend/ml/train.py": {
+      "sha256": "0120bbb6dccc6f653dc384bf9816401d6e4a3ac89246a9f699be77c28f2d0ed8",
+      "unchanged": true
+    }
+  },
+  "assuranceScope": {
+    "kind": "computational_asof_consistency_only",
+    "assumesSuppliedKickoffTimesCorrect": true,
+    "independentKickoffVerification": false,
+    "actualProviderCaptureVerification": false,
+    "crossSourceScheduleDiscrepanciesCanInvalidatePrematchAxis": true
+  },
+  "files": {
+    "dataset": {
+      "path": "backend/artifacts/research/c-data-audit-20261031/rebuilt/nightly-extended-canonical.json",
+      "sha256": "b9de693888d5ba5f982bd4cd7d38515ec547c306aacd1371f38a7edd021b64e2",
+      "unchanged": true
+    },
+    "report": {
+      "path": "backend/artifacts/research/c-data-audit-20261031/rebuilt/training-canonical/report.json",
+      "sha256": "410ea101ba8692cc5b2f191c97a08230ccd03155c47a216b824bcfd446102eb6",
+      "unchanged": true
+    },
+    "matches": {
+      "path": "backend/artifacts/research/c-data-audit-20261031/rebuilt/matches.json",
+      "sha256": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+      "unchanged": true
+    },
+    "legacyDataset": {
+      "path": "backend/artifacts/research/dataset.json",
+      "sha256": "e6aa69e65ce1fcd7dd0a4fc974e703c78e36300ed98fe943bcfe48e7831d0fe4",
+      "unchanged": true
+    },
+    "legacyReport": {
+      "path": "backend/artifacts/research/run-20261027/report.json",
+      "sha256": "b3d551fefd62aee7e2fe14ef5c373496389f0716870c8af662723139e879feb6",
+      "unchanged": true
+    },
+    "incumbent": {
+      "path": "backend/artifacts/research/c-data-audit-20261031/rebuilt/comparison-canonical-inputs/incumbent.json",
+      "sha256": "005ebf213a7dbe12677b04bc2d2563f3f192f3ed54e7a7913ead0e39993fda9f",
+      "unchanged": true
+    },
+    "variantManifest": {
+      "path": "backend/artifacts/research/c-data-audit-20261031/rebuilt/comparison-canonical-inputs/variants.json",
+      "sha256": "24f9d1af3915529eed734a750c236ce7505fe26fb9822bfdca7372469161c53b",
+      "unchanged": true
+    },
+    "frozenSplitPlan": {
+      "path": "backend/artifacts/research/c-improvement-20261031/training-canonical/report.json",
+      "sha256": "2dfaf4c4859ec2ceaadc33e4e4c3dffefc4a18bdf36e2267933aad41c2c358f3",
+      "unchanged": true
+    }
+  },
+  "datasetRows": 6573,
+  "uniqueTargets": 6573,
+  "sourceMatches": 8834,
+  "sourceCompletedMatches": 7486,
+  "dataQuality": {
+    "mode": "policy_tagged",
+    "policyApplied": true,
+    "currentPolicyHash": "f1e573169084d453ab0b9ab78436bd792bf06808a61f41d72f139154668fac06",
+    "currentPolicyVersion": "challenger-data-quarantine-20261031-v1",
+    "manifestEntries": 22,
+    "action": "quarantine_not_timestamp_correction",
+    "issues": [],
+    "knownQuarantinedTargetsPresent": 0,
+    "knownQuarantinedArchiveRows": 22,
+    "independentExpectedEvidence": {
+      "policyVersion": "challenger-data-quarantine-20261031-v1",
+      "policyHash": "f1e573169084d453ab0b9ab78436bd792bf06808a61f41d72f139154668fac06",
+      "action": "quarantine_not_timestamp_correction",
+      "history": {
+        "inputRows": 8834,
+        "retainedRows": 8812,
+        "excludedRows": 22,
+        "excludedMatchIds": [
+          "understat_19973",
+          "understat_22621",
+          "understat_22676",
+          "understat_22842",
+          "understat_23377",
+          "understat_23378",
+          "understat_27724",
+          "understat_27849",
+          "understat_27866",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724",
+          "understat_29820",
+          "understat_29821",
+          "understat_29822",
+          "understat_29824",
+          "understat_31948",
+          "understat_32010",
+          "understat_32011",
+          "understat_32017"
+        ]
+      },
+      "targets": {
+        "inputRows": 7486,
+        "retainedRows": 7465,
+        "excludedRows": 21,
+        "excludedMatchIds": [
+          "understat_19973",
+          "understat_22621",
+          "understat_22676",
+          "understat_22842",
+          "understat_23377",
+          "understat_23378",
+          "understat_27724",
+          "understat_27849",
+          "understat_27866",
+          "understat_29218",
+          "understat_29720",
+          "understat_29722",
+          "understat_29723",
+          "understat_29724",
+          "understat_29820",
+          "understat_29821",
+          "understat_29822",
+          "understat_29824",
+          "understat_31948",
+          "understat_32010",
+          "understat_32011"
+        ]
+      }
+    }
+  },
+  "baselineHistoryCompletedMatches": 7465,
+  "frozenSplitPlan": {
+    "declared": true,
+    "sourceFileVerified": true,
+    "issues": []
+  },
+  "sourceExplicitAvailableAt": 0,
+  "sourceProxyAvailableAt": 7486,
+  "reportDatasetHashMatches": true,
+  "rowIssueCounts": {},
+  "rowIssuesFirst20": {},
+  "independentFeatureRowsChecked": 6573,
+  "independentExtraFeaturesChecked": 105168,
+  "independentFeatureMismatchRows": 0,
+  "independentFeatureMismatchFirst10": [],
+  "margins": {
+    "forecastLeadHours": {
+      "min": 7.883333333333334,
+      "max": 18.883333333333333
+    },
+    "baselineHistoryLagHours": {
+      "min": 3.033333333333333,
+      "max": 1948.1166666666666
+    }
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "selectedVariant": "development_current_replica",
+      "split": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 3613,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2024-09-19T01:07:00.000Z",
+          "availableThrough": "2024-09-19T19:00:00.000Z",
+          "matchIdsHash": "89eeaf35d06521430ed28d5906b3e2415c47e0cc5d0fb7dbac56dfa9bf620ab1",
+          "observedFrom": "2022-08-27T01:07:00.000Z",
+          "observedTo": "2024-09-19T01:07:00.000Z"
+        },
+        "selection": {
+          "n": 653,
+          "from": "2024-09-20T01:07:00.000Z",
+          "to": "2025-01-10T02:07:00.000Z",
+          "availableThrough": "2025-01-10T22:00:00.000Z",
+          "matchIdsHash": "b1722effe00397a0ecee3f5bca380513475a2e45fd6eacb93a7b4df65fd5631d",
+          "observedFrom": "2024-09-20T01:07:00.000Z",
+          "observedTo": "2025-01-10T02:07:00.000Z"
+        },
+        "calibration": {
+          "n": 338,
+          "from": "2025-01-11T02:07:00.000Z",
+          "to": "2025-02-25T02:07:00.000Z",
+          "availableThrough": "2025-02-25T22:15:00.000Z",
+          "matchIdsHash": "7eafbf870492137c1b0d1d6d9a82417a5551139fe3bd1fddf032868ead17d6f7",
+          "observedFrom": "2025-01-11T02:07:00.000Z",
+          "observedTo": "2025-02-25T02:07:00.000Z"
+        },
+        "test": {
+          "n": 617,
+          "from": "2025-02-26T02:07:00.000Z",
+          "to": "2025-08-23T01:07:00.000Z",
+          "availableThrough": "2025-08-23T21:30:00.000Z",
+          "matchIdsHash": "06203059ad43f51c38b298eebe8ea5d09a25ec58165df09fbdbf0b284a347a5b",
+          "observedFrom": "2025-02-26T02:07:00.000Z",
+          "observedTo": "2025-08-23T01:07:00.000Z"
+        }
+      },
+      "issues": []
+    },
+    {
+      "fold": 1,
+      "selectedVariant": "intensity_full",
+      "split": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 4266,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2025-01-10T02:07:00.000Z",
+          "availableThrough": "2025-01-10T22:00:00.000Z",
+          "matchIdsHash": "ae0eae865ee25a9254702661e9b27abfc7335a6d93a5b5dd19b05a6e93474073",
+          "observedFrom": "2022-08-27T01:07:00.000Z",
+          "observedTo": "2025-01-10T02:07:00.000Z"
+        },
+        "selection": {
+          "n": 664,
+          "from": "2025-01-11T02:07:00.000Z",
+          "to": "2025-04-21T01:07:00.000Z",
+          "availableThrough": "2025-04-21T21:00:00.000Z",
+          "matchIdsHash": "e31a5524241f7a2ed5600da2d6ca9c71832dce99e8dafabfd665b4dcef1719a1",
+          "observedFrom": "2025-01-11T02:07:00.000Z",
+          "observedTo": "2025-04-21T01:07:00.000Z"
+        },
+        "calibration": {
+          "n": 291,
+          "from": "2025-04-22T01:07:00.000Z",
+          "to": "2025-08-23T01:07:00.000Z",
+          "availableThrough": "2025-08-23T21:30:00.000Z",
+          "matchIdsHash": "1ba041c82ceb587a7e2f0902901d3991b727af284199b50744ea6071c1d2ac03",
+          "observedFrom": "2025-04-22T01:07:00.000Z",
+          "observedTo": "2025-08-23T01:07:00.000Z"
+        },
+        "test": {
+          "n": 740,
+          "from": "2025-08-24T01:07:00.000Z",
+          "to": "2025-12-28T02:07:00.000Z",
+          "availableThrough": "2025-12-28T21:45:00.000Z",
+          "matchIdsHash": "49a39f9b0fbd684f7c305e6f6014be0a54fb628ac2211d78a5fdf07d9917ef93",
+          "observedFrom": "2025-08-24T01:07:00.000Z",
+          "observedTo": "2025-12-28T02:07:00.000Z"
+        }
+      },
+      "issues": []
+    },
+    {
+      "fold": 2,
+      "selectedVariant": "development_current_replica",
+      "split": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 4930,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2025-04-21T01:07:00.000Z",
+          "availableThrough": "2025-04-21T21:00:00.000Z",
+          "matchIdsHash": "94ab2b8f9870a2b5ec00bab7ec99f495b9b6db694828a6dc3209ff4a6b94f500",
+          "observedFrom": "2022-08-27T01:07:00.000Z",
+          "observedTo": "2025-04-21T01:07:00.000Z"
+        },
+        "selection": {
+          "n": 676,
+          "from": "2025-04-22T01:07:00.000Z",
+          "to": "2025-10-29T02:07:00.000Z",
+          "availableThrough": "2025-10-29T21:05:00.000Z",
+          "matchIdsHash": "4e37745c35a1ecfe72e57f899df5290202968ce39df8930fb93e1293d8907156",
+          "observedFrom": "2025-04-22T01:07:00.000Z",
+          "observedTo": "2025-10-29T02:07:00.000Z"
+        },
+        "calibration": {
+          "n": 355,
+          "from": "2025-10-30T02:07:00.000Z",
+          "to": "2025-12-28T02:07:00.000Z",
+          "availableThrough": "2025-12-28T21:45:00.000Z",
+          "matchIdsHash": "99c78f85cbe8760f21431ac241920b8ec8f9b4af1c31f91265522702377d54e6",
+          "observedFrom": "2025-10-30T02:07:00.000Z",
+          "observedTo": "2025-12-28T02:07:00.000Z"
+        },
+        "test": {
+          "n": 612,
+          "from": "2025-12-29T02:07:00.000Z",
+          "to": "2026-10-29T02:07:00.000Z",
+          "availableThrough": "2026-10-29T21:45:00.000Z",
+          "matchIdsHash": "b707d17ff89e280ec47d1fab3bd1e5385a549861a76ee38510663dd97f12741e",
+          "observedFrom": "2025-12-29T02:07:00.000Z",
+          "observedTo": "2026-10-29T02:07:00.000Z"
+        }
+      },
+      "issues": []
+    }
+  ],
+  "crossFoldOverlap": [
+    {
+      "fromFold": 0,
+      "toFold": 1,
+      "testToTest": 0,
+      "earlierTestToLaterTrain": 0,
+      "earlierTestToLaterSelection": 326,
+      "earlierTestToLaterCalibration": 291
+    },
+    {
+      "fromFold": 0,
+      "toFold": 2,
+      "testToTest": 0,
+      "earlierTestToLaterTrain": 326,
+      "earlierTestToLaterSelection": 291,
+      "earlierTestToLaterCalibration": 0
+    },
+    {
+      "fromFold": 1,
+      "toFold": 2,
+      "testToTest": 0,
+      "earlierTestToLaterTrain": 0,
+      "earlierTestToLaterSelection": 385,
+      "earlierTestToLaterCalibration": 355
+    }
+  ],
+  "testTargets": 1969,
+  "uniqueTestTargets": 1969,
+  "reportTestPredictionRows": 1969,
+  "reportTestTargetsMatchReconstructedSplits": true,
+  "artifactsChecked": 36,
+  "artifactIssueCount": 0,
+  "artifactIssuesFirst20": [],
+  "incumbentC906": {
+    "version": "C-906371b0b3a1e2c8",
+    "parentVersion": "C-13e4fc04b804facc",
+    "kind": "calibrated_ensemble",
+    "createdAt": "2026-10-27T09:05:06.479970Z",
+    "trainedThrough": "2025-10-18T18:30:00.000Z",
+    "validationThrough": "2026-04-04T18:30:00.000Z",
+    "calibrationRows": 335,
+    "calibrationLabelsAfterValidation": 0,
+    "calibrationRowsInOriginalFinal": 0,
+    "originalFinalCount": 745,
+    "originalProtectedSetMatchesExactly": true,
+    "canonicalRowsBeforeOrAtIncumbentValidation": 6563,
+    "canonicalRowsBeforeIncumbentCreation": 6566,
+    "canonicalRowsAfterCreationAndValidation": 7,
+    "recordedIncumbentAvailabilityFrom": "2026-10-29T10:40:00.219Z",
+    "canonicalRowsAfterRecordedIncumbentAvailability": 0,
+    "oldDatasetHashMatchesReport": true,
+    "oldSplitAudits": [
+      {
+        "fold": 0,
+        "version": "C-de736904bfa230af",
+        "split": {
+          "train": {
+            "n": 4075,
+            "from": "2022-08-27T11:15:00.000Z",
+            "to": "2024-12-04T20:00:00.000Z",
+            "availableThrough": "2024-12-04T22:15:00.000Z",
+            "matchIdsHash": "961e42dfdbef63b72ed7c9af548796979cffefc44680549833077de660a78971"
+          },
+          "selection": {
+            "n": 688,
+            "from": "2024-12-05T20:00:00.000Z",
+            "to": "2025-03-29T16:45:00.000Z",
+            "availableThrough": "2025-03-29T19:00:00.000Z",
+            "matchIdsHash": "0a73d74ee63c61e9d12ffc83f5d593887c4915ecf5f212e6a1cf85b9c69561bd"
+          },
+          "calibration": {
+            "n": 387,
+            "from": "2025-03-29T19:30:00.000Z",
+            "to": "2025-05-24T16:15:00.000Z",
+            "availableThrough": "2025-05-24T18:30:00.000Z",
+            "matchIdsHash": "98ff115f13d8054bb8c70b7a69b72c301d673f6ce33be88077a97123d87c0833"
+          },
+          "test": {
+            "n": 739,
+            "from": "2025-05-24T18:45:00.000Z",
+            "to": "2025-12-13T19:50:00.000Z",
+            "availableThrough": "2025-12-13T22:05:00.000Z",
+            "matchIdsHash": "1e8563cf7528e005c5af977defe644224b2dea5d47182aec4c1296dae6a9900d"
+          }
+        },
+        "countsMatchReport": true,
+        "calibrationIdsMatchReport": true,
+        "labelsAvailableBeforeNextSplit": true,
+        "trainingCutoffMatchesReport": true,
+        "validationCutoffMatchesReport": true
+      },
+      {
+        "fold": 1,
+        "version": "C-e11cfacff967e059",
+        "split": {
+          "train": {
+            "n": 4766,
+            "from": "2022-08-27T11:15:00.000Z",
+            "to": "2025-03-29T17:15:00.000Z",
+            "availableThrough": "2025-03-29T19:30:00.000Z",
+            "matchIdsHash": "3aada76e2554fed2921b644b16938729b52a82129fc2dd6445d5967e4eb25c7f"
+          },
+          "selection": {
+            "n": 756,
+            "from": "2025-03-29T19:45:00.000Z",
+            "to": "2025-10-18T15:45:00.000Z",
+            "availableThrough": "2025-10-18T18:00:00.000Z",
+            "matchIdsHash": "97e30952931b13cfae5bc1f31d03cbe9f1696397bb29c81bb6d0558f76f97a20"
+          },
+          "calibration": {
+            "n": 366,
+            "from": "2025-10-18T18:30:00.000Z",
+            "to": "2025-12-13T19:50:00.000Z",
+            "availableThrough": "2025-12-13T22:05:00.000Z",
+            "matchIdsHash": "7095b881b8e3979c348457c29267b1de76a7c57a939333bcc4c8a79477c9b8e8"
+          },
+          "test": {
+            "n": 684,
+            "from": "2025-12-14T11:15:00.000Z",
+            "to": "2026-04-04T18:30:00.000Z",
+            "availableThrough": "2026-04-04T20:45:00.000Z",
+            "matchIdsHash": "e97f9e7750b504c1040c6acb7bd4ce7722e89cf733d27fef8948a0639ee04e59"
+          }
+        },
+        "countsMatchReport": true,
+        "calibrationIdsMatchReport": true,
+        "labelsAvailableBeforeNextSplit": true,
+        "trainingCutoffMatchesReport": true,
+        "validationCutoffMatchesReport": true
+      },
+      {
+        "fold": 2,
+        "version": "C-13e4fc04b804facc",
+        "split": {
+          "train": {
+            "n": 5527,
+            "from": "2022-08-27T11:15:00.000Z",
+            "to": "2025-10-18T16:15:00.000Z",
+            "availableThrough": "2025-10-18T18:30:00.000Z",
+            "matchIdsHash": "17cffef93afaf02fe3812e48112568d897a9ee38e0861f108ba078d22dc4adb3"
+          },
+          "selection": {
+            "n": 706,
+            "from": "2025-10-18T18:45:00.000Z",
+            "to": "2026-02-07T14:15:00.000Z",
+            "availableThrough": "2026-02-07T16:30:00.000Z",
+            "matchIdsHash": "165ca67b8e2bfe76f071d17addf644ae0daa955385ac959fb66acb94bf511b3c"
+          },
+          "calibration": {
+            "n": 335,
+            "from": "2026-02-07T16:45:00.000Z",
+            "to": "2026-04-04T16:15:00.000Z",
+            "availableThrough": "2026-04-04T18:30:00.000Z",
+            "matchIdsHash": "ecb333cca3bb555d3ac02e91efac43dc57d5d2abf2b37c2260e365fa15b15d38"
+          },
+          "test": {
+            "n": 745,
+            "from": "2026-04-04T18:45:00.000Z",
+            "to": "2026-10-26T19:45:00.000Z",
+            "availableThrough": "2026-10-26T22:00:00.000Z",
+            "matchIdsHash": "2c23a0b708067bae3b0e1096e4b85b36d6e9ea0b76406b0f0ad410c81eb20267"
+          }
+        },
+        "countsMatchReport": true,
+        "calibrationIdsMatchReport": true,
+        "labelsAvailableBeforeNextSplit": true,
+        "trainingCutoffMatchesReport": true,
+        "validationCutoffMatchesReport": true
+      }
+    ],
+    "originalFinal": {
+      "version": "C-13e4fc04b804facc",
+      "trainN": 5527,
+      "validationN": 706,
+      "calibrationN": 335,
+      "testN": 745,
+      "trainedThrough": "2025-10-18T18:30:00.000Z",
+      "validationThrough": "2026-04-04T18:30:00.000Z",
+      "testFrom": "2026-04-04T18:45:00.000Z",
+      "testTo": "2026-10-26T19:45:00.000Z"
+    }
+  },
+  "interpretation": [
+    "Cross-fold prior-test reuse in a later train/selection/calibration window is chronological expanding walk-forward, not future data in that earlier forecast.",
+    "These reused development folds are not a new globally untouched independent holdout.",
+    "Source availableAt and xG capture timestamps are unobserved: kickoff+2h is a declared historical proxy, not proof of actual acquisition.",
+    "Dataset/archive timestamp agreement does not verify the real fixture schedule. A cross-source kickoff discrepancy can invalidate a pre-match forecast even when computational checks pass.",
+    "C906's validation cutoff is not its actual creation time; availability requires both chronology and observed creation/registration evidence.",
+    "No A code, application configuration, database or final report was modified."
+  ],
+  "passed": true
+}

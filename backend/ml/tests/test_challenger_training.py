@@ -1,6 +1,7 @@
 """Synthetic unit fixtures only; they are never evidence of football performance."""
 import importlib.util
 import json
+from copy import deepcopy
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -38,7 +39,121 @@ def dataset():
         "asOf": "2024-01-01T00:00:00Z", "rows": rows}
 
 
+def frozen_plan(rows, folds=2):
+    return {"datasetHash": "a" * 64, "folds": [{"fold": index,
+        "trainingSplit": trainer.split_manifest(train, selection, calibration, test)}
+        for index, train, selection, calibration, test in trainer.chronological_folds(rows, folds)]}
+
+
+def quality_dataset():
+    value = dataset()
+    policy = trainer.challenger_data_quality_policy()
+    digest = trainer.json_stringify_hash(policy)
+    population = {"inputRows": len(value["rows"]), "retainedRows": len(value["rows"]),
+                  "excludedRows": 0, "excludedMatchIds": []}
+    value.update({"dataQualityPolicy": policy, "dataQualityPolicyHash": digest, "dataQualityBaselineClean": True,
+        "dataQualityEvidence": {"policyVersion": policy["version"], "policyHash": digest,
+            "action": "quarantine_not_timestamp_correction", "history": deepcopy(population), "targets": deepcopy(population)}})
+    for row in value["rows"]:
+        row.update({"dataQualityPolicyHash": digest, "dataQualityBaselineClean": True})
+    return value
+
+
 class ChallengerTrainingTests(unittest.TestCase):
+    def test_frozen_windows_preserve_dates_and_original_cohorts_after_removals(self):
+        rows = dataset()["rows"]
+        plan = frozen_plan(rows)
+        original = list(trainer.fixed_window_folds(rows, plan))
+        removed = {original[0][1][0]["matchId"], original[0][2][0]["matchId"], original[0][4][0]["matchId"]}
+        remaining = [row for row in rows if row["matchId"] not in removed]
+        corrected = list(trainer.fixed_window_folds(remaining, plan))
+        self.assertEqual(len(corrected), len(original))
+        for before, after, declared in zip(original, corrected, plan["folds"]):
+            self.assertEqual(before[0], after[0])
+            manifest = trainer.frozen_split_manifest(after[1:], declared["trainingSplit"])
+            for name, old_rows, new_rows in zip(("train", "selection", "calibration", "test"), before[1:], after[1:]):
+                self.assertEqual({row["matchId"] for row in new_rows}, {row["matchId"] for row in old_rows} - removed)
+                self.assertEqual(manifest[name]["from"], declared["trainingSplit"][name]["from"])
+                self.assertEqual(manifest[name]["to"], declared["trainingSplit"][name]["to"])
+                self.assertEqual(manifest[name]["n"], len(new_rows))
+                if len(new_rows) != len(old_rows):
+                    self.assertNotEqual(manifest[name]["matchIdsHash"], declared["trainingSplit"][name]["matchIdsHash"])
+
+    def test_frozen_windows_purge_labels_at_each_original_next_boundary(self):
+        rows = dataset()["rows"]
+        plan = frozen_plan(rows, 1)
+        original = list(trainer.fixed_window_folds(rows, plan))[0]
+        delayed_ids = set()
+        for index, following in enumerate(("selection", "calibration", "test"), 1):
+            changed = original[index][0]
+            changed["availableAt"] = plan["folds"][0]["trainingSplit"][following]["from"]
+            delayed_ids.add(changed["matchId"])
+        after = list(trainer.fixed_window_folds(rows, plan))[0]
+        self.assertFalse(delayed_ids & {row["matchId"] for group in after[1:] for row in group})
+        trainer.frozen_split_manifest(after[1:], plan["folds"][0]["trainingSplit"])
+
+    def test_invalid_frozen_boundaries_and_overlapping_test_windows_fail_closed(self):
+        rows = dataset()["rows"]
+        valid = frozen_plan(rows)
+        for patch in ("overlap_parts", "leaky_labels", "no_timezone", "reverse", "duplicate_fold", "overlap_tests", "non_object"):
+            plan = deepcopy(valid)
+            first = plan["folds"][0]["trainingSplit"]
+            if patch == "overlap_parts": first["train"]["to"] = first["selection"]["from"]
+            elif patch == "leaky_labels": first["selection"]["availableThrough"] = first["calibration"]["from"]
+            elif patch == "no_timezone": first["test"]["from"] = "2023-04-15T02:07:00"
+            elif patch == "reverse": first["test"]["from"] = "2030-01-01T00:00:00Z"
+            elif patch == "duplicate_fold": plan["folds"][1]["fold"] = plan["folds"][0]["fold"]
+            elif patch == "overlap_tests":
+                plan["folds"][1] = deepcopy(plan["folds"][0]); plan["folds"][1]["fold"] = 1
+            else: plan["folds"][0] = None
+            with self.subTest(patch=patch), self.assertRaisesRegex(ValueError, "frozen_split|frozen_test"):
+                trainer.checked_split_plan(plan)
+
+    def test_quality_policy_requires_trusted_manifest_and_all_clean_row_tags(self):
+        value = quality_dataset()
+        trainer.checked_dataset(value, controlled=True)
+        checked = trainer.checked_data_quality(value)
+        self.assertEqual(checked["policyHash"], value["dataQualityPolicyHash"])
+        self.assertTrue(checked["baselineClean"])
+        for change in ("mixed", "untagged", "unclean", "forged_policy", "quarantined_target", "missing_evidence", "orphan_rows"):
+            changed = deepcopy(value)
+            if change == "mixed": changed["rows"][0]["dataQualityPolicyHash"] = "b" * 64
+            elif change == "untagged": del changed["rows"][0]["dataQualityPolicyHash"]
+            elif change == "unclean": changed["rows"][0]["dataQualityBaselineClean"] = False
+            elif change == "forged_policy":
+                changed["dataQualityPolicy"]["entries"] = []
+                changed["dataQualityPolicyHash"] = trainer.json_stringify_hash(changed["dataQualityPolicy"])
+            elif change == "quarantined_target": changed["rows"][0]["matchId"] = value["dataQualityPolicy"]["entries"][0]["matchId"]
+            elif change == "missing_evidence": del changed["dataQualityEvidence"]
+            else:
+                for key in ("dataQualityPolicyHash", "dataQualityPolicy", "dataQualityEvidence", "dataQualityBaselineClean"): del changed[key]
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "data_quality|quarantined"):
+                trainer.checked_dataset(changed, controlled=True)
+
+    def test_frozen_plan_and_quality_provenance_reach_every_controlled_artifact(self):
+        value = quality_dataset()
+        plan = frozen_plan(value["rows"], 1)
+        removed = plan["folds"][0]["trainingSplit"]["test"]["from"]
+        value["rows"] = [row for row in value["rows"] if row["forecastAt"] != removed]
+        with tempfile.TemporaryDirectory(prefix="challenger-fixed-split-unit-") as directory:
+            root = Path(directory)
+            (root / "dataset.json").write_text(json.dumps(value), encoding="utf-8")
+            (root / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+            trainer.run_controlled(SimpleNamespace(input=str(root / "dataset.json"), output=str(root / "output"),
+                iterations=5, depth=2, folds=1, split_plan=str(root / "plan.json")))
+            report = json.loads((root / "output/report.json").read_text(encoding="utf-8"))
+            self.assertFalse(report["splitPlan"]["quantilesRecomputed"])
+            self.assertEqual(report["dataQuality"]["policyHash"], value["dataQualityPolicyHash"])
+            for arm in trainer.CONTROLLED_ARMS:
+                artifact = json.loads((root / "output" / f"artifact-{arm['name']}.json").read_text(encoding="utf-8"))
+                self.assertEqual(artifact["dataQualityPolicyHash"], value["dataQualityPolicyHash"])
+                self.assertTrue(artifact["dataQualityBaselineClean"])
+                self.assertEqual(artifact["splitPlanHash"], report["splitPlan"]["fileHash"])
+                self.assertEqual(artifact["trainingSplit"]["test"]["from"], removed)
+                self.assertNotEqual(artifact["trainingSplit"]["test"]["observedFrom"], removed)
+                self.assertEqual(artifact["frozenTrainingSplit"], plan["folds"][0]["trainingSplit"])
+                self.assertEqual(artifact["trainingSplit"]["test"]["n"], plan["folds"][0]["trainingSplit"]["test"]["n"] - 1)
+
     def test_protected_targets_excluded_before_any_split(self):
         value = dataset()
         protected = trainer.protected_holdout_policy()["protectedOriginalFinalMatchIds"][0]

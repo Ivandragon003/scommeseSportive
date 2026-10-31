@@ -433,3 +433,34 @@ test('the opted-in C builder consumes actual forecast quality and rejects future
   assert.equal(refused.abstentionReason, 'future_challenger_quality_evidence');
   assert.deepEqual(buildChallengerRecommendation({ ...input, decision: future }), buildChallengerRecommendation(input));
 });
+
+test('C data-quality provenance is retained without changing the exact A packet or its execution advice', async () => {
+  const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = require('../dist/research/ChallengerDataQuality');
+  const evidence = { history: { inputRows: 45, retainedRows: 44, excludedRows: 1, excludedMatchIds: ['understat_22621'] } };
+  const legacy = fixture(), clean = fixture({ challenger: challenger({ dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH,
+    dataQualityBaselineClean: true, dataQualityEvidence: evidence }) });
+  const before = JSON.stringify(clean.packet); Object.freeze(clean.packet);
+  const oldResult = await legacy.runtime.prepare(legacy.job), newResult = await clean.runtime.prepare(clean.job);
+  assert.equal(newResult.inputSnapshot.forecasts.A, clean.packet); assert.equal(JSON.stringify(clean.packet), before);
+  assert.deepEqual(newResult.decisions[0], oldResult.decisions[0]);
+  assert.deepEqual(clean.calls.predict, legacy.calls.predict);
+  assert.equal(newResult.decisions[1].action, 'BET');
+  assert.equal(newResult.decisions[1].dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
+  assert.deepEqual(newResult.inputSnapshot.forecasts.C.recommendation.dataQuality,
+    { policyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, baselineClean: true, evidence });
+  assert.equal(oldResult.inputSnapshot.forecasts.C.recommendation.dataQuality, undefined);
+});
+
+test('incompatible or unclean quality-tagged C fails closed while A retains its original recommendation', async () => {
+  const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = require('../dist/research/ChallengerDataQuality');
+  for (const [metadata, reason] of [
+    [{ dataQualityPolicyHash: '0'.repeat(64), dataQualityBaselineClean: true }, 'challenger_data_quality_policy_mismatch'],
+    [{ dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: false }, 'challenger_data_quality_baseline_not_clean'],
+  ]) {
+    const f = fixture({ challenger: challenger(metadata) }), before = JSON.stringify(f.packet);
+    const result = await f.runtime.prepare(f.job);
+    assert.equal(result.inputSnapshot.forecasts.A, f.packet); assert.equal(JSON.stringify(f.packet), before);
+    assert.equal(result.decisions[0].action, 'BET'); assert.equal(result.decisions[1].action, 'ABSTAIN');
+    assert.equal(result.decisions[1].reason, reason); assert.equal(result.inputSnapshot.forecasts.C.recommendation, null);
+  }
+});

@@ -1,5 +1,12 @@
 # System design di FootPredictor
 
+**Audit dei dati C.** Il [controllo del 31 ottobre](performance/c-data-benchmark-audit-2026-10-31.md)
+ha dimostrato errori di calendario nel vecchio benchmark. Un manifesto C
+versionato isola 22 record; soltanto i nuovi artefatti con policy dichiarata
+e baseline ricostruita usano questa storia filtrata. A operativo e il default
+C906 conservano i percorsi precedenti. La qualità dei dati è parte del dossier
+candidato e non viene dedotta dal solo accordo con Understat.
+
 **Aggiornamento C del 31 ottobre 2026.** Il percorso candidato usa input
 Nightly, feature versionate e un selettore C autonomo per i payout completi.
 C906 legacy resta il default; un registro append-only separato raccoglie

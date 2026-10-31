@@ -8,11 +8,16 @@ e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 all'orario Nightly, con feature C versionate e un selettore candidato che
 gestisce rimborsi e mezzi esiti. A operativo conserva i propri sorgenti e
 output di regressione. C906 resta attivo: i risultati di sviluppo non
-dimostrano un miglioramento robusto. La candidata `C-63f359b9e5cd3d89` è
-preregistrata per raccogliere nuove prove, senza giocate aggiuntive;
-il ciclo settimanale è abilitato, l'adozione richiede 500 forecast futuri
-indipendenti secondo il protocollo congelato.
+dimostrano un miglioramento robusto. Il ciclo settimanale è abilitato;
+l'adozione richiede 500 forecast futuri indipendenti secondo il protocollo
+congelato. L'audit successivo ha isolato 22 record con conflitti di calendario,
+orientamento o risultato: il nuovo percorso C ricostruisce lo storico filtrato.
+La precedente candidata `C-63f359b9e5cd3d89` resta nello storico ma non soddisfa
+la nuova policy di qualità e non è ammissibile a raccolta o adozione.
 [Risultati, verifiche e riproducibilità](docs/performance/c-hybrid-improvements-2026-10-31.md).
+[Audit dei dati e benchmark ricostruito](docs/performance/c-data-benchmark-audit-2026-10-31.md):
+i vecchi 1.975 casi comprendevano cinque forecast post-evento; i conti sono
+riproducibili, ma quel campione non è una prova pre-match valida.
 
 **Correzione A/C pubblicata su GitHub — rilascio web ancora da attestare.**
 La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,

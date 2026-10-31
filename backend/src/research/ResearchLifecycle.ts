@@ -1,5 +1,6 @@
 import { FEATURE_NAMES, FEATURE_SCHEMA_VERSION, baselineManifest } from './ForecastCore';
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
+import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
 import { scoreMatrixMarkets } from './GoalSettlement';
 import { EvaluationRow, evaluateResearchBenchmark } from './ResearchEvaluation';
 import { applyResearchProbabilityPipeline, fitResearchCalibration, goalCalibrationObservation, ResearchCalibrationProfile } from './ResearchProbabilityPipeline';
@@ -304,7 +305,7 @@ export async function registerLifecycleCandidate(db: LifecycleDatabase, input: {
 
 /** Weekly development output only preregisters C; retrospective metrics cannot adopt it. */
 export async function registerControlledChallengerCandidate(db: LifecycleDatabase & { challengerAdoption: ChallengerAdoptionStore }, input: {
-  artifact: HybridArtifact; datasetHash: string; datasetRows: Array<{ matchId: string }>;
+  artifact: HybridArtifact; datasetHash: string; datasetRows: Array<{ matchId: string; dataQualityPolicyHash?: string; dataQualityBaselineClean?: boolean }>;
   selectorPolicy: ChallengerSelectorPolicy; now?: Date;
 }) {
   const started = input.now ?? new Date(), artifact = input.artifact;
@@ -321,6 +322,9 @@ export async function registerControlledChallengerCandidate(db: LifecycleDatabas
   if (!Array.isArray(input.datasetRows) || !input.datasetRows.length || input.datasetRows.some((row) => !row.matchId || protectedIds.has(row.matchId))) {
     throw new Error('protected_holdout_cannot_train_candidate');
   }
+  if (artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH || artifact.dataQualityBaselineClean !== true
+    || input.datasetRows.some((row) => row.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+      || row.dataQualityBaselineClean !== true)) throw new Error('challenger_audited_dataset_required');
   await db.research.saveModel({ family: 'C', version: artifact.version, artifact });
   const dossier = await db.challengerAdoption.registerCandidate({ modelVersion: artifact.version, selectorPolicy: input.selectorPolicy,
     trainingEvidence: { datasetHash: input.datasetHash, matchIds: input.datasetRows.map((row) => row.matchId) } });

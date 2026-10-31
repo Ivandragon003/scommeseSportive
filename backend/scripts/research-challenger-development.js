@@ -77,7 +77,11 @@ function main(argv = process.argv.slice(2)) {
   const report = evaluateChallengerDevelopment({ rows: dataset.rows, variants, plan, quotesByMatch: loadQuotes(options.quotes),
     provenance: { datasetFileHash: hash(options.dataset), variantManifestFileHash: hash(options.variants),
       planFileHash: hash(options.plan), quotesFileHash: options.quotes ? hash(options.quotes) : null,
-      datasetReproduction: dataset.reproduction ?? null, commands: [invocation] } });
+      datasetReproduction: dataset.reproduction ?? null, datasetAvailabilityEvidence: dataset.availabilityEvidence ?? null,
+      datasetForecastTiming: dataset.forecastTiming ?? null, datasetDevelopmentOnly: dataset.developmentOnly ?? null,
+      datasetDataQualityPolicyHash: dataset.dataQualityPolicyHash ?? null,
+      datasetDataQualityEvidence: dataset.dataQualityEvidence ?? null,
+      commands: [invocation] } });
   save(options.out, report);
   save(options.markdown, challengerDevelopmentMarkdown(report, [invocation]));
   return { action: 'local_challenger_development', records: report.coverage.inputMatches, phases: report.coverage.phases,

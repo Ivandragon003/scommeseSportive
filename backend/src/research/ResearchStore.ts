@@ -60,6 +60,19 @@ async function first(db: Executor, sql: string, args: any[] = []): Promise<any> 
   return (await rows(db, sql, args))[0] ?? null;
 }
 
+/** Conflicting recorded kickoff times are not proof of which source is correct. */
+function challengerProspectiveTimingReason(observation: { kickoffAt: unknown; observedAt: unknown; frozenAt: unknown },
+  recordedKickoffs: unknown[]): string | null {
+  const time = (value: unknown): number => typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value)
+    ? Date.parse(value) : NaN;
+  const kickoff = time(observation.kickoffAt), observed = time(observation.observedAt), frozen = time(observation.frozenAt);
+  const official = recordedKickoffs.map(time);
+  if (![kickoff, observed, frozen, ...official].every(Number.isFinite) || observed > frozen) return 'c_prospective_timestamp_invalid';
+  if (official.some((value) => value !== kickoff)) return 'c_prospective_kickoff_conflict';
+  if (observed >= kickoff || frozen >= kickoff) return 'c_prospective_not_before_recorded_kickoff';
+  return null;
+}
+
 /** Research uses separate tables and integer cents; legacy balances are never read or written. */
 export class ResearchStore {
   private guards: Promise<void> | undefined;
@@ -1028,6 +1041,7 @@ export class ResearchStore {
     if (!await this.hasProspectiveSchema()) return [];
     return rows(this.client, `SELECT o.* FROM research_prospective_observations o
       LEFT JOIN research_prospective_results r ON r.observation_id=o.id WHERE r.observation_id IS NULL
+      AND (o.family<>'C' OR NOT EXISTS (SELECT 1 FROM research_prospective_invalidations v WHERE v.observation_id=o.id))
       ORDER BY o.kickoff_at,o.match_id,o.family,o.market,o.bucket`);
   }
 
@@ -1045,6 +1059,13 @@ export class ResearchStore {
       if (!observation) throw new Error('Prospective observation not found');
       const observedAvailableAt = iso(this.clock());
       const kickoffAt = evidence?.resultKickoffAt ?? observation.kickoffAt;
+      if (observation.family === 'C') {
+        const conflict = challengerProspectiveTimingReason(observation, [kickoffAt]);
+        if (conflict) throw new Error(conflict);
+        if (await first(tx, 'SELECT observation_id FROM research_prospective_invalidations WHERE observation_id=?', [id])) {
+          throw new Error('c_prospective_evidence_quarantined');
+        }
+      }
       if (!evidence || !Number.isInteger(evidence.homeGoals) || !Number.isInteger(evidence.awayGoals)
         || evidence.homeGoals < 0 || evidence.awayGoals < 0 || !String(evidence.source ?? '').trim()
         || Date.parse(observedAvailableAt) < Date.parse(observation.kickoffAt)
@@ -1052,6 +1073,10 @@ export class ResearchStore {
       const fixtureTable = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
       if (fixtureTable) {
         const match = await first(tx, 'SELECT date,home_goals,away_goals,source FROM matches WHERE match_id=?', [observation.matchId]);
+        if (observation.family === 'C' && match) {
+          const conflict = challengerProspectiveTimingReason(observation, [kickoffAt, match.date]);
+          if (conflict) throw new Error(conflict);
+        }
         if (!match || match.homeGoals !== evidence.homeGoals || match.awayGoals !== evidence.awayGoals
           || Date.parse(match.date) !== Date.parse(kickoffAt) || (match.source && match.source !== evidence.source)) {
           throw new Error('Official prospective result does not match the stored fixture');
@@ -1100,25 +1125,31 @@ export class ResearchStore {
     }
     return this.write(async (tx) => {
       const detectedAt = iso(this.clock());
-      const records = await rows(tx, `SELECT r.observation_id,r.evidence_json,r.available_at,
+      const records = await rows(tx, `SELECT o.id AS observation_id,o.family,o.kickoff_at AS frozen_kickoff_at,o.observed_at,o.frozen_at,
+        r.evidence_json,r.available_at,
         m.date AS current_kickoff_at,m.home_goals AS current_home_goals,m.away_goals AS current_away_goals
-        FROM research_prospective_results r JOIN research_prospective_observations o ON o.id=r.observation_id
+        FROM research_prospective_observations o LEFT JOIN research_prospective_results r ON r.observation_id=o.id
         JOIN matches m ON m.match_id=o.match_id
-        LEFT JOIN research_prospective_invalidations v ON v.observation_id=r.observation_id
-        WHERE v.observation_id IS NULL AND r.available_at<=?`, [detectedAt]);
-      let invalidated = 0;
+        LEFT JOIN research_prospective_invalidations v ON v.observation_id=o.id
+        WHERE v.observation_id IS NULL AND (r.available_at<=? OR (o.family='C' AND r.observation_id IS NULL))`, [detectedAt]);
+      let checked = 0, invalidated = 0;
       for (const row of records) {
         const official = row.evidence;
+        const conflict = row.family === 'C' ? challengerProspectiveTimingReason({ kickoffAt: row.frozenKickoffAt,
+          observedAt: row.observedAt, frozenAt: row.frozenAt },
+        [row.currentKickoffAt, ...(official ? [official.resultKickoffAt] : [])]) : null;
+        // Pending C with no conflict is not a result label checked by reconciliation.
+        if (official || conflict) checked++;
         const complete = Number.isInteger(row.currentHomeGoals) && Number.isInteger(row.currentAwayGoals);
-        const kickoffChanged = Number.isFinite(Date.parse(row.currentKickoffAt))
+        const kickoffChanged = official && Number.isFinite(Date.parse(row.currentKickoffAt))
           && Date.parse(row.currentKickoffAt) !== Date.parse(official.resultKickoffAt);
-        const scoreChanged = complete && (row.currentHomeGoals !== official.homeGoals || row.currentAwayGoals !== official.awayGoals);
-        if (!kickoffChanged && !scoreChanged) continue;
+        const scoreChanged = official && complete && (row.currentHomeGoals !== official.homeGoals || row.currentAwayGoals !== official.awayGoals);
+        if (!conflict && !kickoffChanged && !scoreChanged) continue;
         await tx.execute({ sql: `INSERT OR IGNORE INTO research_prospective_invalidations(observation_id,detected_at,reason)
-          VALUES (?,?,?)`, args: [row.observationId, detectedAt, scoreChanged ? 'official_result_corrected' : 'official_kickoff_changed'] });
+          VALUES (?,?,?)`, args: [row.observationId, detectedAt, conflict ?? (scoreChanged ? 'official_result_corrected' : 'official_kickoff_changed')] });
         invalidated++;
       }
-      return { checked: records.length, invalidated };
+      return { checked, invalidated };
     });
   }
 

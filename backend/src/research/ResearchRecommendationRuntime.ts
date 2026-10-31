@@ -13,6 +13,7 @@ import type { RecommendationJob, RecommendationCommit, RecommendationDecision } 
 import { recommendationQuoteReason,
   VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState } from './ResearchRecommendationPolicy';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
+import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
 
 type ResearchPreparation = Pick<ResearchRuntime, 'prepareNightly' | 'beginNightlyCohort' | 'getQuotaStatus'>
   & Partial<Pick<ResearchRuntime, 'pinChallengerDeployment'>>;
@@ -145,16 +146,25 @@ export class ResearchRecommendationRuntime {
     }
     if (!decisions.length) decisions.push(abstain('A', modelA?.version ?? 'APP-A-unavailable', appFailure ?? 'app_no_recommendation'));
     const decisionC = prepared?.decisions.find((decision) => decision.family === 'C');
+    const qualityHash = decisionC?.dataQualityPolicyHash;
+    const dataQualityFailure = qualityHash === undefined ? null : qualityHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+      ? 'challenger_data_quality_policy_mismatch' : decisionC?.dataQualityBaselineClean !== true
+        ? 'challenger_data_quality_baseline_not_clean' : null;
     const failureC = this.deploymentC.resolutionUnavailable ? 'adoption_state_unavailable'
       : this.deploymentC.source === 'suspended' ? 'challenger_deployment_suspended'
-      : preparationFailure ?? challengerTechnicalReason(decisionC, observedAt, this.deploymentC.deployment);
-    let packetC: ReturnType<typeof buildChallengerRecommendation> | null = null;
+      : preparationFailure ?? dataQualityFailure ?? challengerTechnicalReason(decisionC, observedAt, this.deploymentC.deployment);
+    let packetC: (ReturnType<typeof buildChallengerRecommendation> & { dataQuality?: {
+      policyHash: string; baselineClean: true; evidence: unknown;
+    } }) | null = null;
     if (!failureC && decisionC) {
       const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
       packetC = buildChallengerRecommendation({ decision: decisionC, quotes: usableQuotes, observedAt, competition: row.competition,
         expectedIdentity: this.deploymentC.deployment,
         ...(this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}),
         allowedMarkets: markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market) });
+      if (qualityHash === CHALLENGER_DATA_QUALITY_POLICY_HASH) packetC.dataQuality = {
+        policyHash: qualityHash, baselineClean: true, evidence: decisionC.dataQualityEvidence ?? null,
+      };
       const selected = packetC.selected;
       const quote = selected && usableQuotes.find((value) => value.selection === selected.selection && value.odds === selected.bookmakerOdds);
       if (selected && quote && finiteProbability(selected.ourProbability / 100) && selected.expectedValue > 0) {
@@ -166,6 +176,8 @@ export class ResearchRecommendationRuntime {
             selectorPolicy: 'payout-aware-v1', selectionPolicyVersion: packetC.policyVersion,
             payout: 'payout' in selected ? selected.payout : null, quality: 'quality' in selected ? selected.quality : null,
           } : {}), recommended: true, validated: true,
+          ...(packetC.dataQuality ? { dataQualityPolicyHash: packetC.dataQuality.policyHash,
+            dataQualityBaselineClean: true, dataQualityEvidence: packetC.dataQuality.evidence } : {}),
           probabilityConfiguration: object(decisionC.probabilityConfiguration),
           probabilityConfigurationHash: String(decisionC.probabilityConfigurationHash) });
       }

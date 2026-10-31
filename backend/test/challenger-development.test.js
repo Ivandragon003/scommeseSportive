@@ -47,12 +47,30 @@ test('all valid matches including NO_BET contribute probability metrics and pair
   assert.equal(report.variants.no_ml.byPhase.development.metrics.n, 3);
   assert.ok(Math.abs(report.variants.no_ml.byPhase.development.metrics.logLoss + Math.log(.6)) < 1e-12);
   assert.ok(Math.abs(report.variants.no_ml.byPhase.development.metrics.brier - .26) < 1e-12);
+  assert.equal(report.variants.no_ml.byPhase.development.metrics.accuracy, 1);
   assert.equal(report.variants.no_ml.byPhase.development.economics.modelNoBetMatches, 3);
   assert.equal(report.variants.no_ml.byPhase.development.economics.roi, null);
   assert.equal(report.variants.no_ml.byPhase.development.economics.maxDrawdownFraction, null);
   assert.equal(report.comparisons[0].byPhase.development.n, 3);
   assert.deepEqual(report.comparisons[0].byPhase.development.uncertainty.logLoss95, [0, 0]);
   assert.equal(report.holdout.certificationEligible, false);
+});
+
+test('accuracy includes every valid outcome and per-row probability stages remain auditable', () => {
+  const rows = [row('home'), row('draw', undefined, { homeGoals: 1, awayGoals: 1 }),
+    row('away', undefined, { homeGoals: 0, awayGoals: 1 })];
+  const report = evaluateChallengerDevelopment({ rows, variants: [noMl(), noMl('same')], plan: plan() });
+  assert.equal(report.variants.no_ml.byPhase.development.metrics.accuracy, 1 / 3);
+  for (const record of report.records) {
+    const prediction = record.predictions.no_ml;
+    assert.deepEqual(prediction.probabilities, prediction.probabilityStages.decision);
+    assert.deepEqual(prediction.probabilityStages.raw, prediction.probabilityStages.calibrated);
+    assert.equal(prediction.modelVersion, 'C-statistical-no-ml-comparator');
+    assert.match(prediction.probabilityConfigurationHash, /^[a-f0-9]{64}$/);
+    assert.equal(prediction.calibrationFittedThrough, null);
+  }
+  const empty = evaluateChallengerDevelopment({ rows: [], variants: [noMl(), noMl('same')], plan: plan() });
+  assert.equal(empty.variants.no_ml.byPhase.development.metrics.accuracy, null);
 });
 
 test('protected exposed matches, T-15 inputs and future feature/model information cannot enter optimization metrics', () => {

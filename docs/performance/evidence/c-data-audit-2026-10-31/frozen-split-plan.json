@@ -1,0 +1,108 @@
+{
+  "datasetHash": "ec45c10b21450638e5085e61a25873442d21409978d15b389ef1b9ef5f0b849e",
+  "originalFullReportSha256": "2dfaf4c4859ec2ceaadc33e4e4c3dffefc4a18bdf36e2267933aad41c2c358f3",
+  "folds": [
+    {
+      "fold": 0,
+      "trainingSplit": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 3619,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2024-09-19T01:07:00.000Z",
+          "availableThrough": "2024-09-19T19:00:00.000Z",
+          "matchIdsHash": "63a942526f93ee9473a0c77b314cd8be2a6a4b607c83b7b3b73554ee1a7d53a8"
+        },
+        "selection": {
+          "n": 655,
+          "from": "2024-09-20T01:07:00.000Z",
+          "to": "2025-01-10T02:07:00.000Z",
+          "availableThrough": "2025-01-10T22:00:00.000Z",
+          "matchIdsHash": "478eadbe1033b5170aa556326a87ca213381c69a6e1693508be69850a8ced7d1"
+        },
+        "calibration": {
+          "n": 338,
+          "from": "2025-01-11T02:07:00.000Z",
+          "to": "2025-02-25T02:07:00.000Z",
+          "availableThrough": "2025-02-25T22:15:00.000Z",
+          "matchIdsHash": "7eafbf870492137c1b0d1d6d9a82417a5551139fe3bd1fddf032868ead17d6f7"
+        },
+        "test": {
+          "n": 618,
+          "from": "2025-02-26T02:07:00.000Z",
+          "to": "2025-08-23T01:07:00.000Z",
+          "availableThrough": "2025-08-23T21:30:00.000Z",
+          "matchIdsHash": "6d0b586d640bc4df3d62c68088f18f44400a1a87b6d181e65311081dc26cd5a1"
+        }
+      }
+    },
+    {
+      "fold": 1,
+      "trainingSplit": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 4274,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2025-01-10T02:07:00.000Z",
+          "availableThrough": "2025-01-10T22:00:00.000Z",
+          "matchIdsHash": "3127fd52e23b5c6ae6eba91f78469d6bc5707588205b3249aa3105274d03943c"
+        },
+        "selection": {
+          "n": 664,
+          "from": "2025-01-11T02:07:00.000Z",
+          "to": "2025-04-21T01:07:00.000Z",
+          "availableThrough": "2025-04-21T21:00:00.000Z",
+          "matchIdsHash": "e31a5524241f7a2ed5600da2d6ca9c71832dce99e8dafabfd665b4dcef1719a1"
+        },
+        "calibration": {
+          "n": 292,
+          "from": "2025-04-22T01:07:00.000Z",
+          "to": "2025-08-23T01:07:00.000Z",
+          "availableThrough": "2025-08-23T21:30:00.000Z",
+          "matchIdsHash": "f798f448714ae78f4f01f7edaf2f7b449fe5789ea1d30d437d0119680c3eef58"
+        },
+        "test": {
+          "n": 741,
+          "from": "2025-08-24T01:07:00.000Z",
+          "to": "2025-12-28T02:07:00.000Z",
+          "availableThrough": "2025-12-28T21:45:00.000Z",
+          "matchIdsHash": "e0460069496ec5b38286b78c2e39b280c11ef30bf839f4090e7e6067197a6163"
+        }
+      }
+    },
+    {
+      "fold": 2,
+      "trainingSplit": {
+        "protocol": "purged-temporal-train-selection-calibration-test-v1",
+        "train": {
+          "n": 4938,
+          "from": "2022-08-27T01:07:00.000Z",
+          "to": "2025-04-21T01:07:00.000Z",
+          "availableThrough": "2025-04-21T21:00:00.000Z",
+          "matchIdsHash": "25f23e65585d20a324cf54ae60ea15cad1522a5294d1088bb1e995650bf9533a"
+        },
+        "selection": {
+          "n": 678,
+          "from": "2025-04-22T01:07:00.000Z",
+          "to": "2025-10-29T02:07:00.000Z",
+          "availableThrough": "2025-10-29T21:05:00.000Z",
+          "matchIdsHash": "de7cab15c65282e800111b735c7da542754697858d6cd658c75b8cc460b8e19a"
+        },
+        "calibration": {
+          "n": 355,
+          "from": "2025-10-30T02:07:00.000Z",
+          "to": "2025-12-28T02:07:00.000Z",
+          "availableThrough": "2025-12-28T21:45:00.000Z",
+          "matchIdsHash": "99c78f85cbe8760f21431ac241920b8ec8f9b4af1c31f91265522702377d54e6"
+        },
+        "test": {
+          "n": 616,
+          "from": "2025-12-29T02:07:00.000Z",
+          "to": "2026-10-29T02:07:00.000Z",
+          "availableThrough": "2026-10-29T21:45:00.000Z",
+          "matchIdsHash": "d2d9707524501c136394db185202dd6c41be71949a94e84b644101eb7e40fd08"
+        }
+      }
+    }
+  ]
+}

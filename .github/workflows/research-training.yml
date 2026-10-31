@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           AS_OF="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-          node scripts/research-challenger-development.js dataset --matches artifacts/research/matches.json --asof "$AS_OF" --out artifacts/research/dataset.json --hour 3 --minute 7
+          node scripts/build-challenger-dataset-parallel.js --matches artifacts/research/matches.json --asof "$AS_OF" --out artifacts/research/dataset.json --workers 2
           python ml/train.py --input artifacts/research/dataset.json --output artifacts/research/training --experiment controlled-challenger --iterations 120 --depth 3 --folds 3
           node scripts/research-lifecycle.js finalize-coherent --artifact artifacts/research/training/artifact.json --report artifacts/research/training/report.json --out artifacts/research/training/coherent --mode isotonic_1x2
       - name: Preregister selected C deployment without adoption from development scores

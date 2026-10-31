@@ -1,5 +1,12 @@
 # Consigli dell'app e registrazione virtuale A/C — 30 ottobre 2026
 
+**Audit dati C del 31 ottobre.** Le nuove candidature devono dichiarare la
+policy di esclusione dei 22 record contestati e una baseline ricostruita.
+Questo non cambia A né il default C906. I residui prospettici C con kickoff
+incoerente vengono isolati anche prima della prima liquidazione ed esclusi
+dalla calibrazione; forecast, risultati e contabilità originali restano
+integri. [Evidenze e limiti](../performance/c-data-benchmark-audit-2026-10-31.md).
+
 **Estensione del 31 ottobre: C candidato con adozione controllata.** Il
 fallback C906 mantiene la policy v2; una tupla C adottata o ripristinata ha
 policy v3 con modello, configurazione, selettore e revisione congelati.

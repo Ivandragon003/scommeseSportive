@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "c-persisted-primary-statistics-audit-v1",
+  "capturedAt": "2026-10-31T10:07:19.507Z",
+  "readOnly": true,
+  "readMode": "paginated_select_only_then_offline_reconciled",
+  "inputSha256": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+  "persistedDerivedRows": 7491,
+  "persistedDerivedSha256": "3447125d92c3098eb5ba3eed778490431aca25702a5a3ca0cd9b2e7f4a2579e6",
+  "completedFrozenMatches": 7486,
+  "coverage": {
+    "homeTotalShots": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "awayTotalShots": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "homeShotsOnTarget": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "awayShotsOnTarget": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "homeYellowCards": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "awayYellowCards": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "homeRedCards": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    },
+    "awayRedCards": {
+      "compared": 7485,
+      "unavailable": 1,
+      "differing": 0
+    }
+  },
+  "missingMatches": [],
+  "findings": [],
+  "comparedFields": 59880,
+  "differingFields": 0,
+  "sourceScope": "persisted_primary_payload_not_independent_live_provider_or_historical_timestamp_attestation",
+  "unverifiedPersistedMatchIds": [
+    "understat_27930"
+  ]
+}

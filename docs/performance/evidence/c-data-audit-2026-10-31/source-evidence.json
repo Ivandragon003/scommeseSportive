@@ -1,0 +1,4256 @@
+{
+  "schemaVersion": "c-source-audit-evidence-summary-v1",
+  "generatedAt": "2026-10-31T10:06:56.643716Z",
+  "inputSha256": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+  "benchmarkSha256": "0a5dc298950137931080ccc2bab5ac75d1f043ca03f4a42617b68bd8e1e47fa6",
+  "scriptSha256": "b726b229110d8df236bca68814ea66954e81f9a1c3465b2739cbdac4a34d5e96",
+  "sourceImplementationHashes": {
+    "src/services/UnderstatScraper.ts": "c8537a5bf03c1cafa67d50998e8d488f91fee8d5d31054019e1aa19242550c0f",
+    "src/services/FootballDataService.ts": "c5e2cb699f55c1ba7d769512bd79a21824bbcbba8ae0e41974d2ade0962d9b0c"
+  },
+  "profile": {
+    "all": {
+      "records": 8834,
+      "completed": 7486,
+      "pending": 1348,
+      "benchmark": 1975,
+      "dateFrom": "2022-08-05T18:30:00.000Z",
+      "dateUntil": "2027-05-30T15:00:00.000Z",
+      "fields": {
+        "awayFouls": {
+          "present": 7485,
+          "completedMissing": 1,
+          "completedMin": 1,
+          "completedMax": 31
+        },
+        "awayGoals": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 8
+        },
+        "awayRedCards": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 2
+        },
+        "awayShotsOnTarget": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 15
+        },
+        "awayTeamId": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "awayTotalShots": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 37
+        },
+        "awayXG": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 7.11049
+        },
+        "awayYellowCards": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 9
+        },
+        "competition": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "date": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "homeFouls": {
+          "present": 7485,
+          "completedMissing": 1,
+          "completedMin": 1,
+          "completedMax": 29
+        },
+        "homeGoals": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 9
+        },
+        "homeRedCards": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 3
+        },
+        "homeShotsOnTarget": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 20
+        },
+        "homeTeamId": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "homeTotalShots": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 42
+        },
+        "homeXG": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 7.47528
+        },
+        "homeYellowCards": {
+          "present": 7486,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 9
+        },
+        "matchId": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "season": {
+          "present": 8834,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        }
+      }
+    },
+    "benchmark": {
+      "records": 1975,
+      "completed": 1975,
+      "pending": 0,
+      "benchmark": 1975,
+      "dateFrom": "2025-02-26T19:30:00.000Z",
+      "dateUntil": "2026-10-29T19:45:00.000Z",
+      "fields": {
+        "awayFouls": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 3,
+          "completedMax": 29
+        },
+        "awayGoals": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 7
+        },
+        "awayRedCards": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 2
+        },
+        "awayShotsOnTarget": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 13
+        },
+        "awayTeamId": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "awayTotalShots": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 31
+        },
+        "awayXG": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 7.11049
+        },
+        "awayYellowCards": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 8
+        },
+        "competition": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "date": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "homeFouls": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 2,
+          "completedMax": 27
+        },
+        "homeGoals": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 8
+        },
+        "homeRedCards": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 2
+        },
+        "homeShotsOnTarget": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 14
+        },
+        "homeTeamId": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "homeTotalShots": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 1,
+          "completedMax": 40
+        },
+        "homeXG": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0.0503369,
+          "completedMax": 6.37827
+        },
+        "homeYellowCards": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": 0,
+          "completedMax": 7
+        },
+        "matchId": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        },
+        "season": {
+          "present": 1975,
+          "completedMissing": 0,
+          "completedMin": null,
+          "completedMax": null
+        }
+      }
+    },
+    "duplicateMatchIds": [],
+    "duplicateFixtures": [],
+    "issues": [],
+    "issueCounts": {},
+    "orphanTeamCheck": "checked_against_supplied_registry"
+  },
+  "coverage": {
+    "all": {
+      "datasetRecords": 8834,
+      "understatMatched": 8834,
+      "understatDateComparable": 8834,
+      "understatTimezoneUndeclared": 8834,
+      "understatWallClockEqualButInstantUnverified": 8833,
+      "understat_homeGoals_compared": 7486,
+      "understat_awayGoals_compared": 7486,
+      "understat_homeXG_compared": 7486,
+      "understat_awayXG_compared": 7486,
+      "footballDataMatched": 7466,
+      "footballData_homeGoals_compared": 7466,
+      "footballData_awayGoals_compared": 7466,
+      "footballData_homeTotalShots_compared": 7465,
+      "footballData_awayTotalShots_compared": 7465,
+      "footballData_homeShotsOnTarget_compared": 7465,
+      "footballData_awayShotsOnTarget_compared": 7465,
+      "footballData_homeYellowCards_compared": 7465,
+      "footballData_awayYellowCards_compared": 7465,
+      "footballData_homeRedCards_compared": 7465,
+      "footballData_awayRedCards_compared": 7465,
+      "footballData_homeFouls_compared": 7465,
+      "footballData_awayFouls_compared": 7465,
+      "footballData_homeTotalShots_differs": 918,
+      "footballData_awayYellowCards_differs": 427,
+      "footballData_awayShotsOnTarget_differs": 850,
+      "footballData_awayTotalShots_differs": 899,
+      "footballData_homeShotsOnTarget_differs": 944,
+      "footballData_homeYellowCards_differs": 361,
+      "footballData_homeRedCards_differs": 33,
+      "footballData_awayRedCards_differs": 27,
+      "footballDataNotMatched": 1368,
+      "footballData_homeGoals_differs": 1,
+      "footballData_awayGoals_differs": 1,
+      "footballData_homeTotalShots_notComparable": 1,
+      "footballData_awayTotalShots_notComparable": 1,
+      "footballData_homeShotsOnTarget_notComparable": 1,
+      "footballData_awayShotsOnTarget_notComparable": 1,
+      "footballData_homeYellowCards_notComparable": 1,
+      "footballData_awayYellowCards_notComparable": 1,
+      "footballData_homeRedCards_notComparable": 1,
+      "footballData_awayRedCards_notComparable": 1,
+      "footballData_homeFouls_notComparable": 1,
+      "footballData_awayFouls_notComparable": 1,
+      "understat_homeGoals_notComparable": 1348,
+      "understat_awayGoals_notComparable": 1348,
+      "understat_homeXG_notComparable": 1348,
+      "understat_awayXG_notComparable": 1348,
+      "understatStatusDiffers": 5,
+      "understatWallClockDiffers": 1
+    },
+    "benchmark": {
+      "datasetRecords": 1975,
+      "understatMatched": 1975,
+      "understatDateComparable": 1975,
+      "understatTimezoneUndeclared": 1975,
+      "understatWallClockEqualButInstantUnverified": 1975,
+      "understat_homeGoals_compared": 1975,
+      "understat_awayGoals_compared": 1975,
+      "understat_homeXG_compared": 1975,
+      "understat_awayXG_compared": 1975,
+      "footballDataMatched": 1969,
+      "footballData_homeGoals_compared": 1969,
+      "footballData_awayGoals_compared": 1969,
+      "footballData_homeTotalShots_compared": 1969,
+      "footballData_awayTotalShots_compared": 1969,
+      "footballData_homeShotsOnTarget_compared": 1969,
+      "footballData_awayShotsOnTarget_compared": 1969,
+      "footballData_homeYellowCards_compared": 1969,
+      "footballData_awayYellowCards_compared": 1969,
+      "footballData_homeRedCards_compared": 1969,
+      "footballData_awayRedCards_compared": 1969,
+      "footballData_homeFouls_compared": 1969,
+      "footballData_awayFouls_compared": 1969,
+      "footballData_awayTotalShots_differs": 164,
+      "footballData_homeShotsOnTarget_differs": 201,
+      "footballData_homeTotalShots_differs": 145,
+      "footballData_awayShotsOnTarget_differs": 191,
+      "footballData_homeYellowCards_differs": 98,
+      "footballData_awayYellowCards_differs": 100,
+      "footballData_homeRedCards_differs": 10,
+      "footballData_awayRedCards_differs": 7,
+      "footballDataNotMatched": 6
+    }
+  },
+  "localIdentityCollisions": [],
+  "localIdentityFragmentation": [],
+  "differenceCounts": {
+    "football_data_statistic_difference_primary_may_differ": 4461,
+    "understat_status_difference": 5,
+    "understat_wall_clock_difference_not_instant_comparison": 1
+  },
+  "captures": [
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/EPL/2025",
+      "finalUrl": "https://understat.com/league/EPL/2025",
+      "rawSha256": "afa39ed59a38be458ca9ca85b922cc59d5639e2657b8b526644ab84f82b8a0a6",
+      "rawBytes": 18683,
+      "capturedAt": "2026-10-31T09:32:12.096481Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/epl/2025",
+      "finalUrl": "https://understat.com/getLeagueData/epl/2025",
+      "rawSha256": "9bc4dfd7129fb9ca4ef69fdd98f12587b75b107001bc51d7232015d8e39c138c",
+      "rawBytes": 94638,
+      "capturedAt": "2026-10-31T09:32:12.589075Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2526/E0.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2526/E0.csv",
+      "rawSha256": "3e3a8352f9ada6789c508d6ca184424421fed56a30400904a4a327c583407e62",
+      "rawBytes": 203438,
+      "capturedAt": "2026-10-31T09:32:12.962644Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Serie_A/2025",
+      "finalUrl": "https://understat.com/league/Serie_A/2025",
+      "rawSha256": "e26e5fd66d94ad7b8cd6f10ec77861be002b921de30869e1ed4e8ba08d91af69",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:12.061003Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/serie_a/2025",
+      "finalUrl": "https://understat.com/getLeagueData/serie_a/2025",
+      "rawSha256": "e67fc90d32b7d852a9524d8bd2f094e0a155eb100abeb62d0f81b2c2c4cd58bc",
+      "rawBytes": 98695,
+      "capturedAt": "2026-10-31T09:32:12.518632Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2526/I1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2526/I1.csv",
+      "rawSha256": "709ae279617d16af226312bcceac941e71241745ddaf950bdac2b83afad4fcbb",
+      "rawBytes": 196217,
+      "capturedAt": "2026-10-31T09:32:12.857627Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/La_liga/2025",
+      "finalUrl": "https://understat.com/league/La_liga/2025",
+      "rawSha256": "3aa1da009556de5e1a27635ee8ab7f97cad7b128fb2aefa51c83d9c4e95f020b",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:12.100471Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/la_liga/2025",
+      "finalUrl": "https://understat.com/getLeagueData/la_liga/2025",
+      "rawSha256": "d0b026a8c7fda73b42f3dfbe34569a328a40ce5caca447dcf2d29e294319c20e",
+      "rawBytes": 98994,
+      "capturedAt": "2026-10-31T09:32:12.623090Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2526/SP1.csv",
+      "rawSha256": "4ca2e285f3ee0702f6bc55fcaa4f5a15cb3aef6220735a1d15398131e21d63f5",
+      "rawBytes": 197653,
+      "capturedAt": "2026-10-31T09:32:13.009689Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Bundesliga/2025",
+      "finalUrl": "https://understat.com/league/Bundesliga/2025",
+      "rawSha256": "fe92804a19bec81a641d97980fd364b0e567cca1d7f92190a1de37c446db2d6a",
+      "rawBytes": 18711,
+      "capturedAt": "2026-10-31T09:32:13.215111Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/bundesliga/2025",
+      "finalUrl": "https://understat.com/getLeagueData/bundesliga/2025",
+      "rawSha256": "465471aa57871deaf284c651a05ccb4af5c06a7f454a5e3505df549c59b28977",
+      "rawBytes": 82295,
+      "capturedAt": "2026-10-31T09:32:13.686909Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2526/D1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2526/D1.csv",
+      "rawSha256": "618301a4b39918225a8ccc57f0f839d675e1abd92fa3a3ccd9a67acd7c79dd7f",
+      "rawBytes": 159944,
+      "capturedAt": "2026-10-31T09:32:14.028253Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Ligue_1/2025",
+      "finalUrl": "https://understat.com/league/Ligue_1/2025",
+      "rawSha256": "e170b506a6a95aa3b441fa789abf9e9b9a8267d06ca8cda5678705edb8fc558e",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:13.344083Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/ligue_1/2025",
+      "finalUrl": "https://understat.com/getLeagueData/ligue_1/2025",
+      "rawSha256": "242d8513123b3fba5f51cc44aa6dbc52e76d380c121028ca745586aa9fd2fdcb",
+      "rawBytes": 85547,
+      "capturedAt": "2026-10-31T09:32:13.904578Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2526/F1.csv",
+      "rawSha256": "898b7ddcd373cfe955ae353b1a98cf7f1c8757ca10b69d53039f4e098e88f192",
+      "rawBytes": 158471,
+      "capturedAt": "2026-10-31T09:32:14.263311Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/La_liga/2024",
+      "finalUrl": "https://understat.com/league/La_liga/2024",
+      "rawSha256": "36fed30ed3b5536e254865ded9d0a2d96b6acb1ec121a72669087f3b5bcf674e",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:13.369459Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/la_liga/2024",
+      "finalUrl": "https://understat.com/getLeagueData/la_liga/2024",
+      "rawSha256": "a61b5023d67c47ed4f76c5c2b5177c66bb09640c9facd470770e53181610ef2c",
+      "rawBytes": 98044,
+      "capturedAt": "2026-10-31T09:32:13.904578Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2425/SP1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2425/SP1.csv",
+      "rawSha256": "c086e96d6a53f6e6c0fce4e35db0d1728c773b4362323da0161a34769e315a36",
+      "rawBytes": 192863,
+      "capturedAt": "2026-10-31T09:32:14.300995Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Serie_A/2024",
+      "finalUrl": "https://understat.com/league/Serie_A/2024",
+      "rawSha256": "b072d56b4a72a80cd5a0915516de6aac011b12945424ecdabb1dbf3a5adf8107",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:14.381167Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/serie_a/2024",
+      "finalUrl": "https://understat.com/getLeagueData/serie_a/2024",
+      "rawSha256": "a1943aafa8c9a1d62b4b43a419b92e7241bd23850c93610fc76a308abd8e44ac",
+      "rawBytes": 99264,
+      "capturedAt": "2026-10-31T09:32:14.893439Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2425/I1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2425/I1.csv",
+      "rawSha256": "79d87a5b18771e066ac7419b7876bfd9771a68ca117a9712375d6bc9685abee3",
+      "rawBytes": 191722,
+      "capturedAt": "2026-10-31T09:32:15.254937Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/EPL/2024",
+      "finalUrl": "https://understat.com/league/EPL/2024",
+      "rawSha256": "4dad2f6e27a5a73fc1a350cc04829b67653977ae299ffe6df9518882c1bb781d",
+      "rawBytes": 18683,
+      "capturedAt": "2026-10-31T09:32:14.636468Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/epl/2024",
+      "finalUrl": "https://understat.com/getLeagueData/epl/2024",
+      "rawSha256": "fd696ce4e2b77f066d76ef391e1f7bcc347abc3f71c6e1fbbd13c2e7cfabd524",
+      "rawBytes": 96113,
+      "capturedAt": "2026-10-31T09:32:15.084211Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2425/E0.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2425/E0.csv",
+      "rawSha256": "d0c8ce4a96d886cf60cf101f570f4a3893844226f91c7bd769eb568c49edbfa4",
+      "rawBytes": 197110,
+      "capturedAt": "2026-10-31T09:32:15.475592Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Bundesliga/2024",
+      "finalUrl": "https://understat.com/league/Bundesliga/2024",
+      "rawSha256": "ebbbd76b9e9c7de541990a9248a0eb6697c3f11d97a229824d0952245c76ede8",
+      "rawBytes": 18711,
+      "capturedAt": "2026-10-31T09:32:14.667896Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/bundesliga/2024",
+      "finalUrl": "https://understat.com/getLeagueData/bundesliga/2024",
+      "rawSha256": "d995f7dcdbd207bd3b4e8c1f4111ba28d019c2b58ce4d5da45a4746c8553341e",
+      "rawBytes": 80688,
+      "capturedAt": "2026-10-31T09:32:15.139447Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2425/D1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2425/D1.csv",
+      "rawSha256": "a295c58033cfe6393cbbc28f7db85671839b960c5f1153fd3678e20ad2adb92e",
+      "rawBytes": 156414,
+      "capturedAt": "2026-10-31T09:32:15.504819Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Ligue_1/2024",
+      "finalUrl": "https://understat.com/league/Ligue_1/2024",
+      "rawSha256": "4dccc0e8ce04f65d9938fef2a844efc705646a88f8a9eb0cc36d0ddbaf9e3f36",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:32:15.631752Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/ligue_1/2024",
+      "finalUrl": "https://understat.com/getLeagueData/ligue_1/2024",
+      "rawSha256": "0e010f58fc7698eb9736f9d1494c7f1a493a59eae5b9c56bb7ee69498ec10172",
+      "rawBytes": 84474,
+      "capturedAt": "2026-10-31T09:32:16.062624Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2425/F1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2425/F1.csv",
+      "rawSha256": "fe6ae6a0c30d05f0ac88e0fc4a31452c7203e2b444703dfa941e22f38f20ab63",
+      "rawBytes": 154703,
+      "capturedAt": "2026-10-31T09:32:16.413346Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Serie_A/2026",
+      "finalUrl": "https://understat.com/league/Serie_A/2026",
+      "rawSha256": "0230d7766b21bc48cfbf45edb2314c45777a9dddfe0cbe6b332fc3dc0f9e8693",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:14.808428Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/serie_a/2026",
+      "finalUrl": "https://understat.com/getLeagueData/serie_a/2026",
+      "rawSha256": "f2bc92e112c2ec1a6ceb7d14a3a251dfb54ff6e6ae27a0d1a2df69ce90445604",
+      "rawBytes": 52490,
+      "capturedAt": "2026-10-31T09:33:15.209118Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/I1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2627/I1.csv",
+      "rawSha256": "32ca618587c90db25f16ea647cb55060f519c03830a1e8ec4a6c4204e27d5135",
+      "rawBytes": 42883,
+      "capturedAt": "2026-10-31T09:33:15.489072Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/La_liga/2022",
+      "finalUrl": "https://understat.com/league/La_liga/2022",
+      "rawSha256": "f02712f39f2bebf8e7a0873a2c28b3c3164fd1610835e51b35f93b4480d00b64",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:14.797652Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/la_liga/2022",
+      "finalUrl": "https://understat.com/getLeagueData/la_liga/2022",
+      "rawSha256": "efa2cd76c0f60561c3daa10ce000dbd1a39a2952fd67445b8af1f88093ede4c6",
+      "rawBytes": 97539,
+      "capturedAt": "2026-10-31T09:33:15.304483Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2223/SP1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2223/SP1.csv",
+      "rawSha256": "53348112526b5165539df240be350083989bb258f30c0ff7cacbc0165ca7e4b3",
+      "rawBytes": 172199,
+      "capturedAt": "2026-10-31T09:33:15.656378Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/La_liga/2023",
+      "finalUrl": "https://understat.com/league/La_liga/2023",
+      "rawSha256": "eeeb3a1dd26da22fca4784167f5f51c4fbd8f17aa3da9a331940383dc5cfc3fc",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:15.049297Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/la_liga/2023",
+      "finalUrl": "https://understat.com/getLeagueData/la_liga/2023",
+      "rawSha256": "2a5f04340755bf970fe8e70d152c6154f56d01a4b3ab8d3872e66547aed48173",
+      "rawBytes": 98589,
+      "capturedAt": "2026-10-31T09:33:15.489072Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2324/SP1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2324/SP1.csv",
+      "rawSha256": "5323f596c7ed318e4bce95557a369d809d98501fa499ea5f41350cd45cf3c7d9",
+      "rawBytes": 168164,
+      "capturedAt": "2026-10-31T09:33:15.849383Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/La_liga/2026",
+      "finalUrl": "https://understat.com/league/La_liga/2026",
+      "rawSha256": "4082800d3357674c74b33fd06680608721ad9adf07bb5850343d0a7f68802811",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:15.851394Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/la_liga/2026",
+      "finalUrl": "https://understat.com/getLeagueData/la_liga/2026",
+      "rawSha256": "56f048dd92022812ef13d6ede1953c13d005c5fab045a835fdde7499da09148e",
+      "rawBytes": 53167,
+      "capturedAt": "2026-10-31T09:33:16.250023Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/SP1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2627/SP1.csv",
+      "rawSha256": "f5643d70ef824713fba42de3687c072e26934c6bbbbc903652b75a4767e2d8f8",
+      "rawBytes": 47448,
+      "capturedAt": "2026-10-31T09:33:16.551091Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Ligue_1/2022",
+      "finalUrl": "https://understat.com/league/Ligue_1/2022",
+      "rawSha256": "78aaebd03652c1ef13d1dd8b0c7f2a613cf232ee1c6a1fda0456f38a73a02ab2",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:16.032962Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/ligue_1/2022",
+      "finalUrl": "https://understat.com/getLeagueData/ligue_1/2022",
+      "rawSha256": "67a9c0c7ecfe4fefdf7f624519e6867f159069eabdd8b897535b51443335f879",
+      "rawBytes": 98209,
+      "capturedAt": "2026-10-31T09:33:16.510043Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2223/F1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2223/F1.csv",
+      "rawSha256": "18ea07d922e8b6360b81189637efd5aaf44779765db856bff208d5b1acf69b2f",
+      "rawBytes": 171165,
+      "capturedAt": "2026-10-31T09:33:16.854187Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/EPL/2022",
+      "finalUrl": "https://understat.com/league/EPL/2022",
+      "rawSha256": "1de02b84d66e4663cf048a015caeaa6d4cf28435b0efc7dbe9c6215088f79051",
+      "rawBytes": 18683,
+      "capturedAt": "2026-10-31T09:33:16.181808Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/epl/2022",
+      "finalUrl": "https://understat.com/getLeagueData/epl/2022",
+      "rawSha256": "f6686352ac11557b4a3b45aa0e49f8218e1ea16334819cc62896eb4e82bd6174",
+      "rawBytes": 95353,
+      "capturedAt": "2026-10-31T09:33:16.694961Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2223/E0.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2223/E0.csv",
+      "rawSha256": "8442792d3b614c94ea3cf381bd2736805889cc1713169035368fff19c3d02380",
+      "rawBytes": 176180,
+      "capturedAt": "2026-10-31T09:33:17.057799Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/EPL/2023",
+      "finalUrl": "https://understat.com/league/EPL/2023",
+      "rawSha256": "d958a135d8aeb1e8112006f6245551e745cbc1432edc4105dde378e729be836f",
+      "rawBytes": 18683,
+      "capturedAt": "2026-10-31T09:33:16.877638Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/epl/2023",
+      "finalUrl": "https://understat.com/getLeagueData/epl/2023",
+      "rawSha256": "6d75fdcc0b6924daabaaf494f87099672811e95dee77f85c631d5cd4b4483f9a",
+      "rawBytes": 96919,
+      "capturedAt": "2026-10-31T09:33:17.297471Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2324/E0.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2324/E0.csv",
+      "rawSha256": "b2e057b0ed959f198b0f63d2391c01239f3608e6de5db68edab3f88e04d07ff3",
+      "rawBytes": 172196,
+      "capturedAt": "2026-10-31T09:33:17.674222Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/EPL/2026",
+      "finalUrl": "https://understat.com/league/EPL/2026",
+      "rawSha256": "feaaae93d2ad01837326ff103000b6f03a89dc7efa5641d0592ec8862845f6f9",
+      "rawBytes": 18683,
+      "capturedAt": "2026-10-31T09:33:17.201400Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/epl/2026",
+      "finalUrl": "https://understat.com/getLeagueData/epl/2026",
+      "rawSha256": "d58f308d3a31906fe1cd054eec2504955e2d10062509a2afb0f1255ff238a43a",
+      "rawBytes": 46999,
+      "capturedAt": "2026-10-31T09:33:17.617900Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/E0.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2627/E0.csv",
+      "rawSha256": "4cd9d41c75bdaafce0657cb97ce76438f8016605957af80896b60a0f21955ab2",
+      "rawBytes": 39368,
+      "capturedAt": "2026-10-31T09:33:17.891893Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Serie_A/2022",
+      "finalUrl": "https://understat.com/league/Serie_A/2022",
+      "rawSha256": "ee4b887bc297a9a5590b7a3397ab3aa6d01714a03fe89c19328fc3c36ee04b4f",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:17.399039Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/serie_a/2022",
+      "finalUrl": "https://understat.com/getLeagueData/serie_a/2022",
+      "rawSha256": "1fd07fa8ffa287654eb5d0385198d99f35db11b1bf1fb585239a7f0fe2b9e844",
+      "rawBytes": 97520,
+      "capturedAt": "2026-10-31T09:33:17.829305Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2223/I1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2223/I1.csv",
+      "rawSha256": "9960837f37a97ae700f876c87b85a8b7a2f5a5d05a53077830c21b9db8880c45",
+      "rawBytes": 171573,
+      "capturedAt": "2026-10-31T09:33:18.179345Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Serie_A/2023",
+      "finalUrl": "https://understat.com/league/Serie_A/2023",
+      "rawSha256": "c2f856cb51e9c17a1bce63f714c0b6a5d7c771beb9114ed1c22058ee38b9b760",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:18.027916Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/serie_a/2023",
+      "finalUrl": "https://understat.com/getLeagueData/serie_a/2023",
+      "rawSha256": "c0edd5c692dac0de8f7893588d5e2449b01808445cf77ba717896c108f74d1e7",
+      "rawBytes": 98568,
+      "capturedAt": "2026-10-31T09:33:18.464255Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2324/I1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2324/I1.csv",
+      "rawSha256": "343a89db026fe4204ebeabd663cdfee8d02a45457828fc1cb63fa630ca170723",
+      "rawBytes": 167015,
+      "capturedAt": "2026-10-31T09:33:18.815442Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Bundesliga/2022",
+      "finalUrl": "https://understat.com/league/Bundesliga/2022",
+      "rawSha256": "28206816c21ae1fb5f84db134037e57bcac567006fbc16e7d948d2f795ac046f",
+      "rawBytes": 18711,
+      "capturedAt": "2026-10-31T09:33:18.238066Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/bundesliga/2022",
+      "finalUrl": "https://understat.com/getLeagueData/bundesliga/2022",
+      "rawSha256": "630e6d77222e915a5c1adc04a09e4a496b0e3417034c5fbd0cf69e59c5d90e0c",
+      "rawBytes": 82121,
+      "capturedAt": "2026-10-31T09:33:18.712415Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2223/D1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2223/D1.csv",
+      "rawSha256": "b716517b25033ce8e0243e967aa961876425a4c41e97c8aa8fa59f2aca061341",
+      "rawBytes": 139302,
+      "capturedAt": "2026-10-31T09:33:19.089692Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Bundesliga/2023",
+      "finalUrl": "https://understat.com/league/Bundesliga/2023",
+      "rawSha256": "ffa9124b257a482b5d6f3fc9d0aa3a0917e7752aa19ee7a0e1f6d39e52ef4893",
+      "rawBytes": 18711,
+      "capturedAt": "2026-10-31T09:33:18.523034Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/bundesliga/2023",
+      "finalUrl": "https://understat.com/getLeagueData/bundesliga/2023",
+      "rawSha256": "b6249d554c1f1d93e1d27f4d26c7d9624518c3ceb3535f4fbad7261d10fce21f",
+      "rawBytes": 81681,
+      "capturedAt": "2026-10-31T09:33:18.969610Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2324/D1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2324/D1.csv",
+      "rawSha256": "1de8bc12a133dbbf71bc6ffda62082642f087f61b1b7c15ae9f2d320876fb07e",
+      "rawBytes": 135825,
+      "capturedAt": "2026-10-31T09:33:19.333925Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Bundesliga/2026",
+      "finalUrl": "https://understat.com/league/Bundesliga/2026",
+      "rawSha256": "cdfbd6cd3701739f66550d0aabb2ad3ff716c54291ae10ac5afcba2e0caba4f5",
+      "rawBytes": 18711,
+      "capturedAt": "2026-10-31T09:33:19.143694Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/bundesliga/2026",
+      "finalUrl": "https://understat.com/getLeagueData/bundesliga/2026",
+      "rawSha256": "7e4cedf2526d1b5fb21d1fc9bb211aaa35eddaf7be218c88681a11ae3aade847",
+      "rawBytes": 41751,
+      "capturedAt": "2026-10-31T09:33:19.489020Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/D1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2627/D1.csv",
+      "rawSha256": "313040382632ccf3b564eaba6e2ad680850ca91e78e2d799c0708dec973b1506",
+      "rawBytes": 30516,
+      "capturedAt": "2026-10-31T09:33:19.790660Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Ligue_1/2023",
+      "finalUrl": "https://understat.com/league/Ligue_1/2023",
+      "rawSha256": "1b4f254f2a781ded142a0a812469e1adb90c686314f5493666c4b97057d07ee3",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:19.455019Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/ligue_1/2023",
+      "finalUrl": "https://understat.com/getLeagueData/ligue_1/2023",
+      "rawSha256": "f3e5e04b261bd62f5c7c8d0a4fe93e07600e8f4398dfbc913d9e8994e40199bd",
+      "rawBytes": 83913,
+      "capturedAt": "2026-10-31T09:33:19.870221Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2324/F1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2324/F1.csv",
+      "rawSha256": "ca0a4bf51d5b1ccfd0e1558ea41de6bb829df6c96c759888a87248d296d5adb7",
+      "rawBytes": 135000,
+      "capturedAt": "2026-10-31T09:33:20.217804Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_league_html",
+      "url": "https://understat.com/league/Ligue_1/2026",
+      "finalUrl": "https://understat.com/league/Ligue_1/2026",
+      "rawSha256": "5aa1502da148de8cc470a36cfc3bfd0d2c6175e40dfc3b4218fc13f301653dff",
+      "rawBytes": 18699,
+      "capturedAt": "2026-10-31T09:33:19.705032Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_league_json",
+      "url": "https://understat.com/getLeagueData/ligue_1/2026",
+      "finalUrl": "https://understat.com/getLeagueData/ligue_1/2026",
+      "rawSha256": "4707c5be2303536ad7477ceea565bf718cb2d31d7d1b751cd7cf19cb6f4076c0",
+      "rawBytes": 44315,
+      "capturedAt": "2026-10-31T09:33:20.116574Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "football-data.co.uk_csv",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+      "finalUrl": "https://football-data.co.uk/mmz4281/2627/F1.csv",
+      "rawSha256": "46efdba17c47176f58cc65bd40d178944b5f985eb753c61f997fed31de4c7642",
+      "rawBytes": 34596,
+      "capturedAt": "2026-10-31T09:33:20.447455Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28024",
+      "finalUrl": "https://understat.com/getMatchData/28024",
+      "rawSha256": "6141c8ef00e2dae19ea04f3258a4604bc92e1d33f2f9736c53656c9c2c4c27a3",
+      "rawBytes": 3629,
+      "capturedAt": "2026-10-31T09:35:25.948992Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30260",
+      "finalUrl": "https://understat.com/getMatchData/30260",
+      "rawSha256": "c53856d3dd4bebd3c84e7ad28f8eadfdf4e09bcd0fe23892691d9efe7eecf415",
+      "rawBytes": 5114,
+      "capturedAt": "2026-10-31T09:35:25.955518Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30314",
+      "finalUrl": "https://understat.com/getMatchData/30314",
+      "rawSha256": "380051c37dc9c3b0a3a34024e30675dc6d20cb9ec653ea943f95731e68f6d95f",
+      "rawBytes": 4780,
+      "capturedAt": "2026-10-31T09:35:25.948992Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30319",
+      "finalUrl": "https://understat.com/getMatchData/30319",
+      "rawSha256": "2aa854f9c1f86170af011aad0623a6da2888234023c5b94e8a17c216d507689c",
+      "rawBytes": 5008,
+      "capturedAt": "2026-10-31T09:35:26.194208Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30449",
+      "finalUrl": "https://understat.com/getMatchData/30449",
+      "rawSha256": "3a69591978a7f8b8445b1969e052ac854b6b61d11f46136c38841af1e425106f",
+      "rawBytes": 4966,
+      "capturedAt": "2026-10-31T09:35:26.230728Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/27280",
+      "finalUrl": "https://understat.com/getMatchData/27280",
+      "rawSha256": "4b6231dd92a10158a01814c4eb7160dde0f755088ce6b93092fc273d6f305bd8",
+      "rawBytes": 4186,
+      "capturedAt": "2026-10-31T09:35:26.234978Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/29254",
+      "finalUrl": "https://understat.com/getMatchData/29254",
+      "rawSha256": "a29bf885ac69e7494bdb1a7158ba3b473e12d9989da62c4a491d75488d2f45ba",
+      "rawBytes": 5312,
+      "capturedAt": "2026-10-31T09:35:26.478279Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/27260",
+      "finalUrl": "https://understat.com/getMatchData/27260",
+      "rawSha256": "2e6e3e9d3531d0bed46f69e1fdd588f73f86cf2b40786d25612acc3825f8e435",
+      "rawBytes": 4326,
+      "capturedAt": "2026-10-31T09:35:26.524947Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/29202",
+      "finalUrl": "https://understat.com/getMatchData/29202",
+      "rawSha256": "05734308ccc0f90d18a10d4463db472fae922ee569efe6d372b795a2eb952b46",
+      "rawBytes": 4420,
+      "capturedAt": "2026-10-31T09:35:26.511159Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/29340",
+      "finalUrl": "https://understat.com/getMatchData/29340",
+      "rawSha256": "4b60bb0199812fc65eb9cf4f525dcba489e0de098c5180b0752a3f1d15dfe0ba",
+      "rawBytes": 4120,
+      "capturedAt": "2026-10-31T09:35:26.796733Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28312",
+      "finalUrl": "https://understat.com/getMatchData/28312",
+      "rawSha256": "2a6059e369b7e71a9b1f7fbce0952839b7fae1a8cd618320cbd966dbf5aa2d82",
+      "rawBytes": 4242,
+      "capturedAt": "2026-10-31T09:35:26.790694Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28314",
+      "finalUrl": "https://understat.com/getMatchData/28314",
+      "rawSha256": "a120439dee6eff60029149c3dfaeea9d32946970aaebbee2d26b3bb5a3e8c1cf",
+      "rawBytes": 4376,
+      "capturedAt": "2026-10-31T09:35:26.814107Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/29668",
+      "finalUrl": "https://understat.com/getMatchData/29668",
+      "rawSha256": "d6fa6f9102aca7005e10aa2fef042e1222bd493b7ad64dea9792d1d6ad0afbc1",
+      "rawBytes": 4221,
+      "capturedAt": "2026-10-31T09:35:27.058246Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28259",
+      "finalUrl": "https://understat.com/getMatchData/28259",
+      "rawSha256": "0572608a36f64f357c4a996025af821ee7227bf3b2abf6784e606053b46847cd",
+      "rawBytes": 4837,
+      "capturedAt": "2026-10-31T09:35:27.102246Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28264",
+      "finalUrl": "https://understat.com/getMatchData/28264",
+      "rawSha256": "00b0eecc5aab91dc3674c4d06aa5819957c5cd363c87248e5d39e3019033e65c",
+      "rawBytes": 4312,
+      "capturedAt": "2026-10-31T09:35:27.110247Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28910",
+      "finalUrl": "https://understat.com/getMatchData/28910",
+      "rawSha256": "60c9fcfff7dc773b1fffe9cbdd13261fb0f5ac2053e0d01617780d158630d499",
+      "rawBytes": 4842,
+      "capturedAt": "2026-10-31T09:35:27.335861Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28817",
+      "finalUrl": "https://understat.com/getMatchData/28817",
+      "rawSha256": "477936d9b9bfe5bc03ed20a17eeda775a72b8e44bc2ae6b7a45a30eed02e0e54",
+      "rawBytes": 4403,
+      "capturedAt": "2026-10-31T09:35:27.380078Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28877",
+      "finalUrl": "https://understat.com/getMatchData/28877",
+      "rawSha256": "9fcf3333494f917a3f7a9920816e49f1d5a2bfed8bb217bdead6a73f64ae1159",
+      "rawBytes": 4491,
+      "capturedAt": "2026-10-31T09:35:27.376073Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/28949",
+      "finalUrl": "https://understat.com/getMatchData/28949",
+      "rawSha256": "e98fcf58de34665787323162d984a1054f440c375d5bb68f2b0e571a2e5da2a3",
+      "rawBytes": 5122,
+      "capturedAt": "2026-10-31T09:35:27.597024Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/26885",
+      "finalUrl": "https://understat.com/getMatchData/26885",
+      "rawSha256": "0c4c26c420ae8ece52175b5f957ded0db7fa81b2397ea07ffd8062d6599bc2cf",
+      "rawBytes": 4058,
+      "capturedAt": "2026-10-31T09:35:27.642149Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/27643",
+      "finalUrl": "https://understat.com/getMatchData/27643",
+      "rawSha256": "e61d83c8d4e1257b60e595a10826cab93fa92d3f2687e526bc150b711881f084",
+      "rawBytes": 4950,
+      "capturedAt": "2026-10-31T09:35:27.640429Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/27704",
+      "finalUrl": "https://understat.com/getMatchData/27704",
+      "rawSha256": "585d2220bbda301eb83b62b79e9175aa68bcf88f3bc2e54d9a37bf427c276db2",
+      "rawBytes": 3954,
+      "capturedAt": "2026-10-31T09:35:27.852952Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/27721",
+      "finalUrl": "https://understat.com/getMatchData/27721",
+      "rawSha256": "f7aa21cfa67fc86e9507eb9ada6ad571116dd8ec09b51c274c58af587ae73d07",
+      "rawBytes": 4477,
+      "capturedAt": "2026-10-31T09:35:27.889952Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30009",
+      "finalUrl": "https://understat.com/getMatchData/30009",
+      "rawSha256": "7ca93983e7c860c0ba951d3a76b2969ad4369903bf073f69bc35b3f3bf1f614c",
+      "rawBytes": 4424,
+      "capturedAt": "2026-10-31T09:35:27.937044Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "understat_match_json",
+      "url": "https://understat.com/getMatchData/30072",
+      "finalUrl": "https://understat.com/getMatchData/30072",
+      "rawSha256": "d998d5c979cd824d434f1fadfad4502262de9b84e43b91fef0707b026e81db87",
+      "rawBytes": 4817,
+      "capturedAt": "2026-10-31T09:35:28.100139Z",
+      "status": 200,
+      "contentEncoding": "gzip",
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+      "finalUrl": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+      "rawSha256": "031b6c0b085589c6bb6ed68f6f99a10deb6a5387831b146978d0e7b785421ec3",
+      "rawBytes": 235729,
+      "capturedAt": "2026-10-31T09:37:53.704479Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+      "finalUrl": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+      "rawSha256": "e6f08273e6e647c662b64f27e49971b0c97f2b7b7493a4c07532c09ae00c601d",
+      "rawBytes": 554137,
+      "capturedAt": "2026-10-31T09:37:54.110629Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+      "finalUrl": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+      "rawSha256": "05badb0cf828af0b7b9365d242de5881d10cce9087293198d447ad00e61ff877",
+      "rawBytes": 84217,
+      "capturedAt": "2026-10-31T09:37:54.397839Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+      "finalUrl": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+      "rawSha256": "7c083def07428bf6ffd6111fbd2c520eb8c6e039939415f627be6c3be9e765a5",
+      "rawBytes": 204824,
+      "capturedAt": "2026-10-31T09:37:54.693468Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+      "finalUrl": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+      "rawSha256": "64e086dbfd5a3a8ad03ec25c8994a6a09098edd9b275b56d9fb96dd705fed72a",
+      "rawBytes": 31836,
+      "capturedAt": "2026-10-31T09:37:55.091655Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_club_schedule",
+      "url": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+      "finalUrl": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+      "rawSha256": "3d98c8e218ef21eccb60d8c0e2c025356f471b1fad7526ae692831493cfaa211",
+      "rawBytes": 136293,
+      "capturedAt": "2026-10-31T09:37:55.258703Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "cp1252"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+      "finalUrl": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+      "rawSha256": "ca1cc783b85799aa3ffa934c73dc32609c52b4b61f9eb012f550786d3b3dcbe1",
+      "rawBytes": 43182,
+      "capturedAt": "2026-10-31T09:40:18.257945Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+      "finalUrl": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+      "rawSha256": "2bdf3d9eafde1b613317defbdcc31f41b6c2947c2ed6ad8e8e3aff425757568c",
+      "rawBytes": 308148,
+      "capturedAt": "2026-10-31T09:40:19.470737Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8-sig"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+      "finalUrl": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+      "rawSha256": "062c9b09e6a1ab8180942fc282d2583a71dea774df5704d8f0474cf1d4518883",
+      "rawBytes": 59257,
+      "capturedAt": "2026-10-31T09:40:19.846980Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+      "finalUrl": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+      "rawSha256": "c0c85ba00a046489c3c5e1295e1356cd668538d47b9d365767073ac77a7ec977",
+      "rawBytes": 275773,
+      "capturedAt": "2026-10-31T09:40:20.632275Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+      "finalUrl": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+      "rawSha256": "8a24cf8e3efbc4d5772ea820b36716fdb97dcd2e0262d4ead09bb5e9d31680c8",
+      "rawBytes": 179608,
+      "capturedAt": "2026-10-31T09:40:20.952321Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+      "finalUrl": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+      "rawSha256": "c66dc73b4efe9f36ced9a35850e2930a2dcd85ee8f5e4e75cb8141a7989f4cbe",
+      "rawBytes": 149296,
+      "capturedAt": "2026-10-31T09:40:21.733872Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+      "finalUrl": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+      "rawSha256": "0f7b4451e6d9db575fc4cfe37b217169fe2d35166aba943eb891918be05b5358",
+      "rawBytes": 133206,
+      "capturedAt": "2026-10-31T09:40:21.994355Z",
+      "status": 200,
+      "contentEncoding": null
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+      "finalUrl": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+      "rawSha256": "2089feceae88c2d21b6d5fa9c50885de1085f2ed95913b2a78425c5e498e1239",
+      "rawBytes": 184079,
+      "capturedAt": "2026-10-31T09:40:22.639659Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+      "finalUrl": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+      "rawSha256": "e2d037ed893d93ea2e8f1a23f981aa9799b8aea69251017c20dbf79c03fd032d",
+      "rawBytes": 231537,
+      "capturedAt": "2026-10-31T09:40:23.512664Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+      "finalUrl": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+      "rawSha256": "187a9ff4de9dfa90b2608bc2c4b2ab85fbd6dc42f40beed468a5af4554310be8",
+      "rawBytes": 84561,
+      "capturedAt": "2026-10-31T09:40:24.685576Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "UTF-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+      "finalUrl": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+      "rawSha256": "a1f3c1a338a5e28ddbf61c532f40274e3c3ff570605e9f6382ba4a3257392c48",
+      "rawBytes": 215207,
+      "capturedAt": "2026-10-31T09:40:24.979995Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_historical_calendar",
+      "url": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+      "finalUrl": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+      "rawSha256": "e9674abc020e59e9bdb30d9f62f0fc2bece43556bf7a4440ba0bce72b513cf5e",
+      "rawBytes": 337146,
+      "capturedAt": "2026-10-31T09:40:25.450461Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "official_dfb_court_decision",
+      "url": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+      "finalUrl": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+      "rawSha256": "d4d552d7c9029324cfad37b93b0e2fdc764ed3516a74e06162f51e68a12ca19e",
+      "rawBytes": 29340,
+      "capturedAt": "2026-10-31T09:41:17.879407Z",
+      "status": 200,
+      "contentEncoding": null,
+      "decodedEncoding": "utf-8"
+    },
+    {
+      "source": "ogcnice_schedule_change",
+      "url": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+      "finalUrl": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+      "rawSha256": "491d4be970a280b7c725fdbdd5c54d696363f0663c8f27a3e5b468dbf1a8d893",
+      "rawBytes": 96125,
+      "capturedAt": "2026-10-31T09:36:17.033172Z",
+      "status": 200,
+      "contentEncoding": null
+    },
+    {
+      "source": "ogcnice_matchday_information",
+      "url": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+      "finalUrl": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+      "rawSha256": "79220e8a515c528e46f13769335f2a380f5f17e30bec737efe49587ae6159fff",
+      "rawBytes": 101701,
+      "capturedAt": "2026-10-31T09:36:17.282535Z",
+      "status": 200,
+      "contentEncoding": null
+    },
+    {
+      "source": "staderennais_result_report",
+      "url": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+      "finalUrl": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+      "rawSha256": "ef8329d0627b933394cf0e56e7d0e67710e9cdeb9c0a157308b0f25638d53032",
+      "rawBytes": 207167,
+      "capturedAt": "2026-10-31T09:36:17.662810Z",
+      "status": 200,
+      "contentEncoding": null
+    }
+  ],
+  "primaryDetailSample": {
+    "selection": "up_to_N_per_league_benchmark_ranked_by_most_CSV_differing_fields_then_matchId",
+    "sampleRepresentative": false,
+    "requestedPerLeague": 5,
+    "requested": 25,
+    "verifiedMatches": 25,
+    "comparedFields": 200,
+    "differingFields": 0,
+    "matches": [
+      {
+        "matchId": "understat_28024",
+        "competition": "Bundesliga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28024",
+          "finalUrl": "https://understat.com/getMatchData/28024",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:25.948992Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 3629,
+          "rawSha256": "6141c8ef00e2dae19ea04f3258a4604bc92e1d33f2f9736c53656c9c2c4c27a3",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/48147ca50ba6b7ddcb1c31341bfba6c0a0a1e16e59f2e3241dd6776ba06d943d.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayTotalShots",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 7,
+            "understatDetails": 7,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30260",
+        "competition": "Bundesliga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30260",
+          "finalUrl": "https://understat.com/getMatchData/30260",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:25.955518Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 5114,
+          "rawSha256": "c53856d3dd4bebd3c84e7ad28f8eadfdf4e09bcd0fe23892691d9efe7eecf415",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/f220efb8689587138061c0a3b39d5a48ad27f01492d8e13538dd47ed92c6a3e2.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeShotsOnTarget"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 26,
+            "understatDetails": 26,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 12,
+            "understatDetails": 12,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 8,
+            "understatDetails": 8,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30314",
+        "competition": "Bundesliga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30314",
+          "finalUrl": "https://understat.com/getMatchData/30314",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:25.948992Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4780,
+          "rawSha256": "380051c37dc9c3b0a3a34024e30675dc6d20cb9ec653ea943f95731e68f6d95f",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/72f89c95f317573601f8b9a3f606fb18fdf52fe21647b7f45187ab278c013055.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "homeTotalShots",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 12,
+            "understatDetails": 12,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 15,
+            "understatDetails": 15,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30319",
+        "competition": "Bundesliga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30319",
+          "finalUrl": "https://understat.com/getMatchData/30319",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.194208Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 5008,
+          "rawSha256": "2aa854f9c1f86170af011aad0623a6da2888234023c5b94e8a17c216d507689c",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/10c8bde2059632eb2fd849ac4e70e5417af5242aaf8f4a7691e38ee6f82290d3.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 18,
+            "understatDetails": 18,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 19,
+            "understatDetails": 19,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30449",
+        "competition": "Bundesliga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30449",
+          "finalUrl": "https://understat.com/getMatchData/30449",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.230728Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4966,
+          "rawSha256": "3a69591978a7f8b8445b1969e052ac854b6b61d11f46136c38841af1e425106f",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/f3f2abad12f74caa67b056378ef991bb9c4870a2490721a6f23851e53a577578.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayYellowCards",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 20,
+            "understatDetails": 20,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 11,
+            "understatDetails": 11,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27280",
+        "competition": "La Liga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/27280",
+          "finalUrl": "https://understat.com/getMatchData/27280",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.234978Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4186,
+          "rawSha256": "4b6231dd92a10158a01814c4eb7160dde0f755088ce6b93092fc273d6f305bd8",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/a1833c51a1aea24e7cff8a2f858f1ad0a7a7e69d47cbc7c55e63303d7e3d6da7.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "awayYellowCards",
+          "homeShotsOnTarget",
+          "homeTotalShots",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29254",
+        "competition": "La Liga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/29254",
+          "finalUrl": "https://understat.com/getMatchData/29254",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.478279Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 5312,
+          "rawSha256": "a29bf885ac69e7494bdb1a7158ba3b473e12d9989da62c4a491d75488d2f45ba",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/e27d1256135723b5dd73db479daedd82dfbc09471045df9906c9114a27550835.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayYellowCards",
+          "homeRedCards",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 23,
+            "understatDetails": 23,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 10,
+            "understatDetails": 10,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 15,
+            "understatDetails": 15,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27260",
+        "competition": "La Liga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/27260",
+          "finalUrl": "https://understat.com/getMatchData/27260",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.524947Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4326,
+          "rawSha256": "2e6e3e9d3531d0bed46f69e1fdd588f73f86cf2b40786d25612acc3825f8e435",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/9b289b798b94f6a13e721adc503b9736c94d8ba3528e87b523b3c8869fcea5db.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayYellowCards",
+          "homeShotsOnTarget",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29202",
+        "competition": "La Liga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/29202",
+          "finalUrl": "https://understat.com/getMatchData/29202",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.511159Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4420,
+          "rawSha256": "05734308ccc0f90d18a10d4463db472fae922ee569efe6d372b795a2eb952b46",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/41fa03a976d5622e9bbb757ef258fa105f964d02243dfa4a61a0f84b68394667.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 7,
+            "understatDetails": 7,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 15,
+            "understatDetails": 15,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29340",
+        "competition": "La Liga",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/29340",
+          "finalUrl": "https://understat.com/getMatchData/29340",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.796733Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4120,
+          "rawSha256": "4b60bb0199812fc65eb9cf4f525dcba489e0de098c5180b0752a3f1d15dfe0ba",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/6e35d8b26e5a70d92576244accf407b53c945d38d6b71aad463a17ad77489be6.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "awayYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 8,
+            "understatDetails": 8,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 12,
+            "understatDetails": 12,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28312",
+        "competition": "Ligue 1",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28312",
+          "finalUrl": "https://understat.com/getMatchData/28312",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.790694Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4242,
+          "rawSha256": "2a6059e369b7e71a9b1f7fbce0952839b7fae1a8cd618320cbd966dbf5aa2d82",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/f526d993dec20cedf3834af892eced78433bde035165337ff2f323cbe0342b87.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28314",
+        "competition": "Ligue 1",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28314",
+          "finalUrl": "https://understat.com/getMatchData/28314",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:26.814107Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4376,
+          "rawSha256": "a120439dee6eff60029149c3dfaeea9d32946970aaebbee2d26b3bb5a3e8c1cf",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/ef720ea65c9ad0e7ee32bc3a51f85e979c6a12c703b98f7eac1311a5259c51fc.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayTotalShots",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 17,
+            "understatDetails": 17,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 7,
+            "understatDetails": 7,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 7,
+            "understatDetails": 7,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_29668",
+        "competition": "Ligue 1",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/29668",
+          "finalUrl": "https://understat.com/getMatchData/29668",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.058246Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4221,
+          "rawSha256": "d6fa6f9102aca7005e10aa2fef042e1222bd493b7ad64dea9792d1d6ad0afbc1",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/73f52ccb3cb0da2cf45515940dbffcc87fcd47dfe5d1bbe0c566057e0fcb8465.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "awayYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 8,
+            "understatDetails": 8,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28259",
+        "competition": "Ligue 1",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28259",
+          "finalUrl": "https://understat.com/getMatchData/28259",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.102246Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4837,
+          "rawSha256": "0572608a36f64f357c4a996025af821ee7227bf3b2abf6784e606053b46847cd",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/15fed8005cf0b01fb5b62981bbefcedd79bc7ef4d87dde892e22ccbb0efad76a.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayTotalShots",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 13,
+            "understatDetails": 13,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 17,
+            "understatDetails": 17,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28264",
+        "competition": "Ligue 1",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28264",
+          "finalUrl": "https://understat.com/getMatchData/28264",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.110247Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4312,
+          "rawSha256": "00b0eecc5aab91dc3674c4d06aa5819957c5cd363c87248e5d39e3019033e65c",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/4b0dbbce63025c2c6db5caf661f1e9fd43a82e702e7af3fda64586af9748d53e.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "homeShotsOnTarget"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 13,
+            "understatDetails": 13,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 12,
+            "understatDetails": 12,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28910",
+        "competition": "Premier League",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28910",
+          "finalUrl": "https://understat.com/getMatchData/28910",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.335861Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4842,
+          "rawSha256": "60c9fcfff7dc773b1fffe9cbdd13261fb0f5ac2053e0d01617780d158630d499",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/5e7b0d0c4e466a608fbaf2312aa0916afc44bd1bdd2ced9bb1ac66849d7f9bf6.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "awayYellowCards",
+          "homeShotsOnTarget"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 15,
+            "understatDetails": 15,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28817",
+        "competition": "Premier League",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28817",
+          "finalUrl": "https://understat.com/getMatchData/28817",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.380078Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4403,
+          "rawSha256": "477936d9b9bfe5bc03ed20a17eeda775a72b8e44bc2ae6b7a45a30eed02e0e54",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/64972ad7eefdde64f32d9110d5ebf437d2e2d0799e6aa5d55897e4612e0b82fc.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayTotalShots",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 12,
+            "understatDetails": 12,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 13,
+            "understatDetails": 13,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28877",
+        "competition": "Premier League",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28877",
+          "finalUrl": "https://understat.com/getMatchData/28877",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.376073Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4491,
+          "rawSha256": "9fcf3333494f917a3f7a9920816e49f1d5a2bfed8bb217bdead6a73f64ae1159",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/200b46b54ab2bc296ac081c094b48bacf1719a6b8d4f905b8cc6d0248d6d0f53.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayTotalShots",
+          "homeShotsOnTarget",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 8,
+            "understatDetails": 8,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 13,
+            "understatDetails": 13,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_28949",
+        "competition": "Premier League",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/28949",
+          "finalUrl": "https://understat.com/getMatchData/28949",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.597024Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 5122,
+          "rawSha256": "e98fcf58de34665787323162d984a1054f440c375d5bb68f2b0e571a2e5da2a3",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/043062f5ae83d6eec9a0f460ba6d96442e3c986a7f8a3b7f266984120d79d010.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeShotsOnTarget"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 15,
+            "understatDetails": 15,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 21,
+            "understatDetails": 21,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_26885",
+        "competition": "Premier League",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/26885",
+          "finalUrl": "https://understat.com/getMatchData/26885",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.642149Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4058,
+          "rawSha256": "0c4c26c420ae8ece52175b5f957ded0db7fa81b2397ea07ffd8062d6599bc2cf",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/49e793b599e533b1c24747fd7e760cd592972ff6fdd1cc98015260bce2ce9064.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 13,
+            "understatDetails": 13,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27643",
+        "competition": "Serie A",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/27643",
+          "finalUrl": "https://understat.com/getMatchData/27643",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.640429Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4950,
+          "rawSha256": "e61d83c8d4e1257b60e595a10826cab93fa92d3f2687e526bc150b711881f084",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/fb85868427e70b23257f2f0deb402459cbc75582fad7a3f428431822a7922ea7.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayYellowCards",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27704",
+        "competition": "Serie A",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/27704",
+          "finalUrl": "https://understat.com/getMatchData/27704",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.852952Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 3954,
+          "rawSha256": "585d2220bbda301eb83b62b79e9175aa68bcf88f3bc2e54d9a37bf427c276db2",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/3597ec8a92ab643a985d25c40857dc9e4470368878c70ce24dd2169fb947c04e.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayYellowCards",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 7,
+            "understatDetails": 7,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 3,
+            "understatDetails": 3,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_27721",
+        "competition": "Serie A",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/27721",
+          "finalUrl": "https://understat.com/getMatchData/27721",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.889952Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4477,
+          "rawSha256": "f7aa21cfa67fc86e9507eb9ada6ad571116dd8ec09b51c274c58af587ae73d07",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/6be6ae75ec7c9a7098e1cc1ec77ada94d1d6d0d0529218268dae2beb8c41e055.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 5,
+            "understatDetails": 5,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30009",
+        "competition": "Serie A",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30009",
+          "finalUrl": "https://understat.com/getMatchData/30009",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:27.937044Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4424,
+          "rawSha256": "7ca93983e7c860c0ba951d3a76b2969ad4369903bf073f69bc35b3f3bf1f614c",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/0015219084c086759f1efccba38d7e8406ee4e16ecce316768639f07dc2f2679.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "awayShotsOnTarget",
+          "awayTotalShots",
+          "homeTotalShots"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 9,
+            "understatDetails": 9,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 6,
+            "understatDetails": 6,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      },
+      {
+        "matchId": "understat_30072",
+        "competition": "Serie A",
+        "capture": {
+          "source": "understat_match_json",
+          "url": "https://understat.com/getMatchData/30072",
+          "finalUrl": "https://understat.com/getMatchData/30072",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:35:28.100139Z",
+          "contentType": "text/javascript;charset=UTF-8",
+          "contentEncoding": "gzip",
+          "rawBytes": 4817,
+          "rawSha256": "d998d5c979cd824d434f1fadfad4502262de9b84e43b91fef0707b026e81db87",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/bed67877a123980f06d2f1f49f4eab82806a98dd3c45a4fbc99c179f8112cdd5.raw",
+          "decodedEncoding": "UTF-8"
+        },
+        "csvDifferingFields": [
+          "homeShotsOnTarget",
+          "homeTotalShots",
+          "homeYellowCards"
+        ],
+        "comparisons": [
+          {
+            "field": "homeTotalShots",
+            "dataset": 16,
+            "understatDetails": 16,
+            "equal": true
+          },
+          {
+            "field": "homeShotsOnTarget",
+            "dataset": 4,
+            "understatDetails": 4,
+            "equal": true
+          },
+          {
+            "field": "homeYellowCards",
+            "dataset": 1,
+            "understatDetails": 1,
+            "equal": true
+          },
+          {
+            "field": "homeRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          },
+          {
+            "field": "awayTotalShots",
+            "dataset": 14,
+            "understatDetails": 14,
+            "equal": true
+          },
+          {
+            "field": "awayShotsOnTarget",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayYellowCards",
+            "dataset": 2,
+            "understatDetails": 2,
+            "equal": true
+          },
+          {
+            "field": "awayRedCards",
+            "dataset": 0,
+            "understatDetails": 0,
+            "equal": true
+          }
+        ]
+      }
+    ]
+  },
+  "clockDossiers": {
+    "benchmark-clock-evidence.json": {
+      "schemaVersion": "challenger-original-clock-evidence-v1",
+      "capturedAt": "2026-10-31T09:38:15.730058Z",
+      "status": "five_invalid_post_kickoff_benchmark_targets_one_early_postponed_fixture",
+      "matches": [
+        {
+          "matchId": "understat_27724",
+          "fixture": "Genoa - Atalanta",
+          "benchmark": true,
+          "frozenKickoffAt": "2025-05-18T13:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2025-05-18T15:00:00.000Z",
+          "forecastAt": "2025-05-18T01:07:00.000Z",
+          "officialScheduleLocal": "2025-05-17 20:45",
+          "localZoneInterpretation": "Europe/Rome",
+          "officialNominalKickoffUtc": "2025-05-17T18:45:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2025-05-16",
+          "forecastAfterOfficialKickoff": true,
+          "secondsForecastAfterOfficialKickoff": 22920,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+            "finalUrl": "https://www.atalanta.it/news/i-convocati-per-genoa-atalanta-x2722",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:53.704479Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 235729,
+            "rawSha256": "031b6c0b085589c6bb6ed68f6f99a10deb6a5387831b146978d0e7b785421ec3",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/e4f8e5bed05a5fc31a0043cf02236865223b674cb3cfb6fb5dd0f2d82402b6d7.raw",
+            "decodedEncoding": "utf-8"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": []
+        },
+        {
+          "matchId": "understat_29218",
+          "fixture": "Valencia - Real Oviedo",
+          "benchmark": true,
+          "frozenKickoffAt": "2025-09-29T19:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2025-09-29T21:00:00.000Z",
+          "forecastAt": "2025-09-29T01:07:00.000Z",
+          "officialScheduleLocal": "2025-09-30 20:00",
+          "localZoneInterpretation": "Europe/Madrid",
+          "officialNominalKickoffUtc": "2025-09-30T18:00:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2025-09-29",
+          "forecastAfterOfficialKickoff": false,
+          "secondsForecastAfterOfficialKickoff": -147180,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+            "finalUrl": "https://www.valenciacf.com/aplazado-el-partido-del-valencia-cf-ante-el-real-oviedo1",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:54.110629Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 554137,
+            "rawSha256": "e6f08273e6e647c662b64f27e49971b0c97f2b7b7493a4c07532c09ae00c601d",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/b7134d733fc967ab85a2c3f11f11846f6ab1d4294f92475e68cefa46a04dd9a2.raw",
+            "decodedEncoding": "UTF-8"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": [
+            "For Valencia: prior schedule2025-09-29 21:00 local, postponed2025-09-30 20:00 local; CSV19:00 raw has undeclared timezone."
+          ]
+        },
+        {
+          "matchId": "understat_29720",
+          "fixture": "Brest - Lorient",
+          "benchmark": true,
+          "frozenKickoffAt": "2026-02-08T14:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2026-02-08T16:00:00.000Z",
+          "forecastAt": "2026-02-08T02:07:00.000Z",
+          "officialScheduleLocal": "2026-02-07 19:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalKickoffUtc": "2026-02-07T18:00:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2026-02-06",
+          "forecastAfterOfficialKickoff": true,
+          "secondsForecastAfterOfficialKickoff": 29220,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+            "finalUrl": "https://www.fclorient.bzh/stade-brestois-29-fc-lorient-les-informations-pratiques-pour-le-deplacement/",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:54.397839Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 84217,
+            "rawSha256": "05badb0cf828af0b7b9365d242de5881d10cce9087293198d447ad00e61ff877",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/8add708e4eecda4ca4f0102a2fecbd2e35eb8e8840865c68730a83ab284177d5.raw",
+            "decodedEncoding": "UTF-8"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": []
+        },
+        {
+          "matchId": "understat_29722",
+          "fixture": "Lens - Rennes",
+          "benchmark": true,
+          "frozenKickoffAt": "2026-02-08T14:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2026-02-08T16:00:00.000Z",
+          "forecastAt": "2026-02-08T02:07:00.000Z",
+          "officialScheduleLocal": "2026-02-07 17:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalKickoffUtc": "2026-02-07T16:00:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2026-01-15",
+          "forecastAfterOfficialKickoff": true,
+          "secondsForecastAfterOfficialKickoff": 36420,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+            "finalUrl": "https://www.staderennais.com/actualites/programmation/lens-srfc-programme",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:54.693468Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 204824,
+            "rawSha256": "7c083def07428bf6ffd6111fbd2c520eb8c6e039939415f627be6c3be9e765a5",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/b4c673f2c4b818bf05a2abc2f05546011f0d2d3b498214643d533182fde1fe4a.raw",
+            "decodedEncoding": "UTF-8"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": []
+        },
+        {
+          "matchId": "understat_29723",
+          "fixture": "Metz - Lille",
+          "benchmark": true,
+          "frozenKickoffAt": "2026-02-08T14:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2026-02-08T16:00:00.000Z",
+          "forecastAt": "2026-02-08T02:07:00.000Z",
+          "officialScheduleLocal": "2026-02-06 20:45",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalKickoffUtc": "2026-02-06T19:45:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2026-02-06",
+          "forecastAfterOfficialKickoff": true,
+          "secondsForecastAfterOfficialKickoff": 109320,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+            "finalUrl": "https://www.fcmetz.com/articles/metz-lille%2C-les-infos-pratiques",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:55.091655Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 31836,
+            "rawSha256": "64e086dbfd5a3a8ad03ec25c8994a6a09098edd9b275b56d9fb96dd705fed72a",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/de41b77793def66abd1140b932570a9a8e603f7f5da319b7bbaf23bea276ed4d.raw",
+            "decodedEncoding": "utf-8"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": []
+        },
+        {
+          "matchId": "understat_29724",
+          "fixture": "Nantes - Lyon",
+          "benchmark": true,
+          "frozenKickoffAt": "2026-02-08T14:00:00.000Z",
+          "frozenOutcomeAvailableAt": "2026-02-08T16:00:00.000Z",
+          "forecastAt": "2026-02-08T02:07:00.000Z",
+          "officialScheduleLocal": "2026-02-07 21:05",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalKickoffUtc": "2026-02-07T20:05:00Z",
+          "officialAnnouncementClaimedPublicationDate": "2026-01-15",
+          "forecastAfterOfficialKickoff": true,
+          "secondsForecastAfterOfficialKickoff": 21720,
+          "capture": {
+            "source": "official_club_schedule",
+            "url": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+            "finalUrl": "https://www.fcnantes.com/articles/article2809.php?num=48436",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:37:55.258703Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 136293,
+            "rawSha256": "3d98c8e218ef21eccb60d8c0e2c025356f471b1fad7526ae692831493cfaa211",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/18b60a8dbc4019835d1da7e844fbd414380c0fd9c4ccc61e2b612b706269cc25.raw",
+            "decodingFallback": "utf8_failed_cp1252_used",
+            "decodedEncoding": "cp1252"
+          },
+          "interpretation": "original source schedule is definitive over naive Understat datetime; no automatic correction",
+          "notes": []
+        }
+      ],
+      "limitations": [
+        "Current page captures preserve content observed today, not cryptographic proof of historical availability.",
+        "Publication dates are source-claimed, calendar timezones interpreted from home-club locale.",
+        "Published kickoff schedule is distinct from independently observed actual whistle time.",
+        "No DB/service/model-A edits and no automatic prospective certification."
+      ]
+    },
+    "historical-clock-evidence.json": {
+      "schemaVersion": "challenger-historical-source-conflicts-v1",
+      "capturedAt": "2026-10-31T09:40:25.454436Z",
+      "matches": [
+        {
+          "matchId": "understat_22621",
+          "fixtureAsDataset": "Udinese - Roma",
+          "benchmark": false,
+          "kind": "completion_delayed_after_suspended_match",
+          "frozenKickoffAt": "2024-04-14T16:00:00.000Z",
+          "frozenScore": [
+            1,
+            2
+          ],
+          "officialScheduleOrCompletionLocal": "2024-04-25 20:00",
+          "localZoneInterpretation": "Europe/Rome",
+          "officialNominalUtc": "2024-04-25T18:00:00Z",
+          "sourceClaimedPublicationDate": "2024-04-19",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+            "finalUrl": "https://www.udinese.it/Apps/WebObjects/Udinese.woa/wa/viewSection?id=74517&lang=ita",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:18.257945Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 43182,
+            "rawSha256": "ca1cc783b85799aa3ffa934c73dc32609c52b4b61f9eb012f550786d3b3dcbe1",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/d5a842b87f24f9447e14c9d70baa9c05580e73a03b243f5fd2c628d824eac9a9.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_22842",
+          "fixtureAsDataset": "Granada - Athletic",
+          "benchmark": false,
+          "kind": "suspended_match_completed_before_understat_date",
+          "frozenKickoffAt": "2023-12-12T15:15:00.000Z",
+          "frozenScore": [
+            1,
+            1
+          ],
+          "officialScheduleOrCompletionLocal": "2023-12-11 21:00",
+          "localZoneInterpretation": "Europe/Madrid",
+          "officialNominalUtc": "2023-12-11T20:00:00Z",
+          "sourceClaimedPublicationDate": "2023-12-10",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+            "finalUrl": "https://www.athletic-club.eus/noticias/2023/12/10/el-athletic-club-granada-cf-se-reanudara-el-lunes-a-las-21-00-horas/",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:19.470737Z",
+            "contentType": "text/html",
+            "contentEncoding": null,
+            "rawBytes": 308148,
+            "rawSha256": "2bdf3d9eafde1b613317defbdcc31f41b6c2947c2ed6ad8e8e3aff425757568c",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/e0d68f195de2e5b91a4112c2fa9e1376d857bfca6b90d40ba9ee00f4bd12e82e.raw",
+            "decodedEncoding": "utf-8-sig"
+          }
+        },
+        {
+          "matchId": "understat_23377",
+          "fixtureAsDataset": "Nice - Lille",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2023-08-12T18:00:00.000Z",
+          "frozenScore": [
+            1,
+            1
+          ],
+          "officialScheduleOrCompletionLocal": "2023-08-11 21:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2023-08-11T19:00:00Z",
+          "sourceClaimedPublicationDate": "2023-07-26",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+            "finalUrl": "https://www.losc.fr/actualites/2023-07-26/la-programmation-de-ogcn-losc-est-connue",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:19.846980Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 59257,
+            "rawSha256": "062c9b09e6a1ab8180942fc282d2583a71dea774df5704d8f0474cf1d4518883",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/1f01d3056ba75d4edea9fc4634b0174dc77a8b1d5bbe961c0cbc4ab71517151d.raw",
+            "decodedEncoding": "utf-8"
+          }
+        },
+        {
+          "matchId": "understat_22676",
+          "fixtureAsDataset": "Cagliari - Fiorentina",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2024-05-24T16:00:00.000Z",
+          "frozenScore": [
+            2,
+            3
+          ],
+          "officialScheduleOrCompletionLocal": "2024-05-23 20:45",
+          "localZoneInterpretation": "Europe/Rome",
+          "officialNominalUtc": "2024-05-23T18:45:00Z",
+          "sourceClaimedPublicationDate": "2024-05-22",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+            "finalUrl": "https://cagliaricalcio.com/en/news/referee-designation-prontera-will-officiate-cagliari-fiorentina/",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:20.632275Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 275773,
+            "rawSha256": "c0c85ba00a046489c3c5e1295e1356cd668538d47b9d365767073ac77a7ec977",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/0b722668b015b1ea8bd9630ce70212033327ea5b2416e05d9247930d15d2bb58.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_27849",
+          "fixtureAsDataset": "St Pauli - Holstein Kiel",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2024-11-30T14:30:00.000Z",
+          "frozenScore": [
+            3,
+            1
+          ],
+          "officialScheduleOrCompletionLocal": "2024-11-29 20:30",
+          "localZoneInterpretation": "Europe/Berlin",
+          "officialNominalUtc": "2024-11-29T19:30:00Z",
+          "sourceClaimedPublicationDate": "2024-09-05",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+            "finalUrl": "https://www.holstein-kiel.de/news-profis/dfl-terminiert-spieltage-6-bis-12-flutlichtspiel-beim-fc-st-pauli/",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:20.952321Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 179608,
+            "rawSha256": "8a24cf8e3efbc4d5772ea820b36716fdb97dcd2e0262d4ead09bb5e9d31680c8",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/53420512e0649200c7ee7fd15290a0323d1e06122d80d1f12a9ff811f1846532.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_29820",
+          "fixtureAsDataset": "Metz - Monaco",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2026-05-03T13:00:00.000Z",
+          "frozenScore": [
+            1,
+            2
+          ],
+          "officialScheduleOrCompletionLocal": "2026-05-02 19:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-05-02T17:00:00Z",
+          "sourceClaimedPublicationDate": "2026-04-13",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+            "finalUrl": "https://www.asmonaco.com/fr/news/date-horaire-chaine-decouvre-la-prog-du-deplacement-a-metz",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:21.733872Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 149296,
+            "rawSha256": "c66dc73b4efe9f36ced9a35850e2930a2dcd85ee8f5e4e75cb8141a7989f4cbe",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/d9f1ecb616f770e478f71ee5608f7df996fcd3e95ba7c346b3b51cc82afcbd51.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_29821",
+          "fixtureAsDataset": "Nantes - Marseille",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect_and_earlier_official_announcement_obsolete",
+          "frozenKickoffAt": "2026-05-03T13:00:00.000Z",
+          "frozenScore": [
+            3,
+            0
+          ],
+          "officialScheduleOrCompletionLocal": "2026-05-02 15:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-05-02T13:00:00Z",
+          "sourceClaimedPublicationDate": "2026-04-30",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+            "finalUrl": "https://www.fcnantes.com/img/2526/arretepref300426.pdf",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:21.994355Z",
+            "contentType": "application/pdf",
+            "contentEncoding": null,
+            "rawBytes": 133206,
+            "rawSha256": "0f7b4451e6d9db575fc4cfe37b217169fe2d35166aba943eb891918be05b5358",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/8e3099494595f10d741e11c753f44f8ef79607e36b9a87f73017bcb01e5f4237.raw"
+          }
+        },
+        {
+          "matchId": "understat_29822",
+          "fixtureAsDataset": "Nice - Lens",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2026-05-03T13:00:00.000Z",
+          "frozenScore": [
+            1,
+            1
+          ],
+          "officialScheduleOrCompletionLocal": "2026-05-02 21:05",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-05-02T19:05:00Z",
+          "sourceClaimedPublicationDate": "2026-04-10",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+            "finalUrl": "https://www.rclens.fr/fr/programmation-ogc-nice-rc-lensligue1-mcdonalds-20260502",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:22.639659Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 184079,
+            "rawSha256": "2089feceae88c2d21b6d5fa9c50885de1085f2ed95913b2a78425c5e498e1239",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/cc6a596bb9741a152d7a99ec13d61dfb5ced34c8b7a7b68b31a2c00551b7a556.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_29824",
+          "fixtureAsDataset": "PSG - Lorient",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect",
+          "frozenKickoffAt": "2026-05-03T13:00:00.000Z",
+          "frozenScore": [
+            2,
+            2
+          ],
+          "officialScheduleOrCompletionLocal": "2026-05-02 17:00",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-05-02T15:00:00Z",
+          "sourceClaimedPublicationDate": "2026-05-01",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+            "finalUrl": "https://www.psg.fr/content/le-programme-de-la-32e-journee-de-ligue-1-paris-saint-germain-fc-lorient-20252026",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:23.512664Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 231537,
+            "rawSha256": "e2d037ed893d93ea2e8f1a23f981aa9799b8aea69251017c20dbf79c03fd032d",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/3fe65ede98b8f4d8ff6a2b3aecb9fb2b274387bb97d220c080a9c0dca75bf1ce.raw",
+            "decodedEncoding": "utf-8"
+          }
+        },
+        {
+          "matchId": "understat_32010",
+          "fixtureAsDataset": "Toulouse - Troyes",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect_early_final_result_risk",
+          "frozenKickoffAt": "2026-10-24T15:15:00.000Z",
+          "frozenScore": [
+            0,
+            0
+          ],
+          "officialScheduleOrCompletionLocal": "2026-10-25 17:15",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-10-25T16:15:00Z",
+          "sourceClaimedPublicationDate": "2026-10-23",
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+            "finalUrl": "https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:24.685576Z",
+            "contentType": "text/html; charset=UTF-8",
+            "contentEncoding": null,
+            "rawBytes": 84561,
+            "rawSha256": "187a9ff4de9dfa90b2608bc2c4b2ab85fbd6dc42f40beed468a5af4554310be8",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/58acc20c2670dc89caf1b7676de41887f5960428f15dd3ec8971ece4c58702ad.raw",
+            "decodedEncoding": "UTF-8"
+          }
+        },
+        {
+          "matchId": "understat_32011",
+          "fixtureAsDataset": "PSG - Lyon",
+          "benchmark": false,
+          "kind": "calendar_date_incorrect_early_final_result_risk",
+          "frozenKickoffAt": "2026-10-25T19:45:00.000Z",
+          "frozenScore": [
+            2,
+            0
+          ],
+          "officialScheduleOrCompletionLocal": "2026-10-26 20:30",
+          "localZoneInterpretation": "Europe/Paris",
+          "officialNominalUtc": "2026-10-26T19:30:00Z",
+          "sourceClaimedPublicationDate": null,
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+            "finalUrl": "https://www.psg.fr/content/cp-mise-a-jour-programme-media-de-lequipe-premiere-du-24-au-26-octobre-2026",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:24.979995Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 215207,
+            "rawSha256": "a1f3c1a338a5e28ddbf61c532f40274e3c3ff570605e9f6382ba4a3257392c48",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/061a9027d910b8211219ae19d7ada56fa702dfb28c8d575cde5469ba7ab4a911.raw",
+            "decodedEncoding": "utf-8"
+          }
+        },
+        {
+          "matchId": "understat_31948",
+          "fixtureAsDataset": "PSG - Rennes (Understat orientation)",
+          "benchmark": false,
+          "kind": "home_away_identity_inversion_official_event_Rennes_home",
+          "frozenKickoffAt": "2026-08-23T18:45:00.000Z",
+          "frozenScore": [
+            2,
+            2
+          ],
+          "officialScheduleOrCompletionLocal": null,
+          "localZoneInterpretation": null,
+          "officialNominalUtc": null,
+          "sourceClaimedPublicationDate": null,
+          "capture": {
+            "source": "official_historical_calendar",
+            "url": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+            "finalUrl": "https://www.psg.fr/matchs/football-masculin/20262027/paris-vs-rennes-2026-08-23",
+            "status": 200,
+            "capturedAt": "2026-10-31T09:40:25.450461Z",
+            "contentType": "text/html; charset=utf-8",
+            "contentEncoding": null,
+            "rawBytes": 337146,
+            "rawSha256": "e9674abc020e59e9bdb30d9f62f0fc2bece43556bf7a4440ba0bce72b513cf5e",
+            "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/b6b26820c40e8e320d512f60530c1958b8c4efff7439ee341698179bf12c60a6.raw",
+            "decodedEncoding": "utf-8"
+          },
+          "officialHome": "Rennes",
+          "officialAway": "Paris Saint-Germain",
+          "officialStadium": "Roazhon Park",
+          "officialScore": "2-2",
+          "interpretation": "Actual official match centre differs from old official programme and Understat side orientation. Quarantine is preferable to an automatic identity swap."
+        }
+      ],
+      "csvOnlyNotIndependentlyOfficiallyVerified": [
+        "understat_19973",
+        "understat_23378"
+      ],
+      "limitations": [
+        "Date or completion changes require new C-only as-of construction; never rewrite original predictions.",
+        "Suspended matches need outcome-availability after completion, not just a shifted kickoff.",
+        "Do not import aggregate final xG/statistics before resumption completion.",
+        "Current captures do not prove historical page availability.",
+        "Naive Understat and CSV times do not declare timezones.",
+        "All current DB/A/source service values preserved."
+      ]
+    },
+    "court-settlement-evidence.json": {
+      "matchId": "understat_27866",
+      "fixture": "Union Berlin - VfL Bochum",
+      "playedDate": "2024-12-14",
+      "sourceClaimedPublicationDate": "2025-01-09",
+      "playedScore": [
+        1,
+        1
+      ],
+      "awardedScore": [
+        0,
+        2
+      ],
+      "status": "source_semantics_disagreement_physical_score_vs_court_awarded_result",
+      "capture": {
+        "source": "official_dfb_court_decision",
+        "url": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+        "finalUrl": "https://www.dfb.de/news/dfb-sportgericht-wertet-bundesligaspiel-in-berlin-fuer-bochum",
+        "status": 200,
+        "capturedAt": "2026-10-31T09:41:17.879407Z",
+        "contentType": "text/html",
+        "contentEncoding": null,
+        "rawBytes": 29340,
+        "rawSha256": "d4d552d7c9029324cfad37b93b0e2fdc764ed3516a74e06162f51e68a12ca19e",
+        "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/6a657c6dbf78006282faa8f3a42ee0e2b45a237de648050d746ad93c9da174dd.raw",
+        "decodedEncoding": "utf-8"
+      },
+      "limitations": [
+        "An awarded result must not silently overwrite the on-pitch event statistics or xG.",
+        "Prediction targets and bookmaker settlement semantics require explicit policy; no real-money settlement is inferred.",
+        "Current source capture does not establish historical availability.",
+        "No DB/A/shared-service edits."
+      ]
+    },
+    "nice-rennes-kickoff-evidence.json": {
+      "matchId": "understat_32017",
+      "fixture": "Nice - Rennes",
+      "status": "cross_source_schedule_conflict_official_schedule_supports_frozen_time",
+      "capturedAt": "2026-10-31T09:36:17.704073Z",
+      "understat": {
+        "datetime": "2026-10-30 16:15:00",
+        "timezoneDeclared": false,
+        "result": "5-2"
+      },
+      "footballData": {
+        "url": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+        "matchRowPresentAtCapture": false
+      },
+      "officialClubSchedule": {
+        "date": "2026-10-30",
+        "localTime": "19:00",
+        "timezoneInterpretation": "Europe/Paris inferred from French home-club matchday schedule, not from naive Understat time",
+        "nominalKickoffUtc": "2026-10-30T18:00:00+00:00",
+        "previousSchedule": "2026-10-31 17:15 Europe/Paris",
+        "changeAnnouncementPublishedLocal": "2026-10-26 18:50",
+        "officialScore": "5-2"
+      },
+      "frozenForecastAt": "2026-10-30T17:35:04Z",
+      "secondsBeforeOfficialNominalKickoff": 1496,
+      "conclusion": "Forecast precedes the official published nominal kickoff by 24m56s; interpreting Understat naive16:15 as UTC incorrectly indicates post-kickoff. No retrospective timestamp rewrite and no automatic prospective certification.",
+      "limitations": [
+        "Current HTTP captures do not cryptographically prove what a page contained at forecast time.",
+        "Published fixture programme is distinct from independently observed actual whistle time.",
+        "Understat naive datetime does not independently identify a UTC instant."
+      ],
+      "captures": [
+        {
+          "source": "ogcnice_schedule_change",
+          "url": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+          "finalUrl": "https://www.ogcnice.com/index.php/fr/article/131046/nice-rennes-avance-a-vendredi-19h.html",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:36:17.033172Z",
+          "contentType": "text/html; charset=UTF-8",
+          "contentEncoding": null,
+          "rawBytes": 96125,
+          "rawSha256": "491d4be970a280b7c725fdbdd5c54d696363f0663c8f27a3e5b468dbf1a8d893",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/e691a4e2fdfd1d4a3da1486d6e73b482c2775b9ee1dc9f6c7b8e9dbb9fe52744.raw"
+        },
+        {
+          "source": "ogcnice_matchday_information",
+          "url": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+          "finalUrl": "https://www.ogcnice.com/index.php/fr/article/131065/les-infos-pratiques-pour-preparer-votre-venue-au-match.html",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:36:17.282535Z",
+          "contentType": "text/html; charset=UTF-8",
+          "contentEncoding": null,
+          "rawBytes": 101701,
+          "rawSha256": "79220e8a515c528e46f13769335f2a380f5f17e30bec737efe49587ae6159fff",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/8f816d89fd7515daac1f6860de6cbd567624c9e2be67fca47dc019327ce14d8d.raw"
+        },
+        {
+          "source": "staderennais_result_report",
+          "url": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+          "finalUrl": "https://www.staderennais.com/actualites/ligue-1-mcdonalds/soiree-sans-a-nice-5-2",
+          "status": 200,
+          "capturedAt": "2026-10-31T09:36:17.662810Z",
+          "contentType": "text/html; charset=UTF-8",
+          "contentEncoding": null,
+          "rawBytes": 207167,
+          "rawSha256": "ef8329d0627b933394cf0e56e7d0e67710e9cdeb9c0a157308b0f25638d53032",
+          "rawFile": "backend/artifacts/research/c-data-audit-20261031/sources/raw/b99a4b1744cc2f1bdbdc042ae5d380fc7ffe514017802b014e36567cb43399b6.raw"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Understat resta la fonte primaria. Le differenze con CSV supplementare non autorizzano sovrascritture.",
+    "I datetime Understat senza timezone sono confrontati solo come orari civili: nessun suffisso UTC inventato e nessuna certificazione dell'istante.",
+    "Le acquisizioni HTTP attuali verificano lo stato della fonte oggi, non provano disponibilità storica pre-forecast o assenza di revisioni.",
+    "L'export non include provenienza campo per campo: una differenza tra tiri/cartellini Understat e CSV non dimostra da sola errore del dato primario.",
+    "Nessuna quota CSV viene impiegata per ROI/CLV; nessuna modifica a database, motori, servizi o modello A.",
+    "Gli orfani richiedono un registro squadre: fornito.",
+    "Matching CSV solo data civile e identità squadre da Understat, senza fuzzy matching o tolleranze di data silenziose."
+  ],
+  "benchmarkInputFormatsVerified": [
+    "training_report",
+    "comparison_records",
+    "gzip_metric_bundle"
+  ],
+  "offlineReplay": {
+    "rawCapturesUnchanged": 122,
+    "httpCalls": 0
+  },
+  "persistedPrimaryStatistics": {
+    "schemaVersion": "c-persisted-primary-statistics-audit-v1",
+    "capturedAt": "2026-10-31T10:07:19.507Z",
+    "readOnly": true,
+    "readMode": "paginated_select_only_then_offline_reconciled",
+    "inputSha256": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+    "persistedDerivedRows": 7491,
+    "persistedDerivedSha256": "3447125d92c3098eb5ba3eed778490431aca25702a5a3ca0cd9b2e7f4a2579e6",
+    "completedFrozenMatches": 7486,
+    "coverage": {
+      "homeTotalShots": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "awayTotalShots": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "homeShotsOnTarget": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "awayShotsOnTarget": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "homeYellowCards": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "awayYellowCards": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "homeRedCards": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      },
+      "awayRedCards": {
+        "compared": 7485,
+        "unavailable": 1,
+        "differing": 0
+      }
+    },
+    "missingMatches": [],
+    "findings": [],
+    "comparedFields": 59880,
+    "differingFields": 0,
+    "sourceScope": "persisted_primary_payload_not_independent_live_provider_or_historical_timestamp_attestation",
+    "unverifiedPersistedMatchIds": [
+      "understat_27930"
+    ]
+  }
+}

@@ -1,5 +1,12 @@
 # Modello C: esperimenti Nightly e adozione controllata — 31 ottobre 2026
 
+> **Audit successivo:** le metriche di questo snapshot sono aritmeticamente
+> riproducibili, ma cinque dei 1.975 forecast risultano successivi alla partita
+> reale e la storia contiene altre date errate. Non usare questo campione come
+> prova pre-match valida. L'[audit e la ricostruzione C](c-data-benchmark-audit-2026-10-31.md)
+> isolano 22 record e ripetono il confronto su 1.969 target. La candidata qui
+> preregistrata non soddisfa la nuova policy qualità; C906 resta il riferimento.
+
 **C906 resta operativo. Nessun miglioramento predittivo o economico è certificato.**
 Il lavoro aggiunge un percorso C candidato con tempi Nightly, feature versionate,
 selezione dei payout completa e verifica futura. Il metodo A dell'app non è stato

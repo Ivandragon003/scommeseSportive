@@ -17,6 +17,7 @@ La corrispondenza con il codice non dimostra qualità delle previsioni o profitt
 | [Esecuzione Nightly](../operations/recommendation-execution-2026-10-30.md) | Registrazione virtuale, controlli, dati congelati e riscontri operativi |
 | [Piattaforma research](../research-platform.md) | Benchmark, validazione, evidenze future e promozione dei modelli |
 | [Miglioramenti C, 31 ottobre](../performance/c-hybrid-improvements-2026-10-31.md) | Piano controllato, artefatti e risultati realmente ottenuti, limiti e decisione di adozione |
+| [Audit dati e benchmark C](../performance/c-data-benchmark-audit-2026-10-31.md) | Cinque target post-evento, 22 record isolati, metriche indipendenti e corpus ricostruito da 1.969 test |
 
 ## Due percorsi di previsione, due decisioni
 

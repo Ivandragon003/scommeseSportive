@@ -8,6 +8,22 @@ Il suo scopo è distinguere il modello che stima i gol, il codice che sceglie
 una giocata e l'automazione che la registra. Non attesta la disponibilità del
 provider, lo stato del database remoto o la redditività del modello.
 
+**Audit dei dati del 31 ottobre.** Il precedente benchmark di 1.975 target
+conteneva cinque forecast post-evento e sei target con date contestate.
+Il [nuovo audit](../performance/c-data-benchmark-audit-2026-10-31.md) distingue
+conti corretti e calendario errato: C ricostruisce lo storico escludendo 22 ID,
+con 1.969 test sugli stessi confini originali. Non certifica prima disponibilità
+delle statistiche o un miglioramento indipendente.
+
+I nuovi artefatti C richiedono `dataQualityPolicyHash` e baseline ricostruita
+con lo storico filtrato. Il tag pulito indica esclusione dei casi noti,
+non validità universale dei timestamp. Runtime, registrazione e adozione
+verificano il contratto; C906 senza questi tag conserva il percorso legacy.
+La precedente candidata `C-63f359b9e5cd3d89` non è qualificata dalla nuova
+policy e non viene raccolta o adottata. I conflitti dei residui C producono
+quarantene append-only, anche prima della prima label, senza modificare A,
+forecast originali, puntate o ledger.
+
 ## 1. C rispetto ad A
 
 A operativo usa `PredictionService`, con i suoi modelli, mercati squadra,
@@ -412,7 +428,8 @@ che lo schema sia stato applicato al database remoto. Se lo schema manca,
 la lettura mantiene il fallback C906; le scritture di adozione richiedono la
 migrazione.
 
-Al 31 ottobre lo schema 025 e le dieci guardie sono verificati sul database
+Nella verifica iniziale del 31 ottobre, prima dell'audit dei dati, lo schema
+025 e le dieci guardie sono verificati sul database
 condiviso. La candidata `C-63f359b9e5cd3d89` è preregistrata, con zero prove
 future raccolte e nessuna adozione; C906 resta attivo. Il ciclo settimanale
 è abilitato e la prima raccolta Nightly resta da osservare. Il riscontro

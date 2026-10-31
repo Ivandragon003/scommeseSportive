@@ -18,6 +18,8 @@ import { ResearchWorkerCoordinator, WorkerLease, WORKER_RENEWAL_MS } from './Res
 import { buildFrozenProspectiveObservations, FrozenProspectiveObservation } from './ResearchProspectiveEvidence';
 import { CHALLENGER_FEATURE_SCHEMA_VERSION, withChallengerFeatures, ChallengerFeatureBlock } from './ChallengerFeatures';
 import type { ChallengerExecutionDeployment } from './ResearchRecommendationPolicy';
+import { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason, filterChallengerHistory,
+  getChallengerDataQualityEvidence, hasCleanChallengerBaseline, ChallengerDataQualityTag } from './ChallengerDataQuality';
 
 type RuntimeDb = Pick<DatabaseService, 'research' | 'getUpcomingMatches' | 'getMatchById' | 'getMatches'
   | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests' | 'challengerAdoption'>>;
@@ -390,6 +392,7 @@ export class ResearchRuntime {
     const decisions: T15Decision[] = [];
     const prospectiveObservations: FrozenProspectiveObservation[] = [];
     let challengerInput: ForecastInput | undefined;
+    let challengerDataQuality: Record<string, unknown> | undefined;
     for (const family of ['A', 'C'] as const) {
       const modelVersion = family === 'A' ? input.baselineVersion : candidateC?.version ?? 'C-unavailable';
       const artifact = candidateC?.artifact as HybridArtifact | undefined;
@@ -399,16 +402,31 @@ export class ResearchRuntime {
       if (family === 'C') {
         if (artifact?.diagnosticOnly === true || artifact?.runtimeCompatible === false) failure = 'diagnostic_model_not_operational';
         else try {
+          if (artifact?.dataQualityPolicyHash !== undefined && artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH) {
+            failure = 'challenger_data_quality_policy_mismatch'; throw new Error(failure);
+          }
           validateArtifact(artifact);
           if (artifact!.version !== modelVersion) throw new Error('registry_model_version_mismatch');
           if (this.deploymentC?.artifactHash && researchHash(artifact) !== this.deploymentC.artifactHash) throw new Error('deployment_artifact_mismatch');
-          if (artifact!.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION) {
-            familyInput = withChallengerFeatures(input, this.historyCache.rows, artifact!.featureBlocks as ChallengerFeatureBlock[]);
+          if (artifact!.dataQualityPolicyHash !== undefined) {
+            if (challengerDataQualityReason(input.matchId)) {
+              failure = 'challenger_target_data_quality_quarantined'; throw new Error(failure);
+            }
+            familyInput = this.buildCleanChallengerBaseline(input);
+            challengerDataQuality = { policyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, baselineClean: true,
+              evidence: getChallengerDataQualityEvidence(this.historyCache.rows, [researchMatchFromRow(row)]) };
             challengerInput = familyInput;
+          }
+          if (artifact!.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION) {
+            familyInput = withChallengerFeatures(familyInput, this.historyCache.rows, artifact!.featureBlocks as ChallengerFeatureBlock[]);
+            challengerInput = familyInput;
+          }
+          if (artifact!.dataQualityPolicyHash !== undefined && !hasCleanChallengerBaseline(familyInput as ForecastInput & ChallengerDataQualityTag)) {
+            failure = 'challenger_data_quality_baseline_not_clean'; throw new Error(failure);
           }
           const predicted = predictHybrid(familyInput, artifact!);
           matrix = predicted.matrix; probabilities = predicted.probabilities;
-        } catch { failure = 'hybrid_model_unavailable_or_incompatible'; }
+        } catch { failure ??= 'hybrid_model_unavailable_or_incompatible'; }
       }
       const inferenceSucceeded = !failure;
       const rawProbabilities = inferenceSucceeded ? { ...probabilities } : {};
@@ -472,6 +490,9 @@ export class ResearchRuntime {
             ...(family === 'C' && this.deploymentC ? { selectorPolicy: this.deploymentC.selectorPolicy,
               expectedProbabilityConfigurationHash: this.deploymentC.probabilityConfigurationHash,
               artifactHash: candidateC?.artifactHash ?? researchHash(artifact ?? null) } : {}),
+            ...(family === 'C' && artifact?.dataQualityPolicyHash !== undefined ? {
+              dataQualityPolicyHash: artifact.dataQualityPolicyHash, dataQualityBaselineClean: !failure && !!challengerDataQuality,
+            } : {}),
             probabilityProtocol: calibrationEvidence?.probabilityProtocol ?? null,
             pipelineHashV2: calibrationEvidence?.pipelineHashV2 ?? null,
             probabilityConfigurationHash: family === 'C' && this.deploymentC?.probabilityConfigurationHash
@@ -517,12 +538,16 @@ export class ResearchRuntime {
         ...(this.nightly ? { minEv: this.nightly.minEv, minPrudentialEv: this.nightly.minPrudentialEv } : {}) });
       const selected = result?.decision;
       decisions.push({ family, modelVersion, validated: !failure, action: selected ? 'BET' : 'ABSTAIN',
+        ...(family === 'C' && artifact?.dataQualityPolicyHash !== undefined ? {
+          dataQualityPolicyHash: artifact.dataQualityPolicyHash, dataQualityBaselineClean: !!challengerDataQuality,
+          dataQualityEvidence: challengerDataQuality?.evidence ?? null,
+        } : {}),
         ...(family === 'C' && this.deploymentC?.selectorPolicy === 'payout-aware-v1' ? { challengerQuality: {
-          homeHistorySample: input.features[input.featureNames.indexOf('home_sample')] ?? null,
-          awayHistorySample: input.features[input.featureNames.indexOf('away_sample')] ?? null,
-          homeXgCoverage: input.features[input.featureNames.indexOf('home_xg_coverage')] ?? null,
-          awayXgCoverage: input.features[input.featureNames.indexOf('away_xg_coverage')] ?? null,
-          historyAvailableThrough: input.maxTrainingAvailableAt, modelFitAt: input.modelFitAt,
+          homeHistorySample: familyInput.features[familyInput.featureNames.indexOf('home_sample')] ?? null,
+          awayHistorySample: familyInput.features[familyInput.featureNames.indexOf('away_sample')] ?? null,
+          homeXgCoverage: familyInput.features[familyInput.featureNames.indexOf('home_xg_coverage')] ?? null,
+          awayXgCoverage: familyInput.features[familyInput.featureNames.indexOf('away_xg_coverage')] ?? null,
+          historyAvailableThrough: familyInput.maxTrainingAvailableAt, modelFitAt: familyInput.modelFitAt,
         } } : {}),
         market: selected?.quote.market ?? '', selection: selected?.quote.selection,
         quote: selected?.quote, quoteIndex: selected ? quotes.findIndex((quote) => quote === selected.quote) : undefined,
@@ -551,6 +576,7 @@ export class ResearchRuntime {
       ...(this.nightly ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
         ...(challengerInput ? { challengerForecast: challengerInput } : {}),
+        ...(challengerDataQuality ? { challengerDataQuality } : {}),
         ...(challengerCollection ? { challengerCollection } : {}),
         ...(this.nightly ? { mode: 'NIGHTLY', match: { matchId: row.match_id, competition: row.competition,
           kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name,
@@ -614,6 +640,15 @@ export class ResearchRuntime {
 
   getQuotaStatus(): unknown { return this.odds.getQuotaStatus?.() ?? null; }
 
+  /** Refit only the opted-in C input. The baseline supplied to A remains untouched. */
+  private buildCleanChallengerBaseline(input: ForecastInput): ForecastInput {
+    if (challengerDataQualityReason(input.matchId)) throw new Error('challenger_target_data_quality_quarantined');
+    const target: ResearchMatch = { matchId: input.matchId, homeTeamId: input.homeTeamId, awayTeamId: input.awayTeamId,
+      competition: input.competition, season: input.season, date: input.kickoffAt };
+    return { ...buildForecastInput(filterChallengerHistory(this.historyCache?.rows ?? []), target, input.forecastAt),
+      dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true } as ForecastInput;
+  }
+
   /** Candidate evidence never selects a bet or changes either operational model. */
   private async recordCollectingChallengers(input: ForecastInput, quotes: ResearchQuote[]): Promise<Record<string, unknown> | null> {
     const adoption = this.db.challengerAdoption;
@@ -652,6 +687,7 @@ export class ResearchRuntime {
       preKickoff: Date.parse(snapshotAt) < Date.parse(input.kickoffAt), sharedSnapshot: true };
     let errorCode: string | undefined;
     let probabilityConfigurationHash: string | null = null;
+    let probeInput = input;
     try {
       validateArtifact(artifact);
       if (artifact.version !== modelVersion) throw new Error('registry_model_version_mismatch');
@@ -662,8 +698,19 @@ export class ResearchRuntime {
       const profile = (artifact.calibrationProfilesV2 as { C?: CoherentCalibrationProfile } | undefined)?.C;
       const mode = (artifact.probabilityCalibrationMode ?? 'isotonic_1x2') as CoherentCalibrationMode;
       if (mode === 'isotonic_1x2' && !profile) throw new Error('calibration_missing');
-      const challengerInput = artifact.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION
-        ? withChallengerFeatures(input, this.historyCache?.rows ?? [], artifact.featureBlocks as ChallengerFeatureBlock[]) : input;
+      let challengerInput = input;
+      if (artifact.dataQualityPolicyHash !== undefined) {
+        if (artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH) throw new Error('challenger_data_quality_policy_mismatch');
+        challengerInput = this.buildCleanChallengerBaseline(input);
+      }
+      if (artifact.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION) {
+        challengerInput = withChallengerFeatures(challengerInput, this.historyCache?.rows ?? [], artifact.featureBlocks as ChallengerFeatureBlock[]);
+      }
+      probeInput = challengerInput;
+      if (artifact.dataQualityPolicyHash !== undefined
+        && !hasCleanChallengerBaseline(challengerInput as ForecastInput & ChallengerDataQualityTag)) {
+        throw new Error('challenger_data_quality_baseline_not_clean');
+      }
       const predicted = predictHybrid(challengerInput, artifact);
       const pipeline = applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
         profile, quotes, forecastAt: snapshotAt, mode, temperature: artifact.probabilityTemperature as number | undefined });
@@ -679,11 +726,14 @@ export class ResearchRuntime {
       await this.db.saveSchedulerRun({ schedulerName: 'research_model_check', trigger: 'remote', startedAt: snapshotAt,
         endedAt: this.clock().toISOString(), success: Object.values(checks).every(Boolean), summary: {
           family: 'C', role: 'CHALLENGER', modelVersion, matchId: input.matchId,
-          snapshotHash: researchHash({ forecast: input, quotes, observedAt: snapshotAt }),
+          snapshotHash: researchHash({ forecast: probeInput, quotes, observedAt: snapshotAt }),
           probabilityProtocol: artifact?.probabilityProtocol ?? null, pipelineHashV2: artifact?.pipelineHashV2 ?? null,
           probabilityConfigurationHash,
           baselineVersion: input.baselineVersion,
-          featureSchema: input.featureSchema, checks, ...(errorCode ? { errorCode } : {}),
+          featureSchema: probeInput.featureSchema,
+          ...(artifact?.dataQualityPolicyHash !== undefined ? { dataQualityPolicyHash: artifact.dataQualityPolicyHash,
+            dataQualityBaselineClean: (probeInput as ForecastInput & { dataQualityBaselineClean?: boolean }).dataQualityBaselineClean === true } : {}),
+          checks, ...(errorCode ? { errorCode } : {}),
         } });
     } catch {
       // Failure to record a candidate probe cannot alter an already prepared champion decision.

@@ -1,6 +1,7 @@
 import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
-import { ForecastInput, ResearchMatch, TOP5_COMPETITIONS } from './ForecastCore';
+import { buildForecastInput, ForecastInput, ResearchMatch, TOP5_COMPETITIONS } from './ForecastCore';
+import { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason, filterChallengerHistory } from './ChallengerDataQuality';
 import { withChallengerFeatures, CHALLENGER_FEATURE_SCHEMA_VERSION, ChallengerFeatureBlock } from './ChallengerFeatures';
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { applyCoherentProbabilityPipeline, COHERENT_PROBABILITY_PROTOCOL, coherentProbabilityPipelineHash, CoherentCalibrationMode } from './CoherentProbabilityPipeline';
@@ -55,9 +56,22 @@ function deployment(artifact: HybridArtifact, selectorPolicy: ChallengerSelector
 }
 function forecast(artifact: HybridArtifact, input: ForecastInput, quotes: ResearchQuote[], history?: ResearchMatch[]) {
   let modelInput = input;
+  let modelHistory = history;
+  if (artifact.dataQualityPolicyHash !== undefined) {
+    if (artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+      || challengerDataQualityReason(input.matchId)) throw new Error('challenger_data_quality_inputs_unavailable');
+    const tagged = input as ForecastInput & { dataQualityPolicyHash?: string; dataQualityBaselineClean?: boolean };
+    if (tagged.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH || tagged.dataQualityBaselineClean !== true) {
+      const target = history?.find((match) => match.matchId === input.matchId);
+      if (!target || !history) throw new Error('challenger_data_quality_target_unavailable');
+      modelHistory = filterChallengerHistory(history);
+      modelInput = { ...buildForecastInput(modelHistory, target, input.forecastAt),
+        dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true } as ForecastInput;
+    }
+  }
   if (artifact.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION) {
-    if (!history) throw new Error('challenger_history_for_new_features_required');
-    modelInput = withChallengerFeatures(input, history, artifact.featureBlocks as ChallengerFeatureBlock[]);
+    if (!modelHistory) throw new Error('challenger_history_for_new_features_required');
+    modelInput = withChallengerFeatures(modelInput, modelHistory, artifact.featureBlocks as ChallengerFeatureBlock[]);
   }
   const predicted = predictHybrid(modelInput, artifact);
   return applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
@@ -71,6 +85,8 @@ export function buildChallengerAdoptionReport(dossier: ChallengerCandidateDossie
   partition: string; snapshot: any; result: { homeGoals: number; awayGoals: number; availableAt: string; source: string };
 }>, now = new Date()) {
   const blockers = new Set<string>();
+  if (dossier.candidateArtifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+    || dossier.candidateArtifact.dataQualityBaselineClean !== true) blockers.add('candidate_data_quality_policy_unverified');
   const evaluationRows: EvaluationRow[] = [];
   const seen = new Set<string>();
   for (const row of evidence) {
@@ -192,10 +208,14 @@ export class ChallengerAdoptionStore {
       const active = await this.state(tx), artifact = await this.model(tx, input.modelVersion);
       const referenceArtifact = await this.model(tx, active.deployment.modelVersion);
       if (artifact.productionValidated === true) throw new Error('candidate_must_not_claim_production_approval');
+      if (artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH || artifact.dataQualityBaselineClean !== true) {
+        throw new Error('candidate_data_quality_policy_unverified');
+      }
       const ids = input.trainingEvidence?.matchIds;
-      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.some((id) => !id || protectedIds.has(id))
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.some((id) => !id || protectedIds.has(id) || challengerDataQualityReason(id))
         || input.trainingEvidence.datasetHash !== artifact.datasetHash
-        || (artifact.calibrationPredictions as any[] | undefined)?.some((row) => protectedIds.has(row.matchId))) throw new Error('independent_training_manifest_required');
+        || (artifact.calibrationPredictions as any[] | undefined)?.some((row) => protectedIds.has(row.matchId)
+          || challengerDataQualityReason(row.matchId))) throw new Error('independent_training_manifest_required');
       if ([artifact.createdAt, artifact.validationThrough, artifact.trainedThrough].some((value) => !Number.isFinite(timestamp(value)) || timestamp(value) > timestamp(at))) {
         throw new Error('candidate_not_available_at_registration');
       }
@@ -224,7 +244,8 @@ export class ChallengerAdoptionStore {
       const dossier = parse(entry.dossier_json) as ChallengerCandidateDossier;
       if (researchHash(dossier) !== entry.dossier_hash) throw new Error('challenger_dossier_corrupt');
       return dossier;
-    }).filter((entry) => same(entry.reference, current)
+    }).filter((entry) => entry.candidateArtifact.dataQualityPolicyHash === CHALLENGER_DATA_QUALITY_POLICY_HASH
+      && entry.candidateArtifact.dataQualityBaselineClean === true && same(entry.reference, current)
       && !same(entry.candidate, state.deployment)).slice(0, 1);
   }
   async recordPairedChallengerForecast(input: { candidateId: string; input: ForecastInput; quotes: ResearchQuote[];
@@ -238,6 +259,8 @@ export class ChallengerAdoptionStore {
       }
       const dossier = parse(record.dossier_json) as ChallengerCandidateDossier;
       if (researchHash(dossier) !== record.dossier_hash) throw new Error('challenger_dossier_corrupt');
+      if (dossier.candidateArtifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+        || dossier.candidateArtifact.dataQualityBaselineClean !== true) return { recorded: false, reason: 'candidate_data_quality_policy_unverified' };
       const row = input.input, current = await this.state(tx);
       if (!same(await this.currentDeployment(tx, current), dossier.reference)) {
         return { recorded: false, reason: 'incumbent_changed' };
@@ -295,6 +318,8 @@ export class ChallengerAdoptionStore {
       if (previousReview) return { adopted: false, reason: 'candidate_already_assessed', report: parse(previousReview.report_json), state };
       const dossier = parse(record.dossier_json) as ChallengerCandidateDossier;
       if (researchHash(dossier) !== record.dossier_hash) throw new Error('challenger_dossier_corrupt');
+      if (dossier.candidateArtifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+        || dossier.candidateArtifact.dataQualityBaselineClean !== true) return { adopted: false, reason: 'candidate_data_quality_policy_unverified', state };
       if (!same(await this.currentDeployment(tx, state), dossier.reference)) return { adopted: false, reason: 'incumbent_changed', state };
       await this.settle(tx, dossier.id, at);
       const fixedTest = await rows(tx, `SELECT id FROM challenger_paired_forecasts WHERE candidate_id=? AND partition='FUTURE_TEST'

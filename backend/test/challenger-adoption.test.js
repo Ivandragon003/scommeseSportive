@@ -14,9 +14,11 @@ const { researchHash } = moduleOf('ResearchStore');
 const { prospectivePartition } = moduleOf('ResearchProspectiveEvidence');
 const { ORIGINAL_HOLDOUT_POLICY } = moduleOf('ResearchHoldoutPolicy');
 const { scoreMatrixMarkets } = moduleOf('GoalSettlement');
+const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = moduleOf('ChallengerDataQuality');
 const constant = value => ({ features_info: { float_features: [] }, oblivious_trees: [], scale_and_bias: [1, [value]] });
 const artifact = version => ({ family: 'C', version, baselineVersion: baselineManifest().version,
   featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION, datasetHash: 'development-dataset',
+  dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true,
   trainedThrough: '2026-10-27T11:00:00.000Z', validationThrough: '2026-10-28T10:00:00.000Z',
   createdAt: '2026-10-28T11:00:00.000Z', candidateKind: 'intensity_correction', weight: .5, temperature: 1,
   models: { home: constant(.1), away: constant(-.1) }, probabilityProtocol: COHERENT_PROBABILITY_PROTOCOL,
@@ -58,6 +60,7 @@ async function setup() {
     trainingEvidence: { datasetHash: 'development-dataset', matchIds: ['development-1', 'development-2'] } });
   const input = { matchId: 'future-match', competition: 'Serie A', kickoffAt: '2026-11-01T19:00:00.000Z',
     forecastAt: now.toISOString(), featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION,
+    dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true,
     features: FEATURE_NAMES.map(() => 0), baselineMatrix: [[.2, .2], [.4, .2]],
     baselineProbabilities: scoreMatrixMarkets([[.2, .2], [.4, .2]]), baselineVersion: baselineManifest().version,
     lambdaHome: 1.4, lambdaAway: 1, trainingCount: 50, modelFitAt: '2026-10-31T02:00:00.000Z', maxTrainingAvailableAt: '2026-10-31T01:00:00.000Z' };

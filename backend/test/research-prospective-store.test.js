@@ -264,9 +264,16 @@ test('official corrections append quarantine evidence while historical as-of rea
         : "UPDATE matches SET date='2026-10-29T20:45:00.000Z'");
       // Direct current lookup must fail closed even without a preceding orchestration call.
       assert.deepEqual(await samples(f), []);
-      const quarantine = (await f.client.execute('SELECT * FROM research_prospective_invalidations')).rows;
-      assert.equal(quarantine.length, 1); assert.equal(quarantine[0].detected_at, '2026-10-29T22:10:00.000Z');
-      assert.equal(quarantine[0].reason, correction === 'score' ? 'official_result_corrected' : 'official_kickoff_changed');
+      const quarantine = (await f.client.execute(`SELECT v.*,o.family FROM research_prospective_invalidations v
+        JOIN research_prospective_observations o ON o.id=v.observation_id`)).rows;
+      assert.equal(quarantine.length, correction === 'score' ? 1 : 2);
+      assert.ok(quarantine.every(item => item.detected_at === '2026-10-29T22:10:00.000Z'));
+      const quarantinedA = quarantine.filter(item => item.family === 'A');
+      assert.equal(quarantinedA.length, 1);
+      assert.equal(quarantinedA[0].reason, correction === 'score' ? 'official_result_corrected' : 'official_kickoff_changed');
+      const quarantinedC = quarantine.filter(item => item.family === 'C');
+      assert.equal(quarantinedC.length, correction === 'score' ? 0 : 1);
+      if (correction === 'kickoff') assert.equal(quarantinedC[0].reason, 'c_prospective_kickoff_conflict');
       const past = await samples(f, 'A', { asOf: '2026-10-29T22:09:59.999Z' });
       assert.equal(past.length, 1); assert.equal(past[0].returnMultiplier, 2); assert.equal(past[0].outcomeAvailableAt, RESULT_AT);
       assert.deepEqual(await f.store.reconcileProspectiveEvidence(), { checked: 0, invalidated: 0 });

@@ -70,8 +70,46 @@ function runtimeHarness(providerEvent = event(), options = {}) {
     getMatches: async () => history, updateMatchKickoff: async () => {}, saveSchedulerRun: async (run) => runs.push(run) };
   const runtime = new ResearchRuntime(db, { clock: options.clock ?? (() => new Date(TARGET)),
     odds: { getOdds: async () => { fetches++; return options.getOdds ? options.getOdds() : [providerEvent]; } } });
-  return { runtime, commits, finishes, runs, fetches: () => fetches, db, fixture };
+  return { runtime, commits, finishes, runs, fetches: () => fetches, db, fixture, history };
 }
+
+test('only quality-tagged C rebuilds its baseline from quarantined history while A and legacy C remain unchanged', async () => {
+  const { CHALLENGER_DATA_QUALITY_POLICY_HASH, filterChallengerHistory } = require('../dist/research/ChallengerDataQuality');
+  const { buildForecastInput } = require('../dist/research/ForecastCore');
+  const { researchMatchFromRow } = require('../dist/research/ResearchRuntime');
+  const run = async (policyHash, targetId) => {
+    const h = runtimeHarness();
+    h.history[0] = { ...h.history[0], match_id: 'understat_22621', home_goals: 9, away_goals: 0 };
+    if (targetId) h.fixture.match_id = targetId;
+    const historyBefore = JSON.stringify(h.history);
+    const artifact = { family: 'C', version: 'C-quality-fixture', featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION,
+      baselineVersion: baselineManifest().version, candidateKind: 'no_ml', weight: 0, temperature: 1, models: {},
+      trainedThrough: '2026-09-01T00:00:00Z', validationThrough: '2026-10-01T00:00:00Z', createdAt: '2026-10-02T00:00:00Z',
+      probabilityProtocol: COHERENT_PROBABILITY_PROTOCOL, pipelineHashV2: coherentProbabilityPipelineHash(), probabilityCalibrationMode: 'identity',
+      ...(policyHash !== undefined ? { dataQualityPolicyHash: policyHash, dataQualityBaselineClean: true } : {}) };
+    h.db.research.getModels = async () => [{ version: artifact.version, artifact }];
+    assert.equal((await h.runtime.tick()).completed, 1);
+    assert.equal(JSON.stringify(h.history), historyBefore);
+    return { h, batch: h.commits[0][0][0] };
+  };
+  const legacy = await run(), clean = await run(CHALLENGER_DATA_QUALITY_POLICY_HASH);
+  assert.deepEqual(clean.batch.inputSnapshot.forecast, legacy.batch.inputSnapshot.forecast);
+  assert.deepEqual(clean.batch.decisions.find((row) => row.family === 'A'), legacy.batch.decisions.find((row) => row.family === 'A'));
+  const expected = buildForecastInput(filterChallengerHistory(clean.h.history.map(researchMatchFromRow)),
+    researchMatchFromRow(clean.h.fixture), TARGET);
+  assert.deepEqual(clean.batch.inputSnapshot.challengerForecast.baselineMatrix, expected.baselineMatrix);
+  assert.equal(clean.batch.inputSnapshot.challengerForecast.trainingCount, 44);
+  assert.equal(clean.batch.inputSnapshot.forecast.trainingCount, 45);
+  assert.equal(clean.batch.inputSnapshot.challengerForecast.dataQualityBaselineClean, true);
+  assert.equal(clean.batch.inputSnapshot.challengerDataQuality.evidence.history.excludedMatchIds[0], 'understat_22621');
+  assert.equal(clean.batch.decisions.find((row) => row.family === 'C').validated, true);
+  assert.equal(legacy.batch.inputSnapshot.challengerForecast, undefined);
+  const wrong = await run('0'.repeat(64));
+  assert.equal(wrong.batch.decisions.find((row) => row.family === 'C').reason, 'challenger_data_quality_policy_mismatch');
+  assert.deepEqual(wrong.batch.decisions.find((row) => row.family === 'A'), legacy.batch.decisions.find((row) => row.family === 'A'));
+  const quarantined = await run(CHALLENGER_DATA_QUALITY_POLICY_HASH, 'understat_22621');
+  assert.equal(quarantined.batch.decisions.find((row) => row.family === 'C').reason, 'challenger_target_data_quality_quarantined');
+});
 
 test('the production T-15 feed uses the shared persistent manager and preserves cached transport timestamps', async (t) => {
   const previousKey = process.env.ODDS_API_T15_KEY;

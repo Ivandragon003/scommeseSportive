@@ -1,6 +1,7 @@
 import { ForecastInput, FEATURE_NAMES, FEATURE_SCHEMA_VERSION } from './ForecastCore';
 import { normalizeScoreMatrix, scoreMatrixMarkets } from './GoalSettlement';
 import { CHALLENGER_FEATURE_SCHEMA_VERSION, CHALLENGER_FEATURE_PROTOCOL, challengerBlocksForNames } from './ChallengerFeatures';
+import { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason } from './ChallengerDataQuality';
 
 export type HybridCandidateKind = 'intensity_correction' | 'probability_correction' | 'calibrated_ensemble' | 'no_ml';
 export interface CatBoostJson {
@@ -65,6 +66,11 @@ export function validateArtifact(value: unknown): asserts value is HybridArtifac
     || !Number.isFinite(Date.parse(artifact.trainedThrough)) || !Number.isFinite(Date.parse(artifact.validationThrough))
     || Date.parse(artifact.trainedThrough) > Date.parse(artifact.validationThrough)
     || !Number.isFinite(Date.parse(artifact.createdAt)) || !artifact.models) throw new Error('invalid_hybrid_artifact');
+  if (artifact.dataQualityPolicyHash !== undefined && (artifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
+    || artifact.dataQualityBaselineClean !== true
+    || Array.isArray(artifact.calibrationPredictions) && artifact.calibrationPredictions.some((row) => challengerDataQualityReason(String(row?.matchId ?? ''))))) {
+    throw new Error('invalid_challenger_data_quality_policy');
+  }
   if (extendedBlocks) {
     const timing = artifact.trainingForecastTiming as { policy?: string; forecastBeforeKickoff?: boolean; resultDelayMs?: number };
     const split = artifact.trainingSplit as { protocol?: string; train?: any; selection?: any; calibration?: any; test?: any };
@@ -107,6 +113,9 @@ function independentPoisson(home: number, away: number, size: number): number[][
 
 export function predictHybrid(input: ForecastInput, artifact: HybridArtifact): { matrix: number[][]; probabilities: Record<string, number>; version: string } {
   validateArtifact(artifact);
+  const qualityInput = input as ForecastInput & { dataQualityPolicyHash?: string; dataQualityBaselineClean?: boolean };
+  if (artifact.dataQualityPolicyHash !== undefined && (qualityInput.dataQualityPolicyHash !== artifact.dataQualityPolicyHash
+    || qualityInput.dataQualityBaselineClean !== true || challengerDataQualityReason(input.matchId))) throw new Error('hybrid_data_quality_contract_mismatch');
   if (input.featureSchema !== artifact.featureSchema || JSON.stringify(input.featureNames) !== JSON.stringify(artifact.featureNames)
     || input.features.length !== artifact.featureNames.length) throw new Error('hybrid_feature_schema_mismatch');
   // A model may never be backdated into a prediction prior to its validation interval.
