@@ -9,9 +9,10 @@ percorso [calcola il consiglio C su richiesta](docs/operations/challenger-previe
 con il modello operativo e quote reali ammissibili. È un'anteprima esplicita:
 non registra puntate e non cambia il motore A. Un archivio C esistente prevale.
 
-**APK Android, 31 ottobre 2026.** [FootPredictor 1.1.5 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.5-debug-20261031/FootPredictor-1.1.5-debug.apk)
-include [i consigli distinti A/C nella singola partita](docs/operations/match-model-advice-2026-10-31.md),
-con quote archiviate, importi registrati e astensioni esplicite. Usa la firma debug esistente.
+**APK Android, 31 ottobre 2026.** [FootPredictor 1.1.6 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.6-debug-20261031/FootPredictor-1.1.6-debug.apk)
+include i consigli distinti A/C e l'anteprima C nelle partite senza archivio Nightly,
+senza registrare puntate. [Verifiche della 1.1.6](docs/android/releases/1.1.6-2026-10-31.md).
+Usa la firma debug esistente.
 La firma release originale resta assente; telefono fisico e login autenticato non verificati.
 
 **Manutenzione Nightly, 31 ottobre 2026.** Le email di errore hanno segnalato
