@@ -4,6 +4,11 @@
 [algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
 e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 
+**APK Android, 31 ottobre 2026.** Disponibile [FootPredictor 1.1.4 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.4-debug-20261031/FootPredictor-1.1.4-debug.apk),
+con firma debug esistente e UI aggiornata. Verificati 229 test frontend e due test
+Android su emulatore; [firma, aggiornamento, checksum e limiti](docs/android/releases/1.1.4-2026-10-31.md).
+La firma release originale resta assente; telefono fisico e login autenticato non verificati.
+
 **Manutenzione Nightly, 31 ottobre 2026.** Le email di errore hanno segnalato
 una quota provider quasi esaurita e astensioni tecniche salvate come definitive.
 La correzione distingue i tentativi ritentabili e aggiunge un recupero tracciato,
@@ -118,7 +123,8 @@ saldi e 325/175 crediti.
 Pagina Partite autenticata verificata: Le Havre–PSG, A quota 8 Codere IT,
 importo archiviato 4,20 euro, uguale alla Nightly. Risultati/liquidazioni e
 primo trigger programmato restano da osservare; il ciclo sportivo non è completo.
-APK Android non aggiornato, keystore originale assente; nessun piano/provider
+Alla data dello snapshot l'APK Android non era aggiornato; per l'APK del 31 ottobre
+vedere l'aggiornamento sopra. Keystore release originale assente; nessun piano/provider
 cambiato, servizio a pagamento aggiunto o T−15 operativo.
 Rollback delle nuove puntate: `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=false`,
 workflow completo attivo e backend compatibile con la 023. Il POST `/api/research/settle`

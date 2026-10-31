@@ -6,27 +6,29 @@ inclusi nel pacchetto, non il sito frontend remoto. Un deploy web non aggiorna l
 Non contiene database, budget o password: budget, giocate e archivio restano nel database
 Turso condiviso sotto l'utente canonico `user1`.
 
-## Stato al 30 ottobre 2026: web aggiornato, APK non aggiornato
+## Stato al 31 ottobre 2026: APK 1.1.4 di prova
 
-Il frontend web `3c503fa9` è stato pubblicato e verificato su Hostless. Include stake A
-variabile dal consiglio, stake C fisso all'1% e consiglio Nightly archiviato con quota e
-importo effettivamente registrati. Per avere questa UI su Android serve un nuovo APK.
-Il backend configurato resta `https://scommese-sportive-backend.hostless.app/api`.
+La versione Android è `1.1.4` / `versionCode=6`. Il pacchetto di prova include la UI
+del commit `d6a93e1487fd28c0aa47d3cd30e061b266cdd206`, compilata in un worktree isolato:
+non include le modifiche locali non pubblicate a `walletApi.ts` e al relativo test.
+Comprende i portafogli separati A/C, stake A dal consiglio, stake C all'1% e consigli
+Nightly archiviati. Il backend resta `https://scommese-sportive-backend.hostless.app/api`;
+i motori risiedono sul server e non vengono modificati dal packaging Android.
 
-La preparazione dell'APK firmato è bloccata: nel checkout manca
-`frontend/android/key.properties` e non sono disponibili un keystore release identificato
-come quello originale e un precedente APK release con cui confrontare il certificato.
-JDK 21 e SDK Android 36 sono presenti, ma non sostituiscono la firma mancante.
-Non sono state create nuove chiavi né generati APK non firmati o con firma debug; versione Gradle
-`1.1.3`/`versionCode=5` e asset Android sono rimasti invariati. Nessun APK 1.1.4 è stato generato.
+Mancano ancora `frontend/android/key.properties` e il keystore release originale.
+Si riutilizza esclusivamente il keystore debug già esistente, senza creare nuove chiavi.
+Il precedente APK locale 1.1.1/code 3 ha lo stesso certificato Android Debug SHA-256
+`21f01c0666c42ac6b960a0c840fbbef27c1bd833e4a8ce21a9c0e4fe909b23df`.
+La distribuzione è quindi un APK **di prova**, non una release con firma privata.
 
-Per riprendere servono il keystore originale e la sua configurazione locale privata,
-oltre al precedente APK firmato o a un riferimento verificato del certificato. Non
-inserire password o chiavi nella conversazione. Prima della distribuzione occorre
-confrontare la firma e verificare aggiornamento, login, cookie e nuova UI su Android.
-La compatibilità osservata nel browser non prova il comportamento della WebView su telefono.
-Nel frattempo si può usare il sito web aggiornato; la Nightly cloud non richiede l'APK,
-né PC o smartphone accesi.
+La compatibilità con l'app effettivamente installata sul telefono non è verificabile
+senza controllarne il certificato. Se Android segnala una firma incompatibile, non
+disinstallare alla cieca: per un aggiornamento compatibile serve la firma originale.
+Budget e giocate rimangono sul server, ma disinstallare cancella la sessione locale.
+La Nightly cloud non richiede PC o smartphone accesi.
+
+Download: [FootPredictor 1.1.4 APK di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.4-debug-20261031/FootPredictor-1.1.4-debug.apk).
+Verifiche e limiti: [report del pacchetto](android/releases/1.1.4-2026-10-31.md).
 
 ## 1. Configurare l'accesso condiviso su Hostless
 
