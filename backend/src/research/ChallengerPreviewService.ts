@@ -49,7 +49,7 @@ export class ChallengerPreviewService {
   private readonly clock: () => Date;
   private readonly odds: Pick<OddsApiService, 'getOdds' | 'getQuotaStatus'>;
   private readonly runtimeFactory: NonNullable<PreviewOptions['runtimeFactory']>;
-  private readonly cache = new Map<string, ChallengerPreview>();
+  private readonly cache = new Map<string, { result: ChallengerPreview; cachedAt: number }>();
   private readonly pending = new Map<string, Promise<ChallengerPreview>>();
 
   constructor(private readonly db: DatabaseService, options: PreviewOptions = {}) {
@@ -95,8 +95,9 @@ export class ChallengerPreviewService {
 
   private prune(): void {
     const now = this.clock().getTime();
-    for (const [key, result] of this.cache) {
-      if (timestamp(result.expiresAt) <= now || timestamp(result.asOf) > now) this.cache.delete(key);
+    for (const [key, { result, cachedAt }] of this.cache) {
+      if (now - cachedAt >= PREVIEW_CACHE_MS || cachedAt > now
+        || timestamp(result.expiresAt) <= now || timestamp(result.asOf) > now) this.cache.delete(key);
     }
   }
 
@@ -153,7 +154,7 @@ export class ChallengerPreviewService {
       const key = researchHash({ fixture: fixtureIdentity(row!), state });
       this.prune();
       const cached = this.cache.get(key);
-      if (cached) return this.finalizeResult(cached, row!, state);
+      if (cached) return this.finalizeResult(cached.result, row!, state);
       const running = this.pending.get(key);
       if (running) return this.finalizeResult(await running, row!, state);
       if (this.pending.size >= MAX_ACTIVE_PREVIEWS) return this.response(matchId, 'UNAVAILABLE', 'challenger_preview_busy', row, state);
@@ -164,7 +165,7 @@ export class ChallengerPreviewService {
         const result = await this.finalizeResult(await work, row!, state);
         if (['RECOMMENDED', 'NO_BET'].includes(result.status) && timestamp(result.expiresAt) > this.clock().getTime()) {
           while (this.cache.size >= MAX_CACHED_PREVIEWS) this.cache.delete(this.cache.keys().next().value!);
-          this.cache.set(key, clone(result));
+          this.cache.set(key, { result: clone(result), cachedAt: this.clock().getTime() });
         }
         return clone(result);
       } finally { if (this.pending.get(key) === work) this.pending.delete(key); }
@@ -208,7 +209,7 @@ export class ChallengerPreviewService {
     if (quotes.some((quote) => recommendationQuoteReason(quote, new Date(finalAt), 'C'))) {
       return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
     }
-    const expiresAt = Math.min(timestamp(forecastAt) + PREVIEW_CACHE_MS, timestamp(row!.date),
+    const expiresAt = Math.min(timestamp(forecastAt) + QUOTE_MAX_AGE_MS, timestamp(row!.date),
       ...quotes.flatMap((quote) => [timestamp(quote.capturedAt) + QUOTE_MAX_AGE_MS, timestamp(quote.updatedAt) + QUOTE_MAX_AGE_MS]));
     if (expiresAt <= finalAt) return this.response(matchId, 'UNAVAILABLE', 'challenger_preview_expired', row, state);
     const noBetReason = 'abstentionReason' in packet && packet.abstentionReason

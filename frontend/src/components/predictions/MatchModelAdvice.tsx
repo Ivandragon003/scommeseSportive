@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { dateTime, decisionReason, money, stateLabel } from '../../features/research/researchPresentation';
-import { AdviceFamily, getMatchModelAdvice, MatchModelAdviceData, RecordedModelAdvice } from '../../utils/matchModelAdviceApi';
+import { AdviceFamily, RecordedModelAdvice } from '../../utils/matchModelAdviceApi';
 import { fmtSelection } from './predictionFormatting';
-import { ChallengerPreview, getChallengerPreview } from '../../utils/challengerPreviewApi';
+import { ModelAdviceCoordinator, useMatchModelAdvice } from '../../hooks/useMatchModelAdvice';
 import ChallengerPreviewCard from './ChallengerPreviewCard';
 import './matchModelAdvice.css';
 
@@ -13,6 +13,7 @@ interface MatchModelAdviceProps {
   onRecordedA?: (matchId: string, available: boolean) => void;
   kickoffAt?: string;
   finished?: boolean;
+  coordinator?: ModelAdviceCoordinator;
 }
 
 const executionBlocks = new Set(['virtual_exposure_limit', 'insufficient_virtual_capital', 'one_bet_per_portfolio_match']);
@@ -68,51 +69,22 @@ function RecordedAdvice({ decision }: { decision: RecordedModelAdvice }) {
       <div><dt>Valutata il</dt><dd>{dateTime(decision.forecastAt || packet?.asOf)}</dd></div>
       <div><dt>Quota rilevata il</dt><dd>{quote ? dateTime(quote.updatedAt || quote.capturedAt) : 'Non disponibile'}</dd></div>
     </dl>
-    <p className="match-model-advice__footnote">Versione {decision.modelVersion}. Le quote archiviate non sono quote correnti.</p>
+    <p className="match-model-advice__footnote">Le quote archiviate non sono quote correnti.</p>
     {validSelection && !quote && <p role="status">La quota conservata non è disponibile o non corrisponde al consiglio.</p>}
   </>;
 }
 
-export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false }: MatchModelAdviceProps) {
-  const [state, setState] = useState<{ matchId: string; data?: MatchModelAdviceData; error?: string; loading: boolean;
-    preview?: ChallengerPreview; previewLoading?: boolean; previewError?: string; ineligible?: boolean }>({ matchId, loading: true });
-  const [retry, setRetry] = useState(0);
+export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false, coordinator: controlled }: MatchModelAdviceProps) {
+  const internal = useMatchModelAdvice();
+  const coordinator = controlled ?? internal;
+  const { prepare, cancel } = internal;
   useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-    setState({ matchId, loading: true });
-    onRecordedA?.(matchId, false);
-    getMatchModelAdvice(matchId, controller.signal).then(async (data) => {
-      if (!active) return;
-      const ineligible = finished || (kickoffAt !== undefined && (!Number.isFinite(Date.parse(kickoffAt)) || Date.parse(kickoffAt) <= Date.now()));
-      const needsPreview = !data.C && !data.errors.C && !ineligible;
-      setState({ matchId, data, loading: false, previewLoading: needsPreview, ineligible });
-      onRecordedA?.(matchId, !!data.A);
-      if (!needsPreview) return;
-      try {
-        const preview = await getChallengerPreview(matchId, controller.signal);
-        if (!active) return;
-        if (preview.status === 'ARCHIVED') {
-          const recorded = await getMatchModelAdvice(matchId, controller.signal);
-          if (!active) return;
-          setState({ matchId, data: recorded, loading: false, ...(recorded.C ? {} : {
-            previewError: 'La decisione Nightly segnalata non è ancora leggibile. Riprova i consigli della partita.',
-          }) });
-          onRecordedA?.(matchId, !!recorded.A);
-          return;
-        }
-        setState({ matchId, data, loading: false, preview });
-      } catch {
-        if (active) setState({ matchId, data, loading: false, previewError: 'Impossibile caricare l’anteprima del modello C.' });
-      }
-    }).catch(() => {
-      if (active) {
-        setState({ matchId, error: 'Impossibile caricare i consigli Nightly archiviati.', loading: false });
-        onRecordedA?.(matchId, false);
-      }
-    });
-    return () => { active = false; controller.abort(); };
-  }, [matchId, refreshKey, retry, onRecordedA, kickoffAt, finished]);
+    if (controlled) return;
+    void prepare({ matchId, kickoffAt, finished });
+    return cancel;
+  }, [controlled, prepare, cancel, matchId, kickoffAt, finished, refreshKey]);
+  const state = coordinator.state;
+  useEffect(() => { onRecordedA?.(matchId, state.matchId === matchId && !!state.data?.A); }, [onRecordedA, matchId, state.matchId, state.data]);
   const current: typeof state = state.matchId === matchId ? state : { matchId, loading: true };
   const familyCard = (family: AdviceFamily) => {
     const decision = current.data?.[family];
@@ -126,11 +98,11 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
       <h2>Modello {family}</h2>
       {decision ? <RecordedAdvice decision={decision} /> : current.loading ? <p role="status">Caricamento del consiglio Nightly {family}…</p>
         : error ? <p role="alert">{error}</p> : <ChallengerPreviewCard preview={current.preview} loading={current.previewLoading}
-          error={current.previewError} ineligible={current.ineligible} onRetry={() => setRetry((value) => value + 1)} />}
+          error={current.previewError} ineligible={current.ineligible} onRetry={() => coordinator.retry()} />}
     </section>;
   };
   return <div className="match-model-advice">
     <div className="match-model-advice__grid">{familyCard('A')}{familyCard('C')}</div>
-    {(current.error || current.data?.errors?.A || current.data?.errors?.C) && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setRetry((value) => value + 1)}>Riprova consigli A/C</button>}
+    {(current.error || current.data?.errors?.A || current.data?.errors?.C) && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => coordinator.retry()}>Riprova consigli A/C</button>}
   </div>;
 }

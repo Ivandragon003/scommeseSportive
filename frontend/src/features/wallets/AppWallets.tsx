@@ -28,6 +28,11 @@ export const walletBetStatus = (status: string): string => ({
   HALF_WON: 'Mezza vincita', HALF_LOST: 'Mezza perdita', SETTLED: 'Liquidata',
 } as Record<string, string>)[status] || 'Esito non disponibile';
 
+export const walletMarketLabel = (market?: string | null): string => ({
+  totals: 'Gol totali', goals_ou: 'Gol totali', dnb: 'Pareggio rimborsato',
+  double_chance: 'Doppia chance', spreads: 'Handicap',
+} as Record<string, string>)[String(market || '').toLowerCase()] || opportunityMarketLabel(market);
+
 export function useAppWalletData(query: ResearchComparisonQuery) {
   const [data, setData] = useState<ResearchComparison | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +48,7 @@ export function useAppWalletData(query: ResearchComparisonQuery) {
     setLoading(true); setError(null); setData(null);
     getAppWallets({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }, controller.signal)
       .then((value) => { if (active) setData(value); })
-      .catch((failure) => { if (active) setError(failure?.response?.data?.error || failure?.message || 'Portafogli non disponibili.'); })
+      .catch(() => { if (active) setError('Non è stato possibile caricare giocate e saldi. Riprova.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
   }, [period, from, to, revision]);
@@ -85,7 +90,7 @@ export function WalletLoadState({ loading, error, refresh }: { loading: boolean;
 export function WalletBalanceCards({ portfolios, model }: { portfolios: ComparisonPortfolio[]; model: WalletModelFilter }) {
   return <div className="app-wallet-balances">{portfolios.filter((row) => model === 'all' || row.family === model).map((row) =>
     <section className="app-wallet-card" key={row.portfolioId} aria-label={`Portafoglio ${row.family}`}>
-      <h2>Portafoglio {row.family}</h2><p>{row.family === 'A' ? 'Modello statistico · importo del consiglio' : 'Modello ibrido · Challenger · stake fisso 1%'}</p>
+      <h2>Portafoglio {row.family}</h2><p>{row.family === 'A' ? 'Modello A · importo consigliato' : 'Modello C · importo per giocata 1%'}</p>
       {row.initialized === false ? <p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p> : <dl>
         <div><dt>Disponibile</dt><dd>{walletMoney(row.currentAvailableCents)}</dd></div>
         <div><dt>Impegnato</dt><dd>{walletMoney(row.currentCommittedCents)}</dd></div>
@@ -104,13 +109,14 @@ export function WalletBetTable({ rows, model, emptyText = 'Nessuna giocata regis
     const family = walletBetFamily(bet);
     const returned = walletBetReturn(bet);
     const bookmaker = bet.quote?.bookmaker || bet.bookmaker || 'Bookmaker non disponibile';
+    const awaitingOutcome = bet.status === 'PENDING' && !!bet.kickoffAt && Date.parse(bet.kickoffAt) <= Date.now();
     return <article className="app-wallet-bet" key={bet.id} aria-label={`${family || 'Modello non disponibile'} · ${bet.matchLabel || bet.matchId || 'Partita non disponibile'}`}>
       <div className="app-wallet-bet-main"><span className="app-wallet-model">Modello {family || 'non disponibile'}</span>
         <div className="app-wallet-match"><h3>{bet.matchLabel || bet.matchId || 'Partita non disponibile'}</h3><p>{bet.league}{bet.kickoffAt ? ` · ${walletDateTime(bet.kickoffAt)}` : ''}</p>
-          <strong>{walletBetSelection(bet)}</strong><small>{opportunityMarketLabel(bet.market)}</small></div>
+          <strong>{walletBetSelection(bet)}</strong><small>{walletMarketLabel(bet.market)}</small></div>
         <div><small>Quota registrata</small><strong>{Number.isFinite(bet.odds) ? bet.odds.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong><small>{bookmaker}</small></div>
         <div><small>Importo</small><strong>{walletMoney(bet.stakeCents)}</strong></div>
-        <span className={`app-wallet-status is-${bet.status.toLowerCase()}`}>{walletBetStatus(bet.status)}</span>
+        <span className={`app-wallet-status is-${bet.status.toLowerCase()}`}>{awaitingOutcome ? 'In attesa di esito' : walletBetStatus(bet.status)}</span>
       </div>
       <details className="app-wallet-bet-detail"><summary>Dettagli della giocata</summary><dl>
         <div><dt>Registrata</dt><dd>{walletDateTime(bet.createdAt)}</dd></div>
@@ -118,7 +124,7 @@ export function WalletBetTable({ rows, model, emptyText = 'Nessuna giocata regis
         <div><dt>Ritorno liquidato</dt><dd>{walletMoney(returned)}</dd></div>
         <div><dt>Profitto liquidato</dt><dd>{walletMoney(bet.profitCents)}</dd></div>
       </dl><p>Quota archiviata alla registrazione, non un prezzo corrente.</p>
-        {bet.quote?.source && <p>Fonte quota: {bet.quote.source} · {bookmaker}</p>}
+        {awaitingOutcome && <p>Risultato o liquidazione non ancora disponibili.</p>}
         {onInspectBet && <button type="button" className="fp-btn fp-btn-ghost" onClick={() => onInspectBet(bet)}>Apri pronostico registrato</button>}
       </details>
     </article>;

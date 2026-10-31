@@ -69,7 +69,8 @@ test('absence of archived C requests an independent preview and unavailable pric
 
 test('legacy A80 is never used as operational A and the existing A card remains intact', async () => {
   get.mockResolvedValueOnce(response([row('A', { authority: 'legacy', modelVersion: 'A80' }), row('C')])); show();
-  expect(await screen.findByText('C906-frozen', { exact: false })).toBeTruthy();
+  expect(await screen.findByText('Under 2.5 Goal')).toBeTruthy();
+  expect(screen.queryByText(/C906-frozen/)).toBeNull();
   expect(screen.getByText('Consiglio A già calcolato')).toBeTruthy();
   expect(screen.queryByText(/A80/)).toBeNull();
 });
@@ -290,7 +291,7 @@ test('an unreadable newly archived decision does not start an inference loop', a
   get.mockResolvedValue(response([]));
   post.mockResolvedValueOnce(previewResponse({ status: 'ARCHIVED', reason: 'nightly_decision_available', quote: null, recommendationPacket: null }));
   show();
-  expect(await screen.findByText('La decisione Nightly segnalata non è ancora leggibile. Riprova i consigli della partita.')).toBeTruthy();
+  expect(await screen.findByText('La decisione archiviata non è ancora leggibile. Riprova i consigli della partita.')).toBeTruthy();
   expect(get).toHaveBeenCalledTimes(2);
   expect(post).toHaveBeenCalledTimes(1);
   expect(c().queryByText('Over 3.5 Goal')).toBeNull();
@@ -326,5 +327,20 @@ test('an on-screen preview expires without automatic network requests', async ()
     expect(c().queryByText('2,70')).toBeNull();
     expect(c().getByRole('button', { name: 'Riprova anteprima C' })).toBeTruthy();
     expect(post).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
+});
+
+
+test('the server expiry can exceed thirty seconds and is honoured exactly without polling', async () => {
+  jest.useFakeTimers();
+  try {
+    get.mockResolvedValueOnce(response([]));
+    post.mockResolvedValueOnce(previewResponse({ expiresAt: new Date(Date.now() + 240_000).toISOString() }));
+    show(); await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => { jest.advanceTimersByTime(31_000); });
+    expect(c().getByText('Over 3.5 Goal')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(209_001); });
+    expect(c().getByText('Anteprima scaduta')).toBeTruthy();
+    expect(c().queryByText('Over 3.5 Goal')).toBeNull(); expect(post).toHaveBeenCalledTimes(1);
   } finally { jest.useRealTimers(); }
 });

@@ -48,9 +48,36 @@ describe('backtesting API timeout', () => {
     await replayPlayedMatchPrediction('match-42');
     expect(mockPost).toHaveBeenNthCalledWith(1, '/predict', request, { timeout: PREDICTION_TIMEOUT_MS });
     expect(mockPost).toHaveBeenNthCalledWith(2, '/predict/replay', { matchId: 'match-42' }, { timeout: PREDICTION_TIMEOUT_MS });
-    expect(PREDICTION_TIMEOUT_MS).toBe(120000);
+    expect(PREDICTION_TIMEOUT_MS).toBe(240000);
     const nginxConfig = readFileSync(resolve(__dirname, '../../nginx.conf'), 'utf8');
-    expect(nginxConfig).toMatch(/location ~ \^\/api\/predict[\s\S]*?proxy_read_timeout 150s;/);
+    expect(nginxConfig).toMatch(/location ~ \^\/api\/predict[\s\S]*?proxy_read_timeout 270s;/);
+  });
+
+  test('annullare la consultazione conserva gli input A e propaga il segnale a quote, previsione e replay', async () => {
+    const { getPrediction, getOddsForMatch, replayPlayedMatchPrediction } = await import('./api');
+    mockPost.mockResolvedValue({ data: { success: true } });
+    const controller = new AbortController();
+    const request = { homeTeamId: 'home', awayTeamId: 'away', matchId: 'match-42' };
+    const fixture = { matchId: 'match-42', competition: 'Serie A', homeTeam: 'Home', awayTeam: 'Away' };
+    await getOddsForMatch(fixture, { signal: controller.signal });
+    await getPrediction(request, { signal: controller.signal });
+    await replayPlayedMatchPrediction('match-42', { signal: controller.signal });
+    expect(mockPost).toHaveBeenNthCalledWith(1, '/scraper/odds/match', fixture, expect.objectContaining({ signal: controller.signal }));
+    expect(mockPost).toHaveBeenNthCalledWith(2, '/predict', request, expect.objectContaining({ signal: controller.signal }));
+    expect(mockPost).toHaveBeenNthCalledWith(3, '/predict/replay', { matchId: 'match-42' }, expect.objectContaining({ signal: controller.signal }));
+    controller.abort();
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  test('leggere lo stato non avvia manutenzione e il pulsante risultati chiama soltanto il percorso dedicato', async () => {
+    const { getOperationalStatus, refreshMatchResults } = await import('./api');
+    mockGet.mockResolvedValue({ data: { success: true, data: { nightly: { state: 'SUCCESS' } } } });
+    mockPost.mockResolvedValue({ data: { success: true, data: { status: 'SUCCESS' } } });
+    await getOperationalStatus();
+    expect(mockPost).not.toHaveBeenCalled();
+    await refreshMatchResults();
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost).toHaveBeenCalledWith('/results/refresh', {}, { timeout: 120000 });
   });
 
   test('sessione condivisa usa richieste credentialed e invalida la cache al login', async () => {

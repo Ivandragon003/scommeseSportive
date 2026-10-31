@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { PLAYER_DATA_ENABLED } from '../config/playerAvailability';
 import { BestValueOpportunity as BestValueOpportunityModel } from '../components/predictions/predictionTypes';
 import {
   buildBetKey,
@@ -17,10 +16,12 @@ import { useConfirmDialog } from './useConfirmDialog';
 import { useUserBudget } from './useUserBudget';
 import { useMatchSelection } from './useMatchSelection';
 import { usePredictionAnalysis } from './usePredictionAnalysis';
+import { useMatchModelAdvice } from './useMatchModelAdvice';
 import { useBetPlacement } from './useBetPlacement';
 
 export interface PredictionWorkbenchViewModel {
   activeUser: string;
+  modelAdvice: ReturnType<typeof useMatchModelAdvice>;
   toastState: ReturnType<typeof useToastState>;
   confirmDialog: ReturnType<typeof useConfirmDialog>;
   userBudget: ReturnType<typeof useUserBudget>;
@@ -74,7 +75,10 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const manuallyArchivedOpportunityKeys = useMemo(() => new Set<string>(), []);
   const userBudget = useUserBudget(activeUser, { mode: 'automatic', family: 'A' });
   const matchSelection = useMatchSelection();
+  const modelAdvice = useMatchModelAdvice();
   const predictionAnalysis = usePredictionAnalysis({
+    beforeAnalyze: modelAdvice.prepare,
+    cancelAdvice: modelAdvice.cancel,
     budget: userBudget.budget,
     competition: matchSelection.competition,
     matchMode: matchSelection.matchMode,
@@ -87,7 +91,6 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const refreshAnalysis = predictionAnalysis.handleRefresh;
   const setAutoSyncMsg = matchSelection.setAutoSyncMsg;
   const refreshVisibleMatches = matchSelection.refreshVisibleMatches;
-  const loadMatchdays = matchSelection.loadMatchdays;
   const loadUserContext = userBudget.loadUserContext;
 
   useEffect(() => {
@@ -99,7 +102,6 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
       setAutoSyncMsg('Dati aggiornati. Lista partite e modelli ricaricati.');
       clearAnalysisCache();
       void refreshVisibleMatches();
-      void loadMatchdays();
       void loadUserContext();
     };
     const onSyncError = () => {
@@ -114,7 +116,6 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     };
   }, [
     clearAnalysisCache,
-    loadMatchdays,
     loadUserContext,
     refreshVisibleMatches,
     setAutoSyncMsg,
@@ -262,25 +263,11 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     refreshAnalysis(matchSelection.activeMatchRow);
   }, [matchSelection.activeMatchRow, refreshAnalysis]);
 
-  const tabs = useMemo(() => [
-    { id: '1x2', label: '1X2 & Goal' },
-    { id: 'handicap', label: 'Handicap' },
-    { id: 'odds', label: 'Quote Complete', count: allOddsEntries.length },
-    { id: 'scores', label: 'Risultati' },
-    { id: 'cards', label: 'Cartellini' },
-    { id: 'fouls', label: 'Falli' },
-    { id: 'shots', label: 'Tiri' },
-    ...(PLAYER_DATA_ENABLED ? [
-      { id: 'players', label: 'Giocatori', count: pp.length },
-      { id: 'playerProps', label: 'Mercati giocatore', count: playerValueOpportunities.length },
-    ] : []),
-    { id: 'strategy', label: 'Pronostico Finale' },
-    { id: 'method', label: 'Algoritmo' },
-    { id: 'value', label: 'Scommesse', count: vbRanked.length },
-  ], [allOddsEntries.length, playerValueOpportunities.length, pp.length, vbRanked.length]);
+  const tabs = useMemo(() => [], []);
 
   return {
     activeUser,
+    modelAdvice,
     toastState,
     confirmDialog,
     userBudget,

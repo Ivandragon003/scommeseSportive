@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { replayPlayedMatchPrediction } from '../utils/api';
 import { getErrorMessage } from '../utils/errorUtils';
 import { buildBetKey } from '../components/predictions/predictionWorkbenchUtils';
 import { useOddsForMatch } from './useOddsForMatch';
+import type { AdviceMatch } from './useMatchModelAdvice';
 import type { MatchMode } from './useMatchSelection';
 
 type OddsTone = 'info' | 'success' | 'warning' | 'danger';
@@ -19,6 +20,8 @@ interface AnalysisCacheEntry {
 }
 
 interface UsePredictionAnalysisParams {
+  beforeAnalyze?: (match: AdviceMatch) => Promise<void>;
+  cancelAdvice?: () => void;
   budget: any;
   competition: string;
   matchMode: MatchMode;
@@ -28,6 +31,8 @@ interface UsePredictionAnalysisParams {
 }
 
 export function usePredictionAnalysis({
+  beforeAnalyze,
+  cancelAdvice,
   budget,
   competition,
   matchMode,
@@ -48,6 +53,8 @@ export function usePredictionAnalysis({
   const [stakes, setStakes] = useState<Record<string, string>>({});
 
   const analyzeReqRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => { controllerRef.current?.abort(); }, []);
   const analysisCacheRef = useRef<Map<string, AnalysisCacheEntry>>(new Map());
   const inFlightAnalysisRef = useRef<{ cacheKey: string; requestId: number } | null>(null);
   const { fetchPredictionWithOdds } = useOddsForMatch();
@@ -79,6 +86,9 @@ export function usePredictionAnalysis({
 
   const clearAnalysisState = useCallback(() => {
     analyzeReqRef.current += 1;
+    controllerRef.current?.abort();
+    cancelAdvice?.();
+    inFlightAnalysisRef.current = null;
     setPred(null);
     setActiveMatchId(null);
     setLoading(false);
@@ -90,27 +100,33 @@ export function usePredictionAnalysis({
     setOddsMsg('');
     setMarketsRequested([]);
     setStakes({});
-  }, [setActiveMatchId]);
+  }, [setActiveMatchId, cancelAdvice]);
 
   const clearAnalysisCache = useCallback(() => {
     analysisCacheRef.current.clear();
   }, []);
 
-  const handleAnalyze = useCallback(async (match: any) => {
+  const handleAnalyze = useCallback(async (match: any, options?: { replay?: boolean }) => {
     const homeId = String(match.home_team_id ?? '');
     const awayId = String(match.away_team_id ?? '');
     const matchCompetition = String(match.competition ?? competition);
     const rawMatchId = String(match.match_id ?? '');
-    const isPlayedMatch = matchMode === 'recent' || (match.home_goals !== null && match.away_goals !== null);
+    const isPlayedMatch = match.home_goals != null && match.away_goals != null;
 
     if (!homeId || !awayId) return;
 
     const resolvedMatchId = rawMatchId || `match_${homeId}_${awayId}_${String(match.date ?? '')}`;
-    const cacheKey = `${matchMode}|${resolvedMatchId}|${homeId}|${awayId}|${matchCompetition}`;
+    const cacheKey = `${matchMode}|${resolvedMatchId}|${homeId}|${awayId}|${matchCompetition}|${options?.replay ? "replay" : "advice"}`;
     const cached = analysisCacheRef.current.get(cacheKey);
     const now = Date.now();
 
     if (cached && now - cached.cachedAt < 120000) {
+      controllerRef.current?.abort();
+      analyzeReqRef.current += 1;
+      inFlightAnalysisRef.current = null;
+      setLoading(false);
+      setLoadingMatchId(null);
+      void beforeAnalyze?.({ matchId: resolvedMatchId, kickoffAt: match.date, finished: isPlayedMatch });
       setAnalysisCacheKey(cacheKey);
       setActiveMatchId(resolvedMatchId);
       setPred(cached.pred);
@@ -128,6 +144,9 @@ export function usePredictionAnalysis({
     // second request while the explicit click is already analysing this match.
     if (inFlightAnalysisRef.current?.cacheKey === cacheKey) return;
 
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     const requestId = ++analyzeReqRef.current;
     inFlightAnalysisRef.current = { cacheKey, requestId };
     setAnalysisCacheKey(cacheKey);
@@ -143,11 +162,18 @@ export function usePredictionAnalysis({
     setLoading(true);
 
     try {
+      await beforeAnalyze?.({ matchId: resolvedMatchId, kickoffAt: match.date, finished: isPlayedMatch });
+      if (requestId !== analyzeReqRef.current || controller.signal.aborted) return;
+      const started = Number.isFinite(Date.parse(String(match.date ?? ''))) && Date.parse(String(match.date)) <= Date.now();
+      if ((isPlayedMatch && !options?.replay) || (!isPlayedMatch && started)) {
+        setOddsMsg(isPlayedMatch ? 'Consulta i consigli pre-partita archiviati.' : 'Risultato in attesa di aggiornamento.');
+        return;
+      }
       if (isPlayedMatch) {
         setOddsMsg('Ricalcolo consiglio sulla partita gia giocata...');
         setOddsTone('info');
 
-        const replayResponse = await replayPlayedMatchPrediction(rawMatchId);
+        const replayResponse = await replayPlayedMatchPrediction(rawMatchId, { signal: controller.signal });
         if (requestId !== analyzeReqRef.current) return;
 
         const replayData = replayResponse.data ?? null;
@@ -194,7 +220,7 @@ export function usePredictionAnalysis({
         return;
       }
 
-      setOddsMsg('Cerco quote pre-partita...');
+      setOddsMsg('Calcolo A in corso. La prima analisi può richiedere qualche minuto.');
       setOddsTone('info');
 
       const result = await fetchPredictionWithOdds({
@@ -204,6 +230,7 @@ export function usePredictionAnalysis({
         match,
         resolvedMatchId,
         teams,
+        signal: controller.signal,
         onBasePrediction: (basePrediction) => {
           if (requestId !== analyzeReqRef.current) return;
           setPred(basePrediction);
@@ -246,6 +273,7 @@ export function usePredictionAnalysis({
     }
   }, [
     analysisCacheRef,
+    beforeAnalyze,
     applyOdds,
     competition,
     fetchPredictionWithOdds,

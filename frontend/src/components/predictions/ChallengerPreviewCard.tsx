@@ -72,7 +72,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
       </>}
       <p className="challenger-preview__registration">Nessuna puntata registrata.</p>
       {selected && <p>Stake indicativo: 1%. L’anteprima non addebita il portafoglio.</p>}
-      {preview?.modelVersion && <p className="match-model-advice__footnote">Versione {preview.modelVersion}. L’anteprima è distinta dalla decisione Nightly.</p>}
+
       {unavailable && !ineligible && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={onRetry}>Riprova anteprima C</button>}
     </>}
   </div>;

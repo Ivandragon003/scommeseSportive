@@ -12,14 +12,27 @@ const initialModel = (): WalletModelFilter => {
   return value === 'A' || value === 'C' ? value : 'all';
 };
 
+export const walletToday = (now = new Date()): string => {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+};
+
 export function WalletPeriodPicker({ query, onChange }: { query: ResearchComparisonQuery; onChange: (query: ResearchComparisonQuery) => void }) {
   const [custom, setCustom] = useState(query.period === 'custom');
   const [from, setFrom] = useState(query.from || '');
   const [to, setTo] = useState(query.to || '');
+  const today = walletToday();
+  const todaySelected = !custom && query.period === 'custom' && query.from === today && query.to === today;
   return <div className="app-wallet-toolbar">
-    <label className="app-wallet-filter">Periodo<select aria-label="Periodo" value={custom ? 'custom' : query.period}
-      onChange={(event) => { const value = event.target.value as ResearchComparisonQuery['period']; setCustom(value === 'custom'); if (value !== 'custom') onChange({ period: value }); }}>
-      <option value="all">Dall’apertura dei portafogli</option><option value="7d">Ultimi 7 giorni</option><option value="30d">Ultimi 30 giorni</option><option value="90d">Ultimi 90 giorni</option><option value="custom">Periodo personalizzato</option>
+    <label className="app-wallet-filter">Periodo<select aria-label="Periodo" value={custom ? 'custom' : todaySelected ? 'today' : query.period}
+      onChange={(event) => {
+        const value = event.target.value;
+        setCustom(value === 'custom');
+        if (value === 'today') { onChange({ period: 'custom', from: today, to: today }); return; }
+        if (value !== 'custom') onChange({ period: value as ResearchComparisonQuery['period'] });
+      }}>
+      <option value="all">Dall’apertura dei portafogli</option><option value="today">Oggi</option><option value="7d">Ultimi 7 giorni</option><option value="30d">Ultimi 30 giorni</option><option value="90d">Ultimi 90 giorni</option><option value="custom">Periodo personalizzato</option>
     </select></label>
     {custom && <form className="app-wallet-toolbar" onSubmit={(event) => { event.preventDefault(); if (from && to && from <= to) onChange({ period: 'custom', from, to }); }}>
       <label className="app-wallet-filter">Dal<input aria-label="Dal" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></label>
@@ -54,7 +67,7 @@ export function WalletBetsPage({ legacy }: { legacy?: React.ReactNode }) {
     <WalletLoadState loading={loading} error={error} refresh={refresh} />
     {!loading && !error && data && <>
       <WalletBalanceCards portfolios={data.portfolios} model={model} />
-      <p className="app-wallet-help">{data.period.label} · Europe/Rome. {portfolios.map((row) => `Modello ${row.family}: ${row.betCount ?? '—'} giocate registrate`).join(' · ')}.</p>
+      <p className="app-wallet-help">{query.period === 'custom' && query.from === walletToday() && query.to === walletToday() ? 'Giocate registrate oggi' : data.period.label} · Orari italiani. {portfolios.map((row) => `Modello ${row.family}: ${row.betCount ?? '—'} giocate registrate`).join(' · ')}.</p>
       <WalletBetTable rows={rows} model={model} emptyText={data.bets.truncated
         ? 'Nessuna giocata di questo filtro nelle righe caricate. Il riepilogo comprende l’intero periodo.'
         : undefined} />
@@ -81,12 +94,12 @@ export function WalletBudgetPage({ legacy }: { legacy?: React.ReactNode }) {
       <div className="app-wallet-balances">{portfolios.map((row) => <section className="app-wallet-section" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
         <h2>Risultati {row.family}</h2><p>{data.period.label}</p><dl className="app-wallet-period-metrics">
           <div><dt>Giocate registrate</dt><dd>{row.betCount ?? '—'}</dd></div><div><dt>Importo registrato</dt><dd>{walletMoney(row.stakeCents)}</dd></div>
-          <div><dt>Profitto liquidato</dt><dd>{walletMoney(row.profitCents)}</dd></div><div><dt>ROI sulle liquidate</dt><dd>{walletPercent(row.roi)}</dd></div>
+          <div><dt>Profitto liquidato</dt><dd>{walletMoney(row.profitCents)}</dd></div><div><dt>Rendimento sulle liquidate</dt><dd>{walletPercent(row.roi)}</dd></div>
           <div><dt>Giocate liquidate</dt><dd>{row.settledCount ?? '—'}</dd></div><div><dt>Importo liquidato</dt><dd>{walletMoney(row.settledStakeCents)}</dd></div>
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">Le statistiche usano tutte le registrazioni del periodo. Profitto e ROI comprendono le liquidazioni avvenute nel periodo, anche per giocate registrate prima.</p>
+      <p className="app-wallet-help">Le statistiche usano tutte le registrazioni del periodo. Profitto e rendimento comprendono le liquidazioni avvenute nel periodo, anche per giocate registrate prima.</p>
       {model === 'all' && <section className="app-wallet-section"><h2>Andamento A/C</h2><EquityChart
         a={data.portfolios.find((row) => row.family === 'A')?.equity}
         c={data.portfolios.find((row) => row.family === 'C')?.equity}

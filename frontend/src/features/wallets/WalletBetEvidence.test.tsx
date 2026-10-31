@@ -30,8 +30,9 @@ describe('WalletBetEvidence', () => {
 
   test('selects the recorded C packet for a funded C bet, never A replay or an invented classification', async () => {
     render(<WalletBetEvidence bet={bet} onClose={jest.fn()} />);
-    expect(await screen.findByText('C-pinned')).toBeTruthy();
-    expect(screen.getByText('Non registrata')).toBeTruthy();
+    expect(await screen.findByText('Consiglio registrato verificato.')).toBeTruthy();
+    expect(screen.queryByText('C-pinned')).toBeNull();
+    expect(screen.queryByText('Classificazione registrata')).toBeNull();
     expect(screen.queryByText('High')).toBeNull();
     expect(screen.queryByText('APP-A')).toBeNull();
     expect(mockedGet).toHaveBeenCalledWith('/research/forecasts', { params: { matchId: 'match-1' }, signal: expect.anything() });
@@ -65,7 +66,7 @@ describe('WalletBetEvidence', () => {
 
   test('shows the recorded half-loss return, not zero', async () => {
     render(<WalletBetEvidence bet={{ ...bet, status: 'HALF_LOST', profitCents: -500 }} onClose={jest.fn()} />);
-    expect(await screen.findByText('C-pinned')).toBeTruthy();
+    expect(await screen.findByText('Consiglio registrato verificato.')).toBeTruthy();
     expect(screen.getByText('Mezza perdita')).toBeTruthy();
     expect(screen.getByText(/^5,00\s€$/)).toBeTruthy();
     expect(screen.getByText(/^-5,00\s€$/)).toBeTruthy();
@@ -84,7 +85,7 @@ describe('WalletBetEvidence', () => {
     try {
       trigger.focus();
       fireEvent.click(trigger);
-      expect(await screen.findByText('C-pinned')).toBeTruthy();
+      expect(await screen.findByText('Consiglio registrato verificato.')).toBeTruthy();
       expect(focused).toHaveBeenLastCalledWith(expect.objectContaining({ target: screen.getByRole('region', { name: 'Pronostico registrato modello C' }) }));
       fireEvent.click(screen.getByRole('button', { name: 'Chiudi pronostico' }));
       expect(focused).toHaveBeenLastCalledWith(expect.objectContaining({ target: trigger }));

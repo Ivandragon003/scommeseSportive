@@ -75,6 +75,8 @@ function challengerProspectiveTimingReason(observation: { kickoffAt: unknown; ob
 
 /** Research uses separate tables and integer cents; legacy balances are never read or written. */
 export class ResearchStore {
+  private readonly previewModelsC = new Map<string, any>();
+  private readonly previewModelLoadsC = new Map<string, Promise<any>>();
   private guards: Promise<void> | undefined;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly clock: () => Date;
@@ -316,6 +318,46 @@ export class ResearchStore {
       WHERE m.family=? AND m.version=?`, [family(modelFamily), version]);
   }
 
+  /** Preview-only immutable artifact cache; registry metadata is checked on every call. */
+  async getPreviewModelC(version: string): Promise<any> {
+    await this.ensureGuards();
+    const metadata = await first(this.client, `SELECT m.family,m.version,m.artifact_hash,m.created_at,
+      CASE WHEN c.version=m.version THEN 1 ELSE 0 END AS is_champion
+      FROM research_models m LEFT JOIN research_champions c ON c.family=m.family
+      WHERE m.family='C' AND m.version=?`, [version]);
+    if (!metadata) return null;
+    const available = (value: unknown): boolean => typeof value === 'string'
+      && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) && Number.isFinite(Date.parse(value))
+      && Date.parse(value) <= this.clock().getTime();
+    if (!available(metadata.createdAt) || !metadata.artifactHash) throw new Error('preview_model_registry_unavailable');
+    const key = researchHash({ version: metadata.version, artifactHash: metadata.artifactHash, createdAt: metadata.createdAt });
+    const cached = this.previewModelsC.get(key);
+    if (cached) return { ...cached, ...metadata };
+    const pending = this.previewModelLoadsC.get(key);
+    if (pending) return { ...await pending, ...metadata };
+    if (this.previewModelLoadsC.size >= 2) throw new Error('preview_model_load_busy');
+    const load = (async () => {
+      const record = await this.getModelByVersion('C', version);
+      if (!record || record.version !== metadata.version || record.artifactHash !== metadata.artifactHash
+        || record.createdAt !== metadata.createdAt || researchHash(record.artifact) !== metadata.artifactHash
+        || !available(record.artifact?.createdAt)) throw new Error('preview_model_identity_unavailable');
+      // Consumers share a read-only artifact, never the duplicate JSON text or a mutable model.
+      const freeze = (value: any): void => {
+        if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+        Object.freeze(value);
+        for (const child of Object.values(value)) freeze(child);
+      };
+      freeze(record.artifact);
+      delete record.artifactJson;
+      this.previewModelsC.clear();
+      this.previewModelsC.set(key, record);
+      return record;
+    })();
+    this.previewModelLoadsC.set(key, load);
+    try { return { ...await load, ...metadata }; }
+    finally { if (this.previewModelLoadsC.get(key) === load) this.previewModelLoadsC.delete(key); }
+  }
+
   /** Dashboard metadata excludes immutable trees and calibration samples. */
   async getOverviewModels(): Promise<any[]> {
     await this.ensureGuards();
@@ -378,6 +420,22 @@ export class ResearchStore {
     if (version) { filters.push('model_version=?'); args.push(version); }
     return first(this.client, `SELECT * FROM research_benchmarks ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
       ORDER BY created_at DESC,rowid DESC LIMIT 1`, args);
+  }
+
+  /** C preview needs the exact calibration evidence, not individual benchmark predictions. */
+  async getLatestPreviewBenchmarkC(version: string): Promise<any> {
+    await this.ensureGuards();
+    const fields = ['version', 'probabilityProtocol', 'pipelineHashV2', 'baselineVersion', 'calibrationProfilesV2',
+      'probabilityCalibrationMode', 'probabilityTemperature', 'diagnosticOnly', 'runtimeCompatible'];
+    const columns = fields.map((key) => `report_json -> '$.${key}' AS ${key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}_json`);
+    const record = await first(this.client, `SELECT id,family,model_version,report_hash,validated,created_at,
+      ${columns.join(',')},report_json -> '$.validation.baselineHash' AS baseline_hash_json
+      FROM research_benchmarks WHERE family='C' AND model_version=? ORDER BY created_at DESC,rowid DESC LIMIT 1`, [version]);
+    if (!record) return null;
+    const report: Record<string, any> = { validation: { baselineHash: record.baselineHash } };
+    for (const key of fields) report[key] = record[key];
+    return { id: record.id, family: record.family, modelVersion: record.modelVersion, reportHash: record.reportHash,
+      validated: record.validated, createdAt: record.createdAt, report };
   }
 
   async listBenchmarks(options: { family?: ResearchFamily | 'PAIR'; modelVersion?: string; limit?: number } = {}): Promise<any[]> {

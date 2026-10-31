@@ -31,6 +31,12 @@ function previewFixture() {
     calibrationPoints: [{ x: 0, y: 0 }, { x: .5, y: .45 }, { x: 1, y: 1 }], byFamily: {}, learnedBlendWeights: {} };
   const deny = (name) => async () => assert.fail(`Unexpected write, external call or A read: ${name}`);
   const research = new Proxy({
+    getPreviewModelC: async (selectedVersion) => {
+      assert.equal(selectedVersion, version); return research.getModelByVersion('C');
+    },
+    getLatestPreviewBenchmarkC: async (selectedVersion) => {
+      assert.equal(selectedVersion, version); return research.getLatestBenchmark('C');
+    },
     getModelByVersion: async (family) => {
       assert.equal(family, 'C'); return { version, artifact, createdAt: artifact.createdAt };
     },

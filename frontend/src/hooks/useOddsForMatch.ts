@@ -10,6 +10,7 @@ interface FetchPredictionWithOddsInput {
   match: any;
   resolvedMatchId: string;
   teams: any[];
+  signal?: AbortSignal;
   onBasePrediction?: (prediction: any) => void;
 }
 
@@ -51,8 +52,11 @@ export function useOddsForMatch() {
     match,
     resolvedMatchId,
     teams,
+    signal,
     onBasePrediction,
   }: FetchPredictionWithOddsInput): Promise<FetchPredictionWithOddsResult> => {
+    const ensureActive = () => { if (signal?.aborted) throw new Error("Analysis cancelled"); };
+    ensureActive();
     const teamNameIndex = new Map<string, string>();
     for (const team of teams) {
       teamNameIndex.set(String(team?.team_id ?? ''), String(team?.name ?? ''));
@@ -69,9 +73,10 @@ export function useOddsForMatch() {
       homeTeam: homeName,
       awayTeam: awayName,
       commenceTime: match?.date ? String(match.date) : null,
-    })
+    }, ...(signal ? [{ signal }] : []))
       .then((response) => ({ response, errorMessage: null as string | null }))
       .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));
+    ensureActive();
     const payload = (oddsResult.response as any)?.data ?? {};
     const requestedMarkets = Array.isArray(payload.marketsRequested) ? payload.marketsRequested : [];
 
@@ -119,8 +124,9 @@ export function useOddsForMatch() {
     // before player props are evaluated. Outside that window the endpoint is
     // a cheap no-op; provider errors do not block the team prediction.
     if (PLAYER_AVAILABILITY_ENABLED) {
-      await Promise.resolve(refreshPlayerAvailability(resolvedMatchId)).catch(() => undefined);
+      await Promise.resolve(refreshPlayerAvailability(resolvedMatchId, ...(signal ? [{ signal }] : []))).catch(() => undefined);
     }
+    ensureActive();
     const predictionResponse = await getPrediction({
       homeTeamId: homeId,
       awayTeamId: awayId,
@@ -129,7 +135,8 @@ export function useOddsForMatch() {
       ...(hasVerifiedRealBookmakerOdds
         ? { bookmakerOdds: providerOdds, bookmakerBySelection, oddsSource: source || 'unknown' }
         : {}),
-    });
+    }, ...(signal ? [{ signal }] : []));
+    ensureActive();
     const basePrediction = predictionResponse.data ?? null;
     if (basePrediction && onBasePrediction) {
       onBasePrediction(sanitizePredictionForBookmakerOdds(basePrediction));

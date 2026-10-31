@@ -85,7 +85,7 @@ test('C preview uses the genuine C selector without invoking A or mutating busin
   assert.equal(result.recommendationPacket.selected.bookmakerName, 'Real Book');
   assert.equal(result.recommendationPacket.selected.suggestedStakePercent, 1);
   assert.equal(result.suggestedStakePercent, 1); assert.equal(result.registered, false);
-  assert.equal(result.asOf, at); assert.equal(result.expiresAt, '2026-10-31T12:00:30.000Z');
+  assert.equal(result.asOf, at); assert.equal(result.expiresAt, '2026-10-31T12:05:00.000Z');
   assert.equal(result.modelVersion, f.state.deployment.modelVersion);
   assert.equal(result.kind, 'C_PREVIEW'); assert.equal(result.family, 'C');
   assert.ok(!('action' in result) && !('betId' in result) && !('stakeCents' in result));
@@ -217,6 +217,33 @@ test('cache expiry is bounded by quote validity and by kickoff', async () => {
   assert.equal((await near.service.preview('m1')).expiresAt, '2026-10-31T12:00:04.000Z');
 });
 
+test('thirty-second response caching is independent from five-minute advice validity', async () => {
+  const f = fixture();
+  const first = await f.service.preview('m1');
+  assert.equal(first.expiresAt, '2026-10-31T12:05:00.000Z');
+  f.now += 29999;
+  const cached = await f.service.preview('m1');
+  assert.equal(cached.asOf, at); assert.equal(f.calls.prepared.length, 1);
+  f.now += 1;
+  const fresh = await f.service.preview('m1');
+  assert.equal(f.calls.prepared.length, 2);
+  assert.equal(fresh.asOf, '2026-10-31T12:00:30.000Z');
+  assert.equal(fresh.expiresAt, '2026-10-31T12:05:30.000Z');
+  assert.ok(Date.parse(first.expiresAt) > f.now, 'a valid old advice is not a reusable cache entry after30s');
+});
+
+test('a slow computation can exceed thirty seconds but never the authentic quote five-minute limit', async () => {
+  const f = fixture();
+  f.beforePrepare = async () => { f.now += 157000; };
+  const result = await f.service.preview('m1');
+  assert.equal(result.status, 'RECOMMENDED');
+  assert.equal(result.asOf, at); assert.equal(result.expiresAt, '2026-10-31T12:05:00.000Z');
+  assert.equal(result.registered, false);
+  const oldQuotes = fixture();
+  oldQuotes.beforePrepare = async () => { oldQuotes.now += 300001; };
+  assert.equal((await oldQuotes.service.preview('m1')).status, 'UNAVAILABLE');
+});
+
 test('cache hits recheck fixture, adoption and archive, and cannot be mutated by a caller', async () => {
   const f = fixture();
   const first = await f.service.preview('m1'); first.recommendationPacket.selected.selection = 'mutated';
@@ -284,7 +311,7 @@ test('expiry during final deployment resolution is rechecked and the expired res
   let advance = true;
   f.db.challengerAdoption.getState = async () => {
     f.calls.deployment++;
-    if (advance && f.calls.deployment >= 2) f.now += 31000;
+    if (advance && f.calls.deployment >= 2) f.now += 300000;
     return clone(f.state);
   };
   const result = await f.service.preview('m1');

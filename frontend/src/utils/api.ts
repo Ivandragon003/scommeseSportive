@@ -15,7 +15,7 @@ const API = axios.create({
 
 export const LONG_BACKTEST_TIMEOUT_MS = 10 * 60 * 1000;
 // A cold OOS calibration rebuild can outlast the default read timeout.
-export const PREDICTION_TIMEOUT_MS = 2 * 60 * 1000;
+export const PREDICTION_TIMEOUT_MS = 4 * 60 * 1000;
 export const WALK_FORWARD_TIMEOUT_MESSAGE =
   'Il walk-forward Top 5 sta impiegando troppo tempo. Riduci max folds, disattiva il tuning pesi oppure riprova con un singolo campionato.';
 
@@ -230,7 +230,7 @@ export const getMatchesCount = (
   cachedGet<null>('/matches/count', { params: filters }, { cacheMs: CACHE_TTL.matches, ...options });
 
 export const getUpcomingMatches = (
-  filters?: { competition?: string; season?: string; limit?: number } | string,
+  filters?: { competition?: string; season?: string; limit?: number; includeStartedWithoutResult?: boolean } | string,
   options?: ReadRequestOptions
 ) => {
   const params = typeof filters === 'string' ? { competition: filters } : (filters ?? {});
@@ -257,8 +257,8 @@ export const getOddsForMatch = (params: {
   homeTeam: string;
   awayTeam: string;
   commenceTime?: string;
-}) =>
-  API.post<ApiResponse<any>>('/scraper/odds/match', params, { timeout: 240000 }).then(r => r.data);
+}, options?: { signal?: AbortSignal }) =>
+  API.post<ApiResponse<any>>('/scraper/odds/match', params, { timeout: 240000, ...(options?.signal ? { signal: options.signal } : {}) }).then(r => r.data);
 
 export const createMatch = (match: any) =>
   API.post<ApiResponse<any>>('/matches', match).then(r => r.data);
@@ -285,8 +285,8 @@ export const getPrediction = (request: {
   competition?: string;
   bookmakerOdds?: Record<string, number>;
   oddsSource?: string;
-}) =>
-  API.post<ApiResponse<any>>('/predict', request, { timeout: PREDICTION_TIMEOUT_MS }).then(r => r.data);
+}, options?: { signal?: AbortSignal }) =>
+  API.post<ApiResponse<any>>('/predict', request, { timeout: PREDICTION_TIMEOUT_MS, ...(options?.signal ? { signal: options.signal } : {}) }).then(r => r.data);
 
 export const getPlayerAvailability = (matchId: string) =>
   cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`, undefined, { cacheMs: 30_000 });
@@ -300,8 +300,8 @@ const notifyPlayerAvailabilityUpdated = (matchId: string) => {
   }));
 };
 
-export const refreshPlayerAvailability = (matchId: string) =>
-  API.post<ApiResponse<any>>(`/player-availability/refresh/${encodeURIComponent(matchId)}`, {}, { timeout: 45000 })
+export const refreshPlayerAvailability = (matchId: string, options?: { signal?: AbortSignal }) =>
+  API.post<ApiResponse<any>>(`/player-availability/refresh/${encodeURIComponent(matchId)}`, {}, { timeout: 45000, ...(options?.signal ? { signal: options.signal } : {}) })
     .then(r => {
       const payload = r.data as ApiResponse<any> & { skipped?: string };
       const skipped = String(payload.skipped ?? payload.data?.skipped ?? '');
@@ -471,8 +471,8 @@ export const archiveManualBetOpportunity = (opportunity: {
     return response.data;
   });
 
-export const replayPlayedMatchPrediction = (matchId: string) =>
-  API.post<ApiResponse<any>>('/predict/replay', { matchId }, { timeout: PREDICTION_TIMEOUT_MS }).then(r => r.data);
+export const replayPlayedMatchPrediction = (matchId: string, options?: { signal?: AbortSignal }) =>
+  API.post<ApiResponse<any>>('/predict/replay', { matchId }, { timeout: PREDICTION_TIMEOUT_MS, ...(options?.signal ? { signal: options.signal } : {}) }).then(r => r.data);
 
 // Budget
 export const getBudget = (userId: string, options?: ReadRequestOptions) =>
@@ -676,6 +676,39 @@ export const runOddsSnapshot = (params?: { competition?: string; markets?: strin
 
 export const getSystemHealth = (options?: ReadRequestOptions) =>
   cachedGet<any>('/system/health', undefined, { cacheMs: CACHE_TTL.systemHealth, ...options });
+
+export interface OperationalStatus {
+  checkedAt: string;
+  lastDataUpdateAt: string | null;
+  lastResultsRefreshAt: string | null;
+  nightly: {
+    state: 'SUCCESS' | 'FAILED' | 'RUNNING' | 'NOT_OBSERVED';
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    analyzedMatches: number | null;
+    registeredBets: number | null;
+  };
+}
+
+export const getOperationalStatus = (signal?: AbortSignal) =>
+  API.get<ApiResponse<OperationalStatus>>('/system/operational-status', { signal }).then((response) => response.data);
+
+export interface MatchResultsRefresh {
+  status: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+  startedAt: string;
+  completedAt: string;
+  checked: number;
+  updated: number;
+  settlement: { checked: number; settled: number; unresolved: number } | null;
+}
+
+/** Refreshes final scores and settles existing virtual bets; never creates recommendations or bets. */
+export const refreshMatchResults = () =>
+  API.post<ApiResponse<MatchResultsRefresh>>('/results/refresh', {}, { timeout: 120000 }).then((response) => {
+    if (response.data.success) invalidateApiCache((key) => key.includes('GET:/matches') || key.includes('GET:/system/health')
+      || key.includes('GET:/stats/overview') || key.includes('GET:/system/operational-status'));
+    return response.data;
+  });
 
 export const getProviderHealth = (
   params?: { refresh?: boolean; competition?: string },

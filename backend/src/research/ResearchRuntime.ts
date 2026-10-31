@@ -637,9 +637,10 @@ export class ResearchRuntime {
   }
 
   private async modelsForPreviewC(): Promise<RuntimeModelContext> {
-    const context = await this.loadModelContext();
+    const candidateC = await this.db.research.getPreviewModelC(this.deploymentC!.modelVersion);
+    const context: RuntimeModelContext = { championC: null, latestCandidate: candidateC, candidateC, cacheable: true };
     const C = this.deploymentC?.probabilityConfigurationHash ? null
-      : await this.db.research.getLatestBenchmark('C', context.candidateC?.version ?? 'C-unavailable');
+      : await this.db.research.getLatestPreviewBenchmarkC(context.candidateC?.version ?? 'C-unavailable');
     return { ...context, benchmarks: { A: null, C } };
   }
 

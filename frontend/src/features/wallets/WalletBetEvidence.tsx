@@ -47,10 +47,6 @@ export async function loadWalletBetEvidence(bet: ComparisonBet, signal?: AbortSi
   return decision;
 }
 
-const classificationLabel = (value?: string | null): string => ({
-  HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low', SPECULATIVE: 'Speculativa',
-} as Record<string, string>)[String(value || '').toUpperCase()] || 'Non registrata';
-
 export default function WalletBetEvidence({ bet, onClose }: { bet: ComparisonBet; onClose: () => void }) {
   const sectionRef = useRef<HTMLElement>(null);
   const [decision, setDecision] = useState<RecordedWalletDecision | null>(null);
@@ -68,10 +64,10 @@ export default function WalletBetEvidence({ bet, onClose }: { bet: ComparisonBet
     let active = true;
     setDecision(null); setError(null); setLoading(true);
     loadWalletBetEvidence(bet, controller.signal).then((value) => { if (active) setDecision(value); })
-      .catch((failure) => { if (active) setError(failure?.response?.data?.error || failure?.message || 'Pronostico registrato non disponibile.'); })
+      .catch(() => { if (active) setError(`Il consiglio registrato del modello ${family || 'selezionato'} non è disponibile. Riprova.`); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
-  }, [bet, retry]);
+  }, [bet, family, retry]);
 
   return <section ref={sectionRef} tabIndex={-1} className="app-wallet-section" aria-label={`Pronostico registrato modello ${family || 'non disponibile'}`}>
     <div className="app-wallet-head"><h2>Pronostico registrato · Modello {family || 'non disponibile'}</h2>
@@ -90,9 +86,6 @@ export default function WalletBetEvidence({ bet, onClose }: { bet: ComparisonBet
     <p>La quota è quella conservata alla registrazione. Il risultato e il ritorno derivano dalla liquidazione della giocata.</p>
     {loading && <p role="status">Caricamento del pronostico registrato…</p>}
     {error && <div role="alert"><p>{error}</p><button type="button" className="fp-btn fp-btn-ghost" onClick={() => setRetry((value) => value + 1)}>Riprova pronostico</button></div>}
-    {decision && <dl className="app-wallet-period-metrics">
-      <div><dt>Versione del modello</dt><dd>{decision.modelVersion}</dd></div>
-      <div><dt>Classificazione registrata</dt><dd>{classificationLabel(decision.confidence)}</dd></div>
-    </dl>}
+    {decision && <p role="status">Consiglio registrato verificato.</p>}
   </section>;
 }

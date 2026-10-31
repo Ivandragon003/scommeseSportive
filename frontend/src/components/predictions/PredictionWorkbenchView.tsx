@@ -1,51 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
-import PredictionHero from './PredictionHero';
-import BestValueCard from './BestValueCard';
 import MatchModelAdvice from './MatchModelAdvice';
-import StakePlanner from './StakePlanner';
-import MethodologyDrawer from './MethodologyDrawer';
-import ShotsSection from './ShotsSection';
-import PlayerPropsSection from './PlayerPropsSection';
-import LineupPanel from './LineupPanel';
-import { PLAYER_AVAILABILITY_ENABLED } from '../../config/playerAvailability';
-import ValueOpportunitiesTable from './ValueOpportunitiesTable';
-import { DistChart, ProbBar } from './PredictionStatPrimitives';
-import { formatCompactOuKey, fmtN, fmtPct, fmtSelection } from './predictionFormatting';
-import { BestValueOpportunity as BestValueOpportunityModel } from './predictionTypes';
-import { currentSeason, formatKickoff, isSerieA, switchMarketTab, VALUE_LEGEND } from './predictionWorkbenchUtils';
+import { fmtSelection } from './predictionFormatting';
+import { currentSeason, dateToDayKey, formatKickoff } from './predictionWorkbenchUtils';
 import type { PredictionWorkbenchViewModel } from '../../hooks/usePredictionWorkbench';
-import GlossaryTerm from '../../features/glossary/GlossaryTerm';
 
-interface PredictionWorkbenchViewProps {
-  vm: PredictionWorkbenchViewModel;
-}
-
-const NativeCompetitionPicker: React.FC<{
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}> = ({ value, options, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const label = value || 'Tutti i campionati';
-  return (
-    <div className="pr-native-picker">
-      <button type="button" className="pr-native-picker__trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-        <span>{label}</span><ChevronRight className={open ? 'is-open' : ''} size={16} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="pr-native-picker__menu" role="listbox" aria-label="Campionato">
-          {['', ...options].map((item) => (
-            <button key={item || 'all'} type="button" role="option" aria-selected={item === value} className={item === value ? 'active' : ''} onClick={() => { onChange(item); setOpen(false); }}>
-              <span>{item || 'Tutti i campionati'}</span>{item === value && <span aria-hidden="true">✓</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+interface PredictionWorkbenchViewProps { vm: PredictionWorkbenchViewModel }
 
 /*  STYLES  */
 const S = `
@@ -811,909 +771,126 @@ const S = `
   .pr-decision-report__title { font-size:23px; }
 }
 .pr-decision-layout--context { grid-template-columns:minmax(0,1fr); }
+.pr-sporting-data { margin-top:20px; }
+.pr-sporting-data summary { cursor:pointer; font-weight:700; }
+.pr-sporting-data table { width:100%; border-collapse:collapse; }
+.pr-sporting-data th, .pr-sporting-data td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); }
+
 `;
 
-/*  MAIN  */
 
 const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm }) => {
-  const isNativeApp = Capacitor.isNativePlatform();
-  const rightRef = useRef<HTMLDivElement>(null);
+  const { matchSelection: selection, predictionAnalysis: analysis, modelAdvice } = vm;
+  const { clearAnalysisState, handleAnalyze } = analysis;
+  const { competition, season, matchMode, upcomingLoading, activeMatchRow, comps, groupedMatches: grouped } = selection;
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
-  const [adviceRefresh, setAdviceRefresh] = useState(0);
-  const [recordedA, setRecordedA] = useState<{ matchId: string; available: boolean } | null>(null);
-  const onRecordedA = useCallback((matchId: string, available: boolean) => setRecordedA({ matchId, available }), []);
-  const {
-    matchSelection,
-    predictionAnalysis,
-    userBudget,
-    handleBet,
-    handleArchiveOpportunity,
-    gp,
-    cp,
-    fp,
-    sp,
-    pp,
-    playerValueOpportunities,
-    analysisFactors,
-    methodology,
-    vbRanked,
-    manualArchiveOpportunities,
-    manuallyArchivedOpportunityKeys,
-    allOddsEntries,
-    allOddsGroups,
-    valueSelectionSet,
-    isReplayAnalysis,
-    actualMatch,
-    recommendedBetResult,
-    oddsReliabilityBadge,
-    oddsSourceWarning,
-    replayOutcomeTone,
-    replayOutcomeLabel,
-    leftPanelTitle,
-    bankroll,
-    maxExposurePct,
-    maxExposureAmount,
-    finalRecommendedChoice,
-    suggestedTotalStake,
-    exposureRatio,
-    oppStakeKey,
-    oppStakeValue,
-    tabs: TABS,
-    handleRefresh,
-  } = vm;
-  const {
-    competition,
-    season,
-    matchMode,
-    upcomingLoading,
-    matchdayMap,
-    activeMatchRow,
-    autoSyncMsg,
-    comps,
-    groupedMatches: grouped,
-    setCompetition,
-    setSeason,
-    setMatchMode,
-    tab,
-    setTab,
-  } = matchSelection;
-  const {
-    pred: analysisPrediction,
-    loading,
-    loadingMatchId,
-    oddsMsg,
-    oddsTone,
-    stakes,
-    setStakes,
-    clearAnalysisState,
-    handleAnalyze: analyzeSelectedMatch,
-  } = predictionAnalysis;
-  const detailMatchId = String(activeMatchRow?.match_id ?? analysisPrediction?.matchId ?? '');
-  const pred = String(analysisPrediction?.matchId ?? '') === detailMatchId ? analysisPrediction : null;
-  const hasArchivedA = !!pred?.automaticRecommendation || (recordedA?.matchId === detailMatchId && recordedA.available);
-  const budget = userBudget.budget;
-  const automaticFamily = userBudget.automaticFamily;
-  const alreadyPlacedForMatch = Boolean(automaticFamily && userBudget.placedMatchKeySet.has(`${automaticFamily}:${String(pred?.matchId ?? '')}`));
-  const placedBetKeySet = new Set(userBudget.placedBetKeySet);
-  const automaticPick = pred?.automaticRecommendation?.selected;
-  if (automaticPick && Number(pred.automaticRecommendation.actualStakeAmount) > 0) {
-    placedBetKeySet.add(oppStakeKey(automaticPick));
-  }
-
-  const detailOpen = Boolean(activeMatchRow || pred || loadingMatchId);
-  const aAdvice = pred ? (
-    <div>
-    {!pred.automaticRecommendation && <p className="match-model-advice__origin">{isReplayAnalysis
-      ? 'Replay retrospettivo A: non è una decisione pre-partita archiviata.'
-      : 'Analisi A aperta adesso: distinta dalla decisione Nightly archiviata.'}</p>}
-    <BestValueCard
-      title="Modello A"
-      opportunity={finalRecommendedChoice as BestValueOpportunityModel | null}
-      automaticRecommendation={pred.automaticRecommendation ?? null}
-      oddsBadge={oddsReliabilityBadge}
-      oddsWarning={oddsSourceWarning}
-      bestBetStatus={finalRecommendedChoice
-        ? finalRecommendedChoice.bestBetStatus ?? (pred.automaticRecommendation ? undefined : pred.bestBetStatus)
-        : 'NO_MARKET'}
-      bestBetReason={finalRecommendedChoice
-        ? finalRecommendedChoice.bestBetReason ?? (pred.automaticRecommendation ? undefined : pred.bestBetReason)
-        : pred.automaticRecommendation
-          ? 'Decisione Nightly archiviata: nessuna puntata virtuale registrata per questa partita.'
-          : 'Nessuna quota supera i criteri operativi: questa partita non genera una puntata reale.'}
-      emptyMessage="Quote o probabilità insufficienti per scegliere una giocata."
-      recommendedBetResult={
-        recommendedBetResult
-          ? {
-              ...recommendedBetResult,
-              reason: `${actualMatch?.actualScore ? `risultato ${actualMatch.actualScore} | ` : ''}${recommendedBetResult.reason ?? ''}`.trim(),
-            }
-          : null
-      }
-      replayTone={replayOutcomeTone}
-      showConfidence={false}
-    />
-    </div>
-  ) : (
-    <section className="pr-decision-report is-empty" aria-label="Modello A">
-      <div className="pr-decision-report__eyebrow">Modello A</div>
-      <strong className="pr-decision-report__title">{loading ? 'Analisi A in corso…' : 'Analisi A non disponibile'}</strong>
-      <p>{loading ? 'Caricamento del consiglio del modello A.' : 'Non è stato possibile completare l’analisi A.'}</p>
-    </section>
-  );
-
-  const marketOddsGroups = useMemo(() => {
-    const categoriesByTab: Record<string, string[]> = {
-      '1x2': ['Esito partita', 'Esiti protetti', 'Goal / No Goal', 'Totali goal'],
-      handicap: ['Handicap'],
-      cards: ['Cartellini'],
-      fouls: ['Falli'],
-      shots: ['Tiri', 'Tiri giocatore'],
-      players: ['Tiri giocatore', 'Marcatori'],
-      playerProps: ['Tiri giocatore', 'Marcatori'],
-    };
-    const categories = categoriesByTab[tab];
-    return categories ? allOddsGroups.filter((group) => categories.includes(group.category)) : [];
-  }, [allOddsGroups, tab]);
-  const visibleDayGroups = selectedDayKey
-    ? grouped.filter((group) => group.key === selectedDayKey)
-    : grouped;
-
+  const today = dateToDayKey(new Date(Date.now()).toISOString());
+  const selectedDay = selectedDayKey === 'all' ? 'all'
+    : grouped.some(group => group.key === selectedDayKey) ? selectedDayKey
+      : grouped.find(group => group.key === today)?.key ?? grouped[0]?.key ?? null;
+  const railGroups = grouped.slice(0, 7);
+  const extraDay = grouped.find(group => group.key === selectedDay && !railGroups.some(item => item.key === group.key));
+  if (extraDay) railGroups.push(extraDay);
+  const filterKey = `${competition}|${season}|${matchMode}`;
+  const previousFilter = useRef(filterKey);
+  useEffect(() => {
+    if (previousFilter.current !== filterKey) { setSelectedDayKey(null); clearAnalysisState(); }
+    previousFilter.current = filterKey;
+  }, [filterKey, clearAnalysisState]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (selectedDayKey) params.set('day', selectedDayKey); else params.delete('day');
+    if (selectedDay) params.set('day', selectedDay); else params.delete('day');
     window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
-  }, [selectedDayKey]);
-
-  const revealMarketTab = (target: HTMLElement) => {
-    target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }, [selectedDay, filterKey]);
+  useEffect(() => {
+    const restore = () => {
+      const id = new URLSearchParams(window.location.search).get('match');
+      if (!id) { clearAnalysisState(); return; }
+      const match = grouped.flatMap(group => group.matches).find((row: any) => String(row.match_id) === id);
+      if (match && String(activeMatchRow?.match_id ?? '') !== id) void handleAnalyze(match);
+    };
+    restore(); window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, [grouped, activeMatchRow?.match_id, clearAnalysisState, handleAnalyze]);
+  const open = (match: any) => {
+    const params = new URLSearchParams(window.location.search); params.set('match', String(match.match_id));
+    window.history.pushState({ predictionDetail: String(match.match_id) }, '', `${window.location.pathname}?${params.toString()}`);
+    void handleAnalyze(match);
   };
-
-  const handleMarketTabWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    const tabList = event.currentTarget;
-    if (tabList.scrollWidth <= tabList.clientWidth) return;
-
-    const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
-    if (!delta) return;
-
-    const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
-    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, tabList.scrollLeft + delta));
-    if (nextScrollLeft !== tabList.scrollLeft) {
-      event.preventDefault();
-      tabList.scrollLeft = nextScrollLeft;
-    }
-  };
-
-  const handleMarketTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
-    let nextIndex = currentIndex;
-    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % TABS.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = TABS.length - 1;
-    else return;
-
-    event.preventDefault();
-    const nextTab = TABS[nextIndex];
-    setTab(nextTab.id);
-    const nextButton = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.pr-tab')[nextIndex];
-    nextButton?.focus();
-    if (nextButton) revealMarketTab(nextButton);
-  };
-
-  const handleAnalyze = (match: any) => {
-    const matchId = String(match.match_id ?? '');
-    if (matchId) {
-      const params = new URLSearchParams(window.location.search);
-      params.set('match', matchId);
-      window.history.pushState({ predictionDetail: matchId }, '', `${window.location.pathname}?${params.toString()}`);
-    }
-    rightRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    void analyzeSelectedMatch(match);
-  };
-
-  const handleBackToMatches = () => {
-    if (window.history.state?.predictionDetail) {
-      window.history.back();
-      return;
-    }
-    const params = new URLSearchParams(window.location.search);
-    params.delete('match');
+  const back = () => {
+    const params = new URLSearchParams(window.location.search); params.delete('match');
     window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
     clearAnalysisState();
   };
-
-  useEffect(() => {
-    const restoreHistoryDetail = () => {
-      const matchId = new URLSearchParams(window.location.search).get('match');
-      if (!matchId) {
-        clearAnalysisState();
-        return;
-      }
-      const match = grouped.flatMap((group) => group.matches).find((item: any) => String(item.match_id ?? '') === matchId);
-      if (match && String(activeMatchRow?.match_id ?? '') !== matchId) {
-        void analyzeSelectedMatch(match);
-      }
-    };
-
-    restoreHistoryDetail();
-    window.addEventListener('popstate', restoreHistoryDetail);
-    return () => window.removeEventListener('popstate', restoreHistoryDetail);
-  }, [activeMatchRow?.match_id, analyzeSelectedMatch, clearAnalysisState, grouped]);
-
-  return (
-    <>
-      <style>{S}</style>
-      <div className="pr">
-
-        {!detailOpen && (
-          <section className="pr-schedule" aria-label="Filtri e partite">
-            <header className="pr-schedule__heading">
-              <div>
-                <p className="pr-schedule__eyebrow">Partite · Modello A · {matchMode === 'upcoming' ? 'in programma' : 'concluse'}</p>
-                <h1>{matchMode === 'upcoming' ? 'Giocate di oggi' : 'Partite recenti'}</h1>
-                <p>Seleziona una partita per vedere quote, pronostico e tutti i mercati disponibili.</p>
-              </div>
-              <div className="pr-schedule__availability">
-                <span aria-hidden="true" />
-                Quote reali verificate nell’analisi
-              </div>
-            </header>
-            <div className="pr-schedule__controls">
-              <div className="pr-filter">
-                <label htmlFor="pr-competition-filter">Campionato</label>
-                {isNativeApp ? (
-                  <NativeCompetitionPicker value={competition} options={comps} onChange={setCompetition} />
-                ) : (
-                  <select id="pr-competition-filter" value={competition} onChange={(event) => setCompetition(event.target.value)}>
-                    <option value="">Tutti i campionati</option>
-                    {comps.map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                )}
-              </div>
-              <div className="pr-filter pr-filter--season">
-                <label htmlFor="pr-season-filter">Stagione</label>
-                <input id="pr-season-filter" value={season} onChange={(event) => setSeason(event.target.value)} placeholder={currentSeason()} />
-              </div>
-            </div>
-
-            <div className="pr-schedule__tabs" role="tablist" aria-label="Tipo partite">
-              <button type="button" role="tab" aria-selected={matchMode === 'upcoming'} className={`pr-mode-tab${matchMode === 'upcoming' ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); setMatchMode('upcoming'); }}>In programma</button>
-              <button type="button" role="tab" aria-selected={matchMode === 'recent'} className={`pr-mode-tab${matchMode === 'recent' ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); setMatchMode('recent'); }}>Recenti</button>
-            </div>
-            {autoSyncMsg && <p className="pr-status-line">{autoSyncMsg}</p>}
-
-            {!upcomingLoading && grouped.length > 0 && (
-              <div className="pr-date-rail" role="toolbar" aria-label="Filtra partite per data">
-                <button
-                  type="button"
-                  className={`pr-date-rail__item${selectedDayKey === null ? ' active' : ''}`}
-                  aria-pressed={selectedDayKey === null}
-                  onClick={() => setSelectedDayKey(null)}
-                >
-                  <span>Tutte</span><strong>{grouped.reduce((total, group) => total + group.matches.length, 0)}</strong>
-                </button>
-                {grouped.slice(0, 8).map((group) => {
-                  const compactDate = group.key === 'unknown'
-                    ? group.label
-                    : new Date(`${group.key}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' });
-                  return (
-                    <button
-                      type="button"
-                      key={group.key}
-                      className={`pr-date-rail__item${selectedDayKey === group.key ? ' active' : ''}`}
-                      aria-pressed={selectedDayKey === group.key}
-                      aria-label={`${group.label}, ${group.matches.length} match`}
-                      onClick={() => setSelectedDayKey(group.key)}
-                    >
-                      <span>{compactDate}</span><strong>{group.matches.length} match</strong>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <section className="pr-match-list" aria-label={leftPanelTitle} aria-busy={upcomingLoading}>
-              {upcomingLoading ? (
-                <div className="pr-list-state"><div><span className="pr-spin" aria-label="Caricamento partite" /></div></div>
-              ) : grouped.length === 0 ? (
-                <div className="pr-list-state">
-                  <div><strong>Nessuna partita trovata</strong>Modifica campionato o stagione per vedere gli incontri.</div>
-                </div>
-              ) : visibleDayGroups.map(({ key, label, matches }) => (
-                <section className="pr-day-group" key={key} aria-labelledby={`pr-day-${key}`}>
-                  <div className="pr-day-heading" id={`pr-day-${key}`}>{label}</div>
-                  {matches.map((match: any) => {
-                    const matchId = String(match.match_id ?? '');
-                    const isLoading = loadingMatchId === matchId;
-                    const isPlayed = match.home_goals !== null && match.away_goals !== null;
-                    const score = isPlayed ? `${match.home_goals}-${match.away_goals}` : null;
-                    const homeTeam = match.home_team_name ?? match.home_team_id;
-                    const awayTeam = match.away_team_name ?? match.away_team_id;
-                    const matchday = isSerieA(match.competition ?? competition) && matchdayMap[matchId]
-                      ? `G${matchdayMap[matchId]}`
-                      : '—';
-                    const recommendation = String(match.finalRecommendation ?? match.recommendation ?? match.bestBet ?? '').trim();
-                    const odds = Number(match.bookmakerOdds ?? match.odds ?? match.odd);
-                    const bookmaker = String(match.oddsBookmaker ?? match.bookmaker ?? '').trim();
-                    const verifiedOdds = String(match.oddsSource ?? '').toLowerCase() === 'odds_api'
-                      && bookmaker.length > 0
-                      && Number.isFinite(odds);
-                    return (
-                      <button
-                        type="button"
-                        key={matchId}
-                        className={`pr-match-list-row${recommendation && verifiedOdds ? ' is-ready' : ''}`}
-                        aria-label={`${homeTeam} vs ${awayTeam}, ${formatKickoff(match.date)}. Vedi analisi`}
-                        onClick={() => !isLoading && handleAnalyze(match)}
-                        disabled={isLoading}
-                      >
-                        <span className="pr-match-list__time">{formatKickoff(match.date).split(',')[1]?.trim() ?? '--'}</span>
-                        <span className="pr-match-list__teams">
-                          <span className="pr-match-list__team">{homeTeam}{score && <b className="pr-match-list__score">{score.split('-')[0]}</b>}</span>
-                          <span className="pr-match-list__versus">vs</span>
-                          <span className="pr-match-list__team">{awayTeam}{score && <b className="pr-match-list__score">{score.split('-')[1]}</b>}</span>
-                        </span>
-                        <span className="pr-match-list__meta">{matchday} &nbsp;•&nbsp; {match.competition ?? competition}</span>
-                        <span className="pr-match-list__action">Vedi analisi</span>
-                        <span className={`pr-match-list__pick${recommendation && verifiedOdds ? ' is-ready' : ''}`}>
-                          {recommendation && verifiedOdds ? (
-                            <><strong>{recommendation}</strong><small>{bookmaker} · {odds.toFixed(2)}</small></>
-                          ) : (
-                            <><strong>Analisi da aprire</strong><small>Verifica quote reali nell’analisi</small></>
-                          )}
-                        </span>
-                        <ChevronRight className="pr-match-list__chevron" size={18} aria-hidden="true" />
-                      </button>
-                    );
-                  })}
-                </section>
-              ))}
-            </section>
-          </section>
-        )}
-
-        {detailOpen && (
-          <div className="pr-detail-nav">
-            <button type="button" className="pr-back-button" onClick={handleBackToMatches}>
-              <ArrowLeft size={18} aria-hidden="true" /> Tutte le partite
-            </button>
-          </div>
-        )}
-
-        {/*  SINGLE MATCH DETAIL  */}
-        {detailOpen && <div className="pr-right" ref={rightRef}>
-          <MatchModelAdvice key={detailMatchId} matchId={detailMatchId} fallbackA={aAdvice} refreshKey={adviceRefresh} onRecordedA={onRecordedA}
-            kickoffAt={String(activeMatchRow?.date ?? '')}
-            finished={activeMatchRow?.home_goals != null || activeMatchRow?.away_goals != null} />
-          {!pred && activeMatchRow ? (
-            <>
-              <div className="pr-results-head">
-                <div>
-                  <div className="pr-results-match">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id} vs {activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div>
-                  <div className="pr-results-meta">{activeMatchRow.competition ?? competition} | {formatKickoff(activeMatchRow.date)}</div>
-                </div>
-                <span className={`pr-odds-status ${loading ? 'info' : 'danger'}`}>
-                  {loading ? 'Analisi in corso…' : 'Analisi non disponibile'}
-                </span>
-              </div>
-              <div className="pr-hero pr-preview-hero">
-                <div className="pr-hero-team"><div className="pr-hero-name">{activeMatchRow.home_team_name ?? activeMatchRow.home_team_id}</div><div className="pr-hero-lambda">Casa</div></div>
-                <div className="pr-hero-center"><div className="pr-hero-vs">VS</div>{loading && <div className="pr-spin" style={{ margin: '0 auto' }} />}</div>
-                <div className="pr-hero-team right"><div className="pr-hero-name">{activeMatchRow.away_team_name ?? activeMatchRow.away_team_id}</div><div className="pr-hero-lambda">Trasferta</div></div>
-              </div>
-              {PLAYER_AVAILABILITY_ENABLED && <LineupPanel matchId={String(activeMatchRow.match_id)} />}
-              <div className="pr-kpi-row" aria-label="Probabilità in attesa di analisi">
-                {[['1', 'Vittoria casa'], ['X', 'Pareggio'], ['2', 'Vittoria ospite']].map(([value, label]) => <div className="pr-kpi" key={value}><div className="pr-kpi-val">{value}</div><div className="pr-kpi-lbl">{label}</div></div>)}
-              </div>
-
-              <div className="pr-decision-layout pr-decision-layout--context">
-                <div className="pr-card"><div className="pr-card-head"><div className="pr-card-title">Portafoglio A</div></div><div className="pr-card-body">{budget ? <div className="pr-info">Disponibile: <strong>EUR {Number(budget.available_budget).toFixed(2)}</strong><br />Impegnato: <strong>EUR {Number(budget.committed_budget).toFixed(2)}</strong><br />Patrimonio usato come base dello stake: <strong>EUR {bankroll.toFixed(2)}</strong></div> : <p role={userBudget.loading ? 'status' : 'alert'}>{userBudget.loading ? 'Caricamento del portafoglio A…' : userBudget.error ?? 'Portafoglio A non disponibile.'}</p>}</div></div>
-              </div>
-            </>
-          ) : !pred ? (
-            <div className="pr-empty-state"><div className="pr-empty-icon">?</div><div style={{fontSize:16,fontWeight:800,marginBottom:10}}>Nessuna partita disponibile</div><div className="pr-empty-msg">Modifica data o campionato per vedere gli incontri.</div></div>
-          ) : pred && (
-            <>
-              {/* Sticky header */}
-              <div className="pr-results-head">
-                <div>
-                  <div className="pr-results-match">{pred.homeTeam} vs {pred.awayTeam}</div>
-                  <div className="pr-results-meta">
-                    {pred.competition} | gol attesi {pred.lambdaHome} - {pred.lambdaAway}
-                    {actualMatch?.actualScore ? ` | finale ${actualMatch.actualScore}` : ''}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {oddsMsg && <span className={`pr-odds-status ${oddsTone}`}>{oddsMsg}</span>}
-                  <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => { setAdviceRefresh((value) => value + 1); handleRefresh(); }} disabled={!activeMatchRow || loading}>
-                    Aggiorna
-                  </button>
-                </div>
-              </div>
-
-              <PredictionHero
-                homeTeam={pred.homeTeam}
-                awayTeam={pred.awayTeam}
-                lambdaHome={pred.lambdaHome}
-                lambdaAway={pred.lambdaAway}
-                modelConfidence={pred.modelConfidence}
-                dataQuality={pred.dataQuality}
-                actualScore={actualMatch?.actualScore}
-                goalProbabilities={gp ?? null}
-                replaySummary={
-                  isReplayAnalysis
-                    ? {
-                        tone: replayOutcomeTone,
-                        text: `Replay retrospettivo. ${actualMatch?.actualScore ? `Risultato reale ${actualMatch.actualScore}. ` : ''}${
-                          replayOutcomeLabel && recommendedBetResult
-                            ? `${replayOutcomeLabel} sulla selezione ${recommendedBetResult.selectionLabel ?? fmtSelection(recommendedBetResult.selection)}.`
-                            : 'Serve per verificare il consiglio finale su una partita gia conclusa.'
-                        }`,
-                      }
-                    : null
-                }
-              />
-
-              {PLAYER_AVAILABILITY_ENABLED && <LineupPanel matchId={String(activeMatchRow?.match_id ?? pred.matchId ?? '')} />}
-
-              <div className="pr-decision-layout pr-decision-layout--context">
-                <div>
-                  {hasArchivedA ? (
-                    <div className="pr-info">
-                      Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata.
-                      Le giocate registrate e i saldi A/C sono consultabili in Giocate, Budget e Archivio.
-                    </div>
-                  ) : budget ? <StakePlanner
-                    isReplayAnalysis={isReplayAnalysis}
-                    actualMatchDate={formatKickoff(actualMatch?.date ?? activeMatchRow?.date)}
-                    actualScore={actualMatch?.actualScore ?? '-'}
-                    bankroll={bankroll}
-                    availableBankroll={Number(budget?.available_budget ?? 0)}
-                    suggestedTotalStake={suggestedTotalStake}
-                    maxExposurePct={maxExposurePct}
-                    maxExposureAmount={maxExposureAmount}
-                    exposureRatio={exposureRatio}
-                  /> : <div className="pr-info">{userBudget.loading ? 'Caricamento del portafoglio A…' : userBudget.error ?? 'Portafoglio A non disponibile.'}</div>}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                    <button className="fp-btn fp-btn-solid fp-btn-sm" onClick={() => setTab('value')}>
-                      Approfondisci i mercati
-                    </button>
-                    <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => setTab('strategy')}>
-                      Come viene scelto
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tabs */}
-              <div className="pr-tabs-wrap">
-                <div
-                  className="pr-tabs"
-                  role="tablist"
-                  aria-label="Mercati disponibili"
-                  aria-describedby="pr-tabs-scroll-help"
-                  onWheel={handleMarketTabWheel}
-                >
-                {TABS.map((t, index) => (
-                  <button
-                    key={t.id}
-                    id={`prediction-market-tab-${t.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === t.id}
-                    aria-controls="prediction-market-panel"
-                    tabIndex={tab === t.id ? 0 : -1}
-                    className={`pr-tab${tab===t.id?' active':''}`}
-                    onClick={(event) => {
-                      switchMarketTab(t.id, setTab);
-                      revealMarketTab(event.currentTarget);
-                    }}
-                    onFocus={(event) => revealMarketTab(event.currentTarget)}
-                    onKeyDown={(event) => handleMarketTabKeyDown(event, index)}
-                  >
-                    {t.label}
-                    {t.count !== undefined && t.count > 0 && <span className="pr-tab-pill">{t.count}</span>}
-                  </button>
-                ))}
-                </div>
-                <p id="pr-tabs-scroll-help" className="pr-tabs-scroll-hint"><span aria-hidden="true">↔</span> Scorri per vedere tutti i mercati</p>
-              </div>
-
-              <div className="pr-content" id="prediction-market-panel" role="tabpanel" aria-labelledby={`prediction-market-tab-${tab}`}>
-
-                {tab !== 'odds' && marketOddsGroups.length > 0 && (
-                  <section className="pr-card pr-market-drilldown" aria-label={`Quote disponibili: ${TABS.find((item) => item.id === tab)?.label ?? 'mercato'}`}>
-                    <div className="pr-card-head">
-                      <div className="pr-card-title">Quote disponibili · {TABS.find((item) => item.id === tab)?.label}</div>
-                      <span className="pr-badge pr-badge-green">Già caricate</span>
-                    </div>
-                    <div className="pr-card-body pr-odds-groups">
-                      {marketOddsGroups.map((group) => (
-                        <section className="pr-odds-group" key={group.category} aria-label={group.category}>
-                          <h3 className="pr-odds-group-title">{group.category}</h3>
-                          <div className="pr-odds-grid">
-                            {group.entries.map((o) => <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
-                              <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
-                              <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
-                              {o.bookmaker && <small className="pr-odds-bookmaker">{o.bookmaker}</small>}
-                            </div>)}
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* 1X2 & GOAL */}
-                {tab==='1x2' && gp && (
-                  <div className="pr-g2">
-                    <div className="pr-card">
-                      <div className="pr-card-head"><div className="pr-card-title">1X2 & Double Chance</div></div>
-                      <div className="pr-card-body">
-                        <ProbBar label={pred.homeTeam} value={gp.homeWin} color="var(--primary)" />
-                        <ProbBar label="Pareggio" value={gp.draw} color="var(--text-2)" />
-                        <ProbBar label={pred.awayTeam} value={gp.awayWin} color="var(--red)" />
-                        <div style={{borderTop:'1px solid var(--border)',marginTop:12,paddingTop:12}}>
-                          <ProbBar label="1X (1 o X)" value={gp.homeWin+gp.draw} color="var(--primary)" />
-                          <ProbBar label="X2 (X o 2)" value={gp.draw+gp.awayWin} color="var(--red)" />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="pr-card">
-                      <div className="pr-card-head"><div className="pr-card-title">Goal / Over-Under</div></div>
-                      <div className="pr-card-body">
-                        <ProbBar label="Goal/Goal" value={gp.btts} color="var(--primary-hover)" />
-                        <ProbBar label="No GG" value={gp.bttsNo ?? (1-gp.btts)} color="var(--text-3)" />
-                        <div style={{borderTop:'1px solid var(--border)',margin:'10px 0'}} />
-                        {[['Over 0.5',gp.over05,'var(--primary)'],['Over 1.5',gp.over15,'var(--primary)'],['Over 2.5',gp.over25,'var(--primary)'],['Over 3.5',gp.over35,'var(--gold)'],['Over 4.5',gp.over45,'var(--red)']].map(([l,v,c]) => (
-                          <ProbBar key={String(l)} label={String(l)} value={Number(v)} color={String(c)} />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* HANDICAP */}
-                {tab==='handicap' && gp?.handicap && (
-                  <div className="pr-card">
-                    <div className="pr-card-head"><div className="pr-card-title">Handicap Europeo</div></div>
-                    <div className="pr-card-body">
-                      <div className="pr-g2">
-                        <div>
-                          <div className="pr-sec">{pred.homeTeam}</div>
-                          {Object.entries(gp.handicap).filter(([k])=>k.startsWith('home')).map(([k,v]) => (
-                            <ProbBar key={k} label={k.replace('home','H ')} value={v as number} color="var(--primary)" />
-                          ))}
-                        </div>
-                        <div>
-                          <div className="pr-sec">{pred.awayTeam}</div>
-                          {Object.entries(gp.handicap).filter(([k])=>k.startsWith('away')).map(([k,v]) => (
-                            <ProbBar key={k} label={k.replace('away','A ')} value={v as number} color="var(--red)" />
-                          ))}
-                        </div>
-                      </div>
-                      {gp.asianHandicap && (
-                        <>
-                          <div className="pr-sec" style={{marginTop:18}}>Asian Handicap (casa)</div>
-                          <div className="pr-ah-grid">
-                            {Object.entries(gp.asianHandicap).slice(0,12).map(([k,v]) => (
-                              <div className="pr-ah-cell" key={k}><span>AH {k}</span><strong>{fmtPct(v as number)}</strong></div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ALL ODDS */}
-                {tab==='odds' && (
-                  <div>
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Quote disponibili per analisi</div>
-                        <span className="pr-badge pr-badge-blue">{allOddsEntries.length} selezioni</span>
-                      </div>
-                      <div className="pr-card-body">
-                        {allOddsEntries.length === 0 ? (
-                          <div className="pr-info">
-                            Nessuna quota disponibile per questa partita.
-                          </div>
-                        ) : (
-                          <div className="pr-odds-groups">
-                            {allOddsGroups.map((group) => (
-                              <section className="pr-odds-group" key={group.category} aria-label={group.category}>
-                                <h3 className="pr-odds-group-title">{group.category}</h3>
-                                <div className="pr-odds-grid">
-                                  {group.entries.map((o) => (
-                                    <div key={o.selection} className={`pr-odds-cell${valueSelectionSet.has(o.selection) ? ' best' : ''}`}>
-                                      <span className="pr-odds-name" title={o.selection}>{fmtSelection(o.selection)}</span>
-                                      <strong className="pr-odds-val">{o.odd.toFixed(2)}</strong>
-                                      {o.bookmaker && <small className="pr-odds-bookmaker">{o.bookmaker}</small>}
-                                    </div>
-                                  ))}
-                                </div>
-                              </section>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* SCORES */}
-                {tab==='scores' && gp?.exactScore && (
-                  <div className="pr-card">
-                    <div className="pr-card-head"><div className="pr-card-title">Risultati Esatti</div></div>
-                    <div className="pr-card-body">
-                      <div className="pr-score-grid">
-                        {Object.entries(gp.exactScore).sort(([,a],[,b])=>(b as number)-(a as number)).slice(0,20).map(([score,prob]) => {
-                          const p = (prob as number)*100;
-                          return (
-                            <div key={score} className={`pr-score-cell${p>10?' hot':p>5?' warm':''}`}>
-                              <div className="pr-score-val">{score}</div>
-                              <div className="pr-score-pct">{p.toFixed(2)}%</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* CARDS */}
-                {tab==='cards' && cp && (
-                  <div>
-                    <div className="pr-alert pr-alert-info">
-                      <strong>Binomiale Negativa</strong> - Media {fmtN(cp.totalYellow.expected)} | Var {fmtN(cp.totalYellow.variance)}
-                      {cp.confidenceLevel < 0.7 && <span style={{marginLeft:8,color:'var(--gold)'}}>ATTENZIONE: confidenza bassa {(cp.confidenceLevel*100).toFixed(0)}%</span>}
-                    </div>
-                    <div className="pr-g2">
-                      <div className="pr-card">
-                        <div className="pr-card-head">
-                          <div className="pr-card-title">Gialli Totali</div>
-                          <div style={{display:'flex',gap:4}}>
-                            <span className="pr-badge pr-badge-blue">M {fmtN(cp.totalYellow.expected)}</span>
-                            <span className="pr-badge pr-badge-gray">Var {fmtN(cp.totalYellow.variance)}</span>
-                          </div>
-                        </div>
-                        <div className="pr-card-body">
-                          <DistChart dist={cp.totalYellow.distribution} expected={cp.totalYellow.expected} title="P(gialli = k)" color="var(--gold)" />
-                          {['over15','over25','over35','over45','over55'].map(k => (
-                            <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={(cp.overUnder as any)[k]} color="var(--gold)" />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="pr-card">
-                        <div className="pr-card-head"><div className="pr-card-title">Per Squadra & Rossi</div></div>
-                        <div className="pr-card-body">
-                          <div className="pr-sec" style={{color:'var(--primary)'}}>{pred.homeTeam}</div>
-                          <ProbBar label="O1.5" value={cp.homeYellow.over15} color="var(--primary)" />
-                          <ProbBar label="O2.5" value={cp.homeYellow.over25} color="var(--primary)" />
-                          <div className="pr-sec" style={{color:'var(--red)',marginTop:10}}>{pred.awayTeam}</div>
-                          <ProbBar label="O1.5" value={cp.awayYellow.over15} color="var(--red)" />
-                          <ProbBar label="O2.5" value={cp.awayYellow.over25} color="var(--red)" />
-                          <div className="pr-info">
-                            <strong>Rossi</strong> - Attesi: {fmtN(cp.totalRed.expected,3)} | P(&gt;=1 rosso): <strong>{(cp.totalRed.probAtLeastOne*100).toFixed(1)}%</strong>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* FOULS */}
-                {tab==='fouls' && fp && (
-                  <div className="pr-card">
-                    <div className="pr-card-head">
-                      <div className="pr-card-title">Falli - Binomiale Negativa</div>
-                      <div style={{display:'flex',gap:4}}>
-                        <span className="pr-badge pr-badge-blue">M {fmtN(fp.totalFouls.expected)}</span>
-                        <span className="pr-badge pr-badge-gray">Var {fmtN(fp.totalFouls.variance)}</span>
-                      </div>
-                    </div>
-                    <div className="pr-card-body">
-                      <div className="pr-info" style={{marginBottom:14}}>
-                        Casa: <strong>{fmtN(fp.homeFouls.expected)}</strong> | Ospite: <strong>{fmtN(fp.awayFouls.expected)}</strong> | Var/media: <strong>{fmtN(fp.totalFouls.variance/fp.totalFouls.expected,2)}x</strong>
-                      </div>
-                      <DistChart dist={fp.totalFouls.distribution} expected={fp.totalFouls.expected} title="P(falli = k)" color="var(--primary-hover)" />
-                      <div className="pr-g2">
-                        {Object.entries(fp.overUnder).filter(([k])=>k.startsWith('over')).map(([k,v]) => (
-                          <ProbBar key={k} label={`Over ${formatCompactOuKey(k)}`} value={v as number} color="var(--primary-hover)" />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* SHOTS */}
-                {tab==='shots' && sp && <ShotsSection homeTeam={pred.homeTeam} awayTeam={pred.awayTeam} shotsPrediction={sp} />}
-
-                {/* PLAYERS */}
-                {tab==='players' && (
-                  pp.length === 0 ? (
-                    <div className="pr-info" style={{fontSize:12,lineHeight:1.8}}>
-                      <strong>Modello ZIP (Zero-Inflated Poisson)</strong><br /><br />
-                      Per usare questo modello, carica i profili giocatori da <strong>Gestione Dati -&gt; Dati Automatici</strong>.
-                    </div>
-                  ) : pp.map((p:any) => (
-                    <div className="pr-card" key={p.playerId}>
-                      <div className="pr-card-head">
-                        <div className="pr-player-head" style={{width:'100%'}}>
-                          <div>
-                            <div className="pr-player-name">{p.playerName}</div>
-                            <div className="pr-player-meta">{p.position} | {p.sampleSize} partite | confidenza {(p.confidenceLevel*100).toFixed(0)}%</div>
-                          </div>
-                          <div>
-                            <div className="pr-player-xg-val">{fmtN(p.expectedShots)}</div>
-                            <div className="pr-player-xg-lbl">tiri attesi</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="pr-card-body">
-                        <div className="pr-g2">
-                          <DistChart dist={p.shotDistribution} expected={p.expectedShots} title="ZIP" color="var(--primary)" />
-                          <div>
-                            <ProbBar label=">=1 tiro" value={p.markets.over05shots} color="var(--primary)" />
-                            <ProbBar label=">=2 tiri" value={p.markets.over15shots} color="var(--primary)" />
-                            <ProbBar label=">=1 in porta" value={p.markets.over05onTarget} color="var(--primary-hover)" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-
-                {/* PLAYER PROPS */}
-                {tab==='playerProps' && (
-                  <PlayerPropsSection
-                    opportunities={playerValueOpportunities}
-                    bankroll={bankroll}
-                  />
-                )}
-
-                {/* STRATEGY */}
-                {tab==='strategy' && (
-                  <div>
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Linea decisionale</div>
-                      </div>
-                      <div className="pr-card-body">
-                        <div className="pr-info" style={{ marginBottom: 12 }}>
-                          La migliore giocata e gia riassunta in alto. Questo tab serve solo a capire il criterio con cui e stata promossa sopra le alternative.
-                        </div>
-                        <div className="pr-g2">
-                          <div className="pr-info">
-                            <strong>Lettura del match</strong><br />
-                            {finalRecommendedChoice
-                              ? `${finalRecommendedChoice.selectionLabel ?? fmtSelection(finalRecommendedChoice.selection)} resta la sola uscita principale per questo match.`
-                              : 'Se non emerge una giocata davvero forte, il sistema preferisce non spingere una pick finale.'}
-                          </div>
-                          <div className="pr-info">
-                            <strong>Disciplina operativa</strong><br />
-                            Quote fallback, synthetic o non disponibili abbassano la priorita decisionale e vanno trattate con cautela anche quando l'edge stimato e positivo.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Criterio Operativo</div>
-                        <button className="fp-btn fp-btn-sm fp-btn-solid" onClick={() => setTab('value')}>Apri tab Scommesse</button>
-                      </div>
-                      <div className="pr-card-body">
-                        <div className="pr-info" style={{ marginBottom: 12 }}>
-                          {isReplayAnalysis
-                            ? 'Questa e una rilettura retrospettiva: una sola giocata finale viene confrontata con il risultato reale.'
-                            : 'Una sola giocata finale consigliata per match. Le altre quote restano disponibili solo come confronto analitico.'}
-                        </div>
-                        <div className="pr-g2">
-                          <div>
-                            <div className="pr-sec">Checklist</div>
-                            <table className="fp-table">
-                              <tbody>
-                                {[
-                                  ['EV minimo', '> 2%'],
-                                  ['Quote accettate', '1.30 - 15.00'],
-                                  ['Stake sizing', isReplayAnalysis ? 'non applicato nel replay' : 'Kelly 1/4 con cap 5%'],
-                                  ['Numero giocate', isReplayAnalysis ? '1 consiglio finale verificato' : '1-3 per match'],
-                                  ['Stop se nessun value', 'Nessuna puntata'],
-                                ].map(([k, v]) => (
-                                  <tr key={k}>
-                                    <td style={{ color:'var(--text-2)' }}>{k}</td>
-                                    <td className="fp-mono" style={{ textAlign:'right' }}>{v}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          <div>
-                            <div className="pr-sec">Lettura del Match</div>
-                            <div className="pr-info" style={{ marginBottom: 10 }}>
-                              {finalRecommendedChoice
-                                ? `${finalRecommendedChoice.selectionLabel ?? fmtSelection(finalRecommendedChoice.selection)} e la sola quota proposta come uscita finale.`
-                                : 'Se non c e una giocata davvero solida, il sistema non propone un pronostico finale.'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* METHOD */}
-                {tab==='method' && (
-                  <MethodologyDrawer
-                    methodology={methodology}
-                    fallbackLambdaHome={Number(pred?.lambdaHome ?? 0)}
-                    fallbackLambdaAway={Number(pred?.lambdaAway ?? 0)}
-                    fallbackTotalShotsExpected={Number(sp?.combined?.totalShots?.expected ?? 0)}
-                    fallbackTotalYellowExpected={Number(cp?.totalYellow?.expected ?? 0)}
-                    fallbackTotalFoulsExpected={Number(fp?.totalFouls?.expected ?? 0)}
-                    topOpportunity={vbRanked[0] ?? null}
-                    analysisFactors={analysisFactors}
-                  />
-                )}
-
-                {/* VALUE BETS */}
-                {tab==='value' && (
-                  <div>
-                    <div className="pr-alert pr-alert-info">
-                      Confronto completo mercati. La pick principale resta nel riepilogo in alto; qui sotto verifichi alternative, quote e sizing.
-                    </div>
-                    <div className="pr-card">
-                      <div className="pr-card-head">
-                        <div className="pr-card-title">Legenda Termini Analisi</div>
-                      </div>
-                      <div className="pr-card-body">
-                        <div className="pr-legend-grid">
-                          {VALUE_LEGEND.map((row) => (
-                            <div className="pr-legend-row" key={row.term}>
-                              <div className="pr-legend-term">
-                                {row.termId ? <GlossaryTerm termId={row.termId}>{row.term}</GlossaryTerm> : row.term}
-                              </div>
-                              <div className="pr-legend-meaning">{row.meaning}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <ValueOpportunitiesTable
-                      opportunities={vbRanked}
-                      recommendedOpportunity={finalRecommendedChoice}
-                      bankroll={bankroll}
-                      budgetReady={Boolean(budget)}
-                      automaticFamily={automaticFamily}
-                      alreadyPlacedForMatch={alreadyPlacedForMatch}
-                      isReplayAnalysis={isReplayAnalysis}
-                      oddsSource={pred?.oddsSource ?? null}
-                      oddsBookmaker={pred?.oddsBookmaker ?? null}
-                      providerWarning={oddsSourceWarning}
-                      placedBetKeySet={placedBetKeySet}
-                      recommendedBetResult={recommendedBetResult}
-                      replayOutcomeTone={replayOutcomeTone}
-                      stakes={stakes}
-                      getStakeKey={(o) => oppStakeKey(o)}
-                      getStakeValue={(o) => oppStakeValue(o)}
-                      onStakeChange={(stakeKey, value) => setStakes((previous) => ({ ...previous, [stakeKey]: value }))}
-                      onBet={(opportunity) => handleBet(opportunity)}
-                      manualArchiveOpportunities={manualArchiveOpportunities}
-                      archivedOpportunityKeys={manuallyArchivedOpportunityKeys}
-                      onArchive={(opportunity) => { void handleArchiveOpportunity(opportunity); }}
-                    />
-                  </div>
-                )}
-
-              </div>
-            </>
-          )}
-        </div>}
-
+  const matchId = String(activeMatchRow?.match_id ?? analysis.loadingMatchId ?? '');
+  const pred = String(analysis.pred?.matchId ?? '') === matchId ? analysis.pred : null;
+  const choice = pred ? vm.finalRecommendedChoice : null;
+  const automatic = pred?.automaticRecommendation;
+  const choiceBookmaker = String(choice?.bookmakerName ?? analysis.bookmakerBySelection[choice?.selection ?? ''] ?? pred?.canonicalRecommendation?.odds?.bookmakerBySelection?.[choice?.selection ?? ''] ?? '').trim();
+  const realQuote = !!choice && Number(choice.bookmakerOdds) > 1 && !!choiceBookmaker
+    && (automatic ? !!automatic.odds && !/synthetic|model|estimated/i.test(String(automatic.odds.source ?? '')) : pred?.oddsSource === 'odds_api');
+  const completed = activeMatchRow?.home_goals != null && activeMatchRow?.away_goals != null;
+  const started = activeMatchRow?.date && Date.parse(activeMatchRow.date) <= Date.now();
+  const sourceTime = automatic?.odds?.updatedAt ?? automatic?.odds?.capturedAt ?? pred?.canonicalRecommendation?.odds?.capturedAt ?? pred?.oddsCapturedAt ?? pred?.oddsUpdatedAt;
+  const aAdvice = <section className="match-model-advice__card" aria-label="Consiglio modello A" data-testid="best-value-card">
+    <h2>Modello A</h2>
+    <p className="match-model-advice__origin">{vm.isReplayAnalysis ? 'Replay A · valutazione retrospettiva' : automatic ? 'Decisione Nightly A archiviata' : 'Anteprima A · non registrata'}</p>
+    {!pred ? <>
+      <h3>{analysis.loading ? 'Analisi A in corso…' : 'Analisi A non disponibile'}</h3>
+      <p role={analysis.loading ? 'status' : 'alert'}>{analysis.loading ? 'La prima analisi può richiedere qualche minuto.' : completed ? 'Nessun consiglio pre-partita archiviato disponibile.' : started ? 'Consiglio non disponibile per una partita già iniziata. Risultato in attesa di aggiornamento.' : 'Non è stato possibile completare l’analisi. Puoi riprovare.'}</p>
+      {!analysis.loading && !started && !completed && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh}>Riprova analisi A</button>}
+    </> : <>
+      <h3>{choice && realQuote ? choice.selectionLabel || fmtSelection(choice.selection) : 'Nessuna giocata consigliata'}</h3>
+      {choice && realQuote ? <dl className="match-model-advice__metrics">
+        <div><dt>Quota bookmaker</dt><dd data-testid="best-value-metric-quota-bookmaker">{Number(choice.bookmakerOdds).toFixed(2)}</dd></div>
+        <div><dt>Bookmaker</dt><dd>{choiceBookmaker}</dd></div>
+        <div><dt>{automatic ? 'Importo virtuale registrato' : 'Stake indicativo'}</dt><dd>{automatic ? `EUR ${Number(automatic.actualStakeAmount ?? 0).toFixed(2)}` : `${choice.suggestedStakePercent}%`}</dd></div>
+        <div><dt>Quota rilevata il</dt><dd>{sourceTime ? formatKickoff(sourceTime) : 'Orario non disponibile'}</dd></div>
+      </dl> : <p>{pred.oddsSource !== 'odds_api' ? 'Quote reali non disponibili per una nuova giocata.' : 'Il modello A non ha selezionato una giocata con le quote disponibili.'}</p>}
+      {automatic ? <p>{Number(automatic.actualStakeAmount) > 0 ? 'Puntata archiviata. Consulta Giocate per lo stato e l’esito.' : 'Nessuna puntata registrata.'}</p> : <p>Nessuna puntata registrata da questa analisi.</p>}
+      {vm.isReplayAnalysis && <p>Il replay non è una decisione pre-partita archiviata.</p>}
+    </>}
+  </section>;
+  const actualScore = completed ? `${activeMatchRow.home_goals} - ${activeMatchRow.away_goals}` : vm.actualMatch?.actualScore;
+  const actualStats: Array<[string, string, string]> = [
+    ['xG', 'home_xg', 'away_xg'], ['Tiri', 'home_shots', 'away_shots'],
+    ['Tiri in porta', 'home_shots_on_target', 'away_shots_on_target'], ['Corner', 'home_corners', 'away_corners'],
+    ['Falli', 'home_fouls', 'away_fouls'], ['Gialli', 'home_yellow_cards', 'away_yellow_cards'], ['Rossi', 'home_red_cards', 'away_red_cards'],
+  ];
+  return <><style>{S}</style><div className="pr">
+    {!matchId ? <section className="pr-schedule" aria-label="Filtri e partite">
+      <header className="pr-schedule__heading"><div><h1>Partite</h1><p>Apri una partita per vedere i consigli dei modelli A e C.</p></div>
+        <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={upcomingLoading} onClick={() => void selection.refreshVisibleMatches(true)}>Aggiorna calendario</button></header>
+      <div className="pr-schedule__controls"><div className="pr-filter"><label htmlFor="pr-competition-filter">Campionato</label>
+        <select id="pr-competition-filter" value={competition} onChange={event => { setSelectedDayKey(null); selection.setCompetition(event.target.value); }}><option value="">Tutti i campionati</option>{comps.map(item => <option key={item}>{item}</option>)}</select></div>
+        <div className="pr-filter pr-filter--season"><label htmlFor="pr-season-filter">Stagione</label><input id="pr-season-filter" value={season} onChange={event => { setSelectedDayKey(null); selection.setSeason(event.target.value); }} placeholder={currentSeason()} /></div></div>
+      <div className="pr-schedule__tabs" role="tablist" aria-label="Tipo partite">{([['upcoming', 'In programma'], ['recent', 'Concluse']] as const).map(([mode, label]) => <button key={mode} type="button" role="tab" aria-selected={matchMode === mode} className={`pr-mode-tab${matchMode === mode ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); selection.setMatchMode(mode); }}>{label}</button>)}</div>
+      {selection.autoSyncMsg && <p role="status" className="pr-status-line">{selection.autoSyncMsg}</p>}
+      {!upcomingLoading && grouped.length > 0 && <div className="pr-date-rail" role="toolbar" aria-label="Filtra partite per data">
+        <button type="button" className={`pr-date-rail__item${selectedDay === 'all' ? ' active' : ''}`} aria-pressed={selectedDay === 'all'} onClick={() => setSelectedDayKey('all')}>Tutte</button>
+        {railGroups.map(group => <button type="button" key={group.key} className={`pr-date-rail__item${selectedDay === group.key ? ' active' : ''}`} aria-pressed={selectedDay === group.key} aria-label={`${group.label}, ${group.matches.length} match`} onClick={() => setSelectedDayKey(group.key)}>{group.label}</button>)}</div>}
+      <section className="pr-match-list" aria-label={matchMode === 'recent' ? 'Partite concluse' : 'Partite in programma'} aria-busy={upcomingLoading}>
+        {upcomingLoading ? <p role="status">Caricamento partite…</p> : grouped.length === 0 ? <div className="pr-list-state"><strong>Nessuna partita trovata</strong><p>Modifica campionato o stagione.</p></div> : (selectedDay === 'all' ? grouped : grouped.filter(group => group.key === selectedDay)).map(group => <section className="pr-day-group" key={group.key}><div className="pr-day-heading">{group.label}</div>{group.matches.map((match: any) => {
+          const played = match.home_goals != null && match.away_goals != null;
+          const pending = !played && Date.parse(match.date) <= Date.now();
+          return <button type="button" key={match.match_id} className="pr-match-list-row" aria-label={`${match.home_team_name ?? match.home_team_id} vs ${match.away_team_name ?? match.away_team_id}, ${formatKickoff(match.date)}. Vedi analisi`} onClick={() => open(match)}>
+            <span className="pr-match-list__time">{formatKickoff(match.date).split(',')[1]?.trim() ?? '—'}</span>
+            <span className="pr-match-list__teams"><span className="pr-match-list__team">{match.home_team_name ?? match.home_team_id}{played && <b>{match.home_goals}</b>}</span><span className="pr-match-list__versus">vs</span><span className="pr-match-list__team">{match.away_team_name ?? match.away_team_id}{played && <b>{match.away_goals}</b>}</span></span>
+            <span className="pr-match-list__meta">{match.competition ?? competition}</span><span className="pr-match-list__action">Vedi consigli</span><span className="pr-match-list__pick"><strong>{played ? 'Conclusa' : pending ? 'Risultato in attesa' : 'In programma'}</strong></span><ChevronRight size={18} aria-hidden="true" />
+          </button>;
+        })}</section>)}
+      </section>
+    </section> : <>
+      <div className="pr-detail-nav"><button type="button" className="pr-back-button" onClick={back}><ArrowLeft size={18} aria-hidden="true" />Tutte le partite</button></div>
+      <div className="pr-right"><div className="pr-results-head"><div><h1 className="pr-results-match">{activeMatchRow?.home_team_name ?? pred?.homeTeam} vs {activeMatchRow?.away_team_name ?? pred?.awayTeam}</h1><p className="pr-results-meta">{activeMatchRow?.competition ?? competition} · {formatKickoff(activeMatchRow?.date)}{actualScore ? ` · Risultato finale ${actualScore}` : started ? ' · Risultato in attesa' : ''}</p></div>
+        <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh} disabled={analysis.loading}>Aggiorna consigli</button></div>
+        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} kickoffAt={activeMatchRow?.date} finished={completed} />
+        <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Dati della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>
+          {actualStats.some(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null) ? <table><thead><tr><th>Statistica</th><th>Casa</th><th>Ospite</th></tr></thead><tbody>{actualStats.filter(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null).map(([label, home, away]) => <tr key={label}><th>{label}</th><td>{activeMatchRow?.[home] ?? 'Non disponibile'}</td><td>{activeMatchRow?.[away] ?? 'Non disponibile'}</td></tr>)}</tbody></table> : <p>Statistiche non ancora disponibili.</p>}
+          {completed && !pred && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={analysis.loading} onClick={() => void handleAnalyze(activeMatchRow, { replay: true })}>Apri replay retrospettivo A</button>}
+        </div></details>
       </div>
-    </>
-  );
+    </>}
+  </div></>;
 };
-
 export default PredictionWorkbenchView;

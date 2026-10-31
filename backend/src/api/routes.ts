@@ -5,6 +5,9 @@ import { buildAppWallets, isAppWalletQueryError, parseAppWalletQuery, targetsApp
 import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
 import { ChallengerPreviewService } from '../research/ChallengerPreviewService';
+import { MatchResultsRefreshService } from '../services/MatchResultsRefreshService';
+import { MatchResultsMaintenanceService } from '../services/MatchResultsMaintenanceService';
+import { buildOperationalStatus } from '../services/OperationalStatusService';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
@@ -69,6 +72,8 @@ export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
   challengerPreview?: Pick<ChallengerPreviewService, 'preview'>;
+  resultsMaintenance?: Pick<MatchResultsMaintenanceService, 'refresh'>;
+  operationalStatus?: () => ReturnType<typeof buildOperationalStatus>;
   observability?: SystemObservabilityService;
   sharedDataUserId?: string;
   createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
@@ -482,6 +487,7 @@ const router = Router();
 const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
 let challengerPreview = deps.challengerPreview;
+let resultsMaintenance = deps.resultsMaintenance;
 const observability = deps.observability;
 const createOddsBundle = (operation = 'dashboard'): OddsProviderCoordinatorBundle => deps.createOddsProviderCoordinatorBundle
   ? deps.createOddsProviderCoordinatorBundle()
@@ -1205,6 +1211,7 @@ router.get('/matches/upcoming', async (req: Request, res: Response) => {
       competition: req.query.competition as string | undefined,
       season: req.query.season as string | undefined,
       untilIso: req.query.untilIso as string | undefined,
+      includeStartedWithoutResult: req.query.includeStartedWithoutResult === 'true',
       limit: Number.isFinite(limit) ? limit : undefined,
     });
     res.json({ success: true, data: matches, count: matches.length });
@@ -1874,6 +1881,23 @@ router.get('/research/forecasts', async (req: Request, res: Response) => {
     return res.json({ success: true, data: { matchId, decisions: view.effective,
       superseded: view.historical.filter((decision) => !decision.effective).map((decision) => ({ id: decision.id, supersededBy: decision.supersededBy })) } });
   } catch { return res.status(503).json({ success: false, error: 'Recorded forecasts unavailable.' }); }
+});
+
+router.get('/system/operational-status', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { return res.json({ success: true, data: await (deps.operationalStatus ? deps.operationalStatus() : buildOperationalStatus(db)) }); }
+  catch { return res.status(503).json({ success: false, error: 'Stato degli aggiornamenti temporaneamente non disponibile.' }); }
+});
+
+router.post('/results/refresh', async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ success: false, error: 'L’aggiornamento dei risultati non accetta parametri.' });
+  }
+  try {
+    resultsMaintenance ??= new MatchResultsMaintenanceService(new MatchResultsRefreshService(db), () => settleResearchBets(db), db);
+    return res.json({ success: true, data: await resultsMaintenance.refresh() });
+  } catch { return res.status(503).json({ success: false, error: 'Aggiornamento dei risultati temporaneamente non disponibile.' }); }
 });
 
 router.post('/research/challenger-preview', async (req: Request, res: Response) => {

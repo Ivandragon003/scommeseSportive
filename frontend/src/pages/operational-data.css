@@ -1,0 +1,16 @@
+.operational-data{width:min(100%,1200px);margin:0 auto;padding:34px clamp(18px,3vw,40px) 76px;color:var(--text)}
+.operational-data__head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}
+.operational-data__head h1{margin:0 0 9px;font-size:clamp(28px,4vw,40px);line-height:1.1;letter-spacing:-.04em}
+.operational-data__head p,.operational-data__help{margin:0;color:var(--text-2);line-height:1.6}
+.operational-data__head button{flex:none;min-height:44px}
+.operational-data__help{max-width:800px;margin-bottom:22px;font-size:13px}
+.operational-data__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.operational-data__card,.operational-data__sources{padding:22px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.operational-data__card h2,.operational-data__sources h2{margin:0 0 15px;font-size:19px;line-height:1.25}
+.operational-data__card p,.operational-data__sources p{color:var(--text-2);font-size:14px;line-height:1.6}
+.operational-data__card dl{display:grid;gap:18px;margin:20px 0}
+.operational-data__card dt{font-size:12px;color:var(--text-2);margin-bottom:6px}
+.operational-data__card dd{margin:0;font-size:16px;font-weight:700;overflow-wrap:anywhere}
+.operational-data__card .fp-btn{display:inline-flex;min-height:44px;align-items:center}
+.operational-data__sources{margin-top:18px}
+@media(max-width:680px){.operational-data{padding:24px 14px 102px}.operational-data__head{align-items:stretch;flex-direction:column}.operational-data__grid{grid-template-columns:1fr}.operational-data__card,.operational-data__sources{padding:18px}}

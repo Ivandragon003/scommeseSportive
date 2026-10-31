@@ -29,6 +29,8 @@ jest.mock('./pages/Backtesting', () => ({
   __esModule: true,
   default: () => <div>Backtesting page</div>,
 }));
+jest.mock('./pages/OperationalData', () => ({ __esModule: true, default: () => <div>Operational data page</div> }));
+
 jest.mock('./pages/DataManager', () => ({
   __esModule: true,
   default: () => <div>Data page</div>,
@@ -108,13 +110,13 @@ test('usa sempre l utente condiviso restituito dal server e non localStorage', a
   expect(mockedApi.getAdminSession).toHaveBeenCalledTimes(1);
 });
 
-test('header principale resta essenziale e rende aggiorna dati disponibile nel Centro dati', async () => {
+test('header principale resta essenziale e rende aggiorna dati disponibile nella pagina Dati e aggiornamenti', async () => {
   render(<App />);
 
   await screen.findByText('Predictions page');
   const header = await screen.findByRole('banner');
   expect(within(header).getByText((_, element) => element?.textContent === 'FootPredictor')).toBeTruthy();
-  expect(within(header).getByText(/Decisioni rapide/i)).toBeTruthy();
+  expect(within(header).getByText(/Consigli A\/C, giocate e risultati/i)).toBeTruthy();
   expect(within(header).queryByRole('button', { name: /Aggiorna sistema/i })).toBeNull();
 
   expect(screen.queryByText(/Sync Notturna/i)).toBeNull();
@@ -126,8 +128,9 @@ test('header principale resta essenziale e rende aggiorna dati disponibile nel C
   await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(1));
   expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(0);
 
-  fireEvent.click(screen.getByRole('link', { name: /Centro dati/i }));
-  fireEvent.click(await screen.findByRole('button', { name: /Aggiorna dati e calendario/i }));
+  fireEvent.click(screen.getByRole('link', { name: /Dati e aggiornamenti/i }));
+  expect(await screen.findByText('Operational data page')).toBeTruthy();
+  await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
 
   await waitFor(() => expect(mockedApi.getSystemHealth).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledWith({
@@ -146,8 +149,7 @@ test('Aggiorna Sistema mostra quanti kickoff calendario sono stati corretti', as
   render(<App />);
 
   await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('link', { name: /Centro dati/i }));
-  fireEvent.click(await screen.findByRole('button', { name: /Aggiorna dati e calendario/i }));
+  await act(async () => { window.dispatchEvent(new Event('scraper-status-refresh')); });
 
   await waitFor(() => expect(mockedApi.syncUpcomingKickoffs).toHaveBeenCalledTimes(1));
   expect(await screen.findByText('Calendario aggiornato: 2 kickoff corretti')).toBeTruthy();
@@ -163,8 +165,8 @@ test('la pagina iniziale apre Partite e mostra la navigazione primaria semplific
   expect(within(navigation).getByText('Partite')).toBeTruthy();
   expect(within(navigation).getByText('Giocate')).toBeTruthy();
   expect(within(navigation).getByText('Budget')).toBeTruthy();
-  expect(within(navigation).getByText('Archivio giocate')).toBeTruthy();
-  expect(within(navigation).getByText('Centro dati')).toBeTruthy();
+  expect(within(navigation).getByText('Archivio')).toBeTruthy();
+  expect(within(navigation).getByText('Dati e aggiornamenti')).toBeTruthy();
 });
 
 test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => {
@@ -177,11 +179,9 @@ test('la vecchia route dashboard viene reindirizzata a Previsioni', async () => 
   expect(screen.queryByText('Dashboard page')).toBeNull();
 });
 
-test('apre la pagina Glossario dalla navigazione principale', async () => {
+test('preserva la pagina Glossario tramite accesso diretto senza aggiungerla alla navigazione ordinaria', async () => {
+  window.history.pushState({}, '', '/glossary');
   render(<App />);
-
-  await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('link', { name: /Glossario/i }));
 
   // The route is intentionally loaded through React.lazy. Under the full
   // parallel Jest suite the dynamic import can exceed Testing Library's
@@ -201,7 +201,7 @@ test('il comando nell header apre il glossario rapido', async () => {
   expect(await screen.findByRole('dialog', { name: /Glossario rapido/i }, { timeout: 5000 })).toBeTruthy();
 });
 
-test('il menu mobile Strumenti si comporta come dialog e restituisce il focus alla chiusura', async () => {
+test('il menu mobile Altro si comporta come dialog e restituisce il focus alla chiusura', async () => {
   // Test the menu on a settled route, independently of asynchronous login,
   // initial redirects and status polling (covered by the integration tests).
   render(<MemoryRouter initialEntries={['/predictions']}><AppShell
@@ -210,16 +210,17 @@ test('il menu mobile Strumenti si comporta come dialog e restituisce il focus al
   /></MemoryRouter>);
 
   await screen.findByText('Predictions page');
-  const trigger = await screen.findByRole('button', { name: 'Strumenti' });
+  const trigger = await screen.findByRole('button', { name: 'Altro' });
   fireEvent.click(trigger);
 
-  const dialog = await screen.findByRole('dialog', { name: /Strumenti/i });
-  expect(within(dialog).getByRole('link', { name: /Backtest/i })).toBeTruthy();
+  const dialog = await screen.findByRole('dialog', { name: /Altro/i });
+  expect(within(dialog).getByRole('link', { name: /Dati e aggiornamenti/i })).toBeTruthy();
+  expect(within(dialog).queryByRole('link', { name: /Backtest|Confronto modelli/i })).toBeNull();
   expect(within(dialog).getByRole('button', { name: 'Chiudi' }).matches(':focus')).toBe(true);
 
   fireEvent.keyDown(document, { key: 'Escape' });
 
-  expect(screen.queryByRole('dialog', { name: /Strumenti/i })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: /Altro/i })).toBeNull();
   expect(trigger.matches(':focus')).toBe(true);
 });
 
@@ -238,7 +239,7 @@ test('apre Archivio giocate dalla navigazione secondaria desktop', async () => {
   render(<App />);
 
   await screen.findByText('Predictions page');
-  fireEvent.click(screen.getByRole('link', { name: /Archivio giocate/i }));
+  fireEvent.click(screen.getByRole('link', { name: /^Archivio/i }));
 
   expect(await screen.findByText('Prediction archive page')).toBeTruthy();
   expect(window.location.pathname).toBe('/prediction-archive');

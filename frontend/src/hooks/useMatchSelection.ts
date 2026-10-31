@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getMatchdayMap, getRecentMatches, getTeams, getUpcomingMatches } from '../utils/api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getRecentMatches, getTeams, getUpcomingMatches } from '../utils/api';
 import {
   currentSeason,
   dateToDayKey,
@@ -8,19 +8,16 @@ import {
 import { parseMatchDateValue } from '../utils/dateTime';
 
 export type MatchMode = 'upcoming' | 'recent';
-const UPCOMING_TOLERANCE_MS = 5 * 60 * 1000;
-const initialSearch = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
-const initialMode = initialSearch.get('mode');
 
 export function useMatchSelection() {
+  const listRequest = useRef(0);
   const [teams, setTeams] = useState<any[]>([]);
-  const [competition, setCompetition] = useState(initialSearch.get('competition') ?? 'Serie A');
-  const [season, setSeason] = useState(initialSearch.get('season') ?? currentSeason());
-  const [matchMode, setMatchMode] = useState<MatchMode>(initialMode === 'recent' ? 'recent' : 'upcoming');
+  const [competition, setCompetition] = useState(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('competition') ?? 'Serie A');
+  const [season, setSeason] = useState(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('season') ?? currentSeason());
+  const [matchMode, setMatchMode] = useState<MatchMode>(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('mode') === 'recent' ? 'recent' : 'upcoming');
   const [upcomingLoading, setUpcomingLoading] = useState(false);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [recentMatches, setRecentMatches] = useState<any[]>([]);
-  const [matchdayMap, setMatchdayMap] = useState<Record<string, number>>({});
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [tab, setTab] = useState('1x2');
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
@@ -34,61 +31,47 @@ export function useMatchSelection() {
     }
   }, []);
 
-  const loadUpcoming = useCallback(async () => {
+  const loadUpcoming = useCallback(async (force = false) => {
+    const requestId = ++listRequest.current;
     setUpcomingLoading(true);
     try {
       const response = await getUpcomingMatches({
         competition: competition || undefined,
         season: season || undefined,
         limit: 160,
-      });
-      setUpcoming(response.data ?? []);
+        includeStartedWithoutResult: true,
+      }, ...(force ? [{ force: true }] : []));
+      if (requestId === listRequest.current) setUpcoming(response.data ?? []);
     } catch {
-      setUpcoming([]);
+      if (requestId === listRequest.current) { setUpcoming([]); setAutoSyncMsg("Impossibile aggiornare il calendario. Riprova."); }
     } finally {
-      setUpcomingLoading(false);
+      if (requestId === listRequest.current) setUpcomingLoading(false);
     }
   }, [competition, season]);
 
-  const loadRecent = useCallback(async () => {
+  const loadRecent = useCallback(async (force = false) => {
+    const requestId = ++listRequest.current;
     setUpcomingLoading(true);
     try {
       const response = await getRecentMatches({
         competition: competition || undefined,
         season: season || undefined,
         limit: 160,
-      });
-      setRecentMatches(response.data ?? []);
+      }, ...(force ? [{ force: true }] : []));
+      if (requestId === listRequest.current) setRecentMatches(response.data ?? []);
     } catch {
-      setRecentMatches([]);
+      if (requestId === listRequest.current) { setRecentMatches([]); setAutoSyncMsg("Impossibile aggiornare il calendario. Riprova."); }
     } finally {
-      setUpcomingLoading(false);
+      if (requestId === listRequest.current) setUpcomingLoading(false);
     }
   }, [competition, season]);
 
-  const loadMatchdays = useCallback(async () => {
-    if (!season?.trim()) {
-      setMatchdayMap({});
-      return;
-    }
-    try {
-      const response = await getMatchdayMap({
-        competition: 'Serie A',
-        season: season.trim(),
-        matchesPerMatchday: 10,
-      });
-      setMatchdayMap(response.data ?? {});
-    } catch {
-      setMatchdayMap({});
-    }
-  }, [season]);
-
-  const refreshVisibleMatches = useCallback(async () => {
+  const refreshVisibleMatches = useCallback(async (force = false) => {
     if (matchMode === 'recent') {
-      await loadRecent();
+      await loadRecent(force);
       return;
     }
-    await loadUpcoming();
+    await loadUpcoming(force);
   }, [loadRecent, loadUpcoming, matchMode]);
 
   useEffect(() => {
@@ -98,10 +81,6 @@ export function useMatchSelection() {
   useEffect(() => {
     void refreshVisibleMatches();
   }, [refreshVisibleMatches]);
-
-  useEffect(() => {
-    void loadMatchdays();
-  }, [loadMatchdays]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -116,16 +95,9 @@ export function useMatchSelection() {
     [teams]
   );
 
-  const visibleMatches = useMemo(() => {
-    if (matchMode === 'recent') return recentMatches;
-    const nowMs = Date.now();
-    return upcoming.filter((match) => {
-      const parsedDate = parseMatchDateValue(match?.date);
-      if (!parsedDate) return true;
-      const timestamp = parsedDate?.getTime() ?? Number.NaN;
-      return Number.isFinite(timestamp) && timestamp >= nowMs - UPCOMING_TOLERANCE_MS;
-    });
-  }, [matchMode, recentMatches, upcoming]);
+  const visibleMatches = useMemo(() => matchMode === 'recent'
+    ? recentMatches.filter(match => match.home_goals != null && match.away_goals != null)
+    : upcoming.filter(match => match.home_goals == null || match.away_goals == null), [matchMode, recentMatches, upcoming]);
 
   const groupedMatches = useMemo(() => {
     const grouped = new Map<string, Array<any & { __ts: number }>>();
@@ -174,7 +146,6 @@ export function useMatchSelection() {
     upcomingLoading,
     upcoming,
     recentMatches,
-    matchdayMap,
     activeMatchId,
     tab,
     autoSyncMsg,
@@ -191,7 +162,6 @@ export function useMatchSelection() {
     loadTeams,
     loadUpcoming,
     loadRecent,
-    loadMatchdays,
     refreshVisibleMatches,
   };
 }

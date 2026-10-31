@@ -170,655 +170,191 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe('Predictions page', () => {
-  test('opening a match shows the separate frozen A/C advice even while the live A analysis is pending', async () => {
-    mockedApi.getPrediction.mockReturnValue(new Promise(() => {}));
-    const adviceA = recordedAdvice('A', 'over25', 'Over 2.5 registrato A', 370);
-    const adviceC = recordedAdvice('C', 'under25', 'Under 2.5 registrato C', 1000);
-    mockedAdvice.mockResolvedValue({ A: adviceA, C: adviceC, errors: {} });
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    const cardA = await screen.findByRole('region', { name: 'Consiglio modello A' });
-    const cardC = await screen.findByRole('region', { name: 'Consiglio modello C' });
-    expect(within(cardA).getByText('Over 2.5 registrato A')).toBeTruthy();
-    expect(within(cardC).getByText('Under 2.5 registrato C')).toBeTruthy();
-    expect(cardA.textContent).not.toContain('Under 2.5 registrato C');
-    expect(cardC.textContent).not.toContain('Over 2.5 registrato A');
-    expect(mockedAdvice).toHaveBeenCalledWith('match_1', expect.any(AbortSignal));
-    expect(mockedPreview).not.toHaveBeenCalled();
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-  });
 
-  test('a match without Nightly C automatically shows its independent unregistered preview even while A is pending', async () => {
-    mockedApi.getPrediction.mockReturnValue(new Promise(() => {}));
-    mockedApi.getOddsForMatch.mockReturnValue(new Promise(() => {}));
-    mockedPreview.mockResolvedValue({ kind: 'C_PREVIEW', family: 'C', matchId: 'match_1',
-      asOf: '2026-05-23T08:00:00Z', kickoffAt: matchRow.date, expiresAt: '2026-05-23T08:00:30Z',
-      modelVersion: 'C-live-fixture', deploymentRevision: 'fixture-revision', status: 'RECOMMENDED', reason: null,
-      recommendationPacket: { selected: { selection: 'under25', selectionLabel: 'Under 2.5 anteprima C',
-        bookmakerOdds: 3.3, bookmakerName: 'Pinnacle' }, decisionStatus: 'RECOMMENDED' },
-      quote: { selection: 'under25', odds: 3.3, bookmaker: 'Pinnacle', source: 'odds_api',
-        capturedAt: '2026-05-23T08:00:00Z', updatedAt: '2026-05-23T08:00:00Z', priceType: 'prematch' },
-      suggestedStakePercent: 1, registered: false });
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    const cardC = await screen.findByRole('region', { name: 'Consiglio modello C' });
-    expect(await within(cardC).findByText('Under 2.5 anteprima C')).toBeTruthy();
-    expect(within(cardC).getByText('Anteprima C · non registrata')).toBeTruthy();
-    expect(within(cardC).getByText('Nessuna puntata registrata.')).toBeTruthy();
-    expect(cardC.textContent).not.toContain('Importo virtuale registrato');
-    expect(screen.getByRole('region', { name: 'Modello A' }).textContent).toContain('Analisi A in corso');
-    expect(mockedPreview).toHaveBeenCalledWith('match_1', expect.any(AbortSignal));
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
-  });
+const setupAnalysis = () => {
+  mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api', selectedBookmakerName: 'Pinnacle',
+    analysisOdds: { over25: 2.1 }, bookmakerBySelection: { over25: 'Pinnacle' } } } as any);
+  mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
+};
+const openFirst = async () => fireEvent.click(await screen.findByRole('button', { name: /Inter vs Milan.*Vedi analisi/ }));
+const deferred = <T,>() => { let resolve!: (value: T) => void; let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 
-  test('a slow C preview never blocks the existing A advice or changes A prediction requests', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api', primaryProvider: 'odds_api',
-      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
-    mockedPreview.mockReturnValue(new Promise(() => {}));
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    expect(await screen.findByTestId('best-value-card')).toBeTruthy();
-    await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
-    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByText('Calcolo dell’anteprima C…')).toBeTruthy();
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-  });
-
-  test('a technical failure of live A does not hide the archived C recommendation', async () => {
-    mockedApi.getPrediction.mockRejectedValue(new Error('A temporaneamente non disponibile'));
-    mockedAdvice.mockResolvedValue({ A: null, C: recordedAdvice('C', 'under25', 'Consiglio indipendente C', 1000), errors: {} });
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    expect(await screen.findByText('Consiglio indipendente C')).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole('region', { name: 'Modello A' }).textContent).toContain('Analisi A non disponibile'));
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-  });
-
-  test('an archived A decision hides the later live stake planner even when the analysis response lacks the projection', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-    mockedAdvice.mockResolvedValue({ A: recordedAdvice('A', 'over25', 'Consiglio A congelato', 370), C: null, errors: {} });
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await screen.findByText('Consiglio A congelato');
-    await screen.findByRole('button', { name: 'Aggiorna' });
-    expect(screen.queryByTestId('stake-planner')).toBeNull();
-    expect(screen.getByText(/Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata/)).toBeTruthy();
-  });
-
-  test('refresh reloads the recorded advice without registering bets or changing A prediction inputs', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await screen.findByRole('button', { name: 'Aggiorna' });
-    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(1));
-    const firstPredictionArguments = mockedApi.getPrediction.mock.calls[0];
-    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna' }));
-    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
-    expect(mockedApi.getPrediction.mock.calls[1]).toEqual(firstPredictionArguments);
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
-  });
-
-  test('a failed archive refresh restores the live A origin and planner instead of claiming the advice is archived', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-    mockedAdvice.mockResolvedValueOnce({ A: recordedAdvice('A', 'over25', 'Consiglio A congelato', 370), C: null, errors: {} })
-      .mockRejectedValue(new Error('Archivio temporaneamente non disponibile'));
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await screen.findByText('Consiglio A congelato');
-    await screen.findByRole('button', { name: 'Aggiorna' });
-    expect(screen.queryByTestId('stake-planner')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna' }));
-    await screen.findByText(/Il consiglio A mostrato sopra rimane distinto da questo archivio/);
-    expect(await screen.findByTestId('stake-planner')).toBeTruthy();
-    expect(screen.queryByText(/Il consiglio e l'importo mostrati provengono dalla decisione Nightly archiviata/)).toBeNull();
-  });
-
-  test('al mount carica una sola volta liste e contesto utente senza fetch prediction', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    await screen.findByRole('button', { name: /Inter.*Milan/i });
-
-    expect(mockedApi.getTeams).toHaveBeenCalledTimes(1);
+describe('Partite: consigli semplici e orchestrazione indipendente', () => {
+  test('mount reads calendar and wallet once without running predictions or reconstructed matchdays', async () => {
+    render(<Predictions activeUser="test-user" />); await screen.findByRole('button', { name: /Inter vs Milan/ });
+    expect(screen.getByRole('heading', { name: 'Partite' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'In programma' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Concluse' })).toBeTruthy();
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getRecentMatches).toHaveBeenCalledTimes(0);
-    expect(mockedApi.getMatchdayMap).toHaveBeenCalledTimes(1);
-    expect(mockedWallets).toHaveBeenCalledTimes(1);
-    expect(mockedApi.syncSharedBets).not.toHaveBeenCalled();
-    expect(mockedApi.getBudget).not.toHaveBeenCalled();
-    expect(mockedApi.getBets).not.toHaveBeenCalled();
-    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
-    expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
-  });
-
-  test('mostra prima tutte le partite raggruppate per giorno senza filtro data o selezione automatica', async () => {
-    mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    expect(await screen.findByRole('button', { name: /Inter.*Milan/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Napoli.*Roma/i })).toBeTruthy();
-    expect(screen.getByLabelText('Campionato')).toBeTruthy();
-    expect(screen.getByLabelText('Stagione')).toBeTruthy();
-    expect(screen.queryByLabelText('Data')).toBeNull();
-    expect(screen.getByText(/Sabato 23 maggio/i)).toBeTruthy();
-    expect(screen.getByText(/Domenica 24 maggio/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Analizza partita/i })).toBeNull();
-    expect(screen.queryByText(/Pronta per l’analisi/i)).toBeNull();
-    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(0);
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(0);
-  });
-
-  test('mostra il packet A archiviato e non ripropone la registrazione della stessa puntata', async () => {
-    const archivedPick = { ...valueOpportunity, bookmakerName: 'Pinnacle', bookmakerOdds: 1.77, suggestedStakePercent: .37 };
-    const automaticRecommendation = { ...canonicalPacket([archivedPick]), actualStakeAmount: 3.7,
-      status: 'OPEN', placedAt: '2026-05-23T03:07:02Z' };
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ automaticRecommendation }) } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api',
-      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
-
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await screen.findByTestId('best-value-card');
-    expect(screen.getByTestId('best-value-metric-quota-bookmaker').textContent).toBe('1.77');
-    expect(screen.getByTestId('best-value-metric-puntata-suggerita').textContent).toBe('EUR 3.70');
-    expect(screen.getByText(/prezzo archiviato, non quota corrente/)).toBeTruthy();
-    expect(screen.queryByTestId('stake-planner')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: /Scommesse/i }));
-    expect(await screen.findByText('Scommessa gia fatta')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Scommetti/ })).toBeNull();
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-  });
-
-  test('mostra una astensione tecnica registrata senza sostituirla con consigli live o azioni di puntata', async () => {
-    const automaticRecommendation = { projectionKind: 'technical_abstention', selected: null, ranked: [],
-      decisionStatus: 'NO_BET', actualStakeAmount: 0, status: 'ABSTAIN',
-      reason: 'Calendario incompleto al momento della valutazione.', asOf: '2026-05-23T03:07:01Z',
-      placedAt: null, model: null, probabilities: null, odds: null, source: null,
-      quoteArchived: false, quoteStatus: 'UNAVAILABLE', quoteCapturedAt: null };
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ automaticRecommendation,
-      bestValueOpportunity: { ...valueOpportunity, confidence: 'LOW', edgeNoVig: 2 },
-    }) } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: true, source: 'odds_api',
-      selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, marketsRequested: ['totals'] } } as any);
-
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    expect(await screen.findByText('Valutazione Nightly non completata')).toBeTruthy();
-    expect(screen.getByLabelText('Decisione Nightly A').textContent).toContain(automaticRecommendation.reason);
-    expect(screen.getByLabelText('Decisione Nightly A').textContent).toContain('EUR 0.00');
-    expect(screen.queryByTestId('best-value-metric-quota-bookmaker')).toBeNull();
-    expect(screen.queryByTestId('stake-planner')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: /Scommesse/i }));
-    expect(screen.queryByRole('button', { name: /Scommetti/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Archivia/ })).toBeNull();
-    expect(mockedApi.placeBet).not.toHaveBeenCalled();
-  });
-
-  test('il replay storico conserva il consiglio canonico e non richiede quote correnti o nuove registrazioni', async () => {
-    const played = { ...matchRow, date: '2026-05-22T18:00:00Z', home_goals: 2, away_goals: 1 };
-    mockedApi.getRecentMatches.mockResolvedValue({ data: [played] } as any);
-    const replayPick = { ...valueOpportunity, bookmakerName: 'Eurobet', bookmakerOdds: 2.23 };
-    mockedApi.replayPlayedMatchPrediction.mockResolvedValue({ data: buildPrediction({
-      analysisMode: 'played_match_replay', oddsReplaySource: 'historical_bookmaker_snapshot',
-      canonicalRecommendation: canonicalPacket([replayPick]), replayOddsUsed: { over25: 2.23 },
-      actualMatch: { date: played.date, actualScore: '2-1' },
-      recommendedBetResult: { selection: 'over25', status: 'WON', reason: 'Esito storico verificato.' },
-    }) } as any);
-
-    render(<Predictions activeUser="user1" />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Recenti' }));
-    await waitFor(() => expect(mockedApi.getRecentMatches).toHaveBeenCalledTimes(1));
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await waitFor(() => expect(mockedApi.replayPlayedMatchPrediction).toHaveBeenCalledWith('match_1'));
-    expect(await screen.findByTestId('best-value-card')).toBeTruthy();
-    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('best-value-metric-quota-bookmaker').textContent).toBe('2.23');
-    expect(screen.getByTestId('best-value-card').textContent).toContain('WON');
+    expect(mockedApi.getUpcomingMatches).toHaveBeenCalledWith(expect.objectContaining({ includeStartedWithoutResult: true }));
+    expect(mockedApi.getMatchdayMap).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction).not.toHaveBeenCalled();
-    expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
+    expect(mockedAdvice).not.toHaveBeenCalled();
+  });
+  test('one archive and one C preview settle before the first A I/O; C stays visible while A calculates', async () => {
+    setupAnalysis(); const pending = deferred<any>(); const a = deferred<any>();
+    mockedPreview.mockReturnValueOnce(pending.promise); mockedApi.getPrediction.mockReturnValueOnce(a.promise);
+    render(<Predictions activeUser="test-user" />); await openFirst();
+    await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
+    expect(mockedAdvice).toHaveBeenCalledTimes(1); expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
+    expect(mockedApi.getPrediction).not.toHaveBeenCalled();
+    await act(async () => pending.resolve({ kind: 'C_PREVIEW', family: 'C', matchId: 'match_1', asOf: '2026-05-23T08:00:00Z',
+      kickoffAt: matchRow.date, expiresAt: '2026-05-23T08:05:00Z', modelVersion: 'C906-secret', deploymentRevision: 'hash-secret',
+      status: 'RECOMMENDED', reason: null, recommendationPacket: { selected: { selection: 'under25', selectionLabel: 'Under 2.5 Goal' }, decisionStatus: 'RECOMMENDED' },
+      quote: { selection: 'under25', odds: 2.4, bookmaker: 'Book C', source: 'odds_api', priceType: 'prematch', capturedAt: '2026-05-23T08:00:00Z', updatedAt: '2026-05-23T08:00:00Z' }, suggestedStakePercent: 1, registered: false }));
+    await screen.findByText('Under 2.5 Goal'); await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/prima analisi può richiedere/)).toBeTruthy();
+    expect(screen.queryByText(/C906|hash-secret|Algoritmo|Checklist|EV >|Confidenza/)).toBeNull();
     expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
-
-  test('apre il dettaglio di una sola partita e permette di tornare alla lista', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-
-    expect(screen.queryByRole('region', { name: 'Filtri e partite' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Tutte le partite/i }));
-
-    expect(await screen.findByRole('region', { name: 'Filtri e partite' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Tutte le partite/i })).toBeNull();
+  test.each(['NO_BET', 'UNAVAILABLE', 'reject'])('C %s releases A without retries or registration', async status => {
+    setupAnalysis(); if (status === 'reject') mockedPreview.mockRejectedValueOnce(new Error('network'));
+    else mockedPreview.mockResolvedValueOnce({ kind: 'C_PREVIEW', family: 'C', matchId: 'match_1', asOf: '2026-05-23T08:00:00Z', kickoffAt: matchRow.date, expiresAt: '2026-05-23T08:05:00Z', modelVersion: null, deploymentRevision: null, status,
+      reason: null, recommendationPacket: status === 'NO_BET' ? { selected: null, decisionStatus: 'NO_BET' } : null, quote: null, suggestedStakePercent: 1, registered: false } as any);
+    render(<Predictions activeUser="test-user" />); await openFirst(); await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    expect(mockedAdvice).toHaveBeenCalledTimes(1); expect(mockedPreview).toHaveBeenCalledTimes(1);
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+    expect(mockedApi.getPrediction.mock.calls[0][0]).toEqual(expect.objectContaining({ homeTeamId: 'team_inter', awayTeamId: 'team_milan', matchId: 'match_1', competition: 'Serie A', bookmakerOdds: { over25: 2.1 }, oddsSource: 'odds_api' }));
   });
-
-  test('seleziona la partita, carica quote e mostra best value e stake planner', async () => {
-    mockedApi.getPrediction
-      .mockResolvedValueOnce({ data: buildPrediction({ oddsSource: 'odds_api' }) } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: true,
-        source: 'odds_api',
-        primaryProvider: 'odds_api',
-        selectedBookmakerName: 'Pinnacle',
-        selectedOdds: { over25: 2.1 },
-        analysisOdds: { over25: 2.1, 'alternate_totals_cards_over_4.5': 2.05, 'alternate_totals_shots_over_23.5': 1.92 },
-        bookmakerBySelection: { over25: 'Pinnacle', 'alternate_totals_cards_over_4.5': 'Codere', 'alternate_totals_shots_over_23.5': 'Betfair' },
-        analysisBookmakers: ['Codere', 'Pinnacle'],
-        marketsRequested: ['totals', 'alternate_totals_cards'],
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-
-    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
+  test('A presents the canonical selection and real bookmaker without confidence, ranking or recalculating stake', async () => {
+    setupAnalysis(); render(<Predictions activeUser="test-user" />); await openFirst();
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Consiglio modello A' }).textContent).toContain('Over 2.5 Goal'));
+    const a = within(screen.getByRole('region', { name: 'Consiglio modello A' }));
+    expect(a.getByText('Pinnacle')).toBeTruthy(); expect(a.getByText('2.10')).toBeTruthy(); expect(a.getByText('2.5%')).toBeTruthy();
+    expect(a.queryByText(/EV|Edge|CORE|Alta|Probabilità stimata|Kelly|Affidabilità/)).toBeNull();
+    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1); expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+  test('archived C always wins and prevents preview, including a live A failure', async () => {
+    setupAnalysis(); mockedAdvice.mockResolvedValue({ A: recordedAdvice('A', 'over25', 'Over 2.5 Goal', 1000), C: recordedAdvice('C', 'under25', 'Under 2.5 Goal', 1000), errors: {} });
+    mockedApi.getPrediction.mockRejectedValueOnce(new Error('timeout'));
+    render(<Predictions activeUser="test-user" />); await openFirst(); await screen.findByText('Under 2.5 Goal');
+    expect(mockedPreview).not.toHaveBeenCalled(); expect(screen.getByText('Over 2.5 Goal')).toBeTruthy();
+    expect(screen.queryByText(/A-recorded|C-recorded|Versione/)).toBeNull();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
+  });
+  test('archive error forbids C preview but allows A and a manual retry', async () => {
+    setupAnalysis(); mockedAdvice.mockRejectedValueOnce(new Error('archive offline')); mockedApi.getPrediction.mockRejectedValueOnce(new Error('timeout'));
+    render(<Predictions activeUser="test-user" />); await openFirst(); const retry = await screen.findByRole('button', { name: 'Riprova analisi A' });
+    expect(mockedPreview).not.toHaveBeenCalled(); expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+    mockedApi.getPrediction.mockResolvedValueOnce({ data: buildPrediction() } as any); fireEvent.click(retry);
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
+  });
+  test('Nightly appearing during C causes exactly one archive reread and still releases A', async () => {
+    setupAnalysis(); mockedAdvice.mockResolvedValueOnce({ A: null, C: null, errors: {} }).mockResolvedValueOnce({ A: null, C: recordedAdvice('C', 'under25', 'Under 2.5 Goal', 1000), errors: {} });
+    mockedPreview.mockResolvedValueOnce({ status: 'ARCHIVED' } as any);
+    render(<Predictions activeUser="test-user" />); await openFirst(); await screen.findByText('Under 2.5 Goal');
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
-    expect(mockedApi.getPrediction).toHaveBeenCalledWith(expect.objectContaining({
-      bookmakerOdds: { over25: 2.1, 'alternate_totals_cards_over_4.5': 2.05, 'alternate_totals_shots_over_23.5': 1.92 },
-      bookmakerBySelection: { over25: 'Pinnacle', 'alternate_totals_cards_over_4.5': 'Codere', 'alternate_totals_shots_over_23.5': 'Betfair' },
-      oddsSource: 'odds_api',
-    }));
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
-      matchId: 'match_1',
-      homeTeam: 'Inter',
-      awayTeam: 'Milan',
-      commenceTime: matchRow.date,
-    }));
-    fireEvent.click(screen.getByRole('tab', { name: /Pronostico Finale/i }));
-
-    await screen.findByTestId('best-value-card');
-    expect(screen.getByRole('region', { name: 'Modello A' })).toBeTruthy();
-    expect(screen.getByTestId('best-value-card').textContent).toContain('Over 2.5 Goal');
-    expect(screen.getByTestId('odds-source-badge').textContent).toContain('Quota bookmaker verificata: 2 bookmaker reali');
-    expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
-    expect(screen.getByText(/Quote bookmaker reali caricate.*odds_api/i)).toBeTruthy();
-    expect(screen.queryByText(/Consigli giornata/i)).toBeNull();
-
-    fireEvent.click(screen.getByRole('tab', { name: /Quote Complete/i }));
-    expect(await screen.findByRole('region', { name: 'Totali goal' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Cartellini' })).toBeTruthy();
-    expect(screen.getByText('Codere')).toBeTruthy();
-    expect(screen.getByText('Pinnacle')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Cartellini' }));
-    expect(await screen.findByText(/Quote disponibili · Cartellini/i)).toBeTruthy();
-    expect(screen.getByLabelText('Quote disponibili: Cartellini').textContent).toContain('Codere');
-    fireEvent.click(screen.getByRole('tab', { name: 'Tiri' }));
-    expect(await screen.findByText(/Quote disponibili · Tiri/i)).toBeTruthy();
-    expect(screen.getByLabelText('Quote disponibili: Tiri').textContent).toContain('Betfair');
+    expect(mockedAdvice).toHaveBeenCalledTimes(2); expect(mockedPreview).toHaveBeenCalledTimes(1);
+  });
+  test('leaving a pending C aborts it; a later response cannot launch A or replace a new match', async () => {
+    setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+    const pending = deferred<any>(); mockedPreview.mockReturnValueOnce(pending.promise);
+    render(<Predictions activeUser="test-user" />); await openFirst(); await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
+    const signal = mockedPreview.mock.calls[0][1]; fireEvent.click(screen.getByRole('button', { name: 'Tutte le partite' }));
+    expect(signal?.aborted).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Napoli vs Roma/ }));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    await act(async () => pending.resolve({ status: 'UNAVAILABLE' }));
+    expect(mockedApi.getPrediction.mock.calls[0][0].matchId).toBe('match_2');
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
   });
-
-  test('conserva i filtri e ripristina il dettaglio dalla cronologia senza ricalcolare', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction({ oddsSource: 'odds_api' }) } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: { found: true, source: 'odds_api', selectedBookmakerName: 'Pinnacle', selectedOdds: { over25: 2.1 }, analysisOdds: { over25: 2.1 }, bookmakerBySelection: { over25: 'Pinnacle' }, analysisBookmakers: ['Pinnacle'] },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    const dateFilter = await screen.findByRole('button', { name: /Sabato 23 maggio/i });
-    fireEvent.click(dateFilter);
-    fireEvent.click(screen.getByRole('button', { name: /Inter.*Milan/i }));
-    await screen.findByRole('tab', { name: /Quote Complete/i });
-    expect(window.location.search).toContain('match=match_1');
-
-    window.history.back();
-    fireEvent.popState(window);
-    expect(await screen.findByRole('region', { name: 'Filtri e partite' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Sabato 23 maggio/i }).getAttribute('aria-pressed')).toBe('true');
-
-    window.history.forward();
-    fireEvent.popState(window);
-    await screen.findByRole('tab', { name: /Quote Complete/i });
-    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
-  });
-
-  test('consuma i 3 slot canonici senza creare archiviazioni manuali simulate', async () => {
-    const lowPlayerOpportunity = {
-      ...valueOpportunity,
-      selection: 'player_orsolini_shots_over_1_5',
-      selectionLabel: 'Riccardo Orsolini Over 1.5 tiri',
-      marketName: 'Tiri giocatore',
-      marketCategory: 'player_shots',
-      playerName: 'Riccardo Orsolini',
-      teamName: 'Bologna',
-      expectedMinutes: 82,
-      sampleSize: 12,
-      confidence: 'LOW',
-    };
-    const lowTeamOpportunity = {
-      ...valueOpportunity,
-      selection: 'under25',
-      selectionLabel: 'Under 2.5 Goal',
-      confidence: 'LOW',
-    };
-    const highTeamOpportunity = {
-      ...valueOpportunity,
-      selection: 'over25',
-      selectionLabel: 'Over 2.5 Goal',
-      confidence: 'HIGH',
-    };
-    const mediumTeamOpportunity = {
-      ...valueOpportunity,
-      selection: 'btts',
-      selectionLabel: 'GG Sì',
-      marketName: 'Goal / No Goal',
-      confidence: 'MEDIUM',
-    };
-    const thirdPriorityTeamOpportunity = {
-      ...valueOpportunity,
-      selection: 'awayWin',
-      selectionLabel: 'Vittoria Milan',
-      marketName: 'Esito finale (1X2)',
-      confidence: 'MEDIUM',
-    };
-    const recommendedAwayDnb = {
-      ...valueOpportunity,
-      selection: 'dnb_away',
-      selectionLabel: 'Pareggio non conta (DNB) · Ospite',
-      marketName: 'Draw No Bet - Ospite',
-      bookmakerOdds: 2.59,
-      confidence: 'LOW',
-      expectedValue: 20.26,
-      edgeNoVig: 6.4,
-    };
-    const speculativeTeamOpportunity = {
-      ...valueOpportunity,
-      selection: 'double_chance_1x',
-      selectionLabel: 'Doppia chance 1X',
-      marketName: 'Doppia Chance',
-      marketTier: 'SPECULATIVE',
-      confidence: 'LOW',
-    };
-    const opportunities = [
-      lowPlayerOpportunity,
-      lowTeamOpportunity,
-      mediumTeamOpportunity,
-      highTeamOpportunity,
-      thirdPriorityTeamOpportunity,
-    ];
-    const canonicalRecommendation = canonicalPacket([highTeamOpportunity, mediumTeamOpportunity, thirdPriorityTeamOpportunity]);
-    mockedApi.getPrediction
-      .mockResolvedValueOnce({ data: buildPrediction({ canonicalRecommendation, valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb }) } as any)
-      .mockResolvedValueOnce({ data: buildPrediction({ canonicalRecommendation, valueOpportunities: opportunities, speculativeOpportunities: [speculativeTeamOpportunity], bestValueOpportunity: recommendedAwayDnb, oddsSource: 'odds_api' }) } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: true,
-        source: 'odds_api',
-        primaryProvider: 'odds_api',
-        selectedBookmakerName: 'Pinnacle',
-        selectedOdds: {
-          [lowPlayerOpportunity.selection]: lowPlayerOpportunity.bookmakerOdds,
-          [lowTeamOpportunity.selection]: lowTeamOpportunity.bookmakerOdds,
-          [mediumTeamOpportunity.selection]: mediumTeamOpportunity.bookmakerOdds,
-          [highTeamOpportunity.selection]: highTeamOpportunity.bookmakerOdds,
-          [thirdPriorityTeamOpportunity.selection]: thirdPriorityTeamOpportunity.bookmakerOdds,
-          [speculativeTeamOpportunity.selection]: speculativeTeamOpportunity.bookmakerOdds,
-          [recommendedAwayDnb.selection]: recommendedAwayDnb.bookmakerOdds,
-        },
-        marketsRequested: ['player_shots', 'totals', 'h2h_3_way'],
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    const recommendedBetsTab = await screen.findByRole('tab', { name: /Scommesse\s*3/i });
-    fireEvent.click(recommendedBetsTab);
-
-    const valueBets = await screen.findByTestId('value-opportunities-table');
-    expect(valueBets.textContent).toContain('GG Si');
-    expect(valueBets.textContent).toContain('Over 2.5 Goal');
-    expect(valueBets.textContent).toContain('Vittoria Ospite');
-    expect(valueBets.textContent).not.toContain('Pareggio non conta (DNB) · Ospite');
-    expect(valueBets.textContent).not.toContain('Solo archivio · LOW');
-    expect(valueBets.textContent).toContain('registrazione automatica dalla Nightly');
-    expect(mockedApi.archiveManualBetOpportunity).not.toHaveBeenCalled();
-    expect(valueBets.textContent).not.toContain('Under 2.5 Goal');
-    expect(valueBets.textContent).not.toContain('Double Chance 1X');
-    expect(valueBets.textContent).toContain('Consigliata');
-    expect(valueBets.textContent).not.toContain('Riccardo Orsolini');
-    expect(screen.queryByText(/Nessuna giocata supera i criteri operativi/i)).toBeNull();
-
-    expect(screen.queryByRole('tab', { name: /Mercati giocatore\s*1/i })).toBeNull();
-    expect(screen.queryByText('Riccardo Orsolini')).toBeNull();
-  });
-
-  test('non presenta come operativa una giocata solo speculativa', async () => {
-    mockedApi.getPrediction.mockResolvedValue({
-      data: buildPrediction({
-        valueOpportunities: [],
-        canonicalRecommendation: canonicalPacket([]),
-        bestValueOpportunity: {
-          ...valueOpportunity,
-          confidence: 'LOW',
-          bestBetStatus: 'SPECULATIVE',
-          bestBetReason: 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.',
-          riskAdjustedBestScore: 0.08,
-          edgeNoVig: 1.4,
-        },
-        bestBetStatus: 'SPECULATIVE',
-        bestBetReason: 'Migliore giocata disponibile, ma il margine non e forte. Stake basso.',
-        bestBetAlternatives: [
-          {
-            selection: 'dnb_away',
-            marketName: 'Draw No Bet - Ospite',
-            expectedValue: 5.1,
-            edgeNoVig: 2.8,
-            riskAdjustedScore: 0.1,
-            confidence: 'MEDIUM',
-            reason: 'risk_adjusted_score_basso',
-          },
-        ],
-      }),
-    } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: true,
-        source: 'odds_api',
-        primaryProvider: 'odds_api',
-        selectedBookmakerName: 'Pinnacle',
-        selectedOdds: { over25: 2.1 },
-        marketsRequested: ['totals'],
-        message: 'Quote bookmaker caricate correttamente.',
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+  test('leaving an A request aborts its HTTP signal and later completion does not leak to another match', async () => {
+    setupAnalysis(); const a = deferred<any>(); mockedApi.getPrediction.mockReturnValueOnce(a.promise);
+    mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+    render(<Predictions activeUser="test-user" />); await openFirst();
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(await screen.findByRole('tab', { name: /Pronostico Finale/i }));
-
-    expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
-    expect(screen.getByText(/non genera una puntata reale/i)).toBeTruthy();
-    expect(screen.getByTestId('best-value-card').textContent).not.toContain('Over 2.5 Goal');
-    expect(screen.getByText(/EUR 0\.00/)).toBeTruthy();
-    expect(screen.queryByText(/Alternative valutate/i)).toBeNull();
+    const signal = mockedApi.getPrediction.mock.calls[0][1]?.signal;
+    expect(signal?.aborted).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Tutte le partite' })); expect(signal?.aborted).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Napoli vs Roma/ }));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
+    await act(async () => a.resolve({ data: buildPrediction() }));
+    expect(screen.queryByRole('heading', { name: 'Inter vs Milan' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Napoli vs Roma' })).toBeTruthy();
   });
-
-  test('mostra NO_MARKET solo quando mancano quote o probabilita valutabili', async () => {
-    mockedApi.getPrediction.mockResolvedValue({
-      data: buildPrediction({
-        valueOpportunities: [],
-        bestValueOpportunity: null,
-        canonicalRecommendation: canonicalPacket([]),
-        bestBetStatus: 'NO_MARKET',
-        bestBetReason: 'Quote o probabilita insufficienti per scegliere una giocata.',
-        bestBetAlternatives: [],
-      }),
-    } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: false,
-        source: 'odds_unavailable',
-        message: 'Quote bookmaker non disponibili per questa partita.',
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(await screen.findByRole('tab', { name: /Pronostico Finale/i }));
-
-    expect(await screen.findByText('Nessuna giocata consigliata')).toBeTruthy();
-    expect(screen.getAllByText(/Quota bookmaker non disponibile/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Match da saltare/i)).toBeNull();
+  test('started fixtures with no score remain visible as awaiting result, with no C POST', async () => {
+    setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [{ ...matchRow, date: '2026-05-23T07:00:00Z' }] } as any);
+    render(<Predictions activeUser="test-user" />); await screen.findByText('Risultato in attesa'); await openFirst();
+    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(1)); expect(mockedPreview).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Consiglio non disponibile per una partita già iniziata/)).toBeTruthy();
+    expect(mockedApi.getPrediction).not.toHaveBeenCalled(); expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
   });
-
-  test('il calendario upcoming ignora partite passate di aprile e parte dalle future', async () => {
-    mockedApi.getUpcomingMatches.mockResolvedValue({
-      data: [
-        {
-          ...matchRow,
-          match_id: 'old_match',
-          home_team_name: 'Juventus',
-          away_team_name: 'Roma',
-          date: '2026-04-20T18:45:00.000Z',
-        },
-        matchRow,
-      ],
-    } as any);
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    expect(await screen.findByRole('button', { name: /Inter.*Milan/i })).toBeTruthy();
-    expect(screen.queryByText('Juventus')).toBeNull();
+  test('calendar refresh is read-only and filters clear a stale day', async () => {
+    mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+    render(<Predictions activeUser="test-user" />); const toolbar = await screen.findByRole('toolbar', { name: 'Filtra partite per data' });
+    fireEvent.click(within(toolbar).getAllByRole('button')[1]); expect(screen.queryByRole('button', { name: /Napoli vs Roma/ })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Campionato'), { target: { value: '' } });
+    expect((await screen.findByRole('button', { name: 'Tutte' })).getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
+    await screen.findByRole('button', { name: /Napoli vs Roma/ });
+    expect(new URLSearchParams(window.location.search).get('day')).toBe('all');
+    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna calendario' }));
+    await waitFor(() => expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(3));
+    expect(mockedApi.getPrediction).not.toHaveBeenCalled(); expect(mockedPreview).not.toHaveBeenCalled();
   });
-
-  test('quando il sistema segnala sync completato ricarica le partite upcoming', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({ data: { found: false } } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    await screen.findByRole('button', { name: /Inter.*Milan/i });
-    expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      window.dispatchEvent(new Event('data-sync-complete'));
-    });
-
-    await waitFor(() => expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(2));
+  test('completed match exposes observed stats separately from a retrospective replay', async () => {
+    mockedApi.getRecentMatches.mockResolvedValue({ data: [{ ...matchRow, home_goals: 2, away_goals: 1, home_xg: 1.8, away_xg: 0.9 }] } as any);
+    mockedApi.replayPlayedMatchPrediction.mockResolvedValue({ data: buildPrediction({ analysisMode: 'played_match_replay', oddsSource: 'odds_unavailable', canonicalRecommendation: canonicalPacket([]), valueOpportunities: [] }) } as any);
+    render(<Predictions activeUser="test-user" />); fireEvent.click(screen.getByRole('tab', { name: 'Concluse' })); await openFirst();
+    await screen.findByText('Nessun consiglio pre-partita archiviato disponibile.');
+    expect(mockedApi.replayPlayedMatchPrediction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apri replay retrospettivo A' }));
+    await screen.findByText('Replay A · valutazione retrospettiva'); expect(mockedPreview).not.toHaveBeenCalled();
+    expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled(); expect(mockedApi.getPrediction).not.toHaveBeenCalled();
+    expect(screen.getByText('Risultato finale: 2 - 1')).toBeTruthy(); expect(screen.getByText('1.8')).toBeTruthy();
+    expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
+});
 
-  test('passa commenceTime null al lookup quote solo se la partita non ha data', async () => {
-    mockedApi.getUpcomingMatches.mockResolvedValue({
-      data: [{ ...matchRow, date: undefined }],
-    } as any);
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: false,
-        source: 'odds_unavailable',
-        message: 'Quote bookmaker non disponibili per questa partita.',
-      },
-    } as any);
 
-    render(<Predictions activeUser="user1" />);
+test('calendar defaults to today and all dates are an explicit persistent choice', async () => {
+  mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+  const view = render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('button', { name: /Inter vs Milan/ });
+  expect(screen.queryByRole('button', { name: /Napoli vs Roma/ })).toBeNull();
+  expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-23');
+  fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
+  expect(screen.getByRole('button', { name: /Napoli vs Roma/ })).toBeTruthy();
+  expect(new URLSearchParams(window.location.search).get('day')).toBe('all');
+  view.unmount(); render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('button', { name: /Napoli vs Roma/ });
+  expect(screen.getByRole('button', { name: 'Tutte' }).getAttribute('aria-pressed')).toBe('true');
+});
 
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
+test('when today has no fixture the first available day is selected without breaking a later match deep link', async () => {
+  setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [nextDayMatchRow] } as any);
+  const view = render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('button', { name: /Napoli vs Roma/ });
+  expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-24');
+  view.unmount(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
+  window.history.replaceState(null, '', '/predictions?day=2026-05-23&match=match_2');
+  render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('heading', { name: 'Napoli vs Roma' });
+  await waitFor(() => expect(mockedAdvice).toHaveBeenCalledWith('match_2', expect.anything()));
+  expect(mockedApi.getPrediction.mock.calls.every(call => call[0].matchId === 'match_2')).toBe(true);
+});
 
-    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
-    expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({
-      matchId: 'match_1',
-      commenceTime: null,
-    }));
-  });
 
-  test('mostra warning quando il provider fallback viene usato', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: false,
-        source: 'fallback_provider',
-        fallbackOdds: { over25: 2.06 },
-        marketsRequested: ['totals'],
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
-    expect((await screen.findAllByText(/Quota bookmaker non disponibile/i)).length).toBeGreaterThan(0);
-    expect(screen.queryByText('2.06')).toBeNull();
-
-    fireEvent.click(await screen.findByRole('tab', { name: /Scommesse/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile');
-    });
-    expect(screen.queryByRole('button', { name: /Scommetti/i })).toBeNull();
-  });
-
-  test('gestisce provider unavailable senza proporre una quota utente', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockResolvedValue({
-      data: {
-        found: false,
-        source: 'odds_unavailable',
-        message: 'Quote bookmaker non disponibili per questa partita.',
-      },
-    } as any);
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-
-    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(await screen.findByRole('tab', { name: /Scommesse/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('value-opportunities-table').textContent).toContain('Quota bookmaker non disponibile per questa partita.');
-    });
-  });
-
-  test('mostra il messaggio di errore quote quando la route quote risponde 502', async () => {
-    mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
-    mockedApi.getOddsForMatch.mockRejectedValue({
-      response: {
-        status: 502,
-        data: {
-          error: 'Request failed with status code 502',
-        },
-      },
-    });
-
-    render(<Predictions activeUser="user1" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Inter.*Milan/i }));
-
-    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
-
-    expect(await screen.findByText(/Errore quote: 502 = backend\/proxy non ha risposto\. Controlla logs backend\./i)).toBeTruthy();
-  });
+test('remount reads the current completed-match link and its league and season without resetting modules', async () => {
+  const view = render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('button', { name: /Inter vs Milan/ });
+  expect(screen.getByRole('tab', { name: 'In programma' }).getAttribute('aria-selected')).toBe('true');
+  view.unmount();
+  window.history.replaceState(null, '', '/data');
+  window.history.replaceState(null, '', '/predictions?mode=recent&competition=La+Liga&season=2025%2F2026');
+  mockedApi.getTeams.mockResolvedValue({ data: [{ team_id: 'team_inter', name: 'Inter', competition: 'La Liga' }] } as any);
+  mockedApi.getRecentMatches.mockResolvedValue({ data: [{ ...matchRow, competition: 'La Liga', home_goals: 2, away_goals: 1 }] } as any);
+  render(<Predictions activeUser="test-user" />);
+  await screen.findByRole('button', { name: /Inter vs Milan/ });
+  expect(screen.getByRole('tab', { name: 'Concluse' }).getAttribute('aria-selected')).toBe('true');
+  expect((screen.getByLabelText('Campionato') as HTMLSelectElement).value).toBe('La Liga');
+  expect((screen.getByLabelText('Stagione') as HTMLInputElement).value).toBe('2025/2026');
+  expect(mockedApi.getRecentMatches).toHaveBeenCalledWith({ competition: 'La Liga', season: '2025/2026', limit: 160 });
+  expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
+  const query = new URLSearchParams(window.location.search);
+  expect(query.get('mode')).toBe('recent'); expect(query.get('competition')).toBe('La Liga'); expect(query.get('season')).toBe('2025/2026');
+  expect(mockedApi.getPrediction).not.toHaveBeenCalled(); expect(mockedPreview).not.toHaveBeenCalled();
 });

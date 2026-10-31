@@ -7,6 +7,7 @@ import * as legacyApi from '../../utils/api';
 import { getAppWallets } from '../../utils/walletApi';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';
 import { WalletBetTable, walletBetReturn } from './AppWallets';
+import { WalletPeriodPicker, walletToday } from './WalletPages';
 
 jest.mock('../../utils/walletApi');
 jest.mock('../../utils/api');
@@ -63,6 +64,18 @@ test('normal Giocate lists the five funded bets and filters A/C without legacy m
   expect(mockedLegacy.getBudget).not.toHaveBeenCalled();
 });
 
+test('Oggi reads the existing Rome-date interval and identifies bets registered today', async () => {
+  render(<MemoryRouter><BetsManager activeUser="user1" /></MemoryRouter>);
+  await screen.findAllByRole('article');
+  fireEvent.change(screen.getByLabelText('Periodo'), { target: { value: 'today' } });
+  await waitFor(() => expect(mockedWallets).toHaveBeenLastCalledWith(
+    { period: 'custom', from: walletToday(), to: walletToday() }, expect.any(AbortSignal),
+  ));
+  expect(await screen.findByText(/Giocate registrate oggi · Orari italiani/)).toBeTruthy();
+  expect(mockedLegacy.placeBet).not.toHaveBeenCalled();
+  expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
+});
+
 test('Budget keeps the actual funds separate and displays server aggregates rather than detail length', async () => {
   const data = payload(); data.portfolios[0].betCount = 7000; data.portfolios[0].roi = 0.125;
   mockedWallets.mockResolvedValue(data);
@@ -82,7 +95,7 @@ test('Budget keeps the actual funds separate and displays server aggregates rath
 test('a failed wallet read is explicit and never proposes a new bankroll', async () => {
   mockedWallets.mockRejectedValue(new Error('Database temporaneamente non disponibile'));
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
-  expect((await screen.findByRole('alert')).textContent).toContain('Database temporaneamente non disponibile');
+  expect((await screen.findByRole('alert')).textContent).toContain('Non è stato possibile caricare giocate e saldi');
   expect(screen.queryByText('Crea il bankroll iniziale')).not.toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Inizializza' })).not.toBeTruthy();
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
@@ -135,4 +148,23 @@ test('returning to the app coalesces focus/visibility refresh and observes compl
   fireEvent(window, new Event('data-sync-complete'));
   fireEvent(window, new Event('data-sync-complete'));
   await waitFor(() => expect(mockedWallets).toHaveBeenCalledTimes(3));
+});
+
+test('today uses the existing custom range in Rome, including the UTC day boundary', () => {
+  expect(walletToday(new Date('2026-10-31T23:30:00Z'))).toBe('2026-11-01');
+  const change = jest.fn();
+  render(<WalletPeriodPicker query={{ period: 'all' }} onChange={change} />);
+  fireEvent.change(screen.getByLabelText('Periodo'), { target: { value: 'today' } });
+  expect(change).toHaveBeenCalledWith({ period: 'custom', from: walletToday(), to: walletToday() });
+});
+
+test('recorded bets retain real prices and outcomes without internal market or provider codes', () => {
+  render(<WalletBetTable rows={[{ ...rows[0], market: 'dnb', selection: 'dnb_home' },
+    { ...rows[1], market: 'totals', status: 'PENDING', kickoffAt: '2026-01-01T12:00:00Z' }]} model="all" />);
+  expect(screen.getByText('Pareggio rimborsato')).toBeTruthy();
+  expect(screen.getByText('Gol totali')).toBeTruthy();
+  expect(screen.getByText('In attesa di esito')).toBeTruthy();
+  expect(screen.getByText('Risultato o liquidazione non ancora disponibili.')).toBeTruthy();
+  expect(screen.queryByText(/odds_api|Challenger|ROI/)).toBeNull();
+  expect(screen.getAllByText('2,14')).toHaveLength(2);
 });

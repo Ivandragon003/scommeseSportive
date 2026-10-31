@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { automatedBetOpportunityKey } from '../services/AutomatedBetPlanningService';
 import type { LowerDivisionHistoryBatch } from '../services/FootballDataService';
+import type { VerifiedFinalMatchResult } from '../services/MatchResultsRefreshService';
 import { ShortReadCache } from '../services/ShortReadCache';
 import { isPlayerDataEnabled } from '../services/PlayerDataConfig';
 import { ResearchStore } from '../research/ResearchStore';
@@ -2028,6 +2029,65 @@ export class DatabaseService {
     return this.get('SELECT * FROM matches WHERE match_id = ?', [matchId]);
   }
 
+  /** Results-only refresh never changes kickoff, team identities or existing final scores. */
+  async getRecentUnfinishedMatches(filters: { from: string; to: string; competitions: string[]; limit: number }): Promise<any[]> {
+    const allowed = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
+    const competitions = [...new Set(filters.competitions)].filter((value) => allowed.includes(value));
+    if (!competitions.length || !Number.isFinite(Date.parse(filters.from)) || !Number.isFinite(Date.parse(filters.to))) return [];
+    const limit = Math.max(1, Math.min(200, Math.trunc(filters.limit) || 200));
+    return this.all(`SELECT match_id,home_team_id,away_team_id,date,competition,season,source,source_match_id,home_goals,away_goals
+      FROM matches WHERE source='understat' AND home_goals IS NULL AND away_goals IS NULL
+      AND julianday(date)>=julianday(?) AND julianday(date)<=julianday(?)
+      AND competition IN (${competitions.map(() => '?').join(',')})
+      ORDER BY julianday(date),match_id LIMIT ?`, [filters.from, filters.to, ...competitions, limit]);
+  }
+
+  async applyVerifiedFinalResult(input: VerifiedFinalMatchResult): Promise<{ updated: boolean; reason?: string }> {
+    const observed = Date.parse(input.observedAt);
+    const kickoff = Date.parse(input.expectedKickoffAt);
+    const validXg = (value: number | undefined) => value === undefined || (Number.isFinite(value) && value >= 0);
+    const sourceGoals = input.rawSource?.goals as { h?: unknown; a?: unknown } | undefined;
+    const sourceScore = (value: unknown) => /^(0|[1-9]\d*)$/.test(String(value ?? '')) ? Number(value) : Number.NaN;
+    if (input.source !== 'understat' || !Number.isSafeInteger(input.sourceMatchId) || input.sourceMatchId <= 0
+      || !/(?:z|[+-]\d{2}:\d{2})$/i.test(input.observedAt) || !Number.isFinite(observed) || observed > Date.now()
+      || !/(?:z|[+-]\d{2}:\d{2})$/i.test(input.expectedKickoffAt) || !Number.isFinite(kickoff) || kickoff > observed
+      || ![input.homeGoals, input.awayGoals].every((value) => Number.isSafeInteger(value) && value >= 0)
+      || !validXg(input.homeXg) || !validXg(input.awayXg)
+      || input.rawSource?.isResult !== true || Number(input.rawSource.id) !== input.sourceMatchId
+      || sourceScore(sourceGoals?.h) !== input.homeGoals || sourceScore(sourceGoals?.a) !== input.awayGoals) {
+      return { updated: false, reason: 'invalid_verified_result' };
+    }
+    const row = await this.getMatchById(input.matchId);
+    if (!row) return { updated: false, reason: 'match_not_found' };
+    const sourceId = row.source_match_id ?? /^understat_([1-9]\d*)$/.exec(String(row.match_id))?.[1];
+    if (row.source !== 'understat' || Number(sourceId) !== input.sourceMatchId
+      || row.home_team_id !== input.expectedHomeTeamId || row.away_team_id !== input.expectedAwayTeamId
+      || row.competition !== input.expectedCompetition || row.season !== input.expectedSeason
+      || row.date !== input.expectedKickoffAt) return { updated: false, reason: 'fixture_changed' };
+    if (row.home_goals != null || row.away_goals != null) return { updated: false, reason: 'result_already_present' };
+    let previous: Record<string, unknown> = {};
+    try {
+      const decoded = JSON.parse(String(row.raw_json ?? '{}'));
+      if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) previous = decoded;
+    } catch { return { updated: false, reason: 'stored_source_unreadable' }; }
+    if ('match' in previous && (!previous.match || typeof previous.match !== 'object' || Array.isArray(previous.match))) {
+      return { updated: false, reason: 'stored_source_unreadable' };
+    }
+    const observation = { source: 'understat', observedAt: input.observedAt };
+    const raw = previous.match && typeof previous.match === 'object'
+      ? { ...previous, match: { ...previous.match, ...input.rawSource }, resultObservation: observation }
+      : { ...previous, ...input.rawSource, resultObservation: observation };
+    const result = await this.execute(`UPDATE matches SET home_goals=?,away_goals=?,
+      home_xg=COALESCE(?,home_xg),away_xg=COALESCE(?,away_xg),raw_json=?
+      WHERE match_id=? AND source='understat' AND home_team_id=? AND away_team_id=?
+      AND competition=? AND season=? AND date=? AND home_goals IS NULL AND away_goals IS NULL
+      AND COALESCE(raw_json,'')=COALESCE(?,'') AND COALESCE(CAST(source_match_id AS TEXT),'')=?`,
+    [input.homeGoals, input.awayGoals, input.homeXg ?? null, input.awayXg ?? null, JSON.stringify(raw),
+      input.matchId, input.expectedHomeTeamId, input.expectedAwayTeamId, input.expectedCompetition,
+      input.expectedSeason, input.expectedKickoffAt, row.raw_json ?? null, String(row.source_match_id ?? '')]);
+    return Number(result.rowsAffected) === 1 ? { updated: true } : { updated: false, reason: 'fixture_changed' };
+  }
+
   async getMatchesByIds(matchIds: string[], chunkSize = GENERIC_WRITE_CHUNK_SIZE): Promise<any[]> {
     const ids = [...new Set((matchIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
     if (ids.length === 0) return [];
@@ -2918,11 +2978,12 @@ export class DatabaseService {
     };
   }
 
-  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string; untilIso?: string }): Promise<any[]> {
+  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string; untilIso?: string; includeStartedWithoutResult?: boolean }): Promise<any[]> {
     const parsedNow = Date.parse(String(filters?.nowIso ?? ''));
     const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
     const nowIso = new Date(nowMs).toISOString();
     const toleranceMs = 5 * 60 * 1000;
+    const earliestMs = filters?.includeStartedWithoutResult ? nowMs - 72 * 60 * 60 * 1000 : nowMs;
     let q = `
       SELECT ${MATCH_LIST_COLUMNS}
       FROM matches
@@ -2930,7 +2991,7 @@ export class DatabaseService {
         AND home_goals IS NULL
         AND away_goals IS NULL
     `;
-    const params: any[] = [nowIso];
+    const params: any[] = [filters?.includeStartedWithoutResult ? new Date(earliestMs).toISOString() : nowIso];
 
     const parsedUntil = Date.parse(String(filters?.untilIso ?? ''));
     if (Number.isFinite(parsedUntil)) {
@@ -2977,7 +3038,7 @@ export class DatabaseService {
       .map((row) => ({ row, timestamp: Date.parse(String(row?.date ?? '')) }))
       .filter(({ row, timestamp }) =>
         Number.isFinite(timestamp)
-        && timestamp >= nowMs - toleranceMs
+        && timestamp >= earliestMs - (filters?.includeStartedWithoutResult ? 0 : toleranceMs)
         && row?.home_goals === null
         && row?.away_goals === null
       )

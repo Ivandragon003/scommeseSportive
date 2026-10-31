@@ -88,8 +88,9 @@ describe('WalletArchivePage', () => {
     const card = screen.getByRole('article', { name: 'C · Alpha – Beta' });
     fireEvent.click(within(card).getByText('Dettagli della giocata'));
     fireEvent.click(within(card).getByRole('button', { name: 'Apri pronostico registrato' }));
-    expect(await screen.findByText('C-test')).toBeTruthy();
-    expect(screen.getByText('Non registrata')).toBeTruthy();
+    expect(await screen.findByText('Consiglio registrato verificato.')).toBeTruthy();
+    expect(screen.queryByText('C-test')).toBeNull();
+    expect(screen.queryByText('Classificazione registrata')).toBeNull();
     expect(screen.queryByText('APP-A-test')).toBeNull();
     expect(API.get).toHaveBeenCalledWith('/research/forecasts', { params: { matchId: 'c1' }, signal: expect.anything() });
     expect(API.get).toHaveBeenCalledTimes(1);
@@ -109,7 +110,7 @@ describe('WalletArchivePage', () => {
     const card = screen.getByRole('article', { name: 'C · Alpha – Beta' });
     fireEvent.click(within(card).getByText('Dettagli della giocata'));
     fireEvent.click(within(card).getByRole('button', { name: 'Apri pronostico registrato' }));
-    await screen.findByText('C-test');
+    await screen.findByText('Consiglio registrato verificato.');
     const pendingEvidence = screen.getByRole('region', { name: 'Pronostico registrato modello C' });
     expect(within(pendingEvidence).getByText('Aperta')).toBeTruthy();
     expect(within(pendingEvidence).queryByText(/^5,00\s€$/)).toBeNull();
@@ -118,7 +119,7 @@ describe('WalletArchivePage', () => {
     else fireEvent(window, new Event('data-sync-complete'));
 
     await waitFor(() => expect(mockedWallets).toHaveBeenCalledTimes(2));
-    await screen.findByText('C-test');
+    await screen.findByText('Consiglio registrato verificato.');
     const settledEvidence = screen.getByRole('region', { name: 'Pronostico registrato modello C' });
     expect(within(settledEvidence).getByText('Mezza perdita')).toBeTruthy();
     expect(within(settledEvidence).getByText(/^5,00\s€$/)).toBeTruthy();
@@ -164,7 +165,7 @@ describe('WalletArchivePage', () => {
   test('keeps an API failure explicit and retries instead of fabricating an empty archive', async () => {
     mockedWallets.mockRejectedValueOnce(new Error('Registro non disponibile'));
     render(<WalletArchivePage />);
-    expect((await screen.findByRole('alert')).textContent).toContain('Registro non disponibile');
+    expect((await screen.findByRole('alert')).textContent).toContain('Non è stato possibile caricare giocate e saldi');
     expect(screen.queryByText('Nessuna giocata registrata nei filtri scelti.')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Riprova' }));
     await waitFor(() => expect(mockedWallets).toHaveBeenCalledTimes(2));

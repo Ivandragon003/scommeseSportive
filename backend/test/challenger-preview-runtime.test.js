@@ -37,6 +37,8 @@ function harness(options = {}) {
     date: new Date(Date.parse(AT) - (index + 2) * 86400000).toISOString(),
     home_goals: index % 3, away_goals: index % 2, home_xg: 1.4, away_xg: 1.1 }));
   const research = new Proxy({
+    getPreviewModelC: async (version) => research.getModelByVersion('C', version),
+    getLatestPreviewBenchmarkC: async (version) => research.getLatestBenchmark('C', version),
     getModelByVersion: async (family, version) => {
       reads.push(['model', family, version]);
       return version === artifact.version ? { version, artifact, artifactHash: researchHash(artifact),
@@ -82,7 +84,7 @@ function harness(options = {}) {
       return [event];
     } } });
   const job = { id: 'job', runId: 'cohort', matchId: row.match_id, kickoffAt: row.date, targetAt: AT, leaseToken: 'lease' };
-  return { runtime, db, row, artifact, writes, reads, providerCalls, job };
+  return { runtime, db, row, artifact, history, writes, reads, providerCalls, job };
 }
 
 test('preview C exactly preserves the nightly C decision on identical inputs without any business writes', async () => {
@@ -213,4 +215,48 @@ test('the new artifact and registration availability guard leaves the frozen nig
     artifactCreatedAt: '2026-11-01T00:00:00Z', registryCreatedAt: '2026-11-01T00:00:00Z' });
   const result = await h.runtime.prepareNightly(h.job);
   assert.equal(result.decisions.find((decision) => decision.family === 'C').validated, true);
+});
+
+test('projected C calibration exactly matches full benchmark decisions on identical history and as-of in every league', async () => {
+  const { createClient } = require('@libsql/client');
+  const { readFileSync, rmSync } = require('node:fs');
+  const { join } = require('node:path');
+  const { tmpdir } = require('node:os');
+  const { randomUUID } = require('node:crypto');
+  const { ResearchStore } = require('../dist/research/ResearchStore');
+  // Store writes use their own connection; an anonymous memory DB would be lost after commit.
+  const databasePath = join(tmpdir(), `c-preview-parity-${process.pid}-${randomUUID()}.db`);
+  const client = createClient({ url: `file:${databasePath}` });
+  const close = () => {
+    client.close();
+    try { rmSync(databasePath, { force: true }); }
+    catch (error) { if (!['EPERM', 'EBUSY'].includes(error.code)) throw error; }
+  };
+  try {
+    await client.executeMultiple(readFileSync(join(__dirname, '../migrations/015_research_platform.sql'), 'utf8'));
+    const store = new ResearchStore(client, async () => {}, { now: () => new Date(AT) });
+    const profile = { protocol: 'existing-isotonic-v1', targetProtocol: 'joint_1x2_normalized-v2',
+      nObservations: 600, matches: 200, fittedThrough: '2026-09-20T00:00:00Z',
+      calibrationPoints: [{ x: 0, y: 0 }, { x: .5, y: .45 }, { x: 1, y: 1 }], byFamily: {}, learnedBlendWeights: {} };
+    const report = { ...model(), probabilityCalibrationMode: 'isotonic_1x2', calibrationProfilesV2: { C: profile },
+      diagnosticOnly: false, runtimeCompatible: true, predictions: Array(100).fill({ development: true }) };
+    await store.saveBenchmark({ family: 'C', modelVersion: model().version, report });
+    const leagues = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
+    for (const competition of leagues) {
+      const projected = harness({ legacyConfiguration: true, row: { competition } });
+      const full = harness({ legacyConfiguration: true, row: { competition } });
+      const supplementary = leagues.filter((league) => league !== competition).flatMap((league, leagueIndex) =>
+        projected.history.slice(0, 6).map((row, index) => ({ ...row, match_id: `${league}-${index}`, competition: league,
+          home_team_id: `other-home-${leagueIndex}`, away_team_id: `other-away-${leagueIndex}` })));
+      projected.history.push(...supplementary); full.history.push(...supplementary);
+      projected.db.research.getLatestPreviewBenchmarkC = (version) => store.getLatestPreviewBenchmarkC(version);
+      full.db.research.getLatestPreviewBenchmarkC = (version) => store.getLatestBenchmark('C', version);
+      const actual = await projected.runtime.preparePreviewC(projected.job);
+      const expected = await full.runtime.preparePreviewC(full.job);
+      assert.equal(actual.decisions[0].validated, true, competition);
+      assert.deepEqual(actual.decisions, expected.decisions, competition);
+      assert.deepEqual(actual.inputSnapshot.forecast, expected.inputSnapshot.forecast, competition);
+      assert.deepEqual(projected.writes, []); assert.deepEqual(full.writes, []);
+    }
+  } finally { close(); }
 });

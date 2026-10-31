@@ -37,7 +37,7 @@ function CurrentWalletArchive({ onOpenLegacy }: { onOpenLegacy?: () => void }) {
     <WalletPeriodPicker query={query} onChange={(value) => { setQuery(value); setSelectedBetId(null); }} />
     <WalletLoadState loading={loading} error={error} refresh={refresh} />
     {!loading && !error && data && <>
-      <p className="app-wallet-help">{data.period.label} · Europe/Rome.
+      <p className="app-wallet-help">{data.period.label} · Orari italiani.
         {' '}{portfolios.map((portfolio) => `Modello ${portfolio.family}: ${portfolio.betCount ?? '—'} giocate registrate`).join(' · ')}.
       </p>
       <WalletBetTable rows={rows} model={model} emptyText="Nessuna giocata registrata nei filtri scelti." onInspectBet={(bet) => setSelectedBetId(bet.id)} />
