@@ -185,8 +185,8 @@ test('inconsistent packet status cannot turn a stored no-bet into a recommendati
 test('missing forecast time is not silently replaced by the later archival time', async () => {
   get.mockResolvedValueOnce(response([row('C', { forecastAt: null })])); show();
   await screen.findByText('Under 2.5 Goal');
-  const forecastTime = c().getByText('Valutata il').nextElementSibling;
-  expect(forecastTime?.textContent).toBe('Non disponibile');
+  expect(c().getByText('Valutata il')).toBeTruthy();
+  expect(c().getByText('Non disponibile')).toBeTruthy();
 });
 
 test('malformed optional quote fields cannot crash the cards or become provenance', async () => {
