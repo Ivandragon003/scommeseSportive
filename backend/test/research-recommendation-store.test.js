@@ -103,6 +103,139 @@ const walletAmounts = async research => (await research.listPortfolios())
   .map(wallet => [wallet.id, wallet.availableCents, wallet.committedCents, wallet.equityCents]);
 const count = async (client, table) => Number((await client.execute(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n);
 
+async function recoveryPolicies(f) {
+  const jobs = (await claim(f)).jobs;
+  await f.execution.commitBatch(jobs.map(job => prepared(f, job, {
+    snapshot: { metadata: { policy: f.policy.descriptor, originInputId: job.originInputId } },
+    decisions: Object.fromEntries(['A', 'C'].map(family => [family,
+      { action: 'ABSTAIN', reason: 'odds_cache_only', recommended: false, validated: false }])),
+  })));
+  const sources = [];
+  for (const job of jobs) {
+    const input = (await f.client.execute({ sql: 'SELECT * FROM research_execution_inputs WHERE job_id=?', args: [job.id] })).rows[0];
+    const decisions = (await f.execution.listDecisions({ matchId: job.matchId, fullSnapshot: true }))
+      .sort((a, b) => a.family.localeCompare(b.family));
+    sources.push({ matchId: job.matchId, kickoffAt: job.kickoffAt, windowEndAt: job.windowEndAt,
+      sourceJobId: job.id, sourceRunId: job.runId, sourceInputId: input.id, sourceInputHash: input.input_hash,
+      sourcePreparedDecisionsHash: input.decisions_hash, sourceDecisionIds: decisions.map(decision => decision.id).sort(),
+      sourceDecisionSnapshotsHash: researchHash(decisions.map(decision => ({ id: decision.id, snapshot: decision.snapshot }))),
+      originInputId: job.originInputId, originDecisionIds: job.originDecisionIds,
+      reasons: { A: 'odds_cache_only', C: 'odds_cache_only' } });
+  }
+  const descriptor = selected => ({ ...f.policy.descriptor, recovery: {
+    protocol: 'virtual-recommendation-technical-recovery-v1', parentPolicyHash: f.policy.hash,
+    maxDepth: 1, retrospective: false, reason: 'retry_technical_failure',
+    matchIds: selected.map(source => source.matchId), sourceDecisionIds: selected.flatMap(source => source.sourceDecisionIds).sort(),
+    sources: selected,
+  } });
+  return { first: await f.execution.registerPolicy(descriptor(sources)),
+    subset: await f.execution.registerPolicy(descriptor(sources.slice(0, 1))), sources, descriptor };
+}
+
+test('technical recovery terminal sports abstentions cannot be repeated through another subset policy', async () => {
+  const f = await setup({ matches: 2 });
+  try {
+    const policies = await recoveryPolicies(f);
+    assert.notEqual(policies.first.hash, policies.subset.hash);
+    const jobs = (await claim(f, f.fixtures, { policyHash: policies.first.hash })).jobs;
+    const commits = jobs.map((job, index) => prepared(f, job, { decisions: {
+      ...(index === 0 ? { A: { action: 'ABSTAIN', reason: 'no_positive_recommendation' } } : {}),
+      C: { action: 'ABSTAIN', reason: 'no_positive_recommendation' },
+    } }));
+    const result = await f.execution.commitBatch(commits);
+    assert.equal(result.bets.length, 1);
+    assert.equal(result.decisions.filter(decision => decision.action === 'ABSTAIN').length, 3);
+    assert.equal((await f.research.listBets()).filter(bet => bet.matchId === jobs[0].matchId).length, 0);
+    const before = await walletAmounts(f.research), inputs = await count(f.client, 'research_execution_inputs');
+    const repeated = await claim(f, [f.fixtures[0]], { policyHash: policies.subset.hash });
+    assert.equal(repeated.jobs.length, 0);
+    assert.equal(repeated.skipped[0].reason, 'prior_recovery_preserved');
+    assert.deepEqual(await walletAmounts(f.research), before);
+    assert.equal(await count(f.client, 'research_execution_inputs'), inputs);
+    assert.equal(await originalRecords(f.client), f.originalBeforeMigration);
+  } finally { await f.close(); }
+});
+
+test('technical recovery blocks sibling leases and skipped results but permits ERROR without immutable input', async () => {
+  const f = await setup({ matches: 2 });
+  try {
+    const policies = await recoveryPolicies(f);
+    const firstJobs = (await claim(f, f.fixtures, { policyHash: policies.first.hash })).jobs;
+    const blocked = await claim(f, [f.fixtures[0]], { policyHash: policies.subset.hash });
+    assert.equal(blocked.busy, true);
+    assert.equal(blocked.skipped[0].reason, 'prior_recovery_in_progress');
+    await f.execution.finishJob(firstJobs[0].id, firstJobs[0].leaseToken, { status: 'ERROR', reason: 'transient_failure' });
+    const retry = await claim(f, [f.fixtures[0]], { policyHash: policies.subset.hash });
+    assert.equal(retry.jobs.length, 1);
+    await f.execution.finishJob(retry.jobs[0].id, retry.jobs[0].leaseToken, { status: 'SKIPPED', reason: 'sports_no_bet' });
+    const skipped = await claim(f, [f.fixtures[0]], { policyHash: policies.first.hash });
+    assert.equal(skipped.jobs.length, 0);
+    assert.equal(skipped.skipped[0].reason, 'prior_recovery_preserved');
+    assert.equal(await count(f.client, 'research_bets'), 0);
+  } finally { await f.close(); }
+});
+
+test('technical recovery commit rejects a sibling completion after its claim without adding immutable or financial rows', async () => {
+  const f = await setup({ matches: 2 });
+  try {
+    const policies = await recoveryPolicies(f);
+    const firstJobs = (await claim(f, f.fixtures, { policyHash: policies.first.hash })).jobs;
+    await f.execution.finishJob(firstJobs[0].id, firstJobs[0].leaseToken, { status: 'ERROR', reason: 'transient_failure' });
+    const retry = (await claim(f, [f.fixtures[0]], { policyHash: policies.subset.hash })).jobs[0];
+    assert.ok(retry);
+    // Model an older in-flight executor persisting its sports abstentions after
+    // this worker's read/claim. Appended evidence must veto the newer commit.
+    const legacy = prepared(f, firstJobs[0], { decisions: {
+      A: { action: 'ABSTAIN', reason: 'no_positive_recommendation' },
+      C: { action: 'ABSTAIN', reason: 'no_positive_recommendation' },
+    } });
+    const inputId = randomUUID();
+    await f.client.execute({ sql: `INSERT INTO research_execution_inputs
+      (id,job_id,origin_input_id,input_hash,decisions_hash,snapshot_json,captured_at,kickoff_at) VALUES(?,?,?,?,?,?,?,?)`,
+    args: [inputId, firstJobs[0].id, firstJobs[0].originInputId, researchHash(legacy.inputSnapshot),
+      researchHash(legacy.decisions), json(legacy.inputSnapshot), START, KICKOFF] });
+    for (const decision of legacy.decisions) {
+      const id = randomUUID(), snapshot = { ...decision, id, inputId, stakeCents: 0, matchId: retry.matchId };
+      await f.client.execute({ sql: `INSERT INTO research_execution_decisions
+        (id,input_id,origin_decision_id,family,model_version,portfolio_id,action,market,selection,reason,snapshot_json,created_at)
+        VALUES(?,?,?,?,?,?,'ABSTAIN',?,?,?,?,?)`, args: [id, inputId, decision.originDecisionId, decision.family,
+        decision.modelVersion, `shadow_${decision.family}`, decision.market, decision.selection, decision.reason, json(snapshot), START] });
+    }
+    await f.client.execute({ sql: "UPDATE research_execution_jobs SET status='COMPLETED' WHERE id=?", args: [firstJobs[0].id] });
+    const evidence = json({ inputs: (await f.client.execute('SELECT * FROM research_execution_inputs ORDER BY id')).rows,
+      decisions: (await f.client.execute('SELECT * FROM research_execution_decisions ORDER BY id')).rows });
+    const ledger = await count(f.client, 'research_ledger'), wallet = await walletAmounts(f.research);
+    await assert.rejects(f.execution.commitBatch([prepared(f, retry)]), /Technical recovery commit rejected: prior_recovery_preserved/);
+    assert.equal(json({ inputs: (await f.client.execute('SELECT * FROM research_execution_inputs ORDER BY id')).rows,
+      decisions: (await f.client.execute('SELECT * FROM research_execution_decisions ORDER BY id')).rows }), evidence);
+    assert.equal(await count(f.client, 'research_ledger'), ledger);
+    assert.equal(await count(f.client, 'research_bets'), 0);
+    assert.deepEqual(await walletAmounts(f.research), wallet);
+    assert.equal(await originalRecords(f.client), f.originalBeforeMigration);
+  } finally { await f.close(); }
+});
+
+test('technical recovery claims fail closed for unlisted fixtures and forged source or parent bindings', async () => {
+  const f = await setup({ matches: 2 });
+  try {
+    const policies = await recoveryPolicies(f);
+    await assert.rejects(claim(f, [f.fixtures[1]], { policyHash: policies.subset.hash }), /fixture allowlist mismatch/);
+    for (const mutate of [
+      descriptor => { descriptor.recovery.sources[0].sourceJobId = 'not-the-original-job'; },
+      descriptor => { descriptor.recovery.sources[0].sourceInputHash = '0'.repeat(64); },
+      descriptor => { descriptor.recovery.sources[0].originDecisionIds.A = 'another-origin'; },
+      descriptor => { descriptor.unapprovedConfiguration = true; },
+    ]) {
+      const descriptor = JSON.parse(JSON.stringify(policies.subset.descriptor)); mutate(descriptor);
+      const policy = await f.execution.registerPolicy(descriptor);
+      await assert.rejects(claim(f, [f.fixtures[0]], { policyHash: policy.hash }), /Technical recovery/);
+    }
+    assert.equal(await count(f.client, 'research_execution_jobs'), 2);
+    assert.equal(await count(f.client, 'research_execution_inputs'), 2);
+    assert.equal(await count(f.client, 'research_bets'), 0);
+  } finally { await f.close(); }
+});
+
 test('app A cards and shots bypass research promotion states while C keeps goal-only settlement', async () => {
   const f = await setup({ matches: 2 });
   try {

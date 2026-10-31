@@ -17,6 +17,21 @@ on:
         type: boolean
         required: false
         default: false
+      recover_technical_failures:
+        description: Recupera solo coppie A/C bloccate tecnicamente, con nuovo input e policy tracciata
+        type: boolean
+        required: false
+        default: false
+      recovery_source_policy:
+        description: Hash della policy originale da verificare per il recupero tecnico
+        type: string
+        required: false
+        default: ''
+      recovery_day:
+        description: Giorno Europe/Rome del recupero tecnico (YYYY-MM-DD; vuoto significa oggi)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -40,6 +55,8 @@ jobs:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      # Different provider accounts keep separate persistent budgets and caches.
+      ODDS_API_ACCOUNT_SCOPE: ${{ vars.ODDS_API_ACCOUNT_SCOPE || 'primary' }}
       API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
       PLAYER_AVAILABILITY_ENABLED: 'false'
       PLAYER_DATA_ENABLED: 'false'
@@ -66,6 +83,9 @@ jobs:
       RESEARCH_NIGHTLY_MINUTE: '7'
       RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '1200'
       RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS: '300'
+      RESEARCH_NIGHTLY_RECOVER_TECHNICAL: ${{ inputs.recover_technical_failures || 'false' }}
+      RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY: ${{ inputs.recovery_source_policy || '' }}
+      RESEARCH_NIGHTLY_RECOVERY_DAY: ${{ inputs.recovery_day || '' }}
       RESEARCH_NIGHTLY_MIN_EV: '0.04'
       RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV: '0.01'
       # Retired automation cannot run alongside the finite nightly A/C job.

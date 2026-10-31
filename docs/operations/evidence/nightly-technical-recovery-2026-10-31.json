@@ -1,0 +1,1143 @@
+{
+  "date": "2026-10-31",
+  "sourceCommit": "e16c9714eec0684bcbd964f4e8f41a3b4e29567e",
+  "before": {
+    "capturedAt": "2026-10-31T11:21:10.065Z",
+    "scope": "Targeted recovery-state snapshot, not a full database backup",
+    "counts": {
+      "policies": 2,
+      "jobs": 22,
+      "inputs": 22,
+      "decisions": 44,
+      "bets": 10,
+      "settlements": 6,
+      "cancellations": 5,
+      "ledger": 18,
+      "budgets": 1,
+      "legacy": 1
+    },
+    "legacyBets": 258,
+    "rowSetSha256": {
+      "policies": "8eb0618aaaeab4cdf03ebe5fac9333d9124f088989e9a0b84dc59f90ec55abd4",
+      "jobs": "8a843d3f9fb894c46ec332644c8a5d40a13aa06acdf81c01b325bb716e80cc9b",
+      "inputs": "24f50ebd172268ae9e3c0cab40802b612a07fbcdac20b907614bf049c956131b",
+      "decisions": "aef315c781d6a69138bce1a09ff319db5bf99b9dd731747f83692abe606c45c8",
+      "bets": "ca636cbb737074fb31e51f0e84315c491da8b612fd891535a99c9670bef6e6a9",
+      "settlements": "dfbbf71979313de8378b08da04e103b83b87fcdc1099c6f8281a4ec51fa58c2f",
+      "cancellations": "a5be0fbe46729be101dcb7a63fe6844ae1d0261578dd2ab8628a6d5627ca0d42",
+      "ledger": "a0d746e80d4edce7c0e6d08896001176f1ffe84d8d42fb3fb8c47810271292ad",
+      "budgets": "d768289dcf1575be3674553f94c76f12c88b37dc2f6ea9c1e9f990c164fff65f",
+      "legacy": "d2659b7edd7c12cdeb0c3d102739f53c46c712adc795b208977ab009c6965b13"
+    },
+    "legacyRowsSha256": "c76033547d10d4e16194dbb4fb1dcac29b1f78da335fae30e93d2adfb2160af7",
+    "legacyRowsCapturedAt": "2026-10-31T11:33:49.035Z"
+  },
+  "operationalA": {
+    "allProtectedFilesUnchanged": true,
+    "sourceFiles": 63,
+    "fixtureAndRegressionFiles": 5,
+    "regressionTestsPassed": 7
+  },
+  "localChecks": {
+    "targetedNodeTests": 143,
+    "passed": 143,
+    "failed": 0,
+    "build": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "freshReview": "no_remaining_blockers",
+    "secretScan": "passed"
+  },
+  "quotaProbes": {
+    "priorAccount": {
+      "used": 498,
+      "remaining": 2,
+      "lastCost": 0,
+      "observedAt": "2026-10-31T11:09:31.000Z"
+    },
+    "configuredAccount": {
+      "used": 0,
+      "remaining": 500,
+      "lastCost": 0,
+      "observedAt": "2026-10-31T11:19:31.000Z",
+      "scope": "daniele-oddsapi-20261031"
+    }
+  },
+  "plan": {
+    "protocol": "virtual-recommendation-technical-recovery-v1",
+    "plannedAt": "2026-10-31T11:30:36.837Z",
+    "parentPolicyHash": "9a7a37f15c51ed819b74dba7faae90bf51d77c02c9ad1614023ba12d40ebbe33",
+    "policy": {
+      "familyA": {
+        "marketCoverage": "existing-supported-team-markets",
+        "playerProps": false,
+        "recommendationPolicy": "match-page-recommendation-v1",
+        "source": "PredictionService",
+        "stakeMode": "RECOMMENDED_PERCENT"
+      },
+      "familyC": {
+        "baselineVersion": "A-80cb25df5552621e",
+        "marketBlending": false,
+        "marketCalibration": false,
+        "modelVersion": "C-906371b0b3a1e2c8",
+        "source": "ResearchRuntime",
+        "stakeMode": "FIXED_ONE_PERCENT"
+      },
+      "independentCalibrationRequired": false,
+      "maxBetsPerMatchPerFamily": 1,
+      "maxExposureFraction": 0.05,
+      "quoteMaxAgeMs": 300000,
+      "recovery": {
+        "allowedReasons": [
+          "odds_credit_budget_exhausted",
+          "odds_cache_only",
+          "odds_reset_unconfirmed"
+        ],
+        "matchIds": [
+          "understat_30871",
+          "understat_30874",
+          "understat_30876",
+          "understat_30878",
+          "understat_31260",
+          "understat_31261",
+          "understat_31262",
+          "understat_31263",
+          "understat_31264",
+          "understat_31265",
+          "understat_31266",
+          "understat_31267",
+          "understat_31650",
+          "understat_31652",
+          "understat_31659",
+          "understat_32020",
+          "understat_32304",
+          "understat_32307"
+        ],
+        "maxDepth": 1,
+        "parentPolicyHash": "9a7a37f15c51ed819b74dba7faae90bf51d77c02c9ad1614023ba12d40ebbe33",
+        "protocol": "virtual-recommendation-technical-recovery-v1",
+        "reason": "retry_technical_failure",
+        "retrospective": false,
+        "sourceDecisionIds": [
+          "00923d51-9a32-44b1-ae40-4546f2d75e8d",
+          "1133a734-4895-4a80-b01e-1a77aade14d7",
+          "19f6bf77-517e-475d-acbe-8edc2e5cb3ec",
+          "1c2d153a-6791-4df5-9f00-22f448d39aa0",
+          "1d1adf8a-537e-4b3f-909a-48042a647d23",
+          "20602300-24b1-4649-917a-d1f941148568",
+          "27faf873-d893-4550-b8e4-ba8eccb9af55",
+          "2e3bc3e5-e1c3-439d-b86d-1b975acf35a1",
+          "421a2ecb-066d-4513-9e9a-8d42954b5965",
+          "43777a00-222a-49e7-b783-aebe9bcc7e80",
+          "4a7fa1fd-25ac-490b-aad9-f555935922b8",
+          "4cb46357-c3c3-4169-b8eb-0c0c6dfd7f03",
+          "547e5fb0-4c77-4acb-a388-c890729a4a2e",
+          "578f189b-6258-4cf6-8e49-0d2bb2e03f1f",
+          "5cbedec2-2129-42e5-9047-2806a49ab678",
+          "615b8c1e-6122-4c83-84e8-3e5fc9238cc1",
+          "6844c01d-9295-47ca-ab8a-21144c730d9c",
+          "6d6a3966-48ba-42c0-82d1-74a7e8d7baa3",
+          "79b3d70d-a8ad-4ce8-b0e4-3a9c9a73f1c9",
+          "7de3f301-b2f7-489a-8b92-bc3a2672ccc3",
+          "802745f8-11df-4612-b03e-a5d27482d38e",
+          "8fadc9b4-3e40-443c-b6bd-9b08f8328eee",
+          "92a745bc-2132-41cd-8e52-bbfc9d6eb36d",
+          "95cb8f53-57f6-4891-898a-f73a29bbe437",
+          "98b0851c-e582-467c-934a-cd55675924e8",
+          "9d42af70-9b74-4a15-af50-efec03e78fcd",
+          "a3572937-e3c6-47ae-9864-460d1df6b67c",
+          "abff8246-f236-4623-ace4-d45d6e1e7746",
+          "af66feb4-f2d0-4c34-9246-f650da74d0d9",
+          "c4c8f7d6-287f-4693-a4f4-f908475a847a",
+          "cdeba135-d6d1-434a-8cb2-3651c76b4b84",
+          "d0098807-2a07-449c-9731-5226e58d99ec",
+          "d7676d84-3bf7-47ff-ad7e-b1a86a98ecf8",
+          "dd3b2c99-e17b-4696-a415-26ec5020aeac",
+          "dee45693-505c-454f-90bb-6fc66999b279",
+          "f694a50f-5762-4223-a8cd-fabc74318b8c"
+        ],
+        "sources": [
+          {
+            "kickoffAt": "2026-10-31T17:30:00.000Z",
+            "matchId": "understat_30871",
+            "originDecisionIds": {
+              "A": "2ba2c9a0-5367-4c98-8b76-30fe7552d87c",
+              "C": "93e51ddc-ef6d-42fe-b2ba-d73180593f4c"
+            },
+            "originInputId": "543b90f5-ecd9-4b8d-8d87-20c08a2bb8a7",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "802745f8-11df-4612-b03e-a5d27482d38e",
+              "dd3b2c99-e17b-4696-a415-26ec5020aeac"
+            ],
+            "sourceDecisionSnapshotsHash": "e27f7a28591e9c8c408531b337e576b3a8bc519b30d76db08c77d07ba3abfb83",
+            "sourceInputHash": "fd51bd106fbdfd56a182c1b69c92f14f84f9cfd4a7cd2f108b3eca817c12c121",
+            "sourceInputId": "f7d725f6-896b-4bec-9a71-2c523f8f8174",
+            "sourceJobId": "656936d6-38b1-4b8e-b844-8b88f21e155d",
+            "sourcePreparedDecisionsHash": "92827be7004764af2b509d6043be78cc7c26f4495572f6dc03030dd49dc9b54a",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T20:00:00.000Z",
+            "matchId": "understat_30874",
+            "originDecisionIds": {
+              "A": "24d331d5-0e91-46e2-9680-70f63e38617b",
+              "C": "96e79bd4-23c8-4c84-8053-f52eb4478af5"
+            },
+            "originInputId": "85d8d04b-88a2-4591-897e-32815f21293c",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "00923d51-9a32-44b1-ae40-4546f2d75e8d",
+              "8fadc9b4-3e40-443c-b6bd-9b08f8328eee"
+            ],
+            "sourceDecisionSnapshotsHash": "e83a66a61cbf36d17778df15e499faa4a66242bd1383e91914e61651d50562ad",
+            "sourceInputHash": "7235bb57f9923e28b1661293d1a2a9f7a079f06016d4b55f9e6a898cd0087889",
+            "sourceInputId": "5ebc0d9d-3c9e-4308-a973-9b46e45c49f5",
+            "sourceJobId": "5eb9b09f-7520-49d9-afa7-04e371686154",
+            "sourcePreparedDecisionsHash": "d0d9608f00e6d131164e2fc792cf78dcc844faacc941d4f1eed0564f90c1fedd",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T13:00:00.000Z",
+            "matchId": "understat_30876",
+            "originDecisionIds": {
+              "A": "ee3f12b7-1826-4d9c-8e8f-015198c54a45",
+              "C": "84cf1bab-d85d-4cd3-a412-0293e0f09567"
+            },
+            "originInputId": "272b8a38-f493-4d28-a97d-121d58be4476",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "1c2d153a-6791-4df5-9f00-22f448d39aa0",
+              "43777a00-222a-49e7-b783-aebe9bcc7e80"
+            ],
+            "sourceDecisionSnapshotsHash": "d13ae44529014aec839b1f40b4de3e673d716b2e13009a9f0369c54d43e6710e",
+            "sourceInputHash": "0cb41720955ac8dad301dceeb0695d72b7e85ba658aa33296eb8519c930e4b88",
+            "sourceInputId": "27993e73-8fbc-4f16-80b7-482c49736e9f",
+            "sourceJobId": "f82bc5f9-761c-4b0a-9921-36f677ca22fe",
+            "sourcePreparedDecisionsHash": "7bb862b4762316cb2ccc0e529558fe5772f46f3ce3c0ffe56ca3e6ee3261e219",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:15:00.000Z",
+            "matchId": "understat_30878",
+            "originDecisionIds": {
+              "A": "2db32e7e-e45f-4fa8-ad88-908f8a446bc7",
+              "C": "2300489c-e209-4c46-be07-c38a5df4842b"
+            },
+            "originInputId": "44f805e8-9e33-44fd-85b9-c309aa531978",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "615b8c1e-6122-4c83-84e8-3e5fc9238cc1",
+              "9d42af70-9b74-4a15-af50-efec03e78fcd"
+            ],
+            "sourceDecisionSnapshotsHash": "520184e05400660ef42c42d4216fb725f212c13760c7de1b73794428a7c45d6a",
+            "sourceInputHash": "a4baa25f464ee17778ab117c5cf452e7a3258ad361a47ff759bf7228fd2c7bf1",
+            "sourceInputId": "47255385-fd32-4d45-a974-2562ac2efc1b",
+            "sourceJobId": "68972106-9739-4b0f-bd5d-3be7d775769b",
+            "sourcePreparedDecisionsHash": "b2d40fc0f8ce13a2a0952e830cd2d054855bdc8b17bf82ad56b7078ef000bf24",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T12:30:00.000Z",
+            "matchId": "understat_31260",
+            "originDecisionIds": {
+              "A": "bfe4182c-f72a-4b05-80b5-de78127ecd02",
+              "C": "d318f0dc-42db-484d-96df-0c024bef548b"
+            },
+            "originInputId": "84db4d41-3d50-4e34-b357-027f18259792",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "27faf873-d893-4550-b8e4-ba8eccb9af55",
+              "a3572937-e3c6-47ae-9864-460d1df6b67c"
+            ],
+            "sourceDecisionSnapshotsHash": "0afec0c4985040c87e3747d275dab25397aac0146578071b360eabd9896cb36a",
+            "sourceInputHash": "1d3edcc989e64e1d90fea239087586755231021e0271487eb589ccb8083ea6ef",
+            "sourceInputId": "4717acfd-571d-41e0-9183-31e26cf790f6",
+            "sourceJobId": "6284ef12-d45a-4ac0-b2fa-981a25af7b85",
+            "sourcePreparedDecisionsHash": "718b459ce914e13858f323e286e3119ecea75fd09cdcacd7ec40e84084d5b5f0",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:00:00.000Z",
+            "matchId": "understat_31261",
+            "originDecisionIds": {
+              "A": "d383fe43-e0dc-4544-bae1-e52cc20d902c",
+              "C": "ef01dd15-ee82-4a93-a49b-81042b20a1fa"
+            },
+            "originInputId": "34e7eeda-01e3-4f6a-a909-12cf82fe9eb6",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "547e5fb0-4c77-4acb-a388-c890729a4a2e",
+              "98b0851c-e582-467c-934a-cd55675924e8"
+            ],
+            "sourceDecisionSnapshotsHash": "8bf4c00305471210e18fc3283af5a654857e574e5fd4dfaf7b51829017fbe650",
+            "sourceInputHash": "322ac17a8ea648cc377a20795593993b6ec3dc53ce5146caf8132dce1f04b605",
+            "sourceInputId": "7a78c633-4df9-467e-abb6-c49378a00321",
+            "sourceJobId": "9a2cbac3-6b5e-40b7-b4e3-e7a3824c6290",
+            "sourcePreparedDecisionsHash": "7b0b4bf1a123b9f5b12a5c16d8353b7707760cf57abc027812c66e34853dcc2f",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:00:00.000Z",
+            "matchId": "understat_31262",
+            "originDecisionIds": {
+              "A": "7cb3b886-7695-4966-a703-0dfba303d31a",
+              "C": "e504c175-999b-4783-933f-65b2ff210274"
+            },
+            "originInputId": "a81f0025-704b-4a40-968c-d1ff5f539213",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "95cb8f53-57f6-4891-898a-f73a29bbe437",
+              "d7676d84-3bf7-47ff-ad7e-b1a86a98ecf8"
+            ],
+            "sourceDecisionSnapshotsHash": "5ed7cb10ae59c40426fdc5673d2f0f69cfcddcd43b4a9f2d90d712b1ccc67d2f",
+            "sourceInputHash": "3c0042598eab07d103d44cb3e174c965d19b7faea40f59f306c5010ba80b6174",
+            "sourceInputId": "4c177526-b7ec-4625-8318-a7af9053680e",
+            "sourceJobId": "1e6ed69c-f4d0-483e-ae56-9ac41c4bf85a",
+            "sourcePreparedDecisionsHash": "781d11e76d9e3320c2a2c55da278d68bae9cfb0e882e25e0f93d56a251d5a440",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:00:00.000Z",
+            "matchId": "understat_31263",
+            "originDecisionIds": {
+              "A": "ea1c5372-083c-4443-b5a0-b537357baff9",
+              "C": "b9d73175-6834-418d-9240-71e7cd2c961e"
+            },
+            "originInputId": "e12c42bb-a108-4a33-8b66-91e762326b6d",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "2e3bc3e5-e1c3-439d-b86d-1b975acf35a1",
+              "4cb46357-c3c3-4169-b8eb-0c0c6dfd7f03"
+            ],
+            "sourceDecisionSnapshotsHash": "c2afa428c4d56d28ff2a546b90307e3a5293c73cb88e4cb196a0be207384f1dc",
+            "sourceInputHash": "78fb5295eed53a571048e6e4b770dc77d8ed093ca30cb8c1b8feda06589b2c83",
+            "sourceInputId": "50d33cce-9019-4168-8352-2978d3be15e2",
+            "sourceJobId": "3c8c9c92-b14a-40f2-b62d-ac9dfd9bb029",
+            "sourcePreparedDecisionsHash": "5759e20f22af328acfa7baa81728f2b150b53f5644dfb4e014e19df2bc72011a",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:00:00.000Z",
+            "matchId": "understat_31264",
+            "originDecisionIds": {
+              "A": "2f1600ca-16ff-4348-ae35-21e472cc9667",
+              "C": "6b0feb42-9725-490d-86dd-8a95938a3c27"
+            },
+            "originInputId": "aa490e5b-59a0-42df-8eb7-ea69591bfc08",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "1d1adf8a-537e-4b3f-909a-48042a647d23",
+              "4a7fa1fd-25ac-490b-aad9-f555935922b8"
+            ],
+            "sourceDecisionSnapshotsHash": "8cc916c504415a5658bd95838c30d6e88e778f09f124aa98c4a0b4e1690106df",
+            "sourceInputHash": "4233ec02d979d6e80d5a5425d3a96dfa0f5033c03aa32fbd0b44f4c68d506d4d",
+            "sourceInputId": "f384a846-abfc-4431-a417-d86f0d09abba",
+            "sourceJobId": "c798810c-19f5-4383-aeb7-e6e7bdea5de6",
+            "sourcePreparedDecisionsHash": "0c943a80112bbb7fc0b7e2108f29f39f91dfe0d1316bc9e1440b6dc633bfb31b",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T15:00:00.000Z",
+            "matchId": "understat_31265",
+            "originDecisionIds": {
+              "A": "64979ddd-4827-421b-80e5-9fdb4da99547",
+              "C": "33f0a98c-0759-4fa4-9890-cc1f9ccf80fe"
+            },
+            "originInputId": "f397899a-b66d-4085-a39a-0e2b1ea20082",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "20602300-24b1-4649-917a-d1f941148568",
+              "421a2ecb-066d-4513-9e9a-8d42954b5965"
+            ],
+            "sourceDecisionSnapshotsHash": "47bf1f895fa2eff84005805e2a79b58f44712627593e00865431df1d00ed4a3f",
+            "sourceInputHash": "49127bdd34596919d3586f04eaf4f0c85b5e37f89adcdf1deffdf88657aa7c83",
+            "sourceInputId": "074d2b31-7150-41b5-a8e0-31a5ba3576fb",
+            "sourceJobId": "4e54556f-0054-47fe-a71c-6fa49ba59f1f",
+            "sourcePreparedDecisionsHash": "8e7c01925d7459104edc8da3c2ebf9c1dfd43686a30ab72dc62736594a5145fe",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T17:30:00.000Z",
+            "matchId": "understat_31266",
+            "originDecisionIds": {
+              "A": "add0e3bb-dcdf-475f-9a79-48e50184a9e7",
+              "C": "5c99c219-f1b6-4259-b27e-2b7ed6640ba7"
+            },
+            "originInputId": "5f0c73f2-04c8-46e6-8c0a-bd174e77c1dc",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "6d6a3966-48ba-42c0-82d1-74a7e8d7baa3",
+              "79b3d70d-a8ad-4ce8-b0e4-3a9c9a73f1c9"
+            ],
+            "sourceDecisionSnapshotsHash": "f8b0b15b7a0c15685dcb71e81b113222ac28fa39cfead6bdb4f90de7791ffae4",
+            "sourceInputHash": "d73c36f04bd2141dbba41279057ba6cda1be8133185eff701f784e2f14962727",
+            "sourceInputId": "846d501b-b2ad-45d8-9660-b207e4df4950",
+            "sourceJobId": "034e7339-e628-4038-a031-8aa2b2a52e23",
+            "sourcePreparedDecisionsHash": "4db3f262f4d59d089b7da0cf89b2c1aeabad675dda91a03b63668a0a16fae733",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T20:00:00.000Z",
+            "matchId": "understat_31267",
+            "originDecisionIds": {
+              "A": "1d1fd400-038b-409a-a71c-9111d2b1ba07",
+              "C": "3c211021-0fdc-457e-a5b6-f7aa6d265351"
+            },
+            "originInputId": "3b9739ff-eb80-40ef-9de6-4edb149d7a75",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "92a745bc-2132-41cd-8e52-bbfc9d6eb36d",
+              "c4c8f7d6-287f-4693-a4f4-f908475a847a"
+            ],
+            "sourceDecisionSnapshotsHash": "5870a3ad6e796c55d39a477792961d2ef53255727a0929034b22a5fd9dd3e8db",
+            "sourceInputHash": "c1607623aab6ab17c2e898678c5e15c3508c90bdb1738b9d15a2118fd811e171",
+            "sourceInputId": "1037738e-6e66-480f-9085-39c2d075b3d5",
+            "sourceJobId": "d24e72f3-4ef3-4c6f-b030-1d91719c1b55",
+            "sourcePreparedDecisionsHash": "f5924cd9916396f2a9d227196df6f2cefc5a7936eae1d409fa563abda3b325af",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T19:45:00.000Z",
+            "matchId": "understat_31650",
+            "originDecisionIds": {
+              "A": "af773563-1bf0-40e3-a113-73b3eeea6219",
+              "C": "320fcc9c-c75e-4587-af9b-13c63e7d2482"
+            },
+            "originInputId": "ae8cbd5c-d0b7-4af7-9a0c-f7efbb3c05cf",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "abff8246-f236-4623-ace4-d45d6e1e7746",
+              "af66feb4-f2d0-4c34-9246-f650da74d0d9"
+            ],
+            "sourceDecisionSnapshotsHash": "f4500ce4e9de6942cc4816650e542604bc9de1cdf520797e192151e461a3f79e",
+            "sourceInputHash": "5232e59d79997c6e9909fb488e9981ea0cd2f65524d4e66a1e20f600106f59fb",
+            "sourceInputId": "8d902b3c-f7b9-4307-af4b-ccca0351eec3",
+            "sourceJobId": "34fec73c-9a2d-4252-87b9-0058a7f4e798",
+            "sourcePreparedDecisionsHash": "d22c084ba5d4d6bf8b8f9cf59644dd193d452d48740a821c2790ef631a660ff3",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T14:00:00.000Z",
+            "matchId": "understat_31652",
+            "originDecisionIds": {
+              "A": "45a97627-2f79-4f41-9e39-67f75f8e5493",
+              "C": "9fe02982-c06f-4aa4-adca-cb05c7f63652"
+            },
+            "originInputId": "d1683faf-3ded-42a5-8d74-d22ddfbd1a44",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "6844c01d-9295-47ca-ab8a-21144c730d9c",
+              "dee45693-505c-454f-90bb-6fc66999b279"
+            ],
+            "sourceDecisionSnapshotsHash": "1f69f5275a1c2aaf705b2f505d6f317c0a9f8c3791e58e5cb1d970e574ab3c1f",
+            "sourceInputHash": "f418af946eb67eab20873c7dc052c1aa0c88b2c417357fa2dafc4ca46e1a9bcd",
+            "sourceInputId": "01a0f6d8-67ee-4381-9254-3edf9ec9fe64",
+            "sourceJobId": "9526605a-7417-4cb2-9bd5-f043c06de5eb",
+            "sourcePreparedDecisionsHash": "e1554ecd5b4192b04002d90c524e9e1da5ca134c73579636a808faec0b2c7df7",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T17:00:00.000Z",
+            "matchId": "understat_31659",
+            "originDecisionIds": {
+              "A": "af45db42-a071-41e8-a2aa-67a3b1038814",
+              "C": "7c9765e1-a204-4211-bf70-c683bfa35571"
+            },
+            "originInputId": "5c2c0af9-c803-4bdb-853e-49b6399c2423",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "5cbedec2-2129-42e5-9047-2806a49ab678",
+              "d0098807-2a07-449c-9731-5226e58d99ec"
+            ],
+            "sourceDecisionSnapshotsHash": "cc592b37f30d4b9cbc25f0455056d9c5c426cf554403d768a5f8e2a118c36706",
+            "sourceInputHash": "b9c3c664264cd3dc15f684cb362cf58b1262681f45703adc1677d850f8967c56",
+            "sourceInputId": "b4b73689-2457-4c74-bdd3-1f3be0af3c5d",
+            "sourceJobId": "93c785ed-7ed0-4360-9735-5ce354d4dd63",
+            "sourcePreparedDecisionsHash": "408dace2ac40c4f5f2bf6f8826ccc00637eace033041a7c859d92118b4f62a87",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T19:45:00.000Z",
+            "matchId": "understat_32020",
+            "originDecisionIds": {
+              "A": "bd021892-ec6e-430b-879e-5681e7b7d33f",
+              "C": "b2763622-0eb1-4059-b769-10b3d716140e"
+            },
+            "originInputId": "fe408eee-af62-446f-b47e-12d4c8241aaf",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "578f189b-6258-4cf6-8e49-0d2bb2e03f1f",
+              "f694a50f-5762-4223-a8cd-fabc74318b8c"
+            ],
+            "sourceDecisionSnapshotsHash": "dc50e980fbf7e4cb3490f185892bc58a2fa962a625c54d6d179b91503f9c7dcd",
+            "sourceInputHash": "63f2a7fab94d59239bdf6df463a01ee34a46aa217c8bf7bdc15a712e6570fcc2",
+            "sourceInputId": "34485f87-97d1-4e47-88e3-62f1a632bbad",
+            "sourceJobId": "28c3129e-1eb5-4a73-bb29-796263e7de0d",
+            "sourcePreparedDecisionsHash": "0ce020f486f11f31fee26ae3514c543ca2aa290187047f58d21c186f121417f2",
+            "sourceRunId": "github-actions:41189187732",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T14:30:00.000Z",
+            "matchId": "understat_32304",
+            "originDecisionIds": {
+              "A": "33267b0b-955c-49b5-9e8b-927590a6080a",
+              "C": "825e8e4f-4098-4f8c-bd93-e7afeac02b61"
+            },
+            "originInputId": "fda76e70-b792-4047-9e7c-af7e11c9d2bc",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "1133a734-4895-4a80-b01e-1a77aade14d7",
+              "19f6bf77-517e-475d-acbe-8edc2e5cb3ec"
+            ],
+            "sourceDecisionSnapshotsHash": "29e1d8793fff46b2cc2f82108f4f3504c1b63273f225e7d9317602959c02a7a5",
+            "sourceInputHash": "73bb442f74736e61874eccb07b47ed5fc5450db9b1d96ca148fe55b70aee3ad7",
+            "sourceInputId": "400dd26b-a9f1-4508-acc0-d08d0987f97f",
+            "sourceJobId": "a89c9eb7-965a-4f5f-a55d-df50b3088005",
+            "sourcePreparedDecisionsHash": "e1881f882ba1760ce1474520b3732a625f63676a60e96902d778f13d848c5faa",
+            "sourceRunId": "github-actions:41192970968",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          },
+          {
+            "kickoffAt": "2026-10-31T14:30:00.000Z",
+            "matchId": "understat_32307",
+            "originDecisionIds": {
+              "A": "a75e14d5-e1a5-491a-b7de-243769383dff",
+              "C": "d4d2de5f-3205-4d6f-8abe-7bbb894ac0a3"
+            },
+            "originInputId": "82c17bc8-baff-4a68-aa61-cba07154c020",
+            "reasons": {
+              "A": "odds_credit_budget_exhausted",
+              "C": "odds_credit_budget_exhausted"
+            },
+            "sourceDecisionIds": [
+              "7de3f301-b2f7-489a-8b92-bc3a2672ccc3",
+              "cdeba135-d6d1-434a-8cb2-3651c76b4b84"
+            ],
+            "sourceDecisionSnapshotsHash": "885be628e0cd8a6a33d592fea0912a3151a6e84ad8c3a0690eb58060aa1a61a0",
+            "sourceInputHash": "c12a3f71544fe53f8535d64177fd9399cceb38d625e027a550130b49be3bc8cc",
+            "sourceInputId": "66ed49c4-86b2-4d67-a22b-ab9e4541be27",
+            "sourceJobId": "8fc51269-e662-4d27-9f16-90e304a04996",
+            "sourcePreparedDecisionsHash": "27eb27e17de6c66aef0bc109e59e69d5e9277c6f9c2be7da0865b9e7db364f97",
+            "sourceRunId": "github-actions:41192970968",
+            "windowEndAt": "2026-11-01T02:07:00.000Z"
+          }
+        ]
+      },
+      "stakeModeA": "RECOMMENDED_PERCENT",
+      "stakeModeC": "FIXED_ONE_PERCENT",
+      "version": "virtual-recommendation-v2",
+      "virtualOnly": true
+    },
+    "policyHash": "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa",
+    "windowEndAt": "2026-11-01T02:07:00.000Z",
+    "fixtures": [
+      {
+        "matchId": "understat_30871",
+        "kickoffAt": "2026-10-31T17:30:00.000Z"
+      },
+      {
+        "matchId": "understat_30874",
+        "kickoffAt": "2026-10-31T20:00:00.000Z"
+      },
+      {
+        "matchId": "understat_30876",
+        "kickoffAt": "2026-10-31T13:00:00.000Z"
+      },
+      {
+        "matchId": "understat_30878",
+        "kickoffAt": "2026-10-31T15:15:00.000Z"
+      },
+      {
+        "matchId": "understat_31260",
+        "kickoffAt": "2026-10-31T12:30:00.000Z"
+      },
+      {
+        "matchId": "understat_31261",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31262",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31263",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31264",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31265",
+        "kickoffAt": "2026-10-31T15:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31266",
+        "kickoffAt": "2026-10-31T17:30:00.000Z"
+      },
+      {
+        "matchId": "understat_31267",
+        "kickoffAt": "2026-10-31T20:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31650",
+        "kickoffAt": "2026-10-31T19:45:00.000Z"
+      },
+      {
+        "matchId": "understat_31652",
+        "kickoffAt": "2026-10-31T14:00:00.000Z"
+      },
+      {
+        "matchId": "understat_31659",
+        "kickoffAt": "2026-10-31T17:00:00.000Z"
+      },
+      {
+        "matchId": "understat_32020",
+        "kickoffAt": "2026-10-31T19:45:00.000Z"
+      },
+      {
+        "matchId": "understat_32304",
+        "kickoffAt": "2026-10-31T14:30:00.000Z"
+      },
+      {
+        "matchId": "understat_32307",
+        "kickoffAt": "2026-10-31T14:30:00.000Z"
+      }
+    ],
+    "sources": [
+      {
+        "kickoffAt": "2026-10-31T17:30:00.000Z",
+        "matchId": "understat_30871",
+        "originDecisionIds": {
+          "A": "2ba2c9a0-5367-4c98-8b76-30fe7552d87c",
+          "C": "93e51ddc-ef6d-42fe-b2ba-d73180593f4c"
+        },
+        "originInputId": "543b90f5-ecd9-4b8d-8d87-20c08a2bb8a7",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "802745f8-11df-4612-b03e-a5d27482d38e",
+          "dd3b2c99-e17b-4696-a415-26ec5020aeac"
+        ],
+        "sourceDecisionSnapshotsHash": "e27f7a28591e9c8c408531b337e576b3a8bc519b30d76db08c77d07ba3abfb83",
+        "sourceInputHash": "fd51bd106fbdfd56a182c1b69c92f14f84f9cfd4a7cd2f108b3eca817c12c121",
+        "sourceInputId": "f7d725f6-896b-4bec-9a71-2c523f8f8174",
+        "sourceJobId": "656936d6-38b1-4b8e-b844-8b88f21e155d",
+        "sourcePreparedDecisionsHash": "92827be7004764af2b509d6043be78cc7c26f4495572f6dc03030dd49dc9b54a",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T20:00:00.000Z",
+        "matchId": "understat_30874",
+        "originDecisionIds": {
+          "A": "24d331d5-0e91-46e2-9680-70f63e38617b",
+          "C": "96e79bd4-23c8-4c84-8053-f52eb4478af5"
+        },
+        "originInputId": "85d8d04b-88a2-4591-897e-32815f21293c",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "00923d51-9a32-44b1-ae40-4546f2d75e8d",
+          "8fadc9b4-3e40-443c-b6bd-9b08f8328eee"
+        ],
+        "sourceDecisionSnapshotsHash": "e83a66a61cbf36d17778df15e499faa4a66242bd1383e91914e61651d50562ad",
+        "sourceInputHash": "7235bb57f9923e28b1661293d1a2a9f7a079f06016d4b55f9e6a898cd0087889",
+        "sourceInputId": "5ebc0d9d-3c9e-4308-a973-9b46e45c49f5",
+        "sourceJobId": "5eb9b09f-7520-49d9-afa7-04e371686154",
+        "sourcePreparedDecisionsHash": "d0d9608f00e6d131164e2fc792cf78dcc844faacc941d4f1eed0564f90c1fedd",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T13:00:00.000Z",
+        "matchId": "understat_30876",
+        "originDecisionIds": {
+          "A": "ee3f12b7-1826-4d9c-8e8f-015198c54a45",
+          "C": "84cf1bab-d85d-4cd3-a412-0293e0f09567"
+        },
+        "originInputId": "272b8a38-f493-4d28-a97d-121d58be4476",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "1c2d153a-6791-4df5-9f00-22f448d39aa0",
+          "43777a00-222a-49e7-b783-aebe9bcc7e80"
+        ],
+        "sourceDecisionSnapshotsHash": "d13ae44529014aec839b1f40b4de3e673d716b2e13009a9f0369c54d43e6710e",
+        "sourceInputHash": "0cb41720955ac8dad301dceeb0695d72b7e85ba658aa33296eb8519c930e4b88",
+        "sourceInputId": "27993e73-8fbc-4f16-80b7-482c49736e9f",
+        "sourceJobId": "f82bc5f9-761c-4b0a-9921-36f677ca22fe",
+        "sourcePreparedDecisionsHash": "7bb862b4762316cb2ccc0e529558fe5772f46f3ce3c0ffe56ca3e6ee3261e219",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:15:00.000Z",
+        "matchId": "understat_30878",
+        "originDecisionIds": {
+          "A": "2db32e7e-e45f-4fa8-ad88-908f8a446bc7",
+          "C": "2300489c-e209-4c46-be07-c38a5df4842b"
+        },
+        "originInputId": "44f805e8-9e33-44fd-85b9-c309aa531978",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "615b8c1e-6122-4c83-84e8-3e5fc9238cc1",
+          "9d42af70-9b74-4a15-af50-efec03e78fcd"
+        ],
+        "sourceDecisionSnapshotsHash": "520184e05400660ef42c42d4216fb725f212c13760c7de1b73794428a7c45d6a",
+        "sourceInputHash": "a4baa25f464ee17778ab117c5cf452e7a3258ad361a47ff759bf7228fd2c7bf1",
+        "sourceInputId": "47255385-fd32-4d45-a974-2562ac2efc1b",
+        "sourceJobId": "68972106-9739-4b0f-bd5d-3be7d775769b",
+        "sourcePreparedDecisionsHash": "b2d40fc0f8ce13a2a0952e830cd2d054855bdc8b17bf82ad56b7078ef000bf24",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T12:30:00.000Z",
+        "matchId": "understat_31260",
+        "originDecisionIds": {
+          "A": "bfe4182c-f72a-4b05-80b5-de78127ecd02",
+          "C": "d318f0dc-42db-484d-96df-0c024bef548b"
+        },
+        "originInputId": "84db4d41-3d50-4e34-b357-027f18259792",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "27faf873-d893-4550-b8e4-ba8eccb9af55",
+          "a3572937-e3c6-47ae-9864-460d1df6b67c"
+        ],
+        "sourceDecisionSnapshotsHash": "0afec0c4985040c87e3747d275dab25397aac0146578071b360eabd9896cb36a",
+        "sourceInputHash": "1d3edcc989e64e1d90fea239087586755231021e0271487eb589ccb8083ea6ef",
+        "sourceInputId": "4717acfd-571d-41e0-9183-31e26cf790f6",
+        "sourceJobId": "6284ef12-d45a-4ac0-b2fa-981a25af7b85",
+        "sourcePreparedDecisionsHash": "718b459ce914e13858f323e286e3119ecea75fd09cdcacd7ec40e84084d5b5f0",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:00:00.000Z",
+        "matchId": "understat_31261",
+        "originDecisionIds": {
+          "A": "d383fe43-e0dc-4544-bae1-e52cc20d902c",
+          "C": "ef01dd15-ee82-4a93-a49b-81042b20a1fa"
+        },
+        "originInputId": "34e7eeda-01e3-4f6a-a909-12cf82fe9eb6",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "547e5fb0-4c77-4acb-a388-c890729a4a2e",
+          "98b0851c-e582-467c-934a-cd55675924e8"
+        ],
+        "sourceDecisionSnapshotsHash": "8bf4c00305471210e18fc3283af5a654857e574e5fd4dfaf7b51829017fbe650",
+        "sourceInputHash": "322ac17a8ea648cc377a20795593993b6ec3dc53ce5146caf8132dce1f04b605",
+        "sourceInputId": "7a78c633-4df9-467e-abb6-c49378a00321",
+        "sourceJobId": "9a2cbac3-6b5e-40b7-b4e3-e7a3824c6290",
+        "sourcePreparedDecisionsHash": "7b0b4bf1a123b9f5b12a5c16d8353b7707760cf57abc027812c66e34853dcc2f",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:00:00.000Z",
+        "matchId": "understat_31262",
+        "originDecisionIds": {
+          "A": "7cb3b886-7695-4966-a703-0dfba303d31a",
+          "C": "e504c175-999b-4783-933f-65b2ff210274"
+        },
+        "originInputId": "a81f0025-704b-4a40-968c-d1ff5f539213",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "95cb8f53-57f6-4891-898a-f73a29bbe437",
+          "d7676d84-3bf7-47ff-ad7e-b1a86a98ecf8"
+        ],
+        "sourceDecisionSnapshotsHash": "5ed7cb10ae59c40426fdc5673d2f0f69cfcddcd43b4a9f2d90d712b1ccc67d2f",
+        "sourceInputHash": "3c0042598eab07d103d44cb3e174c965d19b7faea40f59f306c5010ba80b6174",
+        "sourceInputId": "4c177526-b7ec-4625-8318-a7af9053680e",
+        "sourceJobId": "1e6ed69c-f4d0-483e-ae56-9ac41c4bf85a",
+        "sourcePreparedDecisionsHash": "781d11e76d9e3320c2a2c55da278d68bae9cfb0e882e25e0f93d56a251d5a440",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:00:00.000Z",
+        "matchId": "understat_31263",
+        "originDecisionIds": {
+          "A": "ea1c5372-083c-4443-b5a0-b537357baff9",
+          "C": "b9d73175-6834-418d-9240-71e7cd2c961e"
+        },
+        "originInputId": "e12c42bb-a108-4a33-8b66-91e762326b6d",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "2e3bc3e5-e1c3-439d-b86d-1b975acf35a1",
+          "4cb46357-c3c3-4169-b8eb-0c0c6dfd7f03"
+        ],
+        "sourceDecisionSnapshotsHash": "c2afa428c4d56d28ff2a546b90307e3a5293c73cb88e4cb196a0be207384f1dc",
+        "sourceInputHash": "78fb5295eed53a571048e6e4b770dc77d8ed093ca30cb8c1b8feda06589b2c83",
+        "sourceInputId": "50d33cce-9019-4168-8352-2978d3be15e2",
+        "sourceJobId": "3c8c9c92-b14a-40f2-b62d-ac9dfd9bb029",
+        "sourcePreparedDecisionsHash": "5759e20f22af328acfa7baa81728f2b150b53f5644dfb4e014e19df2bc72011a",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:00:00.000Z",
+        "matchId": "understat_31264",
+        "originDecisionIds": {
+          "A": "2f1600ca-16ff-4348-ae35-21e472cc9667",
+          "C": "6b0feb42-9725-490d-86dd-8a95938a3c27"
+        },
+        "originInputId": "aa490e5b-59a0-42df-8eb7-ea69591bfc08",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "1d1adf8a-537e-4b3f-909a-48042a647d23",
+          "4a7fa1fd-25ac-490b-aad9-f555935922b8"
+        ],
+        "sourceDecisionSnapshotsHash": "8cc916c504415a5658bd95838c30d6e88e778f09f124aa98c4a0b4e1690106df",
+        "sourceInputHash": "4233ec02d979d6e80d5a5425d3a96dfa0f5033c03aa32fbd0b44f4c68d506d4d",
+        "sourceInputId": "f384a846-abfc-4431-a417-d86f0d09abba",
+        "sourceJobId": "c798810c-19f5-4383-aeb7-e6e7bdea5de6",
+        "sourcePreparedDecisionsHash": "0c943a80112bbb7fc0b7e2108f29f39f91dfe0d1316bc9e1440b6dc633bfb31b",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T15:00:00.000Z",
+        "matchId": "understat_31265",
+        "originDecisionIds": {
+          "A": "64979ddd-4827-421b-80e5-9fdb4da99547",
+          "C": "33f0a98c-0759-4fa4-9890-cc1f9ccf80fe"
+        },
+        "originInputId": "f397899a-b66d-4085-a39a-0e2b1ea20082",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "20602300-24b1-4649-917a-d1f941148568",
+          "421a2ecb-066d-4513-9e9a-8d42954b5965"
+        ],
+        "sourceDecisionSnapshotsHash": "47bf1f895fa2eff84005805e2a79b58f44712627593e00865431df1d00ed4a3f",
+        "sourceInputHash": "49127bdd34596919d3586f04eaf4f0c85b5e37f89adcdf1deffdf88657aa7c83",
+        "sourceInputId": "074d2b31-7150-41b5-a8e0-31a5ba3576fb",
+        "sourceJobId": "4e54556f-0054-47fe-a71c-6fa49ba59f1f",
+        "sourcePreparedDecisionsHash": "8e7c01925d7459104edc8da3c2ebf9c1dfd43686a30ab72dc62736594a5145fe",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T17:30:00.000Z",
+        "matchId": "understat_31266",
+        "originDecisionIds": {
+          "A": "add0e3bb-dcdf-475f-9a79-48e50184a9e7",
+          "C": "5c99c219-f1b6-4259-b27e-2b7ed6640ba7"
+        },
+        "originInputId": "5f0c73f2-04c8-46e6-8c0a-bd174e77c1dc",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "6d6a3966-48ba-42c0-82d1-74a7e8d7baa3",
+          "79b3d70d-a8ad-4ce8-b0e4-3a9c9a73f1c9"
+        ],
+        "sourceDecisionSnapshotsHash": "f8b0b15b7a0c15685dcb71e81b113222ac28fa39cfead6bdb4f90de7791ffae4",
+        "sourceInputHash": "d73c36f04bd2141dbba41279057ba6cda1be8133185eff701f784e2f14962727",
+        "sourceInputId": "846d501b-b2ad-45d8-9660-b207e4df4950",
+        "sourceJobId": "034e7339-e628-4038-a031-8aa2b2a52e23",
+        "sourcePreparedDecisionsHash": "4db3f262f4d59d089b7da0cf89b2c1aeabad675dda91a03b63668a0a16fae733",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T20:00:00.000Z",
+        "matchId": "understat_31267",
+        "originDecisionIds": {
+          "A": "1d1fd400-038b-409a-a71c-9111d2b1ba07",
+          "C": "3c211021-0fdc-457e-a5b6-f7aa6d265351"
+        },
+        "originInputId": "3b9739ff-eb80-40ef-9de6-4edb149d7a75",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "92a745bc-2132-41cd-8e52-bbfc9d6eb36d",
+          "c4c8f7d6-287f-4693-a4f4-f908475a847a"
+        ],
+        "sourceDecisionSnapshotsHash": "5870a3ad6e796c55d39a477792961d2ef53255727a0929034b22a5fd9dd3e8db",
+        "sourceInputHash": "c1607623aab6ab17c2e898678c5e15c3508c90bdb1738b9d15a2118fd811e171",
+        "sourceInputId": "1037738e-6e66-480f-9085-39c2d075b3d5",
+        "sourceJobId": "d24e72f3-4ef3-4c6f-b030-1d91719c1b55",
+        "sourcePreparedDecisionsHash": "f5924cd9916396f2a9d227196df6f2cefc5a7936eae1d409fa563abda3b325af",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T19:45:00.000Z",
+        "matchId": "understat_31650",
+        "originDecisionIds": {
+          "A": "af773563-1bf0-40e3-a113-73b3eeea6219",
+          "C": "320fcc9c-c75e-4587-af9b-13c63e7d2482"
+        },
+        "originInputId": "ae8cbd5c-d0b7-4af7-9a0c-f7efbb3c05cf",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "abff8246-f236-4623-ace4-d45d6e1e7746",
+          "af66feb4-f2d0-4c34-9246-f650da74d0d9"
+        ],
+        "sourceDecisionSnapshotsHash": "f4500ce4e9de6942cc4816650e542604bc9de1cdf520797e192151e461a3f79e",
+        "sourceInputHash": "5232e59d79997c6e9909fb488e9981ea0cd2f65524d4e66a1e20f600106f59fb",
+        "sourceInputId": "8d902b3c-f7b9-4307-af4b-ccca0351eec3",
+        "sourceJobId": "34fec73c-9a2d-4252-87b9-0058a7f4e798",
+        "sourcePreparedDecisionsHash": "d22c084ba5d4d6bf8b8f9cf59644dd193d452d48740a821c2790ef631a660ff3",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T14:00:00.000Z",
+        "matchId": "understat_31652",
+        "originDecisionIds": {
+          "A": "45a97627-2f79-4f41-9e39-67f75f8e5493",
+          "C": "9fe02982-c06f-4aa4-adca-cb05c7f63652"
+        },
+        "originInputId": "d1683faf-3ded-42a5-8d74-d22ddfbd1a44",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "6844c01d-9295-47ca-ab8a-21144c730d9c",
+          "dee45693-505c-454f-90bb-6fc66999b279"
+        ],
+        "sourceDecisionSnapshotsHash": "1f69f5275a1c2aaf705b2f505d6f317c0a9f8c3791e58e5cb1d970e574ab3c1f",
+        "sourceInputHash": "f418af946eb67eab20873c7dc052c1aa0c88b2c417357fa2dafc4ca46e1a9bcd",
+        "sourceInputId": "01a0f6d8-67ee-4381-9254-3edf9ec9fe64",
+        "sourceJobId": "9526605a-7417-4cb2-9bd5-f043c06de5eb",
+        "sourcePreparedDecisionsHash": "e1554ecd5b4192b04002d90c524e9e1da5ca134c73579636a808faec0b2c7df7",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T17:00:00.000Z",
+        "matchId": "understat_31659",
+        "originDecisionIds": {
+          "A": "af45db42-a071-41e8-a2aa-67a3b1038814",
+          "C": "7c9765e1-a204-4211-bf70-c683bfa35571"
+        },
+        "originInputId": "5c2c0af9-c803-4bdb-853e-49b6399c2423",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "5cbedec2-2129-42e5-9047-2806a49ab678",
+          "d0098807-2a07-449c-9731-5226e58d99ec"
+        ],
+        "sourceDecisionSnapshotsHash": "cc592b37f30d4b9cbc25f0455056d9c5c426cf554403d768a5f8e2a118c36706",
+        "sourceInputHash": "b9c3c664264cd3dc15f684cb362cf58b1262681f45703adc1677d850f8967c56",
+        "sourceInputId": "b4b73689-2457-4c74-bdd3-1f3be0af3c5d",
+        "sourceJobId": "93c785ed-7ed0-4360-9735-5ce354d4dd63",
+        "sourcePreparedDecisionsHash": "408dace2ac40c4f5f2bf6f8826ccc00637eace033041a7c859d92118b4f62a87",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T19:45:00.000Z",
+        "matchId": "understat_32020",
+        "originDecisionIds": {
+          "A": "bd021892-ec6e-430b-879e-5681e7b7d33f",
+          "C": "b2763622-0eb1-4059-b769-10b3d716140e"
+        },
+        "originInputId": "fe408eee-af62-446f-b47e-12d4c8241aaf",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "578f189b-6258-4cf6-8e49-0d2bb2e03f1f",
+          "f694a50f-5762-4223-a8cd-fabc74318b8c"
+        ],
+        "sourceDecisionSnapshotsHash": "dc50e980fbf7e4cb3490f185892bc58a2fa962a625c54d6d179b91503f9c7dcd",
+        "sourceInputHash": "63f2a7fab94d59239bdf6df463a01ee34a46aa217c8bf7bdc15a712e6570fcc2",
+        "sourceInputId": "34485f87-97d1-4e47-88e3-62f1a632bbad",
+        "sourceJobId": "28c3129e-1eb5-4a73-bb29-796263e7de0d",
+        "sourcePreparedDecisionsHash": "0ce020f486f11f31fee26ae3514c543ca2aa290187047f58d21c186f121417f2",
+        "sourceRunId": "github-actions:41189187732",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T14:30:00.000Z",
+        "matchId": "understat_32304",
+        "originDecisionIds": {
+          "A": "33267b0b-955c-49b5-9e8b-927590a6080a",
+          "C": "825e8e4f-4098-4f8c-bd93-e7afeac02b61"
+        },
+        "originInputId": "fda76e70-b792-4047-9e7c-af7e11c9d2bc",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "1133a734-4895-4a80-b01e-1a77aade14d7",
+          "19f6bf77-517e-475d-acbe-8edc2e5cb3ec"
+        ],
+        "sourceDecisionSnapshotsHash": "29e1d8793fff46b2cc2f82108f4f3504c1b63273f225e7d9317602959c02a7a5",
+        "sourceInputHash": "73bb442f74736e61874eccb07b47ed5fc5450db9b1d96ca148fe55b70aee3ad7",
+        "sourceInputId": "400dd26b-a9f1-4508-acc0-d08d0987f97f",
+        "sourceJobId": "a89c9eb7-965a-4f5f-a55d-df50b3088005",
+        "sourcePreparedDecisionsHash": "e1881f882ba1760ce1474520b3732a625f63676a60e96902d778f13d848c5faa",
+        "sourceRunId": "github-actions:41192970968",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      },
+      {
+        "kickoffAt": "2026-10-31T14:30:00.000Z",
+        "matchId": "understat_32307",
+        "originDecisionIds": {
+          "A": "a75e14d5-e1a5-491a-b7de-243769383dff",
+          "C": "d4d2de5f-3205-4d6f-8abe-7bbb894ac0a3"
+        },
+        "originInputId": "82c17bc8-baff-4a68-aa61-cba07154c020",
+        "reasons": {
+          "A": "odds_credit_budget_exhausted",
+          "C": "odds_credit_budget_exhausted"
+        },
+        "sourceDecisionIds": [
+          "7de3f301-b2f7-489a-8b92-bc3a2672ccc3",
+          "cdeba135-d6d1-434a-8cb2-3651c76b4b84"
+        ],
+        "sourceDecisionSnapshotsHash": "885be628e0cd8a6a33d592fea0912a3151a6e84ad8c3a0690eb58060aa1a61a0",
+        "sourceInputHash": "c12a3f71544fe53f8535d64177fd9399cceb38d625e027a550130b49be3bc8cc",
+        "sourceInputId": "66ed49c4-86b2-4d67-a22b-ab9e4541be27",
+        "sourceJobId": "8fc51269-e662-4d27-9f16-90e304a04996",
+        "sourcePreparedDecisionsHash": "27eb27e17de6c66aef0bc109e59e69d5e9277c6f9c2be7da0865b9e7db364f97",
+        "sourceRunId": "github-actions:41192970968",
+        "windowEndAt": "2026-11-01T02:07:00.000Z"
+      }
+    ],
+    "excluded": [
+      {
+        "matchId": "understat_32303",
+        "reason": "existing_bet_preserved"
+      },
+      {
+        "matchId": "understat_32306",
+        "reason": "existing_bet_preserved"
+      },
+      {
+        "matchId": "understat_32309",
+        "reason": "nontechnical_decision_preserved"
+      },
+      {
+        "matchId": "understat_32310",
+        "reason": "existing_bet_preserved"
+      }
+    ],
+    "metadata": {
+      "sourcePolicyHash": "9a7a37f15c51ed819b74dba7faae90bf51d77c02c9ad1614023ba12d40ebbe33",
+      "day": "2026-10-31",
+      "dayStartAt": "2026-10-30T23:00:00.000Z",
+      "dayEndAt": "2026-10-31T23:00:00.000Z",
+      "readOnly": true
+    },
+    "planHash": "2559fbf6cc441f8f66729e4b24dacb0da6e150afe5bc89b46e571da21c2f3962"
+  },
+  "execution": {
+    "status": "not_started"
+  },
+  "githubCI": {
+    "status": "pending_publication"
+  },
+  "noRealBookmakerTransactions": true
+}

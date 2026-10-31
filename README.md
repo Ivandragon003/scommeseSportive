@@ -4,6 +4,11 @@
 [algoritmo A](docs/models/MODEL-A.md), [algoritmo C](docs/models/MODEL-C.md)
 e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 
+**Manutenzione Nightly, 31 ottobre 2026.** Le email di errore hanno segnalato
+una quota provider quasi esaurita e astensioni tecniche salvate come definitive.
+La correzione distingue i tentativi ritentabili e aggiunge un recupero tracciato,
+senza riscrivere puntate o scelte sportive. [Diagnosi, verifiche e stato operativo](docs/operations/nightly-technical-recovery-2026-10-31.md).
+
 **Aggiornamento C, 31 ottobre 2026.** Training e confronto sono allineati
 all'orario Nightly, con feature C versionate e un selettore candidato che
 gestisce rimborsi e mezzi esiti. A operativo conserva i propri sorgenti e

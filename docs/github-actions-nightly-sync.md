@@ -1,5 +1,16 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
+**Manutenzione del 31 ottobre:** [quota e recupero tecnico](operations/nightly-technical-recovery-2026-10-31.md).
+Il workflow propaga `ODDS_API_ACCOUNT_SCOPE` dalla variabile GitHub omonima
+(default `primary`), separando budget e cache di account effettivamente distinti.
+Una rotazione della chiave dello stesso account conserva il relativo scope.
+Il recupero facoltativo `recover_technical_failures` richiede
+`recovery_source_policy`; `recovery_day` vuoto indica oggi a Roma.
+Rivaluta soltanto coppie A/C bloccate da budget/cache/reset con fonti verificate:
+quote nuove e kickoff futuro, policy figlia e controllo dei recuperi già conclusi
+anche nella transazione. Il percorso normale resta il default.
+Le vecchie email e gli snapshot sottostanti conservano il loro contesto storico.
+
 **Correzione locale v2 dei mercati — rilascio remoto non attestato.**
 A mantiene il proprio motore e tutti i mercati squadra già supportati,
 inclusi cartellini e tiri con dati e quote reali sufficienti. C conserva il

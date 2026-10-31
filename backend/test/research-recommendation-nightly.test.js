@@ -14,6 +14,9 @@ const { settleResearchBets } = require('../dist/research/ResearchRuntime');
 const { baselineManifest } = require('../dist/research/ForecastCore');
 const { coherentProbabilityPipelineHash } = require('../dist/research/CoherentProbabilityPipeline');
 const { runNightly, recommendationEnabled } = require('../scripts/research-nightly');
+const { buildRecoveryPlan } = require('../dist/research/ResearchRecommendationRecovery');
+const { VIRTUAL_RECOMMENDATION_POLICY } = require('../dist/research/ResearchRecommendationPolicy');
+const { nextNightlyBoundary } = require('../dist/research/ResearchNightly');
 
 const START = '2026-10-30T12:30:00.000Z', KICKOFF = '2026-10-30T18:00:00.000Z';
 const policy = () => loadNightlyPolicy({ RESEARCH_NIGHTLY_ENABLED: 'true', RESEARCH_NIGHTLY_MINUTE: '7' });
@@ -87,6 +90,55 @@ async function fixture(t, options = {}) {
 }
 const execute = (f, extra = {}) => runRecommendationNightly(f.db, { policy: policy(), clock: f.clock,
   runId: 'github-actions:fixture', diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, ...extra });
+
+async function historicalRecoveryFixture(t) {
+  const f = await fixture(t, { matches: 4 });
+  await runResearchNightly(f.db, { policy: policy(), clock: f.clock, runId: 'original-diagnostics',
+    preparer: f.diagnosticPreparer, diagnosticOnly: true });
+  const parent = await f.recommendations.registerPolicy(VIRTUAL_RECOMMENDATION_POLICY);
+  const end = nextNightlyBoundary(f.clock(), 3, 7).toISOString();
+  const claimed = await f.recommendations.claimBatch({ policyHash: parent.hash, runId: 'original-execution',
+    windowStartAt: START, windowEndAt: end, fixtures: f.matches.map((row) => ({ matchId: row.match_id, kickoffAt: row.date })) });
+  const inputs = [];
+  for (const [index, job] of claimed.jobs.entries()) {
+    const item = await f.runtime.prepare(job);
+    item.inputSnapshot.match.kickoffAt = job.kickoffAt;
+    item.inputSnapshot.metadata = { originInputId: item.originInputId, policy: VIRTUAL_RECOMMENDATION_POLICY };
+    if (index !== 2) item.decisions = item.decisions.map((decision) => ({ ...decision, action: 'ABSTAIN',
+      reason: index < 2 ? 'odds_credit_budget_exhausted' : 'app_no_recommendation', recommended: false, validated: false }));
+    inputs.push(item);
+  }
+  // Reproduce immutable rows written before the technical-pair retry fix.
+  await f.recommendations.commitBatch(inputs, f.clock());
+  const raw = async (sql, args = []) => (await f.client.execute({ sql, args })).rows;
+  const job = (await raw('SELECT * FROM research_execution_jobs WHERE match_id=? AND policy_hash=?', ['fixture-0', parent.hash]))[0];
+  const input = (await raw('SELECT * FROM research_execution_inputs WHERE job_id=?', [job.id]))[0];
+  const originInput = (await raw('SELECT * FROM research_inputs WHERE id=?', [input.origin_input_id]))[0];
+  const origins = await raw('SELECT * FROM research_decisions WHERE input_id=? ORDER BY family', [originInput.id]);
+  const decisions = await raw('SELECT * FROM research_execution_decisions WHERE input_id=? ORDER BY family', [input.id]);
+  const record = { match: { matchId: 'fixture-0', kickoffAt: KICKOFF, homeGoals: null, awayGoals: null },
+    policy: { hash: parent.hash, descriptor: VIRTUAL_RECOMMENDATION_POLICY },
+    job: { id: job.id, matchId: job.match_id, policyHash: job.policy_hash, runId: job.run_id, status: job.status,
+      kickoffAt: job.kickoff_at, windowStartAt: job.window_start_at, windowEndAt: job.window_end_at, claimedAt: job.claimed_at },
+    input: { id: input.id, jobId: input.job_id, originInputId: input.origin_input_id, inputHash: input.input_hash,
+      decisionsHash: input.decisions_hash, capturedAt: input.captured_at, kickoffAt: input.kickoff_at, snapshot: JSON.parse(input.snapshot_json) },
+    originJob: { id: originInput.job_id, matchId: 'fixture-0' }, originInput: { id: originInput.id, jobId: originInput.job_id },
+    originDecisions: origins.map((row) => ({ id: row.id, inputId: row.input_id, family: row.family, portfolioId: row.portfolio_id })),
+    decisions: decisions.map((row) => ({ id: row.id, inputId: row.input_id, family: row.family,
+      portfolioId: row.portfolio_id, originDecisionId: row.origin_decision_id, modelVersion: row.model_version,
+      action: row.action, reason: row.reason, snapshot: JSON.parse(row.snapshot_json) })), existingBets: [], existingRecoveries: [] };
+  assert.equal(Number((await raw('SELECT COUNT(*) AS n FROM research_execution_jobs WHERE match_id=? AND policy_hash<>?',
+    ['fixture-0', parent.hash]))[0].n), 0);
+  const plan = buildRecoveryPlan([record], VIRTUAL_RECOMMENDATION_POLICY, f.clock());
+  assert.equal(plan.sources.length, 1); assert.equal(plan.excluded.length, 0);
+  const originalHistory = async () => ({
+    jobs: await raw('SELECT * FROM research_execution_jobs WHERE policy_hash=? ORDER BY id', [parent.hash]),
+    inputs: await raw('SELECT i.* FROM research_execution_inputs i JOIN research_execution_jobs j ON j.id=i.job_id WHERE j.policy_hash=? ORDER BY i.id', [parent.hash]),
+    decisions: await raw('SELECT d.* FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id WHERE j.policy_hash=? ORDER BY d.id', [parent.hash]),
+    origins: await raw('SELECT * FROM research_inputs ORDER BY id'),
+  });
+  return { ...f, plan, raw, originalHistory };
+}
 
 test('strict recommendation flag defaults off and disabled CLI never reads a database, including with the new flag on', async () => {
   assert.equal(recommendationEnabled({}), false);
@@ -189,6 +241,119 @@ test('a second run with the same policy skips preparation before another feed or
   assert.equal(f.counters.cohorts, before.cohorts);
   assert.equal(JSON.stringify(await f.research.listDecisions()), originals);
   assert.equal((await f.research.listBets()).length, 4);
+});
+
+test('entirely technical A/C quote failures remain retryable without freezing execution evidence', async (t) => {
+  for (const code of ['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed']) {
+    const f = await fixture(t, { matches: 1 }), prepare = f.runtime.prepare, jobs = [];
+    let failed = true;
+    f.runtime.prepare = async (job) => {
+      jobs.push({ id: job.id, originInputId: job.originInputId });
+      const item = await prepare(job);
+      if (failed) item.decisions = item.decisions.map((decision) => ({ ...decision,
+        action: 'ABSTAIN', reason: code, recommended: false, validated: false }));
+      return item;
+    };
+    const first = await execute(f);
+    assert.equal(first.errors, 1); assert.equal(first.retryableMatches, 1); assert.equal(first.registeredBets, 0);
+    assert.equal(first.reasonCounts[code], 1); assert.equal(f.runs.at(-1).success, false);
+    const originalEvidence = JSON.stringify(await f.research.listDecisions());
+    assert.equal((await f.research.listDecisions()).length, 2);
+    assert.equal((await f.recommendations.listDecisions()).length, 0);
+    assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_execution_inputs')).rows[0].n), 0);
+    assert.equal((await f.recommendations.listJobs())[0].status, 'ERROR');
+    assert.equal((await f.recommendations.listJobs())[0].reason, code);
+    failed = false;
+    const recovered = await execute(f);
+    assert.equal(recovered.errors, 0); assert.equal(recovered.registeredBets, 2);
+    assert.equal(recovered.decisionCount, 2); assert.equal(f.runs.at(-1).success, true);
+    assert.deepEqual(jobs[1], jobs[0]);
+    assert.equal((await f.recommendations.listJobs())[0].status, 'COMPLETED');
+    assert.equal(JSON.stringify(await f.research.listDecisions()), originalEvidence);
+    assert.equal(f.counters.diagnosticPreparations, 1); assert.equal(f.counters.executionPreparations, 2);
+  }
+});
+
+test('thrown quote budget/cache/reset denials finish as retryable errors rather than permanent skipped jobs', async (t) => {
+  for (const code of ['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed']) {
+    const f = await fixture(t, { matches: 1 }), prepare = f.runtime.prepare;
+    f.runtime.prepare = async () => { throw Object.assign(new Error('Private technical denial'), { code }); };
+    const failed = await execute(f);
+    assert.equal(failed.errors, 1); assert.equal(failed.retryableMatches, 1);
+    assert.equal(failed.reasonCounts[code], 1); assert.equal(f.runs.at(-1).success, false);
+    assert.equal((await f.recommendations.listJobs())[0].status, 'ERROR');
+    assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_execution_inputs')).rows[0].n), 0);
+    f.runtime.prepare = prepare;
+    assert.equal((await execute(f)).registeredBets, 2);
+    assert.doesNotMatch(JSON.stringify(f.runs), /Private technical/);
+  }
+});
+
+test('a valid mixed pair and a genuine no-recommendation pair keep their completed immutable decisions', async (t) => {
+  for (const mode of ['mixed', 'sporting_no_bet', 'different_no_bet_reason']) {
+    const f = await fixture(t, { matches: 1, noRecommendation: mode !== 'mixed' }), prepare = f.runtime.prepare;
+    f.runtime.prepare = async (job) => {
+      const item = await prepare(job);
+      if (mode === 'mixed') item.decisions[1] = { ...item.decisions[1], action: 'ABSTAIN',
+        reason: 'odds_credit_budget_exhausted', recommended: false, validated: false };
+      if (mode === 'different_no_bet_reason') item.decisions[0].reason = 'odds_credit_budget_exhausted';
+      return item;
+    };
+    const result = await execute(f);
+    assert.equal(result.errors, 0); assert.equal(result.retryableMatches, undefined);
+    assert.equal(result.registeredBets, mode === 'mixed' ? 1 : 0); assert.equal(result.decisionCount, 2);
+    assert.equal((await f.recommendations.listJobs())[0].status, 'COMPLETED');
+    assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_execution_inputs')).rows[0].n), 1);
+    const before = JSON.stringify(await f.recommendations.listDecisions()), preparations = f.counters.executionPreparations;
+    await execute(f, { runId: `repeat-${mode}` });
+    assert.equal(f.counters.executionPreparations, preparations);
+    assert.equal(JSON.stringify(await f.recommendations.listDecisions()), before);
+  }
+});
+
+test('an explicit bounded recovery appends only its allowed fixture under a new policy and preserves all old evidence', async (t) => {
+  const f = await historicalRecoveryFixture(t), before = await f.originalHistory();
+  const existingBets = await f.raw('SELECT * FROM research_bets ORDER BY id');
+  const preparedMatches = [], prepare = f.runtime.prepare;
+  f.runtime.prepare = async (job) => { preparedMatches.push(job.matchId); return prepare(job); };
+  const result = await execute(f, { runId: 'explicit-technical-recovery', technicalRecovery: f.plan });
+  assert.equal(result.errors, 0); assert.equal(result.policyHash, f.plan.policyHash);
+  assert.equal(result.recoveryOf, f.plan.parentPolicyHash); assert.equal(result.recoveryTargetCount, 1);
+  assert.equal(result.registeredBets, 2); assert.equal(result.decisionCount, 2);
+  assert.deepEqual(preparedMatches, ['fixture-0']);
+  assert.deepEqual(await f.originalHistory(), before);
+  assert.deepEqual((await f.raw('SELECT * FROM research_bets ORDER BY id')).filter((row) => existingBets.some((old) => old.id === row.id)), existingBets);
+  const childJobs = await f.recommendations.listJobs({ policyHash: f.plan.policyHash });
+  assert.equal(childJobs.length, 1); assert.equal(childJobs[0].matchId, 'fixture-0'); assert.equal(childJobs[0].status, 'COMPLETED');
+  const packet = JSON.parse((await f.raw('SELECT snapshot_json FROM research_execution_inputs WHERE job_id=?', [childJobs[0].id]))[0].snapshot_json);
+  assert.equal(researchHash(packet.metadata.policy), f.plan.policyHash);
+  assert.equal(packet.metadata.technicalRecovery.source.sourceInputId, f.plan.sources[0].sourceInputId);
+  const repeated = await execute(f, { runId: 'recovery-retry', technicalRecovery: f.plan });
+  assert.equal(repeated.registeredBets, 0); assert.deepEqual(preparedMatches, ['fixture-0']);
+  assert.equal((await f.raw('SELECT COUNT(*) AS n FROM research_bets'))[0].n, 4);
+});
+
+test('recovery policy, window and source-list tampering fail before registering or claiming a new policy', async (t) => {
+  const f = await historicalRecoveryFixture(t), history = await f.originalHistory(), claims = f.counters.claims;
+  const mutations = [
+    (plan) => { plan.policy.familyA.marketCoverage = 'goals_only'; },
+    (plan) => { plan.policy.maxExposureFraction = .06; },
+    (plan) => { plan.windowEndAt = '2026-11-01T02:07:00.000Z'; plan.sources[0].windowEndAt = plan.windowEndAt;
+      plan.policy.recovery.sources = plan.sources; },
+    (plan) => { plan.sources[0].sourceDecisionIds = ['unrelated-A', 'unrelated-C']; plan.policy.recovery.sources = plan.sources; },
+    (plan) => { plan.parentPolicyHash = '0'.repeat(64); },
+    (plan) => { plan.policy.recovery.maxDepth = 2; },
+    (plan) => { plan.fixtures[0].matchId = 'fixture-1'; },
+    (plan) => { plan.plannedAt = '2026-10-30T12:31:00.000Z'; },
+  ];
+  for (const [index, mutate] of mutations.entries()) {
+    const plan = JSON.parse(JSON.stringify(f.plan)); mutate(plan); plan.policyHash = researchHash(plan.policy);
+    const result = await execute(f, { runId: `tampered-recovery-${index}`, technicalRecovery: plan });
+    assert.ok(result.errors > 0); assert.equal(f.counters.claims, claims);
+    assert.deepEqual(await f.originalHistory(), history);
+    assert.equal(Number((await f.raw('SELECT COUNT(*) AS n FROM research_execution_policies'))[0].n), 1);
+    assert.equal(Number((await f.raw('SELECT COUNT(*) AS n FROM research_bets'))[0].n), 2);
+  }
 });
 
 test('execution still requires real fresh prices and settles new virtual bets with the existing idempotent accounting', async (t) => {

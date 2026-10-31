@@ -45,6 +45,7 @@ const object = (row: any): any => row ? Object.fromEntries(Object.entries(row).f
 })) : null;
 async function rows(db: Executor, sql: string, args: any[] = []): Promise<any[]> { return (await db.execute({ sql, args })).rows.map(object); }
 async function first(db: Executor, sql: string, args: any[] = []): Promise<any> { return (await rows(db, sql, args))[0] ?? null; }
+const RECOVERY_PROTOCOL = 'virtual-recommendation-technical-recovery-v1';
 
 /** Versioned virtual execution preserves the original immutable research decisions. */
 export class ResearchRecommendationStore {
@@ -122,6 +123,100 @@ export class ResearchRecommendationStore {
     return this.schemaPresent;
   }
 
+  /** Recovery siblings share source identity, even when their policy subsets differ. */
+  private async recoveryContext(tx: Executor, policy: any): Promise<any | null> {
+    const descriptor = policy.descriptor;
+    if (!Object.prototype.hasOwnProperty.call(descriptor, 'recovery')) return null;
+    const recovery = descriptor.recovery;
+    if (!recovery || recovery.protocol !== RECOVERY_PROTOCOL || recovery.maxDepth !== 1 || recovery.retrospective !== false
+      || !/^[a-f0-9]{64}$/.test(recovery.parentPolicyHash ?? '') || !Array.isArray(recovery.sources)
+      || recovery.sources.length === 0 || recovery.sources.length > 100 || !Array.isArray(recovery.matchIds)
+      || !Array.isArray(recovery.sourceDecisionIds)) throw new Error('Invalid technical recovery policy');
+    const parent = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [recovery.parentPolicyHash]);
+    const { recovery: _recovery, ...base } = descriptor;
+    if (!parent || researchHash(parent.descriptor) !== parent.hash || researchHash(base) !== parent.hash
+      || !['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(parent.version)
+      || Object.prototype.hasOwnProperty.call(parent.descriptor, 'recovery')) throw new Error('Technical recovery parent policy mismatch');
+    const matchIds = recovery.sources.map((source: any) => source?.matchId);
+    if (matchIds.some((id: any) => typeof id !== 'string' || !id.trim()) || new Set(matchIds).size !== matchIds.length
+      || researchHash([...matchIds].sort()) !== researchHash([...recovery.matchIds].sort())
+      || researchHash(recovery.sources.flatMap((source: any) => source.sourceDecisionIds ?? []).sort())
+        !== researchHash([...recovery.sourceDecisionIds].sort())) throw new Error('Technical recovery allowlist mismatch');
+    return recovery;
+  }
+
+  private async recoveryAdmissionReason(tx: Executor, recovery: any, fixture: {
+    matchId: string; kickoffAt: string; windowEndAt: string; originInputId?: string;
+    originDecisionIds?: Record<string, string>;
+  }, excludedJobId: string, now: number): Promise<string | null> {
+    if (!recovery) return null;
+    const source = recovery.sources.find((entry: any) => entry.matchId === fixture.matchId);
+    if (!source || iso(source.kickoffAt) !== iso(fixture.kickoffAt) || iso(source.windowEndAt) !== iso(fixture.windowEndAt)
+      || fixture.originInputId !== undefined && source.originInputId !== fixture.originInputId
+      || fixture.originDecisionIds !== undefined && researchHash(source.originDecisionIds) !== researchHash(fixture.originDecisionIds)) {
+      throw new Error('Technical recovery fixture allowlist mismatch');
+    }
+    const original = await first(tx, `SELECT j.*,i.id AS source_input_id,i.origin_input_id,i.input_hash,i.decisions_hash,
+      i.snapshot_json,i.kickoff_at AS source_input_kickoff_at FROM research_execution_jobs j
+      JOIN research_execution_inputs i ON i.job_id=j.id WHERE j.id=? AND i.id=?`, [source.sourceJobId, source.sourceInputId]);
+    if (!original || original.status !== 'COMPLETED' || original.policyHash !== recovery.parentPolicyHash
+      || original.matchId !== fixture.matchId || original.runId !== source.sourceRunId
+      || iso(original.kickoffAt) !== iso(source.kickoffAt) || iso(original.sourceInputKickoffAt) !== iso(source.kickoffAt)
+      || iso(original.windowEndAt) !== iso(source.windowEndAt) || original.originInputId !== source.originInputId
+      || original.inputHash !== source.sourceInputHash || researchHash(original.snapshot) !== source.sourceInputHash
+      || original.decisionsHash !== source.sourcePreparedDecisionsHash
+      || original.snapshot?.metadata?.originInputId !== source.originInputId
+      || researchHash(original.snapshot?.metadata?.policy ?? null) !== recovery.parentPolicyHash) {
+      throw new Error('Technical recovery source identity mismatch');
+    }
+    const sourceDecisions = await rows(tx, 'SELECT * FROM research_execution_decisions WHERE input_id=? ORDER BY family,id', [source.sourceInputId]);
+    const origins = await rows(tx, `SELECT d.id,d.family,d.portfolio_id,j.match_id FROM research_decisions d
+      JOIN research_inputs i ON i.id=d.input_id JOIN research_jobs j ON j.id=i.job_id
+      WHERE i.id=? AND d.portfolio_id IN ('shadow_A','shadow_C') ORDER BY d.family`, [source.originInputId]);
+    if (sourceDecisions.length !== 2 || sourceDecisions.map((decision) => decision.family).join(',') !== 'A,C'
+      || origins.length !== 2 || origins.map((decision) => decision.family).join(',') !== 'A,C'
+      || !Array.isArray(source.sourceDecisionIds)
+      || researchHash(sourceDecisions.map((decision) => decision.id).sort()) !== researchHash([...source.sourceDecisionIds].sort())
+      || researchHash(sourceDecisions.map((decision) => ({ id: decision.id, snapshot: decision.snapshot }))) !== source.sourceDecisionSnapshotsHash) {
+      throw new Error('Technical recovery source decisions mismatch');
+    }
+    for (let index = 0; index < 2; index++) {
+      const decision = sourceDecisions[index], origin = origins[index];
+      if (origin.matchId !== fixture.matchId || origin.portfolioId !== `shadow_${decision.family}`
+        || origin.id !== source.originDecisionIds?.[decision.family] || decision.originDecisionId !== origin.id
+        || decision.portfolioId !== origin.portfolioId || decision.action !== 'ABSTAIN'
+        || !['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed'].includes(decision.reason)
+        || decision.reason !== source.reasons?.[decision.family] || decision.snapshot?.action !== 'ABSTAIN'
+        || decision.snapshot?.stakeCents !== 0 || decision.snapshot?.recommended !== false || decision.snapshot?.validated !== false) {
+        throw new Error('Technical recovery source must preserve paired technical abstentions');
+      }
+    }
+    const siblings = await rows(tx, `SELECT j.*,p.hash AS child_policy_hash,p.descriptor_json,i.id AS recorded_input_id
+      FROM research_execution_jobs j JOIN research_execution_policies p ON p.hash=j.policy_hash
+      LEFT JOIN research_execution_inputs i ON i.job_id=j.id WHERE j.match_id=? AND j.id<>?
+        AND json_extract(p.descriptor_json,'$.recovery.parentPolicyHash')=?`,
+    [fixture.matchId, excludedJobId, recovery.parentPolicyHash]);
+    let active = false;
+    for (const sibling of siblings) {
+      const metadata = sibling.descriptor?.recovery;
+      const bindings = metadata?.sources?.filter((entry: any) => entry.matchId === fixture.matchId);
+      if (researchHash(sibling.descriptor) !== sibling.childPolicyHash || metadata?.protocol !== RECOVERY_PROTOCOL
+        || !Array.isArray(bindings) || bindings.length !== 1 || bindings[0].sourceJobId !== source.sourceJobId
+        || bindings[0].sourceInputId !== source.sourceInputId) throw new Error('Technical recovery sibling source identity mismatch');
+      if (['COMPLETED', 'SKIPPED'].includes(sibling.status) || sibling.recordedInputId) return 'prior_recovery_preserved';
+      if (sibling.status === 'CLAIMED') {
+        if (typeof sibling.leaseExpiresAt !== 'string') throw new Error('Technical recovery sibling lease invalid');
+        const expiry = Date.parse(iso(sibling.leaseExpiresAt));
+        if (expiry > now) active = true;
+      }
+    }
+    if (active) return 'prior_recovery_in_progress';
+    if (await first(tx, "SELECT id FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C') LIMIT 1", [fixture.matchId])) {
+      return 'existing_bet_preserved';
+    }
+    return null;
+  }
+
   async claimBatch(input: RecommendationClaim): Promise<{ jobs: RecommendationJob[]; skipped: any[]; busy: boolean }> {
     const start = iso(input.windowStartAt), end = iso(input.windowEndAt), now = iso(this.clock());
     if (!input.runId?.trim() || !/^[a-f0-9]{64}$/.test(input.policyHash) || Date.parse(start) > Date.parse(now)
@@ -132,6 +227,7 @@ export class ResearchRecommendationStore {
     return this.research.runResearchTransaction(async (tx) => {
       const policy = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [input.policyHash]);
       if (!policy || researchHash(policy.descriptor) !== input.policyHash) throw new Error('Registered execution policy required');
+      const recovery = await this.recoveryContext(tx, policy);
       const jobs: RecommendationJob[] = [], skipped: any[] = [];
       let active = false;
       for (const fixture of input.fixtures) {
@@ -142,6 +238,9 @@ export class ResearchRecommendationStore {
         if (previous && (['COMPLETED', 'SKIPPED'].includes(previous.status)
           || await first(tx, 'SELECT id FROM research_execution_inputs WHERE job_id=?', [previous.id]))) { skip('policy_decision_already_recorded'); continue; }
         if (previous?.status === 'CLAIMED' && Date.parse(previous.leaseExpiresAt) > Date.parse(at)) { active = true; skip('execution_lease_active'); continue; }
+        const recoveryReason = await this.recoveryAdmissionReason(tx, recovery,
+          { ...fixture, windowEndAt: end }, previous?.id ?? '', Date.parse(at));
+        if (recoveryReason) { if (recoveryReason === 'prior_recovery_in_progress') active = true; skip(recoveryReason); continue; }
         const origin = await first(tx, `SELECT i.id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE j.match_id=?`, [fixture.matchId]);
         if (!origin) { skip('origin_input_missing'); continue; }
         const origins = await rows(tx, "SELECT id,family FROM research_decisions WHERE input_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [origin.id]);
@@ -216,6 +315,7 @@ export class ResearchRecommendationStore {
     return this.research.runResearchTransaction(async (tx) => {
       const decisions: any[] = [], bets: any[] = [], completedJobs: any[] = [];
       const plans: Array<{ item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any }> = [];
+      const recoveryContexts = new Map<string, any>();
       const hasFixtures = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
       for (const item of prepared) {
         const job = await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [item.jobId]);
@@ -232,6 +332,11 @@ export class ResearchRecommendationStore {
         const at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
         const policy = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [job.policyHash]);
         if (!policy || researchHash(policy.descriptor) !== job.policyHash) throw new Error('Execution policy identity mismatch');
+        if (!recoveryContexts.has(job.policyHash)) recoveryContexts.set(job.policyHash, await this.recoveryContext(tx, policy));
+        const recoveryReason = await this.recoveryAdmissionReason(tx, recoveryContexts.get(job.policyHash),
+          { ...job, originInputId: item.originInputId,
+            originDecisionIds: Object.fromEntries(ordered.map((decision) => [decision.family, decision.originDecisionId])) }, job.id, at);
+        if (recoveryReason) throw new Error(`Technical recovery commit rejected: ${recoveryReason}`);
         const origin = await first(tx, `SELECT i.id,j.match_id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?`, [item.originInputId]);
         if (!origin || origin.matchId !== job.matchId) throw new Error('Execution origin input mismatch');
         if (hasFixtures) {
