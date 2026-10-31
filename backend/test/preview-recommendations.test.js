@@ -38,8 +38,9 @@ function fixture(options = {}) {
   };
   Object.defineProperty(db, 'recommendations', { get() { throw Error('execution API forbidden'); } });
   const createDatabase = async (settings) => { calls.created.push(settings); return db; };
-  const createRuntime = (database) => {
+  const createRuntime = (database, settings) => {
     assert.equal(database, db);
+    calls.runtimeSettings = settings;
     return { beginCohort: (id) => calls.cohort.push(id), prepare: async (job) => {
       calls.prepared.push(job);
       assert.ok(origins.some((origin) => origin.id === job.id && origin.inputId === job.originInputId));
@@ -50,17 +51,42 @@ function fixture(options = {}) {
       const quote = { odds: 2, bookmaker: 'Real Book', source: 'odds_api', priceType: 'prematch', capturedAt: started.toISOString(), updatedAt: started.toISOString() };
       return { jobId: job.id, originInputId: job.originInputId, inputSnapshot: { observedAt: started.toISOString(),
         forecasts: { A: { model: { source: 'PredictionService', codeHash: '1'.repeat(64), configHash: '2'.repeat(64), stateHash: '3'.repeat(64) } },
-          C: { decision: { validated: true }, recommendation: {} } } }, decisions: ['A', 'C'].map((family) => ({
-        family, action: 'BET', recommended: true, validated: true, probability: .6, ev: options.invalidEv ? 0 : .2,
+          C: { decision: { validated: !settings?.deploymentC?.resolutionUnavailable }, recommendation: {} } } }, decisions: ['A', 'C'].map((family) => ({
+        family, action: family === 'C' && settings?.deploymentC?.resolutionUnavailable ? 'ABSTAIN' : 'BET',
+        ...(family === 'C' && settings?.deploymentC?.resolutionUnavailable ? { reason: 'adoption_state_unavailable' } : {}),
+        recommended: !(family === 'C' && settings?.deploymentC?.resolutionUnavailable), validated: true, probability: .6, ev: options.invalidEv ? 0 : .2,
         modelVersion: family === 'A' ? `APP-A-${'a'.repeat(20)}` : 'C-906371b0b3a1e2c8',
         suggestedStakePercent: family === 'A' ? 2.34 : 4, confidence: 'MEDIUM', quote,
       })) };
     } };
   };
-  return { calls, tables, options: { env: env(), clock: () => started, nextBoundary: (date, hour, minute) => {
+  return { calls, tables, db, options: { env: env(), clock: () => started, nextBoundary: (date, hour, minute) => {
     assert.equal(date, started); assert.equal(hour, 3); assert.equal(minute, 7); return windowEnd;
   }, createDatabase, createRuntime } };
 }
+
+test('preview snapshots the approved C deployment once without reviewing, adopting or changing finances', async () => {
+  const f = fixture(); let reads = 0;
+  const deployment = { deployment: { modelVersion: 'C-approved-test', baselineVersion: 'A-80cb25df5552621e',
+    selectorPolicy: 'payout-aware-v1', probabilityConfigurationHash: 'a'.repeat(64), artifactHash: 'b'.repeat(64) },
+  revision: 'approved-revision', source: 'adopted' };
+  f.db.challengerAdoption = { getState: async () => { reads++; return deployment; },
+    reviewCandidates: async () => assert.fail('Preview must not mutate adoption state') };
+  const report = await previewRecommendations(f.options);
+  assert.equal(reads, 1); assert.deepEqual(f.calls.runtimeSettings, { deploymentC: deployment });
+  assert.equal(report.financialUnchanged, true); assert.equal(report.registeredBets, 0);
+});
+
+test('preview passes an explicit unavailable C state after a registry read failure and preserves A preparation', async () => {
+  const f = fixture();
+  f.db.challengerAdoption = { getState: async () => { throw Error('Private registry failure'); },
+    reviewCandidates: async () => assert.fail('Preview must never review') };
+  const report = await previewRecommendations(f.options);
+  assert.equal(f.calls.runtimeSettings.deploymentC.resolutionUnavailable, true);
+  assert.ok(report.records.filter((row) => row.family === 'A').every((row) => row.recommended));
+  assert.ok(report.records.filter((row) => row.family === 'C').every((row) => !row.recommended && row.reason === 'adoption_state_unavailable'));
+  assert.equal(report.financialUnchanged, true); assert.equal(report.registeredBets, 0);
+});
 
 test('preview before migration023 prepares actual-origin A/C packets and leaves all financial state identical', async () => {
   const f = fixture(); const report = await previewRecommendations(f.options);

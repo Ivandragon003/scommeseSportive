@@ -3,7 +3,7 @@ import type { DatabaseService } from '../db/DatabaseService';
 import { loadNightlyPolicy, nextNightlyBoundary, NightlyPolicy, NightlySummary, runResearchNightly } from './ResearchNightly';
 import { ResearchRuntime } from './ResearchRuntime';
 import { ResearchRecommendationRuntime } from './ResearchRecommendationRuntime';
-import { VIRTUAL_RECOMMENDATION_POLICY, RECOMMENDATION_MODEL_C } from './ResearchRecommendationPolicy';
+import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
 import type { RecommendationCommit, RecommendationJob } from './ResearchRecommendationStore';
 import { researchHash } from './ResearchStore';
 import { safeOddsFailureCode } from './T15Scheduler';
@@ -14,6 +14,7 @@ type RecommendationDb = DatabaseService;
 type RecommendationPreparer = Pick<ResearchRecommendationRuntime, 'beginCohort' | 'prepare' | 'getQuotaStatus'>;
 export type RecommendationNightlySummary = NightlySummary & {
   protocol: string; policyHash: string; diagnosticRunId: string | null; decisionCount: number;
+  challengerAdoptionErrors?: number; challengerCollectionErrors?: number; deploymentC?: ChallengerExecutionState;
 };
 type Options = {
   policy?: NightlyPolicy; clock?: () => Date; runId?: string; leaseMs?: number; dataGatesPassed?: boolean;
@@ -35,10 +36,13 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
   const reason = (code: string) => { summary.reasonCounts[code] = (summary.reasonCounts[code] ?? 0) + 1; };
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
+  let deploymentC = fallbackChallengerState();
+  let executionPolicy = challengerExecutionPolicy(deploymentC);
   let sharedRuntime = options.researchRuntime;
   const diagnosticPreparer = options.diagnosticPreparer ?? {
     prepareNightly: (job: Parameters<ResearchRuntime['prepareNightly']>[0]) => {
-      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, candidateVersionC: RECOMMENDATION_MODEL_C });
+      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy,
+        candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment });
       return sharedRuntime.prepareNightly(job);
     },
     getQuotaStatus: () => sharedRuntime?.getQuotaStatus() ?? null,
@@ -55,6 +59,29 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (!await db.recommendations.renewLeases([...outstanding.values()], options.leaseMs)) leaseLost = true;
   };
   try {
+    if (db.challengerAdoption && options.dataGatesPassed !== false) {
+      try {
+        await db.challengerAdoption.reviewCandidates();
+      } catch {
+        summary.errors++; summary.challengerAdoptionErrors = 1; reason('challenger_adoption_review_failed');
+        try {
+          await db.saveSchedulerRun({ schedulerName: 'research_challenger_adoption', trigger: 'github_actions',
+            startedAt, endedAt: clock().toISOString(), success: false, error: 'challenger_adoption_review_failed' });
+        } catch { reason('challenger_adoption_error_recording_failed'); }
+      }
+      try {
+        const state = await db.challengerAdoption.getState();
+        deploymentC = Object.freeze({ ...state, deployment: Object.freeze({ ...state.deployment }) });
+      } catch {
+        deploymentC = unavailableChallengerState();
+        summary.errors++; summary.challengerAdoptionErrors = (summary.challengerAdoptionErrors ?? 0) + 1;
+        reason('adoption_state_unavailable');
+      }
+    }
+    executionPolicy = challengerExecutionPolicy(deploymentC);
+    summary.protocol = executionPolicy.version; summary.policyHash = researchHash(executionPolicy);
+    if (deploymentC.source !== 'fallback') summary.deploymentC = deploymentC;
+    sharedRuntime?.pinChallengerDeployment(deploymentC.deployment);
     const diagnostic = await runResearchNightly(db, { policy, clock, runId, leaseMs: options.leaseMs,
       dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true });
     summary.diagnosticRunId = diagnostic.runId;
@@ -65,7 +92,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     summary.quota = diagnostic.quota;
     summary.apiErrors = diagnostic.apiErrors;
     summary.diagnosticPreparationErrors = diagnostic.diagnosticPreparationErrors ?? 0;
-    summary.errors = diagnostic.errors;
+    summary.errors += diagnostic.errors;
     if (summary.diagnosticPreparationErrors) summary.reasonCounts.diagnostic_preparation_failed = summary.diagnosticPreparationErrors;
     // Failed research inference must not veto A. Only failures with safely stored
     // unavailable diagnostic origins can continue to the independent model engines.
@@ -75,7 +102,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
       reason(options.dataGatesPassed === false ? 'required_data_gates_failed' : 'diagnostic_stage_failed');
       throw new Error('recommendation_diagnostic_failed');
     }
-    const registered = await db.recommendations.registerPolicy(VIRTUAL_RECOMMENDATION_POLICY);
+    const registered = await db.recommendations.registerPolicy(executionPolicy);
     if (registered.hash !== summary.policyHash) throw new Error('recommendation_policy_identity_invalid');
     const now = clock().toISOString();
     const fixtures = (await db.getUpcomingMatches({ nowIso: now, untilIso: summary.windowEndAt, limit: 10000 }))
@@ -89,10 +116,11 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (claim.busy || claim.skipped.some((item) => item.reason === 'execution_lease_active')) throw new Error('recommendation_execution_busy');
     if (claim.jobs.length) {
       if (!runtime) {
-        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, candidateVersionC: RECOMMENDATION_MODEL_C });
-        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime });
+        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy,
+          candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment });
+        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC });
       }
-      runtime.beginCohort(runId);
+      runtime.beginCohort(runId, deploymentC);
       timer = setInterval(() => {
         if (renewal) return;
         renewal = renew().catch(() => { leaseLost = true; }).finally(() => { renewal = undefined; });
@@ -108,6 +136,19 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
         const item = await runtime!.prepare(job);
         if (item.jobId !== job.id || item.leaseToken !== job.leaseToken || item.originInputId !== job.originInputId) {
           throw new Error('recommendation_job_identity_invalid');
+        }
+        if (deploymentC.resolutionUnavailable) item.decisions = item.decisions.map((decision) => decision.family === 'C'
+          ? { ...decision, modelVersion: 'C-unavailable', action: 'ABSTAIN', reason: 'adoption_state_unavailable',
+            recommended: false, validated: false } : decision);
+        const failures = item.inputSnapshot.metadata?.challengerCollection?.failures;
+        if (Array.isArray(failures) && failures.length) {
+          summary.errors += failures.length;
+          summary.challengerCollectionErrors = (summary.challengerCollectionErrors ?? 0) + failures.length;
+          summary.reasonCounts.challenger_collection_failed = (summary.reasonCounts.challenger_collection_failed ?? 0) + failures.length;
+        }
+        const challengerErrors = item.inputSnapshot.metadata?.challengerErrors;
+        if (Array.isArray(challengerErrors) && challengerErrors.length) {
+          summary.errors += challengerErrors.length; reason('challenger_health_recording_failed');
         }
         prepared.push(item);
       } catch (error) {

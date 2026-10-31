@@ -8,8 +8,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { applyCoherentProbabilityPipeline, fitCoherentCalibration, coherentProbabilityPipelineHash,
   COHERENT_PROBABILITY_PROTOCOL, CoherentCalibrationMode } from './CoherentProbabilityPipeline';
-import { assessResearchHoldout, ResearchEvaluationPolicy } from './ResearchHoldoutPolicy';
+import { assessResearchHoldout, ResearchEvaluationPolicy, ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
+import { ChallengerAdoptionStore, ChallengerSelectorPolicy } from './ChallengerAdoption';
+import { NIGHTLY_DECISION_TIME_PROTOCOL } from './ForecastDecisionTime';
 
 export const LIFECYCLE_RULE = 'research-promotion-v1';
 const WEEK_MS = 7 * 86400000;
@@ -295,6 +297,41 @@ export async function registerLifecycleCandidate(db: LifecycleDatabase, input: {
   const summary = { version: artifact.version, artifactHash: researchHash(artifact), benchmarkId: benchmark.id,
     promoted, validationPassed: report.validation.passed, blockers: report.warnings.map((warning) => warning.code),
     nPaired: report.validation.nPaired };
+  await db.saveSchedulerRun({ schedulerName: 'research_training', trigger: 'weekly', startedAt: started.toISOString(),
+    endedAt: new Date().toISOString(), success: true, summary });
+  return summary;
+}
+
+/** Weekly development output only preregisters C; retrospective metrics cannot adopt it. */
+export async function registerControlledChallengerCandidate(db: LifecycleDatabase & { challengerAdoption: ChallengerAdoptionStore }, input: {
+  artifact: HybridArtifact; datasetHash: string; datasetRows: Array<{ matchId: string }>;
+  selectorPolicy: ChallengerSelectorPolicy; now?: Date;
+}) {
+  const started = input.now ?? new Date(), artifact = input.artifact;
+  validateArtifact(artifact);
+  if (artifact.productionValidated === true) throw new Error('candidate_must_not_claim_production_approval');
+  if (artifact.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL || artifact.pipelineHashV2 !== coherentProbabilityPipelineHash()) {
+    throw new Error('coherent_challenger_configuration_required');
+  }
+  const trainingTiming = artifact.trainingForecastTiming as { policy?: string; forecastBeforeKickoff?: boolean } | undefined;
+  if (trainingTiming?.policy !== NIGHTLY_DECISION_TIME_PROTOCOL || trainingTiming.forecastBeforeKickoff !== true
+    || !artifact.trainingSplit) throw new Error('nightly_training_provenance_required');
+  if (input.datasetHash !== artifact.datasetHash) throw new Error('challenger_training_dataset_hash_mismatch');
+  const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
+  if (!Array.isArray(input.datasetRows) || !input.datasetRows.length || input.datasetRows.some((row) => !row.matchId || protectedIds.has(row.matchId))) {
+    throw new Error('protected_holdout_cannot_train_candidate');
+  }
+  await db.research.saveModel({ family: 'C', version: artifact.version, artifact });
+  const dossier = await db.challengerAdoption.registerCandidate({ modelVersion: artifact.version, selectorPolicy: input.selectorPolicy,
+    trainingEvidence: { datasetHash: input.datasetHash, matchIds: input.datasetRows.map((row) => row.matchId) } });
+  const existing = await db.research.listMarkets({ family: 'C', modelVersion: artifact.version });
+  for (const market of ['1x2', 'totals', 'asian_handicap']) {
+    if (!existing.some((entry) => entry.market === market)) await db.research.setMarketState({ family: 'C', modelVersion: artifact.version,
+      market, state: 'EXPERIMENTAL', reason: 'Candidate collection only; adoption requires independent future paired evidence' });
+  }
+  const summary = { version: artifact.version, candidateId: dossier.id, artifactHash: researchHash(artifact),
+    selectorPolicy: input.selectorPolicy, deployment: dossier.candidate, reference: dossier.reference,
+    adopted: false, reason: 'awaiting_independent_frozen_future_evidence' };
   await db.saveSchedulerRun({ schedulerName: 'research_training', trigger: 'weekly', startedAt: started.toISOString(),
     endedAt: new Date().toISOString(), success: true, summary });
   return summary;

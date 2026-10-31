@@ -1,7 +1,8 @@
 import { ForecastInput, FEATURE_NAMES, FEATURE_SCHEMA_VERSION } from './ForecastCore';
 import { normalizeScoreMatrix, scoreMatrixMarkets } from './GoalSettlement';
+import { CHALLENGER_FEATURE_SCHEMA_VERSION, CHALLENGER_FEATURE_PROTOCOL, challengerBlocksForNames } from './ChallengerFeatures';
 
-export type HybridCandidateKind = 'intensity_correction' | 'probability_correction' | 'calibrated_ensemble';
+export type HybridCandidateKind = 'intensity_correction' | 'probability_correction' | 'calibrated_ensemble' | 'no_ml';
 export interface CatBoostJson {
   features_info?: { float_features?: Array<{ feature_index: number; flat_feature_index: number }>;
     categorical_features?: unknown[]; text_features?: unknown[]; embedding_features?: unknown[] };
@@ -52,19 +53,46 @@ export function predictCatBoostJson(model: CatBoostJson, features: number[]): nu
 
 export function validateArtifact(value: unknown): asserts value is HybridArtifact {
   const artifact = value as HybridArtifact;
+  const legacyFeatures = artifact?.featureSchema === FEATURE_SCHEMA_VERSION
+    && JSON.stringify(artifact.featureNames) === JSON.stringify(FEATURE_NAMES);
+  const extendedBlocks = artifact?.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION
+    && Array.isArray(artifact.featureNames) ? challengerBlocksForNames(artifact.featureNames) : null;
   if (!artifact || artifact.family !== 'C' || !String(artifact.version ?? '').startsWith('C-')
-    || artifact.featureSchema !== FEATURE_SCHEMA_VERSION || JSON.stringify(artifact.featureNames) !== JSON.stringify(FEATURE_NAMES)
-    || !['intensity_correction', 'probability_correction', 'calibrated_ensemble'].includes(artifact.candidateKind)
+    || !legacyFeatures && !extendedBlocks
+    || !['intensity_correction', 'probability_correction', 'calibrated_ensemble', 'no_ml'].includes(artifact.candidateKind)
     || !Number.isFinite(artifact.weight) || artifact.weight < 0 || artifact.weight > 1
     || !Number.isFinite(artifact.temperature) || artifact.temperature < 0.25 || artifact.temperature > 4
     || !Number.isFinite(Date.parse(artifact.trainedThrough)) || !Number.isFinite(Date.parse(artifact.validationThrough))
     || Date.parse(artifact.trainedThrough) > Date.parse(artifact.validationThrough)
     || !Number.isFinite(Date.parse(artifact.createdAt)) || !artifact.models) throw new Error('invalid_hybrid_artifact');
+  if (extendedBlocks) {
+    const timing = artifact.trainingForecastTiming as { policy?: string; forecastBeforeKickoff?: boolean; resultDelayMs?: number };
+    const split = artifact.trainingSplit as { protocol?: string; train?: any; selection?: any; calibration?: any; test?: any };
+    if (artifact.featureProtocol !== CHALLENGER_FEATURE_PROTOCOL
+      || JSON.stringify(artifact.featureBlocks) !== JSON.stringify(extendedBlocks)
+      || !timing?.policy || timing.forecastBeforeKickoff !== true || timing.resultDelayMs !== 7200000
+      || split?.protocol !== 'purged-temporal-train-selection-calibration-test-v1') throw new Error('invalid_challenger_training_metadata');
+    for (const part of ['train', 'selection', 'calibration', 'test'] as const) {
+      const range = split[part];
+      if (!range || !Number.isSafeInteger(range.n) || range.n <= 0
+        || !Number.isFinite(Date.parse(range.from)) || !Number.isFinite(Date.parse(range.to))
+        || Date.parse(range.from) > Date.parse(range.to)) throw new Error('invalid_challenger_training_split');
+    }
+    for (const [earlier, later] of [['train', 'selection'], ['selection', 'calibration'], ['calibration', 'test']] as const) {
+      if (Date.parse(split[earlier].to) >= Date.parse(split[later].from)
+        || !Number.isFinite(Date.parse(split[earlier].availableThrough))
+        || Date.parse(split[earlier].availableThrough) >= Date.parse(split[later].from)) throw new Error('future_challenger_training_information');
+    }
+  }
+  if (artifact.candidateKind === 'no_ml') {
+    if (artifact.weight !== 0 || artifact.temperature !== 1 || Object.keys(artifact.models).length) throw new Error('invalid_no_ml_control');
+    return;
+  }
   const models = artifact.candidateKind === 'probability_correction'
     ? [artifact.models.probability] : [artifact.models.home, artifact.models.away];
   for (const model of models) {
     if (!model || model.oblivious_trees?.length > 1000) throw new Error('invalid_hybrid_models');
-    const raw = predictCatBoostJson(model, new Array(FEATURE_NAMES.length).fill(0));
+    const raw = predictCatBoostJson(model, new Array(artifact.featureNames.length).fill(0));
     if (raw.length !== (artifact.candidateKind === 'probability_correction' ? 3 : 1)) throw new Error('invalid_hybrid_output_dimension');
   }
 }
@@ -85,6 +113,7 @@ export function predictHybrid(input: ForecastInput, artifact: HybridArtifact): {
   if (Date.parse(input.forecastAt) <= Date.parse(artifact.validationThrough)) throw new Error('hybrid_model_not_available_at_forecast');
   if (artifact.baselineVersion && input.baselineVersion !== artifact.baselineVersion) throw new Error('hybrid_baseline_mismatch');
   const baseline = normalizeJoint(input.baselineMatrix);
+  if (artifact.candidateKind === 'no_ml') return { matrix: baseline, probabilities: jointMarketProbabilities(baseline), version: artifact.version };
   let ml: number[][];
   if (artifact.candidateKind === 'probability_correction') {
     const logits = predictCatBoostJson(artifact.models.probability!, input.features);

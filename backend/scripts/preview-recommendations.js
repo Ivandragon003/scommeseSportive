@@ -22,7 +22,7 @@ const SAFE_REASONS = new Set(['recommended_virtual_preview', 'not_recommended', 
   'challenger_configuration_unavailable', 'challenger_incoherent_probabilities',
   'non_binary_payout_not_supported_by_canonical_engine', 'stale_quote', 'future_quote',
   'real_quote_missing', 'invalid_decimal_odds', 'real_quote_required', 'quote_time_missing',
-  'real_prematch_quote_required', 'unsupported_quote_settlement']);
+  'real_prematch_quote_required', 'unsupported_quote_settlement', 'adoption_state_unavailable']);
 const ordered = (value) => typeof value === 'bigint' ? value.toString() : Array.isArray(value) ? value.map(ordered)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, ordered(value[key])])) : value;
 const hash = (value) => createHash('sha256').update(JSON.stringify(ordered(value))).digest('hex');
@@ -81,6 +81,12 @@ async function previewRecommendations(options = {}) {
     const equities = new Map(before.portfolios.map((row) => [row.id, row.equityCents]));
     if (!['shadow_A', 'shadow_C'].every((id) => Number.isSafeInteger(equities.get(id)) && equities.get(id) > 0)) fail('preview_existing_wallets_required');
     stage = 'preview_quota_read_failed'; const quotaBefore = await quotaSnapshot(db, env, started);
+    stage = 'preview_deployment_read_failed';
+    const { fallbackChallengerState, unavailableChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
+    // Preview reads the approved tuple once. Candidate review and adoption are never preview side effects.
+    let deploymentC;
+    try { deploymentC = db.challengerAdoption ? await db.challengerAdoption.getState() : fallbackChallengerState(); }
+    catch { deploymentC = unavailableChallengerState(); }
     const records = [], skipped = [];
     let inferredA = 0, inferredC = 0;
     try {
@@ -99,9 +105,9 @@ async function previewRecommendations(options = {}) {
           skipped.push({ matchId: fixture.match_id, reason: 'origin_records_missing' }); continue;
         }
         if (!runtime) {
-          const createRuntime = options.createRuntime ?? ((database) => new (require('../dist/research/ResearchRecommendationRuntime').ResearchRecommendationRuntime)(database));
-          runtime = createRuntime(db);
-          runtime.beginCohort(String(env.GITHUB_RUN_ID || origin.runId || origin.id));
+          const createRuntime = options.createRuntime ?? ((database, settings) => new (require('../dist/research/ResearchRecommendationRuntime').ResearchRecommendationRuntime)(database, settings));
+          runtime = createRuntime(db, { deploymentC });
+          runtime.beginCohort(String(env.GITHUB_RUN_ID || origin.runId || origin.id), deploymentC);
         }
         stage = 'preview_preparation_failed';
         // Real immutable origin identifiers provide lineage. This adapter is never claimed or committed.

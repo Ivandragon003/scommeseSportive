@@ -31,6 +31,11 @@ export type T15Decision = {
   quoteIndex?: number;
   action: 'BET' | 'ABSTAIN';
   reason?: string;
+  challengerQuality?: {
+    homeHistorySample: number | null; awayHistorySample: number | null;
+    homeXgCoverage: number | null; awayXgCoverage: number | null;
+    historyAvailableThrough: string | null; modelFitAt: string | null;
+  };
   [key: string]: unknown;
 };
 

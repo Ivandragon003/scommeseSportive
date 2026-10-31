@@ -23,6 +23,8 @@ jobs:
       RESEARCH_T15_SCHEDULER_ENABLED: 'false'
       PLAYER_DATA_ENABLED: 'false'
       PLAYER_AVAILABILITY_ENABLED: 'false'
+      ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'
+      ODDS_EXTRA_EVENT_NETWORK_ENABLED: 'false'
     defaults:
       run:
         working-directory: backend
@@ -43,21 +45,23 @@ jobs:
       - run: npm run build
       - name: Verify chronological ML and coherent probability implementations
         run: python -m unittest discover -s ml/tests -v
+      - name: Verify controlled adoption and rollback
+        run: node --test test/challenger-adoption.test.js test/research-lifecycle.test.js
       - name: Export all eligible leagues without production writes
         run: node scripts/research.js export --out artifacts/research/matches.json
-      - name: Build chronological features and train candidates
+      - name: Build Nightly-aligned development features and controlled C candidates
         shell: bash
         run: |
           AS_OF="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-          node scripts/research.js dataset --input artifacts/research/matches.json --out artifacts/research/dataset.json --asof "$AS_OF"
-          node scripts/research.js train --input artifacts/research/dataset.json --out artifacts/research/training
-          node scripts/research-lifecycle.js finalize-coherent --artifact artifacts/research/training/artifact.json --report artifacts/research/training/report.json --out artifacts/research/training/coherent --mode identity
-      - name: Register candidate and apply evidence gates
+          node scripts/research-challenger-development.js dataset --matches artifacts/research/matches.json --asof "$AS_OF" --out artifacts/research/dataset.json --hour 3 --minute 7
+          python ml/train.py --input artifacts/research/dataset.json --output artifacts/research/training --experiment controlled-challenger --iterations 120 --depth 3 --folds 3
+          node scripts/research-lifecycle.js finalize-coherent --artifact artifacts/research/training/artifact.json --report artifacts/research/training/report.json --out artifacts/research/training/coherent --mode isotonic_1x2
+      - name: Preregister selected C deployment without adoption from development scores
         if: vars.RESEARCH_REGISTRY_WRITES_ENABLED == 'true'
-        run: node scripts/research-lifecycle.js register --artifact artifacts/research/training/coherent/artifact.json --report artifacts/research/training/coherent/report.json --dataset artifacts/research/dataset.json
-      - name: Check measured champion health and rollback if necessary
+        run: node scripts/research-lifecycle.js register-candidate --artifact artifacts/research/training/coherent/artifact.json --dataset artifacts/research/dataset.json --selector payout-aware-v1
+      - name: Review frozen future evidence and measured C deployment health
         if: vars.RESEARCH_REGISTRY_WRITES_ENABLED == 'true'
-        run: node scripts/research-lifecycle.js rollback-health
+        run: node scripts/research-lifecycle.js review-challenger
       - uses: actions/upload-artifact@v7
         if: always()
         with:

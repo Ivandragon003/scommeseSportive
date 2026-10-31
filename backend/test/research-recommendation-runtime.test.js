@@ -361,3 +361,75 @@ test('C refuses app statistical markets even if accidentally supplied in its quo
   assert.ok(!result.opportunities.some((value) => value.selection === stat.selection));
   assert.equal(result.exclusions.unsupported_quote_settlement, 1);
 });
+
+test('C906 remains the unchanged default; the payout-aware selector requires an explicit opt-in', () => {
+  const input = { decision: challenger(), quotes: quotes(), observedAt: at, allowedMarkets: ['1x2'] };
+  const previous = buildChallengerRecommendation(input);
+  assert.deepEqual(buildChallengerRecommendation({ ...input, selectionPolicy: 'legacy-c906' }), previous);
+  assert.equal(previous.policyVersion, CANONICAL_RECOMMENDATION_POLICY);
+  assert.equal('abstentionReason' in previous, false);
+  const independent = buildChallengerRecommendation({ ...input, selectionPolicy: 'payout-aware-v1' });
+  assert.equal(independent.policyVersion, 'challenger-payout-selection-v1');
+  assert.equal(independent.selected.selection, 'homeWin');
+  assert.equal(independent.selected.confidence, null);
+  assert.equal(independent.selected.suggestedStakePercent, 1);
+  assert.equal(independent.selected.quality.parameterUncertainty, null);
+  assert.equal(independent.selected.quality.prospectiveResidualSamples, null);
+  assert.equal(independent.abstentionReason, null);
+});
+
+test('the opt-in C policy evaluates quarter payouts without the legacy non-binary exclusion or an invented confidence', () => {
+  const quarter = quote('ahcp_-0.25', 'home', 2, { market: 'asian_handicap', line: -.25 });
+  const opposite = quote('ahcp_away_0.25', 'away', 2, { market: 'asian_handicap', line: .25 });
+  const input = { decision: challenger({ prudentialSamplesAvailable: 17 }), quotes: [...quotes(), quarter, opposite],
+    observedAt: at, allowedMarkets: ['1x2', 'asian_handicap'] };
+  const legacy = buildChallengerRecommendation(input);
+  const result = buildChallengerRecommendation({ ...input, selectionPolicy: 'payout-aware-v1' });
+  assert.equal(legacy.exclusions.non_binary_payout_not_supported_by_canonical_engine, 2);
+  assert.equal(result.exclusions.non_binary_payout_not_supported_by_canonical_engine, undefined);
+  assert.equal(result.selected.selection, quarter.selection);
+  assert.ok(Math.abs(result.selected.expectedValue - quoteForecast(matrix, quarter).expectedValue * 100) < 1e-10);
+  assert.equal(result.selected.confidence, null);
+  assert.equal(result.selected.quality.prospectiveResidualSamples, 17);
+  assert.equal(result.selected.quality.calibrationAvailableAt, input.decision.calibrationAvailableAt);
+  assert.equal(result.selected.suggestedStakePercent, 1);
+});
+
+test('the opt-in C policy preserves the precise technical failure instead of substituting an economic diagnosis', () => {
+  const result = buildChallengerRecommendation({ decision: challenger({ validated: false }), quotes: quotes(),
+    observedAt: at, allowedMarkets: ['1x2'], selectionPolicy: 'payout-aware-v1' });
+  assert.equal(result.selected, null);
+  assert.equal(result.abstentionReason, 'challenger_technical_validation_failed');
+  assert.deepEqual(result.exclusions, { challenger_technical_validation_failed: 1 });
+});
+
+test('an adopted C identity is exact and explicit while the default remains pinned to C906 and its original configuration', () => {
+  const adopted = challenger({ modelVersion: 'C-approved-fixture' });
+  const expectedIdentity = { modelVersion: adopted.modelVersion, baselineVersion: RECOMMENDATION_BASELINE_C,
+    probabilityConfigurationHash: adopted.probabilityConfigurationHash };
+  assert.equal(challengerTechnicalReason(adopted, at), 'challenger_model_version_mismatch');
+  assert.equal(challengerTechnicalReason(adopted, at, expectedIdentity), null);
+  assert.equal(challengerTechnicalReason(adopted, at, { ...expectedIdentity, probabilityConfigurationHash: '0'.repeat(64) }),
+    'challenger_configuration_mismatch');
+  assert.equal(challengerTechnicalReason(adopted, at, { ...expectedIdentity, baselineVersion: 'A-other' }),
+    'challenger_configuration_mismatch');
+  const input = { decision: adopted, quotes: quotes(), observedAt: at, allowedMarkets: ['1x2'], selectionPolicy: 'payout-aware-v1' };
+  assert.equal(buildChallengerRecommendation(input).selected, null);
+  assert.equal(buildChallengerRecommendation({ ...input, expectedIdentity }).selected.selection, 'homeWin');
+});
+
+test('the opted-in C builder consumes actual forecast quality and rejects future data while legacy output stays unchanged', () => {
+  const observed = { homeHistorySample: 25, awayHistorySample: 31, homeXgCoverage: .8, awayXgCoverage: 1,
+    historyAvailableThrough: '2026-10-29T22:00:00Z', modelFitAt: '2026-10-29T12:00:00Z' };
+  const decision = challenger({ challengerQuality: observed });
+  const input = { decision, quotes: quotes(), observedAt: at, allowedMarkets: ['1x2'] };
+  const packet = buildChallengerRecommendation({ ...input, selectionPolicy: 'payout-aware-v1' });
+  assert.equal(packet.selected.quality.homeHistorySample, 25);
+  assert.equal(packet.selected.quality.awayXgCoverage, 1);
+  assert.deepEqual(packet.selected.quality.dataQualityMissingFields, []);
+  const future = { ...decision, challengerQuality: { ...observed, historyAvailableThrough: '2026-10-30T10:00:01Z' } };
+  const refused = buildChallengerRecommendation({ ...input, decision: future, selectionPolicy: 'payout-aware-v1' });
+  assert.equal(refused.selected, null);
+  assert.equal(refused.abstentionReason, 'future_challenger_quality_evidence');
+  assert.deepEqual(buildChallengerRecommendation({ ...input, decision: future }), buildChallengerRecommendation(input));
+});

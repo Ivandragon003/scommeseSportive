@@ -11,6 +11,7 @@ import { ResearchRecommendationStore } from '../research/ResearchRecommendationS
 import { ResearchMonitoringStore } from '../research/ResearchMonitoring';
 import { ResearchWorkerCoordinator } from '../research/ResearchWorkerCoordinator';
 import { ResearchExperimentStore } from '../research/ResearchExperimentStore';
+import { ChallengerAdoptionStore } from '../research/ChallengerAdoption';
 import { SmartOddsRequestStore } from '../services/odds-provider/SmartOddsRequestStore';
 
 type SqlArgs = Record<string, any> | any[];
@@ -152,6 +153,7 @@ export class DatabaseService {
   public readonly researchMonitoring: ResearchMonitoringStore;
   public readonly researchWorker: ResearchWorkerCoordinator;
   public readonly researchExperiments: ResearchExperimentStore;
+  public readonly challengerAdoption: ChallengerAdoptionStore;
   public readonly oddsRequests: SmartOddsRequestStore;
   private static optionalColumnsCheckPromise: Promise<void> | null = null;
   private initPromise: Promise<void>;
@@ -184,6 +186,7 @@ export class DatabaseService {
     this.researchMonitoring = new ResearchMonitoringStore(this.db, () => this.initPromise);
     this.researchWorker = new ResearchWorkerCoordinator(this.db, () => this.initPromise);
     this.researchExperiments = new ResearchExperimentStore(this.db, () => this.initPromise);
+    this.challengerAdoption = new ChallengerAdoptionStore(this.db, () => this.initPromise);
     this.oddsRequests = new SmartOddsRequestStore(this.db, () => this.initPromise);
   }
 
@@ -366,13 +369,32 @@ export class DatabaseService {
   private splitMigrationStatements(sql: string): string[] {
     const statements: string[] = [];
     let start = 0;
-    let quote: "'" | '"' | '`' | null = null;
+    let quote: "'" | '"' | '`' | ']' | null = null;
+    let lineComment = false;
+    let blockComment = false;
+    let hasCode = false;
+    let prefix: string[] = [];
+    let trigger = false;
+    let triggerBody = false;
+    let triggerCommandStart = false;
+    let caseDepth = 0;
 
     for (let index = 0; index < sql.length; index += 1) {
       const character = sql[index];
+      if (lineComment) {
+        if (character === '\n' || character === '\r') lineComment = false;
+        continue;
+      }
+      if (blockComment) {
+        if (character === '*' && sql[index + 1] === '/') {
+          blockComment = false;
+          index += 1;
+        }
+        continue;
+      }
       if (quote) {
         if (character === quote) {
-          if (sql[index + 1] === quote) {
+          if (quote !== ']' && sql[index + 1] === quote) {
             index += 1;
           } else {
             quote = null;
@@ -380,17 +402,61 @@ export class DatabaseService {
         }
         continue;
       }
-      if (character === "'" || character === '"' || character === '`') {
-        quote = character;
+      if (character === '-' && sql[index + 1] === '-') {
+        lineComment = true;
+        index += 1;
+      } else if (character === '/' && sql[index + 1] === '*') {
+        blockComment = true;
+        index += 1;
+      } else if (character === "'" || character === '"' || character === '`' || character === '[') {
+        quote = character === '[' ? ']' : character;
+        hasCode = true;
+        if (triggerBody) triggerCommandStart = false;
+      } else if (/[A-Za-z_]/.test(character)) {
+        const tokenStart = index;
+        while (index + 1 < sql.length && /[A-Za-z0-9_$]/.test(sql[index + 1])) index += 1;
+        const token = sql.slice(tokenStart, index + 1).toUpperCase();
+        hasCode = true;
+        if (prefix.length < 3) prefix.push(token);
+        trigger = trigger || (prefix[0] === 'CREATE'
+          && (prefix[1] === 'TRIGGER'
+            || ((prefix[1] === 'TEMP' || prefix[1] === 'TEMPORARY') && prefix[2] === 'TRIGGER')));
+        if (trigger) {
+          if (token === 'CASE') caseDepth += 1;
+          else if (token === 'END' && caseDepth > 0) caseDepth -= 1;
+          else if (token === 'BEGIN' && !triggerBody) {
+            triggerBody = true;
+            triggerCommandStart = true;
+            continue;
+          } else if (token === 'END' && triggerCommandStart) triggerBody = false;
+          if (triggerBody) triggerCommandStart = false;
+        }
       } else if (character === ';') {
+        // Trigger commands have their own terminators. Only END; closes the
+        // trigger, and CASE ... END must not be mistaken for that outer END.
+        if (triggerBody) {
+          triggerCommandStart = true;
+          continue;
+        }
         const statement = sql.slice(start, index).trim();
-        if (statement) statements.push(statement);
+        if (hasCode) statements.push(statement);
         start = index + 1;
+        hasCode = false;
+        prefix = [];
+        trigger = false;
+        triggerCommandStart = false;
+        caseDepth = 0;
+      } else if (!/\s/.test(character)) {
+        hasCode = true;
+        if (triggerBody) triggerCommandStart = false;
       }
     }
 
+    if (quote || blockComment || triggerBody || caseDepth > 0) {
+      throw new Error('Unterminated SQL quote, comment or trigger in migration');
+    }
     const tail = sql.slice(start).trim();
-    if (tail) statements.push(tail);
+    if (hasCode) statements.push(tail);
     return statements;
   }
 

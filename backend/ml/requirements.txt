@@ -1,2 +1,4 @@
 catboost==1.2.8
 numpy>=1.26,<3
+# Windows commonly lacks the system IANA database used by Python's standard zoneinfo.
+tzdata>=2024.1; sys_platform == "win32"

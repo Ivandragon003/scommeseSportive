@@ -10,7 +10,9 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool, __version__ as catboost_version
@@ -18,10 +20,85 @@ from catboost import CatBoostClassifier, CatBoostRegressor, Pool, __version__ as
 KINDS = ("intensity_correction", "probability_correction", "calibrated_ensemble")
 WEIGHTS = (0.0, 0.1, 0.25, 0.5, 0.75, 1.0)
 TEMPERATURES = (0.8, 0.9, 1.0, 1.1, 1.25)
+CHALLENGER_SCHEMA = "prematch-challenger-v2"
+CHALLENGER_PROTOCOL = "asof-opponent-xg-calendar-v1"
+SPLIT_PROTOCOL = "purged-temporal-train-selection-calibration-test-v1"
+TEAM_FEATURES = ("elo", "sample", "goals_for", "goals_against", "xg_for", "xg_against", "xg_coverage",
+                 "shots_for", "shots_against", "recent_points", "recent_goal_diff", "venue_goals_for",
+                 "venue_goals_against", "rest_days", "season_goals_for", "season_goals_against")
+LEGACY_FEATURES = [f"{side}_{name}" for side in ("home", "away") for name in TEAM_FEATURES] + [
+    "elo_difference", "lambda_home_A", "lambda_away_A"] + [f"league_{index}" for index in range(5)]
+FEATURE_BLOCKS = {
+    "recent_xg": [f"{side}_{name}" for side in ("home", "away") for name in (
+        "recent_xg_for", "recent_xg_against", "recent_adjusted_xg_for", "recent_adjusted_xg_against", "recent_xg_coverage")],
+    "schedule": [f"{side}_{name}" for side in ("home", "away") for name in (
+        "observed_rest_days", "observed_matches_7d", "observed_matches_14d")],
+}
+CONTROLLED_ARMS = (
+    {"name": "no_ml", "kind": "no_ml", "blocks": [], "weight": 0.0, "temperature": 1.0},
+    {"name": "development_current_replica", "kind": "calibrated_ensemble", "blocks": [], "weight": .75, "temperature": .8},
+    {"name": "intensity_legacy", "kind": "intensity_correction", "blocks": [], "weight": .25, "temperature": 1.0},
+    {"name": "intensity_recent_xg", "kind": "intensity_correction", "blocks": ["recent_xg"], "weight": .25, "temperature": 1.0},
+    {"name": "intensity_schedule", "kind": "intensity_correction", "blocks": ["schedule"], "weight": .25, "temperature": 1.0},
+    {"name": "intensity_full", "kind": "intensity_correction", "blocks": ["recent_xg", "schedule"], "weight": .25, "temperature": 1.0},
+)
 
 
 def timestamp(value):
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp_requires_timezone")
+    return parsed.timestamp()
+
+
+@lru_cache(maxsize=1)
+def rome_timezone():
+    try:
+        return ZoneInfo("Europe/Rome")
+    except ZoneInfoNotFoundError as error:
+        raise ValueError("rome_timezone_data_unavailable_install_tzdata") from error
+
+
+def nightly_decision_schedule(dataset):
+    declared = dataset.get("decisionSchedule", {})
+    if not isinstance(declared, dict):
+        raise ValueError("invalid_nightly_decision_schedule")
+    hour, minute = declared.get("hour", 3), declared.get("minute", 7)
+    if (type(hour) is not int or not 0 <= hour <= 23 or type(minute) is not int or not 0 <= minute <= 59
+            or declared.get("timezone", "Europe/Rome") != "Europe/Rome"):
+        raise ValueError("invalid_nightly_decision_schedule")
+    return {"hour": hour, "minute": minute, "timezone": "Europe/Rome"}
+
+
+def resolve_nightly_forecast_at(kickoff_at, schedule):
+    """Last real Rome boundary, including skipped and repeated local DST times."""
+    kickoff = timestamp(kickoff_at)
+    rome = rome_timezone()
+    local_date = datetime.fromtimestamp(kickoff, timezone.utc).astimezone(rome)
+    candidates = set()
+    for days_back in range(3):
+        date = local_date - timedelta(days=days_back)
+        wall = datetime(date.year, date.month, date.day, schedule["hour"], schedule["minute"])
+        for fold in (0, 1):
+            utc = wall.replace(tzinfo=rome, fold=fold).astimezone(timezone.utc)
+            # Nonexistent spring times fail this round trip. Repeated times produce two real candidates.
+            if utc.astimezone(rome).replace(tzinfo=None) == wall and utc.timestamp() < kickoff:
+                candidates.add(utc.timestamp())
+    if not candidates:
+        raise ValueError("nightly_decision_boundary_unavailable")
+    return max(candidates)
+
+
+def check_nightly_decision_time(row, schedule, recorded_times):
+    forecast, kickoff = timestamp(row["forecastAt"]), timestamp(row["kickoffAt"])
+    expected = resolve_nightly_forecast_at(row["kickoffAt"], schedule)
+    recorded = recorded_times.get(row["matchId"])
+    if recorded is not None:
+        observed = timestamp(recorded)
+        if forecast != observed or observed < expected or observed >= kickoff:
+            raise ValueError("recorded_nightly_time_mismatch")
+    elif forecast != expected:
+        raise ValueError("nightly_forecast_time_mismatch")
 
 
 def normalize(matrix):
@@ -105,7 +182,7 @@ def export_model(model, path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def train_candidates(train, features, output, iterations, depth):
+def train_candidates(train, features, output, iterations, depth, kinds=KINDS):
     x = np.array([row["features"] for row in train], dtype=float)
     labels = np.array([class_of(row) for row in train])
     base_probs = np.array([result_probabilities(normalize(row["baselineMatrix"])) for row in train])
@@ -113,6 +190,8 @@ def train_candidates(train, features, output, iterations, depth):
                   thread_count=2, verbose=False, allow_writing_files=False)
     models = {}
     for residual, kind in ((True, KINDS[0]), (False, KINDS[2])):
+        if kind not in kinds:
+            continue
         pair = {}
         for side in ("home", "away"):
             y = np.array([row[f"{side}Goals"] for row in train], dtype=float)
@@ -122,11 +201,12 @@ def train_candidates(train, features, output, iterations, depth):
             model.fit(pool)
             pair[side] = model
         models[kind] = pair
-    if len(set(labels)) < 3:
-        raise ValueError("training_requires_all_three_1x2_outcomes")
-    probability = CatBoostClassifier(loss_function="MultiClass", classes_count=3, **common)
-    probability.fit(Pool(x, label=labels, baseline=np.log(np.maximum(1e-12, base_probs)), feature_names=features))
-    models[KINDS[1]] = {"probability": probability}
+    if KINDS[1] in kinds:
+        if len(set(labels)) < 3:
+            raise ValueError("training_requires_all_three_1x2_outcomes")
+        probability = CatBoostClassifier(loss_function="MultiClass", classes_count=3, **common)
+        probability.fit(Pool(x, label=labels, baseline=np.log(np.maximum(1e-12, base_probs)), feature_names=features))
+        models[KINDS[1]] = {"probability": probability}
     exported = {}
     for kind, bundle in models.items():
         exported[kind] = {name: export_model(model, output / f"{kind}-{name}.json") for name, model in bundle.items()}
@@ -194,11 +274,206 @@ def chronological_folds(rows, fold_count):
         yield fold_index, train, selection, calibration, test
 
 
+def protected_holdout_policy():
+    return json.loads((Path(__file__).resolve().parents[1] / "src/research/original-holdout-policy.json").read_text(encoding="utf-8"))
+
+
+def checked_dataset(dataset, controlled=False):
+    features, original = dataset["featureNames"], dataset["rows"]
+    if not original or not features:
+        raise ValueError("empty_training_dataset")
+    if len({row["matchId"] for row in original}) != len(original):
+        raise ValueError("duplicate_training_match")
+    policy = protected_holdout_policy()
+    protected = set(policy["protectedOriginalFinalMatchIds"])
+    rows = sorted((row for row in original if row["matchId"] not in protected),
+                  key=lambda row: (timestamp(row["forecastAt"]), row["matchId"]))
+    if not rows:
+        raise ValueError("no_unprotected_training_rows")
+    if controlled:
+        blocks = dataset.get("featureBlocks", [])
+        expected = LEGACY_FEATURES + [name for block in blocks for name in FEATURE_BLOCKS.get(block, [])]
+        timing = dataset.get("forecastTiming", {})
+        if (dataset.get("schemaVersion") != CHALLENGER_SCHEMA or len(set(blocks)) != len(blocks)
+                or set(blocks) != set(FEATURE_BLOCKS) or features != expected):
+            raise ValueError("controlled_challenger_requires_both_versioned_feature_blocks")
+        if ("nightly" not in str(timing.get("policy", "")).lower()
+                or timing.get("forecastBeforeKickoff") is not True or timing.get("resultDelayMs") != 7200000):
+            raise ValueError("controlled_challenger_requires_real_nightly_forecast_times")
+        schedule = nightly_decision_schedule(dataset)
+        recorded_times = dataset.get("recordedDecisionTimes", {})
+        if not isinstance(recorded_times, dict) or any(not isinstance(value, str) for value in recorded_times.values()):
+            raise ValueError("invalid_recorded_nightly_times")
+    for row in rows:
+        if (len(row["features"]) != len(features)
+                or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in row["features"])):
+            raise ValueError("invalid_numeric_features")
+        if row.get("featureNames", features) != features or row.get("featureSchema", dataset["schemaVersion"]) != dataset["schemaVersion"]:
+            raise ValueError("row_feature_schema_mismatch")
+        forecast = timestamp(row["forecastAt"])
+        if row.get("maxTrainingAvailableAt") and timestamp(row["maxTrainingAvailableAt"]) > forecast:
+            raise ValueError("future_feature_information")
+        extra = row.get("challengerFeatureMetadata", {})
+        if extra.get("maxHistoryAvailableAt") and timestamp(extra["maxHistoryAvailableAt"]) > forecast:
+            raise ValueError("future_challenger_feature_information")
+        if timestamp(row["modelFitAt"]) > forecast:
+            raise ValueError("future_baseline_parameters")
+        if forecast >= timestamp(row["kickoffAt"]):
+            raise ValueError("postkickoff_training_forecast")
+        if controlled:
+            check_nightly_decision_time(row, schedule, recorded_times)
+        if timestamp(row["availableAt"]) < timestamp(row["kickoffAt"]) + 7200:
+            raise ValueError("result_available_before_conservative_delay")
+        if dataset.get("asOf") and timestamp(row["availableAt"]) > timestamp(dataset["asOf"]):
+            raise ValueError("future_training_label")
+        if any(not isinstance(row[key], (int, float)) or isinstance(row[key], bool)
+               or not math.isfinite(row[key]) or row[key] < 0 or int(row[key]) != row[key] for key in ("homeGoals", "awayGoals")):
+            raise ValueError("invalid_observed_goals")
+    return features, rows, {"policyVersion": policy["version"], "excluded": len(original) - len(rows) + int(dataset.get("protectedMatchesExcluded", 0)),
+                            "excludedInTrainer": len(original) - len(rows),
+                            "protectedFinalCount": len(protected), "protectedRowsUsed": 0}
+
+
+def split_manifest(train, selection, calibration, test):
+    def interval(rows):
+        return {"n": len(rows), "from": min((row["forecastAt"] for row in rows), key=timestamp),
+                "to": max((row["forecastAt"] for row in rows), key=timestamp),
+                "availableThrough": max((row["availableAt"] for row in rows), key=timestamp),
+                "matchIdsHash": hashlib.sha256("\n".join(sorted(row["matchId"] for row in rows)).encode()).hexdigest()}
+    result = {"protocol": SPLIT_PROTOCOL, "train": interval(train), "selection": interval(selection),
+              "calibration": interval(calibration), "test": interval(test)}
+    for earlier, later in (("train", "selection"), ("selection", "calibration"), ("calibration", "test")):
+        if (timestamp(result[earlier]["to"]) >= timestamp(result[later]["from"])
+                or timestamp(result[earlier]["availableThrough"]) >= timestamp(result[later]["from"])):
+            raise ValueError("non_disjoint_or_unpurged_training_split")
+    return result
+
+
+def project_feature_rows(rows, source_names, blocks):
+    names = LEGACY_FEATURES + [name for block in blocks for name in FEATURE_BLOCKS[block]]
+    indices = [source_names.index(name) for name in names]
+    return names, [{**row, "features": [row["features"][index] for index in indices], "featureNames": names,
+                    "featureSchema": CHALLENGER_SCHEMA if blocks else "prematch-numeric-v1"} for row in rows]
+
+
+def arm_matrices(rows, arm, models):
+    baseline = [normalize(row["baselineMatrix"]) for row in rows]
+    if arm["kind"] == "no_ml":
+        return baseline
+    raw = raw_matrices(rows, arm["kind"], models)
+    return [calibrated_mix(base, ml, arm["weight"], arm["temperature"]) for base, ml in zip(baseline, raw)]
+
+
+def run_controlled(args):
+    """Six declared arms, one fixed fit each: no parameter search, no protected holdout reuse."""
+    dataset_bytes = Path(args.input).read_bytes()
+    dataset = json.loads(dataset_bytes)
+    source_names, rows, holdout = checked_dataset(dataset, controlled=True)
+    output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
+    dataset_hash = hashlib.sha256(dataset_bytes).hexdigest()
+    trainer_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    iterations, depth = min(args.iterations, 200), min(args.depth, 3)
+    folds, predictions, last_artifacts, parity = [], [], {}, []
+    for fold_index, train, selection, calibration, test in chronological_folds(rows, args.folds):
+        split = split_manifest(train, selection, calibration, test)
+        fold_dir = output / f"fold-{fold_index}"; fold_dir.mkdir(exist_ok=True)
+        arm_outputs, comparisons = {}, []
+        for arm in CONTROLLED_ARMS:
+            name, blocks = arm["name"], arm["blocks"]
+            features, training = project_feature_rows(train, source_names, blocks)
+            _, selecting = project_feature_rows(selection, source_names, blocks)
+            _, calibrating = project_feature_rows(calibration, source_names, blocks)
+            _, testing = project_feature_rows(test, source_names, blocks)
+            arm_dir = fold_dir / name; arm_dir.mkdir(exist_ok=True)
+            if arm["kind"] == "no_ml":
+                model, exported = {}, {}
+            else:
+                trained, bundles = train_candidates(training, features, arm_dir, iterations, depth, kinds=(arm["kind"],))
+                model, exported = trained[arm["kind"]], bundles[arm["kind"]]
+            selected_matrices = arm_matrices(selecting, arm, model)
+            calibration_matrices = arm_matrices(calibrating, arm, model)
+            test_matrices = arm_matrices(testing, arm, model)
+            selection_metric, _, _ = matrix_metrics(selecting, selected_matrices)
+            test_metric, _, _ = matrix_metrics(testing, test_matrices)
+            identity = {"dataset": dataset_hash, "trainer": trainer_hash, "fold": fold_index, "arm": arm,
+                        "iterations": iterations, "depth": depth, "split": split}
+            version = "C-" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
+            artifact = {"version": version, "family": "C", "featureNames": features,
+                "featureSchema": CHALLENGER_SCHEMA if blocks else "prematch-numeric-v1", "featureBlocks": blocks,
+                "featureProtocol": CHALLENGER_PROTOCOL, "baselineVersion": dataset["baselineManifest"]["version"],
+                "trainedThrough": split["train"]["availableThrough"],
+                "validationThrough": max((split[part]["availableThrough"] for part in ("selection", "calibration")), key=timestamp),
+                "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "candidateKind": arm["kind"], "models": exported, "weight": arm["weight"], "temperature": arm["temperature"],
+                "trainingForecastTiming": dataset["forecastTiming"], "trainingDecisionSchedule": nightly_decision_schedule(dataset),
+                "recordedDecisionTimesHash": hashlib.sha256(json.dumps(dataset.get("recordedDecisionTimes", {}), sort_keys=True).encode()).hexdigest(),
+                "trainingSplit": split, "datasetHash": dataset_hash,
+                "trainerHash": trainer_hash, "catboostVersion": catboost_version, "comparisonArm": name,
+                "hyperparameters": {"iterations": iterations, "depth": depth, "learningRate": .05, "seed": 20261027, "threadCount": 2},
+                "holdoutProtection": holdout, "oddsAsFeatures": False, "status": "CANDIDATE", "productionValidated": False,
+                "availability": "retrospective_development", "independentEvidence": False,
+                "selectionProtocol": "Six preregistered arms with fixed weights/temperature; select only on selection interval; calibration/test disjoint.",
+                "metrics": {"selection": selection_metric, "test": test_metric},
+                "calibrationPredictions": [{"matchId": row["matchId"], "availableAt": row["availableAt"],
+                    "forecastAt": row["forecastAt"], "kickoffAt": row["kickoffAt"], "competition": row["competition"],
+                    "season": row.get("season"), "homeGoals": row["homeGoals"], "awayGoals": row["awayGoals"],
+                    "matrixA": row["baselineMatrix"], "matrixC": matrix.tolist(), "probabilitiesA": row["baselineProbabilities"],
+                    "probabilitiesC": {key: float(value) for key, value in zip(("homeWin", "draw", "awayWin"), result_probabilities(matrix))}}
+                    for row, matrix in zip(calibrating, calibration_matrices)]}
+            artifact_path = arm_dir / "artifact.json"
+            artifact_path.write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+            arm_outputs[name] = {"artifact": artifact, "test": test_matrices, "artifactPath": str(artifact_path)}
+            comparisons.append({"name": name, "version": version, "kind": arm["kind"], "featureBlocks": blocks,
+                "weight": arm["weight"], "temperature": arm["temperature"], "selection": selection_metric,
+                "test": test_metric, "artifactPath": str(artifact_path), "availability": "retrospective_development"})
+            parity.extend({"arm": name, "version": version, "features": row["features"], "featureNames": features,
+                "models": exported, "raw": {key: np.asarray(value.predict(np.array([row["features"]]),
+                    prediction_type="RawFormulaVal")).reshape(-1).tolist() for key, value in model.items()}}
+                for row in testing[:min(2, len(testing))])
+        chosen = min(comparisons, key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
+        fold = {"fold": fold_index, "trainingSplit": split, "selectedVariant": chosen, "comparisons": comparisons}
+        folds.append(fold)
+        last_artifacts = {name: value["artifact"] for name, value in arm_outputs.items()}
+        for index, row in enumerate(test):
+            variants = {name: {"matrix": value["test"][index].tolist(), "version": value["artifact"]["version"],
+                "trainedThrough": value["artifact"]["trainedThrough"], "validationThrough": value["artifact"]["validationThrough"],
+                "artifactPath": value["artifactPath"], "availability": "retrospective_development"}
+                for name, value in arm_outputs.items()}
+            predictions.append({"matchId": row["matchId"], "competition": row["competition"], "season": row.get("season"),
+                "homeTeamId": row.get("homeTeamId"), "awayTeamId": row.get("awayTeamId"),
+                "forecastAt": row["forecastAt"], "kickoffAt": row["kickoffAt"], "availableAt": row["availableAt"],
+                "homeGoals": row["homeGoals"], "awayGoals": row["awayGoals"], "baselineVersion": row["baselineVersion"],
+                "matrixA": row["baselineMatrix"], "probabilitiesA": row["baselineProbabilities"], "variants": variants,
+                "selectedVariant": chosen, "matrixC": variants[chosen]["matrix"], "versionC": variants[chosen]["version"],
+                "trainedThrough": variants[chosen]["trainedThrough"], "validationThrough": variants[chosen]["validationThrough"]})
+        print(json.dumps({"fold": fold_index, "arms": len(comparisons), "selected": chosen,
+                          "train": len(train), "selection": len(selection), "calibration": len(calibration), "test": len(test)}), flush=True)
+    if not folds:
+        raise ValueError("insufficient_purged_chronological_folds")
+    report = {"schemaVersion": "controlled-challenger-development-v1", "datasetHash": dataset_hash,
+        "baselineManifest": dataset["baselineManifest"], "forecastTiming": dataset["forecastTiming"],
+        "decisionSchedule": nightly_decision_schedule(dataset),
+        "holdoutProtection": holdout, "arms": list(CONTROLLED_ARMS), "folds": folds, "predictions": predictions,
+        "independentEvidence": False, "productionPromotion": False, "conclusion": "development_only_requires_future_independent_validation",
+        "limitations": ["The current replica is retrained development code, not the frozen C906 artifact.",
+            "Original 745 protected targets were excluded before all split and selection operations.",
+            "Calendar features count only completed matches with available results; unseen fixtures are not invented.",
+            "Historical result-delay assumptions do not establish actual provider capture times.",
+            "No economic performance or promotion is inferred from probability metrics."]}
+    for name, artifact in last_artifacts.items():
+        (output / f"artifact-{name}.json").write_text(json.dumps(artifact, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    (output / "artifact.json").write_text(json.dumps(last_artifacts[folds[-1]["selectedVariant"]], separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    (output / "report.json").write_text(json.dumps(report, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    (output / "parity.json").write_text(json.dumps({"rows": parity}, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    print(json.dumps({"report": str(output / "report.json"), "rows": len(rows), "testPredictions": len(predictions),
+                      "protectedRowsExcluded": holdout["excluded"], "independentEvidence": False, "productionPromotion": False}), flush=True)
+
+
 def run(args):
     dataset_path = Path(args.input)
     dataset_bytes = dataset_path.read_bytes()
     dataset = json.loads(dataset_bytes)
-    features, rows = dataset["featureNames"], dataset["rows"]
+    features, rows, holdout_protection = checked_dataset(dataset)
     if not rows or not features:
         raise ValueError("empty_training_dataset")
     rows = sorted(rows, key=lambda row: (timestamp(row["forecastAt"]), row["matchId"]))
@@ -220,6 +495,7 @@ def run(args):
     folds, all_predictions, all_test_rows, all_a, all_c = [], [], [], [], []
     artifact = None
     for fold_index, train, validation, calibration, test in chronological_folds(rows, args.folds):
+        training_split = split_manifest(train, validation, calibration, test)
         fold_dir = output / f"fold-{fold_index}"; fold_dir.mkdir(exist_ok=True)
         models, exported = train_candidates(train, features, fold_dir, args.iterations, args.depth)
         baselines = [normalize(row["baselineMatrix"]) for row in validation]
@@ -264,6 +540,9 @@ def run(args):
                     "trainedThrough": trained_through, "validationThrough": validation_through, "createdAt": created,
                     "candidateKind": chosen, "models": exported[chosen], "weight": selected["weight"],
                     "temperature": selected["temperature"], "datasetHash": identity["dataset"],
+                    "trainingSplit": training_split, "trainingForecastTiming": dataset.get("forecastTiming", {
+                        "policy": "legacy-input-forecast-times", "resultDelayMs": 7200000, "forecastBeforeKickoff": True}),
+                    "holdoutProtection": holdout_protection,
                     "catboostVersion": catboost_version, "trainerHash": identity["trainerHash"], "hyperparameters": {"iterations": args.iterations, "depth": args.depth,
                     "learningRate": 0.05, "seed": 20261027, "threadCount": 2}, "oddsAsFeatures": False,
                     "selectionProtocol": "Expanding chronological training; weight, candidate and joint temperature selected on preceding validation only; test untouched.",
@@ -292,6 +571,7 @@ def run(args):
     metrics_c, losses_c, brier_c = matrix_metrics(all_test_rows, all_c)
     interval = paired_interval(all_test_rows, losses_c - losses_a)
     report = {"schemaVersion": "research-benchmark-v1", "datasetHash": hashlib.sha256(dataset_bytes).hexdigest(),
+              "holdoutProtection": holdout_protection,
               "baselineManifest": dataset["baselineManifest"], "type": "historical_probability_walk_forward",
               "economicBacktest": "not_performed_without_separately_verified_historical_odds",
               "folds": folds, "metricsA": metrics_a, "metricsC": metrics_c,
@@ -324,7 +604,8 @@ if __name__ == "__main__":
     parser.add_argument("--iterations", type=int, default=120)
     parser.add_argument("--depth", type=int, default=5)
     parser.add_argument("--folds", type=int, default=3)
+    parser.add_argument("--experiment", choices=("legacy", "controlled-challenger"), default="legacy")
     options = parser.parse_args()
     if not (5 <= options.iterations <= 1000 and 2 <= options.depth <= 8 and 1 <= options.folds <= 8):
         parser.error("iterations must be 5..1000, depth 2..8, folds 1..8")
-    run(options)
+    (run_controlled if options.experiment == "controlled-challenger" else run)(options)

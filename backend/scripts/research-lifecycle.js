@@ -2,7 +2,8 @@
 const { readFileSync, writeFileSync, mkdirSync, existsSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { enrichLifecycleArtifact, enrichCoherentLifecycleArtifact, rebindCoherentTrainerReport,
-  registerLifecycleCandidate, rollbackUnhealthyChampion } = require('../dist/research/ResearchLifecycle');
+  registerLifecycleCandidate, registerControlledChallengerCandidate, rollbackUnhealthyChampion } = require('../dist/research/ResearchLifecycle');
+const { createHash } = require('node:crypto');
 
 const [command, ...argv] = process.argv.slice(2);
 const args = {};
@@ -35,11 +36,27 @@ async function main() {
     console.log(JSON.stringify({ version: artifact.version, calibrators: Object.keys(artifact.calibrationProfiles || {}), registryWrites: false }));
     return;
   }
-  if (!['register', 'rollback-health'].includes(command)) throw new Error('Commands: finalize --artifact PATH; register --artifact PATH --report PATH [--dataset PATH]; rollback-health');
+  if (!['register', 'rollback-health', 'register-candidate', 'review-challenger'].includes(command)) {
+    throw new Error('Commands: finalize; finalize-coherent; register; rollback-health; register-candidate --artifact PATH --dataset PATH --selector POLICY; review-challenger');
+  }
+  if (command === 'register-candidate' && (!args.artifact || !args.dataset || !args.selector)) {
+    throw new Error('--artifact, --dataset and explicit --selector required');
+  }
   const { DatabaseService } = require('../dist/db/DatabaseService');
   const db = new DatabaseService();
   try {
-    const result = command === 'rollback-health' ? await rollbackUnhealthyChampion(db)
+    let result;
+    if (command === 'review-challenger') {
+      result = await db.challengerAdoption.reviewCandidates();
+      result = { state: result.state, rollback: result.rollback,
+        assessments: result.assessments.map(({ adopted, reason, report, state }) => ({ adopted, reason, state,
+          candidateId: report?.candidateId, validation: report?.validation, blockers: report?.blockers })) };
+    } else if (command === 'register-candidate') {
+      const datasetBytes = readFileSync(resolve(args.dataset));
+      result = await registerControlledChallengerCandidate(db, { artifact: load(args.artifact),
+        datasetHash: createHash('sha256').update(datasetBytes).digest('hex'),
+        datasetRows: JSON.parse(datasetBytes.toString('utf8')).rows, selectorPolicy: args.selector });
+    } else result = command === 'rollback-health' ? await rollbackUnhealthyChampion(db)
       : await registerLifecycleCandidate(db, { artifact: load(args.artifact), report: load(args.report),
         datasetRows: args.dataset ? load(args.dataset).rows : undefined });
     console.log(JSON.stringify(result));

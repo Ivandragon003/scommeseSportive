@@ -279,6 +279,46 @@ test('an authentic diagnostic C abstention does not veto an independently valid 
   assert.ok(executions.filter((decision) => decision.family === 'C').every((decision) => decision.action === 'ABSTAIN'));
 });
 
+test('an unreadable adoption registry blocks only C rather than guessing the C906 fallback', async (t) => {
+  const f = await fixture(t, { matches: 1 }); let stateReads = 0, pinned;
+  f.db.challengerAdoption = { reviewCandidates: async () => {}, getState: async () => {
+    stateReads++; throw Error('Private adopted registry unavailable');
+  } };
+  f.runtime.beginCohort = (_runId, state) => { pinned = state; };
+  const result = await execute(f);
+  assert.equal(stateReads, 1); assert.equal(pinned.resolutionUnavailable, true);
+  assert.equal(result.protocol, 'virtual-recommendation-v3'); assert.ok(result.errors > 0);
+  const bets = await f.research.listBets();
+  assert.equal(bets.length, 1); assert.equal(bets[0].family, 'A'); assert.equal(bets[0].stakeCents, 1500);
+  const c = (await f.recommendations.listDecisions()).find((row) => row.family === 'C');
+  assert.equal(c.action, 'ABSTAIN'); assert.equal(c.reason, 'adoption_state_unavailable');
+  assert.doesNotMatch(JSON.stringify(f.runs), /Private adopted/);
+});
+
+test('failed candidate review still reads and pins the actual adopted C while preserving A advice', async (t) => {
+  const f = await fixture(t, { matches: 1 }); let stateReads = 0, pinned;
+  const state = { source: 'adopted', revision: 'actual-adoption', deployment: {
+    modelVersion: 'C-already-adopted', baselineVersion: baselineManifest().version, selectorPolicy: 'payout-aware-v1',
+    probabilityConfigurationHash: '1'.repeat(64), artifactHash: '2'.repeat(64) } };
+  await f.research.saveModel({ family: 'C', version: state.deployment.modelVersion, artifact: { fixtureOnly: true } });
+  await f.research.setMarketState({ family: 'C', modelVersion: state.deployment.modelVersion, market: '1x2', state: 'EXPERIMENTAL' });
+  f.db.challengerAdoption = { reviewCandidates: async () => { throw Error('Private review failure'); },
+    getState: async () => { stateReads++; return state; } };
+  f.runtime.beginCohort = (_runId, value) => { pinned = value; };
+  const prepare = f.runtime.prepare;
+  f.runtime.prepare = async (job) => {
+    const item = await prepare(job);
+    item.decisions.find((row) => row.family === 'C').modelVersion = pinned.deployment.modelVersion;
+    return item;
+  };
+  const result = await execute(f);
+  assert.equal(stateReads, 1); assert.deepEqual(pinned, state); assert.ok(result.errors > 0);
+  const bets = await f.research.listBets();
+  assert.equal(bets.length, 2); assert.equal(bets.find((row) => row.family === 'C').modelVersion, state.deployment.modelVersion);
+  assert.equal(bets.find((row) => row.family === 'A').stakeCents, 1500);
+  assert.equal(result.reasonCounts.adoption_state_unavailable, undefined);
+});
+
 test('execution preparation errors and lost leases release owned jobs and cannot leave a successful financial summary', async (t) => {
   for (const options of [{ prepareError: true }, { leaseLost: true, delay: 300 }]) {
     const f = await fixture(t, { matches: 1, ...options });

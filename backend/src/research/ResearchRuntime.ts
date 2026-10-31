@@ -16,9 +16,11 @@ import { rollbackUnhealthyChampion } from './ResearchLifecycle';
 import { randomUUID } from 'node:crypto';
 import { ResearchWorkerCoordinator, WorkerLease, WORKER_RENEWAL_MS } from './ResearchWorkerCoordinator';
 import { buildFrozenProspectiveObservations, FrozenProspectiveObservation } from './ResearchProspectiveEvidence';
+import { CHALLENGER_FEATURE_SCHEMA_VERSION, withChallengerFeatures, ChallengerFeatureBlock } from './ChallengerFeatures';
+import type { ChallengerExecutionDeployment } from './ResearchRecommendationPolicy';
 
 type RuntimeDb = Pick<DatabaseService, 'research' | 'getUpcomingMatches' | 'getMatchById' | 'getMatches'
-  | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests'>>;
+  | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests' | 'challengerAdoption'>>;
 type OddsFeed = Pick<OddsApiService, 'getOdds'> & Partial<Pick<OddsApiService, 'getQuotaStatus'>>;
 type LiveResearchQuote = ResearchQuote & { updatedAt: string };
 type RuntimeModelContext = { championC: any; latestCandidate: any; candidateC: any; cacheable: boolean;
@@ -153,6 +155,10 @@ export class ResearchRuntime {
   private claimedJobs: T15Job[] = [];
   private readonly nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number };
   private readonly candidateVersionC?: string;
+  private deploymentC?: ChallengerExecutionDeployment;
+  private collectingCandidates: ReturnType<NonNullable<RuntimeDb['challengerAdoption']>['listCollectingCandidates']> | undefined;
+  private readonly pairedForecastMatches = new Set<string>();
+  private readonly pairedForecastReports = new Map<string, Record<string, unknown>>();
   private readonly prospectiveSamples = new Map<string, { asOf: string; samples: CalibrationSample[] }>();
   private nightlyCohortId: string | undefined;
   private nightlyModelContext: Promise<RuntimeModelContext> | undefined;
@@ -163,7 +169,8 @@ export class ResearchRuntime {
 
   constructor(private readonly db: RuntimeDb, options: { clock?: () => Date; odds?: OddsFeed;
     coordinator?: ResearchWorkerCoordinator; ownerId?: string; onTick?: (summary: T15TickSummary) => void;
-    nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number }; candidateVersionC?: string } = {}) {
+    nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number }; candidateVersionC?: string;
+    deploymentC?: ChallengerExecutionDeployment } = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.coordinator = options.coordinator;
     this.ownerId = options.ownerId ?? randomUUID();
@@ -173,6 +180,7 @@ export class ResearchRuntime {
       throw new Error('Invalid pinned C model version');
     }
     this.candidateVersionC = options.candidateVersionC;
+    if (options.deploymentC) this.pinChallengerDeployment(options.deploymentC);
     this.odds = options.odds ?? new OddsApiService(getConfiguredOddsApiKey(options.nightly ? 'default' : 't15'), {
       store: this.db.oddsRequests, operation: options.nightly ? 'nightly' : 't15', priority: 'essential',
       cacheMaxAgeMs: options.nightly?.quoteMaxAgeMs ?? 300_000,
@@ -214,6 +222,16 @@ export class ResearchRuntime {
   }
 
   status() { return { ...this.state }; }
+
+  /** One approved C tuple is held for the entire batch; A's input and engine are untouched. */
+  pinChallengerDeployment(deployment: ChallengerExecutionDeployment): void {
+    if (!/^C-[a-zA-Z0-9._-]{1,128}$/.test(deployment.modelVersion) || !deployment.baselineVersion?.trim()
+      || !['canonical-binary-v1', 'payout-aware-v1'].includes(deployment.selectorPolicy)
+      || [deployment.probabilityConfigurationHash, deployment.artifactHash]
+        .some((hash) => hash !== null && !/^[a-f0-9]{64}$/i.test(hash))) throw new Error('Invalid pinned C deployment');
+    this.deploymentC = Object.freeze({ ...deployment });
+    this.nightlyModelContext = undefined;
+  }
 
   private async assertWorkerLease(): Promise<void> {
     if (!this.coordinator) return;
@@ -371,9 +389,11 @@ export class ResearchRuntime {
     const { championC, latestCandidate, candidateC } = context;
     const decisions: T15Decision[] = [];
     const prospectiveObservations: FrozenProspectiveObservation[] = [];
+    let challengerInput: ForecastInput | undefined;
     for (const family of ['A', 'C'] as const) {
       const modelVersion = family === 'A' ? input.baselineVersion : candidateC?.version ?? 'C-unavailable';
       const artifact = candidateC?.artifact as HybridArtifact | undefined;
+      let familyInput = input;
       let matrix = input.baselineMatrix; let probabilities = input.baselineProbabilities;
       let failure: string | undefined;
       if (family === 'C') {
@@ -381,7 +401,12 @@ export class ResearchRuntime {
         else try {
           validateArtifact(artifact);
           if (artifact!.version !== modelVersion) throw new Error('registry_model_version_mismatch');
-          const predicted = predictHybrid(input, artifact!);
+          if (this.deploymentC?.artifactHash && researchHash(artifact) !== this.deploymentC.artifactHash) throw new Error('deployment_artifact_mismatch');
+          if (artifact!.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION) {
+            familyInput = withChallengerFeatures(input, this.historyCache.rows, artifact!.featureBlocks as ChallengerFeatureBlock[]);
+            challengerInput = familyInput;
+          }
+          const predicted = predictHybrid(familyInput, artifact!);
           matrix = predicted.matrix; probabilities = predicted.probabilities;
         } catch { failure = 'hybrid_model_unavailable_or_incompatible'; }
       }
@@ -392,7 +417,8 @@ export class ResearchRuntime {
       };
       const markets = await this.db.research.listMarkets({ family, modelVersion });
       const evidence = context.benchmarks ? context.benchmarks[family] : await this.db.research.getLatestBenchmark(family, modelVersion);
-      const calibrationEvidence = evidence?.report?.probabilityProtocol === COHERENT_PROBABILITY_PROTOCOL
+      const calibrationEvidence = family === 'C' && this.deploymentC?.probabilityConfigurationHash ? artifact
+        : evidence?.report?.probabilityProtocol === COHERENT_PROBABILITY_PROTOCOL
         ? evidence.report : artifact;
       // Historical/T15 protocols retain their frozen inputs. The nightly must
       // never recycle labels used to fit an artifact's calibration profile.
@@ -426,6 +452,11 @@ export class ResearchRuntime {
           probabilityConfiguration = buildProbabilityConfiguration({ family, baselineVersion: input.baselineVersion,
             pipelineHashV2: calibrationEvidence.pipelineHashV2, mode,
             temperature: calibrationEvidence.probabilityTemperature, profile });
+          if (family === 'C' && this.deploymentC && (this.deploymentC.baselineVersion !== input.baselineVersion
+            || this.deploymentC.probabilityConfigurationHash !== null
+              && this.deploymentC.probabilityConfigurationHash !== probabilityConfiguration.hash)) {
+            failure = 'deployment_probability_configuration_mismatch';
+          }
         } catch { failure = 'invalid_probability_configuration'; }
       }
       if (family === 'A' || candidateC) {
@@ -436,13 +467,19 @@ export class ResearchRuntime {
           preKickoff: Date.parse(snapshotAt) < Date.parse(row.date), sharedSnapshot: true };
         await this.db.saveSchedulerRun({ schedulerName: 'research_model_check', trigger: 'remote', startedAt: snapshotAt,
           endedAt: this.clock().toISOString(), success: Object.values(checks).every(Boolean),
-          summary: { family, modelVersion, matchId: input.matchId, snapshotHash: researchHash({ forecast: input, quotes, observedAt: snapshotAt }),
-            baselineVersion: input.baselineVersion, featureSchema: input.featureSchema,
+          summary: { family, modelVersion, matchId: input.matchId, snapshotHash: researchHash({ forecast: familyInput, quotes, observedAt: snapshotAt }),
+            baselineVersion: input.baselineVersion, featureSchema: familyInput.featureSchema,
+            ...(family === 'C' && this.deploymentC ? { selectorPolicy: this.deploymentC.selectorPolicy,
+              expectedProbabilityConfigurationHash: this.deploymentC.probabilityConfigurationHash,
+              artifactHash: candidateC?.artifactHash ?? researchHash(artifact ?? null) } : {}),
             probabilityProtocol: calibrationEvidence?.probabilityProtocol ?? null,
             pipelineHashV2: calibrationEvidence?.pipelineHashV2 ?? null,
-            probabilityConfigurationHash: probabilityConfiguration?.hash ?? null, checks,
+            probabilityConfigurationHash: family === 'C' && this.deploymentC?.probabilityConfigurationHash
+              ? this.deploymentC.probabilityConfigurationHash : probabilityConfiguration?.hash ?? null,
+            ...(family === 'C' && this.deploymentC?.probabilityConfigurationHash
+              ? { observedProbabilityConfigurationHash: probabilityConfiguration?.hash ?? null } : {}), checks,
             ...(failure ? { errorCode: failure } : {}) } });
-        if (family === 'C' && failure && this.db.listRecentSchedulerRuns) {
+        if (family === 'C' && failure && !this.deploymentC?.probabilityConfigurationHash && this.db.listRecentSchedulerRuns) {
           await rollbackUnhealthyChampion({ research: this.db.research,
             listRecentSchedulerRuns: this.db.listRecentSchedulerRuns.bind(this.db),
             listRecentSchedulerRunsByName: this.db.listRecentSchedulerRunsByName?.bind(this.db),
@@ -480,6 +517,13 @@ export class ResearchRuntime {
         ...(this.nightly ? { minEv: this.nightly.minEv, minPrudentialEv: this.nightly.minPrudentialEv } : {}) });
       const selected = result?.decision;
       decisions.push({ family, modelVersion, validated: !failure, action: selected ? 'BET' : 'ABSTAIN',
+        ...(family === 'C' && this.deploymentC?.selectorPolicy === 'payout-aware-v1' ? { challengerQuality: {
+          homeHistorySample: input.features[input.featureNames.indexOf('home_sample')] ?? null,
+          awayHistorySample: input.features[input.featureNames.indexOf('away_sample')] ?? null,
+          homeXgCoverage: input.features[input.featureNames.indexOf('home_xg_coverage')] ?? null,
+          awayXgCoverage: input.features[input.featureNames.indexOf('away_xg_coverage')] ?? null,
+          historyAvailableThrough: input.maxTrainingAvailableAt, modelFitAt: input.modelFitAt,
+        } } : {}),
         market: selected?.quote.market ?? '', selection: selected?.quote.selection,
         quote: selected?.quote, quoteIndex: selected ? quotes.findIndex((quote) => quote === selected.quote) : undefined,
         marketState: selected ? markets.find((market) => market.market === selected.quote.market)?.state : undefined,
@@ -502,9 +546,12 @@ export class ResearchRuntime {
       && latestCandidate.artifact?.diagnosticOnly !== true && latestCandidate.artifact?.runtimeCompatible !== false) {
       await this.probeChallenger(input, latestCandidate.version, latestCandidate.artifact, quotes, snapshotAt);
     }
+    const challengerCollection = await this.recordCollectingChallengers(input, quotes);
     return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions,
       ...(this.nightly ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
+        ...(challengerInput ? { challengerForecast: challengerInput } : {}),
+        ...(challengerCollection ? { challengerCollection } : {}),
         ...(this.nightly ? { mode: 'NIGHTLY', match: { matchId: row.match_id, competition: row.competition,
           kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name,
           matchLabel: [row.home_team_name, row.away_team_name].filter(Boolean).join(' – ') } } : {}) } };
@@ -524,11 +571,13 @@ export class ResearchRuntime {
     this.nightlyCohortId = cohortId;
     this.nightlyModelContext = undefined;
     this.prospectiveSamples.clear();
+    this.collectingCandidates = undefined;
   }
 
   private async loadModelContext(): Promise<RuntimeModelContext> {
-    if (this.candidateVersionC) {
-      const candidateC = await this.db.research.getModelByVersion('C', this.candidateVersionC);
+    const pinnedVersion = this.deploymentC?.modelVersion ?? this.candidateVersionC;
+    if (pinnedVersion) {
+      const candidateC = await this.db.research.getModelByVersion('C', pinnedVersion);
       // A fixed execution policy never follows a champion change, a weekly candidate or an optional probe.
       return { championC: null, latestCandidate: candidateC, candidateC, cacheable: true };
     }
@@ -549,7 +598,8 @@ export class ResearchRuntime {
       const context = await this.loadModelContext();
       const [A, C] = await Promise.all([
         this.db.research.getLatestBenchmark('A', baselineVersion),
-        this.db.research.getLatestBenchmark('C', context.candidateC?.version ?? 'C-unavailable'),
+        this.deploymentC?.probabilityConfigurationHash ? Promise.resolve(null)
+          : this.db.research.getLatestBenchmark('C', context.candidateC?.version ?? 'C-unavailable'),
       ]);
       return { ...context, benchmarks: { A, C } };
     })();
@@ -563,6 +613,38 @@ export class ResearchRuntime {
   }
 
   getQuotaStatus(): unknown { return this.odds.getQuotaStatus?.() ?? null; }
+
+  /** Candidate evidence never selects a bet or changes either operational model. */
+  private async recordCollectingChallengers(input: ForecastInput, quotes: ResearchQuote[]): Promise<Record<string, unknown> | null> {
+    const adoption = this.db.challengerAdoption;
+    if (!this.nightly || !adoption) return null;
+    const previous = this.pairedForecastReports.get(input.matchId);
+    if (previous) return previous;
+    const failures: Array<{ candidateId?: string; reason: string }> = [], results: unknown[] = [];
+    try {
+      this.collectingCandidates ??= adoption.listCollectingCandidates();
+      for (const dossier of await this.collectingCandidates) {
+        const key = `${dossier.id}:${input.matchId}`;
+        if (this.pairedForecastMatches.has(key)) continue;
+        this.pairedForecastMatches.add(key);
+        try {
+          results.push(await adoption.recordPairedChallengerForecast({ candidateId: dossier.id, input, quotes,
+            history: this.historyCache?.rows ?? [] }));
+        } catch { failures.push({ candidateId: dossier.id, reason: 'paired_challenger_forecast_failed' }); }
+      }
+    } catch { failures.push({ reason: 'collecting_challengers_unavailable' }); }
+    if (failures.length) {
+      this.state.lastError = 'challenger_collection_failed';
+      try {
+        await this.db.saveSchedulerRun({ schedulerName: 'research_challenger_collection', trigger: 'remote',
+          startedAt: input.forecastAt, endedAt: this.clock().toISOString(), success: false,
+          error: 'challenger_collection_failed', summary: { matchId: input.matchId, failures } });
+      } catch { failures.push({ reason: 'challenger_collection_error_recording_failed' }); }
+    }
+    const report = results.length || failures.length ? { results, failures } : null;
+    if (report) this.pairedForecastReports.set(input.matchId, report);
+    return report;
+  }
 
   /** One bounded compatibility probe; challenger output never enters a portfolio or replaces the champion here. */
   private async probeChallenger(input: ForecastInput, modelVersion: string, artifact: HybridArtifact, quotes: ResearchQuote[], snapshotAt: string): Promise<void> {
@@ -580,7 +662,9 @@ export class ResearchRuntime {
       const profile = (artifact.calibrationProfilesV2 as { C?: CoherentCalibrationProfile } | undefined)?.C;
       const mode = (artifact.probabilityCalibrationMode ?? 'isotonic_1x2') as CoherentCalibrationMode;
       if (mode === 'isotonic_1x2' && !profile) throw new Error('calibration_missing');
-      const predicted = predictHybrid(input, artifact);
+      const challengerInput = artifact.featureSchema === CHALLENGER_FEATURE_SCHEMA_VERSION
+        ? withChallengerFeatures(input, this.historyCache?.rows ?? [], artifact.featureBlocks as ChallengerFeatureBlock[]) : input;
+      const predicted = predictHybrid(challengerInput, artifact);
       const pipeline = applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
         profile, quotes, forecastAt: snapshotAt, mode, temperature: artifact.probabilityTemperature as number | undefined });
       probabilityConfigurationHash = buildProbabilityConfiguration({ family: 'C', baselineVersion: input.baselineVersion,

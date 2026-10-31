@@ -10,11 +10,12 @@ import type { ResearchQuote } from './ResearchEvaluation';
 import { buildChallengerRecommendation, challengerTechnicalReason } from './ChallengerRecommendation';
 import { researchHash } from './ResearchStore';
 import type { RecommendationJob, RecommendationCommit, RecommendationDecision } from './ResearchRecommendationStore';
-import { recommendationQuoteReason, RECOMMENDATION_MODEL_C,
-  VIRTUAL_RECOMMENDATION_POLICY } from './ResearchRecommendationPolicy';
+import { recommendationQuoteReason,
+  VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState } from './ResearchRecommendationPolicy';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 
-type ResearchPreparation = Pick<ResearchRuntime, 'prepareNightly' | 'beginNightlyCohort' | 'getQuotaStatus'>;
+type ResearchPreparation = Pick<ResearchRuntime, 'prepareNightly' | 'beginNightlyCohort' | 'getQuotaStatus'>
+  & Partial<Pick<ResearchRuntime, 'pinChallengerDeployment'>>;
 type AppPrediction = Pick<PredictionService, 'predict'>;
 type OddsFeed = Pick<OddsApiService, 'getOdds' | 'getQuotaStatus'>;
 type AppOddsFeed = Pick<AppPredictionOddsService, 'load' | 'getQuotaStatus'>;
@@ -28,16 +29,29 @@ export class ResearchRecommendationRuntime {
   private readonly researchRuntime: ResearchPreparation;
   private readonly predictionService: AppPrediction;
   private readonly appOdds: AppOddsFeed;
+  private deploymentC: ChallengerExecutionState;
+  private executionPolicy: ReturnType<typeof challengerExecutionPolicy>;
   constructor(private readonly db: DatabaseService, options: { clock?: () => Date; researchRuntime?: ResearchPreparation;
-    predictionService?: AppPrediction; odds?: OddsFeed; appOdds?: AppOddsFeed } = {}) {
+    predictionService?: AppPrediction; odds?: OddsFeed; appOdds?: AppOddsFeed;
+    deploymentC?: ChallengerExecutionState } = {}) {
     this.clock = options.clock ?? (() => new Date());
+    this.deploymentC = options.deploymentC ?? fallbackChallengerState();
+    this.executionPolicy = challengerExecutionPolicy(this.deploymentC);
     this.researchRuntime = options.researchRuntime ?? new ResearchRuntime(db, { clock: this.clock, odds: options.odds,
       nightly: { quoteMaxAgeMs: VIRTUAL_RECOMMENDATION_POLICY.quoteMaxAgeMs, minEv: .04, minPrudentialEv: .01 },
-      candidateVersionC: RECOMMENDATION_MODEL_C });
+      candidateVersionC: this.deploymentC.deployment.modelVersion, deploymentC: this.deploymentC.deployment });
+    this.researchRuntime.pinChallengerDeployment?.(this.deploymentC.deployment);
     this.predictionService = options.predictionService ?? new PredictionService(db);
     this.appOdds = options.appOdds ?? new AppPredictionOddsService(db, { clock: this.clock });
   }
-  beginCohort(runId: string): void { this.researchRuntime.beginNightlyCohort(runId); }
+  beginCohort(runId: string, deploymentC?: ChallengerExecutionState): void {
+    if (deploymentC) {
+      this.deploymentC = deploymentC;
+      this.executionPolicy = challengerExecutionPolicy(deploymentC);
+      this.researchRuntime.pinChallengerDeployment?.(deploymentC.deployment);
+    }
+    this.researchRuntime.beginNightlyCohort(runId);
+  }
   getQuotaStatus(): unknown { return this.appOdds.getQuotaStatus() ?? this.researchRuntime.getQuotaStatus(); }
 
   async prepare(job: RecommendationJob): Promise<RecommendationCommit> {
@@ -48,7 +62,10 @@ export class ResearchRecommendationRuntime {
       || Date.parse(at) >= Date.parse(job.windowEndAt)) throw new Error('recommendation_fixture_not_eligible');
     let prepared: PreparedT15Job | undefined;
     let preparationFailure: string | null = null;
-    try { prepared = await this.researchRuntime.prepareNightly({ ...job, targetAt: job.windowStartAt }); }
+    try {
+      if (this.deploymentC.resolutionUnavailable) preparationFailure = 'adoption_state_unavailable';
+      else prepared = await this.researchRuntime.prepareNightly({ ...job, targetAt: job.windowStartAt });
+    }
     catch (error) {
       preparationFailure = safeOddsFailureCode(error) ?? 'research_forecast_unavailable';
     }
@@ -128,11 +145,15 @@ export class ResearchRecommendationRuntime {
     }
     if (!decisions.length) decisions.push(abstain('A', modelA?.version ?? 'APP-A-unavailable', appFailure ?? 'app_no_recommendation'));
     const decisionC = prepared?.decisions.find((decision) => decision.family === 'C');
-    const failureC = preparationFailure ?? challengerTechnicalReason(decisionC, observedAt);
+    const failureC = this.deploymentC.resolutionUnavailable ? 'adoption_state_unavailable'
+      : this.deploymentC.source === 'suspended' ? 'challenger_deployment_suspended'
+      : preparationFailure ?? challengerTechnicalReason(decisionC, observedAt, this.deploymentC.deployment);
     let packetC: ReturnType<typeof buildChallengerRecommendation> | null = null;
     if (!failureC && decisionC) {
       const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
       packetC = buildChallengerRecommendation({ decision: decisionC, quotes: usableQuotes, observedAt, competition: row.competition,
+        expectedIdentity: this.deploymentC.deployment,
+        ...(this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}),
         allowedMarkets: markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market) });
       const selected = packetC.selected;
       const quote = selected && usableQuotes.find((value) => value.selection === selected.selection && value.odds === selected.bookmakerOdds);
@@ -140,12 +161,18 @@ export class ResearchRecommendationRuntime {
         decisions.push({ family: 'C', modelVersion: decisionC.modelVersion, originDecisionId: job.originDecisionIds.C,
           action: 'BET', market: quote.market, selection: quote.selection, quote,
           probability: selected.ourProbability / 100, ev: selected.expectedValue / 100,
-          suggestedStakePercent: 1, confidence: selected.confidence, recommended: true, validated: true,
+          suggestedStakePercent: 1, ...(typeof selected.confidence === 'string' ? { confidence: selected.confidence } : {}),
+          ...(this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' ? {
+            selectorPolicy: 'payout-aware-v1', selectionPolicyVersion: packetC.policyVersion,
+            payout: 'payout' in selected ? selected.payout : null, quality: 'quality' in selected ? selected.quality : null,
+          } : {}), recommended: true, validated: true,
           probabilityConfiguration: object(decisionC.probabilityConfiguration),
           probabilityConfigurationHash: String(decisionC.probabilityConfigurationHash) });
       }
     }
     if (decisions.length === 1) decisions.push(abstain('C', decisionC?.modelVersion ?? 'C-unavailable', failureC
+      ?? (this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' && packetC && 'abstentionReason' in packetC
+        ? packetC.abstentionReason : null)
       ?? (packetC?.exclusions.non_binary_payout_not_supported_by_canonical_engine ? 'non_binary_payout_not_supported_by_canonical_engine' : 'challenger_no_recommendation')));
     const modelDescriptorA = modelA ? { source: modelA.source, version: modelA.version,
       codeHash: modelA.codeHash, configHash: modelA.configHash } : null;
@@ -167,6 +194,27 @@ export class ResearchRecommendationRuntime {
         jobId: job.id, runId: job.runId, matchId: job.matchId, checks: appChecks,
         snapshotHash: researchHash({ observedAt, model: modelA ?? null, quotes: usableAppQuotes }),
         ...(!appHealthy ? { errorCode: appFailure ?? 'invalid_app_recommendation_packet' } : {}) } });
+    const challengerErrors: string[] = [];
+    if (this.deploymentC.source !== 'fallback') {
+      const checks = { inference: !!decisionC, technicalValidation: !failureC,
+        selectorPolicy: !!packetC && packetC.policyVersion === (this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1'
+          ? 'challenger-payout-selection-v1' : CANONICAL_RECOMMENDATION_POLICY),
+        probabilityConfiguration: !!decisionC && (this.deploymentC.deployment.probabilityConfigurationHash === null
+          || decisionC.probabilityConfigurationHash === this.deploymentC.deployment.probabilityConfigurationHash),
+        preKickoff: Date.parse(this.clock().toISOString()) < Date.parse(job.kickoffAt) };
+      try { await this.db.saveSchedulerRun({ schedulerName: 'research_model_check', trigger: 'remote', startedAt: observedAt,
+        endedAt: this.clock().toISOString(), success: Object.values(checks).every(Boolean),
+        summary: { family: 'C', source: 'ChallengerRecommendation', modelVersion: this.deploymentC.deployment.modelVersion,
+          selectorPolicy: this.deploymentC.deployment.selectorPolicy,
+          probabilityConfigurationHash: this.deploymentC.deployment.probabilityConfigurationHash ?? decisionC?.probabilityConfigurationHash ?? null,
+          observedProbabilityConfigurationHash: decisionC?.probabilityConfigurationHash ?? null,
+          expectedProbabilityConfigurationHash: this.deploymentC.deployment.probabilityConfigurationHash,
+          artifactHash: this.deploymentC.deployment.artifactHash, deploymentRevision: this.deploymentC.revision,
+          snapshotHash: researchHash({ observedAt, deployment: this.deploymentC, decision: decisionC ?? null, recommendation: packetC }),
+          matchId: job.matchId, runId: job.runId, probeSource: 'recommendation_selector', checks,
+          ...(!Object.values(checks).every(Boolean) ? { errorCode: failureC ?? 'challenger_selection_configuration_mismatch' } : {}) } }); }
+      catch { challengerErrors.push('challenger_health_recording_failed'); }
+    }
     const finalObservedAt = this.clock().toISOString();
     if (Date.parse(finalObservedAt) >= Date.parse(job.kickoffAt) || Date.parse(finalObservedAt) >= Date.parse(job.windowEndAt)) {
       throw new Error('recommendation_fixture_not_eligible');
@@ -181,7 +229,9 @@ export class ResearchRecommendationRuntime {
       inputSnapshot: { observedAt: finalObservedAt, quotes: [...usableAppQuotes, ...quotes],
         quoteSnapshots: { A: usableAppQuotes, C: quotes }, match: metadata?.match ?? { matchId: job.matchId,
         competition: row.competition, kickoffAt: row.date, homeTeamName: row.home_team_name, awayTeamName: row.away_team_name },
-      metadata: { ...metadata, policy: VIRTUAL_RECOMMENDATION_POLICY,
+      metadata: { ...metadata, policy: this.executionPolicy,
+        ...(challengerErrors.length ? { challengerErrors } : {}),
+        ...(this.deploymentC.source !== 'fallback' ? { deploymentC: this.deploymentC } : {}),
         originInputId: job.originInputId, diagnosticResearchA: true,
         appOdds: appInput?.metadata ?? null, independentModelInputs: true },
       modelDescriptorA,
