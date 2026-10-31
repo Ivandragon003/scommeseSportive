@@ -59,3 +59,24 @@ quote incoerenti, blocchi contabili e cambi di partita. I test di pagina verific
 anche C disponibile mentre A è in attesa o fallisce e ricaricamento senza mutazioni.
 Le prove browser con fixture controllano il flusso e il layout; non dimostrano
 una nuova acquisizione bookmaker o il login su un telefono fisico.
+
+## Esito finale
+
+Fonte applicativa `e861e85a74f45c9aad1d6f8a2a74956eb9fd92c2`: 258 test frontend
+passati, typecheck/lint/build riusciti, 7 regressioni A passate e backend invariato.
+La [CI del commit](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41215362436)
+è riuscita per Backend e Frontend. I test backend sono 1.186: 1.185 passati,
+nessun fallimento, un test saltato.
+
+Undici scenari browser passati, con 88 richieste API intercettate da fixture e
+nessun provider o movimento contabile reale. La revisione indipendente ha trovato
+un caso di origine errata dopo refresh fallito: è stato corretto, coperto da un
+test di pagina e riprovato nel browser. La revisione successiva non ha trovato
+altri problemi P1/P2.
+
+La [1.1.5 Android](../android/releases/1.1.5-2026-10-31.md) include la stessa UI;
+firma, aggiornamento, due test strumentali e avvio della WebView sono verificati.
+Telefono fisico e login autenticato restano non verificati.
+
+Il [riepilogo delle evidenze](evidence/match-model-advice-2026-10-31.json) collega
+commit, APK, bundle browser, test e verifiche native, distinguendo fixture da produzione.

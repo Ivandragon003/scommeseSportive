@@ -33,6 +33,7 @@ La Nightly cloud non richiede PC o smartphone accesi.
 
 Download: [FootPredictor 1.1.5 APK di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.5-debug-20261031/FootPredictor-1.1.5-debug.apk).
 Funzionamento: [confronto nel dettaglio partita](operations/match-model-advice-2026-10-31.md).
+Verifiche, firma e checksum: [report della 1.1.5](android/releases/1.1.5-2026-10-31.md).
 La precedente 1.1.4 e le sue verifiche restano nel [report storico](android/releases/1.1.4-2026-10-31.md).
 
 ## 1. Configurare l'accesso condiviso su Hostless

@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-31",
+  "sourceCommit": "e861e85a74f45c9aad1d6f8a2a74956eb9fd92c2",
+  "apk": {
+    "version": "1.1.5",
+    "versionCode": 7,
+    "bytes": 4857700,
+    "sha256": "1d60e229b03e2f27d812df9254854a594d1b782258c8e814d39ead136db4eaa8",
+    "debugSigned": true,
+    "signatureV2Verified": true,
+    "embeddedBuildFilesByteMatched": 19,
+    "downloadedReleaseMatches": true
+  },
+  "frontend": {
+    "suitesPassed": 33,
+    "testsPassed": 258,
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "build": "PASS"
+  },
+  "operationalA": {
+    "regressionTestsPassed": 7,
+    "protectedSourceHashes": 36,
+    "goldenScenarios": 6,
+    "backendDiffAgainst": "22903c83",
+    "backendDiff": []
+  },
+  "ci": {
+    "runId": 41215362436,
+    "conclusion": "success",
+    "backendTests": 1186,
+    "backendPassed": 1185,
+    "backendFailed": 0,
+    "backendSkipped": 1
+  },
+  "browser": {
+    "fixtureData": true,
+    "independentProductionVerification": false,
+    "liveProviderCalls": 0,
+    "realBetsCreated": 0,
+    "results": [
+      {
+        "name": "same-match-distinct-recorded-A-C",
+        "pass": true,
+        "desktop": {
+          "columns": "454.4px 454.4px",
+          "width": 924.7999877929688,
+          "scrollWidth": 925
+        }
+      },
+      {
+        "name": "mobile-390-stacked-no-overflow",
+        "pass": true,
+        "mobile": {
+          "columns": "339.2px",
+          "width": 339.20001220703125,
+          "scrollWidth": 339,
+          "documentWidth": 375,
+          "viewport": 390
+        }
+      },
+      {
+        "name": "C-positive-advice-blocked-exposure-zero-debit",
+        "pass": true
+      },
+      {
+        "name": "A-live-failure-does-not-hide-C",
+        "pass": true
+      },
+      {
+        "name": "C-not-yet-distinct-from-abstention",
+        "pass": true
+      },
+      {
+        "name": "C-sporting-NO-BET-honest",
+        "pass": true
+      },
+      {
+        "name": "C-malformed-archive-does-not-hide-A",
+        "pass": true
+      },
+      {
+        "name": "archive-error-retry-recovers",
+        "pass": true
+      },
+      {
+        "name": "match-change-late-response-isolated",
+        "pass": true
+      },
+      {
+        "name": "archived-A-refresh-503-clears-Nightly-origin-and-restores-live-planner",
+        "pass": true
+      },
+      {
+        "name": "network-contained-no-accounting-mutations",
+        "pass": true,
+        "APIRequests": 88
+      }
+    ],
+    "mainJs": "/static/js/main.9bb6077b.js",
+    "mainJsSha256": "1c4b15815eae12a005d39091d86d17d465d6ac8a16b17ea1c0e2406e59d67a4f",
+    "archivedAPlannerHidden": true,
+    "status": "final-pass"
+  },
+  "android": {
+    "instrumentedTestsPassed": 2,
+    "upgradeFrom": "1.1.4",
+    "upgradeMarkerPreserved": true,
+    "activityColdStart": "PASS",
+    "webViewLoginReady": true,
+    "readyEvidence": "bounded CDP DOM polling and inspected screenshot of installed WebView",
+    "uiautomatorXml": "INCONCLUSIVE; empty trees and an external tool process crash",
+    "authenticatedLoginAttempted": false,
+    "physicalPhoneVerified": false
+  }
+}
