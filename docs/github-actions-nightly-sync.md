@@ -1,6 +1,9 @@
 # Nightly GitHub Actions e puntate virtuali A/C
 
 **Manutenzione del 31 ottobre:** [quota e recupero tecnico](operations/nightly-technical-recovery-2026-10-31.md).
+Recupero concluso: 18 partite rivalutate, quattro nuove puntate virtuali e otto
+complessive; Nightly `41199219872` e watchdog `41200024289` riusciti. Il motore A
+resta invariato; C906 conserva stake 1% e limite di esposizione 5%.
 Il workflow propaga `ODDS_API_ACCOUNT_SCOPE` dalla variabile GitHub omonima
 (default `primary`), separando budget e cache di account effettivamente distinti.
 Una rotazione della chiave dello stesso account conserva il relativo scope.
@@ -259,7 +262,7 @@ un backend vecchio non deve attribuire nuove BET alle origini diagnostiche a sta
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false`, percorso precedente non necessario e non concorrente |
 | `RUN_ODDS_SYNC` | `false`, raccolta informativa generale disattivata |
 | `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`, dashboard prevalentemente su cache |
-| `ODDS_EXTRA_EVENT_NETWORK_ENABLED` | `true` nel workflow locale v2, mercati per evento A entro cache e budget esistenti; non ancora attestato nel rilascio remoto |
+| `ODDS_EXTRA_EVENT_NETWORK_ENABLED` | `true` nel workflow v2, mercati per evento A entro cache e budget esistenti; esecuzione remota verificata il 31 ottobre nel rapporto di manutenzione |
 
 Il workflow legge `vars.RESEARCH_NIGHTLY_ENABLED`, con fallback `false`. La
 variabile remota è `true` dalle 10:04 UTC dopo il recupero controllato. Il flag nel backend Hostless

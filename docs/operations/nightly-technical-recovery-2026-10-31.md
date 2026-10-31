@@ -1,8 +1,8 @@
 # Nightly: quote e recupero tecnico — 31 ottobre 2026
 
-**Stato: primo recupero parziale, 15 partite rivalutate su 18 e quattro nuove puntate.**
-Una seconda correzione, limitata al percorso C, risolve i tre errori di matching
-emersi nel recupero. Il relativo nuovo tentativo deve ancora essere eseguito.
+**Stato finale: 18/18 partite rivalutate, quattro nuove puntate e otto puntate
+virtuali complessive nella giornata.** Nightly, watchdog e CI sono riusciti.
+Il fix C è pubblicato e il backend web è `Deployed LIVE` sul commit `e29ae676`.
 Tutte le operazioni descritte riguardano portafogli virtuali.
 
 ## Diagnosi verificata
@@ -98,6 +98,64 @@ Il secondo piano in sola lettura ammette esattamente `understat_31262`,
 Le 15 rivalutazioni concluse, incluse le astensioni, vengono preservate.
 La nuova policy è `11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013`.
 
+## Esito finale verificato
+
+Il [secondo recupero `41199219872`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41199219872),
+sul commit `e29ae676945c113fcb9e226cf61a205dea2fa60a`, è riuscito dopo tutti i gate
+dati e la conferma esplicita di esecuzione A/C abilitata. La fase virtuale va
+dalle 12:10:42 alle 12:11:34 UTC: tre input, sei decisioni, zero errori, zero
+partite iniziate e nessuna nuova puntata finanziata.
+
+Le sei astensioni sono distinte per motore:
+
+- **A, tre casi:** `real_fresh_quotes_unavailable`. Il percorso quote operativo
+  conserva i propri controlli e restituisce quote non ammissibili per queste
+  tre partite. I punteggi del matcher condiviso restano inferiori a 1,8; gli
+  alias aggiunti sono esclusivi del percorso research C. Questo limite A
+  resta aperto nel rispetto del vincolo di non modificarne il comportamento.
+- **C, tre casi:** `virtual_exposure_limit`. C ha un consiglio, ma i cinque
+  stake già aperti impegnano quasi tutto il limite del 5%. Non è un'assenza
+  di consiglio del modello e non giustifica aumentare l'esposizione.
+
+L'audit indipendente SELECT delle 12:12:10 UTC è **PASS**: 18 partite logiche,
+18 input e 36 decisioni tra i due recuperi, con un solo completamento per fonte.
+Le 36 decisioni comprendono quattro BET e 32 ABSTAIN. I tentativi sono 21:
+il primo run conserva 15 completamenti e tre ERROR; il secondo aggiunge i tre
+completamenti mancanti. Il run fallito e i suoi errori non sono stati riscritti
+come successi.
+
+Sono preservate le righe della copia iniziale e quelle del primo recupero,
+comprese le quattro puntate nuove, i loro quattro STAKE e le 258 puntate legacy.
+Non risultano duplicati per portafoglio/partita, movimenti mancanti o differenze
+nelle righe protette. Il budget del nuovo account cambia legittimamente con le
+richieste; quello precedente resta a 498 crediti usati e due residui.
+
+| Portafoglio virtuale | Puntate aperte | Disponibile | Impegnato | Equity | Esposizione |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A operativo | 3 | 959,53 euro | 46,57 euro | 1.006,10 euro | 4,6288% |
+| C906 | 5 | 963,80 euro | 50,70 euro | 1.014,50 euro | 4,9975% |
+
+Le otto puntate sono le quattro precedenti e le quattro della tabella del primo
+recupero: 97,27 euro virtuali impegnati in totale. Il secondo run non le modifica.
+Le quote delle nuove puntate avevano un'età massima di 198.405 ms al finanziamento,
+inferiore al limite di 300.000 ms, e tutti i relativi orari precedono il kickoff.
+
+Il piano SELECT successivo trova **zero fonti ammissibili**, con 22 esclusioni:
+15 recuperi già preservati, sei partite con puntate esistenti e una scelta
+sportiva già definitiva. È una verifica reale contro il recupero ripetuto,
+senza avviare un altro workflow o consumare quote.
+
+Il [watchdog `41200024289`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41200024289)
+è riuscito sia sul controllo GitHub sia sul controllo del database con token
+dedicato in sola lettura: `issues: []`, contabilità stabile, zero errori e zero
+liquidazioni research arretrate. L'audit manuale separato ha usato il token
+disponibile localmente con un wrapper che ammette soltanto SELECT; non viene
+presentato come un token limitato dal server.
+
+Questo intervento verifica esecuzione, matching e contabilità. Non misura un
+miglioramento predittivo o economico del modello C e non sostituisce una
+validazione futura indipendente.
+
 ## Crediti e configurazione
 
 I probe di `/sports` non hanno consumato crediti; gli header hanno rilevato:
@@ -107,6 +165,7 @@ I probe di `/sports` non hanno consumato crediti; gli header hanno rilevato:
 | Precedente | 11:09:31 | 498 | 2 | 0 |
 | Personale già attivo, fornito dall'utente | 11:19:31 | 0 | 500 | 0 |
 | Stesso account, probe nel nuovo container web | 11:48:36 | 239 | 261 | 0 |
+| Stesso account, probe finale indipendente | 12:14:36 | 282 | 218 | 0 |
 
 L'utente ha verificato il secondo account nella dashboard ufficiale. La
 chiave è stata configurata nel file locale `.env` e nel secret GitHub
@@ -121,8 +180,15 @@ chiave write-only e lo stesso scope, conservando le altre 56 variabili. Il
 è `Deployed LIVE` sul commit `d757187`. Nel container in esecuzione,
 `node scripts/probe-odds-quota.js` ha risposto HTTP 200 con costo 0; `printenv
 ODDS_API_ACCOUNT_SCOPE` conferma lo scope atteso. Il solo health HTTP 200 non
-viene usato come prova della chiave. Il follow-up degli alias richiede ancora
-una nuova pubblicazione e un nuovo deploy.
+viene usato come prova della chiave. Anche il follow-up degli alias è ora
+[Deployed LIVE (`6ae5d8ed7716538af9506d5f`)](https://hostless.cloud/apps/scommese-sportive-backend/deployments/6ae5d8ed7716538af9506d5f),
+sul commit `e29ae676`, con health HTTP 200 dopo l'avvio.
+
+![Deploy web verificato sul commit e29ae676](evidence/hostless-followup-deploy-2026-10-31.jpg)
+
+Il registro finale riconcilia 33 richieste gestite, 282 crediti addebitati e
+zero prenotazioni aperte. Il secondo recupero aggiunge cinque richieste e 43
+crediti rispetto al primo: il numero di partite non equivale al costo API.
 
 Il precedente budget e le osservazioni storiche restano integri. Il nuovo
 scope separa contatori di account reali: non azzera artificialmente la quota
@@ -155,7 +221,7 @@ saltato, con input salvato o con lease ancora attiva impedisce un nuovo
 tentativo sulla medesima fonte. Un errore senza input, o una lease scaduta
 senza input, può essere riprovato. Collector, helper e controllo atomico nel registro hanno superato insieme i test mirati; la revisione finale ha verificato anche il conflitto fra pianificazione e commit.
 
-Il recupero deve ricalcolare i consigli dei due motori con quote vere e
+Il recupero ricalcola i consigli dei due motori con quote vere e
 fresche, prima del kickoff e con i limiti di capitale ed esposizione attivi.
 A mantiene il proprio stake; C conserva l'1% e l'esposizione massima resta
 il 5% per portafoglio. Nessuna previsione viene retrodatata e nessuna partita
@@ -166,22 +232,69 @@ A conserva il proprio motore e i mercati supportati; C906 rimane il modello
 C attivo, senza adozione di candidati. Non vengono inviate giocate reali ai
 bookmaker. Riferimento: [esecuzione dei consigli A/C](recommendation-execution-2026-10-30.md).
 
-## Evidenze e completamento pendente
+## Evidenze e controlli conclusi
 
 È stata conservata una copia privata mirata di 22 job, 22 input, 44 decisioni,
 10 puntate complessive, sei liquidazioni, 18 movimenti, due policy e 258
 giocate legacy. È una copia delle righe interessate, non un backup completo
 del database.
+Gli snapshot e lo script SELECT dell'audit sono conservati localmente in
+`backend/artifacts/operations/nightly-recovery-20261031/`, escluso da Git.
+L'[evidenza pubblica](evidence/nightly-technical-recovery-2026-10-31.json)
+riporta conteggi, impronte, preservazione, movimenti e limiti senza segreti o
+snapshot integrali.
 
-Dopo il follow-up sono riusciti **158 test Node mirati**, build, typecheck e lint backend. I **63 sorgenti A e condivisi, insieme ai cinque file di fixture e regressione**, restano invariati rispetto a `e16c9714eec0684bcbd964f4e8f41a3b4e29567e`; passano le sette regressioni A. Il recupero è disattivato per default. La revisione finale non rileva P1/P2. Il primo intervento aveva già superato 143 test mirati e la [CI completa `41197376086`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41197376086): backend 1.176 pass, zero errori e un test saltato; frontend riuscito.
+Dopo il follow-up sono riusciti **158 test Node mirati**, build, typecheck e lint backend. I **63 sorgenti A e condivisi, insieme ai cinque file di fixture e regressione**, restano invariati rispetto a `e16c9714eec0684bcbd964f4e8f41a3b4e29567e`; passano le sette regressioni A. Il recupero è disattivato per default. La revisione finale non rileva P1/P2. La [CI finale `41199077004`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41199077004) verifica il commit `e29ae676`: backend **1.185 pass, zero errori, un test saltato** su 1.186; frontend lint, typecheck e build riusciti. Il primo intervento aveva già superato 143 test mirati e la [CI `41197376086`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41197376086).
 
 | Verifica finale | Stato di questo rapporto |
 | --- | --- |
-| Test e revisione del follow-up | 158 test mirati, build, typecheck e lint PASS; CI del follow-up ancora da eseguire |
+| Test e revisione del follow-up | 158 test mirati, build, typecheck e lint PASS; CI completa verde |
 | Prima esecuzione reale | `41197494187`: parziale, 15/18, quattro nuove puntate, tre errori |
-| Seconda esecuzione sulle sole tre fonti rimaste | Da avviare dopo pubblicazione e CI |
-| Saldi e impronte delle righe protette dopo il primo run | PASS; esposizione A 4,6288%, C 4,9975% |
+| Seconda esecuzione sulle sole tre fonti rimaste | `41199219872`: riuscita, 3/3, sei astensioni motivate |
+| Copertura aggregata e conservazione dei due snapshot | PASS: 18/18, 36 decisioni, quattro nuove puntate, nessun duplicato |
+| Saldi e impronte delle righe protette | PASS; esposizione A 4,6288%, C 4,9975% |
+| Watchdog indipendente | `41200024289`: GitHub e database PASS |
+| Piano di recupero ripetuto, solo SELECT | Zero fonti ammissibili; 22 esclusioni |
 
-Non viene ancora dichiarato un recupero completo. Gli esiti successivi devono
-aggiornare questa sezione mantenendo distinte le 18 fonti iniziali dalle puntate
-effettivamente finanziate. I criteri contabili e temporali non vengono allentati.
+Il recupero è completo nei confini definiti: tutte le 18 fonti hanno una nuova
+decisione di esecuzione tracciata. Questo non significa finanziare 18 puntate: rimangono i
+controlli dei rispettivi motori, delle quote e dell'esposizione.
+
+## Verifiche ripetibili e limiti
+
+Dal repository, la build e i controlli mirati si ripetono con:
+
+```powershell
+cd backend
+npm run build
+node --test test/operational-a-regression.test.js test/research-event-matching.test.js test/research-recommendation-runtime.test.js
+```
+
+Il piano di controllo usa solo SELECT e richiede una configurazione locale
+autorizzata. Il percorso di output deve essere nuovo: il comando rifiuta di
+sovrascrivere un piano esistente.
+
+```powershell
+node --env-file=../.env scripts/recover-recommendation-technical.js plan --source-policy 9a7a37f15c51ed819b74dba7faae90bf51d77c02c9ad1614023ba12d40ebbe33 --day 2026-10-31 --out artifacts/operations/recovery-verification-new.json
+```
+
+L'audit confronta quote e timestamp persistiti dal provider con i vettori
+congelati del rispettivo motore; non interroga direttamente il bookmaker.
+Non ricostruisce indipendentemente il `decisions_hash` preparato a partire dai
+risultati successivi all'ammissione: ne verifica conservazione e formato.
+La doppia lettura SELECT rileva cambiamenti osservati, senza acquisire un lock
+globale. La prova di conservazione copre le righe della copia mirata iniziale,
+non tutte le righe storiche del database; quelle fuori baseline non sono
+automaticamente nuove righe del recupero.
+
+In locale entrambe le immagini Docker sono state costruite e il backend si è
+avviato con health HTTP 200. L'avvio del frontend sulla porta 3000 è stato
+bloccato da un'istanza FootPredictor preesistente. Il backend temporaneo è stato
+fermato dopo la prova; l'istanza preesistente è rimasta attiva. La build frontend
+della CI è riuscita. Non viene dichiarato riuscito il comando Compose completo.
+
+La prima rivalutazione ha consumato 239 dei 500 crediti mensili: una chiave free
+non garantisce la copertura di tutte le Nightly con il catalogo completo di A.
+Il sistema mantiene budget e segnalazioni di esaurimento. Il rinnovo mensile
+è del provider e conserva la stessa chiave; generarne un'altra nello stesso
+account non crea nuovi crediti.

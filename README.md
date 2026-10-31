@@ -8,6 +8,9 @@ e [confronto dei percorsi e componenti condivisi](docs/models/README.md).
 una quota provider quasi esaurita e astensioni tecniche salvate come definitive.
 La correzione distingue i tentativi ritentabili e aggiunge un recupero tracciato,
 senza riscrivere puntate o scelte sportive. [Diagnosi, verifiche e stato operativo](docs/operations/nightly-technical-recovery-2026-10-31.md).
+Recupero verificato: 18 partite rivalutate, quattro nuove puntate virtuali e
+otto complessive nella giornata; Nightly e watchdog riusciti. A operativo è
+invariato. Restano 218 crediti sul nuovo account, con i limiti free documentati.
 
 **Aggiornamento C, 31 ottobre 2026.** Training e confronto sono allineati
 all'orario Nightly, con feature C versionate e un selettore candidato che

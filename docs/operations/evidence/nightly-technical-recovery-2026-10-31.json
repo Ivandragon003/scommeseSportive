@@ -36,7 +36,10 @@
     "allProtectedFilesUnchanged": true,
     "sourceFiles": 63,
     "fixtureAndRegressionFiles": 5,
-    "regressionTestsPassed": 7
+    "regressionTestsPassed": 7,
+    "baselineCommit": "e16c9714eec0684bcbd964f4e8f41a3b4e29567e",
+    "finalSourceCommit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
+    "changedProtectedFiles": 0
   },
   "localChecks": {
     "targetedNodeTests": 143,
@@ -64,6 +67,14 @@
       "lastCost": 0,
       "observedAt": "2026-10-31T11:19:31.000Z",
       "scope": "daniele-oddsapi-20261031"
+    },
+    "finalIndependent": {
+      "httpStatus": 200,
+      "used": 282,
+      "remaining": 218,
+      "lastCost": 0,
+      "observedAt": "2026-10-31T12:14:36.000Z",
+      "location": "local canonical environment; no database writes"
     }
   },
   "plan": {
@@ -1137,7 +1148,7 @@
     "planHash": "2559fbf6cc441f8f66729e4b24dacb0da6e150afe5bc89b46e571da21c2f3962"
   },
   "execution": {
-    "status": "partial",
+    "status": "complete_with_historical_failed_attempt",
     "firstAttempt": {
       "runId": 41197494187,
       "status": "failure",
@@ -1477,35 +1488,918 @@
       "eligible": 3,
       "sourceDecisions": 6,
       "excluded": 19,
-      "status": "not_started"
+      "status": "executed_successfully"
+    },
+    "secondAttempt": {
+      "runId": 41199219872,
+      "status": "success",
+      "commit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
+      "startedAt": "2026-10-31T12:10:42.665Z",
+      "endedAt": "2026-10-31T12:11:34.518Z",
+      "analyzedMatches": 3,
+      "decisionCount": 6,
+      "registeredBets": 0,
+      "missedMatches": 0,
+      "errors": 0,
+      "apiErrors": 0,
+      "reasonCounts": {
+        "real_fresh_quotes_unavailable": 3,
+        "virtual_exposure_limit": 3
+      },
+      "quota": {
+        "used": 282,
+        "remaining": 218
+      },
+      "policyHash": "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013"
+    },
+    "finalAudit": {
+      "protocol": "nightly-technical-recovery-aggregate-readonly-audit-v2",
+      "checkedAt": "2026-10-31T12:12:10.674Z",
+      "readOnly": true,
+      "ok": true,
+      "issues": [],
+      "aggregateStatus": "logical_cohort_complete_with_preserved_historical_failures",
+      "allAttemptsSuccessful": false,
+      "stableSnapshot": true,
+      "credentialMode": "auth_token_with_select_only_guard",
+      "baselineScope": "Targeted recovery-state snapshot, not a full database backup",
+      "baselineIsGlobalBackup": false,
+      "counts": {
+        "attemptJobs": 21,
+        "logicalFixtures": 18,
+        "inputs": 18,
+        "decisions": 36,
+        "bets": 4,
+        "stakeMovements": 4
+      },
+      "preservation": {
+        "policies": {
+          "beforeCount": 2,
+          "preserved": 2,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "b20b161484c27c3db0f9b5f5d091b4934e79cfe63081c666d4460d682390ddd2",
+          "oldRowsProjectedSha256": "b20b161484c27c3db0f9b5f5d091b4934e79cfe63081c666d4460d682390ddd2",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "jobs": {
+          "beforeCount": 22,
+          "preserved": 22,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "66d36c913f4c6172a7ae365536d1c33e7084d21f41a04b8d46589a2719d6451e",
+          "oldRowsProjectedSha256": "66d36c913f4c6172a7ae365536d1c33e7084d21f41a04b8d46589a2719d6451e",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "inputs": {
+          "beforeCount": 22,
+          "preserved": 22,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "c79b8f3f6443882b803f3b364a15fad21b6745aad88e409b6093b81419e04de6",
+          "oldRowsProjectedSha256": "c79b8f3f6443882b803f3b364a15fad21b6745aad88e409b6093b81419e04de6",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "decisions": {
+          "beforeCount": 44,
+          "preserved": 44,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "fcdc5ea0fa392d5c1d361d6953886cb80075d5d45e6959773789cb3d89d5a084",
+          "oldRowsProjectedSha256": "fcdc5ea0fa392d5c1d361d6953886cb80075d5d45e6959773789cb3d89d5a084",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "bets": {
+          "beforeCount": 10,
+          "preserved": 10,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "9ea07cddc5f85389a23c520f6ef7229ddbbd23c8db7fe9f998e71df3da346707",
+          "oldRowsProjectedSha256": "9ea07cddc5f85389a23c520f6ef7229ddbbd23c8db7fe9f998e71df3da346707",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "settlements": {
+          "beforeCount": 6,
+          "preserved": 6,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "oldRowsProjectedSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "cancellations": {
+          "beforeCount": 5,
+          "preserved": 5,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "oldRowsProjectedSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "ledger": {
+          "beforeCount": 18,
+          "preserved": 18,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "c8235e635800e19d90c1d632c70aaa14e7a4917ff7b9d462495067ec9a6b0633",
+          "oldRowsProjectedSha256": "c8235e635800e19d90c1d632c70aaa14e7a4917ff7b9d462495067ec9a6b0633",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "budgets": {
+          "beforeCount": 1,
+          "preserved": 1,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "fe58bf7227e04a932d3ea89d6372049f45746452acbddd26632fbe85cf227086",
+          "oldRowsProjectedSha256": "fe58bf7227e04a932d3ea89d6372049f45746452acbddd26632fbe85cf227086",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "legacyBets": {
+          "beforeCount": 258,
+          "preserved": 258,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "oldRowsProjectedSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        }
+      },
+      "firstAttemptPreservation": {
+        "policies": {
+          "beforeCount": 3,
+          "preserved": 3,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "5a5f896460125466e375784461057aa585cf281d30c98e57e9f85c5e3fe751bc",
+          "oldRowsProjectedSha256": "5a5f896460125466e375784461057aa585cf281d30c98e57e9f85c5e3fe751bc",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "jobs": {
+          "beforeCount": 50,
+          "preserved": 50,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "19c1ca207654c0cbfdc1a11535cb72d76b2ad03d5be28964e71e7804a04518c2",
+          "oldRowsProjectedSha256": "19c1ca207654c0cbfdc1a11535cb72d76b2ad03d5be28964e71e7804a04518c2",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "inputs": {
+          "beforeCount": 47,
+          "preserved": 47,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "7b36ac5aa2cfb6ccdd41c9ceaece8d9dd6ec9841153ffa214ad376cca32d87f4",
+          "oldRowsProjectedSha256": "7b36ac5aa2cfb6ccdd41c9ceaece8d9dd6ec9841153ffa214ad376cca32d87f4",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "decisions": {
+          "beforeCount": 94,
+          "preserved": 94,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "5a0794980d8cb8bb91023a108a85c6f2c46de5e583394cc813e5986220967060",
+          "oldRowsProjectedSha256": "5a0794980d8cb8bb91023a108a85c6f2c46de5e583394cc813e5986220967060",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "bets": {
+          "beforeCount": 14,
+          "preserved": 14,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "3c45b4c89b64e438958a5af8395e9b2b4d289087a46fd7bdb73671a6d649021e",
+          "oldRowsProjectedSha256": "3c45b4c89b64e438958a5af8395e9b2b4d289087a46fd7bdb73671a6d649021e",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "settlements": {
+          "beforeCount": 6,
+          "preserved": 6,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "oldRowsProjectedSha256": "42d410d652f75bd0166e4e91ab084f48f7bc2a8337fe52e90c2f3dba38f7a7b6",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "cancellations": {
+          "beforeCount": 5,
+          "preserved": 5,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "oldRowsProjectedSha256": "a4140c4525caedb09badc62a2c045d7c7eb0c338113534ec981ef564781473d1",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "ledger": {
+          "beforeCount": 22,
+          "preserved": 22,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "53e3cfc8a0bc213012c3fdfb149b381778356402611314895a893ff0fc15331d",
+          "oldRowsProjectedSha256": "53e3cfc8a0bc213012c3fdfb149b381778356402611314895a893ff0fc15331d",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        },
+        "legacyBets": {
+          "beforeCount": 258,
+          "preserved": 258,
+          "missing": [],
+          "changed": [],
+          "beforeRowsSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "oldRowsProjectedSha256": "cd38c837b704ff026015a4ad9c12dc32970bd9f8bafb4607ec39538097747b28",
+          "allOriginalRowsByteValueEqual": true,
+          "allOriginalMaterialValuesEqual": true
+        }
+      },
+      "firstAttemptAuditReference": {
+        "snapshotSha256": "8e5cb875d85f5d5a15806367f6213293d747fc149b0402d9339f6813d264f788",
+        "ok": false,
+        "historicalIssueCodes": [
+          "recovery_jobs_incomplete_or_unexpected",
+          "recovery_inputs_incomplete_or_unexpected",
+          "recovery_decisions_incomplete_or_unexpected"
+        ],
+        "verifiedRecordedCounts": {
+          "completeInputs": 15,
+          "completeDecisions": 30,
+          "recordedBets": 4,
+          "recordedStakeMovements": 4,
+          "historicalErrorJobs": 3
+        },
+        "proofScope": "all_rows_in_first_snapshot_queried_tables_preserved_budget_usage_may_advance"
+      },
+      "attempts": [
+        {
+          "policyHash": "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa",
+          "runId": "github-actions:41197494187",
+          "totalJobs": 18,
+          "statuses": {
+            "COMPLETED": 15,
+            "ERROR": 3
+          },
+          "allJobsSuccessful": false,
+          "historicalFailedJobs": [
+            {
+              "id": "10cff7e9-275d-4f20-b0ea-af06a92493ea",
+              "matchId": "understat_32307",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            },
+            {
+              "id": "3c3daba3-5de4-4393-b8b0-9b33d80f1147",
+              "matchId": "understat_31262",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            },
+            {
+              "id": "9663e6ef-b329-4aff-aed6-b6627747eed0",
+              "matchId": "understat_32304",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            }
+          ]
+        },
+        {
+          "policyHash": "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013",
+          "runId": "github-actions:41199219872",
+          "totalJobs": 3,
+          "statuses": {
+            "COMPLETED": 3
+          },
+          "allJobsSuccessful": true,
+          "historicalFailedJobs": []
+        }
+      ],
+      "logicalSources": [
+        {
+          "matchId": "understat_30871",
+          "sourceJobId": "656936d6-38b1-4b8e-b844-8b88f21e155d",
+          "sourceInputId": "f7d725f6-896b-4bec-9a71-2c523f8f8174",
+          "homeTeamName": "Real Betis",
+          "awayTeamName": "Malaga",
+          "completedJobIds": [
+            "6afb54b6-66fa-4623-bca6-12e163e9de2d"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_30874",
+          "sourceJobId": "5eb9b09f-7520-49d9-afa7-04e371686154",
+          "sourceInputId": "5ebc0d9d-3c9e-4308-a973-9b46e45c49f5",
+          "homeTeamName": "Barcelona",
+          "awayTeamName": "Alaves",
+          "completedJobIds": [
+            "651e2074-883e-4033-b43b-0a3dda388202"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_30876",
+          "sourceJobId": "f82bc5f9-761c-4b0a-9921-36f677ca22fe",
+          "sourceInputId": "27993e73-8fbc-4f16-80b7-482c49736e9f",
+          "homeTeamName": "Levante",
+          "awayTeamName": "Atletico Madrid",
+          "completedJobIds": [
+            "68eeeed8-b01b-4c39-88a6-92c46ddc7a6e"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_30878",
+          "sourceJobId": "68972106-9739-4b0f-bd5d-3be7d775769b",
+          "sourceInputId": "47255385-fd32-4d45-a974-2562ac2efc1b",
+          "homeTeamName": "Rayo Vallecano",
+          "awayTeamName": "Celta Vigo",
+          "completedJobIds": [
+            "d9b21f41-0818-49d4-9633-f37351124916"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31260",
+          "sourceJobId": "6284ef12-d45a-4ac0-b2fa-981a25af7b85",
+          "sourceInputId": "4717acfd-571d-41e0-9183-31e26cf790f6",
+          "homeTeamName": "Chelsea",
+          "awayTeamName": "Manchester United",
+          "completedJobIds": [
+            "ff8aa9cc-0ee8-4c54-8581-920101d44939"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31261",
+          "sourceJobId": "9a2cbac3-6b5e-40b7-b4e3-e7a3824c6290",
+          "sourceInputId": "7a78c633-4df9-467e-abb6-c49378a00321",
+          "homeTeamName": "Coventry",
+          "awayTeamName": "Sunderland",
+          "completedJobIds": [
+            "0a625b77-c5a0-4638-9912-8d10c9f62ee2"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31262",
+          "sourceJobId": "1e6ed69c-f4d0-483e-ae56-9ac41c4bf85a",
+          "sourceInputId": "4c177526-b7ec-4625-8318-a7af9053680e",
+          "homeTeamName": "Hull",
+          "awayTeamName": "Ipswich",
+          "completedJobIds": [
+            "b851655f-fddf-4956-9585-087d04ee4a8c"
+          ],
+          "completedPolicyHashes": [
+            "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013"
+          ],
+          "historicalErrors": [
+            {
+              "id": "3c3daba3-5de4-4393-b8b0-9b33d80f1147",
+              "policyHash": "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa",
+              "runId": "github-actions:41197494187",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            }
+          ]
+        },
+        {
+          "matchId": "understat_31263",
+          "sourceJobId": "3c8c9c92-b14a-40f2-b62d-ac9dfd9bb029",
+          "sourceInputId": "50d33cce-9019-4168-8352-2978d3be15e2",
+          "homeTeamName": "Manchester City",
+          "awayTeamName": "Brighton",
+          "completedJobIds": [
+            "4c3ba46f-8437-482b-b07e-4db663ae9256"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31264",
+          "sourceJobId": "c798810c-19f5-4383-aeb7-e6e7bdea5de6",
+          "sourceInputId": "f384a846-abfc-4431-a417-d86f0d09abba",
+          "homeTeamName": "Bournemouth",
+          "awayTeamName": "Leeds",
+          "completedJobIds": [
+            "3a03ced3-ea42-41a6-8531-dea1de3e2c89"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31265",
+          "sourceJobId": "4e54556f-0054-47fe-a71c-6fa49ba59f1f",
+          "sourceInputId": "074d2b31-7150-41b5-a8e0-31a5ba3576fb",
+          "homeTeamName": "Brentford",
+          "awayTeamName": "Nottingham Forest",
+          "completedJobIds": [
+            "a40f0c7e-f47f-43d1-9afa-f9f3c11bdbe3"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31266",
+          "sourceJobId": "034e7339-e628-4038-a031-8aa2b2a52e23",
+          "sourceInputId": "846d501b-b2ad-45d8-9660-b207e4df4950",
+          "homeTeamName": "Tottenham",
+          "awayTeamName": "Crystal Palace",
+          "completedJobIds": [
+            "d378cd0f-63b6-408a-8c6c-4bd66c3d93fb"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31267",
+          "sourceJobId": "d24e72f3-4ef3-4c6f-b030-1d91719c1b55",
+          "sourceInputId": "1037738e-6e66-480f-9085-39c2d075b3d5",
+          "homeTeamName": "Aston Villa",
+          "awayTeamName": "Fulham",
+          "completedJobIds": [
+            "6fbdd578-8463-4880-863c-0c5bd9326e1b"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31650",
+          "sourceJobId": "34fec73c-9a2d-4252-87b9-0058a7f4e798",
+          "sourceInputId": "8d902b3c-f7b9-4307-af4b-ccca0351eec3",
+          "homeTeamName": "AC Milan",
+          "awayTeamName": "Inter",
+          "completedJobIds": [
+            "97f7d8f6-d06c-4a30-b3dd-1ace5faa7db7"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31652",
+          "sourceJobId": "9526605a-7417-4cb2-9bd5-f043c06de5eb",
+          "sourceInputId": "01a0f6d8-67ee-4381-9254-3edf9ec9fe64",
+          "homeTeamName": "Bologna",
+          "awayTeamName": "Monza",
+          "completedJobIds": [
+            "3e7215b6-a4fb-4325-ba9c-361a4a075dcb"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_31659",
+          "sourceJobId": "93c785ed-7ed0-4360-9735-5ce354d4dd63",
+          "sourceInputId": "b4b73689-2457-4c74-bdd3-1f3be0af3c5d",
+          "homeTeamName": "Udinese",
+          "awayTeamName": "Roma",
+          "completedJobIds": [
+            "a72ea64a-feaa-49fe-ba99-8f50fb67c17b"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_32020",
+          "sourceJobId": "28c3129e-1eb5-4a73-bb29-796263e7de0d",
+          "sourceInputId": "34485f87-97d1-4e47-88e3-62f1a632bbad",
+          "homeTeamName": "Troyes",
+          "awayTeamName": "Le Mans",
+          "completedJobIds": [
+            "7daf4104-1967-49c4-aa18-67019a194e89"
+          ],
+          "completedPolicyHashes": [
+            "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa"
+          ],
+          "historicalErrors": []
+        },
+        {
+          "matchId": "understat_32304",
+          "sourceJobId": "a89c9eb7-965a-4f5f-a55d-df50b3088005",
+          "sourceInputId": "400dd26b-a9f1-4508-acc0-d08d0987f97f",
+          "homeTeamName": "Schalke 04",
+          "awayTeamName": "RasenBallsport Leipzig",
+          "completedJobIds": [
+            "ab4e5736-1dfa-4d2b-aa62-5ef1418a0b05"
+          ],
+          "completedPolicyHashes": [
+            "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013"
+          ],
+          "historicalErrors": [
+            {
+              "id": "9663e6ef-b329-4aff-aed6-b6627747eed0",
+              "policyHash": "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa",
+              "runId": "github-actions:41197494187",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            }
+          ]
+        },
+        {
+          "matchId": "understat_32307",
+          "sourceJobId": "8fc51269-e662-4d27-9f16-90e304a04996",
+          "sourceInputId": "66ed49c4-86b2-4d67-a22b-ab9e4541be27",
+          "homeTeamName": "Borussia M.Gladbach",
+          "awayTeamName": "Paderborn",
+          "completedJobIds": [
+            "386b0686-8e9b-4c10-b0cd-3a1beb210f33"
+          ],
+          "completedPolicyHashes": [
+            "11191adec7c12b440767dc4acadf7f31f9df96239c29eb9c51b55cbfbdb68013"
+          ],
+          "historicalErrors": [
+            {
+              "id": "10cff7e9-275d-4f20-b0ea-af06a92493ea",
+              "policyHash": "059a16f97e6f384b066c8fb4273265304627ded0a325067893dc28b0dd17b0fa",
+              "runId": "github-actions:41197494187",
+              "status": "ERROR",
+              "reason": "recommendation_preparation_failed"
+            }
+          ]
+        }
+      ],
+      "decisionActions": {
+        "ABSTAIN": 32,
+        "BET": 4
+      },
+      "abstentionReasons": {
+        "app_no_recommendation": 4,
+        "non_binary_payout_not_supported_by_canonical_engine": 10,
+        "real_fresh_quotes_unavailable": 3,
+        "virtual_exposure_limit": 15
+      },
+      "financial": [
+        {
+          "portfolioId": "shadow_A",
+          "family": "A",
+          "availableCents": 95953,
+          "committedCents": 4657,
+          "openings": 1,
+          "maximumNewStakeExposureFraction": 0.04628764536328397,
+          "equityCents": 100610,
+          "active": true,
+          "openStakesCents": 4657,
+          "pendingBets": 3,
+          "exposureFraction": 0.04628764536328397
+        },
+        {
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "availableCents": 96380,
+          "committedCents": 5070,
+          "openings": 1,
+          "maximumNewStakeExposureFraction": 0.04997535731887629,
+          "equityCents": 101450,
+          "active": true,
+          "openStakesCents": 5070,
+          "pendingBets": 5,
+          "exposureFraction": 0.04997535731887629
+        }
+      ],
+      "newBets": [
+        {
+          "id": "30586a75-1241-40c8-a3c0-bf82e602ab33",
+          "executionDecisionId": "d51d575b-f60e-4859-ae61-a2c65c5a4c7a",
+          "originDecisionId": "5c99c219-f1b6-4259-b27e-2b7ed6640ba7",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_31266",
+          "homeTeamName": "Tottenham",
+          "awayTeamName": "Crystal Palace",
+          "competition": "Premier League",
+          "market": "1x2",
+          "selection": "awayWin",
+          "odds": 4.8,
+          "bookmaker": "Codere (IT)",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:21.405Z",
+          "observedAt": "2026-10-31T11:47:20.993Z",
+          "kickoffAt": "2026-10-31T17:30:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:45:38.890Z",
+          "quoteUpdatedAt": "2026-10-31T11:45:03Z",
+          "ageAtPlacementMs": [
+            162515,
+            198405
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "041e6f4141a92a1c5d9d6a1b4711876f02945c3b062f7abc970c9843ba6c61a0",
+          "snapshotSha256": "5cc2a1765aead34782467e3ecca3c185b189cf0d2549bce471666732fdb02905"
+        },
+        {
+          "id": "3c4aed2f-5495-4103-9a52-39f334958a9f",
+          "executionDecisionId": "a16312d0-435e-4cf1-9a41-53338be4da30",
+          "originDecisionId": "b2763622-0eb1-4059-b769-10b3d716140e",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_32020",
+          "homeTeamName": "Troyes",
+          "awayTeamName": "Le Mans",
+          "competition": "Ligue 1",
+          "market": "1x2",
+          "selection": "awayWin",
+          "odds": 3.3,
+          "bookmaker": "Codere (IT)",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:20.594Z",
+          "observedAt": "2026-10-31T11:47:36.626Z",
+          "kickoffAt": "2026-10-31T19:45:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:47:26.995Z",
+          "quoteUpdatedAt": "2026-10-31T11:47:21Z",
+          "ageAtPlacementMs": [
+            53599,
+            59594
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "e575baf77760e8462c052d0a6195b5d94a990584cb45af1cabfc7f1cae434327",
+          "snapshotSha256": "e2ec8a301af9447b8cf2d84cdc2d4a906da7054b118dd9fd72338d661f481522"
+        },
+        {
+          "id": "bd19ec73-e85b-41c1-9b51-4be4a2022659",
+          "executionDecisionId": "2d04ee0a-a913-4362-89b6-07acf65dbb60",
+          "originDecisionId": "bd021892-ec6e-430b-879e-5681e7b7d33f",
+          "portfolioId": "shadow_A",
+          "family": "A",
+          "modelVersion": "APP-A-5199efe38eb750f91299",
+          "matchId": "understat_32020",
+          "homeTeamName": "Troyes",
+          "awayTeamName": "Le Mans",
+          "competition": "Ligue 1",
+          "market": "totals",
+          "selection": "over45",
+          "odds": 7.3,
+          "bookmaker": "Coolbet",
+          "source": "odds_api",
+          "stakeCents": 412,
+          "stakePercent": 0.41,
+          "equityBasisCents": 100610,
+          "placedAt": "2026-10-31T11:48:12.736Z",
+          "observedAt": "2026-10-31T11:47:36.626Z",
+          "kickoffAt": "2026-10-31T19:45:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:47:30.627Z",
+          "quoteUpdatedAt": "2026-10-31T11:46:42Z",
+          "ageAtPlacementMs": [
+            42109,
+            90736
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "e575baf77760e8462c052d0a6195b5d94a990584cb45af1cabfc7f1cae434327",
+          "snapshotSha256": "93c1d6e89da729a6d07d652378b830b4fca07a6e22a84c907b0a2dc198d03ba0"
+        },
+        {
+          "id": "e478b553-d38b-4c79-abb4-9d3d7e6bf67d",
+          "executionDecisionId": "234df1ea-9c99-4564-875d-38d08e593bac",
+          "originDecisionId": "96e79bd4-23c8-4c84-8053-f52eb4478af5",
+          "portfolioId": "shadow_C",
+          "family": "C",
+          "modelVersion": "C-906371b0b3a1e2c8",
+          "matchId": "understat_30874",
+          "homeTeamName": "Barcelona",
+          "awayTeamName": "Alaves",
+          "competition": "La Liga",
+          "market": "totals",
+          "selection": "under25",
+          "odds": 4.63,
+          "bookmaker": "Betsson",
+          "source": "odds_api",
+          "stakeCents": 1014,
+          "stakePercent": 1,
+          "equityBasisCents": 101450,
+          "placedAt": "2026-10-31T11:48:19.762Z",
+          "observedAt": "2026-10-31T11:47:41.577Z",
+          "kickoffAt": "2026-10-31T20:00:00.000Z",
+          "quoteCapturedAt": "2026-10-31T11:45:57.552Z",
+          "quoteUpdatedAt": "2026-10-31T11:45:33Z",
+          "ageAtPlacementMs": [
+            142210,
+            166762
+          ],
+          "ownEnginePacketMatches": true,
+          "storedQuoteEvidenceValid": true,
+          "providerDirectlyRequeried": false,
+          "inputSha256": "105853445a6478245727e9b43d8106056a80563bc876ee39d366fc7cdecf07e4",
+          "snapshotSha256": "d2f9259e5f4ba50b8ba32f82361816bd75594c3c78b7f90c9c6ab41de04f0380"
+        }
+      ],
+      "budgets": [
+        {
+          "provider": "odds_api",
+          "accountScope": "daniele-oddsapi-20261031",
+          "month": "2026-10",
+          "measuredUsed": 282,
+          "measuredRemaining": 218,
+          "headerChargedAnchor": 282,
+          "headerObservedAt": "2026-10-31T12:11:24.749Z",
+          "resetConfirmed": 1
+        },
+        {
+          "provider": "odds_api",
+          "accountScope": "primary",
+          "month": "2026-10",
+          "measuredUsed": 498,
+          "measuredRemaining": 2,
+          "headerChargedAnchor": 218,
+          "headerObservedAt": "2026-10-31T09:39:18.932Z",
+          "resetConfirmed": 1
+        }
+      ],
+      "requestUsage": [
+        {
+          "provider": "odds_api",
+          "account_scope": "daniele-oddsapi-20261031",
+          "month": "2026-10",
+          "requests": 33,
+          "charged": 282,
+          "reserved": 0,
+          "error_results": 0
+        },
+        {
+          "provider": "odds_api",
+          "account_scope": "primary",
+          "month": "2026-10",
+          "requests": 68,
+          "charged": 218,
+          "reserved": 0,
+          "error_results": 1
+        }
+      ],
+      "duplicatePairs": [],
+      "snapshotSha256": "9e3f6ca2acfe24b16a86c3ad75ce617e73e017cb3b78f9c8446ceee8ee8c8e60",
+      "limitations": [
+        "Quote authenticity is checked against stored provider/source/bookmaker flags, frozen shared vectors and timestamps; no provider request is made by this audit.",
+        "The prepared decisions_hash is preserved and checked for format; it is not independently reconstructed from post-admission decision snapshots.",
+        "Two matching SELECT snapshots detect observed concurrent changes; no database transaction or external lock is acquired.",
+        "Original research origin records are read for lineage; only the execution/accounting tables present in the supplied baseline have a before/after preservation proof.",
+        "The initial snapshot is explicitly targeted. Rows outside that baseline are not automatically new: recovery counts are attributed only through policy, run and frozen source lineage.",
+        "Aggregate completion does not turn the failed first run into a success: its three ERROR jobs and the entire first snapshot remain preserved and are reported separately."
+      ]
+    },
+    "postRecoveryPlan": {
+      "readOnly": true,
+      "eligible": 0,
+      "sourceDecisions": 0,
+      "excluded": 22,
+      "exclusionReasons": {
+        "prior_recovery_preserved": 15,
+        "existing_bet_preserved": 6,
+        "nontechnical_decision_preserved": 1
+      },
+      "planHash": "a8793d2d4366aa6a9971c4fe2937b0e299ff1fe69592d05e25cb3f7fc2146aa6"
+    },
+    "dailySummary": {
+      "day": "2026-10-31",
+      "previousFundedBets": 4,
+      "newRecoveryFundedBets": 4,
+      "totalFundedBets": 8,
+      "fundedFixtures": 6,
+      "stakeCents": 9727,
+      "families": {
+        "A": {
+          "bets": 3,
+          "stakeCents": 4657
+        },
+        "C": {
+          "bets": 5,
+          "stakeCents": 5070
+        }
+      }
     }
   },
   "githubCI": {
     "status": "success",
-    "runId": 41197376086,
-    "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
+    "runId": 41199077004,
+    "commit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
     "backend": {
-      "tests": 1177,
-      "passed": 1176,
+      "tests": 1186,
+      "passed": 1185,
       "failed": 0,
       "skipped": 1
     },
-    "frontend": "success",
-    "followup": "pending_publication"
+    "frontend": {
+      "status": "success",
+      "checks": [
+        "lint",
+        "typecheck",
+        "build"
+      ]
+    },
+    "previousSuccessfulRunId": 41197376086
   },
   "noRealBookmakerTransactions": true,
   "hostless": {
     "status": "Deployed LIVE",
-    "deploymentId": "6ae5d3f37716538af9500249",
-    "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
+    "deploymentId": "6ae5d8ed7716538af9506d5f",
+    "commit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
     "scope": "daniele-oddsapi-20261031",
-    "probe": {
+    "health": {
+      "httpStatus": 200,
+      "success": true,
+      "status": "ok",
+      "version": "2.0",
+      "checkedAt": "2026-10-31T12:08:31.000Z"
+    },
+    "initialKeyVerification": {
+      "deploymentId": "6ae5d3f37716538af9500249",
+      "commit": "d75718724c4a31b24d729c780f465ec646cd8c9e",
       "httpStatus": 200,
       "used": 239,
       "remaining": 261,
       "lastCost": 0,
-      "date": "2026-10-31T11:48:36.000Z"
+      "date": "2026-10-31T11:48:36.000Z",
+      "method": "probe-odds-quota.js executed inside running web container; scope independently printed"
     },
-    "followupDeployment": "pending_publication"
+    "evidenceImage": "hostless-followup-deploy-2026-10-31.jpg",
+    "evidenceImageSha256": "b0ef4e756e023c1a0b92b6a3923a58b2f94bdea19bf37ea1708a13234d54c75a"
+  },
+  "implementationCommit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
+  "watchdog": {
+    "status": "success",
+    "runId": 41200024289,
+    "commit": "e29ae676945c113fcb9e226cf61a205dea2fa60a",
+    "githubCheck": "success",
+    "databaseCheck": "success",
+    "databaseCredential": "dedicated_readonly_token_required_without_write_fallback",
+    "issues": [],
+    "accounting": {
+      "stable": true,
+      "checked": true,
+      "errors": 0
+    },
+    "pendingResearchSettlements": 0
+  },
+  "localRuntime": {
+    "dockerImagesBuilt": true,
+    "backendStarted": true,
+    "backendHealthHttpStatus": 200,
+    "fullComposeSucceeded": false,
+    "frontendStartBlockedBy": "port_3000_preexisting_footpredictor_instance",
+    "preexistingInstancePreserved": true,
+    "temporaryBackendStoppedAfterVerification": true
+  },
+  "remainingLimitations": {
+    "operationalAQuoteMatchingUnchanged": true,
+    "finalThreeAAbstentions": "real_fresh_quotes_unavailable",
+    "finalThreeCAbstentions": "virtual_exposure_limit",
+    "monthlyFreeQuotaDoesNotGuaranteeFullCatalogCoverage": true,
+    "automaticAccountCreationImplemented": false,
+    "predictiveImprovementClaimed": false
   }
 }
