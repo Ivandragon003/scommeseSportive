@@ -120,8 +120,8 @@ describe('WalletArchivePage', () => {
 
     await waitFor(() => expect(mockedWallets).toHaveBeenCalledTimes(2));
     await screen.findByText('Consiglio registrato verificato.');
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Pronostico registrato modello C' })).getByText('Mezza perdita')).toBeTruthy());
     const settledEvidence = screen.getByRole('region', { name: 'Pronostico registrato modello C' });
-    expect(within(settledEvidence).getByText('Mezza perdita')).toBeTruthy();
     expect(within(settledEvidence).getByText(/^5,00\s€$/)).toBeTruthy();
     expect(within(settledEvidence).getByText(/^-5,00\s€$/)).toBeTruthy();
     expect(within(settledEvidence).queryByText('Aperta')).toBeNull();

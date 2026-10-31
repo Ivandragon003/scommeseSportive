@@ -315,7 +315,7 @@ test('calendar defaults to today and all dates are an explicit persistent choice
   const view = render(<Predictions activeUser="test-user" />);
   await screen.findByRole('button', { name: /Inter vs Milan/ });
   expect(screen.queryByRole('button', { name: /Napoli vs Roma/ })).toBeNull();
-  expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-23');
+  await waitFor(() => expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-23'));
   fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
   expect(screen.getByRole('button', { name: /Napoli vs Roma/ })).toBeTruthy();
   expect(new URLSearchParams(window.location.search).get('day')).toBe('all');
@@ -328,7 +328,7 @@ test('when today has no fixture the first available day is selected without brea
   setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [nextDayMatchRow] } as any);
   const view = render(<Predictions activeUser="test-user" />);
   await screen.findByRole('button', { name: /Napoli vs Roma/ });
-  expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-24');
+  await waitFor(() => expect(new URLSearchParams(window.location.search).get('day')).toBe('2026-05-24'));
   view.unmount(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
   window.history.replaceState(null, '', '/predictions?day=2026-05-23&match=match_2');
   render(<Predictions activeUser="test-user" />);
