@@ -118,6 +118,13 @@ jobs:
           set -eo pipefail
           npm run typecheck 2>&1 | tee ../ci-logs/frontend/typecheck.log
 
+      - name: Test frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -eo pipefail
+          npm run test:ci 2>&1 | tee ../ci-logs/frontend/test.log
+
       - name: Build frontend
         working-directory: frontend
         shell: bash
