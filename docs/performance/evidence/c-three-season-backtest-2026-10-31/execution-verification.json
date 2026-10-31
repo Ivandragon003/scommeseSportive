@@ -47,11 +47,38 @@
       "foldArtifacts": 42
     },
     "publicArchiveInferenceReplay": {
-      "status": "running",
-      "expectedDecodedPredictionsSha256": "559a079f613e12bbf5fdd05c21b1abea17ed94019cfadbcefd77ac6de7a7c216"
+      "status": "passed",
+      "inputRestoredFromPublishedArchives": true,
+      "compiledAfterDiagnosticAdmissionFix": true,
+      "records": 6573,
+      "testMatches": 4892,
+      "decodedPredictionsSha256": "559a079f613e12bbf5fdd05c21b1abea17ed94019cfadbcefd77ac6de7a7c216",
+      "expectedDecodedPredictionsSha256": "559a079f613e12bbf5fdd05c21b1abea17ed94019cfadbcefd77ac6de7a7c216",
+      "decodedPredictionsByteIdentical": true,
+      "deterministicGzipByteIdentical": true,
+      "newIndependentProspectiveEvidence": false
     },
     "githubCI": {
-      "status": "pending_publication"
+      "status": "passed",
+      "commit": "426edcb34cd70bb85c1a169337a00b44cc60591e",
+      "runId": 41194187135,
+      "url": "https://github.com/Ivandragon003/scommeseSportive/actions/runs/41194187135",
+      "backend": {
+        "conclusion": "success",
+        "tests": 1136,
+        "passed": 1135,
+        "failed": 0,
+        "skipped": 1
+      },
+      "frontend": {
+        "conclusion": "success",
+        "checks": [
+          "lint",
+          "typecheck",
+          "build"
+        ]
+      },
+      "operationalAWarmWorkflowTriggered": false
     },
     "secretScan": {
       "status": "passed",
@@ -68,5 +95,18 @@
   "productionProviderCalls": false,
   "modelAdoptionExecuted": false,
   "betPlacementExecuted": false,
-  "independentProspectiveEvidence": false
+  "independentProspectiveEvidence": false,
+  "trainingSource": {
+    "file": "trainer-source.py.gz",
+    "decodedSha256": "929d22cf763394b2201e045fee22b173681e223b54eb1e229e19d7384b6f1af1",
+    "note": "Exact bytes used for training; Git line ending normalization can change the hash of the equivalent checked-out Python source."
+  },
+  "environment": {
+    "os": "Windows",
+    "python": "3.12.10",
+    "catboost": "1.2.8",
+    "numpy": "2.4.2",
+    "node": "v24.17.0",
+    "typescript": "5.9.3"
+  }
 }

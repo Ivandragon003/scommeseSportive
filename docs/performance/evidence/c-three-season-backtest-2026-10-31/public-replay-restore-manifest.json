@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "restored-challenger-season-inputs-v1",
+  "bundleManifest": {
+    "sha256": "95a8eb6fea2d7d4910e2ada9afea9b814e1c34b89efb52d959b823c212a52304",
+    "bytes": 10900
+  },
+  "files": {
+    "comparison-canonical-inputs/fold-0-c906_recipe_retrained.json": {
+      "sha256": "dc0b2e0d085297a41feb530aec60f3e28d7d961f4af522bcf94b286e38cac349",
+      "bytes": 5528972
+    },
+    "comparison-canonical-inputs/fold-0-development_current_replica.json": {
+      "sha256": "69449a43808c2218005e10ac7967e83fe5acf92a77675eb40490e9cbbc9ad018",
+      "bytes": 5177996
+    },
+    "comparison-canonical-inputs/fold-0-intensity_full.json": {
+      "sha256": "2ee6c7b546012b5c1f0d6bba57bfaf9096e1824d8c56e5ab8fb5753ed2b0936e",
+      "bytes": 5187158
+    },
+    "comparison-canonical-inputs/fold-0-intensity_legacy.json": {
+      "sha256": "5f5a989a59edef3b1b163e8f4695969172f84ceb85ffd584fb5afc363788136f",
+      "bytes": 5177826
+    },
+    "comparison-canonical-inputs/fold-0-intensity_recent_xg.json": {
+      "sha256": "e784b7812ec8d17ef0d2be2deba5a13a926a55daa13dac053fc3a7768d5fccba",
+      "bytes": 5183814
+    },
+    "comparison-canonical-inputs/fold-0-intensity_schedule.json": {
+      "sha256": "d8e716d5655a0e75d3d928e9cd4aa0e5751050f63a1d1c872309d3ed5ca607df",
+      "bytes": 5179728
+    },
+    "comparison-canonical-inputs/fold-0-no_ml.json": {
+      "sha256": "4278e75196aad1429a3ada75597573b391be46f9e418453ba4ce80dd8bfeec36",
+      "bytes": 4847380
+    },
+    "comparison-canonical-inputs/fold-1-c906_recipe_retrained.json": {
+      "sha256": "89a97fca852fe07a132d1600c2f971a05b3b4afb0eb175be356ee116ec9eb588",
+      "bytes": 7687653
+    },
+    "comparison-canonical-inputs/fold-1-development_current_replica.json": {
+      "sha256": "566f8a827167908704be63851911414cd15a04194b78b243c80500c1b29bd1ff",
+      "bytes": 7331337
+    },
+    "comparison-canonical-inputs/fold-1-intensity_full.json": {
+      "sha256": "93366cbaa1d174d66cbf279a7f9bf9fcaeb0a355ddcb093cd08dddaba360a1f9",
+      "bytes": 7340433
+    },
+    "comparison-canonical-inputs/fold-1-intensity_legacy.json": {
+      "sha256": "ac22ce86cbfb737d03363ac4c77c2ffb01de812896128c0510e5a7722a2cfe1c",
+      "bytes": 7330916
+    },
+    "comparison-canonical-inputs/fold-1-intensity_recent_xg.json": {
+      "sha256": "99152c2842c1bf38a38afdd2840b0b45aa900949d58685b211cef14efc0333d9",
+      "bytes": 7337889
+    },
+    "comparison-canonical-inputs/fold-1-intensity_schedule.json": {
+      "sha256": "844a9fa450bc57709e77069e3ebcd0b29eb9f8c62f24cdfc21d5e58196ee5e51",
+      "bytes": 7332865
+    },
+    "comparison-canonical-inputs/fold-1-no_ml.json": {
+      "sha256": "3fffa2fa9d0070e4b1cc46bb3b448c9ae7d5302230c9b0fd3275c42599cd142d",
+      "bytes": 7001544
+    },
+    "comparison-canonical-inputs/fold-2-c906_recipe_retrained.json": {
+      "sha256": "2ba6beef41f43eca0fe05473ce57bed04d7bb676b4d224046848ffb67daddede",
+      "bytes": 4042220
+    },
+    "comparison-canonical-inputs/fold-2-development_current_replica.json": {
+      "sha256": "16983e430de2efd96dce68b7be584a806aac549f55502c9d8177c538ab04e9ef",
+      "bytes": 3683674
+    },
+    "comparison-canonical-inputs/fold-2-intensity_full.json": {
+      "sha256": "40ef5eb6ee7024852b37618d1ff4d72614ecacc3879ce6b0b95859fe786d1c32",
+      "bytes": 3691116
+    },
+    "comparison-canonical-inputs/fold-2-intensity_legacy.json": {
+      "sha256": "38bdec753762e9865cb4088634efdcdf8a9d4bfdeb8c3d026d966173b2f997be",
+      "bytes": 3681715
+    },
+    "comparison-canonical-inputs/fold-2-intensity_recent_xg.json": {
+      "sha256": "178aab69832d36639ca5c3e0eb4ef26eab5ed6a965a37b1e5a70dbad602ae0d5",
+      "bytes": 3688846
+    },
+    "comparison-canonical-inputs/fold-2-intensity_schedule.json": {
+      "sha256": "96f715a3ab4e1b72d0d8b70735d0e2e7d10a3191f490d5fae9017d31217db89b",
+      "bytes": 3685254
+    },
+    "comparison-canonical-inputs/fold-2-no_ml.json": {
+      "sha256": "bd54d28260317b8a9ba2f1972e1e9e0e3688dfceab8354dab8fbfa280c5ed5f6",
+      "bytes": 3350429
+    },
+    "comparison-canonical-inputs/fold-3-c906_recipe_retrained.json": {
+      "sha256": "1fc44ea1e0ee08f63d0965030700e7f6e5309dd12e8167443c9b91f4225c6d1d",
+      "bytes": 7523690
+    },
+    "comparison-canonical-inputs/fold-3-development_current_replica.json": {
+      "sha256": "1a2c9955d3d5ec14eba09b44a1c7037321dde223c5ff9a7f7a058a6a10376fce",
+      "bytes": 7164577
+    },
+    "comparison-canonical-inputs/fold-3-intensity_full.json": {
+      "sha256": "1285b79faa10e3a4728bc61536c297f0134a1c918a4904d710db029fbf4dbc47",
+      "bytes": 7172748
+    },
+    "comparison-canonical-inputs/fold-3-intensity_legacy.json": {
+      "sha256": "a55d9d4ef348dde1be1140b6e98ae67e4f7927d6c86755a3d2de5853d38c9582",
+      "bytes": 7164257
+    },
+    "comparison-canonical-inputs/fold-3-intensity_recent_xg.json": {
+      "sha256": "a5d8c87ffd401ed408029113ae653de0d6fd684177c30df803d24d709d60fc6d",
+      "bytes": 7169936
+    },
+    "comparison-canonical-inputs/fold-3-intensity_schedule.json": {
+      "sha256": "932016a4ad230da4dfd7ec927865fe6f20db9b47dc18c043ed35a7b94c141951",
+      "bytes": 7165907
+    },
+    "comparison-canonical-inputs/fold-3-no_ml.json": {
+      "sha256": "69d6f5c638c519ea93f8df35bc3f129641138e18bc638807cee1c0b4df4f3f7c",
+      "bytes": 6832735
+    },
+    "comparison-canonical-inputs/fold-4-c906_recipe_retrained.json": {
+      "sha256": "4de76cb2f3ee79962d8aaf9b23ed3ac28d24b294f748e6f5fcc27d26c5ef8a87",
+      "bytes": 4160115
+    },
+    "comparison-canonical-inputs/fold-4-development_current_replica.json": {
+      "sha256": "f6e0502596966731a037c1ff05577ae03b7063fc7f5b2e1416d9023710a1f23e",
+      "bytes": 3795807
+    },
+    "comparison-canonical-inputs/fold-4-intensity_full.json": {
+      "sha256": "1cc31203063100b6f1a80ee0bd55c7d1fd1e7619d001ccca817e546742256c8d",
+      "bytes": 3803788
+    },
+    "comparison-canonical-inputs/fold-4-intensity_legacy.json": {
+      "sha256": "995ee27eae8eb9f3c8941bce4405fe66a2baedd588c88d22ac98f8be99e93dcd",
+      "bytes": 3795922
+    },
+    "comparison-canonical-inputs/fold-4-intensity_recent_xg.json": {
+      "sha256": "3fd7e3eaffe828307ded22c82d37f9c5ed7e560553e8aaa223fb070eab1d7e0b",
+      "bytes": 3800720
+    },
+    "comparison-canonical-inputs/fold-4-intensity_schedule.json": {
+      "sha256": "f9141203035b05765bbc0fbdf83a464d569a8d82f5d54deee5b2d22d5f8b0fe9",
+      "bytes": 3798050
+    },
+    "comparison-canonical-inputs/fold-4-no_ml.json": {
+      "sha256": "204cbb2ca2370cfed81b7b768dafa86e48f835bbcbb62c92ccea07cf18b16d20",
+      "bytes": 3461033
+    },
+    "comparison-canonical-inputs/fold-5-c906_recipe_retrained.json": {
+      "sha256": "0c0e263318cbcf355b7e190e77fc9345dc956ebfa9d5de6c72ba295f23102c20",
+      "bytes": 7415248
+    },
+    "comparison-canonical-inputs/fold-5-development_current_replica.json": {
+      "sha256": "89823209aa8a7ffa009472cd1e5130ca54f5b96ccaa2baf1c06ac2020bb210fb",
+      "bytes": 7051675
+    },
+    "comparison-canonical-inputs/fold-5-intensity_full.json": {
+      "sha256": "9210bdb74634a58d83cd30254a191afeb7782a63b0c5ed14863c7c6c4b707e48",
+      "bytes": 7061558
+    },
+    "comparison-canonical-inputs/fold-5-intensity_legacy.json": {
+      "sha256": "497f7a6955bec11140fc8580843b82f13135227a82616446d87e2cdf4f2915a7",
+      "bytes": 7052312
+    },
+    "comparison-canonical-inputs/fold-5-intensity_recent_xg.json": {
+      "sha256": "1664b81f6c7ce56985647d49817b98f0158699c0a2298900b03658da217748dd",
+      "bytes": 7058084
+    },
+    "comparison-canonical-inputs/fold-5-intensity_schedule.json": {
+      "sha256": "676d81b64961a6ed42beadcb50ccbdb3b1ecf86f4cb306634457513d3e764e52",
+      "bytes": 7055121
+    },
+    "comparison-canonical-inputs/fold-5-no_ml.json": {
+      "sha256": "df4c2af3587ea84fc55019b01700bf0ca5b00cb65020f976e9645952dd14595d",
+      "bytes": 6718350
+    },
+    "comparison-canonical-inputs/incumbent.json": {
+      "sha256": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3",
+      "bytes": 4697002
+    },
+    "comparison-canonical-inputs/variants.json": {
+      "sha256": "6ce370653a8b133202e04a06f6a8e67869fa42bab74e9a4480b568c0ed8d524b",
+      "bytes": 9487
+    },
+    "comparison-plan.json": {
+      "sha256": "50cc0cddb7c120f2d10224d0f1ac68e2245e7f72b7ebb76aba5bbcd589f141c3",
+      "bytes": 394
+    },
+    "matches.json": {
+      "sha256": "249233a01c52ddd2578b676ae0a464ecbcce01907e34b89138a23c15e1178dc9",
+      "bytes": 3666948
+    },
+    "nightly-extended-canonical.json": {
+      "sha256": "b9de693888d5ba5f982bd4cd7d38515ec547c306aacd1371f38a7edd021b64e2",
+      "bytes": 84484575
+    },
+    "season-plan.json": {
+      "sha256": "b44a3a2e893b973ee726b42dfa588536ee90db5ecee41dbc5b591dd8a4ac1c6d",
+      "bytes": 31692
+    }
+  },
+  "restoredFoldArtifacts": 42,
+  "incumbentArtifacts": 1,
+  "semantics": "exact_frozen_input_bytes_hash_verified_no_training_adoption_or_source_timestamp_claim"
+}

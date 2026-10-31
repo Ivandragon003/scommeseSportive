@@ -41,6 +41,8 @@ python backend/scripts/audit-challenger-metrics.py --report backend/artifacts/re
 
 Il piano rigenerato deve avere SHA256 `b44a3a2e893b973ee726b42dfa588536ee90db5ecee41dbc5b591dd8a4ac1c6d`. Il dataset deve avere SHA256 `b9de693888d5ba5f982bd4cd7d38515ec547c306aacd1371f38a7edd021b64e2`. Il suo gzip e quello del piano conservano i byte anche con checkout Git CRLF.
 
+Il file `trainer-source.py.gz` conserva anche gli esatti byte del trainer usato, con hash decodificato in `execution-verification.json`, inclusi i terminatori Windows.
+
 Il training rieseguito produce nuove date di creazione e può avere identità diverse se cambiano byte o terminatori del trainer. I modelli JSON contengono inoltre metadati CatBoost di esecuzione: non si richiede l'uguaglianza byte per byte di nuovi artefatti. Confrontare probabilità e metriche a tolleranza dichiarata, oltre a feature, iperparametri e membership delle finestre. Il replay degli artefatti congelati del punto 2 verifica invece le stesse identiche previsioni.
 
 [training-metadata.json](training-metadata.json) è una proiezione dichiarata del report originale: contiene tutti i sei fold, i sette controlli e i loro parametri, escludendo le matrici duplicate delle 4.892 righe. Hash e numero del report originale sono conservati; il file non è presentato come quel report integrale.
