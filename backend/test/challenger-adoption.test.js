@@ -15,6 +15,7 @@ const { prospectivePartition } = moduleOf('ResearchProspectiveEvidence');
 const { ORIGINAL_HOLDOUT_POLICY } = moduleOf('ResearchHoldoutPolicy');
 const { scoreMatrixMarkets } = moduleOf('GoalSettlement');
 const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = moduleOf('ChallengerDataQuality');
+const { enrichCoherentLifecycleArtifact } = moduleOf('ResearchLifecycle');
 const constant = value => ({ features_info: { float_features: [] }, oblivious_trees: [], scale_and_bias: [1, [value]] });
 const artifact = version => ({ family: 'C', version, baselineVersion: baselineManifest().version,
   featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION, datasetHash: 'development-dataset',
@@ -114,6 +115,25 @@ test('C dossier pins artifact, probability configuration, selector and incumbent
     await assert.rejects(f.client.execute("UPDATE challenger_candidates SET registered_at='2099-01-01'"), /immutable/);
     await assert.rejects(f.store.registerCandidate({ modelVersion: 'C-candidate', selectorPolicy: 'payout-aware-v1',
       trainingEvidence: { datasetHash: 'development-dataset', matchIds: [ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds[0]] } }), /independent_training/);
+    for (const [index, metadata] of [{ productionAdoptionEligible: false }, { comparisonRole: 'retrospective_recipe_control' },
+      { diagnosticOnly: true }, { runtimeCompatible: false }].entries()) {
+      const control = { ...artifact(`C-diagnostic-${index}`), ...metadata, selectionEligible: false, status: 'DIAGNOSTIC_CONTROL' };
+      const refinalized = enrichCoherentLifecycleArtifact(control, { mode: 'temperature', temperature: .9 });
+      for (const value of [control, refinalized]) {
+        for (const key of Object.keys(metadata)) assert.equal(value[key], metadata[key]);
+        await f.client.execute({ sql: 'INSERT INTO research_models(family,version,artifact_json,artifact_hash,created_at) VALUES (?,?,?,?,?)',
+          args: ['C', value.version, JSON.stringify(value), researchHash(value), '2026-10-28T11:00:00.000Z'] });
+        const protectedTables = ['research_models', 'research_champions', 'research_markets', 'research_bets', 'research_ledger',
+          'challenger_candidates', 'challenger_candidate_reviews', 'challenger_adoption_events'];
+        const snapshot = async () => Promise.all(protectedTables.map(async (table) =>
+          [table, (await f.client.execute(`SELECT * FROM ${table}`)).rows]));
+        const before = await snapshot();
+        await assert.rejects(f.store.registerCandidate({ modelVersion: value.version, selectorPolicy: 'payout-aware-v1',
+          trainingEvidence: { datasetHash: value.datasetHash, matchIds: ['development-1', 'development-2'] } }),
+        /challenger_configuration_not_operational/);
+        assert.deepEqual(await snapshot(), before);
+      }
+    }
     const changedReference = { probabilityProtocol: COHERENT_PROBABILITY_PROTOCOL, pipelineHashV2: coherentProbabilityPipelineHash(),
       probabilityCalibrationMode: 'temperature', probabilityTemperature: .8 };
     await f.client.execute({ sql: `INSERT INTO research_benchmarks(id,family,model_version,report_json,report_hash,validated,created_at)

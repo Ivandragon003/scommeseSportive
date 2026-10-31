@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { resolve } = require('node:path');
 const compiled = process.env.RESEARCH_TEST_DIST || '../dist';
 const moduleOf = (file) => require(resolve(__dirname, compiled, 'research', file));
-const { enrichLifecycleArtifact, enrichCoherentLifecycleArtifact, rebindCoherentTrainerReport, buildLifecycleReport, registerLifecycleCandidate, rollbackUnhealthyChampion } = moduleOf('ResearchLifecycle');
+const { enrichLifecycleArtifact, enrichCoherentLifecycleArtifact, rebindCoherentTrainerReport, buildLifecycleReport, registerLifecycleCandidate, registerControlledChallengerCandidate, rollbackUnhealthyChampion } = moduleOf('ResearchLifecycle');
 const { FEATURE_NAMES, FEATURE_SCHEMA_VERSION, baselineManifest } = moduleOf('ForecastCore');
 const { scoreMatrixMarkets } = moduleOf('GoalSettlement');
 const { researchHash } = moduleOf('ResearchStore');
@@ -76,6 +76,28 @@ test('coherent enrichment creates a distinct immutable candidate identity and cl
   assert.equal(JSON.stringify({ artifact, report }), original);
   assert.equal(coherent.calibrationSamples, undefined);
   assert.throws(() => enrichCoherentLifecycleArtifact(artifact, { mode: 'temperature' }), /temperature/);
+});
+
+test('diagnostic recipe controls remain available for offline enrichment but cannot enter controlled registration', async () => {
+  const mutations = [];
+  const forbiddenDatabase = new Proxy({}, { get(_target, key) {
+    mutations.push(String(key)); throw Error('Unexpected database access before diagnostic rejection');
+  } });
+  for (const metadata of [{ productionAdoptionEligible: false }, { comparisonRole: 'retrospective_recipe_control' },
+    { diagnosticOnly: true }, { runtimeCompatible: false }]) {
+    const control = { ...fixture(false).artifact, ...metadata, status: 'DIAGNOSTIC_CONTROL', selectionEligible: false };
+    const original = JSON.stringify(control);
+    const coherent = enrichCoherentLifecycleArtifact(control, { mode: 'identity' });
+    const refinalized = enrichCoherentLifecycleArtifact(coherent, { mode: 'temperature', temperature: .9 });
+    assert.equal(JSON.stringify(control), original);
+    for (const key of Object.keys(metadata)) {
+      assert.equal(coherent[key], metadata[key]); assert.equal(refinalized[key], metadata[key]);
+    }
+    for (const artifact of [coherent, refinalized]) await assert.rejects(registerControlledChallengerCandidate(forbiddenDatabase,
+      { artifact, datasetHash: artifact.datasetHash, datasetRows: [{ matchId: 'development-fixture' }],
+        selectorPolicy: 'payout-aware-v1', now: NOW }), /challenger_configuration_not_operational/);
+  }
+  assert.deepEqual(mutations, []);
 });
 
 test('only the final holdout counts and an unmeasured model cannot be promoted', () => {

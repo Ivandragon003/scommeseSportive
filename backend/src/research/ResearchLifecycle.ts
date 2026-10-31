@@ -310,6 +310,10 @@ export async function registerControlledChallengerCandidate(db: LifecycleDatabas
 }) {
   const started = input.now ?? new Date(), artifact = input.artifact;
   validateArtifact(artifact);
+  if (artifact.productionAdoptionEligible === false || artifact.comparisonRole === 'retrospective_recipe_control'
+    || artifact.diagnosticOnly === true || artifact.runtimeCompatible === false) {
+    throw new Error('challenger_configuration_not_operational');
+  }
   if (artifact.productionValidated === true) throw new Error('candidate_must_not_claim_production_approval');
   if (artifact.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL || artifact.pipelineHashV2 !== coherentProbabilityPipelineHash()) {
     throw new Error('coherent_challenger_configuration_required');

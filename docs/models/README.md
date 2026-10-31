@@ -18,6 +18,7 @@ La corrispondenza con il codice non dimostra qualità delle previsioni o profitt
 | [Piattaforma research](../research-platform.md) | Benchmark, validazione, evidenze future e promozione dei modelli |
 | [Miglioramenti C, 31 ottobre](../performance/c-hybrid-improvements-2026-10-31.md) | Piano controllato, artefatti e risultati realmente ottenuti, limiti e decisione di adozione |
 | [Audit dati e benchmark C](../performance/c-data-benchmark-audit-2026-10-31.md) | Cinque target post-evento, 22 record isolati, metriche indipendenti e corpus ricostruito da 1.969 test |
+| [Backtest C su tre stagioni](../performance/c-three-season-backtest-2026-10-31.md) | 4.892 target 2023/24–2025/26, storia 2022/23, sei periodi cronologici e confronto su 1.959 partite comuni |
 
 ## Due percorsi di previsione, due decisioni
 

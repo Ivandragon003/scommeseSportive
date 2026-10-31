@@ -1,0 +1,1049 @@
+{
+  "schemaVersion": "independent-c-three-season-summary-v1",
+  "retrospectiveOnly": true,
+  "independentProspectiveEvidence": false,
+  "productionPromotion": false,
+  "definitions": {
+    "classOrder": [
+      "homeWin",
+      "draw",
+      "awayWin"
+    ],
+    "tieBreak": "first_maximum_home_then_draw_then_away",
+    "logLoss": "mean(-ln(max(1e-15,p_observed)))",
+    "brier": "mean_sum_of_three_squared_errors",
+    "ece": "top_label_10_equal_width_bins",
+    "accuracy": "fraction_first_argmax_correct",
+    "confidenceIntervals": "random.Random_seed20261031_500_week_block_draws_row_weighted_mean",
+    "quantiles": "sorted_floor(.025*(samples-1))_ceil(.975*(samples-1))",
+    "calibrationBins": "computed_by_independent_metrics_calculate_omitted_from_compact_summary"
+  },
+  "cohortCoverage": {
+    "before": {
+      "n": 1969,
+      "idsSha256": "07db23946e15e78c7b7e7326f4e9b910add398da4d34aa769cec1ea5c6abad11"
+    },
+    "after": {
+      "n": 4892,
+      "idsSha256": "d83c71e6c59823e17d5b8ea1350e273046159cb06df7d7a5b1124bbf9f8dd3b4"
+    },
+    "shared": {
+      "n": 1959,
+      "idsSha256": "2deeb58eb966da9d31fac0c3e4b38be1339a5219a6450a8549cec3ecfdf7db38"
+    },
+    "beforeOnly": {
+      "n": 10,
+      "idsSha256": "b224bb29cc06a62a88a8ea23ed92d5ef90c664e8820c82c59441d1f66bd976b2"
+    },
+    "afterOnly": {
+      "n": 2933,
+      "idsSha256": "2b44324067b8a3c1cd228cc59e614247adedde440dfff576d5afef5a884817ab"
+    }
+  },
+  "beforeVariantIds": [
+    "development_current_replica",
+    "intensity_full",
+    "intensity_legacy",
+    "intensity_recent_xg",
+    "intensity_schedule",
+    "no_ml"
+  ],
+  "afterVariantIds": [
+    "c906_recipe_retrained",
+    "development_current_replica",
+    "intensity_full",
+    "intensity_legacy",
+    "intensity_recent_xg",
+    "intensity_schedule",
+    "no_ml"
+  ],
+  "comparedVariantIds": [
+    "development_current_replica",
+    "intensity_full",
+    "intensity_legacy",
+    "intensity_recent_xg",
+    "intensity_schedule",
+    "no_ml"
+  ],
+  "beforeOnlyVariants": [],
+  "afterOnlyVariants": [
+    "c906_recipe_retrained"
+  ],
+  "rawBaselineOnCommonFixtures": {
+    "n": 1959,
+    "maxAbsoluteDifference": 0.0,
+    "exactlyEqual": true,
+    "toleranceAbsolute": 1e-12,
+    "stage": "no_ml.probabilityStages.raw"
+  },
+  "newFullCohort": {
+    "n": 4892,
+    "seasons": [
+      "2023/2024",
+      "2024/2025",
+      "2025/2026"
+    ],
+    "leagues": [
+      "Bundesliga",
+      "La Liga",
+      "Ligue 1",
+      "Premier League",
+      "Serie A"
+    ],
+    "variants": {
+      "no_ml": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.9823561717899131,
+          "brier": 0.5840432095164383,
+          "ece": 0.018310739484879712,
+          "accuracy": 0.535772690106296
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9814389503217285,
+            "brier": 0.5836746071369645,
+            "ece": 0.02390969182812184,
+            "accuracy": 0.5403548941041786
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9815214811437823,
+            "brier": 0.5836874405530567,
+            "ece": 0.01780539742091798,
+            "accuracy": 0.534019439679817
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9845497676674212,
+            "brier": 0.5849502211739561,
+            "ece": 0.024721590672998905,
+            "accuracy": 0.5322349570200573
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9849825161120842,
+            "brier": 0.5840561826202698,
+            "ece": 0.0367056702081075,
+            "accuracy": 0.536046511627907
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9677044386998166,
+            "brier": 0.5729911047187467,
+            "ece": 0.04861844814327568,
+            "accuracy": 0.5484790874524715
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.9935812584872065,
+            "brier": 0.5930942245822027,
+            "ece": 0.030163700358583012,
+            "accuracy": 0.5276145710928319
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9816765081465284,
+            "brier": 0.58332364104753,
+            "ece": 0.022605312350637896,
+            "accuracy": 0.5350795135640786
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.986440114006041,
+            "brier": 0.5884606267335832,
+            "ece": 0.0316255770083674,
+            "accuracy": 0.530188679245283
+          }
+        }
+      },
+      "development_current_replica": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.9782552126884393,
+          "brier": 0.5826880416831641,
+          "ece": 0.008891465236867197,
+          "accuracy": 0.5327064595257563
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9774073478031234,
+            "brier": 0.582743168046617,
+            "ece": 0.014823950910850175,
+            "accuracy": 0.5346307956496852
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9799489667078063,
+            "brier": 0.5836699711535833,
+            "ece": 0.028211601268326572,
+            "accuracy": 0.5397369925671812
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9771942128136357,
+            "brier": 0.5813888293617346,
+            "ece": 0.027055248763505617,
+            "accuracy": 0.5214899713467048
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9782941920807283,
+            "brier": 0.5821911957146375,
+            "ece": 0.02775590767825551,
+            "accuracy": 0.5279069767441861
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9599695284721085,
+            "brier": 0.5692337143165228,
+            "ece": 0.028442502485291562,
+            "accuracy": 0.5418250950570342
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.987701851895022,
+            "brier": 0.5890290216463724,
+            "ece": 0.0371857529089973,
+            "accuracy": 0.5252643948296122
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9877656803270919,
+            "brier": 0.5895171474772449,
+            "ece": 0.03317952538783067,
+            "accuracy": 0.5369504209541628
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.9791960029221093,
+            "brier": 0.5844661094945571,
+            "ece": 0.03383823258825714,
+            "accuracy": 0.529245283018868
+          }
+        }
+      },
+      "intensity_legacy": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.981800482219462,
+          "brier": 0.5836492528699093,
+          "ece": 0.013986012382807923,
+          "accuracy": 0.5349550286181521
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9810937069827554,
+            "brier": 0.5833568584151925,
+            "ece": 0.02838968599082126,
+            "accuracy": 0.5386376645678306
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9804111519844628,
+            "brier": 0.5829193084673258,
+            "ece": 0.013200763882032444,
+            "accuracy": 0.5345911949685535
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9844256075199919,
+            "brier": 0.5849296868760044,
+            "ece": 0.018063976967929767,
+            "accuracy": 0.5308022922636103
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9851554241845698,
+            "brier": 0.5842420851805133,
+            "ece": 0.034178069507462536,
+            "accuracy": 0.5290697674418605
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9667904718621181,
+            "brier": 0.5724007189418745,
+            "ece": 0.040283171847114094,
+            "accuracy": 0.5456273764258555
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.9901583460907861,
+            "brier": 0.5906809456782336,
+            "ece": 0.02671171876874675,
+            "accuracy": 0.5276145710928319
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9821514208211567,
+            "brier": 0.5838301665204143,
+            "ece": 0.01901991796240412,
+            "accuracy": 0.5425631431244153
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.986911411734768,
+            "brier": 0.5885042100707577,
+            "ece": 0.03639670319538035,
+            "accuracy": 0.5273584905660378
+          }
+        }
+      },
+      "intensity_recent_xg": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.9813606476924663,
+          "brier": 0.5834339282895945,
+          "ece": 0.016685354131601278,
+          "accuracy": 0.5341373671300081
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9811402234407514,
+            "brier": 0.5834537646705049,
+            "ece": 0.029287343672801433,
+            "accuracy": 0.5380652547223812
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9791799934164673,
+            "brier": 0.5821997571787224,
+            "ece": 0.01201745620135392,
+            "accuracy": 0.5351629502572899
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9843685599392199,
+            "brier": 0.5849553545900706,
+            "ece": 0.02302743025996141,
+            "accuracy": 0.5279369627507163
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9833823377524621,
+            "brier": 0.5832028725840686,
+            "ece": 0.03678031692988391,
+            "accuracy": 0.5313953488372093
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9679069611857447,
+            "brier": 0.5733031252578121,
+            "ece": 0.041673144850826106,
+            "accuracy": 0.5475285171102662
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.990352619817188,
+            "brier": 0.5907498946852271,
+            "ece": 0.0320668282748161,
+            "accuracy": 0.5276145710928319
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9811815213838548,
+            "brier": 0.5832416204600781,
+            "ece": 0.018960903495153975,
+            "accuracy": 0.5378858746492049
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.9860341783521288,
+            "brier": 0.5879961946700255,
+            "ece": 0.03415529014908274,
+            "accuracy": 0.5245283018867924
+          }
+        }
+      },
+      "intensity_schedule": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.9816011908879209,
+          "brier": 0.5835921363625629,
+          "ece": 0.014709822663084807,
+          "accuracy": 0.5335241210139002
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9813103571366305,
+            "brier": 0.5836571282553865,
+            "ece": 0.030699206601428025,
+            "accuracy": 0.5369204350314826
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9801409648879733,
+            "brier": 0.5828220094590367,
+            "ece": 0.02024023151307645,
+            "accuracy": 0.5317324185248714
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9837946162728867,
+            "brier": 0.5844756686816924,
+            "ece": 0.01940344765642208,
+            "accuracy": 0.5315186246418339
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9833639683112726,
+            "brier": 0.5831996152234619,
+            "ece": 0.03626445582500573,
+            "accuracy": 0.5302325581395348
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9670154011441267,
+            "brier": 0.5725993026186607,
+            "ece": 0.04239968655830553,
+            "accuracy": 0.5475285171102662
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.9911844216337019,
+            "brier": 0.591355282644722,
+            "ece": 0.03670528938045926,
+            "accuracy": 0.5323149236192715
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9819359903990746,
+            "brier": 0.5837555773065203,
+            "ece": 0.02802882533216349,
+            "accuracy": 0.5304022450888681
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.9866153721938701,
+            "brier": 0.5884231490257747,
+            "ece": 0.03313999568517653,
+            "accuracy": 0.5264150943396226
+          }
+        }
+      },
+      "intensity_full": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.9812558238893242,
+          "brier": 0.5834743759683965,
+          "ece": 0.015377832753727356,
+          "accuracy": 0.5349550286181521
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9806969266975664,
+            "brier": 0.5833043236902499,
+            "ece": 0.03274999759486158,
+            "accuracy": 0.5397824842587292
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9794684324365052,
+            "brier": 0.5825738238048933,
+            "ece": 0.01317626631080584,
+            "accuracy": 0.5351629502572899
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.984194606872835,
+            "brier": 0.5848154555270564,
+            "ece": 0.01977312769929858,
+            "accuracy": 0.5286532951289399
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9823294074452624,
+            "brier": 0.5825544841367719,
+            "ece": 0.03659771818074132,
+            "accuracy": 0.5325581395348837
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9675828647840836,
+            "brier": 0.573118117033623,
+            "ece": 0.04202794260845961,
+            "accuracy": 0.5484790874524715
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.9904915609797054,
+            "brier": 0.5910554216803099,
+            "ece": 0.03746982015276323,
+            "accuracy": 0.5311398354876615
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9811838817767704,
+            "brier": 0.5833528242879061,
+            "ece": 0.026639096933937876,
+            "accuracy": 0.5350795135640786
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.9866123946204669,
+            "brier": 0.5885350931572499,
+            "ece": 0.03294732141157038,
+            "accuracy": 0.5264150943396226
+          }
+        }
+      },
+      "c906_recipe_retrained": {
+        "fullCohort": {
+          "n": 4892,
+          "logLoss": 0.981088725207005,
+          "brier": 0.5845770136751511,
+          "ece": 0.007627862835432076,
+          "accuracy": 0.5314799672935405
+        },
+        "bySeason": {
+          "2023/2024": {
+            "n": 1747,
+            "logLoss": 0.9829490847913096,
+            "brier": 0.5863392257765453,
+            "ece": 0.021144436644514885,
+            "accuracy": 0.5329135661133372
+          },
+          "2024/2025": {
+            "n": 1749,
+            "logLoss": 0.9812509588937575,
+            "brier": 0.58450851567027,
+            "ece": 0.018065041098099702,
+            "accuracy": 0.5374499714122356
+          },
+          "2025/2026": {
+            "n": 1396,
+            "logLoss": 0.9785573534936023,
+            "brier": 0.5824575426646941,
+            "ece": 0.025291073225667444,
+            "accuracy": 0.5222063037249284
+          }
+        },
+        "byLeague": {
+          "Bundesliga": {
+            "n": 860,
+            "logLoss": 0.9812082233144258,
+            "brier": 0.5847704783762591,
+            "ece": 0.03972823659464179,
+            "accuracy": 0.5279069767441861
+          },
+          "La Liga": {
+            "n": 1052,
+            "logLoss": 0.9615513651569582,
+            "brier": 0.5699977811447149,
+            "ece": 0.03573020715034716,
+            "accuracy": 0.5446768060836502
+          },
+          "Ligue 1": {
+            "n": 851,
+            "logLoss": 0.9870137200876038,
+            "brier": 0.5879136016625381,
+            "ece": 0.03209544127511397,
+            "accuracy": 0.5193889541715628
+          },
+          "Premier League": {
+            "n": 1069,
+            "logLoss": 0.9925499142968381,
+            "brier": 0.5929156907015238,
+            "ece": 0.029380298711119284,
+            "accuracy": 0.5285313376987839
+          },
+          "Serie A": {
+            "n": 1060,
+            "logLoss": 0.9840664163578035,
+            "brier": 0.5878010616568563,
+            "ece": 0.04109760102672597,
+            "accuracy": 0.5339622641509434
+          }
+        }
+      }
+    }
+  },
+  "commonBeforeAfter": {
+    "no_ml": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.984244303522394,
+        "brier": 0.5850838948547431,
+        "ece": 0.01474304876923076,
+        "accuracy": 0.5288412455334355
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9841304066318074,
+        "brier": 0.5849485160299988,
+        "ece": 0.014607850339861849,
+        "accuracy": 0.5288412455334355
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.00011389689058660668,
+        "brier": -0.0001353788247443477,
+        "ece": -0.00013519842936891152,
+        "accuracy": 0.0
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.00011389689058660308,
+          "brier": -0.00013537882474433385
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.001461426790109323,
+          0.0010748620182154812
+        ],
+        "brier95": [
+          -0.0008991115094094102,
+          0.0005803671243436631
+        ]
+      }
+    },
+    "development_current_replica": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9814282775074497,
+        "brier": 0.5839787352144359,
+        "ece": 0.016911598613645704,
+        "accuracy": 0.5267993874425727
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9786936696063272,
+        "brier": 0.5821668284624884,
+        "ece": 0.019372168377127488,
+        "accuracy": 0.5257784583971414
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.0027346079011224544,
+        "brier": -0.001811906751947534,
+        "ece": 0.002460569763481784,
+        "accuracy": -0.0010209290454312736
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.0027346079011223395,
+          "brier": -0.0018119067519476407
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.005330833467751277,
+          -0.00030831047227121937
+        ],
+        "brier95": [
+          -0.0036387856086697477,
+          -0.00022067215553314609
+        ]
+      }
+    },
+    "intensity_legacy": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9845934449138651,
+        "brier": 0.5854150485592418,
+        "ece": 0.018281267122170965,
+        "accuracy": 0.5273098519652885
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9842996220827547,
+        "brier": 0.5850504939961372,
+        "ece": 0.01550368826566367,
+        "accuracy": 0.5293517100561511
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.00029382283111045737,
+        "brier": -0.0003645545631045799,
+        "ece": -0.002777578856507295,
+        "accuracy": 0.0020418580908626582
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.0002938228311104707,
+          "brier": -0.00036455456310454585
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.002145751110256886,
+          0.0014941143546736435
+        ],
+        "brier95": [
+          -0.0016118275865651319,
+          0.0008403719890229196
+        ]
+      }
+    },
+    "intensity_recent_xg": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9842800285652001,
+        "brier": 0.5852702748563643,
+        "ece": 0.018729658534190934,
+        "accuracy": 0.5262889229198571
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9837311793357508,
+        "brier": 0.5848116225386901,
+        "ece": 0.018980676087817647,
+        "accuracy": 0.5273098519652885
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.0005488492294493108,
+        "brier": -0.0004586523176741686,
+        "ece": 0.00025101755362671313,
+        "accuracy": 0.0010209290454313846
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.0005488492294492653,
+          "brier": -0.00045865231767420583
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.002172535006387684,
+          0.0010436609432024218
+        ],
+        "brier95": [
+          -0.0016912641318067626,
+          0.0007150565693552605
+        ]
+      }
+    },
+    "intensity_schedule": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9848476955649935,
+        "brier": 0.585592918360038,
+        "ece": 0.018872620940662246,
+        "accuracy": 0.5273098519652885
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9835758129616141,
+        "brier": 0.5845692969953721,
+        "ece": 0.012435266014350344,
+        "accuracy": 0.5293517100561511
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.001271882603379404,
+        "brier": -0.0010236213646659387,
+        "ece": -0.0064373549263119015,
+        "accuracy": 0.0020418580908626582
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.0012718826033793987,
+          "brier": -0.0010236213646658853
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.002699578031197258,
+          0.0003305947552931783
+        ],
+        "brier95": [
+          -0.001992532031985229,
+          2.8887581244010753e-05
+        ]
+      }
+    },
+    "intensity_full": {
+      "n": 1959,
+      "beforeOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9845352648283405,
+        "brier": 0.5854189049355718,
+        "ece": 0.017600734852132965,
+        "accuracy": 0.5288412455334355
+      },
+      "afterOnSameFixtures": {
+        "n": 1959,
+        "logLoss": 0.9835401070880783,
+        "brier": 0.5847054410533697,
+        "ece": 0.018129618666006913,
+        "accuracy": 0.5273098519652885
+      },
+      "deltaDirection": "after_minus_before",
+      "delta": {
+        "logLoss": -0.0009951577402622647,
+        "brier": -0.0007134638822020589,
+        "ece": 0.0005288838138739482,
+        "accuracy": -0.0015313935681470214
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 42,
+        "n": 1959,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.0009951577402621719,
+          "brier": -0.0007134638822021527
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.0022508619273014074,
+          0.0004507084295111471
+        ],
+        "brier95": [
+          -0.0015632638950091244,
+          0.00031775433105998434
+        ]
+      }
+    }
+  },
+  "newFullCohortComparisons": [
+    {
+      "left": "development_current_replica",
+      "right": "intensity_recent_xg",
+      "n": 4892,
+      "deltaDirection": "right_minus_left",
+      "delta": {
+        "logLoss": 0.003105435004027046,
+        "brier": 0.0007458866064303793,
+        "ece": 0.007793888894734081,
+        "accuracy": 0.0014309076042517965
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 106,
+        "n": 4892,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": 0.0031054350040269213,
+          "brier": 0.0007458866064304012
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.000318633206645656,
+          0.0067790724666476196
+        ],
+        "brier95": [
+          -0.0013990769095733279,
+          0.002924368228036143
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "intensity_full",
+      "n": 4892,
+      "deltaDirection": "right_minus_left",
+      "delta": {
+        "logLoss": 0.003000611200884906,
+        "brier": 0.0007863342852323374,
+        "ece": 0.006486367516860159,
+        "accuracy": 0.0022485690923957913
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 106,
+        "n": 4892,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": 0.0030006112008847453,
+          "brier": 0.0007863342852324119
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.00045933791326782447,
+          0.006591268684574562
+        ],
+        "brier95": [
+          -0.0013025282106927914,
+          0.0029531147337977025
+        ]
+      }
+    },
+    {
+      "left": "development_current_replica",
+      "right": "c906_recipe_retrained",
+      "n": 4892,
+      "deltaDirection": "right_minus_left",
+      "delta": {
+        "logLoss": 0.002833512518565673,
+        "brier": 0.0018889719919870096,
+        "ece": -0.0012636024014351212,
+        "accuracy": -0.0012264922322158256
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 106,
+        "n": 4892,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": 0.0028335125185656803,
+          "brier": 0.0018889719919870855
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          0.000878428857249351,
+          0.004851423711718953
+        ],
+        "brier95": [
+          0.0006072356119289725,
+          0.003280953742829874
+        ]
+      }
+    },
+    {
+      "left": "no_ml",
+      "right": "development_current_replica",
+      "n": 4892,
+      "deltaDirection": "right_minus_left",
+      "delta": {
+        "logLoss": -0.004100959101473789,
+        "brier": -0.0013551678332741623,
+        "ece": -0.009419274248012515,
+        "accuracy": -0.003066230580539675
+      },
+      "pairedWeekInterval": {
+        "method": "paired_week_block_bootstrap",
+        "week": "UTC_Monday",
+        "samples": 500,
+        "seed": 20261031,
+        "blocks": 106,
+        "n": 4892,
+        "deltaDirection": "right_minus_left",
+        "pointEstimate": {
+          "logLoss": -0.004100959101473737,
+          "brier": -0.00135516783327418
+        },
+        "quantileIndices": [
+          12,
+          487
+        ],
+        "logLoss95": [
+          -0.008306490859762492,
+          -0.0005934636859658232
+        ],
+        "brier95": [
+          -0.003847987300048258,
+          0.0008033016899514928
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Retrospective development comparison; not independent prospective evidence or an operational adoption.",
+    "Week resampling models within-week dependence, not configuration selection, repeated inspection or source/calendar bias.",
+    "The before/after deltas use identical shared fixtures only; full cohorts have different coverage and are not subtracted.",
+    "The no-ML raw baseline is checked separately from calibration; final probabilities may change with the fitted calibrator.",
+    "Published vectors cannot independently prove model fitting or the historical first availability of features.",
+    "c906_recipe_retrained is a diagnostic refit, not the operational frozen C906 model.",
+    "No admissible contemporary bookmaker prices are supplied: no ROI, profit or drawdown conclusion."
+  ],
+  "provenance": {
+    "predictionsSha256": {
+      "before": "6dc974a6fc5bae218464fb80d891896a20c2a786b75e5d3e33cd9c14ab50e37e",
+      "after": "559a079f613e12bbf5fdd05c21b1abea17ed94019cfadbcefd77ac6de7a7c216"
+    },
+    "bundleSha256": {
+      "before": "673f4a452f981086770fbad236e0da4164e585aca127f52ebbef32df55f75d76",
+      "after": "d8f7b7f70ad065255184b485defe1f6ed9a533ea1cc94fa003dbbcb28e6a2117"
+    },
+    "sourceSha256": {
+      "summarize-challenger-seasons.py": "2875f019bfb99087d9392e371d927ec8abaef9cd7095943d75a928078ebb3a68",
+      "audit-challenger-metrics.py": "7d0e5ecb71e844f81085c328e0f2a8374ea68a9ac920db8dadd4f5d4ce986dbb",
+      "compare-challenger-audit-bundles.py": "e0f162595222e09139ecf8ab94430767844ee113d1f316ce95315e203ea13eb7"
+    }
+  }
+}

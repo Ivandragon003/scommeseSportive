@@ -1,0 +1,356 @@
+{
+  "baselineCommit": "325e70097428fb8cef9c1f749f8b3a7ed520b6d0",
+  "sourceScope": "63 tracked backend/src files outside research and 5 operational-A fixture/test files; exact byte hashes before and after this task",
+  "files": [
+    {
+      "path": "backend/src/api/predictionPayloadFormatter.ts",
+      "sha256": "a6d7befd0c549a4ed0f5b289775146d3d7db05b158fa28d1fa0290ace4b181c5",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/api/routes.ts",
+      "sha256": "2bd945d6896afce062d063f8cce79f8fe1491f9e5f897fe4a6e1438f2d912778",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/config/PredictionEngineConfig.ts",
+      "sha256": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/config/algorithmVersions.ts",
+      "sha256": "a88e6cc3d2a3657e25a437844e355f6a5d1a093e78dbc4d26bf3ea985e58e28c",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/config/predictionConfig.ts",
+      "sha256": "70d1752e3d40719801884e08cc8b59d7723ef19ff522f0f4ffa13ae06391d1cc",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/db/DatabaseService.ts",
+      "sha256": "104491cca26559bfaab0109893eed830f565a2b19548a4f7f9d8ba4c0852a3c1",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/index.ts",
+      "sha256": "8e6ddcce9494b63c424b9b0ab1af0198173e27413d5fc4aa44a01721ce979d2d",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/backtesting/BacktestingEngine.ts",
+      "sha256": "6c03a514ece2758520e6841d8a838670f1428cb65bb78b3461e22fbb16b58d12",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/core/DixonColesModel.ts",
+      "sha256": "e49843094fe85a3ce33034139dfd59ece64b2e7e8b4f4efa5b4f3dadc56ff951",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/core/PoissonXgModel.ts",
+      "sha256": "e7efe84aa0c78938194a7fc97b76dc6feb219cc735c226c3dd43a27813f6abc4",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/markets/PlayerCardsModel.ts",
+      "sha256": "6ecc3eb28b10846dd0d3f6915833d1f0273218f50baf069b9f63f1600341a21a",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/markets/ShotsModel.ts",
+      "sha256": "b97fddd810336cce64403447a4a696d4494396b76a47502f23149c0a04e066dd",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/markets/SpecializedModels.ts",
+      "sha256": "abf01e8ab2f5c0c972c4e483ca08e2238c3ef51d92205e600a4c56da5facded2",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/utils/MathUtils.ts",
+      "sha256": "4d54c6adfb49f26ffb524135b6fc7284876769f82e03c2d5956ba451594cf184",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/value/EnhancedMarketAnalysis.ts",
+      "sha256": "39a9b9883f8a78833a5639f1962a939ba1a347d412729f27e68b69dd9084c1c4",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/models/value/ValueBettingEngine.ts",
+      "sha256": "4e5b295b0be64b191c4312790c501c74e0404509dfad1015aef7fdf40a959e4a",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/security/SharedAdminAuth.ts",
+      "sha256": "eb922f8461f69bf97844ca92de29beed5f99b2900271050e314f694ab3361fca",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/AdaptiveTuningService.ts",
+      "sha256": "0893835afe0488943249f209f8f3194e5495a8dc3c5f03a2c7b38382fcd489c2",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/ApiFootballService.ts",
+      "sha256": "0ee95a4763dfdcb5e30bdf1439803baaff27a3ebe7b9a6ad6ddec621208f9d6e",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/AppPredictionOddsService.ts",
+      "sha256": "6de3062fbff8c786ebc991459fde7678831e03aeb857ada66540844ddb75e464",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/AppWalletService.ts",
+      "sha256": "5d701cd7f450b3ac17a19a6f05e918b52d2b8539aa726c33970de886a25d0c48",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/AutomatedBetPlanningService.ts",
+      "sha256": "682cc19bd26ccee0cd1e60c6f03bdee4a333c0ffc5e4d09181c1606c60d0a009",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/BacktestReportService.ts",
+      "sha256": "2c6d9249315c9e35ea640047887e0c49b261b9e370b29028bdc1fdd57b7cb82c",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/BookmakerOddsSelectionService.ts",
+      "sha256": "6b0e9c0f29592783a93d8db1de71cf87fc9fffa848868ce49eb561498b81dd50",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/CalibrationProfileCache.ts",
+      "sha256": "d5240f06df87c4e5acf67d076b401899dff4fb2e15a2136c57e57c6501ee5d4e",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/CanonicalBetRecommendation.ts",
+      "sha256": "2a97910d14b4da53ffb4e13efe2926edd752b38e5ab05d7a718d299b779f0846",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/ChronologicalForecastService.ts",
+      "sha256": "9d9a1e7cf3f7802477902b10f596236dc83f4b2016cf417b79eee42b5ab48d23",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/FootballDataHistoryCache.ts",
+      "sha256": "c4431acfe063f27c1d1981981e0a030e8106c64340416b3948c4a96b473fe947",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/FootballDataService.ts",
+      "sha256": "c5e2cb699f55c1ba7d769512bd79a21824bbcbba8ae0e41974d2ade0962d9b0c",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/HeavyJobService.ts",
+      "sha256": "c542ff5ea1650147dcc1bc056b970368d0a723c4c76a0652bf181919b39d657a",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/LineupSyncDiagnostics.ts",
+      "sha256": "eeeed49642569bcd93dc350ed9bc3c349787bf0bc59f9d56a495d8842440400f",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/LineupXgAdjustmentService.ts",
+      "sha256": "418013be84f6e92cd5aa14d98a56d24063460e148e7b13f284a5af1ed24d0ccb",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/MarketBlendLearningService.ts",
+      "sha256": "d901e4ef3aabb42341dc4028d73cd47ef87e2b3b70e2d05640adaec20dd7fd97",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/NightlySchedulerConfig.ts",
+      "sha256": "527a6cc1b617dc7c71d1f42a5731aedbdad166c3c26ff84709d2fca07529f7eb",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/OddsApiKickoffSyncService.ts",
+      "sha256": "4436cfdbf132974d5d934f0a7a2793ae87ab03f3fcbc2fd2129ec18461cb186f",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/OddsApiService.ts",
+      "sha256": "be10f164889227dae5cd4e0fed1cca0706562eba106de19f34d1c600dbd7cee4",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/OddsMarketPolicy.ts",
+      "sha256": "887de4d077e49aee52bd9e06dbdc377ab33002518a2f7770c43fd15d7c0367a1",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PlayerAvailabilityConfig.ts",
+      "sha256": "5fa6969b97bf747a8276d57f798418c7e707dd998c2541ebc2a1a5ecfeb16d07",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PlayerDataConfig.ts",
+      "sha256": "06ad940776fba078d16ca2f6f81d37c095fbdad556d3e0d899c70eee18540462",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PlayerDerivedStatsService.ts",
+      "sha256": "2ac773563b4260ad48c07bf70f22c6861aeaaf42d4dedf9d6bebb7a7e0b3ddac",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PlayerLineupProbabilityService.ts",
+      "sha256": "0248b81d5337ddb9483b25641d61fd9e6adc715b3247371f0523ec3052489780",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PredictionContextBuilder.ts",
+      "sha256": "639b5b8e088d2e57af1053471f68c7e0824d294f67b880c037c279f891a3b8d5",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PredictionService.ts",
+      "sha256": "d027fff21b6ea1f39404ea16aea424e8a1d0ead57008c6fee7bcfc6b8ac9633b",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/ProbabilityEnsembleService.ts",
+      "sha256": "bf3b3e94ecc0154961fa686d217034ba5881059be9c9d0169d1a8f47d9a2fec0",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/PromotedTeamPriorService.ts",
+      "sha256": "9a3b1175ab9881984eec69518ede72578a00937000b826f38b2d216a885f5124",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/RefereeDerivedStatsService.ts",
+      "sha256": "8a4b9fb1e383916648acd86fa3b070cfbaa4bd5e1c6962817868d71529956b6f",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/SchedulerRetryPolicy.ts",
+      "sha256": "f17568efcb111a89fb8cef2d7b5f40e6a9d8a10ab085ab6f0d749d098a678ab0",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/ShortReadCache.ts",
+      "sha256": "e078a160a675ae812231a15cd21dc567cba0a871bd7f3ae58aa927b800b729d3",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/SystemObservabilityService.ts",
+      "sha256": "f9a647dedd10c2742332ca78d474536b67ca88c1c52cdc74e2951757b4dc91de",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/TeamAveragesService.ts",
+      "sha256": "650bdffa80a040279420e352ec505492ca6e4da1bacdf325b7de0b0a07682069",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/UnderstatCommitState.ts",
+      "sha256": "2c6fab22ee6607c481bcf26e3de5a22aaa03c7db5361c804c23c77871e11e0c5",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/UnderstatScraper.ts",
+      "sha256": "c8537a5bf03c1cafa67d50998e8d488f91fee8d5d31054019e1aa19242550c0f",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/OddsApiProvider.ts",
+      "sha256": "0ff866f1239e96546395beb4400853a31ac70d78c8886f4c142462fb016d45d8",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/OddsDemandSimulation.ts",
+      "sha256": "32b4afdae634fa2952323539d2c3c46e5facd87780f3b9fee1c9c395dda6be68",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/OddsProvider.ts",
+      "sha256": "080ac1efae62ec9926eeba048e424e7043d32035bbf25d417d430c19b7e4534a",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/OddsProviderCoordinator.ts",
+      "sha256": "d5e544a1c28eb9a43bee99885ef6bd7aaf8f70b92f271f4d2a687758666ddde3",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/SmartOddsRequestStore.ts",
+      "sha256": "de5d1bcb808a2ad713eaed8770a5e352562053bab3245b1e81d963bb6981fcf1",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/oddsProviderUtils.ts",
+      "sha256": "65bf3e7ce34e5079d692b55bbc77fa8838553f991b01f82842911c6831d5687b",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/odds-provider/providerRuntimeConfig.ts",
+      "sha256": "bdcbf8823942851f591d8b7783ef323c711126e66088e7c26bb7794ca8fdea64",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/services/playerProps.ts",
+      "sha256": "c92db195b75901e8b0e063918e69a9217492009fa94f4ad2b898cedde6dbc8ad",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/utils/dataHelpers.ts",
+      "sha256": "6a84a02d5f060dececd7f86d8c2c44fe9a539c1872878cfa72a58554d9f78916",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/utils/historicalTime.ts",
+      "sha256": "72c1ed34687fc80facf39ae67f05589492fb645b000e22a86273d3ee996b8226",
+      "unchanged": true
+    },
+    {
+      "path": "backend/src/workers/backtest.worker.ts",
+      "sha256": "5d7561166f78a7521bc41ca56b97e43acb4b0be284505fb27b21dd15f8efb4ca",
+      "unchanged": true
+    },
+    {
+      "path": "backend/test/fixtures/operational-a/README.md",
+      "sha256": "f206a9d8505fcc63eae87900668f3ea1d9744d8b430b390fbf8773c8aca1cbae",
+      "unchanged": true
+    },
+    {
+      "path": "backend/test/fixtures/operational-a/expected.json",
+      "sha256": "f0292f8c9bcda650f27c208420063597f938952ef079196a88bbb583c016184c",
+      "unchanged": true
+    },
+    {
+      "path": "backend/test/fixtures/operational-a/scenarios.js",
+      "sha256": "e6efbce16ec0215c5362ba5cb3d757c0a3e8a09a76a0ba84518ceeeb8c474edc",
+      "unchanged": true
+    },
+    {
+      "path": "backend/test/fixtures/operational-a/source-manifest.json",
+      "sha256": "02055912e44d520a2f2a402b10ab7562aebd0c6bf0659fb821ee733d418f40ef",
+      "unchanged": true
+    },
+    {
+      "path": "backend/test/operational-a-regression.test.js",
+      "sha256": "62e35941a70f8b1a239a34ca95d3d162dfa6b9858a33706f411fe285660a5e7a",
+      "unchanged": true
+    }
+  ],
+  "allUnchanged": true,
+  "operationalARegression": {
+    "passed": 7,
+    "sourceHashes": 36,
+    "goldenCases": 6
+  },
+  "probabilityPipelineHash": "0f347c99dae92413322c937856d3ac6fb2c36e08e0c86e83b7c0b753cb222c81",
+  "originalBenchmarkPipelineMatches": true,
+  "productionDatabaseAccessed": false,
+  "productionModelsAdopted": false
+}

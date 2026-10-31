@@ -44,7 +44,10 @@ async function first(db: Executor, sql: string, args: any[] = []): Promise<any> 
 function configuration(artifact: HybridArtifact) {
   validateArtifact(artifact);
   if (artifact.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL || artifact.pipelineHashV2 !== coherentProbabilityPipelineHash()
-    || !artifact.baselineVersion || artifact.diagnosticOnly === true || artifact.runtimeCompatible === false) throw new Error('challenger_configuration_not_operational');
+    || !artifact.baselineVersion || artifact.diagnosticOnly === true || artifact.runtimeCompatible === false
+    || artifact.productionAdoptionEligible === false || artifact.comparisonRole === 'retrospective_recipe_control') {
+    throw new Error('challenger_configuration_not_operational');
+  }
   return buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
     pipelineHashV2: artifact.pipelineHashV2 as string, mode: artifact.probabilityCalibrationMode as CoherentCalibrationMode,
     temperature: artifact.probabilityTemperature as number, profile: (artifact.calibrationProfilesV2 as any)?.C });

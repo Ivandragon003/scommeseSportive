@@ -112,7 +112,69 @@ def freeze_split_plan(root):
     return plan_path
 
 
+def add_diagnostic_recipe_arm(root):
+    name = "c906_recipe_retrained"
+    raw = json.loads((root / "training-canonical/fold-0/no_ml/artifact.json").read_text())
+    raw.update({"version": "C-synthetic-depth-five-recipe", "selectionEligible": False,
+                "productionAdoptionEligible": False, "hyperparameters": {"depth": 5}})
+    save(root / f"training-canonical/fold-0/{name}/artifact.json", raw)
+    coherent = json.loads((root / "comparison-canonical-inputs/fold-0-no_ml.json").read_text())
+    coherent.update({"version": "C-synthetic-depth-five-coherent", "parentVersion": raw["version"],
+                     "selectionEligible": False, "productionAdoptionEligible": False})
+    save(root / f"comparison-canonical-inputs/fold-0-{name}.json", coherent)
+    manifest = json.loads((root / "comparison-canonical-inputs/variants.json").read_text())
+    manifest["variants"].append({"id": name, "folds": [{"artifactPath": f"fold-0-{name}.json"}]})
+    save(root / "comparison-canonical-inputs/variants.json", manifest)
+    report = json.loads((root / "training-canonical/report.json").read_text())
+    report["arms"].append({"name": name, "selectionEligible": False})
+    report["folds"][0]["comparisons"].append({"name": name, "selectionEligible": False,
+        "comparisonRole": "retrospective_recipe_control", "selection": {"logLoss": .1}})
+    save(root / "training-canonical/report.json", report)
+
+
 class TemporalAuditTests(unittest.TestCase):
+    def test_diagnostic_depth_five_recipe_cannot_win_selection_despite_better_metric(self):
+        with tempfile.TemporaryDirectory(prefix="challenger-temporal-audit-unit-") as directory:
+            root = Path(directory) / "frozen"
+            fixture(root)
+            add_diagnostic_recipe_arm(root)
+            result = auditor.audit(root)
+            self.assertTrue(result["passed"], result)
+            self.assertEqual(result["folds"][0]["selectedVariant"], "no_ml")
+            self.assertEqual(result["artifactsChecked"], 4)
+            report = json.loads((root / "training-canonical/report.json").read_text())
+            report["folds"][0]["selectedVariant"] = "c906_recipe_retrained"
+            save(root / "training-canonical/report.json", report)
+            result = auditor.audit(root)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(issue["kind"] == "candidate_not_selected_by_selection_only" for issue in result["folds"][0]["issues"]))
+
+    def test_selection_eligibility_defaults_to_true_and_invalid_flags_or_empty_selection_fail(self):
+        baseline = {"name": "no_ml", "selection": {"logLoss": 1}}
+        diagnostic = {"name": "c906_recipe_retrained", "selection": {"logLoss": .1}, "selectionEligible": False}
+        self.assertEqual(auditor.eligible_selection_winner([baseline, diagnostic]), "no_ml")
+        self.assertEqual(auditor.eligible_selection_winner([baseline, {**diagnostic, "selectionEligible": True}]), diagnostic["name"])
+        for invalid in ("false", "true", None, 0, 1):
+            with self.assertRaisesRegex(ValueError, "invalid_selection_eligibility_flag"):
+                auditor.eligible_selection_winner([baseline, {**diagnostic, "selectionEligible": invalid}])
+        with self.assertRaisesRegex(ValueError, "no_selection_eligible_arm"):
+            auditor.eligible_selection_winner([{**baseline, "selectionEligible": False}, diagnostic])
+
+    def test_all_ineligible_comparisons_are_recorded_as_a_failing_audit(self):
+        with tempfile.TemporaryDirectory(prefix="challenger-temporal-audit-unit-") as directory:
+            root = Path(directory) / "frozen"
+            fixture(root)
+            report = json.loads((root / "training-canonical/report.json").read_text())
+            report["folds"][0]["comparisons"][0]["selectionEligible"] = False
+            save(root / "training-canonical/report.json", report)
+            for path in [root / "training-canonical/fold-0/no_ml/artifact.json", root / "comparison-canonical-inputs/fold-0-no_ml.json"]:
+                artifact = json.loads(path.read_text())
+                artifact["selectionEligible"] = False
+                save(path, artifact)
+            result = auditor.audit(root)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(issue["kind"] == "no_selection_eligible_arm" for issue in result["folds"][0]["issues"]))
+
     def test_clean_fixture_passes_and_outputs_no_absolute_paths(self):
         with tempfile.TemporaryDirectory(prefix="challenger-temporal-audit-unit-") as directory:
             root = Path(directory) / "frozen"

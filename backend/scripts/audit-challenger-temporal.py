@@ -87,6 +87,20 @@ def range_metadata_matches(observed, declared):
     return observed["from"] == declared.get("from") and observed["to"] == declared.get("to")
 
 
+def eligible_selection_winner(comparisons):
+    eligible = []
+    for item in comparisons:
+        if "selectionEligible" in item and type(item["selectionEligible"]) is not bool:
+            raise ValueError("invalid_selection_eligibility_flag")
+        if item.get("selectionEligible", True):
+            if not finite(item.get("selection", {}).get("logLoss")):
+                raise ValueError("invalid_eligible_selection_metric")
+            eligible.append(item)
+    if not eligible:
+        raise ValueError("no_selection_eligible_arm")
+    return min(eligible, key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
+
+
 def quality_context(dataset, matches):
     policy = load(REPO / "backend/src/research/challenger-data-quarantine.json")
     policy_hash = hashlib.sha256(json.dumps(policy, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
@@ -278,11 +292,19 @@ def audit(input_dir: Path, legacy_dir: Path | None = None, split_plan: Path | No
                 if ids[first] & ids[second]: issues.append({"kind": "within_fold_overlap", "parts": [first, second], "n": len(ids[first] & ids[second])})
         for early, late in (("train", "selection"), ("selection", "calibration"), ("calibration", "test")):
             if ts(split[early]["availableThrough"]) >= ts(split[late]["from"]): issues.append({"kind": "future_labels_at_split", "parts": [early, late]})
-        selected = min(fold["comparisons"], key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
-        if selected != fold["selectedVariant"]: issues.append({"kind": "candidate_not_selected_by_selection_only"})
+        try:
+            selected = eligible_selection_winner(fold["comparisons"])
+        except ValueError as error:
+            selected = None
+            issues.append({"kind": str(error)})
+        if selected is not None and selected != fold["selectedVariant"]:
+            issues.append({"kind": "candidate_not_selected_by_selection_only"})
         for arm in fold["comparisons"]:
             raw_path = ROOT / "training-canonical" / f"fold-{fold['fold']}" / arm["name"] / "artifact.json"
             artifact = load(raw_path)
+            if ("selectionEligible" in artifact and type(artifact["selectionEligible"]) is not bool
+                    or artifact.get("selectionEligible", True) != arm.get("selectionEligible", True)):
+                artifact_issues.append({"fold": fold["fold"], "arm": arm["name"], "kind": "artifact_selection_eligibility_mismatch"})
             if declared_plan and (artifact.get("splitPlanHash") != declared_plan.get("fileHash")
                     or artifact.get("frozenTrainingSplit") != fold.get("frozenTrainingSplit")):
                 artifact_issues.append({"fold": fold["fold"], "arm": arm["name"], "kind": "artifact_frozen_split_plan_mismatch"})
@@ -300,6 +322,9 @@ def audit(input_dir: Path, legacy_dir: Path | None = None, split_plan: Path | No
                 if row["homeGoals"] != actual["homeGoals"] or row["awayGoals"] != actual["awayGoals"] or ts(row["availableAt"]) > ts(artifact["validationThrough"]): artifact_issues.append({"fold": fold["fold"], "arm": arm["name"], "kind": "calibration_label_or_time_mismatch", "matchId": row["matchId"]})
             variant = next(item for item in manifest["variants"] if item["id"] == arm["name"])
             coherent = load(paths["variantManifest"].parent / variant["folds"][fold["fold"]]["artifactPath"])
+            if ("selectionEligible" in coherent and type(coherent["selectionEligible"]) is not bool
+                    or coherent.get("selectionEligible", True) != arm.get("selectionEligible", True)):
+                artifact_issues.append({"fold": fold["fold"], "arm": arm["name"], "kind": "coherent_selection_eligibility_mismatch"})
             if declared_plan and (coherent.get("splitPlanHash") != declared_plan.get("fileHash")
                     or coherent.get("frozenTrainingSplit") != fold.get("frozenTrainingSplit")):
                 artifact_issues.append({"fold": fold["fold"], "arm": arm["name"], "kind": "coherent_frozen_split_plan_mismatch"})

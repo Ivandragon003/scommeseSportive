@@ -1,0 +1,300 @@
+{
+  "variants": [
+    {
+      "id": "no_ml",
+      "role": "no_ml",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-no_ml.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-no_ml.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-no_ml.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-no_ml.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-no_ml.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-no_ml.json"
+        }
+      ]
+    },
+    {
+      "id": "development_current_replica",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-development_current_replica.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-development_current_replica.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-development_current_replica.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-development_current_replica.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-development_current_replica.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-development_current_replica.json"
+        }
+      ]
+    },
+    {
+      "id": "intensity_legacy",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-intensity_legacy.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-intensity_legacy.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-intensity_legacy.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-intensity_legacy.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-intensity_legacy.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-intensity_legacy.json"
+        }
+      ]
+    },
+    {
+      "id": "intensity_recent_xg",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-intensity_recent_xg.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-intensity_recent_xg.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-intensity_recent_xg.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-intensity_recent_xg.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-intensity_recent_xg.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-intensity_recent_xg.json"
+        }
+      ]
+    },
+    {
+      "id": "intensity_schedule",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-intensity_schedule.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-intensity_schedule.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-intensity_schedule.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-intensity_schedule.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-intensity_schedule.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-intensity_schedule.json"
+        }
+      ]
+    },
+    {
+      "id": "intensity_full",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-intensity_full.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-intensity_full.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-intensity_full.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-intensity_full.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-intensity_full.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-intensity_full.json"
+        }
+      ]
+    },
+    {
+      "id": "c906_recipe_retrained",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "folds": [
+        {
+          "from": "2023-07-01T00:00:00.000Z",
+          "until": "2024-01-01T00:00:00.000Z",
+          "artifactPath": "fold-0-c906_recipe_retrained.json"
+        },
+        {
+          "from": "2024-01-01T00:00:00.000Z",
+          "until": "2024-07-01T00:00:00.000Z",
+          "artifactPath": "fold-1-c906_recipe_retrained.json"
+        },
+        {
+          "from": "2024-07-01T00:00:00.000Z",
+          "until": "2025-01-01T00:00:00.000Z",
+          "artifactPath": "fold-2-c906_recipe_retrained.json"
+        },
+        {
+          "from": "2025-01-01T00:00:00.000Z",
+          "until": "2025-07-01T00:00:00.000Z",
+          "artifactPath": "fold-3-c906_recipe_retrained.json"
+        },
+        {
+          "from": "2025-07-01T00:00:00.000Z",
+          "until": "2026-01-01T00:00:00.000Z",
+          "artifactPath": "fold-4-c906_recipe_retrained.json"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "until": "2026-07-01T00:00:00.000Z",
+          "artifactPath": "fold-5-c906_recipe_retrained.json"
+        }
+      ]
+    },
+    {
+      "id": "actual_C906",
+      "role": "current",
+      "availability": "recorded_available",
+      "from": "2026-10-29T10:40:00.219Z",
+      "selectionPolicy": "legacy-c906",
+      "artifactPath": "incumbent.json"
+    },
+    {
+      "id": "C906_reconstructed",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "legacy-c906",
+      "artifactPath": "incumbent.json"
+    },
+    {
+      "id": "actual_C906_new_selector",
+      "role": "current",
+      "availability": "recorded_available",
+      "from": "2026-10-29T10:40:00.219Z",
+      "selectionPolicy": "payout-aware-v1",
+      "artifactPath": "incumbent.json"
+    },
+    {
+      "id": "C906_reconstructed_new_selector",
+      "role": "ablation",
+      "availability": "retrospective_development",
+      "selectionPolicy": "payout-aware-v1",
+      "artifactPath": "incumbent.json"
+    }
+  ]
+}

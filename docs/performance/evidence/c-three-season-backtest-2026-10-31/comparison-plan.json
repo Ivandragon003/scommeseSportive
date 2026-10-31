@@ -1,0 +1,18 @@
+{
+  "asOf": "2026-10-30T23:49:05.257Z",
+  "developmentFrom": "2023-07-01T00:00:00.000Z",
+  "developmentUntil": "2026-07-01T00:00:00.000Z",
+  "independentFrom": "2026-10-30T23:49:05.258Z",
+  "schedule": {
+    "hour": 3,
+    "minute": 7
+  },
+  "allowedMarkets": [
+    "1x2",
+    "totals",
+    "asian_handicap"
+  ],
+  "initialBankrollCents": 100000,
+  "bootstrapSamples": 500,
+  "seed": 20261031
+}

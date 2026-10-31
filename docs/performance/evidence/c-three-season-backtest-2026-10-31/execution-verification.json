@@ -1,0 +1,72 @@
+{
+  "baselineCommit": "325e70097428fb8cef9c1f749f8b3a7ed520b6d0",
+  "checks": {
+    "fullNewTraining": {
+      "status": "passed",
+      "folds": 6,
+      "arms": 7,
+      "testMatches": 4892
+    },
+    "independentMetricAudit": {
+      "status": "passed",
+      "records": 6573,
+      "cohort": 4892,
+      "maxMetricAbsoluteDelta": 2.4424906541753444e-15
+    },
+    "temporalAudit": {
+      "status": "passed",
+      "artifacts": 84,
+      "extraFeatureValues": 105168,
+      "scope": "computational_asof_consistency_only"
+    },
+    "sourceAFreeze": {
+      "status": "passed",
+      "unchangedFiles": 68,
+      "operationalRegressionTests": 7
+    },
+    "pythonTests": {
+      "status": "passed",
+      "tests": 112
+    },
+    "targetedNodeTests": {
+      "status": "passed",
+      "tests": 67
+    },
+    "backendBuild": {
+      "status": "passed"
+    },
+    "backendTypecheck": {
+      "status": "passed"
+    },
+    "backendLint": {
+      "status": "passed"
+    },
+    "publicArchiveRestore": {
+      "status": "passed",
+      "payloadFiles": 48,
+      "foldArtifacts": 42
+    },
+    "publicArchiveInferenceReplay": {
+      "status": "running",
+      "expectedDecodedPredictionsSha256": "559a079f613e12bbf5fdd05c21b1abea17ed94019cfadbcefd77ac6de7a7c216"
+    },
+    "githubCI": {
+      "status": "pending_publication"
+    },
+    "secretScan": {
+      "status": "passed",
+      "tool": "gitleaks git --staged --redact --max-archive-depth 2 --max-target-megabytes 300",
+      "scannedBytesApprox": 350456697,
+      "leaks": 0
+    },
+    "documentationLinks": {
+      "status": "passed",
+      "checked": 101
+    }
+  },
+  "productionDatabaseAccessed": false,
+  "productionProviderCalls": false,
+  "modelAdoptionExecuted": false,
+  "betPlacementExecuted": false,
+  "independentProspectiveEvidence": false
+}

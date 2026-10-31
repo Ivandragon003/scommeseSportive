@@ -1,0 +1,123 @@
+{
+  "frozenIncumbentVersion": "C-906371b0b3a1e2c8",
+  "artifactFileSha256": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3",
+  "sameArtifact": false,
+  "newFitAndCalibrationPerFold": true,
+  "checks": [
+    {
+      "fold": 0,
+      "artifactVersion": "C-9532d758f55b17b8",
+      "sha256": "dc0b2e0d085297a41feb530aec60f3e28d7d961f4af522bcf94b286e38cac349",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    },
+    {
+      "fold": 1,
+      "artifactVersion": "C-2b9a902e8a474d82",
+      "sha256": "89a97fca852fe07a132d1600c2f971a05b3b4afb0eb175be356ee116ec9eb588",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    },
+    {
+      "fold": 2,
+      "artifactVersion": "C-6ada285e88bf51b7",
+      "sha256": "2ba6beef41f43eca0fe05473ce57bed04d7bb676b4d224046848ffb67daddede",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    },
+    {
+      "fold": 3,
+      "artifactVersion": "C-7fcd1c372c115ce3",
+      "sha256": "1fc44ea1e0ee08f63d0965030700e7f6e5309dd12e8167443c9b91f4225c6d1d",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    },
+    {
+      "fold": 4,
+      "artifactVersion": "C-001e4d9a60cb3162",
+      "sha256": "4de76cb2f3ee79962d8aaf9b23ed3ac28d24b294f748e6f5fcc27d26c5ef8a87",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    },
+    {
+      "fold": 5,
+      "artifactVersion": "C-ea907d4829252ae7",
+      "sha256": "0c0e263318cbcf355b7e190e77fc9345dc956ebfa9d5de6c72ba295f23102c20",
+      "recipeFieldsIdentical": {
+        "candidateKind": true,
+        "featureNames": true,
+        "featureSchema": true,
+        "baselineVersion": true,
+        "weight": true,
+        "temperature": true
+      },
+      "catboostFlatParamsIdentical": {
+        "home": true,
+        "away": true
+      },
+      "profileRefittedOnFold": true,
+      "diagnostic": true
+    }
+  ],
+  "interpretation": "Same numeric training recipe and ordered features; different training data, periods, creation times and recalibrated profiles. Weights/temperature were selected in 2026, so historical replay is retrospective."
+}

@@ -315,6 +315,59 @@ class ChallengerMetricsAuditTests(unittest.TestCase):
                     audit.main(["--report", "unread-fixture.json", "--out", "unwritten-directory", option, value])
                 self.assertEqual(raised.exception.code, 2)
 
+    def test_zero_reconstructed_strict_cli_keeps_other_c906_guards(self):
+        fixture = strict_public_fixture()
+        for row in fixture["records"]:
+            for variant in ("C906_reconstructed", "C906_reconstructed_new_selector"):
+                row["predictions"].pop(variant, None)
+        for variant, spec in fixture["variants"].items():
+            spec["byPhase"]["development"]["metrics"] = audit.calculate(fixture["records"], variant)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "fixture.json"
+            source.write_text(json.dumps(fixture), encoding="utf-8")
+            counts = ["--expected-records", "12", "--expected-cohort", "2"]
+            with patch("builtins.print"):
+                self.assertEqual(audit.main(["--report", str(source), "--out", str(root / "zero"), "--gzip"] +
+                                             counts + ["--expected-reconstructed", "0"]), 0)
+                self.assertEqual(audit.main(["--report", str(source), "--out", str(root / "default")] + counts), 1)
+                self.assertEqual(audit.main(["--bundle", str(root / "zero"), "--out", str(root / "replay"), "--gzip"] +
+                                             counts + ["--expected-reconstructed", "0"]), 0)
+            result = json.loads((root / "zero/audit.json").read_text(encoding="utf-8"))
+            self.assertTrue(result["canonicalChecks"])
+            self.assertEqual(result["canonicalExpectedCounts"], {"records": 12, "cohort": 2, "reconstructed": 0})
+            self.assertEqual((root / "zero/audit.json").read_bytes(), (root / "replay/audit.json").read_bytes())
+        metadata, rows = audit.compact(fixture)
+        metadata["variants"]["actual_C906"]["role"] = "ablation"
+        result = audit.audit(metadata, rows, expected_records=12, expected_cohort=2, expected_reconstructed=0)
+        self.assertFalse(result["passed"])
+        self.assertIn("incorrect C906 role/availability: actual_C906", result["findings"])
+
+    def test_expected_reconstructed_rejects_negative_fraction_and_text(self):
+        for value in ("-1", "1.5", "NaN", "wrong"):
+            with self.subTest(value=value), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as raised:
+                audit.main(["--report", "unread-fixture.json", "--out", "unwritten-directory", "--expected-reconstructed", value])
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_optional_c906_recipe_diagnostic_requires_same_ids_and_size(self):
+        metadata, rows = audit.compact(strict_public_fixture())
+        diagnostic = "c906_recipe_retrained"
+        metadata["variants"][diagnostic] = copy.deepcopy(metadata["variants"]["development_current_replica"])
+        for record in rows[:2]:
+            record["predictions"][diagnostic] = copy.deepcopy(record["predictions"]["development_current_replica"])
+        result = audit.audit(metadata, rows, expected_records=12, expected_cohort=2)
+        self.assertTrue(result["passed"], result["findings"])
+        for tamper in ("missing", "same-count-other-id"):
+            with self.subTest(tamper=tamper):
+                changed = copy.deepcopy(rows)
+                prediction = changed[0]["predictions"].pop(diagnostic)
+                if tamper == "same-count-other-id":
+                    changed[2]["predictions"][diagnostic] = prediction
+                metadata["variants"][diagnostic]["byPhase"]["development"]["metrics"] = audit.calculate(changed, diagnostic)
+                result = audit.audit(metadata, changed, expected_records=12, expected_cohort=2)
+                self.assertFalse(result["passed"])
+                self.assertIn("c906_recipe_retrained must share exactly the controlled test cohort", result["findings"])
+
 
 if __name__ == "__main__":
     unittest.main()

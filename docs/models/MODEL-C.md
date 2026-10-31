@@ -1,5 +1,16 @@
 # Modello C: probabilità, selezione e puntata
 
+**Estensione del benchmark, 31 ottobre.** Il [replay sulle tre stagioni](../performance/c-three-season-backtest-2026-10-31.md)
+usa il 2022/23 come storia e valuta tutti i 4.892 target ammissibili del 2023/24–2025/26,
+in sei periodi semestrali con training, selezione e calibrazione separati.
+Il confronto col benchmark corretto riguarda 1.959 partite condivise.
+La replica corrente degli esperimenti usa depth 3; il controllo facoltativo
+`--include-c906-recipe` riprende la ricetta C906 depth 5 e la riaddestra per periodo.
+Quel controllo è diagnostico, escluso dalla selezione e rifiutato da entrambi
+i percorsi di registrazione. Non è l'artefatto operativo retrodatato.
+I risultati restano retrospettivi, con disponibilità storica stimata e senza ROI
+misurabile: non autorizzano adozione, nuovi mercati o modifiche ad A operativo.
+
 Questa guida descrive i sorgenti verificati al 31 ottobre 2026. **C906 con il
 selettore legacy resta il default.** Il selettore autonomo e le nuove feature
 sono percorsi candidati: l'implementazione e un miglioramento offline non

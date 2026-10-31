@@ -1,0 +1,2 @@
+# Preserve manifest-verified JSON bytes across Windows and Linux checkouts.
+*.json text eol=lf

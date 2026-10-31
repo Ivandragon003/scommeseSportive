@@ -19,6 +19,13 @@ la nuova policy di qualità e non è ammissibile a raccolta o adozione.
 i vecchi 1.975 casi comprendevano cinque forecast post-evento; i conti sono
 riproducibili, ma quel campione non è una prova pre-match valida.
 
+Il [backtest sulle tre stagioni precedenti](docs/performance/c-three-season-backtest-2026-10-31.md)
+copre 4.892 partite ammissibili del 2023/24–2025/26, con storia iniziale 2022/23.
+Il confronto appaiato con il benchmark corretto usa 1.959 partite comuni:
+Log Loss e Brier scendono, ECE e accuracy peggiorano. La ricetta C906 depth 5
+riaddestrata è distinta dall'artefatto operativo; nessun candidato viene adottato.
+Input, artefatti e probabilità individuali sono pubblicati per il replay.
+
 **Correzione A/C pubblicata su GitHub — rilascio web ancora da attestare.**
 La policy `virtual-recommendation-v2` lascia A al suo `PredictionService`,
 con i mercati squadra già supportati, inclusi cartellini e tiri quando esistono

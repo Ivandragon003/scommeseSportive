@@ -52,11 +52,12 @@ function main(argv = process.argv.slice(2)) {
   mkdirSync(out, { recursive: true });
   const variants = [];
   for (const arm of report.arms) {
-    if (!/^[a-z_]+$/.test(arm.name)) throw new Error('Invalid controlled arm name');
+    if (!/^[a-z][a-z0-9_]*$/.test(arm.name)) throw new Error('Invalid controlled arm name');
     const folds = report.folds.map(fold => {
       if (!Number.isSafeInteger(fold.fold) || fold.fold < 0 || fold.fold > 7) throw new Error('Invalid fold');
       const artifact = enrichCoherentLifecycleArtifact(load(join(training, `fold-${fold.fold}`, arm.name, 'artifact.json')),
         { mode: 'isotonic_1x2' });
+      if (artifact.productionAdoptionEligible === false) artifact.status = 'DIAGNOSTIC_CONTROL';
       if (artifact.datasetHash !== datasetHash) throw new Error('Fold dataset mismatch');
       const artifactPath = `fold-${fold.fold}-${arm.name}.json`;
       save(join(out, artifactPath), artifact);

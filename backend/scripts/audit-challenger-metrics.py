@@ -6,6 +6,8 @@ Run from the repository root (output directories must not already exist):
   python backend/scripts/audit-challenger-metrics.py --bundle NEW_DIR --out REPLAY_DIR
 Add --gzip to write deterministic predictions.jsonl.gz; hashes cover decoded JSONL.
 Use --expected-records N --expected-cohort N for a revised strict dataset.
+Use --expected-reconstructed 0 when the declared period excludes C906's test era.
+The optional c906_recipe_retrained diagnostic must share the controlled cohort.
 Use --generic only for noncanonical fixtures; it disables all canonical guards.
 No model, TypeScript metric implementation, database, or network is executed.
 """
@@ -51,6 +53,16 @@ def positive_int(value):
         raise argparse.ArgumentTypeError("expected a positive integer") from None
     if parsed <= 0:
         raise argparse.ArgumentTypeError("expected a positive integer")
+    return parsed
+
+
+def nonnegative_int(value):
+    try:
+        parsed = int(value)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError("expected a nonnegative integer") from None
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("expected a nonnegative integer")
     return parsed
 
 
@@ -140,9 +152,11 @@ def source_evidence():
             "expression": expression, "scope": "inspected_current_exporter_not_historical_execution_attestation"}
 
 
-def audit(metadata, rows, canonical=True, expected_records=6587, expected_cohort=1975):
+def audit(metadata, rows, canonical=True, expected_records=6587, expected_cohort=1975, expected_reconstructed=10):
     if any(type(n) is not int or n <= 0 for n in (expected_records, expected_cohort)):
         raise ValueError("expected record and cohort counts must be positive integers")
+    if type(expected_reconstructed) is not int or expected_reconstructed < 0:
+        raise ValueError("expected reconstructed count must be a nonnegative integer")
     findings = []
     def check(condition, message):
         if not condition:
@@ -217,6 +231,10 @@ def audit(metadata, rows, canonical=True, expected_records=6587, expected_cohort
         check(all(arm in variants for arm in ARMS), "missing controlled arm")
         check(same and len(cohorts[ARMS[0]]) == expected_cohort,
               f"six arms must share exactly {expected_cohort} unique matchIds")
+        if "c906_recipe_retrained" in variants:
+            diagnostic_ids = {r["matchId"] for r in rows if "c906_recipe_retrained" in r["predictions"]}
+            check(diagnostic_ids == cohorts[ARMS[0]] and len(diagnostic_ids) == expected_cohort,
+                  "c906_recipe_retrained must share exactly the controlled test cohort")
         for arm in ARMS:
             expected_role = "no_ml" if arm == "no_ml" else "ablation"
             check(variants.get(arm, {}).get("role") == expected_role, "incorrect controlled role: " + arm)
@@ -224,8 +242,8 @@ def audit(metadata, rows, canonical=True, expected_records=6587, expected_cohort
             check(all(r["phase"] == "development" for r in rows if arm in r["predictions"]), "controlled arm outside development: " + arm)
         for variant, count, role, availability in (("actual_C906", 0, "current", "recorded_available"),
                 ("actual_C906_new_selector", 0, "current", "recorded_available"),
-                ("C906_reconstructed", 10, "ablation", "retrospective_development"),
-                ("C906_reconstructed_new_selector", 10, "ablation", "retrospective_development")):
+                ("C906_reconstructed", expected_reconstructed, "ablation", "retrospective_development"),
+                ("C906_reconstructed_new_selector", expected_reconstructed, "ablation", "retrospective_development")):
             check(sum(variant in r["predictions"] for r in rows) == count, "incorrect C906 cohort: " + variant)
             check(variants.get(variant, {}).get("role") == role and variants.get(variant, {}).get("availability") == availability,
                   "incorrect C906 role/availability: " + variant)
@@ -235,7 +253,8 @@ def audit(metadata, rows, canonical=True, expected_records=6587, expected_cohort
     prediction_count = sum(len(r["predictions"]) for r in rows)
     stages_count = sum("probabilityStages" in p for r in rows for p in r["predictions"].values())
     return {"passed": not findings, "findings": findings, "recordDistribution": distribution(rows),
-            "canonicalExpectedCounts": {"records": expected_records, "cohort": expected_cohort},
+            "canonicalExpectedCounts": {"records": expected_records, "cohort": expected_cohort,
+                                        **({"reconstructed": expected_reconstructed} if expected_reconstructed != 10 else {})},
             "probabilityStageCoverage": {"predictions": prediction_count, "withAllStages": stages_count,
                                          "withoutStages": prediction_count - stages_count},
             "sixArmSameIds": same, "sixArmCounts": {arm: len(ids) for arm, ids in cohorts.items()},
@@ -263,6 +282,7 @@ def main(argv=None):
     parser.add_argument("--gzip", action="store_true", help="write deterministic gzip predictions; hash decoded JSONL")
     parser.add_argument("--expected-records", type=positive_int, default=6587)
     parser.add_argument("--expected-cohort", type=positive_int, default=1975)
+    parser.add_argument("--expected-reconstructed", type=nonnegative_int, default=10)
     args = parser.parse_args(argv)
     if args.out.exists():
         raise ValueError("output directory must be new")
@@ -285,7 +305,8 @@ def main(argv=None):
         metadata, origin = manifest["metadata"], manifest["origin"]
         rows = [json.loads(line) for line in data.splitlines()]
     result = audit(metadata, rows, canonical=not args.generic,
-                   expected_records=args.expected_records, expected_cohort=args.expected_cohort)
+                   expected_records=args.expected_records, expected_cohort=args.expected_cohort,
+                   expected_reconstructed=args.expected_reconstructed)
     evidence = origin["exporterEvidence"]
     if not evidence.get("finalProbabilityEvidence"):
         result["findings"].append("exporter evidence for final decision probabilities unavailable")

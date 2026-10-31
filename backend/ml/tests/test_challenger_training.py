@@ -60,6 +60,102 @@ def quality_dataset():
 
 
 class ChallengerTrainingTests(unittest.TestCase):
+    def test_c906_recipe_requires_an_explicit_controlled_frozen_plan_and_matching_catboost(self):
+        for experiment, split_plan in (("legacy", "plan.json"), ("controlled-challenger", None)):
+            with self.subTest(experiment=experiment, split_plan=split_plan):
+                with self.assertRaisesRegex(ValueError, "requires_controlled_challenger_and_frozen_split_plan"):
+                    trainer.run_controlled(SimpleNamespace(include_c906_recipe=True, experiment=experiment, split_plan=split_plan))
+        with self.assertRaisesRegex(ValueError, "requires_controlled_challenger_and_frozen_split_plan"):
+            trainer.run(SimpleNamespace(include_c906_recipe=True))
+        with patch.object(trainer, "catboost_version", "1.2.9"):
+            with self.assertRaisesRegex(ValueError, "requires_catboost_1_2_8"):
+                trainer.run_controlled(SimpleNamespace(include_c906_recipe=True, experiment="controlled-challenger", split_plan="plan.json"))
+            self.assertIs(trainer.controlled_arms(SimpleNamespace()), trainer.CONTROLLED_ARMS)
+
+    def test_c906_diagnostic_is_excluded_even_if_it_has_the_best_selection_loss(self):
+        comparisons = [{"name": arm["name"], "selection": {"logLoss": 1 + index / 10}}
+                       for index, arm in enumerate(trainer.CONTROLLED_ARMS)]
+        comparisons.append({"name": "c906_recipe_retrained", "selectionEligible": False, "selection": {"logLoss": .01}})
+        self.assertEqual(trainer.selected_controlled_variant(comparisons), "no_ml")
+        with self.assertRaisesRegex(ValueError, "no_eligible_controlled_candidates"):
+            trainer.selected_controlled_variant([comparisons[-1]])
+        comparisons[-1]["selectionEligible"] = "false"
+        with self.assertRaisesRegex(ValueError, "invalid_controlled_selection_eligibility"):
+            trainer.selected_controlled_variant(comparisons)
+
+    def test_c906_recipe_rejects_a_different_baseline_before_fitting(self):
+        with tempfile.TemporaryDirectory(prefix="challenger-recipe-baseline-unit-") as directory:
+            root = Path(directory)
+            (root / "dataset.json").write_text(json.dumps(dataset()), encoding="utf-8")
+            with patch.object(trainer, "train_candidates") as fit:
+                with self.assertRaisesRegex(ValueError, "requires_frozen_a80_baseline"):
+                    trainer.run_controlled(SimpleNamespace(input=str(root / "dataset.json"), output=str(root / "output"),
+                        include_c906_recipe=True, experiment="controlled-challenger", split_plan="unused-plan.json"))
+                fit.assert_not_called()
+            self.assertFalse((root / "output").exists())
+
+    def test_optional_c906_recipe_fits_exact_depth5_120_and_preserves_all_six_candidates(self):
+        value = dataset()
+        value["baselineManifest"]["version"] = "A-80cb25df5552621e"
+        for row in value["rows"]:
+            row["baselineVersion"] = value["baselineManifest"]["version"]
+        with tempfile.TemporaryDirectory(prefix="challenger-recipe-control-unit-") as directory:
+            root = Path(directory)
+            (root / "dataset.json").write_text(json.dumps(value), encoding="utf-8")
+            (root / "plan.json").write_text(json.dumps(frozen_plan(value["rows"], 1)), encoding="utf-8")
+            arguments = dict(input=str(root / "dataset.json"), iterations=5, depth=8, folds=1,
+                             split_plan=str(root / "plan.json"), experiment="controlled-challenger")
+            trainer.run_controlled(SimpleNamespace(**arguments, output=str(root / "six")))
+            with patch.object(trainer, "train_candidates", wraps=trainer.train_candidates) as fit:
+                trainer.run_controlled(SimpleNamespace(**arguments, output=str(root / "seven"), include_c906_recipe=True))
+            diagnostic_fit = [call for call in fit.call_args_list if call.args[2].name == "c906_recipe_retrained"]
+            self.assertEqual(len(diagnostic_fit), 1)
+            self.assertEqual(diagnostic_fit[0].args[3:5], (120, 5))
+            self.assertEqual(diagnostic_fit[0].kwargs["kinds"], ("calibrated_ensemble",))
+            self.assertTrue(all(call.args[3:5] == (5, 3) for call in fit.call_args_list if call not in diagnostic_fit))
+            baseline = json.loads((root / "six/report.json").read_text(encoding="utf-8"))
+            report = json.loads((root / "seven/report.json").read_text(encoding="utf-8"))
+            self.assertEqual(baseline["arms"], list(trainer.CONTROLLED_ARMS))
+            self.assertNotIn("recipeControl", baseline)
+            self.assertEqual(len(report["arms"]), 7)
+            self.assertFalse(report["recipeControl"]["selectionEligible"])
+            self.assertFalse(report["recipeControl"]["productionAdoptionEligible"])
+            self.assertFalse(report["recipeControl"]["frozenCalibrationProfileReused"])
+            self.assertEqual(report["folds"][0]["selectedVariant"], baseline["folds"][0]["selectedVariant"])
+            comparison = next(item for item in report["folds"][0]["comparisons"] if item["name"] == "c906_recipe_retrained")
+            self.assertIs(comparison["selectionEligible"], False)
+            self.assertEqual(comparison["recipeOrigin"], trainer.C906_RECIPE_ORIGIN)
+            selected = json.loads((root / "seven/artifact.json").read_text(encoding="utf-8"))
+            self.assertIn(selected["comparisonArm"], [arm["name"] for arm in trainer.CONTROLLED_ARMS])
+            extra = json.loads((root / "seven/artifact-c906_recipe_retrained.json").read_text(encoding="utf-8"))
+            self.assertEqual(extra["status"], "DIAGNOSTIC_CONTROL")
+            self.assertFalse(extra["selectionEligible"])
+            self.assertFalse(extra["productionAdoptionEligible"])
+            self.assertEqual(extra["recipeOrigin"], trainer.C906_RECIPE_ORIGIN)
+            self.assertNotEqual(extra["version"], trainer.C906_RECIPE_ORIGIN["modelVersion"])
+            self.assertEqual(extra["featureNames"], trainer.LEGACY_FEATURES)
+            self.assertEqual(extra["featureSchema"], "prematch-numeric-v1")
+            self.assertEqual(extra["featureBlocks"], [])
+            self.assertEqual(extra["recipeCalibrationMode"], "isotonic_1x2")
+            self.assertNotIn("calibrationProfilesV2", extra)
+            self.assertEqual(extra["hyperparameters"], {"depth": 5, "iterations": 120, "learningRate": .05,
+                                                       "seed": 20261027, "threadCount": 2})
+            for model in extra["models"].values():
+                parameters = model["model_info"]["params"]
+                if isinstance(parameters, str):
+                    parameters = json.loads(parameters)
+                self.assertEqual(len(model["oblivious_trees"]), 120)
+                self.assertEqual(parameters["flat_params"], {"depth": 5, "iterations": 120, "learning_rate": .05,
+                    "random_seed": 20261027, "thread_count": 2, "loss_function": "Poisson", "verbose": 0, "allow_writing_files": False})
+                self.assertEqual(parameters["boosting_options"]["boosting_type"], "Plain")
+                self.assertEqual(parameters["tree_learner_options"]["grow_policy"], "SymmetricTree")
+            for original, augmented in zip(baseline["predictions"], report["predictions"]):
+                self.assertEqual(augmented["selectedVariant"], original["selectedVariant"])
+                self.assertEqual(augmented["matrixC"], original["matrixC"])
+                self.assertEqual(len(augmented["variants"]), 7)
+                for arm in trainer.CONTROLLED_ARMS:
+                    self.assertEqual(augmented["variants"][arm["name"]]["matrix"], original["variants"][arm["name"]]["matrix"])
+
     def test_frozen_windows_preserve_dates_and_original_cohorts_after_removals(self):
         rows = dataset()["rows"]
         plan = frozen_plan(rows)

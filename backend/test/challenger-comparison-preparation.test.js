@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require('node:fs');
+const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, renameSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve, basename, sep } = require('node:path');
 const { createHash } = require('node:crypto');
@@ -64,6 +64,30 @@ test('comparison freezes the exact canonical incumbent without changing its crea
     assert.deepEqual(current.map(variant => variant.selectionPolicy), ['legacy-c906', 'payout-aware-v1']);
     // Output formatting changes, while the registry compares canonical content.
     assert.equal(researchHash(JSON.parse(readFileSync(join(f.out, 'incumbent.json'), 'utf8'))), f.registry.artifactHash);
+  } finally { f.close(); }
+});
+
+test('comparison finalizes a C906 recipe control while retaining its diagnostic identity', () => {
+  const f = fixture();
+  try {
+    const training = join(f.directory, 'training'), reportPath = join(training, 'report.json');
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    report.arms[0].name = 'c906_recipe_retrained'; save(reportPath, report);
+    const source = join(training, 'fold-0', 'no_ml');
+    const artifactPath = join(source, 'artifact.json');
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    artifact.productionAdoptionEligible = false; artifact.status = 'DIAGNOSTIC_CONTROL';
+    artifact.recipeOrigin = { modelVersion: 'C-906371b0b3a1e2c8' }; save(artifactPath, artifact);
+    renameSync(source, join(training, 'fold-0', 'c906_recipe_retrained'));
+    f.run();
+    const prepared = JSON.parse(readFileSync(join(f.out, 'fold-0-c906_recipe_retrained.json'), 'utf8'));
+    assert.equal(prepared.probabilityCalibrationMode, 'isotonic_1x2');
+    assert.equal(prepared.productionAdoptionEligible, false);
+    assert.equal(prepared.status, 'DIAGNOSTIC_CONTROL');
+    assert.deepEqual(prepared.recipeOrigin, artifact.recipeOrigin);
+    assert.equal(prepared.parentVersion, artifact.version);
+    const variant = JSON.parse(readFileSync(join(f.out, 'variants.json'), 'utf8')).variants[0];
+    assert.equal(variant.role, 'ablation'); assert.equal(variant.availability, 'retrospective_development');
   } finally { f.close(); }
 });
 

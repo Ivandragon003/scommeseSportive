@@ -42,6 +42,29 @@ CONTROLLED_ARMS = (
     {"name": "intensity_schedule", "kind": "intensity_correction", "blocks": ["schedule"], "weight": .25, "temperature": 1.0},
     {"name": "intensity_full", "kind": "intensity_correction", "blocks": ["recent_xg", "schedule"], "weight": .25, "temperature": 1.0},
 )
+C906_RECIPE_ORIGIN = {"modelVersion": "C-906371b0b3a1e2c8",
+    "artifactHash": "3f18e05ee228d1c6fdbe92865b3b19635cdf68f3ecbd50ff53d83914b52993b3"}
+C906_RECIPE_ARM = {"name": "c906_recipe_retrained", "kind": "calibrated_ensemble", "blocks": [],
+    "weight": .75, "temperature": .8, "selectionEligible": False}
+
+
+def controlled_arms(args):
+    if not getattr(args, "include_c906_recipe", False):
+        return CONTROLLED_ARMS
+    if getattr(args, "experiment", "controlled-challenger") != "controlled-challenger" or not getattr(args, "split_plan", None):
+        raise ValueError("c906_recipe_requires_controlled_challenger_and_frozen_split_plan")
+    if catboost_version != "1.2.8":
+        raise ValueError("c906_recipe_requires_catboost_1_2_8")
+    return CONTROLLED_ARMS + (C906_RECIPE_ARM,)
+
+
+def selected_controlled_variant(comparisons):
+    if any(type(item.get("selectionEligible", True)) is not bool for item in comparisons):
+        raise ValueError("invalid_controlled_selection_eligibility")
+    eligible = [item for item in comparisons if item.get("selectionEligible", True)]
+    if not eligible:
+        raise ValueError("no_eligible_controlled_candidates")
+    return min(eligible, key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
 
 
 def timestamp(value):
@@ -474,11 +497,14 @@ def arm_matrices(rows, arm, models):
 
 
 def run_controlled(args):
-    """Six declared arms, one fixed fit each: no parameter search, no protected holdout reuse."""
+    """Select among six declared arms; an optional frozen-plan C906 recipe is diagnostic only."""
+    arms = controlled_arms(args)
     dataset_bytes = Path(args.input).read_bytes()
     dataset = json.loads(dataset_bytes)
     source_names, rows, holdout = checked_dataset(dataset, controlled=True)
     data_quality = checked_data_quality(dataset)
+    if getattr(args, "include_c906_recipe", False) and dataset["baselineManifest"]["version"] != "A-80cb25df5552621e":
+        raise ValueError("c906_recipe_requires_frozen_a80_baseline")
     output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
     dataset_hash = hashlib.sha256(dataset_bytes).hexdigest()
     trainer_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -498,8 +524,10 @@ def run_controlled(args):
         split = frozen_split_manifest(groups, frozen_by_fold[fold_index]) if frozen_folds is not None else split_manifest(*groups)
         fold_dir = output / f"fold-{fold_index}"; fold_dir.mkdir(exist_ok=True)
         arm_outputs, comparisons = {}, []
-        for arm in CONTROLLED_ARMS:
+        for arm in arms:
             name, blocks = arm["name"], arm["blocks"]
+            recipe_control = arm.get("selectionEligible") is False
+            arm_iterations, arm_depth = (120, 5) if recipe_control else (iterations, depth)
             features, training = project_feature_rows(train, source_names, blocks)
             _, selecting = project_feature_rows(selection, source_names, blocks)
             _, calibrating = project_feature_rows(calibration, source_names, blocks)
@@ -508,7 +536,7 @@ def run_controlled(args):
             if arm["kind"] == "no_ml":
                 model, exported = {}, {}
             else:
-                trained, bundles = train_candidates(training, features, arm_dir, iterations, depth, kinds=(arm["kind"],))
+                trained, bundles = train_candidates(training, features, arm_dir, arm_iterations, arm_depth, kinds=(arm["kind"],))
                 model, exported = trained[arm["kind"]], bundles[arm["kind"]]
             selected_matrices = arm_matrices(selecting, arm, model)
             calibration_matrices = arm_matrices(calibrating, arm, model)
@@ -516,7 +544,9 @@ def run_controlled(args):
             selection_metric, _, _ = matrix_metrics(selecting, selected_matrices)
             test_metric, _, _ = matrix_metrics(testing, test_matrices)
             identity = {"dataset": dataset_hash, "trainer": trainer_hash, "fold": fold_index, "arm": arm,
-                        "iterations": iterations, "depth": depth, "split": split}
+                        "iterations": arm_iterations, "depth": arm_depth, "split": split}
+            if recipe_control:
+                identity["recipeOrigin"] = C906_RECIPE_ORIGIN
             version = "C-" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
             artifact = {"version": version, "family": "C", "featureNames": features,
                 "featureSchema": CHALLENGER_SCHEMA if blocks else "prematch-numeric-v1", "featureBlocks": blocks,
@@ -529,7 +559,7 @@ def run_controlled(args):
                 "recordedDecisionTimesHash": hashlib.sha256(json.dumps(dataset.get("recordedDecisionTimes", {}), sort_keys=True).encode()).hexdigest(),
                 "trainingSplit": split, "datasetHash": dataset_hash,
                 "trainerHash": trainer_hash, "catboostVersion": catboost_version, "comparisonArm": name,
-                "hyperparameters": {"iterations": iterations, "depth": depth, "learningRate": .05, "seed": 20261027, "threadCount": 2},
+                "hyperparameters": {"iterations": arm_iterations, "depth": arm_depth, "learningRate": .05, "seed": 20261027, "threadCount": 2},
                 "holdoutProtection": holdout, "oddsAsFeatures": False, "status": "CANDIDATE", "productionValidated": False,
                 "availability": "retrospective_development", "independentEvidence": False,
                 "selectionProtocol": "Six preregistered arms with fixed weights/temperature; select only on selection interval; calibration/test disjoint.",
@@ -540,6 +570,12 @@ def run_controlled(args):
                     "matrixA": row["baselineMatrix"], "matrixC": matrix.tolist(), "probabilitiesA": row["baselineProbabilities"],
                     "probabilitiesC": {key: float(value) for key, value in zip(("homeWin", "draw", "awayWin"), result_probabilities(matrix))}}
                     for row, matrix in zip(calibrating, calibration_matrices)]}
+            if recipe_control:
+                artifact.update({"status": "DIAGNOSTIC_CONTROL", "selectionEligible": False, "productionAdoptionEligible": False,
+                    "comparisonRole": "retrospective_recipe_control", "recipeOrigin": dict(C906_RECIPE_ORIGIN),
+                    "selectionProtocol": "Frozen C906 numeric recipe, retrained on each preceding fold; excluded from six-arm selection.",
+                    "recipeCalibrationMode": "isotonic_1x2",
+                    "recipeCalibrationProtocol": "Refit coherent calibration on this fold's calibration partition; frozen 2026 profile is not reused."})
             if frozen_folds is not None:
                 artifact.update({"splitPlanHash": split_plan_hash, "frozenTrainingSplit": frozen_by_fold[fold_index],
                                  "splitWindowSemantics": "inclusive_frozen_forecast_bounds_with_actual_counts_hashes_and_label_purge"})
@@ -552,11 +588,14 @@ def run_controlled(args):
             comparisons.append({"name": name, "version": version, "kind": arm["kind"], "featureBlocks": blocks,
                 "weight": arm["weight"], "temperature": arm["temperature"], "selection": selection_metric,
                 "test": test_metric, "artifactPath": str(artifact_path), "availability": "retrospective_development"})
+            if recipe_control:
+                comparisons[-1].update({"selectionEligible": False, "productionAdoptionEligible": False,
+                    "comparisonRole": "retrospective_recipe_control", "recipeOrigin": dict(C906_RECIPE_ORIGIN)})
             parity.extend({"arm": name, "version": version, "features": row["features"], "featureNames": features,
                 "models": exported, "raw": {key: np.asarray(value.predict(np.array([row["features"]]),
                     prediction_type="RawFormulaVal")).reshape(-1).tolist() for key, value in model.items()}}
                 for row in testing[:min(2, len(testing))])
-        chosen = min(comparisons, key=lambda item: (item["selection"]["logLoss"], item["name"]))["name"]
+        chosen = selected_controlled_variant(comparisons)
         fold = {"fold": fold_index, "trainingSplit": split, "selectedVariant": chosen, "comparisons": comparisons}
         if frozen_folds is not None:
             fold.update({"splitPlanHash": split_plan_hash, "frozenTrainingSplit": frozen_by_fold[fold_index]})
@@ -581,13 +620,18 @@ def run_controlled(args):
     report = {"schemaVersion": "controlled-challenger-development-v1", "datasetHash": dataset_hash,
         "baselineManifest": dataset["baselineManifest"], "forecastTiming": dataset["forecastTiming"],
         "decisionSchedule": nightly_decision_schedule(dataset),
-        "holdoutProtection": holdout, "arms": list(CONTROLLED_ARMS), "folds": folds, "predictions": predictions,
+        "holdoutProtection": holdout, "arms": list(arms), "folds": folds, "predictions": predictions,
         "independentEvidence": False, "productionPromotion": False, "conclusion": "development_only_requires_future_independent_validation",
         "limitations": ["The current replica is retrained development code, not the frozen C906 artifact.",
             "Original 745 protected targets were excluded before all split and selection operations.",
             "Calendar features count only completed matches with available results; unseen fixtures are not invented.",
             "Historical result-delay assumptions do not establish actual provider capture times.",
             "No economic performance or promotion is inferred from probability metrics."]}
+    if getattr(args, "include_c906_recipe", False):
+        report["recipeControl"] = {"name": C906_RECIPE_ARM["name"], "recipeOrigin": dict(C906_RECIPE_ORIGIN),
+            "selectionEligible": False, "productionAdoptionEligible": False, "comparisonRole": "retrospective_recipe_control",
+            "iterations": 120, "depth": 5, "calibrationMode": "isotonic_1x2", "frozenCalibrationProfileReused": False}
+        report["limitations"].append("The depth-5 C906 recipe control is retrained retrospectively, not the frozen C906 artifact or a production candidate.")
     if frozen_folds is not None:
         report["splitPlan"] = {"fileHash": split_plan_hash, "sourceDatasetHash": split_plan.get("datasetHash"),
             "foldCount": len(frozen_folds), "protocol": SPLIT_PROTOCOL,
@@ -605,6 +649,8 @@ def run_controlled(args):
 
 
 def run(args):
+    if getattr(args, "include_c906_recipe", False):
+        raise ValueError("c906_recipe_requires_controlled_challenger_and_frozen_split_plan")
     dataset_path = Path(args.input)
     dataset_bytes = dataset_path.read_bytes()
     dataset = json.loads(dataset_bytes)
@@ -747,9 +793,13 @@ if __name__ == "__main__":
     parser.add_argument("--folds", type=int, default=3)
     parser.add_argument("--experiment", choices=("legacy", "controlled-challenger"), default="legacy")
     parser.add_argument("--split-plan", help="Frozen controlled report.json; reuse its four forecast windows per fold")
+    parser.add_argument("--include-c906-recipe", action="store_true",
+                        help="Add a diagnostic depth-5 C906 recipe control; requires controlled-challenger and --split-plan")
     options = parser.parse_args()
     if not (5 <= options.iterations <= 1000 and 2 <= options.depth <= 8 and 1 <= options.folds <= 8):
         parser.error("iterations must be 5..1000, depth 2..8, folds 1..8")
     if options.split_plan and options.experiment != "controlled-challenger":
         parser.error("--split-plan requires --experiment controlled-challenger")
+    if options.include_c906_recipe and (options.experiment != "controlled-challenger" or not options.split_plan):
+        parser.error("--include-c906-recipe requires --experiment controlled-challenger and --split-plan")
     (run_controlled if options.experiment == "controlled-challenger" else run)(options)
