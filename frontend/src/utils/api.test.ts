@@ -40,13 +40,18 @@ describe('backtesting API timeout', () => {
     expect(LONG_BACKTEST_TIMEOUT_MS).toBe(10 * 60 * 1000);
   });
 
-  test('prediction e replay lasciano tempo alla prima calibrazione OOS', async () => {
+  test('prediction usa richieste brevi mentre il replay conserva il proprio timeout', async () => {
     const { PREDICTION_TIMEOUT_MS, getPrediction, replayPlayedMatchPrediction } = await import('./api');
-    mockPost.mockResolvedValue({ data: { success: true } });
+    const { PREDICTION_JOB_HTTP_TIMEOUT_MS } = await import('./predictionJobApi');
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { id: 'job-42', status: 'RUNNING' } } })
+      .mockResolvedValueOnce({ data: { success: true } });
+    mockGet.mockResolvedValueOnce({ data: { success: true, data: { id: 'job-42', status: 'COMPLETED',
+      response: { success: true, data: { model: 'A' } }, responseStatus: 200 } } });
     const request = { homeTeamId: 'home', awayTeamId: 'away', matchId: 'match-42' };
     await getPrediction(request);
     await replayPlayedMatchPrediction('match-42');
-    expect(mockPost).toHaveBeenNthCalledWith(1, '/predict', request, { timeout: PREDICTION_TIMEOUT_MS });
+    expect(mockPost).toHaveBeenNthCalledWith(1, '/predict/jobs', request, { timeout: PREDICTION_JOB_HTTP_TIMEOUT_MS });
+    expect(mockGet).toHaveBeenCalledWith('/predict/jobs/job-42', { timeout: PREDICTION_JOB_HTTP_TIMEOUT_MS });
     expect(mockPost).toHaveBeenNthCalledWith(2, '/predict/replay', { matchId: 'match-42' }, { timeout: PREDICTION_TIMEOUT_MS });
     expect(PREDICTION_TIMEOUT_MS).toBe(240000);
     const nginxConfig = readFileSync(resolve(__dirname, '../../nginx.conf'), 'utf8');
@@ -55,7 +60,11 @@ describe('backtesting API timeout', () => {
 
   test('annullare la consultazione conserva gli input A e propaga il segnale a quote, previsione e replay', async () => {
     const { getPrediction, getOddsForMatch, replayPlayedMatchPrediction } = await import('./api');
-    mockPost.mockResolvedValue({ data: { success: true } });
+    mockPost.mockResolvedValueOnce({ data: { success: true } })
+      .mockResolvedValueOnce({ data: { success: true, data: { id: 'job-42', status: 'RUNNING' } } })
+      .mockResolvedValueOnce({ data: { success: true } });
+    mockGet.mockResolvedValueOnce({ data: { success: true, data: { id: 'job-42', status: 'COMPLETED',
+      response: { success: true, data: { model: 'A' } }, responseStatus: 200 } } });
     const controller = new AbortController();
     const request = { homeTeamId: 'home', awayTeamId: 'away', matchId: 'match-42' };
     const fixture = { matchId: 'match-42', competition: 'Serie A', homeTeam: 'Home', awayTeam: 'Away' };
@@ -63,7 +72,8 @@ describe('backtesting API timeout', () => {
     await getPrediction(request, { signal: controller.signal });
     await replayPlayedMatchPrediction('match-42', { signal: controller.signal });
     expect(mockPost).toHaveBeenNthCalledWith(1, '/scraper/odds/match', fixture, expect.objectContaining({ signal: controller.signal }));
-    expect(mockPost).toHaveBeenNthCalledWith(2, '/predict', request, expect.objectContaining({ signal: controller.signal }));
+    expect(mockPost).toHaveBeenNthCalledWith(2, '/predict/jobs', request, expect.objectContaining({ signal: controller.signal }));
+    expect(mockGet).toHaveBeenCalledWith('/predict/jobs/job-42', expect.objectContaining({ signal: controller.signal }));
     expect(mockPost).toHaveBeenNthCalledWith(3, '/predict/replay', { matchId: 'match-42' }, expect.objectContaining({ signal: controller.signal }));
     controller.abort();
     expect(controller.signal.aborted).toBe(true);

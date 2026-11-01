@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import { Capacitor } from '@capacitor/core';
+import { runPredictionJob } from './predictionJobApi';
 
 const HOSTLESS_API_URL = 'https://scommese-sportive-backend.hostless.app/api';
 const configuredApiUrl = String(process.env.REACT_APP_API_URL ?? '').trim();
@@ -14,7 +15,7 @@ const API = axios.create({
 });
 
 export const LONG_BACKTEST_TIMEOUT_MS = 10 * 60 * 1000;
-// A cold OOS calibration rebuild can outlast the default read timeout.
+// Legacy synchronous replay retains its existing read timeout.
 export const PREDICTION_TIMEOUT_MS = 4 * 60 * 1000;
 export const WALK_FORWARD_TIMEOUT_MESSAGE =
   'Il walk-forward Top 5 sta impiegando troppo tempo. Riduci max folds, disattiva il tuning pesi oppure riprova con un singolo campionato.';
@@ -286,7 +287,7 @@ export const getPrediction = (request: {
   bookmakerOdds?: Record<string, number>;
   oddsSource?: string;
 }, options?: { signal?: AbortSignal }) =>
-  API.post<ApiResponse<any>>('/predict', request, { timeout: PREDICTION_TIMEOUT_MS, ...(options?.signal ? { signal: options.signal } : {}) }).then(r => r.data);
+  runPredictionJob<any>(API, request, options);
 
 export const getPlayerAvailability = (matchId: string) =>
   cachedGet<any>(`/player-availability/${encodeURIComponent(matchId)}`, undefined, { cacheMs: 30_000 });

@@ -10,6 +10,7 @@ import { MatchResultsMaintenanceService } from '../services/MatchResultsMaintena
 import { buildOperationalStatus } from '../services/OperationalStatusService';
 import { createFootballDataHistoryStore } from '../services/FootballDataHistoryCache';
 import { PredictionService } from '../services/PredictionService';
+import { PredictionJobBusyError, PredictionJobService } from '../services/PredictionJobService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
@@ -71,6 +72,7 @@ const UNDERSTAT_DETAIL_CONCURRENCY = Math.max(
 export type ApiRouterDependencies = {
   db: DatabaseService;
   svc?: PredictionService;
+  predictionJobs?: PredictionJobService;
   challengerPreview?: Pick<ChallengerPreviewService, 'preview'>;
   resultsMaintenance?: Pick<MatchResultsMaintenanceService, 'refresh'>;
   operationalStatus?: () => ReturnType<typeof buildOperationalStatus>;
@@ -486,6 +488,7 @@ export function createApiRouter(deps: ApiRouterDependencies): Router {
 const router = Router();
 const db = deps.db;
 const svc = deps.svc ?? new PredictionService(db);
+const predictionJobs = deps.predictionJobs ?? new PredictionJobService();
 let challengerPreview = deps.challengerPreview;
 let resultsMaintenance = deps.resultsMaintenance;
 const observability = deps.observability;
@@ -1430,16 +1433,50 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
 });
 
 // ====== PREDICT ======
+const runPrediction = async (body: any): Promise<any> => {
+  const pred = await svc.predict(body);
+  const matchId = String(body?.matchId ?? '').trim();
+  const recorded = matchId ? await readEffectiveResearchDecisions(db.research, db.recommendations,
+    { matchId, family: 'A', limit: 20, includeForecasts: true }) : null;
+  const automatic = recorded?.effective.find((decision) => decision.family === 'A');
+  return projectAutomaticRecommendationA({ ...formatPrediction(pred),
+    canonicalRecommendation: pred.canonicalRecommendation }, automatic);
+};
+
 router.post('/predict', async (req: Request, res: Response) => {
   try {
-    const pred = await svc.predict(req.body);
-    const matchId = String(req.body?.matchId ?? '').trim();
-    const recorded = matchId ? await readEffectiveResearchDecisions(db.research, db.recommendations,
-      { matchId, family: 'A', limit: 20, includeForecasts: true }) : null;
-    const automatic = recorded?.effective.find((decision) => decision.family === 'A');
-    res.json({ success: true, data: projectAutomaticRecommendationA({ ...formatPrediction(pred),
-      canonicalRecommendation: pred.canonicalRecommendation }, automatic) });
+    res.json({ success: true, data: await runPrediction(req.body) });
   } catch (e: any) { res.status(e.message === 'Recorded recommendation packet unavailable' ? 503 : 400).json({ success: false, error: e.message }); }
+});
+
+router.post('/predict/jobs', (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ success: false, error: 'Richiesta di analisi non valida.' });
+  }
+  try {
+    const owner = String(res.locals.sharedDataUserId ?? sharedDataUserId);
+    const job = predictionJobs.create(owner, req.body, async (body) => {
+      try { return { responseStatus: 200, response: { success: true, data: await runPrediction(body) } }; }
+      catch (e: any) { return { responseStatus: e.message === 'Recorded recommendation packet unavailable' ? 503 : 400,
+        response: { success: false, error: e.message } }; }
+    });
+    const start = () => predictionJobs.start(job.id);
+    res.once('finish', start);
+    res.once('close', start);
+    res.status(202).json({ success: true, data: job });
+    if (res.destroyed) start();
+  } catch (error) {
+    return res.status(error instanceof PredictionJobBusyError ? 409 : 400).json({ success: false,
+      error: error instanceof PredictionJobBusyError ? error.message : 'Richiesta di analisi non valida.' });
+  }
+});
+
+router.get('/predict/jobs/:id', (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const job = predictionJobs.get(String(res.locals.sharedDataUserId ?? sharedDataUserId), req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Analisi interrotta o non più disponibile. Riprova.' });
+  return res.json({ success: true, data: job });
 });
 
 router.post('/predict/replay', async (req: Request, res: Response) => {

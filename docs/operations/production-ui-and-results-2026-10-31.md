@@ -87,8 +87,43 @@ interrotta `UND_ERR_SOCKET`; l'origine socket del guasto C resta un'ipotesi.
 Il percorso C riceve un solo ritentativo per letture modello/benchmark interrotte,
 senza ripetere acquisizione quote, preparazione o calcolo A. Gli errori logici
 restano bloccanti. La diagnostica interna riporta solo fase e codici ammessi.
-Il gate locale aggiornato supera **112/112 test**; la prova C successiva al deploy
-resta da completare prima di dichiarare risolta l'indisponibilità.
+Il gate locale aggiornato supera **112/112 test**. La
+[CI `bd6a291c`](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41322206324)
+supera 1.290 test backend, un opzionale saltato e 303 frontend.
+
+Il backend `bd6a291c` è stato pubblicato il 1 novembre. La nuova prova C reale è
+**RECOMMENDED**: Under 2.5, Betsson 2,48, artefatto originale
+`C-906371b0b3a1e2c8`, forecast 15:47:34 UTC, quota aggiornata alle 15:46:34,
+scadenza 15:51:34, `registered=false`. Il log documenta proprio
+`challenger_preview_read_retry`, fase `benchmark`, codice `UND_ERR_SOCKET`:
+la lettura al secondo tentativo permette di completare il calcolo. Il primo
+guasto generico non aveva questo dettaglio; il secondo documenta il problema reale.
+
+### Limite Cloudflare e trasporto A
+
+La successiva richiesta A riceve **HTTP 524 dopo 125,760449 secondi** (CDP),
+nonostante l'attesa client di 240. A completa il proprio calcolo e salva i normali
+225 record di audit; le bet restano 24 e il ledger 42. Il gateway ha perso la
+risposta, senza dimostrare un errore matematico di A. La
+[documentazione ufficiale Cloudflare](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/)
+descrive il limite di 125 secondi e indica il recupero periodico dello stato come soluzione.
+
+La nuova UI usa `POST /predict/jobs` e `GET /predict/jobs/:id`: ciascuna richiesta
+è breve, il risultato conserva esattamente il percorso originale
+`PredictionService.predict` → decisione A archiviata → formato e proiezione A.
+Nessun campo di input viene aggiunto o filtrato. Stessa istanza e stessi errori
+originali 400/503; il vecchio endpoint sincrono rimane disponibile.
+Un solo lavoro asincrono distinto è attivo, richieste identiche condividono il
+risultato, fino a otto risultati restano in memoria per al massimo dieci minuti
+dal completamento. Un riavvio li perde: il client segnala l'interruzione senza
+ricalcolare automaticamente. Annullare la schermata ferma le letture, non A.
+Nessun nuovo worker, motore, provider, schema o processo esterno.
+Il replay manuale conserva il percorso precedente.
+
+I test HTTP confrontano risposte complete sincrone/asincrone, incluse decisioni
+archiviate BET/ABSTAIN, input, errori e namespace. I test client simulano più di
+125 secondi con un solo POST, cancellazioni e letture interrotte. La nuova prova
+web/Android dopo questa correzione resta da completare prima della consegna.
 
 «Aggiorna risultati» importa realmente Como–Venezia 1–0 e il record Understat 30875 3–1,
 e liquida due puntate esistenti. Le 24 identità delle bet restano invariate;

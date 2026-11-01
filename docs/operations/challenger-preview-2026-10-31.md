@@ -57,10 +57,19 @@ entro il tetto configurato e rispettano la riserva Nightly. Il flag specifico
 accetta soltanto cache fresca. Il flag informativo generale e A restano invariati.
 Nessuna nuova chiave o fonte a pagamento è necessaria o introdotta.
 
-La cache C dura al massimo 30 secondi, termina prima di kickoff/scadenza quote,
+La cache C dura al massimo 30 secondi. La validità del consiglio è separata:
+massimo cinque minuti dal forecast, dalla cattura e dall'aggiornamento della quota,
+sempre prima del kickoff. La cache termina prima di questa scadenza,
 contiene al massimo 100 risultati e non conserva errori tecnici. Sono ammessi
 al massimo due calcoli distinti simultanei; richieste identiche condividono il
 calcolo. La decisione Nightly è ricontrollata prima di restituire un risultato.
+
+La schermata verifica prima l'archivio C, calcola eventualmente l'anteprima C e
+poi avvia A, per evitare i due calcoli simultanei sul piano gratuito. A mantiene
+gli stessi input e il proprio motore. Dal 1 novembre il client avvia A con una
+richiesta breve e recupera il risultato senza tenere aperta una connessione oltre
+il limite Cloudflare; il calcolo resta identico. Il replay conserva il trasporto
+precedente. [Correzioni UI e risultati](production-ui-and-results-2026-10-31.md).
 
 ## Verifiche e rilascio
 
