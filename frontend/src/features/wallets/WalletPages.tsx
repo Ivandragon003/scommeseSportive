@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { ArrowRight, Lock, RefreshCw, TrendingUp, WalletCards } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { ResearchComparisonQuery } from '../research/researchComparisonTypes';
 import EquityChart from '../research/ResearchEquityChart';
 import '../research/research.css';
@@ -6,6 +8,7 @@ import {
   useAppWalletData, WalletBalanceCards, WalletBetTable, walletBetFamily, WalletLoadState,
   WalletModelFilter, WalletModelPicker, walletMoney, walletPercent,
 } from './AppWallets';
+import ModelBadge from './ModelBadge';
 
 const initialModel = (): WalletModelFilter => {
   const value = new URLSearchParams(window.location.search).get('model');
@@ -78,33 +81,76 @@ export function WalletBetsPage({ legacy }: { legacy?: React.ReactNode }) {
 }
 
 export function WalletBudgetPage({ legacy }: { legacy?: React.ReactNode }) {
-  const [model, setModel] = useState<WalletModelFilter>(initialModel);
+  const [model, setModel] = useState<WalletModelFilter>(() => {
+    const requested = initialModel();
+    return requested === 'all' && new URLSearchParams(window.location.search).get('model') !== 'all' ? 'A' : requested;
+  });
   const [query, setQuery] = useState<ResearchComparisonQuery>({ period: 'all' });
   const { data, loading, error, refresh } = useAppWalletData(query);
   const portfolios = (data?.portfolios || []).filter((row) => model === 'all' || row.family === model);
-  return <div className="bm-wrap app-wallet-page">
-    <header className="app-wallet-head"><div><h1 className="bm-title">Budget</h1><p>Due portafogli indipendenti, aggiornati dalle giocate e dalle liquidazioni dell’app.</p></div>
-      <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh} disabled={loading}>Aggiorna budget</button></header>
-    <WalletModelPicker value={model} onChange={setModel} />
+  const selected = model === 'all' ? null : portfolios[0];
+  return <main className="bm-wrap budget-page wallet-budget-page">
+    <header className="bm-head">
+      <div><span className="fp-section-kicker">I tuoi portafogli</span><h1 className="bm-title">Budget</h1>
+        <p className="bm-sub">A e C hanno due budget separati. Ogni giocata utilizza solo il capitale del proprio modello.</p></div>
+      <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
+    </header>
+    <div className="wallet-budget-controls">
+      <div className="wallet-model-tabs" role="group" aria-label="Modello del budget">
+        {(['A', 'C', 'all'] as WalletModelFilter[]).map((value) => <button key={value} type="button" aria-label={value === 'all' ? 'Confronta A e C' : `Modello ${value}`} aria-pressed={model === value}
+          className={model === value ? 'is-active' : ''} onClick={() => setModel(value)}>
+          {value === 'all' ? <span className="wallet-compare-label"><span className="wallet-compare-full">Confronta A e C</span><span className="wallet-compare-short">Confronto</span></span> : <ModelBadge model={value} />}
+        </button>)}
+      </div>
+      <WalletPeriodPicker query={query} onChange={setQuery} />
+    </div>
     <WalletLoadState loading={loading} error={error} refresh={refresh} />
     {!loading && !error && data && <>
-      <WalletBalanceCards portfolios={data.portfolios} model={model} />
-      <p className="app-wallet-help">Il patrimonio è disponibile più impegnato. L’impegnato non è una perdita. I capitali A e C restano separati; esposizione massima 5% per ciascuno.</p>
-      <WalletPeriodPicker query={query} onChange={setQuery} />
-      <div className="app-wallet-balances">{portfolios.map((row) => <section className="app-wallet-section" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
-        <h2>Risultati {row.family}</h2><p>{data.period.label}</p><dl className="app-wallet-period-metrics">
+      {selected && <section className="wallet-budget-model" aria-label={`Portafoglio ${selected.family}`}>
+        <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Puntate con l’importo consigliato dal modello.' : 'Puntate con importo pari all’1% del proprio capitale.'} Tutti gli importi sono virtuali.</p></div>
+        {selected.initialized === false ? <div className="fp-empty"><p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p></div> : <>
+          <dl className="bm-summary" aria-label={`Riepilogo modello ${selected.family}`}>
+            <div className="bm-summary__item is-positive"><span className="bm-summary__icon"><WalletCards size={24} aria-hidden="true" /></span>
+              <span><dt>Bankroll disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd><small>Pronto per le prossime giocate</small></span></div>
+            <div className="bm-summary__item"><span className="bm-summary__icon"><Lock size={24} aria-hidden="true" /></span>
+              <span><dt>Capitale impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd><small>Importi nelle giocate ancora aperte</small></span></div>
+            <div className={`bm-summary__item ${(selected.profitCents ?? 0) < 0 ? 'is-negative' : 'is-positive'}`}><span className="bm-summary__icon"><TrendingUp size={24} aria-hidden="true" /></span>
+              <span><dt>Risultato nel periodo</dt><dd>{walletMoney(selected.profitCents)}</dd><strong>{walletPercent(selected.roi)}</strong><small>Rendimento sulle giocate liquidate</small></span></div>
+          </dl>
+          <div className="budget-workspace">
+            <section className="wallet-budget-chart" aria-label={`Andamento modello ${selected.family}`}>
+              <EquityChart a={model === 'A' ? selected.equity : undefined} c={model === 'C' ? selected.equity : undefined}
+                title={`Andamento del patrimonio · Modello ${selected.family}`} />
+            </section>
+            <aside className="budget-management wallet-budget-facts" aria-label={`Capitale modello ${selected.family}`}>
+              <h2>Il capitale del modello {selected.family}</h2>
+              <div className="budget-current"><span>Patrimonio attuale</span><strong>{walletMoney(selected.currentEquityCents)}</strong></div>
+              <dl><div><dt>Capitale iniziale</dt><dd>{walletMoney(selected.initialCents)}</dd></div>
+                <div><dt>Disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd></div>
+                <div><dt>Impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd></div></dl>
+              <p>Il patrimonio comprende disponibile e impegnato. L’importo impegnato non è una perdita.</p>
+              <Link className="budget-open-bets-link" to={`/bets?model=${selected.family}`}>Giocate del modello {selected.family}<ArrowRight size={18} aria-hidden="true" /></Link>
+            </aside>
+          </div>
+        </>}
+      </section>}
+      {model !== 'all' && !selected && <p className="fp-empty">Portafoglio non disponibile per il modello scelto.</p>}
+      {model === 'all' && <section className="wallet-budget-comparison" aria-label="Confronto dei portafogli">
+        <WalletBalanceCards portfolios={data.portfolios} model="all" />
+        <section className="wallet-budget-chart"><EquityChart a={data.portfolios.find((row) => row.family === 'A')?.equity}
+          c={data.portfolios.find((row) => row.family === 'C')?.equity} title="Patrimoni A e C nel tempo" /></section>
+      </section>}
+      <div className="wallet-budget-results">{portfolios.map((row) => <section className="wallet-budget-result" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
+        <header><ModelBadge model={row.family} /><h2>Risultati del periodo</h2><p>{data.period.label}</p></header>
+        <dl className="app-wallet-period-metrics">
           <div><dt>Giocate registrate</dt><dd>{row.betCount ?? '—'}</dd></div><div><dt>Importo registrato</dt><dd>{walletMoney(row.stakeCents)}</dd></div>
           <div><dt>Profitto liquidato</dt><dd>{walletMoney(row.profitCents)}</dd></div><div><dt>Rendimento sulle liquidate</dt><dd>{walletPercent(row.roi)}</dd></div>
           <div><dt>Giocate liquidate</dt><dd>{row.settledCount ?? '—'}</dd></div><div><dt>Importo liquidato</dt><dd>{walletMoney(row.settledStakeCents)}</dd></div>
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">Le statistiche usano tutte le registrazioni del periodo. Profitto e rendimento comprendono le liquidazioni avvenute nel periodo, anche per giocate registrate prima.</p>
-      {model === 'all' && <section className="app-wallet-section"><h2>Andamento A/C</h2><EquityChart
-        a={data.portfolios.find((row) => row.family === 'A')?.equity}
-        c={data.portfolios.find((row) => row.family === 'C')?.equity}
-        title="Patrimoni A e C nel tempo" /></section>}
+      <p className="app-wallet-help">Le statistiche e il grafico riguardano il periodo selezionato; i saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
     <LegacyArea>{legacy}</LegacyArea>
-  </div>;
+  </main>;
 }

@@ -1,0 +1,25 @@
+.model-badge {
+  --model-color: #1761b3;
+  --model-background: #eaf3ff;
+  --model-border: #bdd7f5;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  gap: 7px;
+  padding: 4px 9px 4px 4px;
+  border: 1px solid var(--model-border);
+  border-radius: 7px;
+  background: var(--model-background);
+  color: var(--model-color);
+  font: 750 12px/1.3 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.model-badge--c { --model-color: #7441ad; --model-background: #f3ecfc; --model-border: #dcc6f2; }
+.model-badge--baseline { --model-color: #455768; --model-background: #edf1f4; --model-border: #cbd5df; }
+.model-badge__letter { display: grid; place-items: center; flex: 0 0 23px; width: 23px; height: 23px; border-radius: 4px; background: var(--model-color); color: #fff; font-weight: 850; }
+[data-theme="dark"] .model-badge { --model-color: #9fcaff; --model-background: #152d44; --model-border: #345475; }
+[data-theme="dark"] .model-badge--c { --model-color: #d4b4ff; --model-background: #30213e; --model-border: #624779; }
+[data-theme="dark"] .model-badge--baseline { --model-color: #c6d2dc; --model-background: #26313a; --model-border: #485966; }
+[data-theme="dark"] .model-badge__letter { background: var(--model-color); color: #13202c; }

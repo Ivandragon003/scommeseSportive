@@ -35,5 +35,9 @@ export const getBetStatus = (value: unknown) => {
   if (status === 'WON') return { label: 'VINTA', className: 'won' };
   if (status === 'LOST') return { label: 'PERSA', className: 'lost' };
   if (status === 'VOID') return { label: 'ANNULLATA', className: 'void' };
-  return { label: 'IN ATTESA', className: 'pending' };
+  if (status === 'HALF_WON') return { label: 'MEZZA VINCITA', className: 'won' };
+  if (status === 'HALF_LOST') return { label: 'MEZZA PERDITA', className: 'lost' };
+  if (status === 'SETTLED') return { label: 'LIQUIDATA', className: 'void' };
+  if (status === 'PENDING') return { label: 'IN ATTESA', className: 'pending' };
+  return { label: 'ESITO NON DISPONIBILE', className: 'void' };
 };

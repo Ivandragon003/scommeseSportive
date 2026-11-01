@@ -13,7 +13,7 @@
 - Mercati, selezione e matching: `backend/src/services/PredictionService.ts`, `backend/src/services/playerProps.ts`, `backend/src/models/value/ValueBettingEngine.ts` e `backend/src/api/routes.ts`.
 - Modelli e decisioni sperimentali: `docs/FORMULARIO-sistema-scommesse.md`, `docs/FORMULARIO-scelte-scartate.md` e il report pertinente in `docs/performance/`. Per riaprire l'ottimizzazione leggi `docs/performance/model-optimization-status-2026-07.md`.
 - Quote storiche, anytime e corner/falli: `docs/performance/closing-odds-ingest-2026-07.md`, `docs/performance/anytime-scorer-e5-2026-07.md` e `docs/performance/fouls-corners-validation-2026-07.md`.
-- Packaging Android: `docs/android-private-apk.md`. Sicurezza della cronologia: `docs/security/history-cleanup.md`.
+- Packaging Android: `docs/android-private-apk.md`. Genera o ricompila l'APK solo su richiesta esplicita dell'utente; una modifica web non autorizza automaticamente un nuovo pacchetto Android. Sicurezza della cronologia: `docs/security/history-cleanup.md`.
 - I report datati descrivono esperimenti e snapshot storici: verifica codice, configurazione e dati pertinenti prima di presentarne copertura, metriche o funzionalità come attuali. Non trasformare la loro roadmap in lavoro automaticamente autorizzato.
 
 ## Fonti e integrità dei dati

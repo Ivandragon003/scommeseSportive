@@ -8,6 +8,7 @@ export function useBudgetManagerData(activeUser: string, options: { readOnly?: b
   const [filter, setFilter] = useState('');
   const [loadingBudget, setLoadingBudget] = useState(true);
   const [loadingBets, setLoadingBets] = useState(true);
+  const [betsError, setBetsError] = useState<string | null>(null);
 
   const loadBudget = useCallback(async (options?: { force?: boolean }) => {
     setLoadingBudget(true);
@@ -23,12 +24,13 @@ export function useBudgetManagerData(activeUser: string, options: { readOnly?: b
 
   const loadBets = useCallback(async (options?: { force?: boolean }) => {
     setLoadingBets(true);
+    setBetsError(null);
     try {
       const betsRes = await getBets(activeUser, undefined, options);
       const nextBets = betsRes.data ?? [];
       setBets(nextBets);
     } catch {
-      setBets([]);
+      setBetsError('Non è stato possibile caricare tutte le giocate. Riprova.');
     } finally {
       setLoadingBets(false);
     }
@@ -87,6 +89,7 @@ export function useBudgetManagerData(activeUser: string, options: { readOnly?: b
 
   return {
     budget,
+    betsError,
     bets,
     filter,
     loading: loadingBudget || loadingBets,

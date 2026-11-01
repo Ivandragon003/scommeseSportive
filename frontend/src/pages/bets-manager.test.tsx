@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { LegacyBetsManager as BetsManager } from './BetsManager';
 import * as api from '../utils/api';
 
@@ -181,4 +181,35 @@ describe('BetsManager', () => {
 
     expect(await screen.findByText(/Juventus.*Roma/i)).toBeTruthy();
   });
+});
+
+
+test('desktop closed view provides the same completed records without extra reads', async () => {
+  jest.resetAllMocks();
+  mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+  mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+  render(<BetsManager activeUser="user1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Giocate chiuse' }));
+  expect(screen.queryByRole('region', { name: 'Giocate aperte' })).toBeNull();
+  expect(screen.getByText(/Juventus.*Roma/)).toBeTruthy();
+  expect(mockedApi.getBets).toHaveBeenCalledTimes(1);
+});
+
+test('expanded records retain return, profit and outcome when compact rows hide columns', async () => {
+  jest.resetAllMocks();
+  mockedApi.getBudget.mockResolvedValue({ data: budgetPayload } as any);
+  mockedApi.getBets.mockResolvedValue({ data: betsPayload } as any);
+  render(<BetsManager activeUser="user1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Apri dettaglio Juventus Roma' }));
+  expect(screen.getByText('Ritorno liquidato')).toBeTruthy();
+  expect(screen.getByText('Profitto / perdita')).toBeTruthy();
+  const closedRow = screen.getAllByRole('article').find((row) => within(row).queryByRole('button', { name: 'Chiudi dettaglio Juventus Roma' }));
+  expect(closedRow).toBeTruthy();
+  expect(within(closedRow as HTMLElement).getAllByText('EUR 28.50')).toHaveLength(2);
+  expect(within(closedRow as HTMLElement).getByText('EUR 13.50')).toBeTruthy();
+  expect(within(closedRow as HTMLElement).getAllByText('VINTA')).toHaveLength(2);
+  expect(screen.getByText('1 aperte')).toBeTruthy();
+  expect(screen.getByText('1 concluse')).toBeTruthy();
+  expect(screen.getByText('Capitale impegnato')).toBeTruthy();
+  expect(screen.getByText('Rendimento storico')).toBeTruthy();
 });

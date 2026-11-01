@@ -21,6 +21,19 @@ export function useMatchSelection() {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [tab, setTab] = useState('1x2');
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const updateClock = () => setNow(Date.now());
+    const timer = window.setInterval(updateClock, 30_000);
+    window.addEventListener('focus', updateClock);
+    document.addEventListener('visibilitychange', updateClock);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', updateClock);
+      document.removeEventListener('visibilitychange', updateClock);
+    };
+  }, []);
 
   const loadTeams = useCallback(async () => {
     try {
@@ -39,9 +52,12 @@ export function useMatchSelection() {
         competition: competition || undefined,
         season: season || undefined,
         limit: 160,
-        includeStartedWithoutResult: true,
+        includeStartedWithoutResult: false,
       }, ...(force ? [{ force: true }] : []));
-      if (requestId === listRequest.current) setUpcoming(response.data ?? []);
+      if (requestId === listRequest.current) {
+        setNow(Date.now());
+        setUpcoming(response.data ?? []);
+      }
     } catch {
       if (requestId === listRequest.current) { setUpcoming([]); setAutoSyncMsg("Impossibile aggiornare il calendario. Riprova."); }
     } finally {
@@ -97,7 +113,11 @@ export function useMatchSelection() {
 
   const visibleMatches = useMemo(() => matchMode === 'recent'
     ? recentMatches.filter(match => match.home_goals != null && match.away_goals != null)
-    : upcoming.filter(match => match.home_goals == null || match.away_goals == null), [matchMode, recentMatches, upcoming]);
+    : upcoming.filter(match => {
+      const kickoff = parseMatchDateValue(match.date)?.getTime();
+      return match.home_goals == null && match.away_goals == null
+        && kickoff !== undefined && kickoff > now;
+    }), [matchMode, recentMatches, upcoming, now]);
 
   const groupedMatches = useMemo(() => {
     const grouped = new Map<string, Array<any & { __ts: number }>>();

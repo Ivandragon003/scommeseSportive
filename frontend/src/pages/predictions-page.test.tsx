@@ -187,7 +187,7 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(screen.getByRole('tab', { name: 'In programma' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Concluse' })).toBeTruthy();
     expect(mockedApi.getUpcomingMatches).toHaveBeenCalledTimes(1);
-    expect(mockedApi.getUpcomingMatches).toHaveBeenCalledWith(expect.objectContaining({ includeStartedWithoutResult: true }));
+    expect(mockedApi.getUpcomingMatches).toHaveBeenCalledWith(expect.objectContaining({ includeStartedWithoutResult: false }));
     expect(mockedApi.getMatchdayMap).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction).not.toHaveBeenCalled();
     expect(mockedAdvice).not.toHaveBeenCalled();
@@ -275,11 +275,12 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(screen.queryByRole('heading', { name: 'Inter vs Milan' })).toBeNull();
     expect(screen.getByRole('heading', { name: 'Napoli vs Roma' })).toBeTruthy();
   });
-  test('started fixtures with no score remain visible as awaiting result, with no C POST', async () => {
+  test('started fixtures with no score are excluded from upcoming without running any advice', async () => {
     setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [{ ...matchRow, date: '2026-05-23T07:00:00Z' }] } as any);
-    render(<Predictions activeUser="test-user" />); await screen.findByText('Risultato in attesa'); await openFirst();
-    await waitFor(() => expect(mockedAdvice).toHaveBeenCalledTimes(1)); expect(mockedPreview).not.toHaveBeenCalled();
-    expect(await screen.findByText(/Consiglio non disponibile per una partita già iniziata/)).toBeTruthy();
+    render(<Predictions activeUser="test-user" />);
+    await screen.findByText('Nessuna partita trovata');
+    expect(screen.queryByRole('button', { name: /Inter vs Milan/ })).toBeNull();
+    expect(mockedAdvice).not.toHaveBeenCalled(); expect(mockedPreview).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction).not.toHaveBeenCalled(); expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
   });
   test('calendar refresh is read-only and filters clear a stale day', async () => {

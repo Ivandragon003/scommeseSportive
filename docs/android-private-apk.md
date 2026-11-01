@@ -6,7 +6,32 @@ inclusi nel pacchetto, non il sito frontend remoto. Un deploy web non aggiorna l
 Non contiene database, budget o password: budget, giocate e archivio restano nel database
 Turso condiviso sotto l'utente canonico `user1`.
 
-## Stato al 1 novembre 2026: APK 1.1.9 release compatibile
+## Revisione web successiva alla 1.1.10
+
+Giocate usa ora filtri più leggibili e targhette distinte per A, C e baseline.
+Budget riprende il layout precedente con riepilogo, grafico e capitale del modello
+selezionato; il confronto mostra due portafogli indipendenti. Questa revisione è
+disponibile nel Docker locale e non è inclusa nell'APK 1.1.10 già generato.
+Su richiesta dell'utente, si genera un nuovo APK solo quando lo chiede esplicitamente.
+
+PC e Android condividono componenti e funzioni; cambia la disposizione responsive.
+La revisione successiva rende raggiungibili su entrambi il filtro Giocate chiuse,
+ritorno/profitto nei dettagli, conteggi e riepiloghi, tema e glossario. La vista telefono
+riduce spazi e altezza delle schede, mantenendo grafico e dati disponibili.
+Queste modifiche al sorgente non aggiornano automaticamente l'APK già installato:
+esso conserva gli asset inclusi nella sua build. Il client Android usa Hostless,
+il web locale usa `/api` verso Docker; eventuali differenze di dati o versione del
+backend vanno distinte da funzioni nascoste nel layout.
+
+## Aggiornamento locale 1.1.10: Giocate unificate
+
+La 1.1.10 / `versionCode=12` riunisce le giocate precedenti e A/C nella grafica
+del registro precedente, su desktop e mobile. Le registrazioni prive di famiglia
+A/C sono presentate come Baseline deterministica, senza ricalcoli retroattivi o
+trasferimenti fra portafogli. Vedi [verifiche e pacchetto locale](android/releases/1.1.10-2026-11-01.md).
+Il nuovo APK va installato per aggiornare la UI Android; non è stato pubblicato su GitHub.
+
+## Versione precedente 1.1.9 release compatibile
 
 La versione Android è `1.1.9` / `versionCode=11`, build release con debug disattivato. Include
 il confronto dei consigli A/C nel dettaglio partita, compilato in un worktree isolato

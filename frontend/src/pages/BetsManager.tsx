@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AppDateInput, AppSelect } from '../components/common/AppSelect';
 import {
   CalendarDays,
-  Check,
   ChevronDown,
   ChevronUp,
   CircleDollarSign,
@@ -10,6 +9,7 @@ import {
   HelpCircle,
   History,
   Search,
+  RefreshCw,
   Ticket,
   TrendingUp,
   WalletCards,
@@ -25,11 +25,15 @@ import {
   isLegacyBet,
 } from '../utils/betPresentation';
 import './budget-manager.css';
-import { WalletBetsPage } from '../features/wallets/WalletPages';
+import { useAppWalletData } from '../features/wallets/AppWallets';
+import { ResearchComparison } from '../features/research/researchComparisonTypes';
+import { BetModel, betModel, unifiedBetRows } from '../features/wallets/unifiedBets';
+import ModelBadge from '../features/wallets/ModelBadge';
 
 interface BetsManagerProps {
   activeUser: string;
   readOnly?: boolean;
+  wallet?: { data: ResearchComparison | null; loading: boolean; error: string | null; refresh: () => void };
 }
 
 interface DateRange {
@@ -86,13 +90,7 @@ const BetRow: React.FC<{
   const stake = Number(bet.stake ?? 0);
   const odds = Number(bet.odds ?? 0);
   const profit = bet.profit === null || bet.profit === undefined ? null : Number(bet.profit);
-  const returnAmount = variant === 'open'
-    ? stake * odds
-    : String(bet.status) === 'WON'
-      ? stake + Number(profit ?? 0)
-      : String(bet.status) === 'VOID'
-        ? stake
-        : 0;
+  const returnAmount = variant === 'open' ? stake * odds : bet.status === 'VOID' ? stake : profit === null ? null : stake + profit;
   const probabilityValue = Number(bet.our_probability ?? bet.ourProbability ?? bet.estimated_probability ?? bet.probability ?? bet.model_probability);
   const probability = Number.isFinite(probabilityValue) && probabilityValue > 0
     ? `${probabilityValue <= 1 ? (probabilityValue * 100).toFixed(0) : probabilityValue.toFixed(0)}%`
@@ -110,6 +108,7 @@ const BetRow: React.FC<{
         <span className="bet-row__chevron" aria-hidden="true">{expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</span>
         <span className="bet-row__match bet-row__cell">
           <strong>{bet.home_team_name ?? '-'} — {bet.away_team_name ?? '-'}</strong>
+          <ModelBadge model={betModel(bet)} />
           <small>{bet.competition ?? '-'} · {formatBetDateTime(bet.placed_at)}</small>
         </span>
         <span className="bet-row__pick bet-row__cell">
@@ -118,7 +117,7 @@ const BetRow: React.FC<{
         </span>
         <span className="bet-row__quote bet-row__cell"><small>Quota reale</small><strong>{odds.toFixed(2)}</strong><span>{getBookmakerLabel(bet)}</span></span>
         <span className="bet-row__stake bet-row__cell"><small>Puntata</small><strong>{formatMoney(stake)}</strong></span>
-        <span className="bet-row__return bet-row__cell"><small>{variant === 'open' ? 'Ritorno potenziale' : 'Ritorno'}</small><strong>{formatMoney(returnAmount)}</strong></span>
+        <span className="bet-row__return bet-row__cell"><small>{variant === 'open' ? 'Ritorno potenziale' : 'Ritorno'}</small><strong>{returnAmount === null ? 'Non disponibile' : formatMoney(returnAmount)}</strong></span>
         <span className={`bm-status ${status.className}`}>{status.label}</span>
         {variant === 'history' && profit !== null && (
           <span className={`bet-row__profit ${profit >= 0 ? 'is-positive' : 'is-negative'}`}>{profit > 0 ? '+' : ''}{formatMoney(profit)}</span>
@@ -130,6 +129,9 @@ const BetRow: React.FC<{
           <div><small>Quota alla giocata</small><strong>{odds.toFixed(2)}</strong></div>
           <div><small>P. nostra</small><strong>{probability}</strong></div>
           <div><small>Puntata</small><strong>{formatMoney(stake)}</strong></div>
+          <div><small>{variant === 'open' ? 'Ritorno potenziale' : 'Ritorno liquidato'}</small><strong>{returnAmount === null ? 'Non disponibile' : formatMoney(returnAmount)}</strong></div>
+          <div><small>Esito</small><strong>{status.label}</strong></div>
+          {variant === 'history' && <div><small>Profitto / perdita</small><strong>{profit === null ? 'Non disponibile' : formatMoney(profit)}</strong></div>}
           <div><small>Giocata il</small><strong>{formatBetDateTime(bet.placed_at)}</strong></div>
           <div><small>Fonte quota</small><strong>{getBookmakerLabel(bet)}</strong>{isLegacyBet(bet) && <span className="bm-data-warning">Dato precedente alla validazione</span>}</div>
         </div>
@@ -138,9 +140,10 @@ const BetRow: React.FC<{
   );
 };
 
-export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, readOnly = false }) => {
+export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, readOnly = false, wallet }) => {
   const initialFilters = useMemo(readFiltersFromUrl, []);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [historyLimit, setHistoryLimit] = useState(80);
   const [search, setSearch] = useState(initialFilters.search);
   const [view, setView] = useState<BetView>(initialFilters.view);
   const [historyOutcome, setHistoryOutcome] = useState(initialFilters.historyOutcome);
@@ -148,16 +151,22 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const [datePanelOpen, setDatePanelOpen] = useState(false);
   const [draftDateRange, setDraftDateRange] = useState<DateRange>(initialFilters.dateRange);
   const [dateRange, setDateRange] = useState<DateRange>(initialFilters.dateRange);
-  const {
-    budget,
-    bets,
-    loading,
-    pendingBets,
-    netProfit,
-    winsCount,
-    lossesCount,
-    voidCount,
-  } = useBudgetManagerData(activeUser, { readOnly });
+  const legacy = useBudgetManagerData(activeUser, { readOnly });
+  const [model, setModel] = useState<BetModel>(() => {
+    const value = new URLSearchParams(window.location.search).get('model');
+    return value === 'A' || value === 'C' || value === 'baseline' ? value : 'all';
+  });
+  const merged = useMemo(() => wallet ? unifiedBetRows(legacy.bets, wallet.data?.bets.rows || []) : legacy.bets, [wallet, legacy.bets]);
+  const bets = merged.filter((bet) => model === 'all' || betModel(bet) === model);
+  const pendingBets = bets.filter((bet) => bet.status === 'PENDING');
+  const settledBets = bets.filter((bet) => bet.status !== 'PENDING');
+  const netProfit = settledBets.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
+  const settledStake = settledBets.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
+  const roi = settledStake ? 100 * netProfit / settledStake : 0;
+  const loading = legacy.loading || !!wallet?.loading;
+  const error = legacy.betsError || wallet?.error;
+  const refresh = () => { void legacy.loadAll(); wallet?.refresh(); };
+
 
   useEffect(() => {
     const writeFilters = () => {
@@ -165,25 +174,29 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
       const params = new URLSearchParams(window.location.search);
       const values: Record<string, string> = {
         betsSearch: search, betsView: view, betsOutcome: historyOutcome, betsCompetition: historyCompetition,
-        betsFrom: dateRange.from, betsTo: dateRange.to,
+        betsFrom: dateRange.from, betsTo: dateRange.to, model: model === 'all' ? '' : model,
       };
       Object.entries(values).forEach(([key, value]) => value ? params.set(key, value) : params.delete(key));
       window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
     };
     writeFilters();
-  }, [search, view, historyOutcome, historyCompetition, dateRange]);
+  }, [search, view, historyOutcome, historyCompetition, dateRange, model]);
+
+  useEffect(() => { setHistoryLimit(80); }, [search, view, historyOutcome, historyCompetition, dateRange, model]);
 
   useEffect(() => {
     const restoreFilters = () => {
       const next = readFiltersFromUrl();
       setSearch(next.search); setView(next.view); setHistoryOutcome(next.historyOutcome); setHistoryCompetition(next.historyCompetition);
       setDateRange(next.dateRange); setDraftDateRange(next.dateRange); setExpandedId(null);
+      const nextModel = new URLSearchParams(window.location.search).get('model');
+      setModel(nextModel === 'A' || nextModel === 'C' || nextModel === 'baseline' ? nextModel : 'all');
     };
     window.addEventListener('popstate', restoreFilters);
     return () => window.removeEventListener('popstate', restoreFilters);
   }, []);
 
-  const closedCount = winsCount + lossesCount + voidCount;
+  const closedCount = settledBets.length;
   const capitalExposure = pendingBets.reduce((sum, bet) => sum + Number(bet?.stake ?? 0), 0);
   const normalizedSearch = search.trim().toLocaleLowerCase('it');
   const competitions = useMemo(() => Array.from(new Set(
@@ -205,8 +218,9 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
     const status = String(bet?.status ?? '');
     if (status === 'PENDING' || !matchesSharedFilters(bet)) return false;
     const viewStatus = view === 'WON' || view === 'LOST' || view === 'VOID' ? view : '';
-    if (viewStatus && status !== viewStatus) return false;
-    if (historyOutcome && status !== historyOutcome) return false;
+    const outcome = status === 'HALF_WON' ? 'WON' : status === 'HALF_LOST' ? 'LOST' : status;
+    if (viewStatus && outcome !== viewStatus) return false;
+    if (historyOutcome && outcome !== historyOutcome) return false;
     if (historyCompetition && String(bet?.competition ?? '') !== historyCompetition) return false;
     return true;
   });
@@ -248,28 +262,30 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
       <header className="bm-head bets-page-head">
         <div>
           <span className="bets-page-eyebrow"><Ticket size={15} aria-hidden="true" /> Registro bankroll</span>
-          <h1 className="bm-title">{readOnly ? 'Giocate precedenti' : 'Giocate'}</h1>
+          <h1 className="bm-title">Giocate</h1>
           <p className="bm-sub">Monitora le tue giocate in attesa e consulta lo storico dei risultati.</p>
         </div>
         <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
         {!loading && (
           <dl className="bets-summary" aria-label="Riepilogo giocate">
             <div>
-              <span className="bets-summary__icon bets-summary__desktop"><CircleDollarSign size={22} /></span><span className="bets-summary__icon bets-summary__mobile"><Clock3 size={22} /></span>
-              <span><dt><span className="bets-summary__desktop">Capitale impegnato</span><span className="bets-summary__mobile">Aperte</span></dt><dd><span className="bets-summary__desktop">{formatMoney(capitalExposure)}</span><span className="bets-summary__mobile">{pendingBets.length}</span></dd><small className="bets-summary__desktop">{pendingBets.length} aperte</small></span>
+              <span className="bets-summary__icon"><CircleDollarSign size={22} /></span>
+              <span><dt>Capitale impegnato</dt><dd>{formatMoney(capitalExposure)}</dd><small>{pendingBets.length} aperte</small></span>
             </div>
-            <div className={Number(budget?.roi ?? 0) >= 0 ? 'is-positive' : 'is-negative'}>
-              <span className="bets-summary__icon bets-summary__desktop"><TrendingUp size={22} /></span><span className="bets-summary__icon bets-summary__mobile"><Check size={22} /></span>
-              <span><dt><span className="bets-summary__desktop">Rendimento storico</span><span className="bets-summary__mobile">Chiuse</span></dt><dd><span className="bets-summary__desktop">{Number(budget?.roi ?? 0) >= 0 ? '+' : ''}{Number(budget?.roi ?? 0).toFixed(1)}%</span><span className="bets-summary__mobile">{closedCount}</span></dd><small className="bets-summary__desktop">{closedCount} concluse</small></span>
+            <div className={roi >= 0 ? 'is-positive' : 'is-negative'}>
+              <span className="bets-summary__icon"><TrendingUp size={22} /></span>
+              <span><dt>Rendimento storico</dt><dd>{roi >= 0 ? '+' : ''}{roi.toFixed(1)}%</dd><small>{closedCount} concluse</small></span>
             </div>
             <div className={netProfit >= 0 ? 'is-positive' : 'is-negative'}>
-              <span className="bets-summary__icon bets-summary__desktop"><WalletCards size={22} /></span><span className="bets-summary__icon bets-summary__mobile"><TrendingUp size={22} /></span>
-              <span><dt><span className="bets-summary__desktop">Saldo giocate</span><span className="bets-summary__mobile">Risultato</span></dt><dd>{netProfit >= 0 ? '+' : ''}{formatMoney(netProfit)}</dd><small className="bets-summary__desktop">profitto netto</small></span>
+              <span className="bets-summary__icon"><WalletCards size={22} /></span>
+              <span><dt>Saldo giocate</dt><dd>{netProfit >= 0 ? '+' : ''}{formatMoney(netProfit)}</dd><small>profitto netto</small></span>
             </div>
           </dl>
         )}
       </header>
 
+      {error && <div role="alert" className="fp-alert fp-alert-warning">{error} <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh}>Riprova</button></div>}
+      {wallet?.data?.bets.truncated && <p role="status">Mostrate fino a {wallet.data.bets.rows.length} delle {wallet.data.bets.total} giocate A/C del periodo. Il riepilogo riguarda le righe caricate.</p>}
       {loading ? (
         <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento giocate"><span /><span /><span /></div>
       ) : (
@@ -284,6 +300,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
             <div className="bm-ftabs bets-status-tabs" role="group" aria-label="Filtra giocate">
               {[
                 { value: 'PENDING', label: 'In attesa' },
+                { value: 'CLOSED', label: 'Chiuse', ariaLabel: 'Giocate chiuse' },
                 { value: 'ALL', label: 'Tutte', ariaLabel: 'Tutte le giocate' },
                 { value: 'WON', label: 'Vinte' },
                 { value: 'LOST', label: 'Perse' },
@@ -293,6 +310,8 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
               ))}
             </div>
             <div className="bets-toolbar__right">
+              {wallet && <label className="bets-model-filter"><span>Modello</span><AppSelect aria-label="Modello" value={model} onChange={(value) => { setModel(value as BetModel); setExpandedId(null); }} options={[{value:'all',label:'Tutti i modelli'},{value:'baseline',label:'Baseline deterministica'},{value:'A',label:'Modello A'},{value:'C',label:'Modello C'}]} /></label>}
+              {wallet && <button type="button" className="fp-btn fp-btn-ghost bets-refresh" aria-label="Aggiorna giocate" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna giocate</span></button>}
               <label className="bets-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Cerca una giocata</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cerca per partita o competizione" /></label>
               <div className="bets-date-filter">
                 <button
@@ -300,9 +319,10 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
                   className={`bets-date-button${hasDateRange ? ' is-active' : ''}`}
                   aria-expanded={datePanelOpen}
                   aria-controls="bets-date-panel"
+                  aria-label={dateButtonLabel}
                   onClick={() => setDatePanelOpen((open) => !open)}
                 >
-                  <CalendarDays size={18} aria-hidden="true" /> <span>{dateButtonLabel}</span><ChevronDown size={16} aria-hidden="true" />
+                  <CalendarDays size={18} aria-hidden="true" /> <span className="bets-date-label--full">{dateButtonLabel}</span><span className="bets-date-label--compact" aria-hidden="true">Date</span><ChevronDown size={16} aria-hidden="true" />
                 </button>
                 {datePanelOpen && (
                   <div className="bets-date-panel" id="bets-date-panel" role="group" aria-label="Seleziona intervallo date">
@@ -319,7 +339,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
             </div>
           </section>
 
-          {!budget && <div className="fp-alert fp-alert-warning">Inizializza il budget prima di registrare nuove giocate.</div>}
+
 
           {showOpen && (
           <section className="bets-section bets-section--open" aria-labelledby="open-bets-title" aria-label="Giocate aperte">
@@ -350,10 +370,11 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
               <div className="bets-table-head bets-table-head--history" aria-hidden="true"><span /><span>Partita / Data</span><span>Mercato / Selezione</span><span>Quota reale</span><span>Puntata</span><span>Ritorno</span><span>Esito</span><span>Profitto/Perdita</span></div>
               {visibleHistoryBets.length === 0 ? (
                 <div className="fp-empty bets-empty"><strong>Nessuna giocata registrata</strong><span>Modifica i filtri oppure torna alle partite.</span></div>
-              ) : visibleHistoryBets.slice(0, 80).map((bet) => (
+              ) : visibleHistoryBets.slice(0, historyLimit).map((bet) => (
                 <BetRow key={String(bet.bet_id)} bet={bet} variant="history" expanded={expandedId === String(bet.bet_id)} onToggle={() => toggle(bet)} />
               ))}
             </div>
+            {visibleHistoryBets.length > historyLimit && <button type="button" className="fp-btn fp-btn-ghost" onClick={() => setHistoryLimit((limit) => limit + 80)}>Mostra altre giocate</button>}
           </section>
         </>
       )}
@@ -361,6 +382,9 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   );
 };
 
-const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => <WalletBetsPage legacy={<LegacyBetsManager activeUser={activeUser} readOnly />} />;
+const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
+  const wallet = useAppWalletData({ period: 'all' });
+  return <LegacyBetsManager activeUser={activeUser} readOnly wallet={wallet} />;
+};
 
 export default BetsManager;

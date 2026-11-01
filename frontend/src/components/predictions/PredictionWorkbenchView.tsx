@@ -761,11 +761,16 @@ const S = `
 }
 
 @media (max-width:560px) {
-  .pr-schedule__heading { margin-bottom:16px; }
+  .pr-schedule { padding-top:14px; }
+  .pr-schedule__heading { margin-bottom:12px; gap:8px; }
+  .pr-schedule__heading h1 { font-size:28px; }
+  .pr-match-list { margin-top:12px; }
+  .pr-day-group { margin-top:14px; gap:10px; }
+  .pr-date-rail { margin-top:10px; }
   .pr-schedule__heading p:not(.pr-schedule__eyebrow) { font-size:12px; line-height:1.5; }
   .pr-schedule__availability { white-space:normal; }
   .pr-day-group { grid-template-columns:1fr; }
-  .pr-match-list-row { min-height:148px; }
+  .pr-match-list-row { min-height:112px; padding:14px; }
   .pr-schedule__controls { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
   .pr-filter,.pr-filter input,.pr-filter select { min-width:0; max-width:100%; }
   .pr-decision-report__title { font-size:23px; }
