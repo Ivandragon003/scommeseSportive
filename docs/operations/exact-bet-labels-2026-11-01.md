@@ -46,6 +46,32 @@ distinguono vittoria, doppia chance e DNB, controllano soglie intere e quarti,
 statistiche e segni handicap. Il test della pagina conserva quota e importo
 registrati e verifica l'assenza di chiamate di puntata.
 
-La verifica completa del pacchetto e gli identificativi di pubblicazione vengono
-completati dopo il controllo della pagina realmente servita. La nuova UI Android
-richiede l'APK 1.1.8, codice 10: un deploy web non aggiorna gli asset della 1.1.7.
+Il commit runtime è `5fd5d7b2abce8d9a7b7ec0b687d31a2f78f97ffd`.
+La [CI](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41328991910)
+supera 363 test frontend e 1.305 backend, con un opzionale saltato, oltre a build,
+lint e typecheck. Il primo tentativo backend aveva un errore `ENOTEMPTY` nella
+pulizia della fixture di backup; il secondo, sullo stesso sorgente, passa.
+Non si considera corretta quella possibile instabilità: non è stata modificata
+nel task delle etichette. L'intero backend è identico a quello precedente.
+
+Il frontend Hostless `6ae76fbdd25b7a9e9970a6fd` risulta **Deployed LIVE** dal
+commit indicato. Alle 17:06:24 UTC i 15 sorgenti runtime interessati corrispondono
+a quelli pubblicati nelle 13 source map JavaScript, comprese le route separate.
+Asset principale: `main.fcea6569.js`, SHA256
+`454f3d72185cd7ab17b4cc37a9b1aa1e73c9aa0745038cfa37dd44dcb20bcc38`.
+
+La prova browser autenticata mostra effettivamente «Under 2.5 gol» su
+Frosinone–Torino C, «DNB 2 — Torino; pareggio rimborsato» su A,
+«Under 3.5 gol» su Strasbourg–Auxerre e «X — Pareggio» su Lazio–Cagliari.
+Alle 17:06:48 UTC tutte le **24 righe delle giocate**, comprese quote, importi,
+esiti e fonte, coincidono esattamente con la lettura precedente al deploy;
+anche disponibile, impegnato e patrimonio dei due portafogli sono identici.
+La cattura contiene solo GET alle API di sessione, stato e portafogli, senza
+richieste fallite o chiamate di analisi, registrazione o liquidazione.
+Screenshot prima/dopo e risposte integrali restano locali.
+
+Il [pacchetto Android 1.1.8](../android/releases/1.1.8-2026-11-01.md), codice 10,
+contiene gli stessi sorgenti verificati, con 363 test e parità dei 23 asset.
+Un deploy web non aggiorna gli asset della 1.1.7: per le nuove etichette su
+telefono occorre installare il nuovo APK. La firma rimane quella debug esistente;
+telefono fisico e login Android autenticato non sono stati verificati.

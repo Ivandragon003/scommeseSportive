@@ -9,10 +9,13 @@ percorso [calcola il consiglio C su richiesta](docs/operations/challenger-previe
 con il modello operativo e quote reali ammissibili. È un'anteprima esplicita:
 non registra puntate e non cambia il motore A. Un archivio C esistente prevale.
 
-**Interfaccia e APK, 1 novembre 2026.** [FootPredictor 1.1.7 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.7-debug-20261101/FootPredictor-1.1.7-debug.apk)
+**Interfaccia e APK, 1 novembre 2026.** [FootPredictor 1.1.8 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.8-debug-20261101/FootPredictor-1.1.8-debug.apk)
 mostra consigli A/C, giocate, budget e risultati con meno dettagli tecnici.
+Le giocate mostrano il nome esatto: `1`, `X`, `2`, `1X`, `DNB 2`, `Under 2.5 gol`,
+con la squadra e la spiegazione del rimborso quando prevista.
 L'apertura non registra puntate. «Aggiorna risultati» importa finali verificati e
-liquida solo giocate virtuali già presenti. [Verifiche della 1.1.7](docs/android/releases/1.1.7-2026-11-01.md)
+liquida solo giocate virtuali già presenti. [Verifiche della 1.1.8](docs/android/releases/1.1.8-2026-11-01.md),
+[nomi delle giocate](docs/operations/exact-bet-labels-2026-11-01.md)
 e [prove operative](docs/operations/production-ui-and-results-2026-10-31.md).
 Usa la firma debug esistente.
 La firma release originale resta assente; telefono fisico e login Android non verificati.
