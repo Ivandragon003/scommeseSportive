@@ -6,12 +6,12 @@ inclusi nel pacchetto, non il sito frontend remoto. Un deploy web non aggiorna l
 Non contiene database, budget o password: budget, giocate e archivio restano nel database
 Turso condiviso sotto l'utente canonico `user1`.
 
-## Stato al 1 novembre 2026: APK 1.1.8 di prova
+## Stato al 1 novembre 2026: APK 1.1.9 release compatibile
 
-La versione Android è `1.1.8` / `versionCode=10`. Il pacchetto di prova include anche
+La versione Android è `1.1.9` / `versionCode=11`, build release con debug disattivato. Include
 il confronto dei consigli A/C nel dettaglio partita, compilato in un worktree isolato
-dal commit `5fd5d7b2`. La successiva [pulizia del client portafogli](operations/wallet-client-cleanup-2026-11-01.md)
-integra e verifica i due file wallet prima rimasti locali; non è inclusa nell'APK 1.1.8.
+dal commit `27c4c17d`. Comprende anche la [pulizia del client portafogli](operations/wallet-client-cleanup-2026-11-01.md),
+assente dal precedente APK 1.1.8.
 Comprende i portafogli separati A/C, stake A dal consiglio, stake C all'1% e consigli
 Nightly archiviati. Le due schede distinguono consiglio del motore, quota archiviata,
 importo effettivamente registrato, astensione e valutazione non disponibile.
@@ -36,18 +36,21 @@ Mancano ancora `frontend/android/key.properties` e il keystore release originale
 Si riutilizza esclusivamente il keystore debug già esistente, senza creare nuove chiavi.
 Il precedente APK locale 1.1.1/code 3 ha lo stesso certificato Android Debug SHA-256
 `21f01c0666c42ac6b960a0c840fbbef27c1bd833e4a8ce21a9c0e4fe909b23df`.
-La distribuzione è quindi un APK **di prova**, non una release con firma privata.
+La distribuzione usa la variante **release non debuggabile**, mantenendo quel
+certificato di sviluppo per compatibilità. Non è una nuova firma privata di
+produzione e non è destinata al Play Store.
 
-La compatibilità con l'app effettivamente installata sul telefono non è verificabile
-senza controllarne il certificato. Se Android segnala una firma incompatibile, non
+L'utente ha indicato la 1.1.8 debug scaricata dal link GitHub. La compatibilità
+con quell'APK e la conservazione dei dati sono verificate su emulatore; il telefono
+fisico non è collegato. Se Android segnala una firma incompatibile, non
 disinstallare alla cieca: per un aggiornamento compatibile serve la firma originale.
 Budget e giocate rimangono sul server, ma disinstallare cancella la sessione locale.
 La Nightly cloud non richiede PC o smartphone accesi.
 
-Download: [FootPredictor 1.1.8 APK di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.8-debug-20261101/FootPredictor-1.1.8-debug.apk).
+Download: [FootPredictor 1.1.9 release compatibile](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.9-release-20261101/FootPredictor-1.1.9-release.apk).
 Funzionamento: [anteprima C e priorità Nightly](operations/challenger-preview-2026-10-31.md).
-Verifiche, firma e checksum: [report della 1.1.8](android/releases/1.1.8-2026-11-01.md).
-Le precedenti [1.1.7](android/releases/1.1.7-2026-11-01.md), [1.1.6](android/releases/1.1.6-2026-10-31.md), [1.1.5](android/releases/1.1.5-2026-10-31.md) e
+Verifiche, firma e checksum: [report della 1.1.9](android/releases/1.1.9-2026-11-01.md).
+Le precedenti [1.1.8](android/releases/1.1.8-2026-11-01.md), [1.1.7](android/releases/1.1.7-2026-11-01.md), [1.1.6](android/releases/1.1.6-2026-10-31.md), [1.1.5](android/releases/1.1.5-2026-10-31.md) e
 [1.1.4](android/releases/1.1.4-2026-10-31.md) conservano i rispettivi report storici.
 
 ## 1. Configurare l'accesso condiviso su Hostless

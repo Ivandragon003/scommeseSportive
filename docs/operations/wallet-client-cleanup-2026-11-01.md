@@ -47,3 +47,6 @@ Il diff del backend è vuoto. Nessuna dipendenza aggiunta o rimossa.
 Questo intervento pubblica sorgenti, test e documentazione su GitHub.
 Non comprende deploy, nuove esecuzioni Nightly o un nuovo APK. Il sito e
 l'APK 1.1.8 già distribuiti restano riferiti al commit `5fd5d7b2`.
+La successiva [release Android 1.1.9](../android/releases/1.1.9-2026-11-01.md)
+include questa pulizia; il suo report distingue i controlli del pacchetto e
+la prova di aggiornamento dai controlli del presente intervento.
