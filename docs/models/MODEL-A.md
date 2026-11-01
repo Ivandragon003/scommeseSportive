@@ -7,22 +7,6 @@ Non è una verifica della configurazione o delle prestazioni del deploy.
 
 ## Identità e confini
 
-### Trasporto web, aggiornamento del 1 novembre 2026
-
-L'apertura di una partita usa `POST /api/predict/jobs`, poi richieste GET brevi
-per recuperare il risultato. Questo evita la scadenza del gateway durante una
-prima calibrazione lunga. Il [servizio temporaneo](../../backend/src/services/PredictionJobService.ts)
-invoca la stessa istanza A e l'intero percorso della route originale: calcolo,
-lettura della decisione A archiviata, formato e proiezione del consiglio.
-Input, probabilità, calibrazione, filtri, ranking e stake non vengono cambiati.
-Non è un nuovo motore e non registra puntate. L'audit normale di A resta attivo.
-
-Lo stato è in memoria, limitato e protetto dal namespace dell'utente condiviso.
-Un riavvio può interrompere il recupero: viene segnalato senza avviare un altro
-calcolo. Annullare la schermata interrompe il recupero, non il metodo A già partito.
-`POST /api/predict` e il replay conservano il comportamento precedente.
-La descrizione matematica che segue mantiene lo stesso riferimento del 30 ottobre.
-
 **A è il `PredictionService` già usato dalla pagina Partite.** Produce
 probabilità, opportunità, consiglio principale e percentuale di puntata.
 L'identità del pacchetto è `APP-A-…`, con hash distinti di codice,
@@ -52,6 +36,22 @@ Sorgenti: [PredictionService](../../backend/src/services/PredictionService.ts),
 [esecuzione A/C](../../backend/src/research/ResearchRecommendationRuntime.ts).
 Per regole e cronologia operative vedere la
 [guida dell'esecuzione](../operations/recommendation-execution-2026-10-30.md).
+
+## Trasporto web, aggiornamento del 1 novembre 2026
+
+L'apertura di una partita usa `POST /api/predict/jobs`, poi richieste GET brevi
+per recuperare il risultato. Questo evita la scadenza del gateway durante una
+prima calibrazione lunga. Il [servizio temporaneo](../../backend/src/services/PredictionJobService.ts)
+invoca la stessa istanza A e l'intero percorso della route originale: calcolo,
+lettura della decisione A archiviata, formato e proiezione del consiglio.
+Input, probabilità, calibrazione, filtri, ranking e stake non vengono cambiati.
+Non è un nuovo motore e non registra puntate. L'audit normale di A resta attivo.
+
+Lo stato è in memoria, limitato e protetto dal namespace dell'utente condiviso.
+Un riavvio può interrompere il recupero: viene segnalato senza avviare un altro
+calcolo. Annullare la schermata interrompe il recupero, non il metodo A già partito.
+`POST /api/predict` e il replay conservano il comportamento precedente.
+La descrizione matematica che segue mantiene lo stesso riferimento del 30 ottobre.
 
 ## Dati, addestramento e previsione
 

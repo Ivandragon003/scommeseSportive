@@ -9,11 +9,13 @@ percorso [calcola il consiglio C su richiesta](docs/operations/challenger-previe
 con il modello operativo e quote reali ammissibili. È un'anteprima esplicita:
 non registra puntate e non cambia il motore A. Un archivio C esistente prevale.
 
-**APK Android, 31 ottobre 2026.** [FootPredictor 1.1.6 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.6-debug-20261031/FootPredictor-1.1.6-debug.apk)
-include i consigli distinti A/C e l'anteprima C nelle partite senza archivio Nightly,
-senza registrare puntate. [Verifiche della 1.1.6](docs/android/releases/1.1.6-2026-10-31.md).
+**Interfaccia e APK, 1 novembre 2026.** [FootPredictor 1.1.7 di prova](https://github.com/Ivandragon003/scommeseSportive/releases/download/android-v1.1.7-debug-20261101/FootPredictor-1.1.7-debug.apk)
+mostra consigli A/C, giocate, budget e risultati con meno dettagli tecnici.
+L'apertura non registra puntate. «Aggiorna risultati» importa finali verificati e
+liquida solo giocate virtuali già presenti. [Verifiche della 1.1.7](docs/android/releases/1.1.7-2026-11-01.md)
+e [prove operative](docs/operations/production-ui-and-results-2026-10-31.md).
 Usa la firma debug esistente.
-La firma release originale resta assente; telefono fisico e login autenticato non verificati.
+La firma release originale resta assente; telefono fisico e login Android non verificati.
 
 **Manutenzione Nightly, 31 ottobre 2026.** Le email di errore hanno segnalato
 una quota provider quasi esaurita e astensioni tecniche salvate come definitive.
@@ -21,7 +23,8 @@ La correzione distingue i tentativi ritentabili e aggiunge un recupero tracciato
 senza riscrivere puntate o scelte sportive. [Diagnosi, verifiche e stato operativo](docs/operations/nightly-technical-recovery-2026-10-31.md).
 Recupero verificato: 18 partite rivalutate, quattro nuove puntate virtuali e
 otto complessive nella giornata; Nightly e watchdog riusciti. A operativo è
-invariato. Restano 218 crediti sul nuovo account, con i limiti free documentati.
+invariato. Alla verifica del recupero restavano 218 crediti: è uno snapshot,
+non il saldo corrente del provider. Restano i limiti free documentati.
 
 **Aggiornamento C, 31 ottobre 2026.** Training e confronto sono allineati
 all'orario Nightly, con feature C versionate e un selettore candidato che

@@ -64,9 +64,10 @@ autenticazione e API senza provider reali; nessuno stack preesistente viene sost
 
 ## Prova reale del 1 novembre
 
-Il frontend pubblicato corrisponde ai 13 sorgenti runtime verificati, comprese le
-route caricate separatamente. APK, frontend e primo backend usano `7e7728a0`;
-`ff76c981` modifica solo test e `4cc70896` solo il workflow CI.
+La prima pubblicazione corrispondeva ai 13 sorgenti runtime di `7e7728a0`, comprese
+le route caricate separatamente. La pubblicazione finale web, backend e APK usa
+`0e655c47`: verificati tutti i 14 sorgenti runtime interessati nelle source map
+effettivamente servite. `ff76c981` modifica solo test e `4cc70896` il workflow CI.
 
 La Nightly completa `41297275582` termina alle 11:33 italiane: 14 partite valutate,
 10 puntate virtuali, A5/C5. La successiva `41301723064` salta correttamente il lavoro
@@ -122,8 +123,60 @@ Il replay manuale conserva il percorso precedente.
 
 I test HTTP confrontano risposte complete sincrone/asincrone, incluse decisioni
 archiviate BET/ABSTAIN, input, errori e namespace. I test client simulano più di
-125 secondi con un solo POST, cancellazioni e letture interrotte. La nuova prova
-web/Android dopo questa correzione resta da completare prima della consegna.
+125 secondi con un solo POST, cancellazioni e letture interrotte.
+
+### Esito finale su web e Android
+
+Il 1 novembre, alle 17:43 italiane circa, Sassuolo–Fiorentina mostra insieme:
+
+| Motore | Consiglio dell'anteprima | Quota reale | Stake indicativo |
+| --- | --- | --- | --- |
+| A operativo | Vittoria Sassuolo | Betfair 3,00 | 1,07% |
+| C906 originale | Under 2.5 | Betsson 2,48 | 1% |
+
+La partita resta priva di decisioni Nightly prima e dopo l'apertura. Il consiglio
+C è valutato alle 16:41:07 UTC, quota aggiornata alle 16:40:21 e scadenza alle
+16:45:21; `registered=false`. Per A la fonte non espone il timestamp della quota
+nel payload disponibile: la UI scrive «Orario non disponibile», senza inventarlo.
+Questo limite riguarda la tracciabilità dell'orario mostrato, non autorizza a
+modificare il modello A.
+
+A viene avviato **una sola volta**, HTTP 202, e recuperato con 40 letture GET.
+Il risultato finale è `COMPLETED`, risposta originale HTTP 200, dopo circa
+**157 secondi** dall'avvio: supera realmente il precedente limite del gateway.
+Nessuna richiesta fallita nella cattura e nessuna chiamata di registrazione bet.
+Lo screenshot finale mostra entrambi i consigli e le diciture «non registrata».
+
+La seconda istantanea SQL, terminata alle 16:45:57 UTC, confronta 25 tabelle
+operative e i conteggi dell'audit A. Le identità delle **24 bet**, i **42 movimenti**,
+le **16 liquidazioni**, saldi e capitale impegnato restano invariati; nessun nuovo
+forecast prospettico, candidato o adozione. Cambia soltanto `predictions`, da
+207.832 a 208.057, normale audit del calcolo A. Nessuna puntata è stata aperta
+durante la prova.
+
+Backend Hostless `6ae7663e296f08c462b1134c` e frontend
+`6ae7693cb11ccfd0ad8137e6` servono il sorgente finale `0e655c47`; health API
+`status=ok`. La verifica dei sorgenti frontend pubblici è terminata alle
+16:39:18 UTC. Risorse, configurazione dei provider e schedulazione non cambiano.
+
+La [CI finale](https://github.com/Ivandragon003/scommeseSportive/actions/runs/41324758349)
+supera **1.305 test backend**, un opzionale saltato, e **329 test frontend** su
+37 suite, oltre a build, lint e typecheck. Restano intatti i 36 hash sorgente A,
+i sei casi congelati e l'isolamento C/A. La preparazione della calibrazione A
+è intenzionalmente saltata dal marcatore del commit, senza disabilitare il workflow.
+
+Docker isolato verifica build, avvio, autenticazione, health diretto e tramite
+proxy e contratto HTTP asincrono senza chiamare provider reali. Il confronto
+sincrono/asincrono sullo stesso database QA mantiene 28 campi API e sei campi
+canonici; non dichiara identità bit per bit fra chiamate distinte: UUID, clock e
+hash che include l'incertezza bootstrap possono cambiare. I test congelati
+controllano invece la regressione A con casualità fissata.
+
+L'[APK 1.1.7](../android/releases/1.1.7-2026-11-01.md) usa gli stessi sorgenti
+frontend finali. Build, firma originale debug, parità dei 23 asset, aggiornamento
+da 1.1.6 e due test strumentali su emulatore sono verificati. Il browser mobile
+a 390 pixel mostra le schede A/C impilate, senza scorrimento orizzontale.
+Login autenticato nell'APK e telefono fisico non sono stati verificati.
 
 «Aggiorna risultati» importa realmente Como–Venezia 1–0 e il record Understat 30875 3–1,
 e liquida due puntate esistenti. Le 24 identità delle bet restano invariate;
@@ -131,6 +184,11 @@ ledger e settlement aggiungono soltanto due liquidazioni. Cinque partite ancora
 in corso causavano un falso stato PARTIAL: ora un `isResult=false` esplicito conta
 come incontro lasciato in attesa. Valori mancanti o malformati restano rifiutati.
 Non si inventano risultati né si liquidano le partite ancora aperte.
+Una seconda prova reale alle 17:04 italiane restituisce `SUCCESS`, zero nuovi
+risultati e zero liquidazioni, senza il falso avviso. Ogni refresh effettua una
+nuova richiesta HTTP Understat; `observedAt` indica l'osservazione della risposta,
+non il momento di pubblicazione alla fonte. La cache a monte della fonte o del
+suo CDN non è verificata: un incontro non finale resta in attesa.
 
 Le istantanee SQL e i log grezzi restano locali: contengono dettagli operativi che non
 devono essere pubblicati. Questo intervento non misura né dimostra maggiore rendimento
