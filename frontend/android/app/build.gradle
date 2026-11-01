@@ -5,6 +5,8 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+// Explicit private-distribution mode: retain the certificate of earlier APKs.
+def compatibleReleaseSigning = providers.gradleProperty('compatibleReleaseSigning').getOrElse('false') == 'true'
 
 android {
     namespace = "it.footpredictor.personal"
@@ -13,8 +15,8 @@ android {
         applicationId "it.footpredictor.personal"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.1.8"
+        versionCode 11
+        versionName "1.1.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -34,8 +36,11 @@ android {
     }
     buildTypes {
         release {
+            debuggable false
             minifyEnabled false
-            if (keystorePropertiesFile.exists()) {
+            if (compatibleReleaseSigning) {
+                signingConfig signingConfigs.debug
+            } else if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -47,7 +52,10 @@ gradle.taskGraph.whenReady { taskGraph ->
     def releaseRequested = taskGraph.allTasks.any {
         it.name.toLowerCase(Locale.ROOT).contains('release')
     }
-    if (releaseRequested && !keystorePropertiesFile.exists()) {
+    if (releaseRequested && compatibleReleaseSigning && !android.signingConfigs.debug.storeFile?.isFile()) {
+        throw new GradleException('Compatible release requires the existing historical keystore; no new key will be generated.')
+    }
+    if (releaseRequested && !compatibleReleaseSigning && !keystorePropertiesFile.exists()) {
         throw new GradleException('Release signing requires android/key.properties. See docs/android-private-apk.md.')
     }
 }

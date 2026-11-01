@@ -131,6 +131,39 @@ non abilita la modalita debug.
 Esegui prima il deploy coordinato del backend e del frontend, poi distribuisci l'APK.
 Senza il nuovo backend autenticato l'APK non può completare il login.
 
+### Release compatibile con gli APK privati precedenti
+
+Dalla versione 1.1.9 è disponibile una modalità esplicita per aggiornare gli APK
+debug già distribuiti: build `release` con debug disattivato e certificato storico
+invariato. Non crea né sostituisce chiavi e non equivale a una firma privata di
+produzione per il Play Store. Il backend e l'origine WebView restano invariati.
+
+```powershell
+cd frontend/android
+./gradlew.bat :app:assembleRelease -PcompatibleReleaseSigning=true
+```
+
+La modalità richiede il keystore storico già presente. Se manca, la build si
+interrompe prima di poter generare una nuova chiave. Senza il parametro esplicito
+resta obbligatoria la configurazione release `key.properties`. Prima di distribuire
+il file, confronta con `apksigner verify --print-certs` il certificato dell'APK
+precedente e quello nuovo: devono coincidere. Il file finale deve avere package
+`it.footpredictor.personal`, codice versione maggiore e flag `debuggable=false`.
+
+Il mantenimento dei dati va verificato installando con aggiornamento (`adb install -r`)
+sopra l'APK effettivamente distribuito, senza disinstallazione o cancellazione dati.
+Budget e giocate restano sul backend condiviso; sessioni scadute o revocate possono
+comunque richiedere un nuovo login. Una prova su emulatore non certifica il telefono.
+
+Il test strumentale `UpgradeDataPreservationTest` usa un marker QA univoco, file,
+preferenze, SQLite, localStorage dell'origine reale e un cookie persistente
+fittizio. Non avvia la schermata applicativa e blocca la rete. Esegui separatamente
+`classe#seedData` sull'APK precedente, `classe#verifyData` dopo l'aggiornamento e
+`classe#cleanupData` alla fine, passando lo stesso `-e qaMarker qa_upgrade_<suffisso>`.
+Non eseguire l'intera classe insieme: le fasi dipendono dall'aggiornamento esterno.
+Il cookie prova la conservazione dello store, non il login remoto o i cookie
+partizionati della sessione reale.
+
 ## 4. Verificare il filtro nativo delle giocate
 
 La configurazione 1.1.3 (`versionCode=5`) usa lo stesso backend Hostless; il numero
