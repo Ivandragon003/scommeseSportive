@@ -87,6 +87,52 @@ function harness(options = {}) {
   return { runtime, db, row, artifact, history, writes, reads, providerCalls, job };
 }
 
+for (const method of ['getPreviewModelC', 'getLatestPreviewBenchmarkC']) {
+  test(`C preview retries only an interrupted ${method} read and preserves the forecast`, async (t) => {
+    const expectedFixture = harness({ legacyConfiguration: true, withBenchmark: true });
+    const expected = await expectedFixture.runtime.preparePreviewC(expectedFixture.job);
+    const f = harness({ legacyConfiguration: true, withBenchmark: true });
+    const read = f.db.research[method]; let attempts = 0;
+    f.db.research[method] = async (...args) => {
+      if (++attempts === 1) throw Object.assign(new Error('private transport URL must not be logged'), {
+        cause: { cause: { code: 'UND_ERR_SOCKET' } },
+      });
+      return read(...args);
+    };
+    const logs = []; t.mock.method(console, 'warn', (value) => logs.push(value));
+    const actual = await f.runtime.preparePreviewC(f.job);
+    assert.equal(attempts, 2);
+    assert.deepEqual(actual.decisions, expected.decisions);
+    assert.deepEqual(actual.quotes, expected.quotes);
+    assert.deepEqual(actual.inputSnapshot.forecast, expected.inputSnapshot.forecast);
+    assert.equal(f.providerCalls.length, expectedFixture.providerCalls.length);
+    assert.deepEqual(f.writes, []);
+    assert.deepEqual(logs.map(JSON.parse), [{ event: 'challenger_preview_read_retry',
+      stage: method === 'getPreviewModelC' ? 'model' : 'benchmark', code: 'UND_ERR_SOCKET', attempt: 2 }]);
+    assert.ok(!logs.join('').includes('private'));
+  });
+}
+
+for (const failure of [Object.assign(new Error('private schema failure'), { code: 'SQLITE_ERROR' }),
+  new Error('preview_model_identity_unavailable')]) {
+  test(`C preview does not retry logical/model failures (${failure.code || 'identity guard'})`, async () => {
+    const f = harness(); let attempts = 0;
+    f.db.research.getPreviewModelC = async () => { attempts++; throw failure; };
+    await assert.rejects(f.runtime.preparePreviewC(f.job), (error) => error === failure);
+    assert.equal(attempts, 1); assert.ok(f.providerCalls.length <= 1); assert.deepEqual(f.writes, []);
+  });
+}
+
+test('C preview transport retries stop after two read attempts without restarting preparation', async (t) => {
+  const f = harness(); let attempts = 0;
+  const failure = Object.assign(new Error('private transport URL'), { cause: { code: 'ECONNRESET' } });
+  f.db.research.getPreviewModelC = async () => { attempts++; throw failure; };
+  const logs = []; t.mock.method(console, 'warn', (value) => logs.push(value));
+  await assert.rejects(f.runtime.preparePreviewC(f.job), (error) => error === failure);
+  assert.equal(attempts, 2); assert.equal(logs.length, 1);
+  assert.ok(f.providerCalls.length <= 1); assert.deepEqual(f.writes, []);
+});
+
 test('preview C exactly preserves the nightly C decision on identical inputs without any business writes', async () => {
   const preview = harness(), nightly = harness({ allowWrites: true });
   const before = JSON.stringify({ row: preview.row, model: preview.artifact });

@@ -96,6 +96,20 @@ test('C preview uses the genuine C selector without invoking A or mutating busin
   assert.equal(f.calls.factories[0].nightly.quoteMaxAgeMs, 300000);
 });
 
+test('exhausted C reads fail closed and log only a fixed internal stage and transport code', async (t) => {
+  const f = fixture();
+  f.failPrepare = Object.assign(new Error('https://private.example/?apiKey=private-api-token-sentinel'), {
+    cause: { cause: { code: 'UND_ERR_SOCKET' } },
+  });
+  const logs = []; t.mock.method(console, 'warn', (value) => logs.push(value));
+  const result = await f.service.preview('m1');
+  assert.equal(result.status, 'UNAVAILABLE'); assert.equal(result.reason, 'challenger_preview_unavailable');
+  assert.equal(result.registered, false); assert.equal(result.recommendationPacket, null);
+  assert.equal(f.calls.prepared.length, 1);
+  assert.deepEqual(logs.map(JSON.parse), [{ event: 'challenger_preview_failed', stage: 'compute', code: 'UND_ERR_SOCKET' }]);
+  assert.ok(!JSON.stringify({ result, logs }).includes('private'));
+});
+
 test('NO_BET is a valid calibrated result with a current expiry, distinct from technical failure', async () => {
   const f = fixture();
   f.preparedOverride = (prepared) => ({ ...prepared, quotes: prepared.quotes.map((quote) => ({ ...quote, odds: 1.01 })) });

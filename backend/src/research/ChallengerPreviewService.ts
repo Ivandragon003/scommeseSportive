@@ -1,7 +1,7 @@
 import type { DatabaseService } from '../db/DatabaseService';
 import { OddsApiService } from '../services/OddsApiService';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
-import { ResearchRuntime } from './ResearchRuntime';
+import { previewInterruptedReadCode, ResearchRuntime } from './ResearchRuntime';
 import { TOP5_COMPETITIONS } from './ForecastCore';
 import { buildChallengerRecommendation, challengerTechnicalReason } from './ChallengerRecommendation';
 import { readEffectiveResearchDecisions } from './ResearchRecommendationView';
@@ -43,6 +43,10 @@ const safeReason = (value: unknown, fallback: string): string => typeof value ==
   ? value : fallback;
 const fixtureIdentity = (row: MatchRow): string => researchHash({ matchId: row.match_id, kickoffAt: row.date,
   homeTeamId: row.home_team_id, awayTeamId: row.away_team_id, competition: row.competition, season: row.season });
+const reportPreviewFailure = (stage: 'compute' | 'finalize' | 'request' | 'deployment', error: unknown): void => {
+  console.warn(JSON.stringify({ event: 'challenger_preview_failed', stage,
+    code: previewInterruptedReadCode(error) ?? 'UNCLASSIFIED' }));
+};
 
 /** On-demand C inference. Only the quote manager may update its technical cache/accounting. */
 export class ChallengerPreviewService {
@@ -131,7 +135,10 @@ export class ChallengerPreviewService {
         }
       }
       return clone(result);
-    } catch { return this.response(result.matchId, 'UNAVAILABLE', 'challenger_preview_unavailable', row, initialState); }
+    } catch (error) {
+      reportPreviewFailure('finalize', error);
+      return this.response(result.matchId, 'UNAVAILABLE', 'challenger_preview_unavailable', row, initialState);
+    }
   }
 
   async preview(matchId: string): Promise<ChallengerPreview> {
@@ -147,7 +154,10 @@ export class ChallengerPreviewService {
       if (await this.hasArchivedC(matchId)) return this.response(matchId, 'ARCHIVED', 'nightly_decision_available', row);
       let state: ChallengerExecutionState;
       try { state = await this.deployment(); }
-      catch { return this.response(matchId, 'UNAVAILABLE', 'adoption_state_unavailable', row); }
+      catch (error) {
+        reportPreviewFailure('deployment', error);
+        return this.response(matchId, 'UNAVAILABLE', 'adoption_state_unavailable', row);
+      }
       if (state.source === 'suspended' || state.resolutionUnavailable) {
         return this.response(matchId, 'UNAVAILABLE', 'challenger_deployment_suspended', row, state);
       }
@@ -158,8 +168,10 @@ export class ChallengerPreviewService {
       const running = this.pending.get(key);
       if (running) return this.finalizeResult(await running, row!, state);
       if (this.pending.size >= MAX_ACTIVE_PREVIEWS) return this.response(matchId, 'UNAVAILABLE', 'challenger_preview_busy', row, state);
-      const work = this.compute(matchId, row!, state).catch((error) => this.response(matchId, 'UNAVAILABLE',
-        safeOddsFailureCode(error) ?? 'challenger_preview_unavailable', row, state));
+      const work = this.compute(matchId, row!, state).catch((error) => {
+        reportPreviewFailure('compute', error);
+        return this.response(matchId, 'UNAVAILABLE', safeOddsFailureCode(error) ?? 'challenger_preview_unavailable', row, state);
+      });
       this.pending.set(key, work);
       try {
         const result = await this.finalizeResult(await work, row!, state);
@@ -169,7 +181,10 @@ export class ChallengerPreviewService {
         }
         return clone(result);
       } finally { if (this.pending.get(key) === work) this.pending.delete(key); }
-    } catch { return this.response(matchId, 'UNAVAILABLE', 'challenger_preview_unavailable', row); }
+    } catch (error) {
+      reportPreviewFailure('request', error);
+      return this.response(matchId, 'UNAVAILABLE', 'challenger_preview_unavailable', row);
+    }
   }
 
   private async compute(matchId: string, initialRow: MatchRow, state: ChallengerExecutionState): Promise<ChallengerPreview> {

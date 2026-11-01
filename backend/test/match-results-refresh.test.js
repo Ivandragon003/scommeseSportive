@@ -111,8 +111,21 @@ test('only exact boolean isResult=true authorizes final-score updates', async ()
     const h = harness(); changeRaw(h, { isResult });
     const result = await h.service.refresh();
     assert.equal(result.updated, 0); assert.equal(result.reasonCounts.source_not_final, 1);
+    assert.equal(result.status, isResult === false ? 'SUCCESS' : 'PARTIAL');
+    assert.equal(result.unchanged, isResult === false ? 1 : 0);
+    assert.equal(result.rejected, isResult === false ? 0 : 1);
     assert.equal(h.calls.apply.length, 0);
   }
+});
+
+test('verified finals update successfully while explicitly unfinished fixtures remain pending', async () => {
+  const final = fixture(31652), pending = fixture(31653);
+  pending.raw.isResult = false; pending.source.rawJson = JSON.stringify(pending.raw);
+  const h = harness([final, pending]);
+  const result = await h.service.refresh();
+  assert.equal(result.status, 'SUCCESS'); assert.equal(result.updated, 1);
+  assert.equal(result.unchanged, 1); assert.equal(result.rejected, 0);
+  assert.equal(h.calls.apply.length, 1); assert.equal(h.calls.apply[0].matchId, final.row.match_id);
 });
 
 test('missing or malformed scores are never converted into zero goals', async () => {

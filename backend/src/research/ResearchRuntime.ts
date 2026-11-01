@@ -21,6 +21,20 @@ import type { ChallengerExecutionDeployment } from './ResearchRecommendationPoli
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason, filterChallengerHistory,
   getChallengerDataQualityEvidence, hasCleanChallengerBaseline, ChallengerDataQualityTag } from './ChallengerDataQuality';
 
+/** Explicit transport codes only: never inspect or log messages containing private URLs. */
+export function previewInterruptedReadCode(error: unknown): 'UND_ERR_SOCKET' | 'ECONNRESET' | 'EPIPE' | null {
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object' && !visited.has(current); depth++) {
+    visited.add(current);
+    const failure = current as { code?: unknown; cause?: unknown };
+    if (failure.code === 'UND_ERR_SOCKET' || failure.code === 'ECONNRESET' || failure.code === 'EPIPE') return failure.code;
+    if (typeof failure.code === 'string' && failure.code.startsWith('SQLITE_')) return null;
+    current = failure.cause;
+  }
+  return null;
+}
+
 type RuntimeDb = Pick<DatabaseService, 'research' | 'getUpcomingMatches' | 'getMatchById' | 'getMatches'
   | 'updateMatchKickoff' | 'saveSchedulerRun'> & Partial<Pick<DatabaseService, 'researchMonitoring' | 'listRecentSchedulerRuns' | 'listRecentSchedulerRunsByName' | 'oddsRequests' | 'challengerAdoption'>>;
 type OddsFeed = Pick<OddsApiService, 'getOdds'> & Partial<Pick<OddsApiService, 'getQuotaStatus'>>;
@@ -637,11 +651,23 @@ export class ResearchRuntime {
   }
 
   private async modelsForPreviewC(): Promise<RuntimeModelContext> {
-    const candidateC = await this.db.research.getPreviewModelC(this.deploymentC!.modelVersion);
+    const candidateC = await this.readPreviewC('model', () => this.db.research.getPreviewModelC(this.deploymentC!.modelVersion));
     const context: RuntimeModelContext = { championC: null, latestCandidate: candidateC, candidateC, cacheable: true };
     const C = this.deploymentC?.probabilityConfigurationHash ? null
-      : await this.db.research.getLatestPreviewBenchmarkC(context.candidateC?.version ?? 'C-unavailable');
+      : await this.readPreviewC('benchmark', () => this.db.research.getLatestPreviewBenchmarkC(context.candidateC?.version ?? 'C-unavailable'));
     return { ...context, benchmarks: { A: null, C } };
+  }
+
+  /** Retry the interrupted C read, never the forecast preparation or quote acquisition. */
+  private async readPreviewC<T>(stage: 'model' | 'benchmark', read: () => Promise<T>): Promise<T> {
+    try { return await read(); }
+    catch (error) {
+      const code = previewInterruptedReadCode(error);
+      if (!code) throw error;
+      console.warn(JSON.stringify({ event: 'challenger_preview_read_retry', stage, code, attempt: 2 }));
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      return read();
+    }
   }
 
   /** New attempts may explicitly reset the same run; ordinary fixture calls share one snapshot. */

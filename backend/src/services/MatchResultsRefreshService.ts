@@ -163,6 +163,11 @@ export class MatchResultsRefreshService {
         let raw: unknown;
         if (typeof found.rawJson !== 'string' || found.rawJson.length > 65536) { reject('source_payload_invalid'); continue; }
         try { raw = JSON.parse(found.rawJson); } catch { reject('source_payload_invalid'); continue; }
+        if (record(raw) && raw.isResult === false) {
+          summary.unchanged++;
+          summary.reasonCounts.source_not_final = (summary.reasonCounts.source_not_final ?? 0) + 1;
+          continue;
+        }
         if (!record(raw) || raw.isResult !== true) { reject('source_not_final'); continue; }
         const rawId = positiveId(raw.id), homeId = positiveId(raw.h?.id), awayId = positiveId(raw.a?.id);
         const date = utcTimestamp(raw.datetime, true), sourceDate = utcTimestamp(found.date, true);
