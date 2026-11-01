@@ -1,4 +1,3 @@
-import React from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EconomicMetrics } from './researchTypes';
 import { comparativeEquity, dateTime, finiteNumber, isTimestamp, money } from './researchPresentation';

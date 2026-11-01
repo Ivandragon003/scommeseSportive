@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getResearchOddsStatus } from '../../utils/researchApi';
 import { Empty, Metric } from './ResearchPrimitives';
 import { count, dateTime, finiteNumber, percent } from './researchPresentation';

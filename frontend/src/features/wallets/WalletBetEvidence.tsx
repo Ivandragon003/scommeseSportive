@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import API from '../../utils/api';
 import { ComparisonBet } from '../research/researchComparisonTypes';
 import {

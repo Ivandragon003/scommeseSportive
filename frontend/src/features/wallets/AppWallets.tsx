@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAppWallets } from '../../utils/walletApi';
 import { opportunityLabel, opportunityMarketLabel } from '../prediction-archive/predictionArchivePresentation';
 import { ComparisonBet, ComparisonPortfolio, ResearchComparison, ResearchComparisonQuery } from '../research/researchComparisonTypes';

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getOperationalStatus, OperationalStatus, refreshMatchResults } from '../utils/api';
 import './operational-data.css';

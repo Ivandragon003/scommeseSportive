@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChallengerPreview, challengerPreviewExpired } from '../../utils/challengerPreviewApi';
 import { dateTime, decisionReason } from '../../features/research/researchPresentation';
 import { fmtSelection } from './predictionFormatting';

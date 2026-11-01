@@ -9,8 +9,9 @@ Turso condiviso sotto l'utente canonico `user1`.
 ## Stato al 1 novembre 2026: APK 1.1.8 di prova
 
 La versione Android è `1.1.8` / `versionCode=10`. Il pacchetto di prova include anche
-il confronto dei consigli A/C nel dettaglio partita, compilato in un worktree isolato:
-non include le modifiche locali non pubblicate a `walletApi.ts` e al relativo test.
+il confronto dei consigli A/C nel dettaglio partita, compilato in un worktree isolato
+dal commit `5fd5d7b2`. La successiva [pulizia del client portafogli](operations/wallet-client-cleanup-2026-11-01.md)
+integra e verifica i due file wallet prima rimasti locali; non è inclusa nell'APK 1.1.8.
 Comprende i portafogli separati A/C, stake A dal consiglio, stake C all'1% e consigli
 Nightly archiviati. Le due schede distinguono consiglio del motore, quota archiviata,
 importo effettivamente registrato, astensione e valutazione non disponibile.

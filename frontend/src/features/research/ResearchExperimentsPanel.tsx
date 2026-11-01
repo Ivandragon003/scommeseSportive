@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Empty, Metric } from './ResearchPrimitives';
 import { confidenceInterval, count, dateTime, finiteNumber, marketLabel, metric } from './researchPresentation';
 import { ProbabilityMetrics, ResearchExperiment, ResearchOverview } from './researchTypes';

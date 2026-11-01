@@ -1,4 +1,3 @@
-import React from 'react';
 import { ResearchOverview } from './researchTypes';
 import { count, dateTime } from './researchPresentation';
 import { Metric } from './ResearchPrimitives';
