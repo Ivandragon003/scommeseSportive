@@ -61,9 +61,9 @@ describe('PredictionArchivePage', () => {
     render(<PredictionArchivePage />);
 
     expect(await screen.findByText('Bologna – Lazio')).toBeTruthy();
-    expect(screen.getByText('Vittoria Bologna')).toBeTruthy();
-    expect(screen.getByText('Più di 2,5 gol')).toBeTruthy();
-    expect(screen.getByText('Entrambe le squadre segnano')).toBeTruthy();
+    expect(screen.getByText('1 — Bologna vincente')).toBeTruthy();
+    expect(screen.getByText('Over 2.5 gol')).toBeTruthy();
+    expect(screen.getByText('Goal (GG) — Entrambe le squadre segnano')).toBeTruthy();
     expect(screen.getByText('Risultato esatto 2–1')).toBeTruthy();
     expect(screen.queryByText('homeWin')).toBeNull();
     expect(screen.queryByText('exact_2-1')).toBeNull();
@@ -91,7 +91,7 @@ describe('PredictionArchivePage', () => {
     render(<PredictionArchivePage />);
 
     expect(screen.queryByText('Probabilità del modello')).toBeNull();
-    fireEvent.click(await screen.findByRole('button', { name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — Vittoria Bologna/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — 1 — Bologna vincente/ }));
 
     expect(screen.queryByText('Probabilità del modello')).toBeNull();
     expect(screen.queryByText('EV tecnico')).toBeNull();
@@ -120,10 +120,10 @@ describe('PredictionArchivePage', () => {
     render(<PredictionArchivePage />);
 
     expect(await screen.findByRole('button', {
-      name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — Vittoria Bologna/,
+      name: /Apri dettagli Bologna – Lazio: Esito finale \(1X2\) — 1 — Bologna vincente/,
     })).toBeTruthy();
     expect(screen.getByRole('button', {
-      name: /Apri dettagli Bologna – Lazio: Over\/Under — Più di 2,5 gol/,
+      name: /Apri dettagli Bologna – Lazio: Over\/Under — Over 2\.5 gol/,
     })).toBeTruthy();
   });
 

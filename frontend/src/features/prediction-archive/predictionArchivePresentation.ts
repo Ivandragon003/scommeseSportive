@@ -28,8 +28,20 @@ export const archiveMatchMeta = (row: BetOpportunityArchiveRecord) => {
 
 const formatLine = (value: string) => {
   const parsed = Number(value.replace('_', '.'));
-  return Number.isFinite(parsed) ? parsed.toLocaleString('it-IT', { maximumFractionDigits: 2 }) : value;
+  return Number.isFinite(parsed) ? String(parsed) : value;
 };
+
+const goalLineValue = (raw: string) => {
+  if (/[._]/.test(raw) || raw.length === 1) return Number(raw.replace('_', '.'));
+  return Number(raw) / (/\d(?:25|75)$/.test(raw) ? 100 : 10);
+};
+
+interface SelectionQuote {
+  selection?: string;
+  market?: string;
+  side?: string;
+  line?: number;
+}
 
 const teamName = (side: string, home?: string | null, away?: string | null) => {
   if (side === 'home') return String(home ?? '').trim() || 'squadra di casa';
@@ -48,49 +60,73 @@ export const opportunityLabel = (
   selection: string,
   home?: string | null,
   away?: string | null,
+  quote?: SelectionQuote | null,
 ) => {
   const raw = String(selection ?? '').trim();
-  const key = raw.toLowerCase();
+  const selectionCode = raw.toLowerCase();
 
-  if (key === 'homewin') return `Vittoria ${teamName('home', home, away)}`;
-  if (key === 'awaywin') return `Vittoria ${teamName('away', home, away)}`;
-  if (key === 'draw') return 'Pareggio';
-  if (key === 'double_chance_1x') return `${teamName('home', home, away)} o pareggio`;
-  if (key === 'double_chance_x2') return `${teamName('away', home, away)} o pareggio`;
-  if (key === 'double_chance_12') return 'Una delle due squadre vince';
-  if (key === 'dnb_home') return `${teamName('home', home, away)}; pareggio rimborsato`;
-  if (key === 'dnb_away') return `${teamName('away', home, away)}; pareggio rimborsato`;
-  if (key === 'btts') return 'Entrambe le squadre segnano';
-  if (key === 'bttsno') return 'Almeno una squadra non segna';
+  if (selectionCode === 'homewin') return `1 — ${teamName('home', home, away)} vincente`;
+  if (selectionCode === 'awaywin') return `2 — ${teamName('away', home, away)} vincente`;
+  if (selectionCode === 'draw') return 'X — Pareggio';
+  if (selectionCode === 'double_chance_1x') return `1X — ${teamName('home', home, away)} o pareggio`;
+  if (selectionCode === 'double_chance_x2') return `X2 — ${teamName('away', home, away)} o pareggio`;
+  if (selectionCode === 'double_chance_12') return '12 — Una delle due squadre vince';
+  if (selectionCode === 'dnb_home') return `DNB 1 — ${teamName('home', home, away)}; pareggio rimborsato`;
+  if (selectionCode === 'dnb_away') return `DNB 2 — ${teamName('away', home, away)}; pareggio rimborsato`;
+  if (selectionCode === 'btts') return 'Goal (GG) — Entrambe le squadre segnano';
+  if (selectionCode === 'bttsno') return 'No Goal (NG) — Almeno una squadra non segna';
 
-  const exact = key.match(/^exact_(\d+)-(\d+)$/);
+  const exact = selectionCode.match(/^exact_(\d+)-(\d+)$/);
   if (exact) return `Risultato esatto ${exact[1]}–${exact[2]}`;
 
-  const teamTotal = key.match(/^team_(home|away)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/);
+  const teamTotal = selectionCode.match(/^team_(home|away)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/);
   if (teamTotal) {
     const team = teamName(teamTotal[1], home, away);
-    const direction = teamTotal[2] === 'over' ? 'Più di' : 'Meno di';
-    return `${team}: ${direction} ${formatLine(teamTotal[3])} gol`;
+    const direction = teamTotal[2] === 'over' ? 'Over' : 'Under';
+    return `${team}: ${direction} ${formatLine(String(goalLineValue(teamTotal[3])))} gol`;
   }
 
-  const goalLine = key.match(/^(over|under)(?:_)?(\d+(?:_\d+)?)$/);
+  const goalLine = selectionCode.match(/^(over|under)(?:_)?(\d+(?:[._]\d+)?)$/);
   if (goalLine) {
-    const compact = goalLine[2].includes('_') ? goalLine[2] : `${goalLine[2].slice(0, -1)}_${goalLine[2].slice(-1)}`;
-    return `${goalLine[1] === 'over' ? 'Più di' : 'Meno di'} ${formatLine(compact)} gol`;
+    return `${goalLine[1] === 'over' ? 'Over' : 'Under'} ${formatLine(String(goalLineValue(goalLine[2])))} gol`;
   }
 
-  const statLine = key.match(/^(shots_total|shots_home|shots_away|sot_total|corners|yellow|cards_total|fouls)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/);
+  const compactStat = selectionCode.match(/^(shots|shotshome|shotsaway|shotsot|yellow|cardstotal)(over|under)(\d+)$/);
+  const statDomains: Record<string, string> = {
+    shots: 'shots_total', shotshome: 'shots_home', shotsaway: 'shots_away',
+    shotsot: 'sot_total', yellow: 'yellow', cardstotal: 'cards_total',
+  };
+  const statKey = compactStat
+    ? `${statDomains[compactStat[1]]}_${compactStat[2]}_${Number(compactStat[3]) / 10}` : selectionCode;
+  const statLine = statKey.match(/^(shots_total|shots_home|shots_away|sot_total|corners|yellow|cards_total|fouls)_(over|under)_([0-9]+(?:[._][0-9]+)?)$/);
   if (statLine) {
     const labels: Record<string, string> = {
       shots_total: 'Tiri totali', shots_home: `Tiri ${teamName('home', home, away)}`,
       shots_away: `Tiri ${teamName('away', home, away)}`, sot_total: 'Tiri in porta totali',
       corners: 'Calci d’angolo', yellow: 'Cartellini gialli', cards_total: 'Punti cartellino', fouls: 'Falli totali',
     };
-    return `${labels[statLine[1]]}: ${statLine[2] === 'over' ? 'più di' : 'meno di'} ${formatLine(statLine[3])}`;
+    return `${labels[statLine[1]]}: ${statLine[2] === 'over' ? 'Over' : 'Under'} ${formatLine(statLine[3])}`;
   }
 
-  const handicap = key.match(/^(?:a|e)?hcp_(home|away)_([+-]?[0-9]+(?:[._][0-9]+)?)$/);
-  if (handicap) return `${teamName(handicap[1], home, away)} con handicap ${formatLine(handicap[2])}`;
+  if (/^(?:a|e)?hcp_/.test(selectionCode)) {
+    const asian = selectionCode.startsWith('ahcp_');
+    const label = asian ? 'Handicap asiatico' : 'Handicap europeo';
+    const expectedSide = selectionCode.startsWith('ahcp_away_') ? 'away' : asian ? 'home'
+      : selectionCode.match(/^(?:e)?hcp_(home|away|draw)/)?.[1];
+    const expectedMarket = asian ? 'asian_handicap' : 'european_handicap';
+    // A and C use different Asian alias conventions; only the recorded price defines the adjustment.
+    if (!expectedSide || !quote || quote.market !== expectedMarket || quote.side !== expectedSide
+      || (quote.selection !== undefined && quote.selection !== raw)
+      || typeof quote.line !== 'number' || !Number.isFinite(quote.line)) {
+      return `${label} — dettaglio non disponibile`;
+    }
+    const sign = quote.side === 'home' ? '1' : quote.side === 'away' ? '2' : 'X';
+    // European lines adjust the home score; Asian lines adjust the selected team's score.
+    const adjustment = !asian && quote.side === 'away' ? -quote.line : quote.line;
+    const line = `${adjustment > 0 ? '+' : ''}${formatLine(String(adjustment))}`;
+    return quote.side === 'draw' ? `${label} X (${line} casa) — Pareggio`
+      : `${label} ${sign} — ${teamName(quote.side!, home, away)} (${line})`;
+  }
 
   const playerProp = raw.match(/^player_(.+)_(shots|sot|yellow|goals)_(over|under)_([0-9]+(?:_[0-9]+)?)$/i);
   if (playerProp) {
@@ -100,7 +136,7 @@ export const opportunityLabel = (
       ? 'Giocatore'
       : rawPlayer.replace(/_/g, ' ');
     const labels: Record<string, string> = { shots: 'tiri', sot: 'tiri in porta', yellow: 'cartellini', goals: 'gol' };
-    const direction = playerProp[3].toLowerCase() === 'over' ? 'più di' : 'meno di';
+    const direction = playerProp[3].toLowerCase() === 'over' ? 'Over' : 'Under';
     return `${player}: ${direction} ${formatLine(playerProp[4])} ${labels[playerProp[2].toLowerCase()]}`;
   }
 

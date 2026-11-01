@@ -21,7 +21,7 @@ export const walletBetReturn = (bet: ComparisonBet): number | null => ['WON', 'L
   ? bet.stakeCents + bet.profitCents : null;
 export const walletBetSelection = (bet: ComparisonBet): string => {
   const [home, away] = (bet.matchLabel || '').split(/\s+[–—-]\s+/);
-  return opportunityLabel(bet.market || '', bet.selection, home, away);
+  return opportunityLabel(bet.market || '', bet.selection, home, away, bet.quote);
 };
 export const walletBetStatus = (status: string): string => ({
   PENDING: 'Aperta', WON: 'Vinta', LOST: 'Persa', VOID: 'Rimborsata',

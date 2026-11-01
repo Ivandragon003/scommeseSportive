@@ -53,7 +53,7 @@ test('normal Giocate lists the five funded bets and filters A/C without legacy m
   expect(await screen.findAllByRole('article')).toHaveLength(5);
   fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'A' } });
   expect(screen.getAllByRole('article')).toHaveLength(3);
-  expect(screen.getByText('Vittoria Le Havre')).toBeTruthy();
+  expect(screen.getByText('1 — Le Havre vincente')).toBeTruthy();
   expect(screen.queryByText('Villarreal – Espanyol')).not.toBeTruthy();
   fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'C' } });
   expect(screen.getAllByRole('article')).toHaveLength(2);
@@ -167,4 +167,27 @@ test('recorded bets retain real prices and outcomes without internal market or p
   expect(screen.getByText('Risultato o liquidazione non ancora disponibili.')).toBeTruthy();
   expect(screen.queryByText(/odds_api|Challenger|ROI/)).toBeNull();
   expect(screen.getAllByText('2,14')).toHaveLength(2);
+});
+
+test('Giocate distinguishes a win, double chance and DNB while retaining the recorded price and stake', async () => {
+  const records = [
+    { ...rows[0], id: 'win', matchLabel: 'Torino – Roma', selection: 'homeWin', market: '1x2' },
+    { ...rows[0], id: 'chance', matchLabel: 'Torino – Roma', selection: 'double_chance_1x', market: 'double_chance' },
+    { ...rows[3], id: 'refund', matchLabel: 'Frosinone – Torino', selection: 'dnb_away', market: 'dnb' },
+  ];
+  const before = JSON.stringify(records);
+  const data = payload(); data.bets.rows = records; data.bets.total = records.length;
+  mockedWallets.mockResolvedValue(data);
+  render(<MemoryRouter><BetsManager activeUser="user1" /></MemoryRouter>);
+  expect(await screen.findByText('1 — Torino vincente')).toBeTruthy();
+  expect(screen.getByText('1X — Torino o pareggio')).toBeTruthy();
+  expect(screen.getByText('DNB 2 — Torino; pareggio rimborsato')).toBeTruthy();
+  const cards = screen.getAllByRole('article');
+  expect(within(cards[0]).getByText('2,14')).toBeTruthy();
+  expect(within(cards[0]).getByText(/^4,20/)).toBeTruthy();
+  expect(within(cards[2]).getByText('2,90')).toBeTruthy();
+  expect(within(cards[2]).getByText(/^10,00/)).toBeTruthy();
+  expect(JSON.stringify(records)).toBe(before);
+  expect(mockedLegacy.placeBet).not.toHaveBeenCalled();
+  expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });

@@ -27,7 +27,10 @@ export interface ResearchBet {
   createdAt: string;
   settledAt?: string;
   profitCents?: number;
-  quote?: { bookmaker?: string; source?: string; capturedAt?: string; updatedAt?: string; priceType?: string };
+  quote?: {
+    bookmaker?: string; source?: string; capturedAt?: string; updatedAt?: string; priceType?: string;
+    selection?: string; market?: string; side?: string; line?: number;
+  };
 }
 
 export interface ResearchModel {
