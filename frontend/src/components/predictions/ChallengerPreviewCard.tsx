@@ -36,9 +36,10 @@ interface ChallengerPreviewCardProps {
   error?: string;
   ineligible?: boolean;
   onRetry: () => void;
+  actions?: React.ReactNode;
 }
 
-export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry }: ChallengerPreviewCardProps) {
+export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry, actions }: ChallengerPreviewCardProps) {
   const [, setClock] = useState(0);
   useEffect(() => {
     if (!preview || !['RECOMMENDED', 'NO_BET'].includes(preview.status)) return;
@@ -72,6 +73,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
       </>}
       <p className="challenger-preview__registration">Nessuna puntata registrata.</p>
       {selected && <p>Stake indicativo: 1%. L’anteprima non addebita il portafoglio.</p>}
+      {selected && quote && actions}
 
       {unavailable && !ineligible && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={onRetry}>Riprova anteprima C</button>}
     </>}

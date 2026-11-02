@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getBets, getBudget, syncSharedBets } from '../utils/api';
 import { buildBetKey } from '../components/predictions/predictionWorkbenchUtils';
 import { getAppWallets } from '../utils/walletApi';
+import { ComparisonBet, ComparisonPortfolio } from '../features/research/researchComparisonTypes';
 
 type WalletFamily = 'A' | 'C';
 type BudgetContext = { mode: 'automatic'; family: WalletFamily } | { mode: 'legacy' };
@@ -10,6 +11,8 @@ export const walletMatchKey = (family: WalletFamily, matchId: string): string =>
 
 export function useUserBudget(activeUser: string, context: BudgetContext = { mode: 'automatic', family: 'A' }) {
   const [budget, setBudget] = useState<any>(null);
+  const [portfolios, setPortfolios] = useState<ComparisonPortfolio[]>([]);
+  const [walletBets, setWalletBets] = useState<ComparisonBet[]>([]);
   const [userBets, setUserBets] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,8 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
     try {
       if (family) {
         const data = await getAppWallets({ period: 'all' });
+        setPortfolios(data.portfolios);
+        setWalletBets(data.bets.rows);
         const wallet = data.portfolios.find((row) => row.family === family);
         const values = [wallet?.initialCents, wallet?.currentEquityCents, wallet?.currentAvailableCents, wallet?.currentCommittedCents];
         if (!wallet || wallet.initialized === false || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
@@ -53,6 +58,8 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
       setUserBets(betsRes.data ?? []);
     } catch (failure) {
       setBudget(null);
+      setPortfolios([]);
+      setWalletBets([]);
       setUserBets([]);
       setError(failure instanceof Error ? failure.message : 'Portafoglio non disponibile.');
     } finally {
@@ -79,6 +86,8 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
 
   return {
     budget,
+    portfolios,
+    walletBets,
     userBets,
     bankroll,
     placedBetKeySet,

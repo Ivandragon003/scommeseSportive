@@ -374,7 +374,7 @@ test('cached fixtures are bounded to one hundred entries and expired entries are
   await f.service.preview('m100'); assert.equal(f.calls.prepared.length, 103);
 });
 
-test('the default C-only odds feed is informational, bounded to five minutes, and has its own network switch', () => {
+test('the C preview odds feed is always cache-only even when an old deployment enables preview network', () => {
   const oddsModule = require('../dist/services/OddsApiService');
   const original = oddsModule.OddsApiService;
   const originalFlag = process.env.CHALLENGER_PREVIEW_NETWORK_ENABLED;
@@ -385,10 +385,10 @@ test('the default C-only odds feed is informational, bounded to five minutes, an
     delete process.env.CHALLENGER_PREVIEW_NETWORK_ENABLED;
     process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED = 'false';
     const f = fixture(); new ChallengerPreviewService(f.db, { clock: f.options.clock, runtimeFactory: f.options.runtimeFactory });
-    process.env.CHALLENGER_PREVIEW_NETWORK_ENABLED = 'false';
+    process.env.CHALLENGER_PREVIEW_NETWORK_ENABLED = 'true';
     new ChallengerPreviewService(f.db, { clock: f.options.clock, runtimeFactory: f.options.runtimeFactory });
     assert.equal(captured[0].operation, 'challenger_preview'); assert.equal(captured[0].priority, 'informational');
-    assert.equal(captured[0].cacheMaxAgeMs, 300000); assert.equal(captured[0].allowNetwork, true);
+    assert.equal(captured[0].cacheMaxAgeMs, 300000); assert.equal(captured[0].allowNetwork, false);
     assert.equal(captured[1].allowNetwork, false); assert.equal(process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED, 'false');
   } finally {
     oddsModule.OddsApiService = original;

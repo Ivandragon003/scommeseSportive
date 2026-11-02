@@ -1,5 +1,10 @@
 # Anteprima C senza registrare puntate — 31 ottobre 2026
 
+Aggiornamento del 2 novembre: la consultazione usa soltanto quote salvate e le
+azioni manuali hanno un'origine distinta dalla Nightly. Vedi
+[analisi sportiva e azioni manuali A/C](manual-model-actions-2026-11-02.md).
+Le opzioni di rete descritte nel resto di questo report sono lo snapshot originario.
+
 ## Comportamento e confini
 
 La pagina Partite continua a calcolare A attraverso il percorso esistente. Se A

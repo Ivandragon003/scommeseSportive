@@ -5,6 +5,7 @@ import {
 } from './AppWallets';
 import { WalletPeriodPicker } from './WalletPages';
 import WalletBetEvidence from './WalletBetEvidence';
+import SavedModelOpportunities from '../../components/predictions/SavedModelOpportunities';
 
 const initialModel = (): WalletModelFilter => {
   const model = new URLSearchParams(window.location.search).get('model');
@@ -44,6 +45,7 @@ function CurrentWalletArchive({ onOpenLegacy }: { onOpenLegacy?: () => void }) {
       {data.bets.truncated && <p role="status">Mostrate fino a {data.bets.rows.length} delle {data.bets.total} giocate del periodo, prima dei filtri modello ed esito. I conteggi comprendono tutte le registrazioni.</p>}
       {selectedBet && <WalletBetEvidence key={selectedBet.id} bet={selectedBet} onClose={() => setSelectedBetId(null)} />}
     </>}
+    <SavedModelOpportunities family={model} from={data?.period.from} to={data?.period.to} />
     {onOpenLegacy && <section className="app-wallet-legacy">
       <button type="button" className="fp-btn fp-btn-ghost" onClick={onOpenLegacy}>Storico precedente</button>
       <p>Consulta le registrazioni precedenti. I loro importi restano distinti dai portafogli A e C.</p>

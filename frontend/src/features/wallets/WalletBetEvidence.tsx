@@ -6,6 +6,7 @@ import {
 } from './AppWallets';
 
 interface RecordedWalletDecision {
+  origin?: string;
   id: string;
   matchId: string;
   family: 'A' | 'C';
@@ -29,13 +30,16 @@ interface RecordedForecastResponse {
 export async function loadWalletBetEvidence(bet: ComparisonBet, signal?: AbortSignal): Promise<RecordedWalletDecision> {
   const family = walletBetFamily(bet);
   if (!bet.matchId || !family) throw new Error('Il riferimento alla giocata archiviata non è disponibile.');
-  const response = await API.get<RecordedForecastResponse>('/research/forecasts', { params: { matchId: bet.matchId }, signal });
+  const manual = bet.id.startsWith('manual:');
+  const response = await API.get<RecordedForecastResponse>(manual ? `/wallets/bets/manual/${encodeURIComponent(bet.id)}/evidence` : '/research/forecasts',
+    { ...(manual ? {} : { params: { matchId: bet.matchId } }), signal });
   const data = response.data;
   if (!data.success || data.data?.matchId !== bet.matchId || !Array.isArray(data.data.decisions)) {
     throw new Error(data.error || 'Pronostico registrato non disponibile.');
   }
   const decisionId = (bet as ComparisonBet & { effectiveExecutionDecisionId?: string }).effectiveExecutionDecisionId;
   const decision = data.data.decisions.find((row) => row.matchId === bet.matchId && row.family === family
+    && (!manual || row.origin === 'MANUAL')
     && row.action === 'BET' && row.modelVersion === bet.modelVersion && row.selection === bet.selection
     && (!row.betId || row.betId === bet.id)
     && (decisionId ? row.id === decisionId : row.betId === bet.id));
@@ -86,6 +90,7 @@ export default function WalletBetEvidence({ bet, onClose }: { bet: ComparisonBet
     <p>La quota è quella conservata alla registrazione. Il risultato e il ritorno derivano dalla liquidazione della giocata.</p>
     {loading && <p role="status">Caricamento del pronostico registrato…</p>}
     {error && <div role="alert"><p>{error}</p><button type="button" className="fp-btn fp-btn-ghost" onClick={() => setRetry((value) => value + 1)}>Riprova pronostico</button></div>}
-    {decision && <p role="status">Consiglio registrato verificato.</p>}
+    {decision && <><p role="status">Consiglio registrato verificato.</p>
+      {decision.origin === 'MANUAL' && <p>Registrazione manuale nel portafoglio {family}. Questa giocata non è stata eseguita dalla Nightly.</p>}</>}
   </section>;
 }

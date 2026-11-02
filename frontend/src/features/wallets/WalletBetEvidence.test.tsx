@@ -49,6 +49,15 @@ describe('WalletBetEvidence', () => {
     expect(API.post).not.toHaveBeenCalled();
   });
 
+  test('manual bets read their own evidence and never pretend to be Nightly execution', async () => {
+    const manual = { ...bet, id: 'manual:funded-c' };
+    mockedGet.mockResolvedValueOnce(response([{ ...cDecision, id: manual.id, betId: manual.id, origin: 'MANUAL' }]));
+    render(<WalletBetEvidence bet={manual} onClose={jest.fn()} />);
+    expect(await screen.findByText(/Registrazione manuale nel portafoglio C/)).toBeTruthy();
+    expect(mockedGet).toHaveBeenCalledWith('/wallets/bets/manual/manual%3Afunded-c/evidence', { signal: expect.anything() });
+    expect(mockedGet).toHaveBeenCalledTimes(1);
+  });
+
   test('rejects another funded bet or a mismatched packet for the same match and family', async () => {
     mockedGet.mockResolvedValueOnce(response([{ ...cDecision, betId: 'another-bet' }]));
     await expect(loadWalletBetEvidence(bet)).rejects.toThrow('non è disponibile');

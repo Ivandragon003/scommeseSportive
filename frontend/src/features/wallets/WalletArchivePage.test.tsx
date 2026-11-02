@@ -1,3 +1,4 @@
+import { getManualModelOpportunities } from '../../utils/modelBetActionsApi';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WalletArchivePage from './WalletArchivePage';
 import { getAppWallets } from '../../utils/walletApi';
@@ -7,6 +8,7 @@ import PredictionArchivePage from '../prediction-archive/PredictionArchivePage';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';
 
 jest.mock('../../utils/walletApi');
+jest.mock('../../utils/modelBetActionsApi');
 jest.mock('../../utils/api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() }, getBetOpportunityArchive: jest.fn() }));
 
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
@@ -37,6 +39,7 @@ const data: ResearchComparison = {
 describe('WalletArchivePage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getManualModelOpportunities as jest.Mock).mockResolvedValue([]);
     mockedWallets.mockResolvedValue(data);
     window.history.replaceState({}, '', '/prediction-archive');
   });

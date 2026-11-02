@@ -1,3 +1,4 @@
+import { getManualModelOpportunities } from '../utils/modelBetActionsApi';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Predictions from './Predictions';
 import * as api from '../utils/api';
@@ -6,6 +7,7 @@ import { getMatchModelAdvice } from '../utils/matchModelAdviceApi';
 import { getChallengerPreview } from '../utils/challengerPreviewApi';
 
 jest.mock('../utils/api');
+jest.mock('../utils/modelBetActionsApi');
 jest.mock('../utils/walletApi');
 jest.mock('../utils/matchModelAdviceApi');
 jest.mock('../utils/challengerPreviewApi');
@@ -161,6 +163,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  (getManualModelOpportunities as jest.Mock).mockResolvedValue([]);
   window.history.replaceState(null, '', '/predictions');
   jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-05-23T08:00:00.000Z').getTime());
   setupBaseMocks();
@@ -176,7 +179,7 @@ const setupAnalysis = () => {
     analysisOdds: { over25: 2.1 }, bookmakerBySelection: { over25: 'Pinnacle' } } } as any);
   mockedApi.getPrediction.mockResolvedValue({ data: buildPrediction() } as any);
 };
-const openFirst = async () => fireEvent.click(await screen.findByRole('button', { name: /Inter vs Milan.*Vedi analisi/ }));
+const openFirst = async () => { fireEvent.click(await screen.findByRole('button', { name: /Inter vs Milan.*Vedi analisi/ })); fireEvent.click(await screen.findByRole('tab', { name: 'Giocate A e C' })); };
 const deferred = <T,>() => { let resolve!: (value: T) => void; let reject!: (error: Error) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 
@@ -192,13 +195,14 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(mockedApi.getPrediction).not.toHaveBeenCalled();
     expect(mockedAdvice).not.toHaveBeenCalled();
   });
-  test('one archive and one C preview settle before the first A I/O; C stays visible while A calculates', async () => {
+  test('cache-only A analysis starts independently while C preview is pending', async () => {
     setupAnalysis(); const pending = deferred<any>(); const a = deferred<any>();
     mockedPreview.mockReturnValueOnce(pending.promise); mockedApi.getPrediction.mockReturnValueOnce(a.promise);
     render(<Predictions activeUser="test-user" />); await openFirst();
     await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
-    expect(mockedAdvice).toHaveBeenCalledTimes(1); expect(mockedApi.getOddsForMatch).not.toHaveBeenCalled();
-    expect(mockedApi.getPrediction).not.toHaveBeenCalled();
+    expect(mockedAdvice).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1));
+    expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({ cacheOnly: true }), expect.anything());
     await act(async () => pending.resolve({ kind: 'C_PREVIEW', family: 'C', matchId: 'match_1', asOf: '2026-05-23T08:00:00Z',
       kickoffAt: matchRow.date, expiresAt: '2026-05-23T08:05:00Z', modelVersion: 'C906-secret', deploymentRevision: 'hash-secret',
       status: 'RECOMMENDED', reason: null, recommendationPacket: { selected: { selection: 'under25', selectionLabel: 'Under 2.5 Goal' }, decisionStatus: 'RECOMMENDED' },
@@ -247,7 +251,7 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
     expect(mockedAdvice).toHaveBeenCalledTimes(2); expect(mockedPreview).toHaveBeenCalledTimes(1);
   });
-  test('leaving a pending C aborts it; a later response cannot launch A or replace a new match', async () => {
+  test('leaving a pending C aborts it; a later response cannot launch extra A or replace a new match', async () => {
     setupAnalysis(); mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
     const pending = deferred<any>(); mockedPreview.mockReturnValueOnce(pending.promise);
     render(<Predictions activeUser="test-user" />); await openFirst(); await waitFor(() => expect(mockedPreview).toHaveBeenCalledTimes(1));
@@ -255,10 +259,10 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(signal?.aborted).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
     fireEvent.click(await screen.findByRole('button', { name: /Napoli vs Roma/ }));
-    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2));
     await act(async () => pending.resolve({ status: 'UNAVAILABLE' }));
-    expect(mockedApi.getPrediction.mock.calls[0][0].matchId).toBe('match_2');
-    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+    expect(mockedApi.getPrediction.mock.calls[1][0].matchId).toBe('match_2');
+    expect(mockedApi.getPrediction).toHaveBeenCalledTimes(2);
   });
   test('leaving an A request aborts its HTTP signal and later completion does not leak to another match', async () => {
     setupAnalysis(); const a = deferred<any>(); mockedApi.getPrediction.mockReturnValueOnce(a.promise);
@@ -358,4 +362,22 @@ test('remount reads the current completed-match link and its league and season w
   const query = new URLSearchParams(window.location.search);
   expect(query.get('mode')).toBe('recent'); expect(query.get('competition')).toBe('La Liga'); expect(query.get('season')).toBe('2025/2026');
   expect(mockedApi.getPrediction).not.toHaveBeenCalled(); expect(mockedPreview).not.toHaveBeenCalled();
+});
+
+
+test('opening a match starts on sporting charts with a separate betting section and cache-only odds', async () => {
+  setupAnalysis();
+  render(<Predictions activeUser="test-user" />);
+  fireEvent.click(await screen.findByRole('button', { name: /Inter vs Milan.*Vedi analisi/ }));
+  await screen.findByRole('region', { name: 'Grafici gol' });
+  expect(screen.getByRole('tab', { name: 'Analisi sportiva' }).getAttribute('aria-selected')).toBe('true');
+  expect(screen.getByRole('region', { name: 'Grafici tiri' })).toBeTruthy();
+  expect(screen.getByText(/Indici di forza non disponibili/)).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Migliori giocate per modello' })).toBeNull();
+  expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({ cacheOnly: true }), expect.anything());
+  expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('tab', { name: 'Giocate A e C' }));
+  expect(screen.getByRole('region', { name: 'Migliori giocate per modello' })).toBeTruthy();
+  expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
+  expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
 });

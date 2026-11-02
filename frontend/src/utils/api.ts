@@ -254,6 +254,7 @@ export const getMatchdayMap = (
 
 export const getOddsForMatch = (params: {
   matchId?: string;
+  cacheOnly?: boolean;
   competition: string;
   homeTeam: string;
   awayTeam: string;

@@ -5,6 +5,7 @@ import { fmtSelection } from './predictionFormatting';
 import { ModelAdviceCoordinator, useMatchModelAdvice } from '../../hooks/useMatchModelAdvice';
 import ChallengerPreviewCard from './ChallengerPreviewCard';
 import './matchModelAdvice.css';
+import type { BestValueOpportunity } from './predictionTypes';
 
 interface MatchModelAdviceProps {
   matchId: string;
@@ -14,6 +15,7 @@ interface MatchModelAdviceProps {
   kickoffAt?: string;
   finished?: boolean;
   coordinator?: ModelAdviceCoordinator;
+  renderActions?: (family: AdviceFamily, opportunity: BestValueOpportunity, registered?: boolean, quoteCapturedAt?: string | null) => React.ReactNode;
 }
 
 const executionBlocks = new Set(['virtual_exposure_limit', 'insufficient_virtual_capital', 'one_bet_per_portfolio_match']);
@@ -39,7 +41,7 @@ function archivedQuote(decision: RecordedModelAdvice): RecordedModelAdvice['quot
   return quote;
 }
 
-function RecordedAdvice({ decision }: { decision: RecordedModelAdvice }) {
+function RecordedAdvice({ decision, renderActions }: { decision: RecordedModelAdvice; renderActions?: MatchModelAdviceProps['renderActions'] }) {
   const packet = decision.recommendationPacket;
   const selected = packet?.selected;
   const blockedExecution = decision.action === 'ABSTAIN' && executionBlocks.has(decision.reason || '');
@@ -71,10 +73,13 @@ function RecordedAdvice({ decision }: { decision: RecordedModelAdvice }) {
     </dl>
     <p className="match-model-advice__footnote">Le quote archiviate non sono quote correnti.</p>
     {validSelection && !quote && <p role="status">La quota conservata non è disponibile o non corrisponde al consiglio.</p>}
+    {validSelection && selected && quote && renderActions?.(decision.family, { ...selected,
+      marketName: (selected as BestValueOpportunity).marketName || 'Selezione del modello', bookmakerOdds: quote.odds,
+      bookmakerName: quote.bookmaker }, funded, quote.updatedAt || quote.capturedAt)}
   </>;
 }
 
-export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false, coordinator: controlled }: MatchModelAdviceProps) {
+export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false, coordinator: controlled, renderActions }: MatchModelAdviceProps) {
   const internal = useMatchModelAdvice();
   const coordinator = controlled ?? internal;
   const { prepare, cancel } = internal;
@@ -96,9 +101,12 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
     </div>;
     return <section key={family} className="match-model-advice__card" aria-label={`Consiglio modello ${family}`}>
       <h2>Modello {family}</h2>
-      {decision ? <RecordedAdvice decision={decision} /> : current.loading ? <p role="status">Caricamento del consiglio Nightly {family}…</p>
+      {decision ? <RecordedAdvice decision={decision} renderActions={renderActions} /> : current.loading ? <p role="status">Caricamento del consiglio Nightly {family}…</p>
         : error ? <p role="alert">{error}</p> : <ChallengerPreviewCard preview={current.preview} loading={current.previewLoading}
-          error={current.previewError} ineligible={current.ineligible} onRetry={() => coordinator.retry()} />}
+          error={current.previewError} ineligible={current.ineligible} onRetry={() => coordinator.retry()}
+          actions={current.preview?.status === 'RECOMMENDED' && current.preview.quote && current.preview.recommendationPacket?.selected
+            ? renderActions?.('C', { ...current.preview.recommendationPacket.selected, marketName: 'Selezione del modello C',
+              bookmakerOdds: current.preview.quote.odds, bookmakerName: current.preview.quote.bookmaker }, false, current.preview.quote.updatedAt || current.preview.quote.capturedAt) : undefined} />}
     </section>;
   };
   return <div className="match-model-advice">

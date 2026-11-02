@@ -162,7 +162,9 @@ export function usePredictionAnalysis({
     setLoading(true);
 
     try {
-      await beforeAnalyze?.({ matchId: resolvedMatchId, kickoffAt: match.date, finished: isPlayedMatch });
+      // Sporting A does not wait for the independent, cache-only C preview.
+      const advice = beforeAnalyze?.({ matchId: resolvedMatchId, kickoffAt: match.date, finished: isPlayedMatch });
+      void advice?.catch(() => undefined);
       if (requestId !== analyzeReqRef.current || controller.signal.aborted) return;
       const started = Number.isFinite(Date.parse(String(match.date ?? ''))) && Date.parse(String(match.date)) <= Date.now();
       if ((isPlayedMatch && !options?.replay) || (!isPlayedMatch && started)) {

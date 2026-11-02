@@ -73,6 +73,7 @@ export function useOddsForMatch() {
       homeTeam: homeName,
       awayTeam: awayName,
       commenceTime: match?.date ? String(match.date) : null,
+      cacheOnly: true,
     }, ...(signal ? [{ signal }] : []))
       .then((response) => ({ response, errorMessage: null as string | null }))
       .catch((error) => ({ response: null, errorMessage: getOddsErrorMessage(error) }));

@@ -61,8 +61,8 @@ export class ChallengerPreviewService {
     this.odds = options.odds ?? new OddsApiService(getConfiguredOddsApiKey('default'), {
       store: db.oddsRequests, operation: 'challenger_preview', priority: 'informational',
       cacheMaxAgeMs: QUOTE_MAX_AGE_MS,
-      // C preview is an explicit user request; the dashboard/A network policy is unchanged.
-      allowNetwork: process.env.CHALLENGER_PREVIEW_NETWORK_ENABLED !== 'false',
+      // Opening the match is a read operation, never permission to spend provider credits.
+      allowNetwork: false,
     });
     this.runtimeFactory = options.runtimeFactory ?? ((database, runtimeOptions) => new ResearchRuntime(database, runtimeOptions));
   }

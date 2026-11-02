@@ -253,7 +253,19 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     Number(predictionAnalysis.stakes[oppStakeKey(opportunity)] ?? 0),
   [oppStakeKey, predictionAnalysis.stakes]);
 
-  const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => [], []);
+  const manualArchiveOpportunities = useMemo<BestValueOpportunityModel[]>(() => {
+    if (predictionAnalysis.pred?.oddsSource !== 'odds_api') return [];
+    const selected = canonicalRecommendationForPrediction(predictionAnalysis.pred)?.selected;
+    const rows = [...vbRanked, ...matchValueOpportunities, ...(predictionAnalysis.pred?.speculativeOpportunities || [])];
+    const seen = new Set<string>();
+    return rows.filter((row: BestValueOpportunityModel) => {
+      if (!row.selection || seen.has(row.selection) || row.selection === selected?.selection) return false;
+      seen.add(row.selection);
+      return (String(row.confidence).toUpperCase() === 'LOW'
+        || [row.marketTier, row.bestBetStatus, row.bestBetDecision?.status].some((value) => String(value).toUpperCase() === 'SPECULATIVE'))
+        && Number(row.bookmakerOdds) > 1 && !!String(row.bookmakerName || predictionAnalysis.bookmakerBySelection[row.selection] || '').trim();
+    }).slice(0, 1).map((row: BestValueOpportunityModel) => ({ ...row, bookmakerName: row.bookmakerName || predictionAnalysis.bookmakerBySelection[row.selection] }));
+  }, [predictionAnalysis.pred, predictionAnalysis.bookmakerBySelection, vbRanked, matchValueOpportunities]);
   const showToast = toastState.showToast;
   const handleArchiveOpportunity = useCallback(async () => {
     showToast({ tone: 'info', title: 'Archivio giocate', message: 'Le decisioni A/C sono archiviate automaticamente dalla Nightly.' });

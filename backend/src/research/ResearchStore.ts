@@ -92,16 +92,19 @@ export class ResearchStore {
   private async ensureGuards(): Promise<void> {
     await this.ready();
     this.guards ??= (async () => {
-      // Keep trigger bodies away from the legacy migration statement splitter.
-      const statements: string[] = [];
-      for (const table of immutableTables) for (const operation of ['UPDATE', 'DELETE']) {
-        statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_immutable_${operation.toLowerCase()}
-          BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT, 'research evidence is immutable'); END;`);
-      }
       for (let attempt = 0; ; attempt++) {
         try {
           // Remote Turso manages its journal. Local multi-process clients need WAL.
           if (this.client.protocol === 'file') await this.client.execute('PRAGMA journal_mode=WAL');
+          // Schema reads can also contend with another process initializing guards.
+          // Keep them within the same bounded retry as trigger creation.
+          const manual = await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'");
+          const guardedTables = [...immutableTables, ...(manual ? ['manual_model_bets','manual_model_settlements','manual_model_archives'] : [])];
+          const statements: string[] = [];
+          for (const table of guardedTables) for (const operation of ['UPDATE', 'DELETE']) {
+            statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_immutable_${operation.toLowerCase()}
+              BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT, 'research evidence is immutable'); END;`);
+          }
           await this.client.executeMultiple(statements.join('\n'));
           this.nightlySchema = Boolean(await first(this.client,
             "SELECT name FROM sqlite_master WHERE type='table' AND name='research_nightly_jobs'"));
@@ -215,12 +218,13 @@ export class ResearchStore {
     if (options.status === 'PENDING') filters.push('s.bet_id IS NULL');
     else if (options.status === 'SETTLED') filters.push('s.bet_id IS NOT NULL');
     const executionIdentity = await this.hasExecutionDecisionColumn(true) ? 'COALESCE(b.execution_decision_id,b.decision_id)' : 'b.decision_id';
-    return rows(this.client, `SELECT b.*,b.decision_id AS origin_decision_id,${executionIdentity} AS effective_execution_decision_id,
+    const result = await rows(this.client, `SELECT b.*,b.decision_id AS origin_decision_id,${executionIdentity} AS effective_execution_decision_id,
       s.multiplier,s.return_cents,s.settled_at,s.evidence_json,
       CASE WHEN s.bet_id IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS status,
       CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
       ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
+    return [...result, ...await this.listManualBets(options)];
   }
 
   /** Complete accounting rows with a compact evidence projection, never truncated by a row limit. */
@@ -244,7 +248,28 @@ export class ResearchStore {
       CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
       ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
-    return result.map((row) => { delete row.snapshotJson; return row; });
+    return [...result.map((row) => { delete row.snapshotJson; return row; }), ...await this.listManualBets(options)];
+  }
+
+  async hasManualBet(tx: Executor, portfolioId: string, matchId: string): Promise<boolean> {
+    if (!await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'")) return false;
+    return Boolean(await first(tx, 'SELECT id FROM manual_model_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, matchId]));
+  }
+
+  private async listManualBets(options: { portfolioId?: string; status?: string; from?: string; until?: string }): Promise<any[]> {
+    if (!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'")) return [];
+    const filters: string[] = [], args: any[] = [];
+    if (options.portfolioId) { filters.push('b.portfolio_id=?'); args.push(options.portfolioId); }
+    if (options.status === 'PENDING') filters.push('s.bet_id IS NULL');
+    if (options.status === 'SETTLED') filters.push('s.bet_id IS NOT NULL');
+    if (options.from) { filters.push('julianday(b.placed_at)>=julianday(?)'); args.push(iso(options.from)); }
+    if (options.until) { filters.push('julianday(b.placed_at)<julianday(?)'); args.push(iso(options.until)); }
+    return rows(this.client, `SELECT b.*,NULL AS decision_id,NULL AS execution_decision_id,
+      s.multiplier,s.return_cents,s.settled_at,s.evidence_json,
+      CASE WHEN s.bet_id IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS status,
+      CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
+      FROM manual_model_bets b LEFT JOIN manual_model_settlements s ON s.bet_id=b.id
+      ${filters.length ? 'WHERE '+filters.join(' AND ') : ''} ORDER BY b.placed_at,b.id`, args);
   }
 
   async listLedger(portfolioId?: string): Promise<any[]> {
@@ -985,7 +1010,7 @@ export class ResearchStore {
         if (stakeCents <= 0 || stakeCents > Number(portfolio.availableCents)) abstain('insufficient_virtual_capital');
         if (Number(portfolio.committedCents) + stakeCents > Math.floor(Number(portfolio.equityCents) * .05)) abstain('virtual_exposure_limit');
         const duplicate = await first(tx, 'SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, plan.job.matchId]);
-        if (duplicate) abstain('one_bet_per_portfolio_match');
+        if (duplicate || await this.hasManualBet(tx, portfolioId, plan.job.matchId)) abstain('one_bet_per_portfolio_match');
         const id = randomUUID(); const createdAt = iso(at()); const action = reason ? 'ABSTAIN' : 'BET';
         const evidence = { ...decision, ...(nightly ? { ...plan.input.inputSnapshot.match,
           matchId: plan.job.matchId, kickoffAt: plan.job.kickoffAt, decisionMode: 'NIGHTLY', runId: plan.job.runId,
@@ -1213,9 +1238,12 @@ export class ResearchStore {
 
   async settleBet(id: string, multiplier: number, evidence: any): Promise<any> {
     return this.write(async (tx) => {
-      const bet = await first(tx, 'SELECT * FROM research_bets WHERE id=?', [id]);
+      const manual = id.startsWith('manual:');
+      const betsTable = manual ? 'manual_model_bets' : 'research_bets';
+      const settlementsTable = manual ? 'manual_model_settlements' : 'research_settlements';
+      const bet = await first(tx, `SELECT * FROM ${betsTable} WHERE id=?`, [id]);
       if (!bet) throw new Error('Research bet not found');
-      const existing = await first(tx, 'SELECT * FROM research_settlements WHERE bet_id=?', [id]);
+      const existing = await first(tx, `SELECT * FROM ${settlementsTable} WHERE bet_id=?`, [id]);
       if (existing) {
         if (existing.multiplier !== multiplier || researchHash(existing.evidence) !== researchHash(evidence)) throw new Error('Settlement evidence is immutable');
         return { ...existing, settled: false };
@@ -1224,10 +1252,10 @@ export class ResearchStore {
       if (!Number.isFinite(multiplier) || !allowed.some((value) => Math.abs(value - multiplier) < 1e-9)) throw new Error('Unsupported settlement multiplier');
       if (!evidence || typeof evidence !== 'object' || Object.keys(evidence).length === 0) throw new Error('Settlement evidence required');
       const returnCents = Math.round(Number(bet.stakeCents) * multiplier); const settledAt = iso(this.clock());
-      await tx.execute({ sql: `INSERT INTO research_settlements(bet_id,multiplier,return_cents,evidence_json,settled_at) VALUES (?,?,?,?,?)`,
+      await tx.execute({ sql: `INSERT INTO ${settlementsTable}(bet_id,multiplier,return_cents,evidence_json,settled_at) VALUES (?,?,?,?,?)`,
         args: [id, multiplier, returnCents, researchJson(evidence), settledAt] });
       await tx.execute({ sql: `INSERT INTO research_ledger(id,portfolio_id,bet_id,event,available_delta_cents,committed_delta_cents,created_at)
-        VALUES (?,?,?,'SETTLE',?,?,?)`, args: [`settle:${id}`, bet.portfolioId, id, returnCents, -Number(bet.stakeCents), settledAt] });
+        VALUES (?,?,?,'SETTLE',?,?,?)`, args: [`settle:${id}`, bet.portfolioId, manual ? null : id, returnCents, -Number(bet.stakeCents), settledAt] });
       return { betId: id, multiplier, returnCents, profitCents: returnCents - Number(bet.stakeCents), evidence, settledAt, settled: true };
     });
   }

@@ -138,7 +138,7 @@ export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: numb
     const match = await db.getMatchById(bet.matchId);
     if (!match || match.home_goals == null || match.away_goals == null) continue;
     const quote = bet.snapshot?.quote;
-    const appExecution = bet.family === 'A' && !!bet.executionDecisionId;
+    const appExecution = bet.family === 'A' && (!!bet.executionDecisionId || bet.snapshot?.decisionMode === 'MANUAL');
     const outcome = appExecution ? settleAppRecommendationQuote(quote, match)
       : settleGoalQuote(quote, Number(match.home_goals), Number(match.away_goals));
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }

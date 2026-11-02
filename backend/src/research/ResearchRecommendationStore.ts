@@ -398,7 +398,8 @@ export class ResearchRecommendationStore {
         const stakeCents = Math.floor(equityBasis.get(portfolioId)! * basisPoints / 10000);
         if (stakeCents <= 0 || !Number.isSafeInteger(stakeCents) || stakeCents > Number(portfolio.availableCents)) abstain('insufficient_virtual_capital');
         if (Number(portfolio.committedCents) + stakeCents > Math.floor(Number(portfolio.equityCents) * .05)) abstain('virtual_exposure_limit');
-        if (await first(tx, 'SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, job.matchId])) abstain('one_bet_per_portfolio_match');
+        if (await first(tx, 'SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, job.matchId])
+          || await this.research.hasManualBet(tx, portfolioId, job.matchId)) abstain('one_bet_per_portfolio_match');
         const id = randomUUID(), createdAt = iso(at), action = reason ? 'ABSTAIN' : 'BET';
         const evidence = { ...item.inputSnapshot.match, ...decision, action, reason, decisionMode: 'VIRTUAL_RECOMMENDATION', policyHash: job.policyHash,
           policyVersion: plan.policy.version,

@@ -5,6 +5,7 @@ import { buildAppWallets, isAppWalletQueryError, parseAppWalletQuery, targetsApp
 import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
 import { ChallengerPreviewService } from '../research/ChallengerPreviewService';
+import { ManualModelBetService, ManualModelActionError } from '../services/ManualModelBetService';
 import { MatchResultsRefreshService } from '../services/MatchResultsRefreshService';
 import { MatchResultsMaintenanceService } from '../services/MatchResultsMaintenanceService';
 import { buildOperationalStatus } from '../services/OperationalStatusService';
@@ -1952,6 +1953,33 @@ router.post('/research/challenger-preview', async (req: Request, res: Response) 
     return res.status(503).json({ success: false, error: 'Anteprima del modello C temporaneamente non disponibile.' });
   }
 });
+
+// User-confirmed manual bets have separate immutable origins; these routes never run Nightly.
+router.get('/wallets/opportunities/manual', async (_req: Request, res: Response) => {
+  try {
+    const service = new ManualModelBetService(db, svc);
+    return res.json({ success: true, data: await service.listArchives() });
+  } catch { return res.status(503).json({ success: false, error: 'Archivio manuale temporaneamente non disponibile.' }); }
+});
+router.get('/wallets/bets/manual/:id/evidence', async (req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await new ManualModelBetService(db, svc).evidence(req.params.id) }); }
+  catch (error) { return res.status(error instanceof ManualModelActionError ? error.status : 503).json({ success: false,
+    error: error instanceof ManualModelActionError ? error.message : 'Giocata manuale temporaneamente non disponibile.' }); }
+});
+for (const [path, action] of [['/wallets/bets/manual', 'place'], ['/wallets/opportunities/archive/manual', 'archive']] as const) {
+  router.post(path, async (req: Request, res: Response) => {
+    try {
+      challengerPreview ??= new ChallengerPreviewService(db);
+      const service = new ManualModelBetService(db, svc, challengerPreview);
+      const data = await service[action](req.body);
+      clearArchivePayloadCache();
+      return res.json({ success: true, data });
+    } catch (error) {
+      return res.status(error instanceof ManualModelActionError ? error.status : 503).json({ success: false,
+        error: error instanceof ManualModelActionError ? error.message : 'Operazione manuale temporaneamente non disponibile.' });
+    }
+  });
+}
 
 router.post('/research/settle', async (_req: Request, res: Response) => {
   try { return res.json({ success: true, data: await settleResearchBets(db) }); }
@@ -3981,6 +4009,13 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       };
       setCachedMatchOddsPayload(cacheKey, snapshotPayload);
       return res.json({ success: true, data: snapshotPayload });
+    }
+
+    if (req.body?.cacheOnly === true) {
+      return res.json({ success: true, data: { found: false, source: 'odds_unavailable',
+        analysisOdds: {}, selectedOdds: {}, bookmakerBySelection: {}, analysisBookmakers: [],
+        marketsRequested: [], message: 'Nessuna quota reale recente salvata. Consultazione senza richieste al bookmaker.',
+        cacheOnly: true, usedSyntheticOdds: false } });
     }
 
     const inFlight = matchOddsInFlight.get(cacheKey);

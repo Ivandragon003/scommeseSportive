@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import MatchModelAdvice from './MatchModelAdvice';
+import SportingAnalysis from './SportingAnalysis';
+import ModelBetActions from './ModelBetActions';
+import SavedModelOpportunities from './SavedModelOpportunities';
 import { fmtSelection } from './predictionFormatting';
 import { currentSeason, dateToDayKey, formatKickoff } from './predictionWorkbenchUtils';
 import type { PredictionWorkbenchViewModel } from '../../hooks/usePredictionWorkbench';
@@ -9,6 +12,21 @@ interface PredictionWorkbenchViewProps { vm: PredictionWorkbenchViewModel }
 
 /*  STYLES  */
 const S = `
+.pr-detail-tabs { display:flex; gap:8px; margin:16px 0; padding:5px; border:1px solid var(--border); border-radius:12px; background:var(--surface2); }
+.pr-detail-tabs button { flex:1; min-height:44px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text-2); font:700 14px var(--font-sans); cursor:pointer; }
+.pr-detail-tabs button[aria-selected="true"] { color:var(--primary); background:var(--surface); border-color:var(--primary-border); }
+.model-bet-actions { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+.model-bet-actions label { display:grid; gap:6px; color:var(--text-2); font-size:13px; }
+.model-bet-actions input { width:100%; max-width:180px; min-height:44px; padding:9px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); font:inherit; }
+.model-bet-actions__buttons { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.pr-sporting-analysis { display:grid; gap:16px; }
+.pr-sporting-analysis h2 { margin:0; font-size:17px; }
+.pr-sporting-analysis > section > h2 { margin:0 0 12px; }
+.pr-sporting-analysis p { color:var(--text-2); font-size:13px; }
+.pr-sporting-xg { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.pr-sporting-xg dt { color:var(--text-2); font-size:12px; }
+.pr-sporting-xg dd { margin:5px 0; font-size:20px; font-weight:750; }
+
 .pr {
   display:grid;
   grid-template-columns:minmax(280px,340px) minmax(0,1fr);
@@ -788,6 +806,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const { matchSelection: selection, predictionAnalysis: analysis, modelAdvice } = vm;
   const { clearAnalysisState, handleAnalyze } = analysis;
   const { competition, season, matchMode, upcomingLoading, activeMatchRow, comps, groupedMatches: grouped } = selection;
+  const [detailView, setDetailView] = useState<'sporting' | 'bets'>('sporting');
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('day'));
   const today = dateToDayKey(new Date(Date.now()).toISOString());
   const selectedDay = selectedDayKey === 'all' ? 'all'
@@ -818,6 +837,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     return () => window.removeEventListener('popstate', restore);
   }, [grouped, activeMatchRow?.match_id, clearAnalysisState, handleAnalyze]);
   const open = (match: any) => {
+    setDetailView('sporting');
     const params = new URLSearchParams(window.location.search); params.set('match', String(match.match_id));
     window.history.pushState({ predictionDetail: String(match.match_id) }, '', `${window.location.pathname}?${params.toString()}`);
     void handleAnalyze(match);
@@ -828,6 +848,12 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
     clearAnalysisState();
   };
   const matchId = String(activeMatchRow?.match_id ?? analysis.loadingMatchId ?? '');
+  useEffect(() => {
+    if (!matchId) return;
+    // Opening a card must not inherit the scroll position of the fixture list.
+    document.scrollingElement?.scrollTo({ top: 0, behavior: 'auto' });
+    document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [matchId]);
   const pred = String(analysis.pred?.matchId ?? '') === matchId ? analysis.pred : null;
   const choice = pred ? vm.finalRecommendedChoice : null;
   const automatic = pred?.automaticRecommendation;
@@ -837,6 +863,11 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const completed = activeMatchRow?.home_goals != null && activeMatchRow?.away_goals != null;
   const started = activeMatchRow?.date && Date.parse(activeMatchRow.date) <= Date.now();
   const sourceTime = automatic?.odds?.updatedAt ?? automatic?.odds?.capturedAt ?? pred?.canonicalRecommendation?.odds?.capturedAt ?? pred?.oddsCapturedAt ?? pred?.oddsUpdatedAt;
+  const renderActions = (family: 'A' | 'C', opportunity: any, registered = false, quoteCapturedAt?: string | null) => <ModelBetActions key={`${family}:${matchId}:${opportunity.selection}`}
+    family={family} matchId={matchId} opportunity={opportunity} portfolios={vm.userBudget.portfolios}
+    quoteCapturedAt={quoteCapturedAt ?? (family === 'A' ? sourceTime : undefined)}
+    registered={registered || vm.userBudget.walletBets.some((bet) => bet.matchId === matchId && bet.portfolioId === `shadow_${family}`)}
+    unavailable={!!completed || !!started || vm.isReplayAnalysis} onSaved={vm.userBudget.loadUserContext} />;
   const aAdvice = <section className="match-model-advice__card" aria-label="Consiglio modello A" data-testid="best-value-card">
     <h2>Modello A</h2>
     <p className="match-model-advice__origin">{vm.isReplayAnalysis ? 'Replay A · valutazione retrospettiva' : automatic ? 'Decisione Nightly A archiviata' : 'Anteprima A · non registrata'}</p>
@@ -854,6 +885,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       </dl> : <p>{pred.oddsSource !== 'odds_api' ? 'Quote reali non disponibili per una nuova giocata.' : 'Il modello A non ha selezionato una giocata con le quote disponibili.'}</p>}
       {automatic ? <p>{Number(automatic.actualStakeAmount) > 0 ? 'Puntata archiviata. Consulta Giocate per lo stato e l’esito.' : 'Nessuna puntata registrata.'}</p> : <p>Nessuna puntata registrata da questa analisi.</p>}
       {vm.isReplayAnalysis && <p>Il replay non è una decisione pre-partita archiviata.</p>}
+      {choice && realQuote && renderActions('A', { ...choice, bookmakerName: choiceBookmaker }, Number(automatic?.actualStakeAmount) > 0)}
     </>}
   </section>;
   const actualScore = completed ? `${activeMatchRow.home_goals} - ${activeMatchRow.away_goals}` : vm.actualMatch?.actualScore;
@@ -864,7 +896,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   ];
   return <><style>{S}</style><div className="pr">
     {!matchId ? <section className="pr-schedule" aria-label="Filtri e partite">
-      <header className="pr-schedule__heading"><div><h1>Partite</h1><p>Apri una partita per vedere i consigli dei modelli A e C.</p></div>
+      <header className="pr-schedule__heading"><div><h1>Partite</h1><p>Apri una partita per consultare i grafici sportivi e le migliori giocate A e C.</p></div>
         <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={upcomingLoading} onClick={() => void selection.refreshVisibleMatches(true)}>Aggiorna calendario</button></header>
       <div className="pr-schedule__controls"><div className="pr-filter"><label htmlFor="pr-competition-filter">Campionato</label>
         <select id="pr-competition-filter" value={competition} onChange={event => { setSelectedDayKey(null); selection.setCompetition(event.target.value); }}><option value="">Tutti i campionati</option>{comps.map(item => <option key={item}>{item}</option>)}</select></div>
@@ -881,7 +913,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
           return <button type="button" key={match.match_id} className="pr-match-list-row" aria-label={`${match.home_team_name ?? match.home_team_id} vs ${match.away_team_name ?? match.away_team_id}, ${formatKickoff(match.date)}. Vedi analisi`} onClick={() => open(match)}>
             <span className="pr-match-list__time">{formatKickoff(match.date).split(',')[1]?.trim() ?? '—'}</span>
             <span className="pr-match-list__teams"><span className="pr-match-list__team">{match.home_team_name ?? match.home_team_id}{played && <b>{match.home_goals}</b>}</span><span className="pr-match-list__versus">vs</span><span className="pr-match-list__team">{match.away_team_name ?? match.away_team_id}{played && <b>{match.away_goals}</b>}</span></span>
-            <span className="pr-match-list__meta">{match.competition ?? competition}</span><span className="pr-match-list__action">Vedi consigli</span><span className="pr-match-list__pick"><strong>{played ? 'Conclusa' : pending ? 'Risultato in attesa' : 'In programma'}</strong></span><ChevronRight size={18} aria-hidden="true" />
+            <span className="pr-match-list__meta">{match.competition ?? competition}</span><span className="pr-match-list__action">Analisi e giocate</span><span className="pr-match-list__pick"><strong>{played ? 'Conclusa' : pending ? 'Risultato in attesa' : 'In programma'}</strong></span><ChevronRight size={18} aria-hidden="true" />
           </button>;
         })}</section>)}
       </section>
@@ -889,7 +921,18 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       <div className="pr-detail-nav"><button type="button" className="pr-back-button" onClick={back}><ArrowLeft size={18} aria-hidden="true" />Tutte le partite</button></div>
       <div className="pr-right"><div className="pr-results-head"><div><h1 className="pr-results-match">{activeMatchRow?.home_team_name ?? pred?.homeTeam} vs {activeMatchRow?.away_team_name ?? pred?.awayTeam}</h1><p className="pr-results-meta">{activeMatchRow?.competition ?? competition} · {formatKickoff(activeMatchRow?.date)}{actualScore ? ` · Risultato finale ${actualScore}` : started ? ' · Risultato in attesa' : ''}</p></div>
         <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh} disabled={analysis.loading}>Aggiorna consigli</button></div>
-        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} kickoffAt={activeMatchRow?.date} finished={completed} />
+        <div className="pr-detail-tabs" role="tablist" aria-label="Contenuto della partita">
+          <button type="button" role="tab" aria-selected={detailView === 'sporting'} onClick={() => setDetailView('sporting')}>Analisi sportiva</button>
+          <button type="button" role="tab" aria-selected={detailView === 'bets'} onClick={() => setDetailView('bets')}>Giocate A e C</button>
+        </div>
+        {detailView === 'sporting' ? <SportingAnalysis prediction={pred} teams={selection.teams} match={activeMatchRow} loading={analysis.loading} /> : <section aria-label="Migliori giocate per modello"><p>Una selezione per modello, con quote reali già disponibili. Consultare i grafici non richiede nuove quote.</p>
+        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} kickoffAt={activeMatchRow?.date} finished={completed} renderActions={renderActions} />
+        {vm.manualArchiveOpportunities.map((opportunity) => <section key={opportunity.selection} className="pr-card"><header className="pr-card-head"><h2>Modello A · opportunità da valutare</h2></header>
+          <div className="pr-card-body"><h3>{opportunity.selectionLabel || fmtSelection(opportunity.selection)}</h3>
+          <p>Confidenza bassa o selezione speculativa. Questa non sostituisce la giocata principale del modello.</p>
+          {renderActions('A', opportunity)}</div></section>)}
+        <SavedModelOpportunities matchId={matchId} />
+        </section>}
         <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Dati della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>
           {actualStats.some(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null) ? <table><thead><tr><th>Statistica</th><th>Casa</th><th>Ospite</th></tr></thead><tbody>{actualStats.filter(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null).map(([label, home, away]) => <tr key={label}><th>{label}</th><td>{activeMatchRow?.[home] ?? 'Non disponibile'}</td><td>{activeMatchRow?.[away] ?? 'Non disponibile'}</td></tr>)}</tbody></table> : <p>Statistiche non ancora disponibili.</p>}
           {completed && !pred && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={analysis.loading} onClick={() => void handleAnalyze(activeMatchRow, { replay: true })}>Apri replay retrospettivo A</button>}
