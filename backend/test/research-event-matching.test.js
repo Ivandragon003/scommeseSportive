@@ -3,8 +3,11 @@ const assert = require('node:assert/strict');
 const { matchingResearchEvent } = require('../dist/research/ResearchRuntime');
 const { scoreFixtureCandidate } = require('../dist/services/odds-provider/oddsProviderUtils');
 
-// Names, identifiers and kickoff times from existing 2026-10-31 provider-cache evidence; no odds are invented.
+// Team names and kickoff times from saved provider responses; the November fixture reproduces the reported UI failure.
 const fixtures = [
+  { matchId: 'understat_31651', home: 'Atalanta', away: 'Parma Calcio 1913',
+    providerHome: 'Atalanta BC', providerAway: 'Parma', eventId: 'test-provider-atalanta-parma',
+    kickoffAt: '2026-11-02T19:45:00Z', capturedAt: '2026-11-02T18:16:34.028Z' },
   { matchId: 'understat_32307', home: 'Borussia M.Gladbach', away: 'Paderborn',
     providerHome: 'Borussia Monchengladbach', providerAway: 'SC Paderborn',
     eventId: 'odds_aecb9d8c01176616c87d893bee4bc0de', kickoffAt: '2026-10-31T14:30:00Z', capturedAt: '2026-10-31T11:46:21.485Z' },

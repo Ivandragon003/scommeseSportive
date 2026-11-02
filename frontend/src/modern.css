@@ -1,0 +1,188 @@
+/* A compact sports workspace, shared by web and Android. */
+:root { --sidebar-width:252px; --header-height:64px; }
+:root:not([data-theme="dark"]) { --bg:#f5f8f6; --text:#122b24; --text-2:#536b62; --text-3:#687f75; --border:#dde8e1; --primary:#098752; --primary-hover:#07683f; --primary-dim:#eaf6ef; --sidebar-width:252px; --header-height:64px; }
+.app-shell .sidebar { padding:28px 12px 16px; border-right:0; }
+.app-shell .sidebar-brand { padding:0 10px 36px; gap:9px; }
+.app-shell .sidebar-brand small { text-transform:none; letter-spacing:0; font-weight:500; }
+.app-shell .app-brand-mark { border-radius:50%; box-shadow:none; }
+.app-shell .nav-item,.app-shell .desktop-tools__item { min-height:54px; border:0; border-radius:13px; padding:10px 12px; gap:10px; }
+.app-shell .nav-item.active { background:var(--primary); color:#fff; box-shadow:0 5px 14px color-mix(in srgb,var(--primary) 16%,transparent); }
+.app-shell .nav-item.active .nav-meta { color:#e2f5e9; }
+.app-shell .nav-icon-wrap,.app-shell .desktop-tools__item > span:first-child { background:transparent; width:26px; height:30px; border-radius:0; }
+.app-shell .nav-item.active .nav-icon-wrap { background:transparent; }
+.app-shell .nav-label { font-size:14px; font-weight:650; }
+.app-shell .nav-meta { font-size:11px; font-weight:400; }
+.app-shell .sidebar-nav--secondary { border-top:0; margin-top:24px; padding-top:0; }
+.app-shell .desktop-tools__item strong { font-size:13px; font-weight:550; }
+.app-shell .desktop-tools__item small { font-size:11px; }
+.app-shell .app-header { border:0; background:var(--bg); padding-inline:32px; }
+.app-section-name { font-size:14px; font-weight:650; color:var(--text-2); }
+.app-shell .app-header-glossary,.app-shell .theme-toggle { border:0; background:var(--surface); border-radius:50%; }
+.app-shell .pr { padding:8px 32px 48px; max-width:1480px; }
+.app-shell .pr-schedule { margin:0; padding:12px 0 28px; border:0; background:transparent; }
+.app-shell .pr-schedule__heading { margin:0 0 26px; align-items:center; }
+.app-shell .pr-schedule__heading h1,.app-shell .bm-title { font-size:34px; font-weight:750; letter-spacing:-.045em; }
+.app-shell .pr-schedule__heading p { max-width:65ch; font-size:13px; }
+.app-shell .pr-schedule__controls { margin:0; gap:12px; grid-template-columns:minmax(180px,240px) minmax(150px,190px); }
+.app-shell .pr-filter label { font-size:12px; font-weight:550; letter-spacing:0; text-transform:none; }
+.app-shell .pr-filter select,.app-shell .pr-filter input { min-height:44px; border-radius:10px; border-color:var(--border); font-size:13px; font-weight:500; }
+.app-shell .pr-schedule__tabs { margin-inline:0; border:0; gap:24px; }
+.app-shell .pr-mode-tab { font-size:14px; font-weight:650; }
+.app-shell .pr-date-rail { gap:8px; margin-top:18px; padding-bottom:7px; }
+.app-shell .pr-date-rail__item { flex-basis:100px; min-height:58px; padding:9px 12px; border:0; border-radius:12px; background:var(--surface); }
+.app-shell .pr-date-rail__item span { font-size:12px; font-weight:650; }
+.app-shell .pr-date-rail__item strong { font-weight:450; }
+.app-shell .pr-date-rail__item.active { background:var(--primary); color:#fff; }
+.app-shell .pr-day-heading { font-size:14px; font-weight:650; border:0; margin-bottom:12px; }
+.app-shell .pr-day-group { margin-top:22px; }
+.app-shell .pr-match-list-row { border:1px solid transparent; border-radius:16px; box-shadow:0 2px 4px rgb(12 55 33 / 3%); padding:18px; transition:border-color .18s,box-shadow .18s; }
+.app-shell .pr-match-list-row:hover { border-color:var(--primary-border); box-shadow:0 7px 18px rgb(12 55 33 / 7%); }
+.app-shell .pr-match-list__time { font-size:12px; color:var(--text-2); }
+.app-shell .pr-match-list__team { font-size:17px; font-weight:700; }
+.app-shell .pr-match-list__pick { background:var(--bg); border:0; padding:8px 10px; font-size:11px; }
+.app-shell .matchup-header { border:0; border-radius:20px; padding:22px 28px; box-shadow:none; }
+.app-shell .matchup-duel { grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr); padding:26px 0 20px; gap:18px; }
+.app-shell .matchup-team { justify-content:center; text-align:center; }
+.app-shell .matchup-team h2 { font-size:clamp(21px,2.7vw,34px); font-weight:750; margin:4px 0 12px; }
+.app-shell .matchup-strength { justify-content:center; font-size:12px; }
+.app-shell .matchup-strength > span { background:transparent; padding:0 5px; }
+.app-shell .matchup-versus { border:0; background:transparent; font-size:12px; font-weight:700; }
+.app-shell .matchup-note { text-align:center; border-color:var(--bg); padding-top:12px; }
+.app-shell .pr-detail-tabs { width:fit-content; min-width:360px; margin:20px auto; border:0; border-radius:999px; background:var(--surface); padding:4px; gap:4px; }
+.app-shell .pr-detail-tabs button { min-height:42px; padding:9px 20px; border:0; border-radius:999px; font-size:13px; font-weight:650; }
+.app-shell .pr-detail-tabs button[aria-selected=true] { color:#fff; background:var(--primary); box-shadow:none; }
+.app-shell .match-model-advice__card { padding:24px; border:0; border-radius:18px; box-shadow:none; }
+.app-shell .match-model-advice__card h2 { font-size:14px; font-weight:700; color:var(--primary); }
+.app-shell .match-model-advice__card h3 { font-size:23px; font-weight:700; margin-top:18px; }
+.app-shell .match-model-advice__metrics { gap:18px; }
+.app-shell .match-model-advice__metrics dt { font-size:12px; }
+.app-shell .match-model-advice__metrics dd { margin-top:4px; font-size:15px; }
+.app-shell .match-quote-request { border:0; border-radius:12px; background:var(--primary-dim); margin:14px 0; padding:13px 16px; }
+.app-shell .match-quote-request h3 { font-size:13px; margin-bottom:2px; }
+.app-shell .match-quotes-ready { display:flex; align-items:center; gap:7px; color:var(--primary); font-size:12px; }
+.app-shell .match-quotes-ready::before { content:''; width:6px; height:6px; background:currentColor; border-radius:50%; }
+.app-shell .fp-btn { border-radius:10px; font-weight:600; transition:background .16s,box-shadow .16s; }
+.app-shell .bets-page { background:transparent; }
+.app-shell .bets-page .bets-toolbar { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; padding:0; border:0; border-radius:0; background:transparent; }
+.app-shell .bets-page .bets-status-tabs { display:flex; flex-wrap:nowrap; align-self:start; width:fit-content; max-width:100%; overflow-x:auto; padding:4px; border:0; border-radius:12px; gap:3px; background:var(--surface); }
+.app-shell .bets-page .bm-ftab { flex:0 0 auto; min-height:40px; padding:9px 17px; background:transparent; border:0; border-radius:9px; font-size:13px; font-weight:600; box-shadow:none; }
+.app-shell .bets-page .bm-ftab.active { background:var(--primary); color:#fff; }
+.app-shell .bets-page .bets-toolbar__right { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:10px; align-items:end; }
+.app-shell .bets-page .bets-model-filter { flex:0 1 200px; font-weight:500; }
+.app-shell .bets-page .bets-search { flex:1 1 220px; }
+.app-shell .bets-page .bets-date-button { width:auto; min-width:180px; }
+.app-shell .bets-page .bets-toolbar__right > .fp-btn { min-height:42px; }
+.app-shell .bets-page .bets-section__head { border:0; padding-inline:0; }
+.app-shell .bets-page .bets-table-head { border:0; background:transparent; font-size:10px; letter-spacing:0; text-transform:none; }
+.app-shell .bets-page .bet-row { border-color:var(--border); border-radius:14px; overflow:hidden; margin-bottom:6px; }
+.app-shell .budget-page .bm-summary__item { border:0; box-shadow:none; border-radius:16px; }
+.app-shell .wallet-model-tabs { flex-wrap:wrap; border:0; background:var(--surface); border-radius:14px; padding:5px; }
+.app-shell .wallet-model-tabs > button { border:0; border-radius:10px; padding:10px 14px; }
+.app-shell .wallet-model-tabs > button.is-active { background:var(--primary-dim); box-shadow:none; }
+.app-shell .wallet-budget-controls { gap:16px; }
+.app-shell .budget-baseline-embedded { padding:0; max-width:none; }
+.app-shell .wallet-budget-chart { border:0; padding:0; background:transparent; }
+.app-shell .wallet-budget-chart .budget-chart-panel { height:100%; }
+.app-shell .budget-page .budget-management { border:0; border-radius:16px; }
+.app-shell .wallet-budget-results { margin-top:24px; }
+.app-shell .wallet-budget-result { border:0; border-radius:16px; }
+.app-shell .pr-sporting-analysis,.app-shell .match-model-advice { animation:workspace-reveal .18s ease-out; }
+@keyframes workspace-reveal { from { opacity:.5; } to { opacity:1; } }
+@media(min-width:901px) { .app-header .app-brand-copy { display:none; } }
+@media(max-width:1100px) { :root { --sidebar-width:232px; } .app-shell .pr { padding-inline:24px; } }
+@media(max-width:900px) {
+  .app-shell .app-header { background:var(--surface); padding:6px 16px; border-bottom:1px solid var(--border); }
+  .app-section-name { display:none; }
+  .app-shell .pr { padding:12px 16px 28px; }
+  .app-shell .pr-schedule { padding:4px 0 20px; }
+  .app-shell .pr-schedule__heading h1,.app-shell .bm-title { font-size:29px; }
+  .app-shell .pr-schedule__heading { gap:12px; margin-bottom:20px; }
+  .app-shell .mobile-nav { border:0; box-shadow:0 -3px 18px rgb(12 55 33 / 5%); }
+  .app-shell .mobile-nav-item.active { border-color:transparent; background:var(--primary-dim); }
+  .app-shell .wallet-budget-controls { align-items:stretch; }
+  .app-shell .wallet-model-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; }
+}
+@media(max-width:600px) {
+  .app-shell .pr-schedule__heading { align-items:stretch; }
+  .app-shell .pr-schedule__heading > button { align-self:flex-start; min-height:38px; font-size:11px; }
+  .app-shell .pr-schedule__heading p { font-size:12px; margin-top:8px; }
+  .app-shell .pr-date-rail__item { flex-basis:88px; min-height:54px; }
+  .app-shell .pr-schedule__controls { grid-template-columns:minmax(0,1fr) 116px; gap:10px; }
+  .app-shell .pr-filter select,.app-shell .pr-filter input { width:100%; min-width:0; font-size:12px; }
+  .app-shell .pr-match-list-row { padding:14px; }
+  .app-shell .matchup-header { padding:16px; border-radius:16px; }
+  .app-shell .matchup-top { align-items:center; }
+  .app-shell .matchup-top p { font-size:11px; }
+  .app-shell .matchup-top .fp-btn { font-size:10px; padding:6px 9px; min-height:36px; }
+  .app-shell .matchup-duel { gap:6px; grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr); padding:20px 0 16px; align-items:start; }
+  .app-shell .matchup-team { align-items:center; text-align:center; }
+  .app-shell .matchup-team > div { grid-template-rows:auto minmax(48px,auto) auto; width:100%; }
+  .app-shell .matchup-team h2 { font-size:20px; margin:5px 0 8px; }
+  .app-shell .matchup-strength { font-size:10px; gap:6px; }
+  .app-shell .matchup-strength > span { padding:0; }
+  .app-shell .matchup-versus { width:20px; height:24px; margin-top:25px; font-size:9px; }
+  .app-shell .pr-detail-tabs { min-width:0; width:100%; margin:14px 0; }
+  .app-shell .pr-detail-tabs button { padding:9px 10px; font-size:12px; }
+  .app-shell .match-model-advice__card { padding:18px; }
+  .app-shell .match-model-advice__card h3 { font-size:20px; }
+  .app-shell .bets-page .bets-toolbar { gap:12px; }
+  .app-shell .bets-page .bm-ftab { padding:9px 13px; min-height:44px; font-size:12px; }
+  .app-shell .bets-page .bets-toolbar__right { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; width:100%; }
+  .app-shell .bets-page .bets-search { grid-column:1/-1; width:100%; }
+  .app-shell .bets-page .bets-date-button { grid-column:1/-1; width:100%; min-width:0; }
+  .app-shell .bets-page .bets-model-filter { min-width:0; }
+  .app-shell .bets-page .bets-model-filter select { width:100%; }
+}
+@media(prefers-reduced-motion:reduce) { .app-shell *, .app-shell *::before { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+
+[data-theme="dark"] .app-shell .nav-item.active,[data-theme="dark"] .app-shell .pr-detail-tabs button[aria-selected=true],
+[data-theme="dark"] .app-shell .bets-page .bm-ftab.active { color:var(--bg); }
+[data-theme="dark"] .app-shell .nav-item.active .nav-meta { color:var(--surface2); }
+.app-shell .wallet-model-tabs > button.is-active { outline:0; }
+.app-shell .wallet-budget-result header p { max-width:60ch; }
+
+.app-shell .pr-date-rail__item { display:flex; flex-direction:column; justify-content:center; align-items:flex-start; height:66px; min-height:66px; flex-basis:112px; font-size:12px; gap:2px; }
+.app-shell .pr-date-rail__item span { font-size:11px; font-weight:500; }
+.app-shell .pr-date-rail__item strong { font-size:13px; font-weight:650; color:var(--text); white-space:nowrap; }
+.app-shell .pr-date-rail__item.active strong { color:#fff; }
+.app-shell .bets-mobile-tabs { display:none; }
+.app-shell .bm-head .fp-section-kicker { display:none; }
+.app-shell .bets-summary dt,.app-shell .bets-summary small { text-transform:none; letter-spacing:0; }
+.app-shell .wallet-baseline-history > .budget-page > .wallet-budget-result { margin-bottom:20px; }
+@media(max-width:600px) {
+  .app-shell .bets-page .bets-date-filter { grid-column:1/-1; width:100%; }
+  .app-shell .pr-date-rail__item { flex-basis:104px; height:60px; min-height:60px; }
+}
+
+.app-shell .nav-item,.app-shell .desktop-tools__item { padding-inline:15px; }
+.app-shell .nav-meta,.app-shell .desktop-tools__item small { white-space:normal; line-height:1.45; }
+.app-shell .bets-model-filter .app-select { min-height:44px; }
+.app-shell .match-model-advice__grid { grid-template-columns:minmax(0,1fr); gap:16px; }
+.app-shell .match-model-advice__card { position:relative; padding:20px 24px; }
+.app-shell .match-model-advice__metrics { display:flex; flex-wrap:wrap; gap:18px 34px; }
+.app-shell .match-model-advice__metrics > div { min-width:112px; }
+.app-shell .model-bet-actions { display:flex; flex-wrap:wrap; align-items:end; gap:10px 18px; }
+.app-shell .model-bet-actions > p,.app-shell .model-bet-actions > [role=status] { flex-basis:100%; margin:4px 0; }
+.app-shell .model-bet-actions__buttons { margin:0; }
+.app-shell .opportunity-quality { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0 14px; font-size:12px; }
+.app-shell .opportunity-quality > span { padding:5px 10px; border-radius:7px; background:var(--surface2); }
+.app-shell .opportunity-quality .confidence-high { color:var(--green); background:var(--green-dim); }
+.app-shell .opportunity-quality .confidence-low,.app-shell .opportunity-quality .confidence-speculative { color:var(--gold); background:var(--gold-dim); }
+.app-shell .opportunity-quality .ev-positive { color:var(--green); background:var(--green-dim); }
+.app-shell .opportunity-alternatives { display:grid; gap:12px; margin-top:24px; }
+.app-shell .opportunity-alternatives > header h2 { margin:0 0 4px; font-size:19px; }
+.app-shell .opportunity-alternatives > header p { color:var(--text-2); font-size:12px; }
+.app-shell .opportunity-alternative { border:0; border-radius:16px; background:var(--surface); padding:20px 24px; }
+.app-shell .opportunity-alternative > header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; }
+.app-shell .opportunity-alternative h3 { margin:0; font-size:18px; }
+.app-shell .opportunity-alternative dl { display:flex; flex-wrap:wrap; gap:22px; font-size:13px; }
+.app-shell .opportunity-alternative dt { color:var(--text-2); font-size:12px; }
+.app-shell .opportunity-alternative dd { margin:4px 0 0; font-weight:650; }
+@media(max-width:600px) {
+ .app-shell .match-model-advice__card,.app-shell .opportunity-alternative { padding:18px; }
+ .app-shell .match-model-advice__metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+ .app-shell .model-bet-actions { align-items:stretch; }
+ .app-shell .model-bet-actions label { width:100%; }
+ .app-shell .model-bet-actions__buttons { width:100%; }
+ .app-shell .model-bet-actions__buttons > button { flex:1 1 auto; }
+}

@@ -1,0 +1,10 @@
+.app-select { display:flex; justify-content:space-between; align-items:center; gap:16px; width:100%; min-height:42px; padding:10px 13px; border:1px solid var(--border); border-radius:11px; background:var(--surface); color:var(--text); font:550 13px var(--font-sans); text-align:left; cursor:pointer; }
+.app-select > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-select > svg { flex-shrink:0; color:var(--text-2); transition:transform .16s; }
+.app-select[aria-expanded=true] { border-color:var(--primary); }
+.app-select[aria-expanded=true] > svg { transform:rotate(180deg); }
+.app-select-menu { z-index:2000; overflow-y:auto; overscroll-behavior:contain; padding:6px; border:1px solid var(--border); border-radius:14px; background:var(--surface); color:var(--text); box-shadow:0 16px 40px rgb(12 39 25 / 16%); font:500 13px var(--font-sans); }
+.app-select-option { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; padding:10px 12px; border-radius:9px; cursor:pointer; }
+.app-select-option.is-focused { background:var(--surface2); }
+.app-select-option[aria-selected=true] { color:var(--primary); background:var(--primary-dim); font-weight:650; }
+@media(prefers-reduced-motion:reduce) { .app-select > svg { transition:none; } }

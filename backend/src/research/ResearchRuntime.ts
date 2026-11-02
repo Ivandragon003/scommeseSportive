@@ -95,9 +95,11 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): L
   return [...groups.values()].flatMap((sheet) => sheet.quotes);
 }
 
-// Verified Understat/provider names from the 2026-10-31 cached EPL/Bundesliga responses.
+// Verified Understat/provider names from the 2026-10-31 and 2026-11-02 cached responses.
 // Keep these aliases local: the app's quote matching and prediction engine remain unchanged.
 const researchTeamAliases = new Map([
+  ['Atalanta', 'Atalanta BC'],
+  ['Parma Calcio 1913', 'Parma'],
   ['Borussia M.Gladbach', 'Borussia Monchengladbach'],
   ['Paderborn', 'SC Paderborn'],
   ['Hull', 'Hull City'],

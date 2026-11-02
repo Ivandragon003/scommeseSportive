@@ -25,6 +25,7 @@ type PreviewOptions = {
 };
 type PreviewSelection = {
   selection: string; selectionLabel?: string; bookmakerOdds: number; bookmakerName: string;
+  confidence?: string; expectedValue?: number; marketTier?: string;
   marketName?: string; ourProbability?: number; suggestedStakePercent: 1;
 };
 export type ChallengerPreview = {
@@ -241,8 +242,12 @@ export class ChallengerPreviewService {
     const quote = quotes.find((entry) => entry.selection === selected.selection && entry.odds === selected.bookmakerOdds
       && (!bookmakerName || entry.bookmaker === bookmakerName));
     if (!quote) return this.response(matchId, 'UNAVAILABLE', 'challenger_recommendation_quote_mismatch', row, state);
+    const diagnostics = selected as unknown as Record<string, unknown>;
     result.quote = clone(quote);
     result.recommendationPacket = { decisionStatus: 'RECOMMENDED', selected: { selection: selected.selection,
+      ...(typeof diagnostics.confidence === 'string' && ['HIGH', 'MEDIUM', 'LOW'].includes(diagnostics.confidence) ? { confidence: diagnostics.confidence } : {}),
+      ...(typeof diagnostics.expectedValue === 'number' && Number.isFinite(diagnostics.expectedValue) ? { expectedValue: diagnostics.expectedValue } : {}),
+      ...(typeof diagnostics.marketTier === 'string' ? { marketTier: diagnostics.marketTier } : {}),
       ...(selectionLabel ? { selectionLabel } : {}), bookmakerOdds: quote.odds,
       bookmakerName: quote.bookmaker, ...(selected.marketName ? { marketName: selected.marketName } : {}),
       ...(typeof selected.ourProbability === 'number' ? { ourProbability: selected.ourProbability } : {}), suggestedStakePercent: 1 } };

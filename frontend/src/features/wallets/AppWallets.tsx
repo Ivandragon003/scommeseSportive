@@ -3,6 +3,7 @@ import { getAppWallets } from '../../utils/walletApi';
 import { opportunityLabel, opportunityMarketLabel } from '../prediction-archive/predictionArchivePresentation';
 import { ComparisonBet, ComparisonPortfolio, ResearchComparison, ResearchComparisonQuery } from '../research/researchComparisonTypes';
 import './wallets.css';
+import { AppSelect } from '../../components/common/AppSelect';
 
 export type WalletModelFilter = 'all' | 'A' | 'C';
 
@@ -75,10 +76,8 @@ export function useAppWalletData(query: ResearchComparisonQuery) {
 }
 
 export function WalletModelPicker({ value, onChange }: { value: WalletModelFilter; onChange: (value: WalletModelFilter) => void }) {
-  return <label className="app-wallet-filter">Modello<select aria-label="Modello" value={value}
-    onChange={(event) => onChange(event.target.value as WalletModelFilter)}>
-    <option value="all">A e C a confronto</option><option value="A">Modello A</option><option value="C">Modello C</option>
-  </select></label>;
+  return <label className="app-wallet-filter">Modello<AppSelect aria-label="Modello" value={value} onChange={next => onChange(next as WalletModelFilter)}
+    options={[{value:'all',label:'A e C a confronto'},{value:'A',label:'Modello A'},{value:'C',label:'Modello C'}]} /></label>;
 }
 
 export function WalletLoadState({ loading, error, refresh }: { loading: boolean; error: string | null; refresh: () => void }) {

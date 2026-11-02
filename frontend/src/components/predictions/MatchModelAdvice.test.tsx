@@ -135,7 +135,7 @@ test('settled does not mean won and a missing registered stake is never fabricat
   expect(await screen.findByText('Liquidata')).toBeTruthy();
   expect(c().queryByText('Vinta')).toBeNull();
   expect(c().queryByText(/^0,00\s€$/)).toBeNull();
-  expect(c().getByText('Non disponibile')).toBeTruthy();
+  expect(c().getByText('Non disponibile', {selector:'dd'})).toBeTruthy();
 });
 
 test('a failed read keeps existing A visible and can retry without any write', async () => {
@@ -205,7 +205,7 @@ test('missing forecast time is not silently replaced by the later archival time'
   get.mockResolvedValueOnce(response([row('C', { forecastAt: null })])); show();
   await screen.findByText('Under 2.5 Goal');
   expect(c().getByText('Valutata il')).toBeTruthy();
-  expect(c().getByText('Non disponibile')).toBeTruthy();
+  expect(c().getByText('Non disponibile', {selector:'dd'})).toBeTruthy();
 });
 
 test('malformed optional quote fields cannot crash the cards or become provenance', async () => {
@@ -220,7 +220,7 @@ test('a new C preview is explicitly nonregistered and leaves the recorded A deci
   post.mockResolvedValueOnce(previewResponse());
   show();
   expect(await screen.findByText('Over 3.5 Goal')).toBeTruthy();
-  expect(c().getByText('Anteprima C · non registrata')).toBeTruthy();
+  expect(c().getByText('Valutazione C · nessuna puntata automatica')).toBeTruthy();
   expect(c().getByText('Bookmaker anteprima')).toBeTruthy();
   expect(c().getByText('2,70')).toBeTruthy();
   expect(c().getByText('Nessuna puntata registrata.')).toBeTruthy();
@@ -236,7 +236,7 @@ test('an archived C abstention always has priority and never starts preview infe
     recommendationPacket: { selected: null, decisionStatus: 'NO_BET' } })]));
   show(); await screen.findByText('Nessuna giocata consigliata');
   expect(post).not.toHaveBeenCalled();
-  expect(c().queryByText('Anteprima C · non registrata')).toBeNull();
+  expect(c().queryByText('Valutazione C · nessuna puntata automatica')).toBeNull();
 });
 
 test('an unreadable or malformed C archive never falls back to a preview', async () => {
@@ -284,7 +284,7 @@ test('a Nightly decision created during preview is re-read once and replaces the
   expect(get).toHaveBeenCalledTimes(2);
   expect(post).toHaveBeenCalledTimes(1);
   expect(c().getByText('Decisione Nightly archiviata')).toBeTruthy();
-  expect(c().queryByText('Anteprima C · non registrata')).toBeNull();
+  expect(c().queryByText('Valutazione C · nessuna puntata automatica')).toBeNull();
 });
 
 test('an unreadable newly archived decision does not start an inference loop', async () => {

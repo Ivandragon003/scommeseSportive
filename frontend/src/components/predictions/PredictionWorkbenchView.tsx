@@ -1,8 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { AppSelect } from '../common/AppSelect';
+import { ArrowLeft } from 'lucide-react';
 import MatchModelAdvice from './MatchModelAdvice';
 import SportingAnalysis from './SportingAnalysis';
+import MatchupHeader from './MatchupHeader';
+import MatchQuoteRequest from './MatchQuoteRequest';
 import ModelBetActions from './ModelBetActions';
+import OpportunityQuality from './OpportunityQuality';
 import SavedModelOpportunities from './SavedModelOpportunities';
 import { fmtSelection } from './predictionFormatting';
 import { currentSeason, dateToDayKey, formatKickoff } from './predictionWorkbenchUtils';
@@ -696,7 +700,7 @@ const S = `
 .pr-match-list__team:last-child { text-align:right; }
 .pr-match-list__versus { align-self:center; color:var(--text-3); font-family:var(--font-mono); font-size:10px; }
 .pr-match-list__action { grid-column:1; grid-row:3; align-self:end; text-align:left; color:var(--primary); font-size:11px; }
-.pr-match-list__action::before { content:'Analisi'; display:inline-flex; margin-right:6px; padding:2px 5px; border:1px solid var(--primary-border); border-radius:4px; background:var(--primary-dim); color:var(--primary); font-family:var(--font-mono); font-size:8px; letter-spacing:.06em; text-transform:uppercase; }
+.pr-match-list__action::before { content:none; display:inline-flex; margin-right:6px; padding:2px 5px; border:1px solid var(--primary-border); border-radius:4px; background:var(--primary-dim); color:var(--primary); font-family:var(--font-mono); font-size:8px; letter-spacing:.06em; text-transform:uppercase; }
 .pr-match-list__pick {
   grid-column:1/-1;
   grid-row:4;
@@ -857,6 +861,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const pred = String(analysis.pred?.matchId ?? '') === matchId ? analysis.pred : null;
   const choice = pred ? vm.finalRecommendedChoice : null;
   const automatic = pred?.automaticRecommendation;
+  const registeredFamilies = (['A', 'C'] as const).filter(family => vm.userBudget.walletBets.some(bet => bet.matchId === matchId && bet.portfolioId === `shadow_${family}`));
   const choiceBookmaker = String(choice?.bookmakerName ?? analysis.bookmakerBySelection[choice?.selection ?? ''] ?? pred?.canonicalRecommendation?.odds?.bookmakerBySelection?.[choice?.selection ?? ''] ?? '').trim();
   const realQuote = !!choice && Number(choice.bookmakerOdds) > 1 && !!choiceBookmaker
     && (automatic ? !!automatic.odds && !/synthetic|model|estimated/i.test(String(automatic.odds.source ?? '')) : pred?.oddsSource === 'odds_api');
@@ -876,7 +881,8 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       <p role={analysis.loading ? 'status' : 'alert'}>{analysis.loading ? 'La prima analisi può richiedere qualche minuto.' : completed ? 'Nessun consiglio pre-partita archiviato disponibile.' : started ? 'Consiglio non disponibile per una partita già iniziata. Risultato in attesa di aggiornamento.' : 'Non è stato possibile completare l’analisi. Puoi riprovare.'}</p>
       {!analysis.loading && !started && !completed && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh}>Riprova analisi A</button>}
     </> : <>
-      <h3>{choice && realQuote ? choice.selectionLabel || fmtSelection(choice.selection) : 'Nessuna giocata consigliata'}</h3>
+      <h3>{choice && realQuote ? choice.selectionLabel || fmtSelection(choice.selection) : pred.oddsSource !== 'odds_api' ? 'Servono quote reali per verificare A' : 'Nessuna giocata consigliata'}</h3>
+      {choice && realQuote && <OpportunityQuality opportunity={choice} />}
       {choice && realQuote ? <dl className="match-model-advice__metrics">
         <div><dt>Quota bookmaker</dt><dd data-testid="best-value-metric-quota-bookmaker">{Number(choice.bookmakerOdds).toFixed(2)}</dd></div>
         <div><dt>Bookmaker</dt><dd>{choiceBookmaker}</dd></div>
@@ -899,13 +905,13 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       <header className="pr-schedule__heading"><div><h1>Partite</h1><p>Apri una partita per consultare i grafici sportivi e le migliori giocate A e C.</p></div>
         <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={upcomingLoading} onClick={() => void selection.refreshVisibleMatches(true)}>Aggiorna calendario</button></header>
       <div className="pr-schedule__controls"><div className="pr-filter"><label htmlFor="pr-competition-filter">Campionato</label>
-        <select id="pr-competition-filter" value={competition} onChange={event => { setSelectedDayKey(null); selection.setCompetition(event.target.value); }}><option value="">Tutti i campionati</option>{comps.map(item => <option key={item}>{item}</option>)}</select></div>
+        <AppSelect id="pr-competition-filter" aria-label="Campionato" value={competition} onChange={value => { setSelectedDayKey(null); selection.setCompetition(value); }} options={[{value:'',label:'Tutti i campionati'}, ...comps.map(item => ({value:item,label:item}))]} /></div>
         <div className="pr-filter pr-filter--season"><label htmlFor="pr-season-filter">Stagione</label><input id="pr-season-filter" value={season} onChange={event => { setSelectedDayKey(null); selection.setSeason(event.target.value); }} placeholder={currentSeason()} /></div></div>
       <div className="pr-schedule__tabs" role="tablist" aria-label="Tipo partite">{([['upcoming', 'In programma'], ['recent', 'Concluse']] as const).map(([mode, label]) => <button key={mode} type="button" role="tab" aria-selected={matchMode === mode} className={`pr-mode-tab${matchMode === mode ? ' active' : ''}`} onClick={() => { setSelectedDayKey(null); selection.setMatchMode(mode); }}>{label}</button>)}</div>
       {selection.autoSyncMsg && <p role="status" className="pr-status-line">{selection.autoSyncMsg}</p>}
       {!upcomingLoading && grouped.length > 0 && <div className="pr-date-rail" role="toolbar" aria-label="Filtra partite per data">
         <button type="button" className={`pr-date-rail__item${selectedDay === 'all' ? ' active' : ''}`} aria-pressed={selectedDay === 'all'} onClick={() => setSelectedDayKey('all')}>Tutte</button>
-        {railGroups.map(group => <button type="button" key={group.key} className={`pr-date-rail__item${selectedDay === group.key ? ' active' : ''}`} aria-pressed={selectedDay === group.key} aria-label={`${group.label}, ${group.matches.length} match`} onClick={() => setSelectedDayKey(group.key)}>{group.label}</button>)}</div>}
+        {railGroups.map(group => <button type="button" key={group.key} className={`pr-date-rail__item${selectedDay === group.key ? ' active' : ''}`} aria-pressed={selectedDay === group.key} aria-label={`${group.label}, ${group.matches.length} match`} onClick={() => setSelectedDayKey(group.key)}><span>{group.label.split(' ')[0].slice(0, 3)}</span><strong>{group.label.split(' ').slice(1).join(' ')}</strong></button>)}</div>}
       <section className="pr-match-list" aria-label={matchMode === 'recent' ? 'Partite concluse' : 'Partite in programma'} aria-busy={upcomingLoading}>
         {upcomingLoading ? <p role="status">Caricamento partite…</p> : grouped.length === 0 ? <div className="pr-list-state"><strong>Nessuna partita trovata</strong><p>Modifica campionato o stagione.</p></div> : (selectedDay === 'all' ? grouped : grouped.filter(group => group.key === selectedDay)).map(group => <section className="pr-day-group" key={group.key}><div className="pr-day-heading">{group.label}</div>{group.matches.map((match: any) => {
           const played = match.home_goals != null && match.away_goals != null;
@@ -913,24 +919,31 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
           return <button type="button" key={match.match_id} className="pr-match-list-row" aria-label={`${match.home_team_name ?? match.home_team_id} vs ${match.away_team_name ?? match.away_team_id}, ${formatKickoff(match.date)}. Vedi analisi`} onClick={() => open(match)}>
             <span className="pr-match-list__time">{formatKickoff(match.date).split(',')[1]?.trim() ?? '—'}</span>
             <span className="pr-match-list__teams"><span className="pr-match-list__team">{match.home_team_name ?? match.home_team_id}{played && <b>{match.home_goals}</b>}</span><span className="pr-match-list__versus">vs</span><span className="pr-match-list__team">{match.away_team_name ?? match.away_team_id}{played && <b>{match.away_goals}</b>}</span></span>
-            <span className="pr-match-list__meta">{match.competition ?? competition}</span><span className="pr-match-list__action">Analisi e giocate</span><span className="pr-match-list__pick"><strong>{played ? 'Conclusa' : pending ? 'Risultato in attesa' : 'In programma'}</strong></span><ChevronRight size={18} aria-hidden="true" />
+            <span className="pr-match-list__meta">{match.competition ?? competition}</span><span className="pr-match-list__action">Apri partita</span><span className="pr-match-list__pick"><strong>{played ? 'Conclusa' : pending ? 'Risultato in attesa' : 'In programma'}</strong></span>
           </button>;
         })}</section>)}
       </section>
     </section> : <>
       <div className="pr-detail-nav"><button type="button" className="pr-back-button" onClick={back}><ArrowLeft size={18} aria-hidden="true" />Tutte le partite</button></div>
-      <div className="pr-right"><div className="pr-results-head"><div><h1 className="pr-results-match">{activeMatchRow?.home_team_name ?? pred?.homeTeam} vs {activeMatchRow?.away_team_name ?? pred?.awayTeam}</h1><p className="pr-results-meta">{activeMatchRow?.competition ?? competition} · {formatKickoff(activeMatchRow?.date)}{actualScore ? ` · Risultato finale ${actualScore}` : started ? ' · Risultato in attesa' : ''}</p></div>
-        <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh} disabled={analysis.loading}>Aggiorna consigli</button></div>
+      <div className="pr-right"><MatchupHeader match={activeMatchRow} prediction={pred} teams={selection.teams}
+        meta={`${activeMatchRow?.competition ?? competition} · ${formatKickoff(activeMatchRow?.date)}${actualScore ? ` · Risultato finale ${actualScore}` : started ? ' · Risultato in attesa' : ''}`}
+        onRefresh={vm.handleRefresh} loading={analysis.loading} />
         <div className="pr-detail-tabs" role="tablist" aria-label="Contenuto della partita">
           <button type="button" role="tab" aria-selected={detailView === 'sporting'} onClick={() => setDetailView('sporting')}>Analisi sportiva</button>
           <button type="button" role="tab" aria-selected={detailView === 'bets'} onClick={() => setDetailView('bets')}>Giocate A e C</button>
         </div>
-        {detailView === 'sporting' ? <SportingAnalysis prediction={pred} teams={selection.teams} match={activeMatchRow} loading={analysis.loading} /> : <section aria-label="Migliori giocate per modello"><p>Una selezione per modello, con quote reali già disponibili. Consultare i grafici non richiede nuove quote.</p>
-        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} kickoffAt={activeMatchRow?.date} finished={completed} renderActions={renderActions} />
-        {vm.manualArchiveOpportunities.map((opportunity) => <section key={opportunity.selection} className="pr-card"><header className="pr-card-head"><h2>Modello A · opportunità da valutare</h2></header>
-          <div className="pr-card-body"><h3>{opportunity.selectionLabel || fmtSelection(opportunity.selection)}</h3>
-          <p>Confidenza bassa o selezione speculativa. Questa non sostituisce la giocata principale del modello.</p>
-          {renderActions('A', opportunity)}</div></section>)}
+        {detailView === 'sporting' ? <SportingAnalysis prediction={pred} teams={selection.teams} match={activeMatchRow} loading={analysis.loading} /> : <section aria-label="Migliori giocate per modello"><p>Le migliori selezioni A e C vengono verificate con quote reali. Se mancano, i grafici restano disponibili ma la giocata non è verificabile.</p>
+        {!started && !completed && activeMatchRow && <MatchQuoteRequest key={matchId} match={activeMatchRow} onLoaded={vm.handleRefresh} ready={!analysis.loading} hasQuotes={Object.keys(analysis.odds).length > 0 && Date.now() - Date.parse(pred?.oddsCapturedAt ?? '') <= 5 * 60_000} />}
+        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} registeredFamilies={registeredFamilies} kickoffAt={activeMatchRow?.date} finished={completed} renderActions={renderActions} />
+        {vm.manualArchiveOpportunities.length > 0 && <section className="opportunity-alternatives" aria-label="Altre opportunità modello A">
+          <header><h2>Altre opportunità A</h2><p>Selezioni con EV positivo e opportunità LOW o speculative da valutare. Puoi scegliere una giocata per modello e partita, oppure archiviare senza puntare.</p></header>
+          {vm.manualArchiveOpportunities.map(opportunity => <article key={opportunity.selection} className="opportunity-alternative">
+            <header><h3>{opportunity.selectionLabel || fmtSelection(opportunity.selection)}</h3><span>Modello A</span></header>
+            <OpportunityQuality opportunity={opportunity} />
+            <dl><div><dt>Quota reale</dt><dd>{Number(opportunity.bookmakerOdds).toFixed(2)}</dd></div><div><dt>Bookmaker</dt><dd>{opportunity.bookmakerName}</dd></div><div><dt>Mercato</dt><dd>{opportunity.marketName}</dd></div></dl>
+            {renderActions('A', opportunity)}
+          </article>)}
+        </section>}
         <SavedModelOpportunities matchId={matchId} />
         </section>}
         <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Dati della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>

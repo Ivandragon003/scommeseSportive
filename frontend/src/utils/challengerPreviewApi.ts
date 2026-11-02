@@ -17,6 +17,7 @@ export interface ChallengerPreview {
     selected: {
       selection: string;
       selectionLabel?: string;
+      confidence?: string; expectedValue?: number; marketTier?: string;
       bookmakerOdds?: number;
       bookmakerName?: string;
     } | null;
@@ -92,6 +93,9 @@ export function validateChallengerPreview(value: unknown, matchId: string, now =
   return { ...preview, recommendationPacket: { decisionStatus: 'RECOMMENDED', selected: {
     selection: selected.selection, ...(selected.selectionLabel ? { selectionLabel: selected.selectionLabel } : {}),
     bookmakerOdds: quote.odds, bookmakerName: quote.bookmaker,
+    ...(typeof selected.confidence === 'string' && ['HIGH', 'MEDIUM', 'LOW'].includes(selected.confidence) ? { confidence: selected.confidence } : {}),
+    ...(typeof selected.expectedValue === 'number' && Number.isFinite(selected.expectedValue) ? { expectedValue: selected.expectedValue } : {}),
+    ...(typeof selected.marketTier === 'string' ? { marketTier: selected.marketTier } : {}),
   } }, quote: { selection: quote.selection, odds: quote.odds, bookmaker: quote.bookmaker, source: 'odds_api',
     capturedAt: quote.capturedAt, updatedAt: quote.updatedAt, priceType: 'prematch' } };
 }

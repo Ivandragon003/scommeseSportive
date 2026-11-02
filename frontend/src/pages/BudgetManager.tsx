@@ -15,12 +15,13 @@ import { WalletBudgetPage } from '../features/wallets/WalletPages';
 interface BudgetManagerProps {
   activeUser: string;
   readOnly?: boolean;
+  embedded?: boolean;
 }
 
 const toAmount = (value: unknown) => Number(value ?? 0);
 const formatMoney = (value: unknown) => `EUR ${Number(value ?? 0).toFixed(2)}`;
 
-export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, readOnly = false }) => {
+export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, readOnly = false, embedded = false }) => {
   const [initAmount, setInitAmount] = useState('1000');
   const [showReset, setShowReset] = useState(false);
   const toastState = useToastState();
@@ -92,16 +93,17 @@ export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, 
     }
   }, [budget?.total_budget]);
 
+  const Content = embedded ? 'section' : 'main';
   return (
     <>
-      <main className="bm-wrap budget-page">
-        <header className="bm-head">
+      <Content className={embedded ? "budget-page budget-baseline-embedded" : "bm-wrap budget-page"}>
+        {!embedded && <header className="bm-head">
           <div>
             <h1 className="bm-title">{readOnly ? 'Budget precedente' : 'Budget'}</h1>
             <p className="bm-sub">{readOnly ? 'Riepilogo della gestione precedente, conservato in sola lettura.' : 'Gestisci il tuo bankroll e monitora i risultati nel tempo.'}</p>
           </div>
           <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
-        </header>
+        </header>}
 
         {loading ? (
           <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento budget"><span /><span /><span /></div>
@@ -138,6 +140,11 @@ export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, 
               </div>
             </dl>
 
+            {embedded && <section className="wallet-budget-result" aria-label="Risultati baseline deterministica">
+              <header><h2>Risultati della baseline deterministica</h2><p>Comprende tutte le giocate dello storico precedente, con i risultati registrati.</p></header>
+              <dl className="app-wallet-period-metrics"><div><dt>Giocate concluse</dt><dd>{settledBets.length}</dd></div>
+                <div><dt>Vinte</dt><dd>{winsCount}</dd></div><div><dt>Perse</dt><dd>{lossesCount}</dd></div><div><dt>Annullate</dt><dd>{voidCount}</dd></div></dl>
+            </section>}
             <div className="budget-workspace">
               <BankrollTrendChart initialBudget={totalBudget} settledBets={settledBets} />
 
@@ -172,13 +179,13 @@ export const LegacyBudgetManager: React.FC<BudgetManagerProps> = ({ activeUser, 
             </section>}
           </>
         )}
-      </main>
+      </Content>
       <ToastStack toasts={toastState.toasts} onDismiss={toastState.dismissToast} />
       <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 };
 
-const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => <WalletBudgetPage legacy={<LegacyBudgetManager activeUser={activeUser} readOnly />} />;
+const BudgetManager: React.FC<BudgetManagerProps> = ({ activeUser }) => <WalletBudgetPage activeUser={activeUser} />;
 
 export default BudgetManager;

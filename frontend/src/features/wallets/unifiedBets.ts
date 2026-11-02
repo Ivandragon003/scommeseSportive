@@ -13,7 +13,7 @@ export const betModelLabel = (bet: any): string => {
 
 // Adapt display fields only. Original ledgers, stakes and outcomes are untouched.
 export const unifiedBetRows = (legacy: any[], current: ComparisonBet[]): any[] => [
-  ...legacy.map((bet) => ({ ...bet, bet_id: `baseline:${bet.bet_id}` })),
+  ...legacy.map((bet) => ({ ...bet, family: 'A', historical: true, bet_id: `baseline:${bet.bet_id}` })),
   ...current.map((bet) => {
     const [home, away] = (bet.matchLabel || '').split(/\s+[–—-]\s+/);
     return {

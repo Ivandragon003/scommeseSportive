@@ -173,6 +173,9 @@ export function useOddsForMatch() {
       );
     }
 
+    if (finalPrediction && hasVerifiedRealBookmakerOdds) {
+      finalPrediction = { ...finalPrediction, oddsCapturedAt: payload.fetchedAt ?? null };
+    }
     return {
       finalPred: finalPrediction,
       appliedOdds,

@@ -154,7 +154,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const legacy = useBudgetManagerData(activeUser, { readOnly });
   const [model, setModel] = useState<BetModel>(() => {
     const value = new URLSearchParams(window.location.search).get('model');
-    return value === 'A' || value === 'C' || value === 'baseline' ? value : 'all';
+    return value === 'baseline' ? 'A' : value === 'A' || value === 'C' ? value : 'all';
   });
   const merged = useMemo(() => wallet ? unifiedBetRows(legacy.bets, wallet.data?.bets.rows || []) : legacy.bets, [wallet, legacy.bets]);
   const bets = merged.filter((bet) => model === 'all' || betModel(bet) === model);
@@ -310,7 +310,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
               ))}
             </div>
             <div className="bets-toolbar__right">
-              {wallet && <label className="bets-model-filter"><span>Modello</span><AppSelect aria-label="Modello" value={model} onChange={(value) => { setModel(value as BetModel); setExpandedId(null); }} options={[{value:'all',label:'Tutti i modelli'},{value:'baseline',label:'Baseline deterministica'},{value:'A',label:'Modello A'},{value:'C',label:'Modello C'}]} /></label>}
+              {wallet && <label className="bets-model-filter"><span>Modello</span><AppSelect aria-label="Modello" value={model} onChange={(value) => { setModel(value as BetModel); setExpandedId(null); }} options={[{value:'all',label:'Tutti i modelli'},{value:'A',label:'Modello A'},{value:'C',label:'Modello C'}]} /></label>}
               {wallet && <button type="button" className="fp-btn fp-btn-ghost bets-refresh" aria-label="Aggiorna giocate" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna giocate</span></button>}
               <label className="bets-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Cerca una giocata</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cerca per partita o competizione" /></label>
               <div className="bets-date-filter">

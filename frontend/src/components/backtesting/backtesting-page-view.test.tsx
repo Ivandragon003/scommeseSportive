@@ -1,3 +1,4 @@
+import { selectOption } from '../../testSelect';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import BacktestingPageView from './BacktestingPageView';
 import * as api from '../../utils/api';
@@ -181,8 +182,10 @@ describe('BacktestingPageView', () => {
     await waitFor(() => expect(mockedApi.getBacktestResults).toHaveBeenCalledTimes(1));
 
     expect(screen.getByLabelText(/Filtro affidabilità/i)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Filtro affidabilità/i));
     expect(screen.getByRole('option', { name: 'Alta e media' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Solo alta' })).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText(/Filtro affidabilità/i), {key:'Escape'});
     expect(screen.getByLabelText(/Partite iniziali di addestramento/i)).toBeTruthy();
     expect(screen.getByLabelText(/Partite per finestra di test/i)).toBeTruthy();
     expect(screen.getByLabelText(/Passo tra finestre/i)).toBeTruthy();
@@ -230,8 +233,8 @@ describe('BacktestingPageView', () => {
 
     const marketSelect = screen.getByLabelText(/^Mercato$/i) as HTMLSelectElement;
     const sourceSelect = screen.getByLabelText(/Sorgente quote/i) as HTMLSelectElement;
-    fireEvent.change(marketSelect, { target: { value: 'Totali Goal' } });
-    fireEvent.change(sourceSelect, { target: { value: 'odds_api' } });
+    selectOption(marketSelect, 'Totali Goal');
+    selectOption(sourceSelect, 'odds_api');
 
     await waitFor(() => expect(marketSelect.value).toBe('Totali Goal'));
     await waitFor(() => expect(sourceSelect.value).toBe('odds_api'));
@@ -280,7 +283,7 @@ describe('BacktestingPageView', () => {
     fireEvent.click(saveIndividualRuns);
     expect(saveIndividualRuns.checked).toBe(true);
 
-    fireEvent.change(competitionSelect, { target: { value: 'TOP_5' } });
+    selectOption(competitionSelect, 'TOP_5');
     expect(screen.getByText(/Il walk-forward Top 5 può richiedere alcuni minuti/i)).toBeTruthy();
     expect(screen.queryByText(/Ottimizzazione pesi \+ Top 5 può essere molto lenta/i)).toBeNull();
 

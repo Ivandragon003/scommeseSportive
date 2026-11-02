@@ -13,7 +13,7 @@ import { createFootballDataHistoryStore } from '../services/FootballDataHistoryC
 import { PredictionService } from '../services/PredictionService';
 import { PredictionJobBusyError, PredictionJobService } from '../services/PredictionJobService';
 import { DatabaseService, MatchBatchCommitError } from '../db/DatabaseService';
-import { OddsApiService, OddsMatch } from '../services/OddsApiService';
+import { OddsApiService, OddsMatch, OddsApiRequestOptions } from '../services/OddsApiService';
 import { CoordinatedOddsMatch } from '../services/odds-provider/OddsProviderCoordinator';
 import { providerPolicySkipReason } from '../services/odds-provider/OddsProvider';
 import { forecastRemainingNightlyOddsDemand } from '../services/odds-provider/OddsDemandSimulation';
@@ -79,7 +79,7 @@ export type ApiRouterDependencies = {
   operationalStatus?: () => ReturnType<typeof buildOperationalStatus>;
   observability?: SystemObservabilityService;
   sharedDataUserId?: string;
-  createOddsProviderCoordinatorBundle?: () => OddsProviderCoordinatorBundle;
+  createOddsProviderCoordinatorBundle?: (options?: OddsApiRequestOptions) => OddsProviderCoordinatorBundle;
   createOddsApiKickoffSyncService?: (db: DatabaseService) => Pick<
     OddsApiKickoffSyncService,
     'syncUpcomingKickoffsFromOddsApi' | 'syncSingleMatchKickoffFromOddsApi'
@@ -493,10 +493,11 @@ const predictionJobs = deps.predictionJobs ?? new PredictionJobService();
 let challengerPreview = deps.challengerPreview;
 let resultsMaintenance = deps.resultsMaintenance;
 const observability = deps.observability;
-const createOddsBundle = (operation = 'dashboard'): OddsProviderCoordinatorBundle => deps.createOddsProviderCoordinatorBundle
-  ? deps.createOddsProviderCoordinatorBundle()
-  : createOddsProviderCoordinatorBundle({ store: db.oddsRequests, operation, priority: 'informational',
-    allowNetwork: process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED === 'true', cacheMaxAgeMs: 30 * 60_000 });
+const createOddsBundle = (operation = 'dashboard', explicitNetwork = false): OddsProviderCoordinatorBundle => {
+  const options: OddsApiRequestOptions = { store: db.oddsRequests, operation, priority: 'informational',
+    allowNetwork: explicitNetwork || process.env.ODDS_INFORMATIONAL_NETWORK_ENABLED === 'true', cacheMaxAgeMs: explicitNetwork ? 5 * 60_000 : 30 * 60_000 };
+  return (deps.createOddsProviderCoordinatorBundle ?? createOddsProviderCoordinatorBundle)(options);
+};
 const createKickoffSyncService = deps.createOddsApiKickoffSyncService
   ?? ((database: DatabaseService) => new OddsApiKickoffSyncService(database));
 const heavyJobService = deps.heavyJobService ?? new HeavyJobService();
@@ -3934,8 +3935,10 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       awayTeam: String(awayTeam),
       commenceTime: commenceTime ? String(commenceTime) : null,
     });
+    const freshQuotesRequested = req.body?.requestNetwork === true && req.body?.cacheOnly === false;
     const cachedPayload = getCachedMatchOddsPayload(cacheKey);
-    if (cachedPayload) {
+    const cachedAge = Date.now() - Date.parse(String(cachedPayload?.fetchedAt ?? ''));
+    if (cachedPayload && (!freshQuotesRequested || (cachedAge >= 0 && cachedAge <= 5 * 60_000))) {
       observability?.log('info', 'odds_match_cache_hit', {
         requestId,
         runId,
@@ -3975,7 +3978,8 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       && Object.keys(snapshotAnalysisBundle.odds).length > 0
       && hasCurrentMatchMarketCoverage(latestSnapshot.marketsRequested)
       && Number.isFinite(snapshotCapturedAt)
-      && Date.now() - snapshotCapturedAt <= getReusableOddsSnapshotMaxAgeMs();
+      && Date.now() - snapshotCapturedAt >= 0
+      && Date.now() - snapshotCapturedAt <= (freshQuotesRequested ? 5 * 60_000 : getReusableOddsSnapshotMaxAgeMs());
     if (snapshotUsable) {
       const snapshotPayload = {
         found: true,
@@ -4034,7 +4038,7 @@ router.post('/scraper/odds/match', async (req: Request, res: Response) => {
       return res.json({ success: true, data: sharedPayload });
     }
 
-    const oddsBundle = createOddsBundle();
+    const oddsBundle = createOddsBundle('dashboard', req.body?.requestNetwork === true && req.body?.cacheOnly === false);
     const matchTimeoutMs = getMatchOddsRouteTimeoutMs();
     if (oddsBundle.primaryProviderName === 'odds_api' && !oddsBundle.apiKey) {
       return res.status(503).json({

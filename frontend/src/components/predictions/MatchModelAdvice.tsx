@@ -1,3 +1,4 @@
+import OpportunityQuality from './OpportunityQuality';
 import React, { useEffect } from 'react';
 import { dateTime, decisionReason, money, stateLabel } from '../../features/research/researchPresentation';
 import { AdviceFamily, RecordedModelAdvice } from '../../utils/matchModelAdviceApi';
@@ -8,6 +9,7 @@ import './matchModelAdvice.css';
 import type { BestValueOpportunity } from './predictionTypes';
 
 interface MatchModelAdviceProps {
+  registeredFamilies?: Array<'A' | 'C'>;
   matchId: string;
   fallbackA: React.ReactNode;
   refreshKey?: number;
@@ -60,6 +62,7 @@ function RecordedAdvice({ decision, renderActions }: { decision: RecordedModelAd
     <p className="match-model-advice__origin">Decisione Nightly archiviata</p>
     <h3>{validSelection ? selected.selectionLabel || fmtSelection(selected.selection)
       : technical || selected ? 'Valutazione non utilizzabile' : 'Nessuna giocata consigliata'}</h3>
+    {validSelection && selected && <OpportunityQuality opportunity={selected} />}
     {validSelection && blockedExecution && <p>Il modello ha consigliato questa giocata, ma non è stata registrata.</p>}
     {decision.reason && <p>{reasonLabel(decision.reason)}</p>}
     {technical && !decision.reason && <p>La valutazione non è stata completata o non ha superato i controlli.</p>}
@@ -79,7 +82,7 @@ function RecordedAdvice({ decision, renderActions }: { decision: RecordedModelAd
   </>;
 }
 
-export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false, coordinator: controlled, renderActions }: MatchModelAdviceProps) {
+export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, onRecordedA, kickoffAt, finished = false, coordinator: controlled, renderActions, registeredFamilies = [] }: MatchModelAdviceProps) {
   const internal = useMatchModelAdvice();
   const coordinator = controlled ?? internal;
   const { prepare, cancel } = internal;
@@ -102,7 +105,7 @@ export default function MatchModelAdvice({ matchId, fallbackA, refreshKey = 0, o
     return <section key={family} className="match-model-advice__card" aria-label={`Consiglio modello ${family}`}>
       <h2>Modello {family}</h2>
       {decision ? <RecordedAdvice decision={decision} renderActions={renderActions} /> : current.loading ? <p role="status">Caricamento del consiglio Nightly {family}…</p>
-        : error ? <p role="alert">{error}</p> : <ChallengerPreviewCard preview={current.preview} loading={current.previewLoading}
+        : error ? <p role="alert">{error}</p> : <ChallengerPreviewCard registered={registeredFamilies.includes('C')} preview={current.preview} loading={current.previewLoading}
           error={current.previewError} ineligible={current.ineligible} onRetry={() => coordinator.retry()}
           actions={current.preview?.status === 'RECOMMENDED' && current.preview.quote && current.preview.recommendationPacket?.selected
             ? renderActions?.('C', { ...current.preview.recommendationPacket.selected, marketName: 'Selezione del modello C',

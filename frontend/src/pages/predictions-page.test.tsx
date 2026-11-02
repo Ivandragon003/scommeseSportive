@@ -1,3 +1,4 @@
+import { selectOption } from '../testSelect';
 import { getManualModelOpportunities } from '../utils/modelBetActionsApi';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Predictions from './Predictions';
@@ -209,7 +210,7 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
       quote: { selection: 'under25', odds: 2.4, bookmaker: 'Book C', source: 'odds_api', priceType: 'prematch', capturedAt: '2026-05-23T08:00:00Z', updatedAt: '2026-05-23T08:00:00Z' }, suggestedStakePercent: 1, registered: false }));
     await screen.findByText('Under 2.5 Goal'); await waitFor(() => expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/prima analisi può richiedere/)).toBeTruthy();
-    expect(screen.queryByText(/C906|hash-secret|Algoritmo|Checklist|EV >|Confidenza/)).toBeNull();
+    expect(screen.queryByText(/C906|hash-secret|Algoritmo|Checklist|EV >/)).toBeNull();
     expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
   test.each(['NO_BET', 'UNAVAILABLE', 'reject'])('C %s releases A without retries or registration', async status => {
@@ -226,7 +227,8 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Consiglio modello A' }).textContent).toContain('Over 2.5 Goal'));
     const a = within(screen.getByRole('region', { name: 'Consiglio modello A' }));
     expect(a.getByText('Pinnacle')).toBeTruthy(); expect(a.getByText('2.10')).toBeTruthy(); expect(a.getByText('2.5%')).toBeTruthy();
-    expect(a.queryByText(/EV|Edge|CORE|Alta|Probabilità stimata|Kelly|Affidabilità/)).toBeNull();
+    expect(a.queryByText(/Edge|CORE|Probabilità stimata|Kelly|Affidabilità/)).toBeNull();
+    expect(a.getByText('HIGH · Alta')).toBeTruthy(); expect(a.getByText('+7.20%')).toBeTruthy();
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1); expect(mockedApi.placeBet).not.toHaveBeenCalled();
   });
   test('archived C always wins and prevents preview, including a live A failure', async () => {
@@ -291,7 +293,7 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
     render(<Predictions activeUser="test-user" />); const toolbar = await screen.findByRole('toolbar', { name: 'Filtra partite per data' });
     fireEvent.click(within(toolbar).getAllByRole('button')[1]); expect(screen.queryByRole('button', { name: /Napoli vs Roma/ })).toBeNull();
-    fireEvent.change(screen.getByLabelText('Campionato'), { target: { value: '' } });
+    selectOption(screen.getByLabelText('Campionato'), '');
     expect((await screen.findByRole('button', { name: 'Tutte' })).getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
     await screen.findByRole('button', { name: /Napoli vs Roma/ });
@@ -372,7 +374,7 @@ test('opening a match starts on sporting charts with a separate betting section 
   await screen.findByRole('region', { name: 'Grafici gol' });
   expect(screen.getByRole('tab', { name: 'Analisi sportiva' }).getAttribute('aria-selected')).toBe('true');
   expect(screen.getByRole('region', { name: 'Grafici tiri' })).toBeTruthy();
-  expect(screen.getByText(/Indici di forza non disponibili/)).toBeTruthy();
+  expect(within(screen.getByLabelText('Forza Inter')).getAllByText('—')).toHaveLength(2);
   expect(screen.queryByRole('region', { name: 'Migliori giocate per modello' })).toBeNull();
   expect(mockedApi.getOddsForMatch).toHaveBeenCalledWith(expect.objectContaining({ cacheOnly: true }), expect.anything());
   expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
@@ -380,4 +382,22 @@ test('opening a match starts on sporting charts with a separate betting section 
   expect(screen.getByRole('region', { name: 'Migliori giocate per modello' })).toBeTruthy();
   expect(mockedApi.getOddsForMatch).toHaveBeenCalledTimes(1);
   expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1);
+});
+
+
+test('restores multiple positive-EV A alternatives with confidence and LOW archive actions', async () => {
+  const alternatives = [
+    { ...valueOpportunity, selection:'homeWin',selectionLabel:'Inter vincente',bookmakerName:'Pinnacle',bookmakerOdds:2.2,confidence:'MEDIUM',expectedValue:5 },
+    { ...valueOpportunity, selection:'under35',selectionLabel:'Under 3.5 Goal',bookmakerName:'Pinnacle',bookmakerOdds:1.7,confidence:'LOW',expectedValue:3 },
+  ];
+  mockedApi.getOddsForMatch.mockResolvedValue({data:{found:true,source:'odds_api',selectedBookmakerName:'Pinnacle',fetchedAt:'2026-05-23T08:00:00Z',
+    analysisOdds:{over25:2.1,homeWin:2.2,under35:1.7},bookmakerBySelection:{over25:'Pinnacle',homeWin:'Pinnacle',under35:'Pinnacle'}}} as any);
+  mockedApi.getPrediction.mockResolvedValue({data:buildPrediction({valueOpportunities:[valueOpportunity,...alternatives],canonicalRecommendation:canonicalPacket([valueOpportunity,...alternatives])})} as any);
+  render(<Predictions activeUser="test-user" />); await openFirst();
+  const other = await screen.findByRole('region',{name:'Altre opportunità modello A'});
+  expect(within(other).getAllByRole('article')).toHaveLength(2);
+  expect(within(other).getByText('MEDIUM · Media')).toBeTruthy();
+  expect(within(other).getByText('LOW · Bassa')).toBeTruthy();
+  expect(within(other).getByRole('button',{name:'Archivia senza puntare'})).toBeTruthy();
+  expect(mockedApi.placeBet).not.toHaveBeenCalled();
 });

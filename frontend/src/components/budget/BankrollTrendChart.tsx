@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { Minus } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 interface BankrollTrendChartProps {
   initialBudget: number;
   settledBets: any[];
+  rangeLocked?: boolean;
+  equity?: Array<{ at: string; equityCents: number }>;
 }
 
 interface TrendPoint {
@@ -27,10 +29,15 @@ const ranges: Array<{ value: TrendRange; label: string; days?: number }> = [
 
 const formatCurrency = (value: number) => `EUR ${value.toFixed(2)}`;
 
-const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, settledBets }) => {
+const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, settledBets, equity, rangeLocked = false }) => {
+  const headingId = useId();
   const [range, setRange] = useState<TrendRange>('30D');
   const now = Date.now();
   const fullData = useMemo<TrendPoint[]>(() => {
+    if (equity) return equity.filter(point => Number.isFinite(Date.parse(point.at)) && Number.isFinite(point.equityCents))
+      .map(point => ({ label: new Date(point.at).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }),
+        value: point.equityCents / 100, result: 'Patrimonio registrato', timestamp: Date.parse(point.at) }))
+      .sort((a, b) => a.timestamp - b.timestamp);
     let runningBudget = initialBudget;
     const orderedBets = [...settledBets]
       .map((bet) => ({ bet, timestamp: [bet?.settled_at, bet?.placed_at]
@@ -58,10 +65,11 @@ const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, 
     }
 
     return points;
-  }, [initialBudget, settledBets, now]);
+  }, [initialBudget, settledBets, equity, now]);
 
   const { data, movementCount } = useMemo(() => {
-    if (range === 'ALL') {
+    if (!fullData.length) return { data: [{label: 'Inizio', value: initialBudget, result: 'Capitale iniziale', timestamp: now}], movementCount: 0 };
+    if (rangeLocked || range === 'ALL') {
       return { data: fullData, movementCount: Math.max(0, fullData.length - 1) };
     }
     const selected = ranges.find((item) => item.value === range);
@@ -77,15 +85,17 @@ const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, 
         { ...fullData[fullData.length - 1], timestamp: now, label: 'Oggi', result: 'Valore attuale' }],
       movementCount: inside.length,
     };
-  }, [fullData, range, now]);
+  }, [fullData, range, now, initialBudget, rangeLocked]);
 
   const finalBudget = data[data.length - 1]?.value ?? initialBudget;
 
+  if (equity && fullData.length === 0) return <section className="budget-chart-panel" aria-labelledby={headingId}>
+    <h2 id={headingId}>Andamento</h2><p>Movimenti del patrimonio non disponibili per il periodo selezionato.</p></section>;
   return (
-    <section className="budget-chart-panel" aria-labelledby="bankroll-chart-title">
+    <section className="budget-chart-panel" aria-labelledby={headingId}>
       <div className="budget-chart-panel__head">
-        <h2 id="bankroll-chart-title">Andamento</h2>
-        <div className="budget-chart-ranges" role="group" aria-label="Intervallo andamento bankroll">
+        <h2 id={headingId}>Andamento</h2>
+        {!rangeLocked && <div className="budget-chart-ranges" role="group" aria-label="Intervallo andamento bankroll">
           {ranges.map((item) => (
             <button
               key={item.value}
@@ -97,14 +107,14 @@ const BankrollTrendChart: React.FC<BankrollTrendChartProps> = ({ initialBudget, 
               {item.label}
             </button>
           ))}
-        </div>
+        </div>}
         <div className="budget-chart-legend" aria-hidden="true">
           <span className="bankroll"><Minus size={20} />Bankroll</span>
           <span className="initial"><Minus size={20} />Budget iniziale</span>
         </div>
       </div>
       <p className="budget-chart-period" role="status">
-        {movementCount === 0 ? 'Nessuna giocata conclusa nel periodo selezionato.'
+        {equity ? `${movementCount} movimenti registrati nel periodo.` : movementCount === 0 ? 'Nessuna giocata conclusa nel periodo selezionato.'
           : `${movementCount} ${movementCount === 1 ? 'giocata conclusa' : 'giocate concluse'} nel periodo.`}
         {' '}Dal {new Date(data[0].timestamp).toLocaleDateString('it-IT')} al {new Date(now).toLocaleDateString('it-IT')}.
       </p>

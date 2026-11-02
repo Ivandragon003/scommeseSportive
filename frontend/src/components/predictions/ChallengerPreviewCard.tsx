@@ -1,9 +1,19 @@
+import OpportunityQuality from './OpportunityQuality';
 import { useEffect, useState } from 'react';
 import { ChallengerPreview, challengerPreviewExpired } from '../../utils/challengerPreviewApi';
 import { dateTime, decisionReason } from '../../features/research/researchPresentation';
 import { fmtSelection } from './predictionFormatting';
 
 const reasons: Record<string, string> = {
+  real_fresh_quotes_unavailable: 'Le quote disponibili sono mancanti, scadute o non verificabili per il modello C.',
+  challenger_technical_validation_failed: 'La previsione C non ha superato la validazione tecnica. Nessuna giocata viene proposta.',
+  challenger_model_version_mismatch: 'La previsione non corrisponde alla versione attiva di C.',
+  challenger_pipeline_mismatch: 'La calibrazione della previsione C non corrisponde alla versione attiva.',
+  challenger_configuration_mismatch: 'La configurazione della previsione C non corrisponde a quella attiva.',
+  challenger_configuration_unavailable: 'La calibrazione richiesta dal modello C non è disponibile per questa valutazione.',
+  challenger_incoherent_probabilities: 'Le probabilità C non hanno superato i controlli di coerenza.',
+  challenger_fixture_unavailable: 'Non è stato possibile associare la partita ai dati necessari per C.',
+  challenger_forecast_time_unavailable: 'L’orario della previsione C non è verificabile.',
   challenger_preview_expired: 'L’anteprima è scaduta o la partita è iniziata. Aggiorna per una nuova valutazione.',
   challenger_preview_quote_expired: 'Le quote dell’anteprima non sono più aggiornate.',
   challenger_preview_quote_unavailable: 'Quote reali coerenti con il consiglio non disponibili.',
@@ -31,6 +41,7 @@ function previewReason(reason: string | null): string | null {
 }
 
 interface ChallengerPreviewCardProps {
+  registered?: boolean;
   preview?: ChallengerPreview;
   loading?: boolean;
   error?: string;
@@ -39,7 +50,7 @@ interface ChallengerPreviewCardProps {
   actions?: React.ReactNode;
 }
 
-export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry, actions }: ChallengerPreviewCardProps) {
+export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry, actions, registered = false }: ChallengerPreviewCardProps) {
   const [, setClock] = useState(0);
   useEffect(() => {
     if (!preview || !['RECOMMENDED', 'NO_BET'].includes(preview.status)) return;
@@ -53,7 +64,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
   const quote = selected ? preview?.quote : null;
   const unavailable = error || ineligible || expired || !preview || ['UNAVAILABLE', 'NOT_ELIGIBLE', 'ARCHIVED'].includes(preview.status);
   return <div className="challenger-preview">
-    <p className="match-model-advice__origin">Anteprima C · non registrata</p>
+    <p className="match-model-advice__origin">Valutazione C · nessuna puntata automatica</p>
     {loading ? <p role="status">Calcolo dell’anteprima C…</p> : <>
       <h3>{selected ? selected.selectionLabel || fmtSelection(selected.selection)
         : expired ? 'Anteprima scaduta' : preview?.status === 'NO_BET' ? 'Nessuna giocata consigliata' : 'Consiglio non ancora disponibile'}</h3>
@@ -61,6 +72,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
       {ineligible && <p>L’anteprima C è disponibile solo prima dell’inizio della partita.</p>}
       {expired && <p role="status">{reasons.challenger_preview_expired}</p>}
       {!expired && preview?.reason && <p>{previewReason(preview.reason)}</p>}
+      {selected && <OpportunityQuality opportunity={selected} />}
       {selected && quote && <dl className="match-model-advice__metrics">
         <div><dt>Quota dell’anteprima</dt><dd>{quote.odds.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd></div>
         <div><dt>Bookmaker</dt><dd>{quote.bookmaker}</dd></div>
@@ -71,7 +83,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
         <p>La valutazione C non ha selezionato una giocata con le quote disponibili.</p>
         <p className="match-model-advice__footnote">Valutata il {dateTime(preview.asOf)}.</p>
       </>}
-      <p className="challenger-preview__registration">Nessuna puntata registrata.</p>
+      <p className="challenger-preview__registration">{registered ? 'Giocata già presente nel portafoglio C per questa partita.' : 'Nessuna puntata registrata.'}</p>
       {selected && <p>Stake indicativo: 1%. L’anteprima non addebita il portafoglio.</p>}
       {selected && quote && actions}
 

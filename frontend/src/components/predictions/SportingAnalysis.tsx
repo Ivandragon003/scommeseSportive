@@ -1,9 +1,8 @@
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ProbBar, DistChart } from './PredictionStatPrimitives';
 import ShotsSection from './ShotsSection';
 
 /** Sporting probabilities only: no bookmaker prices or quote requests. */
-export default function SportingAnalysis({ prediction, teams, match, loading }: {
+export default function SportingAnalysis({ prediction, loading }: {
   prediction: any; teams: any[]; match: any; loading: boolean;
 }) {
   if (!prediction) return <section className="pr-card"><div className="pr-card-body" role="status">
@@ -17,14 +16,6 @@ export default function SportingAnalysis({ prediction, teams, match, loading }: 
     const total = String(Number(parts[1]) + Number(parts[2]));
     totals[total] = (totals[total] || 0) + probability;
   });
-  const strength = [
-    { id: match?.home_team_id, name: prediction.homeTeam },
-    { id: match?.away_team_id, name: prediction.awayTeam },
-  ].map(({ id, name }) => {
-    const team = teams.find((row) => String(row.team_id) === String(id));
-    return { name, attacco: team?.attack_strength, difesa: team?.defence_strength };
-  });
-  const hasStrength = strength.every((row) => [row.attacco, row.difesa].every((value) => typeof value === 'number' && Number.isFinite(value)));
   const shots = prediction.shotsPrediction;
   const hasShots = shots?.home?.totalShots?.distribution && shots?.home?.shotsOnTarget?.distribution
     && shots?.away?.totalShots?.distribution && shots?.away?.shotsOnTarget?.distribution
@@ -48,11 +39,5 @@ export default function SportingAnalysis({ prediction, teams, match, loading }: 
       </div></section>
     <section aria-label="Grafici tiri"><h2>Tiri e tiri in porta</h2>{hasShots ? <ShotsSection homeTeam={prediction.homeTeam} awayTeam={prediction.awayTeam} shotsPrediction={shots} />
       : <p className="pr-info">Previsione dei tiri non disponibile con i dati di questa partita.</p>}</section>
-    <section className="pr-card" aria-label="Forza delle squadre"><header className="pr-card-head"><h2>Forza delle squadre</h2></header><div className="pr-card-body">
-      {hasStrength ? <><p>Ultimi parametri di attacco e difesa salvati per le squadre. Valori più alti indicano attacco più produttivo e difesa più solida; non sono percentuali di vittoria.</p><ResponsiveContainer width="100%" height={210}>
-        <BarChart data={strength}><CartesianGrid stroke="var(--border)" /><XAxis dataKey="name" tick={{ fill: 'var(--text-2)', fontSize: 12 }} /><YAxis tick={{ fill: 'var(--text-2)', fontSize: 12 }} />
-          <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} /><Legend /><Bar dataKey="attacco" name="Attacco" fill="var(--primary)" /><Bar dataKey="difesa" name="Difesa" fill="var(--purple)" /></BarChart>
-      </ResponsiveContainer></> : <p>Indici di forza non disponibili: nessun valore viene ricostruito o stimato dalla grafica.</p>}
-    </div></section>
   </div>;
 }

@@ -1,6 +1,6 @@
 :root {
-  --font-sans: Inter, Aptos, "Segoe UI", Arial, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, monospace;
+  --font-sans: "Manrope Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-sans);
   --bg: #f3f7f8; --surface: #ffffff; --surface2: #f7faf9; --surface3: #edf3f1; --surface4: #dce7e2;
   --border: #d6e1dc; --border-hover: #a9bfb5; --border-focus: #168f55;
   --text: #112b35; --text-2: #60727a; --text-3: #74848c;
@@ -66,3 +66,21 @@
   .mobile-nav { padding-top: 5px; }
   .mobile-nav-item { min-height: 44px; }
 }
+
+/* Shared typography: bundled variable font, quiet surfaces and readable figures. */
+body { font-weight:400; font-optical-sizing:auto; }
+h1,h2,h3,h4 { font-family:var(--font-sans); font-weight:700; letter-spacing:-.025em; }
+button,input,select,textarea { font-family:var(--font-sans); }
+.fp-btn { font-weight:650; letter-spacing:-.01em; }
+.fp-mono,.fp-fin-val,.fp-rec-val,.fp-wl-num { font-variant-numeric:tabular-nums; }
+code,pre { font-family:ui-monospace,Consolas,monospace; }
+.pr .pr-match-list-row { border-radius:16px; box-shadow:0 4px 18px rgb(17 43 53 / 3%); }
+.pr .pr-match-list__action { font-size:12px; font-weight:600; }
+.pr .pr-match-list__action::before { display:none; }
+.pr .pr-match-list__time { font-size:12px; font-weight:600; }
+.pr .pr-match-list__team { font-size:16px; font-weight:650; letter-spacing:-.025em; }
+.pr .pr-match-list__pick { border:0; border-radius:8px; font-weight:500; }
+.match-model-advice__card { box-shadow:0 4px 20px rgb(17 43 53 / 3%); }
+.match-model-advice__card h2 { font-weight:600; font-size:14px; color:var(--text-2); }
+.match-model-advice__card h3 { font-size:21px; font-weight:650; line-height:1.35; letter-spacing:-.035em; }
+[data-theme="dark"] .matchup-header { box-shadow:none; }

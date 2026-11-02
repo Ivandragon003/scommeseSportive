@@ -1,3 +1,4 @@
+import { selectOption } from '../testSelect';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { LegacyBetsManager as BetsManager } from './BetsManager';
 import * as api from '../utils/api';
@@ -130,11 +131,11 @@ describe('BetsManager', () => {
 
     render(<BetsManager activeUser="user1" />);
 
-    fireEvent.change(await screen.findByLabelText('Filtra storico per esito'), { target: { value: 'LOST' } });
+    selectOption(await screen.findByLabelText('Filtra storico per esito'), 'LOST');
     expect(screen.getByText(/Arsenal.*Chelsea/i)).toBeTruthy();
     expect(screen.queryByText(/Juventus.*Roma/i)).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('Filtra storico per competizione'), { target: { value: 'Serie A' } });
+    selectOption(screen.getByLabelText('Filtra storico per competizione'), 'Serie A');
     expect(screen.queryByText(/Arsenal.*Chelsea/i)).toBeNull();
   });
 
@@ -144,7 +145,7 @@ describe('BetsManager', () => {
     ] } as any);
     render(<BetsManager activeUser="user1" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Vinte' }));
-    fireEvent.change(screen.getByLabelText('Filtra storico per esito'), { target: { value: 'LOST' } });
+    selectOption(screen.getByLabelText('Filtra storico per esito'), 'LOST');
     expect(screen.getByText(/Arsenal.*Chelsea/i)).toBeTruthy();
     expect(screen.queryByText(/Juventus.*Roma/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Tutte$/ }));

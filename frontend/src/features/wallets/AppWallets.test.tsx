@@ -1,3 +1,4 @@
+import { selectOption } from '../../testSelect';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import BetsManager from '../../pages/BetsManager';
@@ -11,7 +12,7 @@ import { WalletPeriodPicker, walletToday } from './WalletPages';
 jest.mock('../../utils/walletApi');
 jest.mock('../../utils/api');
 jest.mock('../research/ResearchEquityChart', () => ({ a, c, title }: any) => <div data-testid="wallet-chart" data-a={JSON.stringify(a)} data-c={JSON.stringify(c)}>{title}</div>);
-jest.mock('../../components/budget/BankrollTrendChart', () => () => <div>Andamento precedente</div>);
+jest.mock('../../components/budget/BankrollTrendChart', () => ({ equity }: any) => <div data-testid="bankroll-chart" data-equity={JSON.stringify(equity)}>Andamento</div>);
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 const mockedLegacy = legacyApi as jest.Mocked<typeof legacyApi>;
 
@@ -50,11 +51,11 @@ afterEach(() => jest.restoreAllMocks());
 test('normal Giocate lists the five funded bets and filters A/C without legacy mutations', async () => {
   render(<MemoryRouter><BetsManager activeUser="user1" /></MemoryRouter>);
   expect(await screen.findAllByRole('article')).toHaveLength(5);
-  fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'A' } });
+  selectOption(screen.getByLabelText('Modello'), 'A');
   expect(screen.getAllByRole('article')).toHaveLength(3);
   expect(screen.getByText('1 — Le Havre vincente')).toBeTruthy();
   expect(screen.queryByText('Villarreal — Espanyol')).not.toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'C' } });
+  selectOption(screen.getByLabelText('Modello'), 'C');
   expect(screen.getAllByRole('article')).toHaveLength(2);
   expect(screen.getByText('Villarreal — Espanyol')).toBeTruthy();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
@@ -69,11 +70,11 @@ test('unifies previous bets with A/C using only a deterministic baseline for unl
   render(<MemoryRouter><BetsManager activeUser="user1" /></MemoryRouter>);
   expect(await screen.findAllByRole('article')).toHaveLength(6);
   expect(screen.queryByRole('button', { name: 'Storico precedente' })).toBeNull();
-  expect(screen.getAllByText('Baseline deterministica')).toHaveLength(2);
-  fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'baseline' } });
-  expect(screen.getAllByRole('article')).toHaveLength(1);
+  expect(screen.queryByText('Baseline deterministica')).toBeNull();
+  selectOption(screen.getByLabelText('Modello'), 'A');
+  expect(screen.getAllByRole('article')).toHaveLength(4);
   expect(screen.getByText('Inter — Milan')).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'C' } });
+  selectOption(screen.getByLabelText('Modello'), 'C');
   expect(screen.getAllByRole('article')).toHaveLength(2);
   expect(screen.queryByText('Inter — Milan')).toBeNull();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
@@ -108,19 +109,17 @@ test('Budget selects only its own authoritative equity series, retains compariso
   data.portfolios[1].equity = [{ at: '2026-10-29T00:00:00Z', equityCents: 100000 }, { at: '2026-10-30T00:00:00Z', equityCents: 99000 }];
   mockedWallets.mockResolvedValue(data);
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
-  let chart = await screen.findByTestId('wallet-chart');
-  expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.portfolios[0].equity));
-  expect(chart.hasAttribute('data-c')).toBe(false);
+  let chart = await screen.findByTestId('bankroll-chart');
+  expect(chart.getAttribute('data-equity')).toBe(JSON.stringify(data.portfolios[0].equity));
   expect(screen.getByRole('link', { name: 'Giocate del modello A' }).getAttribute('href')).toBe('/bets?model=A');
   fireEvent.click(screen.getByRole('button', { name: 'Modello C' }));
-  chart = screen.getByTestId('wallet-chart');
-  expect(chart.hasAttribute('data-a')).toBe(false);
-  expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.portfolios[1].equity));
+  chart = screen.getByTestId('bankroll-chart');
+  expect(chart.getAttribute('data-equity')).toBe(JSON.stringify(data.portfolios[1].equity));
   fireEvent.click(screen.getByRole('button', { name: 'Confronta A e C' }));
   chart = screen.getByTestId('wallet-chart');
   expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.portfolios[0].equity));
   expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.portfolios[1].equity));
-  fireEvent.change(screen.getByLabelText('Periodo'), { target: { value: '7d' } });
+  selectOption(screen.getByLabelText('Periodo'), '7d');
   await waitFor(() => expect(mockedWallets).toHaveBeenLastCalledWith({ period: '7d' }, expect.any(AbortSignal)));
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
@@ -146,7 +145,7 @@ test('unified rows preserve partial settlement and do not assign a missing famil
   expect(within(row).getByText('EUR 10.00')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Perse' }));
   expect(screen.getAllByRole('article')).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'A' } });
+  selectOption(screen.getByLabelText('Modello'), 'A');
   expect(screen.queryAllByRole('article')).toHaveLength(0);
 });
 
@@ -170,7 +169,6 @@ test('a failed wallet read is explicit and never proposes a new bankroll', async
 test('opening the previous history does not trigger settlement or expose reset controls', async () => {
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
   await screen.findByRole('region', { name: 'Portafoglio A' });
-  fireEvent.click(screen.getByRole('button', { name: 'Storico precedente' }));
   await waitFor(() => expect(mockedLegacy.getBudget).toHaveBeenCalled());
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
   expect(screen.queryByRole('button', { name: 'Inizializza' })).not.toBeTruthy();
@@ -220,7 +218,7 @@ test('today uses the existing custom range in Rome, including the UTC day bounda
   expect(walletToday(new Date('2026-10-31T23:30:00Z'))).toBe('2026-11-01');
   const change = jest.fn();
   render(<WalletPeriodPicker query={{ period: 'all' }} onChange={change} />);
-  fireEvent.change(screen.getByLabelText('Periodo'), { target: { value: 'today' } });
+  selectOption(screen.getByLabelText('Periodo'), 'today');
   expect(change).toHaveBeenCalledWith({ period: 'custom', from: walletToday(), to: walletToday() });
 });
 
@@ -255,5 +253,18 @@ test('Giocate distinguishes a win, double chance and DNB while retaining the rec
   expect(within(cards[2]).getByText('EUR 10.00')).toBeTruthy();
   expect(JSON.stringify(records)).toBe(before);
   expect(mockedLegacy.placeBet).not.toHaveBeenCalled();
+  expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
+});
+
+test('deterministic budget includes the existing balance and recorded outcomes without transferring capital', async () => {
+  mockedLegacy.getBudget.mockResolvedValue({ data: { total_budget: 1000, available_budget: 1234.5, roi: 12 } } as any);
+  mockedLegacy.getBets.mockResolvedValue({ data: [{ bet_id: 'historic', status: 'WON', stake: 10, profit: 5, placed_at: '2026-10-29T12:00:00Z' }] } as any);
+  render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
+  expect(await screen.findByText(/234,50/)).toBeTruthy();
+  const results = screen.getByRole('region', { name: 'Risultati modello A' });
+  expect(within(results).getAllByText('1')).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: 'Baseline deterministica' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Storico precedente' })).toBeNull();
+  expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });

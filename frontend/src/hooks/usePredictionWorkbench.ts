@@ -261,10 +261,10 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     return rows.filter((row: BestValueOpportunityModel) => {
       if (!row.selection || seen.has(row.selection) || row.selection === selected?.selection) return false;
       seen.add(row.selection);
-      return (String(row.confidence).toUpperCase() === 'LOW'
+      return (Number(row.expectedValue) > 0 || String(row.confidence).toUpperCase() === 'LOW'
         || [row.marketTier, row.bestBetStatus, row.bestBetDecision?.status].some((value) => String(value).toUpperCase() === 'SPECULATIVE'))
         && Number(row.bookmakerOdds) > 1 && !!String(row.bookmakerName || predictionAnalysis.bookmakerBySelection[row.selection] || '').trim();
-    }).slice(0, 1).map((row: BestValueOpportunityModel) => ({ ...row, bookmakerName: row.bookmakerName || predictionAnalysis.bookmakerBySelection[row.selection] }));
+    }).sort((a, b) => Number(b.expectedValue || 0) - Number(a.expectedValue || 0)).slice(0, 8).map((row: BestValueOpportunityModel) => ({ ...row, bookmakerName: row.bookmakerName || predictionAnalysis.bookmakerBySelection[row.selection] }));
   }, [predictionAnalysis.pred, predictionAnalysis.bookmakerBySelection, vbRanked, matchValueOpportunities]);
   const showToast = toastState.showToast;
   const handleArchiveOpportunity = useCallback(async () => {

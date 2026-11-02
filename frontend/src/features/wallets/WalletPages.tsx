@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowRight, Lock, RefreshCw, TrendingUp, WalletCards } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ResearchComparisonQuery } from '../research/researchComparisonTypes';
@@ -9,6 +9,10 @@ import {
   WalletModelFilter, WalletModelPicker, walletMoney, walletPercent,
 } from './AppWallets';
 import ModelBadge from './ModelBadge';
+import { useBudgetManagerData } from '../../hooks/useBudgetManagerData';
+import { withDeterministicHistory } from './deterministicHistory';
+import { AppSelect } from '../../components/common/AppSelect';
+import BankrollTrendChart from '../../components/budget/BankrollTrendChart';
 
 const initialModel = (): WalletModelFilter => {
   const value = new URLSearchParams(window.location.search).get('model');
@@ -28,15 +32,12 @@ export function WalletPeriodPicker({ query, onChange }: { query: ResearchCompari
   const today = walletToday();
   const todaySelected = !custom && query.period === 'custom' && query.from === today && query.to === today;
   return <div className="app-wallet-toolbar">
-    <label className="app-wallet-filter">Periodo<select aria-label="Periodo" value={custom ? 'custom' : todaySelected ? 'today' : query.period}
-      onChange={(event) => {
-        const value = event.target.value;
+    <label className="app-wallet-filter">Periodo<AppSelect aria-label="Periodo" value={custom ? 'custom' : todaySelected ? 'today' : query.period}
+      onChange={value => {
         setCustom(value === 'custom');
-        if (value === 'today') { onChange({ period: 'custom', from: today, to: today }); return; }
-        if (value !== 'custom') onChange({ period: value as ResearchComparisonQuery['period'] });
-      }}>
-      <option value="all">Dall’apertura dei portafogli</option><option value="today">Oggi</option><option value="7d">Ultimi 7 giorni</option><option value="30d">Ultimi 30 giorni</option><option value="90d">Ultimi 90 giorni</option><option value="custom">Periodo personalizzato</option>
-    </select></label>
+        if (value === 'today') { onChange({period:'custom',from:today,to:today}); return; }
+        if (value !== 'custom') onChange({period:value as ResearchComparisonQuery['period']});
+      }} options={[{value:'all',label:'Dall’apertura dei portafogli'},{value:'today',label:'Oggi'},{value:'7d',label:'Ultimi 7 giorni'},{value:'30d',label:'Ultimi 30 giorni'},{value:'90d',label:'Ultimi 90 giorni'},{value:'custom',label:'Periodo personalizzato'}]} /></label>
     {custom && <form className="app-wallet-toolbar" onSubmit={(event) => { event.preventDefault(); if (from && to && from <= to) onChange({ period: 'custom', from, to }); }}>
       <label className="app-wallet-filter">Dal<input aria-label="Dal" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></label>
       <label className="app-wallet-filter">Al<input aria-label="Al" type="date" required min={from || undefined} value={to} onChange={(event) => setTo(event.target.value)} /></label>
@@ -80,34 +81,37 @@ export function WalletBetsPage({ legacy }: { legacy?: React.ReactNode }) {
   </div>;
 }
 
-export function WalletBudgetPage({ legacy }: { legacy?: React.ReactNode }) {
+export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
   const [model, setModel] = useState<WalletModelFilter>(() => {
+    if (new URLSearchParams(window.location.search).get('model') === 'baseline') return 'A';
     const requested = initialModel();
     return requested === 'all' && new URLSearchParams(window.location.search).get('model') !== 'all' ? 'A' : requested;
   });
   const [query, setQuery] = useState<ResearchComparisonQuery>({ period: 'all' });
-  const { data, loading, error, refresh } = useAppWalletData(query);
+  const { data: currentData, loading, error, refresh } = useAppWalletData(query);
+  const history = useBudgetManagerData(activeUser, { readOnly: true });
+  const data = useMemo(() => withDeterministicHistory(currentData, history.bets), [currentData, history.bets]);
   const portfolios = (data?.portfolios || []).filter((row) => model === 'all' || row.family === model);
   const selected = model === 'all' ? null : portfolios[0];
   return <main className="bm-wrap budget-page wallet-budget-page">
     <header className="bm-head">
       <div><span className="fp-section-kicker">I tuoi portafogli</span><h1 className="bm-title">Budget</h1>
-        <p className="bm-sub">A e C hanno due budget separati. Ogni giocata utilizza solo il capitale del proprio modello.</p></div>
-      <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
+        <p className="bm-sub">A deterministico, con lo storico precedente incluso. C con machine learning.</p></div>
+      <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={() => { refresh(); void history.loadAll({ force: true }); }} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
     </header>
     <div className="wallet-budget-controls">
       <div className="wallet-model-tabs" role="group" aria-label="Modello del budget">
-        {(['A', 'C', 'all'] as WalletModelFilter[]).map((value) => <button key={value} type="button" aria-label={value === 'all' ? 'Confronta A e C' : `Modello ${value}`} aria-pressed={model === value}
+        {(['A', 'C', 'all'] as const).map((value) => <button key={value} type="button" aria-label={value === 'all' ? 'Confronta A e C' : `Modello ${value}`} aria-pressed={model === value}
           className={model === value ? 'is-active' : ''} onClick={() => setModel(value)}>
           {value === 'all' ? <span className="wallet-compare-label"><span className="wallet-compare-full">Confronta A e C</span><span className="wallet-compare-short">Confronto</span></span> : <ModelBadge model={value} />}
         </button>)}
       </div>
       <WalletPeriodPicker query={query} onChange={setQuery} />
     </div>
-    <WalletLoadState loading={loading} error={error} refresh={refresh} />
-    {!loading && !error && data && <>
+    <WalletLoadState loading={loading || history.loading} error={error || history.betsError} refresh={() => { refresh(); void history.loadAll({ force: true }); }} />
+    {!loading && !history.loading && !error && data && <>
       {selected && <section className="wallet-budget-model" aria-label={`Portafoglio ${selected.family}`}>
-        <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Puntate con l’importo consigliato dal modello.' : 'Puntate con importo pari all’1% del proprio capitale.'} Tutti gli importi sono virtuali.</p></div>
+        <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Baseline deterministica. Risultati precedenti e attuali riuniti.' : 'Puntate con importo pari all’1% del proprio capitale.'} Tutti gli importi sono virtuali.</p></div>
         {selected.initialized === false ? <div className="fp-empty"><p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p></div> : <>
           <dl className="bm-summary" aria-label={`Riepilogo modello ${selected.family}`}>
             <div className="bm-summary__item is-positive"><span className="bm-summary__icon"><WalletCards size={24} aria-hidden="true" /></span>
@@ -119,12 +123,12 @@ export function WalletBudgetPage({ legacy }: { legacy?: React.ReactNode }) {
           </dl>
           <div className="budget-workspace">
             <section className="wallet-budget-chart" aria-label={`Andamento modello ${selected.family}`}>
-              <EquityChart a={model === 'A' ? selected.equity : undefined} c={model === 'C' ? selected.equity : undefined}
-                title={`Andamento del patrimonio · Modello ${selected.family}`} />
+              <BankrollTrendChart initialBudget={(selected.initialCents ?? 0) / 100} settledBets={[]} equity={selected.equity} rangeLocked={query.period !== 'all'} />
             </section>
             <aside className="budget-management wallet-budget-facts" aria-label={`Capitale modello ${selected.family}`}>
               <h2>Il capitale del modello {selected.family}</h2>
-              <div className="budget-current"><span>Patrimonio attuale</span><strong>{walletMoney(selected.currentEquityCents)}</strong></div>
+              <div className="budget-current"><span>Patrimonio operativo attuale</span><strong>{walletMoney(selected.currentEquityCents)}</strong></div>
+              {selected.family === 'A' && history.budget && <p className="wallet-historical-balance">Saldo dello storico A: <strong>{walletMoney(Math.round(Number(history.budget.available_budget) * 100))}</strong>. Gli esiti storici sono inclusi nei risultati A; il capitale operativo per nuove giocate è quello disponibile qui sotto.</p>}
               <dl><div><dt>Capitale iniziale</dt><dd>{walletMoney(selected.initialCents)}</dd></div>
                 <div><dt>Disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd></div>
                 <div><dt>Impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd></div></dl>
@@ -149,8 +153,7 @@ export function WalletBudgetPage({ legacy }: { legacy?: React.ReactNode }) {
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">Le statistiche e il grafico riguardano il periodo selezionato; i saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
+      <p className="app-wallet-help">I risultati A comprendono anche lo storico deterministico. Il grafico mostra il patrimonio del portafoglio operativo nel periodo selezionato; i saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
-    <LegacyArea>{legacy}</LegacyArea>
   </main>;
 }

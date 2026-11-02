@@ -23,3 +23,11 @@ test('una giocata entra nel grafico alla chiusura e le date mancanti non diventa
   fireEvent.click(screen.getByRole('button', { name: '7G' }));
   expect(screen.getByTestId('bankroll-trend-chart').getAttribute('aria-label')).toContain('EUR 1000.00 a EUR 1020.00, 1 movimenti');
 });
+
+test('model equity is read from its own ledger without adding historical profits twice', () => {
+  render(<BankrollTrendChart initialBudget={1000} settledBets={[{ profit: 999, placed_at: '2026-09-06T12:00:00Z' }]} equity={[
+    { at: '2026-09-01T12:00:00Z', equityCents: 100000 },
+    { at: '2026-09-06T12:00:00Z', equityCents: 101500 },
+  ]} />);
+  expect(screen.getByTestId('bankroll-trend-chart').getAttribute('aria-label')).toContain('EUR 1000.00 a EUR 1015.00');
+});

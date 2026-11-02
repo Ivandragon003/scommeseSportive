@@ -1,3 +1,4 @@
+import { selectOption } from '../../testSelect';
 import { getManualModelOpportunities } from '../../utils/modelBetActionsApi';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WalletArchivePage from './WalletArchivePage';
@@ -67,11 +68,11 @@ describe('WalletArchivePage', () => {
   test('filters actual records by A and C without replacing them with predictions', async () => {
     render(<WalletArchivePage />);
     await screen.findByText('Gamma – Delta');
-    fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'C' } });
+    selectOption(screen.getByLabelText('Modello'), 'C');
     expect(screen.getAllByRole('article')).toHaveLength(2);
     expect(screen.getByText('Eta – Theta')).toBeTruthy();
     expect(screen.queryByText('Gamma – Delta')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'A' } });
+    selectOption(screen.getByLabelText('Modello'), 'A');
     expect(screen.getAllByRole('article')).toHaveLength(3);
     expect(screen.queryByText('Eta – Theta')).toBeNull();
     expect(mockedWallets).toHaveBeenCalledTimes(1);
@@ -87,7 +88,7 @@ describe('WalletArchivePage', () => {
     ] } } });
     render(<WalletArchivePage />);
     await screen.findByText('Gamma – Delta');
-    fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'C' } });
+    selectOption(screen.getByLabelText('Modello'), 'C');
     const card = screen.getByRole('article', { name: 'C · Alpha – Beta' });
     fireEvent.click(within(card).getByText('Dettagli della giocata'));
     fireEvent.click(within(card).getByRole('button', { name: 'Apri pronostico registrato' }));
@@ -137,7 +138,7 @@ describe('WalletArchivePage', () => {
     ] } });
     render(<WalletArchivePage />);
     await screen.findByText('Mezza perdita');
-    fireEvent.change(screen.getByLabelText('Esito'), { target: { value: 'settled' } });
+    selectOption(screen.getByLabelText('Esito'), 'settled');
     expect(screen.getAllByRole('article')).toHaveLength(1);
     fireEvent.click(screen.getByText('Dettagli della giocata'));
     expect(screen.getByText(/^5,00\s€$/)).toBeTruthy();

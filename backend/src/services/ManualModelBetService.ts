@@ -32,7 +32,7 @@ export class ManualModelBetService {
         throw new ManualModelActionError('Nessun consiglio C verificabile con quota reale recente salvata.');
       }
       selected = result.recommendationPacket.selected; quote = result.quote;
-      modelVersion = result.modelVersion || ''; classification = String((selected as any).confidence || 'MEDIUM');
+      modelVersion = result.modelVersion || ''; classification = String(selected.marketTier === 'SPECULATIVE' ? 'SPECULATIVE' : selected.confidence || 'MEDIUM').toUpperCase();
     } else {
       const snapshot = await this.db.getLatestRealOddsSnapshotForMatch(input.matchId);
       if (!snapshot || snapshot.source !== 'odds_api' || snapshot.usedSyntheticOdds === true) throw new ManualModelActionError('Quota bookmaker reale salvata non disponibile.');
