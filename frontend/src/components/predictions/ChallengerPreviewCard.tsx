@@ -72,7 +72,6 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
       {ineligible && <p>L’anteprima C è disponibile solo prima dell’inizio della partita.</p>}
       {expired && <p role="status">{reasons.challenger_preview_expired}</p>}
       {!expired && preview?.reason && <p>{previewReason(preview.reason)}</p>}
-      {selected && <OpportunityQuality opportunity={selected} />}
       {selected && quote && <dl className="match-model-advice__metrics">
         <div><dt>Quota dell’anteprima</dt><dd>{quote.odds.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd></div>
         <div><dt>Bookmaker</dt><dd>{quote.bookmaker}</dd></div>
@@ -85,6 +84,7 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
       </>}
       <p className="challenger-preview__registration">{registered ? 'Giocata già presente nel portafoglio C per questa partita.' : 'Nessuna puntata registrata.'}</p>
       {selected && <p>Stake indicativo: 1%. L’anteprima non addebita il portafoglio.</p>}
+      {selected && <OpportunityQuality opportunity={selected} />}
       {selected && quote && actions}
 
       {unavailable && !ineligible && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={onRetry}>Riprova anteprima C</button>}

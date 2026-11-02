@@ -186,3 +186,60 @@
  .app-shell .model-bet-actions__buttons { width:100%; }
  .app-shell .model-bet-actions__buttons > button { flex:1 1 auto; }
 }
+
+/* White match workspace with distinct attack, defence and disciplinary accents. */
+:root:not([data-theme="dark"]) { --bg:#fff; --surface:#fff; --surface2:#f6faf8; --border:#d9e5df; }
+:root { --discipline-fouls:#2578ad; --discipline-yellow:#a36a08; --discipline-red:#c63d4a; }
+.app-shell .sidebar { border-right:1px solid var(--border); }
+.app-shell .app-header { border-bottom:1px solid var(--border); }
+.app-shell .matchup-header { border:1px solid var(--border); border-top:3px solid var(--primary); box-shadow:0 5px 20px rgb(12 55 33 / 3%); }
+.app-shell .matchup-top p { font-size:12px; font-weight:550; }
+.app-shell .matchup-team h2 { margin-bottom:16px; }
+.app-shell .matchup-versus { width:36px; height:36px; border:1px solid var(--primary-border); background:var(--surface2); color:var(--primary); }
+.app-shell .matchup-strength { gap:10px; }
+.app-shell .matchup-strength > span { padding:7px 11px; border:1px solid; border-radius:9px; font-size:12px; font-weight:550; }
+.app-shell .matchup-strength .strength-attack { border-color:#eca4ac; background:#fff6f7; color:#a92e3c; }
+.app-shell .matchup-strength .strength-defence { border-color:#9bc8ec; background:#f3f9ff; color:#17689f; }
+.app-shell .matchup-strength b { color:inherit; font-weight:750; }
+.app-shell .matchup-note { margin-top:4px; border-color:var(--border); }
+.app-shell .pr-detail-tabs { border:1px solid var(--border); }
+.app-shell .pr-match-list-row,.app-shell .match-model-advice__card,.app-shell .opportunity-alternative { border:1px solid var(--border); }
+.app-shell .budget-page .bm-summary__item { border:1px solid var(--border); }
+.app-shell .bets-page .bets-status-tabs { border:1px solid var(--border); }
+.app-shell .opportunity-quality { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:10px; padding-top:14px; margin:16px 0 12px; border-top:1px solid var(--border); }
+.app-shell .opportunity-quality__confidence-group { display:flex; flex-wrap:wrap; gap:8px; align-items:end; min-width:0; }
+.app-shell .opportunity-quality__confidence-group > span,.app-shell .opportunity-quality .opportunity-quality__ev { padding:7px 11px; border:1px solid var(--border); border-radius:9px; background:var(--surface2); font-size:11px; line-height:1.5; }
+.app-shell .opportunity-quality__confidence b,.app-shell .opportunity-quality__ev b { display:block; font-size:13px; font-weight:700; }
+.app-shell .opportunity-quality__ev { justify-self:end; text-align:right; }
+.app-shell .opportunity-quality__confidence-group .confidence-low,.app-shell .opportunity-quality__confidence-group .confidence-speculative { border-color:var(--gold-border); color:var(--gold); background:var(--gold-dim); }
+.app-shell .opportunity-quality__confidence-group .confidence-high { border-color:var(--green-border); color:var(--green); background:var(--green-dim); }
+.app-shell .opportunity-quality .opportunity-quality__ev.ev-positive { border-color:var(--green-border); color:var(--green); background:var(--green-dim); }
+.app-shell .sporting-discipline > .pr-card-head h2 { margin:0; }
+.app-shell .sporting-discipline > .pr-card-head p { margin:5px 0 0; font-size:12px; }
+.sporting-discipline__grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+.discipline-panel { min-width:0; padding:18px; border:1px solid var(--border); border-radius:13px; border-top:3px solid var(--discipline-fouls); background:var(--surface); }
+.discipline-panel--yellow { border-top-color:var(--discipline-yellow); }
+.discipline-panel--red { border-top-color:var(--discipline-red); }
+.discipline-panel h3 { font-size:16px; margin:0 0 16px; }
+.discipline-panel__values { display:flex; flex-wrap:wrap; gap:12px 20px; margin:0 0 20px; }
+.discipline-panel__values dt { color:var(--text-2); font-size:11px; }
+.discipline-panel__values dd { margin:3px 0 0; font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; }
+.discipline-panel__values > div:first-child { flex-basis:100%; }
+.discipline-panel__values > div:first-child dd { font-size:27px; }
+.discipline-panel__empty { min-height:70px; font-size:12px; }
+[data-theme="dark"] { --discipline-fouls:#75bdf3; --discipline-yellow:#efb841; --discipline-red:#f58e99; }
+[data-theme="dark"] .app-shell .matchup-strength .strength-attack { color:#ffacb5; background:#301c23; border-color:#a35360; }
+[data-theme="dark"] .app-shell .matchup-strength .strength-defence { color:#9ed3ff; background:#152b3d; border-color:#3f7198; }
+@media(max-width:1100px) { .sporting-discipline__grid { grid-template-columns:minmax(0,1fr); } .discipline-panel__values > div:first-child { flex-basis:auto; } }
+@media(max-width:600px) {
+ .app-shell .matchup-strength { gap:6px; }
+ .app-shell .matchup-strength > span { padding:6px 7px; font-size:10px; border-radius:7px; }
+ .app-shell .matchup-versus { width:24px; height:24px; font-size:9px; }
+ .app-shell .opportunity-quality { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+ .app-shell .opportunity-quality__confidence-group > span,.app-shell .opportunity-quality .opportunity-quality__ev { padding:6px 8px; max-width:100%; }
+ .app-shell .opportunity-quality__confidence b,.app-shell .opportunity-quality__ev b { font-size:12px; }
+ .discipline-panel { padding:14px; }
+}
+
+/* Keep confidence aligned with EV when the speculative tag wraps on a phone. */
+@media(max-width:600px) { .app-shell .opportunity-quality__confidence-group .confidence-speculative { order:-1; } }

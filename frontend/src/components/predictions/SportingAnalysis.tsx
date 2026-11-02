@@ -1,5 +1,6 @@
 import { ProbBar, DistChart } from './PredictionStatPrimitives';
 import ShotsSection from './ShotsSection';
+import DisciplineSection from './DisciplineSection';
 
 /** Sporting probabilities only: no bookmaker prices or quote requests. */
 export default function SportingAnalysis({ prediction, loading }: {
@@ -39,5 +40,6 @@ export default function SportingAnalysis({ prediction, loading }: {
       </div></section>
     <section aria-label="Grafici tiri"><h2>Tiri e tiri in porta</h2>{hasShots ? <ShotsSection homeTeam={prediction.homeTeam} awayTeam={prediction.awayTeam} shotsPrediction={shots} />
       : <p className="pr-info">Previsione dei tiri non disponibile con i dati di questa partita.</p>}</section>
+    <DisciplineSection prediction={prediction} />
   </div>;
 }

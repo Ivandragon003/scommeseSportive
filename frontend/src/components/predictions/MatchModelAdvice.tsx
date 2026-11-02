@@ -62,7 +62,6 @@ function RecordedAdvice({ decision, renderActions }: { decision: RecordedModelAd
     <p className="match-model-advice__origin">Decisione Nightly archiviata</p>
     <h3>{validSelection ? selected.selectionLabel || fmtSelection(selected.selection)
       : technical || selected ? 'Valutazione non utilizzabile' : 'Nessuna giocata consigliata'}</h3>
-    {validSelection && selected && <OpportunityQuality opportunity={selected} />}
     {validSelection && blockedExecution && <p>Il modello ha consigliato questa giocata, ma non è stata registrata.</p>}
     {decision.reason && <p>{reasonLabel(decision.reason)}</p>}
     {technical && !decision.reason && <p>La valutazione non è stata completata o non ha superato i controlli.</p>}
@@ -76,6 +75,7 @@ function RecordedAdvice({ decision, renderActions }: { decision: RecordedModelAd
     </dl>
     <p className="match-model-advice__footnote">Le quote archiviate non sono quote correnti.</p>
     {validSelection && !quote && <p role="status">La quota conservata non è disponibile o non corrisponde al consiglio.</p>}
+    {validSelection && selected && <OpportunityQuality opportunity={selected} />}
     {validSelection && selected && quote && renderActions?.(decision.family, { ...selected,
       marketName: (selected as BestValueOpportunity).marketName || 'Selezione del modello', bookmakerOdds: quote.odds,
       bookmakerName: quote.bookmaker }, funded, quote.updatedAt || quote.capturedAt)}

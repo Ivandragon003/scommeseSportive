@@ -10,7 +10,7 @@ export default function MatchupHeader({ match, prediction, teams, meta, onRefres
     const format = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
     return <div className={`matchup-team${home ? '' : ' matchup-team--away'}`}>
       <div><span className="matchup-side">{home ? 'Casa' : 'Ospite'}</span><h2>{name}</h2>
-        <div className="matchup-strength" aria-label={`Forza ${name}`}><span>Attacco <b>{format(team?.attack_strength)}</b></span><span>Difesa <b>{format(team?.defence_strength)}</b></span></div>
+        <div className="matchup-strength" aria-label={`Forza ${name}`}><span className="strength-attack">Attacco <b>{format(team?.attack_strength)}</b></span><span className="strength-defence">Difesa <b>{format(team?.defence_strength)}</b></span></div>
       </div>
     </div>;
   };

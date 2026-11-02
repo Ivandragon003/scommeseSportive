@@ -882,7 +882,6 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       {!analysis.loading && !started && !completed && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={vm.handleRefresh}>Riprova analisi A</button>}
     </> : <>
       <h3>{choice && realQuote ? choice.selectionLabel || fmtSelection(choice.selection) : pred.oddsSource !== 'odds_api' ? 'Servono quote reali per verificare A' : 'Nessuna giocata consigliata'}</h3>
-      {choice && realQuote && <OpportunityQuality opportunity={choice} />}
       {choice && realQuote ? <dl className="match-model-advice__metrics">
         <div><dt>Quota bookmaker</dt><dd data-testid="best-value-metric-quota-bookmaker">{Number(choice.bookmakerOdds).toFixed(2)}</dd></div>
         <div><dt>Bookmaker</dt><dd>{choiceBookmaker}</dd></div>
@@ -891,6 +890,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       </dl> : <p>{pred.oddsSource !== 'odds_api' ? 'Quote reali non disponibili per una nuova giocata.' : 'Il modello A non ha selezionato una giocata con le quote disponibili.'}</p>}
       {automatic ? <p>{Number(automatic.actualStakeAmount) > 0 ? 'Puntata archiviata. Consulta Giocate per lo stato e l’esito.' : 'Nessuna puntata registrata.'}</p> : <p>Nessuna puntata registrata da questa analisi.</p>}
       {vm.isReplayAnalysis && <p>Il replay non è una decisione pre-partita archiviata.</p>}
+      {choice && realQuote && <OpportunityQuality opportunity={choice} />}
       {choice && realQuote && renderActions('A', { ...choice, bookmakerName: choiceBookmaker }, Number(automatic?.actualStakeAmount) > 0)}
     </>}
   </section>;
@@ -939,15 +939,15 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
           <header><h2>Altre opportunità A</h2><p>Selezioni con EV positivo e opportunità LOW o speculative da valutare. Puoi scegliere una giocata per modello e partita, oppure archiviare senza puntare.</p></header>
           {vm.manualArchiveOpportunities.map(opportunity => <article key={opportunity.selection} className="opportunity-alternative">
             <header><h3>{opportunity.selectionLabel || fmtSelection(opportunity.selection)}</h3><span>Modello A</span></header>
-            <OpportunityQuality opportunity={opportunity} />
             <dl><div><dt>Quota reale</dt><dd>{Number(opportunity.bookmakerOdds).toFixed(2)}</dd></div><div><dt>Bookmaker</dt><dd>{opportunity.bookmakerName}</dd></div><div><dt>Mercato</dt><dd>{opportunity.marketName}</dd></div></dl>
+            <OpportunityQuality opportunity={opportunity} />
             {renderActions('A', opportunity)}
           </article>)}
         </section>}
         <SavedModelOpportunities matchId={matchId} />
         </section>}
         <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Dati della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>
-          {actualStats.some(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null) ? <table><thead><tr><th>Statistica</th><th>Casa</th><th>Ospite</th></tr></thead><tbody>{actualStats.filter(([, home, away]) => activeMatchRow?.[home] != null || activeMatchRow?.[away] != null).map(([label, home, away]) => <tr key={label}><th>{label}</th><td>{activeMatchRow?.[home] ?? 'Non disponibile'}</td><td>{activeMatchRow?.[away] ?? 'Non disponibile'}</td></tr>)}</tbody></table> : <p>Statistiche non ancora disponibili.</p>}
+          <table><caption className="sr-only">Statistiche osservate della partita</caption><thead><tr><th>Statistica</th><th>Casa</th><th>Ospite</th></tr></thead><tbody>{actualStats.map(([label, home, away]) => <tr key={label}><th>{label}</th><td>{activeMatchRow?.[home] ?? 'Non disponibile'}</td><td>{activeMatchRow?.[away] ?? 'Non disponibile'}</td></tr>)}</tbody></table><p>I valori non disponibili non sono ancora stati rilevati dal provider. Le stime di falli e cartellini sono nell’analisi sportiva.</p>
           {completed && !pred && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={analysis.loading} onClick={() => void handleAnalyze(activeMatchRow, { replay: true })}>Apri replay retrospettivo A</button>}
         </div></details>
       </div>
