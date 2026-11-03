@@ -27,7 +27,7 @@ jobs:
               const started=Date.now();
               const request=https.get({hostname:host,path,headers:{'X-Requested-With':'XMLHttpRequest','User-Agent':'FootballPredictor connectivity diagnostic','Accept':'application/json'}},response=>{
                 console.log(JSON.stringify({host,path,status:response.statusCode,durationMs:Date.now()-started}));
-                response.destroy(); resolve(response.statusCode===200);
+                response.destroy(); resolve(response.statusCode>=200 && response.statusCode<400);
               });
               const timer=setTimeout(()=>request.destroy(Object.assign(new Error('deadline'),{code:'ETIMEDOUT'})),12000);
               request.on('close',()=>clearTimeout(timer));

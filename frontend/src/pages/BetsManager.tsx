@@ -345,7 +345,6 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
           <section className="bets-section bets-section--open" aria-labelledby="open-bets-title" aria-label="Giocate aperte">
               <div className="bets-section__head">
                 <div><Clock3 size={22} aria-hidden="true" /><h2 id="open-bets-title">Giocate in attesa</h2><span className="fp-badge fp-badge-blue">{visibleOpenBets.length}</span></div>
-                <span className="bets-section__hint">Capitale già impegnato · aggiornamento automatico a risultato disponibile</span>
               </div>
               <div className="bets-table-shell">
                 <div className="bets-table-head" aria-hidden="true"><span /><span>Partita / Data</span><span>Mercato / Selezione</span><span>Quota reale</span><span>Puntata</span><span>Ritorno potenziale</span><span>Stato</span></div>
