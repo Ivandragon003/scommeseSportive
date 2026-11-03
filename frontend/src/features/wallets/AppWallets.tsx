@@ -44,17 +44,18 @@ export function useAppWalletData(query: ResearchComparisonQuery) {
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   const { period, from, to, includeHistory } = query;
   const qualityKey = (query.qualities || []).join(',');
+  const requestQualityKey = includeHistory ? '' : qualityKey;
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
     lastFetchAt.current = Date.now();
     setLoading(true); setError(null);
-    getAppWallets({ period, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(includeHistory ? { includeHistory: true } : {}), ...(qualityKey ? { qualities: qualityKey.split(',') } : {}) }, controller.signal)
+    getAppWallets({ period, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(includeHistory ? { includeHistory: true } : {}), ...(requestQualityKey ? { qualities: requestQualityKey.split(',') } : {}) }, controller.signal)
       .then((value) => { if (active) setData(value); })
       .catch(() => { if (active) setError('Non è stato possibile caricare giocate e saldi. Riprova.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
-  }, [period, from, to, includeHistory, qualityKey, revision]);
+  }, [period, from, to, includeHistory, requestQualityKey, revision]);
   useEffect(() => {
     let pending: ReturnType<typeof setTimeout> | null = null;
     const queueRefresh = (afterSync = false) => {
@@ -74,7 +75,13 @@ export function useAppWalletData(query: ResearchComparisonQuery) {
       window.removeEventListener('data-sync-complete', onSync);
     };
   }, [refresh]);
-  return { data, loading, error, refresh };
+  const orderedKey = ['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE', 'UNKNOWN'].filter(key => (query.qualities || []).includes(key)).join(',');
+  const selection = data?.classificationResults?.[orderedKey];
+  const selectedData = selection && data ? { ...data,
+    portfolios: data.portfolios.map(row => ({ ...row, ...selection.metrics[row.family] })),
+    filteredProfitCurves: selection.curves,
+  } : data;
+  return { data: selectedData, loading, error, refresh };
 }
 
 export function WalletModelPicker({ value, onChange }: { value: WalletModelFilter; onChange: (value: WalletModelFilter) => void }) {

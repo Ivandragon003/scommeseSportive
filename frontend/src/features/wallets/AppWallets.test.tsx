@@ -12,7 +12,6 @@ import { WalletPeriodPicker, walletToday } from './WalletPages';
 jest.mock('../../utils/walletApi');
 jest.mock('../../utils/api');
 jest.mock('../research/ResearchEquityChart', () => ({ a, c, title }: any) => <div data-testid="wallet-chart" data-a={JSON.stringify(a)} data-c={JSON.stringify(c)}>{title}</div>);
-jest.mock('../../components/budget/BankrollTrendChart', () => ({ equity }: any) => <div data-testid="bankroll-chart" data-equity={JSON.stringify(equity)}>Andamento</div>);
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 const mockedLegacy = legacyApi as jest.Mocked<typeof legacyApi>;
 
@@ -103,22 +102,23 @@ test('Budget keeps the actual funds separate and displays server aggregates rath
   expect(screen.queryByRole('button', { name: 'Inizializza' })).not.toBeTruthy();
 });
 
-test('Budget selects only its own authoritative equity series, retains comparison and period queries', async () => {
+test('Budget keeps the server profit series consistent across models, comparison and periods', async () => {
   const data = payload();
   data.portfolios[0].equity = [{ at: '2026-10-29T00:00:00Z', equityCents: 100000 }, { at: '2026-10-30T00:00:00Z', equityCents: 101000 }];
   data.portfolios[1].equity = [{ at: '2026-10-29T00:00:00Z', equityCents: 100000 }, { at: '2026-10-30T00:00:00Z', equityCents: 99000 }];
+  data.filteredProfitCurves={ A:[{at:'2026-10-30T00:00:00Z',equityCents:1000}],C:[{at:'2026-10-30T00:00:00Z',equityCents:-1000}] };
   mockedWallets.mockResolvedValue(data);
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
-  let chart = await screen.findByTestId('bankroll-chart');
-  expect(chart.getAttribute('data-equity')).toBe(JSON.stringify(data.portfolios[0].equity));
+  let chart = await screen.findByTestId('wallet-chart');
+  expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.filteredProfitCurves?.A));
   expect(screen.getByRole('link', { name: 'Giocate del modello A' }).getAttribute('href')).toBe('/bets?model=A');
   fireEvent.click(screen.getByRole('button', { name: 'Modello C' }));
-  chart = screen.getByTestId('bankroll-chart');
-  expect(chart.getAttribute('data-equity')).toBe(JSON.stringify(data.portfolios[1].equity));
+  chart = screen.getByTestId('wallet-chart');
+  expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.filteredProfitCurves?.C));
   fireEvent.click(screen.getByRole('button', { name: 'Confronta A e C' }));
   chart = screen.getByTestId('wallet-chart');
-  expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.portfolios[0].equity));
-  expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.portfolios[1].equity));
+  expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.filteredProfitCurves?.A));
+  expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.filteredProfitCurves?.C));
   selectOption(screen.getByLabelText('Periodo'), '7d');
   await waitFor(() => expect(mockedWallets).toHaveBeenLastCalledWith({ period: '7d', includeHistory: true }, expect.any(AbortSignal)));
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
@@ -295,12 +295,16 @@ test('Giocate uses the database-backed summary instead of recomputing it from it
 });
 
 
-test('budget sends selected qualities to the server for each model and comparison', async () => {
+test('budget changes classification without another remote request and keeps selection in comparison', async () => {
+  const data=payload(); data.classificationResults={HIGH:{metrics:{A:{profitCents:12345}},curves:{A:[{at:'2026-10-30T00:00:00Z',equityCents:12345}],C:[]}}}; mockedWallets.mockResolvedValue(data);
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
   await screen.findByRole('region',{name:'Portafoglio A'});
+  const calls=mockedWallets.mock.calls.length;
   const high=screen.getByRole('button',{name:'High',exact:true});fireEvent.click(high);
   expect(high.getAttribute('aria-pressed')).toBe('true');
-  await waitFor(()=>expect(mockedWallets).toHaveBeenLastCalledWith(expect.objectContaining({qualities:['HIGH'],includeHistory:true}),expect.anything()));
+  expect(mockedWallets.mock.calls.length).toBe(calls);
+  expect(screen.getAllByText(/123,45/).length).toBeGreaterThan(0);
+  expect(screen.getByTestId('wallet-chart').getAttribute('data-a')).toBe(JSON.stringify(data.classificationResults.HIGH.curves.A));
   fireEvent.click(screen.getByRole('button',{name:'Confronta A e C'}));
   expect(screen.getByRole('region',{name:'Confronto dei portafogli'})).toBeTruthy();
 });

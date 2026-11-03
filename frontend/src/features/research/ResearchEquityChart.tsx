@@ -19,8 +19,8 @@ const EquityChart = ({ a, c, title, showData = true, kind = 'equity' }: { a?: Ec
           <YAxis stroke="var(--text-3)" tick={{ fontSize: 12 }} width={68} domain={['auto', 'auto']} tickFormatter={(value) => `${value} €`} />
           <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)' }} formatter={(value: number) => money(value * 100)} labelFormatter={(value) => isTimestamp(value) ? dateTime(value) : String(value)} />
           <Legend />
-          {a !== undefined && <Line type="stepAfter" dataKey="A" name="Modello A" stroke="var(--blue)" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
-          {c !== undefined && <Line type="stepAfter" dataKey="C" name="Modello C" stroke="var(--purple)" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
+          {a !== undefined && <Line isAnimationActive={false} type="stepAfter" dataKey="A" name="Modello A" stroke="var(--blue)" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
+          {c !== undefined && <Line isAnimationActive={false} type="stepAfter" dataKey="C" name="Modello C" stroke="var(--purple)" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
         </LineChart>
       </ResponsiveContainer>
     </div>

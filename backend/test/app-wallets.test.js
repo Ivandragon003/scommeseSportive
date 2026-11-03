@@ -248,6 +248,10 @@ test('classification-filtered budget includes A history and changes results with
   assert.equal(selected.betCount,2);assert.equal(selected.profitCents,3000);assert.equal(selected.settledStakeCents,11000);
   assert.equal(selected.roi,3000/11000);assert.equal(after.historicalAvailableCents,123450);
   assert.equal(after.filteredProfitCurves.A.at(-1).equityCents,3000);
+  assert.equal(Object.keys(after.classificationResults).length,32);
+  assert.equal(after.classificationResults.HIGH.metrics.A.profitCents,3000);
+  assert.equal(after.classificationResults['HIGH,LOW'].metrics.A.profitCents,2000);
+  assert.equal(after.classificationResults[''].curves.A.at(-1).equityCents,2000);
   assert.deepEqual(parseAppWalletQuery({qualities:'HIGH,LOW',includeHistory:'true'}).qualities,['HIGH','LOW']);
   assert.throws(()=>parseAppWalletQuery({qualities:'fake'}),/Invalid comparison/);
 });

@@ -11,7 +11,6 @@ import {
 import ModelBadge from './ModelBadge';
 import QualityFilters from './QualityFilters';
 import { AppSelect } from '../../components/common/AppSelect';
-import BankrollTrendChart from '../../components/budget/BankrollTrendChart';
 
 const initialModel = (): WalletModelFilter => {
   const value = new URLSearchParams(window.location.search).get('model');
@@ -123,8 +122,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
           </dl>
           <div className="budget-workspace">
             <section className="wallet-budget-chart" aria-label={`Andamento modello ${selected.family}`}>
-              {qualities.length ? <EquityChart a={selected.family === 'A' ? data.filteredProfitCurves?.A : undefined} c={selected.family === 'C' ? data.filteredProfitCurves?.C : undefined} showData={false} kind="profit" title="Profitto cumulato delle giocate filtrate" />
-                : <BankrollTrendChart initialBudget={(selected.initialCents ?? 0) / 100} settledBets={[]} equity={selected.equity} rangeLocked={query.period !== 'all'} />}
+              <EquityChart a={selected.family === 'A' ? data.filteredProfitCurves?.A : undefined} c={selected.family === 'C' ? data.filteredProfitCurves?.C : undefined} showData={false} kind="profit" title="Profitto cumulato nel periodo" />
             </section>
             <aside className="budget-management wallet-budget-facts" aria-label={`Capitale modello ${selected.family}`}>
               <h2>Il capitale del modello {selected.family}</h2>
@@ -142,8 +140,8 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
       {model !== 'all' && !selected && <p className="fp-empty">Portafoglio non disponibile per il modello scelto.</p>}
       {model === 'all' && <section className="wallet-budget-comparison" aria-label="Confronto dei portafogli">
         <WalletBalanceCards portfolios={data.portfolios} model="all" />
-        <section className="wallet-budget-chart"><EquityChart a={qualities.length ? data.filteredProfitCurves?.A : data.portfolios.find((row) => row.family === 'A')?.equity}
-          c={qualities.length ? data.filteredProfitCurves?.C : data.portfolios.find((row) => row.family === 'C')?.equity} showData={false} kind={qualities.length ? 'profit' : 'equity'} title={qualities.length ? 'Profitti A e C delle giocate filtrate' : 'Patrimoni A e C nel tempo'} /></section>
+        <section className="wallet-budget-chart"><EquityChart a={data.filteredProfitCurves?.A}
+          c={data.filteredProfitCurves?.C} showData={false} kind="profit" title="Profitti cumulati A e C nel periodo" /></section>
       </section>}
       <div className="wallet-budget-results">{portfolios.map((row) => <section className="wallet-budget-result" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
         <header><ModelBadge model={row.family} /><h2>Risultati del periodo</h2><p>{data.period.label}</p></header>
@@ -154,7 +152,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. {qualities.length ? 'Il grafico mostra il profitto cumulato delle classificazioni selezionate.' : 'Il grafico mostra il patrimonio del portafoglio operativo nel periodo selezionato.'} I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
+      <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. Il grafico mostra sempre il profitto cumulato, da zero all’inizio del periodo. I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
   </main>;
 }

@@ -1,4 +1,4 @@
-import { parseArchiveQuery } from './WalletArchiveService';
+import { ARCHIVE_QUALITIES, parseArchiveQuery } from './WalletArchiveService';
 import { recordedTime, walletPeriodResults } from './WalletPeriodResults';
 import { buildResearchComparison, comparisonPeriod, ResearchComparisonQuery } from '../research/ResearchComparison';
 
@@ -37,7 +37,16 @@ export async function buildAppWallets(
     wallets.leader = !a?.initialized || !c?.initialized || a.profitCents == null || c.profitCents == null ? null
       : a.profitCents === c.profitCents ? 'TIE' : a.profitCents > c.profitCents ? 'A' : 'C';
     wallets.historicalAvailableCents = availableCents;
-    wallets.filteredProfitCurves = query.qualities?.length ? { A: results.A.profitCurve, C: results.C.profitCurve } : null;
+    wallets.filteredProfitCurves = { A: results.A.profitCurve, C: results.C.profitCurve };
+    // One immutable database snapshot supplies every selection; the browser only selects a server result.
+    if (query.includeHistory) {
+      wallets.classificationResults = Object.fromEntries(Array.from({ length: 1 << ARCHIVE_QUALITIES.length }, (_, mask) => {
+        const qualities = ARCHIVE_QUALITIES.filter((_, index) => mask & (1 << index));
+        const selected = Object.fromEntries(['A', 'C'].map(family => [family, walletPeriodResults(records, family, wallets.period, qualities)]));
+        return [qualities.join(','), { metrics: { A: selected.A.metrics, C: selected.C.metrics },
+          curves: { A: selected.A.profitCurve, C: selected.C.profitCurve } }];
+      }));
+    }
   }
 
   return wallets;

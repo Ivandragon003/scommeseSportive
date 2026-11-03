@@ -82,6 +82,10 @@ export interface ComparisonBet extends Omit<ResearchBet, 'quote' | 'matchId' | '
 }
 
 export interface ResearchComparison {
+  classificationResults?: Record<string, {
+    metrics: Record<string, Partial<ComparisonPortfolio>>;
+    curves: { A: Array<{ at: string; equityCents: number }>; C: Array<{ at: string; equityCents: number }> };
+  }>;
   historicalAvailableCents?: number | null;
   filteredProfitCurves?: { A: Array<{ at: string; equityCents: number }>; C: Array<{ at: string; equityCents: number }> } | null;
   period: { key: ComparisonPeriod; from: string | null; to: string; timezone: string; label: string };
