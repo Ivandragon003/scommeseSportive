@@ -6,15 +6,19 @@
 - Stack deciso: React; Node.js/Express/TypeScript; libSQL/Turso; Docker Compose. Architettura modular monolith, fruizione primaria web-first. Cambi materiali richiedono una decisione esplicita dell'utente.
 - Usa software gratuito/open-source o free tier realmente utilizzabili; non introdurre provider a pagamento obbligatori, microservizi, codebase duplicate o infrastruttura superflua.
 
-## Riferimenti secondo il task
+## Documentazione corrente e riferimenti secondo il task
+
+- `README.md` è il punto di ingresso unico. Ogni tema ha una guida canonica collegata; non aggiungere resoconti datati, roadmap duplicate o snapshot di saldi, crediti e deploy come descrizione del prodotto.
+- Le sole decisioni storiche da conservare come documentazione sono le scelte scartate in `docs/FORMULARIO-scelte-scartate.md`. I dati di prova immutabili restano distinti dalle istruzioni operative.
 
 - Avvio e configurazione: `README.md`, `docker-compose.yml` e gli script nei `backend/package.json` e `frontend/package.json`.
 - Import e fonti: `backend/src/services/FootballDataService.ts`, `docs/github-actions-nightly-sync.md`; transizioni tra competizioni: `docs/competition-transitions/README.md`.
 - Mercati, selezione e matching: `backend/src/services/PredictionService.ts`, `backend/src/services/playerProps.ts`, `backend/src/models/value/ValueBettingEngine.ts` e `backend/src/api/routes.ts`.
-- Modelli e decisioni sperimentali: `docs/FORMULARIO-sistema-scommesse.md`, `docs/FORMULARIO-scelte-scartate.md` e il report pertinente in `docs/performance/`. Per riaprire l'ottimizzazione leggi `docs/performance/model-optimization-status-2026-07.md`.
-- Quote storiche, anytime e corner/falli: `docs/performance/closing-odds-ingest-2026-07.md`, `docs/performance/anytime-scorer-e5-2026-07.md` e `docs/performance/fouls-corners-validation-2026-07.md`.
+- Architettura e modelli: `docs/SYSTEM-DESIGN.md`, `docs/models/MODEL-A.md`, `docs/models/MODEL-C.md` e `docs/FORMULARIO-sistema-scommesse.md`.
+- Decisioni fallite e loro applicabilità a C: `docs/FORMULARIO-scelte-scartate.md`. Training, policy, holdout e riproduzione: `docs/research-platform.md` e `backend/ml/README.md`.
+- Quote, azioni manuali e contabilità: `docs/operations/README.md`. Hosting: `docs/operations/hostless-deployment.md`; backup: `docs/operations/turso-backup.md`.
 - Packaging Android: `docs/android-private-apk.md`. Genera o ricompila l'APK solo su richiesta esplicita dell'utente; una modifica web non autorizza automaticamente un nuovo pacchetto Android. Sicurezza della cronologia: `docs/security/history-cleanup.md`.
-- I report datati descrivono esperimenti e snapshot storici: verifica codice, configurazione e dati pertinenti prima di presentarne copertura, metriche o funzionalità come attuali. Non trasformare la loro roadmap in lavoro automaticamente autorizzato.
+- Il codice e la configurazione descrivono il comportamento implementato; stato remoto, versione C adottata e disponibilità dei provider richiedono riscontri dell'installazione. Non trasformare un vecchio risultato o un'ipotesi del catalogo in lavoro automaticamente autorizzato.
 
 ## Fonti e integrità dei dati
 
@@ -38,9 +42,9 @@
 
 ## Direzione del modello
 
-- L'ottimizzazione incrementale del modello è considerata chiusa secondo il report di luglio 2026. Non riproporre micro-ottimizzazioni goal senza ipotesi sostanzialmente nuova e metrica non già testata.
-- L'esperimento opzionale di calibrazione/dispersione tiri richiede valutazione indipendente dalla selezione sulla pipeline completa: GO solo se il miglioramento sopravvive a calibrazione e blending su almeno 4/5 leghe. Verifica nel report e nel codice se l'esperimento è ancora aperto prima di proporlo.
-- Per nuove priorità usa la roadmap documentata (quote storiche, statistiche giocatore, dati inutilizzati, igiene dati, mercati per tempo e corner), verificando quanto è già stato implementato. In particolare, non riproporre anytime o ingest di chiusura come assenti basandoti solo sul report iniziale. Recent Form ha un precedente NO-GO: collegare dati non prova un miglioramento.
+- Prima di riaprire un'ipotesi leggere il catalogo delle scelte scartate. Le bocciature storiche di A non sono automaticamente risultati di C; non giustificano però di ripetere la stessa ricerca su test già consultati. Non proporre micro-ottimizzazioni goal senza ipotesi sostanzialmente nuova e confronto completo.
+- L'eventuale studio di calibrazione/dispersione tiri è distinto dal modello goal C: richiede una valutazione indipendente dalla selezione nella pipeline completa, con beneficio dopo calibrazione e blending in almeno 4/5 leghe. Non presentarlo come una bocciatura già dimostrata o un miglioramento certo.
+- Verificare nel codice ciò che è già implementato: ingest di chiusura, anytime, forma/riposo nelle feature C e corner concessi non vanno riproposti come assenti da vecchie roadmap. Nessuna nuova priorità o integrazione è implicita nella pulizia documentale.
 
 ## Presentazione e UX
 

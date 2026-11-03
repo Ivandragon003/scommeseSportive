@@ -1,332 +1,102 @@
-# Formulario del sistema — Football Prediction & Value Betting Engine
+# Formulario del sistema di previsione
 
-**Versione 5.1 — formulario della linea A, snapshot del 26 luglio 2026 (batch audit A1–A7 + B4/B6 + D1 + E5).**
-Sostituisce `FormularioSistemaScommesse_v4_allineato.docx` (v4.1, maggio 2026).
-Formule, configurazioni numeriche e risultati sperimentali sotto descrivono
-quella revisione; non sono una verifica completa del runtime successivo.
-Le voci nuove rispetto alla v4.1 sono marcate 🆕; il codice presente ma non
-collegato al runtime è marcato ⚠️.
+Questo documento descrive le formule e i confini principali presenti nel codice. I valori indicati come default possono essere modificati dalla configurazione o dai parametri effettivamente caricati; non descrivono da soli lo stato di un'installazione. Per i percorsi completi vedere [modello A](models/MODEL-A.md), [modello C](models/MODEL-C.md) e [scelte scartate](FORMULARIO-scelte-scartate.md).
 
-**Lettura corrente, 30 ottobre 2026:** [guida del modello A](models/MODEL-A.md),
-[guida del modello C](models/MODEL-C.md) e [architettura A/C](models/README.md).
-Il presente formulario approfondisce la matematica di A; non descrive
-l'algoritmo CatBoost e il post-processing coerente di C, né sostituisce le
-regole della registrazione virtuale v2. L'A operativo non è la baseline A80
-fissata per C.
+## Dati e percorsi
 
-Aggiornamenti v5.1 (report in [`docs/performance/`](performance/)): A1 segno difesa tiri, A2 corner concessi, A3/A4 share tiri giocatore, A6/B4 booking points, A7 handicap 3 vie, B6 baseline gialli per-lega, D1 termine avversario gialli, E5 marcatore anytime. Scartati: B1, D2, D3, D5.
+Understat è la fonte primaria dei dati calcistici. `FootballDataService` integra i campi mancanti con football-data.co.uk senza sovrascrivere valori esistenti; le quote storiche hanno provenienza distinta dalle statistiche. Le quote usate per decisioni e valutazioni economiche devono essere reali e attribuite al bookmaker effettivo: completamenti sintetici del modello non sono evidenza di value, ROI o CLV.
 
-Per le idee valutate e **scartate** (e il perché) vedere il documento compagno [`FORMULARIO-scelte-scartate.md`](FORMULARIO-scelte-scartate.md) e i report in [`docs/performance/`](performance/).
+A operativo usa `PredictionService`, contesto, modelli statistici, calibrazione e selezione. Research A80 è una baseline cronologica separata: le sue metriche e probabilità non sono quelle di A operativo. C usa la baseline research e un artefatto CatBoost. Il percorso C906 legacy è un riferimento predefinito del codice, non una conferma della versione effettivamente attiva nel registro: questa richiede una lettura dell'installazione. Il selettore legacy C riusa il motore value e il selettore canonico; il selettore `payout-aware-v1` è un percorso distinto, usato operativamente solo quando l'adozione lo specifica.
 
----
+Sorgenti: `backend/src/services/FootballDataService.ts`, `backend/src/services/PredictionService.ts`, `backend/src/research/ForecastCore.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ResearchRecommendationRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.
 
-## 0. Vincoli operativi
+## Gol: Dixon–Coles e ensemble
 
-- Stack: React frontend · Node.js + Express + TypeScript backend · libSQL/Turso · Docker · modular monolith.
-- Fonte dati calcio: **Understat** (rose, tiri, xG per-match nel `raw_json`). FotMob/Transfermarkt/FBref non attivi.
-- Fonte quote: **The Odds API, con il bookmaker realmente indicato nello snapshot**; non necessariamente Eurobet. Quote sintetiche interne, mai quote bookmaker né base per value/ROI/CLV.
-- Mercati operativi A: esito, doppia chance, DNB, gol, BTTS, tiri, tiri in porta, cartellini e handicap quando dati e quote reali lo consentono. Player props separate. `exact_score` resta un calcolo interno e non un mercato operativo. **Corners e fouls** restano bloccati: la copertura statistica storica del §13 non è una validazione di mercato o una misura della copertura corrente.
-- `maxOdds = 8.00`, `applyMaxOddsToAllMarkets = true`, `sofascoreSupplementalEnabled = false`.
+Nel fit di Dixon–Coles, se gli xG sono validi, il bersaglio della componente Poisson combina gol e xG:
 
-## 1. Configurazione tipizzata
-
-Due file di configurazione:
-- `backend/src/config/PredictionEngineConfig.ts` — `predictionEngineConfig` (tabella sotto). Default backward-compatible; logiche che cambiano il comportamento storico opt-in.
-- `backend/src/config/predictionConfig.ts` — `predictionConfig`, override da **variabili d'ambiente**: `model.homeAdvantageScale` (default 0.5, moltiplica l'HA salvato in `sanitizeModelParams`), `model.contextWeights` (form 0.12 / motivation 0.06 / absences 0.05 / discipline 0.03), `markets.minSampleSizePerTeam` (8) / `minCombinedSampleSize` (20) — sotto queste soglie i mercati statistici vengono disattivati per quel match.
-
-Valori chiave attuali:
-
-| Sezione | Parametro | Valore |
-|---|---|---|
-| dixonColes.xgBlend 🆕 | `enableXgBlend` / `xgWeight` / `maxXgValue` | true / **0.80** / 8 |
-| dixonColes.temporalWeights | currentSeasonDecay / prevBaseWeight / prevDecay | 0.002 / 0.35 / 0.018 |
-| dixonColes.bootstrap | bootstrapMode / samples / cvReference | paramNoise / 200 / 0.25 |
-| ensemble 🆕 | `enabled` / `weights` | true / {default,oneXTwo,overUnder,btts} = 0.5 |
-| specializedModels | dispersionShrinkageStrength / minSampleForTeamDispersion / countDispersionTolerance | 12 / 12 / 0.5 |
-| playerShots | distribution / minutesMode / teamInfluenceWeight | ZIP / triangular / 0.35 |
-| playerCards | teamYellowInfluenceWeight / minMinutesForStableCards | 0.25 / 900 |
-| calibration | enablePerFamilyCalibration / perFamilyMinSamples | true / 120 |
-| marketBlending 🆕 | enableLearnedBlendWeights / minSamples / maxShift | true / 80 / 0.18 |
-| lineupXg | enableLineupXgAdjustment / replacementRatio / maxXgReduction | true / 0.60 / 0.18 |
-| valueBetting | kellyMode / bootstrapUncertainty.enable/weight | quarter / true / 0.35 |
-| valueBetting.operational | maxOdds / applyMaxOddsToAllMarkets | 8.00 / true |
-
-## 2. Dixon-Coles — modello goal
-
-File: `backend/src/models/core/DixonColesModel.ts`.
-
-### 2.1 Lambda attese
-```
-λ_home = exp(attack_home − defence_away + HA_home)
-λ_away = exp(attack_away − defence_home)
-```
-`HA_home` usa `homeAdvantagePerTeam[home]` se abilitato (opt-in), altrimenti `homeAdvantage` globale (default 0.10). I `contextAdjustments` (home/awayGoalMultiplier) moltiplicano le λ quando presenti. Se al predict vengono passati xG pre-partita (>0), si applica anche un blend `λ = 0.6·λ + 0.4·xG` (usato solo quando l'xG è fornito; non in backtest per evitare lookahead).
-
-### 2.1b Mercati derivati dalla score matrix
-Da `computeFullProbabilities`: 1X2, BTTS, Over/Under 0.5–4.5, **exact score** (`exact_H-A`), **handicap europeo** (`hcp_home±X`), **asian handicap** (linee −1.75…+1.75, con rimborso/mezzo sul push), doppia chance e DNB (derivati dal 1X2). Tutti coerenti con la stessa matrice.
-
-### 2.2 🆕 Correzione bias di livello per-lega (`levelCorrection`)
-Il DC sottostima il livello totale dei goal in misura **eterogenea per lega**. A fit-time si stima, per casa e trasferta separatamente:
-```
-c_home = Σ(goal reali casa) / Σ(λ_home)      c_away = Σ(goal reali away) / Σ(λ_away)   (clamp [0.85, 1.35])
-```
-e in `computeExpectedGoals` si applica `λ_home *= c_home`, `λ_away *= c_away`. Persistito in `model_params.levelCorrection`; se assente → fattore 1.0 (retrocompatibile). Impatto: −1.44% logLoss raw; azzera il bias sui totali (over2.5 calibration-in-large z 6.3→0).
-
-### 2.3 xG blend nel fit 🆕
-Il fit massimizza una quasi-log-likelihood Poisson su **pseudo-goal**:
-```
-effGoal = (1 − xgWeight)·goal_reali + xgWeight·min(xG, maxXgValue)     xgWeight = 0.80
-```
-La correzione τ resta sui goal interi reali. Riduce il rumore della finalizzazione.
-
-### 2.4 Score dependence (τ)
-Interfaccia `ScoreDependenceModel.correction(i,j,λH,λA,ρ)`. Classi presenti: **`ClassicDixonColesDependence`** (default) e **`NoDependence`**. *(Le classi Sarmanov/MarCo della v4.1 sono state rimosse.)*
-```
-τ(0,0)=1−λH·λA·ρ   τ(1,0)=1+λA·ρ   τ(0,1)=1+λH·ρ   τ(1,1)=1−ρ   altrove 1
-```
-La score matrix è normalizzata e protetta da probabilità negative.
-
-### 2.5 Ottimizzatore e pesi temporali
-`fitModel()` usa **Adam** (β1=0.9, β2=0.999, ε=1e-8) su weighted log-likelihood; L2 reg 0.003; normalizzazione Σattack=0. Pesi temporali per stagione con decadimento esponenziale settimanale (§1). ⚠️ `optimizeTemporalWeights()` esiste ma **non ha caller** (codice morto).
-
-### 2.6 Bootstrap
-`bootstrapLambdas()` → `lambdaHomeMean/Std`, `lambdaAwayMean/Std`, `uncertaintyFactor`. Modalità `paramNoise` (default, perturbazioni gaussiane); `jackknife`/`hessian` = fallback deterministici.
-
-## 3. 🆕 Ensemble Dixon-Coles + Poisson-xG
-
-File: `backend/src/models/core/PoissonXgModel.ts`, `backend/src/services/ProbabilityEnsembleService.ts`.
-
-Modello partner: Poisson **indipendente** guidato dai rate xG opponent-adjusted, fittato a fit-time sugli stessi match:
-```
-leagueXG   = media xG per squadra/partita
-attackRate[t] = (media xG fatti)/leagueXG    defRate[t] = (media xG subiti)/leagueXG   (shrinkage 8 partite verso 1)
-homeAdv    = (xG medio casa)/(xG medio complessivo)
-levelScale = (media goal reali totali)/(2·leagueXG)
-λH = leagueXG·attackRate[H]·defRate[A]·homeAdv·levelScale     λA = leagueXG·attackRate[A]·defRate[H]·levelScale
-```
-La griglia Poisson è normalizzata → mercati esattamente coerenti (1X2=1, over+under=1, btts+no=1).
-
-**Blend** (solo mercati goal, PRIMA della calibrazione):
-```
-p = (1 − w_famiglia)·p_DixonColes + w_famiglia·p_PoissonXg     w = 0.5 (1X2 / OverUnder / BTTS)
-```
-La combinazione convessa conserva i complementi entro la stessa famiglia.
-Non garantisce che, dopo calibrazione e blending separati per mercato, tutte
-le probabilità A derivino da una sola matrice finale: quel vincolo appartiene
-al protocollo coerente C. Persistito in `model_params.poissonXg`; assente →
-no-op. Impatto storico: **−0.63% logLoss cal, ECE 0.0057→0.0018, t=−5.70 p<1e-5**,
-consistente su tutti i mercati goal. Non tocca i mercati non-goal.
-
-## 4. Modelli count specializzati
-
-File: `backend/src/models/markets/SpecializedModels.ts`.
-
-### 4.1 Selezione distribuzione + dispersione
-```
-NegBin  se var > mean + tolleranza (0.5)      Poisson se var ≈ mean      fallback underdispersed = Poisson shrinkato
-r (metodo dei momenti) = mean² / (var − mean),  lower bound data-adaptive 1 + 1/√n,  shrinkage verso r di lega (strength 12)
-NegBin: Var[X] = μ + μ²/r
-```
-`negBinOver`, `negBinPMF`, `negBinCDF` in `MathUtils.ts` (logGamma via Lanczos).
-
-### 4.2 Cartellini (`computeCardsDistribution`)
-```
-μ_giallo_squadra = shrinkToLeague(avgYellow_team, leagueAvgYellow/2, n, 15) · refFactor · foulsBonus · compFactor
-```
-- `refFactor`, `foulsBonus`: fattori arbitro. L'arbitro è coperto solo per la Premier (~22% globale, football-data ha Referee solo per E0) → per le altre leghe resta neutro (default = media lega). I falli invece ora sono ~100%.
-- 🆕 **`compFactor` (BUGFIX 2026-07):** curva sigmoidale **centrata**
-  ```
-  compFactor = 1 + 0.22·(2·sigmoid(competitiveness·8 − 4) − 1)
-  ```
-  Prima era `− 0` (refuso): valeva 1.22 su una partita media e 1.43 sui derby su OGNI match → aspettativa gialli sovrastimata del +26%. Col fix: neutro sulla partita media, ±22% agli estremi, bias +26%→+3.6%. Sul mercato Over gialli: logLoss cal −2.98%, ECE 0.0728→0.0279.
-- Rossi: Poisson, fattore arbitro più smorzato.
-- 🆕 **Booking points / mercato "cartellini totali" (A6/B4, 2026-07):** `bookingPoints = gialli + 2·rossi` (giallo=1, rosso=2; helper in `dataHelpers`). Le quote provider `alternate_totals_cards` sono "Total Cards", NON gialli: il modello ora **espone** `cardsTotalOver/Under` in `flatProbabilities` e il backtest regola `cards_total` sui booking points. La formula resta `gialli + 2·rossi` (NON "solo rossi diretti"): Understat codifica ogni espulsione — diretta o doppia ammonizione — come `0 gialli + 1 rosso`, quindi la formula coincide col settlement bookmaker. Impatto: base settlement +9.6%, 4.2–6.3% di esiti cambiano sulle linee comuni.
-- 🆕 **Termine avversario D1 (2026-07) — sostituisce `yellowFoulsCorrFactor`:** i gialli di una squadra crescono con i falli SUBITI dall'avversario (`fouls_drawn`):
-  ```
-  induzione_avv = clamp(oppFoulsDrawnPerMatch / (leagueAvgFouls/2), 0.7, 1.4)
-  μ_giallo_casa ·= induzione(away) ;  μ_giallo_osp ·= induzione(home)   (propagato anche ai card points)
-  ```
-  La vecchia `yellowFoulsCorrFactor` (fattore simmetrico sui falli totali × (0.7+0.3·refStrictness)) era mal calibrata (shrink ×0.85 ad arbitro assente → ECE 0.07–0.11 fuori Premier). Validato as-of tutte le stagioni: +1.45% logLoss, ECE ~−78%, 4/5 leghe. Confronto empirico: `fouls_drawn` (opz.2) batte "cartellini indotti" (opz.1). Split casa/trasferta gialli (B1) e correlazione casa/ospite (D2) testati e NO-GO.
-
-### 4.3 Falli / Corner / Tiri
-- **Falli:** correzione possesso esponenziale, correlazione intra-partita ρ≈0.25. 🆕 Ora su **dati reali** (~100%). Mercato non attivabile (nessuna quota provider).
-- **Corner:** NegBin, `μ = avgCornersFor·0.6 + avgCornersAgainst·0.4`. 🆕 **A2 (2026-07):** lo slot `avgCornersAgainst` ora usa i corner **CONCESSI** venue-aware (`avgCornersConceded`, aggregato con decay in `team_stats_json.computed`), non i corner FATTI dell'avversario — prima i due termini 0.4 si annullavano e `μ_tot` collassava sulla somma delle medie (termine difensivo inerte). Mercato ancora `DISABLED` (quote corner assenti).
-- 🆕 **Tiri (A1, 2026-07) — segno difesa avversaria corretto:**
-  ```
-  μ_tiri_casa = blendHome · homeAdv · max(0.5, awayShotsSuppression)     ← MOLTIPLICA (era: divideva)
-  μ_tiri_osp  = blendAway · max(0.5, homeShotsSuppression)               (già corretto)
-  ```
-  `shotsSuppression = tiri concessi / media lega` (>1 = difesa debole): i tiri di casa devono crescere contro una difesa ospite debole. Prima `μ_casa` **divideva** (segno invertito) → tiri casa in calo contro le difese peggiori; corretto in moltiplicazione, simmetrico a `μ_osp` (corregge anche la direzione dei tiri-in-porta di casa). Validato as-of: **tiri totali −10.96% logLoss, tiri casa −7.34%, ECE totali 0.14→0.10** (il bug più impattante dell'audit).
-- **Tiri — blend λ→tiri impliciti:** `SHOT_GOAL_RATIO = 9.0` (media cross-lega empirica; era 11.0), α=0.35. Nota D5 (NO-GO): non forzare il rate tiri-in-porta a scalare col volume blended (peggiora la calibrazione SOT).
-
-## 5. Mercati per giocatore
-
-- **Tiri/SOT giocatore (runtime):** `SpecializedModels.computePlayerShotsPredictions()` — Dirichlet-multinomiale, shrinkage share verso prior di ruolo (FW 0.20, MF 0.12, DF 0.05, GK 0.01), r per giocatore via Dirichlet. 🆕 **A3 (2026-07):** l'allocazione è normalizzata sugli **11 di movimento più coinvolti al tiro** (XI probabile), non su tutta la rosa (~25) — prima lo shrinkage gonfiava i panchinari e la normalizzazione a somma 1 deprimeva i titolari (bomber da 1.15 a 2.75 tiri attesi). Output: expectedShots, prob 1+/2+/3+, SOT.
-- 🆕 **Marcatore anytime (E5, 2026-07):** `P(segna ≥1) = 1 − e^(−λ)`, `λ = xg_per90 · min(minuti_attesi/90, 1.1) · shrink(0.88)`. Chiave provider `player_goal_scorer_anytime` → prop `goals` (over 0.5). Validato as-of (85.894 osservazioni, ECE 0.013): xG/90 batte nettamente goals/90; difesa avversaria irrilevante; shrink 0.88 per la lieve sovrastima. Config `playerGoals.xgShrink`.
-- **Gialli giocatore:** `PlayerCardsModel.predictPlayerYellowCards()` — ZIP. `rate = weight·rawRate + (1−weight)·rolePrior`, moltiplicatori arbitro e ambiente-squadra `clamp(1 + 0.25·(teamExpYellows/leagueAvg − 1), 0.80, 1.25)`; zero-inflation da minuti. 🆕 **B6 (2026-07):** `leagueAvgTeamYellows`/`leagueAvgRefereeYellow` non più hardcoded (1.9/3.8) ma **per-lega** (`resolveLeagueAvgYellowPerMatch`: La Liga 4.58 … Ligue 1 3.61); solo modello giocatore (il per-lega sul modello squadra è NO-GO).
-- ⚠️ **`ShotsModel.ts` (v4: ZIP/ZINB, gerarchico, distribuzione minuti) esiste ma NON è collegato al runtime**: manca `player_match_stats` (il DB ha solo aggregati). Il runtime usa il Dirichlet aggregato. Anche il marcatore anytime gira sugli aggregati `xg_per90`.
-
-## 5b. Costruzione degli input (data layer)
-
-Le medie che alimentano i modelli sopra non sono grezze: vengono aggregate da servizi dedicati.
-
-- **Medie squadra** (`DatabaseService.recomputeTeamAverages` / `TeamAveragesService.ts`): tiri, tiri in porta, gialli, rossi, falli, corner, xG, possesso per squadra, con **decadimento temporale esponenziale** `peso = exp(−DECAY_PER_DAY·(oggi−data))`, `DECAY_PER_DAY = 0.005/giorno` (half-life ≈ 139 giorni). Alimenta `homeTeamStats`/`awayTeamStats` (`avgYellowCards`, `avgShots`, `avgFouls`, `avgHomeCorners`, `sampleSize`, `varShots`…).
-- **Stats giocatore** (`PlayerDerivedStatsService.ts`): ricostruite dalle rose in `raw_json` — `avg_xg_per_game`, `xg_per90`, `shots_per90`, `shotShareOfTeam`, `yellow_cards_total`, `minutes_total`, `gamesPlayed`. Alimentano i mercati player (tiri, marcatore anytime) e il lineup xG adjustment. 🆕 **A4 (2026-07):** `shotShareOfTeam` = tiri giocatore / tiri squadra nelle **sole gare giocate** dal giocatore (prima: su tutte le gare del periodo → share depressa per chi saltava partite).
-- **Stats arbitro** (`RefereeDerivedStatsService.ts`): `avgYellow`, `avgFouls`, `avgRed`, `games`, `dispersionYellow`. Copertura arbitro ~22% (football-data ha Referee solo per la Premier).
-- 🆕 **Fonte supplementare** (`FootballDataService.ts`): football-data.co.uk (HTTP/CSV) riempie via COALESCE (solo i NULL) falli, corner, tiri, tiri in porta, cartellini, arbitro — portandoli a ~100%. Matching per data+squadre (alias map, 99.7%). Retention `pruneOldSeasons` (4 stagioni). Ha sostituito lo scraper SofaScore (rimosso).
-- **Ingestione:** `UnderstatScraper.ts` (dati calcio, HTTP/axios), `FootballDataService.ts` (stats supplementari, HTTP/CSV), `OddsApiService`/`odds-provider/*` (quote). Aggiornamento notturno alle **03:00 ora di Roma**.
-
-## 6. Context builder
-
-File: `backend/src/services/PredictionContextBuilder.ts`. Produce `homeGoalMultiplier`, `awayGoalMultiplier`, `home/awayShotMultiplier`, `richnessScore`, e i segnali forma/assenze/motivazione.
-```
-richnessScore = clamp(0.30 + min(1, n/24)·0.32 + hasBothXG·0.12 + playerCov·0.10 + refCov·0.06, 0.30, 0.93)
-```
-⚠️ `learnContextWeights()` esiste ma **non ha caller** (i pesi runtime restano quelli di `predictionConfig`).
-
-**🆕 Lineup xG adjustment** (`LineupXgAdjustmentService.ts`, opt-in su richiesta con assenti):
-```
-multiplier = 1 − quotaXgAssente·(1 − replacementRatio)     replacementRatio = 0.60, cap −18%
+```text
+pseudo_gol = (1 - peso_xg) * gol + peso_xg * xG
 ```
 
-## 7. Calibrazione isotonica per famiglia 🆕 (nel runtime)
+Il default `xgWeight` è 0,80; la dipendenza per i risultati bassi resta stimata sui gol interi. Questo peso riguarda il **fit**, non l'ensemble successivo. Le intensità strutturali usano attacco, difesa avversaria e vantaggio casa. Se entrambi gli xG di contesto sono positivi, il calcolo delle intensità li combina con le intensità strutturali con pesi rispettivamente 0,4 e 0,6; applica poi l'eventuale `levelCorrection` e i limiti numerici.
 
-File: `backend/src/services/PredictionService.ts` (`getCalibrationProfile`) + `EnhancedMarketAnalysis.ts`.
-Curve isotoniche (PAV) fittate su replay OOS dei match completati, **una per famiglia di mercato** con fallback globale (`perFamilyMinSamples = 120`). Applicate a valle dell'ensemble. Blending bayesiano verso la diagonale: `α = max(0.10, 1/(1 + n/1000))`. È il contributo dominante sulla qualità delle probabilità (ECE quasi dimezzata rispetto alla calibrazione globale).
+Per il punteggio casa `h` e ospite `a`, la matrice usa il prodotto delle probabilità Poisson e la correzione Dixon–Coles, quindi normalizza sul supporto finito:
 
-## 8. Market blending (modello ↔ mercato) 🆕
-
-File: `ValueBettingEngine.blendWithMarketProbability()` + `MarketBlendLearningService.ts`.
-```
-modelWeight = 0.50 + dataQuality·0.35  (+0.04 goal_1x2/over/btts_yes; −0.04 under/btts_no;
-                                        −0.10 player_shots_ot/yellow; −0.16 se manca la companion odd)
-peso appreso (se ≥80 campioni): clamp(learned.modelWeight, modelWeight ± 0.18)
-modelWeight = clamp(modelWeight, 0.40, 0.84)     p_blend = modelWeight·p_model + (1−modelWeight)·p_noVig
-```
-Il no-vig si ricava dalle companion odds. Il peso appreso corregge l'euristica entro `maxShift`, senza mai uscire dai bound.
-
-## 9. Value betting
-
-File: `backend/src/models/value/ValueBettingEngine.ts`.
-```
-EV = p_model·odds − 1     implied_raw = 1/odds     edge = p_model − implied_raw     edgeNoVig = p_model − p_noVig
-```
-Soglie EV base (`EV_THRESHOLDS`): goal_1x2 3.0% · btts_yes 3.4% · btts_no 5.5% · goal_over 2.8% · goal_under 4.5% · goal_ou 2.5% (legacy) · shots/shots_ot 4.0% · yellow_cards 4.5% · exact_score/handicap 5.0% · other 4.0% · **corners/fouls 12% e comunque disabilitati**. `maxOdds = 8.00`; `MAX_STAKE_PERCENT = 4.0%`.
-
-Questi sono valori base, non tutte le soglie effettive: quando è disponibile
-il margine del gruppo quote, `minEvForCategory` considera margine e buffer;
-seguono tuning, contesto e controlli di rischio. Vedere la [guida A](models/MODEL-A.md)
-e `ValueBettingEngine` per l'ordine dei controlli correnti.
-
-**Stake — Quarter Kelly** con incertezza bootstrap 🆕:
-```
-kelly = (p·(odds−1) − (1−p)) / (odds−1)     stake = quarterKelly · confidence
-computeSuggestedStakeWithUncertainty: riduce lo stake in funzione di uncertaintyFactor (peso 0.35)
-```
-`kellyMode='dynamic'` (opt-in): la frazione Kelly scala linearmente con l'incertezza del modello tra `dynamicKellyMaxFraction=0.50` (parametri stabili, u=0) e `dynamicKellyMinFraction=0.10` (instabili, bootstrap CV alto). `computeDynamicEvThreshold` (opt-in) modula la soglia via richnessMultiplier / varianceMultiplier / calibrationPenalty.
-`getEffectiveEvThreshold(cat) = baseThreshold + evDelta` (adaptive tuning, §12).
-
-## 10. Combo / multi-bet
-```
-P_combo = Π p_i     odds_combo = Π odds_i     EV_combo = P_combo·odds_combo − 1
-cap = MAX_STAKE·0.6 = 2.4%     MAX_COMBO_STAKE(n) = max(0.5%, 2.4%/√n)     (comboRiskMode = sqrtLegs)
-```
-`covarianceMonteCarlo` = scaling deterministico da matrice di correlazione; fallback a sqrtLegs se mancano correlazioni.
-
-## 11. Backtesting
-
-File: `backend/src/models/backtesting/BacktestingEngine.ts`. Metriche: ROI, Win Rate, Brier, LogLoss, Sharpe, Max Drawdown, Recovery/Profit Factor; weighted (`metricWeightMode`: none/stake/inverseOdds/marketVariance); `edgeNoVig`, `edgeDecayByMonth`, `rollingSharpe`, calibrazione globale e per-mercato, `marketReports`. `runBacktest()` con temporal holdout + fallback trainRatio.
-
-🆕 **Quote reali per ROI/CLV (2026-07, ingest closing odds):** oltre agli
-snapshot Eurobet, il backtest usa ora le quote di mercato **football-data**
-(apertura+chiusura, 1X2 + O/U 2.5) salvate in `matches.fd_odds_json` dalla sync
-notturna. `getFootballDataHistoricalOddsMap` le espone; `runWalkForwardBacktest`
-fa `{ ...footballData, ...eurobet }` (Eurobet reale prevale, football-data riempie
-i buchi). Il CLV accetta closing `football_data` (`isTrustedClosingContext`).
-Copertura quote reali ~75% dei match (era ~4% sintetico). Validato su dati reali:
-banca-favorito 1X2 ROI −1.32%, CLV favorito −0.16% (range atteso col margine).
-
-## 12. Adaptive tuning
-
-File: `backend/src/services/AdaptiveTuningService.ts`.
-```
-rawEvDelta = −filterRejectionRate·0.010 − rankingErrorRate·0.002 + confirmationRate·0.002 + wrongPickRate·0.004
-confidenceScale = clamp(totalWeight/12, 0.2, 1.0)     evDelta = clamp(rawEvDelta·confidenceScale, −0.012, +0.008)
+```text
+M[h,a] ∝ Poisson(h; λ_home) * Poisson(a; λ_away) * τ(h,a)
+τ(0,0) = 1 - λ_home * λ_away * ρ
+τ(1,0) = 1 + λ_away * ρ
+τ(0,1) = 1 + λ_home * ρ
+τ(1,1) = 1 - ρ;  τ = 1 negli altri casi
 ```
 
-## 13. Copertura dati (dopo integrazione football-data.co.uk)
+Il contesto può modificare le intensità prima della matrice usata per le probabilità complete. Se disponibile e abilitato, il modello Poisson-xG indipendente viene combinato con Dixon–Coles **prima della calibrazione** per le famiglie goal:
 
-Misurata su 7.082 match completati, 4 stagioni (5 leghe):
+```text
+p_ensemble = (1 - w_famiglia) * p_DC + w_famiglia * p_PoissonXg
+```
 
-| dato | copertura | note |
-|---|---|---|
-| goal, xG | 100% | Understat |
-| tiri, tiri in porta, gialli, rossi | ~100% 🆕 | Understat + football-data (prima ~49%) |
-| **falli, corner** | **~100%** 🆕 | football-data (prima 1–2%) → modelli backtestabili |
-| arbitro | ~22% | football-data ha Referee solo per la Premier |
-| possesso | ~1% | nessuna fonte HTTP lo copre |
-| rose per-partita (raw_json) | 100% | assenze ricostruibili |
+Il default configurato è 0,5 per 1X2, over/under e BTTS. In assenza dei parametri Poisson-xG il blend è un no-op. L'ensemble fra modelli è distinto dal successivo blend con le quote.
 
-Il gap storico (falli/corner all'1–2%) è **risolto** da football-data.co.uk (§5b). Restano scoperti solo **possesso** (nessuna fonte stabile) e **arbitro fuori Premier**.
+Research A80 usa anch'essa il blend delle probabilità per famiglia. Per C costruisce inoltre una matrice proxy con il peso di ensemble `default`; se i pesi delle famiglie differiscono, la matrice non coincide necessariamente con ogni probabilità piatta della baseline. `fitBaseline` chiama `fitModel`, che stima anche `levelCorrection`; nella ricostruzione della matrice si imposta la correzione a `undefined` perché le intensità `full.lambdaHome/ Away` la incorporano già, evitando di applicarla due volte.
 
-## 14. Pipeline di predizione (ordine reale)
+Sorgenti: `backend/src/models/core/DixonColesModel.ts`, `backend/src/models/core/PoissonXgModel.ts`, `backend/src/services/ProbabilityEnsembleService.ts`, `backend/src/config/PredictionEngineConfig.ts`, `backend/src/research/ForecastCore.ts`.
 
-1. `computeExpectedGoals` → λ con **levelCorrection**
-2. `buildScoreMatrix` (τ) → matrice punteggi
-3. `computeFullProbabilities` → mercati goal (flat) + mercati specializzati
-4. **ensemble** DC + Poisson-xG sui mercati goal (§3)
-5. enrich (doppia chance, DNB derivati dal 1X2 blendato)
-6. **calibrazione isotonica per famiglia** (§7)
-7. **market blending** modello↔mercato dove esistono quote (§8)
-8. filtro value + Quarter Kelly con incertezza (§9)
+## Statistiche squadra e giocatori
 
-## 15. Mappa file → funzionalità
+I modelli specializzati stimano distribuzioni per tiri, cartellini, corner e falli. Per conteggi sovradispersi è usata anche la binomiale negativa, con media μ e parametro di dispersione r:
 
-| File | Funzionalità |
-|---|---|
-| `config/PredictionEngineConfig.ts` | default e feature flag |
-| `models/core/DixonColesModel.ts` | λ, levelCorrection, τ, Adam, xG blend fit, bootstrap, score matrix |
-| `models/core/PoissonXgModel.ts` 🆕 | modello Poisson-xG (ensemble) |
-| `services/ProbabilityEnsembleService.ts` 🆕 | blend goal DC↔Poisson per-famiglia |
-| `models/markets/SpecializedModels.ts` | count models (tiri/gialli/falli/corner), dispersione, bugfix compFactor |
-| `models/markets/PlayerCardsModel.ts` | gialli giocatore (ZIP) |
-| `models/markets/ShotsModel.ts` ⚠️ | tiri giocatore v4 (non collegato) |
-| `services/PredictionService.ts` | pipeline, calibrazione per-famiglia, sanitize params |
-| `services/PredictionContextBuilder.ts` | contesto, richnessScore |
-| `services/LineupXgAdjustmentService.ts` 🆕 | correzione xG da assenze |
-| `services/MarketBlendLearningService.ts` 🆕 | pesi blend appresi |
-| `models/value/ValueBettingEngine.ts` | EV/edge, market blend, Kelly, combo, soglie |
-| `models/backtesting/BacktestingEngine.ts` | metriche, calibrazione, market reports |
-| `services/AdaptiveTuningService.ts` | evDelta |
-| `services/TeamAveragesService.ts` + `db/DatabaseService.ts` | medie squadra con decay esponenziale |
-| `services/PlayerDerivedStatsService.ts` | stats giocatore da raw_json |
-| `services/RefereeDerivedStatsService.ts` | stats arbitro |
-| `services/UnderstatScraper.ts`, `services/odds-provider/*`, `OddsApiService.ts` | ingestione dati e quote |
-| `config/predictionConfig.ts` | override da env (homeAdvantageScale, context weights, min sample) |
+```text
+Var[X] = μ + μ² / r
+```
 
-## 16. Appendice — servizi operativi e infrastrutturali
+La selezione e la stima della dispersione dipendono dai dati e dalla configurazione. Per i cartellini totali confrontabili con `alternate_totals_cards`, modello e settlement usano **booking points**: `gialli + 2 * rossi`. Understat rappresenta ogni espulsione come 0 gialli e 1 rosso. Corner e falli restano esclusi dalle giocate dal blocco `DISABLED_CATEGORIES` e dai filtri pertinenti, anche se sono calcolate statistiche interne.
 
-Componenti non-modello (plumbing), elencati per completezza. Non contengono formule predittive.
+I mercati statistici squadra richiedono per default almeno 8 osservazioni per squadra e 20 complessive. Per le player props servono dati giocatore abilitati, quota valida per giocatore, mercato e linea, associazione non ambigua, almeno 5 partite e 45 minuti attesi. Panchina confermata, indisponibilità e formazione incerta sono esclusi; un campione sotto 8, minuti sotto 65, titolarità non confermata o quota complementare mancante producono avvisi e incidono sulla confidenza. Altri controlli e filtri possono impedire la selezione.
 
-| File | Ruolo |
-|---|---|
-| `services/OddsApiService.ts`, `odds-provider/OddsApiProvider.ts`, `OddsProvider.ts`, `OddsProviderCoordinator.ts`, `oddsProviderUtils.ts`, `providerRuntimeConfig.ts` | Recupero e normalizzazione quote The Odds API, bookmaker effettivo nello snapshot, coordinamento provider, config runtime |
-| `services/OddsApiKickoffSyncService.ts` | Sincronizza gli orari di kickoff con le quote |
-| `services/playerProps.ts` | Parsing/normalizzazione delle chiavi mercato player prop (`player_<id>_<market>_<side>_<line>`) |
-| `services/BacktestReportService.ts` | Formattazione dei report di backtest |
-| `services/SystemObservabilityService.ts` | Osservabilità/telemetria delle run |
-| `services/UnderstatScraper.ts` | dati calcio Understat (HTTP/axios) |
-| `services/FootballDataService.ts` 🆕 | stats supplementari football-data.co.uk + retention stagioni |
-| `db/DatabaseService.ts` | Accesso libSQL/Turso, schema, medie squadra con decay, snapshot quote |
-| `config/algorithmVersions.ts` | Versioning degli algoritmi |
-| `api/routes.ts`, `api/predictionPayloadFormatter.ts` | Layer HTTP: endpoint e formattazione payload di predizione |
+Per marcatore anytime, con xG/90 positivo:
 
-L'appendice elenca i componenti principali della revisione A di luglio:
-modello (§2–5), dati (§5b), contesto/value/calibrazione (§6–12), copertura
-misurata allora (§13), pipeline (§14) e infrastruttura (§16). Non è un
-inventario completo del backend corrente. Per C e l'esecuzione v2 usare
-le [guide separate A/C](models/README.md).
+```text
+λ = xG_per90 * clamp(minuti_attesi / 90, 0, 1,1) * xgShrink
+P(almeno un gol) = 1 - exp(-λ)
+```
 
----
+`xgShrink` è 0,88 di default. Le stime tiri giocatore usano la distribuzione implementata in `SpecializedModels`, quelle gialli `PlayerCardsModel`; consultare il codice per dettagli, fallback e linee superiori.
 
-*Documento generato da revisione diretta del codice `main` (Luglio 2026). Le percentuali di miglioramento provengono dai backtest walk-forward OOS in `docs/performance/`.*
+Sorgenti: `backend/src/models/markets/SpecializedModels.ts`, `backend/src/models/markets/PlayerCardsModel.ts`, `backend/src/utils/dataHelpers.ts`, `backend/src/models/backtesting/BacktestingEngine.ts`, `backend/src/services/PredictionService.ts`, `backend/src/services/playerProps.ts`, `backend/src/config/predictionConfig.ts`, `backend/src/models/value/ValueBettingEngine.ts`.
+
+## Research C: feature e matrice
+
+Lo schema base `prematch-numeric-v1` contiene 40 feature: 16 per ciascuna squadra (Elo, campione, gol, xG e copertura, tiri, punti e differenza reti recenti, statistiche in casa/trasferta, riposo e gol stagionali), differenza Elo, due intensità A e cinque indicatori di lega. Forma recente e riposo sono già presenti nello schema base. Quote e dati giocatore non sono feature CatBoost. I blocchi aggiuntivi versionati sono distinti dallo schema base e disponibili secondo l'artefatto.
+
+Lo storico è filtrato alla data della previsione, con ritardo prudenziale di disponibilità, esclusione del target e dei duplicati; il ritardo è un proxy, non prova dell'istante di pubblicazione. Il fit della baseline richiede almeno 30 partite ammissibili della competizione.
+
+L'artefatto può correggere le intensità, stimarle direttamente, correggere 1X2 o usare il controllo senza ML. Per `intensity_correction`:
+
+```text
+λ_C = clamp(exp(log(λ_baseline) + output_albero), 0,05, 8)
+M_mix = (1 - weight) * M_baseline + weight * M_ML
+M_raw = normalize(max(1e-15, M_mix) ^ (1 / temperature))
+```
+
+`weight`, `temperature` e tipo dipendono dall'artefatto. La temperatura dell'artefatto è distinta da quella eventuale della calibrazione successiva.
+
+Sorgenti: `backend/src/research/ForecastCore.ts`, `backend/src/research/ChallengerFeatures.ts`, `backend/src/research/CatBoostModel.ts`.
+
+## Calibrazione, quote e decisione
+
+A operativo calibra per famiglia con curve isotoniche ricavate da replay cronologici e fallback globale; il minimo predefinito per una curva di famiglia è 120. Un campione di calibrazione ignoto o sotto `PREDICTION_MIN_CALIBRATION_SAMPLE` (default 30) abbassa la confidenza a LOW, senza imporre automaticamente `NO_BET`.
+
+Il protocollo research `joint-goal-coherent-v2` applica alla matrice C una modalità compatibile (`identity`, `isotonic_1x2` o `temperature`), poi può combinare 1X2 con una terna valida dello stesso bookmaker e snapshot e riproiettare la matrice. Le probabilità dei mercati goal derivano dalla stessa matrice finale. Versione, profilo, hash e disponibilità temporale devono essere compatibili; senza tali requisiti non si può assumere una previsione disponibile. La calibrazione A per famiglia non garantisce questa coerenza congiunta.
+
+Nel value engine, per un gruppo completo di quote compatibili, la probabilità senza margine e il confronto assumono la forma:
+
+```text
+p_no_vig = (1 / quota) / somma(1 / quote_del_gruppo)
+p_decisione = peso_modello * p_calibrata + (1 - peso_modello) * p_no_vig
+EV = p_decisione * quota - 1
+```
+
+La disponibilità di quote complementari, categoria, qualità dei dati, soglie effettive, rischio e calibrazione influenzano la decisione. Il peso può essere appreso entro i limiti configurati. Il percorso legacy C riceve probabilità già elaborate dalla pipeline research, evitando una seconda calibrazione o un secondo market blend nel motore value. Soglie o probabilità non garantiscono redditività.
+
+Sorgenti: `backend/src/models/value/EnhancedMarketAnalysis.ts`, `backend/src/models/value/ValueBettingEngine.ts`, `backend/src/services/MarketBlendLearningService.ts`, `backend/src/research/ResearchProbabilityPipeline.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.

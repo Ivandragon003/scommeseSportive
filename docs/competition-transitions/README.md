@@ -1,8 +1,15 @@
 # Import dati promozioni e retrocessioni
 
-Questa cartella contiene i template per popolare l'audit delle transizioni di
-categoria. I dati sono solo diagnostici: **non modificano ancora il modello** e
-non applicano alcun correttivo alle probabilita.
+Questa cartella contiene template per l'audit delle transizioni di categoria;
+i CSV non vengono caricati automaticamente dall'applicazione. Compilarli non
+applica un correttivo alle probabilità.
+
+Il runtime usa già la storia disponibile della divisione inferiore attraverso
+`PromotedTeamPriorService` per la copertura effettiva e la ricchezza del contesto
+di una neopromossa. È un supporto prudenziale, non una trasformazione automatica
+della sua forza o una nuova correzione dei gol. Fonti:
+[prior](../../backend/src/services/PromotedTeamPriorService.ts) e
+[previsione](../../backend/src/services/PredictionService.ts).
 
 ## File da compilare
 
@@ -55,8 +62,9 @@ disponibili: va compilato e verificato prima dell'import.
 - `source_ppg = source_points / source_matches` quando entrambi i valori sono
   presenti;
 - non usare dati di una stagione diversa da quella indicata;
-- non attivare il correttivo finche l'audit di omogeneita e il backtest non
-  saranno completati e approvati.
+- non aggiungere un correttivo diretto di forza o di probabilità finché audit
+  e backtest non saranno completati e approvati; il supporto prudenziale già
+  presente nel runtime resta distinto da tale eventuale estensione.
 
 ## ID delle squadre
 

@@ -1,299 +1,57 @@
-# Modello A operativo: dati, probabilità e consiglio
+# Modello A operativo
 
-Questa guida descrive il codice del modello A operativo al 30 ottobre 2026.
-I valori indicati sono quelli predefiniti nei sorgenti: variabili d'ambiente,
-parametri salvati e dati disponibili possono cambiare una singola analisi.
-Non è una verifica della configurazione o delle prestazioni del deploy.
+Questa guida descrive il percorso di `PredictionService`. I valori predefiniti sono distinti da variabili d'ambiente, parametri salvati e dati effettivamente caricati. Non attesta disponibilità o prestazioni di un deploy.
 
 ## Identità e confini
 
-**A è il `PredictionService` già usato dalla pagina Partite.** Produce
-probabilità, opportunità, consiglio principale e percentuale di puntata.
-L'identità del pacchetto è `APP-A-…`, con hash distinti di codice,
-configurazione e stato del modello.
+A produce l'analisi dell'app, le opportunità squadra, un consiglio principale e la percentuale di puntata. Il pacchetto canonico è identificato come `APP-A-…`, con hash distinti di codice, configurazione e stato.
 
-La **Research A80**, baseline interna del candidato C e dei benchmark,
-è un'altra identità. `ForecastCore` ricostruisce quella baseline in modo
-ripetibile dal passato ammissibile; non rappresenta ogni stato del servizio
-operativo A, dei suoi dati, della calibrazione o del tuning adattivo.
-Le metriche di A80 non vanno attribuite ad APP-A.
+La baseline research `A-80cb25df5552621e` di C è un'altra identità: non rappresenta ogni configurazione, dato, calibrazione o correzione dell'A operativo. Le sue metriche non devono essere attribuite a `PredictionService`.
 
-L'automazione riceve il pacchetto di A e lo registra dopo controlli tecnici
-e contabili. Non riordina i suoi consigli, non ne limita i mercati a quelli
-di C e non crea un terzo motore. A e C riusano utility, provider, cache e
-ledger. Il default C906 legacy usa anche `ValueBettingEngine` per
-valutazione/filtri/confidenza e il picker canonico con le proprie
-probabilità, senza una seconda calibrazione/blend in quello stadio. Dal
-31 ottobre è disponibile un selettore C autonomo candidato, attivabile nel
-runtime soltanto da un'adozione approvata. I nuovi blocchi di feature C,
-training controllato e registro di adozione non modificano la matematica,
-la configurazione, lo stake o gli output di A. Le previsioni e le
-classifiche dei due percorsi restano distinte; vedere la [guida C](MODEL-C.md).
+La Nightly consuma il consiglio A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica, ranking o stake A. Questa documentazione non modifica sorgenti, parametri o previsioni operative.
 
-Sorgenti: [PredictionService](../../backend/src/services/PredictionService.ts),
-[pacchetto e picker canonico](../../backend/src/services/CanonicalBetRecommendation.ts),
-[ForecastCore](../../backend/src/research/ForecastCore.ts),
-[esecuzione A/C](../../backend/src/research/ResearchRecommendationRuntime.ts).
-Per regole e cronologia operative vedere la
-[guida dell'esecuzione](../operations/recommendation-execution-2026-10-30.md).
+Fonti: [PredictionService](../../backend/src/services/PredictionService.ts), [pacchetto canonico](../../backend/src/services/CanonicalBetRecommendation.ts), [esecuzione A/C](../../backend/src/research/ResearchRecommendationRuntime.ts).
 
-## Trasporto web, aggiornamento del 1 novembre 2026
+## Dati, fit e contesto
 
-L'apertura di una partita usa `POST /api/predict/jobs`, poi richieste GET brevi
-per recuperare il risultato. Questo evita la scadenza del gateway durante una
-prima calibrazione lunga. Il [servizio temporaneo](../../backend/src/services/PredictionJobService.ts)
-invoca la stessa istanza A e l'intero percorso della route originale: calcolo,
-lettura della decisione A archiviata, formato e proiezione del consiglio.
-Input, probabilità, calibrazione, filtri, ranking e stake non vengono cambiati.
-Non è un nuovo motore e non registra puntate. L'audit normale di A resta attivo.
+Understat è la fonte primaria. `football-data.co.uk` integra campi mancanti senza sostituire quelli Understat già presenti. Copertura statistica e disponibilità arbitrale non sono uniformi fra campionati e stagioni.
 
-Lo stato è in memoria, limitato e protetto dal namespace dell'utente condiviso.
-Un riavvio può interrompere il recupero: viene segnalato senza avviare un altro
-calcolo. Annullare la schermata interrompe il recupero, non il metodo A già partito.
-`POST /api/predict` e il replay conservano il comportamento precedente.
-La descrizione matematica che segue mantiene lo stesso riferimento del 30 ottobre.
+`PredictionContextBuilder` prepara medie, copertura, forma, avversario e contesto disponibile: riposo, calendario, disciplina, arbitro e, se abilitati, dati sui giocatori. I prior per neopromosse gestiscono passaggi fra competizioni. L'assenza di un dato non equivale a un valore osservato pari a zero.
 
-## Dati, addestramento e previsione
+Il fit per competizione usa partite concluse e salva i parametri Dixon-Coles e Poisson-xG. La previsione li carica e li riusa; non esegue il fit completo a ogni apertura. Parametri mancanti possono condurre a valori di base; un partner Poisson incompatibile non entra nel blend. Ricevere una previsione non prova che fit o copertura siano adeguati per quella partita.
 
-Understat è la fonte primaria di partite, squadre, giocatori, gol, xG e tiri.
-`football-data.co.uk` integra le statistiche mancanti e le quote storiche
-previste dal progetto, senza sostituire valori Understat già presenti.
-La disponibilità effettiva dipende da competizione, stagione e campo: un
-modulo implementato non prova che il dato esista per una certa partita.
+Fonti: [contesto](../../backend/src/services/PredictionContextBuilder.ts), [supplemento](../../backend/src/services/FootballDataService.ts), [neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).
 
-`PredictionContextBuilder` prepara medie e copertura storica, forma, forza
-dell'avversario e contesto disponibile: riposo, calendario, motivazione,
-disciplina, arbitro, giocatori e disponibilità. Il servizio applica anche
-le correzioni per squadre neopromosse e, quando richieste e supportate dai
-dati, per le assenze nominali dei giocatori.
+## Calcolo delle probabilità
 
-Il fit per competizione usa partite concluse, richiede almeno 20 partite e
-stima separatamente Dixon-Coles e il partner Poisson-xG. Salva i loro
-parametri nel database. La previsione carica i parametri e li riusa in
-memoria; non rifà il fit completo per ogni partita. Se i parametri mancano,
-sono possibili valori di base; se manca il partner Poisson compatibile,
-il blend dell'ensemble non viene applicato. Una risposta ottenuta in queste
-condizioni non dimostra un addestramento valido per quella competizione.
+Dixon-Coles stima attacco, difesa e vantaggio di casa, con pesi temporali, contributo xG e correzione dei punteggi bassi. Dalla distribuzione dei gol ricava 1X2, over/under, BTTS e handicap. Il partner Poisson-xG fornisce una seconda stima; l'ensemble combina i mercati gol compatibili prima della calibrazione.
 
-Sorgenti: [servizio previsioni](../../backend/src/services/PredictionService.ts),
-[contesto](../../backend/src/services/PredictionContextBuilder.ts),
-[fonte supplementare](../../backend/src/services/FootballDataService.ts),
-[prior neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).
+Tiri, tiri in porta e cartellini hanno modelli statistici dedicati e controlli di campione. Non sono una semplice conversione della probabilità 1X2. Per i cartellini totali il valore confrontabile con il mercato è gialli + 2 × rossi, distinto dal numero di soli gialli.
 
-## Probabilità dei gol
+La calibrazione usa replay cronologici e curve isotoniche, cioè correzioni monotone fra probabilità e frequenze osservate. I profili per famiglia richiedono campione sufficiente; esistono fallback e cache con controlli di compatibilità. Campione scarso o sconosciuto può ridurre la confidenza, senza implicare da solo un veto universale su tutte le giocate.
 
-Il nucleo Dixon-Coles stima le intensità dei gol delle due squadre. In forma
-essenziale, prima delle correzioni di livello e contesto:
+Il motore confronta probabilità calibrate e quote reali, rimuove il margine dai gruppi bookmaker completi e applica il blending con il mercato dove previsto. Questo passaggio è distinto dall'ensemble fra Dixon-Coles e Poisson-xG. Soglie, controlli di fragilità, qualità dei dati e tuning possono incidere sulla decisione. Le learning review sono interne e non dimostrano un miglioramento automatico.
 
-```text
-lambda_casa = exp(attacco_casa - difesa_ospite + vantaggio_casa)
-lambda_ospite = exp(attacco_ospite - difesa_casa)
-```
+Le formule complete appartengono al [formulario](../FORMULARIO-sistema-scommesse.md). Fonti del meccanismo: [Dixon-Coles](../../backend/src/models/core/DixonColesModel.ts), [Poisson-xG](../../backend/src/models/core/PoissonXgModel.ts), [ensemble](../../backend/src/services/ProbabilityEnsembleService.ts), [modelli statistici](../../backend/src/models/markets/SpecializedModels.ts), [value](../../backend/src/models/value/ValueBettingEngine.ts), [analisi calibrata](../../backend/src/models/value/EnhancedMarketAnalysis.ts), [configurazione](../../backend/src/config/PredictionEngineConfig.ts).
 
-La matrice dei punteggi combina le due distribuzioni Poisson e la correzione
-Dixon-Coles per i punteggi bassi. Dal totale delle celle pertinenti ricava
-1X2, over/under, BTTS e handicap. Il fit usa pesi temporali e, quando ci sono
-xG validi, una combinazione di gol e xG: il peso xG predefinito è 0,80.
-Correzioni salvate del livello gol, xG pre-partita e contesto possono
-modificare le intensità effettivamente usate.
+## Mercati e consiglio canonico
 
-Il partner Poisson-xG stima i gol da tassi di xG fatti e concessi, corretti
-per avversario e vantaggio di casa. Prima della calibrazione, l'ensemble
-combina le probabilità dei mercati gol supportati:
+Il catalogo squadra comprende 1X2, doppia chance, draw no bet, goal/over-under, BTTS, handicap e, con dati sufficienti e quote ammesse, tiri, tiri in porta e cartellini totali. Una probabilità calcolabile non garantisce un prezzo bookmaker reale per mercato e linea richiesti.
 
-```text
-p_ensemble = (1 - w) * p_DixonColes + w * p_PoissonXg
-```
+Corner e falli restano esclusi dalle giocate. Il risultato esatto serve alle probabilità e alle analisi interne: non si richiede il mercato bookmaker `correct_score`. Le player props sono un percorso distinto, con dati abilitati, campione sufficiente e matching non ambiguo per giocatore, mercato e linea. Nei default forniti giocatori e disponibilità sono in pausa.
 
-Il peso predefinito è `w = 0,5` per 1X2, over/under e BTTS. Questo passaggio
-non trasforma tiri e cartellini in mercati gol e non usa il modello C.
+Il consiglio consumato dall'app e dalla Nightly è `canonicalRecommendation`. Il picker scarta player props, opportunità speculative e quote sintetiche, dà precedenza a HIGH/MEDIUM e ammette LOW solo con i requisiti positivi previsti. Può astenersi. Il suo ordinamento non coincide necessariamente con il distinto punteggio interno di `selectBestSingleMatchBet`.
 
-Sorgenti: [Dixon-Coles](../../backend/src/models/core/DixonColesModel.ts),
-[Poisson-xG](../../backend/src/models/core/PoissonXgModel.ts),
-[ensemble](../../backend/src/services/ProbabilityEnsembleService.ts),
-[configurazione](../../backend/src/config/PredictionEngineConfig.ts).
+Lo stake consigliato deriva dai controlli Kelly/rischio e dai limiti del motore. La Nightly usa quella percentuale e verifica poi saldo, esposizione, kickoff, quota e duplicati. Non sostituisce lo stake A con l'1% previsto per C. Nella registrazione manuale l'utente sceglie invece l'importo e il server verifica selezione, quota e controlli contabili.
 
-## Tiri, tiri in porta e cartellini
+Un prezzo sintetico o completato dal modello non è un prezzo bookmaker e non rende eseguibile un consiglio. Senza quota reale si può mostrare analisi sportiva, ma non presentare un vantaggio contro un prezzo che il bookmaker non ha espresso.
 
-I modelli statistici sono distinti dal modello gol. Per tiri e tiri in porta
-usano distribuzioni di conteggio con dispersione stimata e regolarizzata
-verso valori di riferimento. Il percorso squadra dei tiri impiega una
-binomiale negativa, che permette una varianza superiore alla media.
-Le intensità dipendono da medie, sede, capacità dell'avversario di concedere
-tiri e contesto. La stima dei tiri incorpora anche una componente legata
-ai gol attesi; non coincide con la sola conversione gol → tiri.
+Fonti: [picker](../../backend/src/services/CanonicalBetRecommendation.ts), [player props](../../backend/src/services/playerProps.ts), [campioni](../../backend/src/config/predictionConfig.ts), [azioni manuali](../../backend/src/services/ManualModelBetService.ts).
 
-I cartellini usano medie e dispersione delle squadre, campione, competitività
-e fattori dell'arbitro quando disponibili. I rossi hanno una stima separata.
-Il totale confrontabile con `alternate_totals_cards` è:
+## Trasporto, archivio e verifica
 
-```text
-cartellini_totali = gialli + 2 * rossi
-```
+Il dettaglio usa un job temporaneo che invoca lo stesso servizio A. Polling, scadenza o annullamento della schermata non definiscono un altro algoritmo; interrompere il recupero non annulla necessariamente il calcolo già partito. I consigli archiviati conservano la loro identità e non vengono riscritti come nuove decisioni Nightly da una consultazione successiva.
 
-Gialli e cartellini totali sono quindi unità diverse. L'assenza o la debolezza
-dei dati arbitrali influisce sulla qualità della stima; non implica che un
-arbitro sia noto. Non è prevista copertura uniforme dell'arbitro fuori
-dalla Premier League.
+L'analisi iniziale legge quote in cache. La scheda Giocate può avviare una richiesta dedicata di quote reali; calcolare un consiglio e acquisire prezzi non registrano automaticamente una puntata. [Architettura](../SYSTEM-DESIGN.md) e [Nightly](../github-actions-nightly-sync.md) descrivono questi flussi.
 
-I mercati statistici squadra vengono rimossi quando non si raggiungono le
-soglie configurate: di default almeno 8 osservazioni per ciascuna squadra e
-20 complessive. Queste soglie sono un requisito di disponibilità, non una
-prova di redditività del mercato.
-
-Sorgenti: [modelli statistici](../../backend/src/models/markets/SpecializedModels.ts),
-[collegamento ai gol e al contesto](../../backend/src/models/core/DixonColesModel.ts),
-[gate campione](../../backend/src/services/PredictionService.ts),
-[configurazione dei campioni](../../backend/src/config/predictionConfig.ts).
-
-## Calibrazione e confronto con le quote
-
-La calibrazione corregge gli scostamenti sistematici tra probabilità stimate
-e frequenze osservate. `PredictionService` costruisce replay storici in ordine
-temporale e adatta curve isotoniche: curve monotone che non invertono
-l'ordinamento delle probabilità. Usa curve per famiglia quando hanno campione
-sufficiente, con fallback globale; il minimo predefinito per famiglia è 120.
-I profili possono essere riusati solo se compatibili con dati e configurazione.
-
-Un ulteriore controllo prudenziale abbassa la confidenza a LOW quando il
-campione di calibrazione è ignoto, insufficiente o sotto il minimo
-`PREDICTION_MIN_CALIBRATION_SAMPLE` (default 30). Non impone automaticamente
-`NO_BET`: restano applicabili i criteri più restrittivi per LOW. Un EV sopra
-`PREDICTION_ANOMALOUS_EV_PERCENT` (default 15%) aggiunge un avviso interno,
-senza costituire da solo un veto automatico.
-
-Il motore ricava anche la probabilità del mercato senza margine, usando gli
-esiti complementari del medesimo gruppo bookmaker:
-
-```text
-p_mercato_senza_margine = (1 / quota) / somma(1 / quote_del_gruppo)
-p_decisione = peso_modello * p_calibrata + (1 - peso_modello) * p_mercato
-EV = p_decisione * quota - 1
-```
-
-Il peso del modello dipende da qualità dei dati, categoria e completezza
-delle quote. Pesi appresi possono correggerlo entro limiti configurati:
-di default servono 80 campioni e lo spostamento massimo è 0,18. Il blending
-col mercato non è il precedente ensemble tra due modelli statistici.
-
-Le soglie EV effettive non sono un unico numero: dipendono da categoria,
-margine bookmaker, tuning e controlli di fragilità. Sono valutati anche
-incertezza, copertura, coerenza con il mercato e quote complementari.
-La calibrazione di A opera sulle famiglie di probabilità; non va descritta
-come il protocollo di riproiezione congiunta dei gol usato nel percorso C.
-
-Sorgenti: [profili e replay](../../backend/src/services/PredictionService.ts),
-[analisi calibrata](../../backend/src/models/value/EnhancedMarketAnalysis.ts),
-[value e blending](../../backend/src/models/value/ValueBettingEngine.ts),
-[pesi appresi](../../backend/src/services/MarketBlendLearningService.ts),
-[cache profili](../../backend/src/services/CalibrationProfileCache.ts).
-
-## Consiglio principale e astensione
-
-Il motore produce opportunità e una spiegazione della scelta migliore.
-Il consiglio esposto e consumato dall'automazione è poi il pacchetto
-`canonicalRecommendation`, costruito dal picker canonico della pagina.
-Non bisogna confondere il suo ordinamento con il distinto punteggio interno
-del metodo `selectBestSingleMatchBet`.
-
-Il picker esclude player props, opportunità speculative e quote sintetiche.
-Dà precedenza alle opportunità HIGH/MEDIUM. Una LOW è ammissibile soltanto
-con quota valida, valore, edge senza margine, Kelly e stake positivi, senza
-flag speculativi o esclusione dal value. A parità di fascia ordina per:
-
-```text
-score = 0,55 * EV_percentuale + 0,30 * edge_percentuale
-        + 8 * probabilita_in_0_1 + 4 * livello_confidenza
-livello_confidenza: HIGH=3, MEDIUM=2, LOW=1
-```
-
-Il pacchetto conserva fino a tre alternative ordinate e una sola selezione
-principale. Se non rimangono candidati restituisce `NO_BET`: non impone una
-giocata per ogni partita. Anche un consiglio valido può non essere registrato
-se falliscono i controlli tecnici o contabili dell'esecuzione.
-
-Sorgenti: [picker canonico](../../backend/src/services/CanonicalBetRecommendation.ts),
-[composizione del pacchetto](../../backend/src/services/PredictionService.ts).
-
-## Percentuale di puntata
-
-A mantiene lo stake del proprio motore, distinto dall'1% fisso deciso per C.
-Il punto di partenza è Kelly frazionale, con default Quarter Kelly:
-
-```text
-Kelly_intero = (p * (quota - 1) - (1 - p)) / (quota - 1)
-Quarter_Kelly = max(0, Kelly_intero) * 0,25
-```
-
-Il motore applica confidenza, incertezza e limiti prudenziali; copertura,
-categoria e cap di correlazione possono modificare il risultato finale.
-Il limite massimo di base è il 4% e il minimo interno di base è lo 0,25%:
-non sono una garanzia che ogni opportunità passi gli ulteriori controlli.
-La modalità Kelly dinamica esiste ma è opt-in; il default è `quarter`.
-
-L'esecutore usa l'esatto `suggestedStakePercent` finale rispetto al patrimonio
-del portafoglio A. Non applica un secondo moltiplicatore di confidenza o un
-minimo automatico di un euro. Verifica saldo, esposizione aperta massima del
-5% e una sola puntata per partita e portafoglio. Se il consiglio supera i
-limiti si astiene; non ne riduce silenziosamente l'importo.
-
-Sorgenti: [Kelly, confidenza e limiti](../../backend/src/models/value/ValueBettingEngine.ts),
-[cap tra opportunità](../../backend/src/models/value/EnhancedMarketAnalysis.ts),
-[registrazione contabile](../../backend/src/research/ResearchRecommendationStore.ts).
-
-## Mercati e quote operative
-
-| Percorso | Comportamento |
-| --- | --- |
-| Squadra A | 1X2, doppia chance, DNB, over/under gol, BTTS, handicap europeo/asiatico; tiri, tiri in porta e cartellini quando dati, linea, quota e controlli lo consentono |
-| Player props | Sezione separata: tiri, tiri in porta, gialli e marcatore anytime; non diventano la puntata automatica principale |
-| Corner e falli | Restano bloccati nella selezione operativa |
-| Risultato esatto | Probabilità e analisi interne; non è un mercato bookmaker operativo richiesto |
-
-Le player props richiedono flag dati abilitato, campione sufficiente,
-identificazione non ambigua e quota reale per giocatore, mercato e linea.
-I tiri giocatore usano il percorso aggregato di `SpecializedModels`; i gialli
-usano `PlayerCardsModel`; l'anytime usa il tasso xG e i minuti attesi.
-La presenza di `ShotsModel.ts` non significa che quel modello alternativo
-sia collegato al runtime. I dati giocatore sono disabilitati per default.
-
-Per l'esecuzione di A, `AppPredictionOddsService` raccoglie feed principale e
-mercati evento già configurati nell'app. Conserva bookmaker, prezzo, cattura
-e aggiornamento di ciascuna quota e mantiene gli esiti complementari sullo
-stesso listino. I mercati extra rispettano l'opt-in di rete separato, cache
-e budget persistente. Supportare un mercato non garantisce che il provider
-offra la quota per quella partita: le chiavi generiche `shots` e `cards`
-non vanno inventate per superare un'assenza di copertura.
-
-La registrazione richiede prezzi reali pre-match freschi entro cinque minuti.
-Le quote sintetiche o completate dal modello non autorizzano value, giocate
-o dimostrazioni di ROI/CLV. Per chiudere una puntata statistica A servono i
-campi reali richiesti: i mancanti lasciano l'esito aperto, non valgono zero.
-
-Sorgenti: [quote A](../../backend/src/services/AppPredictionOddsService.ts),
-[catalogo evento](../../backend/src/services/OddsMarketPolicy.ts),
-[selezione bookmaker](../../backend/src/services/BookmakerOddsSelectionService.ts),
-[player props](../../backend/src/services/playerProps.ts),
-[flag giocatori](../../backend/src/services/PlayerDataConfig.ts),
-[liquidazione A](../../backend/src/research/AppRecommendationQuotes.ts).
-
-## Limiti e verifica della descrizione
-
-Questa guida documenta struttura e comportamento del codice. Non attesta
-copertura corrente dei dati, calibrazione sufficiente di ogni famiglia,
-disponibilità delle quote, redditività o puntate presso bookmaker reali.
-L'esecuzione descritta qui registra importi virtuali. Le performance dei
-report datati restano risultati dei rispettivi esperimenti.
-
-Per una verifica ripetibile confrontare i moduli collegati e le configurazioni
-con i test di [selezione canonica](../../backend/test/canonical-bet-recommendation.test.js),
-[quote A](../../backend/test/app-prediction-odds-service.test.js),
-[motore value](../../backend/test/value-betting-engine.test.js) e
-[esecuzione separata](../../backend/test/research-recommendation-runtime.test.js).
-La regressione [A operativo](../../backend/test/operational-a-regression.test.js)
-congela 36 sorgenti rispetto ad `a474e36c` e sei casi completi del vero
-`PredictionService.predict()`, inclusi cartellini, tiri e astensione. I sette
-controlli passano; le curve di calibrazione sono fixture congelate e non un
-nuovo fit storico. Le player props sono disabilitate nelle fixture di comportamento.
-Le verifiche complete e i limiti sono nel
-[report C del 31 ottobre](../performance/c-hybrid-improvements-2026-10-31.md).
+Per verificare A si controllano sorgenti, configurazione, parametri e dati della specifica esecuzione, pacchetto canonico e regressioni del servizio. Le metriche research, un test unitario o una risposta HTTP non certificano profitto o superiorità predittiva dell'A operativo.
