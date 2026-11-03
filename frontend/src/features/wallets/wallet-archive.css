@@ -42,3 +42,5 @@
 @media(max-width:700px) { .archive-summary { grid-template-columns:repeat(3,minmax(0,1fr)); } .archive-summary .pa-summary__intro { grid-column:1/-1; } .archive-summary .pa-summary__metric strong { font-size:14px; white-space:normal; } }
 
 .wallet-archive__request { min-height:18px; margin:0; font-size:12px; }
+
+@media(max-width:360px) { .wallet-archive__filters .app-wallet-filter { flex-basis:100%; } }

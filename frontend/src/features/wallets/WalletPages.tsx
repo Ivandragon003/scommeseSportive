@@ -112,14 +112,14 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
       {selected && <section className="wallet-budget-model" aria-label={`Portafoglio ${selected.family}`}>
         <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Budget deterministico' : 'Budget machine learning'}</p></div>
         {selected.initialized === false ? <div className="fp-empty"><p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p></div> : <>
-          <dl className="bm-summary" aria-label={`Riepilogo modello ${selected.family}`}>
+          <div role="group" className="bm-summary" aria-label={`Riepilogo modello ${selected.family}`}>
             <div className="bm-summary__item is-positive"><span className="bm-summary__icon"><WalletCards size={24} aria-hidden="true" /></span>
-              <span><dt>Bankroll disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd><small>Pronto per le prossime giocate</small></span></div>
+              <div className="bm-summary__copy"><dl className="bm-summary__values"><dt>Bankroll disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd></dl><small>Pronto per le prossime giocate</small></div></div>
             <div className="bm-summary__item"><span className="bm-summary__icon"><Lock size={24} aria-hidden="true" /></span>
-              <span><dt>Capitale impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd><small>Importi nelle giocate ancora aperte</small></span></div>
+              <div className="bm-summary__copy"><dl className="bm-summary__values"><dt>Capitale impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd></dl><small>Importi nelle giocate ancora aperte</small></div></div>
             <div className={`bm-summary__item ${(selected.profitCents ?? 0) < 0 ? 'is-negative' : 'is-positive'}`}><span className="bm-summary__icon"><TrendingUp size={24} aria-hidden="true" /></span>
-              <span><dt>Risultato nel periodo</dt><dd>{walletMoney(selected.profitCents)}</dd><strong>{walletPercent(selected.roi)}</strong><small>Rendimento sulle giocate liquidate</small></span></div>
-          </dl>
+              <div className="bm-summary__copy"><dl className="bm-summary__values"><dt>Risultato nel periodo</dt><dd>{walletMoney(selected.profitCents)}</dd></dl><strong>{walletPercent(selected.roi)}</strong><small>Rendimento sulle giocate liquidate</small></div></div>
+          </div>
           <div className="budget-workspace">
             <section className="wallet-budget-chart" aria-label={`Andamento modello ${selected.family}`}>
               <EquityChart a={selected.family === 'A' ? data.filteredProfitCurves?.A : undefined} c={selected.family === 'C' ? data.filteredProfitCurves?.C : undefined} showData={false} kind="profit" title="Profitto cumulato nel periodo" />

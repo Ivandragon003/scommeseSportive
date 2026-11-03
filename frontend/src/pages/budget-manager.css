@@ -157,7 +157,7 @@
   background: var(--surface);
 }
 
-.bm-summary__item > span:last-child {
+.bm-summary__item > :last-child {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -796,7 +796,7 @@
     padding: 18px 8px;
     text-align: center;
   }
-  .bm-summary__item > span:last-child { align-items: center; }
+  .bm-summary__item > :last-child { align-items: center; }
   .bm-summary__icon { width: 45px; height: 45px; flex-basis: 45px; }
   .bm-summary__item dt { min-height: 30px; font-size: 9px; }
   .bm-summary__item dd { margin: 8px 0 5px; font-size: clamp(15px, 4.6vw, 21px); white-space: normal; }
@@ -1407,7 +1407,7 @@ body:has(.bets-page) {
   .wallet-budget-controls .app-wallet-filter select, .wallet-budget-controls .app-wallet-filter input { min-height: 44px; }
   .wallet-budget-page .bm-summary { grid-template-columns: 1fr; gap: 8px; margin-bottom: 14px; }
   .wallet-budget-page .bm-summary__item { min-height: 0; padding: 12px 14px; gap: 12px; flex-direction: row; align-items: center; text-align: left; }
-  .wallet-budget-page .bm-summary__item > span:last-child { align-items: flex-start; display: grid; grid-template-columns: minmax(0,1fr) auto; column-gap: 10px; width: 100%; }
+  .wallet-budget-page .bm-summary__item > :last-child { align-items: flex-start; display: grid; grid-template-columns: minmax(0,1fr) auto; column-gap: 10px; width: 100%; }
   .wallet-budget-page .bm-summary__icon { display: grid; width: 32px; height: 32px; flex-basis: 32px; border-radius: 9px; }
   .wallet-budget-page .bm-summary__icon svg { width: 19px; height: 19px; }
   .wallet-budget-page .bm-summary__item dt { min-height: 0; font-size: 12px; align-self: center; }
@@ -1426,3 +1426,5 @@ body:has(.bets-page) {
   .wallet-budget-result header { align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .wallet-budget-result header p { margin: 0; }
 }
+
+.bm-summary__values { display:contents; }
