@@ -163,7 +163,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const netProfit = settledBets.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
   const settledStake = settledBets.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
   const roi = settledStake ? 100 * netProfit / settledStake : 0;
-  const loading = legacy.loading || !!wallet?.loading;
+  const loading = (legacy.loading && !legacy.bets.length) || (!!wallet?.loading && !wallet.data);
   const error = legacy.betsError || wallet?.error;
   const refresh = () => { void legacy.loadAll(); wallet?.refresh(); };
 

@@ -96,7 +96,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
   return <main className="bm-wrap budget-page wallet-budget-page">
     <header className="bm-head">
       <div><span className="fp-section-kicker">I tuoi portafogli</span><h1 className="bm-title">Budget</h1>
-        <p className="bm-sub">A deterministico, con lo storico precedente incluso. C con machine learning.</p></div>
+        <p className="bm-sub">A deterministico · C machine learning</p></div>
       <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={() => { refresh(); void history.loadAll({ force: true }); }} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
     </header>
     <div className="wallet-budget-controls">
@@ -111,7 +111,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
     <WalletLoadState loading={loading || history.loading} error={error || history.betsError} refresh={() => { refresh(); void history.loadAll({ force: true }); }} />
     {!loading && !history.loading && !error && data && <>
       {selected && <section className="wallet-budget-model" aria-label={`Portafoglio ${selected.family}`}>
-        <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Baseline deterministica. Risultati precedenti e attuali riuniti.' : 'Puntate con importo pari all’1% del proprio capitale.'} Tutti gli importi sono virtuali.</p></div>
+        <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Budget deterministico' : 'Budget machine learning'}</p></div>
         {selected.initialized === false ? <div className="fp-empty"><p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p></div> : <>
           <dl className="bm-summary" aria-label={`Riepilogo modello ${selected.family}`}>
             <div className="bm-summary__item is-positive"><span className="bm-summary__icon"><WalletCards size={24} aria-hidden="true" /></span>
@@ -142,7 +142,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
       {model === 'all' && <section className="wallet-budget-comparison" aria-label="Confronto dei portafogli">
         <WalletBalanceCards portfolios={data.portfolios} model="all" />
         <section className="wallet-budget-chart"><EquityChart a={data.portfolios.find((row) => row.family === 'A')?.equity}
-          c={data.portfolios.find((row) => row.family === 'C')?.equity} title="Patrimoni A e C nel tempo" /></section>
+          c={data.portfolios.find((row) => row.family === 'C')?.equity} showData={false} title="Patrimoni A e C nel tempo" /></section>
       </section>}
       <div className="wallet-budget-results">{portfolios.map((row) => <section className="wallet-budget-result" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
         <header><ModelBadge model={row.family} /><h2>Risultati del periodo</h2><p>{data.period.label}</p></header>

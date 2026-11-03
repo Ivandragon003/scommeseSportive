@@ -76,3 +76,18 @@ test('only the UI opt-in retains started matches without results; normal upcomin
   assert.deepEqual(normal.map((row) => row.match_id), ['future']);
   assert.deepEqual(calendar.map((row) => row.match_id), ['understat_31652', 'future']);
 });
+
+
+test('supplemental finals validate identity, preserve Understat raw data and record honest provenance', async t => {
+ const f=await fixture(t);
+ await f.client.execute("UPDATE matches SET home_team_name='Home',away_team_name='Away'");
+ const input={matchId:f.row.match_id,sourceUrl:'https://www.football-data.co.uk/mmz4281/2627/I1.csv',observedAt:f.now.toISOString(),expectedKickoffAt:f.row.date,
+ sourceRow:{date:f.row.date.slice(0,10),homeTeam:'Home',awayTeam:'Away',homeGoals:2,awayGoals:1}};
+ for(const change of [{sourceUrl:'https://example.com/result.csv'}, {sourceRow:{...input.sourceRow,homeTeam:'Away',awayTeam:'Home'}}, {sourceRow:{...input.sourceRow,homeGoals:null}}])
+  assert.equal((await f.db.applySupplementalFinalResult({...input,...change})).updated,false);
+ assert.equal((await f.db.applySupplementalFinalResult(input)).updated,true);
+ const row=await f.db.getMatchById(f.row.match_id),raw=JSON.parse(row.raw_json);
+ assert.equal(row.home_goals,2); assert.equal(row.away_goals,1);assert.equal(row.home_shots,12);
+ assert.equal(row.source,'understat');assert.equal(raw.match.isResult,false);assert.equal(raw.resultObservation.source,'football_data_csv');
+ assert.equal((await f.db.applySupplementalFinalResult(input)).updated,false);
+});

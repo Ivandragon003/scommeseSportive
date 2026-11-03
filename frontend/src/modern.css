@@ -1,6 +1,6 @@
 /* A compact sports workspace, shared by web and Android. */
 :root { --sidebar-width:252px; --header-height:64px; }
-:root:not([data-theme="dark"]) { --bg:#f5f8f6; --text:#122b24; --text-2:#536b62; --text-3:#687f75; --border:#dde8e1; --primary:#098752; --primary-hover:#07683f; --primary-dim:#eaf6ef; --sidebar-width:252px; --header-height:64px; }
+:root:not([data-theme="dark"]) { --bg:#edf1f5; --text:#122b24; --text-2:#536b62; --text-3:#687f75; --border:#dde8e1; --primary:#098752; --primary-hover:#07683f; --primary-dim:#eaf6ef; --sidebar-width:252px; --header-height:64px; }
 .app-shell .sidebar { padding:28px 12px 16px; border-right:0; }
 .app-shell .sidebar-brand { padding:0 10px 36px; gap:9px; }
 .app-shell .sidebar-brand small { text-transform:none; letter-spacing:0; font-weight:500; }
@@ -187,8 +187,8 @@
  .app-shell .model-bet-actions__buttons > button { flex:1 1 auto; }
 }
 
-/* White match workspace with distinct attack, defence and disciplinary accents. */
-:root:not([data-theme="dark"]) { --bg:#fff; --surface:#fff; --surface2:#f6faf8; --border:#d9e5df; }
+/* Cool neutral canvas, white cards and distinct sporting accents. */
+:root:not([data-theme="dark"]) { --bg:#edf1f5; --surface:#fff; --surface2:#f6faf8; --border:#d9e5df; }
 :root { --discipline-fouls:#2578ad; --discipline-yellow:#a36a08; --discipline-red:#c63d4a; }
 .app-shell .sidebar { border-right:1px solid var(--border); }
 .app-shell .app-header { border-bottom:1px solid var(--border); }
@@ -243,3 +243,64 @@
 
 /* Keep confidence aligned with EV when the speculative tag wraps on a phone. */
 @media(max-width:600px) { .app-shell .opportunity-quality__confidence-group .confidence-speculative { order:-1; } }
+
+/* Compact match header and clearer separation between canvas and panels. */
+:root:not([data-theme="dark"]) { --bg:#e8edf4; --surface:#fff; }
+.app-shell .matchup-header { padding:14px 22px; border-radius:15px; }
+.app-shell .matchup-duel { padding:12px 0; gap:12px; }
+.app-shell .matchup-team h2 { font-size:clamp(20px,2vw,27px); margin:3px 0 9px; }
+.app-shell .matchup-strength > span { padding:5px 9px; }
+.app-shell .matchup-note { padding-top:7px; font-size:10px; }
+.app-shell .bets-table-shell { border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+.app-shell .bets-page .bets-table-head { border-bottom:1px solid var(--border); background:var(--surface2); }
+.app-shell .bets-date-panel { padding:20px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:0 16px 40px rgb(12 39 25 / 14%); }
+.app-shell .bets-date-panel input { min-height:44px; padding:10px; border:1px solid var(--border); border-radius:10px; font:inherit; background:var(--surface2); }
+.app-shell .opportunity-alternative { display:flex; flex-direction:column; }
+.app-shell .opportunity-alternative .opportunity-quality { order:3; margin-top:0; border-top:0; }
+.app-shell .opportunity-alternative .model-bet-actions { order:2; }
+@media(min-width:700px) {
+ .app-shell .opportunity-alternative { display:grid; grid-template-columns:minmax(0,1fr) auto; }
+ .app-shell .opportunity-alternative > header,.app-shell .opportunity-alternative > dl { grid-column:1/-1; }
+ .app-shell .opportunity-alternative .model-bet-actions { grid-column:1; grid-row:3; }
+ .app-shell .opportunity-alternative .opportunity-quality { grid-column:2; grid-row:3; align-self:end; margin:0 0 0 20px; }
+}
+
+:root:not([data-theme="dark"]) { --bg:#f5f1e9; --surface2:#faf8f3; --border:#e3e0d5; }
+.app-shell .pr-prob-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(100px,1.4fr); gap:12px; align-items:center; }
+.app-shell .pr-prob-lbl { width:auto; max-width:none; overflow:visible; text-overflow:clip; white-space:normal; line-height:1.4; }
+.app-shell .wallet-budget-chart { padding:22px; border:1px solid var(--border); border-radius:16px; background:var(--surface); overflow:hidden; }
+.app-shell .wallet-budget-chart .research-chart__plot { min-width:0; overflow:hidden; }
+.app-shell .bets-table-shell { overflow-x:auto; }
+.app-shell .bets-table-head,.app-shell .bet-row__summary { min-width:880px; }
+.app-shell .app-wallet-page > .app-wallet-toolbar { justify-content:flex-start; align-items:end; gap:16px; }
+.app-shell .app-wallet-page > .app-wallet-toolbar .app-wallet-filter { min-width:190px; }
+.app-shell .matchup-duel { transition:padding .18s ease; }
+.app-shell .matchup-header:hover { border-color:var(--primary-border); }
+@media(max-width:600px) { .app-shell .bet-row__summary { min-width:0; } .app-shell .pr-prob-row { grid-template-columns:minmax(100px,1fr) minmax(90px,1.2fr); gap:8px; } }
+
+:root:not([data-theme="dark"]) { --bg:#faf9f7; --surface:#fff; --surface2:#fbfaf7; }
+.app-shell .app-header { background:var(--surface); }
+.glossary-search input,.glossary-search input:focus { flex:1; min-width:0; width:100%; border:0!important; outline:none; box-shadow:none!important; background:transparent; }
+.glossary-search:focus-within { outline:2px solid var(--primary-focus); outline-offset:2px; }
+.app-shell .app-wallet-page > .app-wallet-toolbar { flex-wrap:wrap; }
+.app-shell .app-wallet-page > .app-wallet-toolbar > .app-wallet-toolbar { justify-content:flex-start; }
+.app-shell .bets-table-shell { overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--border) var(--surface); }
+.app-shell .bets-table-head { position:sticky; top:0; z-index:2; }
+@media(max-width:600px) { .app-shell .bets-table-shell { max-height:none; } .app-shell .app-wallet-page > .app-wallet-toolbar > * { flex:1 1 150px; min-width:0; } }
+
+.app-shell .bets-page .bets-section__head { background:var(--surface); padding:16px; border:1px solid var(--border); border-radius:14px; gap:12px; }
+.app-shell .bets-page .bets-table-head { background:var(--surface); }
+.app-shell .bets-page .bets-section__head > div:first-child { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
+/* Quiet canvas and distinct model colours in both themes. */
+:root:not([data-theme="dark"]) { --bg:#fcfcfb; --surface2:#fafaf9; }
+:root[data-theme="dark"] { --bg:#172326; --surface:#213034; --surface2:#27383c; --surface3:#304348; --surface4:#3b5157; --border:#3b5055; --text:#edf4f3; --text-2:#c2d1cf; --text-3:#a7bcb7; }
+.app-shell .sidebar,.app-shell .app-header { background:var(--surface); }
+.app-shell .app-wallet-model--A { color:#175da8; background:#e9f2ff; border:1px solid #b9d4f8; }
+.app-shell .app-wallet-model--C { color:#7437a8; background:#f3eaff; border:1px solid #d8bef0; }
+.app-wallet-status.is-won { color:#176443; background:#e7f5ed; }
+.app-wallet-status.is-lost { color:#a02e3a; background:#fcecef; }
+[data-theme="dark"] .app-wallet-model--A { color:#a9d2ff; background:#253f5b; border-color:#527aa5; }
+[data-theme="dark"] .app-wallet-model--C { color:#e0baff; background:#48325c; border-color:#8864a8; }
+[data-theme="dark"] .app-wallet-status.is-won { color:#a4eac4; background:#294b3c; }
+[data-theme="dark"] .app-wallet-status.is-lost { color:#ffb7c0; background:#55353e; }

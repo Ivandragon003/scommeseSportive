@@ -1,3 +1,5 @@
+import axios from 'axios';
+import { parseFootballDataCsv, canonicalTeamName, FootballDataRow } from './FootballDataService';
 import { UnderstatScraper, UnderstatMatch } from './UnderstatScraper';
 
 export const RESULTS_REFRESH_WINDOW_MS = 72 * 60 * 60 * 1000;
@@ -21,6 +23,7 @@ export interface VerifiedFinalMatchResult {
 export interface MatchResultsRefreshDb {
   getRecentUnfinishedMatches(filters: { from: string; to: string; competitions: string[]; limit: number }): Promise<MatchResultRow[]>;
   getMatchById(matchId: string): Promise<MatchResultRow | null>;
+  applySupplementalFinalResult?(input: { matchId: string; sourceRow: FootballDataRow; sourceUrl: string; observedAt: string; expectedKickoffAt: string }): Promise<{ updated: boolean; reason?: string }>;
   getTeam(teamId: string): Promise<Record<string, unknown> | null>;
   applyVerifiedFinalResult(input: VerifiedFinalMatchResult): Promise<{ updated: boolean; reason?: string }>;
 }
@@ -30,7 +33,7 @@ export interface MatchResultsRefreshSummary {
   from: string; to: string; checked: number; updated: number; unchanged: number; rejected: number;
   limitReached: boolean; reasonCounts: Record<string, number>;
   errors: Array<{ competition?: string; matchId?: string; reason: string }>;
-  updates: Array<{ matchId: string; homeGoals: number; awayGoals: number; source: 'understat'; observedAt: string }>;
+  updates: Array<{ matchId: string; homeGoals: number; awayGoals: number; source: 'understat' | 'football_data_csv'; observedAt: string }>;
 }
 
 type Source = Pick<UnderstatScraper, 'scrapeSeason'>;
@@ -143,6 +146,14 @@ export class MatchResultsRefreshService {
         summary.errors.push({ competition, reason });
       }
     }));
+    const supplemental = new Map<string, {rows: FootballDataRow[]; url: string; observedAt: string}>();
+    if ('applySupplementalFinalResult' in this.db) await Promise.all(leagues.filter(league => !feeds.has(league)).map(async competition => {
+      const codes: Record<string,string> = {'Serie A':'I1','Premier League':'E0','La Liga':'SP1','Bundesliga':'D1','Ligue 1':'F1'};
+      const url = `https://www.football-data.co.uk/mmz4281/${String(year).slice(-2)}${String(year + 1).slice(-2)}/${codes[competition]}.csv`;
+      try { const response = await axios.get(url, {timeout:10000, responseType:'text', maxContentLength:5_000_000});
+        supplemental.set(competition,{rows:parseFootballDataCsv(response.data),url,observedAt:this.clock().toISOString()});
+      } catch { summary.errors.push({competition,reason:'supplemental_source_unavailable'}); }
+    }));
     const teams = new Map<string, Promise<Record<string, unknown> | null>>();
     const sourceTeamId = async (internalId: string): Promise<number | null> => {
       if (!internalId) return null;
@@ -155,7 +166,20 @@ export class MatchResultsRefreshService {
     };
     for (const candidate of eligible) {
       const feed = feeds.get(candidate.competition);
-      if (!feed) { reject('source_feed_unavailable'); continue; }
+      if (!feed) {
+        const backup = supplemental.get(candidate.competition);
+        const home = await this.db.getMatchById(candidate.match_id) as any;
+        const found = backup?.rows.filter(row => row.date === candidate.date.slice(0,10)
+          && canonicalTeamName(row.homeTeam) === canonicalTeamName(home?.home_team_name)
+          && canonicalTeamName(row.awayTeam) === canonicalTeamName(home?.away_team_name));
+        if (!backup || found?.length !== 1 || found[0].homeGoals == null || found[0].awayGoals == null) { reject('source_feed_unavailable'); continue; }
+        try {
+          const applied = await this.db.applySupplementalFinalResult!({matchId:candidate.match_id,sourceRow:found[0],sourceUrl:backup.url,observedAt:backup.observedAt,expectedKickoffAt:candidate.date});
+          if (applied.updated) { summary.updated++; summary.updates.push({matchId:candidate.match_id,homeGoals:found[0].homeGoals,awayGoals:found[0].awayGoals,source:'football_data_csv',observedAt:backup.observedAt}); }
+          else reject(applied.reason || 'supplemental_result_not_applied');
+        } catch { reject('supplemental_result_failed'); }
+        continue;
+      }
       try {
         const matches = feed.matches.filter((row) => row?.matchId === candidate.match_id);
         if (matches.length !== 1) { reject(matches.length ? 'source_duplicate_match' : 'source_match_missing'); continue; }

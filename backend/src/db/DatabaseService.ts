@@ -1,3 +1,4 @@
+import { canonicalTeamName, FootballDataRow } from '../services/FootballDataService';
 import { createClient, type InStatement } from '@libsql/client';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -2040,6 +2041,26 @@ export class DatabaseService {
       AND julianday(date)>=julianday(?) AND julianday(date)<=julianday(?)
       AND competition IN (${competitions.map(() => '?').join(',')})
       ORDER BY julianday(date),match_id LIMIT ?`, [filters.from, filters.to, ...competitions, limit]);
+  }
+
+  async applySupplementalFinalResult(input: {matchId:string;sourceRow:FootballDataRow;sourceUrl:string;observedAt:string;expectedKickoffAt:string}): Promise<{updated:boolean;reason?:string}> {
+    const row = await this.getMatchById(input.matchId);
+    const data = input.sourceRow;
+    const codes: Record<string,string> = {'Serie A':'I1','Premier League':'E0','La Liga':'SP1','Bundesliga':'D1','Ligue 1':'F1'};
+    const year = Number(String(row?.season || '').slice(0,4));
+    const expectedUrl = `https://www.football-data.co.uk/mmz4281/${String(year).slice(-2)}${String(year+1).slice(-2)}/${codes[row?.competition]}.csv`;
+    if (!row || !codes[row.competition] || !Number.isInteger(year) || row.date !== input.expectedKickoffAt || input.sourceUrl !== expectedUrl
+      || !Number.isFinite(Date.parse(input.observedAt)) || Date.parse(input.observedAt) > Date.now()
+      || Date.parse(row.date) >= Date.parse(input.observedAt) || data.date !== row.date.slice(0,10)
+      || canonicalTeamName(data.homeTeam) !== canonicalTeamName(row.home_team_name)
+      || canonicalTeamName(data.awayTeam) !== canonicalTeamName(row.away_team_name)
+      || ![data.homeGoals,data.awayGoals].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 30)) return {updated:false,reason:'supplemental_identity_or_score_invalid'};
+    if (row.home_goals != null || row.away_goals != null) return {updated:false,reason:'result_already_present'};
+    let raw: Record<string,unknown>; try { raw=JSON.parse(row.raw_json || '{}'); if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {updated:false,reason:'stored_source_unreadable'}; } catch { return {updated:false,reason:'stored_source_unreadable'}; }
+    const evidence={...raw,resultObservation:{source:'football_data_csv',sourceUrl:input.sourceUrl,observedAt:input.observedAt,sourceRow:data}};
+    const result=await this.execute('UPDATE matches SET home_goals=?,away_goals=?,raw_json=? WHERE match_id=? AND date=? AND home_team_id=? AND away_team_id=? AND competition=? AND season=? AND source IS ? AND source_match_id IS ? AND home_goals IS NULL AND away_goals IS NULL',
+      [data.homeGoals,data.awayGoals,JSON.stringify(evidence),row.match_id,row.date,row.home_team_id,row.away_team_id,row.competition,row.season,row.source,row.source_match_id]);
+    return {updated:Number(result.rowsAffected)>0};
   }
 
   async applyVerifiedFinalResult(input: VerifiedFinalMatchResult): Promise<{ updated: boolean; reason?: string }> {

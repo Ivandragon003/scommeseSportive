@@ -144,8 +144,13 @@ export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: numb
     const outcome = appExecution ? settleAppRecommendationQuote(quote, match)
       : settleGoalQuote(quote, Number(match.home_goals), Number(match.away_goals));
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }
+    let resultObservation: any = null;
+    try { const observed = JSON.parse(match.raw_json || '{}').resultObservation;
+      if (['football_data_csv','official_club_report'].includes(observed?.source)) resultObservation = observed;
+    } catch { /* Older fixtures may not contain a result provenance wrapper. */ }
     const result = await db.research.settleBet(bet.id, outcome.returnMultiplier, { matchId: bet.matchId,
-      homeGoals: Number(match.home_goals), awayGoals: Number(match.away_goals), source: match.source,
+      homeGoals: Number(match.home_goals), awayGoals: Number(match.away_goals), source: resultObservation?.source || match.source,
+      ...(resultObservation ? {resultSourceUrl:resultObservation.sourceUrl,resultObservedAt:resultObservation.observedAt} : {}),
       resultKickoffAt: match.date, status: outcome.status,
       ...(appExecution && ['cards_total', 'yellow_cards', 'shots', 'shots_on_target'].includes(quote?.market)
         ? { market: quote.market, selection: quote.selection, statistics: Object.fromEntries([

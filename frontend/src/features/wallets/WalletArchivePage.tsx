@@ -1,3 +1,4 @@
+import { AppSelect } from '../../components/common/AppSelect';
 import React, { useState } from 'react';
 import { ResearchComparisonQuery } from '../research/researchComparisonTypes';
 import {
@@ -19,7 +20,7 @@ function CurrentWalletArchive({ onOpenLegacy }: { onOpenLegacy?: () => void }) {
   const [selectedBetId, setSelectedBetId] = useState<string | null>(null);
   const { data, loading, error, refresh } = useAppWalletData(query);
   const rows = (data?.bets.rows || []).filter((bet) => (model === 'all' || walletBetFamily(bet) === model)
-    && (status === 'all' || (status === 'open' ? bet.status === 'PENDING' : bet.status !== 'PENDING')));
+    && (status === 'all' || (status === 'open' ? bet.status === 'PENDING' : bet.status !== 'PENDING'))).sort((a,b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   const selectedBet = rows.find((bet) => bet.id === selectedBetId) ?? null;
   const portfolios = (data?.portfolios || []).filter((portfolio) => model === 'all' || portfolio.family === model);
 
@@ -30,12 +31,10 @@ function CurrentWalletArchive({ onOpenLegacy }: { onOpenLegacy?: () => void }) {
     </header>
     <div className="app-wallet-toolbar">
       <WalletModelPicker value={model} onChange={(value) => { setModel(value); setSelectedBetId(null); }} />
-      <label className="app-wallet-filter">Esito<select aria-label="Esito" value={status}
-        onChange={(event) => { setStatus(event.target.value); setSelectedBetId(null); }}>
-        <option value="all">Tutte le giocate</option><option value="open">Aperte</option><option value="settled">Liquidate</option>
-      </select></label>
-    </div>
     <WalletPeriodPicker query={query} onChange={(value) => { setQuery(value); setSelectedBetId(null); }} />
+      <label className="app-wallet-filter">Esito<AppSelect aria-label="Esito" value={status} onChange={value=>{setStatus(value);setSelectedBetId(null);}} options={[{value:'all',label:'Tutte le giocate'},{value:'open',label:'Aperte'},{value:'settled',label:'Liquidate'}]} /></label>
+    </div>
+
     <WalletLoadState loading={loading} error={error} refresh={refresh} />
     {!loading && !error && data && <>
       <p className="app-wallet-help">{data.period.label} · Orari italiani.

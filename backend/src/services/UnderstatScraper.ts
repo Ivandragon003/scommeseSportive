@@ -163,7 +163,7 @@ export class UnderstatScraper {
 
   private readonly client = axios.create({
     baseURL: 'https://understat.com',
-    timeout: 30000,
+    timeout: 10000,
     headers: {
       'X-Requested-With': 'XMLHttpRequest',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
@@ -238,8 +238,18 @@ export class UnderstatScraper {
   }
 
   private async fetchJson<T>(path: string): Promise<T> {
-    const response = await this.client.get(path);
-    return response.data as T;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await this.client.get(path);
+        return response.data as T;
+      } catch (error) {
+        const failure = error as { code?: string; response?: { status?: number } };
+        const transient = ['EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT'].includes(failure.code || '')
+          || [502, 503, 504].includes(failure.response?.status || 0);
+        if (!transient || attempt >= 2) throw error;
+        await new Promise<void>(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
+      }
+    }
   }
 
   private async fetchLeagueData(competition: string, season: string): Promise<UnderstatLeaguePayload> {

@@ -1,3 +1,5 @@
+import ConfirmDialog from '../common/ConfirmDialog';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useState } from 'react';
 import { ComparisonPortfolio } from '../../features/research/researchComparisonTypes';
 import { archiveModelOpportunity, placeModelBet } from '../../utils/modelBetActionsApi';
@@ -8,6 +10,7 @@ export default function ModelBetActions({ family, matchId, opportunity, portfoli
   family: 'A' | 'C'; matchId: string; opportunity: BestValueOpportunity; portfolios: ComparisonPortfolio[];
   onSaved: () => Promise<void>; unavailable?: boolean; registered?: boolean; quoteCapturedAt?: string | null;
 }) {
+  const confirmation = useConfirmDialog();
   const wallet = portfolios.find((row) => row.family === family);
   const percent = family === 'C' ? 1 : Number(opportunity.suggestedStakePercent || 0);
   const suggested = typeof wallet?.currentEquityCents === 'number' ? Math.round(wallet.currentEquityCents * percent / 100) : 0;
@@ -24,6 +27,9 @@ export default function ModelBetActions({ family, matchId, opportunity, portfoli
   const quoteTime = quoteCapturedAt ? Date.parse(quoteCapturedAt) : null;
   const staleQuote = quoteTime !== null && (!Number.isFinite(quoteTime) || quoteTime > Date.now() || Date.now() - quoteTime > 300_000);
   const run = async (kind: 'bet' | 'archive') => {
+    if (busy) return;
+    setBusy(true);
+    if (kind === 'bet' && classification && !await confirmation.confirm({title:'Vuoi giocare questa selezione?',message:`Questa selezione Ë ${classification === 'LOW' ? 'a bassa confidenza' : 'speculativa'}. Confermi la puntata virtuale di EUR ${(stakeCents / 100).toFixed(2)} con il modello ${family}?`,confirmLabel:'Gioca',cancelLabel:'Esci',tone:'warning'})) { setBusy(false); return; }
     setBusy(true); setMessage('');
     try {
       if (kind === 'bet') {
@@ -53,6 +59,7 @@ export default function ModelBetActions({ family, matchId, opportunity, portfoli
       {classification && <button type="button" className="fp-btn fp-btn-ghost" disabled={busy || !realPrice || !!unavailable || archived} onClick={() => void run('archive')}>{archived ? 'Archiviata' : 'Archivia senza puntare'}</button>}</div>
     {unavailable && <p>Registrazione non disponibile: servono una partita futura e una quota reale valida.</p>}
     {staleQuote && !registered && !saved && <p>Quota salvata non pi√π valida per puntare. Nessuna nuova quota viene richiesta automaticamente.</p>}
+    <ConfirmDialog {...confirmation.dialogProps} />
     {message && <p role="status">{message}</p>}
   </div>;
 }

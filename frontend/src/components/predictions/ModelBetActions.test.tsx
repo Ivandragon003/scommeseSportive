@@ -51,3 +51,15 @@ test('an expired saved quote disables betting but still permits a LOW archive', 
   await waitFor(() => expect(archive).toHaveBeenCalledTimes(1));
   expect(place).not.toHaveBeenCalled();
 });
+
+
+test('LOW requires explicit confirmation; exit never places a bet', async () => {
+ render(<ModelBetActions family="A" matchId="m1" opportunity={{...opportunity,confidence:'LOW'}} portfolios={portfolios} onSaved={async()=>undefined} />);
+ fireEvent.click(screen.getByRole('button',{name:'Scommetti con A'}));
+ expect(screen.getByRole('dialog')).toBeTruthy(); expect(place).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Esci'}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Scommetti con A'}).hasAttribute('disabled')).toBe(false)); expect(place).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Scommetti con A'}));
+ fireEvent.click(screen.getByRole('button',{name:'Gioca'}));
+ await waitFor(()=>expect(place).toHaveBeenCalledTimes(1));
+});

@@ -12,7 +12,7 @@ export type MatchMode = 'upcoming' | 'recent';
 export function useMatchSelection() {
   const listRequest = useRef(0);
   const [teams, setTeams] = useState<any[]>([]);
-  const [competition, setCompetition] = useState(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('competition') ?? 'Serie A');
+  const [competition, setCompetition] = useState(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('competition') ?? '');
   const [season, setSeason] = useState(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('season') ?? currentSeason());
   const [matchMode, setMatchMode] = useState<MatchMode>(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('mode') === 'recent' ? 'recent' : 'upcoming');
   const [upcomingLoading, setUpcomingLoading] = useState(false);

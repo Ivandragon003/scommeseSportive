@@ -293,7 +293,8 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     mockedApi.getUpcomingMatches.mockResolvedValue({ data: [matchRow, nextDayMatchRow] } as any);
     render(<Predictions activeUser="test-user" />); const toolbar = await screen.findByRole('toolbar', { name: 'Filtra partite per data' });
     fireEvent.click(within(toolbar).getAllByRole('button')[1]); expect(screen.queryByRole('button', { name: /Napoli vs Roma/ })).toBeNull();
-    selectOption(screen.getByLabelText('Campionato'), '');
+    expect(screen.getByLabelText('Campionato').textContent).toContain('Tutti i campionati');
+    selectOption(screen.getByLabelText('Campionato'), 'Serie A');
     expect((await screen.findByRole('button', { name: 'Tutte' })).getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: 'Tutte' }));
     await screen.findByRole('button', { name: /Napoli vs Roma/ });

@@ -19,7 +19,6 @@ const ShotsSection: React.FC<ShotsSectionProps> = ({ homeTeam, awayTeam, shotsPr
         <div className="pr-card" key={team.team}>
           <div className="pr-card-head">
             <div className="pr-card-title">{team.team}</div>
-            <span className="pr-badge pr-badge-blue">M {fmtN(team.data.totalShots.expected)}</span>
           </div>
           <div className="pr-card-body">
             <DistChart dist={team.data.totalShots.distribution} expected={team.data.totalShots.expected} title="Tiri totali" color={team.shotsColor} />
