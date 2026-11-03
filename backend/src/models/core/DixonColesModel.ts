@@ -1096,8 +1096,8 @@ export class DixonColesModel {
       1
     );
     const effectiveGoals = validMatches.map(m => {
-      const hx = Number(m.homeXG);
-      const ax = Number(m.awayXG);
+      const hx = m.homeXG == null || String(m.homeXG).trim() === '' ? NaN : Number(m.homeXG);
+      const ax = m.awayXG == null || String(m.awayXG).trim() === '' ? NaN : Number(m.awayXG);
       if (
         xgBlendWeight <= 0 ||
         !Number.isFinite(hx) || !Number.isFinite(ax) ||

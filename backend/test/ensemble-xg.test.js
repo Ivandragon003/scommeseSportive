@@ -132,3 +132,15 @@ test('Ensemble: pesi per-famiglia distinti', () => {
   assert.ok(Math.abs(ens.over25 - (0.2 * 0.5 + 0.8 * 0.9)) < 1e-9, 'O/U usa peso 0.8');
   assert.ok(Math.abs(ens.btts - (0.5 * 0.5 + 0.5 * 0.9)) < 1e-9, 'BTTS usa default 0.5');
 });
+
+
+test('Poisson xG excludes incomplete pairs but retains zero and valid positive xG', () => {
+  const {matches}=buildMatches(); const fit = rows => new PoissonXgModel().fit(rows);
+  const reference=fit(matches);
+  for (const value of [null,undefined,'',NaN,-1]) {
+    assert.deepEqual(fit([...matches,{...matches[0],homeXG:value,awayXG:1}]),reference);
+    assert.deepEqual(fit([...matches,{...matches[0],homeXG:1,awayXG:value}]),reference);
+  }
+  assert.notEqual(fit([...matches,{...matches[0],homeXG:0,awayXG:0}]).leagueXG,reference.leagueXG);
+  assert.notEqual(fit([...matches,{...matches[0],homeXG:4,awayXG:3}]).leagueXG,reference.leagueXG);
+});

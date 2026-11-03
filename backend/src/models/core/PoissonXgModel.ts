@@ -98,7 +98,8 @@ export class PoissonXgModel {
     let sumRealTotal = 0, nReal = 0;
 
     for (const m of matches) {
-      const hx = Number(m.homeXG), ax = Number(m.awayXG);
+      const hx = m.homeXG == null || String(m.homeXG).trim() === '' ? NaN : Number(m.homeXG);
+      const ax = m.awayXG == null || String(m.awayXG).trim() === '' ? NaN : Number(m.awayXG);
       if (!Number.isFinite(hx) || !Number.isFinite(ax) || hx < 0 || ax < 0) continue;
       const h = m.homeTeamId, a = m.awayTeamId;
       xgFor[h] = (xgFor[h] ?? 0) + hx; xgAgainst[h] = (xgAgainst[h] ?? 0) + ax; games[h] = (games[h] ?? 0) + 1;

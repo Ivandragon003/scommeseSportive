@@ -106,3 +106,11 @@ test('one or zero available seasons is capped at LOW', () => {
   const gated = applyHistoricalCoverageGate({ confidence: 'HIGH', expectedValue: 0.12 }, 20);
   assert.equal(gated.confidence, 'LOW');
 });
+
+
+test('Model A preserves missing contextual xG and genuine zeros', () => {
+ const { normalizeModelAContextXg }=require('../dist/services/PredictionService.js');
+ const build=(h,a)=>{const homeTeam={avg_home_xg:h},awayTeam={avg_away_xg:a}; const context=new PredictionContextBuilder().build({request:{},homeTeam,awayTeam,referee:null,homePlayers:[],awayPlayers:[]});return normalizeModelAContextXg(context,homeTeam,awayTeam)};
+ for(const v of [null,undefined,NaN]) {assert.equal(build(v,1).homeXG,undefined);assert.equal(build(1,v).awayXG,undefined)}
+ assert.equal(build(0,0).homeXG,0);assert.equal(build(0,0).awayXG,0);assert.equal(build(1.2,1.4).homeXG,1.2);
+});

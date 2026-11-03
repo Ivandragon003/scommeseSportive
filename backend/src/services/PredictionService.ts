@@ -174,6 +174,12 @@ export function applyHistoricalCoverageGate(opportunity: any, matchCoveragePerce
 
 type DataQualityComponent = { available: boolean | null; label: string; detail: string };
 
+export function normalizeModelAContextXg<T extends { homeXG?: number; awayXG?: number }>(context: T, home: any, away: any): T {
+  if (home?.avg_home_xg == null) context.homeXG = undefined;
+  if (away?.avg_away_xg == null) context.awayXG = undefined;
+  return context;
+}
+
 function buildPredictionDataQuality(params: {
   context: any; homeTeam: any; awayTeam: any; homePlayers: any[]; awayPlayers: any[];
   referee: any; odds: Record<string, number>; opportunity: any;
@@ -2148,6 +2154,7 @@ export class PredictionService {
       homeHistoricalCoverage,
       awayHistoricalCoverage,
     });
+    normalizeModelAContextXg(context, homeTeam, awayTeam);
 
     // A completed lower-division season provides real team evidence, but is
     // not equivalent to top-flight Understat history.  It can therefore lift

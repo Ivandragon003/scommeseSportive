@@ -72,3 +72,16 @@ test('xG blend: xG non finiti o negativi ricadono sui goal reali', () => {
     assert.ok(Math.abs(paramsClean.attackParams[team] - paramsDirty.attackParams[team]) < 1e-12);
   }
 });
+
+
+test('missing xG pairs fall back to goals while genuine zero remains informative', () => {
+  const base = buildMatches({withXg:false});
+  const fit = rows => new DixonColesModel().fitModel(rows,['A','B'],60,.04,{xgBlendWeight:.8,referenceDate:new Date('2026-03-01T00:00:00Z')});
+  const fallback=fit(base);
+  for (const value of [null,undefined,'',NaN,-1]) {
+    const rows=base.map(m=>({...m,homeXG:value,awayXG:1.5}));
+    assert.deepEqual(fit(rows),fallback);
+  }
+  const zero=fit(base.map(m=>({...m,homeXG:0,awayXG:0})));
+  assert.notDeepEqual(zero.attackParams,fallback.attackParams);
+});
