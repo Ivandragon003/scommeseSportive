@@ -446,6 +446,6 @@ export const LegacyPredictionArchivePage: React.FC = () => {
   );
 };
 
-const PredictionArchivePage: React.FC = () => <WalletArchivePage legacy={<LegacyPredictionArchivePage />} />;
+const PredictionArchivePage: React.FC = () => <WalletArchivePage />;
 
 export default PredictionArchivePage;

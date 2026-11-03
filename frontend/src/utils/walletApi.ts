@@ -40,6 +40,14 @@ function isWalletData(value: unknown): value is ResearchComparison {
 }
 
 /** Reads the funded app portfolios and their recorded bets without performing settlement. */
+export async function getWalletHistory(signal?: AbortSignal): Promise<any[]> {
+  const response = await API.get<ApiResponse<any[]>>('/wallets/history', { signal });
+  if (response.data?.success !== true || !Array.isArray(response.data.data)) {
+    throw new Error('Storico deterministico non disponibile.');
+  }
+  return response.data.data;
+}
+
 export async function getAppWallets(query: ResearchComparisonQuery, signal?: AbortSignal): Promise<ResearchComparison> {
   const response = await API.get<ApiResponse<unknown>>('/wallets', { params: query, signal });
   if (response.data?.success !== true || !response.data.data) {

@@ -65,6 +65,7 @@ export interface DecisionComparisonRow {
 export interface ComparisonBet extends Omit<ResearchBet, 'quote' | 'matchId' | 'profitCents' | 'settledAt'> {
   classification?: string | null;
   confidence?: string | null;
+  historical?: boolean;
   matchId: string | null;
   quote?: ResearchBet['quote'] | null;
   profitCents?: number | null;

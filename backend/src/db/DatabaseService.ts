@@ -4635,6 +4635,19 @@ export class DatabaseService {
     };
   }
 
+  /** Read the complete recorded history without changing the active budget session. */
+  async getBetHistory(userId: string): Promise<any[]> {
+    return this.all(`WITH recorded_quality AS (
+      SELECT bet_id, CASE WHEN exclusion_reason = 'speculative_saved_only' THEN 'SPECULATIVE'
+        ELSE upper(trim(confidence)) END AS classification,
+        ROW_NUMBER() OVER (PARTITION BY bet_id ORDER BY created_at DESC, decision_id DESC) AS quality_rank
+      FROM automated_bet_decisions WHERE user_id = ? AND decision_status = 'placed' AND bet_id IS NOT NULL
+    )
+      SELECT b.*, q.classification FROM bets b
+      LEFT JOIN recorded_quality q ON q.bet_id = b.bet_id AND q.quality_rank = 1
+      WHERE b.user_id = ? ORDER BY b.placed_at DESC, b.bet_id`, [userId, userId]);
+  }
+
   async getBets(userId: string, status?: string): Promise<any[]> {
     const activeSession = '(SELECT active_session_id FROM budgets WHERE user_id = ?)';
     if (status) {

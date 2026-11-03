@@ -1607,6 +1607,11 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
 });
 
 // ====== BUDGET & BETS ======
+router.get('/wallets/history', async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await db.getBetHistory(sharedDataUserId) }); }
+  catch { return res.status(503).json({ success: false, error: 'Storico deterministico non disponibile.' }); }
+});
+
 router.get('/wallets', async (req: Request, res: Response) => {
   try {
     const query = parseAppWalletQuery(req.query);

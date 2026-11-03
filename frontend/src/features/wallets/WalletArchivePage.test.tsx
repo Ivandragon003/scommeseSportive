@@ -2,7 +2,7 @@ import { selectOption } from '../../testSelect';
 import { getManualModelOpportunities } from '../../utils/modelBetActionsApi';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WalletArchivePage from './WalletArchivePage';
-import { getAppWallets } from '../../utils/walletApi';
+import { getAppWallets, getWalletHistory } from '../../utils/walletApi';
 import API from '../../utils/api';
 import { getBetOpportunityArchive } from '../../utils/api';
 import PredictionArchivePage from '../prediction-archive/PredictionArchivePage';
@@ -13,6 +13,7 @@ jest.mock('../../utils/modelBetActionsApi');
 jest.mock('../../utils/api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() }, getBetOpportunityArchive: jest.fn() }));
 
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
+const mockedHistory = getWalletHistory as jest.MockedFunction<typeof getWalletHistory>;
 const bet = (id: string, family: 'A' | 'C', stakeCents: number, matchLabel: string): ComparisonBet => ({
   id, family, portfolioId: `shadow_${family}`, modelVersion: family === 'A' ? 'APP-A-test' : 'C-test',
   matchId: id, matchLabel, market: 'totals', selection: family === 'A' ? 'over25' : 'under25',
@@ -42,6 +43,7 @@ describe('WalletArchivePage', () => {
     jest.clearAllMocks();
     (getManualModelOpportunities as jest.Mock).mockResolvedValue([]);
     mockedWallets.mockResolvedValue(data);
+    mockedHistory.mockResolvedValue([]);
     window.history.replaceState({}, '', '/prediction-archive');
   });
 
@@ -155,15 +157,25 @@ describe('WalletArchivePage', () => {
     expect(screen.getByText(/fino a 5 delle 700 giocate/)).toBeTruthy();
   });
 
-  test('does not mount or relabel previous records until the previous archive is requested', async () => {
-    render(<WalletArchivePage legacy={<div>Original previous records</div>} />);
-    await screen.findByText('Gamma – Delta');
-    expect(screen.queryByText('Original previous records')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Storico precedente' }));
-    expect(screen.getByText('Original previous records')).toBeTruthy();
+  test('integrates deterministic history with recorded classification in the same archive', async () => {
+    mockedHistory.mockResolvedValue([{ bet_id: 'old-1', match_id: 'old-match', home_team_name: 'Old Home', away_team_name: 'Old Away',
+      market_name: '1X2', selection: 'homeWin', odds: 2, stake: 10, profit: 10, status: 'WON', classification: 'HIGH',
+      placed_at: '2026-10-20T10:00:00Z', match_date: '2026-10-21T18:00:00Z' }]);
+    render(<WalletArchivePage />);
+    await screen.findByText('Old Home – Old Away');
+    expect(screen.getAllByRole('article')).toHaveLength(6);
+    expect(screen.getByRole('article', { name: 'Baseline deterministica · Old Home – Old Away' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Storico precedente' })).toBeNull();
+    selectOption(screen.getByLabelText('Modello'), 'baseline');
+    expect(screen.getAllByRole('article')).toHaveLength(1);
     expect(screen.queryByText('Gamma – Delta')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Torna all’archivio A/C' }));
-    expect(await screen.findByText('Gamma – Delta')).toBeTruthy();
+    const summary = screen.getByRole('region', { name: 'Riepilogo giocate' });
+    expect(within(summary).getByText(/1 concluse/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Low', exact: true }));
+    expect(screen.queryAllByRole('article')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Azzera filtri' }));
+    expect(screen.getAllByRole('article')).toHaveLength(6);
+    expect(API.post).not.toHaveBeenCalled();
   });
 
   test('keeps an API failure explicit and retries instead of fabricating an empty archive', async () => {

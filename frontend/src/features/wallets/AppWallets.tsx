@@ -107,11 +107,12 @@ export function WalletBetTable({ rows, model, emptyText = 'Nessuna giocata regis
   if (!visible.length) return <p className="app-wallet-empty">{emptyText}</p>;
   return <div className="app-wallet-bets" aria-label="Giocate registrate">{visible.map((bet) => {
     const family = walletBetFamily(bet);
+    const modelLabel = bet.historical ? 'Baseline deterministica' : `Modello ${family || 'non disponibile'}`;
     const returned = walletBetReturn(bet);
     const bookmaker = bet.quote?.bookmaker || bet.bookmaker || 'Bookmaker non disponibile';
     const awaitingOutcome = bet.status === 'PENDING' && !!bet.kickoffAt && Date.parse(bet.kickoffAt) <= Date.now();
-    return <article className="app-wallet-bet" key={bet.id} aria-label={`${family || 'Modello non disponibile'} · ${bet.matchLabel || bet.matchId || 'Partita non disponibile'}`}>
-      <div className="app-wallet-bet-main"><span className={`app-wallet-model app-wallet-model--${family || "unknown"}`}>Modello {family || 'non disponibile'}</span>
+    return <article className="app-wallet-bet" key={bet.id} aria-label={`${bet.historical ? 'Baseline deterministica' : family || 'Modello non disponibile'} · ${bet.matchLabel || bet.matchId || 'Partita non disponibile'}`}>
+      <div className="app-wallet-bet-main"><span className={`app-wallet-model app-wallet-model--${bet.historical ? "baseline" : family || "unknown"}`}>{modelLabel}</span>
         <div className="app-wallet-match"><h3>{bet.matchLabel || bet.matchId || 'Partita non disponibile'}</h3><p>{bet.league}{bet.kickoffAt ? ` · ${walletDateTime(bet.kickoffAt)}` : ''}</p>
           <strong>{walletBetSelection(bet)}</strong><small>{walletMarketLabel(bet.market)}</small><BetQualityBadge bet={bet} /></div>
         <div><small>Quota registrata</small><strong>{Number.isFinite(bet.odds) ? bet.odds.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong><small>{bookmaker}</small></div>
@@ -126,7 +127,7 @@ export function WalletBetTable({ rows, model, emptyText = 'Nessuna giocata regis
         <div><dt>Profitto liquidato</dt><dd>{walletMoney(bet.profitCents)}</dd></div>
       </dl><p>Quota archiviata alla registrazione, non un prezzo corrente.</p>
         {awaitingOutcome && <p>Risultato o liquidazione non ancora disponibili.</p>}
-        {onInspectBet && <button type="button" className="fp-btn fp-btn-ghost" onClick={() => onInspectBet(bet)}>Apri pronostico registrato</button>}
+        {onInspectBet && !bet.historical && <button type="button" className="fp-btn fp-btn-ghost" onClick={() => onInspectBet(bet)}>Apri pronostico registrato</button>}
       </details>
     </article>;
   })}</div>;

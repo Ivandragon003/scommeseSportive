@@ -1,0 +1,40 @@
+.wallet-archive__played { display:flex; align-items:center; gap:14px; padding:20px; border:1px solid var(--border); border-bottom:3px solid var(--primary); border-radius:14px; background:var(--surface); color:var(--primary); }
+.wallet-archive__played > div { display:grid; gap:4px; }
+.wallet-archive__played strong { font-size:17px; }
+.wallet-archive__played small { color:var(--text-2); font-size:12px; }
+.wallet-archive__played > span { margin-left:auto; }
+.wallet-archive__filters { display:flex; flex-wrap:wrap; align-items:end; gap:16px; padding:20px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+.wallet-archive__filters .app-wallet-filter { flex:1 1 160px; min-width:0; font-size:12px; color:var(--text-2); }
+.wallet-archive__filters .app-wallet-filter:first-child { flex-basis:230px; }
+.wallet-archive__filters .pa-risk-filters { flex:1 1 70%; }
+.wallet-archive__filters .pa-risk-filters legend { text-transform:none; letter-spacing:0; font-size:12px; font-weight:600; }
+.wallet-archive__filters .app-calendar__field input { width:100%; min-height:42px; border:1px solid var(--border); border-radius:10px; background:var(--surface2); color:var(--text); font:500 13px var(--font-sans); }
+.wallet-archive .pa-summary { margin:0; }
+.wallet-archive .pa-summary__intro span,.wallet-archive .pa-summary__metric span { text-transform:none; letter-spacing:0; font-size:12px; }
+.wallet-archive__quality { min-width:0; padding:20px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+.wallet-archive__quality h2 { margin:0 0 16px; font-size:16px; }
+.wallet-archive__quality-table { overflow-x:auto; }
+.wallet-archive__quality table { width:100%; border-collapse:collapse; font-size:12px; }
+.wallet-archive__quality th,.wallet-archive__quality td { padding:12px 10px; border-bottom:1px solid var(--border); text-align:left; font-variant-numeric:tabular-nums; }
+.wallet-archive__quality thead th { color:var(--text-2); font-weight:500; }
+.wallet-archive__quality tbody tr:last-child > * { border:0; }
+.wallet-archive__quality td small { display:block; color:var(--text-2); font-size:11px; margin-top:3px; }
+.app-wallet-model--baseline { color:var(--text-2); background:var(--surface2); border:1px solid var(--border); }
+.wallet-archive .app-wallet-bets { container-type:inline-size; }
+@container(max-width:780px) {
+ .wallet-archive .app-wallet-bet-main { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+ .wallet-archive .app-wallet-model { justify-self:start; min-width:0; grid-column:1; grid-row:1; }
+ .wallet-archive .app-wallet-status { justify-self:end; grid-column:2; grid-row:1; }
+ .wallet-archive .app-wallet-match { grid-column:1 / -1; grid-row:2; }
+}
+@media(max-width:700px) {
+ .wallet-archive__played,.wallet-archive__filters,.wallet-archive__quality { padding:16px; }
+ .wallet-archive__filters { gap:14px 10px; }
+ .wallet-archive__filters .app-wallet-filter { flex:1 1 calc(50% - 10px); }
+ .wallet-archive__filters .app-wallet-filter:first-child { flex-basis:100%; }
+ .wallet-archive .pa-summary { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .wallet-archive .pa-summary__intro { grid-column:1 / -1; }
+ .wallet-archive .pa-summary__metric { min-width:0; padding:14px 10px; }
+ .wallet-archive .pa-summary__metric strong { font-size:14px; white-space:normal; overflow-wrap:break-word; }
+ .wallet-archive__quality th,.wallet-archive__quality td { padding:10px 6px; }
+}
