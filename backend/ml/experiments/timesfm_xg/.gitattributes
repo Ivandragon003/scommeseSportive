@@ -1,0 +1,2 @@
+# Protocol and source hashes must survive Windows/Linux checkouts unchanged.
+* text eol=lf
