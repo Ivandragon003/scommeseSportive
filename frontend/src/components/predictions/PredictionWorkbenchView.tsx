@@ -946,7 +946,7 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
         </section>}
         <SavedModelOpportunities matchId={matchId} />
         </section>}
-        <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Dati della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>
+        <details className="pr-card pr-sporting-data"><summary className="pr-card-head">Statistiche osservate della partita</summary><div className="pr-card-body"><p>{actualScore ? `Risultato finale: ${actualScore}` : started ? 'Partita iniziata: risultato ancora da aggiornare.' : 'La partita non è ancora iniziata.'}</p><p>Statistiche osservate, distinte dalle probabilità stimate dai modelli.</p>
           <table><caption className="sr-only">Statistiche osservate della partita</caption><thead><tr><th>Statistica</th><th>Casa</th><th>Ospite</th></tr></thead><tbody>{actualStats.map(([label, home, away]) => <tr key={label}><th>{label}</th><td>{activeMatchRow?.[home] ?? 'Non disponibile'}</td><td>{activeMatchRow?.[away] ?? 'Non disponibile'}</td></tr>)}</tbody></table><p>I valori non disponibili non sono ancora stati rilevati dal provider. Le stime di falli e cartellini sono nell’analisi sportiva.</p>
           {completed && !pred && <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" disabled={analysis.loading} onClick={() => void handleAnalyze(activeMatchRow, { replay: true })}>Apri replay retrospettivo A</button>}
         </div></details>

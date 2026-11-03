@@ -268,3 +268,15 @@ test('deterministic budget includes the existing balance and recorded outcomes w
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });
+
+
+test('archive shows recorded speculative and low labels without inventing historical classifications', () => {
+  render(<WalletBetTable model="all" rows={[
+    { ...rows[0], classification: 'SPECULATIVE', confidence: 'HIGH' },
+    { ...rows[1], confidence: 'LOW' }, rows[2],
+  ]} />);
+  expect(screen.getByLabelText('Classificazione registrata: SPECULATIVE')).toBeTruthy();
+  expect(screen.getByLabelText('Classificazione registrata: LOW')).toBeTruthy();
+  expect(screen.queryByLabelText('Classificazione registrata: HIGH')).toBeNull();
+  expect(screen.getByText('Non registrata')).toBeTruthy();
+});

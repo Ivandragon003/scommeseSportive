@@ -166,3 +166,16 @@ test('totals and economics use all rows before independently truncating visible 
   assert.equal(output.portfolios[0].equity.length, 1, 'unchanged equity is not expanded into redundant stake/void chart points');
   assert.equal(output.byLeague[0].A.betCount, 501);
 });
+
+
+test('comparison preserves recorded quality without inventing it for older bets', async () => {
+  const f = fixture(); f.open('A'); f.open('C');
+  const recorded = f.bet('quality', 'A', '2026-10-21T10:00:00Z');
+  recorded.snapshot.classification = 'SPECULATIVE'; recorded.snapshot.confidence = 'HIGH';
+  f.bet('unknown-quality', 'C', '2026-10-21T11:00:00Z'); f.balance();
+  const output = await buildResearchComparison(f.store, PERIOD, NOW);
+  assert.equal(output.bets.rows.find(row => row.id === 'quality').classification, 'SPECULATIVE');
+  assert.equal(output.bets.rows.find(row => row.id === 'quality').confidence, 'HIGH');
+  assert.equal(output.bets.rows.find(row => row.id === 'unknown-quality').classification, null);
+  assert.equal(output.bets.rows.find(row => row.id === 'unknown-quality').confidence, null);
+});

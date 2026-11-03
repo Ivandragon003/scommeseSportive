@@ -230,7 +230,7 @@ export async function buildResearchComparison(store: ComparisonStore, query: Res
       odds: row.odds, stakeCents: row.stakeCents, quote: quoteView(row.snapshot?.quote),
       bookmaker: row.snapshot?.quote?.bookmaker ?? null, source: row.snapshot?.quote?.source ?? null,
       reason: row.snapshot?.reason ?? null, status: settled(row, end) ? outcome(row) : 'PENDING',
-      confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,
+      classification: row.snapshot?.classification ?? null, confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,
       policyHash: row.snapshot?.policyHash ?? null, policyVersion: row.snapshot?.policyVersion ?? null,
       originDecisionId: row.originDecisionId ?? row.decisionId, effectiveExecutionDecisionId: row.effectiveExecutionDecisionId ?? row.decisionId,
       settledAt: settled(row, end) ? row.settledAt : null, profitCents: settled(row, end) ? betProfit(row) : null }));

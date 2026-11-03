@@ -29,6 +29,7 @@ import { useAppWalletData } from '../features/wallets/AppWallets';
 import { ResearchComparison } from '../features/research/researchComparisonTypes';
 import { BetModel, betModel, unifiedBetRows } from '../features/wallets/unifiedBets';
 import ModelBadge from '../features/wallets/ModelBadge';
+import BetQualityBadge, { recordedBetQuality } from '../features/wallets/BetQualityBadge';
 import AppCalendarInput from '../components/common/AppCalendarInput';
 
 interface BetsManagerProps {
@@ -109,7 +110,7 @@ const BetRow: React.FC<{
         <span className="bet-row__chevron" aria-hidden="true">{expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</span>
         <span className="bet-row__match bet-row__cell">
           <strong>{bet.home_team_name ?? '-'} — {bet.away_team_name ?? '-'}</strong>
-          <ModelBadge model={betModel(bet)} />
+          <ModelBadge model={betModel(bet)} /><BetQualityBadge bet={bet} />
           <small>{bet.competition ?? '-'} · {formatBetDateTime(bet.placed_at)}</small>
         </span>
         <span className="bet-row__pick bet-row__cell">
@@ -126,6 +127,7 @@ const BetRow: React.FC<{
       </button>
       {expanded && (
         <div className="bet-row__detail">
+          <div><small>Classificazione registrata</small><strong>{recordedBetQuality(bet) || 'Non registrata'}</strong></div>
           <div><small>Pronostico originale</small><strong>{formatBetMarketName(bet.market_name)}</strong>{selection && <span>{selection}</span>}</div>
           <div><small>Quota alla giocata</small><strong>{odds.toFixed(2)}</strong></div>
           <div><small>P. nostra</small><strong>{probability}</strong></div>

@@ -94,7 +94,7 @@ describe('WalletArchivePage', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Apri pronostico registrato' }));
     expect(await screen.findByText('Consiglio registrato verificato.')).toBeTruthy();
     expect(screen.queryByText('C-test')).toBeNull();
-    expect(screen.queryByText('Classificazione registrata')).toBeNull();
+    expect(screen.getAllByText('Classificazione registrata').length).toBeGreaterThan(0);
     expect(screen.queryByText('APP-A-test')).toBeNull();
     expect(API.get).toHaveBeenCalledWith('/research/forecasts', { params: { matchId: 'c1' }, signal: expect.anything() });
     expect(API.get).toHaveBeenCalledTimes(1);

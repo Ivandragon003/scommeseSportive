@@ -18,6 +18,5 @@ export default function MatchupHeader({ match, prediction, teams, meta, onRefres
     <div className="matchup-top"><p>{meta}</p><button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={onRefresh} disabled={loading}>Aggiorna analisi</button></div>
     <h1 className="sr-only">{match?.home_team_name || prediction?.homeTeam} vs {match?.away_team_name || prediction?.awayTeam}</h1>
     <div className="matchup-duel">{side(true)}<span className="matchup-versus">VS</span>{side(false)}</div>
-    <details className="matchup-note"><summary>Forza squadra · come leggerla</summary><p>Ultimi coefficienti salvati: valori più alti indicano attacco più produttivo e difesa più solida. — = dato non disponibile.</p></details>
   </header>;
 }

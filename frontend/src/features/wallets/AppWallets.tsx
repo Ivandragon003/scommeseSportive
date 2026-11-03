@@ -3,6 +3,7 @@ import { getAppWallets } from '../../utils/walletApi';
 import { opportunityLabel, opportunityMarketLabel } from '../prediction-archive/predictionArchivePresentation';
 import { ComparisonBet, ComparisonPortfolio, ResearchComparison, ResearchComparisonQuery } from '../research/researchComparisonTypes';
 import './wallets.css';
+import BetQualityBadge, { recordedBetQuality } from './BetQualityBadge';
 import { AppSelect } from '../../components/common/AppSelect';
 
 export type WalletModelFilter = 'all' | 'A' | 'C';
@@ -112,12 +113,13 @@ export function WalletBetTable({ rows, model, emptyText = 'Nessuna giocata regis
     return <article className="app-wallet-bet" key={bet.id} aria-label={`${family || 'Modello non disponibile'} · ${bet.matchLabel || bet.matchId || 'Partita non disponibile'}`}>
       <div className="app-wallet-bet-main"><span className={`app-wallet-model app-wallet-model--${family || "unknown"}`}>Modello {family || 'non disponibile'}</span>
         <div className="app-wallet-match"><h3>{bet.matchLabel || bet.matchId || 'Partita non disponibile'}</h3><p>{bet.league}{bet.kickoffAt ? ` · ${walletDateTime(bet.kickoffAt)}` : ''}</p>
-          <strong>{walletBetSelection(bet)}</strong><small>{walletMarketLabel(bet.market)}</small></div>
+          <strong>{walletBetSelection(bet)}</strong><small>{walletMarketLabel(bet.market)}</small><BetQualityBadge bet={bet} /></div>
         <div><small>Quota registrata</small><strong>{Number.isFinite(bet.odds) ? bet.odds.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong><small>{bookmaker}</small></div>
         <div><small>Importo</small><strong>{walletMoney(bet.stakeCents)}</strong></div>
         <span className={`app-wallet-status is-${bet.status.toLowerCase()}`}>{awaitingOutcome ? 'In attesa di esito' : walletBetStatus(bet.status)}</span>
       </div>
       <details className="app-wallet-bet-detail"><summary>Dettagli della giocata</summary><dl>
+        <div><dt>Classificazione registrata</dt><dd>{recordedBetQuality(bet) || 'Non registrata'}</dd></div>
         <div><dt>Registrata</dt><dd>{walletDateTime(bet.createdAt)}</dd></div>
         <div><dt>Quota rilevata</dt><dd>{walletDateTime(bet.quote?.updatedAt || bet.quote?.capturedAt)}</dd></div>
         <div><dt>Ritorno liquidato</dt><dd>{walletMoney(returned)}</dd></div>

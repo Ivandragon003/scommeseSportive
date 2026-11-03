@@ -356,3 +356,11 @@
 @media(prefers-reduced-motion:reduce) { .app-shell .nav-item:hover { transform:none; } }
 
 @media(max-width:1200px) { .app-shell .bets-page .bet-row__profit::before { content:"Profitto / perdita: "; font-size:11px; font-weight:500; color:var(--text-2); } }
+
+.app-shell .app-header-right > .theme-toggle,.app-shell .app-header-right > button[aria-label="Apri glossario rapido"] { border:1px solid var(--border-hover); background:var(--surface); box-shadow:0 1px 2px rgb(15 40 30 / 5%); }
+.app-shell .app-header-right > button:hover { border-color:var(--primary); background:var(--surface2); }
+.bet-quality-badge { display:inline-flex; align-items:center; width:max-content; max-width:100%; padding:4px 7px; border:1px solid currentColor; border-radius:6px; font:600 10px/1.3 var(--font-sans); white-space:normal; }
+.bet-quality-badge--high { color:var(--green); background:var(--green-dim); }
+.bet-quality-badge--medium { color:var(--gold); background:var(--gold-dim); }
+.bet-quality-badge--low,.bet-quality-badge--speculative { color:var(--red); background:var(--red-dim); }
+.app-wallet-match > .bet-quality-badge { margin-top:7px; }
