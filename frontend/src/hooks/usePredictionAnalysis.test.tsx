@@ -39,3 +39,14 @@ test('returning to cached A clears the pending B loading state and ignores its l
   expect(result.current.loadingMatchId).toBeNull();
   expect(fetchPredictionWithOdds).toHaveBeenCalledTimes(2);
 });
+
+
+test('failed sporting requests expose the real failure and a retry clears it', async () => {
+  const fetchPredictionWithOdds = jest.fn().mockRejectedValueOnce(new Error('fetch failed')).mockResolvedValueOnce(resultFor('a'));
+  mockedOdds.mockReturnValue({ fetchPredictionWithOdds });
+  const {result}=renderHook(()=>usePredictionAnalysis({budget:null,competition:'Serie A',matchMode:'upcoming',teams:[],setActiveMatchId:jest.fn(),setTab:jest.fn()}));
+  await act(async()=>{await result.current.handleAnalyze(matchA);});
+  expect(result.current.analysisError).toContain('Connessione');expect(result.current.pred).toBeNull();
+  await act(async()=>{await result.current.handleAnalyze(matchA);});
+  expect(result.current.analysisError).toBeNull();expect(result.current.pred.matchId).toBe('a');
+});

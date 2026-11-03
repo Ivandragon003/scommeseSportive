@@ -3,11 +3,12 @@ import ShotsSection from './ShotsSection';
 import DisciplineSection from './DisciplineSection';
 
 /** Sporting probabilities only: no bookmaker prices or quote requests. */
-export default function SportingAnalysis({ prediction, loading }: {
-  prediction: any; teams: any[]; match: any; loading: boolean;
+export default function SportingAnalysis({ prediction, loading, error, onRetry }: {
+  prediction: any; teams: any[]; match: any; loading: boolean; error?: string | null; onRetry?: () => void;
 }) {
   if (!prediction) return <section className="pr-card"><div className="pr-card-body" role="status">
-    {loading ? 'Calcolo dei dati sportivi in corso…' : 'Analisi sportiva non disponibile per questa partita.'}
+    <p role={error ? 'alert' : undefined}>{loading ? 'Calcolo dei dati sportivi in corso…' : error || 'Analisi sportiva non disponibile per questa partita.'}</p>
+    {!loading && onRetry && <button type="button" className="fp-btn fp-btn-ghost" onClick={onRetry}>Riprova analisi sportiva</button>}
   </div></section>;
   const gp = prediction.goalProbabilities || {};
   const totals: Record<string, number> = {};

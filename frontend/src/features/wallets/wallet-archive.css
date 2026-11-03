@@ -19,7 +19,6 @@
 .wallet-archive__quality thead th { color:var(--text-2); font-weight:500; }
 .wallet-archive__quality tbody tr:last-child > * { border:0; }
 .wallet-archive__quality td small { display:block; color:var(--text-2); font-size:11px; margin-top:3px; }
-.app-wallet-model--baseline { color:var(--text-2); background:var(--surface2); border:1px solid var(--border); }
 .wallet-archive .app-wallet-bets { container-type:inline-size; }
 @container(max-width:780px) {
  .wallet-archive .app-wallet-bet-main { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
@@ -38,3 +37,12 @@
  .wallet-archive .pa-summary__metric strong { font-size:14px; white-space:normal; overflow-wrap:break-word; }
  .wallet-archive__quality th,.wallet-archive__quality td { padding:10px 6px; }
 }
+.wallet-archive { overflow-anchor:none; }
+.wallet-archive .pa-filter { display:inline-flex; align-items:center; gap:6px; }
+.wallet-archive .pa-filter[aria-pressed=true] { background:var(--primary-dim); color:var(--primary); border-color:var(--primary); box-shadow:inset 0 0 0 1px var(--primary); }
+.archive-summary { margin:0 0 20px; }
+.archive-summary .pa-summary__intro span,.archive-summary .pa-summary__metric span { text-transform:none; letter-spacing:0; font-size:12px; }
+.match-model-advice { margin-bottom:22px; }
+@media(max-width:700px) { .archive-summary { grid-template-columns:repeat(3,minmax(0,1fr)); } .archive-summary .pa-summary__intro { grid-column:1/-1; } .archive-summary .pa-summary__metric strong { font-size:14px; white-space:normal; } }
+
+.wallet-archive__request { min-height:18px; margin:0; font-size:12px; }

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import BetsManager from '../../pages/BetsManager';
 import BudgetManager from '../../pages/BudgetManager';
 import * as legacyApi from '../../utils/api';
-import { getAppWallets } from '../../utils/walletApi';
+import { getAppWallets, getWalletArchive } from '../../utils/walletApi';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';
 import { WalletBetTable, walletBetReturn } from './AppWallets';
 import { WalletPeriodPicker, walletToday } from './WalletPages';
@@ -279,4 +279,14 @@ test('archive shows recorded speculative and low labels without inventing histor
   expect(screen.getByLabelText('Classificazione registrata: LOW')).toBeTruthy();
   expect(screen.queryByLabelText('Classificazione registrata: HIGH')).toBeNull();
   expect(screen.getByText('Non registrata')).toBeTruthy();
+});
+
+
+test('Giocate uses the database-backed summary instead of recomputing it from its visible rows', async () => {
+  (getWalletArchive as jest.Mock).mockResolvedValueOnce({ summary: { total: 5, settled: 4, open: 1, won: 3, lost: 1, void: 0,
+    missingProfit: false, wonCents: 6666, lostCents: -2345, netCents: 4321 }, rows: [], byClassification: [], byModel: [], total: 5, offset: 0, limit: 1 });
+  render(<MemoryRouter><BetsManager activeUser="user1" /></MemoryRouter>);
+  const summary = await screen.findByRole('region', { name: 'Riepilogo giocate' });
+  expect(within(summary).getByText(/43,21/)).toBeTruthy();
+  expect(getWalletArchive).toHaveBeenCalledWith(expect.objectContaining({ model: 'all', limit: 1 }), expect.anything());
 });

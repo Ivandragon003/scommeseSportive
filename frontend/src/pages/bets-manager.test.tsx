@@ -209,8 +209,5 @@ test('expanded records retain return, profit and outcome when compact rows hide 
   expect(within(closedRow as HTMLElement).getAllByText('EUR 28.50')).toHaveLength(2);
   expect(within(closedRow as HTMLElement).getByText('EUR 13.50')).toBeTruthy();
   expect(within(closedRow as HTMLElement).getAllByText('VINTA')).toHaveLength(2);
-  expect(screen.getByText('1 aperte')).toBeTruthy();
-  expect(screen.getByText('1 concluse')).toBeTruthy();
-  expect(screen.getByText('Capitale impegnato')).toBeTruthy();
-  expect(screen.getByText('Rendimento storico')).toBeTruthy();
+  expect(screen.getAllByRole('article')).toHaveLength(2);
 });

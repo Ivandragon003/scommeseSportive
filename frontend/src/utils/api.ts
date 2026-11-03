@@ -282,6 +282,7 @@ export const fitModel = (params: { competition: string; season?: string; fromDat
 
 // Predictions
 export const getPrediction = (request: {
+  allowSportingOnly?: boolean;
   homeTeamId: string;
   awayTeamId: string;
   matchId?: string;

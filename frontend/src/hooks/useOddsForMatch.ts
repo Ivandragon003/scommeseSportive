@@ -129,6 +129,7 @@ export function useOddsForMatch() {
     }
     ensureActive();
     const predictionResponse = await getPrediction({
+      allowSportingOnly: true,
       homeTeamId: homeId,
       awayTeamId: awayId,
       matchId: resolvedMatchId,

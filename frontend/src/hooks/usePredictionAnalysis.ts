@@ -41,6 +41,7 @@ export function usePredictionAnalysis({
   setTab,
 }: UsePredictionAnalysisParams) {
   const [pred, setPred] = useState<any>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
   const [odds, setOdds] = useState<Record<string, string>>({});
@@ -90,6 +91,7 @@ export function usePredictionAnalysis({
     cancelAdvice?.();
     inFlightAnalysisRef.current = null;
     setPred(null);
+    setAnalysisError(null);
     setActiveMatchId(null);
     setLoading(false);
     setLoadingMatchId(null);
@@ -113,7 +115,8 @@ export function usePredictionAnalysis({
     const rawMatchId = String(match.match_id ?? '');
     const isPlayedMatch = match.home_goals != null && match.away_goals != null;
 
-    if (!homeId || !awayId) return;
+    if (!homeId || !awayId) { setAnalysisError('Dati delle squadre non disponibili. Aggiorna il calendario.'); return; }
+    setAnalysisError(null);
 
     const resolvedMatchId = rawMatchId || `match_${homeId}_${awayId}_${String(match.date ?? '')}`;
     const cacheKey = `${matchMode}|${resolvedMatchId}|${homeId}|${awayId}|${matchCompetition}|${options?.replay ? "replay" : "advice"}`;
@@ -159,6 +162,7 @@ export function usePredictionAnalysis({
     setMarketsRequested([]);
 
     setTab('1x2');
+    setPred(null);
     setLoading(true);
 
     try {
@@ -264,7 +268,9 @@ export function usePredictionAnalysis({
       });
     } catch (error) {
       if (requestId !== analyzeReqRef.current) return;
-      setOddsMsg(getErrorMessage(error));
+      const message = getErrorMessage(error);
+      setAnalysisError(/fetch failed|socket|network/i.test(message) ? 'Connessione al servizio dati interrotta. Riprova.' : message);
+      setOddsMsg(message);
       setOddsTone('danger');
     } finally {
       if (inFlightAnalysisRef.current?.requestId === requestId) inFlightAnalysisRef.current = null;
@@ -307,6 +313,7 @@ export function usePredictionAnalysis({
     pred,
     loading,
     loadingMatchId,
+    analysisError,
     odds,
     bookmakerBySelection,
     analysisBookmakers,

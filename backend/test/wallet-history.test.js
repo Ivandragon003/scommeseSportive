@@ -20,3 +20,17 @@ test('wallet history reads all recorded sessions for its owner with only matchin
     assert.deepEqual((await client.execute('SELECT * FROM bets ORDER BY bet_id')).rows, before.rows);
   } finally { client.close(); }
 });
+
+
+test('migration stores deterministic A identity while preserving amounts and outcomes', async () => {
+  const {readFileSync}=require('node:fs'); const {join}=require('node:path');
+  const client=createClient({url:'file::memory:'});
+  try {
+    await client.execute('CREATE TABLE bets(bet_id TEXT PRIMARY KEY, stake REAL, profit REAL, status TEXT)');
+    await client.execute("INSERT INTO bets VALUES('old',10,5,'WON')");
+    await client.execute(readFileSync(join(__dirname,'../migrations/027_deterministic_bet_model.sql'),'utf8'));
+    const rows=(await client.execute('SELECT * FROM bets')).rows;
+    assert.equal(rows[0].model_family,'A');assert.equal(rows[0].stake,10);assert.equal(rows[0].profit,5);assert.equal(rows[0].status,'WON');
+    await assert.rejects(client.execute("UPDATE bets SET model_family='C'"));
+  } finally {client.close();}
+});

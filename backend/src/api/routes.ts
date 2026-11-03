@@ -1,3 +1,4 @@
+import { buildWalletArchive, parseArchiveQuery } from '../services/WalletArchiveService';
 import { Router, Request, Response } from 'express';
 import { buildResearchOverview } from '../research/ResearchOverview';
 import { buildResearchComparison } from '../research/ResearchComparison';
@@ -1438,11 +1439,19 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
 const runPrediction = async (body: any): Promise<any> => {
   const pred = await svc.predict(body);
   const matchId = String(body?.matchId ?? '').trim();
-  const recorded = matchId ? await readEffectiveResearchDecisions(db.research, db.recommendations,
-    { matchId, family: 'A', limit: 20, includeForecasts: true }) : null;
-  const automatic = recorded?.effective.find((decision) => decision.family === 'A');
-  return projectAutomaticRecommendationA({ ...formatPrediction(pred),
-    canonicalRecommendation: pred.canonicalRecommendation }, automatic);
+  const formatted = { ...formatPrediction(pred), canonicalRecommendation: pred.canonicalRecommendation };
+  try {
+    const recorded = matchId ? await readEffectiveResearchDecisions(db.research, db.recommendations,
+      { matchId, family: 'A', limit: 20, includeForecasts: true }) : null;
+    return projectAutomaticRecommendationA(formatted, recorded?.effective.find((decision) => decision.family === 'A'));
+  } catch (error) {
+    if (body.allowSportingOnly !== true) throw error;
+    // A failed recommendation read cannot erase a successfully computed forecast.
+    // Remove every actionable selection: this response is sporting data only.
+    return { ...formatted, automaticRecommendationUnavailable: true, canonicalRecommendation: null,
+      valueOpportunities: [], bestValueOpportunity: null, bestBetAlternatives: [], bestBetStatus: 'NO_MARKET',
+      bestBetReason: 'Consiglio temporaneamente non disponibile. Riprova.' };
+  }
 };
 
 router.post('/predict', async (req: Request, res: Response) => {
@@ -1607,9 +1616,10 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
 });
 
 // ====== BUDGET & BETS ======
-router.get('/wallets/history', async (_req: Request, res: Response) => {
-  try { return res.json({ success: true, data: await db.getBetHistory(sharedDataUserId) }); }
-  catch { return res.status(503).json({ success: false, error: 'Storico deterministico non disponibile.' }); }
+router.get('/wallets/archive', async (req: Request, res: Response) => {
+  try { const query = parseArchiveQuery(req.query); return res.json({ success: true, data: await buildWalletArchive(db, sharedDataUserId, query) }); }
+  catch (error) { return res.status(error instanceof Error && error.message === 'Invalid archive filters' ? 400 : 503)
+    .json({ success: false, error: error instanceof Error && error.message === 'Invalid archive filters' ? 'Filtri archivio non validi.' : 'Archivio non disponibile.' }); }
 });
 
 router.get('/wallets', async (req: Request, res: Response) => {

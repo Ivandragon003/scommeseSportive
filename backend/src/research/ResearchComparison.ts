@@ -160,6 +160,19 @@ function sameDecision(a: Row, c: Row): boolean {
     && ['odds', 'bookmaker', 'source', 'line', 'side', 'team'].every((key) => left.quote?.[key] === right.quote?.[key]);
 }
 
+/** Shared immutable bet projection for comparisons and the complete app archive. */
+export function recordedResearchBetView(row: Row, end: number, job?: Row): Row {
+  return { id: row.id, family: row.family, portfolioId: row.portfolioId, modelVersion: row.modelVersion,
+      ...metadata(row, job), placedAt: row.placedAt, createdAt: row.placedAt, market: row.market, selection: row.selection,
+      odds: row.odds, stakeCents: row.stakeCents, quote: quoteView(row.snapshot?.quote),
+      bookmaker: row.snapshot?.quote?.bookmaker ?? null, source: row.snapshot?.quote?.source ?? null,
+      reason: row.snapshot?.reason ?? null, status: settled(row, end) ? outcome(row) : 'PENDING',
+      classification: row.snapshot?.classification ?? null, confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,
+      policyHash: row.snapshot?.policyHash ?? null, policyVersion: row.snapshot?.policyVersion ?? null,
+      originDecisionId: row.originDecisionId ?? row.decisionId, effectiveExecutionDecisionId: row.effectiveExecutionDecisionId ?? row.decisionId,
+      settledAt: settled(row, end) ? row.settledAt : null, profitCents: settled(row, end) ? betProfit(row) : null };
+}
+
 /** Read-only economic comparison. It never creates wallets or substitutes historical model backtests. */
 export async function buildResearchComparison(store: ComparisonStore, query: ResearchComparisonQuery = {}, now = new Date(), recommendations?: RecommendationReader): Promise<Row> {
   const [rawPortfolios, rawBets, rawLedger, rawDecisions, jobs] = await Promise.all([
@@ -225,15 +238,7 @@ export async function buildResearchComparison(store: ComparisonStore, query: Res
     A: decisionView(A), C: decisionView(C),
   })).sort((a, b) => timestamp(b.at) - timestamp(a.at) || String(a.matchId).localeCompare(String(b.matchId)));
   const betRows = [...placed].sort((a, b) => timestamp(b.placedAt) - timestamp(a.placedAt) || String(a.id).localeCompare(String(b.id)))
-    .slice(0, ROW_LIMIT).map((row) => ({ id: row.id, family: row.family, portfolioId: row.portfolioId, modelVersion: row.modelVersion,
-      ...meta(row), placedAt: row.placedAt, createdAt: row.placedAt, market: row.market, selection: row.selection,
-      odds: row.odds, stakeCents: row.stakeCents, quote: quoteView(row.snapshot?.quote),
-      bookmaker: row.snapshot?.quote?.bookmaker ?? null, source: row.snapshot?.quote?.source ?? null,
-      reason: row.snapshot?.reason ?? null, status: settled(row, end) ? outcome(row) : 'PENDING',
-      classification: row.snapshot?.classification ?? null, confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,
-      policyHash: row.snapshot?.policyHash ?? null, policyVersion: row.snapshot?.policyVersion ?? null,
-      originDecisionId: row.originDecisionId ?? row.decisionId, effectiveExecutionDecisionId: row.effectiveExecutionDecisionId ?? row.decisionId,
-      settledAt: settled(row, end) ? row.settledAt : null, profitCents: settled(row, end) ? betProfit(row) : null }));
+    .slice(0, ROW_LIMIT).map(row => recordedResearchBetView(row, end, jobById.get(row.jobId)));
   const [a, c] = portfolios;
   const leader = !a.initialized || !c.initialized ? null : a.profitCents === c.profitCents ? 'TIE' : a.profitCents > c.profitCents ? 'A' : 'C';
   return { period, observedAt: now.toISOString(), portfolios, leader, byLeague: breakdown('league'), byMarket: breakdown('market'),

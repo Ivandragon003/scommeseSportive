@@ -4,15 +4,12 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronUp,
-  CircleDollarSign,
   Clock3,
   HelpCircle,
   History,
   Search,
   RefreshCw,
   Ticket,
-  TrendingUp,
-  WalletCards,
   X,
 } from 'lucide-react';
 import { useBudgetManagerData } from '../hooks/useBudgetManagerData';
@@ -31,6 +28,8 @@ import { BetModel, betModel, unifiedBetRows } from '../features/wallets/unifiedB
 import ModelBadge from '../features/wallets/ModelBadge';
 import BetQualityBadge, { recordedBetQuality } from '../features/wallets/BetQualityBadge';
 import AppCalendarInput from '../components/common/AppCalendarInput';
+import { useWalletArchive } from '../features/wallets/useWalletArchive';
+import ArchiveSummary from '../features/wallets/ArchiveSummary';
 
 interface BetsManagerProps {
   activeUser: string;
@@ -162,10 +161,6 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const merged = useMemo(() => wallet ? unifiedBetRows(legacy.bets, wallet.data?.bets.rows || []) : legacy.bets, [wallet, legacy.bets]);
   const bets = merged.filter((bet) => model === 'all' || betModel(bet) === model);
   const pendingBets = bets.filter((bet) => bet.status === 'PENDING');
-  const settledBets = bets.filter((bet) => bet.status !== 'PENDING');
-  const netProfit = settledBets.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
-  const settledStake = settledBets.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
-  const roi = settledStake ? 100 * netProfit / settledStake : 0;
   const loading = (legacy.loading && !legacy.bets.length) || (!!wallet?.loading && !wallet.data);
   const error = legacy.betsError || wallet?.error;
   const refresh = () => { void legacy.loadAll(); wallet?.refresh(); };
@@ -199,8 +194,6 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
     return () => window.removeEventListener('popstate', restoreFilters);
   }, []);
 
-  const closedCount = settledBets.length;
-  const capitalExposure = pendingBets.reduce((sum, bet) => sum + Number(bet?.stake ?? 0), 0);
   const normalizedSearch = search.trim().toLocaleLowerCase('it');
   const competitions = useMemo(() => Array.from(new Set(
     bets.map((bet) => String(bet?.competition ?? '').trim()).filter(Boolean),
@@ -269,26 +262,11 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
           <p className="bm-sub">Monitora le tue giocate in attesa e consulta lo storico dei risultati.</p>
         </div>
         <button type="button" className="account-page-help" aria-label="Apri aiuto pagina" onClick={() => window.dispatchEvent(new CustomEvent('glossary-open'))}><HelpCircle size={24} /></button>
-        {!loading && (
-          <dl className="bets-summary" aria-label="Riepilogo giocate">
-            <div>
-              <span className="bets-summary__icon"><CircleDollarSign size={22} /></span>
-              <span><dt>Capitale impegnato</dt><dd>{formatMoney(capitalExposure)}</dd><small>{pendingBets.length} aperte</small></span>
-            </div>
-            <div className={roi >= 0 ? 'is-positive' : 'is-negative'}>
-              <span className="bets-summary__icon"><TrendingUp size={22} /></span>
-              <span><dt>Rendimento storico</dt><dd>{roi >= 0 ? '+' : ''}{roi.toFixed(1)}%</dd><small>{closedCount} concluse</small></span>
-            </div>
-            <div className={netProfit >= 0 ? 'is-positive' : 'is-negative'}>
-              <span className="bets-summary__icon"><WalletCards size={22} /></span>
-              <span><dt>Saldo giocate</dt><dd>{netProfit >= 0 ? '+' : ''}{formatMoney(netProfit)}</dd><small>profitto netto</small></span>
-            </div>
-          </dl>
-        )}
       </header>
 
       {error && <div role="alert" className="fp-alert fp-alert-warning">{error} <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh}>Riprova</button></div>}
-      {wallet?.data?.bets.truncated && <p role="status">Mostrate fino a {wallet.data.bets.rows.length} delle {wallet.data.bets.total} giocate A/C del periodo. Il riepilogo riguarda le righe caricate.</p>}
+      {wallet?.data?.bets.truncated && <p role="status">Mostrate fino a {wallet.data.bets.rows.length} delle {wallet.data.bets.total} giocate A/C del periodo. Il riepilogo comprende tutte le giocate registrate.</p>}
+      {wallet && <QuickBetSummary model={model} />}
       {loading ? (
         <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento giocate"><span /><span /><span /></div>
       ) : (
@@ -383,6 +361,13 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
     </div>
   );
 };
+
+function QuickBetSummary({ model }: { model: BetModel }) {
+  const { data, loading, error, refresh } = useWalletArchive({ model: model === 'baseline' ? 'A' : model, limit: 1 });
+  if (error) return <p role="status">Riepilogo non disponibile. <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh}>Riprova riepilogo</button></p>;
+  if (!data) return loading ? <p role="status">Caricamento riepilogo…</p> : null;
+  return <ArchiveSummary summary={data.summary} scope="Tutte le giocate registrate del modello selezionato" />;
+}
 
 const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
   const wallet = useAppWalletData({ period: 'all' });

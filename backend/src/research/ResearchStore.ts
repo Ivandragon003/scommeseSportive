@@ -236,7 +236,7 @@ export class ResearchStore {
     else if (options.status === 'SETTLED') filters.push('s.bet_id IS NOT NULL');
     if (options.from) { filters.push('julianday(b.placed_at)>=julianday(?)'); args.push(iso(options.from)); }
     if (options.until) { filters.push('julianday(b.placed_at)<julianday(?)'); args.push(iso(options.until)); }
-    const fields = ['quote','matchId','competition','league','matchLabel','homeTeamName','awayTeamName','kickoffAt','forecastAt','probability','ev','confidence',
+    const fields = ['quote','matchId','competition','league','matchLabel','homeTeamName','awayTeamName','kickoffAt','forecastAt','probability','ev','confidence','classification',
       'stakeCents','stakePercent','suggestedStakePercent','stakeMode','decisionMode','experimental','policyHash','policyVersion','reason','originDecisionId','effectiveExecutionDecisionId'];
     const snapshot = fields.flatMap((key) => [`'${key}'`, `json_extract(b.snapshot_json,'$.${key}')`]).join(',');
     const result = await rows(this.client, `SELECT b.id,b.decision_id,b.decision_id AS origin_decision_id,

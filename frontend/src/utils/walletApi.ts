@@ -40,12 +40,29 @@ function isWalletData(value: unknown): value is ResearchComparison {
 }
 
 /** Reads the funded app portfolios and their recorded bets without performing settlement. */
-export async function getWalletHistory(signal?: AbortSignal): Promise<any[]> {
-  const response = await API.get<ApiResponse<any[]>>('/wallets/history', { signal });
-  if (response.data?.success !== true || !Array.isArray(response.data.data)) {
-    throw new Error('Storico deterministico non disponibile.');
-  }
-  return response.data.data;
+export interface WalletArchiveQuery {
+  model?: string; status?: string; from?: string; to?: string; qualities?: string[]; offset?: number; limit?: number;
+}
+export interface WalletArchiveSummary {
+  total: number; settled: number; open: number; won: number; lost: number; void: number; missingProfit: boolean;
+  wonCents: number | null; lostCents: number | null; netCents: number | null;
+}
+export interface WalletArchiveData {
+  summary: WalletArchiveSummary;
+  byClassification: Array<WalletArchiveSummary & { quality: string }>;
+  byModel: Array<WalletArchiveSummary & { family: string }>;
+  rows: import('../features/research/researchComparisonTypes').ComparisonBet[];
+  total: number; offset: number; limit: number;
+}
+export async function getWalletArchive(query: WalletArchiveQuery, signal?: AbortSignal): Promise<WalletArchiveData> {
+  const response = await API.get<ApiResponse<WalletArchiveData>>('/wallets/archive', {
+    params: { ...query, qualities: query.qualities?.length ? query.qualities.join(',') : undefined }, signal,
+  });
+  const data = response.data?.data;
+  if (response.data?.success !== true || !data || !isRecord(data.summary) || !isCount(data.total)
+    || !Array.isArray(data.rows) || !Array.isArray(data.byClassification) || !Array.isArray(data.byModel)
+    || data.summary.total !== data.total) throw new Error('Archivio non disponibile.');
+  return data;
 }
 
 export async function getAppWallets(query: ResearchComparisonQuery, signal?: AbortSignal): Promise<ResearchComparison> {

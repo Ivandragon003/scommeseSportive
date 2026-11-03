@@ -85,7 +85,7 @@ async function fixture(t, options = {}) {
   const calls = [], scheduled = [], reads = [];
   const deny = (_target, key) => { throw new Error(`Unexpected DB operation: ${String(key)}`); };
   const research = new Proxy({ listLegacyDecisionViews: async (query) => { reads.push(query); return []; } }, { get: (target, key) => key in target ? target[key] : deny(target, key) });
-  const recommendations = new Proxy({ listDecisionViews: async () => options.recorded ? [options.recorded] : [] }, { get: (target, key) => key in target ? target[key] : deny(target, key) });
+  const recommendations = new Proxy({ listDecisionViews: async () => { if (options.readFailure) throw new Error('fetch failed'); return options.recorded ? [options.recorded] : []; } }, { get: (target, key) => key in target ? target[key] : deny(target, key) });
   const db = new Proxy({ research, recommendations }, { get: (target, key) => key in target ? target[key] : deny(target, key) });
   const svc = { predict: async (body) => { calls.push(structuredClone(body)); if (options.predict) return options.predict(body);
     return { ...structuredClone(prediction), canonicalRecommendation: { selected: { selection: 'awayWin' } } }; } };
@@ -200,4 +200,19 @@ test('production authentication middleware protects both job routes before the p
   const accepted = await f.request('/predict/jobs', {}, { cookie }); assert.equal(accepted.status, 202);
   await flush(); assert.equal((await f.request(`/predict/jobs/${accepted.body.data.id}`, undefined, { cookie })).status, 200);
   assert.equal(f.calls.length, 1);
+});
+
+
+test('explicit sporting-only fallback preserves forecast data and removes every actionable recommendation on a failed decision read', async t => {
+  const f = await fixture(t, { readFailure: true });
+  const input = { homeTeamId: 'h', awayTeamId: 'a', matchId: 'm1' };
+  const strict = await f.request('/predict', input);
+  assert.equal(strict.status, 400);
+  const available = await f.request('/predict', { ...input, allowSportingOnly: true });
+  assert.equal(available.status, 200);
+  assert.equal(available.body.data.automaticRecommendationUnavailable, true);
+  assert.ok(available.body.data.goalProbabilities);
+  assert.equal(available.body.data.canonicalRecommendation, null);
+  assert.deepEqual(available.body.data.valueOpportunities, []);
+  assert.equal(available.body.data.bestValueOpportunity, null);
 });

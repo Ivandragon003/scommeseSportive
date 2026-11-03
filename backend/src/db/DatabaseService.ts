@@ -353,6 +353,15 @@ export class DatabaseService {
   }
 
   private async recommendationColumnAlreadyApplied(filename: string, statement: string): Promise<boolean> {
+    if (filename === '027_deterministic_bet_model.sql' && /^ALTER\s+TABLE\s+bets\s+ADD\s+COLUMN\s+model_family\b/i.test(statement)) {
+      const columns = await this.execute('PRAGMA table_info(bets)', undefined, true);
+      const column = columns.rows.find((row: any) => row.name === 'model_family');
+      if (!column) return false;
+      if (String(column.type).toUpperCase() !== 'TEXT' || Number(column.notnull) !== 1 || column.dflt_value !== "'A'") {
+        throw new Error('Existing model_family does not match migration 027');
+      }
+      return true;
+    }
     if (filename !== '023_research_recommendation_execution.sql'
       || !/^ALTER\s+TABLE\s+research_bets\s+ADD\s+COLUMN\s+execution_decision_id\s+TEXT\b/i.test(statement)) return false;
     const columns = await this.execute('PRAGMA table_info(research_bets)', undefined, true);
@@ -909,6 +918,7 @@ export class DatabaseService {
       { table: 'bets', column: 'data_quality', type: "TEXT NOT NULL DEFAULT 'pre_fix'" },
       { table: 'bets', column: 'source', type: "TEXT NOT NULL DEFAULT 'unknown'" },
       { table: 'bets', column: 'budget_session_id', type: 'TEXT' },
+      { table: 'bets', column: 'model_family', type: "TEXT NOT NULL DEFAULT 'A'" },
       { table: 'budgets', column: 'active_session_id', type: 'TEXT' },
       { table: 'teams', column: 'avg_home_corners', type: 'REAL DEFAULT 5.5' },
       { table: 'teams', column: 'avg_away_corners', type: 'REAL DEFAULT 4.5' },
