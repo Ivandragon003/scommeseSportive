@@ -3,14 +3,14 @@ import { EconomicMetrics } from './researchTypes';
 import { comparativeEquity, dateTime, finiteNumber, isTimestamp, money } from './researchPresentation';
 import { Empty } from './ResearchPrimitives';
 
-const EquityChart = ({ a, c, title, showData = true }: { a?: EconomicMetrics['equity']; c?: EconomicMetrics['equity']; title: string; showData?: boolean }) => {
+const EquityChart = ({ a, c, title, showData = true, kind = 'equity' }: { a?: EconomicMetrics['equity']; c?: EconomicMetrics['equity']; title: string; showData?: boolean; kind?: 'equity' | 'profit' }) => {
   const points = comparativeEquity(a, c);
-  if (!points.length) return <Empty>Andamento del patrimonio non ancora disponibile.</Empty>;
+  if (!points.length) return <Empty>{kind === 'profit' ? 'Profitto non disponibile nei filtri scelti.' : 'Andamento del patrimonio non ancora disponibile.'}</Empty>;
   const hasTrend = [a, c].some((series) => (series || []).filter((point) => finiteNumber(point.equityCents)).length >= 2);
-  if (!hasTrend) return <Empty>Il grafico comparirà quando saranno disponibili più movimenti per almeno un portafoglio.</Empty>;
+  if (!hasTrend) return <Empty>{kind === 'profit' ? 'Nessuna liquidazione nei filtri scelti.' : 'Il grafico comparirà quando saranno disponibili più movimenti per almeno un portafoglio.'}</Empty>;
   return <figure className="research-chart" aria-label={title}>
     <figcaption>{title}</figcaption>
-    <p>{a !== undefined && c !== undefined ? 'Due patrimoni indipendenti, espressi in euro virtuali.' : `Patrimonio del modello ${a !== undefined ? 'A' : 'C'}, espresso in euro virtuali.`}</p>
+    <p>{kind === 'profit' ? 'Profitto cumulato delle sole giocate filtrate, espresso in euro virtuali.' : a !== undefined && c !== undefined ? 'Due patrimoni indipendenti, espressi in euro virtuali.' : `Patrimonio del modello ${a !== undefined ? 'A' : 'C'}, espresso in euro virtuali.`}</p>
     <div className="research-chart__plot">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={points} margin={{ top: 12, right: 42, bottom: 12, left: 6 }}>

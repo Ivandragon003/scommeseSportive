@@ -4646,7 +4646,7 @@ export class DatabaseService {
   }
 
   /** Read the complete recorded history without changing the active budget session. */
-  async getBetHistory(userId: string): Promise<any[]> {
+  async getBetHistory(userId: string, options: { activeOnly?: boolean; status?: string } = {}): Promise<any[]> {
     return this.all(`WITH recorded_quality AS (
       SELECT bet_id, CASE WHEN exclusion_reason = 'speculative_saved_only' THEN 'SPECULATIVE'
         ELSE upper(trim(confidence)) END AS classification,
@@ -4655,21 +4655,14 @@ export class DatabaseService {
     )
       SELECT b.*, q.classification FROM bets b
       LEFT JOIN recorded_quality q ON q.bet_id = b.bet_id AND q.quality_rank = 1
-      WHERE b.user_id = ? ORDER BY b.placed_at DESC, b.bet_id`, [userId, userId]);
+      WHERE b.user_id = ?
+      ${options.activeOnly ? 'AND b.budget_session_id = (SELECT active_session_id FROM budgets WHERE user_id = ?)' : ''}
+      ${options.status ? 'AND b.status = ?' : ''}
+      ORDER BY b.placed_at DESC, b.bet_id`, [userId, userId, ...(options.activeOnly ? [userId] : []), ...(options.status ? [options.status] : [])]);
   }
 
   async getBets(userId: string, status?: string): Promise<any[]> {
-    const activeSession = '(SELECT active_session_id FROM budgets WHERE user_id = ?)';
-    if (status) {
-      return this.all(
-        `SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ${activeSession} AND status = ? ORDER BY placed_at DESC`,
-        [userId, userId, status],
-      );
-    }
-    return this.all(
-      `SELECT * FROM bets WHERE user_id = ? AND budget_session_id = ${activeSession} ORDER BY placed_at DESC`,
-      [userId, userId],
-    );
+    return this.getBetHistory(userId, { activeOnly: true, status });
   }
 
   async findPredictionForBet(matchId: string, marketName: string, selection: string): Promise<string | null> {

@@ -120,7 +120,7 @@ test('Budget selects only its own authoritative equity series, retains compariso
   expect(chart.getAttribute('data-a')).toBe(JSON.stringify(data.portfolios[0].equity));
   expect(chart.getAttribute('data-c')).toBe(JSON.stringify(data.portfolios[1].equity));
   selectOption(screen.getByLabelText('Periodo'), '7d');
-  await waitFor(() => expect(mockedWallets).toHaveBeenLastCalledWith({ period: '7d' }, expect.any(AbortSignal)));
+  await waitFor(() => expect(mockedWallets).toHaveBeenLastCalledWith({ period: '7d', includeHistory: true }, expect.any(AbortSignal)));
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });
@@ -169,7 +169,7 @@ test('a failed wallet read is explicit and never proposes a new bankroll', async
 test('opening the previous history does not trigger settlement or expose reset controls', async () => {
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
   await screen.findByRole('region', { name: 'Portafoglio A' });
-  await waitFor(() => expect(mockedLegacy.getBudget).toHaveBeenCalled());
+  expect(mockedLegacy.getBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
   expect(screen.queryByRole('button', { name: 'Inizializza' })).not.toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Avvia nuova sessione' })).not.toBeTruthy();
@@ -259,6 +259,9 @@ test('Giocate distinguishes a win, double chance and DNB while retaining the rec
 test('deterministic budget includes the existing balance and recorded outcomes without transferring capital', async () => {
   mockedLegacy.getBudget.mockResolvedValue({ data: { total_budget: 1000, available_budget: 1234.5, roi: 12 } } as any);
   mockedLegacy.getBets.mockResolvedValue({ data: [{ bet_id: 'historic', status: 'WON', stake: 10, profit: 5, placed_at: '2026-10-29T12:00:00Z' }] } as any);
+  const serverData = payload(); serverData.historicalAvailableCents = 123450;
+  serverData.portfolios[0] = { ...serverData.portfolios[0], settledCount: 1, wonCount: 1, profitCents: 500, settledStakeCents: 1000 };
+  mockedWallets.mockResolvedValue(serverData);
   render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
   expect(await screen.findByText(/234,50/)).toBeTruthy();
   const results = screen.getByRole('region', { name: 'Risultati modello A' });
@@ -289,4 +292,15 @@ test('Giocate uses the database-backed summary instead of recomputing it from it
   const summary = await screen.findByRole('region', { name: 'Riepilogo giocate' });
   expect(within(summary).getByText(/43,21/)).toBeTruthy();
   expect(getWalletArchive).toHaveBeenCalledWith(expect.objectContaining({ model: 'all', limit: 1 }), expect.anything());
+});
+
+
+test('budget sends selected qualities to the server for each model and comparison', async () => {
+  render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
+  await screen.findByRole('region',{name:'Portafoglio A'});
+  const high=screen.getByRole('button',{name:'High',exact:true});fireEvent.click(high);
+  expect(high.getAttribute('aria-pressed')).toBe('true');
+  await waitFor(()=>expect(mockedWallets).toHaveBeenLastCalledWith(expect.objectContaining({qualities:['HIGH'],includeHistory:true}),expect.anything()));
+  fireEvent.click(screen.getByRole('button',{name:'Confronta A e C'}));
+  expect(screen.getByRole('region',{name:'Confronto dei portafogli'})).toBeTruthy();
 });

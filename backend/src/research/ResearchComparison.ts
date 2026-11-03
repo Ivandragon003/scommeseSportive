@@ -3,7 +3,7 @@ import { readEffectiveResearchDecisions, researchDecisionView, RecommendationRea
 
 type Row = Record<string, any>;
 type Family = 'A' | 'C';
-export type ResearchComparisonQuery = { period?: string; from?: string; to?: string };
+export type ResearchComparisonQuery = { period?: string; from?: string; to?: string; qualities?: string[]; includeHistory?: boolean };
 type ComparisonStore = Pick<ResearchStore, 'listPortfolios' | 'listBets' | 'listLedger' | 'listDecisions'>
   & Partial<Pick<ResearchStore, 'listJobs' | 'listLegacyDecisionViews' | 'listBetViews'>>;
 const ZONE = 'Europe/Rome';
@@ -162,9 +162,13 @@ function sameDecision(a: Row, c: Row): boolean {
 
 /** Shared immutable bet projection for comparisons and the complete app archive. */
 export function recordedResearchBetView(row: Row, end: number, job?: Row): Row {
+  const rawProbability = row.snapshot?.probability;
+  const scale = row.snapshot?.decisionMode === 'MANUAL' ? 100 : 1;
+  const probability = typeof rawProbability === 'number' && Number.isFinite(rawProbability)
+    && rawProbability >= 0 && rawProbability <= scale ? rawProbability / scale : null;
   return { id: row.id, family: row.family, portfolioId: row.portfolioId, modelVersion: row.modelVersion,
       ...metadata(row, job), placedAt: row.placedAt, createdAt: row.placedAt, market: row.market, selection: row.selection,
-      odds: row.odds, stakeCents: row.stakeCents, quote: quoteView(row.snapshot?.quote),
+      odds: row.odds, stakeCents: row.stakeCents, probability, quote: quoteView(row.snapshot?.quote),
       bookmaker: row.snapshot?.quote?.bookmaker ?? null, source: row.snapshot?.quote?.source ?? null,
       reason: row.snapshot?.reason ?? null, status: settled(row, end) ? outcome(row) : 'PENDING',
       classification: row.snapshot?.classification ?? null, confidence: row.snapshot?.confidence ?? null, suggestedStakePercent: row.snapshot?.suggestedStakePercent ?? null,

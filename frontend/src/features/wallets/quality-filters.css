@@ -1,0 +1,11 @@
+.quality-filters { min-width:0; margin:0; padding:0; border:0; }
+.quality-filters legend { margin-bottom:8px; color:var(--text-2); font:600 12px var(--font-sans); }
+.quality-filters > div { display:flex; flex-wrap:wrap; gap:7px; }
+.quality-filters button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:38px; padding:8px 12px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text-2); font:600 12px var(--font-sans); cursor:pointer; }
+.quality-filters button[aria-pressed=true] { border-color:var(--primary); background:var(--primary-dim); color:var(--primary); box-shadow:inset 0 0 0 1px var(--primary); }
+.quality-filters button:focus-visible { outline:2px solid var(--primary-focus); outline-offset:2px; }
+.bets-history .quality-filters { flex:1 1 100%; }
+.wallet-budget-controls > .quality-filters { flex:1 1 100%; }
+.wallet-archive__filters .quality-filters { flex:1 1 70%; }
+
+.app-shell .bets-history .bets-section__head { flex-wrap:wrap; }

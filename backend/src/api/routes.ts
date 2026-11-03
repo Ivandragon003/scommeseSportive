@@ -1,4 +1,4 @@
-import { buildWalletArchive, parseArchiveQuery } from '../services/WalletArchiveService';
+import { buildWalletArchive, parseArchiveQuery, readWalletArchiveRows } from '../services/WalletArchiveService';
 import { Router, Request, Response } from 'express';
 import { buildResearchOverview } from '../research/ResearchOverview';
 import { buildResearchComparison } from '../research/ResearchComparison';
@@ -1625,7 +1625,10 @@ router.get('/wallets/archive', async (req: Request, res: Response) => {
 router.get('/wallets', async (req: Request, res: Response) => {
   try {
     const query = parseAppWalletQuery(req.query);
-    return res.json({ success: true, data: await buildAppWallets(db.research, query, new Date(), db.recommendations) });
+    return res.json({ success: true, data: await buildAppWallets(db.research, query, new Date(), db.recommendations, {
+      records: () => readWalletArchiveRows(db, sharedDataUserId),
+      availableCents: async () => { const budget = await db.getBudget(sharedDataUserId); return budget ? Math.round(Number(budget.available_budget) * 100) : null; },
+    }) });
   } catch (error: any) {
     const invalid = isAppWalletQueryError(error);
     return res.status(invalid ? 400 : 503).json({ success: false,

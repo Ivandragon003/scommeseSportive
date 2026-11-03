@@ -66,7 +66,7 @@ export async function getWalletArchive(query: WalletArchiveQuery, signal?: Abort
 }
 
 export async function getAppWallets(query: ResearchComparisonQuery, signal?: AbortSignal): Promise<ResearchComparison> {
-  const response = await API.get<ApiResponse<unknown>>('/wallets', { params: query, signal });
+  const response = await API.get<ApiResponse<unknown>>('/wallets', { params: { ...query, qualities: query.qualities?.join(',') }, signal });
   if (response.data?.success !== true || !response.data.data) {
     throw new Error(response.data?.error || 'Portafogli e giocate non disponibili.');
   }

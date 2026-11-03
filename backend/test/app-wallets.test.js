@@ -232,3 +232,29 @@ test('previous shared-user clients keep their existing placement and initializat
     assert.deepEqual(server.calls.map((row) => [row[0], row[1]]), [['initBudget', 'user1'], ['placeBet', 'user1']]);
   } finally { await server.close(); }
 });
+
+
+test('classification-filtered budget includes A history and changes results without changing actual balances', async () => {
+  const f=fixture(); f.addBet('a-high','A',1000,{multiplier:2});f.addBet('a-low','A',1000,{multiplier:0});
+  const before=await buildAppWallets(f.store,{period:'all'},NOW);
+  const records=[
+    {id:'old',family:'A',historical:true,status:'WON',createdAt:'2026-10-01T10:00:00Z',settledAt:'2026-10-20T10:00:00Z',stakeCents:10000,profitCents:2000,classification:'HIGH'},
+    {id:'a-high',family:'A',status:'WON',createdAt:'2026-10-30T14:17:00Z',settledAt:'2026-10-30T15:00:00Z',stakeCents:1000,profitCents:1000,classification:'HIGH'},
+    {id:'a-low',family:'A',status:'LOST',createdAt:'2026-10-30T14:17:00Z',settledAt:'2026-10-30T15:00:00Z',stakeCents:1000,profitCents:-1000,classification:'LOW'},
+  ];
+  const after=await buildAppWallets(f.store,{period:'all',qualities:['HIGH'],includeHistory:true},NOW,undefined,{records:async()=>records,availableCents:async()=>123450});
+  const original=before.portfolios.find(row=>row.family==='A'), selected=after.portfolios.find(row=>row.family==='A');
+  assert.equal(selected.currentAvailableCents,original.currentAvailableCents);assert.equal(selected.currentEquityCents,original.currentEquityCents);
+  assert.equal(selected.betCount,2);assert.equal(selected.profitCents,3000);assert.equal(selected.settledStakeCents,11000);
+  assert.equal(selected.roi,3000/11000);assert.equal(after.historicalAvailableCents,123450);
+  assert.equal(after.filteredProfitCurves.A.at(-1).equityCents,3000);
+  assert.deepEqual(parseAppWalletQuery({qualities:'HIGH,LOW',includeHistory:'true'}).qualities,['HIGH','LOW']);
+  assert.throws(()=>parseAppWalletQuery({qualities:'fake'}),/Invalid comparison/);
+});
+
+test('filtered period results count settlement in its recorded period even if the stake was placed earlier', () => {
+  const {walletPeriodResults}=require('../dist/services/WalletPeriodResults');
+  const result=walletPeriodResults([{id:'old',family:'A',status:'HALF_WON',classification:'LOW',createdAt:'2026-10-01T10:00:00Z',settledAt:'2026-11-01T10:00:00Z',stakeCents:1000,profitCents:500}],
+    'A',{from:'2026-11-01T00:00:00Z',to:'2026-11-02T00:00:00Z'},['LOW']);
+  assert.equal(result.metrics.betCount,0);assert.equal(result.metrics.settledCount,1);assert.equal(result.metrics.roi,.5);
+});

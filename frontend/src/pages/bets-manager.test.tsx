@@ -159,10 +159,10 @@ describe('BetsManager', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Apri dettaglio Inter Milan/i }));
 
     expect(screen.getByText('Quota alla giocata')).toBeTruthy();
-    expect(screen.getByText('P. nostra')).toBeTruthy();
+    expect(screen.getByText('Probabilità registrata')).toBeTruthy();
     expect(screen.getByText('57%')).toBeTruthy();
     expect(screen.getByText('Giocata il')).toBeTruthy();
-    expect(screen.getByText('Fonte quota')).toBeTruthy();
+    expect(screen.queryByText('Fonte quota')).toBeNull();
   });
 
   test('filtra le giocate per un intervallo di date e permette di azzerarlo', async () => {
@@ -210,4 +210,14 @@ test('expanded records retain return, profit and outcome when compact rows hide 
   expect(within(closedRow as HTMLElement).getByText('EUR 13.50')).toBeTruthy();
   expect(within(closedRow as HTMLElement).getAllByText('VINTA')).toHaveLength(2);
   expect(screen.getAllByRole('article')).toHaveLength(2);
+});
+
+
+test('recorded classification filters stay selected and remove only nonmatching history rows', async () => {
+  mockedApi.getBets.mockResolvedValueOnce({data:[{...betsPayload[1],classification:'HIGH'},{...betsPayload[1],bet_id:'low',classification:'LOW',home_team_name:'Low Home'}]} as any);
+  render(<BetsManager activeUser="user1" />);await screen.findByRole('button',{name:'Apri dettaglio Low Home Roma'});
+  const high=screen.getByRole('button',{name:'High',exact:true});fireEvent.click(high);
+  expect(high.getAttribute('aria-pressed')).toBe('true');expect(screen.queryByRole('button',{name:'Apri dettaglio Low Home Roma'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Apri dettaglio Juventus Roma'}));
+  expect(screen.getByText('57%')).toBeTruthy();expect(screen.queryByText('Fonte quota')).toBeNull();
 });

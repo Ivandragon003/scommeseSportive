@@ -17,6 +17,11 @@ test('wallet history reads all recorded sessions for its owner with only matchin
     assert.equal(rows.find(row => row.bet_id === 'old').classification, 'MEDIUM');
     assert.equal(rows.find(row => row.bet_id === 'new').classification, 'SPECULATIVE');
     assert.equal(rows.find(row => row.bet_id === 'unknown').classification, null);
+    await client.execute('CREATE TABLE budgets(user_id TEXT, active_session_id TEXT)');
+    await client.execute("INSERT INTO budgets VALUES ('owner','current-session')");
+    reader.getBetHistory = (userId, options) => DatabaseService.prototype.getBetHistory.call(reader, userId, options);
+    const active = await DatabaseService.prototype.getBets.call(reader, 'owner');
+    assert.deepEqual(active.map(row => [row.bet_id, row.classification]), [['new', 'SPECULATIVE']]);
     assert.deepEqual((await client.execute('SELECT * FROM bets ORDER BY bet_id')).rows, before.rows);
   } finally { client.close(); }
 });

@@ -42,18 +42,19 @@ export function useAppWalletData(query: ResearchComparisonQuery) {
   const [revision, setRevision] = useState(0);
   const lastFetchAt = useRef(0);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
-  const { period, from, to } = query;
+  const { period, from, to, includeHistory } = query;
+  const qualityKey = (query.qualities || []).join(',');
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
     lastFetchAt.current = Date.now();
     setLoading(true); setError(null);
-    getAppWallets({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }, controller.signal)
+    getAppWallets({ period, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(includeHistory ? { includeHistory: true } : {}), ...(qualityKey ? { qualities: qualityKey.split(',') } : {}) }, controller.signal)
       .then((value) => { if (active) setData(value); })
       .catch(() => { if (active) setError('Non è stato possibile caricare giocate e saldi. Riprova.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
-  }, [period, from, to, revision]);
+  }, [period, from, to, includeHistory, qualityKey, revision]);
   useEffect(() => {
     let pending: ReturnType<typeof setTimeout> | null = null;
     const queueRefresh = (afterSync = false) => {

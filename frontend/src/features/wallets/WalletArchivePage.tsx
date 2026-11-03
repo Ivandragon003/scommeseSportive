@@ -1,16 +1,15 @@
 import { useState } from 'react';
-import { Check, CircleDollarSign, RotateCcw } from 'lucide-react';
+import { CircleDollarSign, RotateCcw } from 'lucide-react';
 import { AppSelect } from '../../components/common/AppSelect';
 import AppCalendarInput from '../../components/common/AppCalendarInput';
 import { WalletBetTable, WalletLoadState, walletMoney } from './AppWallets';
 import { useWalletArchive } from './useWalletArchive';
 import ArchiveSummary from './ArchiveSummary';
+import QualityFilters, { qualityLabel } from './QualityFilters';
 import WalletBetEvidence from './WalletBetEvidence';
 import '../prediction-archive/prediction-archive.css';
 import './wallet-archive.css';
 
-const QUALITY = ['HIGH', 'MEDIUM', 'LOW', 'SPECULATIVE', 'UNKNOWN'];
-const qualityLabel = (value: string) => value === 'UNKNOWN' ? 'Non registrata' : value === 'SPECULATIVE' ? 'Speculative' : value[0] + value.slice(1).toLowerCase();
 const initialModel = () => {
   const value = new URLSearchParams(window.location.search).get('model');
   return value === 'baseline' ? 'A' : value === 'A' || value === 'C' ? value : 'all';
@@ -49,8 +48,7 @@ export default function WalletArchivePage() {
         { value: 'all', label: 'Tutte le giocate' }, { value: 'open', label: 'Aperte' }, { value: 'settled', label: 'Liquidate' },
         { value: 'WON', label: 'Vinte' }, { value: 'LOST', label: 'Perse' }, { value: 'VOID', label: 'Rimborsate' },
       ]} /></label>
-      <fieldset className="pa-risk-filters"><legend>Classificazione</legend><div>{QUALITY.map(value => <button type="button" key={value} className={`pa-filter${qualities.includes(value) ? ' is-active' : ''}`}
-        aria-pressed={qualities.includes(value)} onClick={() => { changed(); setQualities(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value]); }}><Check size={14} aria-hidden="true" style={{ visibility: qualities.includes(value) ? 'visible' : 'hidden' }} />{qualityLabel(value)}</button>)}</div></fieldset>
+      <QualityFilters value={qualities} onChange={values => { changed(); setQualities(values); }} />
       <button type="button" className="pa-reset" disabled={!activeFilters} onClick={reset}><RotateCcw size={16} aria-hidden="true" />Azzera filtri</button>
       {invalidDates && <p className="pa-filter-error" role="alert">La data finale deve essere successiva o uguale alla data iniziale.</p>}
     </section>

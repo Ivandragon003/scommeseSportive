@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ArrowRight, Lock, RefreshCw, TrendingUp, WalletCards } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ResearchComparisonQuery } from '../research/researchComparisonTypes';
@@ -9,8 +9,7 @@ import {
   WalletModelFilter, WalletModelPicker, walletMoney, walletPercent,
 } from './AppWallets';
 import ModelBadge from './ModelBadge';
-import { useBudgetManagerData } from '../../hooks/useBudgetManagerData';
-import { withDeterministicHistory } from './deterministicHistory';
+import QualityFilters from './QualityFilters';
 import { AppSelect } from '../../components/common/AppSelect';
 import BankrollTrendChart from '../../components/budget/BankrollTrendChart';
 
@@ -88,16 +87,16 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
     return requested === 'all' && new URLSearchParams(window.location.search).get('model') !== 'all' ? 'A' : requested;
   });
   const [query, setQuery] = useState<ResearchComparisonQuery>({ period: 'all' });
-  const { data: currentData, loading, error, refresh } = useAppWalletData(query);
-  const history = useBudgetManagerData(activeUser, { readOnly: true });
-  const data = useMemo(() => withDeterministicHistory(currentData, history.bets), [currentData, history.bets]);
+  void activeUser; // The authenticated shared ledger is resolved by the backend.
+  const [qualities, setQualities] = useState<string[]>([]);
+  const { data, loading, error, refresh } = useAppWalletData({ ...query, includeHistory: true, qualities });
   const portfolios = (data?.portfolios || []).filter((row) => model === 'all' || row.family === model);
   const selected = model === 'all' ? null : portfolios[0];
   return <main className="bm-wrap budget-page wallet-budget-page">
     <header className="bm-head">
       <div><span className="fp-section-kicker">I tuoi portafogli</span><h1 className="bm-title">Budget</h1>
         <p className="bm-sub">A deterministico · C machine learning</p></div>
-      <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={() => { refresh(); void history.loadAll({ force: true }); }} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
+      <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
     </header>
     <div className="wallet-budget-controls">
       <div className="wallet-model-tabs" role="group" aria-label="Modello del budget">
@@ -107,9 +106,10 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
         </button>)}
       </div>
       <WalletPeriodPicker query={query} onChange={setQuery} />
+      <QualityFilters value={qualities} onChange={setQualities} />
     </div>
-    <WalletLoadState loading={loading || history.loading} error={error || history.betsError} refresh={() => { refresh(); void history.loadAll({ force: true }); }} />
-    {!loading && !history.loading && !error && data && <>
+    <WalletLoadState loading={loading && !data} error={error} refresh={refresh} />
+    {!error && data && <>
       {selected && <section className="wallet-budget-model" aria-label={`Portafoglio ${selected.family}`}>
         <div className="wallet-budget-context"><ModelBadge model={selected.family} /><p>{selected.family === 'A' ? 'Budget deterministico' : 'Budget machine learning'}</p></div>
         {selected.initialized === false ? <div className="fp-empty"><p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p></div> : <>
@@ -123,12 +123,13 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
           </dl>
           <div className="budget-workspace">
             <section className="wallet-budget-chart" aria-label={`Andamento modello ${selected.family}`}>
-              <BankrollTrendChart initialBudget={(selected.initialCents ?? 0) / 100} settledBets={[]} equity={selected.equity} rangeLocked={query.period !== 'all'} />
+              {qualities.length ? <EquityChart a={selected.family === 'A' ? data.filteredProfitCurves?.A : undefined} c={selected.family === 'C' ? data.filteredProfitCurves?.C : undefined} showData={false} kind="profit" title="Profitto cumulato delle giocate filtrate" />
+                : <BankrollTrendChart initialBudget={(selected.initialCents ?? 0) / 100} settledBets={[]} equity={selected.equity} rangeLocked={query.period !== 'all'} />}
             </section>
             <aside className="budget-management wallet-budget-facts" aria-label={`Capitale modello ${selected.family}`}>
               <h2>Il capitale del modello {selected.family}</h2>
               <div className="budget-current"><span>Patrimonio operativo attuale</span><strong>{walletMoney(selected.currentEquityCents)}</strong></div>
-              {selected.family === 'A' && history.budget && <p className="wallet-historical-balance">Saldo dello storico A: <strong>{walletMoney(Math.round(Number(history.budget.available_budget) * 100))}</strong>. Gli esiti storici sono inclusi nei risultati A; il capitale operativo per nuove giocate è quello disponibile qui sotto.</p>}
+              {selected.family === 'A' && data.historicalAvailableCents != null && <p className="wallet-historical-balance">Saldo dello storico A: <strong>{walletMoney(data.historicalAvailableCents)}</strong>. Gli esiti storici sono inclusi nei risultati A; il capitale operativo per nuove giocate è quello disponibile qui sotto.</p>}
               <dl><div><dt>Capitale iniziale</dt><dd>{walletMoney(selected.initialCents)}</dd></div>
                 <div><dt>Disponibile</dt><dd>{walletMoney(selected.currentAvailableCents)}</dd></div>
                 <div><dt>Impegnato</dt><dd>{walletMoney(selected.currentCommittedCents)}</dd></div></dl>
@@ -141,8 +142,8 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
       {model !== 'all' && !selected && <p className="fp-empty">Portafoglio non disponibile per il modello scelto.</p>}
       {model === 'all' && <section className="wallet-budget-comparison" aria-label="Confronto dei portafogli">
         <WalletBalanceCards portfolios={data.portfolios} model="all" />
-        <section className="wallet-budget-chart"><EquityChart a={data.portfolios.find((row) => row.family === 'A')?.equity}
-          c={data.portfolios.find((row) => row.family === 'C')?.equity} showData={false} title="Patrimoni A e C nel tempo" /></section>
+        <section className="wallet-budget-chart"><EquityChart a={qualities.length ? data.filteredProfitCurves?.A : data.portfolios.find((row) => row.family === 'A')?.equity}
+          c={qualities.length ? data.filteredProfitCurves?.C : data.portfolios.find((row) => row.family === 'C')?.equity} showData={false} kind={qualities.length ? 'profit' : 'equity'} title={qualities.length ? 'Profitti A e C delle giocate filtrate' : 'Patrimoni A e C nel tempo'} /></section>
       </section>}
       <div className="wallet-budget-results">{portfolios.map((row) => <section className="wallet-budget-result" aria-label={`Risultati modello ${row.family}`} key={row.portfolioId}>
         <header><ModelBadge model={row.family} /><h2>Risultati del periodo</h2><p>{data.period.label}</p></header>
@@ -153,7 +154,7 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">I risultati A comprendono anche lo storico deterministico. Il grafico mostra il patrimonio del portafoglio operativo nel periodo selezionato; i saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
+      <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. {qualities.length ? 'Il grafico mostra il profitto cumulato delle classificazioni selezionate.' : 'Il grafico mostra il patrimonio del portafoglio operativo nel periodo selezionato.'} I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
   </main>;
 }

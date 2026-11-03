@@ -19,7 +19,6 @@ import {
   getBetSelectionLabel,
   getBetSourceLabel,
   getBetStatus,
-  isLegacyBet,
 } from '../utils/betPresentation';
 import './budget-manager.css';
 import { useAppWalletData } from '../features/wallets/AppWallets';
@@ -30,6 +29,7 @@ import BetQualityBadge, { recordedBetQuality } from '../features/wallets/BetQual
 import AppCalendarInput from '../components/common/AppCalendarInput';
 import { useWalletArchive } from '../features/wallets/useWalletArchive';
 import ArchiveSummary from '../features/wallets/ArchiveSummary';
+import QualityFilters from '../features/wallets/QualityFilters';
 
 interface BetsManagerProps {
   activeUser: string;
@@ -93,8 +93,8 @@ const BetRow: React.FC<{
   const profit = bet.profit === null || bet.profit === undefined ? null : Number(bet.profit);
   const returnAmount = variant === 'open' ? stake * odds : bet.status === 'VOID' ? stake : profit === null ? null : stake + profit;
   const probabilityValue = Number(bet.our_probability ?? bet.ourProbability ?? bet.estimated_probability ?? bet.probability ?? bet.model_probability);
-  const probability = Number.isFinite(probabilityValue) && probabilityValue > 0
-    ? `${probabilityValue <= 1 ? (probabilityValue * 100).toFixed(0) : probabilityValue.toFixed(0)}%`
+  const probability = Number.isFinite(probabilityValue) && probabilityValue >= 0
+    ? `${(probabilityValue <= 1 ? probabilityValue * 100 : probabilityValue).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`
     : 'Non disponibile';
 
   return (
@@ -129,13 +129,12 @@ const BetRow: React.FC<{
           <div><small>Classificazione registrata</small><strong>{recordedBetQuality(bet) || 'Non registrata'}</strong></div>
           <div><small>Pronostico originale</small><strong>{formatBetMarketName(bet.market_name)}</strong>{selection && <span>{selection}</span>}</div>
           <div><small>Quota alla giocata</small><strong>{odds.toFixed(2)}</strong></div>
-          <div><small>P. nostra</small><strong>{probability}</strong></div>
+          <div><small>Probabilità registrata</small><strong>{probability}</strong></div>
           <div><small>Puntata</small><strong>{formatMoney(stake)}</strong></div>
           <div><small>{variant === 'open' ? 'Ritorno potenziale' : 'Ritorno liquidato'}</small><strong>{returnAmount === null ? 'Non disponibile' : formatMoney(returnAmount)}</strong></div>
           <div><small>Esito</small><strong>{status.label}</strong></div>
           {variant === 'history' && <div><small>Profitto / perdita</small><strong>{profit === null ? 'Non disponibile' : formatMoney(profit)}</strong></div>}
           <div><small>Giocata il</small><strong>{formatBetDateTime(bet.placed_at)}</strong></div>
-          <div><small>Fonte quota</small><strong>{getBookmakerLabel(bet)}</strong>{isLegacyBet(bet) && <span className="bm-data-warning">Dato precedente alla validazione</span>}</div>
         </div>
       )}
     </article>
@@ -149,6 +148,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const [search, setSearch] = useState(initialFilters.search);
   const [view, setView] = useState<BetView>(initialFilters.view);
   const [historyOutcome, setHistoryOutcome] = useState(initialFilters.historyOutcome);
+  const [qualities, setQualities] = useState<string[]>([]);
   const [historyCompetition, setHistoryCompetition] = useState(initialFilters.historyCompetition);
   const [datePanelOpen, setDatePanelOpen] = useState(false);
   const [draftDateRange, setDraftDateRange] = useState<DateRange>(initialFilters.dateRange);
@@ -178,9 +178,9 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
       window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
     };
     writeFilters();
-  }, [search, view, historyOutcome, historyCompetition, dateRange, model]);
+  }, [search, view, historyOutcome, historyCompetition, dateRange, model, qualities]);
 
-  useEffect(() => { setHistoryLimit(80); }, [search, view, historyOutcome, historyCompetition, dateRange, model]);
+  useEffect(() => { setHistoryLimit(80); }, [search, view, historyOutcome, historyCompetition, dateRange, model, qualities]);
 
   useEffect(() => {
     const restoreFilters = () => {
@@ -213,6 +213,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   const visibleHistoryBets = bets.filter((bet) => {
     const status = String(bet?.status ?? '');
     if (status === 'PENDING' || !matchesSharedFilters(bet)) return false;
+    if (qualities.length && !qualities.includes(recordedBetQuality(bet) || 'UNKNOWN')) return false;
     const viewStatus = view === 'WON' || view === 'LOST' || view === 'VOID' ? view : '';
     const outcome = status === 'HALF_WON' ? 'WON' : status === 'HALF_LOST' ? 'LOST' : status;
     if (viewStatus && outcome !== viewStatus) return false;
@@ -266,7 +267,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
 
       {error && <div role="alert" className="fp-alert fp-alert-warning">{error} <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh}>Riprova</button></div>}
       {wallet?.data?.bets.truncated && <p role="status">Mostrate fino a {wallet.data.bets.rows.length} delle {wallet.data.bets.total} giocate A/C del periodo. Il riepilogo comprende tutte le giocate registrate.</p>}
-      {wallet && <QuickBetSummary model={model} />}
+      {wallet && <QuickBetSummary model={model} qualities={qualities} />}
       {loading ? (
         <div className="bm-skeleton" aria-busy="true" aria-label="Caricamento giocate"><span /><span /><span /></div>
       ) : (
@@ -345,6 +346,7 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
                 <label><span className="sr-only">Filtra storico per esito</span><AppSelect aria-label="Filtra storico per esito" value={historyOutcome} onChange={changeHistoryOutcome} options={[{value:'',label:'Tutti gli esiti'},{value:'WON',label:'Vinte'},{value:'LOST',label:'Perse'},{value:'VOID',label:'Annullate'}]} /></label>
                 <label><span className="sr-only">Filtra storico per competizione</span><AppSelect aria-label="Filtra storico per competizione" value={historyCompetition} onChange={setHistoryCompetition} options={[{value:'',label:'Tutte le competizioni'}, ...competitions.map((competition) => ({value:competition,label:competition}))]} /></label>
               </div>
+              <QualityFilters value={qualities} onChange={setQualities} />
             </div>
             <div className="bets-table-shell">
               <div className="bets-table-head bets-table-head--history" aria-hidden="true"><span /><span>Partita / Data</span><span>Mercato / Selezione</span><span>Quota reale</span><span>Puntata</span><span>Ritorno</span><span>Esito</span><span>Profitto/Perdita</span></div>
@@ -362,11 +364,11 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
   );
 };
 
-function QuickBetSummary({ model }: { model: BetModel }) {
-  const { data, loading, error, refresh } = useWalletArchive({ model: model === 'baseline' ? 'A' : model, limit: 1 });
+function QuickBetSummary({ model, qualities }: { model: BetModel; qualities: string[] }) {
+  const { data, loading, error, refresh } = useWalletArchive({ model: model === 'baseline' ? 'A' : model, qualities, limit: 1 });
   if (error) return <p role="status">Riepilogo non disponibile. <button type="button" className="fp-btn fp-btn-ghost" onClick={refresh}>Riprova riepilogo</button></p>;
   if (!data) return loading ? <p role="status">Caricamento riepilogo…</p> : null;
-  return <ArchiveSummary summary={data.summary} scope="Tutte le giocate registrate del modello selezionato" />;
+  return <ArchiveSummary summary={data.summary} scope={qualities.length ? `Classificazioni: ${qualities.join(", ")}` : "Tutte le giocate registrate del modello selezionato"} />;
 }
 
 const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {

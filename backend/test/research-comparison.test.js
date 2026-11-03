@@ -179,3 +179,13 @@ test('comparison preserves recorded quality without inventing it for older bets'
   assert.equal(output.bets.rows.find(row => row.id === 'unknown-quality').classification, null);
   assert.equal(output.bets.rows.find(row => row.id === 'unknown-quality').confidence, null);
 });
+
+
+test('recorded probability preserves manual percent and automatic fraction units without recalculation', () => {
+  const {recordedResearchBetView}=require('../dist/research/ResearchComparison');
+  const manual=recordedResearchBetView({snapshot:{decisionMode:'MANUAL',probability:22.41}},Date.now());
+  assert.ok(Math.abs(manual.probability-.2241)<1e-12);
+  assert.equal(recordedResearchBetView({snapshot:{decisionMode:'MANUAL',probability:1}},Date.now()).probability,.01);
+  assert.equal(recordedResearchBetView({snapshot:{probability:.7}},Date.now()).probability,.7);
+  assert.equal(recordedResearchBetView({snapshot:{}},Date.now()).probability,null);
+});

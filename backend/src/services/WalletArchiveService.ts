@@ -45,7 +45,7 @@ export function summarizeArchive(rows: Row[]) {
 }
 
 /** All calculations use the recorded database bets, before pagination; no balances or bets are mutated. */
-export async function buildWalletArchive(db: { getBetHistory(userId: string): Promise<Row[]>; research: { listBetViews(): Promise<Row[]> } }, userId: string, query: ArchiveQuery, now = new Date()) {
+export async function readWalletArchiveRows(db: { getBetHistory(userId: string): Promise<Row[]>; research: { listBetViews(): Promise<Row[]> } }, userId: string, now = new Date()) {
   const [history, research] = await Promise.all([db.getBetHistory(userId), db.research.listBetViews()]);
   const historical = history.map(row => {
     if (row.model_family !== 'A') throw new Error('Recorded deterministic model identity missing');
@@ -56,8 +56,13 @@ export async function buildWalletArchive(db: { getBetHistory(userId: string): Pr
       createdAt: row.placed_at, settledAt: row.settled_at, classification: row.classification, bookmaker: row.bookmaker_name || row.bookmaker || null };
   });
   const current = research.filter(row => ['shadow_A', 'shadow_C'].includes(row.portfolioId)).map(row => recordedResearchBetView(row, now.getTime() + 1));
-  const outcomes: Record<string, string[]> = { open: ['PENDING'], settled: CLOSED, WON: ['WON', 'HALF_WON'], LOST: ['LOST', 'HALF_LOST'], VOID: ['VOID'] };
   const all = [...historical, ...current].filter(row => { const at = date(row.createdAt); return at && at <= now; });
+  return all;
+}
+
+export async function buildWalletArchive(db: { getBetHistory(userId: string): Promise<Row[]>; research: { listBetViews(): Promise<Row[]> } }, userId: string, query: ArchiveQuery, now = new Date()) {
+  const all = await readWalletArchiveRows(db, userId, now);
+  const outcomes: Record<string, string[]> = { open: ['PENDING'], settled: CLOSED, WON: ['WON', 'HALF_WON'], LOST: ['LOST', 'HALF_LOST'], VOID: ['VOID'] };
   const filtered = all.filter(row => {
     if (query.model !== 'all' && row.family !== query.model) return false;
     if (query.status !== 'all' && !outcomes[query.status].includes(row.status)) return false;

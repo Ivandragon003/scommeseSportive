@@ -4,6 +4,8 @@ export type ComparisonPeriod = '7d' | '30d' | '60d' | '90d' | 'all' | 'custom';
 
 export interface ResearchComparisonQuery {
   period: ComparisonPeriod;
+  qualities?: string[];
+  includeHistory?: boolean;
   from?: string;
   to?: string;
 }
@@ -66,6 +68,7 @@ export interface ComparisonBet extends Omit<ResearchBet, 'quote' | 'matchId' | '
   classification?: string | null;
   confidence?: string | null;
   historical?: boolean;
+  probability?: number | null;
   matchId: string | null;
   quote?: ResearchBet['quote'] | null;
   profitCents?: number | null;
@@ -79,6 +82,8 @@ export interface ComparisonBet extends Omit<ResearchBet, 'quote' | 'matchId' | '
 }
 
 export interface ResearchComparison {
+  historicalAvailableCents?: number | null;
+  filteredProfitCurves?: { A: Array<{ at: string; equityCents: number }>; C: Array<{ at: string; equityCents: number }> } | null;
   period: { key: ComparisonPeriod; from: string | null; to: string; timezone: string; label: string };
   portfolios: ComparisonPortfolio[];
   leader: ModelFamily | 'TIE' | null;
