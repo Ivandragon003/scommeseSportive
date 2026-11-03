@@ -38,7 +38,7 @@ test('i nuovi motivi distinguono assenza di consiglio, limiti C ed errori senza 
   expect(decisionReason('invalid_app_recommendation_packet')).toBe('Il consiglio del modello A è incompleto o non verificabile.');
   expect(decisionReason('app_recommendation_quote_mismatch')).toBe('La quota del consiglio A non corrisponde alle quote condivise.');
   expect(decisionReason('invalid_app_recommendation_value')).toBe('Probabilità, valore atteso o stake del consiglio A non validi.');
-  expect(decisionReason('non_binary_payout_not_supported_by_canonical_engine')).toBe('Mercato non ancora supportato dalla simulazione C.');
+  expect(decisionReason('non_binary_payout_not_supported_by_canonical_engine')).toBe('Alcune quote prevedono rimborsi o puntate divise e non sono supportate da questa valutazione C.');
   expect(decisionReason('invalid_recommended_stake')).toBe('Stake consigliato non valido: nessuna puntata registrata.');
 });
 
