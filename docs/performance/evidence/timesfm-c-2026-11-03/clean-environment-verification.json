@@ -1,0 +1,10 @@
+{
+  "isolatedEnvironment": true,
+  "lockInstall": "PASS",
+  "dependencyCheck": "PASS",
+  "unitTestsPassed": 11,
+  "timesfmSampleRecomputed": 32,
+  "timesfmMaximumAbsoluteError": 0.0,
+  "device": "cpu",
+  "dtype": "torch.float32"
+}

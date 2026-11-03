@@ -1,0 +1,43 @@
+{
+  "metricsReplayIdentical": true,
+  "fieldsCompared": [
+    "overall",
+    "groups",
+    "pointDeltasTimesfmMinusComparator",
+    "primaryBootstrap",
+    "sensitivityBootstrap",
+    "leagueBootstrap",
+    "gate",
+    "predictionsDecodedSha256"
+  ],
+  "predictionsDecodedSha256": "a0923c8cc8be7272edab5875e9e571d01b216b6e437b46e6ffa1e5dc3872351a",
+  "operationalFilesChecked": 289,
+  "operationalChanges": [],
+  "backendBuild": "PASS",
+  "experimentTests": {
+    "passed": 11,
+    "failed": 0
+  },
+  "operationalARegressions": {
+    "passed": 7,
+    "failed": 0
+  },
+  "independentAudit": "PASS",
+  "candidateRegistered": false,
+  "integration": false,
+  "databaseAccess": false,
+  "dockerRuntime": "not_required_no_runtime_changes",
+  "allTimesfmForecastsRepeated": false,
+  "cleanEnvironment": {
+    "isolatedEnvironment": true,
+    "lockInstall": "PASS",
+    "dependencyCheck": "PASS",
+    "unitTestsPassed": 11,
+    "timesfmSampleRecomputed": 32,
+    "timesfmMaximumAbsoluteError": 0.0,
+    "device": "cpu",
+    "dtype": "torch.float32"
+  },
+  "independentReview": "PASS: 27 metric rows and 8 interval rows reconciled; figure and local links checked",
+  "sourceSecretScan": "PASS"
+}

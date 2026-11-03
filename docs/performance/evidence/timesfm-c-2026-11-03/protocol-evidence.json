@@ -1,0 +1,8 @@
+{
+  "protocolFileSha256": "eb41bb38e2c784a401f69f04f764d4c59c46b9a60326294288438c11f9ad2c4c",
+  "localFileCreationUtc": "2026-11-03T18:27:10Z",
+  "fixationType": "local_before_new_inference_not_public_preregistration",
+  "repositoryBase": "6ed36d449418fc155f39f37371bc8c1ef5b56846",
+  "publicationBase": "fd0f617a8bf68494007057f54de991f680bcc02b",
+  "newIndependentTest": false
+}

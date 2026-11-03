@@ -1,5 +1,10 @@
 # Modello C: probabilità, selezione e puntata
 
+**Esperimento TimesFM 2.5, 3 novembre 2026.** Il [confronto offline](../performance/timesfm-c-2026-11-03.md)
+su 4.892 target storici non dimostra un beneficio rispetto alla ricetta C invariata
+riaddestrata e alle medie pesate. Esito statistico inconclusivo, NO-GO: nessuna
+integrazione, candidatura o dipendenza operativa aggiunta. A e C operativi invariati.
+
 **Estensione del benchmark, 31 ottobre.** Il [replay sulle tre stagioni](../performance/c-three-season-backtest-2026-10-31.md)
 usa il 2022/23 come storia e valuta tutti i 4.892 target ammissibili del 2023/24–2025/26,
 in sei periodi semestrali con training, selezione e calibrazione separati.

@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "historyContextsChecked": 13146,
+  "uniqueModelContextsChecked": 25658,
+  "featureRows": 6573,
+  "predictions": 4892,
+  "maximumFeatureError": 8.881784197001252e-16,
+  "maximumMetricError": 2.220446049250313e-16,
+  "scope": "all_feature_contexts_WMA_saved_TimesFM_binding_and_all_point_metrics",
+  "notVerified": [
+    "rerun_of_every_TimesFM_forecast",
+    "historical_provider_first_seen",
+    "pretraining_overlap"
+  ]
+}
