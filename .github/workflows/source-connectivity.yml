@@ -1,0 +1,48 @@
+name: Source connectivity diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Check public sources without credentials or database writes
+        shell: bash
+        run: |
+          node <<'NODE'
+          const dns = require('node:dns').promises;
+          const https = require('node:https');
+          async function probe(host, path) {
+            try { console.log(JSON.stringify({host, dns:await dns.lookup(host,{all:true})})); }
+            catch(error) { console.log(JSON.stringify({host,dnsError:error.code})); }
+            return new Promise(resolve=>{
+              const started=Date.now();
+              const request=https.get({hostname:host,path,headers:{'X-Requested-With':'XMLHttpRequest','User-Agent':'FootballPredictor connectivity diagnostic','Accept':'application/json'}},response=>{
+                console.log(JSON.stringify({host,path,status:response.statusCode,durationMs:Date.now()-started}));
+                response.destroy(); resolve(response.statusCode===200);
+              });
+              const timer=setTimeout(()=>request.destroy(Object.assign(new Error('deadline'),{code:'ETIMEDOUT'})),12000);
+              request.on('close',()=>clearTimeout(timer));
+              request.on('error',error=>{console.log(JSON.stringify({host,path,error:error.code,durationMs:Date.now()-started}));resolve(false);});
+            });
+          }
+          (async()=>{
+            let reachable=false;
+            for(let attempt=1;attempt<=3;attempt++) {
+              console.log(JSON.stringify({attempt}));
+              if(await probe('understat.com','/getLeagueData/serie_a/2026')) {reachable=true;break;}
+              if(attempt<3) await new Promise(resolve=>setTimeout(resolve,1000));
+            }
+            const supplemental=await probe('www.football-data.co.uk','/mmz4281/2627/I1.csv');
+            console.log(JSON.stringify({understatReachable:reachable,supplementalReachable:supplemental}));
+            if(!reachable) process.exitCode=1;
+          })().catch(error=>{console.error(error.code||error.name);process.exitCode=1;});
+          NODE
