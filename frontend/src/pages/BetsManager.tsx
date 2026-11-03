@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AppDateInput, AppSelect } from '../components/common/AppSelect';
+import { AppSelect } from '../components/common/AppSelect';
 import {
   CalendarDays,
   ChevronDown,
@@ -29,6 +29,7 @@ import { useAppWalletData } from '../features/wallets/AppWallets';
 import { ResearchComparison } from '../features/research/researchComparisonTypes';
 import { BetModel, betModel, unifiedBetRows } from '../features/wallets/unifiedBets';
 import ModelBadge from '../features/wallets/ModelBadge';
+import AppCalendarInput from '../components/common/AppCalendarInput';
 
 interface BetsManagerProps {
   activeUser: string;
@@ -327,8 +328,8 @@ export const LegacyBetsManager: React.FC<BetsManagerProps> = ({ activeUser, read
                 {datePanelOpen && (
                   <div className="bets-date-panel" id="bets-date-panel" role="group" aria-label="Seleziona intervallo date">
                     <div className="bets-date-panel__head"><strong>Intervallo date</strong><button type="button" aria-label="Chiudi intervallo date" onClick={() => setDatePanelOpen(false)}><X size={16} /></button></div>
-                    <label htmlFor="bets-date-from">Data iniziale<AppDateInput id="bets-date-from" value={draftDateRange.from} onChange={(event) => setDraftDateRange((range) => ({ ...range, from: event.target.value }))} /></label>
-                    <label htmlFor="bets-date-to">Data finale<AppDateInput id="bets-date-to" value={draftDateRange.to} onChange={(event) => setDraftDateRange((range) => ({ ...range, to: event.target.value }))} /></label>
+                    <label htmlFor="bets-date-from">Data iniziale<AppCalendarInput id="bets-date-from" value={draftDateRange.from} onChange={(event) => setDraftDateRange((range) => ({ ...range, from: event.target.value }))} /></label>
+                    <label htmlFor="bets-date-to">Data finale<AppCalendarInput id="bets-date-to" value={draftDateRange.to} onChange={(event) => setDraftDateRange((range) => ({ ...range, to: event.target.value }))} /></label>
                     <div className="bets-date-panel__actions">
                       <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" onClick={resetDateRange}>Azzera intervallo</button>
                       <button type="button" className="fp-btn fp-btn-solid fp-btn-sm" onClick={applyDateRange}>Applica intervallo</button>

@@ -321,3 +321,38 @@
 .app-shell .nav-icon-wrap { width:34px; height:34px; border-radius:10px; background:var(--surface3); transition:background .18s ease; }
 .app-shell .nav-item.active .nav-icon-wrap { background:var(--surface); }
 @media(prefers-reduced-motion:reduce) { .app-shell .nav-item { transition:none; } .app-shell .nav-item:hover { transform:none; } }
+
+/* Keep the green navigation identity while preserving readable ledger content. */
+:root:not([data-theme="dark"]) { --bg:#f5f7f6; }
+[data-theme="dark"] .app-shell .sidebar,[data-theme="dark"] .app-shell .app-header { background:#0e1c1a; }
+.app-shell .nav-item.active,[data-theme="dark"] .app-shell .nav-item.active { color:#fff; background:#087c4b; box-shadow:0 5px 16px rgb(0 90 53 / 18%); }
+.app-shell .nav-item.active .nav-meta,[data-theme="dark"] .app-shell .nav-item.active .nav-meta { color:#d6f3e4; }
+.app-shell .nav-item.active .nav-icon-wrap { background:rgb(255 255 255 / 12%); color:#fff; }
+.app-shell .nav-item:hover { transform:translateX(2px); }
+.app-shell .model-badge { width:max-content; max-width:100%; white-space:nowrap; flex-wrap:nowrap; }
+.app-shell .bets-page .bet-row__cell { overflow-wrap:normal; word-break:normal; }
+.app-shell .bets-page .bet-row__match strong { white-space:normal; overflow:visible; text-overflow:clip; }
+@media(max-width:1200px) {
+ .app-shell .bets-page .bets-table-head { display:none; }
+ .app-shell .bets-page .bet-row__summary,.app-shell .bets-page .bet-row--history .bet-row__summary {
+  min-width:0; display:grid; grid-template-columns:18px repeat(3,minmax(0,1fr)); gap:14px 16px; padding:18px; align-items:start;
+ }
+ .app-shell .bets-page .bet-row__chevron { grid-column:1; grid-row:1 / 5; align-self:center; }
+ .app-shell .bets-page .bet-row__match { grid-column:2 / -1; grid-row:1; }
+ .app-shell .bets-page .bet-row__match strong { font-size:15px; line-height:1.4; }
+ .app-shell .bets-page .bet-row__pick { grid-column:2 / 4; grid-row:2; border:0; padding:0; }
+ .app-shell .bets-page .bet-row__summary .bm-status { grid-column:4; grid-row:2; justify-self:end; }
+ .app-shell .bets-page .bet-row__quote { grid-column:2; grid-row:3; }
+ .app-shell .bets-page .bet-row__stake { grid-column:3; grid-row:3; }
+ .app-shell .bets-page .bet-row__return { display:flex; grid-column:4; grid-row:3; }
+ .app-shell .bets-page .bet-row__profit { display:block; grid-column:2 / -1; grid-row:4; }
+ .app-shell .bets-page .bet-row__cell { border:0; padding:0; min-width:0; }
+ .app-shell .bets-page .bet-row__cell strong,.app-shell .bets-page .bet-row__cell small { white-space:normal; overflow:visible; text-overflow:clip; }
+ .app-shell .bets-page .bet-row__detail { padding:18px; }
+}
+.app-shell .bets-date-panel { padding:20px; gap:16px; border-radius:18px; background:var(--surface); box-shadow:var(--shadow-lg); }
+.app-shell .bets-date-panel label { font:600 12px var(--font-sans); color:var(--text-2); }
+.app-shell .bets-date-panel input { min-height:46px; border-radius:10px; background:var(--surface2); color:var(--text); font:500 13px var(--font-sans); }
+@media(prefers-reduced-motion:reduce) { .app-shell .nav-item:hover { transform:none; } }
+
+@media(max-width:1200px) { .app-shell .bets-page .bet-row__profit::before { content:"Profitto / perdita: "; font-size:11px; font-weight:500; color:var(--text-2); } }
