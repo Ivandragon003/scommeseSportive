@@ -99,7 +99,7 @@ lines.push('', '## Calendario futuro e fallback', '',
   '**Scenario C: bloccato.** Nessun fallback distinto, gratuito, autorizzato e con copertura dimostrata dei tre mercati è configurato. La sua capacità aggiuntiva provata è zero; non viene inventata una seconda quota gratuita né attribuita ad altri operatori.', '',
   'I tre mercati richiesti non corrispondono a tutti i mercati teorici del modello. Quote DC/DNB, BTTS o totali squadra non vengono inventate dai prezzi 1X2. Un eventuale ampliamento del feed modifica il budget e richiede disponibilità reale.', '',
   '## Uso ripetibile e conclusione', '',
-  '```powershell', 'cd backend', 'npm run build', `node scripts/simulate-odds-demand.js --input artifacts/research/matches.json --asof ${args.asof} --month ${args.month} --output-json ../docs/performance/odds-demand-2026-10-27.json --output-md ../docs/performance/odds-demand-2026-10-27.md`, '```', '',
+  '```powershell', 'cd backend', 'npm run build', `node scripts/simulate-odds-demand.js --input artifacts/research/matches.json --asof ${args.asof} --month ${args.month} --output-json artifacts/research/odds-demand-2026-10-27.json --output-md artifacts/research/odds-demand-2026-10-27.md`, '```', '',
   'La simulazione rende verificabile il risparmio da separazione della nightly, condivisione A/C e cache. Non certifica SLA, latenza, assenza di errori, quote disponibili o consumo effettivo. Se il budget reale misurato non basta, il comportamento corretto è saltare la decisione e conservarne il motivo. Cambiare la finestra T−15, la freschezza o introdurre costi richiede una decisione esplicita.', '',
   '[Dati della simulazione](odds-demand-2026-10-27.json)', '');
 fs.writeFileSync(args['output-md'], `${lines.join('\n')}\n`);
