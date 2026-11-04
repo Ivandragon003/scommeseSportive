@@ -1,5 +1,5 @@
 'use strict';
-// Actual PredictionService calls with an isolated in-memory database sink and mocked inputs; no HTTP/network.
+// PredictionService with mocked inputs and an isolated local libSQL sink; no HTTP/network.
 const fs = require('node:fs'); const path = require('node:path'); const { performance } = require('node:perf_hooks');
 const { createClient } = require('@libsql/client');
 const { PredictionService } = require('../../dist/services/PredictionService');
@@ -25,12 +25,21 @@ const { drainModelAProspective, modelAProspectiveStats } = require('../../dist/r
     service.applyAdaptiveTuning=async()=>null;service.getCalibrationProfile=async()=>({calibrationPoints:[{x:0,y:0},{x:1,y:1}],nObservations:0,byFamily:{},learnedBlendWeights:{}});
     const request={homeTeamId:'home',awayTeamId:'away',matchId:'bench',competition:'Test',season:'2026/27'},options={recordAudit:false};
     const pct=(a,p)=>[...a].sort((x,y)=>x-y)[Math.floor((a.length-1)*p)];
-    const run=async flag=>{process.env.MODEL_A_PROSPECTIVE_ENABLED=flag;const latencies=[];const start=performance.now();
-      for(let block=0;block<5;block++)await Promise.all(Array.from({length:10},async()=>{const t=performance.now();await service.predict(request,options);latencies.push(performance.now()-t);}));
-      const elapsed=performance.now()-start;const drained=await drainModelAProspective(30000);return {requests:50,concurrency:10,p50Ms:pct(latencies,.5),p95Ms:pct(latencies,.95),elapsedMs:elapsed,requestsPerSecond:50000/elapsed,drained};};
+    const run=async flag=>{process.env.MODEL_A_PROSPECTIVE_ENABLED=flag;const latencies=[],admissionLatencies=[],confirmations=[];const start=performance.now();
+      for(let block=0;block<5;block++)await Promise.all(Array.from({length:10},async()=>{const t=performance.now();let receipt;
+        await service.predict(request,{...options,onProspectiveRecord:r=>{receipt=r;}});const responseMs=performance.now()-t;latencies.push(responseMs);
+        if(flag==='true'){
+          if(receipt?.durable || (!receipt && durableDir && process.env.MODEL_A_PROSPECTIVE_STORAGE!=='database'))admissionLatencies.push(responseMs);
+          else if(receipt)confirmations.push(receipt.completion.then(result=>{if(result.status==='stored')admissionLatencies.push(performance.now()-t);}));
+        }
+      }));
+      const elapsed=performance.now()-start;const drained=await drainModelAProspective(30000);await Promise.all(confirmations);const confirmedElapsedMs=performance.now()-start;
+      return {requests:50,concurrency:10,p50Ms:pct(latencies,.5),p95Ms:pct(latencies,.95),elapsedMs:elapsed,requestsPerSecond:50000/elapsed,
+        durableAdmissionSamples:admissionLatencies.length,durableAdmissionP50Ms:admissionLatencies.length?pct(admissionLatencies,.5):null,
+        durableAdmissionP95Ms:admissionLatencies.length?pct(admissionLatencies,.95):null,confirmedElapsedMs,confirmedRequestsPerSecond:50000/confirmedElapsedMs,drained};};
     await service.predict(request,options); const off=await run('false'),on=await run('true');
     const rows=(await client.execute('SELECT COUNT(*) AS n FROM model_a_prospective_forecasts')).rows[0].n;
-    const result={scope:durableDir?'PredictionService with fixture stubs, local persistent libSQL and fsynced spool; no HTTP or production database':
+    const result={storage:process.env.MODEL_A_PROSPECTIVE_STORAGE||'file',scope:durableDir?'PredictionService with fixture stubs and local persistent libSQL; file mode uses fsynced spool, database mode admits only after commit; no HTTP or production database':
       'PredictionService with fixture stubs and in-memory libSQL; no HTTP, external providers, network or production database',off,on,rows,stats:modelAProspectiveStats()};
     if(process.argv[2])fs.writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n'); process.stdout.write(JSON.stringify(result,null,2)+'\n');
   } finally {client.close();}
