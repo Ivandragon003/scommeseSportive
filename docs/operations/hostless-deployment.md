@@ -31,44 +31,86 @@ un aumento di risorse o servizio a pagamento richiede una decisione esplicita.
 
 ## Persistenza per il recorder prospettico A
 
-Prima di configurare `MODEL_A_PROSPECTIVE_SPOOL_DIR`, verificare un volume
-effettivamente montato sul **processo che produce le previsioni**. Un percorso
-nel codice o una cartella nell'immagine non costituiscono un volume.
-Il Compose corrente non dichiara mount persistenti per il backend.
+La raccolta separata può usare due modalità esplicite. Nessuna è stata
+attivata o provisionata dal solo aggiornamento del repository.
 
-La [documentazione del filesystem Hostless](https://docs.hostless.cloud/app/filesystem)
-descrive root in sola lettura e cartelle temporanee eliminate alla ripartenza;
-solo il mount di un volume conserva i file. Permessi, hard link, backup e
-recupero devono essere provati sul mount reale. Secondo il
-[listino dei volumi](https://docs.hostless.cloud/billing/costbreakdown), i volumi
-persistenti hanno costi separati e non usano la quota gratuita condivisa:
-non crearne o collegarne uno automaticamente per questo progetto.
-Disponibilità e costo dell'account richiedono conferma nel pannello.
+| Processo | Persistenza prevista |
+| --- | --- |
+| [Workflow prospettico GitHub](../../.github/workflows/model-a-prospective.yml) | `MODEL_A_PROSPECTIVE_STORAGE=database`: una previsione è confermata dopo la scrittura verificata nel DB, senza spool del runner |
+| [Profilo Compose opzionale](../../docker-compose.model-a-research.yml) | `MODEL_A_PROSPECTIVE_STORAGE=file`, spool `/app/data/model-a-prospective-spool` sul volume nominato `model-a-research-data` |
+| Web e Nightly A/C esistenti | Abilitare la raccolta separata non abilita automaticamente il recorder su questi processi |
 
-La Nightly A/C gira su un runner GitHub separato: un volume del web non
-diventa il suo spool. Il workflow non esporta i flag `MODEL_A_PROSPECTIVE_*`
-e non predispone un mount durevole per il runner. Gli artefatti caricati a
-fine job non provano sopravvivenza a un arresto precedente al caricamento.
-Non abilitare il recorder finché processo, calendario, persistenza e
-monitoraggio non sono verificati insieme; vedere il
-[passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md).
+Il workflow esegue un ciclo ogni 30 minuti solo con l'opt-in repository;
+l'avvio manuale richiede anche consenso esplicito. Schema, protocollo,
+manifest e target devono essere verificati prima dell'attivazione: il
+collector non applica migrazioni. Procedura e variabili sono nella
+[guida GitHub](../github-actions-nightly-sync.md#raccolta-prospettica-a-separata-spenta-di-default).
+Non sono richiesti un nuovo servizio Hostless o un volume remoto per la
+modalità database del runner. Un errore di rete/scrittura non diventa
+un evento acquisito; il ledger conserva le consegne non confermate senza
+rigenerare automaticamente la previsione.
+
+Il profilo Compose riusa l'immagine backend, non espone HTTP e lascia web e
+stack ordinario separati. Ha root in sola lettura, `/tmp` temporaneo e mount
+dedicato `/app/data`. Raccolta, recorder, refresh esiti e monitoraggio sono
+spenti di default nell'[esempio ambiente](../../.env.model-a-prospective.example).
+Il flag di monitoraggio non avvia un monitor separato nel servizio Compose.
+Per verificare la configurazione senza avviare processi o creare volumi,
+usare un file ambiente privato, non versionato:
+
+```powershell
+docker compose --env-file .env.model-a-prospective.private -f docker-compose.model-a-research.yml --profile model-a-research config --quiet
+```
+
+Una configurazione valida non prova permessi, hard link, fsync, backup/restore,
+capacità o sopravvivenza del volume alla sostituzione del container. Queste
+prove richiedono l'avvio autorizzato sull'ambiente scelto. Il Compose
+ordinario continua a non montare uno spool persistente sul backend web.
+Un volume del web non diventa lo spool del runner GitHub.
+
+Per Hostless consultare [filesystem](https://docs.hostless.cloud/app/filesystem)
+e [costi dei volumi](https://docs.hostless.cloud/billing/costbreakdown), poi
+verificare mount, persistenza e condizioni economiche effettive nel pannello.
+Nessun volume o costo aggiuntivo è stato provisionato. Non assumere che un
+percorso configurato sia persistente o gratuito. Il browser nativo non era
+disponibile durante questa verifica: volume e auto-distribuzione Hostless
+restano non verificati, non dichiarati assenti.
+
+Il monitor GitHub è facoltativo e spento di default; usa sole `SELECT` e
+pubblica diagnostica aggregata e riepilogo nel job. Gli artifact durano
+14 giorni e non sono backup degli eventi, né provano sopravvivenza prima
+dell'upload. Non copre autonomamente un workflow mai partito. Vedere il
+[passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md) per i limiti ancora aperti.
 
 ## Effetti operativi del push su main
 
-La CI non è l'unico effetto del push: il workflow
-[calibration-warm.yml](../../.github/workflows/calibration-warm.yml) reagisce
-alle modifiche ammesse su `main`, usa i secret Turso ed esegue
-`npm run calibration:warm`. Lo [script](../../backend/scripts/warm-calibration.js)
-applica lo schema della cache `014_runtime_calibration_cache.sql` e salva
-profili nel database configurato. Le modifiche a `PredictionService.ts`
-ricadono nei suoi filtri. Un'integrazione osservativa può quindi produrre
-scritture remote anche con recorder spento.
+La CI conserva lint, typecheck, build e test su push/PR di `main`, senza
+ricevere credenziali del DB. Il workflow
+[calibration-warm.yml](../../.github/workflows/calibration-warm.yml) è ora solo
+manuale: richiede `authorize_database_writes=true` e la variable repository
+`OPERATIONAL_CALIBRATION_ENABLED=true`. L'input ha default `false`.
+Quando esplicitamente autorizzato, lo
+[script](../../backend/scripts/warm-calibration.js) applica lo schema cache
+`014_runtime_calibration_cache.sql` e salva profili; il push non lo esegue.
+Il warmup della Nightly è un'operazione separata già prevista dal suo ciclo.
 
-Se il task vieta migrazioni o modifiche operative, sospendere il push su
-`main` e segnalare questa conseguenza. Verificare inoltre l'auto-deploy del
-provider: la sua assenza dai workflow GitHub non dimostra che sia spento.
-Non modificare silenziosamente trigger, credenziali o servizio per aggirare
-il blocco.
+Anche la raccolta prospettica non ha trigger push/PR. Il prossimo cron può
+però partire se `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED` è già `true` nel
+repository: controllare i valori remoti prima di integrare un nuovo workflow.
+Il [checker dei contratti sorgente](../../backend/scripts/check-operational-workflow-gates.js)
+verifica questa separazione senza accedere al DB:
+
+```powershell
+node backend/scripts/check-operational-workflow-gates.js
+```
+
+Il controllo non legge le impostazioni Hostless. Verificare separatamente
+branch collegato, auto-deploy e hook del provider prima di pubblicare su un
+branch che potrebbe essere distribuito: l'assenza di un hook nei workflow
+non dimostra che l'auto-deploy sia spento. Con browser nativo indisponibile
+questo effetto resta non verificato. La pubblicazione del codice non
+costituisce autorizzazione a eseguire deploy, migrazioni, provisioning di
+volumi o attivazioni; gli automatismi esterni vanno esclusi prima del push.
 
 ## Ambiente, accesso e URL
 

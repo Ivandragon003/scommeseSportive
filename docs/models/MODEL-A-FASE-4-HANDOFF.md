@@ -1,168 +1,143 @@
-# Modello A — passaggio di consegne Fase 4
+# Modello A — preparazione e attivazione controllata della Fase 4
 
-**Preparazione tecnica avanzata, ancora bloccata; raccolta spenta; validazione statistica non conclusa.** Le Fasi 1–3 restano chiuse. Le modifiche riguardano osservazione, persistenza, riconciliazione, test e controlli. Non cambiano formule, pesi, calibrazione o blending operativi. Il [protocollo canonico](MODEL-A-VALIDAZIONE-PROSPETTICA.md) definisce campione, finestre, metriche ed esclusioni.
+**Implementazione locale verificata; attivazione sospesa in attesa delle verifiche e autorizzazioni dell'ambiente. Raccolta spenta, validazione statistica non conclusa.** Le Fasi 1–3 restano chiuse. Il [protocollo](MODEL-A-VALIDAZIONE-PROSPETTICA.md) definisce finestre, metriche ed esclusioni; questa guida descrive consegna tecnica, prove e procedura operativa.
 
-## Problemi risolti
+## Funzionamento implementato
 
-| Area | Implementazione e prova |
+| Area | Comportamento e confini |
 |---|---|
-| Input effettivi | `ModelAInputCapture` copia argomenti/parametri prima di Dixon–Coles, ensemble e analisi; conserva snapshot JSON, SHA-256 riproducibile, hash e timestamp locali dei componenti. Test di copia indipendente, riordino JSON, modifica rilevata e cattura fallita. |
-| Provenienza temporale | `observedInputsThrough` descrive l'ultima osservazione locale. `inputAvailableThrough` resta null perché fonti, revisioni e training non hanno genealogia temporale completa. Il limite è nel payload e viene contato come non valutabile. |
-| Avvio | Il costruttore di `PredictionService` avvia il recupero; il test termina un processo con SIGKILL e verifica il recupero automatico tramite quel costruttore su libSQL locale persistente, anche dopo kickoff. |
-| Recupero periodico | Il timer riprova i file non confermati. Il cursore circolare evita che i primi 256 sempre falliti blocchino gli altri. Test con 257 file e con database temporaneamente indisponibile. |
-| Spool | Scrittura e fsync precedono il controllo temporale e la pubblicazione esclusiva tramite hard link. Nessuna sovrascrittura per collisione ID. Lettura incrementale fino a coda piena. File corrotti/parziali conservati e diagnosticati. |
-| Shutdown | Timer fermo subito; richieste HTTP già in corso ancora ammesse entro chiusura server/deadline. Poi si chiudono le ammissioni e si attende nel budget residuo anche la riconciliazione già avviata. Test con segnali simulati, richieste in corso e writer risultati bloccato. |
-| Audit | `audit.ndjson` persiste tentativi, ammissioni, rifiuti/motivi, inammissibili, recuperi, conferme, errori e riepiloghi risultati. Contatori di processo e persistiti distinti. Un retry non è una nuova previsione. |
-| Risultati | Cursore keyset per `match_id`, massimo 200 candidati/tick, niente sovrapposizioni sullo stesso sink. Verifica ID, squadre e kickoff quando disponibili, UTC, idempotenza e conflitti. Test con 205 casi precedenti non verificabili, rinvio, rettifica e ritorno al punteggio iniziale. |
-| Copertura | CLI locale in sola lettura: calendario nello scope contro previsioni, finestre mancanti, backlog, provenienza non valutabile, struttura/indici/trigger e audit. Non pianifica inferenze né certifica completezza del calendario. |
-| Golden | Manifest pre-C ed `expected.json` invariati. Eccezioni testuali separate e limitate ai blocchi autorizzati, annullate in memoria prima degli hash originali. Test contro cambi estranei, rollback e duplicati; sei scenari numerici invariati. |
+| Copertura indipendente | `ModelAProspectiveCollection` legge il calendario dei cinque campionati, con stagioni e intervallo UTC espliciti. Chiama il vero `PredictionService` senza quote e senza audit di scommessa. Nightly ordinaria A/C e opportunità restano invariate. La copertura riguarda il calendario importato, senza dimostrarne la completezza rispetto al provider. |
+| Finestra | Nuove inferenze tra T−24h e T−60min inclusi. Nessun recupero retroattivo delle mancate. Cambio di kickoff: nuova identità di calendario, conservando il motivo sulla precedente. Rinviate/annullate sono escluse solo con stato esplicito. |
+| Deduplicazione | Scope canonico con SHA-256 atteso, protocollo immutabile, ledger per protocollo/partita/kickoff e claim UUID prima dell'inferenza. La conferma verifica manifest e claim nel payload: protocolli sovrapposti non si attribuiscono eventi altrui. Pagine da 100, finestre aperte prioritarie. |
+| Arresti ambigui | Dopo un claim l'inferenza non viene ripetuta automaticamente. Il riavvio cerca l'evento salvato; altrimenti conserva `unconfirmed` e motivo. Evita una seconda previsione con input successivi, ma non garantisce copertura completa dopo un crash. Riparazioni solo dopo diagnosi e decisione esplicita, mai previsioni postume. |
+| Input | Copia degli argomenti consumati, hash snapshot/componenti, identificativi/hash delle fonti e timestamp locali esistenti con significato. Acquisizione, ispezione, pubblicazione e revisione distinti; timestamp assenti/futuri/invalidi non inventati. |
+| Limite temporale | Fonti e training non hanno genealogia completa: `inputAvailableThrough=null`, `classification=technical_only`, `rigorousEligible=false`. Raccolta tecnica possibile, senza dichiararla idonea alla validazione temporale rigorosa. |
+| File | Fsync contenuto, pubblicazione esclusiva senza sovrascrittura e fsync directory dove supportato; retry idempotenti, recupero d'avvio/periodico equo, audit e conservazione di corrotti/parziali. File rimossi dopo conferma DB. Windows espone `process_crash_only`; directory sync obbligatorio fallisce in chiuso dove non supportato. |
+| Runner effimero | `MODEL_A_PROSPECTIVE_STORAGE=database`: receipt pending fino al commit, accepted solo alla conferma. Il runner attende receipt e drain. Nessuno spool effimero presentato come persistente: evento in memoria perso prima del commit non è accettato; il claim persistente permette di rilevarne la mancanza. |
+| Risultati | Refresh default OFF mediante HTTP Understat esistente, senza modificare matches. Evidenze append-only final/postponed/canceled/not_final/missing/conflict/unverified/provider_error. ID/squadre/kickoff controllati; nessun punteggio inventato. Cursore persistente, lease rinnovata e liveness anche a zero candidati. |
+| Rettifiche | Nuova osservazione, mai riscrittura degli originali. Default 20 candidati/ciclo e orizzonte 30 giorni dal kickoff originario. Rettifiche vecchie/rinvii oltre orizzonte richiedono classificazione o recupero esplicito. Understat è fonte statistica, non ufficiale. |
+| Associazione | Un più recente missing/provider_error/non-final/conflitto sospende prudentemente la coppia corrente conservando il vecchio esito. Scelta da preregistrare: disservizi possono cambiare temporaneamente il campione valutabile. |
+| SQL | `paired-results.sql` sceglie prima la prima previsione nella finestra, poi richiede provenienza verificata, timestamp e hash validi. I produttori attuali non soddisfano quel gate. `technical-paired-results.sql` espone separatamente coppie tecniche e motivo. Entrambi richiedono origine e protocollo espliciti. |
+| Monitor | Calendario, analizzate, ammissibili/mancanti, claim, conferme/pendenti, errori spool, liveness, esiti non associati, provenienza non verificabile. Schema controllato anche per PK/indici/trigger. Non misurabile=null; contatori audit includono retry, non sono il denominatore delle partite. |
+| Avvisi | Checker default OFF, sole SELECT; exit nonzero per problemi operativi, summary/artifact GitHub opt-in. Provenienza tecnica informativa di default; `--require-rigorous-inputs` o flag relativo rende il requisito bloccante. Stato scientifico comunque non verificato. Nessun nuovo servizio esterno o invio di messaggi. |
 
-Il recupero riprova idempotentemente i file ancora presenti, senza garantire recupero di rifiuti, cancellazioni o disco guasto. La barriera temporale riguarda il **contenuto sincronizzato prima del kickoff**, secondo l'orologio locale; la comparsa del nome finale non ha un timestamp indipendente. Una prova d'interruzione dopo il link conserva un `.json` e un `.partial`, restituisce un solo evento e segnala il parziale. Il controllo successivo al link rifiuta la pubblicazione se rileva il kickoff. Non viene eseguito fsync della directory: crash/power loss e supporto degli hard link richiedono prova sul filesystem previsto. I/O sincrono bloccato non può essere interrotto dalla deadline JavaScript.
+Directory sync attesta quell'operazione, **non la resistenza a perdita di alimentazione**. La creazione iniziale dello spool non sincronizza i genitori: predisporre la directory sul volume, sincronizzarne anche la creazione e provarne ripristino e permessi. `0700/0600` non certificano ACL/mount remoti. Shutdown cooperativo: la deadline non cancella I/O nativo/DB bloccato né garantisce che close termini nel budget. Servono grace period e supervisor provati sul target; dopo un kill i claim ambigui rimangono visibili.
 
-Il cursore risultati è in memoria e riparte dall'inizio al riavvio; un errore singolo viene contato e ritentato al ciclo successivo. Understat è una fonte statistica, non ufficiale della competizione. Il sistema riconcilia rettifiche già presenti nel database, senza garantirne l'acquisizione dal provider. Previsioni ed esiti originali non vengono riscritti. Il SQL di associazione considera lo stesso istante kickoff anche con fusi equivalenti e applica il cutoff a osservazione e registrazione dell'esito.
+## Pubblicazione e operazioni
 
-## Audit della copertura e dell'ambiente
-
-| Controllo prioritario | Evidenza verificata | Conseguenza |
-|---|---|---|
-| Generatore automatico A | La Nightly recommendation chiama A dopo il controllo delle quote; altri claim possono essere saltati. Web senza decisioni automatiche e worker T−15 ritirato. | Nessuna copertura universale garantita; visite utente e baseline diagnostica non la sostituiscono. |
-| Finestra | La Nightly usa ora effettiva → prossima esecuzione, distinta da T−24h/T−60min del protocollo. | Contare copertura e ritardi prima di analizzare gli esiti. |
-| Processo del recorder | Il workflow non esporta `MODEL_A_PROSPECTIVE_*` né configura spool persistente. Il CLI drena nel `finally`, senza handler di segnale web. | Abilitare solo il web non copre le previsioni del runner; timeout/kill restano da provare su quel processo. |
-| Volume | Compose senza mount persistente. La documentazione Hostless distingue root in sola lettura, scratch temporaneo e volumi; il mount effettivo dell'account non è stato verificato. | Non equiparare una cartella al volume. Il browser locale era disabilitato; il controllo HTTP dell'healthcheck configurato ha restituito 403, senza confermare salute o configurazione. |
-| Costo | I [volumi Hostless](https://docs.hostless.cloud/billing/costbreakdown) sono separati dalla quota gratuita condivisa. | Nessun volume a pagamento introdotto; serve una decisione compatibile con il vincolo economico del progetto. |
-| Database | Sole `SELECT` sul target del `.env` locale: calendario presente, tabelle prospettiche assenti. Equivalenza con secret GitHub e Hostless non verificata. | Nessuna migrazione eseguita. Il nuovo ispettore consente audit del calendario anche prima del provisioning; metriche forecast non misurabili restano null. |
-| Esecuzioni remote | Variabili GitHub Nightly e recommendation attive; i tre run Nightly esaminati del 4 novembre 2026 sono falliti al gate Understat. | Un flag attivo non prova che siano state prodotte previsioni; nessun rerun operativo avviato. |
-| Main e produzione | Il push su `main` per i file coinvolti avvia `calibration-warm.yml`, che applica lo schema cache e salva profili usando i secret Turso; osservato anche un run push riuscito. | Merge/push su `main` sospesi. Non si aggira l'effetto con marker o modifiche silenziose al workflow. Auto-deploy Hostless non verificato. |
-
-Le osservazioni remote sono evidenze dell'audit, non certificazioni permanenti. Ripeterle prima dell'attivazione; dettagli riproducibili nelle guide [Nightly](../github-actions-nightly-sync.md) e [Hostless](../operations/hostless-deployment.md). L'audit privato `configured-target-readonly-audit.json` registra istante, scope e identità non certificata del target; non importa `DatabaseService` e non esegue scritture o bootstrap.
-
-Lo snapshot degli input ora conserva anche `sourceTimestamps`: dichiarazioni di `created_at` e `last_updated` già lette per fixture, squadre e arbitro, più l'eventuale osservazione dell'esito. Timestamp SQLite locali e osservazioni provider sono distinti; valori futuri/invalidi e fonti discordanti non vengono promossi a prova temporale. `inputAvailableThrough` resta null. Non vengono introdotte letture aggiuntive, filtri o ricostruzioni dei dati.
-
-Il nuovo test del timer inserisce evidenza finale dopo l'avvio, verifica una sola osservazione attraverso più tick e poi una correzione, lasciando invariata la previsione. Non chiama manualmente il riconciliatore e non effettua richieste Understat. Dimostra il ciclo automatico locale, senza provare acquisizione remota, ufficialità o continuità del processo di destinazione.
-
-## File interessati
-
-- Integrazione: `backend/src/services/PredictionService.ts`; nuovo `backend/src/research/ModelAProspectiveInputs.ts`.
-- Affidabilità: `ModelAProspectiveRecorder.ts`, `ModelAProspectiveSpool.ts`, `ModelAProspectiveShutdown.ts` nella cartella research.
-- Esiti: `ModelAProspectiveResults.ts`, soli metodi prospettici di `backend/src/db/DatabaseService.ts`, `backend/experiments/model-a-prospective/paired-results.sql`.
-- Operatore: nuovo `backend/scripts/model-a-prospective-inspect.js`.
-- Test: `backend/test/model-a-prospective-*.test.js`, `operational-a-regression.test.js`, `fixtures/operational-a/authorized-source-deviations.json` e relativo README. Nuovi casi su input, monitoraggio, recovery, rotazione risultati e CLI.
-- Documentazione: questa guida, protocollo prospettico e rimando nella guida A. Lo schema proposto esistente non richiede modifiche per queste aggiunte.
-
-| Modifiche del proseguimento | File |
+| Percorso | Effetto |
 |---|---|
-| Timestamp esistenti degli input | `backend/src/research/ModelAProspectiveInputs.ts`, `backend/src/services/PredictionService.ts`, test input e integrazione, fixture delle deviazioni autorizzate e relativo README |
-| Audit prima dello schema recorder | `backend/scripts/model-a-prospective-inspect.js`, `backend/test/model-a-prospective-inspect.test.js` |
-| Esiti automatici | Nuovo `backend/test/model-a-prospective-auto-results.test.js` |
-| Procedure e blocchi | Questa guida, `MODEL-A-VALIDAZIONE-PROSPETTICA.md`, `docs/github-actions-nightly-sync.md`, `docs/operations/hostless-deployment.md` |
+| Push/PR nei workflow esaminati | CI senza secret DB; nessun warmup, schema o deploy collegato al push. CI estesa al branch di preparazione. |
+| `calibration-warm.yml` | Solo dispatch con `authorize_database_writes=true` e `OPERATIONAL_CALIBRATION_ENABLED=true`: cache/profili non vengono più scritti a seguito del push. |
+| Nightly esistente | Automazioni pianificate già presenti, incluso il proprio warmup, invariate. Nessuna sospensione indiscriminata dei controlli. |
+| Nuovo collector | Ogni 30 minuti o dispatch, subordinato all'opt-in repository; dispatch richiede consenso aggiuntivo. Nessuna migrazione/bootstrap. Nessuna variabile abilitata da questo lavoro. GitHub può ritardare i run. |
+| Hostless | Auto-deploy, branch seguito e review app da verificare nell'account. Browser locale indisponibile: i workflow non provano l'assenza di trigger esterni. In mancanza di prova consegnare il branch, senza main o PR che possa avviare review app. |
 
-Non sono cambiati sorgenti dei modelli matematici, configurazioni/pesi, frontend, ML, lockfile, migrazioni automatiche o Docker. Distribuzione, attivazione e modifica del database operativo restano fuori dal perimetro di questi interventi locali.
+`node backend/scripts/check-operational-workflow-gates.js` controlla i contratti nel repository, non le impostazioni esterne. Vedere [Hostless](../operations/hostless-deployment.md) e [GitHub Actions](../github-actions-nightly-sync.md). Commit e risultato del push appartengono al report Git, non sono uno stato operativo permanente di questa guida.
 
-## Verifiche ripetibili
+## Verifiche della consegna
 
-Da radice, senza caricare `.env` operativo:
+Fixture e database/spool locali, senza credenziali operative o provider reali. Artefatti ignorati sotto `artifacts/model-a-phase4/`, non backup operativo.
+
+| Controllo | Evidenza |
+|---|---|
+| Build | `npm --prefix backend run build` superata. |
+| Suite Windows, Node 24.17 | **1.440 test, 1.439 passati, zero falliti, uno saltato** (SIGTERM POSIX). Log `completion-windows-final.log`. |
+| Suite Linux, Node 20.20.2 | **1.450 test, 1.433 passati, zero falliti, 17 saltati**: 16 inspector richiedono Node ≥22.13, uno training richiede CatBoost. Container di prova senza rete/credenziali, copia del sorgente. Log/riepilogo `completion-linux-suite`. |
+| SIGTERM e volume | Segnale OS al collector Linux: una inferenza/claim, nessuna seconda partita, run interrotto e claim non confermato visibili. Volume temporaneo tra due container distinti non root con fsync/hardlink e hash: superato. Nessuna prova Hostless/power loss. |
+| Regressione A/C | Golden numerici e manifest originali conservati; deviazioni testuali limitate agli osservatori autorizzati, annullate in memoria dal controllo. Casi acceso/spento, senza quote e runtime A/C inclusi nelle suite. Nessun sorgente matematico o runtime C modificato. |
+| Guasti/recupero | Spool con DB temporaneamente offline, kill/restart, ID idempotenti, oltre 256 pendenti, errore directory sync, receipt DB non confermato, riavvio risultati. Non dimostrano SLA remoto. |
+| Configurazione | Checker gate e `docker compose ... config --quiet` superati; nessun servizio operativo/volume Hostless avviato. |
+| Gate finali | Typecheck, lint backend, lint esplicito script e controllo diff superati; scansione segreti prima del commit. Ripetere i controlli pertinenti dopo ogni modifica al codice. |
+
+Windows aveva riprodotto il crash nativo `0xC0000005` nei processi libSQL e residui fixture/EPERM. L'ultimo verde **non dimostra che l'intermittenza sia risolta**. `backend/scripts/diagnose-nightly-tests.js` conserva TAP, exit/signal e residui isolati; distingue crash nativo, errore test e cleanup senza retry impliciti. Causa interna del driver non dimostrata: nessuna modifica a dipendenze/formule/golden numerici per ottenere il verde. I conteggi variano se un processo muore prima di scoprire tutti i test e tra runtime con skip differenti.
+
+Controlli ripetibili da radice, senza caricare `.env` operativo:
 
 ```powershell
 npm --prefix backend test
 npm --prefix backend run typecheck
 npm --prefix backend run lint
+node backend/scripts/check-operational-workflow-gates.js
+docker compose -f docker-compose.model-a-research.yml --env-file .env.model-a-prospective.example config --quiet
+powershell -NoProfile -File scripts/verify-model-a-linux.ps1
 git diff --check
 ```
 
-`npm test` include la build. Per i soli test mirati dopo quella build:
-
-```powershell
-$prospectiveTests = @(Get-ChildItem backend/test/model-a-prospective-*.test.js | ForEach-Object { $_.FullName })
-node --test --test-concurrency=1 $prospectiveTests
-node --test backend/test/operational-a-regression.test.js backend/test/ensemble-xg.test.js backend/test/prediction-context-builder.test.js
-node --test backend/test/research-recommendation-runtime.test.js backend/test/challenger-runtime-integration.test.js
-```
-
-L'ispettore opzionale richiede Node >=22.13; i suoi test saltano esplicitamente su Node 20. Questa condizione non aumenta il requisito del backend. Le prove creano solo database e spool temporanei con fixture simulate.
-
-Risultati locali correnti (Windows, Node 24.17.0, `@libsql/client` 0.14.0):
-
-| Controllo | Risultato |
-|---|---|
-| Build tramite `npm test`, poi suite completa `npm run test:ci` dopo l'ultimo test aggiunto | **1.372 test: 1.371 passati, 1 fallito, 0 saltati. Gate non verde.** Il file `research-nightly.test.js` termina con `test failed` senza un errore JS dettagliato. Nel run intermedio erano falliti un diverso processo store e una pulizia `EPERM`. |
-| Gruppo mirato prospettico + golden/xG/contesto + runtime A/C | **98/98 passati, 0 saltati**, inclusi calendario senza schema, timestamp locali e timer esiti; log `continuation-targeted.log`. |
-| File nightly fallito, riesecuzione isolata con reporter TAP | **16/16 passati**. Non chiude l'intermittenza della suite. |
-| Compatibilità Node 20 di input, timer esiti e CLI | **6 passati e 9 saltati esplicitamente**: il CLI operatore richiede Node >=22.13; il backend conserva Node 20. |
-| Typecheck e lint backend, lint esplicito del nuovo CLI | Superati; nessuna dipendenza aggiunta. |
-| Backend compilato effettivo, DB/spool locali temporanei, job esterni spenti | HTTP health 200; riconciliazione d'avvio confermata in audit; SIGTERM **simulato tramite IPC**, uscita 143 e drain true. Nessuna prova di segnale OS nel deploy. |
-| Revisione indipendente e diff | Corretti shutdown delle richieste in corso, equità recovery, attesa risultati e semantica cutoff. Nessun nuovo difetto concreto nella revisione statica successiva; formule/configurazioni/C/Docker fuori dal diff. |
-
-Gli artefatti locali sono sotto `artifacts/model-a-phase4/`, ignorati da Git: suite aggiornata `continuation-suite-complete.log`, gruppo `continuation-targeted.log`, `continuation-nightly-isolated.log`, `backend-smoke-final.cjs`/`.json` e `continuation-benchmark-{1,2,3}.json`. I log del primo passaggio restano separati (`backend-suite-final.log`, `targeted-final.log`, `benchmark-final-*`). Conservarli con commit e ambiente se servono al passaggio di consegne. La suite intermedia Windows/Node 20 del primo passaggio aveva riportato 1.337 test: 1.325 passati, 7 falliti e 5 saltati; fallimenti per pulizia file (`ENOTEMPTY`/`EPERM`) e arresti nativi `0xC0000005` in file SQLite. Non è la suite finale di questa revisione.
-
-Il vecchio errore in `research-nightly.test.js` è stato riprodotto anche isolatamente su Windows/Node 24 dopo quattro run verdi: termina il processo nativo con `0xC0000005`, senza errore JavaScript. Una sonda delle fixture non ha trovato operazioni client pendenti o transazioni logicamente aperte. Non è dimostrata la causa interna del driver, né che il fallimento generico del diverso file `research-recommendation-nightly.test.js` nella suite finale abbia esattamente la stessa causa. Non sono stati aggiunti retry del processo o aggiornamenti delle dipendenze per forzare il verde. I conteggi possono variare quando un processo termina prima di scoprire tutti i test. I successi mirati non equivalgono a suite completa verde.
-
-L'audit successivo ha separato la CI Linux dal problema Windows: su `main` il run esaminato fallisce soltanto sul vecchio hash sorgente Dixon–Coles (i sei scenari numerici e il file nightly passano). Quella CI non verifica questo branch; la correzione del controllo è già nel branch. Nel driver locale `@libsql/client` le connessioni cedute alle transazioni vengono finalizzate separatamente dalla chiusura del client. Le sonde delle fixture recommendation hanno osservato errori `EPERM` effettivamente catturati e ignorati dal cleanup; non dimostrano il nesso con il crash. Nessuna modifica a driver, dipendenze o comportamento C è stata applicata sulla base di questa sola correlazione.
+Lo script Linux copia solo sorgenti/fixture consentiti, senza montare checkout o credenziali/DB/artefatti. Build dedicata con lockfile, rete disabilitata nei test. Richiede Docker Linux e download iniziale dipendenze; non è avvio del Compose operativo. Diagnostico Windows, da backend: `node scripts/diagnose-nightly-tests.js`. Ripetizioni esplicite non sostituiscono un gate fallito.
 
 ## Prestazioni
 
-Il benchmark riproducibile chiama `PredictionService` con fixture simulate, libSQL locale persistente e spool sincronizzato; non misura HTTP, Turso remoto o produzione. Da `backend`, usare una nuova directory locale dedicata per ogni prova:
+Stesso driver `request-benchmark.js`, fixture simulate, libSQL persistente locale, 50 richieste, concorrenza 10, tre processi/directory nuovi per variante; baseline compilata separatamente da `7a6c16b3`, senza suite concorrenti. Valori: mediana delle tre misure, non percentile dei 150 eventi aggregati.
 
-```powershell
-$env:MODEL_A_BENCH_DURABLE_DIR = 'C:/percorso/temporaneo/nuova-prova'
-node experiments/model-a-prospective/request-benchmark.js 'C:/percorso/temporaneo/risultato.json'
-Remove-Item Env:MODEL_A_BENCH_DURABLE_DIR
-```
+| Variante | p50 risposta | p95 risposta | Richieste/s | p95 ammissione persistente | Conferme/s fino al drain |
+|---|---:|---:|---:|---:|---:|
+| Baseline, file | 52,51 ms | 57,27 ms | 188,6 | 57,27 ms | 125,7 |
+| Attuale, file | 68,99 ms | 74,16 ms | 146,0 | 74,16 ms | 101,3 |
+| Attuale, database | 32,25 ms | 41,00 ms | 299,9 | 187,88 ms | 180,5 |
 
-Il processo non carica `.env`; usare un ambiente senza flag recorder ereditati. Il flag cambia soltanto nel processo di prova. Non rimuovere o riusare lo spool di una raccolta effettiva. Audit e snapshot aggiungono fsync e payload: occorre una nuova misura sul volume previsto. Non sono rimossi fsync per migliorare i tempi. Senza budget di latenza concordato e prove rappresentative, l'accettabilità operativa non è dimostrata.
+Intervalli p95 risposta: baseline 57,02–64,99 ms, file 72,77–100,72 ms, database 38,30–42,47 ms. Controlli spenti nelle nove prove: p50 11,76–19,89 ms, p95 18,19–30,25 ms, throughput 480,2–746,7/s. Ogni prova: 50/50 eventi confermati, zero rifiuti/errori, backlog finale zero; **450 eventi, nessuna perdita osservata**. Risposta database può essere pending: la colonna ammissione misura la conferma effettiva. Garanzie file e database diverse, non confrontare soltanto latenza di risposta.
 
-Tre prove indipendenti aggiornate, ciascuna con 50 chiamate e concorrenza 10, directory/DB nuovi e nessuna suite in esecuzione. Tabella: mediana delle tre misure, non percentile aggregato dei 150 eventi.
+Nessun miglioramento complessivo dello spool dimostrato: le evidenze aggiuntive hanno costo materiale. Ottimizzato l'hash interno sul JSON già normalizzato, senza rimuovere normalizzazione pubblica o controlli. La sonda `backend/benchmarks/model-a-recorder-costs.js` separa JSON/spool/audit inclusivi di fsync: su 50 eventi file circa 55 ms spool e 93 ms audit nell'intero ciclo, contro circa 1 ms JSON su 100 eventi attuali. Sonda con sink simulato, non percentili richiesta né Turso; audit include lavoro successivo all'ammissione. Nessun fsync rimosso.
 
-| Metrica | Recorder spento | Recorder acceso |
-|---|---:|---:|
-| p50 | 11,64 ms | 50,68 ms |
-| p95 | 18,23 ms | 56,11 ms |
-| Throughput | 762,1/s | 191,9/s |
-| Intervallo p95 delle tre prove | 17,97–18,91 ms | 55,57–81,18 ms |
+Budget accettabile e prestazioni su storage/rete reali da stabilire. Il collector separato non cambia la pianificazione delle opportunità, ma condivide CPU/DB. Log `completion-bench-{baseline,file,database}-{1,2,3}.json`, `completion-bench-summary.json`, `completion-recorder-costs.json`.
 
-Ogni prova accesa ha 50 eventi accettati e 50 confermati, nessun rifiuto/errore, backlog finale zero: **150 eventi complessivi, nessuna perdita osservata**. Il costo resta materiale: circa 38 ms aggiuntivi al p95 delle fixture e throughput ridotto di circa il 75%; una delle tre prove raggiunge 81,18 ms al p95. Non confrontare direttamente questi numeri con il precedente singolo benchmark su macchina/cache diverse né attribuire la variabilità a una causa non misurata. Lettura incrementale e limiti della coda riducono il lavoro del recupero; togliere fsync dall'ammissione o dall'audit cambierebbe le garanzie. Non è stata adottata una scorciatoia prestazionale senza prova di correttezza. Non si conclude che il costo sia accettabile in produzione.
+## Storage e ripristino
 
-## Blocchi ancora aperti
+| Scelta | Preparazione | Limiti |
+|---|---|---|
+| GitHub finito + Turso esistente | Workflow database, ledger prima del calcolo e conferma dopo commit. Riusa infrastruttura, nessun servizio aggiuntivo obbligatorio. | Target/secret/schema, quote e costi reali da verificare. DB offline: nessuno spool runner, claim/mancanze visibili senza rigenerazione silenziosa. GitHub può ritardare/fermarsi. |
+| Linux con volume | `docker-compose.model-a-research.yml` separato, profilo esplicito, immagine distinta, root read-only/tmpfs, volume e nessuna porta HTTP. Flag false di default. | Solo validato, non avviato. Verificare UID/permessi, directory precreata/parent sincronizzato, capacità/quote/supervisor. Monitor da lanciare separatamente: il solo flag nel Compose non lo avvia. |
+| Volume Hostless | Solo dopo verifica account/mount/costi; documentazione ufficiale su [filesystem](https://docs.hostless.cloud/app/filesystem) e [costi](https://docs.hostless.cloud/billing/costbreakdown). | Prezzo effettivo, backup e sostituzione container non verificati. Nulla acquistato/provisionato. Scratch non persistente. |
 
-1. **Input temporalmente verificabili.** Gli snapshot mostrano quanto osservato localmente, senza dimostrare tutte le disponibilità delle fonti e del training. Risolvere la genealogia oppure preregistrare uno studio limitato all'osservazione locale, distinto dalla validazione rigorosa richiesta. La seconda possibilità richiede una decisione del proprietario e non è adottata da questo lavoro.
-2. **Volume di destinazione.** Il Compose non monta un volume spool; la guida Hostless descrive filesystem effimero. Un percorso non basta. Servono storage privato persistente, permessi reali, backup/restore, hard link, capacità e sopravvivenza alla sostituzione del container. Docker non è stato modificato o riavviato.
-3. **Campionamento e alert.** Il recorder osserva chiamate esistenti, senza garantire una previsione per fixture nella finestra 24h–1h. Fissare origine, calendario, frequenza, responsabilità delle richieste e ricevente degli alert. Il CLI rileva buchi nel calendario disponibile, senza generare previsioni o ricostruire richieste mai registrate.
-4. **Suite e ambiente.** Provare segnali reali, rete/DB indisponibile e ripristino sull'ambiente autorizzato. Restano i fallimenti nativi/filesystem della suite Windows, da risolvere o classificare sul runtime di destinazione prima dell'attivazione; un run isolato verde non li chiude.
-5. **Carico ed esiti.** Definire budget di latenza/backlog e controllare Turso e volume reali. Stabilire verifica degli esiti e recupero delle rettifiche non recepite. Scegliere una fonte ufficiale se richiesta dal protocollo, senza etichettare Understat come tale.
+DB: [backup Turso](../operations/turso-backup.md) autorizzato includendo tabelle prospettiche/coordination. Spool: fermare nuove inferenze, preservare intero volume/audit/parziali, checksum e restore in volume separato con stesso DB/protocollo; verificare recupero/idempotenza prima del riuso. Misurare byte/evento, crescita audit, spazio libero e retention backup. Nessuna cancellazione automatica pendenti o promessa di capacità sufficiente.
 
-Gli stadi non esposti non bloccano l'osservazione tecnica locale se restano null con motivo: grezzo prima del contesto, blending separato e decisione esatta non identificabile. Non diventano confronti statisticamente disponibili. `direct_a`, `shared_ac` e `internal` restano origini distinte; il chiamante può proiettare un pacchetto research dopo la previsione A.
+## Procedura di attivazione controllata
 
-## Procedura per la successiva attivazione controllata
+**Preparata, non eseguita. Pubblicare codice non autorizza schema, deploy o accensione.**
 
-**Procedura preparata, non eseguita. Serve autorizzazione distinta per ambiente, schema e flag. Non attivare con i blocchi precedenti ancora aperti.**
+1. Nominare ambiente/DB e verificare target web/GitHub, branch seguito, auto-deploy/review app, secret senza esporli, runtime/orologio UTC/segnali. Scegliere runner database oppure volume. Stabilire responsabile controlli e budget; non modificare produzione per una verifica locale.
+2. Preregistrare protocollo, stagioni effettive nel DB, Top5, intervallo futuro UTC, origine prospective_a, finestra, prima previsione ed esclusioni. Distinguere raccolta tecnica da validazione rigorosa, oggi senza forecast idonei. Verificare import calendario, non scegliere il campione dopo gli esiti.
+3. Compilare codice verificato, impostare `MODEL_A_COLLECTION_PROTOCOL_ID`, `MODEL_A_COLLECTION_SEASONS` (lista separata da virgole), `MODEL_A_COLLECTION_FROM` e `MODEL_A_COLLECTION_TO` UTC espliciti futuri. Eseguire `node backend/scripts/model-a-prospective-collect.js --print-scope` senza credenziali: non legge il DB. Conservare scope e sha256 restituiti e impostare `MODEL_A_COLLECTION_MANIFEST_SHA256`. Scope diverso richiede protocollo diverso. `.env.model-a-prospective.example` è solo modello: non sovrascrivere env esistenti né committare valori reali.
+4. Ottenere consenso specifico per backup/schema/configurazione sul target. Provare prima `backend/experiments/model-a-prospective/schema.sql` su DB isolato, poi applicarlo manualmente solo dove autorizzato. Non usare bootstrap ordinario per ispezionare produzione. IF NOT EXISTS non corregge colonne/PK incompatibili: predisporre modifica additiva esplicita, senza drop. Nessuna migrazione automatica del collector.
+5. Distribuire con raccolta spenta. Runner: storage database, nessun volatile fallback. Volume: spool privato precreato, UID/hardlink/fsync/parent/spazio/backup/restore provati. Compose separato non modifica docker-compose.yml operativo. Monitor read-only con scope/hash; accesso e configurazione richiedono autorizzazione.
+6. Dopo consenso, abilitare collector/recorder, refresh e monitor. Workflow: variabili repository esplicite; dispatch authorize_collection=true. Processo dedicato: intervallo e supervisor. Monitor separato: MODEL_A_PROSPECTIVE_MONITORING_ENABLED=true e `node backend/scripts/check-model-a-prospective.js --configured-database`. Nessuna API quote o puntata necessaria.
+7. Controllare fixture nuova senza quote: claim precedente, origine/protocollo/hash, finestra e conferma DB. Confrontare calendario/ledger, escluse/mancanti e stadi null con motivo; niente backfill dopo finestra.
+8. Provare sul target autorizzato SIGTERM/restart/sostituzione container, DB offline/ripristino e shutdown del supervisor. File accettato deve restare nello spool o nel DB; receipt pending non è persistito. Claim ambiguo da verificare prima di interventi.
+9. Verificare esiti reali, rinvio/annullamento/rettifica e cursore dopo riavvio. Con N candidati/pagina20 un giro richiede almeno ceil(N/20) esecuzioni: frequenza e grace coerenti. Default monitor liveness2h, pendenti1h, grace risultati6h, orizzonte30giorni; variazioni preregistrate, non per nascondere errori.
+10. Verificare destinatari notifiche GitHub e controllo dell'assenza di run: il monitor nello stesso job non avvisa se GitHub non parte. Conservare evidenze/versioni. Sospendere sulle anomalie senza cancellarle.
 
-1. Preregistrare UTC d'avvio, protocollo, campionati/stagioni/origine, finestra e prima previsione, versioni, esclusioni, copertura, budget latenza e ricevente degli alert. Congelare formule/pesi; conservare commit e hash della configurazione senza segreti.
-2. Applicare esplicitamente `backend/experiments/model-a-prospective/schema.sql` solo a un DB di prova isolato e ripetere test sul runtime/filesystem previsto. Non avviare `DatabaseService` con credenziali operative per un'ispezione: lo startup inizializza lo schema applicativo.
-3. Associare volume e singolo database; verificare permessi del servizio, accesso privato, spazio/crescita audit, hard link, backup e restore. `0700/0600` non certificano ACL Windows o permessi remoti. Una directory locale non prova persistenza dopo sostituzione container.
-4. Ottenere autorizzazione specifica per schema/deploy/flag nell'ambiente nominato. Fare backup e controllo colonne/indici/trigger; applicare lo schema solo al DB autorizzato. `IF NOT EXISTS` non aggiorna strutture incompatibili. Nessuna migrazione recorder è collegata allo startup.
-5. Distribuire prima con `MODEL_A_PROSPECTIVE_ENABLED=false`. Configurare `MODEL_A_PROSPECTIVE_SPOOL_DIR` sul volume verificato, `MODEL_A_PROSPECTIVE_ALLOW_VOLATILE` assente/false, `MODEL_A_PROSPECTIVE_SHUTDOWN_MS` entro 100–30.000 ms e grace period sufficiente. Credenziali solo nella configurazione server prevista, mai nei report.
-6. Dopo il consenso, accendere il flag. Controllare nuove previsioni pre-kickoff: origine, stadi, hash, timestamp/limiti, righe immutable, audit e backlog. Confrontare tutte le fixture nello scope, incluse astensioni e probabilità mancanti. `inputAvailableThrough=null` resta non valutabile per il criterio temporale rigoroso.
-7. Provare riavvio e segnali reali, richieste in corso, timeout, DB offline/ripristinato e un esito verificabile. Un evento accettato deve essere nel DB o nello spool conservato; lo stesso ID non deve duplicare righe. Controllare correzioni e durata dell'intero ciclo risultati.
-8. Monitorare audit/log esterni, spazio, parziali/corrotti, tentativi senza conferma, errori risultati e fixture scadute senza previsione. Nessun alert remoto viene configurato da questo lavoro. Sospendere lo studio in caso di anomalie, conservando i dati.
+**Disattivazione:** spegnere nuove inferenze/pianificazione, verificare drain, conservare DB/volume/audit e fermare secondo procedura. Recorder spento non recupera lo spool: serve sessione successiva controllata su stesso volume/DB senza nuove inferenze. Nessuna rimozione file/reset ledger per far apparire completo il campione.
 
-Per ispezionare una **copia locale consistente già autorizzata** con Node >=22.13, sostituire scope e percorsi con quelli preregistrati, usando gli identificativi effettivi del database:
+## Blocchi e criteri
 
-```powershell
-node backend/scripts/model-a-prospective-inspect.js --db-url "file:///C:/prove/copia.db" --competition "Serie_A" --season "2026/2027" --from "2026-11-04T00:00:00Z" --to "2026-12-01T00:00:00Z" --cutoff "2026-11-10T00:00:00Z" --origin direct_a --spool-dir "C:/prove/spool-copia"
-```
-
-Il CLI rifiuta URL remoti e file mancanti, non legge `.env` e non modifica schema o spool. Il cutoff filtra l'istante della previsione, **senza provare che fosse già inserita nel DB a quell'ora**: un recupero successivo compare nell'osservazione attuale. `measuredAt` e `timeSemantics` esplicitano la distinzione. Audit e spool sono osservazioni correnti separate, non una fotografia storica atomica.
-
-Con tabelle prospettiche assenti o incompatibili l'ispettore espone comunque il calendario se leggibile. Controllare `calendarEvaluable`, `coverageEvaluable`, `storageStatus` e `schema.tables`: le metriche non misurabili sono null, non zero. La tabella risultati mancante non impedisce il confronto fra calendario e forecast già presenti. Lo schema complessivo resta non compatibile ed exit code 1 segnala il blocco all'attivazione, senza installare nulla.
-
-**Disattivazione:** spegnere il flag nella configurazione autorizzata e riavviare secondo la procedura verificata, conservando volume, DB, audit e backup. Un riavvio a flag spento non drena automaticamente i pendenti: serve un successivo processo controllato a flag attivo con lo stesso volume/DB. Non eliminare file per far apparire nullo il backlog; i corrotti richiedono diagnosi esplicita.
-
-## Compatibilità e conclusione
-
-Non sono cambiati formule o sorgenti C né i modelli condivisi. Nei casi provati, acceso/spento lascia invariati probabilità e decisioni A. Le osservazioni in `PredictionService` cambiano comunque hash operativo e versione `APP-A-*`; le identità che incorporano l'hash vanno registrate come nuova versione, anche a flag spento. Non equivale a una modifica predittiva né autorizza promozioni di C.
+| Problema | Bloccante raccolta tecnica? | Prossima azione |
+|---|---|---|
+| Target/schema/autorizzazione | Sì | Identità DB, backup/schema manuale e flag autorizzati. Vecchie sole SELECT locali trovavano tabelle assenti, senza certificare lo stato attuale. |
+| Runtime/storage scelti | Sì | Prova target di permessi/commit/restart/offline/drain. Volume non necessario nel runner database; file mode vietato sullo scratch. |
+| Scope/import/monitoraggio | Sì | Manifest futuro, import funzionante, controllo finestre e responsabile avvisi. |
+| Genealogia temporale | No tecnica; sì validazione rigorosa | Conservare limite per evento; servono evidenze ulteriori reali, non un cambio etichetta. |
+| Windows/libSQL intermittente | Non da solo per Linux provato | Diagnostico ripetibile e fallimenti visibili. Ultimi gate verdi, causa nativa irrisolta. |
+| Carico/quote/costi | Sì prima accensione | Budget e prova autorizzata; benchmark locali non dimostrano sostenibilità remota. |
+| Rettifiche vecchie/ufficialità | Limite da accettare | Classificazione fuori orizzonte/fonte ufficiale se necessaria; non inventare risultati. |
+| Main/Hostless | Solo pubblicazione main | Verificare auto-deploy/review app; consegna branch separata ammessa. |
 
 | Criterio | Stato |
 |---|---|
-| A — Preparazione tecnica | Non conclusa: generatore/copertura, storage del processo scelto, genealogia temporale, alert e prove ambiente restano bloccanti; suite Windows ancora intermittente. |
-| B — Raccolta attiva | Non avviata da questi interventi; nessuna migrazione, abilitazione o distribuzione operativa. |
-| C — Validazione statistica | Non conclusa: richiede campione indipendente adeguato e temporalmente valutabile. Nessun miglioramento di affidabilità o profitto dimostrato. |
-| Git | Main non integrato per gli effetti automatici sul DB. Nessun branch eliminato: il lavoro Fase 4 non è incorporato in main e l'uso esterno degli altri branch non è certificato. Hash e pubblicazione vanno verificati nel report di consegna, senza conservarli come stato permanente del prodotto. |
+| A — Preparazione tecnica | Implementazione e gate locali completati; accettazione ambiente e decisioni operative necessarie. Non conclusa in senso incondizionato. |
+| B — Raccolta prospettica | Non attivata da questo lavoro. |
+| C — Validazione statistica | Non conclusa: campione futuro indipendente adeguato, copertura/esclusioni, Brier/Log Loss/calibrazione e incertezza, distinguendo rigoroso/tecnico. Nessuna prova di maggiore affidabilità o profitto. |
+
+## File della consegna
+
+| Responsabilità | File principali |
+|---|---|
+| Cattura/persistenza | PredictionService.ts, ModelAProspectiveInputs.ts, ModelAProspectiveRecorder.ts, ModelAProspectiveSpool.ts |
+| Collector | ModelAProspectiveCollection.ts, scripts/model-a-prospective-collect.js, schema SQL e workflow prospettico |
+| Risultati | ModelAProspectiveResultRefresh.ts, paired-results.sql, technical-paired-results.sql |
+| Monitor | ModelAProspectiveMonitoring.ts, model-a-prospective-inspect.js, check-model-a-prospective.js, helper alerts/result-monitoring |
+| Pubblicazione | calibration-warm.yml, ci.yml, check-operational-workflow-gates.js |
+| Prove/configurazione | Test model-a-prospective/workflow/calibrazione, deviazioni sorgente autorizzate, benchmark, diagnostico nightly, scripts/verify-model-a-linux.ps1, Compose/env example separati |
+| Guide | Handoff/protocollo/A, README, GitHub Actions/Hostless e README fixture golden |
+
+Nessuna nuova dipendenza, formula, peso o sorgente C; nessun Docker operativo o DB remoto modificato. Gli osservatori PredictionService cambiano hash e identità APP-A-*: registrare nuova versione anche a numeri invariati. Non equivalgono a modifica predittiva o promozione C.

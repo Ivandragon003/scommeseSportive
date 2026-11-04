@@ -16,7 +16,11 @@ autorizzate successive: correzione degli xG mancanti in DC, Poisson e contesto
 (`0ecda0a26097d6b73027f4b053194ec68b599b6e`), osservatori Fase 4
 (`028a041d4788c7afb3383f602fe2fc5f5d7cf14b`) e cattura opzionale degli input
 Fase 4 rivista nel task corrente, inclusa l'osservazione aggiuntiva dei
-timestamp locali già presenti nelle righe.
+timestamp locali già presenti nelle righe, gli identificativi/hash delle fonti
+consumate e il riscontro opzionale di consegna del recorder per il collector
+indipendente. Il callback è protetto: un errore dell'osservatore non cambia
+il risultato di `predict`. Protocollo, manifest e claim identificano la raccolta,
+senza entrare nei calcoli statistici.
 Questi timestamp non diventano date di pubblicazione del provider.
 Ogni blocco conserva prima/dopo esatti,
 contesto e motivo; i blocchi storici provengono dai relativi diff Git.

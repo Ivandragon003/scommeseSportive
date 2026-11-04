@@ -87,9 +87,80 @@ persistenza dello spool. Il CLI tenta il drain nel `finally` ordinario;
 non installa lo shutdown web su SIGTERM e il timeout shell può terminarlo.
 Il timer risultati vive solo mentre quel processo è in esecuzione:
 abilitare il recorder sul web non lo abilita automaticamente nella Nightly.
-La raccolta richiede prima una decisione su processo, calendario e storage,
-senza introdurre dipendenze da quote per la sola previsione sportiva.
-Stato e blocchi nel [passaggio di consegne A](models/MODEL-A-FASE-4-HANDOFF.md).
+Il generatore separato descritto qui sotto risolve questa dipendenza dalle
+quote senza modificare il percorso Nightly. Stato e blocchi nel
+[passaggio di consegne A](models/MODEL-A-FASE-4-HANDOFF.md).
+
+## Raccolta prospettica A separata, spenta di default
+
+Il workflow [Collect prospective Model A observations](../.github/workflows/model-a-prospective.yml)
+esegue un ciclo finito ogni 30 minuti. Non reagisce a push o pull request.
+Il job intero, inclusi installazione e accesso al DB, richiede la variable
+repository `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED` uguale a `true`.
+Se assente o diversa, il job non parte. L'avvio manuale richiede anche
+`authorize_collection=true`, booleano obbligatorio con default `false`.
+I ritardi o le interruzioni di GitHub possono lasciare finestre scoperte:
+la cadenza dichiarata non garantisce copertura completa.
+
+Prima dell'attivazione autorizzata configurare e congelare:
+
+| Variable repository | Contenuto richiesto |
+| --- | --- |
+| `MODEL_A_COLLECTION_PROTOCOL_ID` | Identificativo del protocollo |
+| `MODEL_A_COLLECTION_MANIFEST_SHA256` | SHA-256 del manifest canonico, 64 caratteri esadecimali minuscoli |
+| `MODEL_A_COLLECTION_SEASONS` | Stagioni separate da virgole, con identificativi corrispondenti al DB |
+| `MODEL_A_COLLECTION_FROM`, `MODEL_A_COLLECTION_TO` | Intervallo UTC, inizio incluso e fine esclusa |
+| `MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED` | Refresh HTTP Understat degli esiti solo se `true`; default `false` |
+| `MODEL_A_PROSPECTIVE_MONITORING_ENABLED` | Controllo del DB e diagnostica GitHub solo se `true`; default `false` |
+
+Il manifest include le cinque leghe, l'origine `prospective_a` e la finestra
+T−24h–T−60min. Con scope già configurato in ambiente, il comando seguente
+stampa manifest e hash senza aprire il DB; richiede una build backend coerente:
+
+```powershell
+node backend/scripts/model-a-prospective-collect.js --print-scope
+```
+
+Il [collector](../backend/scripts/model-a-prospective-collect.js) legge il
+calendario importato, chiama A senza richiedere quote e registra claim,
+esclusioni e conferme. La conferma richiede la previsione effettivamente
+salvata, associata a protocollo, fixture, kickoff e finestra. Un tentativo
+non confermato resta distinto da una previsione; non viene rigenerato
+automaticamente. Questo non certifica completezza del calendario né
+disponibilità storica rigorosa degli input.
+
+Sul runner il job usa `MODEL_A_PROSPECTIVE_STORAGE=database`, recorder attivo
+e `MODEL_A_COLLECTION_INTERVAL_SECONDS=0`: un solo ciclo, senza dipendere
+dal filesystem effimero per considerare acquisito un evento. Richiede i
+secret Turso esistenti e lo schema prospettico applicato **separatamente e
+con autorizzazione**. Non installa lo schema, non esegue il comando dedicato
+di warmup, non avvia il backend HTTP e non riceve chiavi provider quote.
+La configurazione del workflow non attesta che schema, credenziali, flag o
+raccolta siano stati attivati sul target.
+
+Se il monitoraggio è abilitato, dopo il collector il job tenta anche in caso
+di errore:
+
+```powershell
+node backend/scripts/check-model-a-prospective.js --configured-database
+```
+
+Il controllo usa sole `SELECT`, scope e hash congelati nel DB; non avvia
+`DatabaseService`, bootstrap o notifiche esterne. Il report aggregato mantiene
+distinti copertura, attività del collector, consegne non confermate ed esiti.
+Il riepilogo GitHub mostra stato e numero di alert; JSON e log diagnostici
+sono conservati come artifact per 14 giorni. La pipeline conserva l'exit
+code del controllo, quindi gli alert non diventano un successo per effetto
+di `tee`. Gli artifact non sono un backup degli eventi. Questo monitor nello
+stesso job non avvisa autonomamente se il workflow non parte o termina prima
+del controllo; la continuità va verificata anche dai run GitHub.
+
+Per sospendere nuove raccolte disabilitare
+`MODEL_A_PROSPECTIVE_COLLECTION_ENABLED`, conservando DB, ledger e previsioni.
+Le quattro abilitazioni — raccolta, recorder, refresh e monitoraggio — restano
+distinte per il processo locale; il workflow imposta recorder e raccolta solo
+dopo il gate del job. Il profilo Compose opzionale è descritto nella
+[guida hosting e storage](operations/hostless-deployment.md).
 
 ## Configurazione
 
@@ -207,8 +278,21 @@ preparata, non dedurla dal solo badge del workflow.
 ## Calibrazione, arresto e rollback
 
 [Prepare prediction calibration](../.github/workflows/calibration-warm.yml)
-prepara cache sul DB configurato per push pertinenti o avvio manuale;
-esclude i cambi esclusivamente `backend/src/research/**`.
+non parte più al push. L'unico trigger è manuale e il job richiede insieme
+`authorize_database_writes=true` e la variable repository
+`OPERATIONAL_CALIBRATION_ENABLED=true`; l'input è obbligatorio e ha default
+`false`. Lo script applica lo schema additivo della cache e salva i profili
+sul DB dei secret: pubblicare codice non autorizza questa operazione.
+Il warmup già previsto nel ciclo Nightly resta distinto e invariato.
+La CI ordinaria conserva lint, typecheck, build e test su push/PR di `main`.
+Il controllo sorgente ripetibile, senza credenziali o accesso remoto, è:
+
+```powershell
+node backend/scripts/check-operational-workflow-gates.js
+```
+
+Verifica i contratti dei workflow supportati; non certifica impostazioni di
+auto-deploy esterne a GitHub, valori remoti o disponibilità del database.
 [Research training](../.github/workflows/research-training.yml) gestisce il
 training separato: un risultato di benchmark non promuove automaticamente C.
 
