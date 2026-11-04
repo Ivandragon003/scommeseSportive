@@ -35,6 +35,8 @@ Directory sync attesta quell'operazione, **non la resistenza a perdita di alimen
 
 `node backend/scripts/check-operational-workflow-gates.js` controlla i contratti nel repository, non le impostazioni esterne. Vedere [Hostless](../operations/hostless-deployment.md) e [GitHub Actions](../github-actions-nightly-sync.md). Commit e risultato del push appartengono al report Git, non sono uno stato operativo permanente di questa guida.
 
+La pianificazione GitHub esegue il workflow sul branch predefinito; il solo branch di preparazione non la attiva. Anche il dispatch iniziale richiede il file sul branch predefinito. Per scegliere quel runner occorre prima un'integrazione sicura in main, escluso l'auto-deploy esterno, oppure scegliere il processo dedicato autorizzato. Vedere le [regole GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
 ## Verifiche della consegna
 
 Fixture e database/spool locali, senza credenziali operative o provider reali. Artefatti ignorati sotto `artifacts/model-a-phase4/`, non backup operativo.

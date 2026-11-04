@@ -95,6 +95,13 @@ quote senza modificare il percorso Nightly. Stato e blocchi nel
 
 Il workflow [Collect prospective Model A observations](../.github/workflows/model-a-prospective.yml)
 esegue un ciclo finito ogni 30 minuti. Non reagisce a push o pull request.
+La [regola GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+richiede il workflow sul branch predefinito per la pianificazione; anche il
+dispatch iniziale richiede il file sul branch predefinito. La pubblicazione
+del solo branch di preparazione non rende disponibile questa automazione.
+Prima di scegliere il runner GitHub, integrare in sicurezza il workflow in
+`main`, verificando separatamente l'auto-deploy Hostless; in alternativa
+predisporre il processo dedicato autorizzato descritto nell'handoff.
 Il job intero, inclusi installazione e accesso al DB, richiede la variable
 repository `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED` uguale a `true`.
 Se assente o diversa, il job non parte. L'avvio manuale richiede anche
