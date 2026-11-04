@@ -1,6 +1,7 @@
 const { test }=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const path=require('node:path');const os=require('node:os');const {fork}=require('node:child_process');const {createClient}=require('@libsql/client');
 const {DatabaseService}=require('../dist/db/DatabaseService');
+const {PredictionService}=require('../dist/services/PredictionService');
 const {recoverModelAProspective,drainModelAProspective,scheduleModelAProspective,modelAProspectiveStats}=require('../dist/research/ModelAProspectiveRecorder');
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 test('fsynced forecast survives process kill and recovers into persistent libSQL after kickoff',async t=>{
@@ -19,7 +20,8 @@ test('fsynced forecast survives process kill and recovers into persistent libSQL
   await wait(2200);process.env.MODEL_A_PROSPECTIVE_ENABLED='true';process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR=spool;
   const wrapper={execute:(sql,args)=>db.execute({sql,args}),get:async(sql,args)=>(await db.execute({sql,args})).rows[0]??null};
   const sink={appendModelAProspectiveForecast:r=>DatabaseService.prototype.appendModelAProspectiveForecast.call(wrapper,r)};
-  assert.equal(recoverModelAProspective(sink),1);assert.equal(await drainModelAProspective(5000),true);
+  new PredictionService(sink,{getMatchDetails:async()=>assert.fail('unexpected provider call')});
+  assert.equal(await drainModelAProspective(5000),true);
   assert.equal((await db.execute('SELECT count(*) n FROM model_a_prospective_forecasts')).rows[0].n,1);
   assert.equal(recoverModelAProspective(sink),0);assert.equal(fs.readdirSync(spool).filter(n=>n.endsWith('.json')).length,0);
 });

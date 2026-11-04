@@ -49,6 +49,14 @@ test('live A integration persists immutable pre-match snapshots without changing
   try { assert.equal((await reopened.execute('SELECT COUNT(*) AS n FROM model_a_prospective_forecasts')).rows[0].n, 1); }
   finally { reopened.close(); }
   const saved = JSON.parse(rows[0].payload_json);
+  const { modelAInputSnapshotHash } = require('../dist/research/ModelAProspectiveInputs');
+  assert.equal(saved.provenance.inputSnapshotHash, modelAInputSnapshotHash(saved.provenance.snapshot));
+  assert.equal(saved.provenance.temporalStatus, 'locally_observed');
+  assert.equal(saved.provenance.inputAvailableThrough, null);
+  assert.ok(Date.parse(saved.provenance.observedInputsThrough) <= Date.parse(saved.forecastAt));
+  assert.equal(saved.provenance.snapshot.values.analysis.flatProbabilities.over25,
+    off.canonicalRecommendation.probabilities.raw.over25);
+  assert.equal(saved.provenance.snapshot.values.contextual.dcParameters.attackParams.home, params.attackParams.home);
   assert.equal(saved.stages.contextual.value.over, off.canonicalRecommendation.probabilities.raw.over25);
   assert.equal(saved.stages.ensembleRaw.value, null); assert.equal(saved.stages.marketBlended.value, null);
   assert.equal(saved.stages.calibrated.value.over, service.engine.calibrate(saved.stages.contextual.value.over, [{ x: 0, y: 0 }, { x: .5, y: .45 }, { x: 1, y: 1 }], 200));

@@ -2,6 +2,7 @@ import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData }
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
 import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';
+import { ModelAInputCapture } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
@@ -2230,6 +2231,14 @@ export class PredictionService {
       }
     }
 
+    const prospectiveInputs = modelAProspectiveEnabled() ? new ModelAInputCapture() : null;
+    prospectiveInputs?.observe('contextual', {
+      match: { matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
+        kickoffAt: matchRow?.date ?? null, source: matchRow?.source ?? null, sourceMatchId: matchRow?.source_match_id ?? null },
+      inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(),
+      homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,
+      context, lineupXgAdjustments,
+    });
     const probs = model.computeFullProbabilities(
       request.homeTeamId,
       request.awayTeamId,
@@ -2243,6 +2252,11 @@ export class PredictionService {
     // curve vengono applicate esattamente alle probabilità blendate.
     const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;
     const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');
+    prospectiveInputs?.observe('ensemble', {
+      homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
+      poissonParameters: ensemblePoisson?.getParams() ?? null,
+      ensembleConfig: predictionEngineConfig.ensemble, dcProbabilities: probs.flatProbabilities,
+    });
     probs.flatProbabilities = this.applyEnsembleBlend(
       probs.flatProbabilities, ensemblePoisson, request.homeTeamId, request.awayTeamId,
     );
@@ -2365,6 +2379,12 @@ export class PredictionService {
       } } : {}),
     };
     const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();
+    prospectiveInputs?.observe('analysis', {
+      flatProbabilities: probs.flatProbabilities, marketGroups, marketNames,
+      calibrationProfile, adaptiveTuning: engineTuningAtAnalysis, analysisContext,
+      predictionConfig, predictionEngineConfig, alignedOdds, alignedBookmakerBySelection,
+      sharedOdds: options.sharedOdds ?? null,
+    });
     let prospectiveCalibrated: Record<string, number> | null = null;
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
@@ -2526,6 +2546,7 @@ export class PredictionService {
       try {
         scheduleModelAProspective(this.db, {
           match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',
+          provenance: prospectiveInputs?.finish(),
           model: canonicalRecommendation.model, contextual: probs.flatProbabilities,
           calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,
           selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,
