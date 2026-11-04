@@ -1,20 +1,13 @@
 name: Prepare prediction calibration
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'backend/src/**'
-      # C research changes must not warm operational A profiles.
-      - '!backend/src/research/**'
-      - 'backend/migrations/**'
-      - 'backend/package*.json'
-      - 'backend/tsconfig.json'
-      - 'backend/Dockerfile'
-      - 'backend/scripts/clean-build.js'
-      - 'backend/scripts/warm-calibration.js'
-      - '.github/workflows/calibration-warm.yml'
   workflow_dispatch:
+    inputs:
+      authorize_database_writes:
+        description: Authorize the cache migration and calibration profile writes on the configured database
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -25,8 +18,8 @@ concurrency:
 
 jobs:
   prepare:
-    # A C-only API integration must not rebuild operational A calibration state.
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[c-preview-only]')
+    # Publication never implies permission to migrate or warm the operational database.
+    if: github.event_name == 'workflow_dispatch' && inputs.authorize_database_writes == true && vars.OPERATIONAL_CALIBRATION_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

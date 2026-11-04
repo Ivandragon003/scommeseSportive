@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - codex/model-a-phase4-readiness
   pull_request:
     branches:
       - main

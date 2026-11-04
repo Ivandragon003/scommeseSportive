@@ -24,12 +24,13 @@ test('clean build removes obsolete compiled modules while preserving sources', (
   }
 });
 
-test('push preparation builds matching code and only prepares calibration, independently of nightly ingestion', () => {
+test('authorized manual preparation builds matching code and only prepares calibration, independently of nightly ingestion', () => {
   const workflow = readFileSync(join(__dirname, '../../.github/workflows/calibration-warm.yml'), 'utf8');
   const pkg = require('../package.json');
   const docker = readFileSync(join(__dirname, '../Dockerfile'), 'utf8');
-  assert.match(workflow, /push:[\s\S]*branches: \[main\]/);
+  assert.doesNotMatch(workflow, /^ {2}(?:push|pull_request):/m);
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /inputs\.authorize_database_writes == true && vars\.OPERATIONAL_CALIBRATION_ENABLED == 'true'/);
   assert.match(workflow, /npm ci[\s\S]*npm run build[\s\S]*npm run calibration:warm/);
   assert.doesNotMatch(workflow, /nightly-sync\.sh|ODDS_API_KEY|API_FOOTBALL_KEY|AUTO_BET/);
   assert.equal(pkg.scripts.prebuild, 'node scripts/clean-build.js');
