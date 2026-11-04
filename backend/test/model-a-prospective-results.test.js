@@ -39,8 +39,8 @@ test('only verified final evidence links immutable predictions, with idempotent 
   assert.equal((await recordModelAVerifiedResult(sink, { ...row, home_goals: 3, raw_json: JSON.stringify(correction) })).status, 'recorded');
   assert.equal((await db.execute('SELECT COUNT(*) AS n FROM model_a_prospective_results')).rows[0].n, 2);
   await assert.rejects(db.execute('UPDATE model_a_prospective_results SET home_goals=9'), /append-only/);
-  const sql = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/paired-results.sql'), 'utf8');
-  const paired = await db.execute({ sql, args: { cutoff: iso(3600000), origin: 'direct_a' } });
+  const sql = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/technical-paired-results.sql'), 'utf8');
+  const paired = await db.execute({ sql, args: { cutoff: iso(3600000), origin: 'direct_a', protocol_id: null } });
   assert.equal(paired.rows.length, 1); assert.equal(paired.rows[0].id, 'a'); assert.equal(paired.rows[0].home_goals, 3);
   assert.equal((await db.execute('SELECT COUNT(*) AS n FROM model_a_prospective_forecasts')).rows[0].n, 4);
 });

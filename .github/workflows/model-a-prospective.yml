@@ -1,0 +1,105 @@
+name: Collect prospective Model A observations
+
+on:
+  schedule:
+    # Finite collection on the configured calendar; GitHub scheduling can be delayed.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      authorize_collection:
+        description: Authorize prospective forecast and outcome writes within the preregistered scope
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-a-prospective-collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    # Missing/false repository opt-in prevents even installation and database access.
+    if: vars.MODEL_A_PROSPECTIVE_COLLECTION_ENABLED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.authorize_collection == true))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: Europe/Rome
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      MODEL_A_PROSPECTIVE_COLLECTION_ENABLED: 'true'
+      MODEL_A_PROSPECTIVE_ENABLED: 'true'
+      MODEL_A_PROSPECTIVE_STORAGE: database
+      MODEL_A_COLLECTION_PROTOCOL_ID: ${{ vars.MODEL_A_COLLECTION_PROTOCOL_ID }}
+      MODEL_A_COLLECTION_MANIFEST_SHA256: ${{ vars.MODEL_A_COLLECTION_MANIFEST_SHA256 }}
+      MODEL_A_COLLECTION_SEASONS: ${{ vars.MODEL_A_COLLECTION_SEASONS }}
+      MODEL_A_COLLECTION_FROM: ${{ vars.MODEL_A_COLLECTION_FROM }}
+      MODEL_A_COLLECTION_TO: ${{ vars.MODEL_A_COLLECTION_TO }}
+      MODEL_A_COLLECTION_INTERVAL_SECONDS: '0'
+      MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED: ${{ vars.MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED || 'false' }}
+      MODEL_A_PROSPECTIVE_MONITORING_ENABLED: ${{ vars.MODEL_A_PROSPECTIVE_MONITORING_ENABLED || 'false' }}
+      PLAYER_DATA_ENABLED: 'false'
+      PLAYER_AVAILABILITY_ENABLED: 'false'
+      API_FOOTBALL_ENABLED: 'false'
+      ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'
+      ODDS_EXTRA_EVENT_NETWORK_ENABLED: 'false'
+      RESEARCH_NIGHTLY_ENABLED: 'false'
+      RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: 'false'
+      RESEARCH_T15_SCHEDULER_ENABLED: 'false'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate preregistered scope before installation or database access
+        shell: bash
+        run: |
+          for name in MODEL_A_COLLECTION_PROTOCOL_ID MODEL_A_COLLECTION_MANIFEST_SHA256 MODEL_A_COLLECTION_SEASONS MODEL_A_COLLECTION_FROM MODEL_A_COLLECTION_TO; do
+            test -n "${!name}" || { echo "Missing required collection scope: $name"; exit 1; }
+          done
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Collect the due observations without migrations or operational warmup
+        run: node scripts/model-a-prospective-collect.js
+      - name: Check configured collection scope with read-only queries
+        if: ${{ always() && env.MODEL_A_PROSPECTIVE_MONITORING_ENABLED == 'true' }}
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p artifacts
+          node scripts/check-model-a-prospective.js --configured-database | tee artifacts/model-a-prospective-monitor.json
+      - name: Summarize monitoring status without event payloads
+        if: ${{ always() && env.MODEL_A_PROSPECTIVE_MONITORING_ENABLED == 'true' }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          fs.mkdirSync('artifacts', { recursive: true });
+          let status = 'unavailable', alerts = 'unknown';
+          try {
+            const report = JSON.parse(fs.readFileSync('artifacts/model-a-prospective-monitor.json', 'utf8'));
+            if (['ok', 'warning', 'critical', 'disabled'].includes(report.status)) status = report.status;
+            if (Array.isArray(report.alerts)) alerts = String(report.alerts.length);
+          } catch { /* The failed check remains visible; do not publish raw error details. */ }
+          const summary = `Model A prospective monitoring: ${status}; alerts: ${alerts}.\nDiagnostic artifacts are not a backup of forecast events.\n`;
+          fs.writeFileSync('artifacts/model-a-prospective-monitor.log', summary);
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          NODE
+      - name: Retain aggregate monitoring diagnostics
+        if: ${{ always() && env.MODEL_A_PROSPECTIVE_MONITORING_ENABLED == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: model-a-prospective-monitor-${{ github.run_id }}
+          path: |
+            backend/artifacts/model-a-prospective-monitor.json
+            backend/artifacts/model-a-prospective-monitor.log
+          if-no-files-found: warn
+          retention-days: 14

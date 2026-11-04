@@ -1,7 +1,7 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
-import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';
+import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';
 import { ModelAInputCapture, modelASourceTimestampEvidence } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
@@ -361,7 +361,11 @@ export interface PredictionRequest {
 
 export interface PredictionExecutionOptions {
   /** Attribution only; does not change the prediction. Unspecified calls are internal. */
-  prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal';
+  prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a';
+  /** Recording acknowledgement for the optional research collector; never changes output. */
+  onProspectiveRecord?: (receipt: ModelAProspectiveReceipt) => void;
+  /** Durable research claim attribution; has no role in probabilities or betting decisions. */
+  prospectiveCollection?: { protocolId: string; manifestSha256: string; claimId: string };
   /** Operational snapshot time; this does not refit models or reconstruct a historical model. */
   asOf?: string;
   /** Nightly already archives its immutable input and decisions. */
@@ -2232,6 +2236,9 @@ export class PredictionService {
     }
 
     const prospectiveInputs = modelAProspectiveEnabled() ? new ModelAInputCapture() : null;
+    prospectiveInputs?.observeSources('contextual', { fixture: matchRow, homeTeam, awayTeam, referee,
+      homePlayers, awayPlayers, lineupStatusRows, homeHistoricalCoverage, awayHistoricalCoverage,
+      homePromotedHistory, awayPromotedHistory, homeSchedule, awaySchedule });
     prospectiveInputs?.observe('contextual', {
       match: { matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
         kickoffAt: matchRow?.date ?? null, source: matchRow?.source ?? null, sourceMatchId: matchRow?.source_match_id ?? null },
@@ -2254,6 +2261,7 @@ export class PredictionService {
     // curve vengono applicate esattamente alle probabilità blendate.
     const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;
     const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');
+    prospectiveInputs?.observeSources('ensemble', { dcParameters: model.getParams(), poissonParameters: ensemblePoisson?.getParams() ?? null });
     prospectiveInputs?.observe('ensemble', {
       homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
       poissonParameters: ensemblePoisson?.getParams() ?? null,
@@ -2381,6 +2389,8 @@ export class PredictionService {
       } } : {}),
     };
     const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();
+    prospectiveInputs?.observeSources('analysis', { calibrationProfile, adaptiveTuning: engineTuningAtAnalysis,
+      sharedOdds: options.sharedOdds ?? null });
     prospectiveInputs?.observe('analysis', {
       flatProbabilities: probs.flatProbabilities, marketGroups, marketNames,
       calibrationProfile, adaptiveTuning: engineTuningAtAnalysis, analysisContext,
@@ -2546,8 +2556,9 @@ export class PredictionService {
 
     if (modelAProspectiveEnabled()) {
       try {
-        scheduleModelAProspective(this.db, {
+        const receipt = scheduleModelAProspective(this.db, {
           match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',
+          collection: options.prospectiveCollection,
           provenance: prospectiveInputs?.finish(),
           model: canonicalRecommendation.model, contextual: probs.flatProbabilities,
           calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,
@@ -2560,6 +2571,8 @@ export class PredictionService {
             underCurve: (calibrationProfile.byFamily.goal_under?.points?.length ?? 0) >= 2 ? 'family'
               : calibrationProfile.calibrationPoints.length >= 2 ? 'global' : 'unavailable' },
         });
+        try { options.onProspectiveRecord?.(receipt); }
+        catch { console.error('[ModelAProspective] recording observer failed'); }
       } catch (error) { console.error('[ModelAProspective] capture failed:', error); }
     }
 

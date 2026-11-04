@@ -16,6 +16,8 @@ test('effective inputs are copied before use and hashed from the actual persiste
   assert.equal(result.snapshot.values.contextual.parameters.date, '2026-01-01T00:00:00.000Z');
   assert.equal(result.inputSnapshotHash, modelAInputSnapshotHash(result.snapshot));
   assert.equal(result.temporalStatus, 'locally_observed');
+  assert.equal(result.classification, 'technical_only');
+  assert.equal(result.rigorousEligible, false);
   assert.equal(result.inputAvailableThrough, null, 'local observation is not upstream publication evidence');
   assert.ok(Date.parse(result.observedInputsThrough) <= Date.now());
   for (const component of result.components) {
@@ -29,6 +31,8 @@ test('snapshot hashing is stable across object key ordering but sensitive to arr
   assert.equal(modelAInputSnapshotHash({ b: [0, null], a: { c: 1, a: 2 } }),
     modelAInputSnapshotHash({ a: { a: 2, c: 1 }, b: [0, null] }));
   assert.notEqual(modelAInputSnapshotHash([0, null]), modelAInputSnapshotHash([null, 0]));
+  const value = { date: new Date('2026-01-01T00:00:00Z'), absent: undefined, invalidNumber: NaN };
+  assert.equal(modelAInputSnapshotHash(value), modelAInputSnapshotHash(JSON.parse(JSON.stringify(value))));
 });
 
 test('incomplete or failed capture remains unverified and cannot escape into inference', () => {

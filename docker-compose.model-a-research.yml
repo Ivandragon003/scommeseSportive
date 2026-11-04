@@ -1,0 +1,50 @@
+# Separate, opt-in collector using the existing backend image. No HTTP server.
+services:
+  model-a-research:
+    profiles: ["model-a-research"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: football-predictor-model-a-research:local
+    command: ["node", "scripts/model-a-prospective-collect.js"]
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Rome}
+      TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-}
+      TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
+      MODEL_A_PROSPECTIVE_COLLECTION_ENABLED: ${MODEL_A_PROSPECTIVE_COLLECTION_ENABLED:-false}
+      MODEL_A_PROSPECTIVE_ENABLED: ${MODEL_A_PROSPECTIVE_ENABLED:-false}
+      MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED: ${MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED:-false}
+      MODEL_A_PROSPECTIVE_MONITORING_ENABLED: ${MODEL_A_PROSPECTIVE_MONITORING_ENABLED:-false}
+      MODEL_A_PROSPECTIVE_REQUIRE_RIGOROUS_INPUTS: ${MODEL_A_PROSPECTIVE_REQUIRE_RIGOROUS_INPUTS:-false}
+      MODEL_A_PROSPECTIVE_STORAGE: file
+      MODEL_A_PROSPECTIVE_SPOOL_DIR: /app/data/model-a-prospective-spool
+      MODEL_A_COLLECTION_PROTOCOL_ID: ${MODEL_A_COLLECTION_PROTOCOL_ID:-}
+      MODEL_A_COLLECTION_MANIFEST_SHA256: ${MODEL_A_COLLECTION_MANIFEST_SHA256:-}
+      MODEL_A_COLLECTION_SEASONS: ${MODEL_A_COLLECTION_SEASONS:-}
+      MODEL_A_COLLECTION_FROM: ${MODEL_A_COLLECTION_FROM:-}
+      MODEL_A_COLLECTION_TO: ${MODEL_A_COLLECTION_TO:-}
+      MODEL_A_COLLECTION_INTERVAL_SECONDS: ${MODEL_A_COLLECTION_INTERVAL_SECONDS:-300}
+      PLAYER_DATA_ENABLED: "false"
+      PLAYER_AVAILABILITY_ENABLED: "false"
+      API_FOOTBALL_ENABLED: "false"
+      ODDS_INFORMATIONAL_NETWORK_ENABLED: "false"
+      ODDS_EXTRA_EVENT_NETWORK_ENABLED: "false"
+      RESEARCH_NIGHTLY_ENABLED: "false"
+      RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: "false"
+      RESEARCH_T15_SCHEDULER_ENABLED: "false"
+      AUTO_BET_ENABLED: "false"
+    volumes:
+      - model-a-research-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+    restart: "no"
+
+volumes:
+  model-a-research-data:

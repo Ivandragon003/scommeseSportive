@@ -6,9 +6,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { createHash } = require('node:crypto');
+const { measureResults, pair } = require('./model-a-prospective-result-monitoring');
 
 const HOUR = 3600000;
-const AUDIT_TYPES = new Set(['attempted', 'accepted', 'rejected', 'ineligible', 'recovered', 'stored', 'delivery_unconfirmed', 'capture_error']);
+const AUDIT_TYPES = new Set(['attempted', 'accepted', 'rejected', 'ineligible', 'recovered', 'stored', 'delivery_unconfirmed', 'capture_error', 'result_reconciliation', 'result_reconciliation_error', 'retry', 'duplicate_suppressed']);
 const REQUIRED = {
   matches: ['match_id', 'competition', 'season', 'date'],
   model_a_prospective_forecasts: ['id', 'match_id', 'forecast_at', 'kickoff_at', 'payload_json'],
@@ -22,7 +23,8 @@ function timestamp(value) {
 }
 function scopeOptions(options) {
   if (typeof options.competition !== 'string' || !options.competition.trim() || typeof options.season !== 'string' || !options.season.trim()) fail('scope_required');
-  if (!['direct_a', 'shared_ac', 'internal'].includes(options.origin)) fail('origin_required');
+  if (!['direct_a', 'shared_ac', 'internal', 'prospective_a'].includes(options.origin)) fail('origin_required');
+  if (options.protocolId !== undefined && !/^[A-Za-z0-9._-]{1,128}$/.test(options.protocolId)) fail('invalid_protocol_id');
   const from = timestamp(options.from), to = timestamp(options.to), cutoff = timestamp(options.cutoff);
   if (from >= to) fail('invalid_scope_interval');
   return { ...options, from, to, cutoff };
@@ -105,6 +107,8 @@ function provenanceIssue(payload, at) {
   if (!provenance?.inputSnapshotHash || !provenance.snapshot) return 'input_snapshot_missing';
   const hash = createHash('sha256').update(canonical(provenance.snapshot)).digest('hex');
   if (provenance.inputSnapshotHash !== hash) return 'input_snapshot_hash_mismatch';
+  if (provenance.classification === 'technical_only' || provenance.rigorousEligible === false
+    || provenance.snapshot.classification === 'technical_only' || provenance.snapshot.rigorousEligible === false) return 'technical_only';
   if (!provenance.inputAvailableThrough) return 'input_availability_unverified';
   try {
     if (timestamp(provenance.inputAvailableThrough) > at || (provenance.observedInputsThrough && timestamp(provenance.observedInputsThrough) > at)) return 'input_timestamp_after_forecast';
@@ -127,7 +131,8 @@ function readSmallFile(filename, limit) {
 }
 function inspectSpool(directory, cutoff) {
   const result = { configured: Boolean(directory), readable: false, pendingFiles: 0, partialFiles: 0, invalidFiles: 0,
-    unsafeEntries: 0, audit: { counts: {}, invalidLines: 0, unknownTypes: 0, afterCutoff: 0 }, records: [] };
+    unsafeEntries: 0, oldestForecastAt: null, audit: { counts: {}, invalidLines: 0, unknownTypes: 0, afterCutoff: 0, latestAt: null,
+      reconciliationErrors: 0, reconciliationFailedItems: 0 }, records: [] };
   if (!directory) return result;
   const location = regularPath(directory, true);
   result.readable = true;
@@ -141,7 +146,10 @@ function inspectSpool(directory, cutoff) {
       const event = JSON.parse(readSmallFile(path.join(location, entry.name), 2 * 1024 * 1024));
       const record = parseForecast({ id: event.id, match_id: event.matchId, forecast_at: event.forecastAt, kickoff_at: event.kickoffAt, payload_json: event.payload });
       if (!record || event.durable !== true || entry.name !== `${event.id}.json`) fail('invalid_spool');
-      if (record.at <= cutoff) result.records.push(record);
+      if (record.at <= cutoff) {
+        result.records.push(record);
+        if (result.oldestForecastAt === null || record.at < Date.parse(result.oldestForecastAt)) result.oldestForecastAt = new Date(record.at).toISOString();
+      }
     } catch { result.invalidFiles++; }
   }
   const auditPath = path.join(location, 'audit.ndjson');
@@ -155,6 +163,9 @@ function inspectSpool(directory, cutoff) {
         if (at > cutoff) { result.audit.afterCutoff++; continue; }
         if (!AUDIT_TYPES.has(event.type)) { result.audit.unknownTypes++; continue; }
         result.audit.counts[event.type] = (result.audit.counts[event.type] ?? 0) + 1;
+        if (!result.audit.latestAt || at > Date.parse(result.audit.latestAt)) result.audit.latestAt = new Date(at).toISOString();
+        if (event.type === 'result_reconciliation_error') result.audit.reconciliationErrors++;
+        if (event.type === 'result_reconciliation' && Number.isSafeInteger(event.failed) && event.failed >= 0) result.audit.reconciliationFailedItems += event.failed;
       } catch { result.audit.invalidLines++; }
     }
   }
@@ -163,7 +174,9 @@ function inspectSpool(directory, cutoff) {
 
 function coverage(db, options, spool, schema) {
   const calendarEvaluable = schema.tables.matches.readable;
-  const coverageEvaluable = calendarEvaluable && schema.tables.model_a_prospective_forecasts.readable;
+  const protocolStorageEvaluable = !options.protocolId || (optionalRows(db, 'model_a_collection_protocols', ['protocol_id', 'scope_json']).rows !== null
+    && optionalRows(db, 'model_a_collection_ledger', ['protocol_id', 'match_id', 'kickoff_at', 'claim_at', 'claim_id']).rows !== null);
+  const coverageEvaluable = calendarEvaluable && schema.tables.model_a_prospective_forecasts.readable && protocolStorageEvaluable;
   const result = {
     scope: { kickoffFromInclusive: new Date(options.from).toISOString(), kickoffToExclusive: new Date(options.to).toISOString(), cutoff: new Date(options.cutoff).toISOString(), origin: options.origin,
       cutoffPurpose: 'forecast_and_audit_event_time_filter_not_database_insertion_time',
@@ -175,7 +188,7 @@ function coverage(db, options, spool, schema) {
     overdueMissing: null, openWindowMissing: null, receivedForecastEvidence: null, receivedMatchEvidence: null,
     recordedForecasts: null, recordedMatches: null, pendingUnconfirmedForecasts: null, pendingAlreadyRecordedForecasts: null,
     recordedMatchesInWindow: null, outsideWindowForecasts: null, kickoffConflicts: null,
-    nonEvaluableProvenance: null, provenanceReasons: null, invalidForecastRowsDatabaseWide: null,
+    nonEvaluableProvenance: null, provenanceReasons: null, temporalClassificationCounts: null, invalidForecastRowsDatabaseWide: null,
     invalidFixtureTimesInCompetitionSeason: null,
   };
   if (!calendarEvaluable) return result;
@@ -201,7 +214,8 @@ function coverage(db, options, spool, schema) {
     if (!record) { invalidForecasts++; continue; }
     if (record.at <= options.cutoff) { records.push(record); storedIds.add(record.id); }
   }
-  const inScope = record => scoped.has(record.matchId) && record.payload.origin === options.origin
+  const belongsToProtocol = protocolForecastFilter(db, options);
+  const inScope = record => belongsToProtocol(record) && scoped.has(record.matchId) && record.payload.origin === options.origin
     && record.payload.competition === options.competition && record.payload.season === options.season;
   const stored = records.filter(inScope), pending = spool.records.filter(inScope), received = new Map([...stored, ...pending].map(row => [row.id, row]));
   const selected = new Map(); let kickoffConflicts = 0, outsideWindowForecasts = 0;
@@ -216,8 +230,11 @@ function coverage(db, options, spool, schema) {
     if (options.cutoff >= kickoff - HOUR) { if (!selected.has(id)) overdueMissing++; }
     else if (options.cutoff >= kickoff - 24 * HOUR && !selected.has(id)) openWindowMissing++;
   }
-  const provenanceReasons = {}; let nonEvaluableProvenance = 0;
+  const provenanceReasons = {}, temporalClassificationCounts = {}; let nonEvaluableProvenance = 0;
   for (const record of selected.values()) {
+    const classification = record.payload.provenance?.classification === 'technical_only' ? 'technical_only'
+      : record.payload.provenance?.classification === 'rigorous' ? 'declared_rigorous_unverified' : 'unclassified';
+    temporalClassificationCounts[classification] = (temporalClassificationCounts[classification] ?? 0) + 1;
     const issue = provenanceIssue(record.payload, record.at);
     if (issue) { nonEvaluableProvenance++; provenanceReasons[issue] = (provenanceReasons[issue] ?? 0) + 1; }
   }
@@ -228,7 +245,126 @@ function coverage(db, options, spool, schema) {
   pendingUnconfirmedForecasts: pending.filter(row => !storedIds.has(row.id)).length,
   pendingAlreadyRecordedForecasts: pending.filter(row => storedIds.has(row.id)).length,
   recordedMatchesInWindow: selected.size, outsideWindowForecasts, kickoffConflicts,
-  nonEvaluableProvenance, provenanceReasons, invalidForecastRowsDatabaseWide: invalidForecasts };
+  nonEvaluableProvenance, provenanceReasons, temporalClassificationCounts, invalidForecastRowsDatabaseWide: invalidForecasts };
+}
+
+// Optional research tables are never installed or repaired by an inspection.
+function optionalRows(db, table, columns) {
+  const found = db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?").get(table);
+  if (!found) return { status: 'missing', rows: null };
+  const actual = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some(name => !actual.some(row => row.name === name))) return { status: 'incompatible', rows: null };
+  return { status: 'available', rows: db.prepare(`SELECT ${columns.join(',')} FROM ${table}`).all() };
+}
+function safeTime(value) { try { return timestamp(value); } catch { return null; } }
+function protocolForecastFilter(db, options) {
+  if (!options.protocolId) return () => true;
+  const protocols = optionalRows(db, 'model_a_collection_protocols', ['protocol_id', 'scope_json']);
+  const ledger = optionalRows(db, 'model_a_collection_ledger', ['protocol_id', 'match_id', 'kickoff_at', 'claim_at', 'claim_id']);
+  let manifest;
+  try { manifest = JSON.parse(protocols.rows?.find(row => row.protocol_id === options.protocolId)?.scope_json ?? 'null'); } catch { return () => false; }
+  if (!manifest?.snapshot || manifest.snapshot.protocolId !== options.protocolId || manifest.sha256 !== createHash('sha256').update(JSON.stringify(manifest.snapshot)).digest('hex') || !ledger.rows) return () => false;
+  return record => record.payload.collection?.protocolId === options.protocolId && record.payload.collection?.manifestSha256 === manifest.sha256
+    && ledger.rows.some(row => row.protocol_id === options.protocolId && row.match_id === record.matchId && safeTime(row.kickoff_at) === record.kickoff
+      && row.claim_id && row.claim_id === record.payload.collection.claimId && safeTime(row.claim_at) !== null && safeTime(row.claim_at) <= record.at);
+}
+function collectorMonitoring(db, options, collection) {
+  const ledger = optionalRows(db, 'model_a_collection_ledger', ['protocol_id', 'match_id', 'kickoff_at', 'competition', 'season', 'state', 'reason', 'claim_at', 'forecast_id', 'updated_at']);
+  const runs = optionalRows(db, 'model_a_collection_runs', ['protocol_id', 'started_at', 'completed_at', 'status']);
+  const protocols = optionalRows(db, 'model_a_collection_protocols', ['protocol_id', 'scope_json', 'created_at']);
+  const result = { requested: Boolean(options.protocolId), storageStatus: { ledger: ledger.status, runs: runs.status, protocols: protocols.status },
+    registeredScopeMatches: null, analyzedFixtures: null, predictionStartedFixtures: null, eligibleFixtures: null,
+    pendingFixtures: null, failedFixtures: null, storedFixtures: null, missedWindows: null, ledgerMissingFixtures: null,
+    invalidKickoffObservations: null, kickoffChangedObservations: null, missingCalendarObservations: null, reasonCounts: null,
+    lastRunStartedAt: null, lastSuccessfulRunAt: null, latestRunStatus: null, failedRuns: null, incompleteRuns: null, oldestPendingAt: null };
+  if (!options.protocolId) return result;
+  const registered = protocols.rows?.find(row => row.protocol_id === options.protocolId);
+  if (protocols.rows) {
+    result.registeredScopeMatches = false;
+    try {
+      const manifest = JSON.parse(registered?.scope_json ?? 'null');
+      const scope = manifest?.snapshot;
+      const validHash = scope && manifest.sha256 === createHash('sha256').update(JSON.stringify(scope)).digest('hex');
+      result.registeredScopeMatches = !!validHash && scope.protocolId === options.protocolId && scope.origin === options.origin
+        && Array.isArray(scope.seasons) && scope.seasons.includes(options.season)
+        && Array.isArray(scope.competitions) && scope.competitions.includes(options.competition) && safeTime(scope.from) !== null && safeTime(scope.to) !== null
+        && options.from >= safeTime(scope.from) && options.to <= safeTime(scope.to);
+    } catch { /* An invalid registered scope is not a successful registration. */ }
+  }
+  if (runs.rows) {
+    const selected = runs.rows.filter(row => row.protocol_id === options.protocolId && safeTime(row.started_at) !== null && safeTime(row.started_at) <= options.cutoff)
+      .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
+    result.lastRunStartedAt = selected[0]?.started_at ?? null;
+    result.latestRunStatus = selected[0]?.status ?? null;
+    const successful = selected.filter(row => row.status === 'success' && safeTime(row.completed_at) !== null && safeTime(row.completed_at) <= options.cutoff);
+    result.lastSuccessfulRunAt = successful.map(row => row.completed_at).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+    result.failedRuns = selected.filter(row => row.status === 'failed' && safeTime(row.completed_at) !== null && safeTime(row.completed_at) <= options.cutoff).length;
+    result.incompleteRuns = selected.filter(row => row.status === 'started' || safeTime(row.completed_at) === null || safeTime(row.completed_at) > options.cutoff).length;
+  }
+  if (!ledger.rows || !collection.calendarEvaluable) return result;
+  const fixtures = db.prepare('SELECT match_id,date FROM matches WHERE competition=? AND season=?').all(options.competition, options.season);
+  const calendar = new Map(fixtures.filter(row => safeTime(row.date) !== null && safeTime(row.date) >= options.from && safeTime(row.date) < options.to)
+    .map(row => [String(row.match_id), safeTime(row.date)]));
+  const scoped = ledger.rows.filter(row => row.protocol_id === options.protocolId && row.competition === options.competition && row.season === options.season && safeTime(row.updated_at) !== null && safeTime(row.updated_at) <= options.cutoff);
+  const current = scoped.filter(row => safeTime(row.kickoff_at) !== null && calendar.get(String(row.match_id)) === safeTime(row.kickoff_at));
+  const reasons = {};
+  for (const row of current) reasons[row.reason] = (reasons[row.reason] ?? 0) + 1;
+  const pending = current.filter(row => ['claimed', 'unconfirmed'].includes(row.state));
+  const pendingTimes = pending.map(row => safeTime(row.claim_at) ?? safeTime(row.updated_at)).filter(value => value !== null);
+  return { ...result, analyzedFixtures: new Set(current.map(row => String(row.match_id))).size,
+    predictionStartedFixtures: current.filter(row => safeTime(row.claim_at) !== null).length,
+    eligibleFixtures: current.filter(row => safeTime(row.claim_at) !== null || row.reason === 'eligible').length,
+    storedFixtures: current.filter(row => row.state === 'stored').length,
+    pendingFixtures: pending.length, failedFixtures: current.filter(row => row.state === 'unconfirmed').length,
+    missedWindows: current.filter(row => row.reason === 'window_expired').length,
+    ledgerMissingFixtures: [...calendar].filter(([id, kickoff]) => options.cutoff >= kickoff - 24 * HOUR && !current.some(row => String(row.match_id) === id)).length,
+    invalidKickoffObservations: Math.max(collection.invalidFixtureTimesInCompetitionSeason ?? 0, scoped.filter(row => row.reason === 'invalid_kickoff').length),
+    kickoffChangedObservations: scoped.filter(row => row.reason === 'kickoff_changed').length,
+    missingCalendarObservations: scoped.filter(row => row.reason === 'fixture_missing_from_calendar').length,
+    oldestPendingAt: pendingTimes.length ? new Date(Math.min(...pendingTimes)).toISOString() : null, reasonCounts: reasons };
+}
+
+function resultMonitoring(db, options, schema) {
+  const result = { evaluable: false, linkedForecasts: null, currentlyPairableForecasts: null, preservedFinalEvidence: null,
+    pendingForecasts: null, oldestPendingKickoffAt: null, unassociatedResults: null, orphanForecasts: null, invalidResultRows: null,
+    lifecycle: null, lifecycleReasons: null, lastLifecycleObservedAt: null, refreshRunLivenessVerified: false,
+    lastRefreshStartedAt: null, lastRefreshCompletedAt: null, lastSuccessfulRefreshAt: null, latestRefreshStatus: null, lifecycleStorage: 'missing' };
+  const refresh = optionalRows(db, 'model_a_prospective_result_refresh_state', ['refresh_id', 'last_started_at', 'last_completed_at', 'last_success_at', 'last_status']);
+  result.refreshStateStorage = refresh.status;
+  const state = refresh.rows?.find(row => row.refresh_id === 'understat-results-v1');
+  if (state) Object.assign(result, { refreshRunLivenessVerified: true,
+    lastRefreshStartedAt: safeTime(state.last_started_at) !== null && safeTime(state.last_started_at) <= options.cutoff ? state.last_started_at : null,
+    lastRefreshCompletedAt: safeTime(state.last_completed_at) !== null && safeTime(state.last_completed_at) <= options.cutoff ? state.last_completed_at : null,
+    lastSuccessfulRefreshAt: safeTime(state.last_success_at) !== null && safeTime(state.last_success_at) <= options.cutoff ? state.last_success_at : null,
+    latestRefreshStatus: state.last_status });
+  if (!schema.tables.model_a_prospective_forecasts.readable || !schema.tables.model_a_prospective_results.readable) return result;
+  const belongsToProtocol = protocolForecastFilter(db, options);
+  const forecasts = db.prepare('SELECT id,match_id,forecast_at,kickoff_at,payload_json FROM model_a_prospective_forecasts').all().map(parseForecast)
+    .filter(row => row && belongsToProtocol(row) && row.at <= options.cutoff && row.kickoff >= options.from && row.kickoff < options.to && row.payload.origin === options.origin
+      && row.payload.competition === options.competition && row.payload.season === options.season);
+  const rows = db.prepare('SELECT evidence_id,match_id,source,kickoff_at,observed_at,recorded_at,home_goals,away_goals,evidence_json FROM model_a_prospective_results').all();
+  let invalidResultRows = 0; const results = [];
+  for (const row of rows) {
+    const kickoff = safeTime(row.kickoff_at), observed = safeTime(row.observed_at), recorded = safeTime(row.recorded_at);
+    if (kickoff === null || observed === null || recorded === null || observed <= kickoff || recorded < observed
+      || ![row.home_goals, row.away_goals].every(value => Number.isSafeInteger(value) && value >= 0)) { invalidResultRows++; continue; }
+    if (observed <= options.cutoff && recorded <= options.cutoff) results.push({ evidenceId: row.evidence_id, matchId: String(row.match_id), kickoff, observed, recorded, homeGoals: row.home_goals, awayGoals: row.away_goals });
+  }
+  const calendar = schema.tables.matches.readable ? new Map(db.prepare('SELECT match_id,date FROM matches WHERE competition=? AND season=?').all(options.competition, options.season)
+    .filter(row => safeTime(row.date) !== null && safeTime(row.date) >= options.from && safeTime(row.date) < options.to).map(row => [String(row.match_id), safeTime(row.date)])) : null;
+  const lifecycle = optionalRows(db, 'model_a_prospective_result_observations', ['evidence_id', 'match_id', 'kickoff_at', 'observed_at', 'recorded_at', 'status', 'reason', 'evidence_json']);
+  const observations = lifecycle.rows?.filter(row => safeTime(row.kickoff_at) !== null && safeTime(row.observed_at) !== null && safeTime(row.recorded_at) !== null && safeTime(row.observed_at) <= options.cutoff && safeTime(row.recorded_at) <= options.cutoff).map(row => {
+    let evidence; try { evidence = JSON.parse(row.evidence_json); } catch { evidence = null; }
+    return { evidenceId: row.evidence_id, matchId: String(row.match_id), kickoff: safeTime(row.kickoff_at), observed: safeTime(row.observed_at), recorded: safeTime(row.recorded_at),
+      status: row.status, reason: row.reason, homeGoals: evidence?.resultRow?.home_goals, awayGoals: evidence?.resultRow?.away_goals };
+  }) ?? null;
+  const ledger = options.protocolId ? optionalRows(db, 'model_a_collection_ledger', ['protocol_id', 'match_id', 'kickoff_at', 'reason', 'updated_at']) : { rows: null };
+  const exclusions = ledger.rows?.filter(row => row.protocol_id === options.protocolId && row.reason === 'cancelled_or_postponed' && safeTime(row.updated_at) !== null && safeTime(row.updated_at) <= options.cutoff)
+    .map(row => pair(row.match_id, safeTime(row.kickoff_at))) ?? [];
+  const scopedResults = results.filter(row => row.kickoff >= options.from && row.kickoff < options.to
+    && (calendar?.has(row.matchId) || forecasts.some(forecast => forecast.matchId === row.matchId)));
+  const measured = measureResults(forecasts, scopedResults, observations, calendar, options.cutoff, exclusions);
+  return { ...result, ...measured, invalidResultRows, lifecycleStorage: lifecycle.status };
 }
 
 function inspect(options, environment = process.env) {
@@ -244,23 +380,44 @@ function inspect(options, environment = process.env) {
     db.exec('BEGIN');
     const schema = inspectSchema(db), spool = inspectSpool(options.spoolDir, scope.cutoff);
     const collection = coverage(db, scope, spool, schema);
+    const measuredResults = resultMonitoring(db, scope, schema);
+    const { excludedKeys, ...resultDiagnostics } = measuredResults;
+    if (excludedKeys && collection.calendarEvaluable) {
+      const fixtures = db.prepare('SELECT match_id,date FROM matches WHERE competition=? AND season=?').all(scope.competition, scope.season)
+        .filter(row => safeTime(row.date) !== null && safeTime(row.date) >= scope.from && safeTime(row.date) < scope.to);
+      const excluded = fixtures.filter(row => excludedKeys.has(pair(row.match_id, safeTime(row.date))));
+      collection.eligibleFixtureMatches = fixtures.length - excluded.length;
+      collection.excludedLifecycleFixtures = excluded.length;
+      if (collection.coverageEvaluable) {
+        const belongs = protocolForecastFilter(db, scope);
+        const selected = new Set(db.prepare('SELECT id,match_id,forecast_at,kickoff_at,payload_json FROM model_a_prospective_forecasts').all().map(parseForecast)
+          .filter(row => row && belongs(row) && row.payload.origin === scope.origin && row.payload.competition === scope.competition && row.payload.season === scope.season
+            && row.at <= scope.cutoff && row.at >= row.kickoff - 24 * HOUR && row.at <= row.kickoff - HOUR).map(row => pair(row.matchId, row.kickoff)));
+        const eligible = fixtures.filter(row => !excludedKeys.has(pair(row.match_id, safeTime(row.date))));
+        collection.overdueMissing = eligible.filter(row => scope.cutoff >= safeTime(row.date) - HOUR && !selected.has(pair(row.match_id, safeTime(row.date)))).length;
+        collection.openWindowMissing = eligible.filter(row => scope.cutoff >= safeTime(row.date) - 24 * HOUR && scope.cutoff < safeTime(row.date) - HOUR && !selected.has(pair(row.match_id, safeTime(row.date)))).length;
+      }
+    }
     const { records: _records, ...diagnostics } = spool;
     return { schemaVersion: 'model-a-prospective-inspection-v1', mode: 'local_read_only', measuredAt,
       timeSemantics: { observation: 'current_local_files_at_inspection', historicalSnapshot: false,
         forecastRows: 'currently_present_rows_filtered_by_forecast_at_lte_cutoff',
         databaseInsertionAsOfCutoffVerified: false,
         fixtureCalendar: 'currently_present_fixture_rows',
+        collectorLedger: 'currently_present_states_filtered_by_updated_at_lte_cutoff_not_historical_state_reconstruction',
         spool: 'currently_present_files_with_forecast_records_filtered_by_forecast_at_lte_cutoff',
         audit: 'currently_readable_complete_lines_filtered_by_event_at_lte_cutoff_not_proven_write_time' }, schema,
       configuration: { enabledInInspectorEnvironment: environment.MODEL_A_PROSPECTIVE_ENABLED === 'true',
         volatileAllowedInInspectorEnvironment: environment.MODEL_A_PROSPECTIVE_ALLOW_VOLATILE === 'true',
         explicitSpoolConfigured: Boolean(options.spoolDir),
         runtimeEnvironmentVerified: false, writeAccessTested: false, persistenceAcrossRestartVerified: false },
-      spool: diagnostics, coverage: collection,
+      spool: diagnostics, coverage: collection, collector: collectorMonitoring(db, scope, collection), results: resultDiagnostics,
       limitations: ['Explicit scope is caller supplied; preregistration is not certified.', 'Fixture calendar completeness and historical fixture revisions are not certified.',
         'Cutoff filters forecast and audit event timestamps, not database insertion time. A forecast delivered after cutoff is counted if present now; historical persistence and historical coverage at cutoff are not certified.',
         'Spool files and audit lines are inspected as currently available. Their past contents, missing files, write times and backlog at cutoff cannot be reconstructed.',
         'Audit event counts cover all origins and scopes; retries are events, not distinct forecasts. Missing audit writes cannot be recovered here.',
+        'Collector ledger records observed fixture/kickoff states; predictionStartedFixtures requires a claim and is distinct from fixture analysis. Only successful persisted runs establish collector liveness.',
+        'Result associations use match ID and equivalent UTC kickoff plus observation/recording cutoff. Counts describe stored evidence, not an official result certification. Lifecycle timestamps alone do not prove refresh cycle liveness.',
         'Received evidence is persisted rows plus valid spool files, not an independent request denominator.',
         'Unavailable calendar or forecast storage yields null coverage metrics, not zero requests or zero coverage. Readable data does not certify schema guards or official results.',
         'Filesystem checks are observations, not ACL, disk durability or runtime permission guarantees. Spool and database snapshots are not atomic together.',
@@ -270,7 +427,7 @@ function inspect(options, environment = process.env) {
 
 function main(argv) {
   try {
-    const names = { '--db-url': 'dbUrl', '--competition': 'competition', '--season': 'season', '--from': 'from', '--to': 'to', '--cutoff': 'cutoff', '--origin': 'origin', '--spool-dir': 'spoolDir' };
+    const names = { '--db-url': 'dbUrl', '--competition': 'competition', '--season': 'season', '--from': 'from', '--to': 'to', '--cutoff': 'cutoff', '--origin': 'origin', '--spool-dir': 'spoolDir', '--protocol-id': 'protocolId' };
     const options = {};
     for (let i = 0; i < argv.length; i += 2) {
       const key = names[argv[i]];

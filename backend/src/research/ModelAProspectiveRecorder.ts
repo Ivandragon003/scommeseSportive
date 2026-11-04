@@ -6,7 +6,7 @@ import { reconcileModelAProspectiveResults } from './ModelAProspectiveResults';
 type Sink = { appendModelAProspectiveForecast?: (record: SpoolRecord) => Promise<void>;
   getModelAProspectiveResultCandidates?: () => Promise<any[]>; appendModelAProspectiveResult?: (event: any) => Promise<boolean> };
 type Input = { match: any; request: { matchId?: string; homeTeamId: string; awayTeamId: string; competition?: string; season?: string };
-  provenance?: ModelAInputProvenance; asOf: string; origin: 'direct_a' | 'shared_ac' | 'internal'; model: { version: string; codeHash: string; configHash: string; stateHash: string };
+  provenance?: ModelAInputProvenance; collection?: { protocolId: string; manifestSha256: string; claimId: string }; asOf: string; origin: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a'; model: { version: string; codeHash: string; configHash: string; stateHash: string };
   contextual: Record<string, number>; calibrated: Record<string, number> | null;
   decision: Record<string, number>; selected: any; exactCandidates?: Array<{ selection: string; probability: number; origin: 'vig' | 'board' }>; modelParametersHash: string;
   calibration: { profileHash: string; globalSamples: number; overSamples: number | null; underSamples: number | null;
@@ -16,21 +16,27 @@ type Input = { match: any; request: { matchId?: string; homeTeamId: string; away
 const maxQueue = 256;
 const maxConcurrent = 4;
 const maxAttempts = 3;
-type Job = { sink: Sink; record: SpoolRecord; attempts: number; spoolDir?: string };
+export type ModelAProspectiveCompletion = { status: 'stored' | 'unconfirmed'; id?: string };
+export type ModelAProspectiveReceipt = { status: 'disabled' | 'ineligible' | 'rejected' | 'accepted' | 'pending' | 'error'; id?: string; reason?: string; durable: boolean; directorySyncConfirmed?: boolean; durabilityScope?: 'directory_synced' | 'process_crash_only'; completion: Promise<ModelAProspectiveCompletion> };
+const immediateReceipt = (status: ModelAProspectiveReceipt['status'], reason?: string, id?: string): ModelAProspectiveReceipt =>
+  ({ status, reason, id, durable: false, completion: Promise.resolve({ status: 'unconfirmed', id }) });
+type Job = { sink: Sink; record: SpoolRecord; attempts: number; spoolDir?: string; databaseMode?: boolean; complete?: (result: ModelAProspectiveCompletion) => void };
 const queue: Job[] = [];
 const tracked = new Set<string>();
 let active = 0;
 let reconciliationInFlight: Promise<void> | undefined;
 let recoveryCursor: string | undefined;
 let recoveryDirectory: string | undefined;
+const recorderCosts = { jsonCount: 0, jsonMs: 0 };
+export function modelAProspectiveCosts() { return { ...recorderCosts }; }
 const stats = { attempted: 0, recovered: 0, accepted: 0, stored: 0, retries: 0, failed: 0, rejected: 0, ineligible: 0, captureErrors: 0 };
 function durableAudit(event: Record<string, unknown>): void {
-  const dir = process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
+  const dir = process.env.MODEL_A_PROSPECTIVE_STORAGE === 'database' ? undefined : process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
   if (!dir) return;
   try { auditSpool(dir, event); } catch (error) { console.error('[ModelAProspective] durable audit unavailable:', error); }
 }
 export function modelAProspectiveStats() {
-  const dir = process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
+  const dir = process.env.MODEL_A_PROSPECTIVE_STORAGE === 'database' ? undefined : process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
   let durablePending: number | null = null;
   let durableAuditCounts: ReturnType<typeof readSpoolAuditCounts> | null = null;
   if (dir && modelAProspectiveEnabled()) {
@@ -44,7 +50,7 @@ export async function drainModelAProspective(timeoutMs: number): Promise<boolean
   const deadline = Date.now() + Math.max(0, timeoutMs);
   while ((queue.length + active > 0 || reconciliationInFlight) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
   if (queue.length + active !== 0 || reconciliationInFlight) return false;
-  const dir = process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
+  const dir = process.env.MODEL_A_PROSPECTIVE_STORAGE === 'database' ? undefined : process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
   try { return !dir || countSpool(dir) === 0; }
   catch (error) { console.error('[ModelAProspective] cannot inspect durable spool during drain:', error); return false; }
 }
@@ -54,14 +60,19 @@ function pump(): void {
     Promise.resolve().then(() => {
       if (typeof job.sink.appendModelAProspectiveForecast !== 'function') throw new Error('prospective storage unavailable');
       return job.sink.appendModelAProspectiveForecast(job.record);
-    }).then(() => { stats.stored++; durableAudit({ type: 'stored', id: job.record.id }); if (job.spoolDir) removeSpool(job.spoolDir, job.record.id); }).catch((error: unknown) => {
+    }).then(() => {
+      if (job.databaseMode) stats.accepted++;
+      stats.stored++; job.complete?.({ status: 'stored', id: job.record.id });
+      durableAudit({ type: 'stored', id: job.record.id });
+      if (job.spoolDir) { try { removeSpool(job.spoolDir, job.record.id); } catch (error) { console.error('[ModelAProspective] confirmed spool cleanup unconfirmed:', error); } }
+    }).catch((error: unknown) => {
       console.error('[ModelAProspective] recording failed:', error instanceof Error ? error.message : String(error), `id=${job.record.id}`, `attempt=${job.attempts}`);
       if (job.attempts < maxAttempts && Date.now() + 500 < Date.parse(job.record.kickoffAt)) {
         stats.retries++;
         // Keep the slot occupied while waiting so retrying jobs still count towards the bound.
         return new Promise<void>(resolve => setTimeout(() => { queue.push(job); resolve(); }, job.attempts * 100));
       }
-      stats.failed++; durableAudit({ type: 'delivery_unconfirmed', id: job.record.id });
+      stats.failed++; job.complete?.({ status: 'unconfirmed', id: job.record.id }); durableAudit({ type: 'delivery_unconfirmed', id: job.record.id });
       console.error('[ModelAProspective] delivery unconfirmed after retries:', job.record.id);
     }).finally(() => { active--; if (!queue.some(item => item.record.id === job.record.id)) tracked.delete(job.record.id); pump(); });
   }
@@ -84,7 +95,7 @@ export function closeModelAProspectiveAdmission(): void { admissionClosed = true
 let warnedVolatile = false;
 /** Replay fsynced events after restart; sink inserts idempotently even after kickoff. */
 export function recoverModelAProspective(sink: Sink): number {
-  const dir = process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
+  const dir = process.env.MODEL_A_PROSPECTIVE_STORAGE === 'database' ? undefined : process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
   if (recoveryStopped || !modelAProspectiveEnabled() || !dir || queue.length + active >= maxQueue) return 0;
   let added = 0;
   if (recoveryDirectory !== dir) { recoveryDirectory = dir; recoveryCursor = undefined; }
@@ -126,10 +137,10 @@ const pair = (flat: Record<string, number> | null) => ({
 });
 
 /** Enqueue only real, current A predictions; never block or alter inference on a failed write. */
-export function scheduleModelAProspective(sink: Sink, input: Input): void {
-  if (!modelAProspectiveEnabled()) return;
+export function scheduleModelAProspective(sink: Sink, input: Input): ModelAProspectiveReceipt {
+  if (!modelAProspectiveEnabled()) return immediateReceipt('disabled', 'disabled');
   stats.attempted++; durableAudit({ type: 'attempted', matchId: input.request?.matchId });
-  if (admissionClosed || Date.now() >= admissionDeadline) { stats.rejected++; durableAudit({ type: 'rejected', reason: 'shutdown', matchId: input.request?.matchId }); return; }
+  if (admissionClosed || Date.now() >= admissionDeadline) { stats.rejected++; durableAudit({ type: 'rejected', reason: 'shutdown', matchId: input.request?.matchId }); return immediateReceipt('rejected', 'shutdown'); }
   let eventId: string | undefined;
   try {
     const now = Date.now(), at = Date.parse(input.asOf), kickoff = Date.parse(String(input.match?.date ?? ''));
@@ -139,15 +150,16 @@ export function scheduleModelAProspective(sink: Sink, input: Input): void {
       || String(input.match?.home_team_id ?? '') !== input.request.homeTeamId || String(input.match?.away_team_id ?? '') !== input.request.awayTeamId
       || input.match?.home_goals != null || input.match?.away_goals != null || !Number.isFinite(kickoff)
       || !Number.isFinite(at) || at > now || now - at > 300000 || now >= kickoff) {
-      stats.ineligible++; durableAudit({ type: 'ineligible', matchId: input.request.matchId }); console.warn('[ModelAProspective] skipped: fixture or observation time not eligible'); return;
+      stats.ineligible++; durableAudit({ type: 'ineligible', matchId: input.request.matchId }); console.warn('[ModelAProspective] skipped: fixture or observation time not eligible'); return immediateReceipt('ineligible', 'fixture_or_observation_time');
     }
     const id = randomUUID(); eventId = id;
-    const spoolDir = process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
-    if (!spoolDir && process.env.MODEL_A_PROSPECTIVE_ALLOW_VOLATILE !== 'true') {
-      stats.rejected++; durableAudit({ type: 'rejected', reason: 'spool_required', id }); console.error('[ModelAProspective] durable spool required; forecast not recorded:', id); return;
+    const databaseMode = process.env.MODEL_A_PROSPECTIVE_STORAGE === 'database';
+    const spoolDir = databaseMode ? undefined : process.env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim();
+    if (!databaseMode && !spoolDir && process.env.MODEL_A_PROSPECTIVE_ALLOW_VOLATILE !== 'true') {
+      stats.rejected++; durableAudit({ type: 'rejected', reason: 'spool_required', id }); console.error('[ModelAProspective] durable spool required; forecast not recorded:', id); return immediateReceipt('rejected', 'spool_required', id);
     }
     if (queue.length + active >= maxQueue) { stats.rejected++; durableAudit({ type: 'rejected', reason: 'queue_full', id, matchId: input.request.matchId });
-      console.error('[ModelAProspective] queue full; forecast not recorded:', id); return; }
+      console.error('[ModelAProspective] queue full; forecast not recorded:', id); return immediateReceipt('rejected', 'queue_full', id); }
     const contextual = pair(input.contextual), calibrated = pair(input.calibrated), decision = pair(input.decision);
     const selectedKey = String(input.selected?.selection ?? '');
     const roundedSelected = input.selected?.ourProbability;
@@ -162,6 +174,7 @@ export function scheduleModelAProspective(sink: Sink, input: Input): void {
           capturedAt: input.odds!.capturedAt, updatedAt: null, freshness: 'provider update time unavailable' }] : [];
       }) : [];
     const forecastAt = new Date(now).toISOString();
+    const serializeStart = process.env.MODEL_A_PROSPECTIVE_DIAGNOSTICS === 'true' ? process.hrtime.bigint() : undefined;
     const payload = JSON.stringify({ schema: 'model-a-operational-prospective-v1', id, family: 'A', matchId: input.request.matchId,
       competition: input.request.competition ?? input.match.competition ?? null, season: input.request.season ?? input.match.season ?? null, origin: input.origin,
       homeTeamId: input.request.homeTeamId, awayTeamId: input.request.awayTeamId, forecastAt, inputAsOf: input.asOf,
@@ -176,17 +189,24 @@ export function scheduleModelAProspective(sink: Sink, input: Input): void {
         precision: 'rounded to two decimal percentage points', exactProbability: exactSelected,
         exactReason: exactSelected === null ? 'no uniquely identifiable pre-rounding Over/Under candidate' : null,
         exactOrigins: exactSelected === null ? [] : [...new Set(matches.map(item => item.origin))] } : null,
-      quotes, provenance: input.provenance ?? { inputSnapshotHash: null, inputAvailableThrough: null,
+      quotes, collection: input.collection ? { protocolId: input.collection.protocolId, manifestSha256: input.collection.manifestSha256, claimId: input.collection.claimId } : null, provenance: input.provenance ?? { inputSnapshotHash: null, inputAvailableThrough: null,
         reason: 'historical input availability not independently timestamped; model state hash is not an input snapshot' } });
-    if (!spoolDir && !warnedVolatile) { warnedVolatile = true; console.warn('[ModelAProspective] spool directory unset; collection is volatile'); }
-    const record: SpoolRecord = { id, matchId: input.request.matchId, forecastAt, kickoffAt: new Date(kickoff).toISOString(), payload };
+    if (serializeStart !== undefined) { recorderCosts.jsonCount++; recorderCosts.jsonMs += Number(process.hrtime.bigint() - serializeStart) / 1e6; }
+    if (!databaseMode && !spoolDir && !warnedVolatile) { warnedVolatile = true; console.warn('[ModelAProspective] spool directory unset; collection is volatile'); }
+    const record: SpoolRecord = { id, matchId: input.request.matchId, forecastAt, kickoffAt: new Date(kickoff).toISOString(), payload, durable: false };
+    let directorySyncConfirmed: boolean | undefined;
     if (spoolDir) {
       if (countSpool(spoolDir) >= 10000) { stats.rejected++; durableAudit({ type: 'rejected', reason: 'spool_full', id, matchId: input.request.matchId });
-        console.error('[ModelAProspective] durable spool full; forecast not recorded:', id); return; }
-      persistSpool(spoolDir, record); record.durable = true;
+        console.error('[ModelAProspective] durable spool full; forecast not recorded:', id); return immediateReceipt('rejected', 'spool_full', id); }
+      ({ directorySyncConfirmed } = persistSpool(spoolDir, record)); record.durable = true;
     }
-    stats.accepted++; durableAudit({ type: 'accepted', id, matchId: input.request.matchId }); tracked.add(id); queue.push({ sink, attempts: 0, record, spoolDir });
+    let complete!: (result: ModelAProspectiveCompletion) => void;
+    const completion = new Promise<ModelAProspectiveCompletion>(resolve => { complete = resolve; });
+    if (!databaseMode) { stats.accepted++; durableAudit({ type: 'accepted', id, matchId: input.request.matchId }); }
+    tracked.add(id); queue.push({ sink, attempts: 0, record, spoolDir, databaseMode, complete });
     setImmediate(pump);
+    return { status: databaseMode ? 'pending' : 'accepted', id, durable: !!spoolDir, directorySyncConfirmed, durabilityScope: spoolDir ? (directorySyncConfirmed ? 'directory_synced' : 'process_crash_only') : undefined, completion };
   } catch (error) { stats.captureErrors++; durableAudit({ type: 'capture_error', id: eventId, matchId: input.request.matchId });
-    console.error('[ModelAProspective] recording setup failed:', eventId ?? 'unassigned', error instanceof Error ? error.message : String(error)); }
+    console.error('[ModelAProspective] recording setup failed:', eventId ?? 'unassigned', error instanceof Error ? error.message : String(error));
+    return immediateReceipt('error', error instanceof Error ? error.message : String(error), eventId); }
 }

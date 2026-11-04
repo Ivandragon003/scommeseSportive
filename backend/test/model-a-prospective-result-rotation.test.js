@@ -6,7 +6,7 @@ const { createClient } = require('@libsql/client');
 const { recordModelAVerifiedResult, reconcileModelAProspectiveResults } = require('../dist/research/ModelAProspectiveResults');
 const { DatabaseService } = require('../dist/db/DatabaseService');
 const schema = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/schema.sql'), 'utf8');
-const pairedSql = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/paired-results.sql'), 'utf8');
+const pairedSql = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/technical-paired-results.sql'), 'utf8');
 const kickoff = '2026-01-10T15:00:00.000Z';
 const observedAt = '2026-01-10T17:00:00.000Z';
 
@@ -74,7 +74,7 @@ test('kickoff changes and persisted team changes cannot silently attach a foreca
   const raw = JSON.parse(moved.raw_json); raw.datetime = '2026-01-11 15:00:00';
   raw.resultObservation.observedAt = '2026-01-11T17:00:00Z'; moved.raw_json = JSON.stringify(raw);
   await recordModelAVerifiedResult(sink, moved);
-  const paired = await db.execute({ sql: pairedSql, args: { cutoff: '2026-02-01T00:00:00Z', origin: 'direct_a' } });
+  const paired = await db.execute({ sql: pairedSql, args: { cutoff: '2026-02-01T00:00:00Z', origin: 'direct_a', protocol_id: null } });
   assert.equal(paired.rows.length, 1); assert.equal(paired.rows[0].evidence_id, null);
 });
 
@@ -130,7 +130,7 @@ test('equivalent UTC instants deduplicate, later same score and correction rever
     const latest = await db.execute({ sql: 'SELECT home_goals FROM model_a_prospective_results WHERE observed_at<=? ORDER BY observed_at DESC LIMIT 1', args: [cutoff] });
     assert.equal(latest.rows[0].home_goals, expectedGoals);
   }
-  const paired = await db.execute({ sql: pairedSql, args: { cutoff: new Date(Date.now() + 1000).toISOString(), origin: 'direct_a' } });
+  const paired = await db.execute({ sql: pairedSql, args: { cutoff: new Date(Date.now() + 1000).toISOString(), origin: 'direct_a', protocol_id: null } });
   assert.equal(paired.rows.length, 1); assert.equal(paired.rows[0].home_goals, 2);
   await assert.rejects(db.execute('DELETE FROM model_a_prospective_results'), /append-only/);
   const first = (await db.execute('SELECT * FROM model_a_prospective_results LIMIT 1')).rows[0];
@@ -170,7 +170,7 @@ test('analysis freeze selects one latest observation across equivalent kickoff o
       args: [id, 'understat_42', 'understat', date, observed, recorded, goals, 1, '{}'] });
   }
   for (const [cutoff, goals] of [['2026-01-10T17:30:00Z', 2], ['2026-01-10T18:30:00Z', 3]]) {
-    const result = await db.execute({ sql: pairedSql, args: { cutoff, origin: 'direct_a' } });
+    const result = await db.execute({ sql: pairedSql, args: { cutoff, origin: 'direct_a', protocol_id: null } });
     assert.equal(result.rows.length, 1); assert.equal(result.rows[0].home_goals, goals);
   }
 });

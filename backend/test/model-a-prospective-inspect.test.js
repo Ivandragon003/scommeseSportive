@@ -7,6 +7,7 @@ const { pathToFileURL } = require('node:url');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { localDatabasePath } = require('../scripts/model-a-prospective-inspect');
+const { evaluate, main: checkMonitoring } = require('../scripts/check-model-a-prospective');
 const [major, minor] = process.versions.node.split('.').map(Number);
 const supported = major > 22 || (major === 22 && minor >= 13);
 const test = (name, fn) => nodeTest(name, { skip: supported ? false : 'Read-only inspector requires Node >=22.13; backend Node 20 remains supported.' }, fn);
@@ -14,7 +15,7 @@ const test = (name, fn) => nodeTest(name, { skip: supported ? false : 'Read-only
 // The actual CLI is a short-lived operator process; process isolation also releases
 // native SQLite statement handles deterministically before Windows temp cleanup.
 function inspect(config, environment) {
-  const names = { dbUrl: '--db-url', competition: '--competition', season: '--season', from: '--from', to: '--to', cutoff: '--cutoff', origin: '--origin', spoolDir: '--spool-dir' };
+  const names = { dbUrl: '--db-url', competition: '--competition', season: '--season', from: '--from', to: '--to', cutoff: '--cutoff', origin: '--origin', spoolDir: '--spool-dir', protocolId: '--protocol-id' };
   const args = Object.entries(config).flatMap(([key, value]) => [names[key], value]);
   const child = spawnSync(process.execPath, [path.join(__dirname, '../scripts/model-a-prospective-inspect.js'), ...args],
     { env: { ...process.env, MODEL_A_PROSPECTIVE_ENABLED: '', MODEL_A_PROSPECTIVE_ALLOW_VOLATILE: '', ...environment }, encoding: 'utf8' });
@@ -258,6 +259,19 @@ test('provenance is not evaluable when snapshot hash fails or availability is fu
   assert.deepEqual(result.provenanceReasons, { input_snapshot_hash_mismatch: 1, input_timestamp_after_forecast: 1, input_availability_unverified: 1 });
 });
 
+test('technical-only classification never becomes rigorously eligible through a populated availability field', async t => {
+  const f = await fixture(t); await match(f, 'technical');
+  const payload = forecast('technical', 'technical');
+  payload.provenance.classification = 'technical_only';
+  payload.provenance.rigorousEligible = false;
+  payload.provenance.inputAvailableThrough = payload.forecastAt;
+  await store(f, payload);
+  const report = inspect(f.options, {});
+  assert.deepEqual(report.coverage.temporalClassificationCounts, { technical_only: 1 });
+  assert.deepEqual(report.coverage.provenanceReasons, { technical_only: 1 });
+  assert.equal(report.coverage.nonEvaluableProvenance, 1);
+});
+
 test('late delivery is counted from current storage without claiming persistence or coverage at cutoff', async t => {
   const f = await fixture(t), spoolDir = path.join(f.dir, 'spool');
   const oldKickoff = '2020-01-02T18:00:00.000Z';
@@ -282,4 +296,165 @@ test('late delivery is counted from current storage without claiming persistence
   assert.match(after.timeSemantics.audit, /not_proven_write_time/);
   assert.match(after.coverage.scope.cutoffPurpose, /not_database_insertion_time/);
   assert.ok(after.limitations.some(value => value.includes('A forecast delivered after cutoff is counted if present now')));
+});
+
+nodeTest('monitoring is off before argument parsing, credentials or database access', () => {
+  const output = [];
+  const code = checkMonitoring(['--db-url', 'libsql://secret@remote'], { MODEL_A_PROSPECTIVE_MONITORING_ENABLED: 'false' }, report => output.push(report));
+  assert.equal(code, 0);
+  assert.deepEqual(output, [{ enabled: false, status: 'disabled', alerts: [] }]);
+});
+
+test('enabled monitoring fails closed on absent schema and an empty configured calendar', async t => {
+  const f = await fixture(t, false);
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(report.collector.analyzedFixtures, null);
+  assert.equal(report.results.pendingForecasts, null);
+  const monitoring = evaluate(report);
+  assert.equal(monitoring.status, 'critical');
+  const codes = monitoring.alerts.map(alert => alert.code);
+  for (const code of ['schema_unverified', 'calendar_unverifiable', 'collector_scope_unverified', 'unanalyzed_fixtures', 'collector_stale', 'results_unverifiable']) assert.ok(codes.includes(code), code);
+  const output = [];
+  assert.equal(checkMonitoring(['--db-url', 'libsql://user:secret@remote', '--competition', 'Test', '--season', '2026/27', '--from', options.from,
+    '--to', options.to, '--cutoff', options.cutoff, '--origin', 'prospective_a'], { MODEL_A_PROSPECTIVE_MONITORING_ENABLED: 'true' }, report => output.push(report)), 1);
+  assert.equal(output[0].error, 'local_file_url_required');
+  assert.equal(JSON.stringify(output).includes('secret'), false);
+});
+
+async function registerCollector(f, state = 'stored') {
+  // These are collector-only manual tables, never created by the inspector.
+  await f.client.executeMultiple(`CREATE TABLE IF NOT EXISTS model_a_collection_runs(run_id TEXT PRIMARY KEY,protocol_id TEXT,started_at TEXT,completed_at TEXT,status TEXT,error_code TEXT,examined INTEGER,claimed INTEGER);
+    CREATE TABLE IF NOT EXISTS model_a_prospective_result_observations(evidence_id TEXT PRIMARY KEY,match_id TEXT,source TEXT,kickoff_at TEXT,observed_at TEXT,recorded_at TEXT,status TEXT,reason TEXT,evidence_json TEXT);`);
+  const snapshot = { protocolId: 'test-protocol', seasons: ['2026/27'], from: options.from, to: options.to,
+    competitions: ['Test'], origin: 'prospective_a', window: 'T-24h..T-60min inclusive' };
+  const manifest = { snapshot, sha256: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex') };
+  f.manifestHash = manifest.sha256;
+  await f.client.execute({ sql: 'INSERT INTO model_a_collection_protocols VALUES (?,?,?)', args: ['test-protocol', JSON.stringify(manifest), '2026-11-04T12:00:00Z'] });
+  await f.client.execute({ sql: 'INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,completed_at,status,error_code,examined,claimed) VALUES (?,?,?,?,?,?,?,?)', args: ['run', 'test-protocol', '2026-11-04T18:00:00Z', '2026-11-04T18:01:00Z', 'success', null, 3, 2] });
+  await f.client.execute({ sql: 'INSERT INTO model_a_prospective_result_refresh_state(refresh_id,last_started_at,last_completed_at,last_success_at,last_status) VALUES(?,?,?,?,?)', args: ['understat-results-v1','2026-11-04T18:00:00Z','2026-11-04T18:01:00Z','2026-11-04T18:01:00Z','completed'] });
+  for (const [id, rowState, reason, claim] of [['present', state, 'forecast_confirmed', '2026-11-04T12:00:00Z'],
+    ['pending', 'unconfirmed', 'delivery_unconfirmed', '2026-11-04T12:00:00Z'], ['missed', 'expired', 'window_expired', null], ['orphan', 'claimed', 'prediction_started', '2026-11-04T12:00:00Z']]) {
+    await f.client.execute({ sql: 'INSERT INTO model_a_collection_ledger(protocol_id,match_id,kickoff_at,competition,season,state,reason,claim_at,forecast_id,updated_at,claim_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      args: ['test-protocol', id, kickoff, 'Test', '2026/27', rowState, reason, claim, id === 'present' ? 'present' : null, '2026-11-04T18:00:00Z', `${id}-claim`] });
+  }
+}
+
+function registeredForecast(f, id) { return forecast(id, id, { origin: 'prospective_a', collection: { protocolId: 'test-protocol', manifestSha256: f.manifestHash, claimId: `${id}-claim` } }); }
+
+test('collector monitoring separates analyzed, eligible, missed, pending and missing ledgers without counting retries as fixtures', async t => {
+  const f = await fixture(t);
+  for (const id of ['present', 'pending', 'missed', 'unseen']) await match(f, id);
+  await registerCollector(f);
+  await store(f, registeredForecast(f, 'present'));
+  const spoolDir = path.join(f.dir, 'spool'); fs.mkdirSync(spoolDir);
+  fs.writeFileSync(path.join(spoolDir, 'audit.ndjson'), ['recovered', 'recovered', 'retry', 'duplicate_suppressed', 'result_reconciliation_error']
+    .map(type => JSON.stringify({ type, at: '2026-11-04T18:00:00Z', matchId: 'pending' })).join('\n') + '\n');
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol', spoolDir }, {});
+  assert.equal(report.collector.registeredScopeMatches, true);
+  assert.equal(report.collector.analyzedFixtures, 3);
+  assert.equal(report.collector.predictionStartedFixtures, 2);
+  assert.equal(report.collector.eligibleFixtures, 2);
+  assert.equal(report.collector.missedWindows, 1);
+  assert.equal(report.collector.pendingFixtures, 1);
+  assert.equal(report.collector.storedFixtures, 1);
+  assert.equal(report.collector.ledgerMissingFixtures, 1);
+  assert.equal(report.spool.audit.counts.recovered, 2);
+  assert.equal(report.spool.audit.counts.duplicate_suppressed, 1);
+  assert.equal(report.coverage.recordedForecasts, 1);
+  assert.equal(report.collector.lastSuccessfulRunAt, '2026-11-04T18:01:00Z');
+  const monitoring = evaluate(report), codes = monitoring.alerts.map(alert => alert.code);
+  for (const code of ['missing_forecast_windows', 'unanalyzed_fixtures', 'forecast_delivery_unconfirmed', 'pending_forecasts_old', 'result_reconciliation_errors']) assert.ok(codes.includes(code), code);
+  assert.ok(monitoring.notices.some(notice => notice.code === 'temporal_provenance_unknown'));
+  assert.equal(codes.includes('collector_stale'), false);
+});
+
+test('result monitoring keeps pending, horizon exclusions, kickoff conflicts and unavailable final evidence distinct', async t => {
+  const f = await fixture(t);
+  for (const id of ['present', 'pending', 'unassociated']) await match(f, id);
+  await registerCollector(f);
+  await store(f, registeredForecast(f, 'present'));
+  await store(f, registeredForecast(f, 'pending'));
+  await store(f, registeredForecast(f, 'orphan'));
+  for (const [id, observed, recorded] of [['present', '2026-11-04T18:30:00Z', '2026-11-04T18:31:00Z'],
+    ['pending', '2026-11-04T18:30:00Z', '2026-11-04T20:00:00Z'], ['unassociated', '2026-11-04T18:30:00Z', '2026-11-04T18:31:00Z']]) {
+    await f.client.execute({ sql: 'INSERT INTO model_a_prospective_results VALUES (?,?,?,?,?,?,?,?,?)', args: [id, id, 'understat', kickoff, observed, recorded, 1, 0, '{}'] });
+  }
+  for (const [id, status, at] of [['pending', 'not_final', '2026-11-04T18:30:00Z'], ['pending', 'postponed', '2026-11-04T18:40:00Z'], ['orphan', 'unverified', '2026-11-04T18:40:00Z']]) {
+    await f.client.execute({ sql: 'INSERT INTO model_a_prospective_result_observations VALUES (?,?,?,?,?,?,?,?,?)',
+      args: [`${id}-${status}`, id, 'understat', kickoff, at, at, status, status === 'unverified' ? 'kickoff_changed' : status, '{}'] });
+  }
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(report.results.linkedForecasts, 1);
+  assert.equal(report.results.pendingForecasts, 1);
+  assert.equal(report.results.unassociatedResults, 1);
+  assert.equal(report.results.orphanForecasts, 1);
+  assert.deepEqual(report.results.lifecycle, { postponed: 1, unverified: 1 });
+  const codes = evaluate(report, { resultGraceHours: 0.5 }).alerts.map(alert => alert.code);
+  assert.ok(codes.includes('results_pending_within_horizon'));
+  assert.ok(codes.includes('result_unverified'));
+  const oldReport = { ...report, coverage: { ...report.coverage, scope: { ...report.coverage.scope, cutoff: '2027-01-01T00:00:00Z' } } };
+  assert.ok(evaluate(oldReport).alerts.some(alert => alert.code === 'results_outside_refresh_horizon'));
+});
+
+test('only a scoped recent successful run with stored forecasts and linked result evidence produces no alert', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  const payload = registeredForecast(f, 'present');
+  payload.provenance.classification = 'technical_only'; payload.provenance.rigorousEligible = false;
+  await store(f, payload);
+  await f.client.execute({ sql: 'INSERT INTO model_a_prospective_results VALUES (?,?,?,?,?,?,?,?,?)',
+    args: ['final', 'present', 'understat', kickoff, '2026-11-04T18:30:00Z', '2026-11-04T18:31:00Z', 1, 0, '{}'] });
+  await f.client.execute({ sql: 'INSERT INTO model_a_prospective_result_observations VALUES (?,?,?,?,?,?,?,?,?)',
+    args: ['final', 'present', 'understat', kickoff, '2026-11-04T18:30:00Z', '2026-11-04T18:31:00Z', 'final', 'verified', JSON.stringify({ resultRow: { home_goals: 1, away_goals: 0 } })] });
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.deepEqual(evaluate(report).alerts, []);
+  assert.equal(evaluate(report).status, 'ok');
+  assert.equal(evaluate(report).scientificStatus, 'unverified');
+  assert.equal(report.coverage.nonEvaluableProvenance, 1);
+  assert.ok(evaluate(report).notices.some(notice => notice.code === 'temporal_provenance_unknown'));
+  assert.ok(evaluate(report, { requireRigorousInputs: true }).alerts.some(alert => alert.code === 'temporal_provenance_unknown'));
+  assert.throws(() => evaluate(report, { requireRigorousInputs: 'yes' }), /invalid_rigorous_requirement/);
+  assert.equal(report.results.refreshRunLivenessVerified, true);
+  await f.client.execute({ sql: 'INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,completed_at,status,error_code,examined,claimed) VALUES (?,?,?,?,?,?,?,?)',
+    args: ['failed-run', 'test-protocol', '2026-11-04T18:40:00Z', '2026-11-04T18:41:00Z', 'failed', 'redacted', 0, 0] });
+  const failed = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(failed.collector.failedRuns, 1);
+  assert.equal(failed.collector.latestRunStatus, 'failed');
+  assert.ok(evaluate(failed).alerts.some(alert => alert.code === 'collector_run_failed'));
+});
+
+test('overlapping protocols never borrow each others forecasts or claim identifiers', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  const other = { schema: 'model-a-operational-prospective-v1', origin: 'prospective_a',
+    collection: { protocolId: 'another-protocol', manifestSha256: f.manifestHash, claimId: 'present-claim' } };
+  await store(f, forecast('foreign', 'present', other));
+  await store(f, forecast('wrong-claim', 'present', { ...other, collection: { protocolId: 'test-protocol', manifestSha256: f.manifestHash, claimId: 'foreign-claim' } }));
+  const scoped = { ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' };
+  const missing = inspect(scoped, {});
+  assert.equal(missing.coverage.recordedForecasts, 0);
+  assert.equal(missing.coverage.overdueMissing, 1);
+  await store(f, registeredForecast(f, 'present'));
+  const own = inspect(scoped, {});
+  assert.equal(own.coverage.recordedForecasts, 1);
+  assert.equal(own.coverage.overdueMissing, 0);
+});
+
+test('a later canceled lifecycle preserves old final evidence but excludes current pairing and eligibility', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  await store(f, registeredForecast(f, 'present'));
+  await f.client.execute({ sql: 'INSERT INTO model_a_prospective_results VALUES (?,?,?,?,?,?,?,?,?)',
+    args: ['final', 'present', 'understat', kickoff, '2026-11-04T18:30:00Z', '2026-11-04T18:31:00Z', 1, 0, '{}'] });
+  for (const [id, status, observed, evidence] of [['final', 'final', '2026-11-04T18:30:00Z', { resultRow: { home_goals: 1, away_goals: 0 } }],
+    ['canceled', 'canceled', '2026-11-04T18:40:00Z', {}]]) {
+    await f.client.execute({ sql: 'INSERT INTO model_a_prospective_result_observations VALUES (?,?,?,?,?,?,?,?,?)',
+      args: [id, 'present', 'understat', kickoff, observed, observed, status, status, JSON.stringify(evidence)] });
+  }
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(report.coverage.fixtureMatches, 1);
+  assert.equal(report.coverage.eligibleFixtureMatches, 0);
+  assert.equal(report.results.preservedFinalEvidence, 1);
+  assert.equal(report.results.currentlyPairableForecasts, 0);
+  assert.equal(report.results.invalidatedStoredFinals, 1);
+  assert.equal(report.results.pendingForecasts, 0);
+  assert.equal(evaluate(report).status, 'ok');
+  assert.ok(evaluate(report).notices.some(notice => notice.code === 'result_lifecycle_exclusion'));
 });
