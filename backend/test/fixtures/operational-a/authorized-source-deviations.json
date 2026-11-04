@@ -126,6 +126,24 @@
           "after": "      try {\n        scheduleModelAProspective(this.db, {\n          match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',\n          provenance: prospectiveInputs?.finish(),\n          model: canonicalRecommendation.model, contextual: probs.flatProbabilities,\n          calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,\n          selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,\n"
         }
       ]
+    },
+    {
+      "commit": null,
+      "parentCommit": "8e4870bc68d570c29614331c334979d9fe9def63",
+      "review": "Phase 4 source-timestamp observation reviewed explicitly after coverage and destination audit.",
+      "reason": "Copies existing local row-write timestamps and declared result-ingestion observations into the optional input snapshot; no prediction, calibration or source data is changed.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "import { ModelAInputCapture } from '../research/ModelAProspectiveInputs';\n",
+          "after": "import { ModelAInputCapture, modelASourceTimestampEvidence } from '../research/ModelAProspectiveInputs';\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      context, lineupXgAdjustments,\n    });\n    const probs = model.computeFullProbabilities(\n",
+          "after": "      context, lineupXgAdjustments,\n      sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })\n        .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString())])),\n    });\n    const probs = model.computeFullProbabilities(\n"
+        }
+      ]
     }
   ]
 }

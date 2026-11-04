@@ -26,7 +26,7 @@ test('live A integration persists immutable pre-match snapshots without changing
   const match = { match_id: 'prospective-test', home_team_id: 'home', away_team_id: 'away', competition: 'Test', season: '2026/27',
     date: kickoff, home_goals: null, away_goals: null };
   const db = { getLatestModelParams: async () => ({ params }),
-    getTeamsByIds: async ids => ids.map(team_id => ({ team_id, name: team_id, competition: 'Test' })),
+    getTeamsByIds: async ids => ids.map(team_id => ({ team_id, name: team_id, competition: 'Test', last_updated: '2026-11-01 12:00:00' })),
     getMatchById: async () => match, getTeamHistoricalCoverageBatch: async () => ({}), getTeamScheduleInsightsBatch: async () => ({}),
     appendModelAProspectiveForecast: record => DatabaseService.prototype.appendModelAProspectiveForecast.call({ execute: (sql, args) => client.execute({ sql, args }) }, record) };
   const service = new PredictionService(db, { getMatchDetails: async () => assert.fail('provider call') });
@@ -57,6 +57,8 @@ test('live A integration persists immutable pre-match snapshots without changing
   assert.equal(saved.provenance.snapshot.values.analysis.flatProbabilities.over25,
     off.canonicalRecommendation.probabilities.raw.over25);
   assert.equal(saved.provenance.snapshot.values.contextual.dcParameters.attackParams.home, params.attackParams.home);
+  assert.equal(saved.provenance.snapshot.values.contextual.sourceTimestamps.homeTeam.updated.utc, '2026-11-01T12:00:00.000Z');
+  assert.equal(saved.provenance.snapshot.values.contextual.sourceTimestamps.homeTeam.providerPublishedAt, null);
   assert.equal(saved.stages.contextual.value.over, off.canonicalRecommendation.probabilities.raw.over25);
   assert.equal(saved.stages.ensembleRaw.value, null); assert.equal(saved.stages.marketBlended.value, null);
   assert.equal(saved.stages.calibrated.value.over, service.engine.calibrate(saved.stages.contextual.value.over, [{ x: 0, y: 0 }, { x: .5, y: .45 }, { x: 1, y: 1 }], 200));

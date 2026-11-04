@@ -23,6 +23,46 @@ export function modelAInputSnapshotHash(snapshot: unknown): string {
   return createHash('sha256').update(JSON.stringify(ordered(snapshot))).digest('hex');
 }
 
+type TimestampEvidence = { declared: string | null; utc: string | null;
+  status: 'missing' | 'invalid' | 'future' | 'observed'; meaning: string };
+
+function timestampEvidence(value: unknown, meaning: string, inspectedAt: string, sqliteUtc = false): TimestampEvidence {
+  const declared = typeof value === 'string' ? value : null;
+  const result: TimestampEvidence = { declared, utc: null, status: declared === null ? 'missing' : 'invalid', meaning };
+  if (!declared) return result;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/i.exec(declared);
+  if (!parts || (!parts[8] && !sqliteUtc)) return result;
+  const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number);
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day
+    || hour > 23 || minute > 59 || second > 59) return result;
+  // These two columns are written by SQLite datetime('now'), which uses UTC.
+  // A provider observation without a timezone is deliberately not normalized.
+  const instant = Date.parse(declared.replace(' ', 'T') + (parts[8] ? '' : 'Z'));
+  if (!Number.isFinite(instant) || !Number.isFinite(Date.parse(inspectedAt))) return result;
+  result.utc = new Date(instant).toISOString();
+  result.status = instant > Date.parse(inspectedAt) ? 'future' : 'observed';
+  return result;
+}
+
+/** Preserve existing row timestamps as evidence of local writes, never source publication. */
+export function modelASourceTimestampEvidence(row: any, inspectedAt: string) {
+  let observation: any;
+  try { observation = JSON.parse(typeof row?.raw_json === 'string' ? row.raw_json : '{}')?.resultObservation; } catch { /* No source observation is inferred from unreadable JSON. */ }
+  return {
+    inspectedAt,
+    source: typeof row?.source === 'string' ? row.source : null,
+    recordPresent: row != null,
+    created: timestampEvidence(row?.created_at, 'local_database_record_creation_not_input_publication', inspectedAt, true),
+    updated: timestampEvidence(row?.last_updated, 'local_database_row_write_not_input_publication', inspectedAt, true),
+    resultObservation: { source: typeof observation?.source === 'string' ? observation.source : null,
+      sourceMatchesRecord: observation?.source != null && observation.source === row?.source,
+      timestamp: timestampEvidence(observation?.observedAt, 'declared_result_ingestion_observation_not_publication', inspectedAt) },
+    providerPublishedAt: null,
+    limitation: 'These declarations do not establish availability of all contributing inputs or historical revisions.',
+  };
+}
+
 /** Observe actual inference arguments synchronously before use, without changing them. */
 export class ModelAInputCapture {
   private values: Record<string, unknown> = {};

@@ -2,7 +2,7 @@ import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData }
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
 import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';
-import { ModelAInputCapture } from '../research/ModelAProspectiveInputs';
+import { ModelAInputCapture, modelASourceTimestampEvidence } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
@@ -2238,6 +2238,8 @@ export class PredictionService {
       inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(),
       homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,
       context, lineupXgAdjustments,
+      sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })
+        .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString())])),
     });
     const probs = model.computeFullProbabilities(
       request.homeTeamId,

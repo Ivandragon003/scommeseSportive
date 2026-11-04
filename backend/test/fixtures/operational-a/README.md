@@ -15,7 +15,10 @@ di C, che possono evolvere separatamente.
 autorizzate successive: correzione degli xG mancanti in DC, Poisson e contesto
 (`0ecda0a26097d6b73027f4b053194ec68b599b6e`), osservatori Fase 4
 (`028a041d4788c7afb3383f602fe2fc5f5d7cf14b`) e cattura opzionale degli input
-Fase 4 rivista nel task corrente. Ogni blocco conserva prima/dopo esatti,
+Fase 4 rivista nel task corrente, inclusa l'osservazione aggiuntiva dei
+timestamp locali già presenti nelle righe.
+Questi timestamp non diventano date di pubblicazione del provider.
+Ogni blocco conserva prima/dopo esatti,
 contesto e motivo; i blocchi storici provengono dai relativi diff Git.
 Il test richiede una sola occorrenza di ogni blocco e annulla queste sole
 sostituzioni in memoria prima di verificare gli hash pre-C. Non consente
