@@ -21,6 +21,25 @@ Il recupero riprova idempotentemente i file ancora presenti, senza garantire rec
 
 Il cursore risultati è in memoria e riparte dall'inizio al riavvio; un errore singolo viene contato e ritentato al ciclo successivo. Understat è una fonte statistica, non ufficiale della competizione. Il sistema riconcilia rettifiche già presenti nel database, senza garantirne l'acquisizione dal provider. Previsioni ed esiti originali non vengono riscritti. Il SQL di associazione considera lo stesso istante kickoff anche con fusi equivalenti e applica il cutoff a osservazione e registrazione dell'esito.
 
+## Audit della copertura e dell'ambiente
+
+| Controllo prioritario | Evidenza verificata | Conseguenza |
+|---|---|---|
+| Generatore automatico A | La Nightly recommendation chiama A dopo il controllo delle quote; altri claim possono essere saltati. Web senza decisioni automatiche e worker T−15 ritirato. | Nessuna copertura universale garantita; visite utente e baseline diagnostica non la sostituiscono. |
+| Finestra | La Nightly usa ora effettiva → prossima esecuzione, distinta da T−24h/T−60min del protocollo. | Contare copertura e ritardi prima di analizzare gli esiti. |
+| Processo del recorder | Il workflow non esporta `MODEL_A_PROSPECTIVE_*` né configura spool persistente. Il CLI drena nel `finally`, senza handler di segnale web. | Abilitare solo il web non copre le previsioni del runner; timeout/kill restano da provare su quel processo. |
+| Volume | Compose senza mount persistente. La documentazione Hostless distingue root in sola lettura, scratch temporaneo e volumi; il mount effettivo dell'account non è stato verificato. | Non equiparare una cartella al volume. Il browser locale era disabilitato; il controllo HTTP dell'healthcheck configurato ha restituito 403, senza confermare salute o configurazione. |
+| Costo | I [volumi Hostless](https://docs.hostless.cloud/billing/costbreakdown) sono separati dalla quota gratuita condivisa. | Nessun volume a pagamento introdotto; serve una decisione compatibile con il vincolo economico del progetto. |
+| Database | Sole `SELECT` sul target del `.env` locale: calendario presente, tabelle prospettiche assenti. Equivalenza con secret GitHub e Hostless non verificata. | Nessuna migrazione eseguita. Il nuovo ispettore consente audit del calendario anche prima del provisioning; metriche forecast non misurabili restano null. |
+| Esecuzioni remote | Variabili GitHub Nightly e recommendation attive; i tre run Nightly esaminati del 4 novembre 2026 sono falliti al gate Understat. | Un flag attivo non prova che siano state prodotte previsioni; nessun rerun operativo avviato. |
+| Main e produzione | Il push su `main` per i file coinvolti avvia `calibration-warm.yml`, che applica lo schema cache e salva profili usando i secret Turso; osservato anche un run push riuscito. | Merge/push su `main` sospesi. Non si aggira l'effetto con marker o modifiche silenziose al workflow. Auto-deploy Hostless non verificato. |
+
+Le osservazioni remote sono evidenze dell'audit, non certificazioni permanenti. Ripeterle prima dell'attivazione; dettagli riproducibili nelle guide [Nightly](../github-actions-nightly-sync.md) e [Hostless](../operations/hostless-deployment.md). L'audit privato `configured-target-readonly-audit.json` registra istante, scope e identità non certificata del target; non importa `DatabaseService` e non esegue scritture o bootstrap.
+
+Lo snapshot degli input ora conserva anche `sourceTimestamps`: dichiarazioni di `created_at` e `last_updated` già lette per fixture, squadre e arbitro, più l'eventuale osservazione dell'esito. Timestamp SQLite locali e osservazioni provider sono distinti; valori futuri/invalidi e fonti discordanti non vengono promossi a prova temporale. `inputAvailableThrough` resta null. Non vengono introdotte letture aggiuntive, filtri o ricostruzioni dei dati.
+
+Il nuovo test del timer inserisce evidenza finale dopo l'avvio, verifica una sola osservazione attraverso più tick e poi una correzione, lasciando invariata la previsione. Non chiama manualmente il riconciliatore e non effettua richieste Understat. Dimostra il ciclo automatico locale, senza provare acquisizione remota, ufficialità o continuità del processo di destinazione.
+
 ## File interessati
 
 - Integrazione: `backend/src/services/PredictionService.ts`; nuovo `backend/src/research/ModelAProspectiveInputs.ts`.
@@ -29,6 +48,13 @@ Il cursore risultati è in memoria e riparte dall'inizio al riavvio; un errore s
 - Operatore: nuovo `backend/scripts/model-a-prospective-inspect.js`.
 - Test: `backend/test/model-a-prospective-*.test.js`, `operational-a-regression.test.js`, `fixtures/operational-a/authorized-source-deviations.json` e relativo README. Nuovi casi su input, monitoraggio, recovery, rotazione risultati e CLI.
 - Documentazione: questa guida, protocollo prospettico e rimando nella guida A. Lo schema proposto esistente non richiede modifiche per queste aggiunte.
+
+| Modifiche del proseguimento | File |
+|---|---|
+| Timestamp esistenti degli input | `backend/src/research/ModelAProspectiveInputs.ts`, `backend/src/services/PredictionService.ts`, test input e integrazione, fixture delle deviazioni autorizzate e relativo README |
+| Audit prima dello schema recorder | `backend/scripts/model-a-prospective-inspect.js`, `backend/test/model-a-prospective-inspect.test.js` |
+| Esiti automatici | Nuovo `backend/test/model-a-prospective-auto-results.test.js` |
+| Procedure e blocchi | Questa guida, `MODEL-A-VALIDAZIONE-PROSPETTICA.md`, `docs/github-actions-nightly-sync.md`, `docs/operations/hostless-deployment.md` |
 
 Non sono cambiati sorgenti dei modelli matematici, configurazioni/pesi, frontend, ML, lockfile, migrazioni automatiche o Docker. Distribuzione, attivazione e modifica del database operativo restano fuori dal perimetro di questi interventi locali.
 
@@ -58,16 +84,19 @@ Risultati locali correnti (Windows, Node 24.17.0, `@libsql/client` 0.14.0):
 
 | Controllo | Risultato |
 |---|---|
-| `npm --prefix backend test`, inclusa build | **1.366 test: 1.365 passati, 1 fallito, 0 saltati. Gate non verde.** Il file `research-recommendation-nightly.test.js` termina con `test failed` senza un errore JS dettagliato. |
-| Gruppo mirato prospettico + golden/xG/contesto + runtime A/C | **92/92 passati**, senza saltati, sui sorgenti finali. |
-| File nightly fallito, riesecuzione isolata con reporter TAP | **19/19 passati**. Non chiude l'intermittenza della suite. |
+| Build tramite `npm test`, poi suite completa `npm run test:ci` dopo l'ultimo test aggiunto | **1.372 test: 1.371 passati, 1 fallito, 0 saltati. Gate non verde.** Il file `research-nightly.test.js` termina con `test failed` senza un errore JS dettagliato. Nel run intermedio erano falliti un diverso processo store e una pulizia `EPERM`. |
+| Gruppo mirato prospettico + golden/xG/contesto + runtime A/C | **98/98 passati, 0 saltati**, inclusi calendario senza schema, timestamp locali e timer esiti; log `continuation-targeted.log`. |
+| File nightly fallito, riesecuzione isolata con reporter TAP | **16/16 passati**. Non chiude l'intermittenza della suite. |
+| Compatibilità Node 20 di input, timer esiti e CLI | **6 passati e 9 saltati esplicitamente**: il CLI operatore richiede Node >=22.13; il backend conserva Node 20. |
 | Typecheck e lint backend, lint esplicito del nuovo CLI | Superati; nessuna dipendenza aggiunta. |
 | Backend compilato effettivo, DB/spool locali temporanei, job esterni spenti | HTTP health 200; riconciliazione d'avvio confermata in audit; SIGTERM **simulato tramite IPC**, uscita 143 e drain true. Nessuna prova di segnale OS nel deploy. |
 | Revisione indipendente e diff | Corretti shutdown delle richieste in corso, equità recovery, attesa risultati e semantica cutoff. Nessun nuovo difetto concreto nella revisione statica successiva; formule/configurazioni/C/Docker fuori dal diff. |
 
-Gli artefatti locali sono sotto `artifacts/model-a-phase4/`, ignorati da Git: `backend-suite-final.log`, `targeted-final.log`, `recommendation-nightly-isolated-final.log`, `backend-smoke-final.cjs`/`.json` e `benchmark-final-{1,2,3}.json`. Conservarli con commit e ambiente se servono al passaggio di consegne. La suite intermedia Windows/Node 20 ha riportato 1.337 test: 1.325 passati, 7 falliti e 5 saltati; fallimenti per pulizia file (`ENOTEMPTY`/`EPERM`) e arresti nativi `0xC0000005` in file SQLite. Precede gli ultimi fix di shutdown e rotazione.
+Gli artefatti locali sono sotto `artifacts/model-a-phase4/`, ignorati da Git: suite aggiornata `continuation-suite-complete.log`, gruppo `continuation-targeted.log`, `continuation-nightly-isolated.log`, `backend-smoke-final.cjs`/`.json` e `continuation-benchmark-{1,2,3}.json`. I log del primo passaggio restano separati (`backend-suite-final.log`, `targeted-final.log`, `benchmark-final-*`). Conservarli con commit e ambiente se servono al passaggio di consegne. La suite intermedia Windows/Node 20 del primo passaggio aveva riportato 1.337 test: 1.325 passati, 7 falliti e 5 saltati; fallimenti per pulizia file (`ENOTEMPTY`/`EPERM`) e arresti nativi `0xC0000005` in file SQLite. Non è la suite finale di questa revisione.
 
 Il vecchio errore in `research-nightly.test.js` è stato riprodotto anche isolatamente su Windows/Node 24 dopo quattro run verdi: termina il processo nativo con `0xC0000005`, senza errore JavaScript. Una sonda delle fixture non ha trovato operazioni client pendenti o transazioni logicamente aperte. Non è dimostrata la causa interna del driver, né che il fallimento generico del diverso file `research-recommendation-nightly.test.js` nella suite finale abbia esattamente la stessa causa. Non sono stati aggiunti retry del processo o aggiornamenti delle dipendenze per forzare il verde. I conteggi possono variare quando un processo termina prima di scoprire tutti i test. I successi mirati non equivalgono a suite completa verde.
+
+L'audit successivo ha separato la CI Linux dal problema Windows: su `main` il run esaminato fallisce soltanto sul vecchio hash sorgente Dixon–Coles (i sei scenari numerici e il file nightly passano). Quella CI non verifica questo branch; la correzione del controllo è già nel branch. Nel driver locale `@libsql/client` le connessioni cedute alle transazioni vengono finalizzate separatamente dalla chiusura del client. Le sonde delle fixture recommendation hanno osservato errori `EPERM` effettivamente catturati e ignorati dal cleanup; non dimostrano il nesso con il crash. Nessuna modifica a driver, dipendenze o comportamento C è stata applicata sulla base di questa sola correlazione.
 
 ## Prestazioni
 
@@ -85,12 +114,12 @@ Tre prove indipendenti aggiornate, ciascuna con 50 chiamate e concorrenza 10, di
 
 | Metrica | Recorder spento | Recorder acceso |
 |---|---:|---:|
-| p50 | 11,79 ms | 51,44 ms |
-| p95 | 18,34 ms | 53,79 ms |
-| Throughput | 788,3/s | 197,3/s |
-| Intervallo p95 delle tre prove | 17,52–18,65 ms | 52,07–56,29 ms |
+| p50 | 11,64 ms | 50,68 ms |
+| p95 | 18,23 ms | 56,11 ms |
+| Throughput | 762,1/s | 191,9/s |
+| Intervallo p95 delle tre prove | 17,97–18,91 ms | 55,57–81,18 ms |
 
-Ogni prova accesa ha 50 eventi accettati e 50 confermati, nessun rifiuto/errore, backlog finale zero: **150 eventi complessivi, nessuna perdita osservata**. Il costo resta materiale: circa 35 ms aggiuntivi al p95 delle fixture e throughput ridotto di circa il 75%. Non confrontare direttamente questi numeri con il precedente singolo benchmark su macchina/cache diverse. Lettura incrementale e limiti della coda riducono il lavoro del recupero; togliere fsync dall'ammissione o dall'audit cambierebbe le garanzie. Non è stata adottata una scorciatoia prestazionale senza prova di correttezza. Non si conclude che il costo sia accettabile in produzione.
+Ogni prova accesa ha 50 eventi accettati e 50 confermati, nessun rifiuto/errore, backlog finale zero: **150 eventi complessivi, nessuna perdita osservata**. Il costo resta materiale: circa 38 ms aggiuntivi al p95 delle fixture e throughput ridotto di circa il 75%; una delle tre prove raggiunge 81,18 ms al p95. Non confrontare direttamente questi numeri con il precedente singolo benchmark su macchina/cache diverse né attribuire la variabilità a una causa non misurata. Lettura incrementale e limiti della coda riducono il lavoro del recupero; togliere fsync dall'ammissione o dall'audit cambierebbe le garanzie. Non è stata adottata una scorciatoia prestazionale senza prova di correttezza. Non si conclude che il costo sia accettabile in produzione.
 
 ## Blocchi ancora aperti
 
@@ -123,12 +152,17 @@ node backend/scripts/model-a-prospective-inspect.js --db-url "file:///C:/prove/c
 
 Il CLI rifiuta URL remoti e file mancanti, non legge `.env` e non modifica schema o spool. Il cutoff filtra l'istante della previsione, **senza provare che fosse già inserita nel DB a quell'ora**: un recupero successivo compare nell'osservazione attuale. `measuredAt` e `timeSemantics` esplicitano la distinzione. Audit e spool sono osservazioni correnti separate, non una fotografia storica atomica.
 
+Con tabelle prospettiche assenti o incompatibili l'ispettore espone comunque il calendario se leggibile. Controllare `calendarEvaluable`, `coverageEvaluable`, `storageStatus` e `schema.tables`: le metriche non misurabili sono null, non zero. La tabella risultati mancante non impedisce il confronto fra calendario e forecast già presenti. Lo schema complessivo resta non compatibile ed exit code 1 segnala il blocco all'attivazione, senza installare nulla.
+
 **Disattivazione:** spegnere il flag nella configurazione autorizzata e riavviare secondo la procedura verificata, conservando volume, DB, audit e backup. Un riavvio a flag spento non drena automaticamente i pendenti: serve un successivo processo controllato a flag attivo con lo stesso volume/DB. Non eliminare file per far apparire nullo il backlog; i corrotti richiedono diagnosi esplicita.
 
 ## Compatibilità e conclusione
 
 Non sono cambiati formule o sorgenti C né i modelli condivisi. Nei casi provati, acceso/spento lascia invariati probabilità e decisioni A. Le osservazioni in `PredictionService` cambiano comunque hash operativo e versione `APP-A-*`; le identità che incorporano l'hash vanno registrate come nuova versione, anche a flag spento. Non equivale a una modifica predittiva né autorizza promozioni di C.
 
-- **A — Preparazione tecnica:** non conclusa finché restano i blocchi elencati, nonostante miglioramenti e test locali.
-- **B — Raccolta attiva:** non avviata; richiede ambiente verificato e autorizzazione.
-- **C — Validazione statistica:** non conclusa; Brier, Log Loss e calibrazione richiedono campione indipendente adeguato e temporalmente valutabile. Nessun miglioramento di affidabilità o profitto è dimostrato qui.
+| Criterio | Stato |
+|---|---|
+| A — Preparazione tecnica | Non conclusa: generatore/copertura, storage del processo scelto, genealogia temporale, alert e prove ambiente restano bloccanti; suite Windows ancora intermittente. |
+| B — Raccolta attiva | Non avviata da questi interventi; nessuna migrazione, abilitazione o distribuzione operativa. |
+| C — Validazione statistica | Non conclusa: richiede campione indipendente adeguato e temporalmente valutabile. Nessun miglioramento di affidabilità o profitto dimostrato. |
+| Git | Main non integrato per gli effetti automatici sul DB. Nessun branch eliminato: il lavoro Fase 4 non è incorporato in main e l'uso esterno degli altri branch non è certificato. Hash e pubblicazione vanno verificati nel report di consegna, senza conservarli come stato permanente del prodotto. |

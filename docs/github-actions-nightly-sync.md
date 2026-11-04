@@ -65,6 +65,32 @@ che risponde `410`. Non piazza scommesse presso bookmaker. Giocatori e
 formazioni restano sospesi nella configurazione del workflow; una chiave
 API-Football presente non li abilita da sola.
 
+## Limiti per la raccolta prospettica A
+
+La Nightly non è un generatore universale di previsioni A. Nel percorso
+recommendation `ResearchRecommendationRuntime.prepare` invoca
+`PredictionService.predict` solo dopo aver ottenuto almeno una quota app
+reale e fresca. Mancanza di quote, matching, cache-only o budget provider
+possono quindi impedire l'inferenza A, non soltanto la giocata. Una
+decisione già registrata, origini diagnostiche mancanti o entrambe le
+famiglie già puntate possono escludere il lavoro prima dell'inferenza.
+Capitale ed esposizione virtuale sono invece verificati dopo il calcolo.
+
+La finestra effettiva del job termina alla successiva Nightly, mentre il
+protocollo prospettico richiede una prima previsione tra T−24h e T−60min.
+Ritardi del job e variazioni del calendario non permettono di equiparare
+le due finestre. Visite utente, worker T−15 ritirato e baseline diagnostica
+research non sostituiscono un generatore A con copertura verificata.
+
+Il workflow non passa `MODEL_A_PROSPECTIVE_*` al runner e non configura
+persistenza dello spool. Il CLI tenta il drain nel `finally` ordinario;
+non installa lo shutdown web su SIGTERM e il timeout shell può terminarlo.
+Il timer risultati vive solo mentre quel processo è in esecuzione:
+abilitare il recorder sul web non lo abilita automaticamente nella Nightly.
+La raccolta richiede prima una decisione su processo, calendario e storage,
+senza introdurre dipendenze da quote per la sola previsione sportiva.
+Stato e blocchi nel [passaggio di consegne A](models/MODEL-A-FASE-4-HANDOFF.md).
+
 ## Configurazione
 
 | Impostazione | Comportamento dichiarato |

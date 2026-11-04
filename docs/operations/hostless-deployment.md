@@ -29,6 +29,47 @@ capacità residua dai limiti Docker o da una vecchia misura CPU.
 Restare sui servizi esistenti e sul piano gratuito effettivamente disponibile;
 un aumento di risorse o servizio a pagamento richiede una decisione esplicita.
 
+## Persistenza per il recorder prospettico A
+
+Prima di configurare `MODEL_A_PROSPECTIVE_SPOOL_DIR`, verificare un volume
+effettivamente montato sul **processo che produce le previsioni**. Un percorso
+nel codice o una cartella nell'immagine non costituiscono un volume.
+Il Compose corrente non dichiara mount persistenti per il backend.
+
+La [documentazione del filesystem Hostless](https://docs.hostless.cloud/app/filesystem)
+descrive root in sola lettura e cartelle temporanee eliminate alla ripartenza;
+solo il mount di un volume conserva i file. Permessi, hard link, backup e
+recupero devono essere provati sul mount reale. Secondo il
+[listino dei volumi](https://docs.hostless.cloud/billing/costbreakdown), i volumi
+persistenti hanno costi separati e non usano la quota gratuita condivisa:
+non crearne o collegarne uno automaticamente per questo progetto.
+Disponibilità e costo dell'account richiedono conferma nel pannello.
+
+La Nightly A/C gira su un runner GitHub separato: un volume del web non
+diventa il suo spool. Il workflow non esporta i flag `MODEL_A_PROSPECTIVE_*`
+e non predispone un mount durevole per il runner. Gli artefatti caricati a
+fine job non provano sopravvivenza a un arresto precedente al caricamento.
+Non abilitare il recorder finché processo, calendario, persistenza e
+monitoraggio non sono verificati insieme; vedere il
+[passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md).
+
+## Effetti operativi del push su main
+
+La CI non è l'unico effetto del push: il workflow
+[calibration-warm.yml](../../.github/workflows/calibration-warm.yml) reagisce
+alle modifiche ammesse su `main`, usa i secret Turso ed esegue
+`npm run calibration:warm`. Lo [script](../../backend/scripts/warm-calibration.js)
+applica lo schema della cache `014_runtime_calibration_cache.sql` e salva
+profili nel database configurato. Le modifiche a `PredictionService.ts`
+ricadono nei suoi filtri. Un'integrazione osservativa può quindi produrre
+scritture remote anche con recorder spento.
+
+Se il task vieta migrazioni o modifiche operative, sospendere il push su
+`main` e segnalare questa conseguenza. Verificare inoltre l'auto-deploy del
+provider: la sua assenza dai workflow GitHub non dimostra che sia spento.
+Non modificare silenziosamente trigger, credenziali o servizio per aggirare
+il blocco.
+
 ## Ambiente, accesso e URL
 
 Usare il pannello nativo del provider per i secret già autorizzati. Le
