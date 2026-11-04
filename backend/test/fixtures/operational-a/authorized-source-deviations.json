@@ -1,0 +1,131 @@
+{
+  "baselineCommit": "a474e36cee8372d4e214c704effdb92b488f9242",
+  "purpose": "Exact reviewed deviations only. Reverse in memory before checking unchanged pre-C source hashes. Never refresh golden behavior or research identity.",
+  "changes": [
+    {
+      "commit": "0ecda0a26097d6b73027f4b053194ec68b599b6e",
+      "reason": "Authorized Phase 1 correction: missing xG falls back instead of becoming numeric zero.",
+      "edits": [
+        {
+          "file": "backend/src/models/core/DixonColesModel.ts",
+          "before": "      1\n    );\n    const effectiveGoals = validMatches.map(m => {\n      const hx = Number(m.homeXG);\n      const ax = Number(m.awayXG);\n      if (\n        xgBlendWeight <= 0 ||\n        !Number.isFinite(hx) || !Number.isFinite(ax) ||\n",
+          "after": "      1\n    );\n    const effectiveGoals = validMatches.map(m => {\n      const hx = m.homeXG == null || String(m.homeXG).trim() === '' ? NaN : Number(m.homeXG);\n      const ax = m.awayXG == null || String(m.awayXG).trim() === '' ? NaN : Number(m.awayXG);\n      if (\n        xgBlendWeight <= 0 ||\n        !Number.isFinite(hx) || !Number.isFinite(ax) ||\n"
+        },
+        {
+          "file": "backend/src/models/core/PoissonXgModel.ts",
+          "before": "    let sumRealTotal = 0, nReal = 0;\n\n    for (const m of matches) {\n      const hx = Number(m.homeXG), ax = Number(m.awayXG);\n      if (!Number.isFinite(hx) || !Number.isFinite(ax) || hx < 0 || ax < 0) continue;\n      const h = m.homeTeamId, a = m.awayTeamId;\n      xgFor[h] = (xgFor[h] ?? 0) + hx; xgAgainst[h] = (xgAgainst[h] ?? 0) + ax; games[h] = (games[h] ?? 0) + 1;\n",
+          "after": "    let sumRealTotal = 0, nReal = 0;\n\n    for (const m of matches) {\n      const hx = m.homeXG == null || String(m.homeXG).trim() === '' ? NaN : Number(m.homeXG);\n      const ax = m.awayXG == null || String(m.awayXG).trim() === '' ? NaN : Number(m.awayXG);\n      if (!Number.isFinite(hx) || !Number.isFinite(ax) || hx < 0 || ax < 0) continue;\n      const h = m.homeTeamId, a = m.awayTeamId;\n      xgFor[h] = (xgFor[h] ?? 0) + hx; xgAgainst[h] = (xgAgainst[h] ?? 0) + ax; games[h] = (games[h] ?? 0) + 1;\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "\ntype DataQualityComponent = { available: boolean | null; label: string; detail: string };\n\nfunction buildPredictionDataQuality(params: {\n  context: any; homeTeam: any; awayTeam: any; homePlayers: any[]; awayPlayers: any[];\n  referee: any; odds: Record<string, number>; opportunity: any;\n",
+          "after": "\ntype DataQualityComponent = { available: boolean | null; label: string; detail: string };\n\nexport function normalizeModelAContextXg<T extends { homeXG?: number; awayXG?: number }>(context: T, home: any, away: any): T {\n  if (home?.avg_home_xg == null) context.homeXG = undefined;\n  if (away?.avg_away_xg == null) context.awayXG = undefined;\n  return context;\n}\n\nfunction buildPredictionDataQuality(params: {\n  context: any; homeTeam: any; awayTeam: any; homePlayers: any[]; awayPlayers: any[];\n  referee: any; odds: Record<string, number>; opportunity: any;\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      homeHistoricalCoverage,\n      awayHistoricalCoverage,\n    });\n\n    // A completed lower-division season provides real team evidence, but is\n    // not equivalent to top-flight Understat history.  It can therefore lift\n",
+          "after": "      homeHistoricalCoverage,\n      awayHistoricalCoverage,\n    });\n    normalizeModelAContextXg(context, homeTeam, awayTeam);\n\n    // A completed lower-division season provides real team evidence, but is\n    // not equivalent to top-flight Understat history.  It can therefore lift\n"
+        }
+      ]
+    },
+    {
+      "commit": "028a041d4788c7afb3383f602fe2fc5f5d7cf14b",
+      "reason": "Authorized Phase 4 read-only probability observation and recorder hooks; no predictive formula changes.",
+      "edits": [
+        {
+          "file": "backend/src/models/value/EnhancedMarketAnalysis.ts",
+          "before": "  maxComboLegs?: number;\n  minCombinedEV?: number;\n  analysisContext?: ValueAnalysisContext;\n}): {\n  coreBets: BetOpportunity[];\n  secondaryBets: BetOpportunity[];\n",
+          "after": "  maxComboLegs?: number;\n  minCombinedEV?: number;\n  analysisContext?: ValueAnalysisContext;\n  /** Optional read-only observation; never allowed to affect inference. */\n  onCalibratedProbabilities?: (probabilities: Record<string, number>) => void;\n}): {\n  coreBets: BetOpportunity[];\n  secondaryBets: BetOpportunity[];\n"
+        },
+        {
+          "file": "backend/src/models/value/EnhancedMarketAnalysis.ts",
+          "before": "    engine,\n    calibrationByFamily\n  );\n\n  const baseThresholds: Partial<Record<MarketCategory, number>> = {\n    goal_1x2: 0.030,\n",
+          "after": "    engine,\n    calibrationByFamily\n  );\n  if (params.onCalibratedProbabilities) {\n    try { params.onCalibratedProbabilities({ over25: calibratedProbs.over25, under25: calibratedProbs.under25 }); }\n    catch (error) { console.error('[ModelAProspective] calibration observation failed:', error); }\n  }\n\n  const baseThresholds: Partial<Record<MarketCategory, number>> = {\n    goal_1x2: 0.030,\n"
+        },
+        {
+          "file": "backend/src/models/value/ValueBettingEngine.ts",
+          "before": "}\n\nexport interface ValueAnalysisContext {\n  richnessScore?: number;\n  competition?: string;\n  teamSampleSize?: { home?: number; away?: number };\n",
+          "after": "}\n\nexport interface ValueAnalysisContext {\n  /** Optional observer only; inputs remain unchanged and failures never affect inference. */\n  onEffectiveProbability?: (selection: string, probability: number, origin: 'vig' | 'board') => void;\n  richnessScore?: number;\n  competition?: string;\n  teamSampleSize?: { home?: number; away?: number };\n"
+        },
+        {
+          "file": "backend/src/models/value/ValueBettingEngine.ts",
+          "before": "        uncertaintyFactor\n      );\n      const effectiveProb = blended.probability;\n      const ev           = this.computeExpectedValue(effectiveProb, odds);\n      const edgeRaw      = effectiveProb - impliedRaw;\n      const edgeNoVig    = effectiveProb - impliedNoVig;\n",
+          "after": "        uncertaintyFactor\n      );\n      const effectiveProb = blended.probability;\n      if (context.onEffectiveProbability) {\n        try { context.onEffectiveProbability(key, effectiveProb, 'vig'); } catch { /* observer only */ }\n      }\n      const ev           = this.computeExpectedValue(effectiveProb, odds);\n      const edgeRaw      = effectiveProb - impliedRaw;\n      const edgeNoVig    = effectiveProb - impliedNoVig;\n"
+        },
+        {
+          "file": "backend/src/models/value/ValueBettingEngine.ts",
+          "before": "        uncertaintyFactor\n      );\n      const effectiveProb = blended.probability;\n      const ev = this.computeExpectedValue(effectiveProb, odds);\n      const edgeRaw = effectiveProb - impliedRaw;\n      const edgeNoVig = effectiveProb - impliedNoVig;\n",
+          "after": "        uncertaintyFactor\n      );\n      const effectiveProb = blended.probability;\n      if (context.onEffectiveProbability) {\n        try { context.onEffectiveProbability(key, effectiveProb, 'board'); } catch { /* observer only */ }\n      }\n      const ev = this.computeExpectedValue(effectiveProb, odds);\n      const edgeRaw = effectiveProb - impliedRaw;\n      const edgeNoVig = effectiveProb - impliedNoVig;\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';\nimport { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';\nimport { blendGoalProbabilities } from './ProbabilityEnsembleService';\nimport { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';\nimport { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';\nimport {\n",
+          "after": "import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';\nimport { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';\nimport { blendGoalProbabilities } from './ProbabilityEnsembleService';\nimport { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';\nimport { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';\nimport { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';\nimport {\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "}\n\nexport interface PredictionExecutionOptions {\n  /** Operational snapshot time; this does not refit models or reconstruct a historical model. */\n  asOf?: string;\n  /** Nightly already archives its immutable input and decisions. */\n",
+          "after": "}\n\nexport interface PredictionExecutionOptions {\n  /** Attribution only; does not change the prediction. Unspecified calls are internal. */\n  prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal';\n  /** Operational snapshot time; this does not refit models or reconstruct a historical model. */\n  asOf?: string;\n  /** Nightly already archives its immutable input and decisions. */\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "\n  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {\n    this.db = db;\n    this.engine = new ValueBettingEngine();\n    this.backtester = new BacktestingEngine();\n    this.contextBuilder = new PredictionContextBuilder();\n",
+          "after": "\n  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {\n    this.db = db;\n    startModelAProspectiveRecovery(db);\n    this.engine = new ValueBettingEngine();\n    this.backtester = new BacktestingEngine();\n    this.contextBuilder = new PredictionContextBuilder();\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      }\n    }\n\n    const analysisContext: ValueAnalysisContext = {\n      richnessScore: Number(context.richnessScore ?? 0.3),\n      analysisFactors: factors,\n",
+          "after": "      }\n    }\n\n    const exactOverUnder: Array<{ selection: string; probability: number; origin: 'vig' | 'board' }> = [];\n    const analysisContext: ValueAnalysisContext = {\n      richnessScore: Number(context.richnessScore ?? 0.3),\n      analysisFactors: factors,\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      highStakes: Number(competitiveness ?? 0) >= 0.82,\n      learnedBlendWeights: calibrationProfile.learnedBlendWeights,\n      modelUncertainty,\n    };\n    const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();\n    const enhanced = analyzeMarketsEnhanced({\n      flatProbabilities: probs.flatProbabilities,\n      marketGroups,\n",
+          "after": "      highStakes: Number(competitiveness ?? 0) >= 0.82,\n      learnedBlendWeights: calibrationProfile.learnedBlendWeights,\n      modelUncertainty,\n      ...(modelAProspectiveEnabled() ? { onEffectiveProbability: (selection: string, probability: number, origin: 'vig' | 'board') => {\n        if ((selection === 'over25' || selection === 'under25') && Number.isFinite(probability)) exactOverUnder.push({ selection, probability, origin });\n      } } : {}),\n    };\n    const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();\n    let prospectiveCalibrated: Record<string, number> | null = null;\n    const enhanced = analyzeMarketsEnhanced({\n      flatProbabilities: probs.flatProbabilities,\n      marketGroups,\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      maxComboLegs: 3,\n      minCombinedEV: 0.08,\n      analysisContext,\n    });\n\n    // Step 1: audit universale pre-filtro. Registriamo ogni probabilita del\n",
+          "after": "      maxComboLegs: 3,\n      minCombinedEV: 0.08,\n      analysisContext,\n      ...(modelAProspectiveEnabled() ? { onCalibratedProbabilities: (observed: Record<string, number>) => { prospectiveCalibrated = observed; } } : {}),\n    });\n\n    // Step 1: audit universale pre-filtro. Registriamo ogni probabilita del\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      ].map((opportunity) => [opportunity.selection, Number(opportunity.ourProbability) / 100])) },\n    };\n\n    return {\n      canonicalRecommendation,\n      algorithmVersion: ALGORITHM_VERSION,\n",
+          "after": "      ].map((opportunity) => [opportunity.selection, Number(opportunity.ourProbability) / 100])) },\n    };\n\n    if (modelAProspectiveEnabled()) {\n      try {\n        scheduleModelAProspective(this.db, {\n          match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',\n          model: canonicalRecommendation.model, contextual: probs.flatProbabilities,\n          calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,\n          selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,\n          calibration: { profileHash: recommendationStateHash(calibrationProfile), globalSamples: calibrationProfile.nObservations,\n            overSamples: calibrationProfile.byFamily.goal_over?.nObservations ?? null,\n            underSamples: calibrationProfile.byFamily.goal_under?.nObservations ?? null,\n            overCurve: (calibrationProfile.byFamily.goal_over?.points?.length ?? 0) >= 2 ? 'family'\n              : calibrationProfile.calibrationPoints.length >= 2 ? 'global' : 'unavailable',\n            underCurve: (calibrationProfile.byFamily.goal_under?.points?.length ?? 0) >= 2 ? 'family'\n              : calibrationProfile.calibrationPoints.length >= 2 ? 'global' : 'unavailable' },\n        });\n      } catch (error) { console.error('[ModelAProspective] capture failed:', error); }\n    }\n\n    return {\n      canonicalRecommendation,\n      algorithmVersion: ALGORITHM_VERSION,\n"
+        }
+      ]
+    },
+    {
+      "commit": null,
+      "parentCommit": "f418539a721e7f1efc971e2adeddbae7888bfa49",
+      "review": "Phase 4 input-capture integration reviewed explicitly in the current task.",
+      "reason": "Optional snapshots of inputs already consumed by DC, ensemble and analysis, plus recorder provenance; no predictive expression or result changed.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';\nimport { blendGoalProbabilities } from './ProbabilityEnsembleService';\nimport { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';\nimport { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';\nimport { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';\nimport {\n",
+          "after": "import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';\nimport { blendGoalProbabilities } from './ProbabilityEnsembleService';\nimport { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';\nimport { ModelAInputCapture } from '../research/ModelAProspectiveInputs';\nimport { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';\nimport { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';\nimport {\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      }\n    }\n\n    const probs = model.computeFullProbabilities(\n      request.homeTeamId,\n      request.awayTeamId,\n",
+          "after": "      }\n    }\n\n    const prospectiveInputs = modelAProspectiveEnabled() ? new ModelAInputCapture() : null;\n    prospectiveInputs?.observe('contextual', {\n      match: { matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,\n        kickoffAt: matchRow?.date ?? null, source: matchRow?.source ?? null, sourceMatchId: matchRow?.source_match_id ?? null },\n      inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(),\n      homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,\n      context, lineupXgAdjustments,\n    });\n    const probs = model.computeFullProbabilities(\n      request.homeTeamId,\n      request.awayTeamId,\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    // curve vengono applicate esattamente alle probabilit\u00e0 blendate.\n    const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;\n    const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');\n    probs.flatProbabilities = this.applyEnsembleBlend(\n      probs.flatProbabilities, ensemblePoisson, request.homeTeamId, request.awayTeamId,\n    );\n",
+          "after": "    // curve vengono applicate esattamente alle probabilit\u00e0 blendate.\n    const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;\n    const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');\n    prospectiveInputs?.observe('ensemble', {\n      homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,\n      poissonParameters: ensemblePoisson?.getParams() ?? null,\n      ensembleConfig: predictionEngineConfig.ensemble, dcProbabilities: probs.flatProbabilities,\n    });\n    probs.flatProbabilities = this.applyEnsembleBlend(\n      probs.flatProbabilities, ensemblePoisson, request.homeTeamId, request.awayTeamId,\n    );\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      } } : {}),\n    };\n    const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();\n    let prospectiveCalibrated: Record<string, number> | null = null;\n    const enhanced = analyzeMarketsEnhanced({\n      flatProbabilities: probs.flatProbabilities,\n",
+          "after": "      } } : {}),\n    };\n    const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();\n    prospectiveInputs?.observe('analysis', {\n      flatProbabilities: probs.flatProbabilities, marketGroups, marketNames,\n      calibrationProfile, adaptiveTuning: engineTuningAtAnalysis, analysisContext,\n      predictionConfig, predictionEngineConfig, alignedOdds, alignedBookmakerBySelection,\n      sharedOdds: options.sharedOdds ?? null,\n    });\n    let prospectiveCalibrated: Record<string, number> | null = null;\n    const enhanced = analyzeMarketsEnhanced({\n      flatProbabilities: probs.flatProbabilities,\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      try {\n        scheduleModelAProspective(this.db, {\n          match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',\n          model: canonicalRecommendation.model, contextual: probs.flatProbabilities,\n          calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,\n          selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,\n",
+          "after": "      try {\n        scheduleModelAProspective(this.db, {\n          match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',\n          provenance: prospectiveInputs?.finish(),\n          model: canonicalRecommendation.model, contextual: probs.flatProbabilities,\n          calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,\n          selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,\n"
+        }
+      ]
+    }
+  ]
+}

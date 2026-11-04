@@ -4,21 +4,75 @@ const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const manifest = require('./fixtures/operational-a/source-manifest.json');
+const deviations = require('./fixtures/operational-a/authorized-source-deviations.json');
 const expected = require('./fixtures/operational-a/expected.json');
 const { scenarios, runScenario, BOOKMAKER } = require('./fixtures/operational-a/scenarios');
+const { DixonColesModel } = require('../dist/models/core/DixonColesModel');
 
 const BASELINE = 'a474e36cee8372d4e214c704effdb92b488f9242';
+const DIXON_COLES_SOURCE = 'backend/src/models/core/DixonColesModel.ts';
 
-test('operational A and its shared decision/price components retain the explicit pre-C source snapshot', () => {
+function assertOperationalSource(file, source) {
+  // Reverse only reviewed, exact source patches. Their context must be unique;
+  // every remaining byte is still checked against the immutable pre-C hash.
+  for (const change of [...deviations.changes].reverse()) {
+    for (const edit of [...change.edits].reverse().filter((entry) => entry.file === file)) {
+      assert.equal(source.split(edit.after).length - 1, 1,
+        `Authorized source patch must occur exactly once: ${file} (${change.commit ?? change.review})`);
+      source = source.replace(edit.after, edit.before);
+    }
+  }
+  assert.equal(createHash('sha256').update(source).digest('hex'), manifest.files[file],
+    `Operational A baseline changed: ${file}. Do not silently change A or refresh its golden.`);
+}
+
+test('operational A retains the pre-C snapshot plus only exact reviewed xG and observer deviations', () => {
   assert.equal(manifest.baselineCommit, BASELINE);
   assert.equal(expected.baselineCommit, BASELINE);
+  assert.equal(deviations.baselineCommit, BASELINE);
+  for (const change of deviations.changes) {
+    assert.ok(change.reason);
+    assert.ok(change.commit || change.review);
+    for (const edit of change.edits) {
+      assert.ok(Object.hasOwn(manifest.files, edit.file));
+      assert.ok(edit.before && edit.after && edit.before !== edit.after);
+    }
+  }
   const root = resolve(__dirname, '../..');
-  for (const [file, hash] of Object.entries(manifest.files)) {
+  for (const file of Object.keys(manifest.files)) {
     const source = readFileSync(resolve(root, file), 'utf8').replace(/\r\n/g, '\n');
-    assert.equal(createHash('sha256').update(source).digest('hex'), hash,
-      `Operational A baseline changed: ${file}. C work must not silently change A or refresh its golden.`);
+    assertOperationalSource(file, source);
   }
   assert.deepEqual(expected.scenarios.map((scenario) => scenario.scenario), scenarios.map((scenario) => scenario.id));
+});
+
+test('source guard rejects unrelated edits, a reverted authorized correction and duplicated patch context', () => {
+  const source = readFileSync(resolve(__dirname, '../..', DIXON_COLES_SOURCE), 'utf8').replace(/\r\n/g, '\n');
+  const edit = deviations.changes[0].edits.find((entry) => entry.file === DIXON_COLES_SOURCE);
+  assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, `${source}\n// unreviewed change\n`), /baseline changed/);
+  assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, source.replace(edit.after, edit.before)), /exactly once/);
+  assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, `${source}\n${edit.after}`), /exactly once/);
+});
+
+test('authorized xG deviation falls back on either missing side and preserves genuine numeric zero', () => {
+  const matches = Array.from({ length: 30 }, (_, index) => ({
+    matchId: `authorized-xg-${index}`, homeTeamId: index % 2 ? 'B' : 'A',
+    awayTeamId: index % 2 ? 'A' : 'B', date: new Date(Date.UTC(2026, 0, index + 1)),
+    homeGoals: 1, awayGoals: 1, season: '2025-2026',
+  }));
+  const fit = (rows) => new DixonColesModel().fitModel(rows, ['A', 'B'], 60, .04, {
+    xgBlendWeight: .8, referenceDate: new Date('2026-03-01T00:00:00Z'),
+  });
+  const fallback = fit(matches);
+  for (const missing of [null, undefined, '', ' ', '\t']) {
+    for (const side of ['homeXG', 'awayXG']) {
+      const rows = matches.map((match) => ({ ...match, homeXG: 1.5, awayXG: 1.5, [side]: missing }));
+      assert.deepEqual(fit(rows), fallback, `${side}=${JSON.stringify(missing)} must use actual goals`);
+    }
+  }
+  const zero = fit(matches.map((match) => ({ ...match, homeXG: 0, awayXG: 0 })));
+  assert.notDeepEqual(zero.attackParams, fallback.attackParams);
+  assert.deepEqual(fit(matches.map((match) => ({ ...match, homeXG: '0', awayXG: '0' }))), zero);
 });
 
 for (const scenario of scenarios) {
