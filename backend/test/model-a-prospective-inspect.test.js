@@ -86,6 +86,8 @@ test('coverage uses the configured fixture denominator, origin, window and cutof
   const before = fs.readFileSync(f.filename), filesBefore = fs.readdirSync(f.dir);
   const report = inspect(f.options, {});
   assert.equal(report.schema.compatible, true);
+  assert.equal(report.coverage.calendarEvaluable, true);
+  assert.equal(report.coverage.coverageEvaluable, true);
   assert.equal(report.mode, 'local_read_only');
   assert.deepEqual(fs.readFileSync(f.filename), before);
   assert.deepEqual(fs.readdirSync(f.dir), filesBefore);
@@ -105,21 +107,83 @@ test('coverage uses the configured fixture denominator, origin, window and cutof
   assert.equal(JSON.stringify(report).includes(f.filename), false);
 });
 
-test('schema inspection detects absent columns and guards without applying schema', async t => {
+test('calendar-only storage reports scoped windows without inventing forecast coverage or applying schema', async t => {
   const f = await fixture(t, false);
+  await match(f, 'overdue');
+  await match(f, 'open', '2026-11-05T18:00:00Z');
+  await match(f, 'future', '2026-11-06T18:00:00Z');
+  await match(f, 'outside', '2026-11-08T18:00:00Z');
+  await match(f, 'other', kickoff, 'Other');
+  await match(f, 'invalid', 'not-a-timestamp');
+  f.client.close();
+  const before = fs.readFileSync(f.filename), filesBefore = fs.readdirSync(f.dir);
+  const report = inspect(f.options, {});
+  assert.equal(report.schema.compatible, false);
+  assert.equal(report.coverage.calendarEvaluable, true);
+  assert.equal(report.coverage.coverageEvaluable, false);
+  assert.deepEqual(report.coverage.storageStatus, { calendar: 'available', forecasts: 'missing', results: 'missing' });
+  assert.equal(report.coverage.fixtureMatches, 3);
+  assert.equal(report.coverage.overdueFixtures, 1);
+  assert.equal(report.coverage.openWindowFixtures, 1);
+  assert.equal(report.coverage.futureWindowFixtures, 1);
+  assert.equal(report.coverage.invalidFixtureTimesInCompetitionSeason, 1);
+  for (const name of ['overdueMissing', 'openWindowMissing', 'receivedForecastEvidence', 'recordedForecasts', 'recordedMatchesInWindow',
+    'pendingUnconfirmedForecasts', 'pendingAlreadyRecordedForecasts', 'nonEvaluableProvenance']) assert.equal(report.coverage[name], null, name);
+  assert.ok(report.schema.issues.includes('missing_table:model_a_prospective_forecasts'));
+  assert.deepEqual(fs.readFileSync(f.filename), before);
+  assert.deepEqual(fs.readdirSync(f.dir), filesBefore);
+});
+
+test('missing results storage preserves measured forecast coverage without certifying full schema or official results', async t => {
+  const f = await fixture(t);
+  await match(f, 'present'); await match(f, 'missing');
+  await store(f, forecast('present', 'present'));
+  await f.client.execute('DROP TABLE model_a_prospective_results');
   f.client.close();
   const before = fs.readFileSync(f.filename);
   const report = inspect(f.options, {});
   assert.equal(report.schema.compatible, false);
-  assert.equal(report.coverage, null);
-  assert.ok(report.schema.issues.includes('missing_table:model_a_prospective_forecasts'));
+  assert.equal(report.coverage.coverageEvaluable, true);
+  assert.deepEqual(report.coverage.storageStatus, { calendar: 'available', forecasts: 'available', results: 'missing' });
+  assert.equal(report.coverage.fixtureMatches, 2);
+  assert.equal(report.coverage.recordedForecasts, 1);
+  assert.equal(report.coverage.recordedMatchesInWindow, 1);
+  assert.equal(report.coverage.overdueMissing, 1);
+  assert.equal(report.coverage.nonEvaluableProvenance, 1);
   assert.deepEqual(fs.readFileSync(f.filename), before);
-  f.client = createLocalClient(f.options.dbUrl);
-  await f.client.executeMultiple(fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/schema.sql'), 'utf8'));
+  assert.ok(report.schema.issues.includes('missing_table:model_a_prospective_results'));
+});
+
+test('malformed calendar columns are diagnosed without querying unavailable fields or inventing counts', async t => {
+  const f = await fixture(t);
+  await f.client.execute('DROP TABLE matches');
+  await f.client.execute('CREATE TABLE matches (match_id TEXT PRIMARY KEY, competition TEXT, season TEXT)');
+  await f.client.execute("INSERT INTO matches VALUES ('unknown-time','Test','2026/27')");
+  f.client.close();
+  const before = fs.readFileSync(f.filename);
+  const report = inspect(f.options, {});
+  assert.equal(report.schema.compatible, false);
+  assert.equal(report.schema.tables.matches.readable, false);
+  assert.equal(report.coverage.calendarEvaluable, false);
+  assert.equal(report.coverage.coverageEvaluable, false);
+  assert.equal(report.coverage.storageStatus.calendar, 'incompatible');
+  assert.ok(report.schema.issues.includes('missing_column:matches.date'));
+  for (const name of ['fixtureMatches', 'overdueFixtures', 'openWindowFixtures', 'futureWindowFixtures', 'overdueMissing',
+    'recordedForecasts', 'recordedMatchesInWindow']) assert.equal(report.coverage[name], null, name);
+  assert.deepEqual(fs.readFileSync(f.filename), before);
+});
+
+test('unverified schema guards remain reported separately from readable forecast coverage', async t => {
+  const f = await fixture(t);
+  await match(f, 'present'); await store(f, forecast('present', 'present'));
   await f.client.execute('DROP TRIGGER model_a_prospective_no_update');
   await f.client.execute("CREATE TRIGGER model_a_prospective_no_update BEFORE UPDATE ON model_a_prospective_forecasts WHEN 0 BEGIN SELECT RAISE(ABORT, 'fake'); END");
   f.client.close();
-  assert.ok(inspect(f.options, {}).schema.issues.includes('missing_or_unverified_trigger:model_a_prospective_no_update'));
+  const report = inspect(f.options, {});
+  assert.equal(report.schema.compatible, false);
+  assert.equal(report.coverage.coverageEvaluable, true);
+  assert.equal(report.coverage.recordedMatchesInWindow, 1);
+  assert.ok(report.schema.issues.includes('missing_or_unverified_trigger:model_a_prospective_no_update'));
 });
 
 test('spool diagnostics distinguish pending confirmations, corrupt files and audit events without writing', async t => {

@@ -59,11 +59,16 @@ function localDatabasePath(url) {
 
 function inspectSchema(db) {
   const objects = db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").all();
-  const issues = [];
+  const issues = [], tables = {};
   for (const [table, required] of Object.entries(REQUIRED)) {
-    if (!objects.some(row => row.type === 'table' && row.name === table)) { issues.push(`missing_table:${table}`); continue; }
+    if (!objects.some(row => row.type === 'table' && row.name === table)) {
+      tables[table] = { status: 'missing', readable: false };
+      issues.push(`missing_table:${table}`); continue;
+    }
     const columns = db.prepare(`PRAGMA table_info(${table})`).all();
-    for (const column of required) if (!columns.some(row => row.name === column)) issues.push(`missing_column:${table}.${column}`);
+    const missing = required.filter(column => !columns.some(row => row.name === column));
+    tables[table] = { status: missing.length ? 'incompatible' : 'available', readable: missing.length === 0 };
+    for (const column of missing) issues.push(`missing_column:${table}.${column}`);
     const identity = table === 'matches' ? 'match_id' : table === 'model_a_prospective_forecasts' ? 'id' : 'evidence_id';
     if (!columns.some(row => row.name === identity && row.pk === 1)) issues.push(`missing_primary_key:${table}`);
   }
@@ -83,7 +88,7 @@ function inspectSchema(db) {
       if (!pattern.test(sql)) issues.push(`missing_or_unverified_trigger:${name}`);
     }
   }
-  return { compatible: issues.length === 0, issues, verification: 'read_only_structure_no_mutation_probe' };
+  return { compatible: issues.length === 0, issues, tables, verification: 'read_only_structure_no_mutation_probe' };
 }
 
 function canonical(value) {
@@ -156,7 +161,24 @@ function inspectSpool(directory, cutoff) {
   return result;
 }
 
-function coverage(db, options, spool) {
+function coverage(db, options, spool, schema) {
+  const calendarEvaluable = schema.tables.matches.readable;
+  const coverageEvaluable = calendarEvaluable && schema.tables.model_a_prospective_forecasts.readable;
+  const result = {
+    scope: { kickoffFromInclusive: new Date(options.from).toISOString(), kickoffToExclusive: new Date(options.to).toISOString(), cutoff: new Date(options.cutoff).toISOString(), origin: options.origin,
+      cutoffPurpose: 'forecast_and_audit_event_time_filter_not_database_insertion_time',
+      competitionSeasonFilter: 'explicit_exact_match', forecastWindowHoursBeforeKickoff: [24, 1] },
+    calendarEvaluable, coverageEvaluable,
+    storageStatus: { calendar: schema.tables.matches.status, forecasts: schema.tables.model_a_prospective_forecasts.status,
+      results: schema.tables.model_a_prospective_results.status },
+    fixtureMatches: null, overdueFixtures: null, openWindowFixtures: null, futureWindowFixtures: null,
+    overdueMissing: null, openWindowMissing: null, receivedForecastEvidence: null, receivedMatchEvidence: null,
+    recordedForecasts: null, recordedMatches: null, pendingUnconfirmedForecasts: null, pendingAlreadyRecordedForecasts: null,
+    recordedMatchesInWindow: null, outsideWindowForecasts: null, kickoffConflicts: null,
+    nonEvaluableProvenance: null, provenanceReasons: null, invalidForecastRowsDatabaseWide: null,
+    invalidFixtureTimesInCompetitionSeason: null,
+  };
+  if (!calendarEvaluable) return result;
   const fixtures = db.prepare('SELECT match_id,date FROM matches WHERE competition=? AND season=?').all(options.competition, options.season);
   let invalidFixtureTimes = 0;
   const scoped = new Map();
@@ -164,6 +186,15 @@ function coverage(db, options, spool) {
     try { const kickoff = timestamp(fixture.date); if (kickoff >= options.from && kickoff < options.to) scoped.set(String(fixture.match_id), kickoff); }
     catch { invalidFixtureTimes++; }
   }
+  let overdueFixtures = 0, openWindowFixtures = 0, futureWindowFixtures = 0;
+  for (const kickoff of scoped.values()) {
+    if (options.cutoff >= kickoff - HOUR) overdueFixtures++;
+    else if (options.cutoff >= kickoff - 24 * HOUR) openWindowFixtures++;
+    else futureWindowFixtures++;
+  }
+  Object.assign(result, { fixtureMatches: scoped.size, overdueFixtures, openWindowFixtures, futureWindowFixtures,
+    invalidFixtureTimesInCompetitionSeason: invalidFixtureTimes });
+  if (!coverageEvaluable) return result;
   const records = [], storedIds = new Set(); let invalidForecasts = 0;
   for (const row of db.prepare('SELECT id,match_id,forecast_at,kickoff_at,payload_json FROM model_a_prospective_forecasts').all()) {
     const record = parseForecast(row);
@@ -180,27 +211,24 @@ function coverage(db, options, spool) {
     const previous = selected.get(record.matchId);
     if (!previous || record.at < previous.at || (record.at === previous.at && record.id < previous.id)) selected.set(record.matchId, record);
   }
-  let overdueFixtures = 0, openWindowFixtures = 0, futureWindowFixtures = 0, overdueMissing = 0, openWindowMissing = 0;
+  let overdueMissing = 0, openWindowMissing = 0;
   for (const [id, kickoff] of scoped) {
-    if (options.cutoff >= kickoff - HOUR) { overdueFixtures++; if (!selected.has(id)) overdueMissing++; }
-    else if (options.cutoff >= kickoff - 24 * HOUR) { openWindowFixtures++; if (!selected.has(id)) openWindowMissing++; }
-    else futureWindowFixtures++;
+    if (options.cutoff >= kickoff - HOUR) { if (!selected.has(id)) overdueMissing++; }
+    else if (options.cutoff >= kickoff - 24 * HOUR && !selected.has(id)) openWindowMissing++;
   }
   const provenanceReasons = {}; let nonEvaluableProvenance = 0;
   for (const record of selected.values()) {
     const issue = provenanceIssue(record.payload, record.at);
     if (issue) { nonEvaluableProvenance++; provenanceReasons[issue] = (provenanceReasons[issue] ?? 0) + 1; }
   }
-  return { scope: { kickoffFromInclusive: new Date(options.from).toISOString(), kickoffToExclusive: new Date(options.to).toISOString(), cutoff: new Date(options.cutoff).toISOString(), origin: options.origin,
-    cutoffPurpose: 'forecast_and_audit_event_time_filter_not_database_insertion_time',
-    competitionSeasonFilter: 'explicit_exact_match', forecastWindowHoursBeforeKickoff: [24, 1] },
-  fixtureMatches: scoped.size, overdueFixtures, openWindowFixtures, futureWindowFixtures, overdueMissing, openWindowMissing,
+  return { ...result,
+  overdueMissing, openWindowMissing,
   receivedForecastEvidence: received.size, receivedMatchEvidence: new Set([...received.values()].map(row => row.matchId)).size,
   recordedForecasts: stored.length, recordedMatches: new Set(stored.map(row => row.matchId)).size,
   pendingUnconfirmedForecasts: pending.filter(row => !storedIds.has(row.id)).length,
   pendingAlreadyRecordedForecasts: pending.filter(row => storedIds.has(row.id)).length,
   recordedMatchesInWindow: selected.size, outsideWindowForecasts, kickoffConflicts,
-  nonEvaluableProvenance, provenanceReasons, invalidForecastRowsDatabaseWide: invalidForecasts, invalidFixtureTimesInCompetitionSeason: invalidFixtureTimes };
+  nonEvaluableProvenance, provenanceReasons, invalidForecastRowsDatabaseWide: invalidForecasts };
 }
 
 function inspect(options, environment = process.env) {
@@ -215,7 +243,7 @@ function inspect(options, environment = process.env) {
     db.exec('PRAGMA query_only=ON');
     db.exec('BEGIN');
     const schema = inspectSchema(db), spool = inspectSpool(options.spoolDir, scope.cutoff);
-    const collection = schema.compatible ? coverage(db, scope, spool) : null;
+    const collection = coverage(db, scope, spool, schema);
     const { records: _records, ...diagnostics } = spool;
     return { schemaVersion: 'model-a-prospective-inspection-v1', mode: 'local_read_only', measuredAt,
       timeSemantics: { observation: 'current_local_files_at_inspection', historicalSnapshot: false,
@@ -234,6 +262,7 @@ function inspect(options, environment = process.env) {
         'Spool files and audit lines are inspected as currently available. Their past contents, missing files, write times and backlog at cutoff cannot be reconstructed.',
         'Audit event counts cover all origins and scopes; retries are events, not distinct forecasts. Missing audit writes cannot be recovered here.',
         'Received evidence is persisted rows plus valid spool files, not an independent request denominator.',
+        'Unavailable calendar or forecast storage yields null coverage metrics, not zero requests or zero coverage. Readable data does not certify schema guards or official results.',
         'Filesystem checks are observations, not ACL, disk durability or runtime permission guarantees. Spool and database snapshots are not atomic together.',
         'This inspection does not authorize activation or establish scientific validity.'] };
   } finally { db.close(); }
