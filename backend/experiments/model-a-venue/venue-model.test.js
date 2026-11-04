@@ -1,0 +1,3 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {fit,probability}=require('./venue-model');
+test('neutral teams reproduce venue means with no second home multiplier',()=>{let rows=[];for(let i=0;i<20;i++)rows.push({home:'A',away:'B',hx:1.5,ax:1,hg:1.5,ag:1});let p=fit(rows);let expected=1-Math.exp(-2.5)*(1+2.5+2.5**2/2);assert.ok(Math.abs(probability(p,'new','new2')-expected)<1e-6)});
+test('null pairs excluded; zero remains valid; unseen teams use league reference',()=>{const row={home:'A',away:'B',hx:1,ax:1,hg:1,ag:1};assert.deepEqual(fit([row,{...row,hx:null}]),fit([row]));assert.notEqual(fit([row,{...row,hx:0}]).mh,fit([row]).mh);assert.ok(Number.isFinite(probability(fit([row]),'new','unknown')))});

@@ -169,7 +169,16 @@ test('actual runtime technical abstentions with a null A forecast remain readabl
 test('comparison counts all 300 A/C pairs before limiting visible metadata, including with pre-023 schema', async (t) => {
   const path = join(tmpdir(), `recommendation-read-cardinality-${randomUUID()}.db`);
   const client = createClient({ url: `file:${path}` });
-  t.after(() => { client.close(); rmSync(path, { force: true }); });
+  t.after(async () => {
+    client.close();
+    for (let attempt = 0; ; attempt++) {
+      try { rmSync(path, { force: true }); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || error.code !== 'EPERM' || attempt >= 20) throw error;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+  });
   await client.executeMultiple(readFileSync(join(__dirname, '../migrations/015_research_platform.sql'), 'utf8'));
   const research = new ResearchStore(client);
   const recommendations = new ResearchRecommendationStore(client, async () => {}, { research });

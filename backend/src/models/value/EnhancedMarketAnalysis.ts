@@ -177,6 +177,8 @@ export function analyzeMarketsEnhanced(params: {
   maxComboLegs?: number;
   minCombinedEV?: number;
   analysisContext?: ValueAnalysisContext;
+  /** Optional read-only observation; never allowed to affect inference. */
+  onCalibratedProbabilities?: (probabilities: Record<string, number>) => void;
 }): {
   coreBets: BetOpportunity[];
   secondaryBets: BetOpportunity[];
@@ -206,6 +208,10 @@ export function analyzeMarketsEnhanced(params: {
     engine,
     calibrationByFamily
   );
+  if (params.onCalibratedProbabilities) {
+    try { params.onCalibratedProbabilities({ over25: calibratedProbs.over25, under25: calibratedProbs.under25 }); }
+    catch (error) { console.error('[ModelAProspective] calibration observation failed:', error); }
+  }
 
   const baseThresholds: Partial<Record<MarketCategory, number>> = {
     goal_1x2: 0.030,

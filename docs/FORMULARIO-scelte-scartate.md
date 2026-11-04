@@ -82,3 +82,60 @@ L'esperimento non usa quote Nightly reali per blending e non misura ROI. L'as-of
 Non emerge una modifica ad alta priorità o con beneficio C dimostrato. La disponibilità prepartita di giocatori/assenze attendibile e storicizzata è una possibile ipotesi di ricerca a bassa priorità, diversa dalle formule già bocciate; prima servirebbero copertura, timestamp e confronto appaiato sulla ricetta completa. Analogamente, un nuovo blocco xG o calendario richiederebbe una **ipotesi sostanzialmente nuova** e un confronto che cambi solo quel blocco, considerando che forme recenti, riposo e xG sono già presenti nelle 40 feature legacy. D3 riguarda invece una possibile ricerca separata sui booking points, non il modello goal C. Nessuna di queste osservazioni autorizza un esperimento, una modifica o una candidatura.
 
 Per ogni eventuale studio futuro: identificare il modello e il mercato; congelare in anticipo ipotesi, confronto e metriche; rispettare disponibilità as-of e ritardo risultati; escludere i 745 target protetti e applicare la quarantena dei 22 ID anche alla storia richiesta dalle nuove feature; non confondere la baseline canonica già congelata con una sua riscrittura. Separare training, selezione, calibrazione e test; confrontare le stesse partite su LL, Brier e calibrazione dopo l'intera pipeline, aggiungendo quote solo se reali e disponibili all'istante corretto. Le coorti storiche già consultate restano sviluppo, non una nuova conferma indipendente. Per un'eventuale adozione si applicano le regole prospettiche già esistenti: candidati congelati prima degli esiti, primi 500 `FUTURE_TEST`, almeno quattro leghe, quattro mesi e quattro periodi, confronto appaiato e valutazione unica. Questo catalogo non registra candidati e non riserva un nuovo campione.
+
+## Modello A — Fase 3: xG/xGA distinti per sede
+
+**Decisione: Fase 3 conclusa — variante xG/xGA casa/trasferta non adottata.** Questa implementazione non ha dimostrato un miglioramento sufficiente nel replay; ciò non dimostra che le informazioni per sede siano inutili in assoluto.
+
+Obiettivo: confrontare il ramo Poisson-xG aggregato con un ramo a quattro indici per squadra: xG fatti e concessi in casa e in trasferta. Il riferimento usa le medie della lega per sede; lo shrinkage fisso equivale a otto partite per sede, verso indice 1. Per squadre senza storia nella sede si usa il riferimento di lega. Le medie separate incorporano il vantaggio casa: non si applica un ulteriore moltiplicatore. La scala dei gol usa il rapporto tra gol reali e xG del solo allenamento. Il peso dell’ensemble rimane 0,5.
+
+Protocollo: 6.022 ID del replay preesistente, cinque campionati, stagioni 2022/23–2026/27; almeno 300 partite storiche per lega, refit ogni 60, disponibilità risultato approssimata a kickoff + 2 ore. Le previsioni usano la stessa matrice Dixon–Coles grezza e gli stessi eventi per entrambe le versioni. Periodo 2026/27 riservato separatamente, ma già consultato nel precedente replay: non è un holdout indipendente mai osservato. Lo shrinkage era fissato prima dell’esecuzione della variante.
+
+| Periodo | N | Brier aggregato | Brier per sede | Log Loss aggregato | Log Loss per sede |
+|---|---:|---:|---:|---:|---:|
+| Precedente al 2026/27 | 5574 | 0.24107 | 0.24137 | 0.67501 | 0.67564 |
+| 2026/27 separato | 448 | 0.23540 | 0.23599 | 0.66294 | 0.66426 |
+| Totale | 6022 | 0.24065 | 0.24097 | 0.67412 | 0.67479 |
+
+| Campionato | Stagione | N | Brier aggregato | Brier per sede | Log Loss aggregato | Log Loss per sede |
+|---|---|---:|---:|---:|---:|---:|
+| Serie A | 2022/2023 | 80 | 0.24517 | 0.24470 | 0.68350 | 0.68217 |
+| Serie A | 2023/2024 | 380 | 0.24324 | 0.24289 | 0.67943 | 0.67861 |
+| Serie A | 2024/2025 | 380 | 0.24796 | 0.24719 | 0.68905 | 0.68753 |
+| Serie A | 2025/2026 | 380 | 0.25251 | 0.25149 | 0.69827 | 0.69624 |
+| Serie A | 2026/2027 | 99 | 0.24796 | 0.25113 | 0.68966 | 0.69578 |
+| Premier League | 2022/2023 | 78 | 0.23496 | 0.24182 | 0.66358 | 0.67754 |
+| Premier League | 2023/2024 | 380 | 0.23049 | 0.23214 | 0.65383 | 0.65703 |
+| Premier League | 2024/2025 | 380 | 0.24422 | 0.24217 | 0.68110 | 0.67698 |
+| Premier League | 2025/2026 | 380 | 0.24671 | 0.24545 | 0.68693 | 0.68418 |
+| Premier League | 2026/2027 | 89 | 0.25245 | 0.24530 | 0.69806 | 0.68324 |
+| La Liga | 2022/2023 | 80 | 0.25233 | 0.25821 | 0.69778 | 0.71000 |
+| La Liga | 2023/2024 | 380 | 0.23355 | 0.23537 | 0.65976 | 0.66355 |
+| La Liga | 2024/2025 | 380 | 0.23990 | 0.23997 | 0.67241 | 0.67277 |
+| La Liga | 2025/2026 | 380 | 0.24625 | 0.24581 | 0.68551 | 0.68461 |
+| La Liga | 2026/2027 | 108 | 0.22912 | 0.23309 | 0.65019 | 0.65850 |
+| Bundesliga | 2023/2024 | 306 | 0.23184 | 0.23254 | 0.65646 | 0.65793 |
+| Bundesliga | 2024/2025 | 306 | 0.23322 | 0.23144 | 0.65924 | 0.65528 |
+| Bundesliga | 2025/2026 | 306 | 0.22862 | 0.23039 | 0.64850 | 0.65234 |
+| Bundesliga | 2026/2027 | 72 | 0.20860 | 0.21098 | 0.60626 | 0.61171 |
+| Ligue 1 | 2022/2023 | 80 | 0.23073 | 0.23564 | 0.65372 | 0.66369 |
+| Ligue 1 | 2023/2024 | 306 | 0.24776 | 0.25025 | 0.68867 | 0.69389 |
+| Ligue 1 | 2024/2025 | 306 | 0.24339 | 0.24392 | 0.67964 | 0.68079 |
+| Ligue 1 | 2025/2026 | 306 | 0.24298 | 0.24325 | 0.67922 | 0.67973 |
+| Ligue 1 | 2026/2027 | 80 | 0.23347 | 0.23335 | 0.65900 | 0.65922 |
+
+Calibrazione complessiva delle fasce: previsto → osservato (numero di partite); le coorti possono differire tra varianti.
+
+| Fascia | Aggregato | Per sede |
+|---|---|---|
+| 30-40% | 36.75% → 37.91% (n=364) | 36.85% → 39.78% (n=538) |
+| 40-50% | 45.62% → 46.66% (n=1648) | 45.51% → 47.28% (n=1859) |
+| 50-60% | 54.98% → 53.91% (n=2235) | 54.81% → 56.80% (n=2234) |
+| 60-70% | 64.25% → 63.78% (n=1491) | 63.85% → 65.42% (n=1206) |
+| 70-80% | 73.19% → 74.60% (n=248) | 73.30% → 72.14% (n=140) |
+
+Bootstrap appaiato per campionato-settimana, 2.000 repliche, seed 14571: IC95% della differenza Brier per-sede meno aggregato [−0,000321; +0,000942] nel periodo precedente e [−0,001920; +0,003057] nel periodo 2026/27. Entrambi comprendono zero; non è dimostrato né un miglioramento né un peggioramento affidabile.
+
+Limiti: replay dell’ensemble grezzo, senza ricostruzione completa di contesto, calibrazione o blending di mercato; tempi di pubblicazione e revisioni storiche degli xG non disponibili; configurazione selezionata in un contesto già esaminato. Nessuna evidenza di redditività o di superiorità operativa. Non trasferire automaticamente questa conclusione ad altre implementazioni o al modello C.
+
+Riproduzione: `backend/experiments/model-a-venue/venue-model.js` e `replay.js`, confrontando lo snapshot di input e `predictions.jsonl` del replay originale. I risultati completi per campionato/stagione/fascia e le previsioni appaiate sono in `artifacts/model-a-venue/summary.json` e `predictions.jsonl`; il riepilogo registra gli SHA-256 degli input. Questi artefatti locali non sono automaticamente versionati: conservarli insieme allo snapshot per una riproduzione esatta.

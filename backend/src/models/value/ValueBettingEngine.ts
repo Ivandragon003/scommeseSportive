@@ -216,6 +216,8 @@ export interface MarketCalibrationProfile {
 }
 
 export interface ValueAnalysisContext {
+  /** Optional observer only; inputs remain unchanged and failures never affect inference. */
+  onEffectiveProbability?: (selection: string, probability: number, origin: 'vig' | 'board') => void;
   richnessScore?: number;
   competition?: string;
   teamSampleSize?: { home?: number; away?: number };
@@ -2353,6 +2355,9 @@ export class ValueBettingEngine {
         uncertaintyFactor
       );
       const effectiveProb = blended.probability;
+      if (context.onEffectiveProbability) {
+        try { context.onEffectiveProbability(key, effectiveProb, 'vig'); } catch { /* observer only */ }
+      }
       const ev           = this.computeExpectedValue(effectiveProb, odds);
       const edgeRaw      = effectiveProb - impliedRaw;
       const edgeNoVig    = effectiveProb - impliedNoVig;
@@ -2514,6 +2519,9 @@ export class ValueBettingEngine {
         uncertaintyFactor
       );
       const effectiveProb = blended.probability;
+      if (context.onEffectiveProbability) {
+        try { context.onEffectiveProbability(key, effectiveProb, 'board'); } catch { /* observer only */ }
+      }
       const ev = this.computeExpectedValue(effectiveProb, odds);
       const edgeRaw = effectiveProb - impliedRaw;
       const edgeNoVig = effectiveProb - impliedNoVig;
