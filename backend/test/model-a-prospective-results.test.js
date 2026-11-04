@@ -9,7 +9,9 @@ const { DatabaseService } = require('../dist/db/DatabaseService');
 test('only verified final evidence links immutable predictions, with idempotent events and corrections', async t => {
   const db = createClient({ url: 'file::memory:' }); t.after(() => db.close());
   await db.executeMultiple(fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/schema.sql'), 'utf8'));
-  const sink = { appendModelAProspectiveResult: event => DatabaseService.prototype.appendModelAProspectiveResult.call({ execute: (sql, args) => db.execute({ sql, args }) }, event) };
+  const sink = { appendModelAProspectiveResult: event => DatabaseService.prototype.appendModelAProspectiveResult.call({
+    execute: (sql, args) => db.execute({ sql, args }), get: async (sql, args) => (await db.execute({ sql, args })).rows[0]
+  }, event) };
   const now = Date.now(), iso = delta => new Date(now + delta).toISOString();
   const kickoff = iso(-3 * 3600000);
   const row = { match_id: 'understat_42', source: 'understat', source_match_id: '42', date: kickoff, home_goals: 2, away_goals: 1,
@@ -46,13 +48,15 @@ test('reconciliation associates only matching fixture evidence and accepts later
   const db=createClient({url:'file::memory:'});t.after(()=>db.close());
   await db.executeMultiple(fs.readFileSync(path.join(__dirname,'../experiments/model-a-prospective/schema.sql'),'utf8'));
   await db.execute('CREATE TABLE matches(match_id TEXT, source TEXT, source_match_id TEXT, date TEXT, home_team_id TEXT, away_team_id TEXT, competition TEXT, season TEXT, home_goals INTEGER, away_goals INTEGER, raw_json TEXT)');
+  await db.execute('CREATE TABLE teams(team_id TEXT PRIMARY KEY, source_team_id INTEGER)');
   const now=Date.now(),iso=delta=>new Date(now+delta).toISOString(),kickoff=iso(-3*3600000);
   const raw=JSON.stringify({id:'42',isResult:true,goals:{h:'2',a:'1'},resultObservation:{source:'understat',observedAt:iso(-3600000)}});
   await db.execute({sql:'INSERT INTO matches VALUES (?,?,?,?,?,?,?,?,?,?,?)',args:['understat_42','understat','42',kickoff,'h','a','Serie A','2026/27',2,1,raw]});
   const payload=JSON.stringify({homeTeamId:'h',awayTeamId:'a',competition:'Serie A',season:'2026/27'});
   await db.execute({sql:'INSERT INTO model_a_prospective_forecasts VALUES (?,?,?,?,?)',args:['forecast','understat_42',iso(-9*3600000),kickoff,payload]});
-  const wrapper={execute:(sql,args)=>db.execute({sql,args}),all:async(sql,args)=>(await db.execute({sql,args})).rows};
-  const sink={getModelAProspectiveResultCandidates:()=>DatabaseService.prototype.getModelAProspectiveResultCandidates.call(wrapper),
+  const wrapper={execute:(sql,args)=>db.execute({sql,args}),all:async(sql,args)=>(await db.execute({sql,args})).rows,
+    get:async(sql,args)=>(await db.execute({sql,args})).rows[0]};
+  const sink={getModelAProspectiveResultCandidates:options=>DatabaseService.prototype.getModelAProspectiveResultCandidates.call(wrapper,options),
     appendModelAProspectiveResult:e=>DatabaseService.prototype.appendModelAProspectiveResult.call(wrapper,e)};
   await reconcileModelAProspectiveResults(sink); await reconcileModelAProspectiveResults(sink);
   assert.equal((await db.execute('SELECT count(*) n FROM model_a_prospective_results')).rows[0].n,1);

@@ -259,19 +259,28 @@ export class DatabaseService {
       (evidence_id,match_id,source,kickoff_at,observed_at,recorded_at,home_goals,away_goals,evidence_json)
       VALUES (?,?,?,?,?,?,?,?,?)`, [event.evidenceId, event.matchId, event.source, event.kickoffAt,
       event.observedAt, event.recordedAt, event.homeGoals, event.awayGoals, event.evidence]);
-    return result.rowsAffected === 1;
+    if (result.rowsAffected === 1) return true;
+    const existing = await this.get('SELECT * FROM model_a_prospective_results WHERE evidence_id=?', [event.evidenceId]);
+    // recorded_at belongs to the first successful delivery and is intentionally
+    // not part of the immutable observation's identity.
+    if (!existing || existing.match_id !== event.matchId || existing.source !== event.source
+      || existing.kickoff_at !== event.kickoffAt || existing.observed_at !== event.observedAt
+      || existing.home_goals !== event.homeGoals || existing.away_goals !== event.awayGoals
+      || existing.evidence_json !== event.evidence) throw new Error('conflicting prospective result identifier');
+    return false;
   }
 
-  /** Bounded scan only of forecasts whose persisted fixture identity still matches. */
-  async getModelAProspectiveResultCandidates(): Promise<any[]> {
-    return this.all(`SELECT m.* FROM matches m WHERE m.source='understat' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+  /** Keyset page of forecasts whose persisted fixture identity still matches. */
+  async getModelAProspectiveResultCandidates(options: { afterMatchId?: string; limit?: number } = {}): Promise<any[]> {
+    const limit = Number.isSafeInteger(options.limit) ? Math.max(1, Math.min(200, options.limit!)) : 200;
+    return this.all(`SELECT m.*, ht.source_team_id AS home_source_team_id, at.source_team_id AS away_source_team_id
+      FROM matches m LEFT JOIN teams ht ON ht.team_id=m.home_team_id LEFT JOIN teams at ON at.team_id=m.away_team_id
+      WHERE m.match_id>? AND m.source='understat' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
       AND EXISTS (SELECT 1 FROM model_a_prospective_forecasts f WHERE f.match_id=m.match_id
         AND julianday(f.kickoff_at)=julianday(m.date) AND json_extract(f.payload_json,'$.homeTeamId')=m.home_team_id
         AND json_extract(f.payload_json,'$.awayTeamId')=m.away_team_id
         AND json_extract(f.payload_json,'$.competition')=m.competition AND json_extract(f.payload_json,'$.season')=m.season)
-      AND NOT EXISTS (SELECT 1 FROM model_a_prospective_results r WHERE r.match_id=m.match_id
-        AND julianday(r.kickoff_at)=julianday(m.date) AND r.home_goals=m.home_goals AND r.away_goals=m.away_goals)
-      ORDER BY m.date DESC LIMIT 200`);
+      ORDER BY m.match_id LIMIT ?`, [options.afterMatchId ?? '', limit]);
   }
 
   private async all(sql: string, args?: SqlArgs): Promise<any[]> {

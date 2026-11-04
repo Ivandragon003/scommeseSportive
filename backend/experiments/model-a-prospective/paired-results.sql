@@ -10,7 +10,7 @@ WITH candidate AS (
    AND julianday(forecast_at) <= julianday(kickoff_at) - 1.0/24
    AND julianday(forecast_at) <= julianday(:cutoff)
 ), outcome AS (
- SELECT r.*, row_number() OVER (PARTITION BY match_id, kickoff_at
+ SELECT r.*, row_number() OVER (PARTITION BY match_id, julianday(kickoff_at)
    ORDER BY julianday(observed_at) DESC, julianday(recorded_at) DESC, evidence_id DESC) AS rank
  FROM model_a_prospective_results r
  WHERE julianday(observed_at) <= julianday(:cutoff) AND julianday(recorded_at) <= julianday(:cutoff)
