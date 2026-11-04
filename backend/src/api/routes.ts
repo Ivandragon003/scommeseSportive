@@ -1437,7 +1437,7 @@ router.post('/scraper/football-data', async (req: Request, res: Response) => {
 
 // ====== PREDICT ======
 const runPrediction = async (body: any): Promise<any> => {
-  const pred = await svc.predict(body);
+  const pred = await svc.predict(body, { prospectiveOrigin: 'direct_a' });
   const matchId = String(body?.matchId ?? '').trim();
   const formatted = { ...formatPrediction(pred), canonicalRecommendation: pred.canonicalRecommendation };
   try {

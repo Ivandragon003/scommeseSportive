@@ -71,3 +71,7 @@ frontend/.env.development
 
 # Local recovery copy of incomplete Git metadata
 .git.corrupt-*/
+
+# Local prospective recorder spool
+model-a-prospective-spool/
+*.partial

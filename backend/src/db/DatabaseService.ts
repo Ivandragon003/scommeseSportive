@@ -238,6 +238,42 @@ export class DatabaseService {
     await this.execute(sql, args);
   }
 
+  /** Optional research sink; schema is provisioned separately, never on startup. */
+  async appendModelAProspectiveForecast(record: { id: string; matchId: string; forecastAt: string; kickoffAt: string; payload: string; durable?: boolean }): Promise<void> {
+    const result = await this.execute(`INSERT OR IGNORE INTO model_a_prospective_forecasts(id, match_id, forecast_at, kickoff_at, payload_json)
+      SELECT ?, ?, ?, ?, ? WHERE ?=1 OR julianday('now') < julianday(?)`,
+    [record.id, record.matchId, record.forecastAt, record.kickoffAt, record.payload, record.durable ? 1 : 0, record.kickoffAt]);
+    if (result.rowsAffected !== 1) {
+      const existing = await this.get('SELECT match_id, forecast_at, kickoff_at, payload_json FROM model_a_prospective_forecasts WHERE id=?', [record.id]);
+      if (!existing || existing.match_id !== record.matchId || existing.forecast_at !== record.forecastAt
+        || existing.kickoff_at !== record.kickoffAt || existing.payload_json !== record.payload) {
+        throw new Error('forecast not inserted: kickoff passed or conflicting identifier');
+      }
+    }
+  }
+
+  /** Explicit research result association; not called by sync or schema bootstrap. */
+  async appendModelAProspectiveResult(event: { evidenceId: string; matchId: string; source: string; kickoffAt: string;
+    observedAt: string; recordedAt: string; homeGoals: number; awayGoals: number; evidence: string }): Promise<boolean> {
+    const result = await this.execute(`INSERT OR IGNORE INTO model_a_prospective_results
+      (evidence_id,match_id,source,kickoff_at,observed_at,recorded_at,home_goals,away_goals,evidence_json)
+      VALUES (?,?,?,?,?,?,?,?,?)`, [event.evidenceId, event.matchId, event.source, event.kickoffAt,
+      event.observedAt, event.recordedAt, event.homeGoals, event.awayGoals, event.evidence]);
+    return result.rowsAffected === 1;
+  }
+
+  /** Bounded scan only of forecasts whose persisted fixture identity still matches. */
+  async getModelAProspectiveResultCandidates(): Promise<any[]> {
+    return this.all(`SELECT m.* FROM matches m WHERE m.source='understat' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+      AND EXISTS (SELECT 1 FROM model_a_prospective_forecasts f WHERE f.match_id=m.match_id
+        AND julianday(f.kickoff_at)=julianday(m.date) AND json_extract(f.payload_json,'$.homeTeamId')=m.home_team_id
+        AND json_extract(f.payload_json,'$.awayTeamId')=m.away_team_id
+        AND json_extract(f.payload_json,'$.competition')=m.competition AND json_extract(f.payload_json,'$.season')=m.season)
+      AND NOT EXISTS (SELECT 1 FROM model_a_prospective_results r WHERE r.match_id=m.match_id
+        AND julianday(r.kickoff_at)=julianday(m.date) AND r.home_goals=m.home_goals AND r.away_goals=m.away_goals)
+      ORDER BY m.date DESC LIMIT 200`);
+  }
+
   private async all(sql: string, args?: SqlArgs): Promise<any[]> {
     const result = await this.execute(sql, args);
     return this.normalizeRows((result.rows ?? []) as Array<Record<string, unknown>>);

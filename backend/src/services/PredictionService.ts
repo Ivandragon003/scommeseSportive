@@ -1,6 +1,7 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
+import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery } from '../research/ModelAProspectiveRecorder';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
@@ -358,6 +359,8 @@ export interface PredictionRequest {
 }
 
 export interface PredictionExecutionOptions {
+  /** Attribution only; does not change the prediction. Unspecified calls are internal. */
+  prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal';
   /** Operational snapshot time; this does not refit models or reconstruct a historical model. */
   asOf?: string;
   /** Nightly already archives its immutable input and decisions. */
@@ -772,6 +775,7 @@ export class PredictionService {
 
   constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {
     this.db = db;
+    startModelAProspectiveRecovery(db);
     this.engine = new ValueBettingEngine();
     this.backtester = new BacktestingEngine();
     this.contextBuilder = new PredictionContextBuilder();
@@ -2331,6 +2335,7 @@ export class PredictionService {
       }
     }
 
+    const exactOverUnder: Array<{ selection: string; probability: number; origin: 'vig' | 'board' }> = [];
     const analysisContext: ValueAnalysisContext = {
       richnessScore: Number(context.richnessScore ?? 0.3),
       analysisFactors: factors,
@@ -2355,8 +2360,12 @@ export class PredictionService {
       highStakes: Number(competitiveness ?? 0) >= 0.82,
       learnedBlendWeights: calibrationProfile.learnedBlendWeights,
       modelUncertainty,
+      ...(modelAProspectiveEnabled() ? { onEffectiveProbability: (selection: string, probability: number, origin: 'vig' | 'board') => {
+        if ((selection === 'over25' || selection === 'under25') && Number.isFinite(probability)) exactOverUnder.push({ selection, probability, origin });
+      } } : {}),
     };
     const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();
+    let prospectiveCalibrated: Record<string, number> | null = null;
     const enhanced = analyzeMarketsEnhanced({
       flatProbabilities: probs.flatProbabilities,
       marketGroups,
@@ -2370,6 +2379,7 @@ export class PredictionService {
       maxComboLegs: 3,
       minCombinedEV: 0.08,
       analysisContext,
+      ...(modelAProspectiveEnabled() ? { onCalibratedProbabilities: (observed: Record<string, number>) => { prospectiveCalibrated = observed; } } : {}),
     });
 
     // Step 1: audit universale pre-filtro. Registriamo ogni probabilita del
@@ -2511,6 +2521,24 @@ export class PredictionService {
         ...valueOpportunities, ...canonical.ranked,
       ].map((opportunity) => [opportunity.selection, Number(opportunity.ourProbability) / 100])) },
     };
+
+    if (modelAProspectiveEnabled()) {
+      try {
+        scheduleModelAProspective(this.db, {
+          match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',
+          model: canonicalRecommendation.model, contextual: probs.flatProbabilities,
+          calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,
+          selected: canonical.selected, exactCandidates: exactOverUnder, odds: options.sharedOdds, modelParametersHash: modelHash,
+          calibration: { profileHash: recommendationStateHash(calibrationProfile), globalSamples: calibrationProfile.nObservations,
+            overSamples: calibrationProfile.byFamily.goal_over?.nObservations ?? null,
+            underSamples: calibrationProfile.byFamily.goal_under?.nObservations ?? null,
+            overCurve: (calibrationProfile.byFamily.goal_over?.points?.length ?? 0) >= 2 ? 'family'
+              : calibrationProfile.calibrationPoints.length >= 2 ? 'global' : 'unavailable',
+            underCurve: (calibrationProfile.byFamily.goal_under?.points?.length ?? 0) >= 2 ? 'family'
+              : calibrationProfile.calibrationPoints.length >= 2 ? 'global' : 'unavailable' },
+        });
+      } catch (error) { console.error('[ModelAProspective] capture failed:', error); }
+    }
 
     return {
       canonicalRecommendation,

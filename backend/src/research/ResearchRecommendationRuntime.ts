@@ -100,7 +100,7 @@ export class ResearchRecommendationRuntime {
       try {
         const prediction = await this.predictionService.predict({ homeTeamId: row.home_team_id, awayTeamId: row.away_team_id,
           matchId: job.matchId, competition: row.competition, season: row.season },
-        { asOf: observedAt, recordAudit: false, sharedOdds });
+        { asOf: observedAt, recordAudit: false, sharedOdds, prospectiveOrigin: 'shared_ac' });
         packetA = prediction.canonicalRecommendation;
       } catch { appFailure = 'app_prediction_unavailable'; }
     }

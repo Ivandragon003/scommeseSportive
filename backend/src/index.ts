@@ -19,6 +19,7 @@ import { isPlayerAvailabilityEnabled } from './services/PlayerAvailabilityConfig
 import { isPlayerDataEnabled } from './services/PlayerDataConfig';
 import { SystemObservabilityService } from './services/SystemObservabilityService';
 import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
+import { installModelAProspectiveShutdown } from './research/ModelAProspectiveShutdown';
 
 const app = express();
 const db = new DatabaseService();
@@ -1102,7 +1103,7 @@ function startLineupRefreshScheduler(): void {
   scheduleNextLineupRefreshRun(20_000);
 }
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Football Predictor Backend running on http://localhost:${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
   console.log(`[nightly] Orchestrator: ${nightlyConfig.orchestrator}`);
@@ -1116,5 +1117,7 @@ app.listen(PORT, () => {
   // deployment retains the worker's enable flag. Start the dedicated worker.
   console.log('[research-t15] Web process does not run automatic decisions; use the dedicated worker.');
 });
+
+installModelAProspectiveShutdown(server);
 
 export default app;

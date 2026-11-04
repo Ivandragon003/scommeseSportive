@@ -12,9 +12,10 @@ function testFiles(directory) {
 const files = testFiles(resolve(__dirname, '../test'));
 if (!files.length) throw new Error('No backend test files discovered');
 const args = process.argv.slice(2);
-// Bound native database test processes on Windows; in-test concurrency is unchanged.
+// Native libSQL handles and teardown can race between test files on Windows.
+// Serialize files there; concurrency tests within each file still run normally.
 const platformOptions = process.platform === 'win32' && !args.some((arg) => /^--test-concurrency(?:=|$)/.test(arg))
-  ? ['--test-concurrency=4'] : [];
+  ? ['--test-concurrency=1'] : [];
 const result = spawnSync(process.execPath, ['--test', ...platformOptions, ...args, ...files], { stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

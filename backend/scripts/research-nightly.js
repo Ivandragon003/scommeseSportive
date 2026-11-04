@@ -83,7 +83,16 @@ async function runNightly(options = {}) {
       ...(!useRecommendations ? { diagnosticOnly: true } : {}),
       dataGatesPassed: options.dataGatesPassed ?? process.env.RESEARCH_NIGHTLY_DATA_GATES_PASSED !== 'false' });
     log(result); return result;
-  } finally { if (!options.db) await db.close(); }
+  } finally {
+    if (!options.db && process.env.MODEL_A_PROSPECTIVE_ENABLED === 'true') {
+      const recorder = require('../dist/research/ModelAProspectiveRecorder');
+      const configured = Number(process.env.MODEL_A_PROSPECTIVE_SHUTDOWN_MS ?? 5000);
+      const timeout = Number.isFinite(configured) ? Math.max(100, Math.min(30000, configured)) : 5000;
+      const drained = await recorder.drainModelAProspective(timeout);
+      if (!drained) console.error('[ModelAProspective] nightly shutdown left pending work:', JSON.stringify(recorder.modelAProspectiveStats()));
+    }
+    if (!options.db) await db.close();
+  }
 }
 if (require.main === module) {
   runNightly().then((result) => { if (result.errors) process.exitCode = 1; })
