@@ -133,8 +133,8 @@ e [costi dei volumi](https://docs.hostless.cloud/billing/costbreakdown), poi
 verificare mount, persistenza e condizioni economiche effettive nel pannello.
 Nessun volume o costo aggiuntivo è stato provisionato. Non assumere che un
 percorso configurato sia persistente o gratuito. Nel pannello accessibile la
-configurazione del backend non dichiara un mount dello spool e non contiene
-variabili MODEL_A_*; l'inventario Storage/Volumes mostra No volumes yet.
+configurazione del backend non dichiara un mount dello spool e mantiene
+recorder e collector esplicitamente spenti; l'inventario Storage/Volumes mostra No volumes yet.
 Non c'è una prova di persistenza per la modalità file. L'ispezione del pannello
 è possibile dal browser integrato, con login separato da Chrome.
 
