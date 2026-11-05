@@ -16,6 +16,8 @@ Fonti: [PredictionService](../../backend/src/services/PredictionService.ts), [pa
 
 Understat è la fonte primaria. `football-data.co.uk` integra campi mancanti senza sostituire quelli Understat già presenti. Copertura statistica e disponibilità arbitrale non sono uniformi fra campionati e stagioni.
 
+L'import rifiuta risposte Understat malformate, comprese pagine HTML di manutenzione con HTTP 200: non equivalgono a una stagione vuota. Il controllo pubblico delle cinque leghe è descritto nella [guida Nightly](../github-actions-nightly-sync.md#indisponibilità-understat-e-controllo-del-calendario); durante un disservizio la copertura del DB non dimostra un calendario aggiornato alla fonte.
+
 `PredictionContextBuilder` prepara medie, copertura, forma, avversario e contesto disponibile: riposo, calendario, disciplina, arbitro e, se abilitati, dati sui giocatori. I prior per neopromosse gestiscono passaggi fra competizioni. L'assenza di un dato non equivale a un valore osservato pari a zero.
 
 Il fit per competizione usa partite concluse e salva i parametri Dixon-Coles e Poisson-xG. La previsione li carica e li riusa; non esegue il fit completo a ogni apertura. Parametri mancanti possono condurre a valori di base; un partner Poisson incompatibile non entra nel blend. Ricevere una previsione non prova che fit o copertura siano adeguati per quella partita.

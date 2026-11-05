@@ -4,6 +4,8 @@ Stato: **integrazione preparata, disabilitata per default e non distribuita; non
 
 Il riesame operativo ha verificato i gate Hostless spenti e letto lo schema del Turso configurato localmente, senza migrazioni; il collegamento con il target Hostless write-only resta da confermare. Una modalità database con receipt pending non è acquisizione persistente: il collector richiede completion e rilettura coerente. Restano `inputAvailableThrough=null` e classificazione `technical_only`; nessuna verifica di deploy o storage trasforma gli input attuali in temporalmente idonei alla validazione rigorosa. Procedura, scritture accessorie esistenti e blocchi di attivazione nel [passaggio di consegne](MODEL-A-FASE-4-HANDOFF.md#procedura-di-attivazione-controllata).
 
+Il codice è consolidato su main, senza attivazione. L'import dipende da un calendario Understat valido: una risposta HTML di manutenzione con HTTP 200 viene ora rifiutata esplicitamente, senza trattarla come zero partite. Finché la fonte resta indisponibile, non sono dimostrati aggiornamento reale e copertura corrente dei cinque campionati; mantenere il blocco operativo e non ricostruire previsioni retroattive.
+
 ## Evidenze esistenti e lacune
 
 | Informazione | Situazione nel codice |

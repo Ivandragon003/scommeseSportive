@@ -186,6 +186,28 @@ backup con storia divergente o branch ancora attivi per uniformare l'elenco.
 La sequenza completa, compresa la disattivazione, resta nel
 [passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md#procedura-di-attivazione-controllata).
 
+Il controllo preliminare di schema può usare la seguente sola lettura nel
+client del DB canonico verificato, senza avviare l'applicazione:
+
+```sql
+SELECT tbl_name, type, name
+FROM sqlite_master
+WHERE tbl_name IN (
+  'model_a_prospective_forecasts', 'model_a_prospective_results',
+  'model_a_collection_protocols', 'model_a_collection_ledger',
+  'model_a_collection_runs', 'model_a_prospective_result_observations',
+  'model_a_prospective_result_refresh_state', 'runtime_calibration_cache'
+)
+ORDER BY tbl_name, type, name;
+```
+
+Risultato vuoto significa oggetti assenti su quel DB, non autorizzazione a
+crearli. Se presenti, verificare anche colonne/PK/indici/trigger con il monitor
+read-only sullo scope preregistrato; il solo nome non certifica compatibilità.
+Il riesame sul DB locale configurato ha confermato gli oggetti assenti senza
+scritture: mantenere la migrazione in sospeso finché identità, backup/restore e
+consenso non sono acquisiti. Non usare il bootstrap ordinario come preflight.
+
 ## Ambiente, accesso e URL
 
 Usare il pannello nativo del provider per i secret già autorizzati. Le

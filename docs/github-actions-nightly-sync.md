@@ -65,6 +65,42 @@ che risponde `410`. Non piazza scommesse presso bookmaker. Giocatori e
 formazioni restano sospesi nella configurazione del workflow; una chiave
 API-Football presente non li abilita da sola.
 
+## Indisponibilità Understat e controllo del calendario
+
+Un HTTP 200 non dimostra la disponibilità dei dati: Understat può restituire
+HTML di manutenzione anche da `/getLeagueData/<lega>/<anno>`. Il parser
+rifiuta risposte non oggetto JSON e payload lega senza array `dates` con
+`UNDERSTAT_INVALID_RESPONSE`, senza includere il body nell'errore o ritentare
+un payload malformato. Un array `dates: []` esplicito resta una stagione vuota
+valida: completezza e pending pre-campionato mantengono i gate esistenti.
+Non si inventano partite, risultati o xG per superare il controllo.
+
+Il [diagnostico pubblico](../.github/workflows/source-connectivity.yml),
+senza credenziali o DB, verifica separatamente i cinque endpoint della stagione
+corrente UTC, formato JSON e presenza di partite. Calendario vuoto, formato
+invalido e errore di rete rimangono distinguibili; il successo richiede tutte
+le cinque leghe disponibili. Legge al massimo 4 MiB per risposta e non stampa
+i payload. La fonte CSV supplementare non sostituisce Understat.
+
+```powershell
+gh workflow run source-connectivity.yml --ref main
+```
+
+Controllare la conclusione e i log del run, non il solo avvio. La verifica
+legge le fonti ma non aggiorna il calendario del DB: confrontare poi fonte e
+partite persistite sul target autorizzato. La copertura del calendario già
+importato non certifica quella corrente del provider durante un disservizio.
+Non usare una Nightly operativa come semplice probe: comprende import, pruning,
+settlement, warmup e nuove decisioni virtuali. Se il provider è in manutenzione,
+il ripristino reale dell'import resta bloccato; nessun deploy, modifica DNS,
+nuova fonte o rilassamento dei gate è implicito nella diagnosi.
+
+Regressioni locali: `understat-response-validation`, `understat-network-retry`,
+`understat-read-reduction`, `understat-commit-state`, `nightly-five-season-window`
+e `source-connectivity-workflow` verificano mapping delle cinque leghe,
+calendario vuoto, risposta HTML e gate di completezza con fixture, senza
+modificare lo storico o certificare un import operativo riuscito.
+
 ## Limiti per la raccolta prospettica A
 
 La Nightly non è un generatore universale di previsioni A. Nel percorso

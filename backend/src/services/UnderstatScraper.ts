@@ -83,7 +83,7 @@ type CompetitionConfig = {
 type UnderstatLeaguePayload = {
   teams?: Record<string, any>;
   players?: any[];
-  dates?: any[];
+  dates: any[];
 };
 
 type UnderstatTeamPayload = {
@@ -105,6 +105,11 @@ export type UnderstatMatchPayload = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const invalidResponseError = (): Error & { code: string } => Object.assign(
+  new Error('Understat response has an invalid format.'),
+  { code: 'UNDERSTAT_INVALID_RESPONSE' }
+);
 
 /**
  * `/getMatchData` must expose both sides of rosters and shots before it can
@@ -241,6 +246,8 @@ export class UnderstatScraper {
     for (let attempt = 0; ; attempt++) {
       try {
         const response = await this.client.get(path);
+        // Maintenance pages can return HTTP 200; never treat them as empty data.
+        if (!isRecord(response.data)) throw invalidResponseError();
         return response.data as T;
       } catch (error) {
         const failure = error as { code?: string; response?: { status?: number } };
@@ -255,7 +262,9 @@ export class UnderstatScraper {
   private async fetchLeagueData(competition: string, season: string): Promise<UnderstatLeaguePayload> {
     const cfg = this.resolveCompetition(competition);
     const seasonStart = this.parseSeasonStart(season);
-    return this.fetchJson<UnderstatLeaguePayload>(`/getLeagueData/${cfg.slug}/${seasonStart}`);
+    const payload = await this.fetchJson<UnderstatLeaguePayload>(`/getLeagueData/${cfg.slug}/${seasonStart}`);
+    if (!Array.isArray(payload.dates)) throw invalidResponseError();
+    return payload;
   }
 
   private async fetchTeamData(teamName: string, season: string): Promise<UnderstatTeamPayload> {
@@ -364,7 +373,7 @@ export class UnderstatScraper {
     options?: { includeDetails?: boolean; detailConcurrency?: number }
   ): Promise<UnderstatMatch[]> {
     const payload = await this.fetchLeagueData(competition, season);
-    const dates = Array.isArray(payload?.dates) ? payload.dates : [];
+    const dates = payload.dates;
     const matches: UnderstatMatch[] = dates.map((entry: any) => ({
       matchId: `understat_${String(entry?.id ?? '').trim()}`,
       sourceMatchId: Number(this.toNumber(entry?.id) ?? 0),
