@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - ops/model-a-web-compat
   pull_request:
     branches:
       - main

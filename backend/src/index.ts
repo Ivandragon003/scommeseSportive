@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import createApiRouter from './api/routes';
 import { lineupSyncDiagnostics } from './services/LineupSyncDiagnostics';
-import { DatabaseService } from './db/DatabaseService';
+import { createWebDatabase } from './db/WebDatabaseStartup';
 import {
   createOddsProviderCoordinatorBundle,
   getConfiguredFallbackProviderName,
@@ -21,7 +21,7 @@ import { SystemObservabilityService } from './services/SystemObservabilityServic
 import { createSharedAdminAuth, loadSharedAdminAuthConfig } from './security/SharedAdminAuth';
 
 const app = express();
-const db = new DatabaseService();
+const db = createWebDatabase();
 const svc = new PredictionService(db);
 const observability = new SystemObservabilityService(db);
 const configuredCorsOrigins = String(process.env.CORS_ORIGIN ?? '')
