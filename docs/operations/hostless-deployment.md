@@ -37,6 +37,12 @@ Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_E
 
 Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
+## Compatibilità del modello registrato prima del rilascio
+
+Prima di distribuire main confrontare anche il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. Per il C congelato registrato il precedente web 6ed36d4 riproduce A-80cb25df5552621e; main identifica invece A-38538d45825fba24 e la guardia lo rifiuta. Non correggere la dichiarazione dell’artefatto o disabilitare la guardia per ottenere un esito positivo.
+
+Il backend usa temporaneamente `ops/model-a-web-compat`: stesso codice predittivo precedente, più `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false` e test della sola guardia di avvio. Conservare il ramo perché associato al deploy. Il ritorno del backend a main richiede una soluzione separata e verificata della baseline C congelata; nessuna nuova versione C è autorizzata da questa procedura. Il collector di main resta spento mentre la sua identità differisce da quella del web operativo. Vedere l’handoff per prove e limiti.
+
 ## Persistenza per il recorder prospettico A
 
 La raccolta separata può usare due modalità esplicite. Nessuna è stata
@@ -176,8 +182,9 @@ Il controllo non legge le impostazioni Hostless. Verificare separatamente
 branch collegato, auto-deploy e hook del provider prima di pubblicare su un
 branch che potrebbe essere distribuito: l'assenza di un hook nei workflow
 non dimostra che l'auto-deploy sia spento. Sono stati letti nel pannello
-i gate dei quattro servizi esistenti: backend, frontend, worker standalone
-e cron seguono main con auto-deploy spento; review app/site sono spente.
+i gate dei quattro servizi esistenti, con auto-deploy spento e review app/site spente.
+Il backend segue temporaneamente il ramo operativo di compatibilità C; frontend,
+worker standalone e cron restano associati a main.
 Sono impostazioni modificabili: ripetere il controllo prima del push.
 La pubblicazione del codice non
 costituisce autorizzazione a eseguire deploy, migrazioni, provisioning di

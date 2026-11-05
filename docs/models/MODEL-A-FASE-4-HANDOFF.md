@@ -75,7 +75,7 @@ Fixture e database/spool locali, senza credenziali operative o provider reali. A
 | Frontend | Nuova esecuzione locale: **45 suite, 427 test passati**; typecheck/lint/build superati localmente e in CI. La precedente installazione locale aveva Testing Library 16 incompatibile con manifest/lock 13.4: nessuna modifica frontend o lockfile per correggere i controlli. |
 | Prova completa isolata | Calendario sintetico delle cinque leghe, vero collector/PredictionService/recorder database, nessuna quota. Conferma persistente, poi refresh finale e rettifica append-only; valutatore tecnico con una coppia e rigoroso vuoto. Tabelle partita e forecast originale invariati. Due test passati, nessun provider o DB remoto. |
 | SIGTERM e volume | Segnale OS al collector Linux: una inferenza/claim, nessuna seconda partita, run interrotto e claim non confermato visibili. Volume temporaneo tra due container distinti non root con fsync/hardlink e hash: superato. Nessuna prova Hostless/power loss. |
-| Regressione A/C | Golden numerici e manifest originali conservati; deviazioni testuali limitate agli osservatori autorizzati, annullate in memoria dal controllo. Casi acceso/spento, senza quote e runtime A/C inclusi nelle suite. Nessun sorgente matematico o runtime C modificato. |
+| Regressione A/C | Golden numerici e manifest originali conservati; deviazioni testuali limitate agli osservatori autorizzati, annullate in memoria dal controllo. Casi acceso/spento, senza quote e runtime A/C inclusi nelle suite. Nessun sorgente C modificato nella Fase 4; il cambio di identità delle dipendenze condivise è però un blocco operativo C, rilevato separatamente sul vero artefatto. |
 | Guasti/recupero | Spool con DB temporaneamente offline, kill/restart, ID idempotenti, oltre 256 pendenti, errore directory sync, receipt DB non confermato, riavvio risultati. Non dimostrano SLA remoto. |
 | Configurazione | Checker gate e `docker compose ... config --quiet` superati; nessun servizio operativo/volume Hostless avviato. |
 | Gate finali | Build, typecheck, lint backend, lint esplicito script e controllo diff superati; scansione segreti prima del commit. Ripetere i controlli pertinenti dopo ogni modifica al codice. |
@@ -192,6 +192,16 @@ La diagnostica manuale `model-a-target-preflight.yml` confronta l'impronta del t
 
 Per un pilot durante il disservizio occorre accettare esplicitamente input tecnici e risultati eventualmente pendenti: non è una verifica dell’affidabilità statistica. Il consenso deve includere forecast, ledger, run, calendario e le scritture accessorie di cache/associazione già previste da PredictionService. In caso di anomalie di integrità, target inatteso o consegne non confermate sospendere nuove inferenze e conservare le evidenze. Il recupero di eventi reali e la latenza Turso end-to-end vanno misurati nel pilot autorizzato, senza introdurre risultati fittizi.
 
+## Blocco del rilascio web da main: baseline congelata C
+
+Il controllo sul vero artefatto C registrato ha individuato un requisito non coperto dalla sola suite: C-906371b0b3a1e2c8 dichiara `A-80cb25df5552621e`, mentre il codice compilato corrente di main produce `A-38538d45825fba24`. La guardia `hybrid_baseline_mismatch` rifiuta l’input corrente. Una prova sintetica che fornisce la versione dell’artefatto dimostra solo il caricamento dei pesi, non la compatibilità dell’intero percorso; non va presentata come prova operativa.
+
+L’archivio del precedente commit web 6ed36d4 compilato con le dipendenze previste riproduce esattamente A-80cb25df5552621e. Quattro file inclusi nell’identità sono cambiati nel lavoro precedente: correzioni xG mancanti in DC/Poisson e osservatori nei moduli value/analisi. Questa verifica non riapre quelle correzioni né autorizza a rietichettare la nuova baseline come vecchia, riaddestrare C o allentare i controlli.
+
+Il ramo operativo `ops/model-a-web-compat` conserva il web precedente e aggiunge soltanto la guardia di avvio senza bootstrap, con test dedicato e CI. Modelli, configurazioni predittive, servizi e percorso research del vecchio web restano identici. Il ramo è necessario come sorgente temporanea del backend e va conservato finché associato al deploy; main mantiene tutto il lavoro della Fase 4. Il frontend non richiede il vecchio runtime matematico.
+
+Non accendere il pilot per una validazione del Modello A operativo mentre web e collector identificano versioni diverse. Serve una decisione separata sulla compatibilità della baseline congelata C prima del ritorno del backend su main, preservando davvero pesi, formule, guardie e provenienza. I quattro file non vanno ripristinati globalmente solo per far combaciare un hash. Raccolta e refresh rimangono spenti; il pilot predisposto non è autorizzato. La CI verde non sostituisce il controllo dell’artefatto registrato sul target.
+
 ## Blocchi e criteri
 
 | Problema | Bloccante raccolta tecnica? | Prossima azione |
@@ -208,6 +218,7 @@ Per un pilot durante il disservizio occorre accettare esplicitamente input tecni
 
 | Criterio | Stato |
 |---|---|
+| Rilascio web da main | Bloccato dalla compatibilità della baseline congelata C; sorgente operativa temporanea separata, senza perdere il lavoro di main. |
 | A — Preparazione tecnica | Implementazione completata, gate Linux e frontend verdi; Windows conserva l'intermittenza documentata. Deploy, target, backup e schema verificati; consenso al pilot e accettazione degli eventi reali restano necessari. |
 | B — Raccolta prospettica | Non attivata da questo lavoro. |
 | C — Validazione statistica | Non conclusa: campione futuro indipendente adeguato, copertura/esclusioni, Brier/Log Loss/calibrazione e incertezza, distinguendo rigoroso/tecnico. Nessuna prova di maggiore affidabilità o profitto. |
