@@ -8,12 +8,14 @@ const { join, resolve } = require('node:path');
 const choices = {
   nightly: 'research-nightly.test.js',
   recommendation: 'research-recommendation-nightly.test.js',
+  store: 'research-store.test.js',
+  view: 'research-recommendation-view.test.js',
 };
 const args = process.argv.slice(2);
 const name = args[0];
 const repeatArg = args[1];
 if (!choices[name] || args.length > 2 || (repeatArg && !/^--repeat=(?:[1-9]|1\d|20)$/.test(repeatArg))) {
-  console.error('Usage: node scripts/diagnose-nightly-tests.js nightly|recommendation [--repeat=1..20]');
+  console.error('Usage: node scripts/diagnose-nightly-tests.js nightly|recommendation|store|view [--repeat=1..20]');
   process.exit(2);
 }
 const repeat = repeatArg ? Number(repeatArg.split('=')[1]) : 1;

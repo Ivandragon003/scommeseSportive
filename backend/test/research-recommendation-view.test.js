@@ -5,7 +5,8 @@ const { buildResearchOverview } = require('../dist/research/ResearchOverview');
 const { buildResearchComparison } = require('../dist/research/ResearchComparison');
 const { ResearchRecommendationRuntime } = require('../dist/research/ResearchRecommendationRuntime');
 const { createClient } = require('@libsql/client');
-const { readFileSync, rmSync } = require('node:fs');
+const { readFileSync, rmSync, mkdtempSync, readdirSync, writeFileSync } = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { randomUUID } = require('node:crypto');
@@ -13,6 +14,37 @@ const { ResearchStore } = require('../dist/research/ResearchStore');
 const { ResearchRecommendationStore } = require('../dist/research/ResearchRecommendationStore');
 
 const NOW = new Date('2026-10-30T12:00:00Z');
+const cardinalityTestName = 'comparison counts all 300 A/C pairs before limiting visible metadata, including with pre-023 schema';
+const cardinalityChildFlag = 'RECOMMENDATION_VIEW_CARDINALITY_CHILD';
+
+function runIsolatedFixture(file, name, parentDirectory = tmpdir()) {
+  const directory = mkdtempSync(join(parentDirectory, 'recommendation-view-child-'));
+  let failure;
+  try {
+    const result = spawnSync(process.execPath, ['--test-reporter=tap', `--test-name-pattern=^${name}$`, file], {
+      env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, [cardinalityChildFlag]: '1' },
+      encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+    });
+    const output = (result.stdout || '') + '\n' + (result.stderr || '');
+    if (result.error || result.status !== 0 || result.signal || !/^# pass 1$/m.test(output) || !/^# fail 0$/m.test(output)) {
+      throw new Error(`Isolated test failed: status=${result.status}, signal=${result.signal}, error=${result.error?.message || 'none'}\n${output}`);
+    }
+  } catch (error) { failure = error; }
+  try { rmSync(directory, { recursive: true, force: true }); }
+  catch (error) { failure = failure ? new AggregateError([failure, error], 'Isolated test and cleanup failed') : error; }
+  if (failure) throw failure;
+}
+
+test('isolated fixture reports child failure and empty selection and cleans up after exit', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'recommendation-view-helper-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, 'child.js');
+  writeFileSync(file, "const test = require('node:test'); test('failure', () => { throw new Error('expected child failure'); });\n");
+  assert.throws(() => runIsolatedFixture(file, 'failure', directory), /expected child failure/);
+  assert.deepEqual(readdirSync(directory), ['child.js']);
+  assert.throws(() => runIsolatedFixture(file, 'not-present', directory), /Isolated test failed/);
+  assert.deepEqual(readdirSync(directory), ['child.js']);
+});
 function fixture() {
   const legacy = [], execution = [], jobs = [], bets = [], ledger = [], portfolios = [];
   for (const family of ['A', 'C']) {
@@ -166,17 +198,17 @@ test('actual runtime technical abstentions with a null A forecast remain readabl
   }
 });
 
-test('comparison counts all 300 A/C pairs before limiting visible metadata, including with pre-023 schema', async (t) => {
+test(cardinalityTestName, async (t) => {
+  if (process.platform === 'win32' && process.env[cardinalityChildFlag] !== '1') {
+    runIsolatedFixture(__filename, cardinalityTestName);
+    return;
+  }
   const path = join(tmpdir(), `recommendation-read-cardinality-${randomUUID()}.db`);
   const client = createClient({ url: `file:${path}` });
-  t.after(async () => {
+  t.after(() => {
     client.close();
-    for (let attempt = 0; ; attempt++) {
-      try { rmSync(path, { force: true }); break; }
-      catch (error) {
-        if (process.platform !== 'win32' || error.code !== 'EPERM' || attempt >= 20) throw error;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+    if (process.env[cardinalityChildFlag] !== '1') {
+      for (const suffix of ['', '-wal', '-shm']) rmSync(path + suffix, { force: true });
     }
   });
   await client.executeMultiple(readFileSync(join(__dirname, '../migrations/015_research_platform.sql'), 'utf8'));
