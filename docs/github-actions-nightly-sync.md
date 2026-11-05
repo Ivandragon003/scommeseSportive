@@ -151,6 +151,11 @@ dal filesystem effimero per considerare acquisito un evento. Richiede i
 secret Turso esistenti e lo schema prospettico applicato **separatamente e
 con autorizzazione**. Non installa lo schema, non esegue il comando dedicato
 di warmup, non avvia il backend HTTP e non riceve chiavi provider quote.
+Questo non limita le scritture alle sole nuove tabelle: PredictionService
+può salvare runtime_calibration_cache a cache miss, e il recorder attivo
+avvia l'associazione agli esiti già presenti nel DB. Il refresh HTTP è
+un opt-in separato. Verificare questi effetti e la cache esistente nel piano
+autorizzato del target, senza usare il warmup come migrazione implicita.
 La configurazione del workflow non attesta che schema, credenziali, flag o
 raccolta siano stati attivati sul target.
 

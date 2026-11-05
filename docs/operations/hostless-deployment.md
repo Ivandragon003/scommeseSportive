@@ -99,9 +99,11 @@ Per Hostless consultare [filesystem](https://docs.hostless.cloud/app/filesystem)
 e [costi dei volumi](https://docs.hostless.cloud/billing/costbreakdown), poi
 verificare mount, persistenza e condizioni economiche effettive nel pannello.
 Nessun volume o costo aggiuntivo è stato provisionato. Non assumere che un
-percorso configurato sia persistente o gratuito. Il browser nativo non era
-disponibile durante questa verifica: volume e auto-distribuzione Hostless
-restano non verificati, non dichiarati assenti.
+percorso configurato sia persistente o gratuito. Nel pannello accessibile la
+configurazione del backend non dichiara un mount dello spool e non contiene
+variabili MODEL_A_*; l'inventario Storage/Volumes mostra No volumes yet.
+Non c'è una prova di persistenza per la modalità file. L'ispezione del pannello
+è possibile dal browser integrato, con login separato da Chrome.
 
 Il monitor GitHub è facoltativo e spento di default; usa sole `SELECT` e
 pubblica diagnostica aggregata e riepilogo nel job. Gli artifact durano
@@ -140,20 +142,49 @@ node backend/scripts/check-operational-workflow-gates.js
 Il controllo non legge le impostazioni Hostless. Verificare separatamente
 branch collegato, auto-deploy e hook del provider prima di pubblicare su un
 branch che potrebbe essere distribuito: l'assenza di un hook nei workflow
-non dimostra che l'auto-deploy sia spento. Con browser nativo indisponibile
-questo effetto resta non verificato. La pubblicazione del codice non
+non dimostra che l'auto-deploy sia spento. Sono stati letti nel pannello
+i gate dei quattro servizi esistenti: backend, frontend, worker standalone
+e cron seguono main con auto-deploy spento; review app/site sono spente.
+Sono impostazioni modificabili: ripetere il controllo prima del push.
+La pubblicazione del codice non
 costituisce autorizzazione a eseguire deploy, migrazioni, provisioning di
 volumi o attivazioni; gli automatismi esterni vanno esclusi prima del push.
 Anche l'inventario webhook GitHub resta non verificato: l'accesso con ruolo
 write ha ricevuto HTTP 404 e richiesta dello scope `admin:repo_hook`.
-Questo errore di autorizzazione non dimostra assenza di hook. Il browser
-Hostless è rimasto indisponibile anche al controllo successivo.
+Questo errore di autorizzazione non dimostra assenza di hook; anche la pagina
+GitHub Settings/Webhooks restituisce 404 con l'account write disponibile.
+Il proprietario deve controllare Webhooks e Integrations/GitHub Apps: per ogni
+integrazione attiva verificare eventi push/create/delete/workflow_run,
+branch, destinazione e azione eseguita. Non esportare URL contenenti secret.
+Un hook Hostless con auto-deploy spento non dimostra l'assenza di altri hook.
+
+Il deploy live e la salute vanno controllati separatamente dalla pubblicazione:
+aprire Deployments, verificare Deployed LIVE e il commit; leggere Logs e
+confrontare il dettaglio Alerts con first/last observed e timeline. Un incidente
+ancora firing ma senza osservazioni recenti non prova un crash attuale;
+acknowledged non significa risolto. Non chiuderlo manualmente per rendere verde
+il pannello. Il probe configurato nel pannello è TCP: una risposta positiva
+di /api/health aggiunge una prova HTTP puntuale, non di DB, provider o scheduler.
 
 La pulizia dei branch richiede una verifica separata: confronto con `main`,
 assenza di commit esclusivi da conservare, PR, worktree e utilizzatori esterni.
 Un branch già incorporato è un candidato alla rimozione dopo questi controlli,
 non una prova che nessun collaboratore o servizio lo usi. Non cancellare
 backup con storia divergente o branch ancora attivi per uniformare l'elenco.
+
+## Verifiche da completare prima della raccolta
+
+| Verifica | Procedura e criterio |
+| --- | --- |
+| Identità del DB | Il pannello conserva TURSO_DATABASE_URL e TURSO_AUTH_TOKEN come write-only: il proprietario confronta privatamente il DB canonico di Hostless con i secret Actions e la configurazione autorizzata. Non dedurre identità dalla presenza dei nomi delle variabili. |
+| Schema | Sole SELECT sul DB configurato localmente hanno trovato assenti le sette tabelle Fase 4 e runtime_calibration_cache. Questo non certifica l'identità Hostless. Dopo conferma del target, backup/restore verificato e consenso, applicare lo schema prospettico e valutare separatamente la cache runtime esistente; nessun bootstrap ordinario usato come preflight. |
+| Scritture accessorie | Il collector non esegue calibration:warm né migrazioni. Il vero PredictionService può però salvare runtime_calibration_cache a cache miss; il recorder avvia anche l'associazione agli esiti già nel DB. L'autorizzazione all'accensione deve comprendere questi effetti, oltre a forecast, ledger, run e osservazioni. |
+| Durabilità Turso | Sul target di prova autorizzato attendere completion e rilettura coerente del forecast/claim, poi provare riavvio e indisponibilità/ripristino rete. Un receipt pending o HTTP veloce non è una conferma. Non fare fault injection sul DB operativo per una verifica locale. |
+| Scheduler | Runner finito database, scope/hash futuri e flag inizialmente false; nessun nuovo servizio Hostless necessario. Verificare l'import del calendario prima dell'accensione: una Nightly fallita può rendere incompleto il denominatore. |
+| Monitor e recupero | Eseguire il monitor SELECT-only sullo scope autorizzato, verificare backlog/claim non confermati e controllare anche l'assenza di run. Provare segnali/drain/riavvio su target di prova; conservare le mancate senza rigenerazione postuma. |
+
+La sequenza completa, compresa la disattivazione, resta nel
+[passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md#procedura-di-attivazione-controllata).
 
 ## Ambiente, accesso e URL
 
