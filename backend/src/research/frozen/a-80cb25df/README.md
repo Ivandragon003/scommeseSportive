@@ -2,9 +2,9 @@
 
 These JavaScript files are the compiled numerical research modules from commit
 `6ed36d449418fc155f39f37371bc8c1ef5b56846` (the deployed C906 baseline).
-The matching TypeScript sources in that commit are unchanged in the historical
-web compatibility worktree. The declaration files are generated from those
-sources and exist for the current TypeScript consumers. They are part of this
+The matching TypeScript sources can be retrieved from that Git commit and
+compiled with its locked TypeScript dependency and tsconfig. The declaration
+files are generated from those sources for the current consumers. They are part of this
 project, under its existing licensing terms.
 
 The original ForecastCore fingerprints every compiled file in `models` and
