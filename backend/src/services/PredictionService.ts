@@ -477,6 +477,32 @@ export function buildOperationalLineupStatusMap(
   }).filter(([playerId]) => Boolean(playerId)) as Array<[string, { status: string; probability: number | null }]>);
 }
 
+/** Starter evidence is scoped to the queried match, team and prediction time. */
+export function playerShotStarterEvidence(rows: any[], matchId: string | undefined, teamIds: string[], asOf: string): Set<string> {
+  const cutoff = Date.parse(asOf);
+  const teams = new Set(teamIds);
+  const statuses = new Map<string, boolean>();
+  if (!matchId || !Number.isFinite(cutoff)) return new Set();
+  for (const row of rows ?? []) {
+    const playerId = String(row?.player_id ?? '').trim();
+    const teamId = String(row?.team_id ?? '').trim();
+    if (!playerId || !teams.has(teamId) || (row?.match_id != null && String(row.match_id) !== matchId)) continue;
+    const fetchedAt = String(row?.fetched_at ?? '').trim();
+    const timestamp = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.exec(fetchedAt);
+    if (!timestamp) continue;
+    const [year, month, day, hour, minute, second] = timestamp.slice(1).map(Number);
+    const calendar = new Date(Date.UTC(year, month - 1, day));
+    const observed = Date.parse(fetchedAt);
+    if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day
+      || hour > 23 || minute > 59 || second > 59 || !Number.isFinite(observed) || observed > cutoff) continue;
+    const key = `${teamId}\u0000${playerId}`;
+    const starter = /^(confirmed|predicted)_starter$/.test(String(row?.status ?? ''));
+    // Conflicting duplicate rows do not establish starter status.
+    statuses.set(key, (statuses.get(key) ?? true) && starter);
+  }
+  return new Set([...statuses].filter(([, starter]) => starter).map(([key]) => key));
+}
+
 export function mergeSnapshotRoster(
   activePlayers: any[],
   snapshotPlayers: any[],
@@ -2328,6 +2354,7 @@ export class PredictionService {
       referee,
       homePlayers,
       awayPlayers,
+      playerShotStarters: playerShotStarterEvidence(lineupStatusRows, request.matchId, teamIds, asOf),
       homeHistoricalCoverage,
       awayHistoricalCoverage,
     });

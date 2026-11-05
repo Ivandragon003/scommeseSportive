@@ -34,6 +34,10 @@ non si ricostruiscono giocate retroattive.
 
 ## Flusso effettivo
 
+Distinguere i gate dei dati dai flag di esecuzione: se `RESEARCH_NIGHTLY_ENABLED` o `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` non sono abilitati nell'ambiente effettivo, il relativo processo A/C non parte anche con import completo. La presenza di una schedule non dimostra analisi o puntate. Lo stato attuale dei flag richiede una lettura dell'ambiente; non si ricava dai log di una vecchia run.
+
+Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapter del supplemento considera solo fixture primarie già concluse. Con identità e data corrette ma risultato primario ancora NULL, il supplemento non promuove la fixture a conclusa. Verificare separatamente CSV, fixture, risultato primario e relativo gate; uno 0–0 osservato è concluso, due NULL non lo sono. Non cambiare fonte del risultato o abbassare la copertura per rendere verde la Nightly.
+
 1. Avvia un backend temporaneo sul runner, sul DB configurato nei secret,
    con `NODE_ENV=ci`, bootstrap e scheduler interni disabilitati. Attende
    `/api/health` e termina il processo al termine del job.

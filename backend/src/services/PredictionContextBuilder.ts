@@ -90,6 +90,7 @@ export interface PredictionContextBuildParams {
   referee: any;
   homePlayers: any[];
   awayPlayers: any[];
+  playerShotStarters?: ReadonlySet<string>;
   homeHistoricalCoverage?: TeamHistoricalCoverage | null;
   awayHistoricalCoverage?: TeamHistoricalCoverage | null;
 }
@@ -160,9 +161,17 @@ export class PredictionContextBuilder {
       gamesPlayed: identityOnly ? 0 : Math.max(0, Number(player?.games_played ?? player?.gamesPlayed ?? 0)),
       shotShareOfTeam: validShare ? share : 0,
       shotShareSampleSize: shareSampleSize,
-      isStarter: player?.isStarter !== false,
-      positionCode: String(player?.position_code ?? player?.positionCode ?? 'MF'),
+      isStarter: identityOnly ? true : player?.isStarter !== false,
+      positionCode: /^(gk|goalkeeper)$/i.test(String(player?.position_code ?? player?.positionCode ?? '').trim())
+        ? 'GK' : String(player?.position_code ?? player?.positionCode ?? 'MF'),
     };
+  }
+
+  private playerShotEligible(player: any, starters?: ReadonlySet<string>, contextTeamId?: unknown): boolean {
+    if (this.parseJson(player?.stats_json ?? player?.statsJson)?.identityOnly !== true) return true;
+    const teamId = String(contextTeamId ?? player?.team_id ?? player?.teamId ?? '').trim();
+    const playerId = String(player?.player_id ?? player?.playerId ?? '').trim();
+    return Boolean(teamId && playerId && starters?.has(`${teamId}\u0000${playerId}`));
   }
 
   private readVenueStats(teamRow: any, venue: VenueKey): TeamVenueStats {
@@ -470,8 +479,8 @@ export class PredictionContextBuilder {
         homeTeamStats,
         awayTeamStats,
         refereeStats,
-        homePlayers: homePlayers.map((player) => this.toPlayerData(player)),
-        awayPlayers: awayPlayers.map((player) => this.toPlayerData(player)),
+        homePlayers: homePlayers.filter((player) => this.playerShotEligible(player, params.playerShotStarters, homeTeam?.team_id ?? homeTeam?.teamId)).map((player) => this.toPlayerData(player)),
+        awayPlayers: awayPlayers.filter((player) => this.playerShotEligible(player, params.playerShotStarters, awayTeam?.team_id ?? awayTeam?.teamId)).map((player) => this.toPlayerData(player)),
         competitiveness,
         isDerby: Boolean(normalizedRequest.isDerby),
         contextAdjustments,

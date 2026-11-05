@@ -31,6 +31,8 @@ Directory sync attesta quell'operazione, **non la resistenza a perdita di alimen
 
 ## Pubblicazione e operazioni
 
+Il valutatore strict locale ora richiede codice atteso e fonte esiti espliciti, applicati dopo la selezione canonica; istruzioni e limiti sono nel [protocollo](MODEL-A-VALIDAZIONE-PROSPETTICA.md#valutatore-prospettico-ripetibile). Il filtro degli input giocatore `identityOnly` cambia l'identità del codice A senza modificare formule: verificare un nuovo hash compilato prima della preregistrazione. Questi cambiamenti locali non costituiscono deploy, nuova raccolta o validazione degli input; collector e recorder restano non attivati da questo lavoro.
+
 Il [contratto delle osservazioni](../data-observation-contract.md) introduce una nuova identità del codice A per la correzione dei dati mancanti di tiri/SOT e cartellini. Prima di qualsiasi attivazione occorrono nuova preregistrazione e nuovo manifest come definito nel protocollo; non si riusano scope/versioni precedenti per una coorte mista. Collector e recorder restano spenti. Questa integrazione non comprende migrazioni, riparazioni storiche, warmup di calibrazione o deploy. L'integrità numerica di C rimane distinta e congelata.
 
 | Percorso | Effetto |

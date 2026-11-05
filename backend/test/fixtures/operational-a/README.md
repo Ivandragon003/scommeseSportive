@@ -32,6 +32,11 @@ su esiti assenti e disponibilità delle famiglie anche nel payload strutturato.
 Non modifica coefficienti, golden numerici, manifest sorgente originale o
 snapshot C. I suoi blocchi esatti vengono annullati prima delle deviazioni
 precedenti; prove di mutazione rifiutano anche la loro rimozione o duplicazione.
+La deviazione `identity-only-player-eligibility-v1` registra il successivo filtro
+degli input giocatore privi di osservazioni: titolarità esplicita per partita,
+squadra e as-of, senza cambiare il prior dei casi ammessi o le formule.
+La normalizzazione dell'alias Goalkeeper resta nell'adattatore del contesto.
+Anche questi blocchi sono reversibili esattamente; manifest e golden restano intatti.
 L'identità APP-A cambia e richiede un nuovo protocollo/manifest prima del pilot,
 con collector e recorder ancora spenti. Il contratto corrente è in
 [`docs/data-observation-contract.md`](../../../../docs/data-observation-contract.md).

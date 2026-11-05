@@ -50,6 +50,18 @@ per 90 minuti usa cartellini e minuti osservati sulle stesse presenze, da
 senza questi abbinamenti non autorizza la prop. Un profilo `identityOnly`
 non aggiunge ricchezza statistica o presenze osservate.
 
+I profili `identityOnly` non entrano neppure nel pool dei tiri giocatore per
+la sola presenza nella rosa: senza evidenza di titolarità potevano ricevere
+un prior e ridurre la quota normalizzata dei giocatori osservati. Il contesto
+li ammette soltanto con uno stato starter esplicito, acquisito entro l'as-of,
+per la partita interrogata e la squadra corretta; panchina, indisponibilità,
+date mancanti/future e conflitti non bastano. La squadra è quella del contesto
+anche nei replay dopo un trasferimento. Il prior di ruolo resta legittimo per
+questi starter, ma il campione osservato resta zero e non supera le soglie props.
+L'adattatore riconosce `Goalkeeper` come `GK`. Roster e dati persistiti restano
+intatti; formule e coefficienti del modello non cambiano. Il percorso giocatori
+rimane disabilitato per default e la correzione non lo attiva.
+
 Gli aggregati arbitrali distinguono le partite con entrambi i conteggi noti
 per gialli, rossi e falli. I vecchi profili persistiti non conservano la loro
 finestra di ricostruzione: il runtime mantiene le loro medie e fallback.

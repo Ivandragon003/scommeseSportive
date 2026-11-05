@@ -13,7 +13,7 @@ const [major, minor] = process.versions.node.split('.').map(Number);
 const sqliteSupported = major > 22 || major === 22 && minor >= 13;
 const localTest = (name, fn) => test(name, { skip: sqliteSupported ? false : 'Local read-only evaluator requires Node >=22.13; remote raw client remains Node20 compatible.' }, fn);
 const hash = value => createHash('sha256').update(typeof value === 'string' ? value : canonical(value)).digest('hex');
-const options = { cutoff: '2026-11-05T12:00:00Z', origin: 'direct_a' };
+const options = { cutoff: '2026-11-05T12:00:00Z', origin: 'direct_a', expectedCodeHash: 'a'.repeat(64), resultSource: 'understat' };
 const script = path.join(__dirname, '../scripts/model-a-prospective-evaluate.js');
 const schema = fs.readFileSync(path.join(__dirname, '../experiments/model-a-prospective/schema.sql'), 'utf8');
 
@@ -175,7 +175,7 @@ localTest('offline CLI is read-only, does not create missing DB or overwrite out
   const setup = spawnSync(process.execPath, ['-e', `const fs=require('node:fs');const {DatabaseSync}=require('node:sqlite');const input=JSON.parse(fs.readFileSync(0,'utf8'));const db=new DatabaseSync(input.filename);db.exec(input.schema);db.close();`],
     { input: JSON.stringify({ filename, schema }), encoding: 'utf8' });
   assert.equal(setup.status, 0, setup.stderr);
-  const run = extra => spawnSync(process.execPath, [script, '--db-url', pathToFileURL(filename).href, '--cutoff', options.cutoff, '--origin', options.origin, ...extra], { encoding: 'utf8' });
+  const run = extra => spawnSync(process.execPath, [script, '--db-url', pathToFileURL(filename).href, '--cutoff', options.cutoff, '--origin', options.origin, '--expected-code-hash', options.expectedCodeHash, '--result-source', options.resultSource, ...extra], { encoding: 'utf8' });
   const before = fs.readFileSync(filename), files = fs.readdirSync(dir);
   const first = run([]); assert.equal(first.status, 0, first.stderr); assert.equal(JSON.parse(first.stdout).denominators.scoredMatches, 0);
   assert.deepEqual(fs.readFileSync(filename), before); assert.deepEqual(fs.readdirSync(dir), files);
@@ -183,9 +183,9 @@ localTest('offline CLI is read-only, does not create missing DB or overwrite out
   const resultBefore = fs.readFileSync(output), again = run(['--output', output]); assert.equal(again.status, 1);
   assert.equal(JSON.parse(again.stdout).error, 'output_already_exists'); assert.deepEqual(fs.readFileSync(output), resultBefore);
   const missing = path.join(dir, 'missing.db');
-  const child = spawnSync(process.execPath, [script, '--db-url', pathToFileURL(missing).href, '--cutoff', options.cutoff, '--origin', options.origin], { encoding: 'utf8' });
+  const child = spawnSync(process.execPath, [script, '--db-url', pathToFileURL(missing).href, '--cutoff', options.cutoff, '--origin', options.origin, '--expected-code-hash', options.expectedCodeHash, '--result-source', options.resultSource], { encoding: 'utf8' });
   assert.equal(child.status, 1); assert.equal(fs.existsSync(missing), false);
-  const malicious = spawnSync(process.execPath, [script, '--db-url', 'https://user:SUPER_SECRET@example.com/?token=PRIVATE', '--cutoff', options.cutoff, '--origin', options.origin], { encoding: 'utf8' });
+  const malicious = spawnSync(process.execPath, [script, '--db-url', 'https://user:SUPER_SECRET@example.com/?token=PRIVATE', '--cutoff', options.cutoff, '--origin', options.origin, '--expected-code-hash', options.expectedCodeHash, '--result-source', options.resultSource], { encoding: 'utf8' });
   assert.equal(malicious.status, 1); assert.ok(!malicious.stdout.includes('SUPER_SECRET')); assert.ok(!malicious.stdout.includes('PRIVATE')); assert.equal(malicious.stderr, '');
 });
 

@@ -24,6 +24,8 @@ L'import rifiuta risposte Understat malformate, comprese pagine HTML di manutenz
 
 Per tiri/SOT e gialli/rossi i campioni sono distinti per campo, con copertura casa/trasferta dove consumata. Medie, ultime 5–10, props e replay escludono gli assenti dai propri denominatori e conservano gli zeri veri. I prior non contano come osservazioni; le soglie esistenti sono applicate a ciascuna famiglia, incluse le distribuzioni API. Formule, pesi e coefficienti restano quelli esistenti; cambiano gli input correttamente osservati e dunque l'identità APP-A. I profili legacy non certificano copertura ricostruita. Contratto completo e limiti: [osservazioni](../data-observation-contract.md).
 
+I profili `identityOnly` senza evidenza di titolarità non entrano nell'XI presunto dei tiri giocatore. Con uno stato starter esplicito e temporalmente valido mantengono il prior di ruolo, a campione zero; le props richiedono comunque le osservazioni previste. Questo filtro corregge i dati ammessi al modello, senza modificare le formule, e cambia nuovamente l'identità del codice operativo: una precedente bozza con un hash diverso non identifica questa versione.
+
 Il fit per competizione usa partite concluse e salva i parametri Dixon-Coles e Poisson-xG. La previsione li carica e li riusa; non esegue il fit completo a ogni apertura. Parametri mancanti possono condurre a valori di base; un partner Poisson incompatibile non entra nel blend. Ricevere una previsione non prova che fit o copertura siano adeguati per quella partita.
 
 Fonti: [contesto](../../backend/src/services/PredictionContextBuilder.ts), [supplemento](../../backend/src/services/FootballDataService.ts), [neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).

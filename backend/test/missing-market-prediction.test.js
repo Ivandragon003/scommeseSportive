@@ -71,7 +71,8 @@ test('identity-only roster records do not claim statistical coverage', () => {
   const empty = builder.build({ ...base, homePlayers: [], awayPlayers: [] });
   const onlyIdentities = builder.build({ ...base, homePlayers: [identity], awayPlayers: [identity] });
   assert.equal(onlyIdentities.richnessScore, empty.richnessScore);
-  assert.equal(onlyIdentities.supplementaryData.homePlayers[0].shotShareSampleSize, 0);
+  assert.deepEqual(onlyIdentities.supplementaryData.homePlayers, []);
+  assert.deepEqual(onlyIdentities.supplementaryData.awayPlayers, []);
   const uncovered = { ...identity, stats_json: JSON.stringify({ coverage: { shots: 0, shotsOnTarget: 0, yellowCards: 0, redCards: 0, shotShare: 0 } }) };
   assert.equal(builder.build({ ...base, homePlayers: [uncovered], awayPlayers: [uncovered] }).richnessScore, empty.richnessScore);
   const actual = { ...identity, games_played: 4, stats_json: JSON.stringify({ coverage: { shotShare: 4 } }) };

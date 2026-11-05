@@ -38,6 +38,9 @@ function storedTime(value) {
 function optionsFor(input) {
   const options = { mode: 'strict', seed: DEFAULT_SEED, ...input };
   if (!['strict', 'technical'].includes(options.mode)) fail('invalid_mode');
+  if (options.mode === 'strict' && (options.expectedCodeHash == null || options.resultSource == null)) fail('strict_pins_required');
+  if (options.expectedCodeHash != null && (typeof options.expectedCodeHash !== 'string' || !HASH.test(options.expectedCodeHash))) fail('invalid_expected_code_hash');
+  if (options.resultSource != null && (typeof options.resultSource !== 'string' || !PUBLIC_ID.test(options.resultSource))) fail('invalid_result_source');
   timestamp(options.cutoff);
   if (!['direct_a', 'shared_ac', 'internal', 'prospective_a'].includes(options.origin)) fail('explicit_origin_required');
   if (!Number.isInteger(options.seed) || options.seed < 0 || options.seed > 0xffffffff) fail('invalid_seed');
@@ -89,18 +92,22 @@ function forecastIssue(row, options, scope) {
       || !PUBLIC_ID.test(payload.collection?.claimId ?? '') || !scope || !scope.seasons.includes(payload.season)
       || kickoff < timestamp(scope.from) || kickoff >= timestamp(scope.to))) return { reason: 'collection_manifest_or_scope_mismatch' };
     if (!PUBLIC_ID.test(payload.model?.version ?? '') || !['codeHash', 'configHash', 'stateHash'].every(key => HASH.test(payload.model?.[key] ?? ''))) return { reason: 'invalid_model_identity' };
+    if (options.expectedCodeHash != null && payload.model.codeHash.toLowerCase() !== options.expectedCodeHash.toLowerCase()) return { reason: 'expected_code_hash_mismatch' };
     const provenance = payload.provenance;
     if (!HASH.test(provenance?.inputSnapshotHash ?? '')) return { reason: 'input_snapshot_hash_missing_or_invalid' };
     if (provenance.snapshot != null && sha256(canonical(provenance.snapshot)) !== provenance.inputSnapshotHash.toLowerCase()) return { reason: 'input_snapshot_hash_mismatch' };
     if (provenance.observedInputsThrough != null && storedTime(provenance.observedInputsThrough) > at) return { reason: 'input_timestamp_after_forecast' };
     const declared = provenance.classification === 'verified' && provenance.rigorousEligible === true
-      && provenance.inputAvailableThrough != null && storedTime(provenance.inputAvailableThrough) <= at
+      && provenance.inputAvailableThrough != null && storedTime(provenance.inputAvailableThrough) <= storedTime(payload.inputAsOf)
       && provenance.snapshot?.classification !== 'technical_only' && provenance.snapshot?.rigorousEligible !== false;
     return { payload, declared, snapshotVerified: provenance.snapshot != null };
   } catch { return { reason: 'invalid_payload_identity_or_time' }; }
 }
-function resultIssue(row, cutoff) {
+function resultIssue(row, cutoff, resultSource) {
   if (row.evidence_id == null) return 'missing_or_unconfirmed_result';
+  if (resultSource != null && row.source !== resultSource) return 'result_source_mismatch';
+  if (resultSource != null && row.latestLifecycle != null
+    && (row.latestLifecycle.source !== resultSource || row.latestLifecycle.status !== 'final')) return 'latest_lifecycle_not_confirmed';
   try {
     if (!Number.isSafeInteger(row.home_goals) || !Number.isSafeInteger(row.away_goals) || row.home_goals < 0 || row.away_goals < 0
       || storedTime(row.observed_at) <= storedTime(row.kickoff_at) || storedTime(row.observed_at) > timestamp(cutoff)
@@ -159,7 +166,7 @@ function evaluateRows(technicalRows, strictRows, input, metadata = {}) {
     if (parsed.reason) { increments(parsed.reason); invalid++; continue; }
     if (!parsed.declared) technicalTemporal++;
     if (!parsed.snapshotVerified) snapshotUnverifiable++;
-    const resultReason = resultIssue(row, options.cutoff);
+    const resultReason = resultIssue(row, options.cutoff, options.resultSource);
     if (resultReason) missingResults++;
     if (options.mode === 'strict' && !parsed.snapshotVerified) { increments('input_snapshot_not_verifiable'); continue; }
     if (options.mode === 'strict' && (!strictIds.has(row.id) || !parsed.declared)) { increments('strict_temporal_gate_excluded'); continue; }
@@ -187,7 +194,7 @@ function evaluateRows(technicalRows, strictRows, input, metadata = {}) {
   return { schema: 'model-a-prospective-evaluation-v1', mode: options.mode,
     scientificStatus: { validationStatisticallyConcluded: false, eligibility: options.mode === 'technical' ? 'technical_descriptive_only' : 'declared_eligible_independent_attestation_unverified',
       methodologyEvidenceRequired: true, thresholdsArePowerGuarantee: false },
-    scope: { cutoff: options.cutoff, origin: options.origin, protocolId: options.protocolId ?? null, manifestSha256: options.manifestSha256 ?? null },
+    scope: { cutoff: options.cutoff, origin: options.origin, protocolId: options.protocolId ?? null, manifestSha256: options.manifestSha256 ?? null, expectedCodeHash: options.expectedCodeHash?.toLowerCase() ?? null, resultSource: options.resultSource ?? null },
     configuration: { outcome: 'over25_equals_total_goals_at_least_3', epsilon: EPSILON, deciles: 'left_closed_right_open_last_includes_1',
       bootstrapReplicas: REPLICAS, bootstrapSeed: options.seed, blocks: 'league_and_monday_utc_kickoff_week', quoteMaxAgeMs: options.quoteMaxAgeMs ?? null,
       pooledVersions: 'descriptive_only_also_reported_separately', studyStartedAt: options.studyStartedAt ?? null,
@@ -231,7 +238,33 @@ function evaluateRows(technicalRows, strictRows, input, metadata = {}) {
       'Missing or blocked results are excluded, never treated as losses; canonical SQL chooses the first forecast before eligibility.',
       'Understat outcomes are statistical observations, not independently certified official results.',
       'League and version comparisons are exploratory; bootstrap intervals cannot repair timing or selection bias.',
+      'Pins validate recorded code hash and result source, not the independent authenticity of the underlying evidence.',
       'No model, calibration, weights, selection, temporal classification or collection is changed.'] };
+}
+
+// Read the latest lifecycle without a source filter, after canonical first-forecast selection.
+// Chunk match IDs to keep bound parameters and memory bounded.
+async function attachLatestLifecycle(client, rows, cutoff) {
+  const ids = [...new Set(rows.map(row => row.match_id))];
+  const latest = new Map();
+  for (let start = 0; start < ids.length; start += 100) {
+    const chunk = ids.slice(start, start + 100);
+    const args = { cutoff };
+    const placeholders = chunk.map((id, index) => { args[`id${index}`] = id; return `:id${index}`; });
+    const observations = await read(client, `WITH ranked AS (
+      SELECT match_id,kickoff_at,source,status,observed_at,recorded_at,evidence_id,
+        row_number() OVER (PARTITION BY match_id,julianday(kickoff_at)
+          ORDER BY julianday(observed_at) DESC,julianday(recorded_at) DESC,evidence_id DESC) AS rank
+      FROM model_a_prospective_result_observations
+      WHERE match_id IN (${placeholders.join(',')}) AND julianday(observed_at)<=julianday(:cutoff)
+        AND julianday(recorded_at)<=julianday(:cutoff)
+    ) SELECT match_id,kickoff_at,source,status FROM ranked WHERE rank=1`, args);
+    for (const observation of observations) {
+      const kickoff = Date.parse(observation.kickoff_at);
+      if (Number.isFinite(kickoff)) latest.set(`${observation.match_id}\0${kickoff}`, { source: observation.source, status: observation.status });
+    }
+  }
+  return rows.map(row => ({ ...row, latestLifecycle: latest.get(`${row.match_id}\0${Date.parse(row.kickoff_at)}`) ?? null }));
 }
 
 async function evaluateProspective(client, input) {
@@ -245,7 +278,8 @@ async function evaluateProspective(client, input) {
     FROM model_a_prospective_forecasts
     WHERE json_extract(payload_json,'$.origin')=:origin AND julianday(forecast_at)<=julianday(:cutoff)
     AND ((:origin='prospective_a' AND json_extract(payload_json,'$.collection.protocolId')=:protocol_id) OR (:origin<>'prospective_a' AND :protocol_id IS NULL))`, args);
-  const technical = await read(client, sql.technical, args), strict = await read(client, sql.strict, args);
+  const selected = await read(client, sql.technical, args), strict = await read(client, sql.strict, args);
+  const technical = options.resultSource != null ? await attachLatestLifecycle(client, selected, options.cutoff) : selected;
   return evaluateRows(technical, strict, options, { scope, scopedForecastRows: Number(denominator[0]?.forecasts ?? 0), scopedMatches: Number(denominator[0]?.matches ?? 0),
     scopedWindowForecastRows: Number(denominator[0]?.window_forecasts ?? 0),
     sqlHashes: Object.fromEntries(Object.entries(sql).map(([key, query]) => [key, sha256(query)])) });
@@ -280,16 +314,16 @@ async function openClient(options, env) {
 }
 const HELP = `Read-only Model A prospective evaluation (aggregate JSON only).
 Local Node >=22.13:
-  node backend/scripts/model-a-prospective-evaluate.js --db-url file:///absolute/study.db --cutoff 2026-11-05T12:00:00Z --origin prospective_a --protocol-id STUDY --manifest-sha256 SHA256 [--mode strict|technical]
+  node backend/scripts/model-a-prospective-evaluate.js --db-url file:///absolute/study.db --cutoff 2026-11-05T12:00:00Z --origin prospective_a --protocol-id STUDY --manifest-sha256 SHA256 --expected-code-hash SHA256 --result-source SOURCE [--mode strict|technical]
 Other origins: direct_a|shared_ac|internal require no protocol/manifest.
-Default mode: strict. Technical mode is descriptive and never promotes records.
+Default mode: strict and both pins are required. Technical mode is descriptive; supplied pins are enforced.
 Optional: --seed UINT32 --study-started-at UTC --quote-max-age-ms INTEGER --output NEW_FILE
 Remote opt-in: --remote-read-only (TURSO_DATABASE_URL/TURSO_AUTH_TOKEN already set privately; no --db-url).
 Remote uses raw client and SELECT only; actual credential permissions remain the operator's responsibility.
 Output creation is exclusive. No dotenv, providers, bootstrap, migrations, model changes or writes to the database.\n`;
 function parseArgs(argv) {
   const options = {}, names = { '--db-url': 'dbUrl', '--cutoff': 'cutoff', '--origin': 'origin', '--protocol-id': 'protocolId', '--manifest-sha256': 'manifestSha256',
-    '--mode': 'mode', '--seed': 'seed', '--study-started-at': 'studyStartedAt', '--quote-max-age-ms': 'quoteMaxAgeMs', '--output': 'output' };
+    '--mode': 'mode', '--expected-code-hash': 'expectedCodeHash', '--result-source': 'resultSource', '--seed': 'seed', '--study-started-at': 'studyStartedAt', '--quote-max-age-ms': 'quoteMaxAgeMs', '--output': 'output' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help') { options.help = true; continue; }

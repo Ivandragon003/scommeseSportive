@@ -95,7 +95,8 @@ test('calendar observations drive a real no-odds prospective prediction without 
       const env = {MODEL_A_PROSPECTIVE_ENABLED:'true',MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED:'true'};
       const firstRefresh = await refreshModelAProspectiveResults(createModelAProspectiveResultRefreshSink(client),{env,source});
       assert.equal(firstRefresh.recorded,1,JSON.stringify(firstRefresh));
-      const evaluateOptions = {cutoff:new Date(observedNow + 1000).toISOString(),origin:'prospective_a',protocolId:scope.protocolId,manifestSha256:scope.manifestSha256};
+      const evaluateOptions = {cutoff:new Date(observedNow + 1000).toISOString(),origin:'prospective_a',protocolId:scope.protocolId,manifestSha256:scope.manifestSha256,
+        expectedCodeHash:payload.model.codeHash,resultSource:'understat'};
       const technical = await evaluateProspective(client,{...evaluateOptions,mode:'technical'});
       const strict = await evaluateProspective(client,evaluateOptions);
       assert.equal(technical.denominators.scoredMatches,1);
