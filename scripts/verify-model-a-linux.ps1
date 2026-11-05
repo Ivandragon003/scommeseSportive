@@ -67,9 +67,10 @@ CMD ["npm", "test", "--", "--test-concurrency=2"]
     if ($LASTEXITCODE -ne 0) { throw 'Cannot create verification volume.' }
     $write = 'const fs=require("fs");const p="/verify-data/event";const f=fs.openSync(p,"wx");fs.writeFileSync(f,"model-a-volume-test\n");fs.fsyncSync(f);fs.closeSync(f);fs.linkSync(p,p+".link");const d=fs.openSync("/verify-data","r");fs.fsyncSync(d);fs.closeSync(d)'
     $read = 'const fs=require("fs"),crypto=require("crypto");const p="/verify-data/event";const a=fs.readFileSync(p),b=fs.readFileSync(p+".link");if(a.toString()!=="model-a-volume-test\n"||!a.equals(b))process.exit(1);console.log("Volume SHA256: "+crypto.createHash("sha256").update(b).digest("hex"))'
-    & docker run --rm --network none --read-only --user node --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$volume,dst=/verify-data" --entrypoint node $image -e $write
+    # Stdin avoids Windows PowerShell 5 stripping JavaScript quotes in native -e arguments.
+    $write | & docker run --rm -i --network none --read-only --user node --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$volume,dst=/verify-data" --entrypoint node $image
     if ($LASTEXITCODE -ne 0) { throw 'Volume write, fsync or hardlink test failed.' }
-    & docker run --rm --network none --read-only --user node --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$volume,dst=/verify-data" --entrypoint node $image -e $read
+    $read | & docker run --rm -i --network none --read-only --user node --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$volume,dst=/verify-data" --entrypoint node $image
     if ($LASTEXITCODE -ne 0) { throw 'Volume persistence test failed.' }
     Write-Host 'Verification volume survived container replacement; this does not test power loss or hosting.'
   } finally {
@@ -83,5 +84,11 @@ CMD ["npm", "test", "--", "--test-concurrency=2"]
   Write-Host 'Linux backend suite passed. Check output for skipped tests.'
 } finally {
   # This is a unique directory created above, not a path derived from repository input.
-  if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+  if (Test-Path -LiteralPath $scratch) {
+    $resolvedScratch = (Resolve-Path -LiteralPath $scratch).Path
+    $expectedTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedScratch.StartsWith($expectedTempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedScratch) -notmatch '^model-a-linux-[0-9a-f]{32}$') { throw 'Refusing cleanup outside the verification directory.' }
+    Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
+  }
 }

@@ -164,6 +164,10 @@ Prima dell'attivazione autorizzata configurare e congelare:
 | `MODEL_A_PROSPECTIVE_MONITORING_ENABLED` | Controllo del DB e diagnostica GitHub solo se `true`; default `false` |
 | `MODEL_A_COLLECTION_PREDICT_BUDGET_MS` | Budget osservato della chiamata A; default `30000` ms |
 | `MODEL_A_COLLECTION_CONFIRMATION_BUDGET_MS` | Budget dall'inizio della chiamata alla conclusione della consegna del recorder; default `45000` ms |
+| `MODEL_A_RESEARCH_CALENDAR_ENABLED` | Calendario alternativo del solo collector se `true`; default `false` |
+| `MODEL_A_RESEARCH_CALENDAR_MAPPING_JSON` | Mapping revisionato, per lega, degli ID squadra football-data.org agli ID squadra Understat locali |
+| `MODEL_A_RESEARCH_CALENDAR_EXPECTED_TEAM_COUNTS` | JSON con numero atteso di squadre per ciascuna delle cinque leghe; obbligatorio con opt-in |
+| `MODEL_A_RESEARCH_CALENDAR_MAX_AGE_SECONDS` | Età massima dell'acquisizione, intero fra `60` e `86400`; obbligatoria con opt-in, `3600` nell'esempio ambiente |
 
 Il manifest include le cinque leghe, l'origine `prospective_a` e la finestra
 T−24h–T−60min. Con scope già configurato in ambiente, il comando seguente
@@ -180,6 +184,49 @@ salvata, associata a protocollo, fixture, kickoff e finestra. Un tentativo
 non confermato resta distinto da una previsione; non viene rigenerato
 automaticamente. Questo non certifica completezza del calendario né
 disponibilità storica rigorosa degli input.
+
+### Calendario alternativo del solo collector
+
+Con `MODEL_A_RESEARCH_CALENDAR_ENABLED=false` o assente rimangono il calendario
+Understat importato e il manifest precedenti; non partono richieste al nuovo
+provider. L'opt-in usa [football-data.org](../backend/src/services/modelAResearchCalendar.ts)
+soltanto per identità, stato e kickoff delle fixture. Understat resta la fonte
+degli xG, dello storico e degli esiti; la Nightly A/C ordinaria non cambia fonte.
+
+Occorrono un account Free autorizzato, condizioni accettate e il secret
+repository **`FOOTBALL_DATA_ORG_API_KEY`**. È una credenziale distinta da
+API-Football: `API_FOOTBALL_ENABLED` resta `false` e la sua chiave non abilita
+questo calendario. Registrazione, disponibilità reale e copertura dell'account
+vanno verificate prima dell'uso; l'implementazione locale non le dimostra.
+Non inserire la chiave nelle variabili pubbliche, nei file versionati o nei log.
+
+Il mapping richiede revisione esplicita degli ID, senza deduzione dai nomi:
+la coppia ordinata casa/trasferta deve risolvere una sola partita Understat
+nella stessa lega e stagione. Usare una sola stagione e un **nuovo protocollo**:
+`--print-scope`, con opt-in e configurazione completi ma senza chiave, include
+nel manifest fonte, hash SHA-256 del mapping, conteggi attesi e massima età.
+Congelare il nuovo `MODEL_A_COLLECTION_MANIFEST_SHA256` prima della raccolta;
+non riutilizzare il protocollo precedente con una policy diversa.
+
+Ogni lega richiede il calendario completo di andata/ritorno, squadre attese,
+abbinamenti univoci e acquisizione ancora fresca. Feed parziale, duplicati,
+mapping mancante, errore o scadenza escludono la lega senza ripiegare sul vecchio
+calendario. Le leghe utilizzabili possono proseguire: il run conserva `partial`,
+`calendar_feed_unavailable` e exit code `1`; il loop può tentare il ciclo
+successivo. Solo fixture `TIMED` nella finestra prevista avviano inferenze.
+
+Le evidenze append-only sono in `model_a_calendar_attempts` e
+`model_a_calendar_fixtures`, previste dallo
+[schema manuale](../backend/experiments/model-a-prospective/schema.sql).
+Non vengono riscritte `matches` o `teams`; il collector congela una copia della
+fixture e ricontrolla la prova dopo il claim. `acquiredAt` indica acquisizione
+locale, `providerLastUpdated` una revisione dichiarata e `publicationAt` resta
+null: nessuno di questi dati prova la disponibilità storica degli xG. I record
+restano `technical_only`. La configurazione non applica schema, non attiva
+raccolta e non distribuisce servizi. Dettagli nel
+[protocollo prospettico](models/MODEL-A-VALIDAZIONE-PROSPETTICA.md#calendario-alternativo-solo-ricerca-e-opt-in).
+
+### Persistenza e controlli del runner
 
 Sul runner il job usa `MODEL_A_PROSPECTIVE_STORAGE=database`, recorder attivo
 e `MODEL_A_COLLECTION_INTERVAL_SECONDS=0`: un solo ciclo, senza dipendere

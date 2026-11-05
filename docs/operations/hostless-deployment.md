@@ -50,7 +50,32 @@ modalità database del runner. Un errore di rete/scrittura non diventa
 un evento acquisito; il ledger conserva le consegne non confermate senza
 rigenerare automaticamente la previsione.
 
-Questa è la scelta consigliata finché il DB Turso esistente, le sue quote
+Il calendario research football-data.org è un opt-in separato, con
+`MODEL_A_RESEARCH_CALENDAR_ENABLED=false` per default sia nel workflow sia nel
+profilo Compose. Serve soltanto al collector per fixture, stato e kickoff;
+Understat conserva xG, storico ed esiti. Non aggiorna `matches`/`teams` e non
+cambia il calendario della Nightly A/C o del web.
+
+Prima di abilitarlo occorrono account Free autorizzato e condizioni accettate,
+il secret privato `FOOTBALL_DATA_ORG_API_KEY`, mapping ID revisionato in
+`MODEL_A_RESEARCH_CALENDAR_MAPPING_JSON`, conteggi attesi in
+`MODEL_A_RESEARCH_CALENDAR_EXPECTED_TEAM_COUNTS` ed età massima in
+`MODEL_A_RESEARCH_CALENDAR_MAX_AGE_SECONDS`. Questa chiave è distinta da
+API-Football; `API_FOOTBALL_ENABLED` resta `false`. Non basta aggiungerla alle
+variabili del backend Hostless: va configurato il processo collector scelto.
+Registrazione e accesso reale del provider non sono certificati dal codice.
+
+Fonte, hash del mapping e policy entrano nel manifest di un nuovo protocollo
+con una sola stagione. Le due tabelle append-only `model_a_calendar_attempts`
+e `model_a_calendar_fixtures` richiedono lo schema manuale autorizzato; nessuna
+migrazione o attivazione deriva dalla configurazione. Feed incompleto,
+ambiguo, fallito o scaduto esclude la lega senza fallback silenzioso; le altre
+possono proseguire con run `partial` ed exit code `1`. Acquisizione locale e
+revisione provider non sono pubblicazione: `publicationAt` rimane null e la
+provenienza resta `technical_only`. Procedura e variabili nella
+[guida del calendario research](../github-actions-nightly-sync.md#calendario-alternativo-del-solo-collector).
+
+La modalità database del runner è la scelta consigliata finché il DB Turso esistente, le sue quote
 effettive e la copertura osservata del runner soddisfano lo studio: evita
 un volume a pagamento aggiuntivo. Il cron GitHub può ritardare o perdere job
 in coda; nei repository pubblici si disabilita dopo 60 giorni senza attività.
@@ -177,10 +202,10 @@ backup con storia divergente o branch ancora attivi per uniformare l'elenco.
 | Verifica | Procedura e criterio |
 | --- | --- |
 | Identità del DB | Il pannello conserva TURSO_DATABASE_URL e TURSO_AUTH_TOKEN come write-only: il proprietario confronta privatamente il DB canonico di Hostless con i secret Actions e la configurazione autorizzata. Non dedurre identità dalla presenza dei nomi delle variabili. |
-| Schema | Sole SELECT sul DB configurato localmente hanno trovato assenti le sette tabelle Fase 4 e runtime_calibration_cache. Questo non certifica l'identità Hostless. Dopo conferma del target, backup/restore verificato e consenso, applicare lo schema prospettico e valutare separatamente la cache runtime esistente; nessun bootstrap ordinario usato come preflight. |
+| Schema | Verificare sul target le tabelle Fase 4, incluse model_a_calendar_attempts e model_a_calendar_fixtures per il calendario alternativo, e runtime_calibration_cache. Dopo conferma del target, backup/restore verificato e consenso, applicare lo schema prospettico manuale e valutare separatamente la cache runtime esistente; nessun bootstrap ordinario usato come preflight. |
 | Scritture accessorie | Il collector non esegue calibration:warm né migrazioni. Il vero PredictionService può però salvare runtime_calibration_cache a cache miss; il recorder avvia anche l'associazione agli esiti già nel DB. L'autorizzazione all'accensione deve comprendere questi effetti, oltre a forecast, ledger, run e osservazioni. |
 | Durabilità Turso | Sul target di prova autorizzato attendere completion e rilettura coerente del forecast/claim, poi provare riavvio e indisponibilità/ripristino rete. Un receipt pending o HTTP veloce non è una conferma. Non fare fault injection sul DB operativo per una verifica locale. |
-| Scheduler | Runner finito database, scope/hash futuri e flag inizialmente false; nessun nuovo servizio Hostless necessario. Verificare l'import del calendario prima dell'accensione: una Nightly fallita può rendere incompleto il denominatore. |
+| Scheduler | Runner finito database, scope/hash futuri e flag inizialmente false; nessun nuovo servizio Hostless necessario. Prima dell'accensione verificare il calendario importato oppure, con opt-in alternativo, mapping, completezza e freschezza delle evidenze research; una Nightly riuscita non certifica il nuovo provider. |
 | Monitor e recupero | Eseguire il monitor SELECT-only sullo scope autorizzato, verificare backlog/claim non confermati e controllare anche l'assenza di run. Provare segnali/drain/riavvio su target di prova; conservare le mancate senza rigenerazione postuma. |
 
 La sequenza completa, compresa la disattivazione, resta nel
@@ -196,7 +221,8 @@ WHERE tbl_name IN (
   'model_a_prospective_forecasts', 'model_a_prospective_results',
   'model_a_collection_protocols', 'model_a_collection_ledger',
   'model_a_collection_runs', 'model_a_prospective_result_observations',
-  'model_a_prospective_result_refresh_state', 'runtime_calibration_cache'
+  'model_a_prospective_result_refresh_state', 'model_a_calendar_attempts',
+  'model_a_calendar_fixtures', 'runtime_calibration_cache'
 )
 ORDER BY tbl_name, type, name;
 ```
