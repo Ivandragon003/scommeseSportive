@@ -21,8 +21,11 @@ function runIsolatedFixture(file, name, parentDirectory = tmpdir()) {
   const directory = mkdtempSync(join(parentDirectory, 'recommendation-view-child-'));
   let failure;
   try {
+    const env = { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, [cardinalityChildFlag]: '1' };
+    // A test-runner worker otherwise makes the child emit the internal V8 protocol instead of TAP.
+    delete env.NODE_TEST_CONTEXT;
     const result = spawnSync(process.execPath, ['--test-reporter=tap', `--test-name-pattern=^${name}$`, file], {
-      env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, [cardinalityChildFlag]: '1' },
+      env,
       encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
     });
     const output = (result.stdout || '') + '\n' + (result.stderr || '');
@@ -35,11 +38,13 @@ function runIsolatedFixture(file, name, parentDirectory = tmpdir()) {
   if (failure) throw failure;
 }
 
-test('isolated fixture reports child failure and empty selection and cleans up after exit', (t) => {
+test('isolated fixture reports child success, failure and empty selection and cleans up after exit', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'recommendation-view-helper-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const file = join(directory, 'child.js');
-  writeFileSync(file, "const test = require('node:test'); test('failure', () => { throw new Error('expected child failure'); });\n");
+  writeFileSync(file, "const test = require('node:test'); test('success', () => {}); test('failure', () => { throw new Error('expected child failure'); });\n");
+  runIsolatedFixture(file, 'success', directory);
+  assert.deepEqual(readdirSync(directory), ['child.js']);
   assert.throws(() => runIsolatedFixture(file, 'failure', directory), /expected child failure/);
   assert.deepEqual(readdirSync(directory), ['child.js']);
   assert.throws(() => runIsolatedFixture(file, 'not-present', directory), /Isolated test failed/);
