@@ -1,23 +1,41 @@
 #!/usr/bin/env node
 'use strict';
 
+// Reading configuration never contacts a provider. The alternate source is opt-in.
+function calendarConfiguration(env) {
+  if (env.MODEL_A_RESEARCH_CALENDAR_ENABLED !== 'true') return null;
+  let mapping, expectedTeamCounts;
+  try {
+    mapping = JSON.parse(env.MODEL_A_RESEARCH_CALENDAR_MAPPING_JSON || '');
+    expectedTeamCounts = JSON.parse(env.MODEL_A_RESEARCH_CALENDAR_EXPECTED_TEAM_COUNTS || '');
+  } catch { throw new Error('collection_calendar_configuration_invalid'); }
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) || !expectedTeamCounts || typeof expectedTeamCounts !== 'object' || Array.isArray(expectedTeamCounts)) throw new Error('collection_calendar_configuration_invalid');
+  const maxAgeSeconds = Number(env.MODEL_A_RESEARCH_CALENDAR_MAX_AGE_SECONDS);
+  if (!Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds < 60 || maxAgeSeconds > 86400) throw new Error('collection_calendar_configuration_invalid');
+  const { calendarMappingHash } = require('../dist/research/ModelAResearchCalendarStore');
+  return { mapping, policy: { source: 'football-data.org', mappingSha256: calendarMappingHash(mapping), maxAgeSeconds, expectedTeamCounts } };
+}
+
 // This check precedes application imports, credential access and database creation.
 async function main(env = process.env, args = process.argv.slice(2)) {
   if (args.length && (args.length !== 1 || args[0] !== '--print-scope')) throw new Error('collection_arguments_invalid');
   if (args[0] === '--print-scope') {
     const { collectionScopeManifest } = require('../dist/research/ModelAProspectiveCollection');
-    console.log(JSON.stringify(collectionScopeManifest({ protocolId: env.MODEL_A_COLLECTION_PROTOCOL_ID, seasons: (env.MODEL_A_COLLECTION_SEASONS || '').split(',').filter(Boolean), from: env.MODEL_A_COLLECTION_FROM, to: env.MODEL_A_COLLECTION_TO })));
+    const calendar = calendarConfiguration(env);
+    console.log(JSON.stringify(collectionScopeManifest({ protocolId: env.MODEL_A_COLLECTION_PROTOCOL_ID, seasons: (env.MODEL_A_COLLECTION_SEASONS || '').split(',').filter(Boolean), from: env.MODEL_A_COLLECTION_FROM, to: env.MODEL_A_COLLECTION_TO, ...(calendar ? { calendar: calendar.policy } : {}) })));
     return;
   }
   if (env.MODEL_A_PROSPECTIVE_COLLECTION_ENABLED !== 'true' || env.MODEL_A_PROSPECTIVE_ENABLED !== 'true') {
     console.log(JSON.stringify({ enabled: false, reason: 'collection_or_recorder_disabled' })); return;
   }
   if (env.MODEL_A_PROSPECTIVE_STORAGE !== 'database' && !env.MODEL_A_PROSPECTIVE_SPOOL_DIR?.trim()) throw new Error('collection_durable_storage_required');
+  const calendar = calendarConfiguration(env);
+  if (calendar && !env.FOOTBALL_DATA_ORG_API_KEY?.trim()) throw new Error('collection_calendar_key_required');
   const { collectionBudgetsFromEnv } = require('../dist/research/ModelAProspectiveBudget');
   const budgets = collectionBudgetsFromEnv(env);
   if (!env.TURSO_DATABASE_URL?.trim() || !env.TURSO_AUTH_TOKEN?.trim()) throw new Error('collection_database_credentials_required');
   const { ModelAProspectiveCollection, validateCollectionScope } = require('../dist/research/ModelAProspectiveCollection');
-  const scope = validateCollectionScope({ protocolId: env.MODEL_A_COLLECTION_PROTOCOL_ID, manifestSha256: env.MODEL_A_COLLECTION_MANIFEST_SHA256, seasons: (env.MODEL_A_COLLECTION_SEASONS || '').split(',').filter(Boolean), from: env.MODEL_A_COLLECTION_FROM, to: env.MODEL_A_COLLECTION_TO });
+  const scope = validateCollectionScope({ protocolId: env.MODEL_A_COLLECTION_PROTOCOL_ID, manifestSha256: env.MODEL_A_COLLECTION_MANIFEST_SHA256, seasons: (env.MODEL_A_COLLECTION_SEASONS || '').split(',').filter(Boolean), from: env.MODEL_A_COLLECTION_FROM, to: env.MODEL_A_COLLECTION_TO, ...(calendar ? { calendar: calendar.policy } : {}) });
   const interval = Number(env.MODEL_A_COLLECTION_INTERVAL_SECONDS || 0);
   if (!Number.isInteger(interval) || interval < 0 || (interval > 0 && interval < 60) || interval > 86400) throw new Error('collection_interval_invalid');
   const { createClient } = require('@libsql/client');
@@ -34,11 +52,13 @@ async function main(env = process.env, args = process.argv.slice(2)) {
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   try {
     db = new DatabaseService({ skipSchemaBootstrap: true });
-    const collector = new ModelAProspectiveCollection(client, new PredictionService(db), scope, undefined, () => stopping, budgets);
+    const calendarStore = calendar ? new (require('../dist/research/ModelAResearchCalendarStore').ModelAResearchCalendarStore)(client, { mapping: calendar.mapping, apiKey: env.FOOTBALL_DATA_ORG_API_KEY.trim() }) : undefined;
+    const collector = new ModelAProspectiveCollection(client, new PredictionService(db), scope, undefined, () => stopping, budgets, undefined, calendarStore);
     const resultSink = createModelAProspectiveResultRefreshSink(client);
     do {
       const cycle = await Promise.race([collector.run(), deadline]);
       console.log(JSON.stringify({ enabled: true, ...cycle }));
+      if (cycle.calendarAlert) { console.error('collection_calendar_feed_unavailable'); process.exitCode = 1; }
       if (cycle.performance.alert) { console.error('collection_performance_budget_exceeded'); process.exitCode = 1; }
       if (!stopping && env.MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED === 'true') console.log(JSON.stringify({ resultRefresh: await Promise.race([refreshModelAProspectiveResults(resultSink, { env }), deadline]) }));
       if (!interval || stopping) break;
@@ -54,4 +74,4 @@ async function main(env = process.env, args = process.argv.slice(2)) {
   }
 }
 if (require.main === module) main().catch(() => { console.error('collection_failed'); process.exitCode = 1; });
-module.exports = { main };
+module.exports = { main, calendarConfiguration };

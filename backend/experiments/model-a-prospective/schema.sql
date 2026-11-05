@@ -107,3 +107,29 @@ CREATE TABLE IF NOT EXISTS model_a_prospective_result_refresh_state (
   lease_owner TEXT,
   lease_until TEXT
 );
+
+-- Optional research calendar, installed manually together with the prospective schema.
+-- A failed attempt never points at a previous successful payload.
+CREATE TABLE IF NOT EXISTS model_a_calendar_attempts (
+  attempt_id TEXT PRIMARY KEY, protocol_id TEXT NOT NULL, competition TEXT NOT NULL, season TEXT NOT NULL,
+  acquired_at TEXT NOT NULL, status TEXT NOT NULL, coverage_json TEXT NOT NULL,
+  fixture_attempt_id TEXT,
+  FOREIGN KEY (protocol_id) REFERENCES model_a_collection_protocols(protocol_id),
+  FOREIGN KEY (fixture_attempt_id) REFERENCES model_a_calendar_attempts(attempt_id)
+);
+CREATE INDEX IF NOT EXISTS idx_model_a_calendar_attempts ON model_a_calendar_attempts(protocol_id, competition, season, acquired_at);
+CREATE TRIGGER IF NOT EXISTS model_a_calendar_attempts_no_update BEFORE UPDATE ON model_a_calendar_attempts
+BEGIN SELECT RAISE(ABORT, 'calendar attempts are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS model_a_calendar_attempts_no_delete BEFORE DELETE ON model_a_calendar_attempts
+BEGIN SELECT RAISE(ABORT, 'calendar attempts are append-only'); END;
+CREATE TABLE IF NOT EXISTS model_a_calendar_fixtures (
+  observation_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, provider_match_id TEXT NOT NULL,
+  match_id TEXT, kickoff_at TEXT, status TEXT NOT NULL, provider_last_updated TEXT, issue TEXT,
+  home_team_id TEXT, away_team_id TEXT,
+  FOREIGN KEY (attempt_id) REFERENCES model_a_calendar_attempts(attempt_id)
+);
+CREATE INDEX IF NOT EXISTS idx_model_a_calendar_fixtures_attempt ON model_a_calendar_fixtures(attempt_id, match_id);
+CREATE TRIGGER IF NOT EXISTS model_a_calendar_fixtures_no_update BEFORE UPDATE ON model_a_calendar_fixtures
+BEGIN SELECT RAISE(ABORT, 'calendar observations are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS model_a_calendar_fixtures_no_delete BEFORE DELETE ON model_a_calendar_fixtures
+BEGIN SELECT RAISE(ABORT, 'calendar observations are append-only'); END;

@@ -272,6 +272,53 @@ test('technical-only classification never becomes rigorously eligible through a 
   assert.equal(report.coverage.nonEvaluableProvenance, 1);
 });
 
+test('verified is reported as a declaration and does not independently verify provenance', async t => {
+  const f = await fixture(t); await match(f, 'declared');
+  const payload = forecast('declared', 'declared');
+  payload.provenance.classification = 'verified';
+  await store(f, payload);
+  const report = inspect(f.options, {});
+  assert.deepEqual(report.coverage.temporalClassificationCounts, { declared_rigorous_unverified: 1 });
+  assert.equal(report.coverage.nonEvaluableProvenance, 1);
+  assert.equal(report.coverage.provenanceReasons.input_availability_unverified, 1);
+});
+
+test('alternate calendar controls windows and a failed latest acquisition never falls back to matches', async t => {
+  const f = await fixture(t); await match(f, 'present', '2026-11-05T17:00:00Z');
+  await registerCollector(f, 'stored', { source: 'football-data.org', mappingSha256: 'a'.repeat(64), maxAgeSeconds: 7200, expectedTeamCounts: { Test: 2 } });
+  const scoped = { ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' };
+  const missing = inspect(scoped, {});
+  assert.equal(missing.coverage.calendarEvaluable, false);
+  assert.equal(missing.coverage.fixtureMatches, null);
+  assert.equal(missing.coverage.calendarEvidence.status, 'unavailable');
+  const counts = JSON.stringify({ complete: true, providerFixtures: 1, unmapped: 0, conflicts: 0, duplicates: 0 });
+  await f.client.execute({ sql: 'INSERT INTO model_a_calendar_attempts VALUES(?,?,?,?,?,?,?,?)', args: ['a', 'test-protocol', 'Test', '2026/27', '2026-11-04T18:30:00Z', 'success', counts, 'a'] });
+  await f.client.execute({ sql: 'INSERT INTO model_a_calendar_fixtures(observation_id,attempt_id,provider_match_id,match_id,kickoff_at,status,issue) VALUES(?,?,?,?,?,?,?)', args: ['f', 'a', 'provider-1', 'present', kickoff, 'TIMED', null] });
+  const good = inspect(scoped, {});
+  assert.equal(good.coverage.calendarSource, 'football-data.org');
+  assert.equal(good.coverage.calendarEvaluable, true);
+  assert.equal(good.coverage.overdueFixtures, 1);
+  assert.equal(good.coverage.calendarEvidence.providerFixtures, 1);
+  const stale = inspect({ ...scoped, cutoff: '2026-11-04T21:00:00Z' }, {});
+  assert.equal(stale.coverage.calendarEvaluable, false);
+  assert.equal(stale.coverage.calendarEvidence.status, 'stale');
+  const incompleteCounts = JSON.stringify({ complete: false, providerFixtures: 1, unmapped: 1, conflicts: 0, duplicates: 0 });
+  await f.client.execute({ sql: 'INSERT INTO model_a_calendar_attempts VALUES(?,?,?,?,?,?,?,?)', args: ['incomplete', 'test-protocol', 'Test', '2026/27', '2026-11-04T18:40:00Z', 'success', incompleteCounts, 'a'] });
+  const incomplete = inspect(scoped, {});
+  assert.equal(incomplete.coverage.calendarEvaluable, false);
+  assert.equal(incomplete.coverage.calendarEvidence.unmapped, 1);
+  await f.client.execute({ sql: 'INSERT INTO model_a_calendar_attempts VALUES(?,?,?,?,?,?,?,?)', args: ['b', 'test-protocol', 'Test', '2026/27', '2026-11-04T18:45:00Z', 'failed', '{}', null] });
+  const failed = inspect(scoped, {});
+  assert.equal(failed.coverage.calendarEvaluable, false);
+  assert.equal(failed.coverage.fixtureMatches, null);
+  assert.equal(failed.coverage.calendarEvidence.status, 'failed');
+  assert.equal(failed.collector.analyzedFixtures, null);
+  await f.client.execute({ sql: 'INSERT INTO model_a_calendar_attempts VALUES(?,?,?,?,?,?,?,?)', args: ['c', 'test-protocol', 'Test', '2026/27', '2026-11-04T18:45:00Z', 'success', counts, 'a'] });
+  const tied = inspect(scoped, {});
+  assert.equal(tied.coverage.calendarEvaluable, false);
+  assert.equal(tied.coverage.calendarEvidence.status, 'ambiguous_latest');
+});
+
 test('late delivery is counted from current storage without claiming persistence or coverage at cutoff', async t => {
   const f = await fixture(t), spoolDir = path.join(f.dir, 'spool');
   const oldKickoff = '2020-01-02T18:00:00.000Z';
@@ -321,12 +368,13 @@ test('enabled monitoring fails closed on absent schema and an empty configured c
   assert.equal(JSON.stringify(output).includes('secret'), false);
 });
 
-async function registerCollector(f, state = 'stored') {
+async function registerCollector(f, state = 'stored', calendar = null) {
   // These are collector-only manual tables, never created by the inspector.
   await f.client.executeMultiple(`CREATE TABLE IF NOT EXISTS model_a_collection_runs(run_id TEXT PRIMARY KEY,protocol_id TEXT,started_at TEXT,completed_at TEXT,status TEXT,error_code TEXT,examined INTEGER,claimed INTEGER);
     CREATE TABLE IF NOT EXISTS model_a_prospective_result_observations(evidence_id TEXT PRIMARY KEY,match_id TEXT,source TEXT,kickoff_at TEXT,observed_at TEXT,recorded_at TEXT,status TEXT,reason TEXT,evidence_json TEXT);`);
   const snapshot = { protocolId: 'test-protocol', seasons: ['2026/27'], from: options.from, to: options.to,
     competitions: ['Test'], origin: 'prospective_a', window: 'T-24h..T-60min inclusive' };
+  if (calendar) snapshot.calendar = calendar;
   const manifest = { snapshot, sha256: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex') };
   f.manifestHash = manifest.sha256;
   await f.client.execute({ sql: 'INSERT INTO model_a_collection_protocols VALUES (?,?,?)', args: ['test-protocol', JSON.stringify(manifest), '2026-11-04T12:00:00Z'] });
@@ -482,6 +530,16 @@ test('local performance inspection uses the latest completion before cutoff rath
   assert.equal(report.collector.performance.metrics.alert, false);
   assert.equal(evaluate(report).performanceStatus, 'within_budget');
   assert.equal(evaluate(report).alerts.some(alert => alert.code === 'collector_performance_budget_exceeded'), false);
+});
+
+test('local inspection uses performance of the latest partial run', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  await f.client.execute({ sql: 'UPDATE model_a_collection_runs SET performance_json=? WHERE run_id=?', args: [JSON.stringify(performanceMetrics()), 'run'] });
+  await f.client.execute({ sql: 'INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,completed_at,status,performance_json) VALUES(?,?,?,?,?,?)',
+    args: ['partial', 'test-protocol', '2026-11-04T18:10:00Z', '2026-11-04T18:30:00Z', 'partial', JSON.stringify(performanceMetrics(true))] });
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(report.collector.performance.runCompletedAt, '2026-11-04T18:30:00Z');
+  assert.equal(evaluate(report).performanceStatus, 'exceeded');
 });
 
 test('local legacy missing metrics, over-budget metrics, damaged JSON and missing column remain distinct', async t => {

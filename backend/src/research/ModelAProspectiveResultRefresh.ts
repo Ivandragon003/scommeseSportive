@@ -9,6 +9,7 @@ export type ResultRefreshCandidate = {
   match_id: string; source: string; source_match_id: string | number | null; date: string;
   home_team_id: string; away_team_id: string; home_source_team_id?: string | number | null;
   away_source_team_id?: string | number | null; competition: string; season: string; current_kickoff_at?: string;
+  forecast_at?: string; forecast_payload?: string; calendar_evidence_verified?: boolean;
 };
 export type ResultLifecycleStatus = 'final' | 'postponed' | 'canceled' | 'not_final' | 'missing' | 'conflict' | 'unverified' | 'provider_error';
 export type ResultLifecycleObservation = {
@@ -93,7 +94,29 @@ function teamId(internal: string, stored: unknown): string | null {
   const external = id(stored);
   return stored != null && (!external || (encoded && encoded !== external)) ? null : external ?? encoded;
 }
+// Only a frozen, internally consistent research calendar can make the separately
+// maintained operational date irrelevant. Understat still has to confirm the
+// same match, teams and exact kickoff before a final result is recorded.
+function researchCalendar(row: ResultRefreshCandidate): 'absent' | 'valid' | 'invalid' {
+  if (row.forecast_payload === undefined) return 'absent';
+  let payload: unknown;
+  try { payload = JSON.parse(row.forecast_payload); } catch { return 'invalid'; }
+  if (!object(payload)) return 'invalid';
+  if (!Object.prototype.hasOwnProperty.call(payload, 'researchCalendar')) return 'absent';
+  const calendar = payload.researchCalendar;
+  if (row.calendar_evidence_verified !== true || !object(calendar) || calendar.source !== 'football-data.org' || !id(calendar.providerMatchId)
+    || calendar.matchId !== row.match_id || calendar.homeTeamId !== row.home_team_id || calendar.awayTeamId !== row.away_team_id
+    || calendar.competition !== row.competition || calendar.season !== row.season
+    || !Number.isFinite(timestamp(calendar.kickoffAt)) || timestamp(calendar.kickoffAt) !== timestamp(row.date)
+    || !Number.isFinite(timestamp(calendar.acquiredAt)) || !Number.isFinite(timestamp(row.forecast_at))
+    || timestamp(calendar.acquiredAt) > timestamp(row.forecast_at)
+    || calendar.publicationAt !== null || !/^[a-f0-9]{64}$/.test(calendar.mappingSha256)
+    || typeof calendar.observationId !== 'string' || !calendar.observationId || typeof calendar.attemptId !== 'string' || !calendar.attemptId
+    || (calendar.providerLastUpdated !== null && !Number.isFinite(timestamp(calendar.providerLastUpdated)))) return 'invalid';
+  return 'valid';
+}
 function candidateReason(row: ResultRefreshCandidate, from: number, to: number): string | null {
+  if (researchCalendar(row) === 'invalid') return 'candidate_calendar_evidence_invalid';
   const kickoff = timestamp(row.date), encoded = /^understat_([1-9]\d*)$/.exec(row.match_id)?.[1];
   if (!Number.isFinite(kickoff) || kickoff < from || kickoff > to) return 'candidate_outside_horizon';
   if (row.source !== 'understat' || !encoded || id(row.source_match_id) !== encoded) return 'candidate_identity_unverified';
@@ -118,7 +141,7 @@ function inspect(row: ResultRefreshCandidate, found: UnderstatMatch): { status: 
   // Explicit cancellation/postponement is retained even when its new date differs.
   if (['postponed', 'suspended', 'abandoned'].includes(status)) return { status: 'postponed', reason: `provider_${status}`, raw };
   if (['cancelled', 'canceled'].includes(status)) return { status: 'canceled', reason: 'provider_canceled', raw };
-  if (providerKickoff !== timestamp(row.date) || (row.current_kickoff_at && timestamp(row.current_kickoff_at) !== timestamp(row.date)))
+  if (providerKickoff !== timestamp(row.date) || (researchCalendar(row) !== 'valid' && row.current_kickoff_at && timestamp(row.current_kickoff_at) !== timestamp(row.date)))
     return { status: 'conflict', reason: 'kickoff_changed', raw };
   if (raw.isResult === false) return { status: 'not_final', reason: 'provider_not_final', raw };
   if (raw.isResult !== true || (status && !['ft', 'finished', 'final', 'full_time', 'fulltime', 'complete', 'completed'].includes(status)))
@@ -226,10 +249,12 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
           // A clock at/before kickoff cannot confirm a final result.
           if (status === 'final' && timestamp(observedAt) <= timestamp(row.date)) { status = 'unverified'; code = 'final_observation_not_after_kickoff'; }
           const kickoffAt = new Date(timestamp(row.date)).toISOString();
-          const resultRow = status === 'final' ? { ...row, date: kickoffAt, home_goals: Number(raw!.goals.h), away_goals: Number(raw!.goals.a),
+          const { forecast_at: _forecastAt, forecast_payload: _forecastPayload, calendar_evidence_verified: _calendarVerified, ...resultCandidate } = row;
+          const resultRow = status === 'final' ? { ...resultCandidate, date: kickoffAt, home_goals: Number(raw!.goals.h), away_goals: Number(raw!.goals.a),
             raw_json: JSON.stringify({ match: raw, resultObservation: { source: 'understat', observedAt } }) } : null;
           const evidence = JSON.stringify({ matchId: row.match_id, source: 'understat', sourceMatchId: row.source_match_id,
-            kickoffAt, currentKickoffAt: row.current_kickoff_at ?? null, observedAt, providerPublishedAt: null,
+            kickoffAt, currentKickoffAt: row.current_kickoff_at ?? null,
+            ...(researchCalendar(row) === 'valid' ? { researchCalendar: JSON.parse(row.forecast_payload!).researchCalendar } : {}), observedAt, providerPublishedAt: null,
             status, reason: code, raw: raw ?? null, resultRow });
           const evidenceId = createHash('sha256').update(evidence).digest('hex');
           const observation = { evidenceId, matchId: row.match_id, source: 'understat', kickoffAt, observedAt,
@@ -308,6 +333,7 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
         SELECT f.*, row_number() OVER (PARTITION BY f.match_id,julianday(f.kickoff_at) ORDER BY julianday(f.forecast_at),f.id) AS rank
         FROM model_a_prospective_forecasts f WHERE julianday(f.kickoff_at)>=julianday(?) AND julianday(f.kickoff_at)<=julianday(?) AND json_valid(f.payload_json)${matchFilter}
       ) SELECT f.match_id,m.source,m.source_match_id,f.kickoff_at AS date,m.date AS current_kickoff_at,
+        f.forecast_at,f.payload_json AS forecast_payload,
         json_extract(f.payload_json,'$.homeTeamId') AS home_team_id,json_extract(f.payload_json,'$.awayTeamId') AS away_team_id,
         json_extract(f.payload_json,'$.competition') AS competition,json_extract(f.payload_json,'$.season') AS season,
         ht.source_team_id AS home_source_team_id,at.source_team_id AS away_source_team_id
@@ -316,7 +342,39 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
       LEFT JOIN teams at ON at.team_id=json_extract(f.payload_json,'$.awayTeamId')
       WHERE f.rank=1 AND (f.match_id>? OR (f.match_id=? AND f.kickoff_at>?)) ORDER BY f.match_id,f.kickoff_at LIMIT ?`,
       [options.from, options.to, ...(explicitScope?.matchIds ?? []), options.afterMatchId ?? '', options.afterMatchId ?? '', options.afterKickoffAt ?? '', options.limit]);
-      return rows.rows as unknown as ResultRefreshCandidate[];
+      const candidates = rows.rows as unknown as ResultRefreshCandidate[];
+      for (const row of candidates) {
+        let payload: any;
+        try { payload = JSON.parse(row.forecast_payload ?? ''); } catch { continue; }
+        if (!object(payload) || !Object.prototype.hasOwnProperty.call(payload, 'researchCalendar')) continue;
+        // Optional schema may be absent in a legacy installation. Do not fall
+        // back to trusting a payload without its append-only observation.
+        row.calendar_evidence_verified = false;
+        try {
+          const c = payload.researchCalendar;
+          if (!object(c) || !object(payload.collection) || typeof c.observationId !== 'string' || typeof c.attemptId !== 'string') continue;
+          const proofs = await execute(`SELECT f.*,a.protocol_id,a.competition,a.season,a.acquired_at,a.status AS attempt_status,a.coverage_json,p.scope_json,
+              original.protocol_id AS original_protocol_id,original.competition AS original_competition,original.season AS original_season,original.status AS original_status
+            FROM model_a_calendar_fixtures f JOIN model_a_calendar_attempts original ON original.attempt_id=f.attempt_id
+            JOIN model_a_calendar_attempts a ON a.fixture_attempt_id=f.attempt_id
+            JOIN model_a_collection_protocols p ON p.protocol_id=a.protocol_id WHERE f.observation_id=? AND a.attempt_id=?`, [c.observationId, c.attemptId]);
+          if (proofs.rows.length !== 1) continue;
+          const proof: any = proofs.rows[0], coverage = JSON.parse(String(proof.coverage_json)), manifest = JSON.parse(String(proof.scope_json));
+          const hash = createHash('sha256').update(JSON.stringify(manifest.snapshot)).digest('hex');
+          row.calendar_evidence_verified = proof.attempt_status === 'success' && proof.original_status === 'success'
+            && proof.original_protocol_id === proof.protocol_id && proof.original_competition === proof.competition && proof.original_season === proof.season && object(coverage) && coverage.complete === true
+            && coverage.unmapped === 0 && coverage.conflicts === 0 && coverage.duplicates === 0
+            && proof.status === 'TIMED' && proof.issue == null && String(proof.provider_match_id) === String(c.providerMatchId)
+            && proof.match_id === row.match_id && proof.home_team_id === row.home_team_id && proof.away_team_id === row.away_team_id
+            && timestamp(proof.kickoff_at) === timestamp(c.kickoffAt) && proof.provider_last_updated === c.providerLastUpdated
+            && proof.competition === row.competition && proof.season === row.season && timestamp(proof.acquired_at) === timestamp(c.acquiredAt)
+            && proof.protocol_id === payload.collection.protocolId && manifest.sha256 === hash && payload.collection.manifestSha256 === hash
+            && manifest.snapshot?.calendar?.source === c.source && manifest.snapshot?.calendar?.mappingSha256 === c.mappingSha256
+            && manifest.snapshot?.calendar?.maxAgeSeconds === c.maxAgeSeconds && Number.isInteger(c.maxAgeSeconds)
+            && timestamp(row.forecast_at) - timestamp(c.acquiredAt) <= c.maxAgeSeconds * 1000;
+        } catch { /* Missing or malformed proof is ineligible, never a bypass. */ }
+      }
+      return candidates;
     },
     appendModelAProspectiveResult(event) {
       return append('model_a_prospective_results', event, ['evidence_id', 'match_id', 'source', 'kickoff_at', 'observed_at', 'recorded_at', 'home_goals', 'away_goals', 'evidence_json'],

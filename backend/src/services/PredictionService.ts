@@ -359,6 +359,51 @@ export interface PredictionRequest {
   awayAbsentPlayers?: string[];
 }
 
+export type ResearchFixtureSnapshot = {
+  source: 'football-data.org'; providerMatchId: string | number; matchId: string; kickoffAt: string;
+  homeTeamId: string; awayTeamId: string; competition: string; season: string; acquiredAt: string;
+  providerLastUpdated: string | null; publicationAt: null; mappingSha256: string; observationId: string; attemptId: string; maxAgeSeconds: number;
+};
+
+/** Validate a collector-only fixture projection before it can affect context. */
+export function researchFixtureProjection(request: PredictionRequest, options: PredictionExecutionOptions, match: any, asOf: string, now = Date.now()): any {
+  const s = options.researchFixtureSnapshot;
+  if (s === undefined) return match;
+  if (!s || typeof s !== 'object' || Array.isArray(s)) throw new Error('research_fixture_snapshot_invalid');
+  const timestamp = (v: unknown): number => {
+    if (typeof v !== 'string') return NaN;
+    const p = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/i.exec(v);
+    if (!p) return NaN;
+    const [year, month, day, hour, minute, second] = p.slice(1).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return NaN;
+    return Date.parse(v);
+  };
+  const acquired = timestamp(s.acquiredAt), kickoff = timestamp(s.kickoffAt), at = timestamp(asOf);
+  const uuid = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+  const claim = options.prospectiveCollection;
+  if (options.prospectiveOrigin !== 'prospective_a' || options.recordAudit !== false || options.sharedOdds || !claim
+    || !/^[A-Za-z0-9._-]{1,128}$/.test(claim.protocolId ?? '') || !/^[a-f0-9]{64}$/.test(claim.manifestSha256 ?? '') || !uuid(claim.claimId)
+    || s.source !== 'football-data.org' || !/^[1-9]\d*$/.test(String(s.providerMatchId)) || !Number.isSafeInteger(Number(s.providerMatchId))
+    || !uuid(s.observationId) || !uuid(s.attemptId) || !/^[a-f0-9]{64}$/.test(s.mappingSha256 ?? '') || s.publicationAt !== null
+    || (s.providerLastUpdated !== null && !Number.isFinite(timestamp(s.providerLastUpdated)))
+    || !Number.isInteger(s.maxAgeSeconds) || s.maxAgeSeconds < 60 || s.maxAgeSeconds > 86400
+    || !Number.isFinite(acquired) || !Number.isFinite(kickoff) || !Number.isFinite(at) || at > now || now - at > 300000
+    || acquired > at || at - acquired > s.maxAgeSeconds * 1000 || now - acquired > s.maxAgeSeconds * 1000
+    || now < kickoff - 24 * 3600000 || now > kickoff - 3600000
+    || !match || match.source !== 'understat' || !/^understat_[1-9]\d*$/.test(String(match.match_id ?? ''))
+    || String(match.source_match_id) !== String(match.match_id).slice(10)
+    || match.match_id !== request.matchId || s.matchId !== request.matchId
+    || match.home_team_id !== request.homeTeamId || match.away_team_id !== request.awayTeamId
+    || s.homeTeamId !== request.homeTeamId || s.awayTeamId !== request.awayTeamId || request.homeTeamId === request.awayTeamId
+    || !request.competition || !request.season || match.competition !== request.competition || match.season !== request.season
+    || s.competition !== request.competition || s.season !== request.season
+    || !Object.prototype.hasOwnProperty.call(match, 'home_goals') || !Object.prototype.hasOwnProperty.call(match, 'away_goals')
+    || match.home_goals != null || match.away_goals != null)
+    throw new Error('research_fixture_snapshot_invalid');
+  return { ...match, date: new Date(kickoff).toISOString() };
+}
+
 export interface PredictionExecutionOptions {
   /** Attribution only; does not change the prediction. Unspecified calls are internal. */
   prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a';
@@ -366,6 +411,8 @@ export interface PredictionExecutionOptions {
   onProspectiveRecord?: (receipt: ModelAProspectiveReceipt) => void;
   /** Durable research claim attribution; has no role in probabilities or betting decisions. */
   prospectiveCollection?: { protocolId: string; manifestSha256: string; claimId: string };
+  /** Frozen alternate calendar evidence; only the claimed prospective collector may supply it. */
+  researchFixtureSnapshot?: ResearchFixtureSnapshot;
   /** Operational snapshot time; this does not refit models or reconstruct a historical model. */
   asOf?: string;
   /** Nightly already archives its immutable input and decisions. */
@@ -2063,6 +2110,11 @@ export class PredictionService {
   }
 
   async predict(request: PredictionRequest, options: PredictionExecutionOptions = {}): Promise<PredictionResponse> {
+    if (options.researchFixtureSnapshot !== undefined && (!options.researchFixtureSnapshot || typeof options.researchFixtureSnapshot !== 'object' || Array.isArray(options.researchFixtureSnapshot)))
+      throw new Error('research_fixture_snapshot_invalid');
+    if (options.researchFixtureSnapshot && (options.prospectiveOrigin !== 'prospective_a' || !options.prospectiveCollection || options.recordAudit !== false || options.sharedOdds))
+      throw new Error('research_fixture_snapshot_invalid');
+    if (options.researchFixtureSnapshot) options = { ...options, researchFixtureSnapshot: { ...options.researchFixtureSnapshot } };
     const operationalTime = options.asOf == null ? new Date() : new Date(options.asOf);
     if (!Number.isFinite(operationalTime.getTime())) throw new Error('invalid_prediction_as_of');
     const asOf = operationalTime.toISOString();
@@ -2084,13 +2136,14 @@ export class PredictionService {
       ? (this.db as any).getTeamHistoricalCoverageBatch(teamIds, request.season)
       : Promise.all(teamIds.map((teamId) => this.db.getTeamHistoricalCoverage(teamId, request.season).catch(() => null)))
         .then((rows) => Object.fromEntries(teamIds.map((teamId, index) => [teamId, rows[index]])));
-    const [model, teamRows, matchRow, activePlayers, coverageByTeam] = await Promise.all([
+    const [model, teamRows, storedMatchRow, activePlayers, coverageByTeam] = await Promise.all([
       this.getModel(request.competition),
       teamsPromise,
       request.matchId ? this.db.getMatchById(request.matchId).catch(() => null) : Promise.resolve(null),
       playersPromise,
       coveragePromise.catch(() => ({})),
     ]);
+    const matchRow = researchFixtureProjection(request, options, storedMatchRow, asOf);
     const homeTeam = teamRows.find((row: any) => String(row?.team_id) === request.homeTeamId) ?? null;
     const awayTeam = teamRows.find((row: any) => String(row?.team_id) === request.awayTeamId) ?? null;
     const activeHomePlayers = activePlayers.filter((row: any) => String(row?.team_id) === request.homeTeamId);
@@ -2578,7 +2631,7 @@ export class PredictionService {
       try {
         const receipt = scheduleModelAProspective(this.db, {
           match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',
-          collection: options.prospectiveCollection,
+          collection: options.prospectiveCollection, researchCalendar: options.researchFixtureSnapshot,
           provenance: prospectiveInputs?.finish(),
           model: canonicalRecommendation.model, contextual: probs.flatProbabilities,
           calibrated: prospectiveCalibrated, decision: canonicalRecommendation.probabilities.decision,

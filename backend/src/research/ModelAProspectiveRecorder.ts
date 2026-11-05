@@ -1,3 +1,4 @@
+import type { ResearchFixtureSnapshot } from '../services/PredictionService';
 import type { ModelAInputProvenance } from './ModelAProspectiveInputs';
 import { randomUUID } from 'node:crypto';
 import { auditSpool, countSpool, persistSpool, iterateSpool, readSpoolAuditCounts, removeSpool, SpoolRecord } from './ModelAProspectiveSpool';
@@ -6,7 +7,7 @@ import { reconcileModelAProspectiveResults } from './ModelAProspectiveResults';
 type Sink = { appendModelAProspectiveForecast?: (record: SpoolRecord) => Promise<void>;
   getModelAProspectiveResultCandidates?: () => Promise<any[]>; appendModelAProspectiveResult?: (event: any) => Promise<boolean> };
 type Input = { match: any; request: { matchId?: string; homeTeamId: string; awayTeamId: string; competition?: string; season?: string };
-  provenance?: ModelAInputProvenance; collection?: { protocolId: string; manifestSha256: string; claimId: string }; asOf: string; origin: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a'; model: { version: string; codeHash: string; configHash: string; stateHash: string };
+  researchCalendar?: ResearchFixtureSnapshot; provenance?: ModelAInputProvenance; collection?: { protocolId: string; manifestSha256: string; claimId: string }; asOf: string; origin: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a'; model: { version: string; codeHash: string; configHash: string; stateHash: string };
   contextual: Record<string, number>; calibrated: Record<string, number> | null;
   decision: Record<string, number>; selected: any; exactCandidates?: Array<{ selection: string; probability: number; origin: 'vig' | 'board' }>; modelParametersHash: string;
   calibration: { profileHash: string; globalSamples: number; overSamples: number | null; underSamples: number | null;
@@ -144,7 +145,16 @@ export function scheduleModelAProspective(sink: Sink, input: Input): ModelAProsp
   let eventId: string | undefined;
   try {
     const now = Date.now(), at = Date.parse(input.asOf), kickoff = Date.parse(String(input.match?.date ?? ''));
-    if (!input.request.matchId || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(String(input.match?.date ?? ''))
+    const calendar = input.researchCalendar;
+    const calendarInvalid = !!calendar && (input.origin !== 'prospective_a' || !input.collection?.claimId
+      || calendar.source !== 'football-data.org' || calendar.matchId !== input.request.matchId
+      || calendar.homeTeamId !== input.request.homeTeamId || calendar.awayTeamId !== input.request.awayTeamId
+      || calendar.competition !== input.request.competition || calendar.season !== input.request.season
+      || Date.parse(calendar.kickoffAt) !== kickoff || !Number.isFinite(Date.parse(calendar.acquiredAt))
+      || Date.parse(calendar.acquiredAt) > at || !Number.isInteger(calendar.maxAgeSeconds)
+      || calendar.maxAgeSeconds < 60 || calendar.maxAgeSeconds > 86400 || now - Date.parse(calendar.acquiredAt) > calendar.maxAgeSeconds * 1000
+      || calendar.publicationAt !== null || !/^[a-f0-9]{64}$/.test(calendar.mappingSha256 ?? '') || !calendar.observationId || !calendar.attemptId);
+    if (calendarInvalid || !input.request.matchId || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(String(input.match?.date ?? ''))
       || !Object.prototype.hasOwnProperty.call(input.match ?? {}, 'home_goals') || !Object.prototype.hasOwnProperty.call(input.match ?? {}, 'away_goals')
       || String(input.match?.match_id ?? '') !== input.request.matchId
       || String(input.match?.home_team_id ?? '') !== input.request.homeTeamId || String(input.match?.away_team_id ?? '') !== input.request.awayTeamId
@@ -189,7 +199,7 @@ export function scheduleModelAProspective(sink: Sink, input: Input): ModelAProsp
         precision: 'rounded to two decimal percentage points', exactProbability: exactSelected,
         exactReason: exactSelected === null ? 'no uniquely identifiable pre-rounding Over/Under candidate' : null,
         exactOrigins: exactSelected === null ? [] : [...new Set(matches.map(item => item.origin))] } : null,
-      quotes, collection: input.collection ? { protocolId: input.collection.protocolId, manifestSha256: input.collection.manifestSha256, claimId: input.collection.claimId } : null, provenance: input.provenance ?? { inputSnapshotHash: null, inputAvailableThrough: null,
+      quotes, ...(input.researchCalendar ? { researchCalendar: { ...input.researchCalendar } } : {}), collection: input.collection ? { protocolId: input.collection.protocolId, manifestSha256: input.collection.manifestSha256, claimId: input.collection.claimId } : null, provenance: input.provenance ?? { inputSnapshotHash: null, inputAvailableThrough: null,
         reason: 'historical input availability not independently timestamped; model state hash is not an input snapshot' } });
     if (serializeStart !== undefined) { recorderCosts.jsonCount++; recorderCosts.jsonMs += Number(process.hrtime.bigint() - serializeStart) / 1e6; }
     if (!databaseMode && !spoolDir && !warnedVolatile) { warnedVolatile = true; console.warn('[ModelAProspective] spool directory unset; collection is volatile'); }

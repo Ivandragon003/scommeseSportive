@@ -8,7 +8,10 @@ const COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Lig
 const HOUR = 3600000;
 const RECORDER_STATUSES = new Set(['disabled', 'ineligible', 'rejected', 'accepted', 'pending', 'error']);
 const RECORDER_REASONS = new Set(['disabled', 'shutdown', 'fixture_or_observation_time', 'spool_required', 'queue_full', 'spool_full']);
-export type CollectionScope = { protocolId: string; manifestSha256: string; seasons: string[]; from: string; to: string };
+export type ResearchCalendarPolicy = { source: 'football-data.org'; mappingSha256: string; maxAgeSeconds: number; expectedTeamCounts: Record<string, number> };
+export type CollectionScope = { protocolId: string; manifestSha256: string; seasons: string[]; from: string; to: string; calendar?: ResearchCalendarPolicy };
+export type CalendarFixture = { matchId: string; homeTeamId: string; awayTeamId: string; competition: string; season: string; date: string; status: string; evidence: any };
+export type CalendarStore = { refresh(scope: CollectionScope): Promise<{ fixtures: CalendarFixture[]; invalidKickoffCount: number; unavailableCompetitions?: string[] }>; current(matchId: string, observationId: string, attemptId: string): Promise<any | null> };
 type Predictor = { predict: (request: any, options: any) => Promise<unknown> };
 type Fixture = { match_id: string; home_team_id: string; away_team_id: string; competition: string; season: string; date: string; home_goals: unknown; away_goals: unknown; provider_status: string | null };
 
@@ -26,11 +29,17 @@ export function validateCollectionScope(scope: CollectionScope): CollectionScope
     || !scope.seasons.length || scope.seasons.some(s => typeof s !== 'string' || !s.trim() || s !== s.trim())) throw new Error('collection_scope_invalid');
   const from = utc(scope.from), to = utc(scope.to);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) throw new Error('collection_interval_invalid');
-  return { protocolId: scope.protocolId, manifestSha256: scope.manifestSha256, seasons: [...new Set(scope.seasons)].sort(), from: new Date(from).toISOString(), to: new Date(to).toISOString() };
+  let calendar: ResearchCalendarPolicy | undefined;
+  if (scope.calendar) {
+    const c = scope.calendar;
+    if (c.source !== 'football-data.org' || !/^[a-f0-9]{64}$/.test(c.mappingSha256) || !Number.isInteger(c.maxAgeSeconds) || c.maxAgeSeconds < 60 || c.maxAgeSeconds > 86400 || !c.expectedTeamCounts || Object.keys(c.expectedTeamCounts).length !== COMPETITIONS.length || COMPETITIONS.some(name => !Number.isInteger(c.expectedTeamCounts[name]) || c.expectedTeamCounts[name] < 2 || c.expectedTeamCounts[name] > 30)) throw new Error('collection_calendar_policy_invalid');
+    calendar = { source: c.source, mappingSha256: c.mappingSha256, maxAgeSeconds: c.maxAgeSeconds, expectedTeamCounts: Object.fromEntries(COMPETITIONS.map(name => [name, c.expectedTeamCounts[name]])) };
+  }
+  return { protocolId: scope.protocolId, manifestSha256: scope.manifestSha256, seasons: [...new Set(scope.seasons)].sort(), from: new Date(from).toISOString(), to: new Date(to).toISOString(), ...(calendar ? { calendar } : {}) };
 }
 export function collectionScopeManifest(scope: Omit<CollectionScope, 'manifestSha256'>): { snapshot: object; sha256: string } {
   const validated = validateCollectionScope({ ...scope, manifestSha256: '0'.repeat(64) });
-  const snapshot = { protocolId: validated.protocolId, seasons: validated.seasons, from: validated.from, to: validated.to, competitions: COMPETITIONS, origin: 'prospective_a', window: 'T-24h..T-60min inclusive' };
+  const snapshot = { protocolId: validated.protocolId, seasons: validated.seasons, from: validated.from, to: validated.to, competitions: COMPETITIONS, origin: 'prospective_a', window: 'T-24h..T-60min inclusive', ...(validated.calendar ? { calendar: validated.calendar } : {}) };
   return { snapshot, sha256: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex') };
 }
 function cancellation(f: Fixture): boolean {
@@ -44,7 +53,7 @@ function inWindow(now: number, kickoff: number): boolean { return now >= kickoff
 export class ModelAProspectiveCollection {
   private scope: CollectionScope;
   constructor(private client: Client, private predictor: Predictor, scope: CollectionScope, private clock: () => Date = () => new Date(), private shouldStop: () => boolean = () => false,
-    private budgets: ModelACollectionBudgets = collectionBudgetsFromEnv({}), private monotonic: () => number = () => performance.now()) {
+    private budgets: ModelACollectionBudgets = collectionBudgetsFromEnv({}), private monotonic: () => number = () => performance.now(), private calendarStore?: CalendarStore) {
     this.scope = validateCollectionScope(scope);
     if (collectionScopeManifest(this.scope).sha256 !== this.scope.manifestSha256) throw new Error('collection_manifest_hash_mismatch');
     new ModelACollectionPerformanceMeter(budgets);
@@ -61,34 +70,93 @@ export class ModelAProspectiveCollection {
     await this.execute(`UPDATE model_a_collection_ledger SET state=?,reason=?,forecast_id=COALESCE(?,forecast_id),updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at=?`,
       [state, reason, id, this.now().toISOString(), this.scope.protocolId, f.match_id, kickoff]);
   }
-  private async confirmed(f: Fixture, kickoff: string, claim: string, claimId: string, id?: string | null): Promise<string | null> {
+  private async confirmed(f: Fixture, kickoff: string, claim: string, claimId: string, id?: string | null, evidence?: any): Promise<string | null> {
     const rows = (await this.execute('SELECT id,forecast_at,kickoff_at,payload_json FROM model_a_prospective_forecasts WHERE match_id=? AND kickoff_at=?', [f.match_id, kickoff])).rows;
     const valid = rows.filter(row => {
       try {
         const payload = JSON.parse(String(row.payload_json)); const at = utc(String(row.forecast_at));
         return (!id || row.id === id) && payload.origin === 'prospective_a' && payload.competition === f.competition && payload.season === f.season
           && payload.collection?.protocolId === this.scope.protocolId && payload.collection?.manifestSha256 === this.scope.manifestSha256 && payload.collection?.claimId === claimId
+          && (!evidence || JSON.stringify(payload.researchCalendar) === JSON.stringify(evidence))
           && at >= utc(claim) && inWindow(at, utc(kickoff));
       } catch { return false; }
     });
     return valid.length === 1 ? String(valid[0].id) : null;
   }
-  async run(): Promise<{ examined: number; claimed: number; invalidKickoffCount: number; performance: ModelACollectionPerformance }> {
+  async run(): Promise<{ examined: number; claimed: number; invalidKickoffCount: number; performance: ModelACollectionPerformance; calendarAlert?: { unavailableCompetitions: string[] } }> {
+    if (this.scope.calendar && !this.calendarStore) throw new Error('collection_calendar_store_required');
     await this.prepare();
     const id = randomUUID();
     const meter = new ModelACollectionPerformanceMeter(this.budgets);
     await this.execute(`INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,status) VALUES(?,?,?,'started')`, [id, this.scope.protocolId, this.now().toISOString()]);
     try {
-      const result = await this.collect(meter);
+      const result = this.scope.calendar ? await this.collectCalendar(meter) : await this.collect(meter);
       const performanceSummary = meter.snapshot();
-      await this.execute(`UPDATE model_a_collection_runs SET status=?,completed_at=?,examined=?,claimed=?,invalid_kickoff_count=?,performance_json=? WHERE run_id=?`, [this.shouldStop() ? 'interrupted' : 'success', this.now().toISOString(), result.examined, result.claimed, result.invalidKickoffCount, JSON.stringify(performanceSummary), id]);
+      await this.execute(`UPDATE model_a_collection_runs SET status=?,completed_at=?,examined=?,claimed=?,invalid_kickoff_count=?,performance_json=?,error_code=? WHERE run_id=?`, [this.shouldStop() ? 'interrupted' : result.calendarAlert ? 'partial' : 'success', this.now().toISOString(), result.examined, result.claimed, result.invalidKickoffCount, JSON.stringify(performanceSummary), result.calendarAlert ? 'calendar_feed_unavailable' : null, id]);
       return { ...result, performance: performanceSummary };
     } catch (error) {
       await this.execute(`UPDATE model_a_collection_runs SET status='failed',completed_at=?,error_code='collection_failed',performance_json=? WHERE run_id=?`, [this.now().toISOString(), JSON.stringify(meter.snapshot()), id]);
       throw error;
     }
   }
-  private async collect(meter: ModelACollectionPerformanceMeter): Promise<{ examined: number; claimed: number; invalidKickoffCount: number }> {
+  private async collectCalendar(meter: ModelACollectionPerformanceMeter): Promise<{ examined: number; claimed: number; invalidKickoffCount: number; calendarAlert?: { unavailableCompetitions: string[] } }> {
+    const calendar = await this.calendarStore!.refresh(this.scope);
+    let examined = 0, claimed = 0;
+    for (const item of calendar.fixtures) {
+      if (this.shouldStop()) break;
+      const t = utc(item.date), now = this.now().getTime();
+      if (!Number.isFinite(t)) continue;
+      const f: Fixture = { match_id: item.matchId, home_team_id: item.homeTeamId, away_team_id: item.awayTeamId,
+        competition: item.competition, season: item.season, date: item.date, home_goals: null, away_goals: null, provider_status: item.status };
+      if (!COMPETITIONS.includes(f.competition) || !this.scope.seasons.includes(f.season)) continue;
+      const kickoff = new Date(t).toISOString(), at = this.now().toISOString();
+      await this.execute(`UPDATE model_a_collection_ledger SET reason='kickoff_changed',updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at<>? AND reason<>'kickoff_changed'`, [at, this.scope.protocolId, f.match_id, kickoff]);
+      if (t < utc(this.scope.from) || t >= utc(this.scope.to)) continue;
+      examined++;
+      const reason = item.status !== 'TIMED' ? 'calendar_status_not_timed' : now < t - 24 * HOUR ? 'not_due' : now > t - HOUR ? 'window_expired' : 'eligible';
+      await this.execute(`INSERT OR IGNORE INTO model_a_collection_ledger(protocol_id,match_id,kickoff_at,competition,season,state,reason,updated_at) VALUES(?,?,?,?,?,'observed',?,?)`, [this.scope.protocolId, f.match_id, kickoff, f.competition, f.season, reason, at]);
+      const record = (await this.execute('SELECT state,claim_at,claim_id,forecast_id FROM model_a_collection_ledger WHERE protocol_id=? AND match_id=? AND kickoff_at=?', [this.scope.protocolId, f.match_id, kickoff])).rows[0];
+      if (record.state !== 'observed') {
+        if (record.claim_at && record.claim_id && record.state !== 'stored') {
+          const id = await this.confirmed(f, kickoff, String(record.claim_at), String(record.claim_id), record.forecast_id ? String(record.forecast_id) : null);
+          if (id) await this.setState(f, kickoff, 'stored', 'forecast_confirmed', id);
+        }
+        continue;
+      }
+      if (reason !== 'eligible') {
+        await this.execute(`UPDATE model_a_collection_ledger SET state=?,reason=?,updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at=? AND state='observed'`, [reason === 'window_expired' ? 'expired' : 'observed', reason, at, this.scope.protocolId, f.match_id, kickoff]);
+        continue;
+      }
+      const claimId = randomUUID();
+      const claim = await this.execute(`UPDATE model_a_collection_ledger SET state='claimed',reason='prediction_started',claim_at=?,claim_id=?,updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at=? AND state='observed'`, [at, claimId, at, this.scope.protocolId, f.match_id, kickoff]);
+      if (claim.rowsAffected !== 1) continue;
+      claimed++;
+      try {
+        const current = (await this.execute('SELECT home_team_id,away_team_id,competition,season,home_goals,away_goals FROM matches WHERE match_id=?', [f.match_id])).rows[0];
+        const evidence = await this.calendarStore!.current(f.match_id, item.evidence.observationId, item.evidence.attemptId);
+        if (this.shouldStop() || !current || current.home_team_id !== f.home_team_id || current.away_team_id !== f.away_team_id || current.competition !== f.competition || current.season !== f.season || current.home_goals != null || current.away_goals != null || !evidence || JSON.stringify(evidence) !== JSON.stringify(item.evidence) || !inWindow(this.now().getTime(), t)) {
+          await this.setState(f, kickoff, 'skipped', 'fixture_changed_or_window_closed'); continue;
+        }
+        let receipt: ModelAProspectiveReceipt | undefined;
+        const predictionStarted = this.monotonic();
+        try {
+          await this.predictor.predict({ matchId: f.match_id, homeTeamId: f.home_team_id, awayTeamId: f.away_team_id, competition: f.competition, season: f.season },
+            { prospectiveOrigin: 'prospective_a', prospectiveCollection: { protocolId: this.scope.protocolId, manifestSha256: this.scope.manifestSha256, claimId }, researchFixtureSnapshot: evidence, recordAudit: false,
+              onProspectiveRecord: (value: ModelAProspectiveReceipt) => { receipt = value; value.completion.then(result => { try { meter.observe('confirmation', this.monotonic() - predictionStarted, result.status); } catch { /* Diagnostics do not alter the forecast. */ } }, () => { try { meter.observe('confirmation', this.monotonic() - predictionStarted, 'unconfirmed'); } catch { /* Diagnostics do not alter the forecast. */ } }); } });
+        } finally { try { meter.observe('predict', this.monotonic() - predictionStarted); } catch { /* Diagnostics do not alter the forecast. */ } }
+        if (!receipt) { await this.setState(f, kickoff, 'unconfirmed', 'recorder_receipt_missing'); continue; }
+        const recorderStatus = RECORDER_STATUSES.has(receipt.status) ? receipt.status : 'error';
+        const recorderReason = receipt.reason == null ? null : RECORDER_REASONS.has(receipt.reason) ? receipt.reason : 'redacted';
+        await this.execute(`UPDATE model_a_collection_ledger SET state='unconfirmed',reason=?,forecast_id=COALESCE(?,forecast_id),recorder_status=?,recorder_reason=?,updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at=?`, [`recorder_${recorderStatus}`, receipt.id ?? null, recorderStatus, recorderReason, this.now().toISOString(), this.scope.protocolId, f.match_id, kickoff]);
+        const completion = await receipt.completion;
+        const id = await this.confirmed(f, kickoff, at, claimId, completion.id ?? receipt.id, evidence);
+        if (id && completion.status === 'stored') await this.setState(f, kickoff, 'stored', 'forecast_confirmed', id);
+        else await this.setState(f, kickoff, 'unconfirmed', completion.status === 'stored' ? 'forecast_missing_or_outside_window' : 'delivery_unconfirmed', receipt.id ?? null);
+      } catch { await this.setState(f, kickoff, 'unconfirmed', 'prediction_or_storage_error'); }
+    }
+    return { examined, claimed, invalidKickoffCount: calendar.invalidKickoffCount, ...(calendar.unavailableCompetitions?.length ? { calendarAlert: { unavailableCompetitions: calendar.unavailableCompetitions } } : {}) };
+  }
+  private async collect(meter: ModelACollectionPerformanceMeter): Promise<{ examined: number; claimed: number; invalidKickoffCount: number; calendarAlert?: { unavailableCompetitions: string[] } }> {
     const filter = `competition IN (${COMPETITIONS.map(() => '?').join(',')}) AND season IN (${this.scope.seasons.map(() => '?').join(',')})`;
     const args = [...COMPETITIONS, ...this.scope.seasons];
     const invalid = (await this.execute(`SELECT COUNT(*) AS n FROM matches WHERE ${filter} AND NOT COALESCE(${VALID_KICKOFF},0)`, args)).rows[0];

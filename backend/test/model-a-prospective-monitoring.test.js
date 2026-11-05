@@ -224,6 +224,14 @@ test('latest completed performance respects cutoff, protocol and incomplete runs
   assert.equal(result.onlySelect, true); assert.equal(result.unchanged, true);
 });
 
+test('latest partial collection reports its performance budget', () => {
+  const result = fixture('technical-healthy', { performanceJson: JSON.stringify(performanceMetrics()), performanceRuns: [
+    { id: 'partial', startedAt: '2026-11-04T18:10:00Z', completedAt: '2026-11-04T18:30:00Z', status: 'partial', performanceJson: JSON.stringify(performanceMetrics(true)) },
+  ] });
+  assert.equal(result.report.collector.performance.runCompletedAt, '2026-11-04T18:30:00Z');
+  assert.equal(result.monitoring.performanceStatus, 'exceeded');
+});
+
 test('persisted budget excess alerts while missing and invalid metrics remain distinguishable', () => {
   const exceeded = fixture('technical-healthy', { performanceJson: JSON.stringify(performanceMetrics(true)) });
   assert.equal(exceeded.monitoring.performanceStatus, 'exceeded');

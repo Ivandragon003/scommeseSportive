@@ -127,6 +127,69 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
   const competitions: string[] = options.competition ? [options.competition] : scope.competitions;
   const seasons: string[] = options.season ? [options.season] : scope.seasons;
   Object.assign(coverage.scope, { kickoffFromInclusive: scope.from, kickoffToExclusive: scope.to, competitions, seasons, forecastWindowHoursBeforeKickoff: [24, 1] });
+  let calendarRows: Row[] | null = null;
+  if (scope.calendar) {
+    const policy = scope.calendar;
+    coverage.calendarSource = 'football-data.org';
+    coverage.calendarEvidence = [];
+    const required: Record<string, string[]> = {
+      model_a_calendar_attempts: ['attempt_id', 'protocol_id', 'competition', 'season', 'acquired_at', 'status', 'coverage_json', 'fixture_attempt_id'],
+      model_a_calendar_fixtures: ['observation_id', 'attempt_id', 'provider_match_id', 'match_id', 'kickoff_at', 'status', 'issue'],
+    };
+    const priorIssues = issues.length;
+    for (const [table, fields] of Object.entries(required)) {
+      let status = 'missing';
+      if (objects.some(row => row.type === 'table' && row.name === table)) {
+        try { await query(`SELECT ${fields.join(',')} FROM ${table} WHERE 0`); status = 'available'; } catch { status = 'incompatible'; }
+      }
+      tables[table] = { status, readable: status === 'available' };
+      if (status !== 'available') issues.push(`${status}_table:${table}`);
+      else {
+        const key = table === 'model_a_calendar_attempts' ? 'attempt_id' : 'observation_id';
+        const metadata = await query('SELECT name,pk FROM pragma_table_info(?)', [table]);
+        const keys = metadata.filter(row => Number(row.pk) > 0).sort((a, b) => Number(a.pk) - Number(b.pk)).map(row => String(row.name));
+        if (keys.join(',') !== key) issues.push(`missing_or_incompatible_primary_key:${table}`);
+        for (const operation of ['update', 'delete']) {
+          const name = `${table}_no_${operation}`;
+          const sql = String(objects.find(row => row.type === 'trigger' && row.name === name && row.tbl_name === table)?.sql ?? '').replace(/\s+/g, ' ').trim();
+          if (!new RegExp(`^CREATE TRIGGER (?:IF NOT EXISTS )?${name} BEFORE ${operation} ON ${table} BEGIN SELECT RAISE\\(ABORT, '[^']+'\\); END$`, 'i').test(sql)) issues.push(`missing_or_unverified_trigger:${name}`);
+        }
+      }
+    }
+    report.schema.compatible = issues.length === 0;
+    if (issues.length !== priorIssues || policy.source !== 'football-data.org' || !/^[a-f0-9]{64}$/.test(policy.mappingSha256 ?? '') || !Number.isSafeInteger(policy.maxAgeSeconds)
+      || policy.maxAgeSeconds <= 0 || Object.keys(required).some(table => !tables[table].readable)) return finish();
+    const acceptedStatuses = new Set(['SCHEDULED', 'TIMED', 'IN_PLAY', 'PAUSED', 'FINISHED', 'SUSPENDED', 'POSTPONED', 'CANCELLED', 'AWARDED']);
+    const projected: Row[] = [];
+    let valid = true;
+    for (const competition of competitions) for (const season of seasons) {
+      const candidates = await query('SELECT attempt_id,acquired_at,status,coverage_json,fixture_attempt_id FROM model_a_calendar_attempts WHERE protocol_id=? AND competition=? AND season=? AND julianday(acquired_at)<=julianday(?) ORDER BY julianday(acquired_at) DESC,attempt_id DESC LIMIT 2', [options.protocolId, competition, season, cutoff]);
+      const attempt = candidates[0];
+      const evidence: Row = { competition, season, acquiredAt: attempt?.acquired_at ?? null, status: 'unavailable', providerFixtures: null, unmapped: null, conflicts: null, duplicates: null, statusCounts: null };
+      coverage.calendarEvidence.push(evidence);
+      if (!attempt || utc(attempt.acquired_at) === null) { valid = false; continue; }
+      if (candidates.length > 1 && utc(candidates[1].acquired_at) === utc(attempt.acquired_at)) { evidence.status = 'ambiguous_latest'; valid = false; continue; }
+      let counts: Row; try { counts = JSON.parse(attempt.coverage_json); } catch { counts = {}; }
+      for (const name of ['providerFixtures', 'unmapped', 'conflicts', 'duplicates']) evidence[name] = counts[name] ?? null;
+      evidence.status = attempt.status !== 'success' ? 'failed' : at - utc(attempt.acquired_at)! > policy.maxAgeSeconds * 1000 ? 'stale' : 'incomplete';
+      if (!attempt.fixture_attempt_id || evidence.status !== 'incomplete') { valid = false; continue; }
+      const sourceAttempt = (await query('SELECT attempt_id FROM model_a_calendar_attempts WHERE attempt_id=? AND protocol_id=? AND competition=? AND season=? AND status=? AND julianday(acquired_at)<=julianday(?)', [attempt.fixture_attempt_id, options.protocolId, competition, season, 'success', attempt.acquired_at]))[0];
+      if (!sourceAttempt) { valid = false; continue; }
+      const fixtures = await query('SELECT provider_match_id,match_id,kickoff_at,status,issue FROM model_a_calendar_fixtures WHERE attempt_id=?', [attempt.fixture_attempt_id]);
+      const statusCounts: Row = {}; for (const row of fixtures) statusCounts[row.status] = (statusCounts[row.status] ?? 0) + 1;
+      evidence.statusCounts = statusCounts;
+      const validCounts = counts.complete === true && ['providerFixtures', 'unmapped', 'conflicts', 'duplicates'].every(name => Number.isSafeInteger(counts[name]) && counts[name] >= 0)
+        && counts.unmapped === 0 && counts.conflicts === 0 && counts.duplicates === 0 && counts.providerFixtures === fixtures.length;
+      const validRows = fixtures.every(row => acceptedStatuses.has(row.status) && row.match_id != null && !row.issue && row.provider_match_id != null
+        && (!['TIMED', 'IN_PLAY', 'PAUSED', 'FINISHED'].includes(row.status) || utc(row.kickoff_at) !== null))
+        && new Set(fixtures.map(row => String(row.provider_match_id))).size === fixtures.length && new Set(fixtures.map(row => String(row.match_id))).size === fixtures.length;
+      if (!validCounts || !validRows) { valid = false; continue; }
+      evidence.status = 'available';
+      projected.push(...fixtures.filter(row => ['TIMED', 'IN_PLAY', 'PAUSED', 'FINISHED'].includes(row.status)).map(row => ({ match_id: row.match_id, date: row.kickoff_at })));
+    }
+    if (!valid || new Set(projected.map(row => String(row.match_id))).size !== projected.length) return finish();
+    calendarRows = projected.filter(row => utc(row.date)! >= utc(scope.from)! && utc(row.date)! < utc(scope.to)!);
+  } else coverage.calendarSource = 'matches';
   if (tables.model_a_prospective_result_refresh_state.readable) {
     const state = (await query('SELECT last_started_at,last_completed_at,last_success_at,last_status FROM model_a_prospective_result_refresh_state WHERE refresh_id=?', ['understat-results-v1']))[0];
     if (state) Object.assign(results, { refreshRunLivenessVerified: true, lastRefreshStartedAt: utc(state.last_started_at) !== null && utc(state.last_started_at) <= at ? state.last_started_at : null,
@@ -144,15 +207,15 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
     const totals = (await query(`SELECT SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,SUM(CASE WHEN status='started' OR completed_at IS NULL THEN 1 ELSE 0 END) AS incomplete FROM model_a_collection_runs WHERE protocol_id=? AND julianday(started_at)<=julianday(?)`, [options.protocolId, cutoff]))[0];
     collector.failedRuns = Number(totals?.failed ?? 0); collector.incompleteRuns = Number(totals?.incomplete ?? 0);
     if (tables.model_a_collection_runs.performanceReadable) {
-      const completed = (await query(`SELECT started_at,completed_at,status,performance_json FROM model_a_collection_runs WHERE protocol_id=? AND status IN ('success','failed','interrupted') AND julianday(started_at)<=julianday(?) AND julianday(completed_at)<=julianday(?) ORDER BY julianday(completed_at) DESC,julianday(started_at) DESC,run_id DESC LIMIT 1`, [options.protocolId, cutoff, cutoff]))[0];
+      const completed = (await query(`SELECT started_at,completed_at,status,performance_json FROM model_a_collection_runs WHERE protocol_id=? AND status IN ('success','failed','interrupted','partial') AND julianday(started_at)<=julianday(?) AND julianday(completed_at)<=julianday(?) ORDER BY julianday(completed_at) DESC,julianday(started_at) DESC,run_id DESC LIMIT 1`, [options.protocolId, cutoff, cutoff]))[0];
       if (completed && utc(completed.started_at) !== null && utc(completed.completed_at) !== null) collector.performance = {
         ...parseCollectionPerformance(completed.performance_json), runStartedAt: completed.started_at, runCompletedAt: completed.completed_at, runStatus: completed.status };
     } else collector.performance = { ...collector.performance, status: 'schema_unavailable', reason: 'performance_column_missing' };
   }
   if (!tables.matches.readable) return finish();
   const validKickoff = `(julianday(date) IS NOT NULL AND (UPPER(SUBSTR(date,-1))='Z' OR SUBSTR(date,-6) GLOB '[+-][0-9][0-9]:[0-9][0-9]'))`;
-  const fixtures = await query(`SELECT match_id,date FROM matches WHERE ${filter} AND ${validKickoff} AND julianday(date)>=julianday(?) AND julianday(date)<julianday(?)`, [...args, scope.from, scope.to]);
-  const invalid = (await query(`SELECT COUNT(*) AS n FROM matches WHERE ${filter} AND NOT COALESCE(${validKickoff},0)`, args))[0];
+  const fixtures = calendarRows ?? await query(`SELECT match_id,date FROM matches WHERE ${filter} AND ${validKickoff} AND julianday(date)>=julianday(?) AND julianday(date)<julianday(?)`, [...args, scope.from, scope.to]);
+  const invalid = calendarRows ? { n: 0 } : (await query(`SELECT COUNT(*) AS n FROM matches WHERE ${filter} AND NOT COALESCE(${validKickoff},0)`, args))[0];
   const calendar = new Map<string, number>(fixtures.filter(row => utc(row.date) !== null).map(row => [String(row.match_id), utc(row.date)]));
   Object.assign(coverage, { calendarEvaluable: true, coverageEvaluable: tables.model_a_prospective_forecasts.readable && tables.model_a_collection_ledger.readable, fixtureMatches: calendar.size,
     invalidFixtureTimesInCompetitionSeason: Number(invalid?.n ?? 0), overdueFixtures: [...calendar.values()].filter(kickoff => at >= kickoff - HOUR).length,
@@ -192,7 +255,8 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
   }
   const classifications: Row = {}, provenanceReasons: Row = {};
   for (const row of selected.values()) {
-    const classification = row.classification === 'technical_only' ? 'technical_only' : 'unclassified';
+    const classification = row.classification === 'technical_only' ? 'technical_only'
+      : row.classification === 'verified' ? 'declared_rigorous_unverified' : 'unclassified';
     classifications[classification] = (classifications[classification] ?? 0) + 1;
     const reason = classification === 'technical_only' ? 'technical_only' : 'projected_provenance_unverified';
     provenanceReasons[reason] = (provenanceReasons[reason] ?? 0) + 1;
