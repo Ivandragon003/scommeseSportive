@@ -1,0 +1,48 @@
+name: Inspect Model A target without writes
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_host_sha256:
+        description: SHA256 of the independently verified lowercase Turso hostname
+        type: string
+        required: true
+      season:
+        description: Season to inspect (YYYY/YYYY)
+        type: string
+        required: true
+        default: '2026/2027'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-a-target-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Confirm target identity, table presence and calendar coverage using SELECT only
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          FOOTBALL_DATA_ORG_API_KEY: ${{ secrets.FOOTBALL_DATA_ORG_API_KEY }}
+          MODEL_A_RESEARCH_CALENDAR_MAPPING_JSON: ${{ vars.MODEL_A_RESEARCH_CALENDAR_MAPPING_JSON }}
+          MODEL_A_EXPECTED_HOST_SHA256: ${{ inputs.expected_host_sha256 }}
+          MODEL_A_PREFLIGHT_SEASON: ${{ inputs.season }}
+        run: node scripts/model-a-target-preflight.js

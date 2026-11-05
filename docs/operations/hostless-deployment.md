@@ -29,6 +29,14 @@ capacità residua dai limiti Docker o da una vecchia misura CPU.
 Restare sui servizi esistenti e sul piano gratuito effettivamente disponibile;
 un aumento di risorse o servizio a pagamento richiede una decisione esplicita.
 
+## Deploy controllato senza bootstrap dello schema
+
+Il comando web ordinario costruisce `DatabaseService` e, per compatibilità, esegue inizializzazione e migrazioni. Recorder e scheduler spenti non impediscono queste scritture. Prima di un deploy che deve conservare lo schema esistente impostare sul solo backend web `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`, senza cambiare URL/token. Il flag viene letto prima della costruzione del DB; valori non validi bloccano l'avvio. Assente o true conserva il comportamento precedente. Non cambia il collector, che già usa skipSchemaBootstrap.
+
+Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED=false`, orchestratore GitHub e scheduler web/lineup spenti. Controllare nel pannello comando iniziale e post-build: nessuna migrazione o warmup aggiuntivo. Salvare configurazione e distribuire manualmente il commit con CI verde; attendere Deployed LIVE, controllare log e impostazioni effettive nel processo. `/api/health` è una risposta HTTP di salute, non certifica da sola lo schema o l'identità del DB. Verificare separatamente con client raw e sole SELECT. Nessun deploy autorizza bootstrap o raccolta.
+
+Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo.
+
 ## Persistenza per il recorder prospettico A
 
 La raccolta separata può usare due modalità esplicite. Nessuna è stata
@@ -202,8 +210,8 @@ backup con storia divergente o branch ancora attivi per uniformare l'elenco.
 | Verifica | Procedura e criterio |
 | --- | --- |
 | Identità del DB | Il pannello conserva TURSO_DATABASE_URL e TURSO_AUTH_TOKEN come write-only: il proprietario confronta privatamente il DB canonico di Hostless con i secret Actions e la configurazione autorizzata. Non dedurre identità dalla presenza dei nomi delle variabili. |
-| Schema | Verificare sul target le tabelle Fase 4, incluse model_a_calendar_attempts e model_a_calendar_fixtures per il calendario alternativo, e runtime_calibration_cache. Dopo conferma del target, backup/restore verificato e consenso, applicare lo schema prospettico manuale e valutare separatamente la cache runtime esistente; nessun bootstrap ordinario usato come preflight. |
-| Scritture accessorie | Il collector non esegue calibration:warm né migrazioni. Il vero PredictionService può però salvare runtime_calibration_cache a cache miss; il recorder avvia anche l'associazione agli esiti già nel DB. L'autorizzazione all'accensione deve comprendere questi effetti, oltre a forecast, ledger, run e osservazioni. |
+| Schema | Verificare sul target le tabelle Fase 4, incluse model_a_calendar_attempts e model_a_calendar_fixtures per il calendario alternativo, e runtime_calibration_profiles. Dopo conferma del target, backup/restore verificato e consenso, applicare lo schema prospettico manuale e valutare separatamente la cache runtime esistente; nessun bootstrap ordinario usato come preflight. |
+| Scritture accessorie | Il collector non esegue calibration:warm né migrazioni. Il vero PredictionService può però salvare runtime_calibration_profiles a cache miss; il recorder avvia anche l'associazione agli esiti già nel DB. L'autorizzazione all'accensione deve comprendere questi effetti, oltre a forecast, ledger, run e osservazioni. |
 | Durabilità Turso | Sul target di prova autorizzato attendere completion e rilettura coerente del forecast/claim, poi provare riavvio e indisponibilità/ripristino rete. Un receipt pending o HTTP veloce non è una conferma. Non fare fault injection sul DB operativo per una verifica locale. |
 | Scheduler | Runner finito database, scope/hash futuri e flag inizialmente false; nessun nuovo servizio Hostless necessario. Prima dell'accensione verificare il calendario importato oppure, con opt-in alternativo, mapping, completezza e freschezza delle evidenze research; una Nightly riuscita non certifica il nuovo provider. |
 | Monitor e recupero | Eseguire il monitor SELECT-only sullo scope autorizzato, verificare backlog/claim non confermati e controllare anche l'assenza di run. Provare segnali/drain/riavvio su target di prova; conservare le mancate senza rigenerazione postuma. |
@@ -222,7 +230,7 @@ WHERE tbl_name IN (
   'model_a_collection_protocols', 'model_a_collection_ledger',
   'model_a_collection_runs', 'model_a_prospective_result_observations',
   'model_a_prospective_result_refresh_state', 'model_a_calendar_attempts',
-  'model_a_calendar_fixtures', 'runtime_calibration_cache'
+  'model_a_calendar_fixtures', 'runtime_calibration_profiles'
 )
 ORDER BY tbl_name, type, name;
 ```

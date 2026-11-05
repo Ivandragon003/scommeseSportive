@@ -457,3 +457,9 @@ La sola CLI A/C o un retry saltato non sostituiscono il ciclo manutentivo.
 Non riattivare `AUTO_BET_*` o il worker T−15. Preservare ledger, input,
 snapshot, versioni e migrazioni; usare soltanto rollback di codice compatibili
 con lo schema e [backup verificati](operations/turso-backup.md).
+
+## Preflight del target Modello A senza scritture
+
+Il workflow `model-a-target-preflight.yml` si avvia solo manualmente con `expected_host_sha256` e stagione YYYY/YYYY. Usa i secret Turso/FDO del runner e il mapping revisionato già configurato, verifica l'impronta dell'hostname prima dell'accesso e invia soltanto SELECT fissi. Non importa il bootstrap applicativo, non applica schema e non attiva collector/recorder. Confrontare privatamente la medesima impronta dal processo Hostless e dal target locale; non stampare URL o token.
+
+Il report aggregato distingue identità, accesso read-only, presenza delle nove tabelle prospettiche/calendario e `runtime_calibration_profiles`, copertura delle cinque leghe e mapping. Schema assente dà blocked/exit1 anche se calendario e credenziale funzionano. La sola presenza delle tabelle non certifica colonne/indici/trigger; completare l'ispettore e le prove autorizzate. `persistenceVerified` e `collectionVerified` restano false: nessuna SELECT dimostra la durabilità di una nuova previsione. Nessun cron, secret su push o infrastruttura aggiuntiva.
