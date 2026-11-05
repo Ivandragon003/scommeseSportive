@@ -29,7 +29,7 @@ jobs:
                 const statusOk=response.statusCode>=200 && response.statusCode<300;
                 if(!requireCalendar) {
                   console.log(JSON.stringify({host,path,status:response.statusCode,durationMs:Date.now()-started}));
-                  response.destroy(); resolve(statusOk); return;
+                  response.destroy(); resolve(response.statusCode>=200 && response.statusCode<400); return;
                 }
                 let body='', bytes=0;
                 response.setEncoding('utf8');

@@ -56,9 +56,10 @@ test('connectivity rejects HTTP 200 maintenance pages for every league without l
 });
 
 test('connectivity certifies only nonempty calendars from all five HTTP-success responses', async () => {
-  const result = await runDiagnostic(() => ({}));
+  const result = await runDiagnostic(options => options.hostname === 'www.football-data.co.uk' ? { status: 302 } : {});
   assert.equal(result.exitCode, 0);
   assert.equal(result.summary.understatReachable, true);
+  assert.equal(result.summary.supplementalReachable, true);
   assert.ok(result.summary.understatCoverage.every(item => item.available === true));
   assert.equal(result.calls.length, 6);
   assert.ok(result.calls.every(call => !Object.keys(call.headers).some(key => /authorization|token/i.test(key))));
