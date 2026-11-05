@@ -7,6 +7,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { createHash } = require('node:crypto');
 const { measureResults, pair } = require('./model-a-prospective-result-monitoring');
+const { parseCollectionPerformance, measureCollectionRecorderOutcomes } = require('./model-a-prospective-alerts');
 
 const HOUR = 3600000;
 const AUDIT_TYPES = new Set(['attempted', 'accepted', 'rejected', 'ineligible', 'recovered', 'stored', 'delivery_unconfirmed', 'capture_error', 'result_reconciliation', 'result_reconciliation_error', 'retry', 'duplicate_suppressed']);
@@ -268,16 +269,31 @@ function protocolForecastFilter(db, options) {
     && ledger.rows.some(row => row.protocol_id === options.protocolId && row.match_id === record.matchId && safeTime(row.kickoff_at) === record.kickoff
       && row.claim_id && row.claim_id === record.payload.collection.claimId && safeTime(row.claim_at) !== null && safeTime(row.claim_at) <= record.at);
 }
-function collectorMonitoring(db, options, collection) {
+function collectorMonitoring(db, options, collection, schema) {
   const ledger = optionalRows(db, 'model_a_collection_ledger', ['protocol_id', 'match_id', 'kickoff_at', 'competition', 'season', 'state', 'reason', 'claim_at', 'forecast_id', 'updated_at']);
-  const runs = optionalRows(db, 'model_a_collection_runs', ['protocol_id', 'started_at', 'completed_at', 'status']);
+  const recorderColumns = ledger.rows !== null ? db.prepare('PRAGMA table_info(model_a_collection_ledger)').all().map(row => row.name) : [];
+  const missingRecorderColumns = ['recorder_status', 'recorder_reason'].filter(name => !recorderColumns.includes(name));
+  const recorderStatusReadable = ledger.rows !== null && missingRecorderColumns.length === 0;
+  const runs = optionalRows(db, 'model_a_collection_runs', ['run_id', 'protocol_id', 'started_at', 'completed_at', 'status']);
+  const performanceReadable = runs.rows !== null && db.prepare('PRAGMA table_info(model_a_collection_runs)').all().some(row => row.name === 'performance_json');
   const protocols = optionalRows(db, 'model_a_collection_protocols', ['protocol_id', 'scope_json', 'created_at']);
   const result = { requested: Boolean(options.protocolId), storageStatus: { ledger: ledger.status, runs: runs.status, protocols: protocols.status },
     registeredScopeMatches: null, analyzedFixtures: null, predictionStartedFixtures: null, eligibleFixtures: null,
     pendingFixtures: null, failedFixtures: null, storedFixtures: null, missedWindows: null, ledgerMissingFixtures: null,
     invalidKickoffObservations: null, kickoffChangedObservations: null, missingCalendarObservations: null, reasonCounts: null,
-    lastRunStartedAt: null, lastSuccessfulRunAt: null, latestRunStatus: null, failedRuns: null, incompleteRuns: null, oldestPendingAt: null };
+    lastRunStartedAt: null, lastSuccessfulRunAt: null, latestRunStatus: null, failedRuns: null, incompleteRuns: null, oldestPendingAt: null,
+    performance: { status: 'no_completed_run', verified: false, reason: 'no_completed_run', metrics: null, runStartedAt: null, runCompletedAt: null, runStatus: null },
+    ...measureCollectionRecorderOutcomes([], false) };
   if (!options.protocolId) return result;
+  if (runs.rows && !performanceReadable) {
+    result.storageStatus.runs = 'incompatible';
+    schema.compatible = false;
+    schema.issues.push('missing_column:model_a_collection_runs.performance_json');
+  }
+  if (ledger.rows && !recorderStatusReadable) {
+    result.storageStatus.ledger = 'incompatible'; schema.compatible = false;
+    for (const name of missingRecorderColumns) schema.issues.push(`missing_column:model_a_collection_ledger.${name}`);
+  }
   const registered = protocols.rows?.find(row => row.protocol_id === options.protocolId);
   if (protocols.rows) {
     result.registeredScopeMatches = false;
@@ -300,6 +316,12 @@ function collectorMonitoring(db, options, collection) {
     result.lastSuccessfulRunAt = successful.map(row => row.completed_at).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
     result.failedRuns = selected.filter(row => row.status === 'failed' && safeTime(row.completed_at) !== null && safeTime(row.completed_at) <= options.cutoff).length;
     result.incompleteRuns = selected.filter(row => row.status === 'started' || safeTime(row.completed_at) === null || safeTime(row.completed_at) > options.cutoff).length;
+    if (performanceReadable) {
+      const completed = db.prepare(`SELECT started_at,completed_at,status,performance_json FROM model_a_collection_runs WHERE protocol_id=? AND status IN ('success','failed','interrupted') AND julianday(started_at)<=julianday(?) AND julianday(completed_at)<=julianday(?) ORDER BY julianday(completed_at) DESC,julianday(started_at) DESC,run_id DESC LIMIT 1`)
+        .get(options.protocolId, new Date(options.cutoff).toISOString(), new Date(options.cutoff).toISOString());
+      if (completed && safeTime(completed.started_at) !== null && safeTime(completed.completed_at) !== null) result.performance = {
+        ...parseCollectionPerformance(completed.performance_json), runStartedAt: completed.started_at, runCompletedAt: completed.completed_at, runStatus: completed.status };
+    } else result.performance = { ...result.performance, status: 'schema_unavailable', reason: 'performance_column_missing' };
   }
   if (!ledger.rows || !collection.calendarEvaluable) return result;
   const fixtures = db.prepare('SELECT match_id,date FROM matches WHERE competition=? AND season=?').all(options.competition, options.season);
@@ -307,11 +329,14 @@ function collectorMonitoring(db, options, collection) {
     .map(row => [String(row.match_id), safeTime(row.date)]));
   const scoped = ledger.rows.filter(row => row.protocol_id === options.protocolId && row.competition === options.competition && row.season === options.season && safeTime(row.updated_at) !== null && safeTime(row.updated_at) <= options.cutoff);
   const current = scoped.filter(row => safeTime(row.kickoff_at) !== null && calendar.get(String(row.match_id)) === safeTime(row.kickoff_at));
+  const receipts = recorderStatusReadable ? db.prepare('SELECT protocol_id,match_id,kickoff_at,recorder_status,recorder_reason FROM model_a_collection_ledger WHERE protocol_id=?').all(options.protocolId) : [];
+  const receiptByFixture = new Map(receipts.map(row => [pair(row.match_id, safeTime(row.kickoff_at)), row]));
+  const receiptMetrics = measureCollectionRecorderOutcomes(current.map(row => ({ ...row, ...receiptByFixture.get(pair(row.match_id, safeTime(row.kickoff_at))) })), recorderStatusReadable);
   const reasons = {};
   for (const row of current) reasons[row.reason] = (reasons[row.reason] ?? 0) + 1;
   const pending = current.filter(row => ['claimed', 'unconfirmed'].includes(row.state));
   const pendingTimes = pending.map(row => safeTime(row.claim_at) ?? safeTime(row.updated_at)).filter(value => value !== null);
-  return { ...result, analyzedFixtures: new Set(current.map(row => String(row.match_id))).size,
+  return { ...result, ...receiptMetrics, analyzedFixtures: new Set(current.map(row => String(row.match_id))).size,
     predictionStartedFixtures: current.filter(row => safeTime(row.claim_at) !== null).length,
     eligibleFixtures: current.filter(row => safeTime(row.claim_at) !== null || row.reason === 'eligible').length,
     storedFixtures: current.filter(row => row.state === 'stored').length,
@@ -411,7 +436,7 @@ function inspect(options, environment = process.env) {
         volatileAllowedInInspectorEnvironment: environment.MODEL_A_PROSPECTIVE_ALLOW_VOLATILE === 'true',
         explicitSpoolConfigured: Boolean(options.spoolDir),
         runtimeEnvironmentVerified: false, writeAccessTested: false, persistenceAcrossRestartVerified: false },
-      spool: diagnostics, coverage: collection, collector: collectorMonitoring(db, scope, collection), results: resultDiagnostics,
+      spool: diagnostics, coverage: collection, collector: collectorMonitoring(db, scope, collection, schema), results: resultDiagnostics,
       limitations: ['Explicit scope is caller supplied; preregistration is not certified.', 'Fixture calendar completeness and historical fixture revisions are not certified.',
         'Cutoff filters forecast and audit event timestamps, not database insertion time. A forecast delivered after cutoff is counted if present now; historical persistence and historical coverage at cutoff are not certified.',
         'Spool files and audit lines are inspected as currently available. Their past contents, missing files, write times and backlog at cutoff cannot be reconstructed.',

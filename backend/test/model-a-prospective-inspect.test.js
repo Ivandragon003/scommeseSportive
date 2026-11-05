@@ -458,3 +458,67 @@ test('a later canceled lifecycle preserves old final evidence but excludes curre
   assert.equal(evaluate(report).status, 'ok');
   assert.ok(evaluate(report).notices.some(notice => notice.code === 'result_lifecycle_exclusion'));
 });
+
+function performanceMetrics(exceeded = false) {
+  return { version: 1, budgets: { predictMs: 30000, confirmationMs: 45000 }, timingSemantics: {
+    predict: 'predict start to response or error', confirmation: 'predict start to recorder completion; stored or unconfirmed' },
+  predict: { count: 1, maxMs: exceeded ? 31000 : 20000, overBudget: exceeded ? 1 : 0 },
+  confirmation: { count: 1, maxMs: 40000, overBudget: 0, stored: 1, unconfirmed: 0 }, alert: exceeded };
+}
+
+test('local performance inspection uses the latest completion before cutoff rather than a future or incomplete run', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  await f.client.execute({ sql: 'UPDATE model_a_collection_runs SET performance_json=? WHERE run_id=?', args: [JSON.stringify(performanceMetrics(true)), 'run'] });
+  for (const [id, started, completed, status, metrics] of [
+    ['completed', '2026-11-04T18:00:00Z', '2026-11-04T18:20:00Z', 'interrupted', performanceMetrics()],
+    ['future', '2026-11-04T18:40:00Z', '2026-11-04T20:00:00Z', 'success', performanceMetrics(true)],
+    ['incomplete', '2026-11-04T18:55:00Z', null, 'started', performanceMetrics(true)]]) {
+    await f.client.execute({ sql: 'INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,completed_at,status,performance_json) VALUES(?,?,?,?,?,?)',
+      args: [id, 'test-protocol', started, completed, status, JSON.stringify(metrics)] });
+  }
+  const report = inspect({ ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' }, {});
+  assert.equal(report.collector.performance.runCompletedAt, '2026-11-04T18:20:00Z');
+  assert.equal(report.collector.performance.status, 'available');
+  assert.equal(report.collector.performance.metrics.alert, false);
+  assert.equal(evaluate(report).performanceStatus, 'within_budget');
+  assert.equal(evaluate(report).alerts.some(alert => alert.code === 'collector_performance_budget_exceeded'), false);
+});
+
+test('local legacy missing metrics, over-budget metrics, damaged JSON and missing column remain distinct', async t => {
+  const f = await fixture(t); await match(f, 'present'); await registerCollector(f);
+  const scoped = { ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' };
+  const missing = inspect(scoped, {});
+  assert.equal(missing.collector.performance.status, 'missing'); assert.equal(missing.collector.performance.metrics, null);
+  assert.ok(evaluate(missing).notices.some(notice => notice.code === 'collector_performance_unknown'));
+  await f.client.execute({ sql: 'UPDATE model_a_collection_runs SET performance_json=? WHERE run_id=?', args: [JSON.stringify(performanceMetrics(true)), 'run'] });
+  const exceeded = inspect(scoped, {});
+  assert.equal(evaluate(exceeded).performanceStatus, 'exceeded');
+  assert.ok(evaluate(exceeded).alerts.some(alert => alert.code === 'collector_performance_budget_exceeded'));
+  await f.client.execute({ sql: 'UPDATE model_a_collection_runs SET performance_json=? WHERE run_id=?', args: ['{', 'run'] });
+  const invalid = inspect(scoped, {});
+  assert.equal(invalid.collector.performance.status, 'invalid'); assert.equal(invalid.collector.performance.metrics, null);
+  assert.ok(evaluate(invalid).alerts.some(alert => alert.code === 'collector_performance_invalid'));
+  await f.client.execute('ALTER TABLE model_a_collection_runs DROP COLUMN performance_json');
+  const legacy = inspect(scoped, {});
+  assert.equal(legacy.schema.compatible, false);
+  assert.ok(legacy.schema.issues.includes('missing_column:model_a_collection_runs.performance_json'));
+  assert.equal(legacy.coverage.calendarEvaluable, true); assert.equal(legacy.coverage.fixtureMatches, 1);
+  assert.equal(legacy.collector.lastSuccessfulRunAt, '2026-11-04T18:01:00Z');
+  assert.equal(legacy.collector.performance.status, 'schema_unavailable'); assert.equal(legacy.collector.performance.metrics, null);
+});
+
+test('local recorder receipt counters distinguish failures and exclusions without exposing raw errors or counting orphan fixtures', async t => {
+  const f = await fixture(t); for (const id of ['present', 'pending', 'missed']) await match(f, id); await registerCollector(f);
+  for (const [id, status, reason] of [['present', 'rejected', 'queue_full'], ['pending', 'error', 'libsql://secret@example.com'],
+    ['missed', 'ineligible', 'fixture_or_observation_time'], ['orphan', 'rejected', 'spool_full']]) {
+    await f.client.execute({ sql: 'UPDATE model_a_collection_ledger SET recorder_status=?,recorder_reason=? WHERE protocol_id=? AND match_id=?', args: [status, reason, 'test-protocol', id] });
+  }
+  const scoped = { ...f.options, origin: 'prospective_a', protocolId: 'test-protocol' };
+  const report = inspect(scoped, {});
+  assert.equal(report.collector.rejectedFixtures, 1); assert.equal(report.collector.recordingErrorFixtures, 1);
+  assert.equal(report.collector.ineligibleFixtures, 1); assert.equal(report.collector.recorderReasonCounts.redacted, 1);
+  assert.equal(JSON.stringify(report).includes('secret'), false);
+  await f.client.execute({ sql: 'UPDATE model_a_collection_ledger SET recorder_status=?,recorder_reason=NULL WHERE match_id=?', args: ['pending', 'pending'] });
+  const pending = inspect(scoped, {});
+  assert.equal(pending.collector.pendingRecorderFixtures, 1); assert.equal(pending.collector.recordingErrorFixtures, 0);
+});

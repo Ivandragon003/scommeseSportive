@@ -2,7 +2,7 @@ import type { Client, InValue } from '@libsql/client';
 import { createHash } from 'node:crypto';
 
 // The same pure policy is consumed by the local operator CLI and Node 20 runner.
-const { evaluate } = require('../../scripts/model-a-prospective-alerts');
+const { evaluate, parseCollectionPerformance, measureCollectionRecorderOutcomes } = require('../../scripts/model-a-prospective-alerts');
 const { measureResults } = require('../../scripts/model-a-prospective-result-monitoring');
 const HOUR = 3600000;
 const TOP_FIVE = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
@@ -34,11 +34,11 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
     model_a_prospective_results: ['evidence_id', 'match_id', 'source', 'kickoff_at', 'observed_at', 'recorded_at', 'home_goals', 'away_goals'],
     model_a_collection_protocols: ['protocol_id', 'scope_json', 'created_at'],
     model_a_collection_ledger: ['protocol_id', 'match_id', 'kickoff_at', 'competition', 'season', 'state', 'reason', 'claim_at', 'forecast_id', 'claim_id', 'updated_at'],
-    model_a_collection_runs: ['protocol_id', 'started_at', 'completed_at', 'status'],
+    model_a_collection_runs: ['run_id', 'protocol_id', 'started_at', 'completed_at', 'status'],
     model_a_prospective_result_observations: ['match_id', 'kickoff_at', 'observed_at', 'recorded_at', 'status', 'reason'],
     model_a_prospective_result_refresh_state: ['refresh_id', 'last_started_at', 'last_completed_at', 'last_success_at', 'last_status', 'last_error_code'],
   };
-  const tables: Record<string, { status: string; readable: boolean }> = {}, issues: string[] = [];
+  const tables: Record<string, { status: string; readable: boolean; performanceReadable?: boolean; recorderStatusReadable?: boolean }> = {}, issues: string[] = [];
   const primaryKeys: Record<string, string[]> = {
     matches: ['match_id'], model_a_prospective_forecasts: ['id'], model_a_prospective_results: ['evidence_id'],
     model_a_collection_protocols: ['protocol_id'], model_a_collection_ledger: ['protocol_id', 'match_id', 'kickoff_at'],
@@ -57,6 +57,21 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
       const metadata = await query('SELECT name,pk FROM pragma_table_info(?)', [table]);
       const actualKey = metadata.filter(row => Number(row.pk) > 0).sort((a, b) => Number(a.pk) - Number(b.pk)).map(row => String(row.name));
       if (actualKey.join(',') !== primaryKeys[table].join(',')) issues.push(`missing_or_incompatible_primary_key:${table}`);
+      if (table === 'model_a_collection_runs') {
+        tables[table].performanceReadable = metadata.some(row => row.name === 'performance_json');
+        if (!tables[table].performanceReadable) {
+          tables[table].status = 'incompatible';
+          issues.push('missing_column:model_a_collection_runs.performance_json');
+        }
+      }
+      if (table === 'model_a_collection_ledger') {
+        const missing = ['recorder_status', 'recorder_reason'].filter(name => !metadata.some(row => row.name === name));
+        tables[table].recorderStatusReadable = missing.length === 0;
+        if (missing.length) {
+          tables[table].status = 'incompatible';
+          for (const name of missing) issues.push(`missing_column:model_a_collection_ledger.${name}`);
+        }
+      }
     }
   }
   for (const [table, index, last] of [['model_a_prospective_forecasts', 'idx_model_a_prospective_match', 'forecast_at'], ['model_a_prospective_results', 'idx_model_a_prospective_results_match', 'observed_at']]) {
@@ -74,7 +89,9 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
     registeredScopeMatches: false, analyzedFixtures: null, predictionStartedFixtures: null, eligibleFixtures: null, pendingFixtures: null,
     failedFixtures: null, storedFixtures: null, missedWindows: null, ledgerMissingFixtures: null, invalidKickoffObservations: null,
     kickoffChangedObservations: null, missingCalendarObservations: null, reasonCounts: null, lastRunStartedAt: null, lastSuccessfulRunAt: null,
-    latestRunStatus: null, failedRuns: null, incompleteRuns: null, oldestPendingAt: null };
+    latestRunStatus: null, failedRuns: null, incompleteRuns: null, oldestPendingAt: null,
+    performance: { status: 'no_completed_run', verified: false, reason: 'no_completed_run', metrics: null, runStartedAt: null, runCompletedAt: null, runStatus: null },
+    ...measureCollectionRecorderOutcomes([], false) };
   const coverage: Row = { scope: { cutoff, origin: 'prospective_a' }, calendarEvaluable: false, coverageEvaluable: false,
     fixtureMatches: null, overdueFixtures: null, openWindowFixtures: null, futureWindowFixtures: null, overdueMissing: null,
     openWindowMissing: null, recordedForecasts: null, recordedMatchesInWindow: null, pendingUnconfirmedForecasts: null,
@@ -126,6 +143,11 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
       .map(row => row.completed_at).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
     const totals = (await query(`SELECT SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,SUM(CASE WHEN status='started' OR completed_at IS NULL THEN 1 ELSE 0 END) AS incomplete FROM model_a_collection_runs WHERE protocol_id=? AND julianday(started_at)<=julianday(?)`, [options.protocolId, cutoff]))[0];
     collector.failedRuns = Number(totals?.failed ?? 0); collector.incompleteRuns = Number(totals?.incomplete ?? 0);
+    if (tables.model_a_collection_runs.performanceReadable) {
+      const completed = (await query(`SELECT started_at,completed_at,status,performance_json FROM model_a_collection_runs WHERE protocol_id=? AND status IN ('success','failed','interrupted') AND julianday(started_at)<=julianday(?) AND julianday(completed_at)<=julianday(?) ORDER BY julianday(completed_at) DESC,julianday(started_at) DESC,run_id DESC LIMIT 1`, [options.protocolId, cutoff, cutoff]))[0];
+      if (completed && utc(completed.started_at) !== null && utc(completed.completed_at) !== null) collector.performance = {
+        ...parseCollectionPerformance(completed.performance_json), runStartedAt: completed.started_at, runCompletedAt: completed.completed_at, runStatus: completed.status };
+    } else collector.performance = { ...collector.performance, status: 'schema_unavailable', reason: 'performance_column_missing' };
   }
   if (!tables.matches.readable) return finish();
   const validKickoff = `(julianday(date) IS NOT NULL AND (UPPER(SUBSTR(date,-1))='Z' OR SUBSTR(date,-6) GLOB '[+-][0-9][0-9]:[0-9][0-9]'))`;
@@ -138,8 +160,10 @@ export async function readModelAProspectiveMonitoring(client: QueryClient, optio
     futureWindowFixtures: [...calendar.values()].filter(kickoff => at < kickoff - 24 * HOUR).length });
   const ledgerExclusions: string[] = [];
   if (tables.model_a_collection_ledger.readable) {
-    const ledger = await query(`SELECT match_id,kickoff_at,state,reason,claim_at,updated_at FROM model_a_collection_ledger WHERE protocol_id=? AND ${filter} AND julianday(updated_at)<=julianday(?) AND julianday(kickoff_at)>=julianday(?) AND julianday(kickoff_at)<julianday(?)`, [options.protocolId, ...args, cutoff, scope.from, scope.to]);
+    const receiptProjection = tables.model_a_collection_ledger.recorderStatusReadable ? ',recorder_status,recorder_reason' : '';
+    const ledger = await query(`SELECT match_id,kickoff_at,state,reason,claim_at,updated_at${receiptProjection} FROM model_a_collection_ledger WHERE protocol_id=? AND ${filter} AND julianday(updated_at)<=julianday(?) AND julianday(kickoff_at)>=julianday(?) AND julianday(kickoff_at)<julianday(?)`, [options.protocolId, ...args, cutoff, scope.from, scope.to]);
     const current = ledger.filter(row => calendar.get(String(row.match_id)) === utc(row.kickoff_at));
+    Object.assign(collector, measureCollectionRecorderOutcomes(current, tables.model_a_collection_ledger.recorderStatusReadable));
     for (const row of current) if (row.reason === 'cancelled_or_postponed') ledgerExclusions.push(pair(row.match_id, utc(row.kickoff_at)));
     const observed = new Set(current.map(row => String(row.match_id))), pending = current.filter(row => ['claimed', 'unconfirmed'].includes(row.state));
     const reasons: Row = {}; for (const row of current) reasons[row.reason] = (reasons[row.reason] ?? 0) + 1;

@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS model_a_collection_ledger (
   claim_at TEXT,
   claim_id TEXT,
   forecast_id TEXT,
+  recorder_status TEXT,
+  recorder_reason TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (protocol_id, match_id, kickoff_at),
   FOREIGN KEY (protocol_id) REFERENCES model_a_collection_protocols(protocol_id)
@@ -67,6 +69,7 @@ CREATE TABLE IF NOT EXISTS model_a_collection_runs (
   examined INTEGER,
   claimed INTEGER,
   invalid_kickoff_count INTEGER,
+  performance_json TEXT,
   FOREIGN KEY (protocol_id) REFERENCES model_a_collection_protocols(protocol_id)
 );
 CREATE INDEX IF NOT EXISTS idx_model_a_collection_runs_protocol ON model_a_collection_runs(protocol_id, started_at);

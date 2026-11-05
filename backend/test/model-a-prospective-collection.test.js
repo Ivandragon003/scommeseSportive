@@ -4,8 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createClient } = require('@libsql/client');
-const { ModelAProspectiveCollection, collectionScopeManifest } = require(process.env.MODEL_A_COLLECTION_TEST_SOURCE === 'true'
-  ? '../src/research/ModelAProspectiveCollection.ts' : '../dist/research/ModelAProspectiveCollection');
+const { ModelAProspectiveCollection, collectionScopeManifest } = require('../dist/research/ModelAProspectiveCollection');
 
 async function setup(now = Date.now()) {
   const client = createClient({ url: 'file::memory:' });
@@ -173,5 +172,46 @@ test('keyset pagination records every fixture and flags a kickoff moved outside 
     await x.client.execute({ sql: 'UPDATE matches SET date=? WHERE match_id=?', args: [new Date(x.now + 60 * 3600000).toISOString(), 'f-000'] });
     await collector.run();
     assert.equal((await rows(x.client, "SELECT reason FROM model_a_collection_ledger WHERE match_id='f-000'"))[0].reason, 'kickoff_changed');
+  } finally { x.close(); }
+});
+
+test('diagnostic budgets persist separate response and stored confirmation without changing the forecast', async () => {
+  const x = await setup(); try {
+    await x.insert('budget', 3); let tick = 0;
+    const predictor = { async predict(request, options) {
+      const match = (await rows(x.client, "SELECT date FROM matches WHERE match_id='budget'"))[0];
+      await x.client.execute({ sql: 'INSERT INTO model_a_prospective_forecasts VALUES(?,?,?,?,?)', args: ['budget-id', request.matchId, new Date(x.now).toISOString(), match.date, JSON.stringify({ origin: 'prospective_a', collection: options.prospectiveCollection, competition: 'Serie A', season: '2026/27' })] });
+      tick = 40; options.onProspectiveRecord({ status: 'pending', id: 'budget-id', durable: false, completion: Promise.resolve({ status: 'stored', id: 'budget-id' }) });
+      await Promise.resolve(); tick = 80;
+    } };
+    const collector = new ModelAProspectiveCollection(x.client, predictor, x.scope, () => new Date(x.now), () => false, { predictMs: 50, confirmationMs: 30 }, () => tick);
+    const result = await collector.run(); assert.equal(result.performance.alert, true);
+    assert.equal(result.performance.predict.maxMs, 80); assert.equal(result.performance.confirmation.maxMs, 40);
+    assert.equal(result.performance.confirmation.stored, 1); assert.equal(result.performance.confirmation.unconfirmed, 0);
+    assert.equal(result.performance.predict.overBudget, 1); assert.equal(result.performance.confirmation.overBudget, 1);
+    const [run] = await rows(x.client, 'SELECT performance_json FROM model_a_collection_runs');
+    assert.deepEqual(JSON.parse(run.performance_json), result.performance);
+    assert.equal((await rows(x.client, 'SELECT state FROM model_a_collection_ledger'))[0].state, 'stored');
+  } finally { x.close(); }
+});
+
+test('recorder rejection remains visible after unconfirmed completion and restart', async () => {
+  const x = await setup(); try {
+    await x.insert('rejected', 3); let calls = 0;
+    const predictor = { async predict(request, options) { calls++; options.onProspectiveRecord({ status: 'rejected', reason: 'queue_full', durable: false, completion: Promise.resolve({ status: 'unconfirmed' }) }); } };
+    const collector = new ModelAProspectiveCollection(x.client, predictor, x.scope, () => new Date(x.now));
+    await collector.run(); await collector.run(); assert.equal(calls, 1);
+    const [ledger] = await rows(x.client, 'SELECT state,reason,recorder_status,recorder_reason FROM model_a_collection_ledger');
+    assert.equal(ledger.state, 'unconfirmed'); assert.equal(ledger.reason, 'delivery_unconfirmed');
+    assert.equal(ledger.recorder_status, 'rejected'); assert.equal(ledger.recorder_reason, 'queue_full');
+  } finally { x.close(); }
+});
+test('recorder free-form errors are redacted from durable ledger', async () => {
+  const x = await setup(); try {
+    await x.insert('error', 3);
+    const predictor = { async predict(request, options) { options.onProspectiveRecord({ status: 'error', reason: 'private://token/path', durable: false, completion: Promise.resolve({ status: 'unconfirmed' }) }); } };
+    await new ModelAProspectiveCollection(x.client, predictor, x.scope, () => new Date(x.now)).run();
+    const [ledger] = await rows(x.client, 'SELECT recorder_status,recorder_reason FROM model_a_collection_ledger');
+    assert.equal(ledger.recorder_status, 'error'); assert.equal(ledger.recorder_reason, 'redacted');
   } finally { x.close(); }
 });

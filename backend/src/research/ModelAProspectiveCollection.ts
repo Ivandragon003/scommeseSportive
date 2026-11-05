@@ -1,9 +1,13 @@
 import type { Client } from '@libsql/client';
 import type { ModelAProspectiveReceipt } from './ModelAProspectiveRecorder';
 import { createHash, randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { collectionBudgetsFromEnv, ModelACollectionPerformanceMeter, ModelACollectionBudgets, ModelACollectionPerformance } from './ModelAProspectiveBudget';
 
 const COMPETITIONS = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
 const HOUR = 3600000;
+const RECORDER_STATUSES = new Set(['disabled', 'ineligible', 'rejected', 'accepted', 'pending', 'error']);
+const RECORDER_REASONS = new Set(['disabled', 'shutdown', 'fixture_or_observation_time', 'spool_required', 'queue_full', 'spool_full']);
 export type CollectionScope = { protocolId: string; manifestSha256: string; seasons: string[]; from: string; to: string };
 type Predictor = { predict: (request: any, options: any) => Promise<unknown> };
 type Fixture = { match_id: string; home_team_id: string; away_team_id: string; competition: string; season: string; date: string; home_goals: unknown; away_goals: unknown; provider_status: string | null };
@@ -39,9 +43,11 @@ function inWindow(now: number, kickoff: number): boolean { return now >= kickoff
 /** One durable claim per protocol, fixture and kickoff. Claims never regenerate a forecast. */
 export class ModelAProspectiveCollection {
   private scope: CollectionScope;
-  constructor(private client: Client, private predictor: Predictor, scope: CollectionScope, private clock: () => Date = () => new Date(), private shouldStop: () => boolean = () => false) {
+  constructor(private client: Client, private predictor: Predictor, scope: CollectionScope, private clock: () => Date = () => new Date(), private shouldStop: () => boolean = () => false,
+    private budgets: ModelACollectionBudgets = collectionBudgetsFromEnv({}), private monotonic: () => number = () => performance.now()) {
     this.scope = validateCollectionScope(scope);
     if (collectionScopeManifest(this.scope).sha256 !== this.scope.manifestSha256) throw new Error('collection_manifest_hash_mismatch');
+    new ModelACollectionPerformanceMeter(budgets);
   }
   private async execute(sql: string, args: any[] = []) { return this.client.execute({ sql, args }); }
   private now() { const n = this.clock(); if (!Number.isFinite(n.getTime())) throw new Error('collection_clock_invalid'); return n; }
@@ -67,20 +73,22 @@ export class ModelAProspectiveCollection {
     });
     return valid.length === 1 ? String(valid[0].id) : null;
   }
-  async run(): Promise<{ examined: number; claimed: number; invalidKickoffCount: number }> {
+  async run(): Promise<{ examined: number; claimed: number; invalidKickoffCount: number; performance: ModelACollectionPerformance }> {
     await this.prepare();
     const id = randomUUID();
+    const meter = new ModelACollectionPerformanceMeter(this.budgets);
     await this.execute(`INSERT INTO model_a_collection_runs(run_id,protocol_id,started_at,status) VALUES(?,?,?,'started')`, [id, this.scope.protocolId, this.now().toISOString()]);
     try {
-      const result = await this.collect();
-      await this.execute(`UPDATE model_a_collection_runs SET status=?,completed_at=?,examined=?,claimed=?,invalid_kickoff_count=? WHERE run_id=?`, [this.shouldStop() ? 'interrupted' : 'success', this.now().toISOString(), result.examined, result.claimed, result.invalidKickoffCount, id]);
-      return result;
+      const result = await this.collect(meter);
+      const performanceSummary = meter.snapshot();
+      await this.execute(`UPDATE model_a_collection_runs SET status=?,completed_at=?,examined=?,claimed=?,invalid_kickoff_count=?,performance_json=? WHERE run_id=?`, [this.shouldStop() ? 'interrupted' : 'success', this.now().toISOString(), result.examined, result.claimed, result.invalidKickoffCount, JSON.stringify(performanceSummary), id]);
+      return { ...result, performance: performanceSummary };
     } catch (error) {
-      await this.execute(`UPDATE model_a_collection_runs SET status='failed',completed_at=?,error_code='collection_failed' WHERE run_id=?`, [this.now().toISOString(), id]);
+      await this.execute(`UPDATE model_a_collection_runs SET status='failed',completed_at=?,error_code='collection_failed',performance_json=? WHERE run_id=?`, [this.now().toISOString(), JSON.stringify(meter.snapshot()), id]);
       throw error;
     }
   }
-  private async collect(): Promise<{ examined: number; claimed: number; invalidKickoffCount: number }> {
+  private async collect(meter: ModelACollectionPerformanceMeter): Promise<{ examined: number; claimed: number; invalidKickoffCount: number }> {
     const filter = `competition IN (${COMPETITIONS.map(() => '?').join(',')}) AND season IN (${this.scope.seasons.map(() => '?').join(',')})`;
     const args = [...COMPETITIONS, ...this.scope.seasons];
     const invalid = (await this.execute(`SELECT COUNT(*) AS n FROM matches WHERE ${filter} AND NOT COALESCE(${VALID_KICKOFF},0)`, args)).rows[0];
@@ -127,10 +135,20 @@ export class ModelAProspectiveCollection {
           await this.setState(f, kickoff, 'skipped', 'fixture_changed_or_window_closed'); continue;
         }
         let receipt: ModelAProspectiveReceipt | undefined;
-        await this.predictor.predict({ matchId: f.match_id, homeTeamId: f.home_team_id, awayTeamId: f.away_team_id, competition: f.competition, season: f.season },
-          { prospectiveOrigin: 'prospective_a', prospectiveCollection: { protocolId: this.scope.protocolId, manifestSha256: this.scope.manifestSha256, claimId }, recordAudit: false, onProspectiveRecord: (value: ModelAProspectiveReceipt) => { receipt = value; } });
+        const predictionStarted = this.monotonic();
+        try {
+          await this.predictor.predict({ matchId: f.match_id, homeTeamId: f.home_team_id, awayTeamId: f.away_team_id, competition: f.competition, season: f.season },
+            { prospectiveOrigin: 'prospective_a', prospectiveCollection: { protocolId: this.scope.protocolId, manifestSha256: this.scope.manifestSha256, claimId }, recordAudit: false, onProspectiveRecord: (value: ModelAProspectiveReceipt) => {
+              receipt = value;
+              value.completion.then(result => { try { meter.observe('confirmation', this.monotonic() - predictionStarted, result.status); } catch { /* Diagnostics do not alter the forecast. */ } },
+                () => { try { meter.observe('confirmation', this.monotonic() - predictionStarted, 'unconfirmed'); } catch { /* Diagnostics do not alter the forecast. */ } });
+            } });
+        } finally { try { meter.observe('predict', this.monotonic() - predictionStarted); } catch { /* Diagnostics do not alter the forecast. */ } }
         if (!receipt) { await this.setState(f, kickoff, 'unconfirmed', 'recorder_receipt_missing'); continue; }
-        await this.setState(f, kickoff, 'unconfirmed', `recorder_${receipt.status}`, receipt.id ?? null);
+        const recorderStatus = RECORDER_STATUSES.has(receipt.status) ? receipt.status : 'error';
+        const recorderReason = receipt.reason == null ? null : RECORDER_REASONS.has(receipt.reason) ? receipt.reason : 'redacted';
+        await this.execute(`UPDATE model_a_collection_ledger SET state='unconfirmed',reason=?,forecast_id=COALESCE(?,forecast_id),recorder_status=?,recorder_reason=?,updated_at=? WHERE protocol_id=? AND match_id=? AND kickoff_at=?`,
+          [`recorder_${recorderStatus}`, receipt.id ?? null, recorderStatus, recorderReason, this.now().toISOString(), this.scope.protocolId, f.match_id, kickoff]);
         const completion = await receipt.completion;
         const id = await this.confirmed(f, kickoff, at, claimId, completion.id ?? receipt.id);
         if (id && completion.status === 'stored') await this.setState(f, kickoff, 'stored', 'forecast_confirmed', id);
