@@ -267,7 +267,7 @@ sono conservati come artifact per 14 giorni. La pipeline conserva l'exit
 code del controllo, quindi gli alert non diventano un successo per effetto
 di `tee`. Gli artifact non sono un backup degli eventi. Questo monitor nello
 stesso job non avvisa autonomamente se il workflow non parte o termina prima
-del controllo; la continuità va verificata anche dai run GitHub.
+del controllo. Il job `model_a_inspect` separato nel watchdog orario esistente usa obbligatoriamente `TURSO_WATCHDOG_READONLY_TOKEN`, senza dipendere dall’esito Nightly. Parte soltanto con `MODEL_A_PROSPECTIVE_MONITORING_ENABLED=true` e rileva anche un collector mai partito. Un fermo globale di GitHub può impedire anche il watchdog; controllare comunque la continuità della piattaforma.
 Leggere anche `performanceStatus` e le relative notice: dati assenti,
 incompatibili o senza campioni non equivalgono a latenza zero o budget
 rispettato. Un `status=ok` generale con prestazioni `unverified` non è una

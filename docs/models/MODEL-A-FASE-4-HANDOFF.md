@@ -55,7 +55,7 @@ Il preflight autenticato football-data.org Free ha acquisito in sola lettura il 
 
 Anche il diagnostico pubblico eseguito sul runner Linux GitHub rileva HTTP 200/text-html e calendario non valido per tutte le cinque leghe, terminando correttamente con exit 1. Questo fallimento della disponibilità esterna va distinto dalla CI dei test: non dichiarare ripristinato l'import perché il codice passa le regressioni. Per il solo probe supplementare resta la semantica di raggiungibilità HTTP già esistente, che ammette redirect senza certificarne il contenuto CSV.
 
-Preflight SQL read-only sul Turso configurato localmente: assenti le sette tabelle prospettiche originali e le due tabelle calendario. Il controllo corretto della cache trova invece `runtime_calibration_profiles` presente: la precedente ricerca di runtime_calibration_cache usava erroneamente il nome del file di migrazione come tabella. Nessuna scrittura o migrazione. URL/token Hostless write-only impediscono di certificare che sia lo stesso target: serve confronto privato del proprietario con i secret Actions. Il backend non dichiara mount spool o variabili MODEL_A_* nella configurazione consultata. Per la proposta runner/database non serve acquistare un volume, ma servono conferma del target/schema, quote, backup e prove reali autorizzate.
+Prima dell’applicazione autorizzata, il preflight SQL read-only sul Turso configurato localmente rilevava assenti le sette tabelle prospettiche originali e le due tabelle calendario. Il controllo corretto della cache trova invece `runtime_calibration_profiles` presente: la precedente ricerca di runtime_calibration_cache usava erroneamente il nome del file di migrazione come tabella. Nessuna scrittura o migrazione. Il confronto inizialmente impedito dai valori write-only è stato completato tramite impronta dell’hostname nel terminale Hostless e diagnostica SELECT-only nel runner GitHub, senza esporre URL/token. Il backend non dichiara mount spool o variabili MODEL_A_* nella configurazione consultata. Per la proposta runner/database non serve acquistare un volume, ma servono conferma del target/schema, quote, backup e prove reali autorizzate.
 
 L'accensione del collector usa il vero PredictionService: oltre alle tabelle Fase 4 può scrivere la cache runtime di calibrazione su cache miss e avvia l'associazione agli esiti già nel DB con recorder attivo. Il flag refresh controlla il refresh HTTP separato, non tutte le associazioni locali. La mancanza di un comando warmup non significa assenza di queste scritture accessorie esistenti; autorizzarle esplicitamente nel piano del target, senza cambiare formule o calibrazione.
 
@@ -140,7 +140,7 @@ node backend/scripts/check-model-a-spool.js --directory 'C:/percorso/assoluto/sp
 
 Solo dopo autorizzazione alla prova sul percorso nominato aggiungere `--probe`: crea e rimuove un figlio temporaneo privato, verifica scrittura/fsync/hardlink/hash e preserva gli eventi presenti. Su Windows directorySyncConfirmed=false e ACL non certificate. Nessuna delle due modalità dimostra che il mount sia persistente; completare la prova di sostituzione container e backup/restore.
 
-Il calendario opzionale aggiunge anche `model_a_calendar_attempts` e `model_a_calendar_fixtures`, con indici e guardie append-only nel medesimo schema manuale. Non sono create dal collector e non sono state applicate al target. Su uno schema esistente verificare tutte le colonne e applicare solo le sezioni additive approvate; `IF NOT EXISTS` non corregge incompatibilità.
+Il calendario opzionale aggiunge anche `model_a_calendar_attempts` e `model_a_calendar_fixtures`, con indici e guardie append-only nel medesimo schema manuale. Non sono create dal collector. L’applicazione al target richiede sempre consenso e backup; è stata verificata separatamente nella prova operativa autorizzata. Su uno schema esistente verificare tutte le colonne e applicare solo le sezioni additive approvate; `IF NOT EXISTS` non corregge incompatibilità.
 
 Lo schema proposto aggiunge performance_json ai run e recorder_status/recorder_reason al ledger. Su uno schema precedente noto privo di tutte e tre le colonne, ispezionare pragma_table_info e, dopo backup/autorizzazione, applicare separatamente `backend/experiments/model-a-prospective/upgrade-readiness.sql`. Il file non è idempotente e non va eseguito su schema nuovo/ignoto o con alcune colonne già presenti. È stato provato soltanto su un database in memoria derivato dallo schema precedente, preservando la previsione e i trigger. Nessuna migrazione automatica o operativa eseguita.
 
@@ -160,7 +160,7 @@ La diagnostica manuale `model-a-target-preflight.yml` confronta l'impronta del t
 
 ## Procedura di attivazione controllata
 
-**Preparata, non eseguita. Pubblicare codice non autorizza schema, deploy o accensione.**
+**Procedura con autorizzazioni distinte: deploy web e schema sono stati verificati separatamente; l’accensione resta sospesa. Pubblicare codice non autorizza ulteriori operazioni.**
 
 1. Nominare ambiente/DB e verificare target web/GitHub, branch seguito, auto-deploy/review app, webhook/GitHub Apps dal proprietario, secret senza esporli, runtime/orologio UTC/segnali. Confrontare privatamente il DB canonico fra Hostless e Actions. Scegliere runner database oppure volume. Stabilire responsabile controlli e budget; non modificare produzione per una verifica locale.
 2. Preregistrare protocollo, stagioni effettive nel DB, Top5, intervallo futuro UTC, origine prospective_a, finestra, prima previsione ed esclusioni. Distinguere raccolta tecnica da validazione rigorosa, oggi senza forecast idonei. Verificare import calendario o scegliere esplicitamente il nuovo calendario research, senza scegliere il campione dopo gli esiti. Per la fonte alternativa: account/chiave autorizzati, mapping completo revisionato e conservato, unica stagione nel formato esatto del DB (per il target letto 2026/2027), conteggi 20/20/20/18/18 e maxAgeSeconds fissati; aggiungere la policy prima di calcolare il manifest. Non riusare protocolli precedenti con una sorgente diversa.
@@ -171,16 +171,33 @@ La diagnostica manuale `model-a-target-preflight.yml` confronta l'impronta del t
 7. Controllare fixture nuova senza quote: claim precedente, origine/protocollo/hash, finestra e conferma DB. Confrontare calendario/ledger, escluse/mancanti e stadi null con motivo; niente backfill dopo finestra.
 8. Provare sul target autorizzato SIGTERM/restart/sostituzione container, DB offline/ripristino e shutdown del supervisor. File accettato deve restare nello spool o nel DB; receipt pending non è persistito. Claim ambiguo da verificare prima di interventi.
 9. Verificare esiti reali, rinvio/annullamento/rettifica e cursore dopo riavvio. Con N candidati/pagina20 un giro richiede almeno ceil(N/20) esecuzioni: frequenza e grace coerenti. Default monitor liveness2h, pendenti1h, grace risultati6h, orizzonte30giorni; variazioni preregistrate, non per nascondere errori.
-10. Verificare destinatari notifiche GitHub e controllo dell'assenza di run: il monitor nello stesso job non avvisa se GitHub non parte. Conservare evidenze/versioni. Sospendere sulle anomalie senza cancellarle.
+10. Verificare destinatari notifiche GitHub e controllo dell'assenza di run: il job A indipendente nel watchdog orario può rilevare il collector mai partito; entrambi dipendono però da GitHub Actions, quindi un fermo totale della piattaforma resta un limite. Conservare evidenze/versioni. Sospendere sulle anomalie senza cancellarle.
 
 **Disattivazione:** spegnere nuove inferenze/pianificazione, verificare drain, conservare DB/volume/audit e fermare secondo procedura. Recorder spento non recupera lo spool: serve sessione successiva controllata su stesso volume/DB senza nuove inferenze. Nessuna rimozione file/reset ledger per far apparire completo il campione.
+
+## Accettazione operativa eseguita
+
+| Verifica | Evidenza e limite |
+|---|---|
+| Identità DB | Impronta privata coincidente fra processo Hostless, configurazione locale e preflight GitHub; URL/token non pubblicati. |
+| Backup autorizzato | Export SQL privato, ripristino offline completo, integrity ok e zero violazioni FK; ACL Windows limitata all’utente. Manifest e hash nella directory privata ignorata da Git, non negli artifact pubblici Actions. |
+| Schema autorizzato | Prima prova su copia del backup, poi batch transazionale delle sole CREATE prospettiche: nove tabelle e 37 oggetti. Definizioni preesistenti preservate e nuove definizioni rilette confrontate con la prova locale. Nessun dato storico, profilo o parametro modificato dalla procedura. |
+| Cache | `runtime_calibration_profiles` era già presente; nessun warmup, migrazione 014 o refit aggiuntivo. |
+| Runner | Secret football-data.org e mapping configurati senza attivazione; dopo lo schema, preflight read-only verde per identità e 1.752 fixture mappate delle cinque leghe. La presenza delle tabelle non prova da sola un’ammissione forecast. |
+| Monitor | Schema reale compatibile. Prima della registrazione del protocollo il monitor restituisce correttamente critical per scope/attività/esiti non verificabili: non trasformare questo risultato in una raccolta verde. |
+| Riavvio web | Nuovo processo con bootstrap=false, recorder=false e collector=false; accesso allo stesso DB e zero forecast confermati dal probe. Non è una prova di recupero di una previsione reale dopo crash. |
+| Fonte esiti | Understat continua a restituire HTML HTTP 200 sulle cinque leghe. Calendario alternativo verificato, aggiornamento xG/esiti ancora indisponibile. |
+
+È predisposto un pilot **tecnico**, distinto dal campione rigoroso: cinque leghe, stagione 2026/2027, kickoff `[2026-11-06T00:00:00Z,2026-11-13T00:00:00Z)`, origine prospective_a e prima previsione nella finestra T−24h/T−60min. Protocollo `model-a-technical-pilot-20261106-v1`, manifest `0f097506f6eb7eccded4c5b30fb39bc1e4945c879b89b825868b7429cbb149fb`; mapping/hash e budget 30s/45s fissati prima dell’avvio. Variabili di raccolta e monitor restano false: questa preparazione non è consenso all’accensione. Prima di attivare oltre tali date serve un nuovo scope/protocollo, non un backfill. A fine pilot spegnere il gate repository e preservare eventi/ledger.
+
+Per un pilot durante il disservizio occorre accettare esplicitamente input tecnici e risultati eventualmente pendenti: non è una verifica dell’affidabilità statistica. Il consenso deve includere forecast, ledger, run, calendario e le scritture accessorie di cache/associazione già previste da PredictionService. In caso di anomalie di integrità, target inatteso o consegne non confermate sospendere nuove inferenze e conservare le evidenze. Il recupero di eventi reali e la latenza Turso end-to-end vanno misurati nel pilot autorizzato, senza introdurre risultati fittizi.
 
 ## Blocchi e criteri
 
 | Problema | Bloccante raccolta tecnica? | Prossima azione |
 |---|---|---|
-| Target/schema/autorizzazione | Sì | Identità DB, backup/schema manuale e flag autorizzati. Il preflight SELECT-only trova assenti le nove tabelle prospettiche/calendario; `runtime_calibration_profiles` è presente. L’impronta del target è confrontabile tramite diagnostica read-only. |
-| Runtime/storage scelti | Sì | Prova target di permessi/commit/restart/offline/drain. Volume non necessario nel runner database; file mode vietato sullo scratch. |
+| Target/schema | Risolto per il target accettato | Identità, backup/restore e schema verificati dopo consenso specifico. Serve consenso separato per accendere la raccolta. |
+| Runtime/storage scelti | Accettazione di eventi reali ancora da completare | Database Turso confermato; nessun volume necessario. Receipt, crash/offline e drain sul target durante il pilot autorizzato; prove isolate già passate. |
 | Scope/calendario/monitoraggio | Sì | Manifest futuro, sorgente fresca e mapping per il target, controllo finestre e responsabile avvisi. Non serve una quota per la raccolta sportiva. |
 | Provider Understat | Sì per aggiornamento xG/esiti; calendario research ha alternativa | Tornare a JSON valido per import e refresh esiti; nel frattempo il calendario opzionale può alimentare solo la raccolta tecnica dopo accettazione del target. La pagina HTML HTTP 200 non è una stagione vuota. |
 | Genealogia temporale | No tecnica; sì validazione rigorosa | Conservare limite per evento; servono evidenze ulteriori reali, non un cambio etichetta. |

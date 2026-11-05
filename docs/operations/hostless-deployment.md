@@ -35,7 +35,7 @@ Il comando web ordinario costruisce `DatabaseService` e, per compatibilità, ese
 
 Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED=false`, orchestratore GitHub e scheduler web/lineup spenti. Controllare nel pannello comando iniziale e post-build: nessuna migrazione o warmup aggiuntivo. Salvare configurazione e distribuire manualmente il commit con CI verde; attendere Deployed LIVE, controllare log e impostazioni effettive nel processo. `/api/health` è una risposta HTTP di salute, non certifica da sola lo schema o l'identità del DB. Verificare separatamente con client raw e sole SELECT. Nessun deploy autorizza bootstrap o raccolta.
 
-Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo.
+Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
 ## Persistenza per il recorder prospettico A
 
@@ -141,7 +141,7 @@ Non c'è una prova di persistenza per la modalità file. L'ispezione del pannell
 Il monitor GitHub è facoltativo e spento di default; usa sole `SELECT` e
 pubblica diagnostica aggregata e riepilogo nel job. Gli artifact durano
 14 giorni e non sono backup degli eventi, né provano sopravvivenza prima
-dell'upload. Non copre autonomamente un workflow mai partito. Vedere il
+dell'upload. Il job A nel watchdog orario separato può rilevare il collector mai partito; resta il limite di un’interruzione complessiva di GitHub Actions. Vedere il
 [passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md) per i limiti ancora aperti.
 I budget predefiniti sono `MODEL_A_COLLECTION_PREDICT_BUDGET_MS=30000` e
 `MODEL_A_COLLECTION_CONFIRMATION_BUDGET_MS=45000`; misure e soglie del run

@@ -61,3 +61,33 @@ jobs:
           test -n "$TURSO_DATABASE_URL" || { echo "Missing database URL"; exit 1; }
           test -n "$TURSO_WATCHDOG_READONLY_TOKEN" || { echo "Missing dedicated read-only watchdog token; no write-token fallback"; exit 1; }
           node scripts/check-research-nightly.js --database-only
+
+  model_a_inspect:
+    # Independent job: it can detect a collector that never started.
+    if: vars.MODEL_A_PROSPECTIVE_MONITORING_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Inspect Model A independently using the dedicated read-only token
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_WATCHDOG_READONLY_TOKEN }}
+          MODEL_A_PROSPECTIVE_MONITORING_ENABLED: 'true'
+          MODEL_A_COLLECTION_PROTOCOL_ID: ${{ vars.MODEL_A_COLLECTION_PROTOCOL_ID }}
+          MODEL_A_COLLECTION_MANIFEST_SHA256: ${{ vars.MODEL_A_COLLECTION_MANIFEST_SHA256 }}
+        shell: bash
+        run: |
+          test -n "$TURSO_DATABASE_URL" || { echo "Missing database URL"; exit 1; }
+          test -n "$TURSO_AUTH_TOKEN" || { echo "Missing dedicated read-only watchdog token; no write-token fallback"; exit 1; }
+          node scripts/check-model-a-prospective.js --configured-database
