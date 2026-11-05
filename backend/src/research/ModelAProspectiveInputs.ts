@@ -59,8 +59,66 @@ function publicIdentifier(value: unknown): string | number | null {
   return typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value) ? value : null;
 }
 
+export type ModelAParameterSourceOrigin = 'database_record' | 'in_memory_fit' | 'default_parameters' | 'not_observed';
+
+/** Observe the arguments supplied to fitting; model-specific validation can use subsets. */
+export function modelATrainingInputEvidence(matches: unknown[], observedAt: string) {
+  const evidence = { inputHash: null as string | null, inputCount: null as number | null, observedAt,
+    maximumKickoffAt: null as string | null, futureKickoffCount: null as number | null,
+    invalidKickoffCount: null as number | null, captureError: false,
+    scope: 'arguments_supplied_to_fits_before_model_specific_validation',
+    timeMeaning: 'fixture_kickoff_not_input_publication_or_availability' };
+  try {
+    const copy = JSON.parse(JSON.stringify(matches));
+    if (!Array.isArray(copy)) throw new Error('training_arguments_not_array');
+    const reference = timestampEvidence(observedAt, 'local_inspection_before_fit_not_model_internal_reference_clock', observedAt);
+    let maximum = -Infinity, future = 0, invalid = 0;
+    for (const match of copy) {
+      const date = timestampEvidence(match?.date, 'training_fixture_kickoff_not_input_availability', observedAt);
+      if (date.utc === null) invalid++;
+      else {
+        const instant = Date.parse(date.utc); maximum = Math.max(maximum, instant);
+        if (date.status === 'future') future++;
+      }
+    }
+    evidence.inputHash = hashPersistedJson(copy);
+    evidence.inputCount = copy.length;
+    evidence.maximumKickoffAt = Number.isFinite(maximum) ? new Date(maximum).toISOString() : null;
+    evidence.futureKickoffCount = reference.status === 'observed' ? future : null;
+    evidence.invalidKickoffCount = invalid;
+  } catch { evidence.captureError = true; }
+  return Object.freeze(evidence);
+}
+
+/** Keep source metadata outside model coefficients; never infer a database write time. */
+export function modelAParameterSourceMetadata(origin: ModelAParameterSourceOrigin, record?: any, localFitCompletedAt?: string,
+  trainingInputs?: ReturnType<typeof modelATrainingInputEvidence>) {
+  const metadata = {
+    source: 'model_params', origin,
+    id: null as string | number | null,
+    fitted_at: null as string | null,
+    localFitCompletedAt: origin === 'in_memory_fit' ? localFitCompletedAt ?? null : null,
+    trainingInputs: origin === 'in_memory_fit' ? trainingInputs ?? null : null,
+    sourceParametersHash: null as string | null,
+    parameterHashMeaning: origin === 'database_record' ? 'loaded_parameter_blob_before_runtime_sanitization'
+      : origin === 'in_memory_fit' ? 'completed_in_memory_fit_blob_not_database_record' : 'source_parameter_blob_not_observed',
+    captureError: false,
+  };
+  try {
+    if (origin === 'database_record') {
+      metadata.id = publicIdentifier(record?.id);
+      metadata.fitted_at = typeof record?.fitted_at === 'string' ? record.fitted_at : null;
+    }
+    if (origin === 'database_record' || origin === 'in_memory_fit') {
+      const parameters = record?.params ?? (typeof record?.params_json === 'string' ? JSON.parse(record.params_json) : null);
+      if (parameters != null) metadata.sourceParametersHash = modelAInputSnapshotHash(parameters);
+    }
+  } catch { metadata.captureError = true; }
+  return Object.freeze(metadata);
+}
+
 /** Fingerprint an actually consumed record without retaining raw provider payloads. */
-export function modelASourceRecordEvidence(row: any, inspectedAt: string) {
+export function modelASourceRecordEvidence(row: any, inspectedAt: string, inputAsOf?: string) {
   let observation: any;
   let aggregate: any;
   try { observation = JSON.parse(typeof row?.raw_json === 'string' ? row.raw_json : '{}')?.resultObservation; } catch { /* No source observation is inferred from unreadable JSON. */ }
@@ -81,12 +139,21 @@ export function modelASourceRecordEvidence(row: any, inspectedAt: string) {
     aggregateComputed: timestampEvidence(aggregate?.updatedAt, 'local_team_aggregate_computation_not_source_publication', inspectedAt),
     lineupCaptured: timestampEvidence(row?.fetched_at, 'local_lineup_snapshot_capture_write_not_provider_publication', inspectedAt),
     profileGenerated: timestampEvidence(row?.generatedAt, 'local_adaptive_profile_generation_not_training_input_availability', inspectedAt),
+    localFitCompleted: timestampEvidence(row?.localFitCompletedAt, 'local_fit_completion_not_database_fit_write_or_training_availability', inspectedAt),
+    maximumTrainingKickoff: timestampEvidence(row?.trainingInputs?.maximumKickoffAt, 'training_fixture_kickoff_not_input_publication_or_availability', inspectedAt),
   };
   const resultTimestamp = timestampEvidence(observation?.observedAt, 'declared_result_ingestion_observation_not_publication', inspectedAt);
+  const reference = timestampEvidence(inputAsOf, 'prediction_input_as_of_not_transactional_database_snapshot', inspectedAt);
+  if (reference.status === 'invalid' || reference.status === 'future') flags.push(`input_as_of_timestamp_${reference.status}`);
   for (const [name, evidence] of Object.entries({ ...timestamps, resultObservation: resultTimestamp })) {
     if (evidence.status === 'invalid' || evidence.status === 'future') flags.push(`${name}_timestamp_${evidence.status}`);
+    // This detects declarations newer than the requested input bound, even if
+    // they already existed at inspection. It does not infer data contamination
+    // from a local write or change which inputs inference consumes.
+    if (reference.status === 'observed' && evidence.utc && evidence.utc > reference.utc) flags.push(`${name}_after_input_as_of`);
   }
   if (observation?.source != null && observation.source !== row?.source) flags.push('result_observation_source_mismatch');
+  if (row?.trainingInputs?.futureKickoffCount > 0) flags.push('training_fixture_kickoff_after_fit_observation');
   if (timestamps.created.utc && timestamps.updated.utc && timestamps.created.utc > timestamps.updated.utc) flags.push('database_write_order_mismatch');
   // These fields have no verified publication/revision semantics in the current producers.
   // A similarly named declaration must never silently acquire those semantics.
@@ -94,11 +161,16 @@ export function modelASourceRecordEvidence(row: any, inspectedAt: string) {
     || row?.providerRevisionAt != null || row?.provider_revision_at != null) flags.push('provider_timestamp_semantics_unverified');
   return {
     inspectedAt,
+    inputAsOf: reference,
     localAcquiredAt: null,
     source,
     recordPresent: row != null,
     identity,
     recordHash,
+    parameterSource: ['database_record', 'in_memory_fit', 'default_parameters', 'not_observed'].includes(row?.origin)
+      ? { origin: row.origin, sourceParametersHash: /^[a-f0-9]{64}$/.test(row?.sourceParametersHash ?? '') ? row.sourceParametersHash : null,
+        trainingInputHash: /^[a-f0-9]{64}$/.test(row?.trainingInputs?.inputHash ?? '') ? row.trainingInputs.inputHash : null,
+        captureError: row.captureError === true } : null,
     ...timestamps,
     resultObservation: { source: resultSource,
       sourceMatchesRecord: observation?.source != null && observation.source === row?.source,
@@ -122,14 +194,14 @@ export class ModelAInputCapture {
   private errors: string[] = [];
   private sources: Record<string, unknown> = {};
 
-  observeSources(component: string, records: Record<string, unknown>, inspectedAt = new Date().toISOString()): void {
+  observeSources(component: string, records: Record<string, unknown>, inspectedAt = new Date().toISOString(), inputAsOf?: string): void {
     try {
       const evidence = Object.fromEntries(Object.entries(records).map(([name, value]) => [name,
         Array.isArray(value) ? {
-          ...modelASourceRecordEvidence(value, inspectedAt),
+          ...modelASourceRecordEvidence(value, inspectedAt, inputAsOf),
           recordCount: value.length,
-          records: value.map(row => modelASourceRecordEvidence(row, inspectedAt)),
-        } : modelASourceRecordEvidence(value, inspectedAt)]));
+          records: value.map(row => modelASourceRecordEvidence(row, inspectedAt, inputAsOf)),
+        } : modelASourceRecordEvidence(value, inspectedAt, inputAsOf)]));
       // Freeze the evidence boundary even if a caller later changes an identifier or row.
       this.sources[component] = JSON.parse(JSON.stringify(evidence));
     } catch {

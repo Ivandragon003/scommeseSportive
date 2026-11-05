@@ -2,7 +2,7 @@ import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData }
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { blendGoalProbabilities } from './ProbabilityEnsembleService';
 import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';
-import { ModelAInputCapture, modelASourceTimestampEvidence } from '../research/ModelAProspectiveInputs';
+import { ModelAInputCapture, modelASourceTimestampEvidence, modelAParameterSourceMetadata, modelATrainingInputEvidence } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
 import { CalibrationProfile, calibrationPayloadHash, calibrationProfileFingerprint, decodeCalibrationProfile } from './CalibrationProfileCache';
 import {
@@ -749,6 +749,7 @@ export class PredictionService {
   private modelLoads: Map<string, Promise<DixonColesModel>> = new Map();
   /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */
   private poissonModels: Map<string, PoissonXgModel | null> = new Map();
+  private modelParameterSources = new WeakMap<DixonColesModel | PoissonXgModel, ReturnType<typeof modelAParameterSourceMetadata>>();
   private engine: ValueBettingEngine;
   private backtester: BacktestingEngine;
   private db: DatabaseService;
@@ -1869,9 +1870,16 @@ export class PredictionService {
         model.setParams(this.sanitizeModelParams(saved.params));
         this.models.set(competition, model);
         this.poissonModels.set(competition, this.buildPoissonModel(saved.params));
+        if (modelAProspectiveEnabled()) {
+          const metadata = modelAParameterSourceMetadata('database_record', saved);
+          this.modelParameterSources.set(model, metadata);
+          const poisson = this.poissonModels.get(competition);
+          if (poisson) this.modelParameterSources.set(poisson, metadata);
+        }
       } else {
         this.models.set(competition, new DixonColesModel());
         this.poissonModels.set(competition, null);
+        if (modelAProspectiveEnabled()) this.modelParameterSources.set(this.models.get(competition)!, modelAParameterSourceMetadata('default_parameters'));
       }
       return this.models.get(competition)!;
     })();
@@ -1894,6 +1902,7 @@ export class PredictionService {
     const saved = await this.db.getLatestModelParams(competition);
     const built = saved ? this.buildPoissonModel(saved.params) : null;
     this.poissonModels.set(competition, built);
+    if (built && modelAProspectiveEnabled()) this.modelParameterSources.set(built, modelAParameterSourceMetadata('database_record', saved));
     return built;
   }
 
@@ -1962,6 +1971,7 @@ export class PredictionService {
 
     if (matches.length < 20) throw new Error(`Dati insufficienti: ${matches.length} partite. Servono almeno 20.`);
 
+    const prospectiveTrainingInputs = modelAProspectiveEnabled() ? modelATrainingInputEvidence(matches, new Date().toISOString()) : null;
     const teams = [...new Set(matches.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
     const model = new DixonColesModel();
     const fittedParams = model.fitModel(matches, teams);
@@ -1974,6 +1984,8 @@ export class PredictionService {
     const poissonModel = new PoissonXgModel();
     const poissonParams = poissonModel.fit(matches);
     const params: any = { ...scaledParams, poissonXg: poissonParams };
+    const prospectiveFitSource = modelAProspectiveEnabled()
+      ? modelAParameterSourceMetadata('in_memory_fit', { params }, new Date().toISOString(), prospectiveTrainingInputs) : null;
 
     // Aggiorna i soli parametri del modello. Il sync Understat ricalcola gia le
     // statistiche squadra prima del fit e puo disattivare il secondo passaggio.
@@ -2015,6 +2027,10 @@ export class PredictionService {
     await this.db.saveModelParams(competition, season ?? 'all', params, matches.length, logLikelihood);
     this.models.set(competition, model);
     this.poissonModels.set(competition, poissonModel);
+    if (prospectiveFitSource) {
+      this.modelParameterSources.set(model, prospectiveFitSource);
+      this.modelParameterSources.set(poissonModel, prospectiveFitSource);
+    }
     this.invalidateCalibrationForCompetition(competition);
 
     return { matchesUsed: matches.length, logLikelihood, teams: teams.length };
@@ -2236,17 +2252,18 @@ export class PredictionService {
     }
 
     const prospectiveInputs = modelAProspectiveEnabled() ? new ModelAInputCapture() : null;
+    const dcModelSource = prospectiveInputs ? this.modelParameterSources.get(model) ?? modelAParameterSourceMetadata('not_observed') : null;
     prospectiveInputs?.observeSources('contextual', { fixture: matchRow, homeTeam, awayTeam, referee,
       homePlayers, awayPlayers, lineupStatusRows, homeHistoricalCoverage, awayHistoricalCoverage,
-      homePromotedHistory, awayPromotedHistory, homeSchedule, awaySchedule });
+      homePromotedHistory, awayPromotedHistory, homeSchedule, awaySchedule, dcModelSource }, undefined, asOf);
     prospectiveInputs?.observe('contextual', {
       match: { matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
         kickoffAt: matchRow?.date ?? null, source: matchRow?.source ?? null, sourceMatchId: matchRow?.source_match_id ?? null },
-      inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(),
+      inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(), dcModelSource,
       homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,
       context, lineupXgAdjustments,
       sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })
-        .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString())])),
+        .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString(), asOf)])),
     });
     const probs = model.computeFullProbabilities(
       request.homeTeamId,
@@ -2261,10 +2278,13 @@ export class PredictionService {
     // curve vengono applicate esattamente alle probabilità blendate.
     const ensembleCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? undefined;
     const ensemblePoisson = await this.ensurePoissonModel(ensembleCompetition ?? 'default');
-    prospectiveInputs?.observeSources('ensemble', { dcParameters: model.getParams(), poissonParameters: ensemblePoisson?.getParams() ?? null });
+    const poissonModelSource = prospectiveInputs && ensemblePoisson
+      ? this.modelParameterSources.get(ensemblePoisson) ?? modelAParameterSourceMetadata('not_observed') : null;
+    prospectiveInputs?.observeSources('ensemble', { dcParameters: model.getParams(), poissonParameters: ensemblePoisson?.getParams() ?? null,
+      dcModelSource, poissonModelSource }, undefined, asOf);
     prospectiveInputs?.observe('ensemble', {
       homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
-      poissonParameters: ensemblePoisson?.getParams() ?? null,
+      poissonParameters: ensemblePoisson?.getParams() ?? null, dcModelSource, poissonModelSource,
       ensembleConfig: predictionEngineConfig.ensemble, dcProbabilities: probs.flatProbabilities,
     });
     probs.flatProbabilities = this.applyEnsembleBlend(
@@ -2390,7 +2410,7 @@ export class PredictionService {
     };
     const engineTuningAtAnalysis = this.engine.getAdaptiveTuning();
     prospectiveInputs?.observeSources('analysis', { calibrationProfile, adaptiveTuning: engineTuningAtAnalysis,
-      sharedOdds: options.sharedOdds ?? null });
+      sharedOdds: options.sharedOdds ?? null }, undefined, asOf);
     prospectiveInputs?.observe('analysis', {
       flatProbabilities: probs.flatProbabilities, marketGroups, marketNames,
       calibrationProfile, adaptiveTuning: engineTuningAtAnalysis, analysisContext,

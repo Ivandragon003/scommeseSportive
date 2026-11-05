@@ -21,6 +21,10 @@ consumate e il riscontro opzionale di consegna del recorder per il collector
 indipendente. Il callback è protetto: un errore dell'osservatore non cambia
 il risultato di `predict`. Protocollo, manifest e claim identificano la raccolta,
 senza entrare nei calcoli statistici.
+La successiva deviazione osservativa conserva ID e data dei parametri già
+letti, l'impronta degli argomenti di un fit effettivo e i controlli rispetto
+a inputAsOf. Ogni hunk viene annullato esattamente dal test prima degli hash
+originali; non sono rigenerati manifest o golden numerici.
 Questi timestamp non diventano date di pubblicazione del provider.
 Ogni blocco conserva prima/dopo esatti,
 contesto e motivo; i blocchi storici provengono dai relativi diff Git.
