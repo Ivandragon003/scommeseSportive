@@ -7,15 +7,15 @@ const { createApiRouter } = require('../dist/api/routes.js');
 const { rebuildPlayerDerivedStats } = require('../dist/services/PlayerDerivedStatsService.js');
 
 /**
- * Characterization test for the player derived-stats rebuild, exercised through
+ * Regression test for the player derived-stats rebuild, exercised through
  * POST /api/model/recompute-averages with recomputePlayers=true and
- * recomputeReferees=false. Written BEFORE extracting rebuildPlayerDerivedStats
- * out of routes.ts so the extraction can be proven behavior-preserving.
+ * recomputeReferees=false. Retains the original partial-shotmap fixture:
+ * its on-target counts are now unavailable rather than asserted as complete.
  *
  * Seed: one played match Inter (15 shots) vs Milan (10 shots) with a raw_json
  * shotmap. Lautaro (id 100, 90'): 4 shots, 1 goal, xG 0.8, 1 yellow; shotmap has
- * Goal(0.8) + SavedShot(0.3) => 2 on target, xGOT 1.1. Leao (id 200, 80'): 3
- * shots, xG 0.5; shotmap MissedShots => 0 on target.
+ * Goal(0.8) + SavedShot(0.3), only 2 of 4 declared shots. Leao (id 200, 80'):
+ * 3 shots, xG 0.5; shotmap contains only one MissedShots event.
  */
 const RAW = JSON.stringify({
   details: {
@@ -61,7 +61,7 @@ const startRouter = async (captured) => {
 
 const near = (actual, expected, msg) => assert.ok(Math.abs(actual - expected) < 1e-9, `${msg}: ${actual} != ${expected}`);
 
-test('POST /model/recompute-averages rebuilds player aggregates (characterization)', async () => {
+test('POST /model/recompute-averages retains observed stats but abstains on partial player shotmaps', async () => {
   const captured = [];
   const { baseUrl, close } = await startRouter(captured);
   try {
@@ -87,12 +87,12 @@ test('POST /model/recompute-averages rebuilds player aggregates (characterizatio
     assert.equal(lautaro.positionCode, 'F');
     assert.equal(lautaro.gamesPlayed, 1);
     assert.equal(lautaro.totalShots, 4);
-    assert.equal(lautaro.totalShotsOnTarget, 2);
+    assert.equal(lautaro.totalShotsOnTarget, null);
     assert.equal(lautaro.totalGoals, 1);
     assert.equal(lautaro.yellowCardsTotal, 1);
     near(lautaro.avgShotsPerGame, 4, 'lautaro avgShots');
     near(lautaro.shotsPer90, 4, 'lautaro shotsPer90');
-    near(lautaro.shotOnTargetPct, 0.5, 'lautaro sotPct');
+    assert.equal(lautaro.shotOnTargetPct, null);
     near(lautaro.goalConversion, 0.25, 'lautaro goalConv');
     near(lautaro.avgXGOTPerGame, 1.1, 'lautaro xgot');
     near(lautaro.shotShareOfTeam, 4 / 15, 'lautaro shotShare');
@@ -101,10 +101,10 @@ test('POST /model/recompute-averages rebuilds player aggregates (characterizatio
     const leao = byId['understat_player_200'];
     assert.ok(leao, 'Leao upserted');
     assert.equal(leao.positionCode, 'M');
-    assert.equal(leao.totalShotsOnTarget, 0);
+    assert.equal(leao.totalShotsOnTarget, null);
     near(leao.shotsPer90, (3 / 80) * 90, 'leao shotsPer90');
     near(leao.shotShareOfTeam, 3 / 10, 'leao shotShare');
-    near(leao.shotOnTargetPct, 0, 'leao sotPct');
+    assert.equal(leao.shotOnTargetPct, null);
   } finally {
     await close();
   }

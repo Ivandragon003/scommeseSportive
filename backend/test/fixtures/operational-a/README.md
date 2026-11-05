@@ -26,6 +26,15 @@ letti, l'impronta degli argomenti di un fit effettivo e i controlli rispetto
 a inputAsOf. Ogni hunk viene annullato esattamente dal test prima degli hash
 originali; non sono rigenerati manifest o golden numerici.
 Questi timestamp non diventano date di pubblicazione del provider.
+La deviazione `missing-market-observations-v1` registra la correzione autorizzata
+dei dati mancanti in tiri/SOT e gialli/rossi: campioni per campo, astensione
+su esiti assenti e disponibilità delle famiglie anche nel payload strutturato.
+Non modifica coefficienti, golden numerici, manifest sorgente originale o
+snapshot C. I suoi blocchi esatti vengono annullati prima delle deviazioni
+precedenti; prove di mutazione rifiutano anche la loro rimozione o duplicazione.
+L'identità APP-A cambia e richiede un nuovo protocollo/manifest prima del pilot,
+con collector e recorder ancora spenti. Il contratto corrente è in
+[`docs/data-observation-contract.md`](../../../../docs/data-observation-contract.md).
 Ogni blocco conserva prima/dopo esatti,
 contesto e motivo; i blocchi storici provengono dai relativi diff Git.
 Il test richiede una sola occorrenza di ogni blocco e annulla queste sole

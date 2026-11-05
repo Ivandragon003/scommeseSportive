@@ -31,6 +31,8 @@ Directory sync attesta quell'operazione, **non la resistenza a perdita di alimen
 
 ## Pubblicazione e operazioni
 
+Il [contratto delle osservazioni](../data-observation-contract.md) introduce una nuova identità del codice A per la correzione dei dati mancanti di tiri/SOT e cartellini. Prima di qualsiasi attivazione occorrono nuova preregistrazione e nuovo manifest come definito nel protocollo; non si riusano scope/versioni precedenti per una coorte mista. Collector e recorder restano spenti. Questa integrazione non comprende migrazioni, riparazioni storiche, warmup di calibrazione o deploy. L'integrità numerica di C rimane distinta e congelata.
+
 | Percorso | Effetto |
 |---|---|
 | Push/PR nei workflow esaminati | CI senza secret DB; nessun warmup, schema o deploy collegato al push. CI estesa al branch di preparazione. |

@@ -182,6 +182,21 @@ export function normalizeModelAContextXg<T extends { homeXG?: number; awayXG?: n
   return context;
 }
 
+
+function observedMarketCount(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+function observedMarketMean(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const mean = Number(value);
+  return Number.isFinite(mean) && mean >= 0 ? mean : null;
+}
+
 function buildPredictionDataQuality(params: {
   context: any; homeTeam: any; awayTeam: any; homePlayers: any[]; awayPlayers: any[];
   referee: any; odds: Record<string, number>; opportunity: any;
@@ -906,7 +921,7 @@ export class PredictionService {
     const mCards = lower.match(/^cardstotal(over|under)(\d{2,3})$/);
     if (mCards) {
       const values = ['home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards']
-        .map((column) => row[column] == null ? NaN : Number(row[column]));
+        .map((column) => observedMarketCount(row[column]) ?? NaN);
       if (values.some((value) => !Number.isFinite(value) || value < 0)) return null;
       const totalPoints = bookingPoints(values[0] + values[1], values[2] + values[3]);
       const line = Number(mCards[2]) / 10;
@@ -925,8 +940,8 @@ export class PredictionService {
       };
       const [homeCol, awayCol] = statColumns[mStat[1]];
       if (row?.[homeCol] == null || row?.[awayCol] == null) return null;
-      const homeVal = Number(row[homeCol]);
-      const awayVal = Number(row[awayCol]);
+      const homeVal = observedMarketCount(row[homeCol]) ?? NaN;
+      const awayVal = observedMarketCount(row[awayCol]) ?? NaN;
       if (!Number.isFinite(homeVal) || !Number.isFinite(awayVal) || homeVal < 0 || awayVal < 0) return null;
       const statLine = Number(mStat[3]) / 10;
       const statTotal = homeVal + awayVal;
@@ -1492,9 +1507,12 @@ export class PredictionService {
     };
   }
 
-  private shouldEnableStatMarkets(supp: SupplementaryData): boolean {
-    const homeSample = Number(supp?.homeTeamStats?.sampleSize ?? 0);
-    const awaySample = Number(supp?.awayTeamStats?.sampleSize ?? 0);
+  private shouldEnableStatMarkets(supp: SupplementaryData, fields: Array<'sampleSizeShots' | 'sampleSizeShotsOT' | 'sampleSizeYellow' | 'sampleSizeRed'> = []): boolean {
+    const sample = (stats: SupplementaryData['homeTeamStats']) => fields.length
+      ? Math.min(...fields.map(field => observedMarketCount(stats?.[field] ?? stats?.sampleSize) ?? 0))
+      : observedMarketCount(stats?.sampleSize) ?? 0;
+    const homeSample = sample(supp?.homeTeamStats);
+    const awaySample = sample(supp?.awayTeamStats);
     if (!Number.isFinite(homeSample) || !Number.isFinite(awaySample)) return false;
 
     const perTeamMin = predictionConfig.markets.minSampleSizePerTeam;
@@ -1509,8 +1527,9 @@ export class PredictionService {
   private dropInsufficientStatMarkets(
     flatProbabilities: Record<string, number>,
     shouldKeep: boolean,
+    supp?: SupplementaryData,
   ): Record<string, number> {
-    if (shouldKeep) return flatProbabilities;
+    if (shouldKeep && !supp) return flatProbabilities;
     const blockedPrefixes = [
       'shots',
       'shotshome',
@@ -1525,10 +1544,43 @@ export class PredictionService {
     const out: Record<string, number> = {};
     for (const [key, value] of Object.entries(flatProbabilities ?? {})) {
       const normalized = String(key).toLowerCase();
-      const blocked = blockedPrefixes.some((prefix) => normalized.startsWith(prefix));
-      if (!blocked) out[key] = value;
+      const family = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']
+        : normalized.startsWith('shots') ? ['sampleSizeShots']
+        : normalized.startsWith('yellow') ? ['sampleSizeYellow']
+        : normalized.startsWith('cardstotal') || normalized.startsWith('cards_total') ? ['sampleSizeYellow', 'sampleSizeRed'] : [];
+      const statMarket = blockedPrefixes.some((prefix) => normalized.startsWith(prefix));
+      const allowed = shouldKeep && (!supp || family.length === 0 || this.shouldEnableStatMarkets(supp, family as Array<'sampleSizeShots' | 'sampleSizeShotsOT' | 'sampleSizeYellow' | 'sampleSizeRed'>));
+      if (!statMarket || allowed) out[key] = value;
     }
     return out;
+  }
+
+  private applyStatMarketAvailability(probs: FullMatchProbabilities, supp: SupplementaryData): void {
+    const enabled = this.shouldEnableStatMarkets(supp);
+    const available = {
+      shots: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShots']),
+      shotsOT: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShotsOT']),
+      yellow: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeYellow']),
+      cardsTotal: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeYellow', 'sampleSizeRed']),
+    };
+    // Preserve the complete legacy payload; mark and clear unsupported families.
+    if (Object.values(available).some(value => !value)) probs.statMarketAvailability = available;
+    if (!available.shots) {
+      probs.shotsTotal = {};
+      probs.shotsHome.overUnder = {};
+      probs.shotsAway.overUnder = {};
+      probs.shotsHome.totalShots.distribution = {};
+      probs.shotsAway.totalShots.distribution = {};
+    }
+    if (!available.shotsOT) {
+      probs.shotsOnTargetHome.distribution = {};
+      probs.shotsOnTargetAway.distribution = {};
+      probs.shotsHome.shotsOnTarget.distribution = {};
+      probs.shotsAway.shotsOnTarget.distribution = {};
+    }
+    if (!available.yellow) probs.cards.overUnderYellow = {};
+    if (!available.cardsTotal) probs.cards.overUnderTotal = {};
+    probs.flatProbabilities = this.dropInsufficientStatMarkets(probs.flatProbabilities, enabled, supp);
   }
 
   private dropUnavailableUnderstatMarkets(
@@ -1625,9 +1677,41 @@ export class PredictionService {
     return 0;
   }
 
-  private getPlayerSampleSize(player: any): number {
-    const games = Number(player?.games_played ?? player?.gamesPlayed);
-    return Number.isFinite(games) ? Math.max(0, games) : 0;
+  private playerObservationMetadata(player: any): any {
+    const raw = player?.stats_json ?? player?.statsJson;
+    if (raw && typeof raw === 'object') return raw;
+    try { return typeof raw === 'string' ? JSON.parse(raw) : null; }
+    catch { return null; }
+  }
+
+  private getPlayerSampleSize(player: any, marketType?: PlayerPropMarketType): number {
+    const games = observedMarketCount(player?.games_played ?? player?.gamesPlayed) ?? 0;
+    const field = marketType === 'shots' ? 'shots' : marketType === 'sot' ? 'shotsOnTarget' : marketType === 'yellow' ? 'yellowCards' : null;
+    const coverage = this.playerObservationMetadata(player)?.coverage;
+    if (!field || !coverage || typeof coverage !== 'object') return games;
+    return Math.min(games, observedMarketCount(coverage[field]) ?? 0);
+  }
+
+  private async getPredictionReferee(name: string, competition: string, asOf: Date | string): Promise<any | null> {
+    const stored = await this.db.getRefereeByName(name);
+    if (!stored || typeof this.db.getRefereeObservedStats !== 'function') return stored;
+    const observed = await this.db.getRefereeObservedStats(name, { competition, asOf }).catch(() => null);
+    if (!observed || observedMarketCount(stored.total_games) !== observed.total_games) return stored;
+    // Legacy profiles do not retain their rebuild window. Never replace their
+    // means with a different scope; attach counts only where totals and means agree.
+    const result = { ...stored };
+    for (const [mean, count] of [
+      ['avg_yellow_cards_per_game', 'yellow_games'],
+      ['avg_red_cards_per_game', 'red_games'],
+      ['avg_fouls_per_game', 'fouls_games'],
+    ]) {
+      const value = stored[mean];
+      const numeric = typeof value === 'number' || typeof value === 'string' && value.trim() ? Number(value) : NaN;
+      if (Number.isFinite(numeric) && numeric >= 0 && observed[mean] !== null
+        && Math.abs(numeric - observed[mean]!) <= 1e-10) result[count] = observed[count];
+      else if (value == null && observed[mean] === null) result[count] = 0;
+    }
+    return result;
   }
 
   private mapPositionToCardRole(positionCode: string): PlayerCardRole {
@@ -1785,7 +1869,7 @@ export class PredictionService {
       const player = byId.get(parsed.playerId);
       if (!player) continue;
       const historicalExpectedMinutes = this.getPlayerExpectedMinutes(player.row);
-      const sampleSize = this.getPlayerSampleSize(player.row);
+      const sampleSize = this.getPlayerSampleSize(player.row, parsed.marketType);
       const dataWarnings: string[] = [];
       const externalLineup = params.lineupStatuses?.get(parsed.playerId);
       const lineup = assessPlayerLineup(player.row, externalLineup as any);
@@ -1830,24 +1914,36 @@ export class PredictionService {
         const over = conditionalPlayerPropOverProbability(conditionalOver);
         probability = parsed.side === 'over' ? over : 1 - over;
       } else if (parsed.marketType === 'yellow') {
+        const metadata = this.playerObservationMetadata(player.row);
+        const pairedCards = observedMarketCount(metadata?.observedTotals?.yellowCards);
+        const pairedMinutes = observedMarketCount(metadata?.observedMinutes?.yellowCards);
+        const allCards = observedMarketCount(player.row?.yellow_cards_total ?? player.row?.yellowCardsTotal);
+        const allMinutes = observedMarketCount(player.row?.minutes_total ?? player.row?.minutesTotal);
+        const paired = pairedCards !== null && pairedMinutes !== null && pairedMinutes > 0;
+        const partial = metadata?.coverage && sampleSize < (observedMarketCount(player.row?.games_played ?? player.row?.gamesPlayed) ?? 0);
+        if (!paired && (allCards === null || allMinutes === null || allMinutes <= 0 || partial)) {
+          warnings.push(`player_prop_skipped_missing_observation:${parsed.playerId}:yellow`);
+          continue;
+        }
         const role = this.mapPositionToCardRole(String(player.row?.position_code ?? player.row?.positionCode ?? 'MF'));
         const teamExpectedYellows = player.teamName === params.homeTeamName
           ? Number(params.probabilities.cards?.expectedHomeYellow ?? 1.8)
           : Number(params.probabilities.cards?.expectedAwayYellow ?? 1.8);
+        const refereeYellow = observedMarketMean(params.referee?.avg_yellow_cards_per_game ?? params.referee?.avgYellowCardsPerGame);
         const prediction = this.playerCardsModel.predictPlayerYellowCards({
           playerId: parsed.playerId,
           playerName: String(player.row?.name ?? player.row?.playerName ?? parsed.playerId),
           role,
-          playerYellowCards: Number(player.row?.yellow_cards_total ?? player.row?.yellowCardsTotal ?? 0),
-          playerMinutes: Number(player.row?.minutes_total ?? player.row?.minutesTotal ?? 0),
+          playerYellowCards: paired ? pairedCards! : allCards!,
+          playerMinutes: paired ? pairedMinutes! : allMinutes!,
           expectedMinutes,
           teamExpectedYellows: Number.isFinite(teamExpectedYellows) ? teamExpectedYellows : 1.8,
           // B6: baseline per-lega (era hardcoded 1.9 / 3.8). leagueAvgYellowPerMatch
           // e' il totale gialli/match della lega; /2 = media per squadra.
           leagueAvgTeamYellows: params.leagueAvgYellowPerMatch / 2,
-          refereeYellowAvg: Number(params.referee?.avg_yellow_cards_per_game ?? params.referee?.avgYellowCardsPerGame ?? params.leagueAvgYellowPerMatch),
+          refereeYellowAvg: refereeYellow ?? params.leagueAvgYellowPerMatch,
           leagueAvgRefereeYellow: params.leagueAvgYellowPerMatch,
-          refereeCoverage: Number(params.referee?.total_games ?? params.referee?.totalGames ?? 0),
+          refereeCoverage: refereeYellow === null ? 0 : observedMarketCount(params.referee?.yellow_games ?? params.referee?.total_games ?? params.referee?.totalGames) ?? 0,
         });
         if (!params.referee) dataWarnings.push('missing_referee_data');
         const over = parsed.line <= 0.5 ? prediction.probabilityYellowOver0_5 : this.probabilityOverLine(prediction.expectedPlayerYellows, parsed.line);
@@ -2151,10 +2247,13 @@ export class PredictionService {
     const homeHistoricalCoverage = coverageByTeam[request.homeTeamId] ?? null;
     const awayHistoricalCoverage = coverageByTeam[request.awayTeamId] ?? null;
     const refereeName = resolvePredictionRefereeName(request.referee, matchRow?.referee);
-    const referee = refereeName ? await this.db.getRefereeByName(refereeName) : null;
+
     const referenceDate = String(matchRow?.date ?? '').trim() || undefined;
     const targetCompetition = request.competition ?? homeTeam?.competition ?? awayTeam?.competition ?? '';
     const targetSeason = request.season ?? matchRow?.season ?? '';
+    const referee = refereeName
+      ? await this.getPredictionReferee(refereeName, targetCompetition, asOf)
+      : null;
     const destinationCompetitionId = destinationCompetitionIdFor(targetCompetition);
     const sourceCompetitionId = sourceCompetitionIdFor(targetCompetition);
     let homePromotedHistory: any[] = [];
@@ -2354,10 +2453,7 @@ export class PredictionService {
       probs.fouls.overUnder = {};
       if (probs.corners) probs.corners.overUnder = {};
     }
-    probs.flatProbabilities = this.dropInsufficientStatMarkets(
-      probs.flatProbabilities,
-      statsMarketsEnabled
-    );
+    this.applyStatMarketAvailability(probs, supp);
 
     // Arricchisci con mercati secondari
     this.enrichFlatProbabilities(probs.flatProbabilities);
@@ -2448,8 +2544,8 @@ export class PredictionService {
       expectedGoals: Number(probs.lambdaHome ?? 0) + Number(probs.lambdaAway ?? 0),
       expectedCards: Number(probs.cards?.expectedTotalYellow ?? 0),
       expectedFouls: Number(probs.fouls?.expectedTotalFouls ?? 0),
-      refereeAvgYellow: Number((referee as any)?.avg_yellow_cards_per_game ?? supp?.refereeStats?.avgYellow ?? 3.8),
-      refereeAvgFouls: Number((referee as any)?.avg_fouls_per_game ?? supp?.refereeStats?.avgFouls ?? 22.4),
+      refereeAvgYellow: observedMarketMean((referee as any)?.avg_yellow_cards_per_game) ?? supp?.refereeStats?.avgYellow ?? 3.8,
+      refereeAvgFouls: observedMarketMean((referee as any)?.avg_fouls_per_game) ?? supp?.refereeStats?.avgFouls ?? 22.4,
       refereeSampleSize: Number((referee as any)?.sample_size ?? (referee as any)?.games ?? supp?.refereeStats?.sampleSize ?? 0),
       leagueAvgYellow: Number(supp?.leagueAvgYellow ?? 3.8),
       leagueAvgFouls: Number(supp?.leagueAvgFouls ?? 22.4),
@@ -3368,8 +3464,7 @@ export class PredictionService {
 
     const averageFinite = (...values: Array<number | undefined>): number | null => {
       const valid = values
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && value >= 0);
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
       if (valid.length === 0) return null;
       return valid.reduce((sum, value) => sum + value, 0) / valid.length;
     };
@@ -3379,6 +3474,13 @@ export class PredictionService {
     const minSample = Math.max(0, Math.min(homeSample, awaySample));
     const sampleFloor = Math.max(1, predictionConfig.markets.minSampleSizePerTeam);
     const statSampleStrength = clamp((minSample - sampleFloor) / 12, 0, 1);
+    const observedStrength = (fields: Array<'sampleSizeShots' | 'sampleSizeShotsOT' | 'sampleSizeYellow' | 'sampleSizeRed'>): number => {
+      const counts = [supp?.homeTeamStats, supp?.awayTeamStats].flatMap(stats =>
+        fields.map(field => observedMarketCount(stats?.[field] ?? stats?.sampleSize) ?? 0));
+      return clamp((Math.min(...counts) - sampleFloor) / 12, 0, 1);
+    };
+    const shotsSampleStrength = observedStrength(['sampleSizeShots', 'sampleSizeShotsOT']);
+    const cardsSampleStrength = observedStrength(['sampleSizeYellow', 'sampleSizeRed']);
 
     const avgShotVariance = averageFinite(
       supp?.homeTeamStats?.varShots,
@@ -3391,7 +3493,7 @@ export class PredictionService {
         ? 0.72
         : clamp(1 - (avgShotVariance / 42), 0.45, 1);
     const shotsReliability = clamp(
-      (statSampleStrength * 0.7) + (shotStability * 0.3),
+      (shotsSampleStrength * 0.7) + (shotStability * 0.3),
       0,
       1,
     );
@@ -3413,7 +3515,7 @@ export class PredictionService {
         ? 0.68
         : clamp(1 - (avgDisciplineVariance / 55), 0.4, 1);
     const disciplineReliability = clamp(
-      (statSampleStrength * 0.65) + (disciplineStability * 0.35),
+      (cardsSampleStrength * 0.65) + (disciplineStability * 0.35),
       0,
       1,
     );
@@ -3758,8 +3860,7 @@ export class PredictionService {
       });
       if (normalizedPlayer) {
         const numeric = (value: unknown): number | null => {
-          const n = Number(value);
-          return Number.isFinite(n) ? n : null;
+          return observedMarketCount(value);
         };
         const value = parsed.marketType === 'shots'
           ? numeric(normalizedPlayer.shots)
@@ -3783,13 +3884,26 @@ export class PredictionService {
     }
 
     const playerEntryId = String(player?.player_id ?? player?.id ?? '').trim();
-    const shots = [raw?.shots?.h, raw?.shots?.a]
-      .flatMap((items: any) => Array.isArray(items) ? items : [])
-      .filter((shot: any) => String(shot?.player_id ?? '').trim() === playerEntryId);
-    const onTarget = shots.filter((shot: any) => ['Goal', 'SavedShot'].includes(String(shot?.result ?? '').trim())).length;
+    const duplicatedPlayer = rosters.filter((entry: any) => String(entry?.player_id ?? entry?.id ?? '').trim() === playerEntryId).length !== 1;
+    if (duplicatedPlayer) return null;
+    const homeRoster = Object.values(raw?.rosters?.h ?? {}) as any[];
+    const side = homeRoster.includes(player) ? 'h' : 'a';
+    const teamShots = raw?.shots?.[side];
+    const shots = Array.isArray(teamShots)
+      ? teamShots.filter((shot: any) => String(shot?.player_id ?? '').trim() === playerEntryId) : [];
+    const result = (shot: any) => String(shot?.result ?? '').trim().toLowerCase().replace(/\s+/g, '');
+    const knownResults = new Set(['goal', 'savedshot', 'missedshots', 'blockedshot', 'shotonpost', 'owngoal']);
+    const shotIds = Array.isArray(teamShots) ? teamShots.map((shot: any) => String(shot?.id ?? '').trim()).filter(Boolean) : [];
+    const uniqueShotIds = new Set(shotIds).size === shotIds.length;
+    const rosterShots = observedMarketCount(player?.shots);
+    const completeShots = uniqueShotIds && Array.isArray(teamShots)
+      && teamShots.every((shot: any) => String(shot?.player_id ?? '').trim() && knownResults.has(result(shot)))
+      && rosterShots !== null
+      && shots.filter((shot: any) => result(shot) !== 'owngoal').length === rosterShots;
+    const onTarget = completeShots
+      ? shots.filter((shot: any) => ['goal', 'savedshot'].includes(result(shot))).length : null;
     const numberOrNull = (value: unknown): number | null => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
+      return observedMarketCount(value);
     };
 
     let value: number | null = null;
@@ -3893,10 +4007,7 @@ export class PredictionService {
       return settled('VOID', 'Asian handicap casa (push)');
     }
 
-    const numOrNull = (v: any): number | null => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
+    const numOrNull = (v: unknown): number | null => observedMarketCount(v);
 
     const homeShots = numOrNull(matchRow?.home_shots);
     const awayShots = numOrNull(matchRow?.away_shots);
@@ -3934,8 +4045,8 @@ export class PredictionService {
       } else if (domain === 'yellow') {
         actual = homeYellow !== null && awayYellow !== null ? homeYellow + awayYellow : null;
       } else if (domain === 'cards_total') {
-        if (homeYellow === null || awayYellow === null) return null;
-        actual = homeYellow + awayYellow + 2 * ((homeRed ?? 0) + (awayRed ?? 0));
+        if (homeYellow === null || awayYellow === null || homeRed === null || awayRed === null) return null;
+        actual = homeYellow + awayYellow + 2 * (homeRed + awayRed);
       }
 
       if (actual === null) return null;
@@ -3987,8 +4098,8 @@ export class PredictionService {
       } else if (domain === 'yellow') {
         actual = homeYellow !== null && awayYellow !== null ? homeYellow + awayYellow : null;
       } else if (domain === 'cardstotal') {
-        if (homeYellow === null || awayYellow === null) return null;
-        actual = homeYellow + awayYellow + 2 * ((homeRed ?? 0) + (awayRed ?? 0));
+        if (homeYellow === null || awayYellow === null || homeRed === null || awayRed === null) return null;
+        actual = homeYellow + awayYellow + 2 * (homeRed + awayRed);
       } else if (domain === 'fouls') {
         actual = homeFouls !== null && awayFouls !== null ? homeFouls + awayFouls : null;
       }
@@ -4357,6 +4468,7 @@ export class PredictionService {
   private mapCompletedMatches(rawMatches: any[]): MatchData[] {
     const optionalNumber = (value: unknown): number | undefined =>
       value == null || !Number.isFinite(Number(value)) ? undefined : Number(value);
+    const optionalCount = (value: unknown): number | undefined => observedMarketCount(value) ?? undefined;
     return rawMatches
       .filter((m: any) => m.home_goals != null && m.away_goals != null &&
         String(m.match_id ?? '').trim() &&
@@ -4368,18 +4480,18 @@ export class PredictionService {
         matchId: String(m.match_id), homeTeamId: String(m.home_team_id), awayTeamId: String(m.away_team_id),
         date: new Date(historicalTimestamp(m.date)), homeGoals: Number(m.home_goals), awayGoals: Number(m.away_goals),
         homeXG: optionalNumber(m.home_xg), awayXG: optionalNumber(m.away_xg),
-        homeShotsOnTarget: optionalNumber(m.home_shots_on_target),
-        awayShotsOnTarget: optionalNumber(m.away_shots_on_target),
-        homeTotalShots: optionalNumber(m.home_shots),
-        awayTotalShots: optionalNumber(m.away_shots),
+        homeShotsOnTarget: optionalCount(m.home_shots_on_target),
+        awayShotsOnTarget: optionalCount(m.away_shots_on_target),
+        homeTotalShots: optionalCount(m.home_shots),
+        awayTotalShots: optionalCount(m.away_shots),
         homePossession: optionalNumber(m.home_possession),
         awayPossession: optionalNumber(m.away_possession),
         homeFouls: optionalNumber(m.home_fouls),
         awayFouls: optionalNumber(m.away_fouls),
-        homeYellowCards: optionalNumber(m.home_yellow_cards),
-        awayYellowCards: optionalNumber(m.away_yellow_cards),
-        homeRedCards: optionalNumber(m.home_red_cards),
-        awayRedCards: optionalNumber(m.away_red_cards),
+        homeYellowCards: optionalCount(m.home_yellow_cards),
+        awayYellowCards: optionalCount(m.away_yellow_cards),
+        homeRedCards: optionalCount(m.home_red_cards),
+        awayRedCards: optionalCount(m.away_red_cards),
         referee: m.referee,
         competition: m.competition,
         season: m.season,

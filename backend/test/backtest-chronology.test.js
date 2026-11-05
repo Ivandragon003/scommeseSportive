@@ -194,7 +194,7 @@ test('unknown, synthetic and post-kickoff prices never produce financial bets', 
   assert.equal(new Set(real.detailedBets.map((bet) => `${bet.matchId}:${bet.selection}`)).size, real.detailedBets.length);
 });
 
-test('as-of aggregates retain current production possession, variance, missing-venue defaults and fouls-drawn semantics', () => {
+test('as-of aggregates retain possession and variance while averaging only observed counts', () => {
   const engine = new BacktestingEngine(), target = fixtures(31)[30];
   const home = { ...fixtures(1)[0], homePossession: 40, awayFouls: 10, homeYellowCards: 4 };
   const olderAway = { ...home, matchId: 'away-history', date: new Date(START + 5 * DAY),
@@ -202,9 +202,8 @@ test('as-of aggregates retain current production possession, variance, missing-v
   const anotherHome = { ...home, matchId: 'later-home', date: new Date(START + 10 * DAY), homePossession: 60, awayFouls: 20 };
   const supp = engine.buildAsOfSupp(target, [home, olderAway, anotherHome]);
   assert.equal(supp.homeTeamStats.avgPossession, 50);
-  assert.equal(supp.homeTeamStats.avgFoulsDrawn, 10); // (10 + 0 + 20)/3, missing count is not an observed zero sample.
-  const homeWeight = Math.exp(-0.005 * 30) + Math.exp(-0.005 * 20), awayWeight = Math.exp(-0.005 * 25);
-  assert.ok(Math.abs(supp.homeTeamStats.avgYellowCards - (4 * homeWeight + 1.9 * awayWeight) / (homeWeight + awayWeight)) < 1e-12);
+  assert.equal(supp.homeTeamStats.avgFoulsDrawn, 15); // (10 + 20)/2; the absent match contributes no observation.
+  assert.equal(supp.homeTeamStats.avgYellowCards, 4); // An unobserved away value adds no prior-weighted sample.
   const single = engine.buildAsOfSupp(target, [home]);
   assert.equal(single.homeTeamStats.varShots, 0);
 });

@@ -30,7 +30,7 @@ import { getProviderTimeoutMs } from '../services/odds-provider/OddsProviderCoor
 import { OddsApiKickoffSyncService } from '../services/OddsApiKickoffSyncService';
 import { buildBacktestReport } from '../services/BacktestReportService';
 import { SystemObservabilityService } from '../services/SystemObservabilityService';
-import { UnderstatScraper, hasValidUnderstatMatchDetails } from '../services/UnderstatScraper';
+import { UnderstatScraper, hasValidUnderstatMatchDetails, UnderstatPlayerMatchStat } from '../services/UnderstatScraper';
 import { HeavyJobBusyError, HeavyJobService } from '../services/HeavyJobService';
 import { formatPrediction, poissonOver } from './predictionPayloadFormatter';
 import { clamp } from '../models/utils/MathUtils';
@@ -268,6 +268,90 @@ function sameTeamName(left: string, right: string): boolean {
   const a = normalizePlayerNameForProp(left);
   const b = normalizePlayerNameForProp(right);
   return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
+}
+
+export function buildUnderstatSeasonPlayerWrites(
+  matches: Array<{
+    matchId: string; homeTeamId: string; awayTeamId: string;
+    homeTotalShots?: number | null; awayTotalShots?: number | null;
+    playerStats: UnderstatPlayerMatchStat[];
+  }>,
+  season: string,
+  competition: string,
+): any[] {
+  const fields = ['shots', 'shotsOnTarget', 'goals', 'xg', 'xgot', 'yellowCards', 'redCards'] as const;
+  type Field = typeof fields[number];
+  const observed = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  const cardCount = (value: unknown): number | null => {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return null;
+    const parsed = Number(value);
+    return observed(parsed) && Number.isInteger(parsed) ? parsed : null;
+  };
+  const players = new Map<string, {
+    player: UnderstatPlayerMatchStat; games: Set<string>; totals: Record<Field, number>;
+    coverage: Record<Field, number>; rawSamples: Record<string, unknown>[];
+    yellowMinutes: number; yellowObservedTotal: number;
+  }>();
+  const teams = new Map<string, { shots: number; complete: boolean }>();
+  for (const match of matches) {
+    for (const [teamId, matchShots] of [[match.homeTeamId, match.homeTotalShots], [match.awayTeamId, match.awayTotalShots]] as const) {
+      const roster = match.playerStats.filter((player) => player.teamId === teamId);
+      const team = teams.get(teamId) ?? { shots: 0, complete: true };
+      const rosterShots = roster.reduce((total, player) => total + (observed(player.shots) ? player.shots : 0), 0);
+      // The normalized match total requires complete source evidence. A partial
+      // roster sum cannot stand in for the missing season-team denominator.
+      team.complete = team.complete && observed(matchShots) && roster.length > 0
+        && roster.every((player) => observed(player.shots)) && rosterShots === matchShots;
+      team.shots += rosterShots;
+      teams.set(teamId, team);
+    }
+    for (const player of match.playerStats) {
+      const aggregate = players.get(player.playerId) ?? {
+        player, games: new Set<string>(),
+        totals: { shots: 0, shotsOnTarget: 0, goals: 0, xg: 0, xgot: 0, yellowCards: 0, redCards: 0 },
+        coverage: { shots: 0, shotsOnTarget: 0, goals: 0, xg: 0, xgot: 0, yellowCards: 0, redCards: 0 },
+        rawSamples: [], yellowMinutes: 0, yellowObservedTotal: 0,
+      };
+      if (aggregate.games.has(match.matchId)) continue;
+      aggregate.games.add(match.matchId);
+      for (const field of fields) {
+        const value = field === 'yellowCards' ? cardCount(player.raw?.yellow_card)
+          : field === 'redCards' ? cardCount(player.raw?.red_card) : player[field];
+        if (!observed(value)) continue;
+        aggregate.totals[field] += value;
+        aggregate.coverage[field]++;
+        if (field === 'yellowCards' && observed(player.minutes) && player.minutes > 0) {
+          aggregate.yellowMinutes += player.minutes;
+          aggregate.yellowObservedTotal += value;
+        }
+      }
+      if (aggregate.rawSamples.length < 8) aggregate.rawSamples.push(player.raw);
+      players.set(player.playerId, aggregate);
+    }
+  }
+  return [...players.values()].map(({ player, games, totals, coverage, rawSamples, yellowMinutes, yellowObservedTotal }) => {
+    const team = teams.get(player.teamId);
+    const shareAvailable = team?.complete && coverage.shots === games.size;
+    const total = (field: Field) => coverage[field] > 0 ? totals[field] : null;
+    const average = (field: Field) => coverage[field] > 0 ? totals[field] / coverage[field] : null;
+    return {
+      playerId: player.playerId, sourcePlayerId: player.sourcePlayerId,
+      name: player.playerName, teamId: player.teamId, positionCode: 'MF',
+      avgShotsPerGame: average('shots'), avgShotsOnTargetPerGame: average('shotsOnTarget'),
+      avgXGPerGame: average('xg'), avgXGOTPerGame: average('xgot'),
+      totalGoals: total('goals'), totalShots: total('shots'), totalShotsOnTarget: total('shotsOnTarget'),
+      yellowCardsTotal: total('yellowCards'), redCardsTotal: total('redCards'),
+      shotShareOfTeam: shareAvailable ? totals.shots / Math.max(1, team.shots) : null,
+      gamesPlayed: games.size,
+      statsJson: JSON.stringify({
+        source: 'understat', season, competition,
+        coverage: { ...coverage, shotShare: shareAvailable ? coverage.shots : 0 },
+        observedMinutes: { yellowCards: yellowMinutes },
+        observedTotals: { yellowCards: yellowObservedTotal },
+        totalXG: total('xg'), totalXGOT: total('xgot'), rawSamples,
+      }),
+    };
+  });
 }
 
 export function matchUniquePlayerByName<T extends { name?: unknown }>(players: T[], providerName: string): T | null {
@@ -2657,21 +2741,6 @@ async function runUnderstatImport(req: Request, res: Response) {
           isFutureMatch(match.date) ? toFixtureOnly(match) : match
         );
 
-        const playersAgg = new Map<string, {
-          playerId: string;
-          sourcePlayerId: number | null;
-          name: string;
-          teamId: string;
-          games: Set<string>;
-          shots: number;
-          shotsOnTarget: number;
-          goals: number;
-          xg: number;
-          xgot: number;
-          rawSamples: Record<string, unknown>[];
-        }>();
-        const teamShotTotals = new Map<string, number>();
-
         let imported = 0;
         let updatedExisting = 0;
         let updatedExistingPlayed = 0;
@@ -2749,64 +2818,9 @@ async function runUnderstatImport(req: Request, res: Response) {
         const playersRebuildSkippedReason = batchError
           ? 'match_batch_partial_failure'
           : null;
-        if (importPlayers && shouldRebuildUnderstatPlayers(committedWrites, batchError)) {
-          for (const internalizedMatch of internalizedPlayedMatches) {
-            for (const player of internalizedMatch.playerStats) {
-              const agg = playersAgg.get(player.playerId) ?? {
-                playerId: player.playerId,
-                sourcePlayerId: player.sourcePlayerId,
-                name: player.playerName,
-                teamId: player.teamId,
-                games: new Set<string>(),
-                shots: 0,
-                shotsOnTarget: 0,
-                goals: 0,
-                xg: 0,
-                xgot: 0,
-                rawSamples: [],
-              };
-              agg.games.add(internalizedMatch.matchId);
-              agg.shots += player.shots;
-              agg.shotsOnTarget += player.shotsOnTarget;
-              agg.goals += player.goals;
-              agg.xg += player.xg;
-              agg.xgot += player.xgot;
-              agg.rawSamples.push(player.raw);
-              playersAgg.set(player.playerId, agg);
-              teamShotTotals.set(player.teamId, Number(teamShotTotals.get(player.teamId) ?? 0) + Number(player.shots ?? 0));
-            }
-          }
-        }
-
-        const seasonPlayerWrites: any[] = [];
-        for (const [, player] of playersAgg) {
-          const games = Math.max(1, player.games.size);
-          const teamShots = Math.max(1, Number(teamShotTotals.get(player.teamId) ?? 0));
-          seasonPlayerWrites.push({
-            playerId: player.playerId,
-            sourcePlayerId: player.sourcePlayerId,
-            name: player.name,
-            teamId: player.teamId,
-            positionCode: 'MF',
-            avgShotsPerGame: player.shots / games,
-            avgShotsOnTargetPerGame: player.shotsOnTarget / games,
-            avgXGPerGame: player.xg / games,
-            avgXGOTPerGame: player.xgot / games,
-            totalGoals: player.goals,
-            totalShots: player.shots,
-            totalShotsOnTarget: player.shotsOnTarget,
-            shotShareOfTeam: player.shots / teamShots,
-            gamesPlayed: games,
-            statsJson: JSON.stringify({
-              source: 'understat',
-              season,
-              competition: competitionName,
-              totalXG: player.xg,
-              totalXGOT: player.xgot,
-              rawSamples: player.rawSamples.slice(0, 8),
-            }),
-          });
-        }
+        const seasonPlayerWrites = importPlayers && shouldRebuildUnderstatPlayers(committedWrites, batchError)
+          ? buildUnderstatSeasonPlayerWrites(internalizedPlayedMatches, season, competitionName)
+          : [];
         if (seasonPlayerWrites.length > 0 && typeof (db as any).upsertPlayers === 'function') {
           playersUpdated += await db.upsertPlayers(seasonPlayerWrites);
         } else {
@@ -2845,7 +2859,7 @@ async function runUnderstatImport(req: Request, res: Response) {
           updatedExistingUpcoming,
           touchedTotal: committedCount,
           skipped,
-          playersUpserted: playersAgg.size,
+          playersUpserted: seasonPlayerWrites.length,
           playersRebuildSkippedReason,
           persistedSourceMatches: sourceIds.length - missingSourceMatches,
           missingSourceMatches,

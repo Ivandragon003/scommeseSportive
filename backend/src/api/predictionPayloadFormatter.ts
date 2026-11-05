@@ -232,7 +232,7 @@ export function formatPrediction(pred: any): any {
     }
     : null;
 
-  return {
+  const formatted = {
     matchId: pred.matchId,
     competition: pred.competition ?? null,
     homeTeam: pred.homeTeam,
@@ -412,4 +412,58 @@ export function formatPrediction(pred: any): any {
       contextualFactors: pred.analysisFactors ?? null,
     },
   };
+  // Model priors arrive from the service; the formatter's default zero is
+  // only a placeholder and must not create an observed-looking distribution.
+  const priorMean = (value: unknown): number | null => {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  };
+  const unavailable = (stat: any, expected: unknown, digits = 2) => ({
+    ...stat, expected: priorMean(expected) === null ? null : roundN(priorMean(expected)!, digits),
+    available: false, distribution: {},
+  });
+  const combinedMean = (home: unknown, away: unknown): number | null => {
+    const homeMean = priorMean(home), awayMean = priorMean(away);
+    return homeMean === null || awayMean === null ? null : homeMean + awayMean;
+  };
+  const homeShotsMean = priorMean(homeShotsModel.expected) ?? priorMean(homeShotTotals.expected);
+  const awayShotsMean = priorMean(awayShotsModel.expected) ?? priorMean(awayShotTotals.expected);
+  const homeTargetMean = priorMean(homeShotTarget.expected) ?? priorMean(probs.shotsOnTargetHome?.expected);
+  const awayTargetMean = priorMean(awayShotTarget.expected) ?? priorMean(probs.shotsOnTargetAway?.expected);
+  const availability = probs.statMarketAvailability ?? {
+    shots: homeShotsMean !== null && awayShotsMean !== null,
+    shotsOT: homeTargetMean !== null && awayTargetMean !== null,
+    yellow: [cards.expectedTotalYellow, cards.expectedHomeYellow, cards.expectedAwayYellow].every((mean) => priorMean(mean) !== null),
+    cardsTotal: priorMean(cards.expectedTotalCards) !== null,
+  };
+  if (availability.shots === false) {
+    formatted.shotsPrediction.home.totalShots = unavailable(formatted.shotsPrediction.home.totalShots, homeShotsMean);
+    formatted.shotsPrediction.away.totalShots = unavailable(formatted.shotsPrediction.away.totalShots, awayShotsMean);
+    formatted.shotsPrediction.combined.totalShots = unavailable(formatted.shotsPrediction.combined.totalShots, combinedMean(homeShotsMean, awayShotsMean));
+    formatted.shotsPrediction.combined.overUnder = {};
+  }
+  if (availability.shotsOT === false) {
+    formatted.shotsPrediction.home.shotsOnTarget = unavailable(formatted.shotsPrediction.home.shotsOnTarget, homeTargetMean);
+    formatted.shotsPrediction.away.shotsOnTarget = unavailable(formatted.shotsPrediction.away.shotsOnTarget, awayTargetMean);
+    formatted.shotsPrediction.combined.totalOnTarget = unavailable(formatted.shotsPrediction.combined.totalOnTarget, combinedMean(homeTargetMean, awayTargetMean));
+    formatted.shotsPrediction.combined.onTargetOverUnder = {} as any;
+  }
+  if (availability.yellow === false) {
+    formatted.cardsPrediction.totalYellow = unavailable(formatted.cardsPrediction.totalYellow, cards.expectedTotalYellow, 3);
+    formatted.cardsPrediction.overUnder = {};
+    formatted.cardsPrediction.homeYellow = { expected: priorMean(cards.expectedHomeYellow), available: false } as any;
+    formatted.cardsPrediction.awayYellow = { expected: priorMean(cards.expectedAwayYellow), available: false } as any;
+  }
+  if (availability.cardsTotal === false) {
+    formatted.cardsPrediction.totalCardsWeighted = { expected: priorMean(cards.expectedTotalCards), available: false } as any;
+  }
+  const redMean = combinedMean(cards.expectedHomeRed, cards.expectedAwayRed);
+  if (availability.cardsTotal === false || redMean === null) {
+    formatted.cardsPrediction.totalRed = {
+      ...unavailable(formatted.cardsPrediction.totalRed, redMean, 3),
+      probAtLeastOne: null,
+    };
+  }
+  return formatted;
 }

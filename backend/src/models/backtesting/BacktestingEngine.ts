@@ -1032,9 +1032,9 @@ export class BacktestingEngine {
     const recentHome = homeHistory.slice(-5);
     const recentAway = awayHistory.slice(-5);
     const hasXg = prior.some((row) => this.isFiniteObserved(row.homeXG) && this.isFiniteObserved(row.awayXG));
-    const hasShots = prior.some((row) => this.isFiniteObserved(row.homeTotalShots) && this.isFiniteObserved(row.awayTotalShots));
-    const hasShotsOnTarget = prior.some((row) => this.isFiniteObserved(row.homeShotsOnTarget) && this.isFiniteObserved(row.awayShotsOnTarget));
-    const hasCards = prior.some((row) => this.isFiniteObserved(row.homeYellowCards) && this.isFiniteObserved(row.awayYellowCards));
+    const hasShots = prior.some((row) => this.isObservedCount(row.homeTotalShots) && this.isObservedCount(row.awayTotalShots));
+    const hasShotsOnTarget = prior.some((row) => this.isObservedCount(row.homeShotsOnTarget) && this.isObservedCount(row.awayShotsOnTarget));
+    const hasCards = prior.some((row) => this.isObservedCount(row.homeYellowCards) && this.isObservedCount(row.awayYellowCards));
     const hasRefereeData = prior.some((row) => Boolean(String(row.referee ?? '').trim()));
     const sampleStrength = clamp(Math.min(homeSample, awaySample) / 12, 0, 1);
     const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
@@ -1306,9 +1306,11 @@ export class BacktestingEngine {
    * come le colonne var_* di recomputeTeamAverages), sampleSize per venue.
    */
   private computeAsOfTeamRecord(teamId: string, asOfMs: number, past: MatchData[]) {
-    const wsum = () => ({ v: 0, w: 0 });
-    const add = (a: { v: number; w: number }, value: number | undefined, weight: number) => {
-      if (value !== undefined && value !== null && Number.isFinite(value)) { a.v += value * weight; a.w += weight; }
+    const wsum = () => ({ v: 0, w: 0, n: 0 });
+    const add = (a: { v: number; w: number; n: number }, value: number | undefined, weight: number, continuous = false) => {
+      if (continuous ? this.isFiniteObserved(value) : this.isObservedCount(value)) {
+        a.v += value! * weight; a.w += weight; a.n += 1;
+      }
     };
     const mean = (a: { v: number; w: number }): number | undefined => (a.w > 0 ? a.v / a.w : undefined);
     const popVar = (arr: number[]): number | undefined => {
@@ -1328,38 +1330,40 @@ export class BacktestingEngine {
     const hv = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[], poss: [] as number[] };
     const av = { shots: [] as number[], sot: [] as number[], yel: [] as number[], foul: [] as number[], poss: [] as number[] };
 
-    let totalFoulsDrawn = 0;
+    let totalFoulsDrawn = 0, foulsDrawnSamples = 0;
     for (const m of past) {
       const w = this.asOfWeight(asOfMs, m.date.getTime());
       if (m.homeTeamId === teamId) {
-        h.w += w; h.n += 1; add(h.xg, m.homeXG, w);
-        totalFoulsDrawn += this.isFiniteObserved(m.awayFouls) ? m.awayFouls : 0;
+        h.w += w; h.n += 1; add(h.xg, m.homeXG, w, true);
+        if (this.isObservedCount(m.awayFouls)) { totalFoulsDrawn += m.awayFouls; foulsDrawnSamples += 1; }
         if (this.isFiniteObserved(m.homePossession)) hv.poss.push(m.homePossession);
         add(h.shots, m.homeTotalShots, w); add(h.sot, m.homeShotsOnTarget, w);
-        add(h.poss, m.homePossession, w); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
+        add(h.poss, m.homePossession, w, true); add(h.yel, m.homeYellowCards, w); add(h.red, m.homeRedCards, w);
         add(h.foul, m.homeFouls, w); add(h.fdrawn, m.awayFouls, w); add(h.conc, m.awayTotalShots, w);
-        if (this.isFiniteObserved(m.homeTotalShots)) hv.shots.push(Number(m.homeTotalShots));
-        if (this.isFiniteObserved(m.homeShotsOnTarget)) hv.sot.push(Number(m.homeShotsOnTarget));
-        if (this.isFiniteObserved(m.homeYellowCards)) hv.yel.push(Number(m.homeYellowCards));
-        if (this.isFiniteObserved(m.homeFouls)) hv.foul.push(Number(m.homeFouls));
+        if (this.isObservedCount(m.homeTotalShots)) hv.shots.push(Number(m.homeTotalShots));
+        if (this.isObservedCount(m.homeShotsOnTarget)) hv.sot.push(Number(m.homeShotsOnTarget));
+        if (this.isObservedCount(m.homeYellowCards)) hv.yel.push(Number(m.homeYellowCards));
+        if (this.isObservedCount(m.homeFouls)) hv.foul.push(Number(m.homeFouls));
       } else if (m.awayTeamId === teamId) {
-        a.w += w; a.n += 1; add(a.xg, m.awayXG, w);
-        totalFoulsDrawn += this.isFiniteObserved(m.homeFouls) ? m.homeFouls : 0;
+        a.w += w; a.n += 1; add(a.xg, m.awayXG, w, true);
+        if (this.isObservedCount(m.homeFouls)) { totalFoulsDrawn += m.homeFouls; foulsDrawnSamples += 1; }
         if (this.isFiniteObserved(m.awayPossession)) av.poss.push(m.awayPossession);
         add(a.shots, m.awayTotalShots, w); add(a.sot, m.awayShotsOnTarget, w);
-        add(a.poss, m.awayPossession, w); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
+        add(a.poss, m.awayPossession, w, true); add(a.yel, m.awayYellowCards, w); add(a.red, m.awayRedCards, w);
         add(a.foul, m.awayFouls, w); add(a.fdrawn, m.homeFouls, w); add(a.conc, m.homeTotalShots, w);
-        if (this.isFiniteObserved(m.awayTotalShots)) av.shots.push(Number(m.awayTotalShots));
-        if (this.isFiniteObserved(m.awayShotsOnTarget)) av.sot.push(Number(m.awayShotsOnTarget));
-        if (this.isFiniteObserved(m.awayYellowCards)) av.yel.push(Number(m.awayYellowCards));
-        if (this.isFiniteObserved(m.awayFouls)) av.foul.push(Number(m.awayFouls));
+        if (this.isObservedCount(m.awayTotalShots)) av.shots.push(Number(m.awayTotalShots));
+        if (this.isObservedCount(m.awayShotsOnTarget)) av.sot.push(Number(m.awayShotsOnTarget));
+        if (this.isObservedCount(m.awayYellowCards)) av.yel.push(Number(m.awayYellowCards));
+        if (this.isObservedCount(m.awayFouls)) av.foul.push(Number(m.awayFouls));
       }
     }
 
-    // avg combinati (yellow/red/fouls/conceded) pesati per venue-weight, come produzione.
-    const totW = h.w + a.w;
+    // Combine only observed values, preserving the decay weights per metric.
     const combine = (hh: { v: number; w: number }, aa: { v: number; w: number }, fallback: number): number => {
-      return totW > 0 ? ((mean(hh) ?? fallback) * h.w + (mean(aa) ?? fallback) * a.w) / totW : fallback;
+      const observedWeight = hh.w + aa.w;
+      return observedWeight > 0
+        ? ((mean(hh) ?? fallback) * hh.w + (mean(aa) ?? fallback) * aa.w) / observedWeight
+        : fallback;
     };
     const suppression = combine(h.conc, a.conc, this.ASOF_LEAGUE_SHOTS_CONCEDED) / this.ASOF_LEAGUE_SHOTS_CONCEDED;
     const simpleMean = (values: number[]): number | undefined => values.length
@@ -1367,12 +1371,15 @@ export class BacktestingEngine {
 
     return {
       homeN: h.n, awayN: a.n,
+      homeShotsN: h.shots.n, awayShotsN: a.shots.n,
+      homeShotsOTN: h.sot.n, awayShotsOTN: a.sot.n,
+      yellowN: h.yel.n + a.yel.n, redN: h.red.n + a.red.n,
       avgHomeXG: mean(h.xg), avgAwayXG: mean(a.xg),
       avgHomeShots: mean(h.shots), avgAwayShots: mean(a.shots),
       avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
       avgHomePoss: simpleMean(hv.poss), avgAwayPoss: simpleMean(av.poss),
       avgYellow: combine(h.yel, a.yel, 1.9), avgRed: combine(h.red, a.red, 0.11), avgFouls: combine(h.foul, a.foul, 11.2),
-      avgFoulsDrawn: h.n + a.n > 0 ? totalFoulsDrawn / (h.n + a.n) : undefined,
+      avgFoulsDrawn: foulsDrawnSamples > 0 ? totalFoulsDrawn / foulsDrawnSamples : undefined,
       suppression,
       varHomeShots: popVar(hv.shots), varAwayShots: popVar(av.shots),
       varHomeSot: popVar(hv.sot), varAwaySot: popVar(av.sot),
@@ -1392,9 +1399,9 @@ export class BacktestingEngine {
       const y = Number(m.homeYellowCards) + Number(m.awayYellowCards);
       const f = Number(m.homeFouls) + Number(m.awayFouls);
       const r = Number(m.homeRedCards) + Number(m.awayRedCards);
-      if (this.isFiniteObserved(m.homeYellowCards) && this.isFiniteObserved(m.awayYellowCards)) { sumY += y; nY += 1; }
-      if (this.isFiniteObserved(m.homeFouls) && this.isFiniteObserved(m.awayFouls)) { sumF += f; nF += 1; }
-      if (this.isFiniteObserved(m.homeRedCards) && this.isFiniteObserved(m.awayRedCards)) { sumR += r; nR += 1; }
+      if (this.isObservedCount(m.homeYellowCards) && this.isObservedCount(m.awayYellowCards)) { sumY += y; nY += 1; }
+      if (this.isObservedCount(m.homeFouls) && this.isObservedCount(m.awayFouls)) { sumF += f; nF += 1; }
+      if (this.isObservedCount(m.homeRedCards) && this.isObservedCount(m.awayRedCards)) { sumR += r; nR += 1; }
     }
     if (games === 0) return undefined;
     return {
@@ -1402,6 +1409,7 @@ export class BacktestingEngine {
       avgRed: nR > 0 ? sumR / nR : undefined,
       avgFouls: nF > 0 ? sumF / nF : undefined,
       sampleSize: games,
+      sampleSizeYellow: nY, sampleSizeRed: nR, sampleSizeFouls: nF,
     };
   }
 
@@ -1438,6 +1446,8 @@ export class BacktestingEngine {
       varYellowCards: hRec.varHomeYellow,
       varFouls: hRec.varHomeFouls,
       sampleSize: hRec.homeN,
+      sampleSizeShots: hRec.homeShotsN, sampleSizeShotsOT: hRec.homeShotsOTN,
+      sampleSizeYellow: hRec.yellowN, sampleSizeRed: hRec.redN,
     } : undefined;
     const awayStats = aRec.homeN > 0 || aRec.awayN > 0 ? {
       avgShots: aRec.avgAwayShots ?? 10.4,
@@ -1453,6 +1463,8 @@ export class BacktestingEngine {
       varYellowCards: aRec.varAwayYellow,
       varFouls: aRec.varAwayFouls,
       sampleSize: aRec.awayN,
+      sampleSizeShots: aRec.awayShotsN, sampleSizeShotsOT: aRec.awayShotsOTN,
+      sampleSizeYellow: aRec.yellowN, sampleSizeRed: aRec.redN,
     } : undefined;
 
     if (!homeStats && !awayStats && !refRec) return undefined;
@@ -1464,6 +1476,9 @@ export class BacktestingEngine {
         avgRed: refRec.avgRed ?? 0.22,
         avgFouls: refRec.avgFouls ?? 22.4,
         sampleSize: refRec.sampleSize,
+        sampleSizeYellow: refRec.sampleSizeYellow,
+        sampleSizeRed: refRec.sampleSizeRed,
+        sampleSizeFouls: refRec.sampleSizeFouls,
       } : undefined,
       // Volutamente null (vedi design I1): competitiveness/isDerby (derivati da λ
       // dal modello), contextAdjustments (feature request non nello storico),
@@ -1473,11 +1488,15 @@ export class BacktestingEngine {
   }
 
   private isFiniteObserved(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  }
+
+  private isObservedCount(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0;
   }
 
   private isCompletedMatch(match: MatchData): boolean {
-    return this.isFiniteObserved(match.homeGoals) && this.isFiniteObserved(match.awayGoals)
+    return this.isObservedCount(match.homeGoals) && this.isObservedCount(match.awayGoals)
       && match.homeGoals >= 0 && match.awayGoals >= 0;
   }
 
@@ -1572,13 +1591,26 @@ export class BacktestingEngine {
       const p1 = raw.homeWin ?? 0, px = raw.draw ?? 0, p2 = raw.awayWin ?? 0;
       raw.double_chance_1x = p1 + px; raw.double_chance_x2 = p2 + px; raw.double_chance_12 = p1 + p2;
       if (p1 + p2 > 0) { raw.dnb_home = p1 / (p1 + p2); raw.dnb_away = p2 / (p1 + p2); }
-      const homeSample = Number(context.supplementaryData?.homeTeamStats?.sampleSize ?? 0);
-      const awaySample = Number(context.supplementaryData?.awayTeamStats?.sampleSize ?? 0);
-      const statsAvailable = homeSample >= predictionConfig.markets.minSampleSizePerTeam
-        && awaySample >= predictionConfig.markets.minSampleSizePerTeam
-        && homeSample + awaySample >= predictionConfig.markets.minCombinedSampleSize;
+      const homeStats = context.supplementaryData?.homeTeamStats;
+      const awayStats = context.supplementaryData?.awayTeamStats;
+      type MarketSample = 'sampleSizeShots' | 'sampleSizeShotsOT' | 'sampleSizeYellow' | 'sampleSizeRed';
+      const eligible = (fields: MarketSample[]) => {
+        const sample = (stats: typeof homeStats) => Math.min(...fields.map((field) => {
+          const value = stats?.[field] ?? stats?.sampleSize;
+          return this.isObservedCount(value) ? value : 0;
+        }));
+        const homeSample = sample(homeStats), awaySample = sample(awayStats);
+        return homeSample >= predictionConfig.markets.minSampleSizePerTeam
+          && awaySample >= predictionConfig.markets.minSampleSizePerTeam
+          && homeSample + awaySample >= predictionConfig.markets.minCombinedSampleSize;
+      };
       for (const key of Object.keys(raw)) {
-        if (/^(corners|fouls)/i.test(key) || (!statsAvailable && /^(shots|yellow|cards_?total)/i.test(key))) delete raw[key];
+        const normalized = key.toLowerCase();
+        const fields: MarketSample[] = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']
+          : normalized.startsWith('shots') ? ['sampleSizeShots']
+          : normalized.startsWith('yellow') ? ['sampleSizeYellow']
+          : normalized.startsWith('cardstotal') || normalized.startsWith('cards_total') ? ['sampleSizeYellow', 'sampleSizeRed'] : [];
+        if (/^(corners|fouls)/i.test(key) || (fields.length > 0 && !eligible(fields))) delete raw[key];
       }
       const probMap = applyCalibrationToFlatProbabilities(raw, calibrationProfile.calibrationPoints,
         calibrationProfile.nObservations, this.engine, calibrationProfile.byFamily);
@@ -2457,7 +2489,7 @@ export class BacktestingEngine {
 
   // ==================== VALUTAZIONE BET ====================
 
-  private evaluateBet(selection: string, match: MatchData): boolean {
+  private evaluateBet(selection: string, match: MatchData): boolean | null {
     const h = match.homeGoals!;
     const a = match.awayGoals!;
     const total = h + a;
@@ -2493,7 +2525,7 @@ export class BacktestingEngine {
 
     // Metodo riutilizzabile per Over/Under su valore numerico
     const evalOU = (val: number | undefined, overPrefix: string, underPrefix: string): boolean | null => {
-      if (val === undefined) return null;
+      if (!this.isObservedCount(val)) return null;
       if (selection.startsWith(overPrefix)) {
         const line = parseFloat(this.lineFromKey(selection, overPrefix));
         return val > line;
@@ -2506,7 +2538,7 @@ export class BacktestingEngine {
     };
 
     // --- Tiri totali ---
-    const totalShots = match.homeTotalShots !== undefined && match.awayTotalShots !== undefined
+    const totalShots = this.isObservedCount(match.homeTotalShots) && this.isObservedCount(match.awayTotalShots)
       ? match.homeTotalShots + match.awayTotalShots : undefined;
     let res = evalOU(totalShots, 'shotsOver', 'shotsUnder');
     if (res !== null && !selection.includes('Home') && !selection.includes('Away') && !selection.includes('OT')) return res;
@@ -2520,13 +2552,13 @@ export class BacktestingEngine {
     if (res !== null) return res;
 
     // --- Tiri in porta totali ---
-    const totalSOT = match.homeShotsOnTarget !== undefined && match.awayShotsOnTarget !== undefined
+    const totalSOT = this.isObservedCount(match.homeShotsOnTarget) && this.isObservedCount(match.awayShotsOnTarget)
       ? match.homeShotsOnTarget + match.awayShotsOnTarget : undefined;
     res = evalOU(totalSOT, 'shotsOTOver', 'shotsOTUnder');
     if (res !== null) return res;
 
     // --- Cartellini gialli totali ---
-    const totalYellow = match.homeYellowCards !== undefined && match.awayYellowCards !== undefined
+    const totalYellow = this.isObservedCount(match.homeYellowCards) && this.isObservedCount(match.awayYellowCards)
       ? match.homeYellowCards + match.awayYellowCards : undefined;
     res = evalOU(totalYellow, 'yellowOver', 'yellowUnder');
     if (res !== null) return res;
@@ -2534,7 +2566,7 @@ export class BacktestingEngine {
     // --- Cartellini totali / booking points (giallo=1, rosso=2) ---
     // Metrica del mercato bookmaker `alternate_totals_cards`. Prima cards_total
     // veniva regolato sui soli gialli (sottostima sistematica: ignorava i rossi).
-    const totalRed = match.homeRedCards !== undefined && match.awayRedCards !== undefined
+    const totalRed = this.isObservedCount(match.homeRedCards) && this.isObservedCount(match.awayRedCards)
       ? Number(match.homeRedCards) + Number(match.awayRedCards) : undefined;
     const totalBookingPoints = totalYellow !== undefined && totalRed !== undefined
       ? bookingPoints(totalYellow, totalRed) : undefined;
@@ -2542,7 +2574,7 @@ export class BacktestingEngine {
     if (res !== null) return res;
 
     // --- Falli totali ---
-    const totalFouls = match.homeFouls !== undefined && match.awayFouls !== undefined
+    const totalFouls = this.isObservedCount(match.homeFouls) && this.isObservedCount(match.awayFouls)
       ? match.homeFouls + match.awayFouls : undefined;
     res = evalOU(totalFouls, 'foulsOver', 'foulsUnder');
     if (res !== null) return res;
@@ -2573,11 +2605,11 @@ export class BacktestingEngine {
         actual = totalFouls;
       }
 
-      if (actual === undefined) return false;
+      if (!this.isObservedCount(actual)) return null;
       return side === 'over' ? actual > line : actual <= line;
     }
-    // Selezione non riconosciuta o dato non interpretabile dal parser corrente.
-    return false;
+    // Unobservable or unsupported selections cannot be settled.
+    return null;
   }
 
   private evaluateBetNullable(selection: string, match: MatchData): boolean | null {
@@ -2610,20 +2642,23 @@ export class BacktestingEngine {
       /^fouls(over|under)\d+$/i.test(s) ||
       /^fouls_(over|under)_/i.test(s);
 
-    if (requiresShots && (!this.isFiniteObserved(match.homeTotalShots) || !this.isFiniteObserved(match.awayTotalShots))) return null;
-    if (requiresSot && (!this.isFiniteObserved(match.homeShotsOnTarget) || !this.isFiniteObserved(match.awayShotsOnTarget))) return null;
-    if (requiresYellow && (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards))) return null;
-    if (requiresFouls && (!this.isFiniteObserved(match.homeFouls) || !this.isFiniteObserved(match.awayFouls))) return null;
+    const homeShotsOnly = /^shotshome(over|under)\d+$|^shots_home_(over|under)_/i.test(s);
+    const awayShotsOnly = /^shotsaway(over|under)\d+$|^shots_away_(over|under)_/i.test(s);
+    if (requiresShots && ((!awayShotsOnly && !this.isObservedCount(match.homeTotalShots)) ||
+      (!homeShotsOnly && !this.isObservedCount(match.awayTotalShots)))) return null;
+    if (requiresSot && (!this.isObservedCount(match.homeShotsOnTarget) || !this.isObservedCount(match.awayShotsOnTarget))) return null;
+    if (requiresYellow && (!this.isObservedCount(match.homeYellowCards) || !this.isObservedCount(match.awayYellowCards))) return null;
+    if (requiresFouls && (!this.isObservedCount(match.homeFouls) || !this.isObservedCount(match.awayFouls))) return null;
 
-    if (/^(cardstotal|cards_total_)/i.test(s) && (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards))) return null;
+    if (/^(cardstotal|cards_total_)/i.test(s) && (!this.isObservedCount(match.homeRedCards) || !this.isObservedCount(match.awayRedCards))) return null;
     return this.evaluateBet(selection, match);
   }
 
   private getActualCards(match: MatchData, selection = ''): number | null {
-    if (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards)) return null;
+    if (!this.isObservedCount(match.homeYellowCards) || !this.isObservedCount(match.awayYellowCards)) return null;
     const yellow = match.homeYellowCards + match.awayYellowCards;
     if (!/^(cardstotal|cards_total_)/i.test(selection)) return yellow;
-    if (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards)) return null;
+    if (!this.isObservedCount(match.homeRedCards) || !this.isObservedCount(match.awayRedCards)) return null;
     return bookingPoints(yellow, match.homeRedCards + match.awayRedCards);
   }
 

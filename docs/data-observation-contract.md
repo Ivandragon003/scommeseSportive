@@ -1,0 +1,110 @@
+# Osservazioni e copertura dei mercati statistici
+
+Questa guida descrive il contratto implementato per tiri, tiri in porta,
+gialli e rossi. Codice verificato non significa dati storici riparati o backend
+distribuito. Le letture di audit e i loro conteggi restano nelle ricevute private;
+non sono un campione di validazione predittiva.
+
+## Acquisizione e persistenza
+
+Understat resta primario; `football-data.co.uk` integra soltanto i campi
+mancanti. Per i conteggi sono validi numeri interi finiti non negativi e le
+rispettive stringhe numeriche non vuote. `0` e `"0"` sono osservazioni;
+`null`, assenza, stringhe vuote, booleani, valori negativi, frazionari o non
+numerici non lo sono. Le medie possono invece essere frazionarie.
+
+| Passaggio | Contratto |
+|---|---|
+| `UnderstatScraper` | Roster assente, vuoto o incompleto non prova zero cartellini. Ogni campo ha disponibilità indipendente. Le righe giocatore conservano le altre metriche utilizzabili anche quando un campo è assente. |
+| Shotmap | I tiri in porta richiedono roster e shotmap coerenti, risultati riconosciuti e nessun ID evento esplicitamente duplicato. Il conteggio eventi esclusi gli autogol deve corrispondere ai tiri dichiarati dal roster. Zero tiri dichiarati e shotmap vuota sono evidenza di zero; shotmap assente non lo è. |
+| Autogol | `OwnGoal` non è tiro in porta né tiro del giocatore. Il totale squadra conserva la precedente semantica della lunghezza della shotmap, comprensiva degli autogol; non si riscrive lo storico con una nuova definizione. |
+| CSV supplementare | I conteggi non validi diventano mancanti. Matching, quote e priorità delle fonti restano separati. |
+| `DatabaseService.upsertMatch` | Il `COALESCE` che conserva una misura già nota è intenzionale: il supplemento non sovrascrive Understat, incluso uno zero vero. Nessuna sostituzione generale di tutti i `COALESCE`. |
+| Profili giocatore | Import stagione e ricostruzione derivata registrano contatori per campo in `stats_json.coverage`. Le medie usano solo le osservazioni valide; i campi mai osservati restano null. Non si riusa un vecchio totale cartellini come se appartenesse al nuovo aggregato. |
+
+Il solo confronto di lunghezze non certifica la correttezza del provider.
+Duplicati con ID diversi o payload già incoerenti possono richiedere una
+rettifica della fonte. Non si deduplicano eventi per somiglianza inventando
+quelli mancanti. Roster con identità duplicate ed eventi con lo stesso ID
+esplicito vengono trattati come evidenza non affidabile nei percorsi corretti.
+
+## Aggregazioni e campioni
+
+Le medie pesate squadra hanno un denominatore per campo: una partita con
+tiri noti ma gialli assenti contribuisce soltanto ai tiri. Lo stesso vale per
+ultime 5/10 e statistiche concesse; gli zeri osservati entrano nel denominatore.
+Le percentuali richiedono coppie coerenti di numeratore e denominatore.
+I booking points richiedono i quattro conteggi noti: gialli casa/trasferta più
+due volte i rossi casa/trasferta.
+
+`team_stats_json.computed.marketSampleSizes` conserva le coperture per campo;
+`venueMarketSampleSizes` distingue casa e trasferta per i tiri consumati dal
+contesto. Non ci sono nuove colonne o migrazioni. Questi metadata si producono
+nei normali percorsi di calcolo, non attestano un ricalcolo già eseguito sul DB.
+
+I profili giocatore hanno campioni indipendenti per tiri, SOT, cartellini e
+quota di tiri squadra. La quota richiede un totale squadra verificabile;
+non si divide per la somma dei soli giocatori conosciuti. Il modello gialli
+per 90 minuti usa cartellini e minuti osservati sulle stesse presenze, da
+`observedTotals.yellowCards` e `observedMinutes.yellowCards`. Copertura parziale
+senza questi abbinamenti non autorizza la prop. Un profilo `identityOnly`
+non aggiunge ricchezza statistica o presenze osservate.
+
+Gli aggregati arbitrali distinguono le partite con entrambi i conteggi noti
+per gialli, rossi e falli. I vecchi profili persistiti non conservano la loro
+finestra di ricostruzione: il runtime mantiene le loro medie e fallback.
+La SELECT aggiuntiva, limitata alla competizione e al cutoff della previsione,
+aggiunge campioni per campo soltanto quando totale partite e media coincidono.
+Non sostituisce silenziosamente una media con quella di un altro periodo;
+la coincidenza numerica non ricostruisce una genealogia storica mancante.
+Per i profili legacy senza metadata, la copertura resta non verificata e il
+fallback precedente resta esplicito.
+
+## Contesto, probabilità e risultati
+
+`PredictionContextBuilder` propaga valore e campione separatamente: una media
+mancante può usare il prior esistente, con campione osservato zero. Una media
+reale zero conserva tale valore. Gli zeri osservati non attivano il fallback
+dei modelli specializzati. Shrinkage, coefficienti, pesi e soglie non sono
+riottimizzati; il campione che alimenta le formule esistenti è specifico del
+campo. I vecchi profili validi senza copertura mantengono il fallback legacy.
+
+`PredictionService` e replay cronologico applicano le soglie già esistenti
+(almeno 8 osservazioni per squadra e 20 combinate) separatamente alle famiglie.
+Il totale cartellini richiede gialli e rossi; non basta il numero globale di
+partite. Il filtro precede selezione e calibrazione. Il payload API sopprime
+anche le distribuzioni strutturate delle famiglie non disponibili, evitando
+che il formatter ricrei probabilità da stime prive di campione sufficiente.
+Le stime prior già fornite possono restare stime, senza diventare dati osservati.
+Una media proprio assente nel formatter resta `expected:null`, non zero.
+Il totale rossi è controllato separatamente dal totale pesato dei cartellini.
+
+Settlement di player props, etichette per calibrazione e backtest restituiscono
+esito non disponibile quando manca il conteggio necessario: non segnano una
+vittoria Under per un risultato inventato pari a zero. Le curve persistite,
+i vecchi replay e le giocate archiviate non vengono ricalcolati automaticamente.
+Nella pagina Dati una media non disponibile appare come trattino; zero resta zero.
+
+## Verifica, versioni e limiti
+
+Le fixture confrontano dati completi, copertura parziale, piccoli campioni,
+invalidi e zeri reali, con DB temporanei e oggetti in memoria. Esecuzione dopo
+la build, dalla directory `backend`:
+
+```powershell
+node --test --test-concurrency=1 test/missing-market-acquisition.test.js test/missing-market-statistics.test.js test/missing-market-prediction.test.js test/missing-market-service.test.js test/missing-market-settlement.test.js test/understat-player-missing-observations.test.js test/prediction-formatter-market-availability.test.js test/backtest-chronology.test.js test/operational-a-regression.test.js test/frozen-baseline.test.js test/recompute-averages-players-route.test.js test/team-averages-batch.test.js
+```
+
+Le sei fixture numeriche A e lo snapshot C conservano aspettative originali.
+Il registro delle deviazioni A ammette soltanto gli esatti blocchi di questa
+correzione, annullati in memoria prima dei controlli sugli hash originari;
+prove di mutazione verificano che modifiche ulteriori o ripristini siano rifiutati.
+La nuova identità del codice A va separata nel [protocollo prospettico](models/MODEL-A-VALIDAZIONE-PROSPETTICA.md).
+
+Nessun miglioramento di accuratezza, calibrazione, ROI o CLV è dimostrato da
+queste fixture. L'audit remoto è SELECT-only: non ripara errori a monte o
+profili già calcolati. Correzione di payload storici, ricostruzioni persistenti,
+ricalibrazione, deploy e attivazione del pilot richiedono autorizzazioni separate.
+Collector e recorder restano spenti. Lo snapshot C, le sue guardie e i suoi
+hash non cambiano. I percorsi generali xG non pertinenti non vengono riscritti
+con questa correzione dei quattro mercati.

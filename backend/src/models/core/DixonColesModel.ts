@@ -190,6 +190,7 @@ export interface FullMatchProbabilities {
    * Chiavi allineate con categorizeSelection() di ValueBettingEngine v3.
    */
   flatProbabilities: Record<string, number>;
+  statMarketAvailability?: { shots: boolean; shotsOT: boolean; yellow: boolean; cardsTotal: boolean };
 }
 
 export interface SupplementaryData {
@@ -211,6 +212,10 @@ export interface SupplementaryData {
     varYellowCards?: number;
     varFouls?: number;
     sampleSize?: number;
+    sampleSizeShots?: number;
+    sampleSizeShotsOT?: number;
+    sampleSizeYellow?: number;
+    sampleSizeRed?: number;
   };
   awayTeamStats?: {
     avgShots: number;
@@ -229,12 +234,19 @@ export interface SupplementaryData {
     varYellowCards?: number;
     varFouls?: number;
     sampleSize?: number;
+    sampleSizeShots?: number;
+    sampleSizeShotsOT?: number;
+    sampleSizeYellow?: number;
+    sampleSizeRed?: number;
   };
   refereeStats?: {
     avgYellow: number;
     avgRed: number;
     avgFouls: number;
     sampleSize?: number;
+    sampleSizeYellow?: number;
+    sampleSizeRed?: number;
+    sampleSizeFouls?: number;
   };
   homePlayers?: PlayerShotsData[];
   awayPlayers?: PlayerShotsData[];
@@ -523,6 +535,10 @@ export class DixonColesModel {
       awayTeamVarShots:         as_.varShots,
       homeTeamVarShotsOT:       hs.varShotsOT,
       awayTeamVarShotsOT:       as_.varShotsOT,
+      homeTeamShotsSampleSize: hs.sampleSizeShots,
+      awayTeamShotsSampleSize: as_.sampleSizeShots,
+      homeTeamShotsOTSampleSize: hs.sampleSizeShotsOT,
+      awayTeamShotsOTSampleSize: as_.sampleSizeShotsOT,
       homeTeamSampleSize:       hs.sampleSize,
       awayTeamSampleSize:       as_.sampleSize,
     };
@@ -546,9 +562,14 @@ export class DixonColesModel {
       competitiveness:    derivedCompetitiveness,
       homeTeamVarYellow:  hs.varYellowCards,
       awayTeamVarYellow:  as_.varYellowCards,
+      homeTeamYellowSampleSize: hs.sampleSizeYellow,
+      awayTeamYellowSampleSize: as_.sampleSizeYellow,
       homeTeamSampleSize: hs.sampleSize,
       awayTeamSampleSize: as_.sampleSize,
       refereeSampleSize:  ref.sampleSize,
+      refereeYellowSampleSize: ref.sampleSizeYellow,
+      refereeRedSampleSize: ref.sampleSizeRed,
+      refereeFoulsSampleSize: ref.sampleSizeFouls,
       refereeAvgFouls:    ref.avgFouls,
       leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
     };
@@ -613,6 +634,7 @@ export class DixonColesModel {
       homeTeamAvgFouls:   hs.avgFouls         ?? SERIE_A_DEFAULTS.avgFouls,
       awayTeamAvgFouls:   as_.avgFouls        ?? SERIE_A_DEFAULTS.avgFouls,
       homePossessionEst:  Math.max(0.3, Math.min(0.7, estimatedHomePoss)),
+      refereeFoulsSampleSize: ref.sampleSizeFouls,
       refereeAvgFouls:    ref.avgFouls        ?? SERIE_A_DEFAULTS.refereeAvgFouls,
       leagueAvgFouls:     supp?.leagueAvgFouls ?? SERIE_A_DEFAULTS.leagueAvgFouls,
       homeTeamVarFouls:   hs.varFouls,

@@ -174,6 +174,11 @@ const numOrNull = (v: string | undefined): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const countOrNull = (value: string | undefined): number | null => {
+  const count = numOrNull(value);
+  return count !== null && Number.isInteger(count) && count >= 0 ? count : null;
+};
+
 /** Parsa un CSV football-data.co.uk in righe tipizzate (solo campi supplementari). */
 export function parseFootballDataCsv(text: string): FootballDataRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -213,12 +218,12 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
     out.push({
       date, homeTeam: home, awayTeam: away,
       homeGoals: numOrNull(c[iHG]), awayGoals: numOrNull(c[iAG]),
-      homeShots: numOrNull(c[iHS]), awayShots: numOrNull(c[iAS]),
-      homeShotsOnTarget: numOrNull(c[iHST]), awayShotsOnTarget: numOrNull(c[iAST]),
+      homeShots: countOrNull(c[iHS]), awayShots: countOrNull(c[iAS]),
+      homeShotsOnTarget: countOrNull(c[iHST]), awayShotsOnTarget: countOrNull(c[iAST]),
       homeFouls: numOrNull(c[iHF]), awayFouls: numOrNull(c[iAF]),
       homeCorners: numOrNull(c[iHC]), awayCorners: numOrNull(c[iAC]),
-      homeYellow: numOrNull(c[iHY]), awayYellow: numOrNull(c[iAY]),
-      homeRed: numOrNull(c[iHR]), awayRed: numOrNull(c[iAR]),
+      homeYellow: countOrNull(c[iHY]), awayYellow: countOrNull(c[iAY]),
+      homeRed: countOrNull(c[iHR]), awayRed: countOrNull(c[iAR]),
       referee: iRef >= 0 ? (c[iRef]?.trim() || null) : null,
       oddsHome: pick(c, iOH), oddsDraw: pick(c, iOD), oddsAway: pick(c, iOA),
       oddsOver25: pick(c, iOv), oddsUnder25: pick(c, iUn),

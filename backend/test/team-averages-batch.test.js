@@ -38,7 +38,7 @@ async function seed() {
   await db.db.execute("INSERT INTO matches (match_id, home_team_id, away_team_id, date) VALUES ('unfinished', 'a', 'empty', '2030-01-01')");
 }
 
-// Independent reconstruction of the previous per-team aggregate queries.
+// Independent reconstruction of unchanged per-team aggregate inputs.
 function legacyAggregateSql(side) {
   const other = side === 'home' ? 'away' : 'home';
   const w = "EXP(-0.005 * (julianday('now') - julianday(date)))";
@@ -80,7 +80,84 @@ function assertEquivalent(actual, expected, path = '') {
   }
 }
 
-test('set-based averages match legacy per-team inputs and preserve imported JSON', async () => {
+// Compare unaffected outputs against the legacy query path; corrected fields have
+// a separate independent calculation from the original match observations below.
+function unchangedOutputs(args) {
+  const value = structuredClone(args);
+  for (const key of ['yellow', 'red', 'suppression', 'shotsTotal', 'shotsOnTarget', 'shotsPct', 'shotsPer90', 'sotPer90', 'yellowCardsTotal', 'redCardsTotal']) delete value[key];
+  const computed = value.teamStatsJson.computed;
+  delete computed.marketSampleSizes;
+  delete computed.venueMarketSampleSizes;
+  for (const key of ['shots', 'shotsOnTarget', 'yellowCards', 'redCards']) delete computed.totals[key];
+  for (const key of ['shotsPct', 'shotsPerMatch', 'shotsOnTargetPerMatch', 'yellowCardsPerMatch', 'redCardsPerMatch']) delete computed.rates[key];
+  for (const window of Object.values(computed.recent)) {
+    delete window.avgShots;
+    delete window.avgShotsOT;
+    delete window.avgYellowCards;
+  }
+  return value;
+}
+
+async function assertObservedMarketFields(id, actual) {
+  const rows = await db.all(`SELECT *, EXP(-0.005 * (julianday('now') - julianday(date))) AS observation_weight
+    FROM matches WHERE (home_team_id = ? OR away_team_id = ?) AND home_goals IS NOT NULL`, [id, id]);
+  const observations = rows.map((row) => {
+    const side = row.home_team_id === id ? 'home' : 'away';
+    const other = side === 'home' ? 'away' : 'home';
+    return { date: row.date, venue: side, weight: row.observation_weight,
+      complete: row.away_goals !== null,
+      shots: row[`${side}_shots`], shotsOnTarget: row[`${side}_shots_on_target`],
+      yellowCards: row[`${side}_yellow_cards`], redCards: row[`${side}_red_cards`],
+      conceded: row[`${other}_shots`] };
+  });
+  const valid = (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  const values = (data, field) => data.filter((row) => valid(row[field]));
+  const sum = (data, field) => data.reduce((total, row) => total + row[field], 0);
+  const total = (data, field) => values(data, field).length ? sum(values(data, field), field) : null;
+  const mean = (data, field) => {
+    const observed = values(data, field);
+    return observed.length ? sum(observed, field) / observed.length : null;
+  };
+  const weighted = (field, fallback) => {
+    const observed = values(observations, field);
+    const denominator = observed.reduce((sum, row) => sum + row.weight, 0);
+    return denominator ? observed.reduce((sum, row) => sum + row[field] * row.weight, 0) / denominator : fallback;
+  };
+  const computed = actual.teamStatsJson.computed;
+  const fields = ['shots', 'shotsOnTarget', 'yellowCards', 'redCards'];
+  const counts = (data) => Object.fromEntries(fields.map((field) => [field, values(data, field).length]));
+  assert.deepEqual(computed.marketSampleSizes, counts(observations));
+  assert.deepEqual(computed.venueMarketSampleSizes, {
+    home: counts(observations.filter((row) => row.venue === 'home')),
+    away: counts(observations.filter((row) => row.venue === 'away')),
+  });
+  for (const field of fields) assertEquivalent(computed.totals[field], total(observations, field), `${id}.total.${field}`);
+  assertEquivalent(actual.yellow, weighted('yellowCards', 1.9), `${id}.yellow`);
+  assertEquivalent(actual.red, weighted('redCards', 0.11), `${id}.red`);
+  assertEquivalent(actual.suppression, weighted('conceded', 12.1) / 12.1, `${id}.suppression`);
+  const paired = observations.filter((row) => valid(row.shots) && valid(row.shotsOnTarget));
+  const pairedShots = sum(paired, 'shots');
+  const percentage = pairedShots > 0 ? sum(paired, 'shotsOnTarget') / pairedShots : null;
+  assertEquivalent(actual.shotsPct, percentage, `${id}.shotsPct`);
+  assertEquivalent(computed.rates.shotsPct, percentage, `${id}.rates.shotsPct`);
+  for (const [field, name, arg] of [['shots', 'shotsPerMatch', 'shotsPer90'], ['shotsOnTarget', 'shotsOnTargetPerMatch', 'sotPer90'],
+    ['yellowCards', 'yellowCardsPerMatch', null], ['redCards', 'redCardsPerMatch', null]]) {
+    assertEquivalent(computed.rates[name], mean(observations, field), `${id}.rates.${name}`);
+    if (arg) assertEquivalent(actual[arg], mean(observations, field), `${id}.${arg}`);
+  }
+  for (const [field, arg] of [['shots', 'shotsTotal'], ['shotsOnTarget', 'shotsOnTarget'], ['yellowCards', 'yellowCardsTotal'], ['redCards', 'redCardsTotal']]) {
+    assertEquivalent(actual[arg], total(observations, field), `${id}.${arg}`);
+  }
+  const recent = observations.filter((row) => row.complete).sort((a, b) => b.date.localeCompare(a.date));
+  for (const [name, size] of [['last5', 5], ['last10', 10]]) {
+    const window = recent.slice(0, size);
+    for (const [field, key] of [['shots', 'avgShots'], ['shotsOnTarget', 'avgShotsOT'], ['yellowCards', 'avgYellowCards']]) {
+      assertEquivalent(computed.recent[name][key], mean(window, field), `${id}.${name}.${key}`);
+    }
+  }
+}
+
+test('set-based averages preserve unaffected aggregates and use observed market samples and preserve imported JSON', async () => {
   await seed();
   const expected = new Map();
   for (const id of ['a', 'b', 'c', 'empty']) {
@@ -119,7 +196,8 @@ test('set-based averages match legacy per-team inputs and preserve imported JSON
       const actual = canonicalArgs(statement.args);
       const reference = expected.get(statement.args.teamId);
       // Weight computations use julianday('now'); tolerate only subsecond drift.
-      assertEquivalent(actual, reference);
+      assertEquivalent(unchangedOutputs(actual), unchangedOutputs(reference));
+      await assertObservedMarketFields(statement.args.teamId, actual);
     }
   } finally {
     db.all = originalAll;
@@ -158,7 +236,10 @@ test('all-null statistics retain shot averages and the existing fallback rules',
   const computed = JSON.parse(a.team_stats_json).computed;
   assert.equal(computed.home.varShots, null);
   assert.equal(computed.overallSampleSize, 1);
-  assert.equal(computed.recent.last5.avgShots, 0);
+  assert.equal(computed.recent.last5.avgShots, null);
+  assert.equal(computed.recent.last5.avgShotsOT, null);
+  assert.equal(computed.recent.last5.avgYellowCards, null);
+  assert.deepEqual(computed.marketSampleSizes, { shots: 0, shotsOnTarget: 0, yellowCards: 0, redCards: 0 });
 });
 
 test('overlapping single-team and batch requests share the pending recomputation', async () => {

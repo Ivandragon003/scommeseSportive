@@ -55,8 +55,8 @@ export async function rebuildRefereeDerivedStats(
   });
   const targetNames = new Set((options?.names ?? []).map((name) => String(name ?? '').trim().toLowerCase()).filter(Boolean));
   const playedMatches = matches.filter((m: any) =>
-    m.home_goals !== null
-    && m.away_goals !== null
+    m.home_goals != null
+    && m.away_goals != null
     && String(m.referee ?? '').trim().length > 0
     && (targetNames.size === 0 || targetNames.has(String(m.referee ?? '').trim().toLowerCase()))
   );
@@ -72,6 +72,12 @@ export async function rebuildRefereeDerivedStats(
     redGames: number;
     yellowSamples: number[];
   }>();
+
+  const observedCount = (value: unknown): number | null => {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && value.trim() === '')) return null;
+    const parsed = numOrNull(value);
+    return parsed !== null && Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
 
   for (const match of playedMatches) {
     const name = String(match.referee ?? '').trim();
@@ -99,7 +105,7 @@ export async function rebuildRefereeDerivedStats(
     }
 
     const totalYellow =
-      numOrNull(match.home_yellow_cards) !== null && numOrNull(match.away_yellow_cards) !== null
+      observedCount(match.home_yellow_cards) !== null && observedCount(match.away_yellow_cards) !== null
         ? Number(match.home_yellow_cards) + Number(match.away_yellow_cards)
         : null;
     if (totalYellow !== null) {
@@ -109,7 +115,7 @@ export async function rebuildRefereeDerivedStats(
     }
 
     const totalRed =
-      numOrNull(match.home_red_cards) !== null && numOrNull(match.away_red_cards) !== null
+      observedCount(match.home_red_cards) !== null && observedCount(match.away_red_cards) !== null
         ? Number(match.home_red_cards) + Number(match.away_red_cards)
         : null;
     if (totalRed !== null) {

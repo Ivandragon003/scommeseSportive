@@ -22,6 +22,8 @@ L'import rifiuta risposte Understat malformate, comprese pagine HTML di manutenz
 
 `PredictionContextBuilder` prepara medie, copertura, forma, avversario e contesto disponibile: riposo, calendario, disciplina, arbitro e, se abilitati, dati sui giocatori. I prior per neopromosse gestiscono passaggi fra competizioni. L'assenza di un dato non equivale a un valore osservato pari a zero.
 
+Per tiri/SOT e gialli/rossi i campioni sono distinti per campo, con copertura casa/trasferta dove consumata. Medie, ultime 5–10, props e replay escludono gli assenti dai propri denominatori e conservano gli zeri veri. I prior non contano come osservazioni; le soglie esistenti sono applicate a ciascuna famiglia, incluse le distribuzioni API. Formule, pesi e coefficienti restano quelli esistenti; cambiano gli input correttamente osservati e dunque l'identità APP-A. I profili legacy non certificano copertura ricostruita. Contratto completo e limiti: [osservazioni](../data-observation-contract.md).
+
 Il fit per competizione usa partite concluse e salva i parametri Dixon-Coles e Poisson-xG. La previsione li carica e li riusa; non esegue il fit completo a ogni apertura. Parametri mancanti possono condurre a valori di base; un partner Poisson incompatibile non entra nel blend. Ricevere una previsione non prova che fit o copertura siano adeguati per quella partita.
 
 Fonti: [contesto](../../backend/src/services/PredictionContextBuilder.ts), [supplemento](../../backend/src/services/FootballDataService.ts), [neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).

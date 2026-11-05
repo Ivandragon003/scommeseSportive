@@ -7,11 +7,11 @@ export interface UnderstatPlayerMatchStat {
   teamId: string;
   positionCode: string;
   minutes: number | null;
-  shots: number;
-  shotsOnTarget: number;
-  goals: number;
-  xg: number;
-  xgot: number;
+  shots: number | null;
+  shotsOnTarget: number | null;
+  goals: number | null;
+  xg: number | null;
+  xgot: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -106,6 +106,45 @@ export type UnderstatMatchPayload = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
+const optionalNumber = (value: unknown): number | null => {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(value.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const eventCount = (value: unknown): number | null => {
+  const parsed = optionalNumber(value);
+  return parsed !== null && Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const completeCountSum = (entries: any[], field: string): number | null => {
+  if (entries.length === 0) return null;
+  const counts = entries.map((entry) => eventCount(entry?.[field]));
+  return counts.every((count) => count !== null)
+    ? counts.reduce((sum, count) => sum + count!, 0)
+    : null;
+};
+
+const hasUniqueExplicitShotIds = (shots: any[]): boolean => {
+  const ids = shots.map((shot) => shot?.id == null ? '' : String(shot.id).trim()).filter(Boolean);
+  return new Set(ids).size === ids.length;
+};
+
+const hasCompleteRoster = (roster: unknown): boolean => {
+  if (!isRecord(roster)) return false;
+  const players = Object.values(roster);
+  const identities = players.map((entry) => isRecord(entry)
+    && String(entry.player_id ?? entry.id ?? '').trim()
+    && String(entry.player ?? entry.player_name ?? entry.name ?? '').trim()
+    ? String(entry.player_id ?? entry.id).trim()
+    : '');
+  // A full starting XI is necessary but cannot prove that every substitute
+  // is present. Reject every malformed row and duplicate identity as well.
+  return players.length >= 11 && identities.every(Boolean)
+    && new Set(identities).size === players.length;
+};
+
 const invalidResponseError = (): Error & { code: string } => Object.assign(
   new Error('Understat response has an invalid format.'),
   { code: 'UNDERSTAT_INVALID_RESPONSE' }
@@ -120,18 +159,6 @@ export const hasValidUnderstatMatchDetails = (value: unknown): value is Understa
   if (!isRecord(value)) return false;
   const rosters = value.rosters;
   const shots = value.shots;
-  const hasCompleteRoster = (roster: unknown): boolean => {
-    if (!isRecord(roster)) return false;
-    const players = Object.values(roster).filter((entry) => {
-      if (!isRecord(entry)) return false;
-      return Boolean(String(entry.player_id ?? entry.id ?? '').trim())
-        && Boolean(String(entry.player ?? entry.player_name ?? entry.name ?? '').trim());
-    });
-    // Understat includes starters plus any substitutes used. Requiring at
-    // least a full starting XI on both sides keeps absence-based VOID
-    // settlement fail-closed when the provider returns partial roster data.
-    return players.length >= 11;
-  };
   return isRecord(rosters)
     && hasCompleteRoster(rosters.h)
     && hasCompleteRoster(rosters.a)
@@ -156,6 +183,7 @@ const TEAM_ALIASES: Record<string, string> = {
 };
 
 const ON_TARGET_RESULTS = new Set(['Goal', 'SavedShot']);
+const SHOT_RESULTS = new Set(['Goal', 'SavedShot', 'BlockedShot', 'MissedShots', 'ShotOnPost', 'OwnGoal']);
 
 export class UnderstatScraper {
   private static readonly COMPETITIONS: Record<string, CompetitionConfig> = {
@@ -211,9 +239,7 @@ export class UnderstatScraper {
   }
 
   private toNumber(value: unknown): number | null {
-    if (value === null || value === undefined || value === '') return null;
-    const parsed = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
-    return Number.isFinite(parsed) ? parsed : null;
+    return optionalNumber(value);
   }
 
   private parseSeasonStart(season: string): string {
@@ -302,27 +328,27 @@ export class UnderstatScraper {
     return out;
   }
 
-  private buildShotsOnTargetMap(shots: any[]): Map<string, { count: number; xgot: number }> {
-    const out = new Map<string, { count: number; xgot: number }>();
-    for (const shot of shots) {
-      const playerId = String(shot?.player_id ?? '').trim();
-      if (!playerId || !ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim())) continue;
-      const current = out.get(playerId) ?? { count: 0, xgot: 0 };
-      current.count += 1;
-      current.xgot += Number(this.toNumber(shot?.xG) ?? 0);
-      out.set(playerId, current);
-    }
-    return out;
-  }
-
   private buildPlayerStats(rosters: Record<string, any>, shots: any[]): UnderstatPlayerMatchStat[] {
-    const onTargetByPlayer = this.buildShotsOnTargetMap(shots);
+    const identifiableShots = hasUniqueExplicitShotIds(shots) && shots.every((shot) => isRecord(shot)
+      && Boolean(String(shot.player_id ?? '').trim()));
     return Object.values(rosters ?? {}).map((entry: any) => {
       const sourcePlayerId = this.toNumber(entry?.player_id ?? entry?.id);
       const playerId = sourcePlayerId !== null
         ? `understat_player_${sourcePlayerId}`
         : `understat_player_${String(entry?.player ?? 'unknown').toLowerCase().replace(/\s+/g, '_')}`;
-      const playerOnTarget = onTargetByPlayer.get(String(entry?.player_id ?? '')) ?? { count: 0, xgot: 0 };
+      const rawPlayerId = String(entry?.player_id ?? entry?.id ?? '').trim();
+      const playerShots = shots.filter((shot) => String(shot?.player_id ?? '').trim() === rawPlayerId);
+      const shotCount = eventCount(entry?.shots);
+      // Understat lists own goals as events but excludes them from the
+      // player's roster shot count. They are never shots on target.
+      const countedShots = playerShots.filter((shot) => String(shot?.result ?? '').trim() !== 'OwnGoal').length;
+      const completeShots = identifiableShots && shotCount !== null && shotCount === countedShots
+        && playerShots.every((shot) => SHOT_RESULTS.has(String(shot?.result ?? '').trim()));
+      const onTargetShots = playerShots.filter((shot) => ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim()));
+      const xgotValues = onTargetShots.map((shot) => this.toNumber(shot?.xG));
+      const xgot = completeShots && xgotValues.every((value) => value !== null)
+        ? xgotValues.reduce((sum, value) => sum + value!, 0)
+        : null;
       const rawPosition = String(entry?.position ?? 'MF').trim();
       return {
         playerId,
@@ -331,11 +357,11 @@ export class UnderstatScraper {
         teamId: String(entry?.team_id ?? ''),
         positionCode: rawPosition.split(/\s+/)[0] || 'MF',
         minutes: this.toNumber(entry?.time),
-        shots: Number(this.toNumber(entry?.shots) ?? 0),
-        shotsOnTarget: playerOnTarget.count,
-        goals: Number(this.toNumber(entry?.goals) ?? 0),
-        xg: Number(this.toNumber(entry?.xG) ?? 0),
-        xgot: Number(playerOnTarget.xgot ?? 0),
+        shots: shotCount,
+        shotsOnTarget: completeShots ? onTargetShots.length : null,
+        goals: eventCount(entry?.goals),
+        xg: this.toNumber(entry?.xG),
+        xgot,
         raw: entry && typeof entry === 'object' ? entry : {},
       };
     });
@@ -349,16 +375,32 @@ export class UnderstatScraper {
     const homePlayers = this.buildPlayerStats(homeRosters, homeShots);
     const awayPlayers = this.buildPlayerStats(awayRosters, awayShots);
 
+    const summarizeShots = (shots: any[], roster: Record<string, any>) => {
+      const rosterTotal = completeCountSum(Object.values(roster), 'shots');
+      const countedShots = shots.filter((shot) => String(shot?.result ?? '').trim() !== 'OwnGoal').length;
+      const complete = hasUniqueExplicitShotIds(shots) && shots.every((shot) => isRecord(shot)
+        && Boolean(String(shot.player_id ?? '').trim()))
+        && rosterTotal !== null && rosterTotal === countedShots;
+      return {
+        total: complete ? shots.length : null,
+        onTarget: complete && shots.every((shot) => SHOT_RESULTS.has(String(shot?.result ?? '').trim()))
+          ? shots.filter((shot) => ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim())).length
+          : null,
+      };
+    };
+    const homeShotCounts = summarizeShots(homeShots, homeRosters);
+    const awayShotCounts = summarizeShots(awayShots, awayRosters);
+
     return {
       ...match,
-      homeTotalShots: homeShots.length,
-      awayTotalShots: awayShots.length,
-      homeShotsOnTarget: homeShots.filter((shot) => ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim())).length,
-      awayShotsOnTarget: awayShots.filter((shot) => ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim())).length,
-      homeYellowCards: homePlayers.reduce((sum, player) => sum + Number(this.toNumber((player.raw as any)?.yellow_card) ?? 0), 0),
-      awayYellowCards: awayPlayers.reduce((sum, player) => sum + Number(this.toNumber((player.raw as any)?.yellow_card) ?? 0), 0),
-      homeRedCards: homePlayers.reduce((sum, player) => sum + Number(this.toNumber((player.raw as any)?.red_card) ?? 0), 0),
-      awayRedCards: awayPlayers.reduce((sum, player) => sum + Number(this.toNumber((player.raw as any)?.red_card) ?? 0), 0),
+      homeTotalShots: homeShotCounts.total,
+      awayTotalShots: awayShotCounts.total,
+      homeShotsOnTarget: homeShotCounts.onTarget,
+      awayShotsOnTarget: awayShotCounts.onTarget,
+      homeYellowCards: completeCountSum(Object.values(homeRosters), 'yellow_card'),
+      awayYellowCards: completeCountSum(Object.values(awayRosters), 'yellow_card'),
+      homeRedCards: completeCountSum(Object.values(homeRosters), 'red_card'),
+      awayRedCards: completeCountSum(Object.values(awayRosters), 'red_card'),
       playerStats: [...homePlayers, ...awayPlayers],
       rawJson: JSON.stringify({
         match: JSON.parse(match.rawJson),
@@ -463,8 +505,9 @@ export class UnderstatScraper {
     }
 
     const players = Array.isArray(teamPayload?.players) ? teamPayload!.players! : [];
-    const yellowTotal = players.reduce((sum: number, player: any) => sum + Number(this.toNumber(player?.yellow_cards) ?? 0), 0);
-    const redTotal = players.reduce((sum: number, player: any) => sum + Number(this.toNumber(player?.red_cards) ?? 0), 0);
+    const completePlayers = hasCompleteRoster(Object.fromEntries(players.map((player, index) => [index, player])));
+    const yellowTotal = completePlayers ? completeCountSum(players, 'yellow_cards') : null;
+    const redTotal = completePlayers ? completeCountSum(players, 'red_cards') : null;
 
     return {
       competition,
@@ -486,8 +529,8 @@ export class UnderstatScraper {
       foulsPerMatch: null,
       yellowTotal: played > 0 ? yellowTotal : null,
       redTotal: played > 0 ? redTotal : null,
-      yellowPerMatch: played > 0 ? yellowTotal / played : null,
-      redPerMatch: played > 0 ? redTotal / played : null,
+      yellowPerMatch: played > 0 && yellowTotal !== null ? yellowTotal / played : null,
+      redPerMatch: played > 0 && redTotal !== null ? redTotal / played : null,
       shotsOnTargetPerMatch: null,
       cleanSheetsTotal,
       source: 'understat_season_stats',

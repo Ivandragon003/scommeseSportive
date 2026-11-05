@@ -81,6 +81,10 @@ export interface ShotsModelData {
   // Sample size per lower bound adattivo r_min = 1 + 1/sqrt(n)
   homeTeamSampleSize?: number;
   awayTeamSampleSize?: number;
+  homeTeamShotsSampleSize?: number;
+  awayTeamShotsSampleSize?: number;
+  homeTeamShotsOTSampleSize?: number;
+  awayTeamShotsOTSampleSize?: number;
   // Regressione verso la media di lega
   leagueAvgShots?: number;
   leagueAvgShotsOT?: number;
@@ -99,7 +103,12 @@ export interface CardsModelData {
   // NUOVO: sample size per stabilità stime
   homeTeamSampleSize?: number;
   awayTeamSampleSize?: number;
+  homeTeamYellowSampleSize?: number;
+  awayTeamYellowSampleSize?: number;
   refereeSampleSize?: number;
+  refereeYellowSampleSize?: number;
+  refereeRedSampleSize?: number;
+  refereeFoulsSampleSize?: number;
   // NUOVO: varianza cartellini per r dinamico
   homeTeamVarYellow?: number;
   awayTeamVarYellow?: number;
@@ -114,6 +123,7 @@ export interface FoulsModelData {
   homePossessionEst: number;
   refereeAvgFouls: number;
   leagueAvgFouls: number;
+  refereeFoulsSampleSize?: number;
   // NUOVO: varianza per r dinamico
   homeTeamVarFouls?: number;
   awayTeamVarFouls?: number;
@@ -130,6 +140,7 @@ export interface PlayerShotsData {
   avgShotsOnTargetPerGame: number;
   gamesPlayed: number;
   shotShareOfTeam: number;
+  shotShareSampleSize?: number;
   isStarter: boolean;
   positionCode: string;
 }
@@ -423,8 +434,10 @@ export class SpecializedModels {
       onTargetOverUnder: Record<string, number>;
     };
   } {
-    const nHome = data.homeTeamSampleSize ?? 20;
-    const nAway = data.awayTeamSampleSize ?? 20;
+    const nHome = data.homeTeamShotsSampleSize ?? data.homeTeamSampleSize ?? 20;
+    const nAway = data.awayTeamShotsSampleSize ?? data.awayTeamSampleSize ?? 20;
+    const nHomeOT = data.homeTeamShotsOTSampleSize ?? data.homeTeamSampleSize ?? 20;
+    const nAwayOT = data.awayTeamShotsOTSampleSize ?? data.awayTeamSampleSize ?? 20;
 
     // --- Expected shots ---
     // A1 (2026-07): shotsSuppression = tiri concessi / media lega, quindi >1 =
@@ -450,8 +463,8 @@ export class SpecializedModels {
 
     const rHome = this.estimateDispersion(muHome, varHome, nHome, 40);
     const rAway = this.estimateDispersion(muAway, varAway, nAway, 40);
-    const rHomeOT = this.estimateDispersion(muHomeOT, varHomeOT, nHome, 30);
-    const rAwayOT = this.estimateDispersion(muAwayOT, varAwayOT, nAway, 30);
+    const rHomeOT = this.estimateDispersion(muHomeOT, varHomeOT, nHomeOT, 30);
+    const rAwayOT = this.estimateDispersion(muAwayOT, varAwayOT, nAwayOT, 30);
 
     // Varianza effettiva NegBin: Var = mu + mu²/r
     const varHomeEff = muHome + muHome * muHome / rHome;
@@ -570,9 +583,10 @@ export class SpecializedModels {
    */
   computeCardsDistribution(data: CardsModelData): CardsDistribution {
     const leagueAvgYellow = data.leagueAvgYellow ?? 3.8;
-    const sampleHome = data.homeTeamSampleSize ?? 20;
-    const sampleAway = data.awayTeamSampleSize ?? 20;
-    const sampleRef = data.refereeSampleSize ?? 15;
+    const sampleHome = data.homeTeamYellowSampleSize ?? data.homeTeamSampleSize ?? 20;
+    const sampleAway = data.awayTeamYellowSampleSize ?? data.awayTeamSampleSize ?? 20;
+    const sampleRefYellow = data.refereeYellowSampleSize ?? data.refereeSampleSize ?? 15;
+    const sampleRefRed = data.refereeRedSampleSize ?? data.refereeSampleSize ?? 15;
 
     // --- Shrinkage medie squadra verso media lega ---
     const avgYellowPerTeam = leagueAvgYellow / 2; // ~1.9 per squadra
@@ -588,13 +602,13 @@ export class SpecializedModels {
       ? data.refereeAvgYellow / leagueAvgYellow
       : 1.0;
     // Smorzamento: più partite → più fiducia nel fattore arbitro
-    const refDamping = sampleRef / (sampleRef + 15);
+    const refDamping = sampleRefYellow / (sampleRefYellow + 15);
     const refYellowFactor = 1 + (rawRefFactor - 1) * refDamping;
 
     // --- Bonus arbitro-falli: se fischia tanti falli → cartellini simili o no? ---
     // Empiricamente: arbitri con >25 falli/partita tendono a dare +8% cartellini
     let foulsBonus = 1.0;
-    if (data.refereeAvgFouls !== undefined && data.leagueAvgFouls !== undefined) {
+    if (data.refereeFoulsSampleSize !== 0 && data.refereeAvgFouls !== undefined && data.leagueAvgFouls !== undefined) {
       const foulRatio = data.refereeAvgFouls / Math.max(1, data.leagueAvgFouls);
       // Correlazione stimata empiricamente ≈ 0.35
       foulsBonus = 1 + (foulRatio - 1) * 0.35;
@@ -630,7 +644,7 @@ export class SpecializedModels {
     const rawRefRedFactor = (data.leagueAvgYellow > 0)
       ? data.refereeAvgRed / Math.max(0.05, data.leagueAvgYellow * 0.05)
       : 1.0;
-    const refRedDamping = sampleRef / (sampleRef + 25); // più smorzamento per i rossi
+    const refRedDamping = sampleRefRed / (sampleRefRed + 25); // più smorzamento per i rossi
     const refRedFactor = 1 + (rawRefRedFactor - 1) * refRedDamping;
 
     const lambdaHomeRed = Math.max(0.01, data.homeTeamAvgRed * refRedFactor * compFactor);
@@ -699,7 +713,7 @@ export class SpecializedModels {
     const sampleAway = data.awayTeamSampleSize ?? 20;
 
     // --- Fattore arbitro ---
-    const refFactor = leagueAvgFouls > 0
+    const refFactor = leagueAvgFouls > 0 && data.refereeFoulsSampleSize !== 0
       ? data.refereeAvgFouls / leagueAvgFouls
       : 1.0;
 
@@ -824,7 +838,7 @@ export class SpecializedModels {
     // --- Shrinkage delle share verso prior di ruolo ---
     const adjustedShares = likelyXI.map((p) => {
       const prior = positionPriors[p.positionCode] ?? positionPriors['MF'];
-      const n = Math.max(0, p.gamesPlayed);
+      const n = Math.max(0, p.shotShareSampleSize ?? p.gamesPlayed);
       // Bayesian update: share_adj = (n * share_obs + priorN * share_prior) / (n + priorN)
       const shareAdj = (n * p.shotShareOfTeam + prior.priorN * prior.share) / (n + prior.priorN);
       return { ...p, shareAdj };

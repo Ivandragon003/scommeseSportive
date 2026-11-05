@@ -62,11 +62,25 @@ export async function rebuildPlayerDerivedStats(
     xgot: number;
     yellowCards: number;
     redCards: number;
+    coverage: { shots: number; shotsOnTarget: number; yellowCards: number; redCards: number; shotShare: number };
+    pairedShots: number;
+    pairedShotsOnTarget: number;
+    conversionShots: number;
+    conversionGoals: number;
+    shareShots: number;
+    shotsFor90: number;
+    shotsMinutes: number;
+    targetFor90: number;
+    targetMinutes: number;
+    cardsFor90: number;
+    cardsMinutes: number;
+    yellowMinutes: number;
+    yellowForMinutes: number;
     rawSamples: Record<string, unknown>[];
   };
 
   const playersAgg = new Map<string, PlayerAgg>();
-  const playedMatches = matches.filter((m: any) => m.home_goals !== null && m.away_goals !== null);
+  const playedMatches = matches.filter((m: any) => m.home_goals != null && m.away_goals != null);
   const playersMarkedUnavailable = await db.markPlayersUnavailable(normalizedCompetition || undefined);
   let matchesWithShotmap = 0;
 
@@ -95,21 +109,39 @@ export async function rebuildPlayerDerivedStats(
 
   const ingestRoster = (
     rosterEntries: Record<string, any>,
-    shots: any[],
+    shots: any[] | null,
     teamId: string,
     matchId: string,
     matchDate: string,
-    teamMatchShots: number
+    teamMatchShots: number | null
   ) => {
-    const onTargetByPlayer = buildOnTargetMap(shots);
-    for (const entry of Object.values(rosterEntries ?? {})) {
+    const onTargetByPlayer = buildOnTargetMap(shots ?? []);
+    const roster = Object.values(rosterEntries ?? {});
+    const identity = (entry: any): string => String(entry?.player_id ?? entry?.id ?? entry?.player ?? entry?.playerName ?? '').trim().toLowerCase();
+    const rosterCounts = new Map<string, number>();
+    for (const entry of roster) {
+      const key = identity(entry);
+      if (key) rosterCounts.set(key, (rosterCounts.get(key) ?? 0) + 1);
+    }
+    const knownResults = new Set(['goal', 'savedshot', 'missedshots', 'blockedshot', 'shotonpost', 'owngoal']);
+    const shotKeys = new Set<string>();
+    const completeShotmap = shots !== null && shots.every((shot: any) => {
+      const playerId = String(shot?.player_id ?? shot?.playerId ?? '').trim();
+      const id = String(shot?.id ?? shot?.shot_id ?? '').trim();
+      const key = id ? `id:${id}` : `event:${JSON.stringify(shot)}`;
+      if (!playerId || !knownResults.has(normalizeShotResult(shot?.result ?? shot?.eventType)) || shotKeys.has(key)) return false;
+      shotKeys.add(key);
+      return true;
+    });
+    for (const entry of roster) {
+      if ((rosterCounts.get(identity(entry)) ?? 0) > 1) continue;
       const playerName = String((entry as any)?.player ?? (entry as any)?.playerName ?? '').trim();
       if (!playerName) continue;
       const sourcePlayerId = numOrNull((entry as any)?.player_id ?? (entry as any)?.id);
       const playerId = sourcePlayerId !== null
         ? `understat_player_${Math.trunc(sourcePlayerId)}`
         : `understat_player_${playerName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`;
-      const onTarget = onTargetByPlayer.get(String((entry as any)?.player_id ?? '')) ?? { count: 0, xgot: 0, samples: [] };
+      const onTarget = onTargetByPlayer.get(String((entry as any)?.player_id ?? (entry as any)?.id ?? '')) ?? { count: 0, xgot: 0, samples: [] };
       const current = playersAgg.get(playerId) ?? {
         playerId,
         sourcePlayerId: sourcePlayerId === null ? null : Math.trunc(sourcePlayerId),
@@ -127,6 +159,9 @@ export async function rebuildPlayerDerivedStats(
         xgot: 0,
         yellowCards: 0,
         redCards: 0,
+        coverage: { shots: 0, shotsOnTarget: 0, yellowCards: 0, redCards: 0, shotShare: 0 },
+        pairedShots: 0, pairedShotsOnTarget: 0, conversionShots: 0, conversionGoals: 0, shareShots: 0,
+        shotsFor90: 0, shotsMinutes: 0, targetFor90: 0, targetMinutes: 0, cardsFor90: 0, cardsMinutes: 0, yellowMinutes: 0, yellowForMinutes: 0,
         rawSamples: [],
       };
       const observedAt = Date.parse(matchDate);
@@ -134,20 +169,58 @@ export async function rebuildPlayerDerivedStats(
         current.teamId = teamId;
         current.teamObservedAt = observedAt;
       }
-      // A4: accumula i tiri squadra della partita solo se il giocatore non e'
-      // gia' stato contato per questo match (una entry per giocatore/partita).
-      if (!current.games.has(matchId)) {
-        current.teamShotsInPlayedGames += Math.max(0, Number(teamMatchShots) || 0);
-      }
+      if (current.games.has(matchId)) continue;
       current.games.add(matchId);
-      current.minutesTotal += Number(numOrNull((entry as any)?.time) ?? 0);
-      current.shots += Number(numOrNull((entry as any)?.shots) ?? 0);
-      current.shotsOnTarget += Number(onTarget.count ?? 0);
+      const observed = (value: unknown): number | null => {
+        if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && value.trim() === '')) return null;
+        const parsed = numOrNull(value);
+        return parsed !== null && parsed >= 0 ? parsed : null;
+      };
+      const minutes = observed((entry as any)?.time);
+      const count = (value: unknown): number | null => {
+        const parsed = observed(value);
+        return parsed !== null && Number.isInteger(parsed) ? parsed : null;
+      };
+      const playerShots = count((entry as any)?.shots);
+      const playerGoals = count((entry as any)?.goals);
+      const yellow = count((entry as any)?.yellow_card);
+      const red = count((entry as any)?.red_card);
+      const matchingShots = shots?.filter((shot: any) =>
+        normalizeShotResult(shot?.result ?? shot?.eventType) !== 'owngoal'
+        && String(shot?.player_id ?? shot?.playerId ?? '').trim() === String((entry as any)?.player_id ?? (entry as any)?.id ?? '').trim()
+      ).length ?? 0;
+      const target = completeShotmap && playerShots !== null && matchingShots === playerShots ? onTarget.count : null;
+      current.minutesTotal += minutes ?? 0;
+      if (playerShots !== null) {
+        current.shots += playerShots;
+        current.coverage.shots++;
+        if (playerGoals !== null) { current.conversionShots += playerShots; current.conversionGoals += playerGoals; }
+        if (minutes !== null && minutes > 0) { current.shotsFor90 += playerShots; current.shotsMinutes += minutes; }
+        if (teamMatchShots !== null) {
+          current.shareShots += playerShots;
+          current.teamShotsInPlayedGames += teamMatchShots;
+          current.coverage.shotShare++;
+        }
+      }
+      if (target !== null) {
+        current.shotsOnTarget += target;
+        current.coverage.shotsOnTarget++;
+        if (minutes !== null && minutes > 0) { current.targetFor90 += target; current.targetMinutes += minutes; }
+        if (playerShots !== null) { current.pairedShots += playerShots; current.pairedShotsOnTarget += target; }
+      }
+      if (yellow !== null) {
+        current.yellowCards += yellow;
+        current.coverage.yellowCards++;
+        if (minutes !== null && minutes > 0) { current.yellowMinutes += minutes; current.yellowForMinutes += yellow; }
+      }
+      if (red !== null) { current.redCards += red; current.coverage.redCards++; }
+      if (yellow !== null && red !== null && minutes !== null && minutes > 0) {
+        current.cardsFor90 += yellow + red;
+        current.cardsMinutes += minutes;
+      }
       current.goals += Number(numOrNull((entry as any)?.goals) ?? 0);
       current.xg += Number(numOrNull((entry as any)?.xG) ?? 0);
       current.xgot += Number(onTarget.xgot ?? 0);
-      current.yellowCards += Number(numOrNull((entry as any)?.yellow_card) ?? 0);
-      current.redCards += Number(numOrNull((entry as any)?.red_card) ?? 0);
       if (current.rawSamples.length < 8) {
         current.rawSamples.push({
           minutes: numOrNull((entry as any)?.time),
@@ -172,14 +245,13 @@ export async function rebuildPlayerDerivedStats(
     const raw = parseRawJson(match.raw_json);
     const homeRosters = raw?.details?.rosters?.h ?? {};
     const awayRosters = raw?.details?.rosters?.a ?? {};
-    const homeShotsDetail = Array.isArray(raw?.details?.shots?.h) ? raw.details.shots.h : [];
-    const awayShotsDetail = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : [];
-    if (homeShotsDetail.length > 0 || awayShotsDetail.length > 0) matchesWithShotmap++;
+    const homeShotsDetail = Array.isArray(raw?.details?.shots?.h) ? raw.details.shots.h : null;
+    const awayShotsDetail = Array.isArray(raw?.details?.shots?.a) ? raw.details.shots.a : null;
+    if (homeShotsDetail !== null || awayShotsDetail !== null) matchesWithShotmap++;
 
-    // A4: tiri squadra della SINGOLA partita (fallback alla lunghezza dello
-    // shotmap se la colonna e' NULL), per il denominatore della shot share.
-    const homeMatchShots = Number(homeShots ?? homeShotsDetail.length);
-    const awayMatchShots = Number(awayShots ?? awayShotsDetail.length);
+    // A partial shotmap cannot establish the team's total shots.
+    const homeMatchShots = homeShots !== null && Number.isInteger(homeShots) && homeShots >= 0 ? homeShots : null;
+    const awayMatchShots = awayShots !== null && Number.isInteger(awayShots) && awayShots >= 0 ? awayShots : null;
 
     ingestRoster(homeRosters, homeShotsDetail, homeTeamId, String(match.match_id), String(match.date ?? ''), homeMatchShots);
     ingestRoster(awayRosters, awayShotsDetail, awayTeamId, String(match.match_id), String(match.date ?? ''), awayMatchShots);
@@ -192,7 +264,7 @@ export async function rebuildPlayerDerivedStats(
     // A4: denominatore = tiri squadra nelle SOLE gare giocate dal giocatore
     // (prima: tiri squadra su TUTTE le partite del periodo, che deprimeva la
     // share di chi aveva saltato gare per infortunio/rotazione).
-    const teamShotsInGames = Math.max(1, player.teamShotsInPlayedGames);
+    const teamShotsInGames = player.teamShotsInPlayedGames;
 
     playerWrites.push({
       playerId: player.playerId,
@@ -200,28 +272,31 @@ export async function rebuildPlayerDerivedStats(
       name: player.name,
       teamId: player.teamId,
       positionCode: player.positionCode,
-      avgShotsPerGame: player.shots / games,
-      avgShotsOnTargetPerGame: player.shotsOnTarget / games,
+      avgShotsPerGame: player.coverage.shots > 0 ? player.shots / player.coverage.shots : null,
+      avgShotsOnTargetPerGame: player.coverage.shotsOnTarget > 0 ? player.shotsOnTarget / player.coverage.shotsOnTarget : null,
       avgXGPerGame: player.xg / games,
       avgXGOTPerGame: player.xgot / games,
       totalGoals: player.goals,
-      totalShots: player.shots,
-      totalShotsOnTarget: player.shotsOnTarget,
+      totalShots: player.coverage.shots > 0 ? player.shots : null,
+      totalShotsOnTarget: player.coverage.shotsOnTarget > 0 ? player.shotsOnTarget : null,
       minutesTotal: player.minutesTotal,
       avgMinutes: player.minutesTotal > 0 ? player.minutesTotal / games : 0,
-      shotsPer90: minutesBase > 0 ? (player.shots / minutesBase) * 90 : 0,
-      shotsOnTargetPer90: minutesBase > 0 ? (player.shotsOnTarget / minutesBase) * 90 : 0,
+      shotsPer90: player.shotsMinutes > 0 ? (player.shotsFor90 / player.shotsMinutes) * 90 : null,
+      shotsOnTargetPer90: player.targetMinutes > 0 ? (player.targetFor90 / player.targetMinutes) * 90 : null,
       xgPer90: minutesBase > 0 ? (player.xg / minutesBase) * 90 : 0,
-      shotOnTargetPct: safePct(player.shotsOnTarget, player.shots),
-      goalConversion: safePct(player.goals, player.shots),
-      yellowCardsTotal: player.yellowCards,
-      redCardsTotal: player.redCards,
-      cardsPer90: minutesBase > 0 ? ((player.yellowCards + player.redCards) / minutesBase) * 90 : 0,
-      shotShareOfTeam: player.shots / teamShotsInGames,
+      shotOnTargetPct: player.pairedShots > 0 ? safePct(player.pairedShotsOnTarget, player.pairedShots) : null,
+      goalConversion: player.conversionShots > 0 ? player.conversionGoals / player.conversionShots : null,
+      yellowCardsTotal: player.coverage.yellowCards > 0 ? player.yellowCards : null,
+      redCardsTotal: player.coverage.redCards > 0 ? player.redCards : null,
+      cardsPer90: player.cardsMinutes > 0 ? (player.cardsFor90 / player.cardsMinutes) * 90 : null,
+      shotShareOfTeam: teamShotsInGames > 0 ? player.shareShots / teamShotsInGames : null,
       gamesPlayed: games,
       isAvailable: true,
       statsJson: JSON.stringify({
         source: 'recompute_from_matches_raw',
+        coverage: player.coverage,
+        observedMinutes: { yellowCards: player.yellowMinutes },
+        observedTotals: { yellowCards: player.yellowForMinutes },
         filters: {
           competition: normalizedCompetition || null,
           season: String(options?.season ?? '').trim() || null,

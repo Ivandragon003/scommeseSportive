@@ -26,7 +26,7 @@ function assertOperationalSource(file, source) {
     `Operational A baseline changed: ${file}. Do not silently change A or refresh its golden.`);
 }
 
-test('operational A retains the pre-C snapshot plus only exact reviewed xG and observer deviations', () => {
+test('operational A retains the pre-C snapshot plus only exact reviewed missing-data and observer deviations', () => {
   assert.equal(manifest.baselineCommit, BASELINE);
   assert.equal(expected.baselineCommit, BASELINE);
   assert.equal(deviations.baselineCommit, BASELINE);
@@ -52,6 +52,15 @@ test('source guard rejects unrelated edits, a reverted authorized correction and
   assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, `${source}\n// unreviewed change\n`), /baseline changed/);
   assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, source.replace(edit.after, edit.before)), /exactly once/);
   assert.throws(() => assertOperationalSource(DIXON_COLES_SOURCE, `${source}\n${edit.after}`), /exactly once/);
+});
+
+test('source guard rejects reverting or duplicating the reviewed market-observation correction', () => {
+  const change = deviations.changes.find((entry) => entry.review === 'missing-market-observations-v1');
+  assert.ok(change?.edits.length > 0);
+  const edit = change.edits.find((entry) => entry.file === DIXON_COLES_SOURCE);
+  const source = readFileSync(resolve(__dirname, '../..', edit.file), 'utf8').replace(/\r\n/g, '\n');
+  assert.throws(() => assertOperationalSource(edit.file, source.replace(edit.after, edit.before)), /exactly once/);
+  assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`), /exactly once/);
 });
 
 test('authorized xG deviation falls back on either missing side and preserves genuine numeric zero', () => {

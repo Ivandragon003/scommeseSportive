@@ -24,6 +24,7 @@ rilascio, roadmap e snapshot operativi non fanno parte della guida corrente.
 | Training, benchmark e riproducibilità | [Research](docs/research-platform.md) |
 | Azioni dell'app, quote, portafogli e manutenzione | [Operazioni](docs/operations/README.md) |
 | Import, Nightly, recuperi e watchdog | [GitHub Actions](docs/github-actions-nightly-sync.md) |
+| Dati mancanti, zeri e campioni dei mercati statistici | [Contratto delle osservazioni](docs/data-observation-contract.md) |
 | Configurazione di hosting | [Hostless](docs/operations/hostless-deployment.md) |
 | Copia e ripristino dei dati | [Backup Turso](docs/operations/turso-backup.md) |
 | Build e aggiornamento Android | [APK privato](docs/android-private-apk.md) |

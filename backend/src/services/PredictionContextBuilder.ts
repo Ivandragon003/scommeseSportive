@@ -144,14 +144,22 @@ export class PredictionContextBuilder {
   }
 
   private toPlayerData(player: any): PlayerShotsData {
+    const stats = this.parseJson(player?.stats_json ?? player?.statsJson);
+    const identityOnly = stats?.identityOnly === true;
+    const coverage = stats?.coverage?.shotShare;
+    const share = player?.shot_share_of_team ?? player?.shotShareOfTeam;
+    const validShare = typeof share === 'number' && Number.isFinite(share) && share >= 0;
+    const shareSampleSize = identityOnly || !validShare ? 0 : stats?.coverage == null ? undefined
+      : typeof coverage === 'number' && Number.isInteger(coverage) && coverage >= 0 ? coverage : 0;
     return {
       playerId: String(player?.player_id ?? player?.playerId ?? ''),
       playerName: String(player?.name ?? player?.playerName ?? 'Unknown'),
       teamId: String(player?.team_id ?? player?.teamId ?? ''),
       avgShotsPerGame: Number(player?.avg_shots_per_game ?? player?.avgShotsPerGame ?? 0),
       avgShotsOnTargetPerGame: Number(player?.avg_shots_on_target_per_game ?? player?.avgShotsOnTargetPerGame ?? 0),
-      gamesPlayed: Math.max(0, Number(player?.games_played ?? player?.gamesPlayed ?? 0)),
-      shotShareOfTeam: Math.max(0, Number(player?.shot_share_of_team ?? player?.shotShareOfTeam ?? 0)),
+      gamesPlayed: identityOnly ? 0 : Math.max(0, Number(player?.games_played ?? player?.gamesPlayed ?? 0)),
+      shotShareOfTeam: validShare ? share : 0,
+      shotShareSampleSize: shareSampleSize,
       isStarter: player?.isStarter !== false,
       positionCode: String(player?.position_code ?? player?.positionCode ?? 'MF'),
     };
@@ -176,20 +184,26 @@ export class PredictionContextBuilder {
     const venueStats = this.readVenueStats(teamRow, venue);
     const json = this.parseJson(teamRow?.team_stats_json);
     const foulsDrawnPerMatch = this.toFiniteNumber(json?.computed?.rates?.foulsDrawnPerMatch);
+    const venueSamples = json?.computed?.venueMarketSampleSizes?.[venue];
+    const marketSamples = json?.computed?.marketSampleSizes;
+    const validMean = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0;
+    const mean = (value: unknown, fallback: number) => validMean(value) ? value : fallback;
+    const sample = (value: unknown, metadata: unknown, rawMean: unknown): number | undefined => {
+      if (!validMean(rawMean)) return 0;
+      if (metadata == null) return undefined; // Valid legacy mean without coverage metadata.
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+    };
+    const shots = venue === 'home' ? teamRow?.avg_home_shots : teamRow?.avg_away_shots;
+    const shotsOT = venue === 'home' ? teamRow?.avg_home_shots_ot : teamRow?.avg_away_shots_ot;
+    const yellow = teamRow?.avg_yellow_cards;
+    const red = teamRow?.avg_red_cards;
 
     return {
-      avgShots: Number(
-        (venue === 'home'
-          ? teamRow?.avg_home_shots ?? 12.1
-          : teamRow?.avg_away_shots ?? 10.4)
-      ),
-      avgShotsOT: Number(
-        (venue === 'home'
-          ? teamRow?.avg_home_shots_ot ?? 4.8
-          : teamRow?.avg_away_shots_ot ?? 3.9)
-      ),
-      avgYellowCards: Number(teamRow?.avg_yellow_cards ?? 1.9),
-      avgRedCards: Number(teamRow?.avg_red_cards ?? 0.11),
+      avgShots: mean(shots, venue === 'home' ? 12.1 : 10.4),
+      avgShotsOT: mean(shotsOT, venue === 'home' ? 4.8 : 3.9),
+      avgYellowCards: mean(yellow, 1.9),
+      avgRedCards: mean(red, 0.11),
       avgFouls: Number(teamRow?.avg_fouls ?? 11.2),
       shotsSuppression: Number(teamRow?.shots_suppression ?? 1.0),
       avgHomeCorners: this.toFiniteNumber(teamRow?.avg_home_corners ?? 5.5),
@@ -202,6 +216,10 @@ export class PredictionContextBuilder {
       varYellowCards: venueStats.varYellowCards,
       varFouls: venueStats.varFouls,
       sampleSize: venueStats.sampleSize,
+      sampleSizeShots: sample(venueSamples?.shots, venueSamples, shots),
+      sampleSizeShotsOT: sample(venueSamples?.shotsOnTarget, venueSamples, shotsOT),
+      sampleSizeYellow: sample(marketSamples?.yellowCards, marketSamples, yellow),
+      sampleSizeRed: sample(marketSamples?.redCards, marketSamples, red),
     };
   }
 
@@ -381,12 +399,22 @@ export class PredictionContextBuilder {
     const awayTeamStats = awayTeam ? this.buildTeamStats(awayTeam, 'away') : undefined;
     const contextAdjustments = this.buildContextAdjustments(normalizedRequest, competitiveness);
 
+    const refereeMean = (value: unknown, fallback: number) =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+    const refereeSample = (value: unknown, rawMean: unknown, hasMetadata: boolean) => {
+      if (typeof rawMean !== 'number' || !Number.isFinite(rawMean) || rawMean < 0) return 0;
+      if (!hasMetadata) return undefined;
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+    };
     const refereeStats = referee
       ? {
-          avgYellow: Number(referee?.avg_yellow_cards_per_game ?? 3.8),
-          avgRed: Number(referee?.avg_red_cards_per_game ?? 0.22),
-          avgFouls: Number(referee?.avg_fouls_per_game ?? 22.4),
-          sampleSize: this.toFiniteNumber(referee?.total_games),
+          avgYellow: refereeMean(referee.avg_yellow_cards_per_game, 3.8),
+          avgRed: refereeMean(referee.avg_red_cards_per_game, 0.22),
+          avgFouls: refereeMean(referee.avg_fouls_per_game, 22.4),
+          sampleSize: this.toFiniteNumber(referee.total_games),
+          sampleSizeYellow: refereeSample(referee.yellow_games, referee.avg_yellow_cards_per_game, Object.prototype.hasOwnProperty.call(referee, 'yellow_games')),
+          sampleSizeRed: refereeSample(referee.red_games, referee.avg_red_cards_per_game, Object.prototype.hasOwnProperty.call(referee, 'red_games')),
+          sampleSizeFouls: refereeSample(referee.fouls_games, referee.avg_fouls_per_game, Object.prototype.hasOwnProperty.call(referee, 'fouls_games')),
         }
       : undefined;
 
@@ -397,8 +425,14 @@ export class PredictionContextBuilder {
     const hasBothXg =
       Number.isFinite(Number(homeTeam?.avg_home_xg)) &&
       Number.isFinite(Number(awayTeam?.avg_away_xg));
-    const playerCoverage =
-      Math.min(homePlayers.length, awayPlayers.length) > 0 ? 1 : 0;
+    const hasPlayerStatistics = (players: any[]) => players.some((player) => {
+      const stats = this.parseJson(player?.stats_json ?? player?.statsJson);
+      if (stats?.identityOnly === true) return false;
+      if (!stats?.coverage) return true; // Legacy profiles have no per-field coverage metadata.
+      return ['shots', 'shotsOnTarget', 'yellowCards', 'redCards', 'shotShare']
+        .some((key) => typeof stats.coverage[key] === 'number' && stats.coverage[key] > 0);
+    });
+    const playerCoverage = hasPlayerStatistics(homePlayers) && hasPlayerStatistics(awayPlayers) ? 1 : 0;
     const refereeCoverage = refereeStats?.sampleSize ? 1 : 0;
     const homeHistoricalCoverage = params.homeHistoricalCoverage ?? null;
     const awayHistoricalCoverage = params.awayHistoricalCoverage ?? null;

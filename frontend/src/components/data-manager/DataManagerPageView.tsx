@@ -748,12 +748,12 @@ const DataManagerPageView: React.FC = () => {
                       <div key={league.competition} className="dm-league-card">
                         <div className="dm-league-head">{league.competition}</div>
                         <div className="dm-league-kpi"><span>Partite</span><strong>{league.matches ?? 0}</strong></div>
-                        <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals ?? 0, 2)}</strong></div>
-                        <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards ?? 0, 2)}</strong></div>
-                        <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots ?? 0, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>Gol medi</span><strong>{n(league.avgGoals, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>Cartellini medi</span><strong>{n(league.avgTotalCards, 2)}</strong></div>
+                        <div className="dm-league-kpi"><span>Tiri medi</span><strong>{n(league.avgTotalShots, 2)}</strong></div>
                         <div className="dm-league-kpi">
                           <span>Copertura xG</span>
-                          <strong>{n(league.xgCoveragePct ?? 0, 1)}%</strong>
+                          <strong>{league.xgCoveragePct == null ? '-' : `${n(league.xgCoveragePct, 1)}%`}</strong>
                         </div>
                         {PLAYER_DATA_ENABLED && <div className="dm-league-kpi"><span>Giocatori</span><strong>{league.players?.players ?? 0}</strong></div>}
                       </div>

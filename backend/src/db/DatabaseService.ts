@@ -1055,6 +1055,11 @@ export class DatabaseService {
   }
 
   private getMatchUpsertArgs(match: any): SqlArgs {
+    const observedCount = (value: unknown): number | null => {
+      if (value == null || (typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && value.trim() === '')) return null;
+      const parsed = Number(value);
+      return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+    };
     return {
         matchId: match.matchId,
         homeTeamId: match.homeTeamId,
@@ -1066,18 +1071,18 @@ export class DatabaseService {
         awayGoals: match.awayGoals ?? null,
         homeXG: match.homeXG ?? null,
         awayXG: match.awayXG ?? null,
-        homeShots: match.homeTotalShots ?? null,
-        awayShots: match.awayTotalShots ?? null,
-        homeShotsOT: match.homeShotsOnTarget ?? null,
-        awayShotsOT: match.awayShotsOnTarget ?? null,
+        homeShots: observedCount(match.homeTotalShots),
+        awayShots: observedCount(match.awayTotalShots),
+        homeShotsOT: observedCount(match.homeShotsOnTarget),
+        awayShotsOT: observedCount(match.awayShotsOnTarget),
         homePoss: match.homePossession ?? null,
         awayPoss: match.awayPossession ?? null,
         homeFouls: match.homeFouls ?? null,
         awayFouls: match.awayFouls ?? null,
-        homeYellow: match.homeYellowCards ?? null,
-        awayYellow: match.awayYellowCards ?? null,
-        homeRed: match.homeRedCards ?? null,
-        awayRed: match.awayRedCards ?? null,
+        homeYellow: observedCount(match.homeYellowCards),
+        awayYellow: observedCount(match.awayYellowCards),
+        homeRed: observedCount(match.homeRedCards),
+        awayRed: observedCount(match.awayRedCards),
         homeCorners: match.homeCorners ?? null,
         awayCorners: match.awayCorners ?? null,
         referee: match.referee ?? null,
@@ -1244,11 +1249,11 @@ export class DatabaseService {
         SUM(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN 1 ELSE 0 END) AS completed_matches,
         SUM(CASE WHEN datetime(date) >= datetime('now') THEN 1 ELSE 0 END) AS upcoming_matches,
         SUM(CASE WHEN home_xg IS NOT NULL AND away_xg IS NOT NULL THEN 1 ELSE 0 END) AS with_xg,
-        SUM(CASE WHEN home_shots IS NOT NULL AND away_shots IS NOT NULL THEN 1 ELSE 0 END) AS with_shots,
-        SUM(CASE WHEN home_shots_on_target IS NOT NULL AND away_shots_on_target IS NOT NULL THEN 1 ELSE 0 END) AS with_shots_ot,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) AND (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN 1 ELSE 0 END) AS with_shots,
+        SUM(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) AND (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN 1 ELSE 0 END) AS with_shots_ot,
         SUM(CASE WHEN home_fouls IS NOT NULL AND away_fouls IS NOT NULL THEN 1 ELSE 0 END) AS with_fouls,
-        SUM(CASE WHEN home_yellow_cards IS NOT NULL AND away_yellow_cards IS NOT NULL THEN 1 ELSE 0 END) AS with_yellow,
-        SUM(CASE WHEN home_red_cards IS NOT NULL AND away_red_cards IS NOT NULL THEN 1 ELSE 0 END) AS with_red,
+        SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) AND (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN 1 ELSE 0 END) AS with_yellow,
+        SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) AND (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN 1 ELSE 0 END) AS with_red,
         SUM(CASE WHEN home_possession IS NOT NULL AND away_possession IS NOT NULL THEN 1 ELSE 0 END) AS with_possession,
         SUM(CASE WHEN referee IS NOT NULL AND TRIM(referee) <> '' THEN 1 ELSE 0 END) AS with_referee
       FROM matches
@@ -1974,8 +1979,8 @@ export class DatabaseService {
     completedMatches: number;
     upcomingMatches: number;
     avgGoals: number;
-    avgTotalShots: number;
-    avgTotalCards: number;
+    avgTotalShots: number | null;
+    avgTotalCards: number | null;
     avgTotalFouls: number;
     xgCoveragePct: number;
     lastMatchDate: string | null;
@@ -1991,8 +1996,8 @@ export class DatabaseService {
         SUM(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN 1 ELSE 0 END) AS completed_matches,
         SUM(CASE WHEN datetime(date) >= datetime('now') THEN 1 ELSE 0 END) AS upcoming_matches,
         AVG(CASE WHEN home_goals IS NOT NULL AND away_goals IS NOT NULL THEN (home_goals + away_goals) END) AS avg_goals,
-        AVG(CASE WHEN home_shots IS NOT NULL AND away_shots IS NOT NULL THEN (home_shots + away_shots) END) AS avg_total_shots,
-        AVG(CASE WHEN home_yellow_cards IS NOT NULL AND away_yellow_cards IS NOT NULL THEN (home_yellow_cards + away_yellow_cards + 2 * (COALESCE(home_red_cards, 0) + COALESCE(away_red_cards, 0))) END) AS avg_total_cards,
+        AVG(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) AND (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN (home_shots + away_shots) END) AS avg_total_shots,
+        AVG(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) AND (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) AND (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) AND (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN (home_yellow_cards + away_yellow_cards + 2 * (home_red_cards + away_red_cards)) END) AS avg_total_cards,
         AVG(CASE WHEN home_fouls IS NOT NULL AND away_fouls IS NOT NULL THEN (home_fouls + away_fouls) END) AS avg_total_fouls,
         SUM(CASE WHEN home_xg IS NOT NULL AND away_xg IS NOT NULL THEN 1 ELSE 0 END) AS with_xg,
         MAX(date) AS last_match_date
@@ -2015,8 +2020,8 @@ export class DatabaseService {
           completedMatches: 0,
           upcomingMatches: 0,
           avgGoals: 0,
-          avgTotalShots: 0,
-          avgTotalCards: 0,
+          avgTotalShots: null,
+          avgTotalCards: null,
           avgTotalFouls: 0,
           xgCoveragePct: 0,
           lastMatchDate: null,
@@ -2031,8 +2036,8 @@ export class DatabaseService {
         completedMatches: Number(r.completed_matches ?? 0),
         upcomingMatches: Number(r.upcoming_matches ?? 0),
         avgGoals: Number(Number(r.avg_goals ?? 0).toFixed(2)),
-        avgTotalShots: Number(Number(r.avg_total_shots ?? 0).toFixed(2)),
-        avgTotalCards: Number(Number(r.avg_total_cards ?? 0).toFixed(2)),
+        avgTotalShots: r.avg_total_shots == null ? null : Number(Number(r.avg_total_shots).toFixed(2)),
+        avgTotalCards: r.avg_total_cards == null ? null : Number(Number(r.avg_total_cards).toFixed(2)),
         avgTotalFouls: Number(Number(r.avg_total_fouls ?? 0).toFixed(2)),
         xgCoveragePct: matches > 0 ? Number(((withXg / matches) * 100).toFixed(2)) : 0,
         lastMatchDate: r.last_match_date ? String(r.last_match_date) : null,
@@ -3462,18 +3467,18 @@ export class DatabaseService {
       const [teams, homes, aways, recent] = await Promise.all([
         this.getTeamsByIds(ids),
         this.all(`SELECT home_team_id AS team_id,
-        SUM(CASE WHEN home_shots IS NOT NULL THEN home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN home_shots IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots,
-        SUM(CASE WHEN home_shots_on_target IS NOT NULL THEN home_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN home_shots_on_target IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_ot,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots,
+        SUM(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_ot,
         SUM(CASE WHEN home_xg IS NOT NULL THEN home_xg * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN home_xg IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_xg,
-        SUM(CASE WHEN away_shots IS NOT NULL THEN away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN away_shots IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_conceded,
-        SUM(CASE WHEN home_yellow_cards IS NOT NULL THEN home_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN home_yellow_cards IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_yellow,
-        SUM(CASE WHEN home_red_cards IS NOT NULL THEN home_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN home_red_cards IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_red,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_conceded,
+        SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_yellow,
+        SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) THEN home_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_red,
         SUM(CASE WHEN home_fouls IS NOT NULL THEN home_fouls * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN home_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN home_corners IS NOT NULL THEN home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
@@ -3481,37 +3486,46 @@ export class DatabaseService {
         SUM(CASE WHEN away_corners IS NOT NULL THEN away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN away_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners_conceded,
         AVG(home_possession * 1.0) AS avg_possession,
-        AVG(home_shots * home_shots * 1.0) - AVG(home_shots * 1.0) * AVG(home_shots * 1.0) AS var_shots,
-        AVG(home_shots_on_target * home_shots_on_target * 1.0) - AVG(home_shots_on_target * 1.0) * AVG(home_shots_on_target * 1.0) AS var_shots_ot,
-        AVG(home_yellow_cards * home_yellow_cards * 1.0) - AVG(home_yellow_cards * 1.0) * AVG(home_yellow_cards * 1.0) AS var_yellow,
+        AVG(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots * home_shots * 1.0 END) - AVG(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots * 1.0 END) * AVG(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots * 1.0 END) AS var_shots,
+        AVG(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target * home_shots_on_target * 1.0 END) - AVG(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target * 1.0 END) * AVG(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target * 1.0 END) AS var_shots_ot,
+        AVG(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards * home_yellow_cards * 1.0 END) - AVG(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards * 1.0 END) * AVG(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards * 1.0 END) AS var_yellow,
         AVG(home_fouls * home_fouls * 1.0) - AVG(home_fouls * 1.0) * AVG(home_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n,
-        SUM(COALESCE(home_shots, 0)) AS total_shots,
-        SUM(COALESCE(home_shots_on_target, 0)) AS total_shots_ot,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN 1 ELSE 0 END) AS count_shots,
+        SUM(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN 1 ELSE 0 END) AS count_shots_ot,
+        SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN 1 ELSE 0 END) AS count_yellow,
+        SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) THEN 1 ELSE 0 END) AS count_red,
+        SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_yellow,
+        SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_red,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_shots_conceded,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) AND (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots END) AS paired_shots,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) AND (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target END) AS paired_shots_ot,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots END) AS total_shots,
+        SUM(CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target END) AS total_shots_ot,
         SUM(COALESCE(home_xg, 0)) AS total_xg,
         SUM(COALESCE(away_xg, 0)) AS total_xga,
         SUM(COALESCE(home_fouls, 0)) AS total_fouls_committed,
         SUM(COALESCE(away_fouls, 0)) AS total_fouls_drawn,
-        SUM(COALESCE(home_yellow_cards, 0)) AS total_yellow,
-        SUM(COALESCE(home_red_cards, 0)) AS total_red,
+        SUM(CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards END) AS total_yellow,
+        SUM(CASE WHEN (typeof(home_red_cards) IN ('integer', 'real') AND home_red_cards >= 0 AND home_red_cards = CAST(home_red_cards AS INTEGER)) THEN home_red_cards END) AS total_red,
         SUM(COALESCE(home_corners, 0)) AS total_corners
       FROM matches
       WHERE home_team_id IN (${placeholders}) AND home_goals IS NOT NULL
       GROUP BY home_team_id`, ids),
         this.all(`SELECT away_team_id AS team_id,
-        SUM(CASE WHEN away_shots IS NOT NULL THEN away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN away_shots IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots,
-        SUM(CASE WHEN away_shots_on_target IS NOT NULL THEN away_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN away_shots_on_target IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_ot,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots,
+        SUM(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_ot,
         SUM(CASE WHEN away_xg IS NOT NULL THEN away_xg * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN away_xg IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_xg,
-        SUM(CASE WHEN home_shots IS NOT NULL THEN home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN home_shots IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_conceded,
-        SUM(CASE WHEN away_yellow_cards IS NOT NULL THEN away_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN away_yellow_cards IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_yellow,
-        SUM(CASE WHEN away_red_cards IS NOT NULL THEN away_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
-        NULLIF(SUM(CASE WHEN away_red_cards IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_red,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_shots_conceded,
+        SUM(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_yellow,
+        SUM(CASE WHEN (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN away_red_cards * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
+        NULLIF(SUM(CASE WHEN (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_red,
         SUM(CASE WHEN away_fouls IS NOT NULL THEN away_fouls * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN away_fouls IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_fouls,
         SUM(CASE WHEN away_corners IS NOT NULL THEN away_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
@@ -3519,36 +3533,45 @@ export class DatabaseService {
         SUM(CASE WHEN home_corners IS NOT NULL THEN home_corners * EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) /
         NULLIF(SUM(CASE WHEN home_corners IS NOT NULL THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END), 0) AS avg_corners_conceded,
         AVG(away_possession * 1.0) AS avg_possession,
-        AVG(away_shots * away_shots * 1.0) - AVG(away_shots * 1.0) * AVG(away_shots * 1.0) AS var_shots,
-        AVG(away_shots_on_target * away_shots_on_target * 1.0) - AVG(away_shots_on_target * 1.0) * AVG(away_shots_on_target * 1.0) AS var_shots_ot,
-        AVG(away_yellow_cards * away_yellow_cards * 1.0) - AVG(away_yellow_cards * 1.0) * AVG(away_yellow_cards * 1.0) AS var_yellow,
+        AVG(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots * away_shots * 1.0 END) - AVG(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots * 1.0 END) * AVG(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots * 1.0 END) AS var_shots,
+        AVG(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target * away_shots_on_target * 1.0 END) - AVG(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target * 1.0 END) * AVG(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target * 1.0 END) AS var_shots_ot,
+        AVG(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards * away_yellow_cards * 1.0 END) - AVG(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards * 1.0 END) * AVG(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards * 1.0 END) AS var_yellow,
         AVG(away_fouls * away_fouls * 1.0) - AVG(away_fouls * 1.0) * AVG(away_fouls * 1.0) AS var_fouls,
         SUM(EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date)))) AS total_weight,
         COUNT(*) AS n,
-        SUM(COALESCE(away_shots, 0)) AS total_shots,
-        SUM(COALESCE(away_shots_on_target, 0)) AS total_shots_ot,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN 1 ELSE 0 END) AS count_shots,
+        SUM(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN 1 ELSE 0 END) AS count_shots_ot,
+        SUM(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN 1 ELSE 0 END) AS count_yellow,
+        SUM(CASE WHEN (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN 1 ELSE 0 END) AS count_red,
+        SUM(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_yellow,
+        SUM(CASE WHEN (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_red,
+        SUM(CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN EXP(-${DECAY_PER_DAY} * (julianday('now') - julianday(date))) END) AS weight_shots_conceded,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) AND (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots END) AS paired_shots,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) AND (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target END) AS paired_shots_ot,
+        SUM(CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots END) AS total_shots,
+        SUM(CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target END) AS total_shots_ot,
         SUM(COALESCE(away_xg, 0)) AS total_xg,
         SUM(COALESCE(home_xg, 0)) AS total_xga,
         SUM(COALESCE(away_fouls, 0)) AS total_fouls_committed,
         SUM(COALESCE(home_fouls, 0)) AS total_fouls_drawn,
-        SUM(COALESCE(away_yellow_cards, 0)) AS total_yellow,
-        SUM(COALESCE(away_red_cards, 0)) AS total_red,
+        SUM(CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards END) AS total_yellow,
+        SUM(CASE WHEN (typeof(away_red_cards) IN ('integer', 'real') AND away_red_cards >= 0 AND away_red_cards = CAST(away_red_cards AS INTEGER)) THEN away_red_cards END) AS total_red,
         SUM(COALESCE(away_corners, 0)) AS total_corners
       FROM matches
       WHERE away_team_id IN (${placeholders}) AND home_goals IS NOT NULL
       GROUP BY away_team_id`, ids),
         this.all(`WITH team_matches AS (
-        SELECT home_team_id AS team_id, date, home_shots AS shots,
-          home_shots_on_target AS shots_ot, home_xg AS xg,
+        SELECT home_team_id AS team_id, date, CASE WHEN (typeof(home_shots) IN ('integer', 'real') AND home_shots >= 0 AND home_shots = CAST(home_shots AS INTEGER)) THEN home_shots END AS shots,
+          CASE WHEN (typeof(home_shots_on_target) IN ('integer', 'real') AND home_shots_on_target >= 0 AND home_shots_on_target = CAST(home_shots_on_target AS INTEGER)) THEN home_shots_on_target END AS shots_ot, home_xg AS xg,
           home_goals AS goals_for, away_goals AS goals_against,
-          home_fouls AS fouls, home_yellow_cards AS yellow_cards, home_corners AS corners
+          home_fouls AS fouls, CASE WHEN (typeof(home_yellow_cards) IN ('integer', 'real') AND home_yellow_cards >= 0 AND home_yellow_cards = CAST(home_yellow_cards AS INTEGER)) THEN home_yellow_cards END AS yellow_cards, home_corners AS corners
         FROM matches WHERE home_team_id IN (${placeholders})
           AND home_goals IS NOT NULL AND away_goals IS NOT NULL
         UNION ALL
-        SELECT away_team_id AS team_id, date, away_shots AS shots,
-          away_shots_on_target AS shots_ot, away_xg AS xg,
+        SELECT away_team_id AS team_id, date, CASE WHEN (typeof(away_shots) IN ('integer', 'real') AND away_shots >= 0 AND away_shots = CAST(away_shots AS INTEGER)) THEN away_shots END AS shots,
+          CASE WHEN (typeof(away_shots_on_target) IN ('integer', 'real') AND away_shots_on_target >= 0 AND away_shots_on_target = CAST(away_shots_on_target AS INTEGER)) THEN away_shots_on_target END AS shots_ot, away_xg AS xg,
           away_goals AS goals_for, home_goals AS goals_against,
-          away_fouls AS fouls, away_yellow_cards AS yellow_cards, away_corners AS corners
+          away_fouls AS fouls, CASE WHEN (typeof(away_yellow_cards) IN ('integer', 'real') AND away_yellow_cards >= 0 AND away_yellow_cards = CAST(away_yellow_cards AS INTEGER)) THEN away_yellow_cards END AS yellow_cards, away_corners AS corners
         FROM matches WHERE away_team_id IN (${placeholders})
           AND home_goals IS NOT NULL AND away_goals IS NOT NULL
       ), ranked AS (
@@ -3646,15 +3669,19 @@ export class DatabaseService {
         yellow: 0,
         corners: 0,
       });
+      const availableAverage = (field: string): number | null => {
+        const values = rows.map((row) => safeAvgOrNull(row[field])).filter((value): value is number => value !== null && value >= 0);
+        return values.length > 0 ? values.reduce((total, value) => total + value, 0) / values.length : null;
+      };
       return {
         matches: count,
-        avgShots: sum.shots / count,
-        avgShotsOT: sum.shotsOT / count,
+        avgShots: availableAverage('shots'),
+        avgShotsOT: availableAverage('shots_ot'),
         avgXg: sum.xg / count,
         avgGoalsFor: sum.goalsFor / count,
         avgGoalsAgainst: sum.goalsAgainst / count,
         avgFouls: sum.fouls / count,
-        avgYellowCards: sum.yellow / count,
+        avgYellowCards: availableAverage('yellow_cards'),
         avgCorners: sum.corners / count,
       };
     };
@@ -3669,13 +3696,18 @@ export class DatabaseService {
     const awayW = Number(awayRows?.total_weight ?? 0);
     const totalW = homeW + awayW;
 
-    const avgConcededAll = totalW > 0
-      ? ((Number(homeRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * homeW + Number(awayRows?.avg_shots_conceded ?? LEAGUE_AVG_SHOTS_CONCEDED) * awayW) / totalW)
-      : LEAGUE_AVG_SHOTS_CONCEDED;
+    const weightedAvailable = (field: string, fallback: number): number => {
+      const homeWeight = Number(homeRows?.[`weight_${field}`] ?? 0);
+      const awayWeight = Number(awayRows?.[`weight_${field}`] ?? 0);
+      const weight = homeWeight + awayWeight;
+      return weight > 0
+        ? ((Number(homeRows?.[`avg_${field}`] ?? 0) * homeWeight + Number(awayRows?.[`avg_${field}`] ?? 0) * awayWeight) / weight)
+        : fallback;
+    };
+    const avgConcededAll = weightedAvailable('shots_conceded', LEAGUE_AVG_SHOTS_CONCEDED);
     const shotsSuppression = avgConcededAll / LEAGUE_AVG_SHOTS_CONCEDED;
-
-    const avgYellow = totalW > 0 ? ((Number(homeRows?.avg_yellow ?? 1.9) * homeW + Number(awayRows?.avg_yellow ?? 1.9) * awayW) / totalW) : 1.9;
-    const avgRed = totalW > 0 ? ((Number(homeRows?.avg_red ?? 0.11) * homeW + Number(awayRows?.avg_red ?? 0.11) * awayW) / totalW) : 0.11;
+    const avgYellow = weightedAvailable('yellow', 1.9);
+    const avgRed = weightedAvailable('red', 0.11);
     const avgFouls = totalW > 0 ? ((Number(homeRows?.avg_fouls ?? 11.2) * homeW + Number(awayRows?.avg_fouls ?? 11.2) * awayW) / totalW) : 11.2;
     const totalShots = Number(homeRows?.total_shots ?? 0) + Number(awayRows?.total_shots ?? 0);
     const totalShotsOnTarget = Number(homeRows?.total_shots_ot ?? 0) + Number(awayRows?.total_shots_ot ?? 0);
@@ -3686,33 +3718,41 @@ export class DatabaseService {
     const totalYellowCards = Number(homeRows?.total_yellow ?? 0) + Number(awayRows?.total_yellow ?? 0);
     const totalRedCards = Number(homeRows?.total_red ?? 0) + Number(awayRows?.total_red ?? 0);
     const totalCorners = Number(homeRows?.total_corners ?? 0) + Number(awayRows?.total_corners ?? 0);
+    const fieldCount = (field: string): number => Number(homeRows?.[`count_${field}`] ?? 0) + Number(awayRows?.[`count_${field}`] ?? 0);
+    const pairedShots = Number(homeRows?.paired_shots ?? 0) + Number(awayRows?.paired_shots ?? 0);
+    const pairedShotsOT = Number(homeRows?.paired_shots_ot ?? 0) + Number(awayRows?.paired_shots_ot ?? 0);
     const recent5 = buildRecentWindow(recentRows.slice(0, 5));
     const recent10 = buildRecentWindow(recentRows.slice(0, 10));
     const existingStats = parseJson(existingTeam?.team_stats_json);
     const computedStats = {
       ...(existingStats.computed ?? {}),
       overallSampleSize: totalN,
+      marketSampleSizes: { shots: fieldCount('shots'), shotsOnTarget: fieldCount('shots_ot'), yellowCards: fieldCount('yellow'), redCards: fieldCount('red') },
+      venueMarketSampleSizes: Object.fromEntries([['home', homeRows], ['away', awayRows]].map(([venue, row]: [string, any]) => [venue, {
+        shots: Number(row?.count_shots ?? 0), shotsOnTarget: Number(row?.count_shots_ot ?? 0),
+        yellowCards: Number(row?.count_yellow ?? 0), redCards: Number(row?.count_red ?? 0),
+      }])),
       totals: {
-        shots: totalShots,
-        shotsOnTarget: totalShotsOnTarget,
+        shots: fieldCount('shots') > 0 ? totalShots : null,
+        shotsOnTarget: fieldCount('shots_ot') > 0 ? totalShotsOnTarget : null,
         xg: totalXg,
         xga: totalXga,
         foulsCommitted: totalFoulsCommitted,
         foulsDrawn: totalFoulsDrawn,
-        yellowCards: totalYellowCards,
-        redCards: totalRedCards,
+        yellowCards: fieldCount('yellow') > 0 ? totalYellowCards : null,
+        redCards: fieldCount('red') > 0 ? totalRedCards : null,
         corners: totalCorners,
       },
       rates: {
-        shotsPct: safeRatio(totalShotsOnTarget, totalShots),
-        shotsPerMatch: averageByRows(totalShots, totalN),
-        shotsOnTargetPerMatch: averageByRows(totalShotsOnTarget, totalN),
+        shotsPct: safeRatio(pairedShotsOT, pairedShots),
+        shotsPerMatch: averageByRows(totalShots, fieldCount('shots')),
+        shotsOnTargetPerMatch: averageByRows(totalShotsOnTarget, fieldCount('shots_ot')),
         xgPerMatch: averageByRows(totalXg, totalN),
         xgaPerMatch: averageByRows(totalXga, totalN),
         foulsCommittedPerMatch: averageByRows(totalFoulsCommitted, totalN),
         foulsDrawnPerMatch: averageByRows(totalFoulsDrawn, totalN),
-        yellowCardsPerMatch: averageByRows(totalYellowCards, totalN),
-        redCardsPerMatch: averageByRows(totalRedCards, totalN),
+        yellowCardsPerMatch: averageByRows(totalYellowCards, fieldCount('yellow')),
+        redCardsPerMatch: averageByRows(totalRedCards, fieldCount('red')),
         cornersPerMatch: averageByRows(totalCorners, totalN),
       },
       home: {
@@ -3803,17 +3843,17 @@ export class DatabaseService {
         fouls: avgFouls,
         homeCorners: safeAvgOrNull(homeRows?.avg_corners) ?? 5.5,
         awayCorners: safeAvgOrNull(awayRows?.avg_corners) ?? 4.5,
-        shotsTotal: totalShots,
-        shotsOnTarget: totalShotsOnTarget,
-        shotsPct: safeRatio(totalShotsOnTarget, totalShots),
-        shotsPer90: averageByRows(totalShots, totalN),
-        sotPer90: averageByRows(totalShotsOnTarget, totalN),
+        shotsTotal: fieldCount('shots') > 0 ? totalShots : null,
+        shotsOnTarget: fieldCount('shots_ot') > 0 ? totalShotsOnTarget : null,
+        shotsPct: safeRatio(pairedShotsOT, pairedShots),
+        shotsPer90: averageByRows(totalShots, fieldCount('shots')),
+        sotPer90: averageByRows(totalShotsOnTarget, fieldCount('shots_ot')),
         xgTotal: totalXg,
         xgaTotal: totalXga,
         foulsCommitted: totalFoulsCommitted,
         foulsDrawn: totalFoulsDrawn,
-        yellowCardsTotal: totalYellowCards,
-        redCardsTotal: totalRedCards,
+        yellowCardsTotal: fieldCount('yellow') > 0 ? totalYellowCards : null,
+        redCardsTotal: fieldCount('red') > 0 ? totalRedCards : null,
         cornersTotal: totalCorners,
         suppression: shotsSuppression,
         teamStatsJson,
@@ -3849,24 +3889,24 @@ export class DatabaseService {
         name: player.name,
         teamId: player.teamId,
         positionCode: player.positionCode ?? 'MF',
-        avgShots: player.avgShotsPerGame ?? 0,
-        avgShotsOT: player.avgShotsOnTargetPerGame ?? 0,
+        avgShots: player.avgShotsPerGame ?? null,
+        avgShotsOT: player.avgShotsOnTargetPerGame ?? null,
         avgXG: player.avgXGPerGame ?? 0,
         avgXGOT: player.avgXGOTPerGame ?? 0,
         totalGoals: player.totalGoals ?? 0,
-        totalShots: player.totalShots ?? 0,
-        totalShotsOnTarget: player.totalShotsOnTarget ?? 0,
+        totalShots: player.totalShots ?? null,
+        totalShotsOnTarget: player.totalShotsOnTarget ?? null,
         minutesTotal: player.minutesTotal ?? 0,
         avgMinutes: player.avgMinutes ?? 0,
-        shotsPer90: player.shotsPer90 ?? 0,
-        shotsOnTargetPer90: player.shotsOnTargetPer90 ?? 0,
+        shotsPer90: player.shotsPer90 ?? null,
+        shotsOnTargetPer90: player.shotsOnTargetPer90 ?? null,
         xgPer90: player.xgPer90 ?? 0,
-        shotOnTargetPct: player.shotOnTargetPct ?? 0,
-        goalConversion: player.goalConversion ?? 0,
-        yellowCardsTotal: player.yellowCardsTotal ?? 0,
-        redCardsTotal: player.redCardsTotal ?? 0,
-        cardsPer90: player.cardsPer90 ?? 0,
-        shotShare: player.shotShareOfTeam ?? 0,
+        shotOnTargetPct: player.shotOnTargetPct ?? null,
+        goalConversion: player.goalConversion ?? null,
+        yellowCardsTotal: player.yellowCardsTotal ?? null,
+        redCardsTotal: player.redCardsTotal ?? null,
+        cardsPer90: player.cardsPer90 ?? null,
+        shotShare: player.shotShareOfTeam ?? null,
         games: player.gamesPlayed ?? 0,
         available: player.isAvailable !== false ? 1 : 0,
         sourcePlayerId: player.sourcePlayerId ?? null,
@@ -4290,6 +4330,36 @@ export class DatabaseService {
       committed += chunk.length;
     }
     return committed;
+  }
+
+  async getRefereeObservedStats(name: string, options: { competition?: string; asOf?: Date | string } = {}): Promise<{
+    name: string; total_games: number; yellow_games: number; red_games: number; fouls_games: number;
+    avg_yellow_cards_per_game: number | null; avg_red_cards_per_game: number | null; avg_fouls_per_game: number | null;
+  }> {
+    const asOf = options.asOf === undefined ? new Date() : new Date(options.asOf);
+    if (!Number.isFinite(asOf.getTime())) throw new Error('Invalid referee observation cutoff');
+    const competition = String(options.competition ?? '').trim();
+    const valid = (column: string): string =>
+      `(typeof(${column}) IN ('integer', 'real') AND ${column} >= 0 AND ${column} = CAST(${column} AS INTEGER))`;
+    const pair = (field: string): string => `${valid(`home_${field}`)} AND ${valid(`away_${field}`)}`;
+    const row = await this.get(`SELECT COUNT(*) AS total_games,
+      COUNT(CASE WHEN ${pair('yellow_cards')} THEN 1 END) AS yellow_games,
+      COUNT(CASE WHEN ${pair('red_cards')} THEN 1 END) AS red_games,
+      COUNT(CASE WHEN ${pair('fouls')} THEN 1 END) AS fouls_games,
+      AVG(CASE WHEN ${pair('yellow_cards')} THEN home_yellow_cards + away_yellow_cards END) AS avg_yellow_cards_per_game,
+      AVG(CASE WHEN ${pair('red_cards')} THEN home_red_cards + away_red_cards END) AS avg_red_cards_per_game,
+      AVG(CASE WHEN ${pair('fouls')} THEN home_fouls + away_fouls END) AS avg_fouls_per_game
+      FROM matches WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL
+        AND lower(trim(referee)) = lower(trim(?)) AND julianday(date) < julianday(?)
+        ${competition ? 'AND competition = ?' : ''}`,
+    competition ? [name, asOf.toISOString(), competition] : [name, asOf.toISOString()]);
+    const average = (field: string): number | null => row?.[field] == null ? null : Number(row[field]);
+    return {
+      name, total_games: Number(row?.total_games ?? 0), yellow_games: Number(row?.yellow_games ?? 0),
+      red_games: Number(row?.red_games ?? 0), fouls_games: Number(row?.fouls_games ?? 0),
+      avg_yellow_cards_per_game: average('avg_yellow_cards_per_game'),
+      avg_red_cards_per_game: average('avg_red_cards_per_game'), avg_fouls_per_game: average('avg_fouls_per_game'),
+    };
   }
 
   async getRefereeByName(name: string): Promise<any | null> {
