@@ -99,15 +99,22 @@ La [regola GitHub](https://docs.github.com/en/actions/reference/workflows-and-ac
 richiede il workflow sul branch predefinito per la pianificazione; anche il
 dispatch iniziale richiede il file sul branch predefinito. La pubblicazione
 del solo branch di preparazione non rende disponibile questa automazione.
-Prima di scegliere il runner GitHub, integrare in sicurezza il workflow in
-`main`, verificando separatamente l'auto-deploy Hostless; in alternativa
-predisporre il processo dedicato autorizzato descritto nell'handoff.
+La scelta consigliata, dopo verifica del target Turso esistente e dei limiti
+effettivi dell'account, è il runner con conferma DB: non richiede un nuovo
+volume a pagamento. Richiede prima l'integrazione sicura del workflow in
+`main` e la verifica separata dell'auto-deploy Hostless. Se la continuità del
+cron non è sufficiente, la CLI offre già un loop su un processo esistente
+autorizzato, configurando `MODEL_A_COLLECTION_INTERVAL_SECONDS` almeno a 60
+(300 nell'esempio Compose). Non riattiva T−15 e non cambia il processo web.
 Il job intero, inclusi installazione e accesso al DB, richiede la variable
 repository `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED` uguale a `true`.
 Se assente o diversa, il job non parte. L'avvio manuale richiede anche
 `authorize_collection=true`, booleano obbligatorio con default `false`.
-I ritardi o le interruzioni di GitHub possono lasciare finestre scoperte:
-la cadenza dichiarata non garantisce copertura completa.
+La [documentazione GitHub sullo schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+segnala possibili ritardi e scarto di job in coda sotto carico. Nei repository
+pubblici la pianificazione viene disabilitata dopo 60 giorni senza attività
+del repository. Controllare run effettivi e copertura: la cadenza dichiarata
+non garantisce continuità o completezza.
 
 Prima dell'attivazione autorizzata configurare e congelare:
 
@@ -119,6 +126,8 @@ Prima dell'attivazione autorizzata configurare e congelare:
 | `MODEL_A_COLLECTION_FROM`, `MODEL_A_COLLECTION_TO` | Intervallo UTC, inizio incluso e fine esclusa |
 | `MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED` | Refresh HTTP Understat degli esiti solo se `true`; default `false` |
 | `MODEL_A_PROSPECTIVE_MONITORING_ENABLED` | Controllo del DB e diagnostica GitHub solo se `true`; default `false` |
+| `MODEL_A_COLLECTION_PREDICT_BUDGET_MS` | Budget osservato della chiamata A; default `30000` ms |
+| `MODEL_A_COLLECTION_CONFIRMATION_BUDGET_MS` | Budget dall'inizio della chiamata alla conclusione della consegna del recorder; default `45000` ms |
 
 Il manifest include le cinque leghe, l'origine `prospective_a` e la finestra
 T−24h–T−60min. Con scope già configurato in ambiente, il comando seguente
@@ -145,6 +154,16 @@ di warmup, non avvia il backend HTTP e non riceve chiavi provider quote.
 La configurazione del workflow non attesta che schema, credenziali, flag o
 raccolta siano stati attivati sul target.
 
+I budget sono soglie di monitoraggio, non timeout che interrompono il calcolo.
+Ogni run conserva in `model_a_collection_runs.performance_json` soglie,
+campioni, massimo e numero di superamenti per previsione e conferma; gli
+esiti `stored` e `unconfirmed` restano distinti. Il CLI segnala
+`collection_performance_budget_exceeded` e imposta exit code `1`, senza
+troncare richieste in corso, cambiare formule o scartare eventi per rispettare
+la soglia. In modalità loop il superamento non arresta automaticamente i
+cicli successivi. Una modifica delle soglie richiede una motivazione prima
+della valutazione: alzarle dopo una misura non dimostra un miglioramento.
+
 Se il monitoraggio è abilitato, dopo il collector il job tenta anche in caso
 di errore:
 
@@ -161,6 +180,11 @@ code del controllo, quindi gli alert non diventano un successo per effetto
 di `tee`. Gli artifact non sono un backup degli eventi. Questo monitor nello
 stesso job non avvisa autonomamente se il workflow non parte o termina prima
 del controllo; la continuità va verificata anche dai run GitHub.
+Leggere anche `performanceStatus` e le relative notice: dati assenti,
+incompatibili o senza campioni non equivalgono a latenza zero o budget
+rispettato. Un `status=ok` generale con prestazioni `unverified` non è una
+prova positiva sulle prestazioni; provenienza temporale e validità scientifica
+restano criteri separati.
 
 Per sospendere nuove raccolte disabilitare
 `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED`, conservando DB, ledger e previsioni.
@@ -220,6 +244,40 @@ node scripts/recover-recommendation-technical.js plan --source-policy <hash-orig
 
 Richiede dipendenze e build backend coerenti. La produzione del piano non
 esegue il recupero e non prova nuove giocate.
+
+### Recupero degli esiti prospettici fuori dall'orizzonte ordinario
+
+Il [CLI risultati](../backend/scripts/model-a-prospective-results-recover.js)
+prepara per default un piano con sole `SELECT`, senza richieste Understat,
+lease, bootstrap o migrazioni. Richiede build coerente e credenziali già
+configurate in ambiente; non carica `.env`. Per il piano su file locale è
+richiesto Node >=22.13, con apertura SQLite in sola lettura; il percorso
+remoto conserva compatibilità Node 20. Sostituire gli argomenti fra parentesi
+con intervallo UTC e ID effettivi del target autorizzato:
+
+```powershell
+node backend/scripts/model-a-prospective-results-recover.js --from "<inizio-UTC>" --to "<fine-UTC>" --match-id "understat_<id>" --limit 20
+```
+
+Gli estremi kickoff sono inclusi, l'inizio deve precedere la fine, la fine
+non può essere futura e l'intervallo non supera 366 giorni. `--match-id` è
+ripetibile e restringe alle fixture indicate; senza l'opzione lo scope
+comprende l'intervallo richiesto. Si considerano solo previsioni esistenti:
+non si ricostruiscono pronostici pre-match mancanti.
+
+Solo dopo revisione del piano e autorizzazione alle scritture, ripetere lo
+stesso comando aggiungendo **entrambi** gli argomenti
+`--execute --authorize-results-writes`. Servono anche
+`MODEL_A_PROSPECTIVE_ENABLED=true` e
+`MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED=true`; un solo argomento o un
+flag mancante non autorizza l'esecuzione. Questa modalità può contattare
+Understat e salvare osservazioni/esiti; non è una lettura diagnostica.
+
+Ogni invocazione lavora una pagina, default 20 elementi (`--limit` 1–200).
+Ripetere lo stesso scope riprende il suo cursore persistito indipendente dal
+refresh ordinario degli ultimi 30 giorni. Verificare riepilogo, motivi ed
+eventuali errori prima di proseguire: un piano prodotto non prova che gli
+esiti siano stati acquisiti o verificati.
 
 Per un errore DNS Understat, controllare separatamente DNS e HTTPS della
 fonte ufficiale, senza DB o provider quote:

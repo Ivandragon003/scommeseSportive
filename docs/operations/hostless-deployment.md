@@ -50,6 +50,17 @@ modalità database del runner. Un errore di rete/scrittura non diventa
 un evento acquisito; il ledger conserva le consegne non confermate senza
 rigenerare automaticamente la previsione.
 
+Questa è la scelta consigliata finché il DB Turso esistente, le sue quote
+effettive e la copertura osservata del runner soddisfano lo studio: evita
+un volume a pagamento aggiuntivo. Il cron GitHub può ritardare o perdere job
+in coda; nei repository pubblici si disabilita dopo 60 giorni senza attività.
+I [limiti ufficiali dello schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+richiedono controllo dei run e della copertura. Se serve un processo continuo,
+il collector esistente può già eseguire il loop su un processo autorizzato,
+con `MODEL_A_COLLECTION_INTERVAL_SECONDS` positivo (minimo 60). Non occorre
+riattivare T−15 o cambiare il comando del backend web; disponibilità del
+processo, costi e monitoraggio restano da verificare prima dell'avvio.
+
 Il profilo Compose riusa l'immagine backend, non espone HTTP e lascia web e
 stack ordinario separati. Ha root in sola lettura, `/tmp` temporaneo e mount
 dedicato `/app/data`. Raccolta, recorder, refresh esiti e monitoraggio sono
@@ -68,6 +79,22 @@ prove richiedono l'avvio autorizzato sull'ambiente scelto. Il Compose
 ordinario continua a non montare uno spool persistente sul backend web.
 Un volume del web non diventa lo spool del runner GitHub.
 
+Il [preflight spool](../../backend/scripts/check-model-a-spool.js) accetta
+una directory assoluta già esistente. Per default legge soltanto i metadati:
+
+```powershell
+node backend/scripts/check-model-a-spool.js --directory "C:\percorso\spool"
+```
+
+L'opzione aggiuntiva `--probe`, da usare solo sul percorso di prova
+autorizzato, crea e rimuove esclusivamente un figlio temporaneo privato
+`.model-a-probe-*` dentro la directory indicata. Verifica scrittura,
+contenuto, hard link e sincronizzazione della directory dove supportata;
+non modifica i file spool esistenti. Su Windows permessi privati e fsync
+della directory restano non attestati dal probe. Il risultato non prova
+persistenza del mount, backup/restore, resistenza a perdita di alimentazione,
+capacità o disponibilità del database.
+
 Per Hostless consultare [filesystem](https://docs.hostless.cloud/app/filesystem)
 e [costi dei volumi](https://docs.hostless.cloud/billing/costbreakdown), poi
 verificare mount, persistenza e condizioni economiche effettive nel pannello.
@@ -81,6 +108,12 @@ pubblica diagnostica aggregata e riepilogo nel job. Gli artifact durano
 14 giorni e non sono backup degli eventi, né provano sopravvivenza prima
 dell'upload. Non copre autonomamente un workflow mai partito. Vedere il
 [passaggio Fase 4](../models/MODEL-A-FASE-4-HANDOFF.md) per i limiti ancora aperti.
+I budget predefiniti sono `MODEL_A_COLLECTION_PREDICT_BUDGET_MS=30000` e
+`MODEL_A_COLLECTION_CONFIRMATION_BUDGET_MS=45000`; misure e soglie del run
+sono persistite in `performance_json`. Il superamento viene segnalato senza
+troncare il calcolo; prestazioni non misurate o non verificabili non vanno
+considerate una prova del rispetto del budget. Il recupero storico degli
+esiti ha un [piano separato e consenso esplicito](../github-actions-nightly-sync.md#recupero-degli-esiti-prospettici-fuori-dallorizzonte-ordinario).
 
 ## Effetti operativi del push su main
 
@@ -111,6 +144,16 @@ non dimostra che l'auto-deploy sia spento. Con browser nativo indisponibile
 questo effetto resta non verificato. La pubblicazione del codice non
 costituisce autorizzazione a eseguire deploy, migrazioni, provisioning di
 volumi o attivazioni; gli automatismi esterni vanno esclusi prima del push.
+Anche l'inventario webhook GitHub resta non verificato: l'accesso con ruolo
+write ha ricevuto HTTP 404 e richiesta dello scope `admin:repo_hook`.
+Questo errore di autorizzazione non dimostra assenza di hook. Il browser
+Hostless è rimasto indisponibile anche al controllo successivo.
+
+La pulizia dei branch richiede una verifica separata: confronto con `main`,
+assenza di commit esclusivi da conservare, PR, worktree e utilizzatori esterni.
+Un branch già incorporato è un candidato alla rimozione dopo questi controlli,
+non una prova che nessun collaboratore o servizio lo usi. Non cancellare
+backup con storia divergente o branch ancora attivi per uniformare l'elenco.
 
 ## Ambiente, accesso e URL
 
