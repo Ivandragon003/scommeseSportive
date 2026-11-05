@@ -1,5 +1,5 @@
 import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 export type SpoolRecord = { id: string; matchId: string; forecastAt: string; kickoffAt: string; payload: string; durable?: boolean };
 const costs = { spoolCount: 0, spoolMs: 0, auditCount: 0, auditMs: 0 };
@@ -18,10 +18,31 @@ function syncDirectory(dir: string): boolean {
   return true;
 }
 
+const pendingCreationRoots = new Map<string, string>();
+function ensureSpoolDirectory(dir: string): void {
+  const absolute = resolve(dir);
+  const created = mkdirSync(absolute, { recursive: true, mode: 0o700 });
+  if (process.platform === 'win32') return;
+  if (created) pendingCreationRoots.set(absolute, resolve(created));
+  const firstCreated = pendingCreationRoots.get(absolute);
+  if (!firstCreated) return;
+  // Sync each newly created name in its parent, from the leaf towards the
+  // already-existing ancestor. Retain the boundary if a sync fails for retry.
+  const boundary = dirname(firstCreated);
+  let current = absolute;
+  while (current !== boundary) {
+    const parent = dirname(current);
+    if (parent === current) throw new Error('spool creation boundary is not an ancestor');
+    current = parent;
+    syncDirectory(current);
+  }
+  pendingCreationRoots.delete(absolute);
+}
+
 /** File contents and, when supported, the directory entry are synced before admission. */
 export function persistSpool(dir: string, record: SpoolRecord): { directorySyncConfirmed: boolean } {
   const started = process.env.MODEL_A_PROSPECTIVE_DIAGNOSTICS === 'true' ? process.hrtime.bigint() : undefined;
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSpoolDirectory(dir);
   const dest = location(dir, record.id), temporary = `${dest}.partial`;
   const fd = openSync(temporary, 'wx', 0o600);
   try { writeFileSync(fd, JSON.stringify({ ...record, durable: true })); fsyncSync(fd); }
@@ -37,7 +58,7 @@ export function persistSpool(dir: string, record: SpoolRecord): { directorySyncC
   return { directorySyncConfirmed };
 }
 export function* iterateSpool(dir: string, afterId?: string): Generator<SpoolRecord> {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSpoolDirectory(dir);
   const names = readdirSync(dir).sort();
   for (const name of names.filter(name => name.endsWith('.partial')))
     console.error('[ModelAProspective] incomplete durable spool file retained:', name);
@@ -64,12 +85,12 @@ export function readSpool(dir: string): SpoolRecord[] {
   return [...iterateSpool(dir)];
 }
 export function countSpool(dir: string): number {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSpoolDirectory(dir);
   return readdirSync(dir).filter(name => name.endsWith('.json') || name.endsWith('.partial')).length;
 }
 export function auditSpool(dir: string, event: Record<string, unknown>): void {
   const started = process.env.MODEL_A_PROSPECTIVE_DIAGNOSTICS === 'true' ? process.hrtime.bigint() : undefined;
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSpoolDirectory(dir);
   const fd = openSync(join(dir, 'audit.ndjson'), 'a', 0o600);
   try { writeFileSync(fd, `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`); fsyncSync(fd); }
   finally { closeSync(fd); }
