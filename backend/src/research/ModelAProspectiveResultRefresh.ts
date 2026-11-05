@@ -17,7 +17,9 @@ export type ResultLifecycleObservation = {
 };
 type ResultEvent = Parameters<Parameters<typeof recordModelAVerifiedResult>[0]['appendModelAProspectiveResult']>[0];
 type RefreshCursor = { afterMatchId?: string; afterKickoffAt?: string; pendingAfter?: string };
+export type ResultRefreshScope = { from: string; to: string; matchIds?: string[] };
 export type ResultRefreshSink = {
+  explicitScope?: ResultRefreshScope;
   getModelAProspectiveResultRefreshCandidates: (options: { afterMatchId?: string; afterKickoffAt?: string; from: string; to: string; limit: number }) => Promise<ResultRefreshCandidate[]>;
   appendModelAProspectiveResult: (event: ResultEvent) => Promise<boolean>;
   appendModelAProspectiveResultObservation: (event: ResultLifecycleObservation) => Promise<boolean>;
@@ -25,14 +27,16 @@ export type ResultRefreshSink = {
   acquireModelAProspectiveResultRefreshLease?: (owner: string, startedAt: string) => Promise<RefreshCursor | null>;
   renewModelAProspectiveResultRefreshLease?: (owner: string) => Promise<boolean>;
   completeModelAProspectiveResultRefresh?: (owner: string, cursor: RefreshCursor, completedAt: string, summary: ResultRefreshSummary) => Promise<void>;
+  getModelAProspectiveResultRefreshCursor?: () => Promise<RefreshCursor>;
 };
 export type ResultRefreshSummary = {
   status: 'disabled' | 'busy' | 'completed' | 'partial'; scanned: number; recorded: number; duplicate: number;
   observations: number; recovered: number; failed: number; cycleComplete: boolean;
-  from: string; to: string; reasonCounts: Record<string, number>;
+  from: string; to: string; scopeId?: string; reasonCounts: Record<string, number>;
 };
 type RefreshOptions = { env?: NodeJS.ProcessEnv; source?: Pick<UnderstatScraper, 'scrapeSeason'>;
-  clock?: () => Date; pageSize?: number; correctionHorizonDays?: number };
+  clock?: () => Date; pageSize?: number; correctionHorizonDays?: number;
+  scope?: ResultRefreshScope; authorizeExplicitScope?: boolean };
 type Scan = RefreshCursor & { running?: Promise<ResultRefreshSummary> };
 const scans = new WeakMap<ResultRefreshSink, Scan>();
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -46,6 +50,43 @@ function timestamp(value: unknown, understat = false): number {
   if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day
     || hour > 23 || minute > 59 || second > 59) return NaN;
   return Date.parse(value.replace(' ', 'T') + (parts[7] ? '' : 'Z'));
+}
+/** A finite historical request, independent from the rolling ordinary cursor. */
+export function validateModelAProspectiveResultRefreshScope(scope: ResultRefreshScope, now = new Date()): ResultRefreshScope {
+  const from = timestamp(scope?.from), to = timestamp(scope?.to);
+  if (!Number.isFinite(now.getTime()) || !Number.isFinite(from) || !Number.isFinite(to) || from >= to || to > now.getTime()
+    || to - from > 366 * DAY) throw new Error('result_refresh_scope_interval_invalid');
+  if (scope.matchIds !== undefined && (!Array.isArray(scope.matchIds) || scope.matchIds.length < 1 || scope.matchIds.length > 1000
+    || scope.matchIds.some(value => typeof value !== 'string' || !/^understat_[1-9]\d*$/.test(value) || !id(value.slice(10)))))
+    throw new Error('result_refresh_scope_match_ids_invalid');
+  return { from: new Date(from).toISOString(), to: new Date(to).toISOString(),
+    ...(scope.matchIds === undefined ? {} : { matchIds: [...new Set(scope.matchIds)].sort() }) };
+}
+export function modelAProspectiveResultRefreshScopeIdentity(scope: ResultRefreshScope): string {
+  const valid = validateModelAProspectiveResultRefreshScope(scope);
+  return `understat-results-explicit-v1:${createHash('sha256').update(JSON.stringify(valid)).digest('hex')}`;
+}
+const inScope = (row: { match_id: string; date: string }, scope: ResultRefreshScope) => timestamp(row.date) >= timestamp(scope.from)
+  && timestamp(row.date) <= timestamp(scope.to) && (!scope.matchIds || scope.matchIds.includes(row.match_id));
+
+/** SELECT-only preview of the next explicitly scoped page, without acquiring a lease. */
+export async function planModelAProspectiveResultRefresh(sink: ResultRefreshSink, pageSize = 20) {
+  if (!sink.explicitScope) throw new Error('result_refresh_scoped_sink_required');
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 200) throw new Error('result_refresh_bounds_invalid');
+  const scope = validateModelAProspectiveResultRefreshScope(sink.explicitScope);
+  const cursor = sink.getModelAProspectiveResultRefreshCursor ? await sink.getModelAProspectiveResultRefreshCursor() : {};
+  const rows = await sink.getModelAProspectiveResultRefreshCandidates({ ...cursor, from: scope.from, to: scope.to, limit: pageSize });
+  if (!Array.isArray(rows) || rows.length > pageSize || rows.some(row => !inScope(row, scope))) throw new Error('result_refresh_candidates_outside_scope');
+  const pending = sink.getModelAProspectivePendingFinalObservations ? await sink.getModelAProspectivePendingFinalObservations({ afterEvidenceId: cursor.pendingAfter, limit: pageSize }) : [];
+  if (!Array.isArray(pending) || pending.length > pageSize || pending.some(row => !inScope({ match_id: row.matchId, date: row.kickoffAt }, scope)))
+    throw new Error('result_refresh_candidates_outside_scope');
+  return { mode: 'plan', scopeId: modelAProspectiveResultRefreshScopeIdentity(scope), scope, scanned: rows.length,
+    cycleComplete: rows.length < pageSize, cursor,
+    pendingFinalObservations: pending.map(row => ({ evidenceId: row.evidenceId, matchId: row.matchId, kickoffAt: row.kickoffAt, observedAt: row.observedAt })),
+    candidates: rows.map(row => {
+      const reason = candidateReason(row, timestamp(scope.from), timestamp(scope.to));
+      return { matchId: row.match_id, kickoffAt: row.date, eligibleForFetch: reason === null, reason };
+    }) };
 }
 function teamId(internal: string, stored: unknown): string | null {
   const encoded = id(/^understat_team_([1-9]\d*)$/.exec(internal ?? '')?.[1] ?? internal);
@@ -94,12 +135,17 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
   const clock = options.clock ?? (() => new Date());
   const now = clock();
   if (!Number.isFinite(now.getTime())) throw new Error('result_refresh_clock_invalid');
+  const explicitScope = options.scope || sink.explicitScope ? validateModelAProspectiveResultRefreshScope(options.scope ?? sink.explicitScope!, now) : undefined;
+  if (explicitScope && (!sink.explicitScope || modelAProspectiveResultRefreshScopeIdentity(explicitScope) !== modelAProspectiveResultRefreshScopeIdentity(sink.explicitScope)))
+    throw new Error('result_refresh_scoped_sink_required');
+  if (explicitScope && options.correctionHorizonDays !== undefined) throw new Error('result_refresh_scope_conflict');
   const days = options.correctionHorizonDays ?? 30, limit = options.pageSize ?? 20;
   if (!Number.isInteger(days) || days < 1 || days > 365 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('result_refresh_bounds_invalid');
-  const from = new Date(now.getTime() - days * DAY).toISOString(), to = now.toISOString();
+  const from = explicitScope?.from ?? new Date(now.getTime() - days * DAY).toISOString(), to = explicitScope?.to ?? now.toISOString();
   const empty = (): ResultRefreshSummary => ({ status: 'disabled', scanned: 0, recorded: 0, duplicate: 0, observations: 0, recovered: 0,
-    failed: 0, cycleComplete: true, from, to, reasonCounts: {} });
+    failed: 0, cycleComplete: true, from, to, ...(explicitScope ? { scopeId: modelAProspectiveResultRefreshScopeIdentity(explicitScope) } : {}), reasonCounts: {} });
   if (env.MODEL_A_PROSPECTIVE_ENABLED !== 'true' || env.MODEL_A_PROSPECTIVE_RESULTS_REFRESH_ENABLED !== 'true') return empty();
+  if (explicitScope && options.authorizeExplicitScope !== true) throw new Error('result_refresh_explicit_scope_not_authorized');
   let state = scans.get(sink);
   if (!state) { state = {}; scans.set(sink, state); }
   if (state.running) return state.running;
@@ -108,7 +154,7 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
     const summary = empty(); summary.status = 'completed';
     const owner = randomUUID();
     if (sink.acquireModelAProspectiveResultRefreshLease) {
-      const cursor = await sink.acquireModelAProspectiveResultRefreshLease(owner, to);
+      const cursor = await sink.acquireModelAProspectiveResultRefreshLease(owner, now.toISOString());
       if (!cursor) { summary.status = 'busy'; summary.cycleComplete = false; return summary; }
       current.afterMatchId = cursor.afterMatchId; current.afterKickoffAt = cursor.afterKickoffAt; current.pendingAfter = cursor.pendingAfter;
     }
@@ -134,6 +180,7 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
           current.pendingAfter = pending.length < limit ? undefined : pending[pending.length - 1].evidenceId;
           for (const observation of pending) {
             await renew();
+            if (explicitScope && !inScope({ match_id: observation.matchId, date: observation.kickoffAt }, explicitScope)) throw new Error('result_refresh_pending_outside_scope');
             try { await writeFinal(observation, true); }
             catch { summary.failed++; reason('pending_result_write_failed'); }
           }
@@ -141,6 +188,7 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
       }
       const rows = await sink.getModelAProspectiveResultRefreshCandidates({ afterMatchId: current.afterMatchId, afterKickoffAt: current.afterKickoffAt, from, to, limit });
       if (!Array.isArray(rows) || rows.length > limit) throw new Error('result_refresh_candidates_invalid');
+      if (explicitScope && rows.some(row => !inScope(row, explicitScope))) throw new Error('result_refresh_candidates_outside_scope');
       summary.scanned = rows.length; summary.cycleComplete = rows.length < limit;
       current.afterMatchId = summary.cycleComplete ? undefined : rows[rows.length - 1].match_id;
       current.afterKickoffAt = summary.cycleComplete ? undefined : rows[rows.length - 1].date;
@@ -160,7 +208,7 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
       for (const row of rows) {
         await renew();
         let status: ResultLifecycleStatus = 'unverified', code = candidateReason(row, Date.parse(from), Date.parse(to));
-        let raw: Record<string, any> | undefined, observedAt = to;
+        let raw: Record<string, any> | undefined, observedAt = now.toISOString();
         try {
           if (!code) {
             try {
@@ -209,7 +257,8 @@ export async function refreshModelAProspectiveResults(sink: ResultRefreshSink, o
 }
 
 /** Research evidence is append-only; mutable coordination metadata never changes it. No bootstrap. */
-export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'execute'>): ResultRefreshSink {
+export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'execute'>, requestedScope?: ResultRefreshScope): ResultRefreshSink {
+  const explicitScope = requestedScope ? validateModelAProspectiveResultRefreshScope(requestedScope) : undefined;
   const execute = (sql: string, args: any[] = []) => client.execute({ sql, args });
   const append = async (table: string, event: ResultEvent | ResultLifecycleObservation, columns: string[], values: any[]) => {
     const inserted = await execute(`INSERT OR IGNORE INTO ${table}(${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
@@ -218,8 +267,17 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
     if (!existing || columns.some((column, index) => column !== 'recorded_at' && existing[column] !== values[index])) throw new Error('conflicting prospective result identifier');
     return false;
   };
-  const refreshId = 'understat-results-v1';
+  const refreshId = explicitScope ? modelAProspectiveResultRefreshScopeIdentity(explicitScope) : 'understat-results-v1';
+  const matchFilter = explicitScope?.matchIds ? ` AND f.match_id IN (${explicitScope.matchIds.map(() => '?').join(',')})` : '';
   return {
+    ...(explicitScope ? { explicitScope: JSON.parse(JSON.stringify(explicitScope)) as ResultRefreshScope } : {}),
+    async getModelAProspectiveResultRefreshCursor() {
+      const tables = await execute("SELECT name FROM sqlite_master WHERE type='table' AND name='model_a_prospective_result_refresh_state'");
+      if (!tables.rows.length) return {};
+      const row = (await execute('SELECT after_match_id,after_kickoff_at,pending_after_evidence_id FROM model_a_prospective_result_refresh_state WHERE refresh_id=?', [refreshId])).rows[0];
+      return row ? { afterMatchId: row.after_match_id == null ? undefined : String(row.after_match_id), afterKickoffAt: row.after_kickoff_at == null ? undefined : String(row.after_kickoff_at),
+        pendingAfter: row.pending_after_evidence_id == null ? undefined : String(row.pending_after_evidence_id) } : {};
+    },
     async acquireModelAProspectiveResultRefreshLease(owner, startedAt) {
       await execute('INSERT OR IGNORE INTO model_a_prospective_result_refresh_state(refresh_id,last_status) VALUES (?,\'never_run\')', [refreshId]);
       const acquired = await execute(`UPDATE model_a_prospective_result_refresh_state
@@ -245,9 +303,10 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
       if (result.rowsAffected !== 1) throw new Error('result_refresh_lease_lost');
     },
     async getModelAProspectiveResultRefreshCandidates(options) {
+      if (explicitScope && (options.from !== explicitScope.from || options.to !== explicitScope.to)) throw new Error('result_refresh_scope_mismatch');
       const rows = await execute(`WITH forecast AS (
         SELECT f.*, row_number() OVER (PARTITION BY f.match_id,julianday(f.kickoff_at) ORDER BY julianday(f.forecast_at),f.id) AS rank
-        FROM model_a_prospective_forecasts f WHERE julianday(f.kickoff_at)>=julianday(?) AND julianday(f.kickoff_at)<=julianday(?) AND json_valid(f.payload_json)
+        FROM model_a_prospective_forecasts f WHERE julianday(f.kickoff_at)>=julianday(?) AND julianday(f.kickoff_at)<=julianday(?) AND json_valid(f.payload_json)${matchFilter}
       ) SELECT f.match_id,m.source,m.source_match_id,f.kickoff_at AS date,m.date AS current_kickoff_at,
         json_extract(f.payload_json,'$.homeTeamId') AS home_team_id,json_extract(f.payload_json,'$.awayTeamId') AS away_team_id,
         json_extract(f.payload_json,'$.competition') AS competition,json_extract(f.payload_json,'$.season') AS season,
@@ -256,7 +315,7 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
       LEFT JOIN teams ht ON ht.team_id=json_extract(f.payload_json,'$.homeTeamId')
       LEFT JOIN teams at ON at.team_id=json_extract(f.payload_json,'$.awayTeamId')
       WHERE f.rank=1 AND (f.match_id>? OR (f.match_id=? AND f.kickoff_at>?)) ORDER BY f.match_id,f.kickoff_at LIMIT ?`,
-      [options.from, options.to, options.afterMatchId ?? '', options.afterMatchId ?? '', options.afterKickoffAt ?? '', options.limit]);
+      [options.from, options.to, ...(explicitScope?.matchIds ?? []), options.afterMatchId ?? '', options.afterMatchId ?? '', options.afterKickoffAt ?? '', options.limit]);
       return rows.rows as unknown as ResultRefreshCandidate[];
     },
     appendModelAProspectiveResult(event) {
@@ -268,12 +327,15 @@ export function createModelAProspectiveResultRefreshSink(client: Pick<Client, 'e
         [event.evidenceId, event.matchId, event.source, event.kickoffAt, event.observedAt, event.recordedAt, event.status, event.reason, event.evidence]);
     },
     async getModelAProspectivePendingFinalObservations(options) {
+      const scopeFilter = explicitScope ? ` AND julianday(o.kickoff_at)>=julianday(?) AND julianday(o.kickoff_at)<=julianday(?)
+        AND EXISTS (SELECT 1 FROM model_a_prospective_forecasts f WHERE f.match_id=o.match_id AND julianday(f.kickoff_at)=julianday(o.kickoff_at))
+        ${explicitScope.matchIds ? `AND o.match_id IN (${explicitScope.matchIds.map(() => '?').join(',')})` : ''}` : '';
       const result = await execute(`SELECT o.* FROM model_a_prospective_result_observations o
-        WHERE o.status='final' AND o.evidence_id>? AND NOT EXISTS (SELECT 1 FROM model_a_prospective_results r
+        WHERE o.status='final' AND o.evidence_id>? ${scopeFilter} AND NOT EXISTS (SELECT 1 FROM model_a_prospective_results r
           WHERE r.match_id=o.match_id AND r.kickoff_at=o.kickoff_at AND r.observed_at=o.observed_at AND r.source=o.source
             AND r.home_goals=json_extract(o.evidence_json,'$.resultRow.home_goals')
             AND r.away_goals=json_extract(o.evidence_json,'$.resultRow.away_goals'))
-        ORDER BY o.evidence_id LIMIT ?`, [options.afterEvidenceId ?? '', options.limit]);
+        ORDER BY o.evidence_id LIMIT ?`, [options.afterEvidenceId ?? '', ...(explicitScope ? [explicitScope.from, explicitScope.to, ...(explicitScope.matchIds ?? [])] : []), options.limit]);
       return result.rows.map(r => ({ evidenceId: String(r.evidence_id), matchId: String(r.match_id), source: String(r.source), kickoffAt: String(r.kickoff_at),
         observedAt: String(r.observed_at), recordedAt: String(r.recorded_at), status: r.status as ResultLifecycleStatus, reason: String(r.reason), evidence: String(r.evidence_json) }));
     }
