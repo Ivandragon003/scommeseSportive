@@ -1,6 +1,6 @@
 # Modello A — preparazione e attivazione controllata della Fase 4
 
-**Implementazione locale verificata; attivazione sospesa in attesa delle verifiche e autorizzazioni dell'ambiente. Raccolta spenta, validazione statistica non conclusa.** Le Fasi 1–3 restano chiuse. Il [protocollo](MODEL-A-VALIDAZIONE-PROSPETTICA.md) definisce finestre, metriche ed esclusioni; questa guida descrive consegna tecnica, prove e procedura operativa.
+**Compatibilità della baseline C verificata anche sul backend LIVE da main; raccolta spenta e validazione statistica non conclusa.** Restano i limiti e il consenso al pilot descritti sotto. Le Fasi 1–3 restano chiuse. Il [protocollo](MODEL-A-VALIDAZIONE-PROSPETTICA.md) definisce finestre, metriche ed esclusioni; questa guida descrive consegna tecnica, prove e procedura operativa.
 
 ## Funzionamento implementato
 
@@ -206,7 +206,9 @@ Verifiche di integrazione: build/typecheck/lint superati; sei test mirati su sna
 
 La suite Windows rieseguita durante l'integrazione riporta 1.545 test, 1.540 passati, due processi falliti e tre skip: recommendation-nightly e recommendation-store terminano con `test failed`. Il test della pulizia build inizialmente fallito è stato corretto e passa isolatamente; l'intermittenza Windows/libSQL non è dichiarata risolta. Log `frozen-main-final-suite.log`. La scansione dei nuovi file rileva due falsi positivi, verificati: confronti con `double_chance_1x/x2` nel JS congelato, non credenziali. Nessuna esclusione ampia aggiunta allo scanner e nessun file privato pubblicato.
 
-Il backend temporaneo ca3dc855 è stato verificato LIVE, health 200, baseline 80 e inferenza con il C reale; recorder/collector false e zero forecast. Conservare `ops/model-a-web-compat` finché è sorgente di un deploy; dopo il ritorno verificato a main può essere eliminato perché già incorporato. Prima del rilascio da main ripetere CI, confronto con artefatto reale e verifica runtime dopo LIVE. Non accendere il pilot: il consenso all'attivazione rimane separato e non è stato dato. I limiti Understat e `inputAvailableThrough=null` restano invariati.
+Il ritorno a main è verificato sul deploy Hostless `6aec95b08f9b6b3471dba918`, runtime d2407853: LIVE, health 200, snapshot presente, baseline 80 e hash pipeline coincidenti con il C reale. Una prova sintetica costruisce l'input con ForecastCore nel container ed esegue inferenza C e pipeline con output finiti; sole SELECT, nessun evento o decisione persistita. Target DB 36a4021117d3, bootstrap/recorder/collector false, zero forecast. I commit successivi 7972011d contengono solo documentazione e hanno [CI verde](https://github.com/Ivandragon003/scommeseSportive/actions/runs/42047837878). Auto-deploy rimane spento.
+
+Il ramo temporaneo `ops/model-a-web-compat` è stato eliminato localmente e sul remoto dopo aver verificato main come sorgente Hostless, completa incorporazione, nessuna PR aperta e assenza di protezione. Il worktree storico resta conservato con HEAD detached; il backup locale con 276 commit esclusivi non è eliminato. Non accendere il pilot: il consenso all'attivazione rimane separato e non è stato dato. I limiti Understat e `inputAvailableThrough=null` restano invariati. Un avviso Hostless di throttling CPU richiede monitoraggio del carico; un campione successivo a zero e health 200 non ne dimostrano la causa o risoluzione.
 
 ## Blocchi e criteri
 
@@ -224,7 +226,7 @@ Il backend temporaneo ca3dc855 è stato verificato LIVE, health 200, baseline 80
 
 | Criterio | Stato |
 |---|---|
-| Rilascio web da main | Compatibilità ripristinata nel codice con snapshot numerico reale; il rilascio richiede CI e accettazione runtime del commit esatto. |
+| Rilascio web da main | Verificato LIVE, CI e accettazione read-only con l'artefatto C reale; nessuna nuova migrazione o accensione. Ripetere i gate per i futuri rilasci. |
 | A — Preparazione tecnica | Implementazione completata, gate Linux e frontend verdi; Windows conserva l'intermittenza documentata. Deploy, target, backup e schema verificati; consenso al pilot e accettazione degli eventi reali restano necessari. |
 | B — Raccolta prospettica | Non attivata da questo lavoro. |
 | C — Validazione statistica | Non conclusa: campione futuro indipendente adeguato, copertura/esclusioni, Brier/Log Loss/calibrazione e incertezza, distinguendo rigoroso/tecnico. Nessuna prova di maggiore affidabilità o profitto. |
