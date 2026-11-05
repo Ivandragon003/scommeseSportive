@@ -28,6 +28,14 @@ I profili `identityOnly` senza evidenza di titolarità non entrano nell'XI presu
 
 Il fit per competizione usa partite concluse e salva i parametri Dixon-Coles e Poisson-xG. La previsione li carica e li riusa; non esegue il fit completo a ogni apertura. Parametri mancanti possono condurre a valori di base; un partner Poisson incompatibile non entra nel blend. Ricevere una previsione non prova che fit o copertura siano adeguati per quella partita.
 
+Il contesto non assegna il bonus xG ai valori nulli/vuoti o invalidi e conserva
+lo zero autentico. I SOT richiedono i campioni esistenti sia dei tiri totali sia
+dei SOT anche nei replay e negli input di calibrazione. Sono correzioni
+dell'ammissibilità dei dati, senza nuovi coefficienti o fit operativi; cambiano
+l'identità del codice A, non i golden numerici con dati completi. La raccolta
+alternativa descritta nella [guida fonti](../data-sources.md) non promuove un
+calendario o xG di provenienza non verificata a input già validati.
+
 Fonti: [contesto](../../backend/src/services/PredictionContextBuilder.ts), [supplemento](../../backend/src/services/FootballDataService.ts), [neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).
 
 ## Calcolo delle probabilità

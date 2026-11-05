@@ -34,6 +34,68 @@ non si ricostruiscono giocate retroattive.
 
 ## Flusso effettivo
 
+La raccolta indipendente `npm run data:collect` usa una cache dedicata e non è
+attivata da questo workflow. Non supera il gate Understat, non liquida giocate
+e non rende verificati input A/C. Prima di integrare una fonte alternativa
+servono mapping, provenienza per campo e verifica dei modelli; la [guida fonti](data-sources.md)
+descrive il comando, i limiti e la cadenza CSV consentita. Nessun flag di
+produzione o prospettico viene abilitato dall'introduzione del collector.
+
+### Preparare il passaggio alle fonti alternative
+
+Il percorso alternativo è ancora uno staging isolato: la Nightly eseguibile
+non collega `SourceFeedImport` al proprio ciclo e mantiene Understat fra i
+gate obbligatori. Un secret `FOOTBALL_DATA_ORG_API_KEY` presente nel repository
+non basta: questo workflow non lo espone al job. Non esiste un flag già
+implementato che autorizzi a saltare Understat. `data:stage` accetta soltanto
+un nuovo target locale e non va usato come comando di import operativo.
+
+La preparazione di una prima esecuzione reale richiede, nell'ordine:
+
+1. Revisionare e pubblicare il codice esatto con CI superata, dopo autorizzazione.
+   Conservare SHA, hash C adottato e fingerprint A; controllare separatamente
+   gli eventuali auto-deploy esterni prima del push. Pubblicare non abilita i
+   due flag A/C e non autorizza scritture o ricalibrazione.
+2. Risolvere o escludere esplicitamente le identità contestate. Per PSG–Lyon
+   la LFP e il club confermano il rinvio al 26 ottobre alle 20:30 locali;
+   la correzione richiede un piano con vecchia riga esatta e compare-and-set.
+   Non estendere quella correzione a Toulouse/Troyes–Le Havre o al ritorno
+   Rennes–PSG, ancora discordanti. Provare import e ripetizione su una copia.
+3. Completare e testare l'adapter operativo prima di cambiare i gate del ciclo:
+   collector/cache dedicata, mapping revisionato, piano approvato e import
+   transazionale, provenienza dei singoli campi e astensione esplicita per le
+   fixture non ammissibili. I CSV richiedono cache persistente e una cadenza
+   conforme al limite del fornitore, anche fra retry e runner diversi.
+   Non importare gli xG CSV e non equiparare il successo del calendario alla
+   completezza degli input. Questo collegamento non è realizzato dallo staging.
+4. Verificare sul target parametri A, esatta compatibilità della calibrazione,
+   artefatto/deployment C, campioni e quote reali recenti. I profili con checksum
+   valido ma fingerprint diverso sono cache miss. Se manca un profilo compatibile,
+   fermarsi: il normale calcolo on-demand/warmup può ricalibrare e richiede
+   autorizzazione quando tale operazione è esclusa dal mandato. Non rinominare
+   la chiave cache per riutilizzare il vecchio profilo. Verificare budget quote
+   e reset confermato senza azzerare consumi o inventare nuovi portafogli.
+   `ODDS_API_ACCOUNT_SCOPE` deve identificare lo stesso account della chiave:
+   il default del workflow è `primary`, non il valore configurato su un PC.
+   Non copiare un saldo da uno scope diverso e non dedurre l'identità del
+   secret GitHub dal suo solo nome.
+5. Solo dopo una prova end-to-end ammissibile, un backup verificato e il consenso
+   alle scritture, configurare il secret nel job, autorizzare il piano dati e
+   attivare `RESEARCH_NIGHTLY_ENABLED` insieme a
+   `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` per una prima esecuzione controllata.
+   Il primo flag da solo produce diagnostica; con entrambi spenti restano
+   manutenzione e liquidazioni già previste, senza nuove giocate. Verificare
+   SHA effettivo, esiti dei singoli gate, motivi di astensione, input/quote,
+   contabilità, deduplicazione e completamento effettivo A/C.
+
+Per l'arresto, disabilitare prima le nuove recommendation e poi il processo
+A/C se necessario. Conservare ledger, piani, snapshot e cache; non annullare
+puntate cancellando righe. Un rollback del codice non ripristina i dati già
+importati: per quelli serve un piano inverso basato sulle precondizioni oppure
+un restore separatamente autorizzato. La validazione prospettica A rimane
+indipendente e spenta: non è un prerequisito implicito che questa procedura
+attiva, né un risultato dimostrato dal funzionamento ordinario.
+
 Distinguere i gate dei dati dai flag di esecuzione: se `RESEARCH_NIGHTLY_ENABLED` o `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` non sono abilitati nell'ambiente effettivo, il relativo processo A/C non parte anche con import completo. La presenza di una schedule non dimostra analisi o puntate. Lo stato attuale dei flag richiede una lettura dell'ambiente; non si ricava dai log di una vecchia run.
 
 Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapter del supplemento considera solo fixture primarie già concluse. Con identità e data corrette ma risultato primario ancora NULL, il supplemento non promuove la fixture a conclusa. Verificare separatamente CSV, fixture, risultato primario e relativo gate; uno 0–0 osservato è concluso, due NULL non lo sono. Non cambiare fonte del risultato o abbassare la copertura per rendere verde la Nightly.
@@ -78,6 +140,13 @@ rifiuta risposte non oggetto JSON e payload lega senza array `dates` con
 un payload malformato. Un array `dates: []` esplicito resta una stagione vuota
 valida: completezza e pending pre-campionato mantengono i gate esistenti.
 Non si inventano partite, risultati o xG per superare il controllo.
+
+Una pagina identica su homepage, più leghe e una stagione precedente sostiene
+un'indisponibilità comune ai percorsi provati, non prova un cambio di endpoint.
+Messaggio di manutenzione e header Last-Modified non dimostrano la causa
+infrastrutturale, l'inizio esatto dell'incidente o una data di ripristino.
+Le alternative e i relativi limiti sono nella [guida delle fonti](data-sources.md);
+il calendario research non è un ripristino già implementato della fonte primaria.
 
 Il [diagnostico pubblico](../.github/workflows/source-connectivity.yml),
 senza credenziali o DB, verifica separatamente i cinque endpoint della stagione

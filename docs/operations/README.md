@@ -33,6 +33,45 @@ usano gli stessi saldi e i controlli di unicità/esposizione, con importo
 scelto dall'utente. Questi registri rappresentano denaro virtuale: il software
 non trasmette puntate a un bookmaker.
 
+Un punteggio mancante o invalido non equivale a zero: la liquidazione research
+mantiene irrisolte le giocate senza entrambi i gol osservati come interi non
+negativi. Un evento provider esplicitamente live/concluso non autorizza a
+riscrivere il kickoff in preparazione. Un cambio di orario senza tali stati
+mantiene il percorso precedente, inclusa la finestra persa in caso di anticipo
+già trascorso, senza puntata retroattiva. Questi controlli non aggiornano dati storici e non
+provano che la fonte del risultato sia oggi disponibile.
+
+## Prova isolata della pipeline
+
+`backend/test/automatic-pipeline-e2e.test.js` attraversa acquisizione in forma
+Understat, CSV, SQLite temporaneo, statistiche, A, C, trasporto quote, accounting
+API, selezione, claim, portafogli e liquidazione. I dati e le quote sono fixture
+esplicitamente sintetiche; solo il callback HTTP viene sostituito nel budget
+store. I calcoli ordinari della baseline congelata avvengono in RAM, senza
+riaddestrare CatBoost C o aggiornare parametri/calibrazioni operativi.
+
+Il default usa un piccolo artefatto C di test. Con `FP_REAL_C_ARTIFACT` riferito
+a una copia privata esistente di C-906, il test controlla versione e hash
+approvati prima/dopo e percorre anche l'inferenza di quell'artefatto. Il file non
+viene distribuito con i test né modificato. Il test non è prova della copertura,
+licenza, disponibilità live, redditività o attivazione della Nightly; i controlli
+su servizi reali e il consenso alle scritture restano separati.
+
+La regressione temporale esclude dal forecast C una partita di fixture
+successiva all'istante della previsione. I parametri A sono fissi e sintetici:
+la prova non certifica la disponibilità temporale di aggregati, parametri e
+calibrazioni A e non rende ammissibili input alla validazione prospettica.
+
+Dopo la build, dalla directory `backend`:
+
+```powershell
+node --test test/automatic-pipeline-e2e.test.js test/research-settlement-observations.test.js
+```
+
+Usare soltanto archivi temporanei gestiti dal test. Non passare un database
+operativo, non avviare il Compose ordinario come preflight read-only e non
+modificare i flag A/C o prospettici per provare questa suite.
+
 Riferimenti: [AppWalletService](../../backend/src/services/AppWalletService.ts),
 [WalletArchiveService](../../backend/src/services/WalletArchiveService.ts),
 [identità A del registro precedente](../../backend/migrations/027_deterministic_bet_model.sql),

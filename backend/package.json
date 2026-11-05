@@ -25,6 +25,8 @@
     "research:worker": "node scripts/research-worker.js",
     "research:nightly": "node scripts/research-nightly.js",
     "research:watchdog": "node scripts/check-research-nightly.js",
+    "data:collect": "node scripts/collect-source-feeds.js",
+    "data:stage": "node scripts/stage-alternative-sources.js",
     "hostless:integration": "node scripts/hostless-integration.js"
   },
   "dependencies": {

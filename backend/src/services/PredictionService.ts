@@ -1064,6 +1064,11 @@ export class PredictionService {
           const flat = this.applyEnsembleBlend(probs.flatProbabilities, poisson,
             target.homeTeamId, target.awayTeamId);
           this.enrichFlatProbabilities(flat);
+          const supp = context.supplementaryData ?? {};
+          if (!this.shouldEnableStatMarkets(supp)
+            || !this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT'])) {
+            for (const key of Object.keys(flat)) if (/^shotsOT/i.test(key)) delete flat[key];
+          }
           return flat;
         };
       },
@@ -1570,7 +1575,7 @@ export class PredictionService {
     const out: Record<string, number> = {};
     for (const [key, value] of Object.entries(flatProbabilities ?? {})) {
       const normalized = String(key).toLowerCase();
-      const family = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']
+      const family = normalized.startsWith('shotsot') ? ['sampleSizeShots', 'sampleSizeShotsOT']
         : normalized.startsWith('shots') ? ['sampleSizeShots']
         : normalized.startsWith('yellow') ? ['sampleSizeYellow']
         : normalized.startsWith('cardstotal') || normalized.startsWith('cards_total') ? ['sampleSizeYellow', 'sampleSizeRed'] : [];
@@ -1585,7 +1590,7 @@ export class PredictionService {
     const enabled = this.shouldEnableStatMarkets(supp);
     const available = {
       shots: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShots']),
-      shotsOT: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShotsOT']),
+      shotsOT: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT']),
       yellow: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeYellow']),
       cardsTotal: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeYellow', 'sampleSizeRed']),
     };

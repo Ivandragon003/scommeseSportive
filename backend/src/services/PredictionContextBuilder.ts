@@ -431,9 +431,14 @@ export class PredictionContextBuilder {
       Number(homeTeamStats?.sampleSize ?? 0),
       Number(awayTeamStats?.sampleSize ?? 0),
     );
-    const hasBothXg =
-      Number.isFinite(Number(homeTeam?.avg_home_xg)) &&
-      Number.isFinite(Number(awayTeam?.avg_away_xg));
+    const observedXg = (value: unknown): number | undefined => {
+      if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return undefined;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+    };
+    const homeXg = observedXg(homeTeam?.avg_home_xg);
+    const awayXg = observedXg(awayTeam?.avg_away_xg);
+    const hasBothXg = homeXg !== undefined && awayXg !== undefined;
     const hasPlayerStatistics = (players: any[]) => players.some((player) => {
       const stats = this.parseJson(player?.stats_json ?? player?.statsJson);
       if (stats?.identityOnly === true) return false;
@@ -486,8 +491,8 @@ export class PredictionContextBuilder {
         contextAdjustments,
       },
       competitiveness,
-      homeXG: this.toFiniteNumber(homeTeam?.avg_home_xg),
-      awayXG: this.toFiniteNumber(awayTeam?.avg_away_xg),
+      homeXG: homeXg,
+      awayXG: awayXg,
       richnessScore: Number(richnessScore.toFixed(3)),
       historicalCoverage: {
         home: homeHistoricalCoverage,

@@ -633,6 +633,54 @@
           "after": "      referee,\n      homePlayers,\n      awayPlayers,\n      playerShotStarters: playerShotStarterEvidence(lineupStatusRows, request.matchId, teamIds, asOf),\n      homeHistoricalCoverage,\n      awayHistoricalCoverage,\n    });\n"
         }
       ]
+    },
+    {
+      "review": "xg-context-observation-v1",
+      "reason": "Treat missing or invalid team xG as unobserved in context and richness while preserving genuine zero and all existing weights.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionContextBuilder.ts",
+          "before": "    const hasBothXg =\n      Number.isFinite(Number(homeTeam?.avg_home_xg)) &&\n      Number.isFinite(Number(awayTeam?.avg_away_xg));",
+          "after": "    const observedXg = (value: unknown): number | undefined => {\n      if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return undefined;\n      const parsed = Number(value);\n      return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;\n    };\n    const homeXg = observedXg(homeTeam?.avg_home_xg);\n    const awayXg = observedXg(awayTeam?.avg_away_xg);\n    const hasBothXg = homeXg !== undefined && awayXg !== undefined;"
+        },
+        {
+          "file": "backend/src/services/PredictionContextBuilder.ts",
+          "before": "      homeXG: this.toFiniteNumber(homeTeam?.avg_home_xg),\n      awayXG: this.toFiniteNumber(awayTeam?.avg_away_xg),",
+          "after": "      homeXG: homeXg,\n      awayXG: awayXg,"
+        }
+      ]
+    },
+    {
+      "review": "sot-total-shots-sample-v1",
+      "reason": "SOT probabilities depend on both total shots and shots on target, so apply the existing per-field thresholds to both inputs. Legacy generic sample fallback remains unchanged.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      const family = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']",
+          "after": "      const family = normalized.startsWith('shotsot') ? ['sampleSizeShots', 'sampleSizeShotsOT']"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      shotsOT: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShotsOT']),",
+          "after": "      shotsOT: enabled && this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT']),"
+        }
+      ]
+    },
+    {
+      "review": "sot-sample-historical-replay-v1",
+      "reason": "Use the same existing total-shots and SOT sample gates in backtest and chronological calibration. No new thresholds or probability formulas.",
+      "edits": [
+        {
+          "file": "backend/src/models/backtesting/BacktestingEngine.ts",
+          "before": "        const fields: MarketSample[] = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']",
+          "after": "        const fields: MarketSample[] = normalized.startsWith('shotsot') ? ['sampleSizeShots', 'sampleSizeShotsOT']"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "          this.enrichFlatProbabilities(flat);\n          return flat;\n        };\n      },\n    });",
+          "after": "          this.enrichFlatProbabilities(flat);\n          const supp = context.supplementaryData ?? {};\n          if (!this.shouldEnableStatMarkets(supp)\n            || !this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT'])) {\n            for (const key of Object.keys(flat)) if (/^shotsOT/i.test(key)) delete flat[key];\n          }\n          return flat;\n        };\n      },\n    });"
+        }
+      ]
     }
   ]
 }

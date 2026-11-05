@@ -136,20 +136,27 @@ export function researchBookmakerProbabilities(quotes: ResearchQuote[]): Record<
 export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: number; settled: number; unresolved: number }> {
   const bets = await db.research.listBets({ status: 'PENDING' });
   const summary = { checked: bets.length, settled: 0, unresolved: 0 };
+  const observedGoals = (value: unknown): number | null => {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
   for (const bet of bets) {
     const match = await db.getMatchById(bet.matchId);
-    if (!match || match.home_goals == null || match.away_goals == null) continue;
+    if (!match) { summary.unresolved++; continue; }
+    const homeGoals = observedGoals(match.home_goals), awayGoals = observedGoals(match.away_goals);
+    if (homeGoals === null || awayGoals === null) { summary.unresolved++; continue; }
     const quote = bet.snapshot?.quote;
     const appExecution = bet.family === 'A' && (!!bet.executionDecisionId || bet.snapshot?.decisionMode === 'MANUAL');
-    const outcome = appExecution ? settleAppRecommendationQuote(quote, match)
-      : settleGoalQuote(quote, Number(match.home_goals), Number(match.away_goals));
+    const outcome = appExecution ? settleAppRecommendationQuote(quote, { ...match, home_goals: homeGoals, away_goals: awayGoals })
+      : settleGoalQuote(quote, homeGoals, awayGoals);
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }
     let resultObservation: any = null;
     try { const observed = JSON.parse(match.raw_json || '{}').resultObservation;
-      if (['football_data_csv','official_club_report'].includes(observed?.source)) resultObservation = observed;
+      if (['football_data_csv','official_club_report','football_data_org'].includes(observed?.source)) resultObservation = observed;
     } catch { /* Older fixtures may not contain a result provenance wrapper. */ }
     const result = await db.research.settleBet(bet.id, outcome.returnMultiplier, { matchId: bet.matchId,
-      homeGoals: Number(match.home_goals), awayGoals: Number(match.away_goals), source: resultObservation?.source || match.source,
+      homeGoals, awayGoals, source: resultObservation?.source || match.source,
       ...(resultObservation ? {resultSourceUrl:resultObservation.sourceUrl,resultObservedAt:resultObservation.observedAt} : {}),
       resultKickoffAt: match.date, status: outcome.status,
       ...(appExecution && ['cards_total', 'yellow_cards', 'shots', 'shots_on_target'].includes(quote?.market)
@@ -412,13 +419,14 @@ export class ResearchRuntime {
     }
     const feed = await this.sharedOdds(row.competition, inferenceOnlyC);
     const event = matchingResearchEvent(row, feed.events);
-    if (!event) return { ...base, status: 'unknown' };
+    if (!event || !Number.isFinite(Date.parse(event.commenceTime))) return { ...base, status: 'unknown' };
+    if (event.completed || event.live) return { ...base, status: 'started' };
     if (Date.parse(event.commenceTime) !== Date.parse(row.date)) {
       if (!inferenceOnlyC) await this.db.updateMatchKickoff(job.matchId, event.commenceTime);
       if (!this.nightly && !inferenceOnlyC) await this.db.research.syncJobs([{ matchId: job.matchId, kickoffAt: event.commenceTime }]);
       return { ...base, kickoffAt: event.commenceTime, status: 'upcoming' };
     }
-    if (event.completed || event.live || Date.parse(event.commenceTime) <= this.clock().getTime()) return { ...base, status: 'started' };
+    if (Date.parse(event.commenceTime) <= this.clock().getTime()) return { ...base, status: 'started' };
     if (!this.historyCache || this.clock().getTime() - this.historyCache.at >= 60_000) {
       this.historyCache = { at: this.clock().getTime(), rows: (await this.db.getMatches()).map(researchMatchFromRow) };
     }

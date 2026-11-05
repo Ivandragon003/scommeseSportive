@@ -1606,7 +1606,7 @@ export class BacktestingEngine {
       };
       for (const key of Object.keys(raw)) {
         const normalized = key.toLowerCase();
-        const fields: MarketSample[] = normalized.startsWith('shotsot') ? ['sampleSizeShotsOT']
+        const fields: MarketSample[] = normalized.startsWith('shotsot') ? ['sampleSizeShots', 'sampleSizeShotsOT']
           : normalized.startsWith('shots') ? ['sampleSizeShots']
           : normalized.startsWith('yellow') ? ['sampleSizeYellow']
           : normalized.startsWith('cardstotal') || normalized.startsWith('cards_total') ? ['sampleSizeYellow', 'sampleSizeRed'] : [];

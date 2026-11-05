@@ -141,6 +141,8 @@ export interface FootballDataRow {
   homeRed: number | null;
   awayRed: number | null;
   referee: string | null;
+  /** Observed CSV columns only: provider/model semantics are not yet verified. Never imported as Understat xG. */
+  unverifiedXg?: { home: number | null; away: number | null; columns: ['HxG', 'AxG']; status: 'provider_semantics_unverified' };
   // Quote di mercato (media bookmaker). Apertura = Avg*/B365*, chiusura = AvgC*/B365C*.
   // La "C" nel nome football-data.co.uk = Closing. Servono per backtest ROI/CLV reale.
   oddsHome: number | null;
@@ -192,6 +194,7 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
   const iHF = col('HF'), iAF = col('AF'), iHC = col('HC'), iAC = col('AC');
   const iHY = col('HY'), iAY = col('AY'), iHR = col('HR'), iAR = col('AR');
   const iRef = col('Referee');
+  const iHxG = col('HxG'), iAxG = col('AxG');
   // Quote: prima colonna presente tra i candidati (media mercato, poi Bet365).
   const firstCol = (...names: string[]): number => {
     for (const n of names) { const idx = header.indexOf(n); if (idx >= 0) return idx; }
@@ -202,6 +205,10 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
   const iCH = firstCol('AvgCH', 'B365CH'), iCD = firstCol('AvgCD', 'B365CD'), iCA = firstCol('AvgCA', 'B365CA');
   const iCOv = firstCol('AvgC>2.5', 'B365C>2.5'), iCUn = firstCol('AvgC<2.5', 'B365C<2.5');
   const pick = (c: string[], i: number): number | null => (i >= 0 ? numOrNull(c[i]) : null);
+  const xgCandidate = (c: string[], i: number): number | null => {
+    const value = pick(c, i);
+    return value !== null && value >= 0 ? value : null;
+  };
 
   const out: FootballDataRow[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -225,6 +232,10 @@ export function parseFootballDataCsv(text: string): FootballDataRow[] {
       homeYellow: countOrNull(c[iHY]), awayYellow: countOrNull(c[iAY]),
       homeRed: countOrNull(c[iHR]), awayRed: countOrNull(c[iAR]),
       referee: iRef >= 0 ? (c[iRef]?.trim() || null) : null,
+      ...((iHxG >= 0 || iAxG >= 0) ? { unverifiedXg: {
+        home: xgCandidate(c, iHxG), away: xgCandidate(c, iAxG),
+        columns: ['HxG', 'AxG'] as ['HxG', 'AxG'], status: 'provider_semantics_unverified' as const,
+      } } : {}),
       oddsHome: pick(c, iOH), oddsDraw: pick(c, iOD), oddsAway: pick(c, iOA),
       oddsOver25: pick(c, iOv), oddsUnder25: pick(c, iUn),
       closingHome: pick(c, iCH), closingDraw: pick(c, iCD), closingAway: pick(c, iCA),

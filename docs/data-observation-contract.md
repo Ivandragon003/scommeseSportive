@@ -5,6 +5,17 @@ gialli e rossi. Codice verificato non significa dati storici riparati o backend
 distribuito. Le letture di audit e i loro conteggi restano nelle ricevute private;
 non sono un campione di validazione predittiva.
 
+Il bonus di copertura xG del contesto richiede due osservazioni numeriche
+finite non negative: null, vuoti e valori invalidi non ottengono il bonus;
+zero autentico resta osservato. I mercati SOT richiedono il campione previsto
+sia per SOT sia per tiri totali, dato che il modello usa anche il rapporto
+fra i due. La stessa ammissione vale per operatività, replay e produzione
+degli input di calibrazione, senza cambiare formule o soglie.
+
+Il collector indipendente e i candidati HxG/AxG dei CSV hanno un contratto
+separato nella [guida fonti](data-sources.md): acquisire uno snapshot non
+attesta automaticamente adeguatezza del modello o genealogia prospettica.
+
 ## Acquisizione e persistenza
 
 Understat resta primario; `football-data.co.uk` integra soltanto i campi
