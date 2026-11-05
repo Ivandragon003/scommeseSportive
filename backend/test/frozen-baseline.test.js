@@ -22,14 +22,29 @@ try {
 }
 const frozen = resolve(__dirname, '../dist/research/frozen/a-80cb25df');
 
+// libm/V8 can differ in the last floating-point bits across Windows/Linux.
+// Keep the release fixture unchanged; identities and JSON structure stay exact.
+function assertReleaseOutput(actual, expected, path = 'output') {
+  if (typeof expected === 'number') {
+    assert.ok(typeof actual === 'number' && Number.isFinite(actual)
+      && Math.abs(actual - expected) <= 1e-12 * Math.max(1, Math.abs(expected)), path);
+  } else if (expected !== null && typeof expected === 'object') {
+    assert.equal(Array.isArray(actual), Array.isArray(expected), path);
+    assert.deepEqual(Object.keys(actual), Object.keys(expected), path);
+    for (const key of Object.keys(expected)) assertReleaseOutput(actual[key], expected[key], `${path}.${key}`);
+  } else {
+    assert.equal(actual, expected, path);
+  }
+}
+
 test('historical numerical baseline and calibrated decisions match the deployed release fixture', () => {
   assert.deepEqual(core.baselineManifest(), fixture.manifest);
   assert.equal(pipeline.coherentProbabilityPipelineHash(), fixture.pipelineHash);
   const forecast = core.buildForecastInput(input.history, input.target, input.AT);
-  assert.deepEqual(JSON.parse(JSON.stringify(forecast)), fixture.forecast);
+  assertReleaseOutput(JSON.parse(JSON.stringify(forecast)), fixture.forecast);
   const calibrated = pipeline.applyCoherentProbabilityPipeline({matrix:forecast.baselineMatrix,
     rawProbabilities:forecast.baselineProbabilities,forecastAt:input.AT,quotes:input.quotes,profile:input.profile});
-  assert.deepEqual(JSON.parse(JSON.stringify(calibrated)), fixture.calibrated);
+  assertReleaseOutput(JSON.parse(JSON.stringify(calibrated)), fixture.calibrated);
   assert.equal(calibrated.marketBlendingApplied, true);
 });
 
