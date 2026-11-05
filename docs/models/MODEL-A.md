@@ -6,6 +6,8 @@ Questa guida descrive il percorso di `PredictionService`. I valori predefiniti s
 
 A produce l'analisi dell'app, le opportunità squadra, un consiglio principale e la percentuale di puntata. Il pacchetto canonico è identificato come `APP-A-…`, con hash distinti di codice, configurazione e stato.
 
+Il nucleo numerico research è conservato nello [snapshot della release](../../backend/src/research/frozen/a-80cb25df/README.md), con hash calcolati dai byte effettivi e controllo d’integrità in build; non modifica i modelli correnti di PredictionService.
+
 La baseline research `A-80cb25df5552621e` di C è un'altra identità: non rappresenta ogni configurazione, dato, calibrazione o correzione dell'A operativo. Le sue metriche non devono essere attribuite a `PredictionService`.
 
 La Nightly consuma il consiglio A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica, ranking o stake A. Questa documentazione non modifica sorgenti, parametri o previsioni operative.

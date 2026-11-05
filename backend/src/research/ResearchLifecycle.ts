@@ -33,7 +33,7 @@ const ordered = (a: HealthRun, b: HealthRun): number => timestamp(b.startedAt) -
 const ciPasses = (value: unknown): value is [number, number] => Array.isArray(value) && value.length === 2
   && value.every((entry) => typeof entry === 'number' && Number.isFinite(entry)) && value[0] <= value[1] && value[1] < 0;
 export const researchPipelineHash = (): string => createHash('sha256')
-  .update(readFileSync(require.resolve('./ResearchProbabilityPipeline'))).digest('hex');
+  .update(readFileSync(require.resolve('./frozen/a-80cb25df/research/ResearchProbabilityPipeline'))).digest('hex');
 
 /** Derive calibrators from the untouched calibration interval, never test labels. */
 export function enrichLifecycleArtifact(input: HybridArtifact): HybridArtifact {

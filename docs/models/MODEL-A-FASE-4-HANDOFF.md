@@ -192,15 +192,17 @@ La diagnostica manuale `model-a-target-preflight.yml` confronta l'impronta del t
 
 Per un pilot durante il disservizio occorre accettare esplicitamente input tecnici e risultati eventualmente pendenti: non è una verifica dell’affidabilità statistica. Il consenso deve includere forecast, ledger, run, calendario e le scritture accessorie di cache/associazione già previste da PredictionService. In caso di anomalie di integrità, target inatteso o consegne non confermate sospendere nuove inferenze e conservare le evidenze. Il recupero di eventi reali e la latenza Turso end-to-end vanno misurati nel pilot autorizzato, senza introdurre risultati fittizi.
 
-## Blocco del rilascio web da main: baseline congelata C
+## Compatibilità della baseline congelata C
 
-Il controllo sul vero artefatto C registrato ha individuato un requisito non coperto dalla sola suite: C-906371b0b3a1e2c8 dichiara `A-80cb25df5552621e`, mentre il codice compilato corrente di main produce `A-38538d45825fba24`. La guardia `hybrid_baseline_mismatch` rifiuta l’input corrente. Una prova sintetica che fornisce la versione dell’artefatto dimostra solo il caricamento dei pesi, non la compatibilità dell’intero percorso; non va presentata come prova operativa.
+Il controllo sul vero artefatto C registrato ha individuato un requisito non coperto dalla sola suite: C-906371b0b3a1e2c8 richiede `A-80cb25df5552621e`. Le dipendenze condivise aggiornate identificavano invece `A-38538d45825fba24`, rifiutata dalla guardia `hybrid_baseline_mismatch`. Anche l'identità della pipeline di calibrazione deve coincidere. Fornire arbitrariamente la versione dell'artefatto non dimostra compatibilità.
 
 L’archivio del precedente commit web 6ed36d4 compilato con le dipendenze previste riproduce esattamente A-80cb25df5552621e. Quattro file inclusi nell’identità sono cambiati nel lavoro precedente: correzioni xG mancanti in DC/Poisson e osservatori nei moduli value/analisi. Questa verifica non riapre quelle correzioni né autorizza a rietichettare la nuova baseline come vecchia, riaddestrare C o allentare i controlli.
 
-Il ramo operativo `ops/model-a-web-compat` conserva il web precedente e aggiunge soltanto la guardia di avvio senza bootstrap, con test dedicato e CI. Modelli, configurazioni predittive, servizi e percorso research del vecchio web restano identici. Il ramo è necessario come sorgente temporanea del backend e va conservato finché associato al deploy; main mantiene tutto il lavoro della Fase 4. Il frontend non richiede il vecchio runtime matematico.
+La correzione su main isola il solo nucleo numerico research della release, in [frozen/a-80cb25df](../../backend/src/research/frozen/a-80cb25df/README.md). Le facciate ForecastCore e delle due pipeline caricano quei byte JavaScript effettivi, anche in sviluppo TypeScript. Il prebuild controlla SHA-256 e inventario prima della copia; i fingerprint sono calcolati dagli stessi moduli storici, senza costanti sostitutive o eccezioni nelle guardie. L'hash legacy lifecycle legge il modulo eseguito. I modelli correnti di PredictionService, inclusa la correzione xG della Fase 1 e gli osservatori del recorder, restano separati e invariati. Non è un nuovo modello C, né un nuovo training.
 
-Non accendere il pilot per una validazione del Modello A operativo mentre web e collector identificano versioni diverse. Serve una decisione separata sulla compatibilità della baseline congelata C prima del ritorno del backend su main, preservando davvero pesi, formule, guardie e provenienza. I quattro file non vanno ripristinati globalmente solo per far combaciare un hash. Raccolta e refresh rimangono spenti; il pilot predisposto non è autorizzato. La CI verde non sostituisce il controllo dell’artefatto registrato sul target.
+La fixture immutabile è prodotta dalla release precedente, con xG mancanti/null/vuoti/zero, calibrazione e quote simulate dichiarate: input, matrici e decisioni devono coincidere. Le mutazioni cambiano i fingerprint e la build rifiuta file alterati o aggiunti. La prova privata sul vero artefatto registrato confronta cinque casi xG con la release: input, feature, inferenza C e pipeline coincidono; nessuna scrittura DB. Non sostituisce una previsione reale. Pesi C, schema feature, selettori e guardie non sono modificati.
+
+Il backend temporaneo ca3dc855 è stato verificato LIVE, health 200, baseline 80 e inferenza con il C reale; recorder/collector false e zero forecast. Conservare `ops/model-a-web-compat` finché è sorgente di un deploy; dopo il ritorno verificato a main può essere eliminato perché già incorporato. Prima del rilascio da main ripetere CI, confronto con artefatto reale e verifica runtime dopo LIVE. Non accendere il pilot: il consenso all'attivazione rimane separato e non è stato dato. I limiti Understat e `inputAvailableThrough=null` restano invariati.
 
 ## Blocchi e criteri
 
@@ -218,7 +220,7 @@ Non accendere il pilot per una validazione del Modello A operativo mentre web e 
 
 | Criterio | Stato |
 |---|---|
-| Rilascio web da main | Bloccato dalla compatibilità della baseline congelata C; sorgente operativa temporanea separata, senza perdere il lavoro di main. |
+| Rilascio web da main | Compatibilità ripristinata nel codice con snapshot numerico reale; il rilascio richiede CI e accettazione runtime del commit esatto. |
 | A — Preparazione tecnica | Implementazione completata, gate Linux e frontend verdi; Windows conserva l'intermittenza documentata. Deploy, target, backup e schema verificati; consenso al pilot e accettazione degli eventi reali restano necessari. |
 | B — Raccolta prospettica | Non attivata da questo lavoro. |
 | C — Validazione statistica | Non conclusa: campione futuro indipendente adeguato, copertura/esclusioni, Brier/Log Loss/calibrazione e incertezza, distinguendo rigoroso/tecnico. Nessuna prova di maggiore affidabilità o profitto. |

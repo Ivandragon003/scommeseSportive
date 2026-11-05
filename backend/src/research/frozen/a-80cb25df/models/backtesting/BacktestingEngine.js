@@ -1,0 +1,2462 @@
+"use strict";
+/**
+ * Chronological walk-forward validation of the current prematch pipeline.
+ * Results become available two hours after kickoff. Model fit, context and
+ * calibration cannot read target outcomes. Probability scores cover every
+ * common fixed forecast; financial metrics require verifiable real prices.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.BacktestingEngine = void 0;
+const DixonColesModel_1 = require("../core/DixonColesModel");
+const ValueBettingEngine_1 = require("../value/ValueBettingEngine");
+const EnhancedMarketAnalysis_1 = require("../value/EnhancedMarketAnalysis");
+const EnhancedMarketAnalysis_2 = require("../value/EnhancedMarketAnalysis");
+const PoissonXgModel_1 = require("../core/PoissonXgModel");
+const ProbabilityEnsembleService_1 = require("../../services/ProbabilityEnsembleService");
+const MarketBlendLearningService_1 = require("../../services/MarketBlendLearningService");
+const predictionConfig_1 = require("../../config/predictionConfig");
+const PredictionContextBuilder_1 = require("../../services/PredictionContextBuilder");
+const ChronologicalForecastService_1 = require("../../services/ChronologicalForecastService");
+const MathUtils_1 = require("../utils/MathUtils");
+const dataHelpers_1 = require("../../utils/dataHelpers");
+const historicalTime_1 = require("../../utils/historicalTime");
+const PredictionEngineConfig_1 = require("../../config/PredictionEngineConfig");
+const algorithmVersions_1 = require("../../config/algorithmVersions");
+const PROBABILITY_FAMILIES = {
+    goals: ['homeWin', 'draw', 'awayWin', 'over15', 'over25', 'over35', 'btts'],
+    cards: ['cardsTotalOver35', 'cardsTotalOver45', 'cardsTotalOver55'],
+    yellow: ['yellowOver35', 'yellowOver45', 'yellowOver55'],
+    shots: ['shotsOver235', 'shotsOver255', 'shotsOver275'],
+    shots_ot: ['shotsOTOver75', 'shotsOTOver85', 'shotsOTOver95'],
+};
+class BacktestingEngine {
+    constructor() {
+        this.INITIAL_BANKROLL = 1000;
+        this.SYNTHETIC_MARGIN = 1.05; // 5% margine bookmaker simulato
+        this.SYNTHETIC_JITTER = 0.06; // ±6% rumore deterministico
+        // Quote sintetiche generate solo nel range dove il modello è affidabile
+        this.SYN_MIN_ODDS = 1.40;
+        this.SYN_MAX_ODDS = 8.00;
+        // ==================== I1: DATI SUPPLEMENTARI AS-OF-DATE ====================
+        // Replica in-memory la costruzione di `supp` di produzione (recomputeTeamAverages
+        // + PredictionContextBuilder.buildTeamStats) ma aggregando SOLO i match con
+        // date < data della partita, per evitare qualsiasi leakage. Vedi design I1.
+        this.ASOF_DECAY_PER_DAY = 0.005; // identico a recomputeTeamAverages
+        this.ASOF_LEAGUE_SHOTS_CONCEDED = 12.1; // identico a recomputeTeamAverages
+        this.model = new DixonColesModel_1.DixonColesModel();
+        this.engine = new ValueBettingEngine_1.ValueBettingEngine();
+    }
+    clampNumber(value, min, max) {
+        if (!Number.isFinite(value))
+            return min;
+        return Math.max(min, Math.min(max, value));
+    }
+    assessCardLineLearning(input) {
+        const parsed = this.parseCardsSelection(input.selection);
+        const actualCards = Number(input.actualCards);
+        if (!parsed || !Number.isFinite(actualCards)) {
+            return {
+                cardLineError: null,
+                cardMissSeverity: null,
+                cardLearningAdjustment: null,
+                outcomeVsMarketAssessment: null,
+            };
+        }
+        const cardLineError = parsed.side === 'under'
+            ? Number((actualCards - parsed.line).toFixed(2))
+            : Number((parsed.line - actualCards).toFixed(2));
+        const won = parsed.side === 'under'
+            ? actualCards <= parsed.line
+            : actualCards > parsed.line;
+        const missDistance = Math.max(0, Math.abs(cardLineError));
+        const cardMissSeverity = won
+            ? 'NONE'
+            : missDistance <= 0.5
+                ? 'LOW'
+                : missDistance <= 1.5
+                    ? 'MEDIUM'
+                    : 'HIGH';
+        const clv = typeof input.clv === 'number' && Number.isFinite(input.clv) ? input.clv : null;
+        const outcomeVsMarketAssessment = this.assessOutcomeVsMarket(won, clv);
+        const basePenalty = cardMissSeverity === 'NONE'
+            ? 0.12
+            : cardMissSeverity === 'LOW'
+                ? 0.45
+                : cardMissSeverity === 'MEDIUM'
+                    ? 0.78
+                    : 1.15;
+        const clvMultiplier = clv === null
+            ? 1
+            : won
+                ? (clv > 0 ? 0.65 : 0.9)
+                : (clv > 0 ? 0.55 : 1.25);
+        const closeToLineMultiplier = input.wasRecommendedTooCloseToLine ? 1.35 : 1;
+        const cardLearningAdjustment = Number((basePenalty * clvMultiplier * closeToLineMultiplier).toFixed(3));
+        return {
+            cardLineError,
+            cardMissSeverity,
+            cardLearningAdjustment,
+            outcomeVsMarketAssessment,
+        };
+    }
+    assessOutcomeVsMarket(won, clv) {
+        if (clv === null || Math.abs(clv) < 0.000001)
+            return 'unknown_clv';
+        if (won && clv > 0)
+            return 'good_process_good_result';
+        if (!won && clv > 0)
+            return 'good_process_bad_result';
+        if (won && clv < 0)
+            return 'bad_process_good_result';
+        return 'bad_process_bad_result';
+    }
+    parseCardsSelection(selection) {
+        const raw = String(selection ?? '');
+        const snake = raw.match(/^(yellow|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+        if (snake) {
+            const line = Number(snake[3].replace(',', '.'));
+            return Number.isFinite(line) ? { side: snake[2].toLowerCase(), line } : null;
+        }
+        const compact = raw.match(/^(yellow|cardstotal)(over|under)(\d+)$/i);
+        if (!compact)
+            return null;
+        const lineRaw = compact[3];
+        const line = lineRaw.length >= 2 ? Number(lineRaw) / 10 : Number(lineRaw);
+        return Number.isFinite(line) ? { side: compact[2].toLowerCase(), line } : null;
+    }
+    computeWeightedProbabilityMetrics(bets, weightMode = 'none') {
+        if (bets.length === 0) {
+            return { weightedBrierScore: 0, weightedLogLoss: 0, weightMode };
+        }
+        const rawWeight = (bet) => {
+            if (weightMode === 'stake')
+                return Math.max(0, Number(bet.stake ?? 0));
+            if (weightMode === 'inverseOdds')
+                return bet.odds && bet.odds > 1 ? 1 / bet.odds : 0;
+            if (weightMode === 'marketVariance')
+                return 1 / Math.max(0.01, Number(bet.marketVariance ?? 1));
+            return 1;
+        };
+        const weighted = bets.map((bet) => ({
+            bet,
+            weight: Math.max(0, rawWeight(bet)),
+        }));
+        const totalWeight = weighted.reduce((sum, row) => sum + row.weight, 0) || bets.length;
+        const safeProb = (p) => Math.max(1e-10, Math.min(1 - 1e-10, p));
+        const brier = weighted.reduce((sum, { bet, weight }) => {
+            const y = bet.won ? 1 : 0;
+            return sum + weight * (safeProb(bet.ourProb) - y) ** 2;
+        }, 0) / totalWeight;
+        const logLoss = -weighted.reduce((sum, { bet, weight }) => {
+            const p = safeProb(bet.ourProb);
+            const y = bet.won ? 1 : 0;
+            return sum + weight * (y * Math.log(p) + (1 - y) * Math.log(1 - p));
+        }, 0) / totalWeight;
+        return {
+            weightedBrierScore: Number(brier.toFixed(6)),
+            weightedLogLoss: Number(logLoss.toFixed(6)),
+            weightMode,
+        };
+    }
+    computeCalibrationByMarket(bets, options = {}) {
+        const desiredBuckets = Math.max(1, Number(options.desiredBuckets ?? 10));
+        const minBucketSize = Math.max(10, Number(options.minBucketSize ?? 20));
+        const normalized = bets
+            .filter((bet) => Number.isFinite(bet.ourProb) && bet.ourProb >= 0 && bet.ourProb <= 1)
+            .map((bet) => ({
+            ourProb: Number(bet.ourProb),
+            won: Boolean(bet.won),
+            marketCategory: String(bet.marketCategory ?? 'global'),
+        }));
+        const global = this.computeCalibrationBuckets(normalized, desiredBuckets, minBucketSize);
+        const byMarket = {};
+        const blending = {
+            global: {
+                alpha: this.calibrationAlpha(normalized.length),
+                sampleSize: normalized.length,
+                fallbackGlobal: false,
+            },
+        };
+        const markets = new Set(normalized.map((bet) => bet.marketCategory));
+        for (const market of markets) {
+            const marketBets = normalized.filter((bet) => bet.marketCategory === market);
+            const hasEnoughSample = marketBets.length >= minBucketSize * 2;
+            byMarket[market] = hasEnoughSample
+                ? this.computeCalibrationBuckets(marketBets, desiredBuckets, minBucketSize)
+                : global;
+            blending[market] = {
+                alpha: this.calibrationAlpha(marketBets.length),
+                sampleSize: marketBets.length,
+                fallbackGlobal: !hasEnoughSample,
+            };
+        }
+        return { global, byMarket, blending };
+    }
+    calibrateProbabilityWithBlending(rawProb, buckets, nObservations) {
+        if (!buckets.length)
+            return rawProb;
+        const sorted = [...buckets].sort((a, b) => a.predictedAvg - b.predictedAvg);
+        let calibrated = sorted[0].actualFrequency;
+        if (rawProb <= sorted[0].predictedAvg) {
+            calibrated = sorted[0].actualFrequency;
+        }
+        else if (rawProb >= sorted[sorted.length - 1].predictedAvg) {
+            calibrated = sorted[sorted.length - 1].actualFrequency;
+        }
+        else {
+            for (let i = 0; i < sorted.length - 1; i++) {
+                const left = sorted[i];
+                const right = sorted[i + 1];
+                if (rawProb >= left.predictedAvg && rawProb <= right.predictedAvg) {
+                    const t = right.predictedAvg > left.predictedAvg
+                        ? (rawProb - left.predictedAvg) / (right.predictedAvg - left.predictedAvg)
+                        : 0;
+                    calibrated = left.actualFrequency + t * (right.actualFrequency - left.actualFrequency);
+                    break;
+                }
+            }
+        }
+        const alpha = this.calibrationAlpha(nObservations);
+        return Math.max(0.001, Math.min(0.999, alpha * rawProb + (1 - alpha) * calibrated));
+    }
+    computeMarketLevelReports(bets, weightMode = 'none') {
+        const byMarket = {};
+        for (const bet of bets) {
+            const market = String(bet.marketCategory ?? 'other');
+            (byMarket[market] ?? (byMarket[market] = [])).push(bet);
+        }
+        const reports = {};
+        for (const [market, rows] of Object.entries(byMarket)) {
+            const staked = rows.reduce((sum, bet) => sum + this.reportStake(bet), 0);
+            const returned = rows.reduce((sum, bet) => {
+                const stake = this.reportStake(bet);
+                return sum + stake + this.reportProfit(bet);
+            }, 0);
+            const profits = rows.map((bet) => this.reportProfit(bet));
+            const returns = rows.map((bet, index) => profits[index] / this.reportStakeFloor(bet));
+            const wins = rows.filter((bet) => bet.won).length;
+            const safeProb = (p) => Math.max(1e-10, Math.min(1 - 1e-10, p));
+            const brierScore = rows.length
+                ? rows.reduce((sum, bet) => sum + (safeProb(bet.ourProb) - (bet.won ? 1 : 0)) ** 2, 0) / rows.length
+                : 0;
+            const logLoss = rows.length
+                ? -rows.reduce((sum, bet) => {
+                    const p = safeProb(bet.ourProb);
+                    return sum + (bet.won ? Math.log(p) : Math.log(1 - p));
+                }, 0) / rows.length
+                : 0;
+            const weighted = this.computeWeightedProbabilityMetrics(rows.map((bet) => ({
+                ourProb: bet.ourProb,
+                won: bet.won,
+                stake: bet.stake,
+                odds: bet.odds,
+                marketCategory: market,
+            })), weightMode);
+            const avgReturn = returns.reduce((sum, value) => sum + value, 0) / (returns.length || 1);
+            const stdReturn = Math.sqrt(returns.reduce((sum, value) => sum + (value - avgReturn) ** 2, 0) / (returns.length || 1));
+            const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(Math.max(1, returns.length)) : 0;
+            let bankroll = 100;
+            let peak = bankroll;
+            let maxDrawdown = 0;
+            for (const profit of profits) {
+                bankroll += profit;
+                peak = Math.max(peak, bankroll);
+                maxDrawdown = Math.max(maxDrawdown, peak > 0 ? (peak - bankroll) / peak : 0);
+            }
+            const grossWin = profits.filter((profit) => profit > 0).reduce((sum, profit) => sum + profit, 0);
+            const grossLoss = Math.abs(profits.filter((profit) => profit <= 0).reduce((sum, profit) => sum + profit, 0));
+            const edgeNoVig = rows.length
+                ? rows.reduce((sum, bet) => sum + (Number.isFinite(bet.edgeNoVig) ? Number(bet.edgeNoVig) : (bet.ourProb - 1 / Math.max(1.01, Number(bet.odds ?? 2)))), 0) / rows.length
+                : 0;
+            reports[market] = {
+                roi: staked > 0 ? Number((((returned - staked) / staked) * 100).toFixed(4)) : 0,
+                winRate: rows.length ? Number(((wins / rows.length) * 100).toFixed(4)) : 0,
+                brierScore: Number(brierScore.toFixed(6)),
+                logLoss: Number(logLoss.toFixed(6)),
+                weightedBrierScore: weighted.weightedBrierScore,
+                weightedLogLoss: weighted.weightedLogLoss,
+                sharpe: Number(sharpe.toFixed(4)),
+                maxDrawdown: Number((maxDrawdown * 100).toFixed(4)),
+                recoveryFactor: maxDrawdown > 0 ? Number(((returned - staked) / (maxDrawdown * 100)).toFixed(4)) : 0,
+                profitFactor: grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(4)) : grossWin > 0 ? Infinity : 0,
+                edgeNoVig: Number(edgeNoVig.toFixed(6)),
+                edgeDecayByMonth: this.computeEdgeDecayForRows(rows),
+                rollingSharpePeriods: this.computeRollingSharpeForRows(rows),
+                usedSyntheticOddsOnly: rows.length > 0 && rows.every((bet) => bet.isSynthetic === true),
+            };
+        }
+        return reports;
+    }
+    reportStake(bet) {
+        return Math.max(0, Number(bet.stake ?? 1));
+    }
+    reportStakeFloor(bet) {
+        return Math.max(0.01, Number(bet.stake ?? 1));
+    }
+    reportProfit(bet) {
+        if (Number.isFinite(bet.profit))
+            return Number(bet.profit);
+        const stake = this.reportStake(bet);
+        return bet.won ? stake * (Number(bet.odds ?? 2) - 1) : -stake;
+    }
+    calibrationAlpha(nObservations) {
+        return Math.max(0.10, 1 / (1 + Math.max(0, nObservations) / 1000));
+    }
+    computeCalibrationBuckets(bets, desiredBuckets, minBucketSize) {
+        if (bets.length === 0)
+            return [];
+        const sorted = [...bets].sort((a, b) => a.ourProb - b.ourProb);
+        const adaptiveMinBucketSize = Math.max(10, Math.floor(sorted.length / Math.max(1, desiredBuckets)), minBucketSize);
+        const nBuckets = Math.max(1, Math.floor(sorted.length / adaptiveMinBucketSize));
+        const bucketSize = Math.max(1, Math.ceil(sorted.length / nBuckets));
+        const rawBuckets = [];
+        for (let i = 0; i < sorted.length; i += bucketSize) {
+            const group = sorted.slice(i, i + bucketSize);
+            rawBuckets.push({
+                bets: group,
+                predictedAvg: group.reduce((sum, bet) => sum + bet.ourProb, 0) / group.length,
+                actualFreq: group.filter((bet) => bet.won).length / group.length,
+                count: group.length,
+                minProb: group[0].ourProb,
+                maxProb: group[group.length - 1].ourProb,
+            });
+        }
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (let i = 0; i < rawBuckets.length - 1; i++) {
+                if (rawBuckets[i].actualFreq > rawBuckets[i + 1].actualFreq) {
+                    const merged = [...rawBuckets[i].bets, ...rawBuckets[i + 1].bets];
+                    rawBuckets.splice(i, 2, {
+                        bets: merged,
+                        predictedAvg: merged.reduce((sum, bet) => sum + bet.ourProb, 0) / merged.length,
+                        actualFreq: merged.filter((bet) => bet.won).length / merged.length,
+                        count: merged.length,
+                        minProb: rawBuckets[i].minProb,
+                        maxProb: rawBuckets[i + 1].maxProb,
+                    });
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        return rawBuckets.map((bucket) => ({
+            predictedRange: `${(bucket.minProb * 100).toFixed(0)}%-${(bucket.maxProb * 100).toFixed(0)}%`,
+            predictedAvg: Number(bucket.predictedAvg.toFixed(4)),
+            actualFrequency: Number(bucket.actualFreq.toFixed(4)),
+            count: bucket.count,
+        }));
+    }
+    computeEdgeDecayForRows(rows) {
+        const edgeByMonthMap = {};
+        for (const row of rows) {
+            const date = row.matchDate instanceof Date ? row.matchDate : new Date(0);
+            const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const edge = Number.isFinite(row.edgeNoVig) ? Number(row.edgeNoVig) : row.ourProb - 1 / Math.max(1.01, Number(row.odds ?? 2));
+            if (!edgeByMonthMap[key])
+                edgeByMonthMap[key] = { sum: 0, count: 0 };
+            edgeByMonthMap[key].sum += edge;
+            edgeByMonthMap[key].count += 1;
+        }
+        return Object.entries(edgeByMonthMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, value]) => {
+            const [year, month] = key.split('-').map(Number);
+            return { year, month, edgeNoVig: Number((value.sum / value.count).toFixed(4)), bets: value.count };
+        });
+    }
+    computeRollingSharpeForRows(rows) {
+        const windowSize = 50;
+        if (rows.length < windowSize)
+            return [];
+        const out = [];
+        for (let start = 0; start + windowSize <= rows.length; start += windowSize) {
+            const window = rows.slice(start, start + windowSize);
+            const returns = window.map((row) => {
+                return this.reportProfit(row) / this.reportStakeFloor(row);
+            });
+            const avg = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+            const std = Math.sqrt(returns.reduce((sum, value) => sum + (value - avg) ** 2, 0) / returns.length);
+            out.push({
+                periodStart: start + 1,
+                periodEnd: start + windowSize,
+                sharpe: Number((std > 0 ? (avg / std) * Math.sqrt(windowSize) : 0).toFixed(3)),
+            });
+        }
+        return out;
+    }
+    setAdaptiveTuning(profile) {
+        this.engine.setAdaptiveTuning(profile ?? null);
+    }
+    buildTeamSampleSizes(trainMatches) {
+        const samples = new Map();
+        for (const match of trainMatches) {
+            samples.set(match.homeTeamId, (samples.get(match.homeTeamId) ?? 0) + 1);
+            samples.set(match.awayTeamId, (samples.get(match.awayTeamId) ?? 0) + 1);
+        }
+        return samples;
+    }
+    buildBacktestValueAnalysisContext(match, historicalMatches, teamSamples, hasRealEurobetOdds, marketCalibrationProfile) {
+        const homeSample = teamSamples.get(match.homeTeamId) ?? 0;
+        const awaySample = teamSamples.get(match.awayTeamId) ?? 0;
+        const cutoffMs = match.date instanceof Date ? match.date.getTime() : Number.POSITIVE_INFINITY;
+        const prior = historicalMatches
+            .filter((row) => row.date instanceof Date && row.date.getTime() < cutoffMs)
+            .sort((left, right) => left.date.getTime() - right.date.getTime());
+        const homeHistory = prior.filter((row) => row.homeTeamId === match.homeTeamId || row.awayTeamId === match.homeTeamId);
+        const awayHistory = prior.filter((row) => row.homeTeamId === match.awayTeamId || row.awayTeamId === match.awayTeamId);
+        const recentHome = homeHistory.slice(-5);
+        const recentAway = awayHistory.slice(-5);
+        const hasXg = prior.some((row) => this.isFiniteObserved(row.homeXG) && this.isFiniteObserved(row.awayXG));
+        const hasShots = prior.some((row) => this.isFiniteObserved(row.homeTotalShots) && this.isFiniteObserved(row.awayTotalShots));
+        const hasShotsOnTarget = prior.some((row) => this.isFiniteObserved(row.homeShotsOnTarget) && this.isFiniteObserved(row.awayShotsOnTarget));
+        const hasCards = prior.some((row) => this.isFiniteObserved(row.homeYellowCards) && this.isFiniteObserved(row.awayYellowCards));
+        const hasRefereeData = prior.some((row) => Boolean(String(row.referee ?? '').trim()));
+        const sampleStrength = (0, MathUtils_1.clamp)(Math.min(homeSample, awaySample) / 12, 0, 1);
+        const statCompleteness = [hasXg, hasShots, hasShotsOnTarget, hasCards, hasRefereeData].filter(Boolean).length / 5;
+        const contextWarnings = [];
+        if (homeHistory.length < 5)
+            contextWarnings.push('insufficient_home_history');
+        if (awayHistory.length < 5)
+            contextWarnings.push('insufficient_away_history');
+        if (!hasXg)
+            contextWarnings.push('missing_recent_xg');
+        if (!hasRefereeData)
+            contextWarnings.push('missing_referee_data');
+        const pointsPerMatch = (rows, teamId) => {
+            if (!rows.length)
+                return 1;
+            const points = rows.reduce((sum, row) => {
+                const isHome = row.homeTeamId === teamId;
+                const gf = isHome ? Number(row.homeGoals) : Number(row.awayGoals);
+                const ga = isHome ? Number(row.awayGoals) : Number(row.homeGoals);
+                if (!Number.isFinite(gf) || !Number.isFinite(ga))
+                    return sum + 1;
+                if (gf > ga)
+                    return sum + 3;
+                if (gf === ga)
+                    return sum + 1;
+                return sum;
+            }, 0);
+            return points / rows.length;
+        };
+        const averageXgDiff = (rows, teamId) => {
+            const valid = rows.filter((row) => this.isFiniteObserved(row.homeXG) && this.isFiniteObserved(row.awayXG));
+            if (!valid.length)
+                return 0;
+            return valid.reduce((sum, row) => {
+                const isHome = row.homeTeamId === teamId;
+                const xgFor = isHome ? Number(row.homeXG) : Number(row.awayXG);
+                const xgAgainst = isHome ? Number(row.awayXG) : Number(row.homeXG);
+                return sum + xgFor - xgAgainst;
+            }, 0) / valid.length;
+        };
+        const lastMatch = (rows) => rows[rows.length - 1];
+        const restDays = (rows) => {
+            const last = lastMatch(rows);
+            if (!last || !(match.date instanceof Date))
+                return null;
+            return (match.date.getTime() - last.date.getTime()) / (1000 * 60 * 60 * 24);
+        };
+        const recentLoad = (rows) => {
+            if (!(match.date instanceof Date))
+                return 0;
+            const startMs = match.date.getTime() - 14 * 24 * 60 * 60 * 1000;
+            return rows.filter((row) => row.date.getTime() >= startMs && row.date.getTime() < match.date.getTime()).length;
+        };
+        const formDelta = (0, MathUtils_1.clamp)(((pointsPerMatch(recentHome, match.homeTeamId) - pointsPerMatch(recentAway, match.awayTeamId)) / 3), -1, 1);
+        const xgDelta = (0, MathUtils_1.clamp)((averageXgDiff(recentHome, match.homeTeamId) - averageXgDiff(recentAway, match.awayTeamId)) / 2, -1, 1);
+        const homeRest = restDays(homeHistory);
+        const awayRest = restDays(awayHistory);
+        const restDelta = homeRest !== null && awayRest !== null ? (0, MathUtils_1.clamp)((homeRest - awayRest) / 7, -1, 1) : 0;
+        const scheduleLoadDelta = (0, MathUtils_1.clamp)((recentLoad(awayHistory) - recentLoad(homeHistory)) / 4, -1, 1);
+        const richnessScore = (0, MathUtils_1.clamp)(0.2 + sampleStrength * 0.35 + statCompleteness * 0.35 + (hasRealEurobetOdds ? 0.1 : 0), 0.15, 0.95);
+        return {
+            context: {
+                richnessScore,
+                teamSampleSize: { home: homeSample, away: awaySample },
+                hasXg,
+                hasPlayerData: false,
+                hasRefereeData,
+                marketCalibrationProfile,
+                enableMarketCalibration: Boolean(marketCalibrationProfile),
+                marketVariance: {
+                    goal_1x2: 0.95,
+                    goal_ou: 0.9,
+                    shots: hasShots ? 1.15 : 1.45,
+                    shots_ot: hasShotsOnTarget ? 1.2 : 1.55,
+                    yellow_cards: hasCards && hasRefereeData ? 1.25 : 1.75,
+                    fouls: 1.8,
+                    corners: 1.6,
+                    exact_score: 2.25,
+                    handicap: 1.8,
+                    other: 1.35,
+                },
+                analysisFactors: {
+                    statSampleStrength: sampleStrength,
+                    shotsReliability: hasShots ? (0, MathUtils_1.clamp)(0.45 + sampleStrength * 0.45, 0.35, 0.9) : 0.35,
+                    disciplineReliability: hasCards ? (0, MathUtils_1.clamp)(0.4 + sampleStrength * 0.35 + (hasRefereeData ? 0.15 : 0), 0.3, 0.9) : 0.3,
+                    competitiveness: (0, MathUtils_1.clamp)(0.5 + Math.abs(formDelta + xgDelta) * 0.08, 0.35, 0.75),
+                    homeAdvantageIndex: 0.08,
+                    formDelta: (0, MathUtils_1.clamp)((formDelta + xgDelta) / 2, -1, 1),
+                    restDelta,
+                    scheduleLoadDelta,
+                },
+            },
+            contextCompletenessScore: Number(richnessScore.toFixed(3)),
+            historicalContextUsed: prior.length > 0,
+            contextWarnings,
+        };
+    }
+    /** Curves are fitted exclusively on forecasts made before their outcomes existed. */
+    buildOutOfSampleCalibrationProfile(observations, cutoff) {
+        const available = observations.filter((row) => row.date.getTime() < cutoff.getTime()
+            && row.date.getTime() + ChronologicalForecastService_1.HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
+        const latestIds = new Set([...new Map(available.map((row) => [row.matchId, row.date.getTime()])).entries()]
+            .sort((a, b) => a[1] - b[1]).slice(-450).map(([id]) => id));
+        const calibrationKeys = new Set(['homeWin', 'draw', 'awayWin', 'over15', 'under15', 'over25', 'under25',
+            'over35', 'under35', 'btts', 'bttsNo', 'double_chance_1x', 'double_chance_x2', 'double_chance_12', 'dnb_home', 'dnb_away']);
+        const calibrationSelection = (key) => calibrationKeys.has(key) || /^(shotsOT|shots|yellow)(Over|Under)\d{2,3}$/.test(key);
+        const raw = available.filter((row) => row.stage === 'raw' && latestIds.has(row.matchId) && calibrationSelection(row.selection));
+        const fit = this.engine.fitIsotonicCalibration(raw.map((row) => row.probability), raw.map((row) => row.outcome));
+        const byFamily = {};
+        if (PredictionEngineConfig_1.predictionEngineConfig.calibration.enablePerFamilyCalibration) {
+            for (const family of new Set(raw.map((row) => this.engine.categorizeSelection(row.selection)))) {
+                const bucket = raw.filter((row) => this.engine.categorizeSelection(row.selection) === family);
+                if (bucket.length < PredictionEngineConfig_1.predictionEngineConfig.calibration.perFamilyMinSamples)
+                    continue;
+                const curve = this.engine.fitIsotonicCalibration(bucket.map((row) => row.probability), bucket.map((row) => row.outcome));
+                if (curve.calibrationPoints.length >= 3)
+                    byFamily[family] = { points: curve.calibrationPoints, nObservations: bucket.length };
+            }
+        }
+        // Use the calibrated probability actually available to the earlier forecast,
+        // rather than recalibrating that forecast with its own eventual result.
+        const blendSamples = available.filter((row) => row.stage === 'calibrated' && latestIds.has(row.matchId) && calibrationSelection(row.selection))
+            .flatMap((row) => {
+            const market = (0, MarketBlendLearningService_1.noVigProbability)(row.odds ?? NaN, row.companionOdds ?? []);
+            return market === null ? [] : [{ category: this.engine.categorizeSelection(row.selection),
+                    modelProb: row.probability, marketProbNoVig: market, outcome: row.outcome }];
+        });
+        return { calibrationPoints: fit.calibrationPoints, nObservations: raw.length, byFamily,
+            learnedBlendWeights: PredictionEngineConfig_1.predictionEngineConfig.marketBlending.enableLearnedBlendWeights
+                ? (0, MarketBlendLearningService_1.learnBlendWeights)(blendSamples) : {} };
+    }
+    probabilityMetrics(observations) {
+        const byFamily = {};
+        for (const [family, selections] of Object.entries(PROBABILITY_FAMILIES)) {
+            const rows = observations.filter((row) => row.stage === 'blended' && selections.includes(row.selection));
+            const grouped = new Map();
+            for (const row of rows) {
+                const bucket = grouped.get(row.matchId) ?? [];
+                bucket.push(row);
+                grouped.set(row.matchId, bucket);
+            }
+            const common = [...grouped.values()].filter((bucket) => selections.every((key) => bucket.some((row) => row.selection === key)))
+                .flatMap((bucket) => selections.map((key) => bucket.find((row) => row.selection === key)));
+            const n = common.length;
+            byFamily[family] = { nMatches: n / selections.length, nObservations: n,
+                brierScore: n ? common.reduce((sum, row) => sum + (row.probability - row.outcome) ** 2, 0) / n : 0,
+                logLoss: n ? common.reduce((sum, row) => {
+                    const p = (0, MathUtils_1.clamp)(row.probability, 1e-10, 1 - 1e-10);
+                    return sum - (row.outcome ? Math.log(p) : Math.log(1 - p));
+                }, 0) / n : 0 };
+        }
+        return { scope: 'all_common_forecasts', primaryFamily: 'goals', ...byFamily.goals, byFamily };
+    }
+    isRealBookmakerOddsContext(context) {
+        const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
+        if (context?.usedFallbackBookmaker || context?.usedSyntheticOdds || context?.oddsSource === 'synthetic'
+            || selectedSource.includes('synthetic') || selectedSource.includes('model_completion'))
+            return false;
+        if (selectedSource.includes('football_data'))
+            return true;
+        if (selectedSource.includes('eurobet'))
+            return true;
+        return selectedSource.includes('odds_api')
+            && Boolean(String(context?.selectedBookmakerName ?? '').trim());
+    }
+    isTrustedClosingContext(context) {
+        if (!this.isRealBookmakerOddsContext(context))
+            return false;
+        const selectedSource = String(context?.snapshotSource ?? context?.oddsSource ?? '').toLowerCase();
+        const closingSource = String(context?.closingSource ?? '').toLowerCase();
+        if (closingSource.includes('synthetic') || closingSource.includes('model_completion'))
+            return false;
+        if (selectedSource.includes('football_data') && closingSource.includes('football_data'))
+            return true;
+        // Legacy Eurobet rows already identify the operator by their source.
+        if (selectedSource.includes('eurobet') && closingSource.includes('eurobet'))
+            return true;
+        if (!selectedSource.includes('odds_api') || !closingSource.includes('odds_api'))
+            return false;
+        const entryKey = String(context?.selectedBookmakerKey ?? '').trim().toLowerCase();
+        const closingKey = String(context?.closingBookmakerKey ?? '').trim().toLowerCase();
+        if (entryKey && closingKey)
+            return entryKey === closingKey;
+        const entryName = String(context?.selectedBookmakerName ?? '').trim().toLowerCase();
+        const closingName = String(context?.closingBookmakerName ?? '').trim().toLowerCase();
+        return Boolean(entryName && closingName && entryName === closingName);
+    }
+    resolveClosingOdds(context, selection, kickoffDate) {
+        if (context && this.isRealBookmakerOddsContext(context)
+            && (!Number.isFinite(Number(context.closingOdds?.[selection])) || Number(context.closingOdds?.[selection]) <= 1)) {
+            return { closingOdds: null, capturedAt: context.closingCapturedAt ?? null,
+                source: context.closingSource ?? null, missingReason: 'missing_closing_odds' };
+        }
+        if (!context || !this.isTrustedClosingContext(context)) {
+            return {
+                closingOdds: null,
+                capturedAt: context?.closingCapturedAt ?? null,
+                source: context?.closingSource ?? context?.snapshotSource ?? null,
+                missingReason: 'non_eurobet_snapshot',
+            };
+        }
+        const capturedMs = (0, historicalTime_1.historicalTimestamp)(context.closingCapturedAt);
+        const kickoffMs = kickoffDate.getTime();
+        if (context.closingRejectedReason === 'snapshot_after_kickoff_rejected' ||
+            (Number.isFinite(capturedMs) && Number.isFinite(kickoffMs) && capturedMs > kickoffMs)) {
+            return {
+                closingOdds: null,
+                capturedAt: context.closingCapturedAt ?? null,
+                source: context.closingSource ?? context.snapshotSource ?? null,
+                missingReason: 'snapshot_after_kickoff_rejected',
+            };
+        }
+        const entryMs = (0, historicalTime_1.historicalTimestamp)(context.capturedAt);
+        const importedCsv = String(context.closingSource ?? '').toLowerCase().includes('football_data');
+        if ((!Number.isFinite(capturedMs) && !(importedCsv && !context.closingCapturedAt))
+            || (Number.isFinite(capturedMs) && Number.isFinite(entryMs) && capturedMs < entryMs)) {
+            return { closingOdds: null, capturedAt: context.closingCapturedAt ?? null,
+                source: context.closingSource ?? null, missingReason: 'missing_closing_odds' };
+        }
+        const closingOdds = Number(context.closingOdds?.[selection]);
+        if (!Number.isFinite(closingOdds) || closingOdds <= 1) {
+            return {
+                closingOdds: null,
+                capturedAt: context.closingCapturedAt ?? null,
+                source: context.closingSource ?? context.snapshotSource ?? null,
+                missingReason: 'missing_closing_odds',
+            };
+        }
+        return {
+            closingOdds,
+            capturedAt: context.closingCapturedAt ?? null,
+            source: context.closingSource ?? context.snapshotSource ?? null,
+            missingReason: null,
+        };
+    }
+    baselineScore(opp) {
+        const ev = Number(opp.expectedValue ?? 0) / 100;
+        const edgeRaw = Number(opp.edge ?? 0) / 100;
+        const kelly = Number(opp.kellyFraction ?? 0) / 100;
+        const confidence = opp.confidence === 'HIGH' ? 1 : opp.confidence === 'MEDIUM' ? 0.65 : 0.25;
+        return ev * 0.3 + kelly * 0.35 + edgeRaw * 0.25 + confidence * 0.1;
+    }
+    selectOpportunities(opportunities, confidenceLevel, algorithmMode) {
+        const ranked = algorithmMode === 'baseline'
+            ? [...opportunities].sort((left, right) => this.baselineScore(right) - this.baselineScore(left))
+            : opportunities;
+        return confidenceLevel === 'high_only'
+            ? this.engine.selectHighConfidence(ranked)
+            : this.engine.selectMediumAndAbove(ranked);
+    }
+    asOfWeight(asOfMs, matchMs) {
+        const days = Math.max(0, (asOfMs - matchMs) / 86400000);
+        return Math.exp(-this.ASOF_DECAY_PER_DAY * days);
+    }
+    /**
+     * Aggregati per venue di UNA squadra sui soli match con date < asOfMs.
+     * Medie decadute (come produzione), varianza NON decaduta (E[X²]-E[X]²,
+     * come le colonne var_* di recomputeTeamAverages), sampleSize per venue.
+     */
+    computeAsOfTeamRecord(teamId, asOfMs, past) {
+        const wsum = () => ({ v: 0, w: 0 });
+        const add = (a, value, weight) => {
+            if (value !== undefined && value !== null && Number.isFinite(value)) {
+                a.v += value * weight;
+                a.w += weight;
+            }
+        };
+        const mean = (a) => (a.w > 0 ? a.v / a.w : undefined);
+        const popVar = (arr) => {
+            if (arr.length === 0)
+                return undefined;
+            const m = arr.reduce((s, x) => s + x, 0) / arr.length;
+            return Math.max(0, arr.reduce((s, x) => s + (x - m) * (x - m), 0) / arr.length);
+        };
+        // NB: i CORNER non sono aggregati qui. MatchData non porta i corner (e
+        // loadBacktestMatches non li mappa), quindi le medie corner as-of sarebbero
+        // sempre undefined nel backtest reale. In piu' i corner sono disabilitati
+        // (DISABLED_CATEGORIES) e rimossi dalle flatProbabilities. Quando il mercato
+        // corner verra' riattivato, l'aggregazione corner va aggiunta insieme al
+        // campo su MatchData e alla mappatura in loadBacktestMatches.
+        const h = { xg: wsum(), shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
+        const a = { xg: wsum(), shots: wsum(), sot: wsum(), poss: wsum(), yel: wsum(), red: wsum(), foul: wsum(), fdrawn: wsum(), conc: wsum(), w: 0, n: 0 };
+        const hv = { shots: [], sot: [], yel: [], foul: [], poss: [] };
+        const av = { shots: [], sot: [], yel: [], foul: [], poss: [] };
+        let totalFoulsDrawn = 0;
+        for (const m of past) {
+            const w = this.asOfWeight(asOfMs, m.date.getTime());
+            if (m.homeTeamId === teamId) {
+                h.w += w;
+                h.n += 1;
+                add(h.xg, m.homeXG, w);
+                totalFoulsDrawn += this.isFiniteObserved(m.awayFouls) ? m.awayFouls : 0;
+                if (this.isFiniteObserved(m.homePossession))
+                    hv.poss.push(m.homePossession);
+                add(h.shots, m.homeTotalShots, w);
+                add(h.sot, m.homeShotsOnTarget, w);
+                add(h.poss, m.homePossession, w);
+                add(h.yel, m.homeYellowCards, w);
+                add(h.red, m.homeRedCards, w);
+                add(h.foul, m.homeFouls, w);
+                add(h.fdrawn, m.awayFouls, w);
+                add(h.conc, m.awayTotalShots, w);
+                if (this.isFiniteObserved(m.homeTotalShots))
+                    hv.shots.push(Number(m.homeTotalShots));
+                if (this.isFiniteObserved(m.homeShotsOnTarget))
+                    hv.sot.push(Number(m.homeShotsOnTarget));
+                if (this.isFiniteObserved(m.homeYellowCards))
+                    hv.yel.push(Number(m.homeYellowCards));
+                if (this.isFiniteObserved(m.homeFouls))
+                    hv.foul.push(Number(m.homeFouls));
+            }
+            else if (m.awayTeamId === teamId) {
+                a.w += w;
+                a.n += 1;
+                add(a.xg, m.awayXG, w);
+                totalFoulsDrawn += this.isFiniteObserved(m.homeFouls) ? m.homeFouls : 0;
+                if (this.isFiniteObserved(m.awayPossession))
+                    av.poss.push(m.awayPossession);
+                add(a.shots, m.awayTotalShots, w);
+                add(a.sot, m.awayShotsOnTarget, w);
+                add(a.poss, m.awayPossession, w);
+                add(a.yel, m.awayYellowCards, w);
+                add(a.red, m.awayRedCards, w);
+                add(a.foul, m.awayFouls, w);
+                add(a.fdrawn, m.homeFouls, w);
+                add(a.conc, m.homeTotalShots, w);
+                if (this.isFiniteObserved(m.awayTotalShots))
+                    av.shots.push(Number(m.awayTotalShots));
+                if (this.isFiniteObserved(m.awayShotsOnTarget))
+                    av.sot.push(Number(m.awayShotsOnTarget));
+                if (this.isFiniteObserved(m.awayYellowCards))
+                    av.yel.push(Number(m.awayYellowCards));
+                if (this.isFiniteObserved(m.awayFouls))
+                    av.foul.push(Number(m.awayFouls));
+            }
+        }
+        // avg combinati (yellow/red/fouls/conceded) pesati per venue-weight, come produzione.
+        const totW = h.w + a.w;
+        const combine = (hh, aa, fallback) => {
+            return totW > 0 ? ((mean(hh) ?? fallback) * h.w + (mean(aa) ?? fallback) * a.w) / totW : fallback;
+        };
+        const suppression = combine(h.conc, a.conc, this.ASOF_LEAGUE_SHOTS_CONCEDED) / this.ASOF_LEAGUE_SHOTS_CONCEDED;
+        const simpleMean = (values) => values.length
+            ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
+        return {
+            homeN: h.n, awayN: a.n,
+            avgHomeXG: mean(h.xg), avgAwayXG: mean(a.xg),
+            avgHomeShots: mean(h.shots), avgAwayShots: mean(a.shots),
+            avgHomeShotsOT: mean(h.sot), avgAwayShotsOT: mean(a.sot),
+            avgHomePoss: simpleMean(hv.poss), avgAwayPoss: simpleMean(av.poss),
+            avgYellow: combine(h.yel, a.yel, 1.9), avgRed: combine(h.red, a.red, 0.11), avgFouls: combine(h.foul, a.foul, 11.2),
+            avgFoulsDrawn: h.n + a.n > 0 ? totalFoulsDrawn / (h.n + a.n) : undefined,
+            suppression,
+            varHomeShots: popVar(hv.shots), varAwayShots: popVar(av.shots),
+            varHomeSot: popVar(hv.sot), varAwaySot: popVar(av.sot),
+            varHomeYellow: popVar(hv.yel), varAwayYellow: popVar(av.yel),
+            varHomeFouls: popVar(hv.foul), varAwayFouls: popVar(av.foul),
+        };
+    }
+    /** Medie arbitro (semplici, non decadute) sui match passati con lo stesso arbitro. */
+    computeAsOfRefereeRecord(refereeName, past) {
+        const name = String(refereeName ?? '').trim();
+        if (!name)
+            return undefined;
+        let nY = 0, nF = 0, nR = 0, sumY = 0, sumF = 0, sumR = 0, games = 0;
+        for (const m of past) {
+            if (String(m.referee ?? '').trim() !== name)
+                continue;
+            games += 1;
+            const y = Number(m.homeYellowCards) + Number(m.awayYellowCards);
+            const f = Number(m.homeFouls) + Number(m.awayFouls);
+            const r = Number(m.homeRedCards) + Number(m.awayRedCards);
+            if (this.isFiniteObserved(m.homeYellowCards) && this.isFiniteObserved(m.awayYellowCards)) {
+                sumY += y;
+                nY += 1;
+            }
+            if (this.isFiniteObserved(m.homeFouls) && this.isFiniteObserved(m.awayFouls)) {
+                sumF += f;
+                nF += 1;
+            }
+            if (this.isFiniteObserved(m.homeRedCards) && this.isFiniteObserved(m.awayRedCards)) {
+                sumR += r;
+                nR += 1;
+            }
+        }
+        if (games === 0)
+            return undefined;
+        return {
+            avgYellow: nY > 0 ? sumY / nY : undefined,
+            avgRed: nR > 0 ? sumR / nR : undefined,
+            avgFouls: nF > 0 ? sumF / nF : undefined,
+            sampleSize: games,
+        };
+    }
+    /**
+     * Costruisce `supp` as-of-date per una partita. `history` è l'insieme di
+     * match da cui aggregare; il filtro strettamente-precedente e la guardia
+     * anti-leakage garantiscono che nessun dato della partita o futuro entri.
+     */
+    buildAsOfSupp(match, history) {
+        const asOfMs = match.date.getTime();
+        const past = this.availableHistory(history, match.date, match.matchId);
+        if (past.length === 0)
+            return undefined;
+        // Guardia hard anti-leakage: nessun match incluso puo essere >= asOf.
+        for (const m of past) {
+            if (m.date.getTime() >= asOfMs) {
+                throw new Error(`[I1 leakage] match ${m.matchId} @${m.date.toISOString()} >= asOf ${match.date.toISOString()}`);
+            }
+        }
+        const hRec = this.computeAsOfTeamRecord(match.homeTeamId, asOfMs, past);
+        const aRec = this.computeAsOfTeamRecord(match.awayTeamId, asOfMs, past);
+        const refRec = this.computeAsOfRefereeRecord(match.referee, past);
+        const homeStats = hRec.homeN > 0 || hRec.awayN > 0 ? {
+            avgShots: hRec.avgHomeShots ?? 12.1,
+            avgShotsOT: hRec.avgHomeShotsOT ?? 4.8,
+            avgYellowCards: hRec.avgYellow ?? 1.9,
+            avgRedCards: hRec.avgRed ?? 0.11,
+            avgFouls: hRec.avgFouls ?? 11.2,
+            avgFoulsDrawn: hRec.avgFoulsDrawn,
+            shotsSuppression: hRec.suppression ?? 1.0,
+            avgPossession: hRec.avgHomePoss,
+            varShots: hRec.varHomeShots,
+            varShotsOT: hRec.varHomeSot,
+            varYellowCards: hRec.varHomeYellow,
+            varFouls: hRec.varHomeFouls,
+            sampleSize: hRec.homeN,
+        } : undefined;
+        const awayStats = aRec.homeN > 0 || aRec.awayN > 0 ? {
+            avgShots: aRec.avgAwayShots ?? 10.4,
+            avgShotsOT: aRec.avgAwayShotsOT ?? 3.9,
+            avgYellowCards: aRec.avgYellow ?? 1.9,
+            avgRedCards: aRec.avgRed ?? 0.11,
+            avgFouls: aRec.avgFouls ?? 11.2,
+            avgFoulsDrawn: aRec.avgFoulsDrawn,
+            shotsSuppression: aRec.suppression ?? 1.0,
+            avgPossession: aRec.avgAwayPoss,
+            varShots: aRec.varAwayShots,
+            varShotsOT: aRec.varAwaySot,
+            varYellowCards: aRec.varAwayYellow,
+            varFouls: aRec.varAwayFouls,
+            sampleSize: aRec.awayN,
+        } : undefined;
+        if (!homeStats && !awayStats && !refRec)
+            return undefined;
+        return {
+            homeTeamStats: homeStats,
+            awayTeamStats: awayStats,
+            refereeStats: refRec ? {
+                avgYellow: refRec.avgYellow ?? 3.8,
+                avgRed: refRec.avgRed ?? 0.22,
+                avgFouls: refRec.avgFouls ?? 22.4,
+                sampleSize: refRec.sampleSize,
+            } : undefined,
+            // Volutamente null (vedi design I1): competitiveness/isDerby (derivati da λ
+            // dal modello), contextAdjustments (feature request non nello storico),
+            // leagueAvg* e homeAdvantageShots (la produzione stessa li lascia default),
+            // homePlayers/awayPlayers (fuori scope I1).
+        };
+    }
+    isFiniteObserved(value) {
+        return typeof value === 'number' && Number.isFinite(value);
+    }
+    isCompletedMatch(match) {
+        return this.isFiniteObserved(match.homeGoals) && this.isFiniteObserved(match.awayGoals)
+            && match.homeGoals >= 0 && match.awayGoals >= 0;
+    }
+    availableHistory(history, cutoff, targetId) {
+        const seen = new Set();
+        return history.filter((row) => {
+            const time = row.date.getTime();
+            if (row.matchId === targetId || seen.has(row.matchId) || !Number.isFinite(time)
+                || time >= cutoff.getTime() || time + ChronologicalForecastService_1.HISTORICAL_RESULT_DELAY_MS > cutoff.getTime()
+                || !this.isCompletedMatch(row))
+                return false;
+            seen.add(row.matchId);
+            return true;
+        }).sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
+    }
+    /** Same as-of inputs are shared by the backtest and historical runtime calibration. */
+    buildAsOfPredictionContext(match, history) {
+        const past = this.availableHistory(history, match.date, match.matchId);
+        const home = this.computeAsOfTeamRecord(match.homeTeamId, match.date.getTime(), past);
+        const away = this.computeAsOfTeamRecord(match.awayTeamId, match.date.getTime(), past);
+        const schedule = (teamId) => {
+            const rows = past.filter((row) => row.homeTeamId === teamId || row.awayTeamId === teamId);
+            return { rest: rows.length ? Math.max(0, Math.round((match.date.getTime() - rows[rows.length - 1].date.getTime()) / 86400000)) : undefined,
+                recent: rows.filter((row) => match.date.getTime() - row.date.getTime() <= 14 * 86400000).length };
+        };
+        const homeSchedule = schedule(match.homeTeamId), awaySchedule = schedule(match.awayTeamId);
+        const context = new PredictionContextBuilder_1.PredictionContextBuilder().build({
+            request: { homeRestDays: homeSchedule.rest, awayRestDays: awaySchedule.rest,
+                homeRecentMatchesCount: homeSchedule.recent, awayRecentMatchesCount: awaySchedule.recent },
+            homeTeam: null, awayTeam: null, referee: null, homePlayers: [], awayPlayers: [],
+        }).supplementaryData;
+        return { homeXG: home.avgHomeXG, awayXG: away.avgAwayXG,
+            supplementaryData: { ...this.buildAsOfSupp(match, past), competitiveness: context.competitiveness,
+                isDerby: context.isDerby, contextAdjustments: context.contextAdjustments } };
+    }
+    simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel, historicalOddsContext = {}, options = {}) {
+        const algorithmMode = options.algorithmMode ?? 'current';
+        // I1: default ON. Il backtest costruisce `supp` as-of-date come la produzione.
+        const asOfSupp = options.asOfSupplementaryData !== false;
+        testMatches = [...testMatches].sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
+        const cutoff = testMatches[0]?.date ?? new Date();
+        trainMatches = this.availableHistory(trainMatches, cutoff);
+        const teams = [...new Set(trainMatches.flatMap(m => [m.homeTeamId, m.awayTeamId]))];
+        const asOfHistory = [...trainMatches, ...testMatches];
+        // Fresh parameters prevent the previous fold from acting as a hidden prior.
+        this.model = new DixonColesModel_1.DixonColesModel();
+        const params = this.model.fitModel(trainMatches, teams, 280, 0.04, { referenceDate: cutoff });
+        this.model.setParams({ ...params, homeAdvantage: (0, MathUtils_1.clamp)(params.homeAdvantage * predictionConfig_1.predictionConfig.model.homeAdvantageScale, -0.8, 1.2) });
+        const poisson = new PoissonXgModel_1.PoissonXgModel();
+        poisson.fit(trainMatches);
+        const calibrationProfile = this.buildOutOfSampleCalibrationProfile(options.calibrationObservations ?? [], cutoff);
+        const probabilityObservations = [];
+        const bets = [];
+        const singleBestAlwaysBets = [];
+        const attemptedByCategory = {};
+        const voidedByCategory = {};
+        let bankroll = this.INITIAL_BANKROLL;
+        let singleBestBankroll = this.INITIAL_BANKROLL;
+        let syntheticOddsMatchCount = 0;
+        let realOddsMatchCount = 0;
+        const equityCurve = [
+            { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll, profit: 0, cumulativeROI: 0 }
+        ];
+        const singleBestAlwaysEquity = [
+            { date: testMatches[0]?.date ?? new Date(), matchNumber: 0, bankroll: singleBestBankroll, profit: 0, cumulativeROI: 0 }
+        ];
+        for (let i = 0; i < testMatches.length; i++) {
+            const match = testMatches[i];
+            if (!this.isCompletedMatch(match))
+                continue;
+            // The predictor receives only identifiers and metadata known before kickoff.
+            const target = { matchId: match.matchId, homeTeamId: match.homeTeamId, awayTeamId: match.awayTeamId,
+                date: match.date, competition: match.competition, season: match.season, referee: match.referee };
+            const context = this.buildAsOfPredictionContext(target, asOfHistory);
+            const probs = this.model.computeFullProbabilities(target.homeTeamId, target.awayTeamId, context.homeXG, context.awayXG, asOfSupp ? context.supplementaryData : undefined);
+            const raw = (0, ProbabilityEnsembleService_1.blendGoalProbabilities)(probs.flatProbabilities, poisson.hasParams() ? poisson.computeGoalProbabilities(target.homeTeamId, target.awayTeamId) : null, PredictionEngineConfig_1.predictionEngineConfig.ensemble);
+            const p1 = raw.homeWin ?? 0, px = raw.draw ?? 0, p2 = raw.awayWin ?? 0;
+            raw.double_chance_1x = p1 + px;
+            raw.double_chance_x2 = p2 + px;
+            raw.double_chance_12 = p1 + p2;
+            if (p1 + p2 > 0) {
+                raw.dnb_home = p1 / (p1 + p2);
+                raw.dnb_away = p2 / (p1 + p2);
+            }
+            const homeSample = Number(context.supplementaryData?.homeTeamStats?.sampleSize ?? 0);
+            const awaySample = Number(context.supplementaryData?.awayTeamStats?.sampleSize ?? 0);
+            const statsAvailable = homeSample >= predictionConfig_1.predictionConfig.markets.minSampleSizePerTeam
+                && awaySample >= predictionConfig_1.predictionConfig.markets.minSampleSizePerTeam
+                && homeSample + awaySample >= predictionConfig_1.predictionConfig.markets.minCombinedSampleSize;
+            for (const key of Object.keys(raw)) {
+                if (/^(corners|fouls)/i.test(key) || (!statsAvailable && /^(shots|yellow|cards_?total)/i.test(key)))
+                    delete raw[key];
+            }
+            const probMap = (0, EnhancedMarketAnalysis_2.applyCalibrationToFlatProbabilities)(raw, calibrationProfile.calibrationPoints, calibrationProfile.nObservations, this.engine, calibrationProfile.byFamily);
+            const marketNames = this.buildMarketNames(probMap);
+            const oddsContext = historicalOddsContext[match.matchId];
+            const capturedMs = (0, historicalTime_1.historicalTimestamp)(oddsContext?.capturedAt);
+            const isImportedOpening = String(oddsContext?.snapshotSource ?? '').toLowerCase().includes('football_data');
+            const entryPredatesKickoff = Number.isFinite(capturedMs) ? capturedMs < match.date.getTime()
+                : isImportedOpening && !oddsContext?.capturedAt;
+            const hasRealOdds = Boolean(historicalOdds[match.matchId]) && this.isRealBookmakerOddsContext(oddsContext)
+                && entryPredatesKickoff;
+            // Missing, unverified and model-completed prices cannot establish ROI or CLV.
+            const odds = hasRealOdds ? historicalOdds[match.matchId] : {};
+            const oddsSource = oddsContext?.oddsSource ?? 'unknown';
+            const isRealBookmakerOdds = hasRealOdds;
+            const isRealEurobetOdds = isRealBookmakerOdds;
+            if (hasRealOdds)
+                realOddsMatchCount++;
+            else
+                syntheticOddsMatchCount++;
+            const marketGroups = this.engine.buildMarketGroups(odds);
+            const historicalRows = this.availableHistory(asOfHistory, match.date, match.matchId);
+            const contextDiagnostics = this.buildBacktestValueAnalysisContext(target, historicalRows, this.buildTeamSampleSizes(historicalRows), isRealEurobetOdds);
+            contextDiagnostics.context.learnedBlendWeights = calibrationProfile.learnedBlendWeights;
+            contextDiagnostics.context.expectedCards = Number(probs.cards?.expectedTotalYellow ?? 0);
+            contextDiagnostics.context.expectedFouls = Number(probs.fouls?.expectedTotalFouls ?? 0);
+            contextDiagnostics.context.expectedGoals = Number(probs.lambdaHome ?? 0) + Number(probs.lambdaAway ?? 0);
+            contextDiagnostics.context.enableMarketBlending = true;
+            contextDiagnostics.context.competition = match.competition ?? undefined;
+            const coreSelections = new Set(['homeWin', 'draw', 'awayWin', 'over15', 'under15', 'over25', 'under25',
+                'over35', 'under35', 'btts', 'bttsNo', 'double_chance_1x', 'double_chance_x2', 'double_chance_12', 'dnb_home', 'dnb_away']);
+            for (const selection of Object.keys(raw)) {
+                if (!coreSelections.has(selection) && !/^(shotsOT|shots|yellow|cardsTotal)(Over|Under)\d{2,3}$/.test(selection))
+                    continue;
+                const outcome = this.evaluateBetNullable(selection, match);
+                if (outcome === null)
+                    continue;
+                for (const stage of ['raw', 'calibrated', 'blended']) {
+                    const group = marketGroups[selection];
+                    const probability = stage === 'raw' ? raw[selection]
+                        : stage === 'calibrated' ? probMap[selection]
+                            : this.engine.blendForecastProbability(selection, probMap[selection], group, contextDiagnostics.context);
+                    if (!Number.isFinite(probability) || probability < 0 || probability > 1)
+                        continue;
+                    probabilityObservations.push({ matchId: match.matchId, date: match.date,
+                        competition: match.competition, season: match.season, selection, probability,
+                        outcome: outcome ? 1 : 0, stage, odds: group?.odds, companionOdds: group?.companions });
+                }
+            }
+            const allOpportunities = this.engine.analyzeMarketsWithVigRemoval(probMap, marketGroups, marketNames, contextDiagnostics.context);
+            const singleBestCandidates = this.engine.buildSingleMatchCandidateBoard(probMap, marketGroups, marketNames, contextDiagnostics.context);
+            const selected = this.selectOpportunities(allOpportunities, confidenceLevel, algorithmMode);
+            const singleBestSelection = this.engine.selectBestSingleMatchBet(singleBestCandidates.length > 0 ? singleBestCandidates : allOpportunities, contextDiagnostics.context);
+            const singleBestOpp = singleBestSelection.bestBet;
+            if (singleBestOpp) {
+                const outcome = this.evaluateBetNullable(singleBestOpp.selection, match);
+                if (outcome !== null) {
+                    const stakeAmount = Math.max(0.5, Math.min(singleBestBankroll * 0.04, (singleBestBankroll * Number(singleBestOpp.suggestedStakePercent ?? 0)) / 100));
+                    const won = outcome;
+                    const returnAmount = won ? stakeAmount * singleBestOpp.bookmakerOdds : 0;
+                    const profit = returnAmount - stakeAmount;
+                    const closing = this.resolveClosingOdds(oddsContext, singleBestOpp.selection, match.date);
+                    const clv = closing.closingOdds && closing.closingOdds > 1
+                        ? singleBestOpp.bookmakerOdds / closing.closingOdds - 1
+                        : null;
+                    const underCardsCloseToLine = Boolean((singleBestOpp.dataWarnings ?? []).includes('under_cards_close_to_line'));
+                    const cardLearning = this.assessCardLineLearning({
+                        selection: singleBestOpp.selection,
+                        actualCards: this.getActualCards(match, singleBestOpp.selection),
+                        clv,
+                        wasRecommendedTooCloseToLine: underCardsCloseToLine,
+                    });
+                    singleBestBankroll += profit;
+                    singleBestAlwaysBets.push({
+                        matchId: match.matchId,
+                        matchDate: match.date,
+                        competition: match.competition ?? null,
+                        season: match.season ?? null,
+                        market: singleBestOpp.marketName,
+                        marketCategory: singleBestOpp.marketCategory,
+                        selection: singleBestOpp.selection,
+                        odds: singleBestOpp.bookmakerOdds,
+                        stake: stakeAmount,
+                        ourProb: singleBestOpp.ourProbability / 100,
+                        ev: singleBestOpp.expectedValue / 100,
+                        edge: singleBestOpp.edge / 100,
+                        edgeNoVig: singleBestOpp.edgeNoVig / 100,
+                        confidence: singleBestOpp.confidence,
+                        won,
+                        profit,
+                        isSynthetic: !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+                        isRealBookmakerOdds,
+                        isRealEurobetOdds,
+                        oddsSource,
+                        snapshotSource: oddsContext?.snapshotSource ?? null,
+                        oddsCapturedAt: oddsContext?.capturedAt ?? null,
+                        closingOdds: closing.closingOdds,
+                        closingOddsCapturedAt: closing.capturedAt,
+                        closingSource: closing.source,
+                        clv,
+                        clvMissingReason: closing.missingReason,
+                        uncertaintyFactor: singleBestOpp.uncertaintyFactor,
+                        riskPenalty: singleBestOpp.riskPenalty,
+                        rankingScore: singleBestOpp.rankingScore,
+                        logGrowth: singleBestOpp.logGrowth,
+                        dynamicEvThreshold: singleBestOpp.dynamicEvThreshold,
+                        algorithmMode,
+                        contextCompletenessScore: contextDiagnostics.contextCompletenessScore,
+                        historicalContextUsed: contextDiagnostics.historicalContextUsed,
+                        contextWarnings: contextDiagnostics.contextWarnings,
+                        cardLineError: cardLearning.cardLineError,
+                        cardMissSeverity: cardLearning.cardMissSeverity,
+                        cardLearningAdjustment: cardLearning.cardLearningAdjustment,
+                        outcomeVsMarketAssessment: cardLearning.outcomeVsMarketAssessment,
+                        underCardsCloseToLine,
+                        modelProbability: typeof singleBestOpp.modelProbability === 'number' ? singleBestOpp.modelProbability / 100 : null,
+                        calibratedProbability: typeof singleBestOpp.calibratedProbability === 'number' ? singleBestOpp.calibratedProbability / 100 : null,
+                        blendedProbability: typeof singleBestOpp.blendedProbability === 'number' ? singleBestOpp.blendedProbability / 100 : null,
+                        marketProbabilityNoVig: typeof singleBestOpp.marketProbabilityNoVig === 'number' ? singleBestOpp.marketProbabilityNoVig / 100 : null,
+                        modelWeight: typeof singleBestOpp.modelWeight === 'number' ? singleBestOpp.modelWeight : null,
+                        marketWeight: typeof singleBestOpp.marketWeight === 'number' ? singleBestOpp.marketWeight : null,
+                        categoryCalibrationStatus: singleBestOpp.categoryCalibrationStatus ?? null,
+                        dataQuality: typeof singleBestOpp.dataQuality === 'number' ? singleBestOpp.dataQuality : null,
+                        companionOddsAvailable: typeof singleBestOpp.companionOddsAvailable === 'boolean' ? singleBestOpp.companionOddsAvailable : null,
+                        singleBestStatus: singleBestSelection.decision.status,
+                    });
+                }
+            }
+            for (const opp of selected) {
+                const stakeAmount = (bankroll * opp.suggestedStakePercent) / 100;
+                if (stakeAmount > bankroll * 0.04 || stakeAmount < 0.50)
+                    continue;
+                const categoryKey = String(opp.marketCategory);
+                attemptedByCategory[categoryKey] = (attemptedByCategory[categoryKey] ?? 0) + 1;
+                const outcome = this.evaluateBetNullable(opp.selection, match);
+                if (outcome === null) {
+                    voidedByCategory[categoryKey] = (voidedByCategory[categoryKey] ?? 0) + 1;
+                    continue;
+                }
+                const won = outcome;
+                const returnAmount = won ? stakeAmount * opp.bookmakerOdds : 0;
+                const profit = returnAmount - stakeAmount;
+                const closing = this.resolveClosingOdds(oddsContext, opp.selection, match.date);
+                const clv = closing.closingOdds && closing.closingOdds > 1
+                    ? opp.bookmakerOdds / closing.closingOdds - 1
+                    : null;
+                const underCardsCloseToLine = Boolean((opp.dataWarnings ?? []).includes('under_cards_close_to_line'));
+                const cardLearning = this.assessCardLineLearning({
+                    selection: opp.selection,
+                    actualCards: this.getActualCards(match, opp.selection),
+                    clv,
+                    wasRecommendedTooCloseToLine: underCardsCloseToLine,
+                });
+                bankroll += profit;
+                bets.push({
+                    matchId: match.matchId,
+                    matchDate: match.date,
+                    competition: match.competition ?? null,
+                    season: match.season ?? null,
+                    market: opp.marketName,
+                    marketCategory: opp.marketCategory,
+                    selection: opp.selection,
+                    odds: opp.bookmakerOdds,
+                    stake: stakeAmount,
+                    ourProb: opp.ourProbability / 100,
+                    ev: opp.expectedValue / 100,
+                    edge: opp.edge / 100,
+                    edgeNoVig: opp.edgeNoVig / 100,
+                    confidence: opp.confidence,
+                    won,
+                    profit,
+                    isSynthetic: !hasRealOdds || oddsSource === 'synthetic' || Boolean(oddsContext?.usedSyntheticOdds),
+                    isRealBookmakerOdds,
+                    isRealEurobetOdds,
+                    oddsSource,
+                    snapshotSource: oddsContext?.snapshotSource ?? null,
+                    oddsCapturedAt: oddsContext?.capturedAt ?? null,
+                    closingOdds: closing.closingOdds,
+                    closingOddsCapturedAt: closing.capturedAt,
+                    closingSource: closing.source,
+                    clv,
+                    clvMissingReason: closing.missingReason,
+                    uncertaintyFactor: opp.uncertaintyFactor,
+                    riskPenalty: opp.riskPenalty,
+                    rankingScore: algorithmMode === 'baseline' ? Number(this.baselineScore(opp).toFixed(6)) : opp.rankingScore,
+                    logGrowth: opp.logGrowth,
+                    dynamicEvThreshold: opp.dynamicEvThreshold,
+                    algorithmMode,
+                    contextCompletenessScore: contextDiagnostics.contextCompletenessScore,
+                    historicalContextUsed: contextDiagnostics.historicalContextUsed,
+                    contextWarnings: contextDiagnostics.contextWarnings,
+                    cardLineError: cardLearning.cardLineError,
+                    cardMissSeverity: cardLearning.cardMissSeverity,
+                    cardLearningAdjustment: cardLearning.cardLearningAdjustment,
+                    outcomeVsMarketAssessment: cardLearning.outcomeVsMarketAssessment,
+                    underCardsCloseToLine,
+                    modelProbability: typeof opp.modelProbability === 'number' ? opp.modelProbability / 100 : null,
+                    calibratedProbability: typeof opp.calibratedProbability === 'number' ? opp.calibratedProbability / 100 : null,
+                    blendedProbability: typeof opp.blendedProbability === 'number' ? opp.blendedProbability / 100 : null,
+                    marketProbabilityNoVig: typeof opp.marketProbabilityNoVig === 'number' ? opp.marketProbabilityNoVig / 100 : null,
+                    modelWeight: typeof opp.modelWeight === 'number' ? opp.modelWeight : null,
+                    marketWeight: typeof opp.marketWeight === 'number' ? opp.marketWeight : null,
+                    categoryCalibrationStatus: opp.categoryCalibrationStatus ?? null,
+                    dataQuality: typeof opp.dataQuality === 'number' ? opp.dataQuality : null,
+                    companionOddsAvailable: typeof opp.companionOddsAvailable === 'boolean' ? opp.companionOddsAvailable : null,
+                });
+            }
+            equityCurve.push({
+                date: match.date,
+                matchNumber: i + 1,
+                bankroll,
+                profit: bankroll - this.INITIAL_BANKROLL,
+                cumulativeROI: ((bankroll - this.INITIAL_BANKROLL) / this.INITIAL_BANKROLL) * 100,
+            });
+            singleBestAlwaysEquity.push({
+                date: match.date,
+                matchNumber: i + 1,
+                bankroll: singleBestBankroll,
+                profit: singleBestBankroll - this.INITIAL_BANKROLL,
+                cumulativeROI: ((singleBestBankroll - this.INITIAL_BANKROLL) / this.INITIAL_BANKROLL) * 100,
+            });
+        }
+        const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
+        if (totalVoided > 0) {
+            const details = Object.entries(voidedByCategory)
+                .sort((a, b) => b[1] - a[1])
+                .map(([category, count]) => `${category}:${count}`)
+                .join(', ');
+            console.warn(`[Backtest] Bet non valutabili (VOID): ${totalVoided} | breakdown: ${details}`);
+        }
+        if (realOddsMatchCount === 0 && syntheticOddsMatchCount > 0) {
+            console.warn(`[Backtest] Nessuna quota reale fornita (${syntheticOddsMatchCount} partite senza quote verificate). ` +
+                'Metriche probabilistiche disponibili; nessuna giocata conteggiata nel ROI.');
+        }
+        else if (syntheticOddsMatchCount > 0) {
+            console.info(`[Backtest] Quote reali: ${realOddsMatchCount} partite | Quote non disponibili: ${syntheticOddsMatchCount} partite.`);
+        }
+        const result = this.computeMetrics(bets, equityCurve, trainMatches.length, testMatches.length, attemptedByCategory, voidedByCategory, singleBestAlwaysBets, singleBestAlwaysEquity, probabilityObservations, options.includeProbabilityObservations === true);
+        result.algorithmMode = algorithmMode;
+        return result;
+    }
+    runWalkForwardBacktest(matches, historicalOdds, options, historicalOddsContext = {}) {
+        const asOfSupplementaryData = options?.asOfSupplementaryData !== false;
+        const sorted = [...new Map(matches.filter((match) => Number.isFinite(match.date.getTime()))
+                .map((match) => [match.matchId, match])).values()]
+            .sort((a, b) => a.date.getTime() - b.date.getTime() || a.matchId.localeCompare(b.matchId));
+        const totalMatches = sorted.length;
+        const initialTrainMatches = Math.max(30, Math.min(Number(options?.initialTrainMatches ?? Math.floor(totalMatches * 0.55)), totalMatches - 10));
+        const testWindowMatches = Math.max(10, Math.min(Number(options?.testWindowMatches ?? Math.max(10, Math.floor(totalMatches * 0.12))), totalMatches - initialTrainMatches));
+        const stepMatches = Math.max(5, Math.min(Number(options?.stepMatches ?? testWindowMatches), testWindowMatches));
+        const confidenceLevel = options?.confidenceLevel ?? 'medium_and_above';
+        const expandingWindow = options?.expandingWindow !== false;
+        const maxFolds = Math.max(1, Number(options?.maxFolds ?? 12));
+        const folds = [];
+        const detailedBets = [];
+        const probabilityObservations = [];
+        const seenFixtures = new Set();
+        for (let testStart = initialTrainMatches; testStart < sorted.length && folds.length < maxFolds; testStart += stepMatches) {
+            let groupStart = testStart;
+            while (groupStart > 0 && sorted[groupStart - 1].date.getTime() === sorted[testStart].date.getTime())
+                groupStart--;
+            let testEnd = Math.min(sorted.length, testStart + testWindowMatches);
+            while (testEnd < sorted.length && sorted[testEnd].date.getTime() === sorted[testEnd - 1].date.getTime())
+                testEnd++;
+            const testMatches = sorted.slice(groupStart, testEnd).filter((match) => !seenFixtures.has(match.matchId));
+            if (!testMatches.length)
+                continue;
+            const cutoff = testMatches[0].date;
+            const firstNewIndex = sorted.findIndex((match) => match.matchId === testMatches[0].matchId);
+            const trainStart = expandingWindow ? 0 : Math.max(0, firstNewIndex - initialTrainMatches);
+            const trainMatches = this.availableHistory(sorted.slice(trainStart, firstNewIndex), cutoff);
+            if (trainMatches.length < 30)
+                continue;
+            const priorForecasts = probabilityObservations.filter((row) => row.date.getTime() < cutoff.getTime()
+                && row.date.getTime() + ChronologicalForecastService_1.HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
+            const foldResult = this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel, historicalOddsContext, { algorithmMode: 'current', asOfSupplementaryData, calibrationObservations: priorForecasts, includeProbabilityObservations: true });
+            const baselineResult = options?.compareBaseline
+                ? this.simulateBacktestScenario(trainMatches, testMatches, historicalOdds, confidenceLevel, historicalOddsContext, { algorithmMode: 'baseline', asOfSupplementaryData, calibrationObservations: priorForecasts })
+                : null;
+            const foldWinner = baselineResult
+                ? (foldResult.roi > baselineResult.roi ? 'current' : baselineResult.roi > foldResult.roi ? 'baseline' : 'none')
+                : 'none';
+            for (const match of testMatches)
+                seenFixtures.add(match.matchId);
+            probabilityObservations.push(...foldResult.probabilityObservations ?? []);
+            detailedBets.push(...foldResult.detailedBets);
+            folds.push({
+                algorithmVersion: algorithmVersions_1.ALGORITHM_VERSION,
+                rankingVersion: algorithmVersions_1.RANKING_VERSION,
+                backtestEngineVersion: algorithmVersions_1.BACKTEST_ENGINE_VERSION,
+                foldNumber: folds.length + 1,
+                trainMatches: trainMatches.length,
+                testMatches: testMatches.length,
+                betsPlaced: foldResult.betsPlaced,
+                betsWon: foldResult.betsWon,
+                totalStaked: Number(foldResult.totalStaked.toFixed(2)),
+                roi: Number(foldResult.roi.toFixed(2)),
+                winRate: Number(foldResult.winRate.toFixed(2)),
+                netProfit: Number(foldResult.netProfit.toFixed(2)),
+                brierScore: Number(foldResult.brierScore.toFixed(4)),
+                probabilityMetrics: foldResult.probabilityMetrics,
+                logLoss: Number(foldResult.logLoss.toFixed(4)),
+                averageClv: foldResult.averageClv,
+                positiveClvRate: foldResult.positiveClvRate,
+                maxDrawdown: Number(foldResult.maxDrawdown.toFixed(2)),
+                betsWithRealEurobetOdds: foldResult.betsWithRealEurobetOdds,
+                betsWithSyntheticOdds: foldResult.betsWithSyntheticOdds,
+                baselineRoi: baselineResult ? Number(baselineResult.roi.toFixed(2)) : undefined,
+                currentRoi: Number(foldResult.roi.toFixed(2)),
+                foldWinner,
+                singleBestAlways: foldResult.singleBestAlways,
+                startDate: testMatches[0].date,
+                endDate: testMatches[testMatches.length - 1].date,
+            });
+        }
+        const totalBetsPlaced = folds.reduce((sum, fold) => sum + fold.betsPlaced, 0);
+        const totalBetsWon = folds.reduce((sum, fold) => sum + fold.betsWon, 0);
+        const totalNetProfit = folds.reduce((sum, fold) => sum + fold.netProfit, 0);
+        const foldRois = folds.map((fold) => fold.roi);
+        const averageFoldROI = foldRois.length > 0 ? foldRois.reduce((sum, value) => sum + value, 0) / foldRois.length : 0;
+        const sortedRois = [...foldRois].sort((a, b) => a - b);
+        const medianFoldROI = sortedRois.length > 0
+            ? (sortedRois.length % 2 === 1
+                ? sortedRois[Math.floor(sortedRois.length / 2)]
+                : (sortedRois[sortedRois.length / 2 - 1] + sortedRois[sortedRois.length / 2]) / 2)
+            : 0;
+        const roiStdDev = foldRois.length > 0
+            ? Math.sqrt(foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length)
+            : 0;
+        const roiVariance = foldRois.length > 0
+            ? foldRois.reduce((sum, value) => sum + ((value - averageFoldROI) ** 2), 0) / foldRois.length
+            : 0;
+        const clvValues = folds
+            .map((fold) => fold.averageClv)
+            .filter((value) => typeof value === 'number' && Number.isFinite(value));
+        const avgClv = clvValues.length ? clvValues.reduce((sum, value) => sum + value, 0) / clvValues.length : 0;
+        const clvVariance = clvValues.length
+            ? clvValues.reduce((sum, value) => sum + ((value - avgClv) ** 2), 0) / clvValues.length
+            : 0;
+        const totalStaked = folds.reduce((sum, fold) => sum + fold.totalStaked, 0);
+        const totalRoi = totalStaked > 0 ? (totalNetProfit / totalStaked) * 100 : averageFoldROI;
+        const currentBeatsBaselineFolds = folds.filter((fold) => fold.foldWinner === 'current').length;
+        const baselineBeatsCurrentFolds = folds.filter((fold) => fold.foldWinner === 'baseline').length;
+        const rankingStabilityScore = folds.length > 0
+            ? Number((currentBeatsBaselineFolds / folds.length).toFixed(3))
+            : 0;
+        const probabilityMetrics = this.probabilityMetrics(probabilityObservations);
+        const calibrationDiagnostics = this.buildDetailedBetCalibrationDiagnostics(detailedBets);
+        const blendedVsRawComparison = this.buildDetailedBetBlendedComparison(detailedBets);
+        const categoryOverfittingRisk = this.buildDetailedBetCategoryOverfittingRisk(detailedBets);
+        return {
+            algorithmVersion: algorithmVersions_1.ALGORITHM_VERSION,
+            rankingVersion: algorithmVersions_1.RANKING_VERSION,
+            backtestEngineVersion: algorithmVersions_1.BACKTEST_ENGINE_VERSION,
+            totalMatches,
+            totalFolds: folds.length,
+            expandingWindow,
+            initialTrainMatches,
+            testWindowMatches,
+            stepMatches,
+            folds,
+            summary: {
+                totalBetsPlaced,
+                totalBetsWon,
+                totalNetProfit: Number(totalNetProfit.toFixed(2)),
+                totalStaked: Number(totalStaked.toFixed(2)),
+                roi: Number(totalRoi.toFixed(2)),
+                winRate: totalBetsPlaced > 0 ? Number(((totalBetsWon / totalBetsPlaced) * 100).toFixed(2)) : 0,
+                averageFoldROI: Number(averageFoldROI.toFixed(2)),
+                medianFoldROI: Number(medianFoldROI.toFixed(2)),
+                roiStdDev: Number(roiStdDev.toFixed(2)),
+                roiVariance: Number(roiVariance.toFixed(4)),
+                clvVariance: Number(clvVariance.toFixed(8)),
+                currentBeatsBaselineFolds,
+                baselineBeatsCurrentFolds,
+                tunedBeatsCurrentFolds: 0,
+                rankingStabilityScore,
+                positiveFoldRate: folds.length > 0 ? Number(((folds.filter((fold) => fold.roi > 0).length / folds.length) * 100).toFixed(2)) : 0,
+                averageBrierScore: Number(probabilityMetrics.brierScore.toFixed(4)),
+                averageLogLoss: Number(probabilityMetrics.logLoss.toFixed(4)),
+            },
+            detailedBets,
+            probabilityMetrics,
+            ...(options?.includeProbabilityObservations === true ? { probabilityObservations } : {}),
+            calibrationDiagnostics,
+            blendedVsRawComparison,
+            categoryOverfittingRisk,
+        };
+    }
+    buildDetailedBetCalibrationDiagnostics(bets) {
+        const summarize = (rows) => {
+            const valid = rows.filter((bet) => Number.isFinite(Number(bet.ourProbability)));
+            if (valid.length === 0)
+                return { sampleSize: 0, averageCalibrationGap: 0, reliability: 0 };
+            const predicted = valid.reduce((sum, bet) => sum + Number(bet.ourProbability), 0) / valid.length;
+            const actual = valid.filter((bet) => bet.won).length / valid.length;
+            return {
+                sampleSize: valid.length,
+                averageCalibrationGap: Number(Math.abs(actual - predicted).toFixed(6)),
+                reliability: Number(this.clampNumber(valid.length / 120, 0, 1).toFixed(3)),
+            };
+        };
+        const byMarket = {};
+        for (const bet of bets) {
+            const market = String(bet.marketCategory ?? 'other');
+            if (!byMarket[market])
+                byMarket[market] = { sampleSize: 0, averageCalibrationGap: 0, reliability: 0 };
+        }
+        for (const market of Object.keys(byMarket)) {
+            byMarket[market] = summarize(bets.filter((bet) => String(bet.marketCategory ?? 'other') === market));
+        }
+        return { global: summarize(bets), byMarket };
+    }
+    buildDetailedBetBlendedComparison(bets) {
+        const rows = bets.filter((bet) => typeof bet.modelProbability === 'number' && typeof bet.blendedProbability === 'number');
+        if (rows.length === 0) {
+            return {
+                betsWithBlendedProbability: 0,
+                averageModelProbability: null,
+                averageBlendedProbability: null,
+                averageProbabilityShift: 0,
+            };
+        }
+        return {
+            betsWithBlendedProbability: rows.length,
+            averageModelProbability: Number((rows.reduce((sum, bet) => sum + Number(bet.modelProbability), 0) / rows.length).toFixed(6)),
+            averageBlendedProbability: Number((rows.reduce((sum, bet) => sum + Number(bet.blendedProbability), 0) / rows.length).toFixed(6)),
+            averageProbabilityShift: Number((rows.reduce((sum, bet) => sum + Math.abs(Number(bet.blendedProbability) - Number(bet.modelProbability)), 0) / rows.length).toFixed(6)),
+        };
+    }
+    buildDetailedBetCategoryOverfittingRisk(bets) {
+        var _a;
+        const grouped = {};
+        for (const bet of bets) {
+            (grouped[_a = String(bet.marketCategory ?? 'other')] ?? (grouped[_a] = [])).push(bet);
+        }
+        return Object.fromEntries(Object.entries(grouped).map(([market, rows]) => {
+            const clvRows = rows.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+            const avgClv = clvRows.length > 0
+                ? clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length
+                : null;
+            const staked = rows.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
+            const profit = rows.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
+            const roi = staked > 0 ? (profit / staked) * 100 : 0;
+            const risk = rows.length < 8 || (roi > 45 && Number(avgClv ?? 0) < 0)
+                ? 'HIGH'
+                : rows.length < 20
+                    ? 'MEDIUM'
+                    : 'LOW';
+            return [market, risk];
+        }));
+    }
+    defaultRankingWeightCandidates() {
+        return [
+            {
+                name: 'current',
+                weights: this.engine.getRankingWeightsConfig(),
+            },
+            {
+                name: 'clv_stability',
+                weights: {
+                    global: {
+                        edgeNoVig: 0.42,
+                        ev: 0.14,
+                        kelly: 0.12,
+                        confidence: 0.05,
+                        logGrowth: 0.18,
+                        riskPenalty: 0.5,
+                        uncertainty: 0.22,
+                        contextStrength: 0.08,
+                    },
+                    byCategory: {
+                        goal_ou: { edgeNoVig: 0.48, logGrowth: 0.2, riskPenalty: 0.42 },
+                        yellow_cards: { riskPenalty: 0.7, uncertainty: 0.35 },
+                        exact_score: { riskPenalty: 1.05, uncertainty: 0.55, ev: 0.06 },
+                        handicap: { riskPenalty: 0.85, uncertainty: 0.42 },
+                    },
+                },
+            },
+            {
+                name: 'risk_conservative',
+                weights: {
+                    global: {
+                        edgeNoVig: 0.38,
+                        ev: 0.12,
+                        kelly: 0.1,
+                        confidence: 0.06,
+                        logGrowth: 0.14,
+                        riskPenalty: 0.68,
+                        uncertainty: 0.32,
+                        contextStrength: 0.1,
+                    },
+                    byCategory: {
+                        shots: { contextStrength: 0.14, uncertainty: 0.24 },
+                        shots_ot: { contextStrength: 0.14, uncertainty: 0.26 },
+                        yellow_cards: { riskPenalty: 0.82, uncertainty: 0.42 },
+                        exact_score: { riskPenalty: 1.15, uncertainty: 0.65 },
+                    },
+                },
+            },
+        ];
+    }
+    assessOverfittingRisk(params) {
+        const warnings = [];
+        if (params.betsPlaced < params.minBets)
+            warnings.push(`Campione bet troppo piccolo: ${params.betsPlaced}/${params.minBets}.`);
+        if (params.betsWithRealEurobetOdds < params.minRealEurobetBets) {
+            warnings.push(`Campione quote Eurobet reali insufficiente: ${params.betsWithRealEurobetOdds}/${params.minRealEurobetBets}.`);
+        }
+        if (params.betsWithSyntheticOdds > params.betsWithRealEurobetOdds) {
+            warnings.push('La configurazione dipende troppo da quote sintetiche.');
+        }
+        if (params.maxDrawdown > params.maxAllowedDrawdown) {
+            warnings.push(`Drawdown oltre soglia: ${params.maxDrawdown.toFixed(2)}%/${params.maxAllowedDrawdown}%.`);
+        }
+        if (typeof params.averageClv === 'number' && params.averageClv < 0 && Number(params.roiRealEurobetOdds ?? 0) > 0) {
+            warnings.push('ROI positivo con CLV medio negativo: possibile fitting sul rumore degli esiti.');
+        }
+        if (typeof params.positiveClvRate === 'number' && params.positiveClvRate < params.minimumPositiveClvRate) {
+            warnings.push(`Positive CLV rate sotto soglia: ${params.positiveClvRate.toFixed(2)}%.`);
+        }
+        const risk = params.betsWithRealEurobetOdds < params.minRealEurobetBets
+            ? 'HIGH'
+            : warnings.length >= 3 ? 'HIGH' : warnings.length >= 1 ? 'MEDIUM' : 'LOW';
+        return { risk, warnings };
+    }
+    scoreRankingCandidate(result, options) {
+        const realBets = result.detailedBets.filter((bet) => bet.isRealEurobetOdds);
+        const syntheticBets = result.detailedBets.filter((bet) => bet.isSynthetic);
+        const realStake = realBets.reduce((sum, bet) => sum + Number(bet.stake ?? 0), 0);
+        const realProfit = realBets.reduce((sum, bet) => sum + Number(bet.profit ?? 0), 0);
+        const roiRealEurobetOdds = realStake > 0 ? Number(((realProfit / realStake) * 100).toFixed(2)) : null;
+        const clvRows = realBets.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+        const averageClv = clvRows.length
+            ? Number((clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length).toFixed(6))
+            : null;
+        const positiveClvRate = clvRows.length
+            ? Number(((clvRows.filter((bet) => Number(bet.clv) > 0).length / clvRows.length) * 100).toFixed(2))
+            : null;
+        const maxDrawdown = result.folds.reduce((max, fold) => Math.max(max, Number(fold.maxDrawdown ?? 0)), 0);
+        const profitFactor = (() => {
+            const grossWin = result.detailedBets.filter((bet) => Number(bet.profit) > 0).reduce((sum, bet) => sum + Number(bet.profit), 0);
+            const grossLoss = Math.abs(result.detailedBets.filter((bet) => Number(bet.profit) <= 0).reduce((sum, bet) => sum + Number(bet.profit), 0));
+            return grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(4)) : grossWin > 0 ? Infinity : 0;
+        })();
+        const assessment = this.assessOverfittingRisk({
+            betsPlaced: result.detailedBets.length,
+            betsWithRealEurobetOdds: realBets.length,
+            betsWithSyntheticOdds: syntheticBets.length,
+            roiRealEurobetOdds,
+            averageClv,
+            positiveClvRate,
+            maxDrawdown,
+            minBets: options.minBetsPerFold * Math.max(1, result.totalFolds),
+            minRealEurobetBets: options.minRealEurobetBets,
+            maxAllowedDrawdown: options.maxAllowedDrawdown,
+            minimumPositiveClvRate: options.minimumPositiveClvRate,
+        });
+        const syntheticRatio = result.detailedBets.length > 0 ? syntheticBets.length / result.detailedBets.length : 1;
+        let score = 0;
+        score += Number(averageClv ?? 0) * 10000;
+        score += Number(positiveClvRate ?? 0) * 0.25;
+        score += Number(roiRealEurobetOdds ?? 0) * 0.35;
+        score += Number.isFinite(profitFactor) ? Math.min(profitFactor, 5) * 4 : 8;
+        score -= maxDrawdown * 0.4;
+        score -= syntheticRatio * 25;
+        if (realBets.length < options.minRealEurobetBets)
+            score -= (options.minRealEurobetBets - realBets.length) * 1.5;
+        if (result.detailedBets.length < options.minBetsPerFold * Math.max(1, result.totalFolds))
+            score -= 20;
+        return {
+            name: 'candidate',
+            weights: {},
+            score: Number(score.toFixed(4)),
+            roiRealEurobetOdds,
+            averageClv,
+            positiveClvRate,
+            maxDrawdown: Number(maxDrawdown.toFixed(2)),
+            profitFactor,
+            betsPlaced: result.detailedBets.length,
+            betsWithRealEurobetOdds: realBets.length,
+            betsWithSyntheticOdds: syntheticBets.length,
+            overfittingRisk: assessment.risk,
+            overfittingWarnings: assessment.warnings,
+        };
+    }
+    runRankingWeightSearch(matches, historicalOdds, options = {}, historicalOddsContext = {}) {
+        const originalWeights = this.engine.getRankingWeightsConfig();
+        const minBetsPerFold = Math.max(1, Number(options.minBetsPerFold ?? 8));
+        const minRealEurobetBets = Math.max(1, Number(options.minRealEurobetBets ?? 40));
+        const maxAllowedDrawdown = Math.max(1, Number(options.maxAllowedDrawdown ?? 35));
+        const minimumPositiveClvRate = Math.max(0, Number(options.minimumPositiveClvRate ?? 50));
+        const candidates = options.candidateWeights?.length
+            ? options.candidateWeights
+            : this.defaultRankingWeightCandidates();
+        const testedWeights = [];
+        let best = null;
+        try {
+            for (const candidate of candidates) {
+                this.engine.setRankingWeights(candidate.weights);
+                const result = this.runWalkForwardBacktest(matches, historicalOdds, {
+                    confidenceLevel: options.confidenceLevel ?? 'medium_and_above',
+                    maxFolds: options.maxFolds ?? 5,
+                    compareBaseline: true,
+                }, historicalOddsContext);
+                const scored = this.scoreRankingCandidate(result, {
+                    minBetsPerFold,
+                    minRealEurobetBets,
+                    maxAllowedDrawdown,
+                    minimumPositiveClvRate,
+                });
+                scored.name = candidate.name;
+                scored.weights = candidate.weights;
+                testedWeights.push(scored);
+                if (!best || scored.score > best.score)
+                    best = scored;
+            }
+        }
+        finally {
+            this.engine.setRankingWeights(originalWeights);
+        }
+        const currentCandidate = testedWeights.find((candidate) => candidate.name === 'current') ?? testedWeights[0];
+        const tunedCandidate = best ?? currentCandidate;
+        const comparison = {
+            baselineResult: {
+                algorithmMode: 'baseline',
+                roi: 0,
+                netProfit: 0,
+                totalStaked: 0,
+                betsPlaced: 0,
+                winRate: 0,
+                averageOdds: 0,
+                averageEV: 0,
+                averageClv: null,
+                positiveClvRate: null,
+                maxDrawdown: 0,
+                profitFactor: 0,
+            },
+            currentResult: {
+                algorithmMode: 'current',
+                roi: Number(currentCandidate?.roiRealEurobetOdds ?? 0),
+                netProfit: 0,
+                totalStaked: 0,
+                betsPlaced: currentCandidate?.betsPlaced ?? 0,
+                winRate: 0,
+                averageOdds: 0,
+                averageEV: 0,
+                averageClv: currentCandidate?.averageClv ?? null,
+                positiveClvRate: currentCandidate?.positiveClvRate ?? null,
+                maxDrawdown: currentCandidate?.maxDrawdown ?? 0,
+                profitFactor: currentCandidate?.profitFactor ?? 0,
+            },
+            tunedResult: {
+                algorithmMode: 'current',
+                roi: Number(tunedCandidate?.roiRealEurobetOdds ?? 0),
+                netProfit: 0,
+                totalStaked: 0,
+                betsPlaced: tunedCandidate?.betsPlaced ?? 0,
+                winRate: 0,
+                averageOdds: 0,
+                averageEV: 0,
+                averageClv: tunedCandidate?.averageClv ?? null,
+                positiveClvRate: tunedCandidate?.positiveClvRate ?? null,
+                maxDrawdown: tunedCandidate?.maxDrawdown ?? 0,
+                profitFactor: tunedCandidate?.profitFactor ?? 0,
+            },
+            deltaROI: Number((Number(tunedCandidate?.roiRealEurobetOdds ?? 0) - Number(currentCandidate?.roiRealEurobetOdds ?? 0)).toFixed(2)),
+            deltaProfit: 0,
+            deltaCLV: tunedCandidate?.averageClv !== null && currentCandidate?.averageClv !== null
+                ? Number((Number(tunedCandidate?.averageClv ?? 0) - Number(currentCandidate?.averageClv ?? 0)).toFixed(6))
+                : null,
+            deltaDrawdown: Number((Number(tunedCandidate?.maxDrawdown ?? 0) - Number(currentCandidate?.maxDrawdown ?? 0)).toFixed(2)),
+        };
+        const overfittingWarnings = tunedCandidate?.overfittingWarnings ?? [];
+        return {
+            bestWeights: tunedCandidate?.weights ?? originalWeights,
+            testedWeights,
+            bestScore: Number((tunedCandidate?.score ?? 0).toFixed(4)),
+            comparison,
+            overfittingRisk: tunedCandidate?.overfittingRisk ?? 'HIGH',
+            overfittingWarnings,
+            warning: overfittingWarnings.length ? overfittingWarnings.join(' ') : null,
+        };
+    }
+    // ==================== QUOTE SINTETICHE ====================
+    deterministicNoise(seed) {
+        let h = 2166136261;
+        for (let i = 0; i < seed.length; i++) {
+            h ^= seed.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return ((h >>> 0) / 4294967295 - 0.5) * 2;
+    }
+    /**
+     * Genera quote sintetiche per tutti i mercati con probabilità plausibile.
+     * Applica margine 5% + jitter deterministico ±6%.
+     * Genera solo se la quota fair è nel range [SYN_MIN_ODDS, SYN_MAX_ODDS].
+     */
+    generateSyntheticOdds(matchId, probMap) {
+        const odds = {};
+        for (const [market, prob] of Object.entries(probMap)) {
+            if (!prob || prob <= 0.02 || prob >= 0.98)
+                continue;
+            const fairOdds = 1 / prob;
+            if (fairOdds < this.SYN_MIN_ODDS || fairOdds > this.SYN_MAX_ODDS)
+                continue;
+            const withMargin = fairOdds * this.SYNTHETIC_MARGIN;
+            const noise = this.deterministicNoise(`${matchId}:${market}`);
+            const noisy = withMargin * (1 + noise * this.SYNTHETIC_JITTER);
+            odds[market] = parseFloat(Math.max(1.05, Math.min(20, noisy)).toFixed(3));
+        }
+        return odds;
+    }
+    // ==================== NOMI MERCATI ====================
+    buildMarketNames(probMap) {
+        const names = {
+            homeWin: 'Esito - 1', draw: 'Esito - X', awayWin: 'Esito - 2',
+            btts: 'Goal Goal', bttsNo: 'No Goal',
+            over05: 'Over 0.5', under05: 'Under 0.5', over15: 'Over 1.5', under15: 'Under 1.5',
+            over25: 'Over 2.5', under25: 'Under 2.5', over35: 'Over 3.5', under35: 'Under 3.5',
+            over45: 'Over 4.5', under45: 'Under 4.5',
+        };
+        for (const key of Object.keys(probMap)) {
+            if (names[key])
+                continue;
+            if (key.startsWith('shotsOver') && !key.includes('Home') && !key.includes('Away'))
+                names[key] = `Tiri Tot Over ${this.lineFromKey(key, 'shotsOver')}`;
+            else if (key.startsWith('shotsUnder') && !key.includes('Home') && !key.includes('Away'))
+                names[key] = `Tiri Tot Under ${this.lineFromKey(key, 'shotsUnder')}`;
+            else if (key.startsWith('shotsHomeOver'))
+                names[key] = `Tiri Casa Over ${this.lineFromKey(key, 'shotsHomeOver')}`;
+            else if (key.startsWith('shotsHomeUnder'))
+                names[key] = `Tiri Casa Under ${this.lineFromKey(key, 'shotsHomeUnder')}`;
+            else if (key.startsWith('shotsAwayOver'))
+                names[key] = `Tiri Osp Over ${this.lineFromKey(key, 'shotsAwayOver')}`;
+            else if (key.startsWith('shotsAwayUnder'))
+                names[key] = `Tiri Osp Under ${this.lineFromKey(key, 'shotsAwayUnder')}`;
+            else if (key.startsWith('shotsOTOver'))
+                names[key] = `SOT Over ${this.lineFromKey(key, 'shotsOTOver')}`;
+            else if (key.startsWith('shotsOTUnder'))
+                names[key] = `SOT Under ${this.lineFromKey(key, 'shotsOTUnder')}`;
+            else if (key.startsWith('yellowOver'))
+                names[key] = `Gialli Over ${this.lineFromKey(key, 'yellowOver')}`;
+            else if (key.startsWith('yellowUnder'))
+                names[key] = `Gialli Under ${this.lineFromKey(key, 'yellowUnder')}`;
+            else if (key.startsWith('cardsTotalOver'))
+                names[key] = `Cartellini Over ${this.lineFromKey(key, 'cardsTotalOver')}`;
+            else if (key.startsWith('cardsTotalUnder'))
+                names[key] = `Cartellini Under ${this.lineFromKey(key, 'cardsTotalUnder')}`;
+            else if (key.startsWith('foulsOver'))
+                names[key] = `Falli Over ${this.lineFromKey(key, 'foulsOver')}`;
+            else if (key.startsWith('foulsUnder'))
+                names[key] = `Falli Under ${this.lineFromKey(key, 'foulsUnder')}`;
+            else if (key.startsWith('exact_'))
+                names[key] = `Risultato Esatto ${key.replace('exact_', '')}`;
+            else if (key.startsWith('hcp_'))
+                names[key] = `Handicap ${key.replace('hcp_', '')}`;
+            else
+                names[key] = key;
+        }
+        return names;
+    }
+    /** "shotsOver155" → "15.5" */
+    lineFromKey(key, prefix) {
+        const raw = key.slice(prefix.length);
+        if (raw.length <= 1)
+            return raw;
+        return raw.slice(0, -1) + '.' + raw.slice(-1);
+    }
+    parseStatLine(raw) {
+        const cleaned = String(raw ?? '').trim().replace(',', '.');
+        if (!cleaned)
+            return null;
+        if (/^\d+\.\d+$/.test(cleaned))
+            return Number(cleaned);
+        if (/^\d+$/.test(cleaned) && cleaned.length >= 2) {
+            const n = Number(`${cleaned.slice(0, -1)}.${cleaned.slice(-1)}`);
+            return Number.isFinite(n) ? n : null;
+        }
+        return null;
+    }
+    // ==================== VALUTAZIONE BET ====================
+    evaluateBet(selection, match) {
+        const h = match.homeGoals;
+        const a = match.awayGoals;
+        const total = h + a;
+        // --- Goal ---
+        const goalMap = {
+            homeWin: h > a, draw: h === a, awayWin: a > h,
+            btts: h > 0 && a > 0, bttsNo: h === 0 || a === 0,
+            over05: total > 0.5, under05: total <= 0.5,
+            over15: total > 1.5, under15: total <= 1.5,
+            over25: total > 2.5, under25: total <= 2.5,
+            over35: total > 3.5, under35: total <= 3.5,
+            over45: total > 4.5, under45: total <= 4.5,
+        };
+        if (selection in goalMap)
+            return goalMap[selection];
+        // --- Exact score ---
+        if (selection.startsWith('exact_')) {
+            const [gh, ga] = selection.replace('exact_', '').split('-').map(Number);
+            return h === gh && a === ga;
+        }
+        // --- Handicap europeo ---
+        if (selection.startsWith('hcp_')) {
+            const raw = selection.replace('hcp_', '');
+            const isHome = raw.startsWith('home');
+            const lineStr = raw.replace(/^(home|away)/, '').replace('+', '');
+            const line = parseFloat(lineStr);
+            if (!isFinite(line))
+                return false;
+            const diff = isHome ? (h - a + line) : (a - h + line);
+            return diff > 0;
+        }
+        // Metodo riutilizzabile per Over/Under su valore numerico
+        const evalOU = (val, overPrefix, underPrefix) => {
+            if (val === undefined)
+                return null;
+            if (selection.startsWith(overPrefix)) {
+                const line = parseFloat(this.lineFromKey(selection, overPrefix));
+                return val > line;
+            }
+            if (selection.startsWith(underPrefix)) {
+                const line = parseFloat(this.lineFromKey(selection, underPrefix));
+                return val <= line;
+            }
+            return null;
+        };
+        // --- Tiri totali ---
+        const totalShots = match.homeTotalShots !== undefined && match.awayTotalShots !== undefined
+            ? match.homeTotalShots + match.awayTotalShots : undefined;
+        let res = evalOU(totalShots, 'shotsOver', 'shotsUnder');
+        if (res !== null && !selection.includes('Home') && !selection.includes('Away') && !selection.includes('OT'))
+            return res;
+        // --- Tiri casa ---
+        res = evalOU(match.homeTotalShots, 'shotsHomeOver', 'shotsHomeUnder');
+        if (res !== null)
+            return res;
+        // --- Tiri ospite ---
+        res = evalOU(match.awayTotalShots, 'shotsAwayOver', 'shotsAwayUnder');
+        if (res !== null)
+            return res;
+        // --- Tiri in porta totali ---
+        const totalSOT = match.homeShotsOnTarget !== undefined && match.awayShotsOnTarget !== undefined
+            ? match.homeShotsOnTarget + match.awayShotsOnTarget : undefined;
+        res = evalOU(totalSOT, 'shotsOTOver', 'shotsOTUnder');
+        if (res !== null)
+            return res;
+        // --- Cartellini gialli totali ---
+        const totalYellow = match.homeYellowCards !== undefined && match.awayYellowCards !== undefined
+            ? match.homeYellowCards + match.awayYellowCards : undefined;
+        res = evalOU(totalYellow, 'yellowOver', 'yellowUnder');
+        if (res !== null)
+            return res;
+        // --- Cartellini totali / booking points (giallo=1, rosso=2) ---
+        // Metrica del mercato bookmaker `alternate_totals_cards`. Prima cards_total
+        // veniva regolato sui soli gialli (sottostima sistematica: ignorava i rossi).
+        const totalRed = match.homeRedCards !== undefined && match.awayRedCards !== undefined
+            ? Number(match.homeRedCards) + Number(match.awayRedCards) : undefined;
+        const totalBookingPoints = totalYellow !== undefined && totalRed !== undefined
+            ? (0, dataHelpers_1.bookingPoints)(totalYellow, totalRed) : undefined;
+        res = evalOU(totalBookingPoints, 'cardsTotalOver', 'cardsTotalUnder');
+        if (res !== null)
+            return res;
+        // --- Falli totali ---
+        const totalFouls = match.homeFouls !== undefined && match.awayFouls !== undefined
+            ? match.homeFouls + match.awayFouls : undefined;
+        res = evalOU(totalFouls, 'foulsOver', 'foulsUnder');
+        if (res !== null)
+            return res;
+        // --- Formati snake_case bookmaker (shots_total_over_235, ecc.) ---
+        const prefixed = selection.match(/^(shots_total|shots_home|shots_away|sot_total|yellow|fouls|cards_total)_(over|under)_([0-9]+(?:[.,][0-9]+)?)$/i);
+        if (prefixed) {
+            const domain = prefixed[1].toLowerCase();
+            const side = prefixed[2].toLowerCase();
+            const line = this.parseStatLine(prefixed[3]);
+            if (line === null)
+                return false;
+            let actual;
+            if (domain === 'shots_total') {
+                actual = totalShots;
+            }
+            else if (domain === 'shots_home') {
+                actual = match.homeTotalShots;
+            }
+            else if (domain === 'shots_away') {
+                actual = match.awayTotalShots;
+            }
+            else if (domain === 'sot_total') {
+                actual = totalSOT;
+            }
+            else if (domain === 'yellow') {
+                actual = totalYellow;
+            }
+            else if (domain === 'cards_total') {
+                actual = totalBookingPoints;
+            }
+            else if (domain === 'fouls') {
+                actual = totalFouls;
+            }
+            if (actual === undefined)
+                return false;
+            return side === 'over' ? actual > line : actual <= line;
+        }
+        // Selezione non riconosciuta o dato non interpretabile dal parser corrente.
+        return false;
+    }
+    evaluateBetNullable(selection, match) {
+        const s = String(selection ?? '').toLowerCase();
+        if (!this.isCompletedMatch(match))
+            return null;
+        if (/^dnb_(home|away)$/.test(s))
+            return match.homeGoals === match.awayGoals ? null
+                : s === 'dnb_home' ? match.homeGoals > match.awayGoals : match.awayGoals > match.homeGoals;
+        if (s === 'double_chance_1x')
+            return match.homeGoals >= match.awayGoals;
+        if (s === 'double_chance_x2')
+            return match.awayGoals >= match.homeGoals;
+        if (s === 'double_chance_12')
+            return match.homeGoals !== match.awayGoals;
+        if (/^player_.+_(shots|sot|yellow)_(over|under)_/i.test(s)) {
+            return null;
+        }
+        const requiresShots = /^shots(over|under)\d+$/i.test(s) ||
+            /^shotshome(over|under)\d+$/i.test(s) ||
+            /^shotsaway(over|under)\d+$/i.test(s) ||
+            /^shots_total_(over|under)_/i.test(s) ||
+            /^shots_home_(over|under)_/i.test(s) ||
+            /^shots_away_(over|under)_/i.test(s);
+        const requiresSot = /^shotsot(over|under)\d+$/i.test(s) ||
+            /^sot_total_(over|under)_/i.test(s);
+        const requiresYellow = /^yellow(over|under)\d+$/i.test(s) ||
+            /^cardstotal(over|under)\d+$/i.test(s) ||
+            /^cards_total_(over|under)_/i.test(s) ||
+            /^yellow_(over|under)_/i.test(s);
+        const requiresFouls = /^fouls(over|under)\d+$/i.test(s) ||
+            /^fouls_(over|under)_/i.test(s);
+        if (requiresShots && (!this.isFiniteObserved(match.homeTotalShots) || !this.isFiniteObserved(match.awayTotalShots)))
+            return null;
+        if (requiresSot && (!this.isFiniteObserved(match.homeShotsOnTarget) || !this.isFiniteObserved(match.awayShotsOnTarget)))
+            return null;
+        if (requiresYellow && (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards)))
+            return null;
+        if (requiresFouls && (!this.isFiniteObserved(match.homeFouls) || !this.isFiniteObserved(match.awayFouls)))
+            return null;
+        if (/^(cardstotal|cards_total_)/i.test(s) && (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards)))
+            return null;
+        return this.evaluateBet(selection, match);
+    }
+    getActualCards(match, selection = '') {
+        if (!this.isFiniteObserved(match.homeYellowCards) || !this.isFiniteObserved(match.awayYellowCards))
+            return null;
+        const yellow = match.homeYellowCards + match.awayYellowCards;
+        if (!/^(cardstotal|cards_total_)/i.test(selection))
+            return yellow;
+        if (!this.isFiniteObserved(match.homeRedCards) || !this.isFiniteObserved(match.awayRedCards))
+            return null;
+        return (0, dataHelpers_1.bookingPoints)(yellow, match.homeRedCards + match.awayRedCards);
+    }
+    evaluateComboBetOpportunity(combo, matchResults) {
+        return (0, EnhancedMarketAnalysis_1.evaluateComboBet)(combo, matchResults, (selection, matchData) => this.evaluateBetNullable(selection, matchData));
+    }
+    // ==================== METRICHE ====================
+    buildSingleBestAlwaysMetrics(bets, equity, prudentSelectorBets, prudentSelectorRoi) {
+        const totalStaked = bets.reduce((sum, bet) => sum + bet.stake, 0);
+        const netProfit = bets.reduce((sum, bet) => sum + bet.profit, 0);
+        const betsWon = bets.filter((bet) => bet.won).length;
+        const roi = totalStaked > 0 ? Number(((netProfit / totalStaked) * 100).toFixed(2)) : 0;
+        let peak = this.INITIAL_BANKROLL;
+        let maxDrawdown = 0;
+        for (const point of equity) {
+            if (point.bankroll > peak)
+                peak = point.bankroll;
+            const drawdown = peak > 0 ? (peak - point.bankroll) / peak : 0;
+            if (drawdown > maxDrawdown)
+                maxDrawdown = drawdown;
+        }
+        const roiFor = (rows) => {
+            const staked = rows.reduce((sum, bet) => sum + bet.stake, 0);
+            if (staked <= 0)
+                return null;
+            const profit = rows.reduce((sum, bet) => sum + bet.profit, 0);
+            return Number(((profit / staked) * 100).toFixed(2));
+        };
+        const groupRoi = (keyFn) => {
+            const grouped = {};
+            for (const bet of bets) {
+                const key = keyFn(bet);
+                if (!key)
+                    continue;
+                (grouped[key] ?? (grouped[key] = [])).push(bet);
+            }
+            return Object.fromEntries(Object.entries(grouped).map(([key, rows]) => [key, roiFor(rows) ?? 0]));
+        };
+        const totalByStatus = {};
+        for (const bet of bets) {
+            const status = String(bet.singleBestStatus ?? 'UNKNOWN');
+            totalByStatus[status] = (totalByStatus[status] ?? 0) + 1;
+        }
+        return {
+            roi,
+            winRate: bets.length > 0 ? Number(((betsWon / bets.length) * 100).toFixed(2)) : 0,
+            totalBets: bets.length,
+            totalStaked: Number(totalStaked.toFixed(2)),
+            netProfit: Number(netProfit.toFixed(2)),
+            maxDrawdown: Number((maxDrawdown * 100).toFixed(2)),
+            roiByCategory: groupRoi((bet) => String(bet.marketCategory ?? 'unknown')),
+            roiByStatus: groupRoi((bet) => String(bet.singleBestStatus ?? 'UNKNOWN')),
+            totalByStatus,
+            speculativePicks: totalByStatus.SPECULATIVE ?? 0,
+            roiSpeculative: roiFor(bets.filter((bet) => bet.singleBestStatus === 'SPECULATIVE')),
+            roiPlayable: roiFor(bets.filter((bet) => bet.singleBestStatus === 'PLAYABLE')),
+            roiPrudent: roiFor(bets.filter((bet) => bet.singleBestStatus === 'PRUDENT')),
+            comparisonWithPrudentSelector: {
+                prudentSelectorBets,
+                singleBestAlwaysBets: bets.length,
+                deltaBets: bets.length - prudentSelectorBets,
+                deltaRoi: Number((roi - prudentSelectorRoi).toFixed(2)),
+            },
+        };
+    }
+    computeMetrics(bets, equity, trainCount, testCount, attemptedByCategory = {}, voidedByCategory = {}, singleBestAlwaysBets = [], singleBestAlwaysEquity = [], probabilityObservations = [], includeProbabilityObservations = false) {
+        const won = bets.filter(b => b.won);
+        const totalStaked = bets.reduce((s, b) => s + b.stake, 0);
+        const totalReturn = bets.reduce((s, b) => s + (b.won ? b.stake * b.odds : 0), 0);
+        const netProfit = totalReturn - totalStaked;
+        const realEurobetBets = bets.filter((bet) => bet.isRealEurobetOdds);
+        const syntheticBets = bets.filter((bet) => bet.isSynthetic);
+        const stakedRealEurobetOdds = realEurobetBets.reduce((sum, bet) => sum + bet.stake, 0);
+        const stakedSyntheticOdds = syntheticBets.reduce((sum, bet) => sum + bet.stake, 0);
+        const profitRealEurobetOdds = realEurobetBets.reduce((sum, bet) => sum + bet.profit, 0);
+        const profitSyntheticOdds = syntheticBets.reduce((sum, bet) => sum + bet.profit, 0);
+        const roiRealEurobetOdds = stakedRealEurobetOdds > 0
+            ? Number(((profitRealEurobetOdds / stakedRealEurobetOdds) * 100).toFixed(2))
+            : null;
+        const roiSyntheticOdds = stakedSyntheticOdds > 0
+            ? Number(((profitSyntheticOdds / stakedSyntheticOdds) * 100).toFixed(2))
+            : null;
+        const roiTotal = totalStaked > 0 ? Number(((netProfit / totalStaked) * 100).toFixed(2)) : 0;
+        const oddsReliabilityWarning = realEurobetBets.length === 0 && syntheticBets.length > 0
+            ? 'Risultato indicativo: basato su quote sintetiche'
+            : null;
+        const totalVoided = Object.values(voidedByCategory).reduce((sum, value) => sum + value, 0);
+        const totalAttempts = bets.length + totalVoided;
+        const unevaluableRate = totalAttempts > 0 ? (totalVoided / totalAttempts) * 100 : 0;
+        // Market breakdown per categoria
+        const breakdown = {};
+        for (const bet of bets) {
+            const cat = bet.marketCategory;
+            if (!breakdown[cat])
+                breakdown[cat] = { bets: 0, won: 0, staked: 0, returned: 0, oddsSum: 0, evSum: 0 };
+            breakdown[cat].bets++;
+            if (bet.won)
+                breakdown[cat].won++;
+            breakdown[cat].staked += bet.stake;
+            breakdown[cat].returned += bet.won ? bet.stake * bet.odds : 0;
+            breakdown[cat].oddsSum += bet.odds;
+            breakdown[cat].evSum += bet.ev;
+        }
+        const categories = new Set([
+            ...Object.keys(breakdown),
+            ...Object.keys(attemptedByCategory),
+            ...Object.keys(voidedByCategory),
+        ]);
+        const marketUnevaluableBreakdown = {};
+        const marketBreakdown = {};
+        for (const cat of categories) {
+            const d = breakdown[cat] ?? { bets: 0, won: 0, staked: 0, returned: 0, oddsSum: 0, evSum: 0 };
+            const voided = Number(voidedByCategory[cat] ?? 0);
+            const attempted = Math.max(Number(attemptedByCategory[cat] ?? 0), d.bets + voided);
+            const categoryUnevaluableRate = attempted > 0 ? (voided / attempted) * 100 : 0;
+            marketBreakdown[cat] = {
+                bets: d.bets,
+                voided,
+                won: d.won,
+                staked: d.staked,
+                returned: d.returned,
+                roi: d.staked > 0 ? ((d.returned - d.staked) / d.staked) * 100 : 0,
+                winRate: d.bets > 0 ? (d.won / d.bets) * 100 : 0,
+                avgOdds: d.bets > 0 ? d.oddsSum / d.bets : 0,
+                avgEV: d.bets > 0 ? (d.evSum / d.bets) * 100 : 0,
+                unevaluableRate: categoryUnevaluableRate,
+            };
+            marketUnevaluableBreakdown[cat] = {
+                attempted,
+                voided,
+                unevaluableRate: categoryUnevaluableRate,
+            };
+        }
+        // Sharpe ratio (daily P&L)
+        const dailyR = [];
+        for (let i = 1; i < equity.length; i++) {
+            if (equity[i - 1].bankroll > 0)
+                dailyR.push((equity[i].bankroll - equity[i - 1].bankroll) / equity[i - 1].bankroll);
+        }
+        const avgR = dailyR.reduce((s, r) => s + r, 0) / (dailyR.length || 1);
+        const stdR = Math.sqrt(dailyR.reduce((s, r) => s + (r - avgR) ** 2, 0) / (dailyR.length || 1));
+        const sharpe = stdR > 0 ? (avgR / stdR) * Math.sqrt(252) : 0;
+        // Max drawdown
+        let peak = this.INITIAL_BANKROLL, maxDD = 0;
+        for (const pt of equity) {
+            if (pt.bankroll > peak)
+                peak = pt.bankroll;
+            const dd = (peak - pt.bankroll) / peak;
+            if (dd > maxDD)
+                maxDD = dd;
+        }
+        const probabilityMetrics = this.probabilityMetrics(probabilityObservations);
+        const { logLoss, brierScore } = probabilityMetrics;
+        const weightedMetrics = this.computeWeightedProbabilityMetrics(bets, 'none');
+        const grossWin = bets.filter(b => b.profit > 0).reduce((s, b) => s + b.profit, 0);
+        const grossLoss = Math.abs(bets.filter(b => b.profit <= 0).reduce((s, b) => s + b.profit, 0));
+        const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+        // ---- edgeNoVig: edge medio modelo vs quote ante-vig (proxy CLV) ----
+        // edge_i = ourProb_i - impliedProb_ante_vig_i = ourProb_i - (1 / bookmakerOdds_i)
+        // Con quote sintetiche questo è ottimisticamente distorto (il margine
+        // è già noto e modellato). Ha significato reale solo con quote di chiusura.
+        const edgeNoVig = bets.length > 0
+            ? bets.reduce((s, b) => s + (b.ourProb - 1 / b.odds), 0) / bets.length
+            : 0;
+        // ---- edgeDecayByMonth: edgeNoVig medio per mese in ordine cronologico ----
+        const edgeByMonthMap = {};
+        for (const bet of bets) {
+            const key = `${bet.matchDate.getFullYear()}-${String(bet.matchDate.getMonth() + 1).padStart(2, '0')}`;
+            if (!edgeByMonthMap[key])
+                edgeByMonthMap[key] = { sum: 0, count: 0 };
+            edgeByMonthMap[key].sum += bet.ourProb - 1 / bet.odds;
+            edgeByMonthMap[key].count += 1;
+        }
+        const edgeDecayByMonth = Object.entries(edgeByMonthMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, { sum, count }]) => {
+            const [yr, mo] = key.split('-').map(Number);
+            return { year: yr, month: mo, edgeNoVig: Number((sum / count).toFixed(4)), bets: count };
+        });
+        // ---- rollingSharpePeriods: Sharpe su finestre fisse di 50 bet ----
+        const ROLLING_WINDOW = 50;
+        const rollingSharpePeriods = [];
+        if (bets.length >= ROLLING_WINDOW) {
+            for (let start = 0; start + ROLLING_WINDOW <= bets.length; start += ROLLING_WINDOW) {
+                const window = bets.slice(start, start + ROLLING_WINDOW);
+                const returns = window.map(b => b.profit / b.stake);
+                const avgRet = returns.reduce((s, r) => s + r, 0) / returns.length;
+                const stdRet = Math.sqrt(returns.reduce((s, r) => s + (r - avgRet) ** 2, 0) / returns.length);
+                const periodSharpe = stdRet > 0 ? (avgRet / stdRet) * Math.sqrt(ROLLING_WINDOW) : 0;
+                rollingSharpePeriods.push({
+                    periodStart: start + 1,
+                    periodEnd: start + ROLLING_WINDOW,
+                    sharpe: Number(periodSharpe.toFixed(3)),
+                });
+            }
+        }
+        // ---- usedSyntheticOddsOnly: warning se nessuna quota reale disponibile ----
+        const usedSyntheticOddsOnly = bets.length > 0 && bets.every(b => b.isSynthetic);
+        if (usedSyntheticOddsOnly) {
+            console.warn('[Backtest] ATTENZIONE: tutte le quote sono sintetiche. ' +
+                'edgeNoVig e Sharpe non riflettono condizioni reali di mercato. ' +
+                'Fornire quote storiche di chiusura (Pinnacle/Betfair) per risultati affidabili.');
+        }
+        const marketCalibration = this.computeCalibrationByMarket(bets).byMarket;
+        const marketReports = this.computeMarketLevelReports(bets, 'none');
+        const clvRows = bets.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+        const missingClosingOddsCount = bets.length - clvRows.length;
+        const averageClv = clvRows.length > 0
+            ? Number((clvRows.reduce((sum, bet) => sum + Number(bet.clv), 0) / clvRows.length).toFixed(6))
+            : null;
+        const positiveClvRate = clvRows.length > 0
+            ? Number(((clvRows.filter((bet) => Number(bet.clv) > 0).length / clvRows.length) * 100).toFixed(2))
+            : null;
+        const summarizeClv = (keyFn) => {
+            const grouped = {};
+            for (const bet of clvRows) {
+                const key = keyFn(bet);
+                if (!key)
+                    continue;
+                (grouped[key] ?? (grouped[key] = [])).push(bet);
+            }
+            return Object.fromEntries(Object.entries(grouped).map(([key, rows]) => [
+                key,
+                {
+                    bets: rows.length,
+                    averageClv: Number((rows.reduce((sum, bet) => sum + Number(bet.clv), 0) / rows.length).toFixed(6)),
+                    positiveClvRate: Number(((rows.filter((bet) => Number(bet.clv) > 0).length / rows.length) * 100).toFixed(2)),
+                },
+            ]));
+        };
+        const clvByMarket = summarizeClv((bet) => String(bet.marketCategory ?? 'unknown'));
+        const clvByCompetition = summarizeClv((bet) => String(bet.competition ?? 'unknown'));
+        const yellowCardBets = bets
+            .map((bet) => ({ bet, parsed: this.parseCardsSelection(bet.selection) }))
+            .filter((row) => row.parsed !== null && row.bet.marketCategory === 'yellow_cards');
+        const yellowCardsOverBets = yellowCardBets.filter((row) => row.parsed.side === 'over').map((row) => row.bet);
+        const yellowCardsUnderBets = yellowCardBets.filter((row) => row.parsed.side === 'under').map((row) => row.bet);
+        const roiForBets = (rows) => {
+            const staked = rows.reduce((sum, bet) => sum + bet.stake, 0);
+            if (staked <= 0)
+                return null;
+            const profit = rows.reduce((sum, bet) => sum + bet.profit, 0);
+            return Number(((profit / staked) * 100).toFixed(2));
+        };
+        const averageClvForBets = (rows) => {
+            const withClv = rows.filter((bet) => typeof bet.clv === 'number' && Number.isFinite(bet.clv));
+            if (withClv.length === 0)
+                return null;
+            return Number((withClv.reduce((sum, bet) => sum + Number(bet.clv), 0) / withClv.length).toFixed(6));
+        };
+        const underLineErrors = yellowCardsUnderBets
+            .map((bet) => bet.cardLineError)
+            .filter((value) => typeof value === 'number' && Number.isFinite(value));
+        const missSeverityBreakdown = { NONE: 0, LOW: 0, MEDIUM: 0, HIGH: 0 };
+        for (const bet of yellowCardsUnderBets) {
+            if (bet.cardMissSeverity)
+                missSeverityBreakdown[bet.cardMissSeverity]++;
+        }
+        const underCardsCloseToLineCount = yellowCardsUnderBets.filter((bet) => bet.underCardsCloseToLine).length;
+        const underCardsFragilePickedCount = yellowCardsUnderBets.filter((bet) => bet.underCardsCloseToLine || bet.cardMissSeverity === 'LOW').length;
+        const calibrationSet = this.computeCalibrationByMarket(bets);
+        const averageGap = (buckets) => buckets.length > 0
+            ? Number((buckets.reduce((sum, bucket) => sum + Math.abs(bucket.actualFrequency - bucket.predictedAvg), 0) / buckets.length).toFixed(6))
+            : 0;
+        const calibrationDiagnostics = {
+            global: {
+                sampleSize: bets.length,
+                averageCalibrationGap: averageGap(calibrationSet.global),
+                reliability: Number(this.clampNumber(bets.length / 120, 0, 1).toFixed(3)),
+            },
+            byMarket: Object.fromEntries(Object.entries(calibrationSet.byMarket).map(([market, buckets]) => {
+                const sampleSize = bets.filter((bet) => String(bet.marketCategory ?? 'other') === market).length;
+                return [
+                    market,
+                    {
+                        sampleSize,
+                        averageCalibrationGap: averageGap(buckets),
+                        reliability: Number(this.clampNumber(sampleSize / 60, 0, 1).toFixed(3)),
+                    },
+                ];
+            })),
+        };
+        const blendedRows = bets.filter((bet) => typeof bet.modelProbability === 'number' && typeof bet.blendedProbability === 'number');
+        const blendedVsRawComparison = {
+            betsWithBlendedProbability: blendedRows.length,
+            averageModelProbability: blendedRows.length > 0
+                ? Number((blendedRows.reduce((sum, bet) => sum + Number(bet.modelProbability), 0) / blendedRows.length).toFixed(6))
+                : null,
+            averageBlendedProbability: blendedRows.length > 0
+                ? Number((blendedRows.reduce((sum, bet) => sum + Number(bet.blendedProbability), 0) / blendedRows.length).toFixed(6))
+                : null,
+            averageProbabilityShift: blendedRows.length > 0
+                ? Number((blendedRows.reduce((sum, bet) => sum + Math.abs(Number(bet.blendedProbability) - Number(bet.modelProbability)), 0) / blendedRows.length).toFixed(6))
+                : 0,
+        };
+        const categoryOverfittingRisk = {};
+        for (const [market, report] of Object.entries(marketReports)) {
+            const sampleSize = bets.filter((bet) => String(bet.marketCategory ?? 'other') === market).length;
+            const clvSummary = clvByMarket[market];
+            const suspiciousRoi = report.roi > 45 && (!clvSummary || clvSummary.averageClv < 0);
+            categoryOverfittingRisk[market] = sampleSize < 8 || suspiciousRoi
+                ? 'HIGH'
+                : sampleSize < 20 || report.maxDrawdown > 35
+                    ? 'MEDIUM'
+                    : 'LOW';
+        }
+        return {
+            algorithmVersion: algorithmVersions_1.ALGORITHM_VERSION,
+            rankingVersion: algorithmVersions_1.RANKING_VERSION,
+            backtestEngineVersion: algorithmVersions_1.BACKTEST_ENGINE_VERSION,
+            totalMatches: trainCount + testCount,
+            trainingMatches: trainCount,
+            testMatches: testCount,
+            betsPlaced: bets.length,
+            voidedBets: totalVoided,
+            unevaluableRate,
+            betsWon: won.length,
+            totalStaked, totalReturn, netProfit,
+            roi: totalStaked > 0 ? (netProfit / totalStaked) * 100 : 0,
+            roiRealEurobetOdds,
+            roiSyntheticOdds,
+            roiTotal,
+            betsWithRealEurobetOdds: realEurobetBets.length,
+            betsWithSyntheticOdds: syntheticBets.length,
+            profitRealEurobetOdds: Number(profitRealEurobetOdds.toFixed(2)),
+            profitSyntheticOdds: Number(profitSyntheticOdds.toFixed(2)),
+            stakedRealEurobetOdds: Number(stakedRealEurobetOdds.toFixed(2)),
+            stakedSyntheticOdds: Number(stakedSyntheticOdds.toFixed(2)),
+            oddsReliabilityWarning,
+            winRate: bets.length > 0 ? (won.length / bets.length) * 100 : 0,
+            averageOdds: bets.length > 0 ? bets.reduce((s, b) => s + b.odds, 0) / bets.length : 0,
+            averageEV: bets.length > 0 ? bets.reduce((s, b) => s + b.ev, 0) / bets.length * 100 : 0,
+            brierScore, logLoss,
+            probabilityMetrics,
+            ...(includeProbabilityObservations ? { probabilityObservations } : {}),
+            weightedBrierScore: weightedMetrics.weightedBrierScore,
+            weightedLogLoss: weightedMetrics.weightedLogLoss,
+            calibration: this.computeCalibration(bets),
+            equityCurve: equity,
+            monthlyStats: this.computeMonthlyStats(bets),
+            sharpeRatio: sharpe,
+            maxDrawdown: maxDD * 100,
+            recoveryFactor: maxDD > 0 ? netProfit / (maxDD * this.INITIAL_BANKROLL) : 0,
+            profitFactor,
+            marketBreakdown,
+            rankingWeightsUsed: this.engine.getRankingWeightsConfig(),
+            calibrationDiagnostics,
+            blendedVsRawComparison,
+            categoryOverfittingRisk,
+            detailedBets: bets.map((bet) => ({
+                algorithmVersion: algorithmVersions_1.ALGORITHM_VERSION,
+                rankingVersion: algorithmVersions_1.RANKING_VERSION,
+                backtestEngineVersion: algorithmVersions_1.BACKTEST_ENGINE_VERSION,
+                matchId: bet.matchId,
+                matchDate: bet.matchDate.toISOString(),
+                competition: bet.competition ?? null,
+                season: bet.season ?? null,
+                marketName: bet.market,
+                marketCategory: bet.marketCategory,
+                selection: bet.selection,
+                odds: Number(bet.odds.toFixed(2)),
+                impliedProbability: Number((1 / bet.odds).toFixed(6)),
+                ourProbability: Number(bet.ourProb.toFixed(6)),
+                expectedValue: Number(bet.ev.toFixed(6)),
+                edge: Number(bet.edge.toFixed(6)),
+                edgeNoVig: Number(bet.edgeNoVig.toFixed(6)),
+                confidence: bet.confidence,
+                stake: Number(bet.stake.toFixed(2)),
+                profit: Number(bet.profit.toFixed(2)),
+                outcome: bet.won ? 'WON' : 'LOST',
+                won: bet.won,
+                isSynthetic: bet.isSynthetic,
+                isRealBookmakerOdds: bet.isRealBookmakerOdds,
+                isRealEurobetOdds: bet.isRealEurobetOdds,
+                oddsSource: bet.oddsSource,
+                snapshotSource: bet.snapshotSource ?? null,
+                oddsCapturedAt: bet.oddsCapturedAt ?? null,
+                closingOdds: typeof bet.clv === 'number' && bet.closingOdds
+                    ? Number(bet.closingOdds.toFixed(2))
+                    : null,
+                closingOddsCapturedAt: bet.closingOddsCapturedAt ?? null,
+                closingSource: bet.closingSource ?? null,
+                clv: typeof bet.clv === 'number' ? Number(bet.clv.toFixed(6)) : null,
+                clvMissingReason: bet.clvMissingReason ?? null,
+                uncertaintyFactor: typeof bet.uncertaintyFactor === 'number' ? Number(bet.uncertaintyFactor.toFixed(3)) : undefined,
+                riskPenalty: typeof bet.riskPenalty === 'number' ? Number(bet.riskPenalty.toFixed(3)) : undefined,
+                rankingScore: typeof bet.rankingScore === 'number' ? Number(bet.rankingScore.toFixed(6)) : undefined,
+                logGrowth: typeof bet.logGrowth === 'number' ? Number(bet.logGrowth.toFixed(6)) : undefined,
+                dynamicEvThreshold: typeof bet.dynamicEvThreshold === 'number' ? Number(bet.dynamicEvThreshold.toFixed(2)) : undefined,
+                algorithmMode: bet.algorithmMode,
+                contextCompletenessScore: Number(bet.contextCompletenessScore.toFixed(3)),
+                historicalContextUsed: bet.historicalContextUsed,
+                contextWarnings: bet.contextWarnings,
+                cardLineError: typeof bet.cardLineError === 'number' ? Number(bet.cardLineError.toFixed(2)) : null,
+                cardMissSeverity: bet.cardMissSeverity,
+                cardLearningAdjustment: typeof bet.cardLearningAdjustment === 'number'
+                    ? Number(bet.cardLearningAdjustment.toFixed(3))
+                    : null,
+                outcomeVsMarketAssessment: bet.outcomeVsMarketAssessment,
+                underCardsCloseToLine: bet.underCardsCloseToLine,
+                modelProbability: typeof bet.modelProbability === 'number' ? Number(bet.modelProbability.toFixed(6)) : null,
+                calibratedProbability: typeof bet.calibratedProbability === 'number' ? Number(bet.calibratedProbability.toFixed(6)) : null,
+                blendedProbability: typeof bet.blendedProbability === 'number' ? Number(bet.blendedProbability.toFixed(6)) : null,
+                marketProbabilityNoVig: typeof bet.marketProbabilityNoVig === 'number' ? Number(bet.marketProbabilityNoVig.toFixed(6)) : null,
+                modelWeight: typeof bet.modelWeight === 'number' ? Number(bet.modelWeight.toFixed(3)) : null,
+                marketWeight: typeof bet.marketWeight === 'number' ? Number(bet.marketWeight.toFixed(3)) : null,
+                categoryCalibrationStatus: bet.categoryCalibrationStatus,
+                dataQuality: typeof bet.dataQuality === 'number' ? Number(bet.dataQuality.toFixed(3)) : null,
+                companionOddsAvailable: bet.companionOddsAvailable,
+            })),
+            marketUnevaluableBreakdown,
+            edgeNoVig: Number(edgeNoVig.toFixed(4)),
+            edgeDecayByMonth,
+            rollingSharpePeriods,
+            usedSyntheticOddsOnly,
+            marketCalibration,
+            marketReports,
+            averageClv,
+            positiveClvRate,
+            missingClosingOddsCount,
+            clvByMarket,
+            clvByCompetition,
+            roiYellowCardsOver: roiForBets(yellowCardsOverBets),
+            roiYellowCardsUnder: roiForBets(yellowCardsUnderBets),
+            clvYellowCardsOver: averageClvForBets(yellowCardsOverBets),
+            clvYellowCardsUnder: averageClvForBets(yellowCardsUnderBets),
+            averageLineErrorYellowCardsUnder: underLineErrors.length > 0
+                ? Number((underLineErrors.reduce((sum, value) => sum + value, 0) / underLineErrors.length).toFixed(3))
+                : null,
+            missSeverityBreakdown,
+            underCardsCloseToLineCount,
+            underCardsFragilePickedCount,
+            singleBestAlways: this.buildSingleBestAlwaysMetrics(singleBestAlwaysBets, singleBestAlwaysEquity.length > 0 ? singleBestAlwaysEquity : equity, bets.length, roiTotal),
+        };
+    }
+    /**
+     * Calibrazione con isotonic regression e bucket adattivi.
+     *
+     * PROBLEMI DEI BUCKET FISSI (vecchia implementazione):
+     * - Bucket [0.6-0.7] può avere 300 bet, [0.8-1.0] solo 8.
+     *   Le frequenze osservate su 8 campioni sono statisticamente inutili.
+     * - Non c'è garanzia di monotonia: un modello ben calibrato dovrebbe
+     *   avere actualFrequency crescente con predictedAvg. I bucket fissi
+     *   non lo impongono e producono inversioni spurie da rumore campionario.
+     *
+     * SOLUZIONE — due passi:
+     *
+     * PASSO 1: Bucket adattivi a densità uniforme.
+     *   Le bet vengono ordinate per ourProb e divise in N_BUCKETS gruppi
+     *   di dimensione uguale (~MIN_BUCKET_SIZE bet ciascuno). Questo
+     *   garantisce che ogni bucket abbia abbastanza campioni per una
+     *   stima stabile della frequenza osservata.
+     *   Se le bet sono poche (< 2×MIN_BUCKET_SIZE) si usa un unico bucket.
+     *
+     * PASSO 2: Isotonic regression (Pool Adjacent Violators — PAV).
+     *   Imposta la monotonia: se bucket[i].actualFreq > bucket[i+1].actualFreq
+     *   (inversione), i due bucket vengono fusi e la loro frequenza viene
+     *   rimpiazzata dalla media ponderata per count.
+     *   Il PAV garantisce che la sequenza finale sia non-decrescente.
+     *   Questo è il metodo standard per la calibrazione in ML
+     *   (Platt scaling, temperature scaling usano isotonica come base).
+     *
+     * OUTPUT: array di CalibrationBucket con predictedRange nel formato
+     *   "[min%-max%]" basato sui quantili effettivi dei dati, non su
+     *   intervalli fissi — più informativo per capire dove il modello
+     *   è davvero esposto.
+     */
+    computeCalibration(bets) {
+        if (bets.length === 0)
+            return [];
+        const MIN_BUCKET_SIZE = 20;
+        const sorted = [...bets].sort((a, b) => a.ourProb - b.ourProb);
+        // --- Passo 1: bucket adattivi a densità uniforme ---
+        const nBuckets = Math.max(1, Math.floor(sorted.length / MIN_BUCKET_SIZE));
+        const bucketSize = Math.ceil(sorted.length / nBuckets);
+        const rawBuckets = [];
+        for (let i = 0; i < sorted.length; i += bucketSize) {
+            const group = sorted.slice(i, i + bucketSize);
+            const count = group.length;
+            const predictedAvg = group.reduce((s, b) => s + b.ourProb, 0) / count;
+            const actualFreq = group.filter(b => b.won).length / count;
+            rawBuckets.push({
+                bets: group,
+                predictedAvg,
+                actualFreq,
+                count,
+                minProb: group[0].ourProb,
+                maxProb: group[group.length - 1].ourProb,
+            });
+        }
+        // --- Passo 2: isotonic regression (Pool Adjacent Violators) ---
+        // Fondi bucket adiacenti che violano la monotonia fino a convergenza.
+        let stable = false;
+        while (!stable) {
+            stable = true;
+            for (let i = 0; i < rawBuckets.length - 1; i++) {
+                if (rawBuckets[i].actualFreq > rawBuckets[i + 1].actualFreq) {
+                    // Inversione: fondi i due bucket
+                    const merged = [...rawBuckets[i].bets, ...rawBuckets[i + 1].bets];
+                    const count = merged.length;
+                    const predictedAvg = merged.reduce((s, b) => s + b.ourProb, 0) / count;
+                    const actualFreq = merged.filter(b => b.won).length / count;
+                    rawBuckets.splice(i, 2, {
+                        bets: merged,
+                        predictedAvg,
+                        actualFreq,
+                        count,
+                        minProb: rawBuckets[i].minProb,
+                        maxProb: rawBuckets[i + 1].maxProb,
+                    });
+                    stable = false;
+                    break; // riparti dal check dall'inizio
+                }
+            }
+        }
+        return rawBuckets.map(b => ({
+            predictedRange: `${(b.minProb * 100).toFixed(0)}%-${(b.maxProb * 100).toFixed(0)}%`,
+            predictedAvg: Number(b.predictedAvg.toFixed(4)),
+            actualFrequency: Number(b.actualFreq.toFixed(4)),
+            count: b.count,
+        }));
+    }
+    computeMonthlyStats(bets) {
+        const byMonth = {};
+        for (const bet of bets) {
+            const key = `${bet.matchDate.getFullYear()}-${bet.matchDate.getMonth()}`;
+            (byMonth[key] ?? (byMonth[key] = [])).push(bet);
+        }
+        return Object.entries(byMonth).map(([key, mb]) => {
+            const [year, month] = key.split('-').map(Number);
+            const staked = mb.reduce((s, b) => s + b.stake, 0);
+            const returned = mb.reduce((s, b) => s + (b.won ? b.stake * b.odds : 0), 0);
+            return { year, month: month + 1, bets: mb.length, staked, returned,
+                profit: returned - staked, roi: staked > 0 ? ((returned - staked) / staked) * 100 : 0 };
+        }).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+    }
+}
+exports.BacktestingEngine = BacktestingEngine;

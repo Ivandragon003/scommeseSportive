@@ -39,9 +39,9 @@ Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste 
 
 ## Compatibilità del modello registrato prima del rilascio
 
-Prima di distribuire main confrontare anche il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. Per il C congelato registrato il precedente web 6ed36d4 riproduce A-80cb25df5552621e; main identifica invece A-38538d45825fba24 e la guardia lo rifiuta. Non correggere la dichiarazione dell’artefatto o disabilitare la guardia per ottenere un esito positivo.
+Prima di distribuire main confrontare anche il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. Per il C congelato registrato la baseline richiesta è A-80cb25df5552621e. Main conserva il nucleo numerico research effettivo della release 6ed36d4 in uno snapshot immutabile, con pipeline e dipendenze isolate dai modelli operativi correnti di A. Non correggere la dichiarazione dell’artefatto o disabilitare la guardia per ottenere un esito positivo.
 
-Il backend usa temporaneamente `ops/model-a-web-compat`: stesso codice predittivo precedente, più `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false` e test della sola guardia di avvio. Conservare il ramo perché associato al deploy. Il ritorno del backend a main richiede una soluzione separata e verificata della baseline C congelata; nessuna nuova versione C è autorizzata da questa procedura. Il collector di main resta spento mentre la sua identità differisce da quella del web operativo. Vedere l’handoff per prove e limiti.
+Il ramo `ops/model-a-web-compat` è stato usato per il ripristino sicuro e va conservato finché associato a un deploy attivo. Per tornare a main verificare SHA-256 dello snapshot in build, CI e prova read-only con il vero artefatto C: baseline, hash pipeline, input e inferenza devono coincidere con la release ripristinata. Attendere LIVE e ripetere identità, health e flag false nel container. Solo dopo può essere eliminato il ramo temporaneo già incorporato. Nessuna nuova versione C, migrazione o accensione è implicita; mantenere `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`. Vedere l’handoff per prove e limiti.
 
 ## Persistenza per il recorder prospettico A
 
