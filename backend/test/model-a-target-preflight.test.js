@@ -141,6 +141,8 @@ test('manual workflow has read-only permissions and supplies explicit identity i
   const workflow = readFileSync(join(__dirname, '../../.github/workflows/model-a-target-preflight.yml'), 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /contents: read/);
+  assert.match(workflow, /TURSO_AUTH_TOKEN: \$\{\{ secrets\.TURSO_WATCHDOG_READONLY_TOKEN \}\}/);
+  assert.doesNotMatch(workflow, /secrets\.TURSO_AUTH_TOKEN|TURSO_AUTH_TOKEN:[^\r\n]*\|\|/);
   assert.match(workflow, /expected_host_sha256:/);
   assert.match(workflow, /MODEL_A_EXPECTED_HOST_SHA256: \$\{\{ inputs.expected_host_sha256 \}\}/);
   assert.doesNotMatch(workflow, /\b(?:schedule|push|pull_request):|contents: write|model-a-prospective-collect|PROSPECTIVE_ENABLED|COLLECTION_ENABLED/);
