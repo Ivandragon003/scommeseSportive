@@ -26,9 +26,25 @@ metadati incerti o identità incoerente bloccano l'ammissione.
 Lease e vincoli DB proteggono ulteriormente dalle doppie registrazioni.
 Un recupero dopo errore può ripetere import e richieste: non garantisce zero
 consumi aggiuntivi.
-Un avvio manuale prima delle **03:07 Europe/Rome** viene saltato dal guard,
-anche con gli input di recupero: un run verde con il ciclo saltato non prova
-il ripristino della Nightly.
+Un avvio manuale prima delle **03:07 Europe/Rome** viene normalmente saltato
+dal guard, anche con gli input di recupero: un run verde con il ciclo saltato
+non prova il ripristino della Nightly.
+
+Per un ciclo anticipato esplicitamente richiesto usare l'input manuale
+`allow_early_manual_run=true`, lasciando spenti gli altri recuperi. Il guard
+ammette l'eccezione soltanto per `workflow_dispatch`, conserva i controlli
+su identità, giornata, concorrenza e successi precedenti, ed espone
+`early_manual=true` quando ammette il tentativo prima delle 03:07. In quel
+caso il workflow imposta una finestra di **24 ore**: il default fino alle
+03:07 della stessa notte escluderebbe le partite del pomeriggio.
+
+Il ciclo anticipato è aggiuntivo e non consuma il ciclo ordinario delle
+03:07. Un altro tentativo anticipato dopo un successo viene saltato, così
+come il rerun dello stesso ID già completato. Il ciclo ordinario conserva
+le decisioni completate e può riprendere job `ERROR` senza input definitivo
+o nuove fixture. Import e manutenzione possono ripetersi e consumare risorse;
+l'assenza di giocate duplicate va verificata nel registro, non dedotta dal
+solo successo del workflow.
 
 La finestra A/C parte dall'esecuzione effettiva e termina alla successiva
 Nightly prevista. `RESEARCH_NIGHTLY_WINDOW_HOURS`, se impostata, ammette

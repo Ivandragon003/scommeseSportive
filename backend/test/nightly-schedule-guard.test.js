@@ -87,6 +87,92 @@ test('stale creation dates and pre-primary manual calls cannot consume a later d
   await assert.rejects(fixture({ run: current({ display_title: 'Nightly Sync (0 2 * * *)' }) }).inspect(), /nightly_trigger_invalid/);
 });
 
+const EARLY_NOW = new Date('2026-10-29T23:34:00Z');
+const earlyRun = (extra = {}) => current({ event: 'workflow_dispatch', display_title: 'Nightly Sync (manual)',
+  created_at: '2026-10-29T23:20:00Z', ...extra });
+const earlyJobs = () => [{ status: 'completed', conclusion: 'success', steps: [
+  step({ started_at: '2026-10-29T23:21:00Z', completed_at: '2026-10-29T23:30:00Z' }),
+  step({ name: 'Confirm enabled A/C completion', completed_at: '2026-10-29T23:31:00Z' }),
+] }];
+
+test('an explicit early manual attempt is additive, strict, and checked before any metadata for invalid requests', async () => {
+  for (const allowEarlyManualRun of [true, 'true']) {
+    const result = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun }).inspect();
+    assert.deepEqual(result, { run: true, reason: 'manual_early_run_admitted', day: '2026-10-30',
+      currentRunId: '500', existingRunId: null, earlyManual: true });
+  }
+  for (const allowEarlyManualRun of ['', null, 'TRUE', 'False', '1', 'yes', 1, 0, {}, []]) {
+    const check = fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun });
+    await assert.rejects(check.inspect(), /nightly_early_manual_flag_invalid/);
+    assert.equal(check.calls.length, 0);
+  }
+  for (const event of ['schedule', 'push']) {
+    const check = fixture({ run: current({ event }), allowEarlyManualRun: true });
+    await assert.rejects(check.inspect(), /nightly_early_run_requires_manual/);
+    assert.equal(check.calls.length, 0);
+  }
+  const conflicting = fixture({ run: earlyRun(), allowEarlyManualRun: true, recoverMissingFixtures: true });
+  await assert.rejects(conflicting.inspect(), /nightly_early_recovery_conflict/);
+  assert.equal(conflicting.calls.length, 0);
+  for (const recoverTechnicalFailures of [true, 'true']) {
+    const check = fixture({ run: earlyRun(), allowEarlyManualRun: true, recoverTechnicalFailures });
+    await assert.rejects(check.inspect(), /nightly_early_recovery_conflict/);
+    assert.equal(check.calls.length, 0);
+  }
+  for (const recoverTechnicalFailures of ['', null, 'TRUE', 'False', '1', 1]) {
+    const check = fixture({ run: earlyRun(), recoverTechnicalFailures });
+    await assert.rejects(check.inspect(), /nightly_technical_recovery_flag_invalid/);
+    assert.equal(check.calls.length, 0);
+  }
+  const late = await fixture({ run: manual(), allowEarlyManualRun: true }).inspect();
+  assert.equal(late.run, true); assert.equal(late.earlyManual, undefined);
+});
+
+test('early successes deduplicate early attempts and the same ID, but leave the ordinary daily slot available', async () => {
+  const done = earlyRun({ id: 400, status: 'completed', conclusion: 'success' });
+  const duplicate = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+    other: [done], jobs: { 400: earlyJobs() } }).inspect();
+  assert.equal(duplicate.run, false); assert.equal(duplicate.reason, 'daily_sync_already_succeeded');
+  assert.equal(duplicate.earlyManual, undefined);
+  for (const now of [EARLY_NOW, NOW]) {
+    const same = await fixture({ run: earlyRun(), now, allowEarlyManualRun: true, jobs: { 500: earlyJobs() } }).inspect();
+    assert.equal(same.run, false); assert.equal(same.existingRunId, '500');
+  }
+  for (const run of [current(), manual()]) {
+    const ordinary = await fixture({ run, other: [done], jobs: { 400: earlyJobs() } }).inspect();
+    assert.equal(ordinary.run, true); assert.equal(ordinary.reason, 'daily_sync_admitted');
+    assert.equal(ordinary.earlyManual, undefined);
+  }
+  const ordinaryDone = current({ id: 401, status: 'completed', conclusion: 'success' });
+  const blocked = await fixture({ other: [done, ordinaryDone], jobs: { 400: earlyJobs(), 401: [{ steps: enabledSteps() }] } }).inspect();
+  assert.equal(blocked.run, false); assert.equal(blocked.existingRunId, '401');
+  const queuedUntilPrimary = await fixture({ other: [done], jobs: { 400: [{ steps: enabledSteps() }] } }).inspect();
+  assert.equal(queuedUntilPrimary.run, false); assert.equal(queuedUntilPrimary.existingRunId, '400');
+});
+
+test('early manual admission checks previous-day active executions and never ignores active or malformed early metadata', async () => {
+  for (const created_at of ['2026-10-29T23:25:00Z', '2026-10-29T18:00:00Z']) {
+    const active = earlyRun({ id: 401, created_at });
+    const result = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+      other: [active], jobs: { 401: [{ status: 'in_progress', steps: [] }] } }).inspect();
+    assert.equal(result.run, false); assert.equal(result.reason, 'daily_sync_in_progress');
+    assert.equal(result.existingRunId, '401');
+  }
+  const done = earlyRun({ id: 400, status: 'completed', conclusion: 'success' });
+  const activeJob = await fixture({ other: [done], jobs: { 400: [...earlyJobs(), { status: 'in_progress', steps: [] }] } }).inspect();
+  assert.equal(activeJob.run, false); assert.equal(activeJob.reason, 'daily_sync_in_progress');
+  const malformed = earlyJobs(); malformed[0].steps[1].completed_at = 'invalid';
+  await assert.rejects(fixture({ other: [done], jobs: { 400: malformed } }).inspect(), /github_nightly_response_invalid/);
+  for (const started_at of ['invalid', '2026-10-29T23:00:00Z', '2026-10-30T02:10:00Z']) {
+    const malformedStart = earlyJobs(); malformedStart[0].steps[0].started_at = started_at;
+    await assert.rejects(fixture({ other: [done], jobs: { 400: malformedStart } }).inspect(), /github_nightly_response_invalid/);
+  }
+  await assert.rejects(fixture({ other: [{ ...done, path: '.github/workflows/other.yml' }], jobs: { 400: earlyJobs() } }).inspect(), /github_run_identity_invalid/);
+  const uncertainActive = earlyRun({ id: 401, created_at: '2026-10-29T18:00:00Z', head_branch: 'other' });
+  await assert.rejects(fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+    activeRuns: [uncertainActive] }).inspect(), /github_run_identity_invalid/);
+});
+
 test('API failures and incomplete pagination fail closed without database or provider calls', async () => {
   await assert.rejects(fixture({ fetchImpl: async () => new Response('', { status: 403 }) }).inspect(), /github_nightly_unavailable/);
   const run = current();
@@ -220,6 +306,17 @@ test('workflow gates every maintenance step before npm/build and the shell accep
   assert.equal((workflow.match(/timezone: Europe\/Rome/g) ?? []).length, 3);
   assert.match(workflow, /recover_missing_fixtures:\s+description:[^\r\n]+\s+type: boolean\s+required: false\s+default: false/);
   assert.match(workflow, /RECOVER_MISSING_FIXTURES: \$\{\{ inputs.recover_missing_fixtures \|\| 'false' \}\}/);
+  assert.match(workflow, /allow_early_manual_run:\s+description:[^\r\n]+\s+type: boolean\s+required: false\s+default: false/);
+  assert.match(workflow, /ALLOW_EARLY_MANUAL_RUN: \$\{\{ inputs.allow_early_manual_run \|\| 'false' \}\}/);
+  const syncStep = workflow.split('name: Run nightly sync')[1].split('name: Confirm enabled A/C completion')[0];
+  assert.match(syncStep, /RESEARCH_NIGHTLY_WINDOW_HOURS: \$\{\{ steps\.nightly_guard\.outputs\.early_manual == 'true' && '24' \|\| vars\.RESEARCH_NIGHTLY_WINDOW_HOURS \|\| '' \}\}/);
+  const { loadNightlyPolicy, nextNightlyBoundary } = require('../dist/research/ResearchNightly');
+  const earlyPolicy = loadNightlyPolicy({ RESEARCH_NIGHTLY_ENABLED: 'true', RESEARCH_NIGHTLY_MINUTE: '7', RESEARCH_NIGHTLY_WINDOW_HOURS: '24' });
+  const end = new Date(EARLY_NOW.getTime() + earlyPolicy.windowHours * 3600000);
+  for (const kickoff of ['2026-10-30T15:15:00Z', '2026-10-30T20:00:00Z']) {
+    assert.ok(Date.parse(kickoff) > EARLY_NOW.getTime() && Date.parse(kickoff) <= end.getTime());
+    assert.ok(Date.parse(kickoff) > nextNightlyBoundary(EARLY_NOW, earlyPolicy.hour, earlyPolicy.minute).getTime());
+  }
   assert.match(workflow, /name: Confirm enabled A\/C completion\r?\n {8}if: success\(\) && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true'/);
   assert.ok(workflow.indexOf('name: Confirm enabled A/C completion') > workflow.indexOf('run: bash scripts/ci/nightly-sync.sh'));
   assert.match(workflow, /actions: read/); assert.match(workflow, /cancel-in-progress: false/);
@@ -232,6 +329,8 @@ test('workflow gates every maintenance step before npm/build and the shell accep
   for (const cron of NIGHTLY_CRONS) {
     const result = spawnSync(bash, ['scripts/ci/nightly-sync.sh'], { cwd: root, encoding: 'utf8',
       env: { ...process.env, GITHUB_EVENT_NAME: 'schedule', SCHEDULE_CRON: cron, NIGHTLY_GUARD_PASSED: 'true',
+        // Git Bash on Windows may lack IANA zoneinfo; this POSIX rule matches Rome.
+        SYNC_TIMEZONE: process.platform === 'win32' ? 'CET-1CEST,M3.5.0/2,M10.5.0/3' : 'Europe/Rome',
         NIGHTLY_GUARD_DAY: romeDay(new Date()), TURSO_DATABASE_URL: '', TURSO_AUTH_TOKEN: '' } });
     assert.equal(result.status, 1); assert.match(result.stdout, /Missing required environment variable: TURSO_DATABASE_URL/);
     assert.doesNotMatch(result.stdout, /Starting backend|Unsupported nightly trigger/);

@@ -12,6 +12,11 @@ on:
       timezone: Europe/Rome
   workflow_dispatch:
     inputs:
+      allow_early_manual_run:
+        description: Avvia prima delle 03:07 una manutenzione aggiuntiva con finestra di 24 ore
+        type: boolean
+        required: false
+        default: false
       recover_missing_fixtures:
         description: Recupera solo fixture mancanti dopo un A/C riuscito oggi; manutenzione ripetibile
         type: boolean
@@ -51,6 +56,7 @@ jobs:
       # Preserve the originating timezone-aware trigger even after queue delay.
       SCHEDULE_CRON: ${{ github.event.schedule }}
       RECOVER_MISSING_FIXTURES: ${{ inputs.recover_missing_fixtures || 'false' }}
+      ALLOW_EARLY_MANUAL_RUN: ${{ inputs.allow_early_manual_run || 'false' }}
       PORT: '3001'
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
@@ -131,6 +137,7 @@ jobs:
         env:
           NIGHTLY_GUARD_PASSED: 'true'
           NIGHTLY_GUARD_DAY: ${{ steps.nightly_guard.outputs.day }}
+          RESEARCH_NIGHTLY_WINDOW_HOURS: ${{ steps.nightly_guard.outputs.early_manual == 'true' && '24' || vars.RESEARCH_NIGHTLY_WINDOW_HOURS || '' }}
         run: bash scripts/ci/nightly-sync.sh
 
       - name: Confirm enabled A/C completion

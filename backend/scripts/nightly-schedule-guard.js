@@ -75,30 +75,41 @@ function githubReader({ token, repository, fetchImpl = fetch }) {
 }
 
 async function guardNightly({ now = new Date(), token, repository, runId, eventName, scheduleCron,
-  recoverMissingFixtures = false, fetchImpl = fetch }) {
+  recoverMissingFixtures = false, recoverTechnicalFailures = false, allowEarlyManualRun = false, fetchImpl = fetch }) {
   if (![true, false, 'true', 'false'].includes(recoverMissingFixtures)) throw new Error('nightly_recovery_flag_invalid');
+  if (![true, false, 'true', 'false'].includes(recoverTechnicalFailures)) throw new Error('nightly_technical_recovery_flag_invalid');
+  if (![true, false, 'true', 'false'].includes(allowEarlyManualRun)) throw new Error('nightly_early_manual_flag_invalid');
   const recovery = recoverMissingFixtures === true || recoverMissingFixtures === 'true';
+  const allowEarly = allowEarlyManualRun === true || allowEarlyManualRun === 'true';
+  const technicalRecovery = recoverTechnicalFailures === true || recoverTechnicalFailures === 'true';
   if (recovery && eventName !== 'workflow_dispatch') throw new Error('nightly_recovery_requires_manual');
+  if (allowEarly && eventName !== 'workflow_dispatch') throw new Error('nightly_early_run_requires_manual');
+  if (allowEarly && (recovery || technicalRecovery)) throw new Error('nightly_early_recovery_conflict');
   const api = githubReader({ token, repository, fetchImpl });
   const current = await api.run(runId);
   if (String(current.id) !== String(runId) || current.head_branch !== 'main' || current.event !== eventName
     || current.path?.split('@')[0] !== '.github/workflows/nightly-sync.yml' || !validTime(current.created_at)
     || Date.parse(current.created_at) > now.getTime()) throw new Error('github_run_identity_invalid');
   const day = romeDay(current.created_at);
-  const result = (run, reason, existingRunId = null) => ({ run, reason, day, currentRunId: String(runId), existingRunId });
+  const primaryAt = romeTime(day, 3, 7);
+  const earlyManual = allowEarly && now < primaryAt;
+  const result = (run, reason, existingRunId = null) => ({ run, reason, day, currentRunId: String(runId), existingRunId,
+    ...(run && earlyManual ? { earlyManual: true } : {}) });
   if (day !== romeDay(now)) return result(false, 'stale_created_day');
   if (!['schedule', 'workflow_dispatch'].includes(eventName)) throw new Error('nightly_trigger_invalid');
   if (eventName === 'schedule' && (!NIGHTLY_CRONS.includes(scheduleCron)
     || current.display_title !== `Nightly Sync (${scheduleCron})`)) throw new Error('nightly_trigger_invalid');
-  // A pre-03:07 manual run would otherwise consume today's single execution
-  // while the model window still ends at today's configured boundary.
-  if (now < romeTime(day, 3, 7)) return result(false, 'before_primary_schedule');
+  // An explicitly admitted early manual run uses its own 24-hour window and
+  // remains additional to the ordinary 03:07 execution.
+  if (now < primaryAt && !earlyManual) return result(false, 'before_primary_schedule');
   const runs = await api.runs(romeTime(day, 0).toISOString());
   const candidates = runs.filter((run) => supportedRun(run, now) && romeDay(run.created_at) === day);
   if (candidates.length > 12) throw new Error('github_nightly_history_incomplete');
   let completedSuccessId = null;
   // Check the current ID too: a rerun must see successful steps of older attempts.
   for (const run of [current, ...candidates.filter((run) => String(run.id) !== String(runId))]) {
+    if (!/^\d{1,30}$/.test(String(run.id)) || run.head_branch !== 'main'
+      || run.path?.split('@')[0] !== '.github/workflows/nightly-sync.yml') throw new Error('github_run_identity_invalid');
     const jobs = await api.jobs(run.id);
     if (run.status === 'completed' && run.conclusion === 'success'
       && (!jobs.length || jobs.some((job) => !Array.isArray(job.steps)))) throw new Error('github_nightly_history_incomplete');
@@ -113,23 +124,34 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
           && step.status === 'completed' && step.conclusion === 'success' && validTime(step.completed_at)
           && Date.parse(step.completed_at) <= Date.parse(marker.completed_at))) throw new Error('github_nightly_response_invalid');
     }
-    if (successfulSync(jobs, day, now)) {
-      // Rerunning the same successful ID cannot discover new jobs in its completed DB batch.
-      if (!recovery || String(run.id) === String(runId)) return result(false, 'daily_sync_already_succeeded', String(run.id));
-      if (String(run.id) !== String(runId) && run.status === 'completed' && run.conclusion === 'success'
+    const manualCreatedEarly = run.event === 'workflow_dispatch' && Date.parse(run.created_at) < primaryAt.getTime();
+    const syncSucceeded = successfulSync(jobs, day, now);
+    if (manualCreatedEarly && syncSucceeded && successSteps.some((step) => !validTime(step.started_at)
+      || Date.parse(step.started_at) < Date.parse(run.created_at) || Date.parse(step.started_at) > Date.parse(step.completed_at))) {
+      throw new Error('github_nightly_response_invalid');
+    }
+    const additionalEarlyRun = !earlyManual && manualCreatedEarly && jobs.some((job) => successfulSync([job], day, now)
+      && job.steps.some((step) => step.name === SYNC_STEP && step.status === 'completed' && step.conclusion === 'success'
+        && Date.parse(step.started_at) < primaryAt.getTime()));
+    if (syncSucceeded) {
+      // A successful ID is never replayed. Earlier manual attempts do not
+      // consume the ordinary daily slot if their sync actually started early.
+      const sameRun = String(run.id) === String(runId);
+      if (sameRun || (!recovery && !additionalEarlyRun)) return result(false, 'daily_sync_already_succeeded', String(run.id));
+      if (!additionalEarlyRun && !sameRun && run.status === 'completed' && run.conclusion === 'success'
         && successfulSync(jobs.filter((job) => job.status === 'completed' && job.conclusion === 'success'), day, now)) {
         completedSuccessId ??= String(run.id);
       }
     }
-    if (recovery && String(run.id) !== String(runId)
+    if ((recovery || earlyManual || manualCreatedEarly) && String(run.id) !== String(runId)
       && (run.status === 'in_progress' || jobs.some((job) => job.status === 'in_progress'))) {
       return result(false, 'daily_sync_in_progress', String(run.id));
     }
     if (String(run.id) !== String(runId) && run.status === 'in_progress'
       && jobs.some((job) => job.status === 'in_progress')) return result(false, 'daily_sync_in_progress', String(run.id));
   }
-  if (recovery) {
-    if (!completedSuccessId) return result(false, 'manual_recovery_requires_daily_success');
+  if (recovery || earlyManual) {
+    if (recovery && !completedSuccessId) return result(false, 'manual_recovery_requires_daily_success');
     // Include active runs created on earlier days, without trusting the daily history filter.
     const active = await api.activeRuns();
     if (active.length > 12) throw new Error('github_nightly_history_incomplete');
@@ -140,7 +162,7 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
         || !/^\d{1,30}$/.test(String(run.id))) throw new Error('github_run_identity_invalid');
       return result(false, 'daily_sync_in_progress', String(run.id));
     }
-    return result(true, 'manual_missing_fixtures_recovery', completedSuccessId);
+    return result(true, earlyManual ? 'manual_early_run_admitted' : 'manual_missing_fixtures_recovery', completedSuccessId);
   }
   return result(true, 'daily_sync_admitted');
 }
@@ -148,9 +170,10 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
 async function main() {
   const result = await guardNightly({ token: process.env.GITHUB_TOKEN, repository: process.env.GITHUB_REPOSITORY,
     runId: process.env.GITHUB_RUN_ID, eventName: process.env.GITHUB_EVENT_NAME, scheduleCron: process.env.SCHEDULE_CRON,
-    recoverMissingFixtures: process.env.RECOVER_MISSING_FIXTURES });
+    recoverMissingFixtures: process.env.RECOVER_MISSING_FIXTURES,
+    recoverTechnicalFailures: process.env.RESEARCH_NIGHTLY_RECOVER_TECHNICAL, allowEarlyManualRun: process.env.ALLOW_EARLY_MANUAL_RUN });
   if (!process.env.GITHUB_OUTPUT) throw new Error('github_output_missing');
-  appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nday=${result.day}\nreason=${result.reason}\n`);
+  appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nday=${result.day}\nreason=${result.reason}\nearly_manual=${result.earlyManual === true}\n`);
   console.log(JSON.stringify(result));
 }
 
