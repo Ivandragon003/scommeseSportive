@@ -688,6 +688,20 @@ prima del download delle predizioni e conserva i dettagli necessari ai mercati
 giocatore; continua oltre le partite non liquidabili. Il limite di manutenzione
 riguarda soltanto quell'archivio e non limita le nuove selezioni paper.
 
+Il salvataggio dei nuovi job paper ordinari raggruppa le letture e gli INSERT
+con `Transaction.batch` nella stessa transazione, mantenendo validatori,
+deduplicazione e controlli finali su lease, kickoff e freschezza delle quote.
+Un errore annulla l'intero gruppo. Questo riduce i passaggi HTTP delle
+[transazioni interattive libSQL](https://docs.turso.tech/sdk/ts/reference#interactive-transactions),
+per cui Turso documenta un timeout di cinque secondi; non aumenta quel limite
+e non impone un massimo alle selezioni. Replay già completati, recuperi tecnici
+e policy precedenti conservano il percorso originale: il batching ordinario
+non ne dimostra le prestazioni su grandi volumi.
+
+Gli errori globali riportano `failedStage` e, quando riconosciuto da una
+whitelist, `failureCode`. Il riepilogo conserva l'esito negativo e il cleanup;
+messaggi grezzi, query e credenziali non vengono inclusi nella diagnostica.
+
 Il riepilogo in-app della giornata precedente è preparato dopo reconcile
 con contabilità stabile e reso visibile dalle 09:00 Europe/Rome.
 Il GET non lo crea e non invia email: verificare la riga effettivamente

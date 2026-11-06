@@ -365,7 +365,7 @@ export class ResearchRecommendationStore {
 
   private async commitPaperDecision(tx: Executor, plan: {
     item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any;
-  }): Promise<{ decision: any; bets: any[]; quotes: any[] }> {
+  }, hasSharedQuote: (quote: any) => boolean): Promise<{ decision: any; bets: any[]; quotes: any[] }> {
     const { item, job, inputId, decision, policy } = plan, portfolioId = `shadow_${decision.family}`;
     const observed = Date.parse(item.inputSnapshot.observedAt), at = this.clock().getTime();
     let reason: string | null = decision.action === 'ABSTAIN' ? decision.reason ?? 'model_abstained' : decision.reason ?? null;
@@ -399,7 +399,7 @@ export class ResearchRecommendationStore {
       if (!Number.isFinite(child.probability) || child.probability <= 0 || child.probability >= 1
         || !Number.isFinite(child.ev) || child.ev <= 0) reject('positive_finite_recommendation_required');
       if (decision.family === 'A' && !['HIGH', 'MEDIUM', 'LOW'].includes(child.confidence ?? decision.confidence ?? '')) reject('recommendation_confidence_required');
-      if (!item.inputSnapshot.quotes.some((shared: any) => researchHash(shared) === researchHash(quote))) reject('quote_not_in_shared_snapshot');
+      if (!hasSharedQuote(quote)) reject('quote_not_in_shared_snapshot');
       // The disabled market categories remain excluded, even if a caller fabricates a candidate.
       if (typeof child.market !== 'string' || ['corners', 'fouls', 'correct_score', 'exact_score'].includes(child.market)
         || child.market.startsWith('player_')) reject('market_not_allowed_for_virtual_execution');
@@ -448,12 +448,74 @@ export class ResearchRecommendationStore {
     return { decision: { id, ...evidence, createdAt }, bets, quotes: action === 'BET' ? selected.map(child => child.quote) : [] };
   }
 
+  /** Batch the reads and writes of new ordinary paper jobs while retaining the same validators. */
+  private async preparePaperBatch(tx: Transaction, prepared: RecommendationCommit[]): Promise<{ executor: Executor; flush: () => Promise<void> } | null> {
+    type Statement = { sql: string; args: any[] };
+    const key = (statement: Statement) => JSON.stringify([statement.sql, statement.args]);
+    const cache = new Map<string, any>();
+    const fetch = async (statements: Statement[]) => {
+      const missing = [...new Map(statements.filter((s) => !cache.has(key(s))).map((s) => [key(s), s])).values()];
+      if (!missing.length) return;
+      const results = await tx.batch(missing);
+      missing.forEach((statement, index) => cache.set(key(statement), results[index]));
+    };
+    const jobQuery = (id: string): Statement => ({ sql: 'SELECT * FROM research_execution_jobs WHERE id=?', args: [id] });
+    const fixtureSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'", args: [] };
+    await fetch([fixtureSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
+    const jobs = prepared.map((item) => object(cache.get(key(jobQuery(item.jobId))).rows[0]));
+    // Completed jobs and recovery policies retain the existing immutable-replay path.
+    if (jobs.some((job) => !job || job.status === 'COMPLETED')) return null;
+    const policyQuery = (hash: string): Statement => ({ sql: 'SELECT * FROM research_execution_policies WHERE hash=?', args: [hash] });
+    await fetch(jobs.map((job) => policyQuery(job.policyHash)));
+    const policies = jobs.map((job) => object(cache.get(key(policyQuery(job.policyHash))).rows[0]));
+    if (policies.some((policy) => !policy || !isPaperPolicy(policy.descriptor)
+      || Object.prototype.hasOwnProperty.call(policy.descriptor, 'recovery'))) return null;
+    const hasFixtures = cache.get(key(fixtureSchema)).rows.length > 0;
+    const statements: Statement[] = [];
+    prepared.forEach((item, index) => {
+      const job = jobs[index];
+      statements.push({ sql: 'SELECT i.id,j.match_id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?', args: [item.originInputId] });
+      if (hasFixtures) statements.push({ sql: 'SELECT date,home_goals,away_goals FROM matches WHERE match_id=?', args: [job.matchId] });
+      for (const decision of item.decisions) {
+        statements.push({ sql: 'SELECT id,input_id,family,portfolio_id FROM research_decisions WHERE id=?', args: [decision.originDecisionId] });
+        statements.push({ sql: 'SELECT family,version,created_at FROM research_models WHERE family=? AND version=?', args: [decision.family, decision.modelVersion] });
+        if (Array.isArray(decision.selections)) for (const child of decision.selections) {
+          if (!child || typeof child.market !== 'string' || typeof child.selectionKey !== 'string') continue;
+          if (decision.family === 'C') statements.push({ sql: 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', args: [decision.family, decision.modelVersion, child.market] });
+          statements.push({ sql: 'SELECT id FROM paper_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [decision.family, job.matchId, child.selectionKey] });
+        }
+      }
+    });
+    await fetch(statements);
+    const writes: Statement[] = [];
+    const executor = { execute: async (statement: Statement) => {
+      const normalized = { sql: statement.sql, args: statement.args ?? [] };
+      if (/^\s*(INSERT|UPDATE)\b/i.test(normalized.sql)) {
+        writes.push(normalized);
+        if (/^\s*INSERT INTO paper_model_bets\b/i.test(normalized.sql)) {
+          const args = normalized.args;
+          cache.set(key({ sql: 'SELECT id FROM paper_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[5], args[6], args[10]] }), { rows: [{ id: args[0] }] });
+        } else if (/^\s*UPDATE research_execution_jobs SET status='COMPLETED'/i.test(normalized.sql)) {
+          const query = jobQuery(normalized.args[1]), result = cache.get(key(query));
+          cache.set(key(query), { ...result, rows: [{ ...result.rows[0], status: 'COMPLETED', updated_at: normalized.args[0] }] });
+        }
+        return { rows: [], rowsAffected: 1, columns: [], columnTypes: [], lastInsertRowid: undefined };
+      }
+      const result = cache.get(key(normalized));
+      if (!result) throw new Error('Paper batch attempted an unplanned read');
+      return result;
+    } } as Executor;
+    return { executor, flush: async () => { if (writes.length) await tx.batch(writes); } };
+  }
+
   async commitBatch(prepared: RecommendationCommit[], now: string | Date = this.clock()): Promise<any> {
     iso(now); if (!prepared.length) return { decisions: [], bets: [], jobs: [] };
     if (new Set(prepared.map((item) => item.jobId)).size !== prepared.length) throw new Error('Duplicate execution job in batch');
     await this.ensureGuards();
     const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily }> = [];
-    return this.research.runResearchTransaction(async (tx) => {
+    return this.research.runResearchTransaction(async (transaction) => {
+      const bulk = await this.preparePaperBatch(transaction, prepared);
+      const tx: Executor = bulk?.executor ?? transaction;
       const decisions: any[] = [], bets: any[] = [], completedJobs: any[] = [];
       const plans: Array<{ item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any }> = [];
       const recoveryContexts = new Map<string, any>();
@@ -501,6 +563,7 @@ export class ResearchRecommendationStore {
       plans.sort((a, b) => a.decision.family.localeCompare(b.decision.family)
         || Number(b.decision.score ?? b.decision.ev ?? 0) - Number(a.decision.score ?? a.decision.ev ?? 0) || a.job.matchId.localeCompare(b.job.matchId));
       const equityBasis = new Map<string, number>();
+      const paperQuoteChecks = new Map<RecommendationCommit, (quote: any) => boolean>();
       for (const plan of plans) {
         const { item, job, decision } = plan, at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
         const portfolioId = `shadow_${decision.family}`;
@@ -508,7 +571,20 @@ export class ResearchRecommendationStore {
         const origin = await first(tx, 'SELECT id,input_id,family,portfolio_id FROM research_decisions WHERE id=?', [decision.originDecisionId]);
         if (!origin || origin.inputId !== item.originInputId || origin.family !== decision.family || origin.portfolioId !== portfolioId) throw new Error('Execution origin decision mismatch');
         if (isPaperPolicy(plan.policy.descriptor)) {
-          const paper = await this.commitPaperDecision(tx, plan);
+          if (!paperQuoteChecks.has(item)) {
+            const hashes = new Set<string>(); let next = 0;
+            paperQuoteChecks.set(item, (quote: any) => {
+              if (!item.inputSnapshot.quotes.length) return false;
+              const target = researchHash(quote);
+              if (hashes.has(target)) return true;
+              while (next < item.inputSnapshot.quotes.length) {
+                const hash = researchHash(item.inputSnapshot.quotes[next++]);
+                hashes.add(hash); if (hash === target) return true;
+              }
+              return false;
+            });
+          }
+          const paper = await this.commitPaperDecision(tx, plan, paperQuoteChecks.get(item)!);
           decisions.push(paper.decision); bets.push(...paper.bets);
           for (const quote of paper.quotes) finalChecks.push({ job, token: item.leaseToken, quote, observed: Date.parse(item.inputSnapshot.observedAt), family: decision.family });
           continue;
@@ -580,6 +656,7 @@ export class ResearchRecommendationStore {
         await tx.execute({ sql: "UPDATE research_execution_jobs SET status='COMPLETED',updated_at=? WHERE id=?", args: [iso(this.clock()), jobId] });
         completedJobs.push(await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [jobId]));
       }
+      await bulk?.flush();
       return { decisions, bets, jobs: completedJobs };
     }, () => {
       for (const entry of finalChecks) {

@@ -91,6 +91,16 @@ async function fixture(t, options = {}) {
 const execute = (f, extra = {}) => runRecommendationNightly(f.db, { policy: policy(), clock: f.clock,
   runId: 'github-actions:fixture', diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, ...extra });
 
+for (const code of ['TRANSACTION_CLOSED', 'private-token']) test(`commit failure classification preserves only allowed codes: ${code}`, async (t) => {
+  const f = await fixture(t);
+  f.recommendations.commitBatch = async () => { throw Object.assign(new Error('private URL and SQL'), { code }); };
+  const result = await execute(f);
+  assert.equal(result.failedStage, 'commit');
+  assert.equal(result.failureCode, code === 'TRANSACTION_CLOSED' ? code : undefined);
+  assert.equal(result.reasonCounts.recommendation_execution_failed, 1);
+  assert.ok(!JSON.stringify(f.runs).includes('private'));
+});
+
 async function paperFixture(f) {
   await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/028_paper_model_bets.sql'), 'utf8'));
   const prepare = f.runtime.prepare;

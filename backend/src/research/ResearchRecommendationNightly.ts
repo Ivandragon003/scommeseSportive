@@ -18,6 +18,8 @@ export type RecommendationNightlySummary = NightlySummary & {
   protocol: string; policyHash: string; diagnosticRunId: string | null; decisionCount: number;
   challengerAdoptionErrors?: number; challengerCollectionErrors?: number; deploymentC?: ChallengerExecutionState;
   retryableMatches?: number;
+  failedStage?: 'setup_or_preparation' | 'commit';
+  failureCode?: 'TRANSACTION_CLOSED' | 'SQLITE_BUSY' | 'SQLITE_CONSTRAINT' | 'SERVER_ERROR';
   recoveryOf?: string; recoveryTargetCount?: number;
 };
 const RETRYABLE_ODDS_REASONS = new Set(['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed']);
@@ -105,6 +107,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
   };
   let runtime = options.runtime, renewal: Promise<void> | undefined, timer: ReturnType<typeof setInterval> | undefined;
   let leaseLost = false;
+  let failedStage: RecommendationNightlySummary['failedStage'] = 'setup_or_preparation';
   const outstanding = new Map<string, RecommendationJob>();
   const finish = async (job: RecommendationJob, status: 'SKIPPED' | 'ERROR', code: string) => {
     await db.recommendations.finishJob(job.id, job.leaseToken, { status, reason: code });
@@ -263,11 +266,17 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     await renew();
     if (leaseLost) throw new Error('recommendation_lease_lost');
     // The store rechecks time, shared prices, identity and policy-specific admission in the transaction.
+    failedStage = 'commit';
     await db.recommendations.commitBatch(prepared, clock());
+    failedStage = 'setup_or_preparation';
     outstanding.clear();
     summary.quota = runtime?.getQuotaStatus() ?? summary.quota;
-  } catch {
+  } catch (error: any) {
     summary.errors++; reason('recommendation_execution_failed');
+    summary.failedStage = failedStage;
+    if (['TRANSACTION_CLOSED', 'SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'SERVER_ERROR'].includes(error?.code)) {
+      summary.failureCode = error.code;
+    }
   } finally {
     if (timer) clearInterval(timer);
     await renewal;
