@@ -7,7 +7,7 @@ const {
   TOP_5_BACKTEST_KEY,
   TOP_5_COMPETITIONS,
   buildTop5BacktestAggregate,
-} = require('../dist/services/PredictionService.js');
+} = require(`${process.env.PREDICTION_TEST_BUILD ?? '../dist'}/services/PredictionService.js`);
 
 test('should not promote to MEDIUM when calibration sample size is unknown (regression: high-odds market with null sample)', () => {
   const gated = applyCalibrationSampleGate({
@@ -243,6 +243,7 @@ test('settles archived predictions for completed matches, including non-bets', a
     { prediction_id: 'pred-open', match_id: 'match-open', selection: 'homeWin' },
   ];
   const db = {
+    getPendingPredictionMatchIdsForCompletedMatches: async () => ['match-finished'],
     getPendingPredictionsForCompletedMatches: async () => pending.filter(row => row.match_id === 'match-finished'),
     getMatchById: async (matchId) => matchId === 'match-finished'
       ? { match_id: matchId, home_goals: 2, away_goals: 1 }

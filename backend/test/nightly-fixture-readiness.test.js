@@ -17,7 +17,11 @@ test('adapter binds source fixture, persisted teams and fit, and fails closed on
   const feed = { source: 'football-data.org', status: 'blocked', mappingSha256, payloadSha256: 'b'.repeat(64),
     attemptedAt: asOf, acquiredAt: asOf, reason: null, fixtures: [ { providerMatchId: '10', localMatchId: row.match_id, action: 'NO_CHANGE', reason: null,
       providerStatus: 'TIMED', homeTeamId: 'home', awayTeamId: 'away', kickoffUtc: row.date } ] };
-  const db = { getMatchById: async () => row, getMatches: async () => [], getTeamsByIds: async () => [
+  const db = { getMatchById: async () => row, getMatches: async (filters) => {
+    // The remote transport rejects the full provider payload; normalized columns remain available.
+    assert.notEqual(filters?.includeRawJson, true, 'readiness must not download provider payloads');
+    return [];
+  }, getTeamsByIds: async () => [
     { team_id: 'home', avg_home_xg: 1.5 }, { team_id: 'away', avg_away_xg: 1.1 } ],
   getLatestModelParams: async () => ({ fitted_at: '2026-11-05T12:00:00Z', training_matches: 20,
     params: { attackParams: { home: 0, away: 0 }, defenceParams: { home: 0, away: 0 }, homeAdvantage: 0.2, rho: -0.1, tau: 0.01,

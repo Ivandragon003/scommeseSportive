@@ -5434,13 +5434,31 @@ export class DatabaseService {
     return this.all(`SELECT * FROM predictions WHERE result = 'pending' ORDER BY created_at ASC`);
   }
 
-  /** Missing results never enter the local audit settlement queue. */
-  async getPendingPredictionsForCompletedMatches(): Promise<any[]> {
-    return this.all(`
-      SELECT p.* FROM predictions p JOIN matches m ON m.match_id = p.match_id
-      WHERE p.result = 'pending' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
-      ORDER BY p.created_at, p.prediction_id
+  /** Keep the audit queue compact, ordered by each match's first pending prediction. */
+  async getPendingPredictionMatchIdsForCompletedMatches(): Promise<string[]> {
+    const rows = await this.all(`
+      WITH pending_matches AS (
+        SELECT p.match_id, p.created_at, p.prediction_id,
+          ROW_NUMBER() OVER (PARTITION BY p.match_id ORDER BY p.created_at, p.prediction_id) AS pending_rank
+        FROM predictions p JOIN matches m ON m.match_id = p.match_id
+        WHERE p.result = 'pending' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+      )
+      SELECT match_id FROM pending_matches WHERE pending_rank = 1 ORDER BY created_at, prediction_id
     `);
+    return rows.map((row) => String(row.match_id ?? '').trim()).filter(Boolean);
+  }
+
+  /** Download only the fields used by audit settlement, optionally for one match batch. */
+  async getPendingPredictionsForCompletedMatches(matchIds?: string[]): Promise<any[]> {
+    const ids = matchIds && [...new Set(matchIds.map((id) => String(id).trim()).filter(Boolean))];
+    if (ids && ids.length === 0) return [];
+    return this.all(`
+      SELECT p.prediction_id, p.match_id, p.selection
+      FROM predictions p JOIN matches m ON m.match_id = p.match_id
+      WHERE p.result = 'pending' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+        ${ids ? `AND p.match_id IN (${ids.map(() => '?').join(', ')})` : ''}
+      ORDER BY p.created_at, p.prediction_id
+    `, ids);
   }
 
   async getPendingBetOpportunityPredictions(): Promise<any[]> {

@@ -95,7 +95,8 @@ export async function loadNightlyFixtureReadiness(db: Db, manifest: NightlySourc
   const marketNames: AdmissionMarket[] = ['goal', 'shots', 'shots_on_target', 'yellow_cards', 'booking_points', 'player_props'];
   const marketCalibration = Object.fromEntries(marketNames.map(market => [market, ev(calibrationGood, 'a_calibration_preflight_miss')]));
 
-  const allRows = await db.getMatches({ includeRawJson: true });
+  // Admission and model inputs use normalized columns, never the large provider payloads.
+  const allRows = await db.getMatches();
   const availableRows = allRows.filter(m => m.match_id !== row.match_id && m.competition === row.competition
     && Number.isFinite(Date.parse(m.date)) && Date.parse(m.date) + HISTORICAL_RESULT_DELAY_MS <= now
     && Number.isSafeInteger(m.home_goals) && m.home_goals >= 0 && Number.isSafeInteger(m.away_goals) && m.away_goals >= 0);

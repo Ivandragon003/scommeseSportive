@@ -4250,36 +4250,38 @@ export class PredictionService {
   async settlePendingPredictionsForCompletedMatches(limit = 500): Promise<{ matches: number; settled: number; unresolved: number }> {
     if (!Number.isFinite(limit)) throw new Error('Invalid completed prediction match limit');
     const maximumSettledMatches = Math.max(1, Math.trunc(limit));
-    const pending = await this.db.getPendingPredictionsForCompletedMatches();
-    const matchIds = Array.from(new Set(
-      pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)
-    ));
-    const pendingByMatch = new Map<string, any[]>();
-    for (const row of pending) {
-      const matchId = String(row.match_id ?? '').trim();
-      if (!matchId) continue;
-      const rows = pendingByMatch.get(matchId) ?? [];
-      rows.push(row);
-      pendingByMatch.set(matchId, rows);
-    }
-    const matchRows = typeof (this.db as any).getMatchesByIds === 'function'
-      ? await (this.db as any).getMatchesByIds(matchIds)
-      : await Promise.all(matchIds.map((matchId) => this.db.getMatchById(matchId)));
-    const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));
+    const matchIds = await this.db.getPendingPredictionMatchIdsForCompletedMatches();
+    const batchSize = Math.min(25, maximumSettledMatches);
     let matches = 0;
     let settled = 0;
     let unresolved = 0;
     let settledMatches = 0;
 
-    for (const matchId of matchIds) {
-      const matchRow = matchesById.get(matchId);
-      if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
-      const result = await this.settlePredictionRowsForMatch(pendingByMatch.get(matchId) ?? [], matchRow);
-      matches++;
-      settled += result.settled;
-      unresolved += result.unresolved;
-      // Missing per-market observations stay pending without starving later matches.
-      if (result.settled > 0 && ++settledMatches >= maximumSettledMatches) break;
+    for (let offset = 0; offset < matchIds.length; offset += batchSize) {
+      const batchIds = matchIds.slice(offset, offset + batchSize);
+      const pending = await this.db.getPendingPredictionsForCompletedMatches(batchIds);
+      const pendingByMatch = new Map<string, any[]>();
+      for (const row of pending) {
+        const matchId = String(row.match_id ?? '').trim();
+        const rows = pendingByMatch.get(matchId) ?? [];
+        rows.push(row);
+        pendingByMatch.set(matchId, rows);
+      }
+      // Player props require raw_json; retain full observations only for this small batch.
+      const matchRows = typeof (this.db as any).getMatchesByIds === 'function'
+        ? await (this.db as any).getMatchesByIds(batchIds)
+        : await Promise.all(batchIds.map((matchId) => this.db.getMatchById(matchId)));
+      const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));
+      for (const matchId of batchIds) {
+        const matchRow = matchesById.get(matchId);
+        if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;
+        const result = await this.settlePredictionRowsForMatch(pendingByMatch.get(matchId) ?? [], matchRow);
+        matches++;
+        settled += result.settled;
+        unresolved += result.unresolved;
+        // Missing per-market observations stay pending without starving later batches.
+        if (result.settled > 0 && ++settledMatches >= maximumSettledMatches) return { matches, settled, unresolved };
+      }
     }
 
     return { matches, settled, unresolved };

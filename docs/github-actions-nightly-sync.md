@@ -680,6 +680,14 @@ una corretta astensione: verificare decisioni, motivi, quote, ledger e
 liquidazioni, senza forzare una puntata. Una Nightly riuscita non dimostra
 redditività o completamento futuro del ciclo sportivo.
 
+Il controllo di ammissibilità legge lo storico con le colonne statistiche
+normalizzate, senza scaricare i payload `raw_json` dei provider: questi non
+sono input dei controlli A/C. Le informazioni originali restano conservate nel
+database. La liquidazione dell'archivio tecnico usa invece batch di partite
+prima del download delle predizioni e conserva i dettagli necessari ai mercati
+giocatore; continua oltre le partite non liquidabili. Il limite di manutenzione
+riguarda soltanto quell'archivio e non limita le nuove selezioni paper.
+
 Il riepilogo in-app della giornata precedente è preparato dopo reconcile
 con contabilità stabile e reso visibile dalle 09:00 Europe/Rome.
 Il GET non lo crea e non invia email: verificare la riga effettivamente
