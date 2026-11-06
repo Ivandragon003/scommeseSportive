@@ -179,4 +179,3 @@ test('mixed completed and new paper jobs replay only their own recorded bets', a
     assert.equal((await f.recommendations.listPaperBets()).length, 8);
   } finally { await f.close(); }
 });
-
