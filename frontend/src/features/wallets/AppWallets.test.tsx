@@ -1,8 +1,8 @@
 import { selectOption } from '../../testSelect';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import BetsManager from '../../pages/BetsManager';
-import BudgetManager from '../../pages/BudgetManager';
+import { FundedBetsManager as BetsManager } from '../../pages/BetsManager';
+import { FundedWalletBudgetPage as BudgetManager } from './WalletPages';
 import * as legacyApi from '../../utils/api';
 import { getAppWallets, getWalletArchive } from '../../utils/walletApi';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';

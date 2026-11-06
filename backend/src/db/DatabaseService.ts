@@ -3059,7 +3059,7 @@ export class DatabaseService {
     };
   }
 
-  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; nowIso?: string; untilIso?: string; includeStartedWithoutResult?: boolean }): Promise<any[]> {
+  async getUpcomingMatches(filters?: { competition?: string; season?: string; limit?: number; unbounded?: boolean; nowIso?: string; untilIso?: string; includeStartedWithoutResult?: boolean }): Promise<any[]> {
     const parsedNow = Date.parse(String(filters?.nowIso ?? ''));
     const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -3111,8 +3111,8 @@ export class DatabaseService {
       ? Math.max(1, Math.min(Math.trunc(requestedLimit), 1000))
       : 380;
     const queryLimit = Math.max(safeLimit, Math.min(safeLimit * 4, 2000));
-    q += ' ORDER BY date ASC LIMIT ?';
-    params.push(queryLimit);
+    q += ' ORDER BY date ASC';
+    if (!filters?.unbounded) { q += ' LIMIT ?'; params.push(queryLimit); }
 
     const rows = await this.all(q, params);
     return rows
@@ -3124,7 +3124,7 @@ export class DatabaseService {
         && row?.away_goals === null
       )
       .sort((left, right) => left.timestamp - right.timestamp)
-      .slice(0, safeLimit)
+      .slice(0, filters?.unbounded ? undefined : safeLimit)
       .map(({ row }) => row);
   }
 
@@ -5432,6 +5432,15 @@ export class DatabaseService {
       );
     }
     return this.all(`SELECT * FROM predictions WHERE result = 'pending' ORDER BY created_at ASC`);
+  }
+
+  /** Missing results never enter the local audit settlement queue. */
+  async getPendingPredictionsForCompletedMatches(): Promise<any[]> {
+    return this.all(`
+      SELECT p.* FROM predictions p JOIN matches m ON m.match_id = p.match_id
+      WHERE p.result = 'pending' AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+      ORDER BY p.created_at, p.prediction_id
+    `);
   }
 
   async getPendingBetOpportunityPredictions(): Promise<any[]> {

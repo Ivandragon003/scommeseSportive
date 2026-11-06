@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { ResearchStore, researchHash, researchJson, ResearchFamily } from './ResearchStore';
 import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported } from './AppRecommendationQuotes';
+import { isPaperPolicy, listPaperBetViews, PaperReadOptions, PaperSelection, PAPER_ACCOUNTING_MODE, PAPER_POLICY_VERSION } from './PaperModelBetLedger';
+import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
+export type { PaperSelection } from './PaperModelBetLedger';
 
 export type RecommendationPolicyDescriptor = { version: string; [key: string]: any };
 export const VIRTUAL_RECOMMENDATION_POLICY: RecommendationPolicyDescriptor = {
@@ -26,6 +29,7 @@ export type RecommendationDecision = {
   suggestedStakePercent?: number; confidence?: string; validated?: boolean;
   probabilityConfiguration?: Record<string, any>; probabilityConfigurationHash?: string;
   portfolioId?: string; [key: string]: any;
+  selections?: PaperSelection[];
 };
 export type RecommendationCommit = {
   jobId: string; leaseToken: string; originInputId: string;
@@ -71,6 +75,30 @@ export class ResearchRecommendationStore {
         for (const operation of ['UPDATE', 'DELETE']) await tx.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_immutable_${operation.toLowerCase()}
           BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT,'execution evidence is immutable'); END;`);
       }
+      if (await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bets'")) {
+        for (const table of ['paper_model_bets', 'paper_model_settlements']) {
+          for (const operation of ['UPDATE', 'DELETE']) await tx.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_immutable_${operation.toLowerCase()}
+            BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT,'paper evidence is immutable'); END;`);
+        }
+        await tx.execute(`CREATE TRIGGER IF NOT EXISTS paper_model_bet_authorization BEFORE INSERT ON paper_model_bets BEGIN
+          SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id
+            JOIN research_execution_jobs j ON j.id=i.job_id JOIN research_execution_policies p ON p.hash=j.policy_hash,
+            json_each(d.snapshot_json,'$.selections') selection
+            WHERE d.id=NEW.execution_decision_id AND d.origin_decision_id=NEW.origin_decision_id AND d.input_id=NEW.input_id
+              AND d.family=NEW.family AND d.model_version=NEW.model_version AND d.action='BET'
+              AND j.match_id=NEW.match_id AND j.policy_hash=NEW.policy_hash AND p.version='paper-fixed-unit-v1'
+              AND json_extract(d.snapshot_json,'$.stakeMode')='PAPER_FIXED_UNIT'
+              AND json_extract(selection.value,'$.selectionKey')=NEW.selection_key
+              AND json_extract(selection.value,'$.market')=NEW.market AND json_extract(selection.value,'$.selection')=NEW.selection
+              AND json_extract(selection.value,'$.quote.odds')=NEW.odds
+              AND json_extract(selection.value,'$.quote')=json_extract(NEW.snapshot_json,'$.quote')
+              AND json_extract(NEW.snapshot_json,'$.stakeMode')='PAPER_FIXED_UNIT'
+              AND json_extract(NEW.snapshot_json,'$.stakeCents')=100
+              AND json_extract(NEW.snapshot_json,'$.effectiveExecutionDecisionId')=d.id
+          ) THEN RAISE(ABORT,'paper bet authorization mismatch') END;
+        END;`);
+      }
       await tx.execute(`CREATE TRIGGER IF NOT EXISTS research_execution_bet_authorization
         BEFORE INSERT ON research_bets WHEN NEW.execution_decision_id IS NOT NULL BEGIN
           SELECT CASE WHEN NOT EXISTS (
@@ -91,14 +119,25 @@ export class ResearchRecommendationStore {
 
   async registerPolicy(descriptor: RecommendationPolicyDescriptor = VIRTUAL_RECOMMENDATION_POLICY): Promise<any> {
     if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor) || !descriptor.version?.trim()) throw new Error('Policy descriptor required');
-    if (descriptor.virtualOnly !== true || descriptor.stakeModeA !== 'RECOMMENDED_PERCENT' || descriptor.stakeModeC !== 'FIXED_ONE_PERCENT'
-      || descriptor.maxExposureFraction !== .05 || descriptor.quoteMaxAgeMs !== 300000 || descriptor.independentCalibrationRequired !== false) {
+    const paper = isPaperPolicy(descriptor);
+    if (descriptor.version === PAPER_POLICY_VERSION && !paper) throw new Error('Unsupported paper execution policy');
+    if (paper && (descriptor.maxExposureFraction !== undefined || descriptor.maxBetsPerMatchPerFamily !== undefined
+      || descriptor.initialCapital !== undefined || descriptor.recovery !== undefined
+      || descriptor.quoteMaxAgeMs !== 300000 || descriptor.independentCalibrationRequired !== false
+      || descriptor.familyA?.source !== 'PredictionService' || descriptor.familyA?.stakeMode !== PAPER_ACCOUNTING_MODE
+      || descriptor.familyC?.source !== 'ResearchRuntime' || descriptor.familyC?.stakeMode !== PAPER_ACCOUNTING_MODE
+      || typeof descriptor.familyC?.modelVersion !== 'string' || !descriptor.familyC.modelVersion.trim())) {
+      throw new Error('Unsupported paper execution policy');
+    }
+    if (!paper && (descriptor.virtualOnly !== true || descriptor.stakeModeA !== 'RECOMMENDED_PERCENT' || descriptor.stakeModeC !== 'FIXED_ONE_PERCENT'
+      || descriptor.maxExposureFraction !== .05 || descriptor.quoteMaxAgeMs !== 300000 || descriptor.independentCalibrationRequired !== false)) {
       throw new Error('Unsupported virtual execution policy');
     }
-    if (descriptor.maxBetsPerMatchPerFamily !== undefined && descriptor.maxBetsPerMatchPerFamily !== 1) throw new Error('One virtual bet per match and family is required');
+    if (!paper && descriptor.maxBetsPerMatchPerFamily !== undefined && descriptor.maxBetsPerMatchPerFamily !== 1) throw new Error('One virtual bet per match and family is required');
     const hash = researchHash(descriptor), serialized = researchJson(descriptor);
     await this.ensureGuards();
     return this.research.runResearchTransaction(async (tx) => {
+      if (paper && !await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bets'")) throw new Error('Paper execution migration 028 is required');
       const previous = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [hash]);
       if (previous && researchJson(previous.descriptor) !== serialized) throw new Error('Policy descriptor is immutable');
       if (!previous) await tx.execute({ sql: 'INSERT INTO research_execution_policies(hash,version,descriptor_json,created_at) VALUES (?,?,?,?)',
@@ -110,6 +149,20 @@ export class ResearchRecommendationStore {
   async getPolicy(hash: string): Promise<any> {
     if (!await this.hasSchema()) return null;
     return first(this.client, 'SELECT * FROM research_execution_policies WHERE hash=?', [hash]);
+  }
+
+  async listPaperBets(options: PaperReadOptions = {}): Promise<any[]> {
+    await this.ready();
+    return listPaperBetViews(this.client, options);
+  }
+
+  /** Only an entirely unused paper schema can be omitted during legacy maintenance. */
+  async isPaperUninitialized(): Promise<boolean> {
+    await this.ready();
+    const tables = await rows(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','research_execution_policies')");
+    if (tables.some(table => ['paper_model_bets', 'paper_model_settlements'].includes(table.name))) return false;
+    if (!tables.some(table => table.name === 'research_execution_policies')) return true;
+    return !await first(this.client, "SELECT hash FROM research_execution_policies WHERE version='paper-fixed-unit-v1' LIMIT 1");
   }
 
   /** Read-only detection never creates guards and rechecks a previously absent schema. */
@@ -220,13 +273,14 @@ export class ResearchRecommendationStore {
   async claimBatch(input: RecommendationClaim): Promise<{ jobs: RecommendationJob[]; skipped: any[]; busy: boolean }> {
     const start = iso(input.windowStartAt), end = iso(input.windowEndAt), now = iso(this.clock());
     if (!input.runId?.trim() || !/^[a-f0-9]{64}$/.test(input.policyHash) || Date.parse(start) > Date.parse(now)
-      || Date.parse(end) <= Date.parse(now) || !Array.isArray(input.fixtures) || input.fixtures.length > 10000) throw new Error('Invalid execution claim');
+      || Date.parse(end) <= Date.parse(now) || !Array.isArray(input.fixtures)) throw new Error('Invalid execution claim');
     const identities = input.fixtures.map((fixture) => fixture.matchId);
     if (identities.some((id) => !id?.trim()) || new Set(identities).size !== identities.length) throw new Error('Unique execution fixture identity required');
     await this.ensureGuards();
     return this.research.runResearchTransaction(async (tx) => {
       const policy = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [input.policyHash]);
       if (!policy || researchHash(policy.descriptor) !== input.policyHash) throw new Error('Registered execution policy required');
+      if (!isPaperPolicy(policy.descriptor) && input.fixtures.length > 10000) throw new Error('Invalid execution claim');
       const recovery = await this.recoveryContext(tx, policy);
       const jobs: RecommendationJob[] = [], skipped: any[] = [];
       let active = false;
@@ -246,8 +300,10 @@ export class ResearchRecommendationStore {
         const origins = await rows(tx, "SELECT id,family FROM research_decisions WHERE input_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [origin.id]);
         const originIds = Object.fromEntries(origins.map((decision) => [decision.family, decision.id]));
         if (!originIds.A || !originIds.C || origins.length !== 2) { skip('paired_origin_decisions_required'); continue; }
-        const existingBets = await first(tx, "SELECT COUNT(DISTINCT portfolio_id) AS count FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [fixture.matchId]);
-        if (Number(existingBets.count) === 2) { skip('both_portfolios_already_bet'); continue; }
+        if (!isPaperPolicy(policy.descriptor)) {
+          const existingBets = await first(tx, "SELECT COUNT(DISTINCT portfolio_id) AS count FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [fixture.matchId]);
+          if (Number(existingBets.count) === 2) { skip('both_portfolios_already_bet'); continue; }
+        }
         const id = previous?.id ?? randomUUID(), token = randomUUID();
         const expires = iso(Math.min(Date.parse(at) + Math.max(1000, Math.min(input.leaseMs ?? 180000, 900000)), Date.parse(end), Date.parse(kickoff)));
         if (previous) await tx.execute({ sql: `UPDATE research_execution_jobs SET run_id=?,kickoff_at=?,window_start_at=?,window_end_at=?,status='CLAIMED',
@@ -307,6 +363,91 @@ export class ResearchRecommendationStore {
     });
   }
 
+  private async commitPaperDecision(tx: Executor, plan: {
+    item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any;
+  }): Promise<{ decision: any; bets: any[]; quotes: any[] }> {
+    const { item, job, inputId, decision, policy } = plan, portfolioId = `shadow_${decision.family}`;
+    const observed = Date.parse(item.inputSnapshot.observedAt), at = this.clock().getTime();
+    let reason: string | null = decision.action === 'ABSTAIN' ? decision.reason ?? 'model_abstained' : decision.reason ?? null;
+    const abstain = (code: string) => { reason ??= code; };
+    const model = await first(tx, 'SELECT family,version,created_at FROM research_models WHERE family=? AND version=?', [decision.family, decision.modelVersion]);
+    if (!model) abstain('model_not_registered');
+    else if (!Number.isFinite(Date.parse(model.createdAt)) || Date.parse(model.createdAt) > observed) abstain('model_not_available_at_forecast');
+    if (decision.family === 'C' && policy.descriptor.familyC?.modelVersion !== decision.modelVersion) abstain('policy_model_version_mismatch');
+    if (decision.recommended !== true || decision.validated !== true || decision.action !== 'BET') abstain('positive_valid_recommendation_required');
+    const configuration = decision.probabilityConfiguration;
+    if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration) || configuration.family !== decision.family
+      || !/^[a-f0-9]{64}$/.test(decision.probabilityConfigurationHash ?? '') || researchHash(configuration) !== decision.probabilityConfigurationHash) {
+      abstain('probability_configuration_identity_required');
+    }
+    const rejected: Array<{ selection: string | null; reason: string }> = [], candidates: PaperSelection[] = [];
+    if (!reason && !Array.isArray(decision.selections)) abstain('paper_selections_required');
+    if (!reason) for (const child of decision.selections ?? []) {
+      let invalid: string | null = null;
+      const reject = (code: string) => { invalid ??= code; };
+      if (!child || typeof child !== 'object' || !child.quote) {
+        rejected.push({ selection: child?.selection ?? null, reason: 'selection_quote_mismatch' }); continue;
+      }
+      const quote = child.quote, quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family);
+      if (quoteReason) reject(quoteReason);
+      if (!Number.isSafeInteger(Math.round(100 * quote.odds))) reject('invalid_paper_return');
+      if (child.modelVersion !== undefined && child.modelVersion !== decision.modelVersion) reject('policy_model_version_mismatch');
+      if (child.probabilityConfiguration !== undefined && researchHash(child.probabilityConfiguration) !== decision.probabilityConfigurationHash
+        || child.probabilityConfigurationHash !== undefined && child.probabilityConfigurationHash !== decision.probabilityConfigurationHash) reject('probability_configuration_identity_required');
+      if (typeof child.selection !== 'string' || !child.selection.trim() || child.selection !== quote.selection || child.market !== quote.market
+        || child.selectionKey !== paperSelectionKey(quote)) reject('selection_quote_mismatch');
+      if (!Number.isFinite(child.probability) || child.probability <= 0 || child.probability >= 1
+        || !Number.isFinite(child.ev) || child.ev <= 0) reject('positive_finite_recommendation_required');
+      if (decision.family === 'A' && !['HIGH', 'MEDIUM', 'LOW'].includes(child.confidence ?? decision.confidence ?? '')) reject('recommendation_confidence_required');
+      if (!item.inputSnapshot.quotes.some((shared: any) => researchHash(shared) === researchHash(quote))) reject('quote_not_in_shared_snapshot');
+      // The disabled market categories remain excluded, even if a caller fabricates a candidate.
+      if (typeof child.market !== 'string' || ['corners', 'fouls', 'correct_score', 'exact_score'].includes(child.market)
+        || child.market.startsWith('player_')) reject('market_not_allowed_for_virtual_execution');
+      if (decision.family === 'C') {
+        const market = await first(tx, 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', [decision.family, decision.modelVersion, child.market]);
+        if (!market || !['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)) reject('market_not_allowed_for_virtual_execution');
+      }
+      if (invalid) rejected.push({ selection: child.selection ?? null, reason: invalid });
+      else candidates.push({ ...child, confidence: child.confidence ?? decision.confidence,
+        probabilityConfiguration: configuration, probabilityConfigurationHash: decision.probabilityConfigurationHash });
+    }
+    const unique = bestPaperSelections(candidates.sort((a, b) => researchHash(a).localeCompare(researchHash(b))));
+    const selected: PaperSelection[] = [];
+    for (const child of unique) {
+      if (await first(tx, 'SELECT id FROM paper_model_bets WHERE family=? AND match_id=? AND selection_key=?', [decision.family, job.matchId, child.selectionKey])) {
+        rejected.push({ selection: child.selection, reason: 'paper_selection_already_recorded' });
+      } else selected.push(child);
+    }
+    if (!selected.length) reason ??= rejected[0]?.reason ?? 'no_positive_paper_selections';
+    const id = randomUUID(), createdAt = iso(at), action = selected.length && !reason ? 'BET' : 'ABSTAIN';
+    const { suggestedStakePercent: _suggested, stakePercent: _percent, equityBasisCents: _equity, ...parent } = decision;
+    const evidence = { ...item.inputSnapshot.match, ...parent, ...(selected[0] ?? {}), action, reason,
+      decisionMode: 'PAPER_FIXED_UNIT', accountingMode: PAPER_ACCOUNTING_MODE, stakeMode: PAPER_ACCOUNTING_MODE,
+      fixedStakeUnits: 1, stakeUnits: action === 'BET' ? 1 : 0, stakeCents: action === 'BET' ? 100 : 0,
+      totalStakeUnits: action === 'BET' ? selected.length : 0, selections: action === 'BET' ? selected : [], rejectedSelections: rejected,
+      policyHash: job.policyHash, policyVersion: policy.version, runId: job.runId, matchId: job.matchId,
+      kickoffAt: job.kickoffAt, portfolioId, originDecisionId: decision.originDecisionId, effectiveExecutionDecisionId: id,
+      originInputId: item.originInputId, inputId, inputHash: researchHash(item.inputSnapshot) };
+    await tx.execute({ sql: `INSERT INTO research_execution_decisions(id,input_id,origin_decision_id,family,model_version,portfolio_id,action,market,selection,reason,snapshot_json,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, args: [id, inputId, decision.originDecisionId, decision.family, decision.modelVersion, portfolioId,
+      action, selected[0]?.market ?? decision.market ?? '', selected[0]?.selection ?? decision.selection ?? null, reason, researchJson(evidence), createdAt] });
+    const bets: any[] = [];
+    if (action === 'BET') for (const child of selected) {
+      this.assertLease(job, item.leaseToken, this.clock().getTime());
+      const betId = `paper:${randomUUID()}`, snapshot = { ...evidence, ...child, modelVersion: decision.modelVersion,
+        stakeCents: 100, stakeUnits: 1, totalStakeUnits: 1, selections: undefined, rejectedSelections: undefined };
+      await tx.execute({ sql: `INSERT INTO paper_model_bets
+        (id,execution_decision_id,origin_decision_id,input_id,policy_hash,family,match_id,model_version,market,selection,selection_key,odds,stake_cents,snapshot_json,placed_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,100,?,?)`, args: [betId, id, decision.originDecisionId, inputId, job.policyHash, decision.family,
+        job.matchId, decision.modelVersion, child.market, child.selection, child.selectionKey, child.quote.odds, researchJson(snapshot), createdAt] });
+      bets.push({ id: betId, executionDecisionId: id, originDecisionId: decision.originDecisionId, inputId, policyHash: job.policyHash,
+        family: decision.family, portfolioId, matchId: job.matchId, modelVersion: decision.modelVersion, market: child.market,
+        selection: child.selection, selectionKey: child.selectionKey, odds: child.quote.odds, stakeCents: 100,
+        stakeUnits: 1, accountingMode: PAPER_ACCOUNTING_MODE, snapshot, placedAt: createdAt, status: 'PENDING' });
+    }
+    return { decision: { id, ...evidence, createdAt }, bets, quotes: action === 'BET' ? selected.map(child => child.quote) : [] };
+  }
+
   async commitBatch(prepared: RecommendationCommit[], now: string | Date = this.clock()): Promise<any> {
     iso(now); if (!prepared.length) return { decisions: [], bets: [], jobs: [] };
     if (new Set(prepared.map((item) => item.jobId)).size !== prepared.length) throw new Error('Duplicate execution job in batch');
@@ -327,6 +468,8 @@ export class ResearchRecommendationStore {
           if (!stored || stored.inputHash !== inputHash || stored.decisionsHash !== decisionsHash || stored.originInputId !== item.originInputId) throw new Error('Completed execution evidence is immutable');
           decisions.push(...await rows(tx, 'SELECT * FROM research_execution_decisions WHERE input_id=?', [stored.id]));
           bets.push(...await rows(tx, 'SELECT b.* FROM research_bets b JOIN research_execution_decisions d ON d.id=b.execution_decision_id WHERE d.input_id=?', [stored.id]));
+          const policy = await first(tx, 'SELECT descriptor_json FROM research_execution_policies WHERE hash=?', [job.policyHash]);
+          if (isPaperPolicy(policy?.descriptor)) bets.push(...await listPaperBetViews(tx, { matchId: job.matchId }).then(rows => rows.filter(row => row.inputId === stored.id)));
           completedJobs.push(job); continue;
         }
         const at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
@@ -364,6 +507,12 @@ export class ResearchRecommendationStore {
         if (decision.portfolioId && decision.portfolioId !== portfolioId) throw new Error('Execution uses only independent shadow portfolios');
         const origin = await first(tx, 'SELECT id,input_id,family,portfolio_id FROM research_decisions WHERE id=?', [decision.originDecisionId]);
         if (!origin || origin.inputId !== item.originInputId || origin.family !== decision.family || origin.portfolioId !== portfolioId) throw new Error('Execution origin decision mismatch');
+        if (isPaperPolicy(plan.policy.descriptor)) {
+          const paper = await this.commitPaperDecision(tx, plan);
+          decisions.push(paper.decision); bets.push(...paper.bets);
+          for (const quote of paper.quotes) finalChecks.push({ job, token: item.leaseToken, quote, observed: Date.parse(item.inputSnapshot.observedAt), family: decision.family });
+          continue;
+        }
         const portfolio = await first(tx, `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
           COALESCE(SUM(l.committed_delta_cents),0) AS committed_cents,
           COALESCE(SUM(l.available_delta_cents+l.committed_delta_cents),0) AS equity_cents
@@ -479,7 +628,7 @@ export class ResearchRecommendationStore {
     if (!await this.hasSchema()) return [];
     const limit = options.limit ?? 200;
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || options.includeForecasts && !options.matchId) throw new Error('Invalid execution view scope');
-    const filters: string[] = [], args: any[] = [];
+    const filters: string[] = ["j.policy_hash NOT IN (SELECT hash FROM research_execution_policies WHERE version='paper-fixed-unit-v1')"], args: any[] = [];
     const activeExecution = await this.activeExecutionFilter();
     if (activeExecution) filters.push(activeExecution);
     for (const [key, column] of [['policyHash', 'j.policy_hash'], ['runId', 'j.run_id'], ['matchId', 'j.match_id'], ['family', 'd.family']] as const) {
@@ -541,7 +690,7 @@ export class ResearchRecommendationStore {
       FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id
       JOIN research_execution_policies p ON p.hash=j.policy_hash LEFT JOIN research_bets b ON b.execution_decision_id=d.id
       LEFT JOIN research_settlements s ON s.bet_id=b.id
-      WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family${activeExecution ? ` AND ${activeExecution}` : ''}` : '';
+      WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family AND p.version<>'paper-fixed-unit-v1'${activeExecution ? ` AND ${activeExecution}` : ''}` : '';
     const quoteDifferences = ['odds','bookmaker','source','line','side','team'].map((key) =>
       `json_extract(a.quote_json,'$.${key}') IS NOT json_extract(c.quote_json,'$.${key}')`).join(' OR ');
     const cte = `WITH candidates AS (${legacy}${execution}), ranked AS (
@@ -584,10 +733,12 @@ export class ResearchRecommendationStore {
   async getRunMetrics(runId: string, policyHash?: string): Promise<any> {
     if (!await this.hasSchema()) return { analyzedMatches: 0, registeredBets: 0, abstainedMatches: 0, decisionCount: 0, reasonCounts: {} };
     const filter = 'j.run_id=?' + (policyHash ? ' AND j.policy_hash=?' : ''), args = policyHash ? [runId, policyHash] : [runId];
+    const paperSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bets'");
     const jobs = await rows(this.client, `SELECT j.id,j.match_id,j.status,COUNT(DISTINCT i.id) AS input_count,
-      COUNT(DISTINCT d.id) AS decision_count,COUNT(DISTINCT b.id) AS bet_count
+      COUNT(DISTINCT d.id) AS decision_count,COUNT(DISTINCT b.id)${paperSchema ? '+COUNT(DISTINCT paper.id)' : ''} AS bet_count
       FROM research_execution_jobs j LEFT JOIN research_execution_inputs i ON i.job_id=j.id
       LEFT JOIN research_execution_decisions d ON d.input_id=i.id LEFT JOIN research_bets b ON b.execution_decision_id=d.id
+      ${paperSchema ? 'LEFT JOIN paper_model_bets paper ON paper.execution_decision_id=d.id' : ''}
       WHERE ${filter} GROUP BY j.id,j.match_id,j.status`, args);
     const reasons = await rows(this.client, `SELECT d.reason,COUNT(*) AS count FROM research_execution_decisions d
       JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id

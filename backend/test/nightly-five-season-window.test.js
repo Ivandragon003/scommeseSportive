@@ -12,7 +12,7 @@ const {
   summarizeUnderstatSeasonReadiness,
 } = require('../dist/api/routes.js');
 
-test('nightly and runtime defaults request exactly five seasons', () => {
+test('primary Understat and runtime defaults request exactly five seasons', () => {
   const nightly = read('scripts', 'ci', 'nightly-sync.sh');
   const backend = read('backend', 'src', 'index.ts');
   const compose = read('docker-compose.yml');
@@ -184,34 +184,27 @@ test('i timeout distinti restano entro il budget totale del job', () => {
     + envTimeout('API_FOOTBALL_TIMEOUT_SECONDS')
     + envTimeout('PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS')
     + envTimeout('ODDS_SYNC_TIMEOUT_SECONDS') * 5
-    + envTimeout('CALIBRATION_WARM_TIMEOUT_SECONDS')
     + envTimeout('LEARNING_SYNC_TIMEOUT_SECONDS')
     + envTimeout('FINAL_STATUS_TIMEOUT_SECONDS');
   assert.ok(Number.isFinite(totalSeconds));
   assert.ok(totalSeconds <= 180 * 60, `budget timeout ${totalSeconds}s oltre il job`);
 });
 
-test('lo script nightly tratta football-data e transizioni come gate obbligatori', () => {
+test('la fonte primaria resta un gate, CSV usa la cache condivisa e transizioni sono esplicite', () => {
   const nightly = read('scripts', 'ci', 'nightly-sync.sh');
-  const supplementalBlock = nightly.slice(
-    nightly.indexOf('Running football-data.co.uk supplemental sync'),
-    nightly.indexOf('Saving local last-five lineup predictions'),
-  );
-  const transitionBlock = nightly.slice(
-    nightly.indexOf('Syncing second-division seasonal references'),
-    nightly.indexOf('# The Understat route already settles'),
-  );
-  assert.doesNotMatch(supplementalBlock, /Warning: supplemental football-data sync failed/);
-  assert.doesNotMatch(transitionBlock, /Warning: transition reference sync failed/);
   assert.match(nightly, /REQUIRED_SYNC_FAILURES=\(\)/);
   assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("understat"\)/);
-  assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("football-data"\)/);
+  assert.doesNotMatch(nightly, /\/api\/scraper\/football-data|REQUIRED_SYNC_FAILURES\+=\("football-data"\)/);
+  assert.match(nightly, /nightly-alternative-sources\.js --execute --csv-only/);
+  assert.match(nightly, /--collect-csv/);
+  assert.match(nightly, /RUN_TRANSITION_REFERENCE_SYNC="\$\{RUN_TRANSITION_REFERENCE_SYNC:-false\}"/);
+  assert.match(nightly, /"\$RUN_TRANSITION_REFERENCE_SYNC" == "true" && "\$NIGHTLY_SOURCE_MODE" == "primary"/);
   assert.match(nightly, /REQUIRED_SYNC_FAILURES\+=\("second-division-references"\)/);
   const failureGate = nightly.indexOf('Nightly sync completed with required data-gate failures:');
   assert.ok(failureGate > nightly.indexOf('/api/scraper/understat'));
-  assert.ok(failureGate > nightly.indexOf('/api/scraper/football-data'));
+  assert.ok(failureGate > nightly.indexOf('nightly-alternative-sources.js --execute --csv-only'));
   assert.ok(failureGate > nightly.indexOf('/api/competition-transitions/sync-references'));
-  assert.doesNotMatch(nightly, /place-valid-bets|AUTO_BET/);
+  assert.doesNotMatch(nightly, /place-valid-bets|AUTO_BET|run calibration:warm/);
 });
 
 test('la route football-data accetta solo stagioni complete o pending espliciti', () => {

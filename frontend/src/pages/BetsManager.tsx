@@ -30,6 +30,7 @@ import AppCalendarInput from '../components/common/AppCalendarInput';
 import { useWalletArchive } from '../features/wallets/useWalletArchive';
 import ArchiveSummary from '../features/wallets/ArchiveSummary';
 import QualityFilters from '../features/wallets/QualityFilters';
+import PaperWalletPage from '../features/wallets/PaperWalletPages';
 
 interface BetsManagerProps {
   activeUser: string;
@@ -371,9 +372,11 @@ function QuickBetSummary({ model, qualities }: { model: BetModel; qualities: str
   return <ArchiveSummary summary={data.summary} scope={qualities.length ? `Classificazioni: ${qualities.join(", ")}` : "Tutte le giocate registrate del modello selezionato"} />;
 }
 
-const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
+export const FundedBetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => {
   const wallet = useAppWalletData({ period: 'all' });
   return <LegacyBetsManager activeUser={activeUser} readOnly wallet={wallet} />;
 };
+
+const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => <PaperWalletPage kind="bets" legacy={<FundedBetsManager activeUser={activeUser} />} />;
 
 export default BetsManager;

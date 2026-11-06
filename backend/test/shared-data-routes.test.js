@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const { createApiRouter } = require('../dist/api/routes.js');
 
-const startRouter = async () => {
+const startRouter = async (options = {}) => {
   const calls = [];
   const svc = {
     syncPendingBets: async (userId) => calls.push(['syncPendingBets', userId]),
@@ -16,6 +16,11 @@ const startRouter = async () => {
     settleBet: async (betId) => ({ betId }),
   };
   const db = {
+    recommendations: { listPaperBets: async () => {
+      calls.push(['listPaperBets']);
+      if (options.paperError) throw Object.assign(new Error('Missing paper schema'), { code: 'paper_schema_required' });
+      return [];
+    }, isPaperUninitialized: async () => options.paperUninitialized === true },
     getBet: async (betId) => ({ bet_id: betId, user_id: betId === 'owned' ? 'user1' : 'user2' }),
     getPredictionArchive: async (options) => {
       calls.push(['getPredictionArchive', options]);
@@ -38,6 +43,41 @@ const startRouter = async () => {
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 };
+
+test('paper endpoint returns complete unit metrics without initializing funded wallets', async () => {
+  const { baseUrl, calls, close } = await startRouter();
+  try {
+    const response = await fetch(`${baseUrl}/paper-bets`), payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.data.accountingMode, 'PAPER_FIXED_UNIT'); assert.equal(payload.data.fixedStakeUnits, 1);
+    assert.equal(payload.data.totalCount, 0); assert.equal(payload.data.profitUnits, 0);
+    assert.equal(payload.data.roiPercent, null); assert.equal(payload.data.portfolios.length, 2);
+    assert.deepEqual(calls, [['listPaperBets']]);
+  } finally { await close(); }
+});
+
+test('paper endpoint reports an unprepared schema instead of claiming an empty ledger', async () => {
+  const { baseUrl, close } = await startRouter({ paperError: true });
+  try {
+    const response = await fetch(`${baseUrl}/paper-bets`), payload = await response.json();
+    assert.equal(response.status, 503); assert.equal(payload.success, false);
+    assert.equal(payload.code, 'paper_schema_required'); assert.equal(payload.data, undefined);
+  } finally { await close(); }
+});
+
+test('legacy synchronization continues before paper activation but does not mask a missing active paper schema', async () => {
+  for (const paperUninitialized of [true, false]) {
+    const { baseUrl, calls, close } = await startRouter({ paperError: true, paperUninitialized });
+    try {
+      const response = await fetch(`${baseUrl}/bets/sync`, { method: 'POST' });
+      const payload = await response.json();
+      assert.deepEqual(calls.find(row => row[0] === 'syncPendingBets'), ['syncPendingBets', 'user1']);
+      assert.equal(response.status, paperUninitialized ? 200 : 500);
+      if (paperUninitialized) assert.deepEqual(payload.paper, { checked: 0, settled: 0, unresolved: 0, accountingState: 'NOT_INITIALIZED' });
+      else assert.equal(payload.success, false);
+    } finally { await close(); }
+  }
+});
 
 test('budget, bet list and placement always use the server-side shared user', async () => {
   const { baseUrl, calls, close } = await startRouter();

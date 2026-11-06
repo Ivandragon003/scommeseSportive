@@ -91,6 +91,32 @@ async function fixture(t, options = {}) {
 const execute = (f, extra = {}) => runRecommendationNightly(f.db, { policy: policy(), clock: f.clock,
   runId: 'github-actions:fixture', diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, ...extra });
 
+async function paperFixture(f) {
+  await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/028_paper_model_bets.sql'), 'utf8'));
+  const prepare = f.runtime.prepare;
+  const { paperSelectionKey } = require('../dist/research/PaperBetSelections');
+  f.runtime.prepare = async (job) => {
+    const item = await prepare(job);
+    for (const decision of item.decisions) decision.selections = [{ ...decision, selectionKey: paperSelectionKey(decision.quote) }];
+    return item;
+  };
+}
+
+test('paper Nightly links origins and execution without opening or spending a virtual bankroll', async (t) => {
+  const f = await fixture(t);
+  await paperFixture(f);
+  const result = await execute(f, { paperMode: true });
+  assert.equal(result.errors, 0, JSON.stringify(result));
+  assert.equal(result.protocol, 'paper-fixed-unit-v1');
+  assert.equal(result.registeredBets, 4);
+  assert.equal((await f.recommendations.listPaperBets()).length, 4);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_bets')).rows[0].n), 0);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_ledger')).rows[0].n), 0);
+  const repeat = await execute(f, { paperMode: true });
+  assert.equal(repeat.errors, 0); assert.equal(repeat.registeredBets, 4); // The summary reports the immutable run totals.
+  assert.equal((await f.recommendations.listPaperBets()).length, 4);
+});
+
 async function historicalRecoveryFixture(t) {
   const f = await fixture(t, { matches: 4 });
   await runResearchNightly(f.db, { policy: policy(), clock: f.clock, runId: 'original-diagnostics',
@@ -169,6 +195,7 @@ test('diagnostic origins cannot create v1 stakes even when their original synthe
 test('CLI selects versioned execution only with the new flag and uses diagnostic-only origins when off', async (t) => {
   for (const enabled of [false, true]) {
     const f = await fixture(t, { matches: 1 }), output = [];
+    if (enabled) await paperFixture(f);
     const result = await runNightly({ db: f.db, policy: policy(), clock: f.clock, runId: 'cli-fixture',
       env: { RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: String(enabled) }, preparer: f.diagnosticPreparer,
       diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, log: (row) => output.push(row) });

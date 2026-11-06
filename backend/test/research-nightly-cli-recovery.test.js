@@ -140,3 +140,22 @@ test('internal plans with no eligible fixture or another parent policy are rejec
     await assert.rejects(runNightly(options), /no_eligible_fixtures|policy_mismatch/);
   }
 });
+
+
+test('CLI disables rollback and collection only for verified alternatives in both execution modes', async t => {
+  for (const recommendations of [false, true]) {
+    const module = recommendations ? require('../dist/research/ResearchRecommendationNightly') : require('../dist/research/ResearchNightly');
+    const method = recommendations ? 'runRecommendationNightly' : 'runResearchNightly';
+    const calls = [];
+    const mock = t.mock.method(module, method, async (_db, options) => { calls.push(options); return {}; });
+    for (const mode of ['primary', 'verified-alternatives']) {
+      await runNightly({ env: { NIGHTLY_SOURCE_MODE: mode, RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: String(recommendations) },
+        policy: { enabled: true }, db: {}, fixtureAdmission: () => true, log: () => {} });
+    }
+    assert.equal(calls[0].allowChampionRollback, undefined);
+    assert.equal(calls[0].collectChallengerForecasts, undefined);
+    assert.equal(calls[1].allowChampionRollback, false);
+    assert.equal(calls[1].collectChallengerForecasts, false);
+    mock.mock.restore();
+  }
+});

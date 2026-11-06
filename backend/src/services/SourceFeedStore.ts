@@ -42,17 +42,18 @@ const time = (value: string): string => {
 const safeReason = (reason: string): string => /^(?:source_feed_[a-z_]{1,90}|calendar_(?:http_\d{3}|timeout|network_error|invalid_json|response_too_large|invalid_configuration))$/.test(reason)
   ? reason : 'source_feed_fetch_failed';
 
-/** Dedicated source cache only. It never imports the operational DB service. */
+/** Cache can also use its namespaced tables in an explicitly provisioned shared DB. */
 export class SourceFeedStore {
   private initialized = false;
   constructor(private readonly client: SourceFeedClient) {}
 
-  async initialize(options: { allowCreate?: boolean } = {}): Promise<void> {
+  async initialize(options: { allowCreate?: boolean; shared?: boolean } = {}): Promise<void> {
     const objects = await this.client.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%'");
     const allowed = new Set(['source_feed_meta', 'source_feed_attempts', 'source_feed_snapshots']);
-    if (objects.rows.some((row) => row.type !== 'table' || !allowed.has(String(row.name)))) throw Error('source_feed_database_not_dedicated');
-    if (objects.rows.length > 0) {
-      if (objects.rows.length !== allowed.size) throw Error('source_feed_database_not_dedicated');
+    const cacheObjects = options.shared ? objects.rows.filter((row) => allowed.has(String(row.name))) : objects.rows;
+    if (cacheObjects.some((row) => row.type !== 'table' || !allowed.has(String(row.name)))) throw Error('source_feed_database_not_dedicated');
+    if (cacheObjects.length > 0) {
+      if (cacheObjects.length !== allowed.size) throw Error('source_feed_database_not_dedicated');
       const marker = await this.client.execute({ sql: 'SELECT value FROM source_feed_meta WHERE key = ?', args: ['cache_marker'] });
       if (marker.rows.length !== 1 || marker.rows[0].value !== SOURCE_FEED_CACHE_MARKER) throw Error('source_feed_database_not_dedicated');
     } else {

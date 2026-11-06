@@ -4,9 +4,11 @@ import { useBetPlacement } from './useBetPlacement';
 import { getAppWallets } from '../utils/walletApi';
 import { getBets, getBudget, placeBet, syncSharedBets } from '../utils/api';
 import { ResearchComparison } from '../features/research/researchComparisonTypes';
+import { getPaperBets } from '../utils/paperBetsApi';
 
 jest.mock('../utils/walletApi');
 jest.mock('../utils/api');
+jest.mock('../utils/paperBetsApi');
 const mockedWallets = getAppWallets as jest.MockedFunction<typeof getAppWallets>;
 const mockedBudget = getBudget as jest.MockedFunction<typeof getBudget>;
 const mockedBets = getBets as jest.MockedFunction<typeof getBets>;
@@ -95,4 +97,23 @@ test('la registrazione dalla pagina A non può addebitare il vecchio portafoglio
   expect(mockedPlace).not.toHaveBeenCalled();
   expect(params.confirm).not.toHaveBeenCalled();
   expect(params.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('automaticamente dalla Nightly') }));
+});
+
+test('il contesto paper legge tutte le selezioni senza capitale e senza chiamare il registro funded', async () => {
+  (getPaperBets as jest.Mock).mockResolvedValue({ bets: [
+    { id: 'paper:1', family: 'A', matchId: 'same', selection: 'over25', market: 'totals', stakeUnits: 1 },
+    { id: 'paper:2', family: 'A', matchId: 'same', selection: 'under35', market: 'totals', stakeUnits: 1 },
+    { id: 'paper:3', family: 'C', matchId: 'same', selection: 'homeWin', market: '1x2', stakeUnits: 1 },
+  ] });
+  const { result } = renderHook(() => useUserBudget('user1', { mode: 'paper', family: 'A' }));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.error).toBeNull();
+  expect(result.current.budget).toBeNull();
+  expect(result.current.paperBets).toHaveLength(3);
+  expect(result.current.userBets).toHaveLength(2);
+  expect(result.current.placedBetKeySet.size).toBe(2);
+  expect(mockedWallets).not.toHaveBeenCalled();
+  expect(mockedBudget).not.toHaveBeenCalled();
+  expect(mockedBets).not.toHaveBeenCalled();
+  expect(mockedSync).not.toHaveBeenCalled();
 });

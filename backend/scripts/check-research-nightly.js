@@ -80,25 +80,32 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
 }
 
 async function inspectDatabase(client, { now = new Date(), expectEnabled = false } = {}) {
-  const { researchNightlyStatus } = require('../dist/research/ResearchMonitoring');
+  const { researchNightlyStatus, inspectPaperAccounting } = require('../dist/research/ResearchMonitoring');
   const { SmartOddsRequestStore } = require('../dist/services/odds-provider/SmartOddsRequestStore');
   const before = await client.execute('SELECT COUNT(*) AS count,MAX(rowid) AS last FROM research_ledger');
-  const [runs, pending, accounting, invalidMovements, odds] = await Promise.all([
+  const manual = (await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'")).rows.length > 0;
+  const fundedBets = `(
+    SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,0 AS manual
+      FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
+    ${manual ? `UNION ALL SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,1 AS manual
+      FROM manual_model_bets b LEFT JOIN manual_model_settlements s ON s.bet_id=b.id` : ''})`;
+  const [runs, pending, accounting, invalidMovements, odds, paperAccounting] = await Promise.all([
     client.execute("SELECT scheduler_name,started_at,ended_at,success,error,summary_json FROM scheduler_runs WHERE scheduler_name='research_nightly' ORDER BY julianday(started_at) DESC LIMIT 10"),
-    client.execute(`SELECT COUNT(*) AS count FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
-      JOIN matches m ON m.match_id=b.match_id WHERE s.bet_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL`),
+    client.execute(`SELECT COUNT(*) AS count FROM ${fundedBets} b
+      JOIN matches m ON m.match_id=b.match_id WHERE b.settled_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL`),
     client.execute(`SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available,COALESCE(SUM(l.committed_delta_cents),0) AS committed,
       SUM(CASE WHEN l.event='OPEN' THEN 1 ELSE 0 END) AS openings,
-      (SELECT COALESCE(SUM(b.stake_cents),0) FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
-        WHERE b.portfolio_id=p.id AND s.bet_id IS NULL) AS open_stakes
+      COUNT(l.id) AS ledger_rows,(SELECT COUNT(*) FROM ${fundedBets} b WHERE b.portfolio_id=p.id) AS funded_bet_count,
+      (SELECT COALESCE(SUM(b.stake_cents),0) FROM ${fundedBets} b WHERE b.portfolio_id=p.id AND b.settled_id IS NULL) AS open_stakes
       FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id GROUP BY p.id`),
-    client.execute(`SELECT COUNT(*) AS count FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id WHERE
-      (SELECT COUNT(*) FROM research_ledger l WHERE l.bet_id=b.id AND l.event='STAKE' AND l.portfolio_id=b.portfolio_id
+    client.execute(`SELECT COUNT(*) AS count FROM ${fundedBets} b WHERE
+      (SELECT COUNT(*) FROM research_ledger l WHERE (l.bet_id=b.id OR b.manual=1 AND l.id='stake:'||b.id) AND l.event='STAKE' AND l.portfolio_id=b.portfolio_id
        AND l.available_delta_cents=-b.stake_cents AND l.committed_delta_cents=b.stake_cents)!=1
-      OR (s.bet_id IS NOT NULL AND (SELECT COUNT(*) FROM research_ledger l WHERE l.bet_id=b.id AND l.event='SETTLE'
-       AND l.portfolio_id=b.portfolio_id AND l.available_delta_cents=s.return_cents AND l.committed_delta_cents=-b.stake_cents)!=1)
-      OR (s.bet_id IS NULL AND EXISTS(SELECT 1 FROM research_ledger l WHERE l.bet_id=b.id AND l.event='SETTLE'))`),
+      OR (b.settled_id IS NOT NULL AND (SELECT COUNT(*) FROM research_ledger l WHERE (l.bet_id=b.id OR b.manual=1 AND l.id='settle:'||b.id) AND l.event='SETTLE'
+       AND l.portfolio_id=b.portfolio_id AND l.available_delta_cents=b.return_cents AND l.committed_delta_cents=-b.stake_cents)!=1)
+      OR (b.settled_id IS NULL AND EXISTS(SELECT 1 FROM research_ledger l WHERE (l.bet_id=b.id OR b.manual=1 AND l.id='settle:'||b.id) AND l.event='SETTLE'))`),
     new SmartOddsRequestStore(client, async () => {}, { clock: () => now }).overview(),
+    inspectPaperAccounting(client),
   ]);
   const after = await client.execute('SELECT COUNT(*) AS count,MAX(rowid) AS last FROM research_ledger');
   const stableAccounting = JSON.stringify(before.rows) === JSON.stringify(after.rows);
@@ -113,14 +120,16 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
   if (recentCompleted && nightly.lastRun.success === false) issues.push('nightly_execution_failed');
   if (odds.providers.some((provider) => provider.availableCredits <= 0)) issues.push('nightly_odds_credits_exhausted');
   if (recentCompleted && Number(nightly.metrics.apiErrors) >= 3) issues.push('nightly_api_errors');
-  const pendingSettlements = Number(pending.rows[0]?.count ?? 0);
+  const pendingSettlements = Number(pending.rows[0]?.count ?? 0) + paperAccounting.pendingSettlements;
   if (pendingSettlements && now.getTime() > Date.parse(nightly.expectedAt) + GRACE_SECONDS * 1000) issues.push('settlement_backlog');
-  const accountingErrors = accounting.rows.filter((row) => Number(row.available) < 0 || Number(row.committed) < 0
-    || Number(row.openings) !== 1 || Number(row.committed) !== Number(row.open_stakes)).length + Number(invalidMovements.rows[0]?.count ?? 0);
+  const accountingErrors = accounting.rows.filter((row) => (Number(row.ledger_rows) > 0 || Number(row.funded_bet_count) > 0)
+    && (Number(row.available) < 0 || Number(row.committed) < 0 || Number(row.openings) !== 1
+      || Number(row.committed) !== Number(row.open_stakes))).length + Number(invalidMovements.rows[0]?.count ?? 0);
   if (stableAccounting && accountingErrors) issues.push('virtual_accounting_integrity');
+  if (paperAccounting.stable && paperAccounting.errors) issues.push(paperAccounting.failures.includes('paper_schema_required') ? 'paper_schema_required' : 'paper_accounting_integrity');
   return { checkedAt: now.toISOString(), ok: issues.length === 0, issues, nightly,
     pendingSettlements, accounting: { stable: stableAccounting, checked: stableAccounting, errors: stableAccounting ? accountingErrors : null },
-    odds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
+    paperAccounting, odds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
 }
 
 async function main() {

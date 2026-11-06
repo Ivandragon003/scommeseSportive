@@ -20,6 +20,8 @@ function harness(options = {}) {
   const samples = Array.from({ length: 500 }, (_, index) => ({ matchId: `independent-fixture-${index}`, market: '1x2',
     probability: .1 + (index % 5) * .2, odds: 10, expectedValue: 0, returnMultiplier: 10,
     outcomeAvailableAt: '2026-10-28T00:00:00Z', phase: 'validation' }));
+  if (options.invalidArtifact) artifact.featureSchema = 'invalid-schema';
+  const audit = [], mutations = [], collection = [];
   const state = { model: { version: artifact.version, artifact }, market: 'EXPERIMENTAL',
     modelFailures: options.modelFailures ?? 0, reportFailures: options.reportFailures ?? 0 };
   const counts = { champions: 0, models: 0, reports: { A: 0, C: 0 }, markets: 0, samples: 0 };
@@ -50,18 +52,27 @@ function harness(options = {}) {
     },
     listMarkets: async ({ family }) => { counts.markets++; return [{ family, market: '1x2', state: state.market, evidence: {} }]; },
     listProspectiveCalibrationSamples: async () => { counts.samples++; return samples; },
+    listModelEvents: async () => [{ version: artifact.version, action: 'PROMOTE', previousVersion: 'C-previous' }],
+    setMarketState: async (item) => mutations.push(['suspend', item]),
+    rollbackModel: async (item) => mutations.push(['rollback', item]),
     syncJobs: async () => [], claimDueJobs: async () => claimed ? [] : (claimed = true, [job(0), job(1)]),
     commitBatch: async (batch) => { commits.push(batch); return {}; }, finishJob: async () => {}, listBets: async () => [],
   };
   const db = { research, getMatchById: async (id) => rows.find((row) => row.match_id === id),
-    getUpcomingMatches: async () => rows, getMatches: async () => history, updateMatchKickoff: async () => {}, saveSchedulerRun: async () => {} };
+    getUpcomingMatches: async () => rows, getMatches: async () => history, updateMatchKickoff: async () => {},
+    saveSchedulerRun: async (run) => audit.push(run),
+    listRecentSchedulerRuns: async () => [0, 1, 2].map((i) => ({ schedulerName: 'research_model_check',
+      startedAt: AT, success: false, summary: { family: 'C', modelVersion: artifact.version, matchId: `m-${i}`, snapshotHash: `s-${i}` } })),
+    challengerAdoption: { listCollectingCandidates: async () => { collection.push('list'); return [{ id: 'candidate' }]; },
+      recordPairedChallengerForecast: async () => { collection.push('record'); return {}; } } };
   const odds = { getOdds: async () => rows.map((row, index) => ({ matchId: `provider-${index}`, homeTeam: row.home_team_name,
     awayTeam: row.away_team_name, commenceTime: row.date, capturedAt: AT, bookmakers: [{ bookmakerKey: 'fixture', bookmakerName: 'Fixture Book',
       updatedAt: AT, markets: [{ marketKey: 'h2h', outcomes: [{ name: row.home_team_name, price: 10 }, { name: 'Draw', price: 10 },
         { name: row.away_team_name, price: 10 }] }] }] })) };
   const runtime = new ResearchRuntime(db, { clock: () => new Date(AT), odds, candidateVersionC: options.candidateVersionC,
-    ...(options.legacy ? {} : { nightly: policy }) });
-  return { runtime, state, counts, job, commits, exactReads };
+    ...(options.legacy ? {} : { nightly: policy }), allowChampionRollback: options.allowChampionRollback,
+    collectChallengerForecasts: options.collectChallengerForecasts });
+  return { runtime, state, counts, job, commits, exactReads, audit, mutations, collection };
 }
 
 test('an explicit C pin reads only its exact artifact and ignores later weekly candidates and champion selection', async () => {
@@ -158,4 +169,24 @@ test('legacy T15 retains a model/report lookup per fixture and cannot enter a ni
   assert.equal(h.counts.models, 2); assert.deepEqual(h.counts.reports, { A: 2, C: 2 });
   assert.equal(h.counts.samples, 0);
   assert.throws(() => h.runtime.beginNightlyCohort('legacy'), /nightly cohort/);
+});
+
+
+test('alternative guards retain failed C audit and abstention without rollback or candidate collection', async () => {
+  const h = harness({ invalidArtifact: true, champion: true, allowChampionRollback: false, collectChallengerForecasts: false });
+  const result = await h.runtime.prepareNightly(h.job(0));
+  const c = result.decisions.find((decision) => decision.family === 'C');
+  assert.equal(c.action, 'ABSTAIN');
+  assert.equal(c.reason, 'hybrid_model_unavailable_or_incompatible');
+  assert.ok(h.audit.some((run) => run.schedulerName === 'research_model_check' && run.summary.family === 'C' && !run.success));
+  assert.deepEqual(h.mutations, []);
+  assert.deepEqual(h.collection, []);
+});
+
+test('default runtime preserves champion rollback and collecting challenger behavior', async () => {
+  const h = harness({ invalidArtifact: true, champion: true });
+  const result = await h.runtime.prepareNightly(h.job(0));
+  assert.equal(result.decisions.find((decision) => decision.family === 'C').action, 'ABSTAIN');
+  assert.deepEqual(h.mutations.map(([name]) => name), ['suspend', 'rollback']);
+  assert.deepEqual(h.collection, ['list', 'record']);
 });

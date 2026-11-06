@@ -1,5 +1,7 @@
 import type { Client } from '@libsql/client';
 import type { DatabaseService } from '../db/DatabaseService';
+import { researchHash } from './ResearchStore';
+import { paperSelectionKey } from './PaperBetSelections';
 
 type Row = Record<string, any>;
 export type ResearchIncident = { key: string; title: string; message: string; details?: Row };
@@ -20,6 +22,110 @@ const onDay = (at: string | undefined, day: string): boolean => !!at && Number.i
 const summaryHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' });
 
 export const NIGHTLY_GRACE_SECONDS = 4 * 60 * 60;
+
+/** Independent SELECT-only audit; paper placements never require an OPEN ledger event. */
+export async function inspectPaperAccounting(client: Pick<Client, 'execute'>): Promise<{
+  schemaPresent: boolean; required: boolean; stable: boolean; checked: boolean;
+  errors: number | null; failures: string[]; pendingSettlements: number;
+}> {
+  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','research_execution_policies','research_execution_decisions','research_execution_inputs','research_execution_jobs','research_decisions','matches')");
+  const tables = new Set(inventory.rows.map(row => String(row.name)));
+  const policies = tables.has('research_execution_policies')
+    ? await client.execute("SELECT COUNT(*) AS count FROM research_execution_policies WHERE version='paper-fixed-unit-v1'") : null;
+  const required = Number(policies?.rows[0]?.count ?? 0) > 0 || tables.has('paper_model_bets') || tables.has('paper_model_settlements');
+  const schemaPresent = ['paper_model_bets', 'paper_model_settlements'].every(table => tables.has(table));
+  if (!schemaPresent) return { schemaPresent, required, stable: true, checked: required, errors: required ? 1 : 0,
+    failures: required ? ['paper_schema_required'] : [], pendingSettlements: 0 };
+  if (!['research_execution_policies', 'research_execution_decisions', 'research_execution_inputs', 'research_execution_jobs', 'research_decisions'].every(table => tables.has(table))) {
+    return { schemaPresent, required: true, stable: true, checked: true, errors: 1, failures: ['paper_authorization_schema_missing'], pendingSettlements: 0 };
+  }
+  const fingerprint = () => client.execute(`SELECT
+    (SELECT COUNT(*) FROM paper_model_bets) AS bets,(SELECT MAX(rowid) FROM paper_model_bets) AS last_bet,
+    (SELECT COUNT(*) FROM paper_model_settlements) AS settlements,(SELECT MAX(rowid) FROM paper_model_settlements) AS last_settlement`);
+  const before = await fingerprint();
+  const [bets, authorizations, settlements, pending] = await Promise.all([
+    client.execute('SELECT * FROM paper_model_bets'),
+    client.execute(`SELECT d.id AS authorized_id,d.family AS authorized_family,d.model_version AS authorized_version,
+      d.action AS authorized_action,d.snapshot_json AS authorized_snapshot,d.origin_decision_id AS authorized_origin,
+      d.input_id AS authorized_input,d.portfolio_id AS authorized_portfolio,i.id AS execution_input_id,
+      i.origin_input_id AS execution_origin,i.input_hash AS execution_input_hash,i.snapshot_json AS execution_snapshot,
+      j.match_id AS authorized_match,j.policy_hash AS authorized_policy,p.version AS policy_version,p.descriptor_json AS policy_descriptor,
+      origin.id AS scientific_origin,origin.input_id AS scientific_input,origin.family AS scientific_family,origin.portfolio_id AS scientific_portfolio
+      FROM research_execution_decisions d LEFT JOIN research_execution_inputs i ON i.id=d.input_id
+      LEFT JOIN research_execution_jobs j ON j.id=i.job_id LEFT JOIN research_execution_policies p ON p.hash=j.policy_hash
+      LEFT JOIN research_decisions origin ON origin.id=d.origin_decision_id
+      WHERE EXISTS(SELECT 1 FROM paper_model_bets b WHERE b.execution_decision_id=d.id)`),
+    client.execute('SELECT s.*,b.id AS existing_bet,b.odds AS bet_odds FROM paper_model_settlements s LEFT JOIN paper_model_bets b ON b.id=s.bet_id'),
+    tables.has('matches') ? client.execute(`SELECT COUNT(DISTINCT b.id) AS count FROM paper_model_bets b
+      LEFT JOIN paper_model_settlements s ON s.bet_id=b.id JOIN matches m ON m.match_id=b.match_id
+      WHERE s.bet_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL`) : Promise.resolve({ rows: [] }),
+  ]);
+  const failures: string[] = [], identities = new Set<string>(), settledIds = new Set<string>();
+  const parse = (value: unknown): Row | null => {
+    try { const parsed = JSON.parse(String(value)); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null; }
+    catch { return null; }
+  };
+  const authorizationById = new Map(authorizations.rows.map(row => {
+    const parent = parse(row.authorized_snapshot), input = parse(row.execution_snapshot), policy = parse(row.policy_descriptor);
+    return [String(row.authorized_id), { row, parent, input, policy,
+      approved: new Map((Array.isArray(parent?.selections) ? parent.selections : []).filter((child: any) => child && typeof child === 'object')
+        .map((child: Row) => [child.selectionKey, child])),
+      quoteHashes: new Set((Array.isArray(input?.quotes) ? input.quotes : []).map((quote: any) => researchHash(quote))),
+      inputHashValid: !!input && researchHash(input) === row.execution_input_hash,
+      policyHash: policy ? researchHash(policy) : null }];
+  }));
+  for (const raw of bets.rows) {
+    const authorization = authorizationById.get(String(raw.execution_decision_id)), row = { ...raw, ...authorization?.row };
+    const id = String(row.id), snapshot = parse(row.snapshot_json), parent = authorization?.parent, input = authorization?.input, policy = authorization?.policy;
+    const quote = snapshot?.quote, key = JSON.stringify([row.family, row.match_id, row.selection_key]);
+    if (identities.has(key)) failures.push(`${id}:duplicate_selection`); identities.add(key);
+    if (Number(row.stake_cents) !== 100 || !Number.isSafeInteger(Number(row.stake_cents))) failures.push(`${id}:stake`);
+    if (!row.authorized_id || !row.execution_input_id || !row.scientific_origin || row.authorized_action !== 'BET'
+      || row.authorized_family !== row.family || row.authorized_version !== row.model_version
+      || row.authorized_origin !== row.origin_decision_id || row.authorized_input !== row.input_id
+      || row.authorized_match !== row.match_id || row.authorized_policy !== row.policy_hash
+      || row.scientific_family !== row.family || row.authorized_portfolio !== `shadow_${row.family}`
+      || row.scientific_portfolio !== `shadow_${row.family}` || row.scientific_input !== row.execution_origin
+      || row.policy_version !== 'paper-fixed-unit-v1') failures.push(`${id}:authorization`);
+    const approved: Row = authorization?.approved.get(row.selection_key) as Row;
+    const validQuote = quote && quote.source === 'odds_api' && quote.usedSyntheticOdds !== true
+      && quote.priceType === 'prematch' && quote.timestampEvidence !== 'observed_snapshot'
+      && typeof quote.bookmaker === 'string' && !!quote.bookmaker.trim() && Number.isFinite(quote.odds) && quote.odds > 1;
+    if (!snapshot || !parent || !input || !policy || !validQuote || !approved
+      || !approved.quote || typeof approved.quote !== 'object'
+      || policy.virtualOnly !== true || policy.fixedStakeUnits !== 1 || policy.stakeModeA !== 'PAPER_FIXED_UNIT' || policy.stakeModeC !== 'PAPER_FIXED_UNIT'
+      || Number(row.odds) !== quote.odds || row.market !== snapshot.market || row.selection !== snapshot.selection
+      || row.market !== quote.market || row.selection !== quote.selection || row.selection_key !== paperSelectionKey(quote)
+      || snapshot.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.stakeCents !== 100 || snapshot.stakeUnits !== 1
+      || parent.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.effectiveExecutionDecisionId !== row.execution_decision_id
+      || snapshot.originDecisionId !== row.origin_decision_id || snapshot.inputId !== row.input_id || snapshot.matchId !== row.match_id
+      || snapshot.family !== row.family || snapshot.modelVersion !== row.model_version || snapshot.policyHash !== row.policy_hash
+      || approved.market !== row.market || approved.selection !== row.selection || researchHash(approved.quote) !== researchHash(quote)
+      || authorization.policyHash !== row.policy_hash || !authorization.inputHashValid
+      || !Number.isFinite(snapshot.probability) || snapshot.probability <= 0 || snapshot.probability >= 1
+      || !Number.isFinite(snapshot.ev) || snapshot.ev <= 0 || snapshot.probability !== approved.probability || snapshot.ev !== approved.ev
+      || !snapshot.probabilityConfiguration || snapshot.probabilityConfiguration.family !== row.family
+      || researchHash(snapshot.probabilityConfiguration) !== snapshot.probabilityConfigurationHash
+      || snapshot.probabilityConfigurationHash !== parent.probabilityConfigurationHash) failures.push(`${id}:evidence`);
+    const placed = Date.parse(String(row.placed_at)), observed = Date.parse(String(input?.observedAt)), kickoff = Date.parse(String(snapshot?.kickoffAt));
+    if (![placed, observed, kickoff].every(Number.isFinite) || observed > placed || placed >= kickoff
+      || ![quote?.capturedAt, quote?.updatedAt].every(value => {
+        const at = typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
+        return Number.isFinite(at) && at <= observed && at < kickoff && placed - at <= 300000;
+      }) || !authorization?.quoteHashes.has(quote ? researchHash(quote) : '')) failures.push(`${id}:quote_evidence`);
+  }
+  for (const row of settlements.rows) {
+    const id = String(row.bet_id), multiplier = Number(row.multiplier), odds = Number(row.bet_odds), evidence = parse(row.evidence_json);
+    if (settledIds.has(id)) failures.push(`${id}:duplicate_settlement`); settledIds.add(id);
+    if (!row.existing_bet) failures.push(`${id}:orphan_settlement`);
+    if (!Number.isFinite(multiplier) || ![0, .5, 1, (odds + 1) / 2, odds].some(value => Math.abs(value - multiplier) < 1e-9)
+      || !Number.isSafeInteger(Number(row.return_cents)) || Number(row.return_cents) !== Math.round(100 * multiplier)
+      || !evidence || !Object.keys(evidence).length || !Number.isFinite(Date.parse(String(row.settled_at)))) failures.push(`${id}:settlement`);
+  }
+  const after = await fingerprint(), stable = JSON.stringify(before.rows) === JSON.stringify(after.rows);
+  return { schemaPresent, required, stable, checked: stable, errors: stable ? failures.length : null,
+    failures: stable ? failures : [], pendingSettlements: Number(pending.rows[0]?.count ?? 0) };
+}
 
 /** Europe/Rome 03:00 exists once even on DST transition days. */
 export function nightlySchedule(now: string | Date, graceSeconds = NIGHTLY_GRACE_SECONDS): Row {
@@ -69,6 +175,8 @@ export function researchNightlyStatus(runs: Row[], now: string | Date, enabled: 
 /** One persistent notification per incident generation; polling/restarts do not resend it. */
 export class ResearchMonitoringStore {
   constructor(private readonly client: Client, private readonly ready: () => Promise<void> = async () => {}) {}
+
+  async auditPaperAccounting() { await this.ready(); return inspectPaperAccounting(this.client); }
 
   async reconcile(incidents: ResearchIncident[], now: string | Date): Promise<void> {
     await this.ready();
@@ -191,18 +299,21 @@ export function researchCriticalIncidents(input: { now: string; schedulerEnabled
   const failures: string[] = [];
   for (const portfolio of input.portfolios) {
     const own = input.ledger.filter((row) => row.portfolioId === portfolio.id);
+    const ownBets = input.bets.filter((bet) => bet.portfolioId === portfolio.id);
+    if (!own.length && !ownBets.length) continue;
     const available = own.reduce((sum, row) => sum + Number(row.availableDeltaCents), 0);
     const committed = own.reduce((sum, row) => sum + Number(row.committedDeltaCents), 0);
     if (available < 0 || committed < 0 || available !== portfolio.availableCents || committed !== portfolio.committedCents
       || available + committed !== portfolio.equityCents || own.filter((row) => row.event === 'OPEN').length !== 1) failures.push(portfolio.id);
-    const ownBets = input.bets.filter((bet) => bet.portfolioId === portfolio.id);
     if (new Set(ownBets.map((bet) => bet.matchId)).size !== ownBets.length) failures.push(`${portfolio.id}:duplicate_match`);
     const openStakes = ownBets.filter((bet) => bet.status === 'PENDING').reduce((sum, bet) => sum + bet.stakeCents, 0);
     if (openStakes !== committed) failures.push(`${portfolio.id}:committed`);
     for (const bet of ownBets) {
-      const stake = own.filter((row) => row.betId === bet.id && row.event === 'STAKE');
+      const linked = (row: Row, event: string) => row.betId === bet.id || String(bet.id).startsWith('manual:')
+        && row.betId == null && row.id === `${event.toLowerCase()}:${bet.id}`;
+      const stake = own.filter((row) => linked(row, 'STAKE') && row.event === 'STAKE');
       if (stake.length !== 1 || stake[0].availableDeltaCents !== -bet.stakeCents || stake[0].committedDeltaCents !== bet.stakeCents) failures.push(`${portfolio.id}:stake`);
-      const settlement = own.filter((row) => row.betId === bet.id && row.event === 'SETTLE');
+      const settlement = own.filter((row) => linked(row, 'SETTLE') && row.event === 'SETTLE');
       if (bet.status === 'SETTLED' && (settlement.length !== 1 || settlement[0].availableDeltaCents !== bet.returnCents
         || settlement[0].committedDeltaCents !== -bet.stakeCents)) failures.push(`${portfolio.id}:settlement`);
       if (bet.status === 'PENDING' && settlement.length) failures.push(`${portfolio.id}:pending_settled`);
@@ -220,8 +331,9 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
     ? Promise.all(['research_nightly', 'research_settlement', 'research_model_check', 'research_provider']
       .map((name) => db.listRecentSchedulerRunsByName!(name, 10))).then((groups) => groups.flat())
     : db.listRecentSchedulerRuns(50);
-  const [runs, portfolios, bets, ledger] = await Promise.all([
+  const [runs, portfolios, bets, ledger, paper] = await Promise.all([
     namedRuns, db.research.listPortfolios(), db.research.listBets(), db.research.listLedger(),
+    db.researchMonitoring.auditPaperAccounting(),
   ]);
   // The ledger is append-only. A changed second read means the independent
   // accounting reads straddled a commit; defer that integrity check until stable.
@@ -234,9 +346,20 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
     const prior = (await db.researchMonitoring.read()).incidents.find((incident) => incident.key === 'virtual_accounting_integrity');
     if (prior) incidents.push({ key: prior.key, title: prior.title, message: prior.message, details: prior.details });
   }
+  if (paper.stable && paper.errors) incidents.push({
+    key: paper.failures.includes('paper_schema_required') ? 'paper_schema_required' : 'paper_accounting_integrity',
+    title: 'Integrità delle giocate paper da verificare',
+    message: 'Le giocate a unità fissa hanno evidenza o contabilità incoerente.', details: { failures: paper.failures },
+  });
+  if (!paper.stable) {
+    const prior = (await db.researchMonitoring.read()).incidents.filter(incident => ['paper_schema_required', 'paper_accounting_integrity'].includes(incident.key));
+    for (const incident of prior) incidents.push({ key: incident.key, title: incident.title, message: incident.message, details: incident.details });
+  }
   await db.researchMonitoring.reconcile(incidents, timestamp);
   const day = previousDay(romeDay(timestamp));
-  const summary: Row = { ...researchDailySummary(day, portfolios, bets, ledger),
+  const fundedPortfolios = portfolios.filter(portfolio => ledger.some(row => row.portfolioId === portfolio.id)
+    || bets.some(bet => bet.portfolioId === portfolio.id));
+  const summary: Row = { ...researchDailySummary(day, fundedPortfolios, bets, ledger),
     nightly: researchNightlyStatus(runs, timestamp, options.schedulerEnabled ?? process.env.RESEARCH_NIGHTLY_ENABLED === 'true') };
   // Prepare at 03:00, expose only after 09:00 Rome; this is not external delivery.
   const today = romeDay(timestamp);

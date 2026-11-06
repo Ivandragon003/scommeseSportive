@@ -53,12 +53,13 @@ export function researchMatchFromRow(row: Record<string, any>): ResearchMatch {
 }
 
 /** Preserve provider update times. A successful HTTP fetch does not make an old price fresh. */
-export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): LiveResearchQuote[] {
+export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string, options: { allSheets?: boolean } = {}): LiveResearchQuote[] {
   const preferred = [...event.bookmakers].sort((a, b) => {
     const priority = (key: string) => /eurobet/i.test(key) ? 0 : /(?:_it$|ital)/i.test(key) ? 1 : 2;
     return priority(a.bookmakerKey) - priority(b.bookmakerKey) || a.bookmakerKey.localeCompare(b.bookmakerKey);
   });
   const groups = new Map<string, { quotes: LiveResearchQuote[]; fresh: boolean; complete: boolean }>();
+  const allSheets: LiveResearchQuote[] = [];
   for (const bookmaker of preferred) for (const market of bookmaker.markets) {
     const quotes: LiveResearchQuote[] = [];
     for (const outcome of market.outcomes) {
@@ -84,6 +85,7 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): L
       const sheet = priceSheets.get(group) ?? []; sheet.push(quote); priceSheets.set(group, sheet);
     }
     for (const [group, sheet] of priceSheets) {
+      if (options.allSheets) allSheets.push(...sheet);
       const fresh = sheet.every((quote) => !quoteFreshnessReason(quote, Date.parse(capturedAt)));
       const complete = sheet.length === (sheet[0].market === '1x2' ? 3 : 2);
       const existing = groups.get(group);
@@ -92,7 +94,7 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string): L
       }
     }
   }
-  return [...groups.values()].flatMap((sheet) => sheet.quotes);
+  return options.allSheets ? allSheets : [...groups.values()].flatMap((sheet) => sheet.quotes);
 }
 
 // Verified Understat/provider names from the 2026-10-31 and 2026-11-02 cached responses.
@@ -199,6 +201,9 @@ export class ResearchRuntime {
   private claimedJobs: T15Job[] = [];
   private readonly nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number };
   private readonly candidateVersionC?: string;
+  private readonly allowChampionRollback: boolean;
+  private readonly collectChallengerForecasts: boolean;
+  private readonly paperMode: boolean;
   private deploymentC?: ChallengerExecutionDeployment;
   private collectingCandidates: ReturnType<NonNullable<RuntimeDb['challengerAdoption']>['listCollectingCandidates']> | undefined;
   private readonly pairedForecastMatches = new Set<string>();
@@ -214,12 +219,15 @@ export class ResearchRuntime {
   constructor(private readonly db: RuntimeDb, options: { clock?: () => Date; odds?: OddsFeed;
     coordinator?: ResearchWorkerCoordinator; ownerId?: string; onTick?: (summary: T15TickSummary) => void;
     nightly?: { quoteMaxAgeMs: number; minEv: number; minPrudentialEv: number }; candidateVersionC?: string;
-    deploymentC?: ChallengerExecutionDeployment } = {}) {
+    deploymentC?: ChallengerExecutionDeployment; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean; paperMode?: boolean } = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.coordinator = options.coordinator;
     this.ownerId = options.ownerId ?? randomUUID();
     this.onTick = options.onTick;
     this.nightly = options.nightly;
+    this.paperMode = options.paperMode === true;
+    this.allowChampionRollback = options.allowChampionRollback !== false;
+    this.collectChallengerForecasts = options.collectChallengerForecasts !== false;
     if (options.candidateVersionC !== undefined && !/^C-[a-zA-Z0-9._-]{1,128}$/.test(options.candidateVersionC)) {
       throw new Error('Invalid pinned C model version');
     }
@@ -435,6 +443,8 @@ export class ResearchRuntime {
     const input = buildForecastInput(this.historyCache.rows, researchMatchFromRow(row), snapshotAt);
     const quotes = researchQuotesFromEvent(event, feed.capturedAt).map((quote) => this.nightly
       ? { ...quote, priceType: 'prematch' as const } : quote);
+    const paperQuotes = this.paperMode && this.nightly ? researchQuotesFromEvent(event, feed.capturedAt, { allSheets: true })
+      .map((quote) => ({ ...quote, priceType: 'prematch' as const })) : undefined;
     const context = inferenceOnlyC ? await this.modelsForPreviewC()
       : this.nightly ? await this.modelsForNightlyCohort(input.baselineVersion) : await this.loadModelContext();
     const { championC, latestCandidate, candidateC } = context;
@@ -561,7 +571,7 @@ export class ResearchRuntime {
             ...(family === 'C' && this.deploymentC?.probabilityConfigurationHash
               ? { observedProbabilityConfigurationHash: probabilityConfiguration?.hash ?? null } : {}), checks,
             ...(failure ? { errorCode: failure } : {}) } });
-        if (family === 'C' && failure && !this.deploymentC?.probabilityConfigurationHash && this.db.listRecentSchedulerRuns) {
+        if (this.allowChampionRollback && family === 'C' && failure && !this.deploymentC?.probabilityConfigurationHash && this.db.listRecentSchedulerRuns) {
           await rollbackUnhealthyChampion({ research: this.db.research,
             listRecentSchedulerRuns: this.db.listRecentSchedulerRuns.bind(this.db),
             listRecentSchedulerRunsByName: this.db.listRecentSchedulerRunsByName?.bind(this.db),
@@ -640,7 +650,7 @@ export class ResearchRuntime {
       if (Date.parse(current.date) !== Date.parse(row.date)) return { ...base, kickoffAt: current.date, status: 'upcoming' };
       if (Date.parse(row.date) <= this.clock().getTime()) return { ...base, status: 'started' };
     }
-    return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions,
+    return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions, ...(paperQuotes ? { paperQuotes } : {}),
       ...(this.nightly && !inferenceOnlyC ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
         ...(challengerInput ? { challengerForecast: challengerInput } : {}),
@@ -745,6 +755,7 @@ export class ResearchRuntime {
 
   /** Candidate evidence never selects a bet or changes either operational model. */
   private async recordCollectingChallengers(input: ForecastInput, quotes: ResearchQuote[]): Promise<Record<string, unknown> | null> {
+    if (!this.collectChallengerForecasts) return null;
     const adoption = this.db.challengerAdoption;
     if (!this.nightly || !adoption) return null;
     const previous = this.pairedForecastReports.get(input.matchId);

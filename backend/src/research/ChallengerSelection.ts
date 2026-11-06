@@ -136,7 +136,7 @@ function completeSheet(quote: ResearchQuote, quotes: ResearchQuote[]): ResearchQ
 /** Standalone opt-in policy for C. Epistemic uncertainty is unavailable, not a fabricated confidence class. */
 export function selectChallengerPayoutRecommendation(input: {
   matrix: number[][]; quotes: ResearchQuote[]; observedAt: string; allowedMarkets: string[];
-  quality: ChallengerQualityEvidence;
+  quality: ChallengerQualityEvidence; paperFixedUnit?: boolean;
 }): ChallengerPayoutRecommendation {
   const exclusions: Record<string, number> = {}, rejections: ChallengerQuoteRejection[] = [];
   const reject = (quote: ResearchQuote | undefined, reason: string) => {
@@ -188,7 +188,7 @@ export function selectChallengerPayoutRecommendation(input: {
     // The execution ledger requires a strictly interior conditional probability.
     if (!(payout.probability > 0 && payout.probability < 1)) { reject(quote, 'degenerate_challenger_probability'); continue; }
     if (!(payout.expectedValue > EPSILON)) { reject(quote, 'non_positive_payout_ev'); continue; }
-    if (!(payout.expectedLogGrowth > EPSILON)) { reject(quote, 'non_positive_expected_log_growth'); continue; }
+    if (!input.paperFixedUnit && !(payout.expectedLogGrowth > EPSILON)) { reject(quote, 'non_positive_expected_log_growth'); continue; }
     const implied = 1 / quote.odds;
     const noVig = implied / sheet.reduce((sum, value) => sum + 1 / value.odds, 0);
     opportunities.push({ selection: quote.selection, marketName: quote.selection,

@@ -54,6 +54,8 @@ async function runNightly(options = {}) {
   const { loadNightlyPolicy, runResearchNightly } = require('../dist/research/ResearchNightly');
   const policy = options.policy ?? loadNightlyPolicy();
   const env = options.env ?? process.env;
+  const { sourceMode, createFixtureAdmission } = require('./nightly-source-context');
+  const alternativeSources = sourceMode(env) === 'verified-alternatives';
   const useRecommendations = recommendationEnabled(env);
   const now = env.RESEARCH_NIGHTLY_RECOVER_TECHNICAL === 'true' ? (options.clock ?? (() => new Date()))() : undefined;
   const recovery = recoveryConfiguration(env, now);
@@ -74,11 +76,16 @@ async function runNightly(options = {}) {
   const technicalRecovery = recovery.enabled ? await recoveryPlanFor(env, { clock: () => now,
     clientFactory: options.clientFactory, technicalRecovery: options.technicalRecovery }) : undefined;
   const { DatabaseService } = require('../dist/db/DatabaseService');
-  const db = options.db ?? new DatabaseService();
+  const db = options.db ?? new DatabaseService({ skipSchemaBootstrap: true });
   try {
+    const fixtureAdmission = options.fixtureAdmission ?? (alternativeSources
+      ? await createFixtureAdmission(db, env, { clock: options.clock }) : undefined);
     const execute = useRecommendations
       ? require('../dist/research/ResearchRecommendationNightly').runRecommendationNightly : runResearchNightly;
-    const result = await execute(db, { ...options, policy, runId,
+    const result = await execute(db, { ...options, policy, runId, paperMode: useRecommendations,
+      requireExistingCalibration: true,
+      ...(alternativeSources ? { fixtureAdmission, requireExistingCalibration: true, reviewChallengerAdoption: false,
+        allowChampionRollback: false, collectChallengerForecasts: false } : {}),
       ...(technicalRecovery ? { technicalRecovery } : {}),
       ...(!useRecommendations ? { diagnosticOnly: true } : {}),
       dataGatesPassed: options.dataGatesPassed ?? process.env.RESEARCH_NIGHTLY_DATA_GATES_PASSED !== 'false' });

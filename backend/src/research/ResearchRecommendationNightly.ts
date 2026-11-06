@@ -3,7 +3,8 @@ import type { DatabaseService } from '../db/DatabaseService';
 import { loadNightlyPolicy, nextNightlyBoundary, NightlyPolicy, NightlySummary, runResearchNightly } from './ResearchNightly';
 import { ResearchRuntime } from './ResearchRuntime';
 import { ResearchRecommendationRuntime } from './ResearchRecommendationRuntime';
-import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
+import type { FixtureAdmissionCheck } from './ResearchRecommendationRuntime';
+import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
 import type { RecommendationCommit, RecommendationJob, RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
 import { TECHNICAL_RECOVERY_PROTOCOL, TECHNICAL_RECOVERY_REASONS, TechnicalRecoveryPlan } from './ResearchRecommendationRecovery';
 import { researchHash } from './ResearchStore';
@@ -27,6 +28,8 @@ type Options = {
   policy?: NightlyPolicy; clock?: () => Date; runId?: string; leaseMs?: number; dataGatesPassed?: boolean;
   diagnosticPreparer?: DiagnosticOptions['preparer']; researchRuntime?: ResearchRuntime; runtime?: RecommendationPreparer;
   technicalRecovery?: TechnicalRecoveryPlan;
+  fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean;
+  reviewChallengerAdoption?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean;
 };
 
 function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: RecommendationPolicyDescriptor,
@@ -72,7 +75,7 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
     || researchHash(recovery.sourceDecisionIds) !== researchHash(decisionIds.sort())) fail();
 }
 
-/** Diagnostic origins remain immutable; only the separately versioned policy can allocate virtual funds. */
+/** Diagnostic origins remain immutable; execution uses a separately versioned paper or historical wallet policy. */
 export async function runRecommendationNightly(db: RecommendationDb, options: Options = {}): Promise<RecommendationNightlySummary> {
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
@@ -88,12 +91,14 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
   let deploymentC = fallbackChallengerState();
-  let executionPolicy: RecommendationPolicyDescriptor = challengerExecutionPolicy(deploymentC);
+  const executionPolicyFor = options.paperMode ? paperExecutionPolicy : challengerExecutionPolicy;
+  let executionPolicy: RecommendationPolicyDescriptor = executionPolicyFor(deploymentC);
   let sharedRuntime = options.researchRuntime;
   const diagnosticPreparer = options.diagnosticPreparer ?? {
     prepareNightly: (job: Parameters<ResearchRuntime['prepareNightly']>[0]) => {
-      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy,
-        candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment });
+      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: options.paperMode,
+        candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment,
+        allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
       return sharedRuntime.prepareNightly(job);
     },
     getQuotaStatus: () => sharedRuntime?.getQuotaStatus() ?? null,
@@ -112,7 +117,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
   try {
     if (db.challengerAdoption && options.dataGatesPassed !== false) {
       try {
-        await db.challengerAdoption.reviewCandidates();
+        if (options.reviewChallengerAdoption !== false) await db.challengerAdoption.reviewCandidates();
       } catch {
         summary.errors++; summary.challengerAdoptionErrors = 1; reason('challenger_adoption_review_failed');
         try {
@@ -129,7 +134,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
         reason('adoption_state_unavailable');
       }
     }
-    executionPolicy = challengerExecutionPolicy(deploymentC);
+    executionPolicy = executionPolicyFor(deploymentC);
     if (options.technicalRecovery) {
       validateTechnicalRecovery(options.technicalRecovery, executionPolicy, clock(), windowEndAt,
         nextNightlyBoundary(clock(), policy.hour, policy.minute));
@@ -141,7 +146,8 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (deploymentC.source !== 'fallback') summary.deploymentC = deploymentC;
     sharedRuntime?.pinChallengerDeployment(deploymentC.deployment);
     const diagnostic = await runResearchNightly(db, { policy, clock, runId, leaseMs: options.leaseMs,
-      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true });
+      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode,
+      fixtureAdmission: options.fixtureAdmission ? (matchId, at) => options.fixtureAdmission!(matchId, at, deploymentC) : undefined });
     summary.diagnosticRunId = diagnostic.runId;
     summary.windowEndAt = diagnostic.windowEndAt;
     if (options.technicalRecovery) {
@@ -167,7 +173,8 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     const registered = await db.recommendations.registerPolicy(executionPolicy);
     if (registered.hash !== summary.policyHash) throw new Error('recommendation_policy_identity_invalid');
     const now = clock().toISOString();
-    let fixtures = (await db.getUpcomingMatches({ nowIso: now, untilIso: summary.windowEndAt, limit: 10000 }))
+    let fixtures = (await db.getUpcomingMatches({ nowIso: now, untilIso: summary.windowEndAt,
+      ...(options.paperMode ? { unbounded: true } : { limit: 10000 }) }))
       .filter((row) => TOP5_COMPETITIONS.includes(row.competition) && row.home_goals == null && row.away_goals == null
         && Date.parse(row.date) > Date.parse(now) && Date.parse(row.date) <= Date.parse(summary.windowEndAt));
     if (options.technicalRecovery) {
@@ -191,9 +198,11 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (claim.busy || claim.skipped.some((item) => item.reason === 'execution_lease_active')) throw new Error('recommendation_execution_busy');
     if (claim.jobs.length) {
       if (!runtime) {
-        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy,
-          candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment });
-        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC });
+        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: options.paperMode,
+          candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment,
+        allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
+        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC, paperMode: options.paperMode,
+          fixtureAdmission: options.fixtureAdmission, requireExistingCalibration: options.requireExistingCalibration });
       }
       runtime.beginCohort(runId, deploymentC);
       timer = setInterval(() => {
@@ -253,7 +262,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     await renewal;
     await renew();
     if (leaseLost) throw new Error('recommendation_lease_lost');
-    // The store checks actual time, fresh shared prices, kickoff and exposure again in the transaction.
+    // The store rechecks time, shared prices, identity and policy-specific admission in the transaction.
     await db.recommendations.commitBatch(prepared, clock());
     outstanding.clear();
     summary.quota = runtime?.getQuotaStatus() ?? summary.quota;

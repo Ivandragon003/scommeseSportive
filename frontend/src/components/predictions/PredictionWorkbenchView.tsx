@@ -11,6 +11,26 @@ import SavedModelOpportunities from './SavedModelOpportunities';
 import { fmtSelection } from './predictionFormatting';
 import { currentSeason, dateToDayKey, formatKickoff } from './predictionWorkbenchUtils';
 import type { PredictionWorkbenchViewModel } from '../../hooks/usePredictionWorkbench';
+import { PaperBetTable } from '../../features/wallets/PaperWalletPages';
+import { useAppWalletData, WalletLoadState } from '../../features/wallets/AppWallets';
+
+function PreviousManualActions({ family, matchId, opportunity, quoteCapturedAt, unavailable, registered }: {
+  family: 'A' | 'C'; matchId: string; opportunity: any; quoteCapturedAt?: string | null; unavailable: boolean; registered: boolean;
+}) {
+  const { data, loading, error, refresh } = useAppWalletData({ period: 'all' });
+  return <><WalletLoadState loading={loading} error={error} refresh={refresh} />{!loading && !error && data && <ModelBetActions
+    family={family} matchId={matchId} opportunity={opportunity} portfolios={data.portfolios} quoteCapturedAt={quoteCapturedAt}
+    registered={registered || data.bets.rows.some(bet => bet.matchId === matchId && bet.portfolioId === `shadow_${family}`)}
+    unavailable={unavailable} onSaved={async () => refresh()} />}</>;
+}
+
+function PaperAdviceActions(props: React.ComponentProps<typeof PreviousManualActions>) {
+  const [manual, setManual] = useState(false);
+  return <div className="model-bet-actions"><p>Paper: 1 unità per selezione. La registrazione automatica avviene nella Nightly.</p>
+    <button type="button" className="fp-btn fp-btn-ghost fp-btn-sm" aria-expanded={manual} onClick={() => setManual(value => !value)}>{manual ? 'Chiudi gestione manuale precedente' : 'Gestione manuale precedente'}</button>
+    {manual && <><p>Operazioni manuali nel registro precedente, separate dalle giocate paper.</p><PreviousManualActions {...props} /></>}
+  </div>;
+}
 
 interface PredictionWorkbenchViewProps { vm: PredictionWorkbenchViewModel }
 
@@ -861,18 +881,19 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
   const pred = String(analysis.pred?.matchId ?? '') === matchId ? analysis.pred : null;
   const choice = pred ? vm.finalRecommendedChoice : null;
   const automatic = pred?.automaticRecommendation;
-  const registeredFamilies = (['A', 'C'] as const).filter(family => vm.userBudget.walletBets.some(bet => bet.matchId === matchId && bet.portfolioId === `shadow_${family}`));
+  const paperRows = (vm.userBudget.paperBets || []).filter(bet => bet.matchId === matchId);
+  const registeredFamilies = (['A', 'C'] as const).filter(family => paperRows.some(bet => bet.family === family));
   const choiceBookmaker = String(choice?.bookmakerName ?? analysis.bookmakerBySelection[choice?.selection ?? ''] ?? pred?.canonicalRecommendation?.odds?.bookmakerBySelection?.[choice?.selection ?? ''] ?? '').trim();
   const realQuote = !!choice && Number(choice.bookmakerOdds) > 1 && !!choiceBookmaker
     && (automatic ? !!automatic.odds && !/synthetic|model|estimated/i.test(String(automatic.odds.source ?? '')) : pred?.oddsSource === 'odds_api');
   const completed = activeMatchRow?.home_goals != null && activeMatchRow?.away_goals != null;
   const started = activeMatchRow?.date && Date.parse(activeMatchRow.date) <= Date.now();
   const sourceTime = automatic?.odds?.updatedAt ?? automatic?.odds?.capturedAt ?? pred?.canonicalRecommendation?.odds?.capturedAt ?? pred?.oddsCapturedAt ?? pred?.oddsUpdatedAt;
-  const renderActions = (family: 'A' | 'C', opportunity: any, registered = false, quoteCapturedAt?: string | null) => <ModelBetActions key={`${family}:${matchId}:${opportunity.selection}`}
-    family={family} matchId={matchId} opportunity={opportunity} portfolios={vm.userBudget.portfolios}
+  const renderActions = (family: 'A' | 'C', opportunity: any, registered = false, quoteCapturedAt?: string | null) => <PaperAdviceActions key={`${family}:${matchId}:${opportunity.selection}`}
+    family={family} matchId={matchId} opportunity={opportunity}
     quoteCapturedAt={quoteCapturedAt ?? (family === 'A' ? sourceTime : undefined)}
-    registered={registered || vm.userBudget.walletBets.some((bet) => bet.matchId === matchId && bet.portfolioId === `shadow_${family}`)}
-    unavailable={!!completed || !!started || vm.isReplayAnalysis} onSaved={vm.userBudget.loadUserContext} />;
+    registered={registered}
+    unavailable={!!completed || !!started || vm.isReplayAnalysis} />;
   const aAdvice = <section className="match-model-advice__card" aria-label="Consiglio modello A" data-testid="best-value-card">
     <h2>Modello A</h2>
     <p className="match-model-advice__origin">{vm.isReplayAnalysis ? 'Replay A · valutazione retrospettiva' : automatic ? 'Decisione Nightly A archiviata' : 'Anteprima A · non registrata'}</p>
@@ -885,10 +906,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
       {choice && realQuote ? <dl className="match-model-advice__metrics">
         <div><dt>Quota bookmaker</dt><dd data-testid="best-value-metric-quota-bookmaker">{Number(choice.bookmakerOdds).toFixed(2)}</dd></div>
         <div><dt>Bookmaker</dt><dd>{choiceBookmaker}</dd></div>
-        <div><dt>{automatic ? 'Importo virtuale registrato' : 'Stake indicativo'}</dt><dd>{automatic ? `EUR ${Number(automatic.actualStakeAmount ?? 0).toFixed(2)}` : `${choice.suggestedStakePercent}%`}</dd></div>
+        <div><dt>Unità per selezione paper</dt><dd>1 u</dd></div>
         <div><dt>Quota rilevata il</dt><dd>{sourceTime ? formatKickoff(sourceTime) : 'Orario non disponibile'}</dd></div>
       </dl> : <p>{pred.oddsSource !== 'odds_api' ? 'Quote reali non disponibili per una nuova giocata.' : 'Il modello A non ha selezionato una giocata con le quote disponibili.'}</p>}
-      {automatic ? <p>{Number(automatic.actualStakeAmount) > 0 ? 'Puntata archiviata. Consulta Giocate per lo stato e l’esito.' : 'Nessuna puntata registrata.'}</p> : <p>Nessuna puntata registrata da questa analisi.</p>}
+      <p>{automatic ? 'Consiglio del registro precedente. Le registrazioni paper sono elencate separatamente.' : 'Nessuna puntata registrata da questa analisi.'}</p>
       {vm.isReplayAnalysis && <p>Il replay non è una decisione pre-partita archiviata.</p>}
       {choice && realQuote && <OpportunityQuality opportunity={choice} />}
       {choice && realQuote && renderActions('A', { ...choice, bookmakerName: choiceBookmaker }, Number(automatic?.actualStakeAmount) > 0)}
@@ -934,9 +955,10 @@ const PredictionWorkbenchView: React.FC<PredictionWorkbenchViewProps> = ({ vm })
         </div>
         {detailView === 'sporting' ? <SportingAnalysis error={analysis.analysisError} onRetry={!started && !completed ? vm.handleRefresh : undefined} prediction={pred} teams={selection.teams} match={activeMatchRow} loading={analysis.loading} /> : <section aria-label="Migliori giocate per modello"><p>Le migliori selezioni A e C vengono verificate con quote reali. Se mancano, i grafici restano disponibili ma la giocata non è verificabile.</p>
         {!started && !completed && activeMatchRow && <MatchQuoteRequest key={matchId} match={activeMatchRow} onLoaded={vm.handleRefresh} ready={!analysis.loading} hasQuotes={Object.keys(analysis.odds).length > 0 && Date.now() - Date.parse(pred?.oddsCapturedAt ?? '') <= 5 * 60_000} />}
-        <MatchModelAdvice matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} registeredFamilies={registeredFamilies} kickoffAt={activeMatchRow?.date} finished={completed} renderActions={renderActions} />
+        <section aria-label="Registrazioni paper della partita"><h2>Giocate paper registrate</h2>{vm.userBudget.loading ? <p role="status">Caricamento giocate paper…</p> : vm.userBudget.error ? <p role="alert">{vm.userBudget.error}</p> : <PaperBetTable rows={paperRows} />}</section>
+        <MatchModelAdvice paperMode matchId={matchId} fallbackA={aAdvice} coordinator={modelAdvice} registeredFamilies={registeredFamilies} kickoffAt={activeMatchRow?.date} finished={completed} renderActions={renderActions} />
         {vm.manualArchiveOpportunities.length > 0 && <section className="opportunity-alternatives" aria-label="Altre opportunità modello A">
-          <header><h2>Altre opportunità A</h2><p>Selezioni con EV positivo e opportunità LOW o speculative da valutare. Puoi scegliere una giocata per modello e partita, oppure archiviare senza puntare.</p></header>
+          <header><h2>Altre opportunità A</h2><p>Selezioni e opportunità LOW o speculative da valutare. La consultazione non crea giocate paper.</p></header>
           {vm.manualArchiveOpportunities.map(opportunity => <article key={opportunity.selection} className="opportunity-alternative">
             <header><h3>{opportunity.selectionLabel || fmtSelection(opportunity.selection)}</h3><span>Modello A</span></header>
             <dl><div><dt>Quota reale</dt><dd>{Number(opportunity.bookmakerOdds).toFixed(2)}</dd></div><div><dt>Bookmaker</dt><dd>{opportunity.bookmakerName}</dd></div><div><dt>Mercato</dt><dd>{opportunity.marketName}</dd></div></dl>

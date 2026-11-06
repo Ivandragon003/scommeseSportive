@@ -23,17 +23,27 @@ TRANSITION_REFERENCE_TIMEOUT_SECONDS="${TRANSITION_REFERENCE_TIMEOUT_SECONDS:-60
 API_FOOTBALL_TIMEOUT_SECONDS="${API_FOOTBALL_TIMEOUT_SECONDS:-120}"
 PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS="${PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS:-180}"
 ODDS_SYNC_TIMEOUT_SECONDS="${ODDS_SYNC_TIMEOUT_SECONDS:-300}"
-CALIBRATION_WARM_TIMEOUT_SECONDS="${CALIBRATION_WARM_TIMEOUT_SECONDS:-600}"
 LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
-RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-true}"
+RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-false}"
 RESEARCH_NIGHTLY_ENABLED="${RESEARCH_NIGHTLY_ENABLED:-false}"
 RESEARCH_NIGHTLY_TIMEOUT_SECONDS="${RESEARCH_NIGHTLY_TIMEOUT_SECONDS:-1200}"
 UPCOMING_KICKOFFS_TIMEOUT_SECONDS="${UPCOMING_KICKOFFS_TIMEOUT_SECONDS:-180}"
+NIGHTLY_SOURCE_MODE="${NIGHTLY_SOURCE_MODE:-primary}"
+NIGHTLY_SOURCE_MANIFEST_FILE="${NIGHTLY_SOURCE_MANIFEST_FILE:-${RUNNER_TEMP:-$ROOT_DIR/artifacts}/nightly-source-manifest.json}"
+NIGHTLY_SOURCE_MAPPING_FILE="${NIGHTLY_SOURCE_MAPPING_FILE:-${RUNNER_TEMP:-$ROOT_DIR/artifacts}/nightly-source-mapping.json}"
+export NIGHTLY_SOURCE_MODE NIGHTLY_SOURCE_MANIFEST_FILE NIGHTLY_SOURCE_MAPPING_FILE
+if [[ "$NIGHTLY_SOURCE_MODE" != "primary" && "$NIGHTLY_SOURCE_MODE" != "verified-alternatives" ]]; then
+  echo "Invalid NIGHTLY_SOURCE_MODE."
+  exit 1
+fi
+if [[ "$NIGHTLY_SOURCE_MODE" == "verified-alternatives" ]]; then
+  # A malformed target/mapping must fail before a backend can access its DB.
+  node "$BACKEND_DIR/scripts/prepare-nightly-source-config.js"
+fi
 
 BACKEND_PID=""
 REQUIRED_SYNC_FAILURES=()
-UNDERSTAT_SYNC_FAILED=false
 
 cleanup() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
@@ -115,6 +125,7 @@ SHARED_ADMIN_AUTH_ENABLED=false \
 CORS_ORIGIN="http://127.0.0.1:$PORT" \
 PORT="$PORT" \
 AUTO_SYNC_ON_BOOT=false \
+WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false \
 NIGHTLY_ORCHESTRATOR=github_actions \
 UNDERSTAT_SCHEDULER_ENABLED=false \
 ODDS_SNAPSHOT_SCHEDULER_ENABLED=false \
@@ -143,23 +154,40 @@ for attempt in $(seq 1 60); do
   fi
 done
 
+if [[ "$NIGHTLY_SOURCE_MODE" == "primary" ]]; then
 echo "Running Understat sync..."
 if ! post_json \
   "http://127.0.0.1:$PORT/api/scraper/understat" \
   "{\"mode\":\"top5\",\"yearsBack\":5,\"importPlayers\":$IMPORT_PLAYERS,\"includeMatchDetails\":true,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"understat\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
   "$UNDERSTAT_SYNC_TIMEOUT_SECONDS"; then
   REQUIRED_SYNC_FAILURES+=("understat")
-  UNDERSTAT_SYNC_FAILED=true
   echo "Required gate failed: Understat. Continuing with independent data gates."
 fi
+else
+  echo "Using verified alternative sources; retained Understat xG are preserved."
+fi
 
-echo "Running football-data.co.uk supplemental sync (fouls/corners/shots/cards/referee) + season retention..."
-if ! post_json \
-  "http://127.0.0.1:$PORT/api/scraper/football-data" \
-  '{"recomputeAverages":true}' \
-  "$FOOTBALL_DATA_TIMEOUT_SECONDS"; then
-  REQUIRED_SYNC_FAILURES+=("football-data")
-  echo "Required gate failed: football-data. Continuing with independent data gates."
+if [[ "$NIGHTLY_SOURCE_MODE" == "verified-alternatives" ]]; then
+  echo "Collecting and importing independently verified source subsets..."
+  if timeout "$FOOTBALL_DATA_TIMEOUT_SECONDS" node scripts/nightly-alternative-sources.js --execute \
+    --target-sha256 "$NIGHTLY_SOURCE_TARGET_SHA256" --season "$NIGHTLY_SOURCE_SEASON" \
+    --mapping "$NIGHTLY_SOURCE_MAPPING_FILE" --collect-fdo --collect-csv > "$NIGHTLY_SOURCE_MANIFEST_FILE"; then
+    node scripts/nightly-source-context.js --recompute-imported-teams || \
+      REQUIRED_SYNC_FAILURES+=("source-derived-statistics")
+  else
+    echo "Alternative maintenance unavailable; fixture admission will fail closed. Settlement continues."
+  fi
+elif [[ -n "${NIGHTLY_SOURCE_TARGET_SHA256:-}" && -n "${NIGHTLY_SOURCE_SEASON:-}" ]]; then
+  # Even the primary route must use the shared CSV budget across CI runners.
+  if timeout "$FOOTBALL_DATA_TIMEOUT_SECONDS" node scripts/nightly-alternative-sources.js --execute --csv-only \
+    --target-sha256 "$NIGHTLY_SOURCE_TARGET_SHA256" --season "$NIGHTLY_SOURCE_SEASON" --collect-csv > "$NIGHTLY_SOURCE_MANIFEST_FILE"; then
+    node scripts/nightly-source-context.js --recompute-imported-teams || \
+      REQUIRED_SYNC_FAILURES+=("source-derived-statistics")
+  else
+    echo "Supplement unavailable; retaining existing observed statistics without an unbudgeted download."
+  fi
+else
+  echo "CSV collection not configured; no direct or unbudgeted supplemental download."
 fi
 
 if [[ "$PLAYER_AVAILABILITY_ENABLED" == "true" ]]; then
@@ -173,7 +201,7 @@ else
   echo "Skipping lineup sync. PLAYER_AVAILABILITY_ENABLED=false."
 fi
 
-if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" ]]; then
+if [[ "$RUN_TRANSITION_REFERENCE_SYNC" == "true" && "$NIGHTLY_SOURCE_MODE" == "primary" ]]; then
   echo "Syncing second-division seasonal references (idempotent)..."
   if ! post_json \
     "http://127.0.0.1:$PORT/api/competition-transitions/sync-references" \
@@ -233,16 +261,12 @@ else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
 fi
 
-# Compute on the existing CI runner, not on the hosted web service. The shared
-# database only supplies profiles whose full inputs/configuration/code match.
-if [[ "$UNDERSTAT_SYNC_FAILED" != "true" ]]; then
-  echo "Preparing persistent calibration profiles for all five leagues..."
-  if ! timeout "$CALIBRATION_WARM_TIMEOUT_SECONDS" npm --prefix "$BACKEND_DIR" run calibration:warm; then
-    echo "Warning: calibration warmup failed; predictions retain the full on-demand calculation."
-  fi
-fi
+# Import is not permission to recalibrate. The explicit operational command
+# prepares compatible profiles separately; recommendation inference is cache-only.
+echo "Calibration rebuild disabled in automatic maintenance; requiring exact existing profiles."
 
 if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
+  if [[ "$NIGHTLY_SOURCE_MODE" == "primary" ]]; then
   echo "Refreshing upcoming Top 5 kickoff times from the free event calendar..."
   if ! post_json \
     "http://127.0.0.1:$PORT/api/system/sync-upcoming-kickoffs" \
@@ -250,6 +274,7 @@ if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
     "$UPCOMING_KICKOFFS_TIMEOUT_SECONDS"; then
     REQUIRED_SYNC_FAILURES+=("upcoming-kickoffs")
     echo "Required gate failed: upcoming kickoff calendar. New virtual decisions are blocked."
+  fi
   fi
   RESEARCH_NIGHTLY_DATA_GATES_PASSED=true
   if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then RESEARCH_NIGHTLY_DATA_GATES_PASSED=false; fi
@@ -263,14 +288,14 @@ else
   echo "New virtual A/C registrations disabled. RESEARCH_NIGHTLY_ENABLED=false."
 fi
 
-if (( ${#REQUIRED_SYNC_FAILURES[@]} == 0 )); then
+if (( ${#REQUIRED_SYNC_FAILURES[@]} == 0 )) && [[ "$NIGHTLY_SOURCE_MODE" == "primary" ]]; then
   echo "Running learning review sync..."
   post_json \
     "http://127.0.0.1:$PORT/api/learning/reviews/sync" \
     "{\"limit\":50,\"forceRefresh\":false,\"_schedulerRun\":{\"enabled\":true,\"schedulerName\":\"learning\",\"trigger\":\"github_actions\",\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
     "$LEARNING_SYNC_TIMEOUT_SECONDS"
 else
-  echo "Skipping learning review sync because required data gates failed: ${REQUIRED_SYNC_FAILURES[*]}."
+  echo "Skipping learning review sync in alternative mode or after failed required gates: ${REQUIRED_SYNC_FAILURES[*]}."
 fi
 
 echo "Fetching final scheduler status snapshot..."

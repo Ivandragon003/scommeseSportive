@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Client } from '@libsql/client';
+import { sourceIdentityQuarantined } from './SourceIdentityQuarantine';
 import {
   canonicalTeamName, createLibsqlFootballDataDb, FOOTBALL_DATA_LEAGUE_CODES,
   matchKey, parseFootballDataCsv, seasonToFootballDataCode, syncFootballData,
@@ -14,6 +15,7 @@ const COUNT_COLUMNS = ['HS', 'AS', 'HST', 'AST', 'HF', 'AF', 'HC', 'AC', 'HY', '
 export type CapturedSupplementInput = {
   client: Client; csv: string; competition: string; seasonStart: number;
   acquiredAt: string; asOf: string; sourceUrl: string; sha256: string;
+  excludedMatchIds?: readonly string[];
 };
 export type CapturedSupplementResult = {
   csvRows: number; eligibleRows: number; unmatchedRows: number; ambiguousRows: number; scoreMismatchRows: number;
@@ -38,6 +40,9 @@ function object(value: unknown): value is Record<string, unknown> {
 
 /** Import a previously captured CSV inside one explicit caller-visible transaction. */
 export async function importCapturedSupplement(input: CapturedSupplementInput): Promise<CapturedSupplementResult> {
+  if (input.excludedMatchIds !== undefined && (!Array.isArray(input.excludedMatchIds)
+    || input.excludedMatchIds.some(id => typeof id !== 'string' || !id.trim()))) throw new Error('supplement_exclusions_invalid');
+  const excluded = new Set(input.excludedMatchIds ?? []);
   const code = FOOTBALL_DATA_LEAGUE_CODES[input.competition];
   if (!code || !Number.isInteger(input.seasonStart) || input.seasonStart < 2000 || input.seasonStart > 9998) throw new Error('supplement_scope_invalid');
   if (typeof input.csv !== 'string' || !/^[a-f0-9]{64}$/.test(input.sha256 ?? '')
@@ -88,14 +93,17 @@ export async function importCapturedSupplement(input: CapturedSupplementInput): 
     args: [input.competition, `${input.seasonStart}-07-01`, `${input.seasonStart + 1}-07-01`] });
     const byId = new Map(scores.rows.map((row) => [String(row.match_id), row]));
     const index = new Map<string, typeof candidates>();
+    const blockedKeys = new Set<string>();
     for (const match of candidates) {
+      const key = matchKey(match.date, match.home_team_name ?? '', match.away_team_name ?? '');
+      if (excluded.has(match.match_id) || (input.competition === 'Ligue 1' && sourceIdentityQuarantined('FL1', input.seasonStart,
+        match.home_team_id ?? undefined, match.away_team_id ?? undefined))) { blockedKeys.add(key); continue; }
       const row = byId.get(match.match_id);
       const providerId = count(row?.source_match_id);
       const allowedSource = row?.source === 'understat' || (row?.source === 'football_data_org'
         && providerId !== null && providerId > 0 && match.match_id === `football_data_org_${providerId}`);
       if (!row || !allowedSource || count(row.home_goals) === null || count(row.away_goals) === null
         || !Number.isFinite(Date.parse(String(row.date))) || Date.parse(String(row.date)) > acquired) continue;
-      const key = matchKey(match.date, match.home_team_name ?? '', match.away_team_name ?? '');
       index.set(key, [...(index.get(key) ?? []), match]);
     }
     const sourceCounts = new Map<string, number>();
@@ -105,6 +113,7 @@ export async function importCapturedSupplement(input: CapturedSupplementInput): 
     const eligibleIds = new Set<string>();
     for (const [i, row] of parsed.entries()) {
       const key = matchKey(row.date, row.homeTeam, row.awayTeam), found = index.get(key) ?? [];
+      if (blockedKeys.has(key)) { ambiguousRows++; continue; }
       if (!found.length) { unmatchedRows++; continue; }
       if (found.length !== 1 || sourceCounts.get(key)! > 1) { ambiguousRows++; continue; }
       const score = byId.get(found[0].match_id)!;

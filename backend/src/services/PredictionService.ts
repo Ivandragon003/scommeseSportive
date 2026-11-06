@@ -420,6 +420,8 @@ export function researchFixtureProjection(request: PredictionRequest, options: P
 }
 
 export interface PredictionExecutionOptions {
+  /** Skip only the optional prospective recorder, without changing inference. */
+  suppressProspective?: boolean;
   /** Attribution only; does not change the prediction. Unspecified calls are internal. */
   prospectiveOrigin?: 'direct_a' | 'shared_ac' | 'internal' | 'prospective_a';
   /** Recording acknowledgement for the optional research collector; never changes output. */
@@ -832,7 +834,17 @@ export function summarizeBudgetBetsInternal(allBets: any[]): BudgetBetSummary {
   };
 }
 
+export class CalibrationProfileUnavailableError extends Error {
+  readonly code = 'CALIBRATION_PROFILE_UNAVAILABLE';
+
+  constructor(readonly competition: string, readonly reason: string) {
+    super(`Existing calibration profile required for ${competition}: ${reason}`);
+    this.name = 'CalibrationProfileUnavailableError';
+  }
+}
+
 export class PredictionService {
+  private allowCalibrationRebuild: boolean;
   private models: Map<string, DixonColesModel> = new Map();
   private modelLoads: Map<string, Promise<DixonColesModel>> = new Map();
   /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */
@@ -867,8 +879,9 @@ export class PredictionService {
     odds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }>;
   }>>();
 
-  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {
+  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper(), options: { allowCalibrationRebuild?: boolean } = {}) {
     this.db = db;
+    this.allowCalibrationRebuild = options.allowCalibrationRebuild !== false;
     startModelAProspectiveRecovery(db);
     this.engine = new ValueBettingEngine();
     this.backtester = new BacktestingEngine();
@@ -1001,6 +1014,9 @@ export class PredictionService {
     asOf?: Date,
   ): Promise<CalibrationProfile> {
     const competitionKey = this.getCalibrationCacheKey(competition);
+    if (this.allowCalibrationRebuild === false && forceRefresh) {
+      throw new CalibrationProfileUnavailableError(competitionKey, 'refresh_forbidden');
+    }
     const generation = this.calibrationGenerations.get(competitionKey) ?? 0;
     const cacheKey = `${competitionKey}:${asOf?.toISOString() ?? 'live'}`;
     const now = Date.now();
@@ -1008,7 +1024,7 @@ export class PredictionService {
       if (entry.expiresAt <= now) this.calibrationCache.delete(key);
     }
     const cached = this.calibrationCache.get(cacheKey);
-    if (!forceRefresh && cached && cached.expiresAt > now) {
+    if (this.allowCalibrationRebuild !== false && !forceRefresh && cached && cached.expiresAt > now) {
       this.calibrationCache.delete(cacheKey);
       this.calibrationCache.set(cacheKey, cached);
       return {
@@ -1019,10 +1035,12 @@ export class PredictionService {
       };
     }
 
-    const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh);
+    // Strict callers recheck the exact persisted key after any external import.
+    const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh || this.allowCalibrationRebuild === false);
     const matches = this.mapCompletedMatches(rows);
     const cutoff = asOf ?? new Date(now);
     let persistentKey: string | null = null;
+    let unavailableReason = 'persistence_unavailable';
     if (typeof this.db.getCalibrationProfileCache === 'function' && typeof this.db.saveCalibrationProfileCache === 'function') {
       try {
         const eligible = matches.filter((match) => match.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());
@@ -1036,14 +1054,19 @@ export class PredictionService {
         if (!forceRefresh) {
           const stored = await this.db.getCalibrationProfileCache(persistentKey);
           const profile = stored && decodeCalibrationProfile(stored.payloadJson, stored.payloadSha256);
+          unavailableReason = stored ? 'invalid_profile' : 'cache_miss';
           if (profile) {
             this.rememberCalibrationProfile(cacheKey, competitionKey, generation, now, profile);
             return profile;
           }
         }
       } catch {
-        this.warnCalibrationCacheUnavailable();
+        unavailableReason = 'cache_read_error';
+        if (this.allowCalibrationRebuild !== false) this.warnCalibrationCacheUnavailable();
       }
+    }
+    if (this.allowCalibrationRebuild === false) {
+      throw new CalibrationProfileUnavailableError(competitionKey, unavailableReason);
     }
     const forecasts = await buildChronologicalForecastsAsync(matches, {
       asOf: cutoff,
@@ -1309,7 +1332,10 @@ export class PredictionService {
     const load = (async () => {
       const oddsPromise = predictionEngineConfig.marketBlending.enableLearnedBlendWeights &&
         typeof this.db.getHistoricalOddsDetailMap === 'function'
-        ? this.db.getHistoricalOddsDetailMap({ competition }).catch(() => ({})) : Promise.resolve({});
+        ? this.db.getHistoricalOddsDetailMap({ competition }).catch(() => {
+          if (this.allowCalibrationRebuild === false) throw new CalibrationProfileUnavailableError(key, 'historical_odds_read_error');
+          return {};
+        }) : Promise.resolve({});
       const [rows, odds] = await Promise.all([this.db.getMatches({ competition }), oddsPromise]);
       const result = { rows, odds };
       if ((this.calibrationGenerations.get(key) ?? 0) === generation) {
@@ -2755,7 +2781,7 @@ export class PredictionService {
       ].map((opportunity) => [opportunity.selection, Number(opportunity.ourProbability) / 100])) },
     };
 
-    if (modelAProspectiveEnabled()) {
+    if (modelAProspectiveEnabled() && !options.suppressProspective) {
       try {
         const receipt = scheduleModelAProspective(this.db, {
           match: matchRow, request, asOf, origin: options.prospectiveOrigin ?? 'internal',
@@ -4222,10 +4248,12 @@ export class PredictionService {
 
   /** Settles every archived prediction for completed matches, including non-bets. */
   async settlePendingPredictionsForCompletedMatches(limit = 500): Promise<{ matches: number; settled: number; unresolved: number }> {
-    const pending = await this.db.getPendingPredictions();
+    if (!Number.isFinite(limit)) throw new Error('Invalid completed prediction match limit');
+    const maximumSettledMatches = Math.max(1, Math.trunc(limit));
+    const pending = await this.db.getPendingPredictionsForCompletedMatches();
     const matchIds = Array.from(new Set(
       pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)
-    )).slice(0, Math.max(1, Math.trunc(limit)));
+    ));
     const pendingByMatch = new Map<string, any[]>();
     for (const row of pending) {
       const matchId = String(row.match_id ?? '').trim();
@@ -4241,6 +4269,7 @@ export class PredictionService {
     let matches = 0;
     let settled = 0;
     let unresolved = 0;
+    let settledMatches = 0;
 
     for (const matchId of matchIds) {
       const matchRow = matchesById.get(matchId);
@@ -4249,6 +4278,8 @@ export class PredictionService {
       matches++;
       settled += result.settled;
       unresolved += result.unresolved;
+      // Missing per-market observations stay pending without starving later matches.
+      if (result.settled > 0 && ++settledMatches >= maximumSettledMatches) break;
     }
 
     return { matches, settled, unresolved };

@@ -47,6 +47,22 @@ export function challengerExecutionPolicy(state: ChallengerExecutionState) {
       ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 
+const { maxExposureFraction: _paperExposure, maxBetsPerMatchPerFamily: _paperBets, ...paperBase } = VIRTUAL_RECOMMENDATION_POLICY;
+export const PAPER_RECOMMENDATION_POLICY = {
+  ...paperBase,
+  version: 'paper-fixed-unit-v1',
+  familyA: { ...VIRTUAL_RECOMMENDATION_POLICY.familyA, stakeMode: 'PAPER_FIXED_UNIT' },
+  familyC: { ...VIRTUAL_RECOMMENDATION_POLICY.familyC, stakeMode: 'PAPER_FIXED_UNIT' },
+  stakeModeA: 'PAPER_FIXED_UNIT', stakeModeC: 'PAPER_FIXED_UNIT', fixedStakeUnits: 1,
+};
+// Exposure and bet-count caps belong to the older wallet policy, not paper execution.
+export function paperExecutionPolicy(state: ChallengerExecutionState) {
+  const base = PAPER_RECOMMENDATION_POLICY;
+  return { ...base, familyC: { ...base.familyC, ...state.deployment,
+    deploymentRevision: state.revision, deploymentSource: state.source,
+    ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
+}
+
 export function recommendationQuoteReason(quote: RecommendationQuote, now: Date, family: 'A' | 'C' = 'C'): string | null {
   if (!quote || quote.source !== 'odds_api' || quote.priceType !== 'prematch'
     || quote.timestampEvidence === 'observed_snapshot') return 'real_prematch_quote_required';

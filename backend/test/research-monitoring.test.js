@@ -139,6 +139,24 @@ test('critical rules require measured failures, respect disabled scheduler and d
   assert.equal(broken[0].key, 'virtual_accounting_integrity');
 });
 
+test('unfunded metadata needs no opening event, while an old funded bet still requires its complete ledger', () => {
+  const portfolio = { id: 'shadow_A', family: 'A', availableCents: 0, committedCents: 0, equityCents: 0 };
+  const base = { now: '2026-11-06T12:00:00Z', schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios: [portfolio], bets: [], ledger: [] };
+  assert.deepEqual(researchCriticalIncidents(base), []);
+  const funded = researchCriticalIncidents({ ...base, bets: [{ id: 'old', portfolioId: 'shadow_A', matchId: 'old-match', status: 'PENDING', stakeCents: 100 }] });
+  assert.equal(funded[0].key, 'virtual_accounting_integrity');
+  assert.ok(funded[0].details.failures.includes('shadow_A'));
+  const movements = researchCriticalIncidents({ ...base, ledger: [{ portfolioId: 'shadow_A', event: 'STAKE', availableDeltaCents: -100, committedDeltaCents: 100 }] });
+  assert.equal(movements[0].key, 'virtual_accounting_integrity');
+  const manual = { ...base, portfolios: [{ ...portfolio, availableCents: 900, committedCents: 100, equityCents: 1000 }],
+    bets: [{ id: 'manual:fixture', portfolioId: 'shadow_A', matchId: 'old-match', status: 'PENDING', stakeCents: 100 }],
+    ledger: [{ id: 'open:shadow_A', portfolioId: 'shadow_A', event: 'OPEN', availableDeltaCents: 1000, committedDeltaCents: 0 },
+      { id: 'stake:manual:fixture', betId: null, portfolioId: 'shadow_A', event: 'STAKE', availableDeltaCents: -100, committedDeltaCents: 100 }] };
+  assert.deepEqual(researchCriticalIncidents(manual), []);
+  manual.ledger.pop();
+  assert.equal(researchCriticalIncidents(manual)[0].key, 'virtual_accounting_integrity');
+});
+
 test('successful A checks and other competitions cannot hide persistent C or provider failures', () => {
   const base = { now: '2026-10-27T12:00:00Z', schedulerEnabled: true, models: [], markets: [], jobs: [], portfolios: [], bets: [], ledger: [] };
   const runs = [];

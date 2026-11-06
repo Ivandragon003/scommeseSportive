@@ -1,4 +1,5 @@
 import { ResearchRuntime, settleResearchBets } from './ResearchRuntime';
+import { settlePaperModelBets } from './PaperModelBetLedger';
 import { baselineManifest, TOP5_COMPETITIONS } from './ForecastCore';
 import { PreparedT15Job, safeOddsFailureCode, T15Job } from './T15Scheduler';
 import { reconcileResearchMonitoring } from './ResearchMonitoring';
@@ -66,7 +67,7 @@ export function nightlyQuoteReason(quote: any, now: number, maxAgeMs: number): s
   return null;
 }
 
-type RuntimeDb = ConstructorParameters<typeof ResearchRuntime>[0];
+type RuntimeDb = ConstructorParameters<typeof ResearchRuntime>[0] & Partial<Pick<import('../db/DatabaseService').DatabaseService, 'recommendations'>>;
 type NightlyPreparer = Pick<ResearchRuntime, 'prepareNightly' | 'getQuotaStatus'>;
 export type NightlySummary = {
   mode: 'NIGHTLY'; enabled: boolean; runId: string | null; startedAt: string; endedAt: string | null; windowEndAt: string;
@@ -105,7 +106,9 @@ async function unavailableDiagnostic(db: RuntimeDb, job: T15Job, clock: () => Da
 
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
-  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean } = {}): Promise<NightlySummary> {
+  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean;
+  fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean;
+  allowChampionRollback?: boolean; collectChallengerForecasts?: boolean } = {}): Promise<NightlySummary> {
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()
@@ -124,13 +127,14 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   if (existing) { summary.startedAt = existing.startedAt; summary.windowEndAt = existing.windowEndAt; }
   const admissionPolicy = existing ? { quoteMaxAgeMs: existing.quoteMaxAgeMs, minEv: existing.minEv,
     minPrudentialEv: existing.minPrudentialEv } : policy;
-  await db.research.initializePortfolios();
+  await db.research.initializePortfolios(options.paperMode ? { fundVirtual: false } : undefined);
   const baseline = baselineManifest();
   await db.research.saveModel({ family: 'A', version: baseline.version, artifact: baseline });
-  const fixtures = (options.dataGatesPassed === false ? [] : await db.getUpcomingMatches({ nowIso: startedAt, untilIso: summary.windowEndAt, limit: 10000 }))
+  const fixtures = (options.dataGatesPassed === false ? [] : await db.getUpcomingMatches({ nowIso: startedAt, untilIso: summary.windowEndAt,
+    ...(options.paperMode ? { unbounded: true } : { limit: 10000 }) }))
     .filter((row) => TOP5_COMPETITIONS.includes(row.competition));
   const claim = await db.research.claimNightlyBatch({ startedAt: summary.startedAt, windowEndAt: summary.windowEndAt,
-    runId, leaseMs: options.leaseMs,
+    runId, leaseMs: options.leaseMs, paperDiagnosticOnly: options.paperMode === true && options.diagnosticOnly === true,
     quoteMaxAgeMs: admissionPolicy.quoteMaxAgeMs, minEv: admissionPolicy.minEv, minPrudentialEv: admissionPolicy.minPrudentialEv,
     fixtures: fixtures.map((row) => ({ matchId: row.match_id, kickoffAt: row.date })) });
   summary.runId = claim.run?.id ?? null;
@@ -156,8 +160,14 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   // The finite CLI job owns this handle until finally clears it. Unref would
   // allow Node to exit while preparation still awaits asynchronous work.
   try {
-    if (options.dataGatesPassed === false) { reason('required_data_gates_failed'); throw new Error('required_data_gates_failed'); }
     summary.settlement = await settleResearchBets(db);
+    if (options.paperMode) {
+      if (!db.recommendations) throw new Error('paper_store_required');
+      const paper = await settlePaperModelBets({ ...db, recommendations: db.recommendations,
+        research: db.research, getMatchById: db.getMatchById.bind(db) });
+      for (const key of ['checked', 'settled', 'unresolved'] as const) summary.settlement[key] += paper[key];
+    }
+    if (options.dataGatesPassed === false) { reason('required_data_gates_failed'); throw new Error('required_data_gates_failed'); }
     summary.prospectiveEvidence = { ...await settleProspectiveEvidence(db, clock), frozen: 0 };
     for (const skipped of claim.skipped ?? []) {
       if (!['decision_already_recorded', 'bet_already_recorded'].includes(skipped.reason)) summary.skippedMatches++;
@@ -179,7 +189,8 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
         && !decided.has(row.match_id) && Date.parse(row.date) >= Date.parse(missedFrom) && Date.parse(row.date) < Date.parse(startedAt)).length;
       if (summary.missedMatches) reason('missed_nightly_interval');
     }
-    if (jobs.length) preparer ??= new ResearchRuntime(runtimeDb, { clock, nightly: effectivePolicy });
+    if (jobs.length) preparer ??= new ResearchRuntime(runtimeDb, { clock, nightly: effectivePolicy, paperMode: options.paperMode,
+      allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
     const prepared: PreparedT15Job[] = [];
     for (const job of jobs) {
       if (leaseLost) throw new Error('nightly_lease_lost');
@@ -190,7 +201,15 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
       summary.analyzedMatches++;
       try {
         let result: PreparedT15Job;
-        try { result = await preparer!.prepareNightly(job); }
+        try {
+          const admission = await options.fixtureAdmission?.(job.matchId, clock().toISOString());
+          if (admission && !admission.markets.goal.C.eligible) {
+            const code = admission.markets.goal.C.reasons[0] ?? 'c_inputs_unavailable';
+            result = await unavailableDiagnostic(db, job, clock, code);
+            result.inputSnapshot = { ...(result.inputSnapshot as object), sourceAdmission: admission };
+            result.decisions = result.decisions.map(decision => ({ ...decision, reason: code }));
+          } else result = await preparer!.prepareNightly(job);
+        }
         catch (error) {
           if (!options.diagnosticOnly || isDiagnosticInfrastructureFailure(error)) throw error;
           const failureCode = safeOddsFailureCode(error) ?? 'research_forecast_unavailable';

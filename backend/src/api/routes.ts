@@ -5,6 +5,7 @@ import { buildResearchComparison } from '../research/ResearchComparison';
 import { buildAppWallets, isAppWalletQueryError, parseAppWalletQuery, targetsAppWallet } from '../services/AppWalletService';
 import { readEffectiveResearchDecisions, projectAutomaticRecommendationA } from '../research/ResearchRecommendationView';
 import { settleResearchBets } from '../research/ResearchRuntime';
+import { paperBetOverview, settlePaperModelBets } from '../research/PaperModelBetLedger';
 import { ChallengerPreviewService } from '../research/ChallengerPreviewService';
 import { ManualModelBetService, ManualModelActionError } from '../services/ManualModelBetService';
 import { MatchResultsRefreshService } from '../services/MatchResultsRefreshService';
@@ -1700,6 +1701,16 @@ router.post('/predict/replay', async (req: Request, res: Response) => {
 });
 
 // ====== BUDGET & BETS ======
+router.get('/paper-bets', async (_req: Request, res: Response) => {
+  try {
+    const bets = await db.recommendations.listPaperBets();
+    return res.json({ success: true, data: { ...paperBetOverview(bets), bets } });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, code: error?.code === 'paper_schema_required' ? error.code : 'paper_read_failed',
+      error: error?.code === 'paper_schema_required' ? 'Il registro paper richiede la preparazione del database.' : 'Giocate virtuali non disponibili.' });
+  }
+});
+
 router.get('/wallets/archive', async (req: Request, res: Response) => {
   try { const query = parseArchiveQuery(req.query); return res.json({ success: true, data: await buildWalletArchive(db, sharedDataUserId, query) }); }
   catch (error) { return res.status(error instanceof Error && error.message === 'Invalid archive filters' ? 400 : 503)
@@ -1795,7 +1806,8 @@ router.post('/bets/sync', async (_req: Request, res: Response) => {
   try {
     const legacy = await svc.syncPendingBets(sharedDataUserId);
     const research = db.research ? await settleResearchBets(db) : undefined;
-    return res.json({ success: true, data: legacy, research });
+    const paper = await settlePaperModelBets(db, { allowUninitialized: true });
+    return res.json({ success: true, data: legacy, research, paper });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
@@ -2036,7 +2048,10 @@ router.post('/results/refresh', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'L’aggiornamento dei risultati non accetta parametri.' });
   }
   try {
-    resultsMaintenance ??= new MatchResultsMaintenanceService(new MatchResultsRefreshService(db), () => settleResearchBets(db), db);
+    resultsMaintenance ??= new MatchResultsMaintenanceService(new MatchResultsRefreshService(db), async () => {
+      const legacy = await settleResearchBets(db), paper = await settlePaperModelBets(db, { allowUninitialized: true });
+      return { checked: legacy.checked + paper.checked, settled: legacy.settled + paper.settled, unresolved: legacy.unresolved + paper.unresolved };
+    }, db);
     return res.json({ success: true, data: await resultsMaintenance.refresh() });
   } catch { return res.status(503).json({ success: false, error: 'Aggiornamento dei risultati temporaneamente non disponibile.' }); }
 });
@@ -2085,7 +2100,11 @@ for (const [path, action] of [['/wallets/bets/manual', 'place'], ['/wallets/oppo
 }
 
 router.post('/research/settle', async (_req: Request, res: Response) => {
-  try { return res.json({ success: true, data: await settleResearchBets(db) }); }
+  try {
+    const legacy = await settleResearchBets(db), paper = await settlePaperModelBets(db, { allowUninitialized: true });
+    return res.json({ success: true, data: { checked: legacy.checked + paper.checked,
+      settled: legacy.settled + paper.settled, unresolved: legacy.unresolved + paper.unresolved }, paper });
+  }
   catch (error: any) { return res.status(503).json({ success: false, error: error?.message ?? 'Research settlement failed.' }); }
 });
 

@@ -5,6 +5,7 @@ import {
 } from './FootballDataOrgFeed';
 import type { SourceFeedState, SourceFeedStore } from './SourceFeedStore';
 import type { FootballDataCompetition } from './modelAResearchCalendar';
+import { sourceIdentityQuarantined } from './SourceIdentityQuarantine';
 
 type Statement = { sql: string; args?: Array<string | number | null> };
 interface ReadClient { execute(statement: Statement | string): Promise<{ rows: any[]; rowsAffected?: number }> }
@@ -84,7 +85,7 @@ const localUtc = (value: string | null): string | null => value === null ? null
   : sourceFeedUtc(value) ?? (/^\d{4}-\d{2}-\d{2}$/.test(value) ? sourceFeedUtc(`${value}T00:00:00Z`) : null);
 const seasons = (season: number) => [`${season}/${season + 1}`, `${season}-${season + 1}`];
 
-function quarantinedIdentity(mapping: ReviewedSourceTeamMapping, home: string | undefined, away: string | undefined): boolean {
+export function quarantinedIdentity(mapping: Pick<ReviewedSourceTeamMapping, 'competition' | 'season'>, home: string | undefined, away: string | undefined): boolean {
   // Incident FL1/2026: understat_team_172 is labelled Troyes, while the
   // disputed external association was treated as Le Havre. Official Toulouse
   // programme/results distinguish these clubs (archived in
@@ -92,8 +93,7 @@ function quarantinedIdentity(mapping: ReviewedSourceTeamMapping, home: string | 
   // quarantine: remove it only after a separate review resolves the identity.
   // Official programme published 23 October 2026:
   // https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026
-  return mapping.competition === 'FL1' && mapping.season === 2026
-    && (home === 'understat_team_172' || away === 'understat_team_172');
+  return sourceIdentityQuarantined(mapping.competition, mapping.season, home, away);
 }
 
 function validateMapping(mapping: ReviewedSourceTeamMapping, asOf: string): void {

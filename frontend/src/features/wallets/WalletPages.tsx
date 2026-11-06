@@ -11,6 +11,7 @@ import {
 import ModelBadge from './ModelBadge';
 import QualityFilters from './QualityFilters';
 import { AppSelect } from '../../components/common/AppSelect';
+import PaperWalletPage from './PaperWalletPages';
 
 const initialModel = (): WalletModelFilter => {
   const value = new URLSearchParams(window.location.search).get('model');
@@ -79,7 +80,7 @@ export function WalletBetsPage({ legacy }: { legacy?: React.ReactNode }) {
   </div>;
 }
 
-export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
+export function FundedWalletBudgetPage({ activeUser }: { activeUser: string }) {
   const [model, setModel] = useState<WalletModelFilter>(() => {
     if (new URLSearchParams(window.location.search).get('model') === 'baseline') return 'A';
     const requested = initialModel();
@@ -155,4 +156,8 @@ export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
       <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. Il grafico mostra sempre il profitto cumulato, da zero all’inizio del periodo. I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
   </main>;
+}
+
+export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
+  return <PaperWalletPage kind="budget" legacy={<FundedWalletBudgetPage activeUser={activeUser} />} />;
 }

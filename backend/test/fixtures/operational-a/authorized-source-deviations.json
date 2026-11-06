@@ -681,6 +681,88 @@
           "after": "          this.enrichFlatProbabilities(flat);\n          const supp = context.supplementaryData ?? {};\n          if (!this.shouldEnableStatMarkets(supp)\n            || !this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT'])) {\n            for (const key of Object.keys(flat)) if (/^shotsOT/i.test(key)) delete flat[key];\n          }\n          return flat;\n        };\n      },\n    });"
         }
       ]
+    },
+    {
+      "commit": null,
+      "parentCommit": "e280c5551508f5dee7751b03d9023ff62c20c656",
+      "review": "nightly-existing-calibration-only-v1",
+      "reason": "Explicit safe Nightly recovery request: optional read-only exact-profile guard prevents implicit chronological calibration fits on cache misses; default behavior and all predictive expressions remain unchanged.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "  };\n}\n\nexport class PredictionService {\n  private models: Map<string, DixonColesModel> = new Map();\n  private modelLoads: Map<string, Promise<DixonColesModel>> = new Map();\n  /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */\n",
+          "after": "  };\n}\n\nexport class CalibrationProfileUnavailableError extends Error {\n  readonly code = 'CALIBRATION_PROFILE_UNAVAILABLE';\n\n  constructor(readonly competition: string, readonly reason: string) {\n    super(`Existing calibration profile required for ${competition}: ${reason}`);\n    this.name = 'CalibrationProfileUnavailableError';\n  }\n}\n\nexport class PredictionService {\n  private allowCalibrationRebuild: boolean;\n  private models: Map<string, DixonColesModel> = new Map();\n  private modelLoads: Map<string, Promise<DixonColesModel>> = new Map();\n  /** Modello Poisson-xG per competizione (partner dell'ensemble). null = non disponibile → ensemble no-op. */\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    odds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }>;\n  }>>();\n\n  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper()) {\n    this.db = db;\n    startModelAProspectiveRecovery(db);\n    this.engine = new ValueBettingEngine();\n    this.backtester = new BacktestingEngine();\n",
+          "after": "    odds: Record<string, { odds: Record<string, number>; closingOdds?: Record<string, number> }>;\n  }>>();\n\n  constructor(db: DatabaseService, understat: Pick<UnderstatScraper, 'getMatchDetails'> = new UnderstatScraper(), options: { allowCalibrationRebuild?: boolean } = {}) {\n    this.db = db;\n    this.allowCalibrationRebuild = options.allowCalibrationRebuild !== false;\n    startModelAProspectiveRecovery(db);\n    this.engine = new ValueBettingEngine();\n    this.backtester = new BacktestingEngine();\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    asOf?: Date,\n  ): Promise<CalibrationProfile> {\n    const competitionKey = this.getCalibrationCacheKey(competition);\n    const generation = this.calibrationGenerations.get(competitionKey) ?? 0;\n    const cacheKey = `${competitionKey}:${asOf?.toISOString() ?? 'live'}`;\n    const now = Date.now();\n",
+          "after": "    asOf?: Date,\n  ): Promise<CalibrationProfile> {\n    const competitionKey = this.getCalibrationCacheKey(competition);\n    if (this.allowCalibrationRebuild === false && forceRefresh) {\n      throw new CalibrationProfileUnavailableError(competitionKey, 'refresh_forbidden');\n    }\n    const generation = this.calibrationGenerations.get(competitionKey) ?? 0;\n    const cacheKey = `${competitionKey}:${asOf?.toISOString() ?? 'live'}`;\n    const now = Date.now();\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      if (entry.expiresAt <= now) this.calibrationCache.delete(key);\n    }\n    const cached = this.calibrationCache.get(cacheKey);\n    if (!forceRefresh && cached && cached.expiresAt > now) {\n      this.calibrationCache.delete(cacheKey);\n      this.calibrationCache.set(cacheKey, cached);\n      return {\n",
+          "after": "      if (entry.expiresAt <= now) this.calibrationCache.delete(key);\n    }\n    const cached = this.calibrationCache.get(cacheKey);\n    if (this.allowCalibrationRebuild !== false && !forceRefresh && cached && cached.expiresAt > now) {\n      this.calibrationCache.delete(cacheKey);\n      this.calibrationCache.set(cacheKey, cached);\n      return {\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      };\n    }\n\n    const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh);\n    const matches = this.mapCompletedMatches(rows);\n    const cutoff = asOf ?? new Date(now);\n    let persistentKey: string | null = null;\n    if (typeof this.db.getCalibrationProfileCache === 'function' && typeof this.db.saveCalibrationProfileCache === 'function') {\n      try {\n        const eligible = matches.filter((match) => match.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());\n",
+          "after": "      };\n    }\n\n    // Strict callers recheck the exact persisted key after any external import.\n    const { rows, odds: historicalOdds } = await this.loadCalibrationInputs(competition, forceRefresh || this.allowCalibrationRebuild === false);\n    const matches = this.mapCompletedMatches(rows);\n    const cutoff = asOf ?? new Date(now);\n    let persistentKey: string | null = null;\n    let unavailableReason = 'persistence_unavailable';\n    if (typeof this.db.getCalibrationProfileCache === 'function' && typeof this.db.saveCalibrationProfileCache === 'function') {\n      try {\n        const eligible = matches.filter((match) => match.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= cutoff.getTime());\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "        if (!forceRefresh) {\n          const stored = await this.db.getCalibrationProfileCache(persistentKey);\n          const profile = stored && decodeCalibrationProfile(stored.payloadJson, stored.payloadSha256);\n          if (profile) {\n            this.rememberCalibrationProfile(cacheKey, competitionKey, generation, now, profile);\n            return profile;\n          }\n        }\n      } catch {\n        this.warnCalibrationCacheUnavailable();\n      }\n    }\n    const forecasts = await buildChronologicalForecastsAsync(matches, {\n      asOf: cutoff,\n",
+          "after": "        if (!forceRefresh) {\n          const stored = await this.db.getCalibrationProfileCache(persistentKey);\n          const profile = stored && decodeCalibrationProfile(stored.payloadJson, stored.payloadSha256);\n          unavailableReason = stored ? 'invalid_profile' : 'cache_miss';\n          if (profile) {\n            this.rememberCalibrationProfile(cacheKey, competitionKey, generation, now, profile);\n            return profile;\n          }\n        }\n      } catch {\n        unavailableReason = 'cache_read_error';\n        if (this.allowCalibrationRebuild !== false) this.warnCalibrationCacheUnavailable();\n      }\n    }\n    if (this.allowCalibrationRebuild === false) {\n      throw new CalibrationProfileUnavailableError(competitionKey, unavailableReason);\n    }\n    const forecasts = await buildChronologicalForecastsAsync(matches, {\n      asOf: cutoff,\n"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    const load = (async () => {\n      const oddsPromise = predictionEngineConfig.marketBlending.enableLearnedBlendWeights &&\n        typeof this.db.getHistoricalOddsDetailMap === 'function'\n        ? this.db.getHistoricalOddsDetailMap({ competition }).catch(() => ({})) : Promise.resolve({});\n      const [rows, odds] = await Promise.all([this.db.getMatches({ competition }), oddsPromise]);\n      const result = { rows, odds };\n      if ((this.calibrationGenerations.get(key) ?? 0) === generation) {\n",
+          "after": "    const load = (async () => {\n      const oddsPromise = predictionEngineConfig.marketBlending.enableLearnedBlendWeights &&\n        typeof this.db.getHistoricalOddsDetailMap === 'function'\n        ? this.db.getHistoricalOddsDetailMap({ competition }).catch(() => {\n          if (this.allowCalibrationRebuild === false) throw new CalibrationProfileUnavailableError(key, 'historical_odds_read_error');\n          return {};\n        }) : Promise.resolve({});\n      const [rows, odds] = await Promise.all([this.db.getMatches({ competition }), oddsPromise]);\n      const result = { rows, odds };\n      if ((this.calibrationGenerations.get(key) ?? 0) === generation) {\n"
+        }
+      ]
+    },
+    {
+      "commit": null,
+      "parentCommit": "e280c5551508f5dee7751b03d9023ff62c20c656",
+      "review": "completed-prediction-audit-batch-v1",
+      "reason": "Reviewed operational audit bug: exclude missing results and count only matches with a real settlement against the batch limit so future/missing fixtures and absent market observations cannot starve later completed predictions. Evaluation formulas and frozen numerical expectations remain unchanged.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "  /** Settles every archived prediction for completed matches, including non-bets. */\n  async settlePendingPredictionsForCompletedMatches(limit = 500): Promise<{ matches: number; settled: number; unresolved: number }> {\n    const pending = await this.db.getPendingPredictions();\n    const matchIds = Array.from(new Set(\n      pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)\n    )).slice(0, Math.max(1, Math.trunc(limit)));\n    const pendingByMatch = new Map<string, any[]>();\n    for (const row of pending) {\n      const matchId = String(row.match_id ?? '').trim();\n      if (!matchId) continue;\n      const rows = pendingByMatch.get(matchId) ?? [];\n      rows.push(row);\n      pendingByMatch.set(matchId, rows);\n    }\n    const matchRows = typeof (this.db as any).getMatchesByIds === 'function'\n      ? await (this.db as any).getMatchesByIds(matchIds)\n      : await Promise.all(matchIds.map((matchId) => this.db.getMatchById(matchId)));\n    const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));\n    let matches = 0;\n    let settled = 0;\n    let unresolved = 0;\n\n    for (const matchId of matchIds) {\n      const matchRow = matchesById.get(matchId);\n      if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;\n      const result = await this.settlePredictionRowsForMatch(pendingByMatch.get(matchId) ?? [], matchRow);\n      matches++;\n      settled += result.settled;\n      unresolved += result.unresolved;\n    }\n\n    return { matches, settled, unresolved };\n  }\n\n",
+          "after": "  /** Settles every archived prediction for completed matches, including non-bets. */\n  async settlePendingPredictionsForCompletedMatches(limit = 500): Promise<{ matches: number; settled: number; unresolved: number }> {\n    if (!Number.isFinite(limit)) throw new Error('Invalid completed prediction match limit');\n    const maximumSettledMatches = Math.max(1, Math.trunc(limit));\n    const pending = await this.db.getPendingPredictionsForCompletedMatches();\n    const matchIds = Array.from(new Set(\n      pending.map((row: any) => String(row.match_id ?? '').trim()).filter(Boolean)\n    ));\n    const pendingByMatch = new Map<string, any[]>();\n    for (const row of pending) {\n      const matchId = String(row.match_id ?? '').trim();\n      if (!matchId) continue;\n      const rows = pendingByMatch.get(matchId) ?? [];\n      rows.push(row);\n      pendingByMatch.set(matchId, rows);\n    }\n    const matchRows = typeof (this.db as any).getMatchesByIds === 'function'\n      ? await (this.db as any).getMatchesByIds(matchIds)\n      : await Promise.all(matchIds.map((matchId) => this.db.getMatchById(matchId)));\n    const matchesById = new Map<string, any>(matchRows.filter(Boolean).map((row: any) => [String(row.match_id), row]));\n    let matches = 0;\n    let settled = 0;\n    let unresolved = 0;\n    let settledMatches = 0;\n\n    for (const matchId of matchIds) {\n      const matchRow = matchesById.get(matchId);\n      if (!matchRow || matchRow.home_goals === null || matchRow.away_goals === null) continue;\n      const result = await this.settlePredictionRowsForMatch(pendingByMatch.get(matchId) ?? [], matchRow);\n      matches++;\n      settled += result.settled;\n      unresolved += result.unresolved;\n      // Missing per-market observations stay pending without starving later matches.\n      if (result.settled > 0 && ++settledMatches >= maximumSettledMatches) break;\n    }\n\n    return { matches, settled, unresolved };\n  }\n\n"
+        }
+      ]
+    },
+    {
+      "review": "paper-prospective-suppression-v1",
+      "reason": "Paper executions can suppress optional prospective recording without changing inference or the default recorder behavior. The frozen numerical expectations are unchanged. Paper exposes the already-fetched bookmaker sheets alongside the unchanged legacy bundle; no provider request or inference formula changes.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "export interface PredictionExecutionOptions {\n  /** Attribution only; does not change the prediction. Unspecified calls are internal. */",
+          "after": "export interface PredictionExecutionOptions {\n  /** Skip only the optional prospective recorder, without changing inference. */\n  suppressProspective?: boolean;\n  /** Attribution only; does not change the prediction. Unspecified calls are internal. */"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    if (modelAProspectiveEnabled()) {\n      try {\n        const receipt = scheduleModelAProspective(this.db, {",
+          "after": "    if (modelAProspectiveEnabled() && !options.suppressProspective) {\n      try {\n        const receipt = scheduleModelAProspective(this.db, {"
+        },
+        {
+          "file": "backend/src/services/AppPredictionOddsService.ts",
+          "before": "export type AppPredictionOdds = { quotes: RecommendationQuote[]; sharedOdds: SharedPredictionOdds;\n  metadata: Record<string, unknown> };",
+          "after": "export type AppPredictionOdds = { quotes: RecommendationQuote[]; sharedOdds: SharedPredictionOdds;\n  metadata: Record<string, unknown>; sheets?: Array<{ quotes: RecommendationQuote[]; sharedOdds: SharedPredictionOdds }> };"
+        },
+        {
+          "file": "backend/src/services/AppPredictionOddsService.ts",
+          "before": "    return { quotes, sharedOdds: { odds, bookmakerBySelection, source: 'odds_api',\n      capturedAt: new Date(oldestCapture).toISOString() }, metadata };",
+          "after": "    const allSheets = Object.entries(sheets).map(([key, sheetOdds]) => {\n      const sheetQuotes: RecommendationQuote[] = [];\n      const names: Record<string, string> = {};\n      let capture = now.getTime();\n      for (const [selection, price] of Object.entries(sheetOdds)) {\n        const evidence = evidenceBySheet.get(key)?.get(selection);\n        if (!evidence) continue;\n        names[selection] = evidence.bookmaker;\n        capture = Math.min(capture, Date.parse(evidence.capturedAt));\n        for (const alias of Object.keys(alignOddsKeysInternal({ [selection]: price }))) {\n          const quote = appRecommendationQuote(alias, evidence);\n          if (quote && !sheetQuotes.some((existing) => existing.selection === quote.selection)) sheetQuotes.push(quote);\n        }\n      }\n      return { quotes: sheetQuotes, sharedOdds: { odds: sheetOdds, bookmakerBySelection: names,\n        source: 'odds_api' as const, capturedAt: new Date(capture).toISOString() } };\n    });\n    return { quotes, sharedOdds: { odds, bookmakerBySelection, source: 'odds_api',\n      capturedAt: new Date(oldestCapture).toISOString() }, metadata, sheets: allSheets };"
+        }
+      ]
     }
   ]
 }

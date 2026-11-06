@@ -91,8 +91,21 @@ test('database watchdog flags missed nightly and ledger integrity without initia
     const missing = await inspectDatabase(db, { now: NOW, expectEnabled: true });
     assert.deepEqual(missing.issues, ['nightly_execution_missing']);
     await db.execute("INSERT INTO research_portfolios VALUES ('shadow_A','A','2026-10-01T00:00:00Z')");
-    assert.deepEqual((await inspectDatabase(db, { now: NOW })).issues, ['virtual_accounting_integrity']);
+    assert.deepEqual((await inspectDatabase(db, { now: NOW })).issues, []);
     assert.equal((await db.execute('SELECT COUNT(*) AS count FROM research_ledger')).rows[0].count, 0);
+    await db.execute("INSERT INTO research_ledger VALUES('corrupt-no-opening','shadow_A',NULL,'STAKE',-100,100,'2026-10-01T00:00:00Z')");
+    assert.deepEqual((await inspectDatabase(db, { now: NOW })).issues, ['virtual_accounting_integrity']);
+  } finally { db.close(); }
+});
+
+test('database watchdog reports paper schema required only after a paper policy has been registered', async () => {
+  const db = await database();
+  try {
+    assert.equal((await inspectDatabase(db, { now: NOW })).paperAccounting.required, false);
+    await db.execute('CREATE TABLE research_execution_policies(hash TEXT,version TEXT,descriptor_json TEXT,created_at TEXT)');
+    await db.execute("INSERT INTO research_execution_policies VALUES('fixture','paper-fixed-unit-v1','{}','2026-10-29T00:00:00Z')");
+    const activated = await inspectDatabase(db, { now: NOW });
+    assert.deepEqual(activated.issues, ['paper_schema_required']); assert.equal(activated.paperAccounting.errors, 1);
   } finally { db.close(); }
 });
 

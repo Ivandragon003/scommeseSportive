@@ -58,6 +58,14 @@ jobs:
       # Different provider accounts keep separate persistent budgets and caches.
       ODDS_API_ACCOUNT_SCOPE: ${{ vars.ODDS_API_ACCOUNT_SCOPE || 'primary' }}
       API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+      FOOTBALL_DATA_ORG_API_KEY: ${{ secrets.FOOTBALL_DATA_ORG_API_KEY }}
+      # Opt-in source maintenance; never bootstrap its shared cache implicitly.
+      NIGHTLY_SOURCE_MODE: ${{ vars.NIGHTLY_SOURCE_MODE || 'primary' }}
+      NIGHTLY_SOURCE_TARGET_SHA256: ${{ vars.NIGHTLY_SOURCE_TARGET_SHA256 || '' }}
+      NIGHTLY_SOURCE_SEASON: ${{ vars.NIGHTLY_SOURCE_SEASON || '' }}
+      NIGHTLY_SOURCE_MAPPING_JSON: ${{ vars.NIGHTLY_SOURCE_MAPPING_JSON || '' }}
+      MODEL_A_PROSPECTIVE_ENABLED: 'false'
+      MODEL_A_PROSPECTIVE_COLLECTION_ENABLED: 'false'
       PLAYER_AVAILABILITY_ENABLED: 'false'
       PLAYER_DATA_ENABLED: 'false'
       API_FOOTBALL_ENABLED: 'false'
@@ -66,7 +74,7 @@ jobs:
       ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'
       # A keeps the app's event markets; all requests still share the persistent credit budget.
       ODDS_EXTRA_EVENT_NETWORK_ENABLED: 'true'
-      RUN_TRANSITION_REFERENCE_SYNC: 'true'
+      RUN_TRANSITION_REFERENCE_SYNC: 'false'
       ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
       UNDERSTAT_SYNC_TIMEOUT_SECONDS: '3600'
       FOOTBALL_DATA_TIMEOUT_SECONDS: '2400'
@@ -74,13 +82,13 @@ jobs:
       API_FOOTBALL_TIMEOUT_SECONDS: '120'
       PREDICTIONS_SETTLEMENT_TIMEOUT_SECONDS: '180'
       ODDS_SYNC_TIMEOUT_SECONDS: '300'
-      CALIBRATION_WARM_TIMEOUT_SECONDS: '600'
       LEARNING_SYNC_TIMEOUT_SECONDS: '600'
       FINAL_STATUS_TIMEOUT_SECONDS: '120'
       # Remote activation requires a separate, explicit confirmation after cutover.
       RESEARCH_NIGHTLY_ENABLED: ${{ vars.RESEARCH_NIGHTLY_ENABLED || 'false' }}
       RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: ${{ vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED || 'false' }}
       RESEARCH_NIGHTLY_MINUTE: '7'
+      RESEARCH_NIGHTLY_WINDOW_HOURS: ${{ vars.RESEARCH_NIGHTLY_WINDOW_HOURS || '' }}
       RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '1200'
       RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS: '300'
       RESEARCH_NIGHTLY_RECOVER_TECHNICAL: ${{ inputs.recover_technical_failures || 'false' }}

@@ -243,7 +243,7 @@ test('settles archived predictions for completed matches, including non-bets', a
     { prediction_id: 'pred-open', match_id: 'match-open', selection: 'homeWin' },
   ];
   const db = {
-    getPendingPredictions: async (matchId) => matchId ? pending.filter((row) => row.match_id === matchId) : pending,
+    getPendingPredictionsForCompletedMatches: async () => pending.filter(row => row.match_id === 'match-finished'),
     getMatchById: async (matchId) => matchId === 'match-finished'
       ? { match_id: matchId, home_goals: 2, away_goals: 1 }
       : { match_id: matchId, home_goals: null, away_goals: null },

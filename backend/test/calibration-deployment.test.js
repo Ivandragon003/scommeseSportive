@@ -39,7 +39,11 @@ test('authorized manual preparation builds matching code and only prepares calib
   assert.equal(pkg.scripts.prebuild, 'node scripts/clean-build.js');
   assert.match(docker, /COPY scripts\/clean-build.js[\s\S]*RUN npm run build/);
   const nightly = readFileSync(join(__dirname, '../../scripts/ci/nightly-sync.sh'), 'utf8');
-  assert.match(nightly, /timeout "\$CALIBRATION_WARM_TIMEOUT_SECONDS" npm --prefix "\$BACKEND_DIR" run calibration:warm/);
+  assert.doesNotMatch(nightly, /run calibration:warm/);
+  assert.match(nightly, /Calibration rebuild disabled in automatic maintenance/);
+  const operational = readFileSync(join(__dirname, '../scripts/calibration-operational.js'), 'utf8');
+  assert.match(operational, /authorize-calibration-writes/);
+  assert.match(operational, /OPERATIONAL_CALIBRATION_ENABLED/);
   const warmer = readFileSync(join(__dirname, '../scripts/warm-calibration.js'), 'utf8');
   assert.match(warmer, /recentReplayLimit: 10/);
 });

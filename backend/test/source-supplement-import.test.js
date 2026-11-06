@@ -40,6 +40,34 @@ async function add(client, { id='m1', date='2026-09-01T18:00:00Z', home='Home', 
 }
 const read = async (client, id='m1') => (await client.execute({ sql: 'SELECT * FROM matches WHERE match_id=?', args:[id] })).rows[0];
 
+test('CSV supplement preserves the disputed Ligue 1 identity while importing an unrelated fixture', async () => {
+  const client = await fixture();
+  try {
+    await add(client, { id: 'disputed' });
+    await add(client, { id: 'other', home: 'Other', away: 'Side' });
+    await client.execute("UPDATE matches SET competition='Ligue 1'");
+    await client.execute("UPDATE matches SET home_team_id='understat_team_172' WHERE match_id='disputed'");
+    const csv = [header, line().replace(/^I1,/, 'F1,'), line('01/09/26', 'Other', 'Side').replace(/^I1,/, 'F1,')].join('\n');
+    const result = await importCapturedSupplement({ ...input(client, csv), competition: 'Ligue 1',
+      sourceUrl: 'https://www.football-data.co.uk/mmz4281/2627/F1.csv' });
+    assert.deepEqual(result.updatedMatchIds, ['other']);
+    assert.equal((await read(client, 'disputed')).away_shots, null);
+    assert.equal((await read(client, 'other')).away_shots, 7);
+  } finally { client.close(); }
+});
+
+test('excluding one disputed candidate never makes another same-key candidate look unambiguous', async () => {
+  const client = await fixture();
+  try {
+    await add(client, { id: 'blocked' }); await add(client, { id: 'duplicate' });
+    const csv = [header, line()].join('\n');
+    const result = await importCapturedSupplement({ ...input(client, csv), excludedMatchIds: ['blocked'] });
+    assert.equal(result.ambiguousRows, 1);
+    assert.deepEqual(result.updatedMatchIds, []);
+    assert.equal((await read(client, 'duplicate')).away_shots, null);
+  } finally { client.close(); }
+});
+
 test('existing data and real zero survive; missing counts have field provenance; repeat is idempotent', async () => {
   const client = await fixture();
   try {

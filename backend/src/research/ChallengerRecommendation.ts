@@ -12,7 +12,7 @@ export type ChallengerSelectionPolicy = 'legacy-c906' | 'payout-aware-v1';
 export type ChallengerExpectedIdentity = { modelVersion: string; baselineVersion: string; probabilityConfigurationHash?: string | null };
 export type ChallengerRecommendationInput = { decision: T15Decision; quotes: ResearchQuote[];
   observedAt: string; competition?: string; allowedMarkets: string[]; selectionPolicy?: ChallengerSelectionPolicy;
-  expectedIdentity?: ChallengerExpectedIdentity };
+  expectedIdentity?: ChallengerExpectedIdentity; paperFixedUnit?: boolean };
 
 const finiteProbability = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1;
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -92,7 +92,7 @@ export function buildChallengerRecommendation(input: ChallengerRecommendationInp
   const samples = input.decision?.prudentialSamplesAvailable;
   const observed = object(input.decision?.challengerQuality) as Partial<ChallengerQualityEvidence>;
   const recommendation = selectChallengerPayoutRecommendation({ matrix: input.decision?.prospectiveMatrix as number[][],
-    quotes: input.quotes, observedAt: input.observedAt, allowedMarkets: input.allowedMarkets,
+    quotes: input.quotes, observedAt: input.observedAt, allowedMarkets: input.allowedMarkets, paperFixedUnit: input.paperFixedUnit,
     quality: { technicalValidation: !technicalFailure,
       calibrationAvailableAt: typeof input.decision?.calibrationAvailableAt === 'string' ? input.decision.calibrationAvailableAt : null,
       prospectiveResidualSamples: samples == null ? null : samples as number,

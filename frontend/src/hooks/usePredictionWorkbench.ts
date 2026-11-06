@@ -73,7 +73,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
   const manuallyArchivedOpportunityKeys = useMemo(() => new Set<string>(), []);
-  const userBudget = useUserBudget(activeUser, { mode: 'automatic', family: 'A' });
+  const userBudget = useUserBudget(activeUser, { mode: 'paper', family: 'A' });
   const matchSelection = useMatchSelection();
   const modelAdvice = useMatchModelAdvice();
   const predictionAnalysis = usePredictionAnalysis({

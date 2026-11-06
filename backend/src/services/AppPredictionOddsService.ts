@@ -16,7 +16,7 @@ type FixtureRow = { competition: string; date: string; home_team_name: string; a
 type PriceEvidence = { odds: number; bookmaker: string; source: string; capturedAt: string;
   updatedAt: string; priceType: 'prematch'; timestampEvidence: 'provider_update' };
 export type AppPredictionOdds = { quotes: RecommendationQuote[]; sharedOdds: SharedPredictionOdds;
-  metadata: Record<string, unknown> };
+  metadata: Record<string, unknown>; sheets?: Array<{ quotes: RecommendationQuote[]; sharedOdds: SharedPredictionOdds }> };
 
 /** The app keeps its existing markets and bookmaker selection; automation only consumes its prices. */
 export class AppPredictionOddsService {
@@ -91,7 +91,24 @@ export class AppPredictionOddsService {
         if (quote && !quotes.some((existing) => existing.selection === quote.selection)) quotes.push(quote);
       }
     }
+    const allSheets = Object.entries(sheets).map(([key, sheetOdds]) => {
+      const sheetQuotes: RecommendationQuote[] = [];
+      const names: Record<string, string> = {};
+      let capture = now.getTime();
+      for (const [selection, price] of Object.entries(sheetOdds)) {
+        const evidence = evidenceBySheet.get(key)?.get(selection);
+        if (!evidence) continue;
+        names[selection] = evidence.bookmaker;
+        capture = Math.min(capture, Date.parse(evidence.capturedAt));
+        for (const alias of Object.keys(alignOddsKeysInternal({ [selection]: price }))) {
+          const quote = appRecommendationQuote(alias, evidence);
+          if (quote && !sheetQuotes.some((existing) => existing.selection === quote.selection)) sheetQuotes.push(quote);
+        }
+      }
+      return { quotes: sheetQuotes, sharedOdds: { odds: sheetOdds, bookmakerBySelection: names,
+        source: 'odds_api' as const, capturedAt: new Date(capture).toISOString() } };
+    });
     return { quotes, sharedOdds: { odds, bookmakerBySelection, source: 'odds_api',
-      capturedAt: new Date(oldestCapture).toISOString() }, metadata };
+      capturedAt: new Date(oldestCapture).toISOString() }, metadata, sheets: allSheets };
   }
 }

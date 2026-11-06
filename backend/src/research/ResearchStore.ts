@@ -20,6 +20,8 @@ export type ResearchCommit = {
 export type NightlyBatchClaim = {
   startedAt: string; windowEndAt: string; fixtures: Array<{ matchId: string; kickoffAt: string }>;
   runId?: string; leaseMs?: number; quoteMaxAgeMs?: number; minEv?: number; minPrudentialEv?: number;
+  /** Paper-only diagnostics may analyze a previously funded fixture; frozen inputs and leases remain authoritative. */
+  paperDiagnosticOnly?: boolean;
 };
 type Executor = Pick<Client, 'execute'> | Pick<Transaction, 'execute'>;
 const TOLERANCE_MS = 60_000;
@@ -186,13 +188,13 @@ export class ResearchStore {
   /** Refresh a previously missing additive column after migration in the same process. */
   async refreshExecutionSchema(): Promise<boolean> { return this.hasExecutionDecisionColumn(true); }
 
-  async initializePortfolios(options: { includeMain?: boolean } = {}): Promise<any[]> {
+  async initializePortfolios(options: { includeMain?: boolean; fundVirtual?: boolean } = {}): Promise<any[]> {
     await this.write(async (tx) => {
       for (const id of ['shadow_A', 'shadow_C', ...(options.includeMain ? ['main'] : [])]) {
         const now = iso(this.clock());
         await tx.execute({ sql: 'INSERT OR IGNORE INTO research_portfolios(id,family,created_at) VALUES (?,?,?)',
           args: [id, id === 'main' ? null : id.slice(-1), now] });
-        await tx.execute({ sql: `INSERT OR IGNORE INTO research_ledger
+        if (options.fundVirtual !== false) await tx.execute({ sql: `INSERT OR IGNORE INTO research_ledger
           (id,portfolio_id,bet_id,event,available_delta_cents,committed_delta_cents,created_at) VALUES (?,?,NULL,'OPEN',100000,0,?)`,
         args: [`open:${id}`, id, now] });
       }
@@ -681,7 +683,7 @@ export class ResearchStore {
           skipped.push({ matchId: fixture.matchId, reason: 'decision_already_recorded' });
           continue;
         }
-        if (await first(tx, 'SELECT id FROM research_bets WHERE match_id=? LIMIT 1', [fixture.matchId])) {
+        if (input.paperDiagnosticOnly !== true && await first(tx, 'SELECT id FROM research_bets WHERE match_id=? LIMIT 1', [fixture.matchId])) {
           skipped.push({ matchId: fixture.matchId, reason: 'bet_already_recorded' });
           continue;
         }
