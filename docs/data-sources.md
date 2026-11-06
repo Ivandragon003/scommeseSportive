@@ -24,6 +24,16 @@ silenziosamente un valore primario.
 
 ## Alternative esaminate
 
+Il percorso operativo opt-in è ora collegato alla Nightly tramite
+`NIGHTLY_SOURCE_MODE=verified-alternatives`. Usa le sei tabelle cache condivise
+del target esistente, inizializzate soltanto con consenso esplicito; nessun
+nuovo servizio o piano a pagamento. SourceFeedStore attesta l'ultimo tentativo
+FDO e NightlyCsvCache conserva tentativi/snapshot CSV senza rinnovare
+artificialmente acquiredAt. Il calendario ammette previsioni solo in stato
+`TIMED`; `SCHEDULED` indica una data approssimativa nella
+[definizione ufficiale](https://docs.football-data.org/general/v4/match.html#_status_workflow_explained).
+Controlli e procedura sono nella [guida Nightly](github-actions-nightly-sync.md).
+
 | Fonte | Copertura utile dichiarata | Limite per questa pipeline |
 |---|---|---|
 | [football-data.org Free](https://www.football-data.org/pricing), [copertura](https://www.football-data.org/coverage) | Calendario e risultati ritardati delle cinque leghe; 10 chiamate/minuto | Non fornisce nel Free base le statistiche complete/xG necessarie; le statistiche sono un add-on. Un calendario disponibile non certifica l'aggiornamento delle feature. |

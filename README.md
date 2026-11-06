@@ -106,9 +106,12 @@ reali al provider, entro i controlli di budget. L'anteprima C usa soltanto la
 cache. Le puntate manuali richiedono conferma e verifica server di selezione,
 quota, saldo ed esposizione; aprire un consiglio non registra una puntata.
 
-A e C hanno portafogli virtuali separati, con ledger e liquidazioni. Lo storico
-deterministico è attribuito ad A ma resta separato dai capitali dei portafogli
-A/C. Le proposte archiviate senza capitale impegnato non sono puntate né ROI.
+La Nightly A/C usa un registro paper a 1 unità per selezione valida, senza
+saldo, esposizione o limiti numerici di giocate. Mercati distinti della stessa
+partita e selezioni dei due modelli restano separati; duplicati e budget API
+sono controllati. I precedenti portafogli con ledger e lo storico deterministico
+restano consultabili separatamente, senza convertirne capitali o importi in
+nuove unità. Le proposte archiviate senza puntata non producono ROI.
 La [guida operativa](docs/operations/README.md) descrive queste distinzioni.
 
 Understat è la fonte calcistica primaria; football-data.co.uk integra i campi

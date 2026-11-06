@@ -40,12 +40,13 @@ Fonti: [navigazione](../frontend/src/App.tsx), [dettaglio](../frontend/src/compo
 |---|---|
 | Understat | Fonte primaria per squadre, partite, risultati, xG e statistiche disponibili |
 | football-data.co.uk | Supplemento HTTP/CSV per campi mancanti e quote storiche di chiusura; preserva i valori Understat esistenti |
+| football-data.org | Calendario e risultati dell'import alternativo opt-in; mapping revisionato e cache condivisa, senza sostituzione degli xG |
 | The Odds API | Unico provider quote del runtime, con bookmaker, selezione, prezzo e timestamp effettivi |
 | API-Football | Disponibilità e formazioni opzionali, disabilitate nei default forniti |
 
 FotMob, Transfermarkt, FBref e lo scraper supplementare SofaScore non sono fonti attive di questo flusso. Copertura e freschezza dipendono da campo, competizione e stagione: un importatore implementato non garantisce dati completi.
 
-La [guida delle fonti](data-sources.md) distingue copertura, limiti e diritti delle alternative esaminate. Nessuna sostituzione completa delle feature Understat è verificata: oltre all'adapter research esistono collector football-data.org e import transazionale in staging verso lo schema corrente. Il comando isolato collega acquisizione, mapping, provenienza e medie squadra senza attivare import operativo, modelli o ricerca. I numeri HxG/AxG osservati nei CSV restano candidati con semantica non verificata, separati dagli xG Understat. Non trasformare disponibilità HTTP o chiave API in prova di licenza, completezza o equivalenza dei dati.
+La [guida delle fonti](data-sources.md) distingue copertura, limiti e diritti delle alternative esaminate. `NIGHTLY_SOURCE_MODE=verified-alternatives` collega collector football-data.org, import transazionale e CSV con cache condivisa alla Nightly. `FixtureAdmission` e `NightlyFixtureReadiness` verificano la singola fixture, stato/orario, identità, input, parametri, calibrazione e campioni per mercato; non richiedono il successo globale Understat. Gli xG originali sono conservati e HxG/AxG CSV restano esclusi. Bootstrap cache, scritture operative e attivazioni richiedono il proprio consenso; il codice locale e il comando di staging non attestano un'esecuzione remota.
 
 Tiri, SOT, gialli e rossi mantengono distinta l'assenza da uno zero osservato lungo acquisizione, aggregazioni, contesto, modelli, calibrazione e replay. Le coperture per campo e sede sono metadata negli attuali JSON squadra/giocatore, senza nuove migrazioni. I modelli usano i prior esistenti con campione zero quando manca evidenza; le soglie di disponibilità si applicano per famiglia prima delle probabilità selezionabili, anche nei payload strutturati API. Le letture arbitrali non sostituiscono medie legacy calcolate su finestre sconosciute. La pagina Dati mostra un trattino per medie mancanti. Vedere il [contratto delle osservazioni](data-observation-contract.md) per provenienza, denominatori, fallback e verifiche; nessun dato storico o profilo persistito viene riparato da queste modifiche del codice.
 
@@ -67,19 +68,19 @@ A operativo è `PredictionService`, identificato come `APP-A-…` con hash di co
 
 Il default C è C906 con baseline A80 e selettore legacy. Il registro persistente di adozione può indicare un altro deployment: registrare un candidato o cambiare il champion research non basta a cambiare C nell'esecuzione. Lo stato effettivo del registro non si deduce dai default del repository.
 
-Nightly e azioni manuali usano i portafogli virtuali `shadow_A` e `shadow_C` e i rispettivi ledger. Non inviano puntate ai bookmaker.
+La nuova Nightly automatica usa un registro paper separato con unità nominali, senza saldo. I registri e le azioni manuali precedenti conservano i portafogli virtuali `shadow_A` e `shadow_C` e i rispettivi ledger. Non inviano puntate ai bookmaker.
 
 | Origine | Importo |
 |---|---|
-| Nightly A | Percentuale del consiglio A |
-| Nightly C | 1% del patrimonio del portafoglio C |
+| Nightly A | 1 unità virtuale per selezione qualificata |
+| Nightly C | 1 unità virtuale per selezione qualificata |
 | Manuale A/C | Importo scelto e confermato dall'utente |
 
-Il server verifica quota reale recente, kickoff futuro, disponibilità, esposizione massima del 5% e assenza di una giocata già registrata per modello/partita. Un consiglio può quindi non diventare una puntata. Le origini manuali conservano evidenze proprie senza simulare una decisione Nightly. L'archiviazione LOW/SPECULATIVE conserva proposte senza impegnare capitale.
+Il server paper verifica quota reale recente, kickoff futuro, identità, probabilità, EV, prudenza e assenza della stessa selezione per famiglia/partita. Non impone un massimo di giocate o esposizione: più selezioni sulla stessa partita restano distinte. La migrazione additiva 028 introduce bet e liquidazioni immutabili; profitto e ROI derivano dalle unità liquidate, senza leggere il ledger finanziato. I precedenti vincoli di saldo/esposizione restano soltanto sui percorsi manuali e storici, le cui evidenze non vengono riscritte. L'archiviazione LOW/SPECULATIVE conserva proposte senza impegnare capitale.
 
 Lo storico del precedente budget è classificato esplicitamente come A deterministico (`model_family = A`, identificatore di vista `legacy_deterministic_A`). Mantiene capitale e provenienza distinti dai portafogli A/C: non si sommano i capitali né si attribuisce allo storico una versione APP-A non documentata.
 
-`GET /api/wallets` espone saldi e risultati; `/api/wallets/archive` fornisce l'archivio paginato. Aggregati e liste limitate non vanno confusi. Le letture non inizializzano un nuovo capitale. Le azioni manuali usano `POST /api/wallets/bets/manual` e `POST /api/wallets/opportunities/archive/manual`.
+`GET /api/paper-bets` espone tutte le nuove selezioni e gli aggregati completi in unità. Le pagine principali leggono questo registro e distinguono lo storico precedente. `GET /api/wallets` e `/api/wallets/archive` conservano saldi e dettagli storici. Aggregati e liste paginate non vanno confusi. Le letture non inizializzano un capitale. Le azioni manuali precedenti usano `POST /api/wallets/bets/manual` e `POST /api/wallets/opportunities/archive/manual`.
 
 Il settlement liquida registrazioni esistenti con risultati verificati; `/api/results/refresh` può importare finali e avviare questa manutenzione. `/api/automation/place-valid-bets` è ritirata e risponde 410. Le API del budget precedente restano un percorso distinto.
 

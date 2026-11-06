@@ -34,21 +34,36 @@ non si ricostruiscono giocate retroattive.
 
 ## Flusso effettivo
 
-La raccolta indipendente `npm run data:collect` usa una cache dedicata e non è
-attivata da questo workflow. Non supera il gate Understat, non liquida giocate
-e non rende verificati input A/C. Prima di integrare una fonte alternativa
-servono mapping, provenienza per campo e verifica dei modelli; la [guida fonti](data-sources.md)
-descrive il comando, i limiti e la cadenza CSV consentita. Nessun flag di
-produzione o prospettico viene abilitato dall'introduzione del collector.
+`NIGHTLY_SOURCE_MODE=primary` conserva l'import Understat. Con l'opt-in
+`verified-alternatives`, il ciclo chiama
+[nightly-alternative-sources.js](../backend/scripts/nightly-alternative-sources.js):
+football-data.org aggiorna calendario/risultati, i CSV riempiono soltanto campi
+ammessi e mancanti, gli xG Understat restano intatti. Il ricalcolo delle medie
+precede le previsioni. I blocchi sono applicati alla singola fixture e al
+mercato, senza richiedere il successo globale di Understat. Non si attiva il
+pilot scientifico; collector indipendente e `data:stage` conservano il proprio
+scopo separato.
 
 ### Preparare il passaggio alle fonti alternative
 
-Il percorso alternativo è ancora uno staging isolato: la Nightly eseguibile
-non collega `SourceFeedImport` al proprio ciclo e mantiene Understat fra i
-gate obbligatori. Un secret `FOOTBALL_DATA_ORG_API_KEY` presente nel repository
-non basta: questo workflow non lo espone al job. Non esiste un flag già
-implementato che autorizzi a saltare Understat. `data:stage` accetta soltanto
-un nuovo target locale e non va usato come comando di import operativo.
+Il percorso alternativo è collegato al workflow, ma resta opt-in e richiede
+configurazione e autorizzazione operativa. Il job espone il secret FDO senza
+stamparlo. Preparare `NIGHTLY_SOURCE_TARGET_SHA256` (SHA-256 dell'esatto URL
+Turso), `NIGHTLY_SOURCE_SEASON` e `NIGHTLY_SOURCE_MAPPING_JSON` nel formato
+`reviewed-source-mapping-v1`, con reference/reviewedAt/teams revisionati.
+Il JSON viene scritto in un file locale del runner, senza sovrascrivere un
+mapping discordante. Il manifest dell'import è sigillato e legato al target;
+prima dell'inferenza vengono ricontrollati fonte corrente, identità e stato
+effettivo A/C. Un file manifest modificato non autorizza scritture o previsioni.
+
+Nel percorso alternativo la CLI impone anche `allowChampionRollback:false` e
+`collectChallengerForecasts:false` a tutti i runtime, diagnostici e recommendation.
+Disattivare soltanto `reviewCandidates` non basta: i rami legacy potrebbero
+altrimenti raccogliere forecast challenger o cambiare il champion dopo errori C.
+Il fallimento C resta registrato e produce astensione; la nuova modalità non
+promuove, ripristina o avvia raccolte scientifiche. I default degli altri
+percorsi sono conservati. Le osservazioni diagnostiche interne già previste
+e la liquidazione delle evidenze esistenti restano distinte dal pilot A.
 
 La preparazione di una prima esecuzione reale richiede, nell'ordine:
 
@@ -61,25 +76,50 @@ La preparazione di una prima esecuzione reale richiede, nell'ordine:
    la correzione richiede un piano con vecchia riga esatta e compare-and-set.
    Non estendere quella correzione a Toulouse/Troyes–Le Havre o al ritorno
    Rennes–PSG, ancora discordanti. Provare import e ripetizione su una copia.
-3. Completare e testare l'adapter operativo prima di cambiare i gate del ciclo:
-   collector/cache dedicata, mapping revisionato, piano approvato e import
-   transazionale, provenienza dei singoli campi e astensione esplicita per le
-   fixture non ammissibili. I CSV richiedono cache persistente e una cadenza
-   conforme al limite del fornitore, anche fra retry e runner diversi.
-   Non importare gli xG CSV e non equiparare il successo del calendario alla
-   completezza degli input. Questo collegamento non è realizzato dallo staging.
-4. Verificare sul target parametri A, esatta compatibilità della calibrazione,
+3. Autorizzare separatamente il bootstrap additivo delle sei tabelle cache
+   condivise, verificarne il target e conservare un backup ripristinabile.
+   Il comando `nightly-alternative-sources.js --initialize-source-cache
+   --authorize-schema-writes --target-sha256 HASH` è distinto dall'import:
+   nessuna Nightly crea quelle tabelle automaticamente. La cache CSV conta
+   anche tentativi falliti/interrotti, massimo due raccolte in sette giorni;
+   fra successi attende 84 ore. Il bootstrap parte con sette giorni di blocco
+   delle nuove raccolte per non azzerare consumi legacy sconosciuti. Usare i
+   dati già acquisiti con provenienza originale; non falsificare l'acquisizione.
+   È predisposto `seed-nightly-csv-cache.js`: legge cinque file e una ricevuta
+   con stagione, timestamp originale e hash dei file. Il piano è SELECT-only;
+   `--execute --authorize-cache-writes --expected-plan-sha256 HASH` richiede il
+   piano esatto e inserisce atomicamente un tentativo storico e gli snapshot,
+   senza rete o DDL. Conserva il cooldown e non azzera tentativi precedenti.
+4. Con nuove giocate ancora spente, preparare il piano d'import sul target,
+   revisionarne conflitti e righe e autorizzare l'aggiornamento dati. Da `backend`,
+   con ambiente privato configurato e mapping revisionato:
+
+   ```powershell
+   node scripts/nightly-alternative-sources.js --plan --target-sha256 $env:NIGHTLY_SOURCE_TARGET_SHA256 --season $env:NIGHTLY_SOURCE_SEASON --mapping $env:NIGHTLY_SOURCE_MAPPING_FILE
+   ```
+
+   Il piano usa la cache presente, senza chiamate ai provider. Se il target
+   non ha ancora snapshot, autorizzare prima una raccolta nella cache: il
+   piano vuoto non convalida payload futuri. Dopo revisione, eseguire lo stesso
+   import con `--execute` al posto di `--plan`, conservare privatamente l'output
+   come `NIGHTLY_SOURCE_MANIFEST_FILE`, poi eseguire
+   `node scripts/nightly-source-context.js --recompute-imported-teams`.
+   `--collect-fdo` e `--collect-csv` sono opt-in aggiuntivi e possono cambiare
+   il piano acquisendo nuovi dati: richiedono l'autorizzazione alla raccolta e
+   all'applicazione del sottoinsieme verificato, non un'approvazione implicita
+   del vecchio piano. Il runner usa questi due flag nel ciclo autorizzato.
+5. **Dopo l'import e il ricalcolo**, verificare sul target parametri A, esatta compatibilità della calibrazione,
    artefatto/deployment C, campioni e quote reali recenti. I profili con checksum
    valido ma fingerprint diverso sono cache miss. Se manca un profilo compatibile,
-   fermarsi: il normale calcolo on-demand/warmup può ricalibrare e richiede
-   autorizzazione quando tale operazione è esclusa dal mandato. Non rinominare
+   astenersi per A: la Nightly usa `allowCalibrationRebuild:false` e non esegue
+   warmup impliciti. La preparazione separata richiede autorizzazione; non rinominare
    la chiave cache per riutilizzare il vecchio profilo. Verificare budget quote
    e reset confermato senza azzerare consumi o inventare nuovi portafogli.
    `ODDS_API_ACCOUNT_SCOPE` deve identificare lo stesso account della chiave:
    il default del workflow è `primary`, non il valore configurato su un PC.
    Non copiare un saldo da uno scope diverso e non dedurre l'identità del
    secret GitHub dal suo solo nome.
-5. Solo dopo una prova end-to-end ammissibile, un backup verificato e il consenso
+6. Solo dopo una prova end-to-end ammissibile, un backup verificato e il consenso
    alle scritture, configurare il secret nel job, autorizzare il piano dati e
    attivare `RESEARCH_NIGHTLY_ENABLED` insieme a
    `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` per una prima esecuzione controllata.
@@ -87,6 +127,16 @@ La preparazione di una prima esecuzione reale richiede, nell'ordine:
    manutenzione e liquidazioni già previste, senza nuove giocate. Verificare
    SHA effettivo, esiti dei singoli gate, motivi di astensione, input/quote,
    contabilità, deduplicazione e completamento effettivo A/C.
+
+Cambiare `NIGHTLY_SOURCE_MODE` abilita la manutenzione alternativa anche con
+i flag delle nuove giocate spenti: autorizzare quindi prima le scritture di
+import. Le chiavi e il mapping non vanno pubblicati nei log; la presenza del
+nome di un secret non prova il suo contenuto. Per una run manuale fuori
+dall'orario normale, `RESEARCH_NIGHTLY_WINDOW_HOURS=24` è un'opzione esplicita
+già supportata: senza di essa la finestra termina alla prossima 03:07 italiana
+e può correttamente contenere zero fixture. Non anticipare il clock per
+simulare una run futura. Il runner rilegge fonti e profili prima dell'uso;
+uno snapshot scaduto richiede una nuova acquisizione ammissibile.
 
 Per l'arresto, disabilitare prima le nuove recommendation e poi il processo
 A/C se necessario. Conservare ledger, piani, snapshot e cache; non annullare
@@ -96,6 +146,130 @@ un restore separatamente autorizzato. La validazione prospettica A rimane
 indipendente e spenta: non è un prerequisito implicito che questa procedura
 attiva, né un risultato dimostrato dal funzionamento ordinario.
 
+| Operazione persistente | Controllo prima/dopo | Arresto o rollback |
+|---|---|---|
+| Pubblicazione codice | CI, SHA, diff, hash C, auto-deploy esterni | Tornare a codice compatibile; nessun ripristino dati implicito |
+| Bootstrap cache/riuso CSV | Backup, target, sei tabelle; ricevute e hash CSV originali | Disabilitare raccolta; conservare cache e tentativi, senza DROP o reset dei limiti |
+| Import e medie | Piano, conflitti, precondizioni di riga, manifest, ripetizione idempotente | Fermare import concorrenti; piano inverso autorizzato anche per gli aggregati, oppure restore verificato |
+| Profili A | Backup completo cache con hash; build/config/input esatti; HIT su nuovo servizio | Tenere A spento su MISS/errore; restore cache autorizzato in transazione, senza cambiare parametri o C |
+| Nuove puntate virtuali | Scope, budget, quote reali, esposizione, origini, ledger, deduplicazione | Spegnere recommendation; preservare giocate e liquidazioni, senza cancellare o riprodurre il ledger |
+
+Un nuovo risultato importato o un cambio di build/configurazione può cambiare
+la chiave A: ripetere il preflight sul runtime effettivo prima dell'uso.
+La preparazione una tantum non garantisce HIT perpetui. La Nightly si astiene
+per A in assenza di profili compatibili; non rigenera curve senza autorizzazione.
+
+### Gate di rilascio e autorizzazioni separate
+
+Ogni fase si arresta prima della successiva finché i suoi controlli non sono
+superati. Le autorizzazioni seguenti non sono incluse nella sola analisi del
+repository. Le variabili di sicurezza e i consensi non vanno impostati soltanto
+per rendere verde il controllo.
+
+| Fase e autorizzazione richiesta | Prerequisiti e azione eseguibile | Successo verificabile | Arresto e rollback |
+|---|---|---|---|
+| 1. Commit/push su main, senza deploy | Diff revisionato, file locali conservati, test della build finale; ricontrollare auto-deploy e hook esterni. Pubblicare piccoli commit coerenti e registrare SHA/lock/hash C | Remote main uguale allo SHA approvato, CI verde sul medesimo SHA; nessun effetto operativo esterno | Stop se auto-deploy/hook non verificabili, CI fallita o diff inatteso. Correzione/revert di codice compatibile, senza force-push e senza cancellare lavoro locale |
+| 2. Backup e preparazione DB | Target canonico verificato; preflight/backup/restore locale secondo guida backup, quota/spazio verificati. Consenso distinto al bootstrap additivo delle sei tabelle cache, al riuso CSV con ricevute e alla migrazione 028 paper | Backup complete=true, integrity ok, FK zero; tabelle e trigger 028 già verificati in sandbox, target/schema/trigger ispezionati, seed idempotente e limiti CSV conservati | Nessun import con backup parziale o schema inatteso. Fermare qui; conservare tabelle e contatori, niente DROP/reset/restore remoto automatico |
+| 3. Raccolta/import operativo e medie | Build approvata, mapping revisionato, scrittori concorrenti coordinati, backup; piano cache-only seguito dall'esecuzione autorizzata descritta sopra | Manifest sigillato, sottoinsieme verificato, conflitti esclusi, xG/identità/valori osservati conservati; seconda applicazione zero modifiche; medie delle sole squadre aggiornate | Stop su target/piano cambiato, conflitto inatteso, xG sovrascritti o ricalcolo fallito. Piano inverso di righe e aggregati o restore con riconciliazione separatamente autorizzato |
+| 4. Sola cache calibrazione A | Import concluso, stessa build/config/input del runtime, niente import concorrenti; comando calibration-operational sotto con target/flag/backup nuovo | Nuovo servizio: cinque HIT, chiavi/input/hash attesi, nessuna scrittura model_params o artefatto C | Stop su MISS/INVALID/errore o input cambiati. Tenere A fermo; cache parziale non autorizza avvio, ripristino cache solo da backup verificato |
+| 5. Verifica quote e configurazione account | Consenso al solo workflow quota-only/read-only, eventuale correzione separatamente autorizzata di secret/scope dopo attestazione del titolare; niente chiamate quote a pagamento | Chiave effettiva del runner associata all'account e allo scope storico corretti, probe costo zero, residuo/reset/passività verificati; limiti del job espliciti | Stop se secret/account/scope non attestabili o saldo solo storico. Non creare uno scope nuovo per recuperare budget, non azzerare consumi; ripristinare configurazione precedente se incoerente |
+| 6. Una Nightly manuale controllata | Tutti i gate precedenti, feed fresco, preflight A di nuovo HIT, C verificato, autorizzazione alle scritture accessorie e alle richieste quote entro tetto crediti concordato; cron non abilitato implicitamente | SHA corretto, marker A/C e job completi, quote reali/astensioni motivate, budget API rispettato, stake 1 unità e nessun vincolo di capitale, zero duplicati, registro paper coerente e storico preservato | Stop su errori/scope/costi/distribuzioni inattesi; spegnere recommendation mantenendo liquidazioni. Conservare evidenze e ledger; niente cancellazione/replay delle giocate. La successiva cadenza automatica richiede consenso distinto |
+
+### Pubblicazione e passaggio al registro paper
+
+Il push del codice e l'avvio operativo richiedono autorizzazioni distinte.
+Prima della finestra verificare tutte le run, incluse quelle vecchie ancora
+in coda, e gli automatismi GitHub Apps, Hostless e Northflank con il proprietario.
+La sola assenza di webhook del repository non esclude gli eventi delle Apps.
+Northflank richiede il controllo di CI/CD dei servizi, job su cambio immagine,
+workflow/release flow, GitOps e preview: nessun test delivery o avvio implicito.
+
+Conservare lo stato precedente dei workflow; Nightly e watchdog già sospesi
+restano tali. Per il solo intervallo di pubblicazione valutare la sospensione
+autorizzata del training settimanale, che può scrivere nel registry se abilitato.
+Una run in coda non è cancellata disabilitando il workflow: verificarla a parte.
+La pausa rinvia import, liquidazioni e nuove quote delle run sospese, non
+cancella dati né ferma l'app o altri processi esterni.
+
+Commit logici e push devono essere fast-forward sullo SHA remoto ricontrollato,
+con diff revisionato e scansione segreti anche sui file nuovi. La CI va verificata
+sullo SHA effettivamente pubblicato, insieme all'assenza di build/deploy esterni.
+Non includere DB, copie di backup, report privati, cache, node_modules o dist.
+Non modificare i flag per ottenere una CI verde.
+
+Il nuovo schema 028 non viene applicato dal push. Il normale bootstrap del
+backend esegue le migrazioni pendenti: **non distribuire/avviare la nuova build
+sul DB operativo prima dell'autorizzazione allo schema e del backup verificato**.
+In una transizione senza bootstrap, la manutenzione legacy può continuare
+solo quando paper è interamente non inizializzato (nessuna tabella né policy
+paper); il registro paper rimane esplicitamente indisponibile e la sua Nightly
+richiede lo schema completo. Applicare esplicitamente la sola 028 autorizzata,
+non usare il bootstrap come comando di migrazione generale. La sola 028 è
+compatibile col backend precedente; le nuove decisioni paper richiedono
+il backend aggiornato anche per le letture. Dettagli nella guida Hostless.
+I CLI operativi con `skipSchemaBootstrap:true` richiedono invece schema già pronto.
+I profili A dipendono dall'hash della build: quelli di una build precedente non
+sono una prova HIT per questa release e non vanno forzati o copiati con chiavi nuove.
+
+Rollback del codice mediante commit di revert e CI, senza force-push. Fermare
+nuove registrazioni mantenendo le liquidazioni già autorizzate. Dopo l'avvio
+paper non cancellare le nuove tabelle né convertire i bet nei vecchi wallet;
+una versione vecchia non sa liquidarli. Prima di un ritorno a quella versione
+preservare un runner di liquidazione compatibile o tenere documentati i pending.
+Il ripristino del cron Nightly, watchdog e training è una fase esplicita:
+riabilitarli quando i relativi prerequisiti sono verificati, senza attivare il pilot.
+
+Da root, dopo autorizzazione alla fase 5, il solo probe già predisposto è:
+
+```powershell
+gh workflow run odds-api-smoke.yml --ref main -f quota_only=true
+```
+
+Controllare SHA e log del job quota: la risposta espone soltanto contatori,
+non il valore del secret né l'identità del suo titolare. GitHub non consente
+di rileggere un secret: attestare privatamente l'account/chiave presso il
+provider, oppure autorizzare l'impostazione del secret da una chiave già
+attestata del medesimo account. Un residuo coincidente non prova l'identità.
+Il budget locale dello store è 500 crediti/mese e riserva 50 per richieste
+informative con i default del job; le richieste Nightly essenziali possono
+usare la riserva, sempre con il registro condiviso. Questi limiti non sono
+un saldo live né autorizzano un numero illimitato di richieste. Concordare
+il tetto del primo ciclo, inclusi gli extra-event market abilitati nel job.
+
+La fase 6 usa il workflow completo, non una CLI abbreviata. Il guard vieta
+il dispatch prima delle 03:07 Europe/Rome; da quell'ora la finestra normale
+termina alla successiva 03:07, anche nei giorni di 23/25 ore. La finestra
+esplicita di 24 ore resta una scelta operativa distinta. Dopo configurazione
+autorizzata dei due flag e della modalità alternativa:
+
+```powershell
+gh workflow run nightly-sync.yml --ref main
+```
+
+I flag sono variabili repository, quindi lasciarli true dopo il manuale
+autorizzerebbe anche il prossimo cron: per una sola prova concordare
+un intervallo privo di cron concorrenti e rimetterli false al termine.
+Non disabilitare l'intero workflow per fermare soltanto le nuove puntate.
+
+Le scritture accessorie richiedono consenso anche con A/C spenti: liquidazioni
+legacy/manual/research, risultati delle prediction, eventuali dettagli Understat
+per liquidare player props legacy, registro scheduler con retention periodica.
+Gli store possono eseguire `CREATE TRIGGER IF NOT EXISTS` per proteggere le
+evidenze: `skipSchemaBootstrap` non disattiva questi guard lazy. Con A/C acceso
+si aggiungono lease/run/job/input/decisioni, registri e osservazioni diagnostiche,
+notifiche e contabilità quote anche per dinieghi/cache hit. Prima di partire
+verificare che i trigger necessari esistano; nessuna nuova tabella o migrazione
+va autorizzata implicitamente da una semplice prova di salute.
+
+L'audit prediction seleziona ora soltanto i match con entrambi i risultati
+presenti e applica il limite ai match con almeno una liquidazione effettiva:
+fixture future/mancanti e vecchi mercati senza osservazioni non possono
+affamare le successive prediction liquidabili. Include tutte le prediction
+pending dei match scelti. Le statistiche assenti restano pending, senza
+convertirle in zero. `matches` conta anche i match esaminati ma irrisolti e
+può quindi superare il limite delle liquidazioni; questa scansione locale non
+contatta provider. Il fix non ripara lo storico né cambia le formule.
+
 Distinguere i gate dei dati dai flag di esecuzione: se `RESEARCH_NIGHTLY_ENABLED` o `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED` non sono abilitati nell'ambiente effettivo, il relativo processo A/C non parte anche con import completo. La presenza di una schedule non dimostra analisi o puntate. Lo stato attuale dei flag richiede una lettura dell'ambiente; non si ricava dai log di una vecchia run.
 
 Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapter del supplemento considera solo fixture primarie già concluse. Con identità e data corrette ma risultato primario ancora NULL, il supplemento non promuove la fixture a conclusa. Verificare separatamente CSV, fixture, risultato primario e relativo gate; uno 0–0 osservato è concluso, due NULL non lo sono. Non cambiare fonte del risultato o abbassare la copertura per rendere verde la Nightly.
@@ -103,28 +277,37 @@ Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapt
 1. Avvia un backend temporaneo sul runner, sul DB configurato nei secret,
    con `NODE_ENV=ci`, bootstrap e scheduler interni disabilitati. Attende
    `/api/health` e termina il processo al termine del job.
-2. Importa Understat Top 5 con cinque stagioni e dettagli partita.
-   Applica il supplemento HTTP/CSV football-data.co.uk ai valori mancanti,
-   con quote storiche distinte dalle statistiche. Aggiorna, se abilitati,
+2. In modo `primary` importa Understat Top 5 con cinque stagioni e dettagli.
+   In modo `verified-alternatives` usa calendario/risultati FDO verificati e
+   conserva gli xG originali. Il supplemento CSV riempie i campi ammessi e
+   mancanti attraverso la cache condivisa e il suo limite persistente; senza
+   configurazione/cache valida non viene scaricato direttamente. Aggiorna, se abilitati,
    i [riferimenti fra competizioni](competition-transitions/README.md).
 3. Sincronizza le giocate legacy, liquida le A/C esistenti tramite
    `POST /api/research/settle` e aggiorna l'audit delle prediction concluse.
    Le liquidazioni precedono il gate per le nuove giocate.
-4. Se Understat riesce, prepara le cache persistenti di calibrazione sul runner.
-   Un warmup fallito produce un avviso; il calcolo completo resta disponibile
-   su richiesta. Il riuso richiede dati, configurazione e hash del codice coerenti.
-5. Se `RESEARCH_NIGHTLY_ENABLED=true`, aggiorna i kickoff Top 5 dal calendario
-   eventi e avvia il processo finito A/C. I gate obbligatori falliti impediscono
-   nuove decisioni valide; lo script conserva l'errore e termina con fallimento.
+4. La manutenzione non ricalibra. La Nightly consuma solo profili esattamente
+   compatibili; un MISS blocca A per le fixture interessate, senza impedire C
+   se ha evidenze sufficienti. Il comando operativo di calibrazione è separato.
+5. Se `RESEARCH_NIGHTLY_ENABLED=true`, avvia il processo finito A/C. Nel modo
+   alternativo stato/orario provengono dal manifest FDO e vengono ricontrollati
+   nella cache condivisa; `SCHEDULED` ha un orario provvisorio e non è ammesso.
+   Nel modo primario resta il controllo del calendario eventi precedente.
 6. Con `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` registra i consigli dei
    rispettivi motori: A usa `PredictionService`, i mercati squadra supportati
-   e lo stake consigliato; C usa il proprio percorso gol e stake 1%.
-   La policy limita l'esposizione al 5% e una giocata per partita/famiglia.
-   Quote reali, bookmaker, freschezza, capitale e kickoff sono verificati anche
-   nella transazione. Con flag recommendation spento resta il percorso diagnostico.
-7. Se i gate obbligatori riescono, esegue la learning review; recupera lo stato
+   con tutte le opportunità qualificate; C usa il proprio percorso gol.
+   La policy `paper-fixed-unit-v1` registra **1 unità virtuale per selezione**,
+   senza saldo, capitale iniziale, esposizione o top N. Più mercati e A/C sulla
+   stessa partita sono ammessi; una stessa selezione semantica per famiglia
+   non è ripetuta cambiando bookmaker/prezzo/versione. Quote reali, bookmaker,
+   freschezza, EV, prudenza, modello, qualità e kickoff sono verificati anche
+   nella transazione. Migrazione additiva 028 richiesta prima dell'avvio,
+   senza conversione dello storico. Il calendario paper non ha limite numerico
+   di partite; timeout, scadenze e budget API restano applicati e le astensioni
+   tecniche sono esplicite. Con flag recommendation spento resta la diagnostica.
+7. Nel solo modo primario, se i gate obbligatori riescono, esegue la learning review; recupera lo stato
    finale e segnala il completamento. Errori della liquidazione legacy,
-   dell'audit prediction e del warmup sono avvisi distinti dai gate obbligatori.
+   e dell'audit prediction sono avvisi distinti dai gate obbligatori.
 
 Il ciclo non chiama la registrazione legacy `/api/automation/place-valid-bets`,
 che risponde `410`. Non piazza scommesse presso bookmaker. Giocatori e
@@ -164,9 +347,10 @@ legge le fonti ma non aggiorna il calendario del DB: confrontare poi fonte e
 partite persistite sul target autorizzato. La copertura del calendario già
 importato non certifica quella corrente del provider durante un disservizio.
 Non usare una Nightly operativa come semplice probe: comprende import, pruning,
-settlement, warmup e nuove decisioni virtuali. Se il provider è in manutenzione,
-il ripristino reale dell'import resta bloccato; nessun deploy, modifica DNS,
-nuova fonte o rilassamento dei gate è implicito nella diagnosi.
+settlement e, se abilitata, registrazione di nuove decisioni virtuali. Se
+Understat è in manutenzione il modo primario resta bloccato; il percorso
+alternativo autorizzato può continuare sulle fixture ammissibili. Nessun
+deploy, modifica DNS o rilassamento dei gate è implicito nella diagnosi.
 
 Regressioni locali: `understat-response-validation`, `understat-network-retry`,
 `understat-read-reduction`, `understat-commit-state`, `nightly-five-season-window`
@@ -509,7 +693,46 @@ non parte più al push. L'unico trigger è manuale e il job richiede insieme
 `OPERATIONAL_CALIBRATION_ENABLED=true`; l'input è obbligatorio e ha default
 `false`. Lo script applica lo schema additivo della cache e salva i profili
 sul DB dei secret: pubblicare codice non autorizza questa operazione.
-Il warmup già previsto nel ciclo Nightly resta distinto e invariato.
+Il ciclo Nightly non richiama più quel warmup e non usa il rebuild implicito.
+Per una preparazione senza DDL usare il comando separato, da `backend`, con
+ambiente privato già configurato:
+
+```powershell
+node scripts/calibration-operational.js --plan
+node scripts/odds-account-preflight.js --plan --target-sha256 $env:NIGHTLY_SOURCE_TARGET_SHA256
+```
+
+Il primo comando è SELECT-only, verifica lo schema esistente ed emette le
+chiavi esatte richieste; il secondo legge solo il namespace quote configurato.
+Non prova che il secret GitHub corrisponda alla chiave locale e non certifica
+un saldo live. Il probe esistente `probe-odds-quota.js` usa soltanto `GET /sports`,
+[senza consumo di crediti](https://the-odds-api.com/liveapi/guides/v4/#get-sports).
+Per verificare la chiave del runner è predisposto anche `Odds API Smoke` con
+`quota_only=true`: è un'esecuzione manuale separata, non avviata dal preflight.
+
+Dopo consenso esplicito alla sola scrittura della cache, backup del DB e
+blocco degli import concorrenti, usare la **stessa build/configurazione**:
+
+```powershell
+$env:OPERATIONAL_CALIBRATION_ENABLED = 'true'
+node scripts/calibration-operational.js --execute --authorize-calibration-writes --target-sha256 $env:NIGHTLY_SOURCE_TARGET_SHA256 --backup-file C:\percorso-privato\nuovo-backup-calibrazione.json
+```
+
+Il file deve essere nuovo, resta privato e contiene tutte le righe cache con
+hash verificato prima del calcolo. Il comando rifiuta schemi mancanti, non
+applica migrazioni, non contatta provider, non aggiorna `model_params` e limita
+le scritture alla cache. Le curve sono quelle del calibratore già esistente;
+non modifica formule o C. Richiede un nuovo servizio con HIT esatti dopo la
+generazione. Le scritture delle singole curve non costituiscono un'unica
+transazione per tutte le leghe: su errore mantenere la Nightly spenta, verificare
+il backup e autorizzare un eventuale ripristino della sola cache in transazione.
+Ripristinare vecchie curve non le rende compatibili con un codice diverso.
+
+Prima dell'accensione verificare anche data e copertura dei parametri A,
+artefatto e deployment C, budget condiviso e scope della chiave effettiva.
+Pubblicazione, inizializzazione delle cache fonti, import operativo, scrittura
+delle curve e attivazione sono autorizzazioni distinte. Lo stato remoto non si
+deduce dai default o da una prova locale.
 La CI ordinaria conserva lint, typecheck, build e test su push/PR di `main`.
 Il controllo sorgente ripetibile, senza credenziali o accesso remoto, è:
 

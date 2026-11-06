@@ -10,7 +10,7 @@ Il nucleo numerico research è conservato nello [snapshot della release](../../b
 
 La baseline research `A-80cb25df5552621e` di C è un'altra identità: non rappresenta ogni configurazione, dato, calibrazione o correzione dell'A operativo. Le sue metriche non devono essere attribuite a `PredictionService`.
 
-La Nightly consuma il consiglio A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica, ranking o stake A. Questa documentazione non modifica sorgenti, parametri o previsioni operative.
+La Nightly considera le opportunità A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica o ranking A. La policy paper usa una propria unità nominale fissa indipendente dallo stake consigliato interno; non cambia parametri o probabilità del modello.
 
 Fonti: [PredictionService](../../backend/src/services/PredictionService.ts), [pacchetto canonico](../../backend/src/services/CanonicalBetRecommendation.ts), [esecuzione A/C](../../backend/src/research/ResearchRecommendationRuntime.ts).
 
@@ -46,6 +46,17 @@ Tiri, tiri in porta e cartellini hanno modelli statistici dedicati e controlli d
 
 La calibrazione usa replay cronologici e curve isotoniche, cioè correzioni monotone fra probabilità e frequenze osservate. I profili per famiglia richiedono campione sufficiente; esistono fallback e cache con controlli di compatibilità. Campione scarso o sconosciuto può ridurre la confidenza, senza implicare da solo un veto universale su tutte le giocate.
 
+La Nightly costruisce il servizio con `allowCalibrationRebuild:false`: rilegge
+la coorte e le quote storiche, richiede un profilo persistito con chiave esatta
+e su MISS/errore si astiene per A, senza rifare fit/calibrazione implicitamente.
+Il default del servizio nelle altre chiamate è invariato. La chiave include
+tutto il JS compilato, configurazione, righe complete ordinate e quote selezionate;
+anche un cambiamento tecnico esterno alle formule può invalidarla. `params_json`
+live è verificato separatamente e non è direttamente parte della chiave del
+calibratore. Checksum valido non implica compatibilità. Il preflight emette
+componenti/versioni senza ricalibrare; il comando operativo separato richiede
+schema già esistente, backup verificato e autorizzazione esplicita.
+
 Il motore confronta probabilità calibrate e quote reali, rimuove il margine dai gruppi bookmaker completi e applica il blending con il mercato dove previsto. Questo passaggio è distinto dall'ensemble fra Dixon-Coles e Poisson-xG. Soglie, controlli di fragilità, qualità dei dati e tuning possono incidere sulla decisione. Le learning review sono interne e non dimostrano un miglioramento automatico.
 
 Le formule complete appartengono al [formulario](../FORMULARIO-sistema-scommesse.md). Fonti del meccanismo: [Dixon-Coles](../../backend/src/models/core/DixonColesModel.ts), [Poisson-xG](../../backend/src/models/core/PoissonXgModel.ts), [ensemble](../../backend/src/services/ProbabilityEnsembleService.ts), [modelli statistici](../../backend/src/models/markets/SpecializedModels.ts), [value](../../backend/src/models/value/ValueBettingEngine.ts), [analisi calibrata](../../backend/src/models/value/EnhancedMarketAnalysis.ts), [configurazione](../../backend/src/config/PredictionEngineConfig.ts).
@@ -58,7 +69,7 @@ Corner e falli restano esclusi dalle giocate. Il risultato esatto serve alle pro
 
 Il consiglio consumato dall'app e dalla Nightly è `canonicalRecommendation`. Il picker scarta player props, opportunità speculative e quote sintetiche, dà precedenza a HIGH/MEDIUM e ammette LOW solo con i requisiti positivi previsti. Può astenersi. Il suo ordinamento non coincide necessariamente con il distinto punteggio interno di `selectBestSingleMatchBet`.
 
-Lo stake consigliato deriva dai controlli Kelly/rischio e dai limiti del motore. La Nightly usa quella percentuale e verifica poi saldo, esposizione, kickoff, quota e duplicati. Non sostituisce lo stake A con l'1% previsto per C. Nella registrazione manuale l'utente sceglie invece l'importo e il server verifica selezione, quota e controlli contabili.
+Lo stake consigliato interno deriva dai controlli Kelly/rischio esistenti e non modifica le probabilità. La nuova esecuzione paper della Nightly considera tutte le opportunità già qualificate e usa 1 unità fissa per selezione, indipendente da tale percentuale, saldo ed esposizione. Mantiene kickoff, quota, EV, prudenza e duplicati. La policy di esecuzione non modifica formule, calibrazioni o il protocollo scientifico. Le registrazioni precedenti e il percorso manuale conservano le proprie regole contabili; non sono convertiti retroattivamente in unità.
 
 Un prezzo sintetico o completato dal modello non è un prezzo bookmaker e non rende eseguibile un consiglio. Senza quota reale si può mostrare analisi sportiva, ma non presentare un vantaggio contro un prezzo che il bookmaker non ha espresso.
 

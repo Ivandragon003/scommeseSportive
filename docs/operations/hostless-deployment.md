@@ -37,6 +37,21 @@ Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_E
 
 Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
+Per la transizione paper, la sola migrazione additiva 028 lascia intatti
+schema e dati precedenti. Il backend vecchio può restare attivo durante
+questa preparazione, ma non deve leggere nuove decisioni paper: attivarle
+solo dopo il backend aggiornato. Il nuovo backend con bootstrap spento e
+DB pre-028 conserva la manutenzione legacy quando paper non è mai stato
+inizializzato; l'API paper risponde esplicitamente 503 e la Nightly paper
+resta bloccata. Uno schema parziale o già attivato non viene ignorato.
+Applicare esplicitamente la sola migrazione autorizzata dopo backup e
+verifica del target; il bootstrap ordinario eseguirebbe anche altre
+migrazioni e procedure pendenti. Verificare due tabelle, cinque trigger,
+indici e foreign key, quindi backend, frontend e infine Nightly.
+Un rollback al vecchio backend dopo l'attivazione non è trasparente:
+non riconosce i nuovi bet e può interpretarne male le decisioni. Conservare
+un percorso compatibile per letture e liquidazioni finché esistono pending.
+
 ## Compatibilità del modello registrato prima del rilascio
 
 Prima di distribuire main confrontare anche il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. Per il C congelato registrato la baseline richiesta è A-80cb25df5552621e. Main conserva il nucleo numerico research effettivo della release 6ed36d4 in uno snapshot immutabile, con pipeline e dipendenze isolate dai modelli operativi correnti di A. Non correggere la dichiarazione dell’artefatto o disabilitare la guardia per ottenere un esito positivo.
