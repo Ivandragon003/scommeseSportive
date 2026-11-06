@@ -6,7 +6,7 @@ import {
 import type { FootballDataCompetition } from './modelAResearchCalendar';
 
 export const SOURCE_FEED_CACHE_MARKER = 'dedicated_source_feed_cache_v2';
-type Statement = { sql: string; args?: Array<string | number | null> };
+type Statement = { sql: string; args: Array<string | number | null> };
 export interface SourceFeedClient {
   execute(statement: Statement | string): Promise<{ rows: any[]; rowsAffected?: number }>;
   batch(statements: Statement[], mode?: 'write' | 'read' | 'deferred'): Promise<any[]>;
@@ -59,17 +59,17 @@ export class SourceFeedStore {
     } else {
       if (!options.allowCreate) throw Error('source_feed_database_not_dedicated');
       await this.client.batch([
-        { sql: 'CREATE TABLE source_feed_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)' },
+        { sql: 'CREATE TABLE source_feed_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)', args: [] },
         { sql: `CREATE TABLE source_feed_snapshots (
           provider TEXT NOT NULL, competition TEXT NOT NULL, season INTEGER NOT NULL,
           schema_version INTEGER NOT NULL, content_sha256 TEXT NOT NULL, acquired_at TEXT NOT NULL,
-          snapshot_json TEXT NOT NULL, PRIMARY KEY(provider,competition,season,schema_version,content_sha256))` },
+          snapshot_json TEXT NOT NULL, PRIMARY KEY(provider,competition,season,schema_version,content_sha256))`, args: [] },
         { sql: `CREATE TABLE source_feed_attempts (
           id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, competition TEXT NOT NULL,
           season INTEGER NOT NULL, requested_at TEXT NOT NULL, finished_at TEXT,
           status TEXT NOT NULL CHECK(status IN ('pending','success','failure')), snapshot_hash TEXT,
-          acquired_at TEXT, payload_sha256 TEXT, reason TEXT)` },
-        { sql: 'CREATE INDEX source_feed_attempt_scope ON source_feed_attempts(provider,competition,season,id DESC)' },
+          acquired_at TEXT, payload_sha256 TEXT, reason TEXT)`, args: [] },
+        { sql: 'CREATE INDEX source_feed_attempt_scope ON source_feed_attempts(provider,competition,season,id DESC)', args: [] },
         { sql: 'INSERT INTO source_feed_meta(key,value) VALUES (?,?)', args: ['cache_marker', SOURCE_FEED_CACHE_MARKER] },
       ], 'write');
     }

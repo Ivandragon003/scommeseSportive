@@ -34,6 +34,11 @@ artificialmente acquiredAt. Il calendario ammette previsioni solo in stato
 [definizione ufficiale](https://docs.football-data.org/general/v4/match.html#_status_workflow_explained).
 Controlli e procedura sono nella [guida Nightly](github-actions-nightly-sync.md).
 
+Il bootstrap delle cache usa batch atomici compatibili anche con il trasporto
+HTTP libSQL/Turso: ogni istruzione in forma di oggetto esplicita `args`, con
+array vuoto quando non ha parametri. I test verificano il serializzatore HTTP
+dell'SDK oltre all'esecuzione SQLite locale, senza contattare il DB operativo.
+
 | Fonte | Copertura utile dichiarata | Limite per questa pipeline |
 |---|---|---|
 | [football-data.org Free](https://www.football-data.org/pricing), [copertura](https://www.football-data.org/coverage) | Calendario e risultati ritardati delle cinque leghe; 10 chiamate/minuto | Non fornisce nel Free base le statistiche complete/xG necessarie; le statistiche sono un add-on. Un calendario disponibile non certifica l'aggiornamento delle feature. |

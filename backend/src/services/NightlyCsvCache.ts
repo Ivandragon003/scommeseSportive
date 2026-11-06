@@ -20,11 +20,11 @@ export class NightlyCsvCache {
     const objects = await this.client.execute("SELECT name,type FROM sqlite_master WHERE name IN ('nightly_csv_meta','nightly_csv_attempts','nightly_csv_snapshots')");
     if (objects.rows.length === 0 && options.allowCreate === true) {
       await this.client.batch([
-        { sql: 'CREATE TABLE nightly_csv_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL)' },
-        { sql: "CREATE TABLE nightly_csv_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, season INTEGER NOT NULL, requested_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL CHECK(status IN ('pending','success','partial','failure')))" },
-        { sql: 'CREATE TABLE nightly_csv_snapshots (attempt_id INTEGER NOT NULL, code TEXT NOT NULL, acquired_at TEXT NOT NULL, sha256 TEXT NOT NULL, csv TEXT NOT NULL, PRIMARY KEY(attempt_id,code), FOREIGN KEY(attempt_id) REFERENCES nightly_csv_attempts(id))' },
+        { sql: 'CREATE TABLE nightly_csv_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL)', args: [] },
+        { sql: "CREATE TABLE nightly_csv_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, season INTEGER NOT NULL, requested_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL CHECK(status IN ('pending','success','partial','failure')))", args: [] },
+        { sql: 'CREATE TABLE nightly_csv_snapshots (attempt_id INTEGER NOT NULL, code TEXT NOT NULL, acquired_at TEXT NOT NULL, sha256 TEXT NOT NULL, csv TEXT NOT NULL, PRIMARY KEY(attempt_id,code), FOREIGN KEY(attempt_id) REFERENCES nightly_csv_attempts(id))', args: [] },
         { sql: 'INSERT INTO nightly_csv_meta(key,value) VALUES (?,?)', args: ['marker', marker] },
-        { sql: "INSERT INTO nightly_csv_meta(key,value) VALUES ('collection_not_before',strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days'))" },
+        { sql: "INSERT INTO nightly_csv_meta(key,value) VALUES ('collection_not_before',strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days'))", args: [] },
       ], 'write');
     } else if (objects.rows.length !== 3 || objects.rows.some(row => row.type !== 'table')) throw Error('nightly_csv_cache_not_initialized');
     const meta = await this.client.execute({ sql: 'SELECT value FROM nightly_csv_meta WHERE key=?', args: ['marker'] });
