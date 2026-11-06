@@ -79,7 +79,7 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
     limitation: 'Full enabled A/C completion requires successful Run nightly sync and Confirm enabled A/C completion steps; database decisions require the read-only database check.' };
 }
 
-async function inspectDatabase(client, { now = new Date(), expectEnabled = false } = {}) {
+async function inspectDatabase(client, { now = new Date(), expectEnabled = false, oddsAccountScope = 'primary' } = {}) {
   const { researchNightlyStatus, inspectPaperAccounting } = require('../dist/research/ResearchMonitoring');
   const { SmartOddsRequestStore } = require('../dist/services/odds-provider/SmartOddsRequestStore');
   const before = await client.execute('SELECT COUNT(*) AS count,MAX(rowid) AS last FROM research_ledger');
@@ -118,7 +118,20 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
     && Date.parse(nightly.lastRun.endedAt) <= now.getTime()
     && now.getTime() - Date.parse(nightly.lastRun.startedAt) <= 36 * 3600000;
   if (recentCompleted && nightly.lastRun.success === false) issues.push('nightly_execution_failed');
-  if (odds.providers.some((provider) => provider.availableCredits <= 0)) issues.push('nightly_odds_credits_exhausted');
+  const accountScope = oddsAccountScope.trim() || 'primary';
+  const activeBudget = odds.providers.find((provider) => provider.provider === 'odds_api' && provider.accountScope === accountScope);
+  const quotaReason = !activeBudget ? 'configured_scope_current_month_missing'
+    : !activeBudget.resetConfirmed ? 'odds_reset_unconfirmed'
+      : !validTime(activeBudget.observedAt) || Date.parse(activeBudget.observedAt) > now.getTime()
+        || (activeBudget.observedUsed === null && activeBudget.observedRemaining === null) ? 'usable_header_observation_missing' : null;
+  const exhausted = activeBudget && activeBudget.availableCredits <= 0;
+  const activeOdds = { provider: 'odds_api', accountScope,
+    state: exhausted ? 'EXHAUSTED' : quotaReason ? 'NOT_VERIFIED' : 'STORED_OBSERVATION', reason: quotaReason,
+    availableCredits: exhausted ? 0 : quotaReason ? null : activeBudget.availableCredits,
+    observedAt: activeBudget?.observedAt ?? null,
+    liveBalanceVerified: false };
+  if (exhausted) issues.push('nightly_odds_credits_exhausted');
+  else if (expectEnabled && quotaReason) issues.push('nightly_odds_budget_unverified');
   if (recentCompleted && Number(nightly.metrics.apiErrors) >= 3) issues.push('nightly_api_errors');
   const pendingSettlements = Number(pending.rows[0]?.count ?? 0) + paperAccounting.pendingSettlements;
   if (pendingSettlements && now.getTime() > Date.parse(nightly.expectedAt) + GRACE_SECONDS * 1000) issues.push('settlement_backlog');
@@ -129,7 +142,7 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
   if (paperAccounting.stable && paperAccounting.errors) issues.push(paperAccounting.failures.includes('paper_schema_required') ? 'paper_schema_required' : 'paper_accounting_integrity');
   return { checkedAt: now.toISOString(), ok: issues.length === 0, issues, nightly,
     pendingSettlements, accounting: { stable: stableAccounting, checked: stableAccounting, errors: stableAccounting ? accountingErrors : null },
-    paperAccounting, odds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
+    paperAccounting, odds, activeOdds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
 }
 
 async function main() {
@@ -142,7 +155,8 @@ async function main() {
   if (!githubOnly && process.env.TURSO_WATCHDOG_READONLY_TOKEN && process.env.TURSO_DATABASE_URL) {
     const { createClient } = require('@libsql/client');
     const client = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_WATCHDOG_READONLY_TOKEN });
-    try { output.database = await inspectDatabase(client, { expectEnabled: process.env.RESEARCH_NIGHTLY_EXPECT_ENABLED === 'true' }); }
+    try { output.database = await inspectDatabase(client, { expectEnabled: process.env.RESEARCH_NIGHTLY_EXPECT_ENABLED === 'true',
+      oddsAccountScope: process.env.ODDS_API_ACCOUNT_SCOPE }); }
     finally { client.close(); }
   } else if (databaseOnly) throw new Error('dedicated_readonly_database_token_missing');
   else output.database = { state: 'NOT_CHECKED', reason: 'Dedicated read-only database credentials are not configured or this is a GitHub-only check.' };

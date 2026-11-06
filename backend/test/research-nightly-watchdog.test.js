@@ -63,7 +63,13 @@ async function database() {
   }
   await db.executeMultiple(`CREATE TABLE scheduler_runs(scheduler_name TEXT,started_at TEXT,ended_at TEXT,success INTEGER,error TEXT,summary_json TEXT);
     CREATE TABLE matches(match_id TEXT,home_goals INTEGER,away_goals INTEGER);`);
+  await oddsBudget(db, 'odds_api', 'primary', 400);
   return db;
+}
+
+async function oddsBudget(db, provider, scope, remaining) {
+  await db.execute({ sql: 'INSERT OR REPLACE INTO smart_odds_budgets VALUES (?,?,?,?,?,?,?,?)',
+    args: [provider, scope, '2026-10', 500 - remaining, remaining, 0, NOW.toISOString(), 1] });
 }
 
 test('database watchdog is SELECT-only and never requires a retired heartbeat or scans predictions', async () => {
@@ -157,10 +163,63 @@ test('observed database failures, API errors and exhausted quota remain visible 
       await db.execute({ sql: 'UPDATE scheduler_runs SET started_at=?,ended_at=?', args: [started, ended] });
       assert.deepEqual((await inspectDatabase(db, { now: NOW, expectEnabled: false })).issues, []);
     }
-    await db.execute({ sql: 'INSERT INTO smart_odds_budgets VALUES (?,?,?,?,?,?,?,?)',
-      args: ['odds_api', 'primary', '2026-10', 500, 0, 0, NOW.toISOString(), 1] });
+    await oddsBudget(db, 'odds_api', 'primary', 0);
     assert.deepEqual((await inspectDatabase(db, { now: NOW, expectEnabled: false })).issues, ['nightly_odds_credits_exhausted']);
   } finally { db.close(); }
+});
+
+test('database quota monitoring uses the active Odds API scope while preserving retired account observations and run failures', async () => {
+  const db = await database();
+  try {
+    await oddsBudget(db, 'odds_api', 'retired-account', 0);
+    await oddsBudget(db, 'different_provider', 'active-account', 0);
+    await oddsBudget(db, 'odds_api', 'active-account', 450);
+    const options = { now: NOW, oddsAccountScope: 'active-account' };
+    const result = await inspectDatabase(db, options);
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.activeOdds.accountScope, 'active-account');
+    assert.equal(result.activeOdds.state, 'STORED_OBSERVATION');
+    assert.equal(result.activeOdds.availableCredits, 450);
+    assert.equal(result.activeOdds.liveBalanceVerified, false);
+    assert.ok(result.odds.providers.some(provider => provider.accountScope === 'retired-account' && provider.availableCredits === 0));
+    await db.execute({ sql: 'INSERT INTO scheduler_runs VALUES (?,?,?,?,?,?)', args: ['research_nightly', '2026-10-29T02:20:00Z',
+      '2026-10-29T03:00:00Z', 0, 'nightly_execution_failed', '{}'] });
+    assert.deepEqual((await inspectDatabase(db, options)).issues, ['nightly_execution_failed']);
+    await oddsBudget(db, 'odds_api', 'active-account', 0);
+    const exhausted = await inspectDatabase(db, options);
+    assert.deepEqual(exhausted.issues, ['nightly_execution_failed', 'nightly_odds_credits_exhausted']);
+    assert.equal(exhausted.activeOdds.state, 'EXHAUSTED');
+  } finally { db.close(); }
+});
+
+test('a missing active quota stays unverified even when a retired account has credits', async () => {
+  const db = await database();
+  try {
+    const options = { now: NOW, oddsAccountScope: 'new-account' };
+    const result = await inspectDatabase(db, options);
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.activeOdds.state, 'NOT_VERIFIED');
+    assert.equal(result.activeOdds.reason, 'configured_scope_current_month_missing');
+    assert.equal(result.activeOdds.availableCredits, null);
+    assert.equal(result.activeOdds.observedAt, null);
+    assert.deepEqual((await inspectDatabase(db, { ...options, expectEnabled: true })).issues,
+      ['nightly_execution_missing', 'nightly_odds_budget_unverified']);
+    await oddsBudget(db, 'odds_api', 'new-account', 500);
+    await db.execute("UPDATE smart_odds_budgets SET header_observed_at=NULL,measured_used=NULL,measured_remaining=NULL WHERE account_scope='new-account'");
+    const unobserved = await inspectDatabase(db, options);
+    assert.equal(unobserved.activeOdds.state, 'NOT_VERIFIED');
+    assert.equal(unobserved.activeOdds.reason, 'usable_header_observation_missing');
+    assert.equal(unobserved.activeOdds.availableCredits, null);
+    assert.equal((await inspectDatabase(db, { now: NOW, oddsAccountScope: ' ' })).activeOdds.accountScope, 'primary');
+  } finally { db.close(); }
+});
+
+test('database watchdog receives the same account scope as Nightly and forwards it from the CLI environment', () => {
+  const workflow = readFileSync(join(__dirname, '../../.github/workflows/research-watchdog.yml'), 'utf8');
+  const databaseStep = workflow.split('name: Read shared database without contacting the backend or odds provider')[1].split('\n  model_a_inspect:')[0];
+  assert.match(databaseStep, /ODDS_API_ACCOUNT_SCOPE: \$\{\{ vars\.ODDS_API_ACCOUNT_SCOPE \|\| 'primary' \}\}/);
+  const script = readFileSync(join(__dirname, '../scripts/check-research-nightly.js'), 'utf8');
+  assert.match(script, /oddsAccountScope: process\.env\.ODDS_API_ACCOUNT_SCOPE/);
 });
 
 

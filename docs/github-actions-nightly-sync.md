@@ -26,6 +26,9 @@ metadati incerti o identità incoerente bloccano l'ammissione.
 Lease e vincoli DB proteggono ulteriormente dalle doppie registrazioni.
 Un recupero dopo errore può ripetere import e richieste: non garantisce zero
 consumi aggiuntivi.
+Un avvio manuale prima delle **03:07 Europe/Rome** viene saltato dal guard,
+anche con gli input di recupero: un run verde con il ciclo saltato non prova
+il ripristino della Nightly.
 
 La finestra A/C parte dall'esecuzione effettiva e termina alla successiva
 Nightly prevista. `RESEARCH_NIGHTLY_WINDOW_HOURS`, se impostata, ammette
@@ -560,6 +563,15 @@ persistenti e condivisi: le soglie locali non attestano il piano o il residuo
 reale dell'account. Quote mancanti, obsolete o sintetiche non diventano quote
 bookmaker per evitare un'astensione.
 
+Per sostituire una chiave esaurita, verificare separatamente il saldo delle
+due credenziali con il probe gratuito e aggiornare il secret `ODDS_API_KEY`.
+Una rotazione sullo stesso account conserva `ODDS_API_ACCOUNT_SCOPE`; una
+sottoscrizione con quota indipendente richiede invece uno scope distinto e
+stabile, condiviso dai processi che usano quella sottoscrizione. Conservare
+il ledger precedente: cambiare soltanto la chiave lascia attivo il budget
+esaurito del vecchio scope. Verificare il secret effettivo del runner con
+`Odds API Smoke`, input `quota_only=true`, prima del successivo ciclo.
+
 ## Recupero controllato
 
 Prima di ritentare, verificare giornata italiana, commit, stato dei run,
@@ -578,6 +590,13 @@ Un tentativo della giornata precedente non recupera una diversa giornata.
   abilitate, fonti verificate e kickoff futuro; crea una policy figlia e
   preserva giocate esistenti e decisioni non tecniche. Controlla i recuperi
   già conclusi anche al commit.
+
+Il recupero tecnico con policy figlia supporta soltanto le policy legacy
+`virtual-recommendation-v2/v3`, non `paper-fixed-unit-v1`. Nel ciclo paper
+ordinario distinguere i job `ERROR` senza input definitivo, ritentabili secondo
+i controlli del registro, dalle decisioni già completate, che restano immutabili.
+`recovery_day` seleziona la giornata italiana del **kickoff**, non quella del
+run originale; kickoff passato o finestra originale scaduta escludono il recupero.
 
 Il [planner tecnico](../backend/scripts/recover-recommendation-technical.js)
 legge il DB e scrive soltanto un piano privato locale. Da `backend`, con
@@ -655,6 +674,12 @@ contatta il provider quote e non registra giocate.
 - `RESEARCH_NIGHTLY_DB_MONITOR_ENABLED=true` attiva il controllo DB separato.
   Richiede `TURSO_DATABASE_URL` e `TURSO_WATCHDOG_READONLY_TOKEN` dedicato:
   non ripiega sul token di scrittura.
+- Il monitor DB valuta la quota Odds API dello scope configurato in
+  `ODDS_API_ACCOUNT_SCOPE` (default `primary`); l'overview conserva anche gli
+  account storici. Un vecchio scope esaurito non blocca il nuovo account.
+  `activeOdds` distingue osservazione salvata, esaurimento e quota non verificata:
+  budget assente o senza osservazione utilizzabile non attestano crediti disponibili.
+  Con monitoraggio della Nightly abilitato, una quota non verificata resta un allarme.
 - Gli errori osservati, gli stalli recenti, le liquidazioni arretrate e la
   coerenza contabile restano distinti dall'aspettativa di una nuova Nightly.
   Un errore di accesso non è un esito sano.
