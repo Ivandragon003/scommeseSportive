@@ -103,6 +103,10 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
   // remains additional to the ordinary 03:07 execution.
   if (now < primaryAt && !earlyManual) return result(false, 'before_primary_schedule');
   const runs = await api.runs(romeTime(day, 0).toISOString());
+  if (earlyManual && runs.some((run) => ['schedule', 'workflow_dispatch'].includes(run.event)
+    && (!validTime(run.created_at) || Date.parse(run.created_at) > now.getTime()))) {
+    throw new Error('github_nightly_response_invalid');
+  }
   const candidates = runs.filter((run) => supportedRun(run, now) && romeDay(run.created_at) === day);
   if (candidates.length > 12) throw new Error('github_nightly_history_incomplete');
   let completedSuccessId = null;
@@ -134,10 +138,10 @@ async function guardNightly({ now = new Date(), token, repository, runId, eventN
       && job.steps.some((step) => step.name === SYNC_STEP && step.status === 'completed' && step.conclusion === 'success'
         && Date.parse(step.started_at) < primaryAt.getTime()));
     if (syncSucceeded) {
-      // A successful ID is never replayed. Earlier manual attempts do not
-      // consume the ordinary daily slot if their sync actually started early.
+      // A successful ID is never replayed. Explicit early runs may follow a
+      // different success; ordinary runs ignore only genuinely early syncs.
       const sameRun = String(run.id) === String(runId);
-      if (sameRun || (!recovery && !additionalEarlyRun)) return result(false, 'daily_sync_already_succeeded', String(run.id));
+      if (sameRun || (!earlyManual && !recovery && !additionalEarlyRun)) return result(false, 'daily_sync_already_succeeded', String(run.id));
       if (!additionalEarlyRun && !sameRun && run.status === 'completed' && run.conclusion === 'success'
         && successfulSync(jobs.filter((job) => job.status === 'completed' && job.conclusion === 'success'), day, now)) {
         completedSuccessId ??= String(run.id);

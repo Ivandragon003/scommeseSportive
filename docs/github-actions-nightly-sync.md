@@ -39,12 +39,17 @@ caso il workflow imposta una finestra di **24 ore**: il default fino alle
 03:07 della stessa notte escluderebbe le partite del pomeriggio.
 
 Il ciclo anticipato è aggiuntivo e non consuma il ciclo ordinario delle
-03:07. Un altro tentativo anticipato dopo un successo viene saltato, così
-come il rerun dello stesso ID già completato. Il ciclo ordinario conserva
-le decisioni completate e può riprendere job `ERROR` senza input definitivo
-o nuove fixture. Import e manutenzione possono ripetersi e consumare risorse;
-l'assenza di giocate duplicate va verificata nel registro, non dedotta dal
-solo successo del workflow.
+03:07. Prima di quell'ora, un **nuovo avvio manuale con un ID diverso** e
+`allow_early_manual_run=true` può richiedere un ulteriore ciclo anche dopo un
+successo anticipato della stessa giornata italiana. Il rerun di un ID già
+completato con successo viene sempre saltato; un'esecuzione concorrente
+resta bloccante. L'opt-in richiede consapevolmente altra manutenzione, import
+e possibili richieste provider: non è una ripetizione gratuita o una garanzia
+di nuove giocate. Il ciclo ordinario conserva le decisioni completate e può
+riprendere job `ERROR` senza input definitivo o nuove fixture. La deduplicazione
+globale delle selezioni finanziate impedisce un secondo addebito per la stessa
+famiglia/partita/selezione, anche fra run e policy diverse; il risultato va
+comunque verificato nel registro, non dedotto dal solo successo del workflow.
 
 La finestra A/C parte dall'esecuzione effettiva e termina alla successiva
 Nightly prevista. `RESEARCH_NIGHTLY_WINDOW_HOURS`, se impostata, ammette

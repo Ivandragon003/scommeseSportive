@@ -128,12 +128,15 @@ test('an explicit early manual attempt is additive, strict, and checked before a
   assert.equal(late.run, true); assert.equal(late.earlyManual, undefined);
 });
 
-test('early successes deduplicate early attempts and the same ID, but leave the ordinary daily slot available', async () => {
+test('explicit early attempts may follow another success, never replay the same ID, and preserve the ordinary slot', async () => {
   const done = earlyRun({ id: 400, status: 'completed', conclusion: 'success' });
-  const duplicate = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+  const additional = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
     other: [done], jobs: { 400: earlyJobs() } }).inspect();
-  assert.equal(duplicate.run, false); assert.equal(duplicate.reason, 'daily_sync_already_succeeded');
-  assert.equal(duplicate.earlyManual, undefined);
+  assert.equal(additional.run, true); assert.equal(additional.reason, 'manual_early_run_admitted');
+  assert.equal(additional.earlyManual, true);
+  const blockedWithoutOptIn = await fixture({ run: earlyRun(), now: EARLY_NOW,
+    other: [done], jobs: { 400: earlyJobs() } }).inspect();
+  assert.equal(blockedWithoutOptIn.reason, 'before_primary_schedule');
   for (const now of [EARLY_NOW, NOW]) {
     const same = await fixture({ run: earlyRun(), now, allowEarlyManualRun: true, jobs: { 500: earlyJobs() } }).inspect();
     assert.equal(same.run, false); assert.equal(same.existingRunId, '500');
@@ -159,6 +162,15 @@ test('early manual admission checks previous-day active executions and never ign
     assert.equal(result.existingRunId, '401');
   }
   const done = earlyRun({ id: 400, status: 'completed', conclusion: 'success' });
+  const activeAfterSuccess = earlyRun({ id: 401, created_at: '2026-10-29T23:32:00Z' });
+  const overlap = await fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+    other: [done, activeAfterSuccess], jobs: { 400: earlyJobs(), 401: [{ status: 'in_progress', steps: [] }] } }).inspect();
+  assert.equal(overlap.reason, 'daily_sync_in_progress'); assert.equal(overlap.existingRunId, '401');
+  const broken = earlyJobs(); broken[0].steps[0].started_at = 'invalid';
+  await assert.rejects(fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+    other: [done], jobs: { 400: broken } }).inspect(), /github_nightly_response_invalid/);
+  await assert.rejects(fixture({ run: earlyRun(), now: EARLY_NOW, allowEarlyManualRun: true,
+    other: [{ ...done, created_at: 'invalid' }] }).inspect(), /github_nightly_response_invalid/);
   const activeJob = await fixture({ other: [done], jobs: { 400: [...earlyJobs(), { status: 'in_progress', steps: [] }] } }).inspect();
   assert.equal(activeJob.run, false); assert.equal(activeJob.reason, 'daily_sync_in_progress');
   const malformed = earlyJobs(); malformed[0].steps[1].completed_at = 'invalid';
