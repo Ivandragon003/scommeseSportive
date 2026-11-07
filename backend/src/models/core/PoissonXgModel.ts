@@ -156,17 +156,41 @@ export class PoissonXgModel {
     return this.goalProbabilitiesFromLambdas(lambdas.lambdaHome, lambdas.lambdaAway);
   }
 
+  /** Normalized independent score distribution, truncated at maxGoals per team. */
+  computeScoreMatrix(homeId: string, awayId: string, maxGoals = this.maxGoals): number[][] | null {
+    if (!Number.isSafeInteger(maxGoals) || maxGoals < 0) throw new Error('invalid_max_goals');
+    const lambdas = this.expectedGoals(homeId, awayId);
+    if (!lambdas) return null;
+    const { grid, mass } = this.scoreMassFromLambdas(lambdas.lambdaHome, lambdas.lambdaAway, maxGoals);
+    const divisor = mass > 0 ? mass : 1;
+    return grid.map((row) => row.map((value) => value / divisor));
+  }
+
+  private scoreMassFromLambdas(lH: number, lA: number, maxGoals: number): { grid: number[][]; mass: number } {
+    const ph: number[] = [], pa: number[] = [];
+    for (let k = 0; k <= maxGoals; k++) { ph[k] = poissonPMF(k, lH); pa[k] = poissonPMF(k, lA); }
+    const grid: number[][] = [];
+    let mass = 0;
+    for (let h = 0; h <= maxGoals; h++) {
+      grid[h] = [];
+      for (let a = 0; a <= maxGoals; a++) {
+        const p = ph[h] * pa[a];
+        grid[h][a] = p;
+        mass += p;
+      }
+    }
+    return { grid, mass };
+  }
+
   private goalProbabilitiesFromLambdas(lH: number, lA: number): Record<string, number> {
     const N = this.maxGoals;
-    const ph: number[] = [], pa: number[] = [];
-    for (let k = 0; k <= N; k++) { ph[k] = poissonPMF(k, lH); pa[k] = poissonPMF(k, lA); }
+    const { grid, mass } = this.scoreMassFromLambdas(lH, lA, N);
 
-    let homeWin = 0, draw = 0, awayWin = 0, btts = 0, mass = 0;
+    let homeWin = 0, draw = 0, awayWin = 0, btts = 0;
     const overCounts: Record<string, number> = { 0.5: 0, 1.5: 0, 2.5: 0, 3.5: 0, 4.5: 0 };
     for (let h = 0; h <= N; h++) {
       for (let a = 0; a <= N; a++) {
-        const p = ph[h] * pa[a];
-        mass += p;
+        const p = grid[h][a];
         if (h > a) homeWin += p; else if (h === a) draw += p; else awayWin += p;
         if (h > 0 && a > 0) btts += p;
         const total = h + a;

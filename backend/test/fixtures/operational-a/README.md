@@ -37,6 +37,14 @@ degli input giocatore privi di osservazioni: titolarità esplicita per partita,
 squadra e as-of, senza cambiare il prior dei casi ammessi o le formule.
 La normalizzazione dell'alias Goalkeeper resta nell'adattatore del contesto.
 Anche questi blocchi sono reversibili esattamente; manifest e golden restano intatti.
+La revisione `shared-forecast-calculator-v1` registra l'unificazione autorizzata
+del calcolo di base A/C: i blocchi dei sorgenti già protetti sono reversibili
+e il nuovo servizio è protetto da un hash separato, con prove di mutazione e
+duplicazione. Il confronto indipendente su Node 20 ha rilevato parità esatta
+DC/Poisson e per 119.040 probabilità ensemble su 480 casi e per le previsioni A delle
+6.577 righe dello stesso snapshot; nella matrice C la differenza massima è
+5,55e-17. La revisione si basa su queste evidenze e sul diff, non aggiorna
+automaticamente la baseline o i golden numerici.
 L'identità APP-A cambia e richiede un nuovo protocollo/manifest prima del pilot,
 con collector e recorder ancora spenti. Il contratto corrente è in
 [`docs/data-observation-contract.md`](../../../../docs/data-observation-contract.md).

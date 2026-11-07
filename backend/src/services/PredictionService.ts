@@ -1,6 +1,6 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
-import { blendGoalProbabilities } from './ProbabilityEnsembleService';
+import { prepareSharedForecast, finishSharedForecast } from './SharedForecastCalculator';
 import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';
 import { ModelAInputCapture, modelASourceTimestampEvidence, modelAParameterSourceMetadata, modelATrainingInputEvidence } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
@@ -1080,12 +1080,11 @@ export class PredictionService {
         poisson.fit(past);
         return (target, availablePast) => {
           const context = this.backtester.buildAsOfPredictionContext(target, availablePast);
-          const probs = historicalModel.computeFullProbabilities(
+          const prepared = prepareSharedForecast(historicalModel,
             target.homeTeamId, target.awayTeamId,
             context.homeXG, context.awayXG, context.supplementaryData,
           );
-          const flat = this.applyEnsembleBlend(probs.flatProbabilities, poisson,
-            target.homeTeamId, target.awayTeamId);
+          const { flatProbabilities: flat } = finishSharedForecast(prepared, poisson, predictionEngineConfig.ensemble);
           this.enrichFlatProbabilities(flat);
           const supp = context.supplementaryData ?? {};
           if (!this.shouldEnableStatMarkets(supp)
@@ -2135,22 +2134,6 @@ export class PredictionService {
     return new PoissonXgModel(params);
   }
 
-  /**
-   * Applica l'ensemble DC + Poisson-xG ai mercati goal di un flat di probabilità,
-   * PRIMA della calibrazione. No-op se disabilitato o se manca il modello Poisson.
-   */
-  private applyEnsembleBlend(
-    flat: Record<string, number>,
-    poisson: PoissonXgModel | null,
-    homeTeamId: string,
-    awayTeamId: string,
-  ): Record<string, number> {
-    const cfg = predictionEngineConfig.ensemble;
-    if (!cfg.enabled || !poisson || !poisson.hasParams()) return flat;
-    const poissonProbs = poisson.computeGoalProbabilities(homeTeamId, awayTeamId);
-    return blendGoalProbabilities(flat, poissonProbs, cfg);
-  }
-
   async fitModelForCompetition(
     competition: string,
     season?: string,
@@ -2475,13 +2458,14 @@ export class PredictionService {
       sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })
         .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString(), asOf)])),
     });
-    const probs = model.computeFullProbabilities(
+    const prepared = prepareSharedForecast(model,
       request.homeTeamId,
       request.awayTeamId,
       effectiveHomeXG,
       effectiveAwayXG,
       supp,
     );
+    const probs = prepared.full;
 
     // Ensemble DC + Poisson-xG sui mercati goal, PRIMA della calibrazione.
     // Stessa competizione usata per il profilo di calibrazione (sotto), così le
@@ -2497,9 +2481,7 @@ export class PredictionService {
       poissonParameters: ensemblePoisson?.getParams() ?? null, dcModelSource, poissonModelSource,
       ensembleConfig: predictionEngineConfig.ensemble, dcProbabilities: probs.flatProbabilities,
     });
-    probs.flatProbabilities = this.applyEnsembleBlend(
-      probs.flatProbabilities, ensemblePoisson, request.homeTeamId, request.awayTeamId,
-    );
+    probs.flatProbabilities = finishSharedForecast(prepared, ensemblePoisson, predictionEngineConfig.ensemble).flatProbabilities;
 
     const statsMarketsEnabled = this.shouldEnableStatMarkets(supp);
     if (!statsMarketsEnabled) {

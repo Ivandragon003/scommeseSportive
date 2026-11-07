@@ -20,7 +20,7 @@ import {
 import { evaluateComboBet } from '../value/EnhancedMarketAnalysis';
 import { applyCalibrationToFlatProbabilities, FamilyCalibrationCurve } from '../value/EnhancedMarketAnalysis';
 import { PoissonXgModel } from '../core/PoissonXgModel';
-import { blendGoalProbabilities } from '../../services/ProbabilityEnsembleService';
+import { prepareSharedForecast, finishSharedForecast } from '../../services/SharedForecastCalculator';
 import { learnBlendWeights, noVigProbability } from '../../services/MarketBlendLearningService';
 import { predictionConfig } from '../../config/predictionConfig';
 import { PredictionContextBuilder } from '../../services/PredictionContextBuilder';
@@ -1581,13 +1581,11 @@ export class BacktestingEngine {
       const target: MatchData = { matchId: match.matchId, homeTeamId: match.homeTeamId, awayTeamId: match.awayTeamId,
         date: match.date, competition: match.competition, season: match.season, referee: match.referee };
       const context = this.buildAsOfPredictionContext(target, asOfHistory);
-      const probs = this.model.computeFullProbabilities(
+      const prepared = prepareSharedForecast(this.model,
         target.homeTeamId, target.awayTeamId, context.homeXG, context.awayXG,
         asOfSupp ? context.supplementaryData : undefined,
       );
-      const raw = blendGoalProbabilities(probs.flatProbabilities,
-        poisson.hasParams() ? poisson.computeGoalProbabilities(target.homeTeamId, target.awayTeamId) : null,
-        predictionEngineConfig.ensemble);
+      const { full: probs, flatProbabilities: raw } = finishSharedForecast(prepared, poisson, predictionEngineConfig.ensemble);
       const p1 = raw.homeWin ?? 0, px = raw.draw ?? 0, p2 = raw.awayWin ?? 0;
       raw.double_chance_1x = p1 + px; raw.double_chance_x2 = p2 + px; raw.double_chance_12 = p1 + p2;
       if (p1 + p2 > 0) { raw.dnb_home = p1 / (p1 + p2); raw.dnb_away = p2 / (p1 + p2); }

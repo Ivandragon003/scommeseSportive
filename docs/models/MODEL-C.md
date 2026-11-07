@@ -10,8 +10,8 @@ La release locale dichiarata in [CurrentChallengerRelease](../../backend/src/res
 
 | Campo | Default |
 |---|---|
-| Modello | `C-99ec096b068bb360` |
-| Baseline | `A-c6c759d111a7734a` |
+| Modello | `C-75fd74eb875e9d0e` |
+| Baseline | `A-9227e65a047783bd` |
 | Selettore | `canonical-binary-v1` |
 
 La release è stata addestrata localmente; non risulta registrata, distribuita o attiva per questo solo fatto. Il registro di adozione può scegliere un altro deployment con artefatto, configurazione probabilistica e selettore espliciti. Nightly e anteprima risolvono questa identità; la Nightly la congela per l'esecuzione. Una nuova candidata, un champion research o il successo del training non sostituiscono da soli C.
@@ -24,13 +24,24 @@ Fonti: [policy](../../backend/src/research/ResearchRecommendationPolicy.ts), [re
 
 ## Come C eredita le modifiche di A
 
-`ForecastCore` importa direttamente `DixonColesModel`, `PoissonXgModel` e
-`blendGoalProbabilities` usati anche da A: i componenti matematici sono chiamate
-al codice comune della stessa build, senza una seconda copia da aggiornare.
-L'adattatore ricostruisce però fit e contesto cronologico propri. Non richiama
-l'intero `PredictionService` con il suo stato operativo. La matrice congiunta
-usata da C è una ricostruzione dichiarata del nucleo statistico; con pesi
-diversi per famiglia non coincide necessariamente con ogni probabilità A.
+`PredictionService`, la sua calibrazione storica, `BacktestingEngine` e
+`ForecastCore` chiamano gli stessi due stadi di
+[`SharedForecastCalculator`](../../backend/src/services/SharedForecastCalculator.ts).
+Il primo calcola Dixon-Coles; il secondo combina il partner Poisson-xG.
+Nella previsione A il primo stadio precede il caricamento asincrono del partner:
+gli snapshot prospettici conservano le probabilità DC prima del blend.
+
+C riceve la matrice contestuale effettiva di Dixon-Coles, compresa la dipendenza
+dei punteggi: non ricostruisce un secondo modello dalle intensità. Matrice e
+probabilità Poisson derivano dalla stessa griglia nel modello Poisson-xG,
+senza una seconda formula PMF nell'adattatore. Cambiamenti a questi calcoli
+arrivano quindi a entrambi i chiamanti nella stessa build.
+
+L'adattatore prepara comunque fit e contesto cronologico propri. Non richiama
+l'intero `PredictionService` con il suo stato operativo. Il protocollo della
+matrice congiunta usa il peso ensemble `default`, mentre le probabilità flat
+possono avere pesi distinti per famiglia: non promette parità di ogni mercato
+con l'intero A operativo.
 
 Il codice condiviso si aggiorna insieme ad A, mentre i pesi CatBoost restano
 appresi su uno specifico contratto di input. Cambiare le feature, le probabilità
@@ -39,11 +50,12 @@ della baseline è conservativo e comprende anche file interi: una sua variazione
 blocca il riuso silenzioso dell'artefatto. Non si risolve sostituendo l'etichetta
 della versione o dichiarando il modello aggiornato.
 
-Un'ulteriore unificazione può estrarre un'unica funzione pura per matrice e
-output statistici, richiamata da A e dall'adattatore C. Il passaggio richiede
-parità numerica su tutti gli input consumati in training e calibrazione e
-verifiche sui replay; se tali input cambiano serve un nuovo addestramento e
-una nuova valutazione. Automatizzare la preparazione di una candidata è
+Il riuso di pesi esistenti richiede parità numerica su tutti gli input consumati
+in training e calibrazione e verifiche sui replay; se gli input cambiano, o il
+dataset originale non è disponibile per provarne l'identità, serve un nuovo
+addestramento riproducibile e una nuova valutazione. Il passaggio dalla vecchia
+ricostruzione alla matrice diretta cambia anche arrotondamenti numerici: non è
+una ragione per disabilitare i controlli di baseline. Automatizzare la preparazione di una candidata è
 compatibile con questi vincoli; adottarne automaticamente i vecchi pesi su
 qualunque nuova A non è una garanzia di correttezza o di miglioramento.
 

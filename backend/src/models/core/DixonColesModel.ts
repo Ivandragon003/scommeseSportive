@@ -429,6 +429,14 @@ export class DixonColesModel {
     homeXG?: number, awayXG?: number,
     supp?: SupplementaryData
   ): FullMatchProbabilities {
+    return this.computeFullProbabilitiesWithMatrix(homeId, awayId, homeXG, awayXG, supp).full;
+  }
+
+  computeFullProbabilitiesWithMatrix(
+    homeId: string, awayId: string,
+    homeXG?: number, awayXG?: number,
+    supp?: SupplementaryData
+  ): { full: FullMatchProbabilities; matrix: ScoreMatrix } {
     const context = supp?.contextAdjustments ?? {};
     const baseMatrix = this.buildScoreMatrix(homeId, awayId, homeXG, awayXG);
     const adjustedLambdaHome = clamp(
@@ -849,7 +857,7 @@ export class DixonColesModel {
       ) : {}),
     };
 
-    return {
+    const full: FullMatchProbabilities = {
       homeWin, draw, awayWin, btts,
       over05: o05,  over15: o15,  over25: o25,  over35: o35,  over45: o45,
       under05: 1-o05, under15: 1-o15, under25: 1-o25, under35: 1-o35, under45: 1-o45,
@@ -886,6 +894,7 @@ export class DixonColesModel {
       lambdaAway: matrix.lambdaAway,
       flatProbabilities,
     };
+    return { full, matrix };
   }
 
   // ==================== FITTING ====================

@@ -6,7 +6,7 @@ Questa guida descrive il percorso di `PredictionService`. I valori predefiniti s
 
 A produce l'analisi dell'app, le opportunità squadra, un consiglio principale e la percentuale di puntata. Il pacchetto canonico è identificato come `APP-A-…`, con hash distinti di codice, configurazione e stato.
 
-Il [nucleo research](../../backend/src/research/ForecastCore.ts) usa import statici dei componenti matematici correnti di A e il protocollo cronologico `current-a-statistical-asof-v2`. La baseline C `A-c6c759d111a7734a` ricostruisce il fit e il contesto disponibili nel passato: non rappresenta ogni configurazione, dato, stato o calibrazione di `PredictionService`. Le sue metriche non devono essere attribuite all’intero percorso operativo.
+Il [nucleo research](../../backend/src/research/ForecastCore.ts) usa import statici dei componenti matematici correnti di A e il protocollo cronologico `current-a-statistical-asof-v2`. La baseline C `A-9227e65a047783bd` ricostruisce il fit e il contesto disponibili nel passato: non rappresenta ogni configurazione, dato, stato o calibrazione di `PredictionService`. Le sue metriche non devono essere attribuite all’intero percorso operativo.
 
 La Nightly considera le opportunità A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica o ranking A. La policy `funded-dynamic-stake-v1` usa la percentuale dinamica suggerita da A per assegnare importi in euro dal suo portafoglio; non cambia parametri o probabilità del modello.
 
@@ -37,6 +37,14 @@ calendario o xG di provenienza non verificata a input già validati.
 Fonti: [contesto](../../backend/src/services/PredictionContextBuilder.ts), [supplemento](../../backend/src/services/FootballDataService.ts), [neopromosse](../../backend/src/services/PromotedTeamPriorService.ts).
 
 ## Calcolo delle probabilità
+
+La composizione statistica passa da
+[`SharedForecastCalculator`](../../backend/src/services/SharedForecastCalculator.ts),
+usato anche dall'adattatore C, dal backtest e dalla calibrazione storica.
+Dixon-Coles restituisce insieme probabilità e matrice contestuale da un solo
+calcolo; Poisson-xG usa una griglia comune per matrice e probabilità. La vecchia
+API `computeFullProbabilities` resta un wrapper compatibile. Fit, contesto,
+calibrazione operativa e selezione restano responsabilità dei rispettivi servizi.
 
 Dixon-Coles stima attacco, difesa e vantaggio di casa, con pesi temporali, contributo xG e correzione dei punteggi bassi. Dalla distribuzione dei gol ricava 1X2, over/under, BTTS e handicap. Il partner Poisson-xG fornisce una seconda stima; l'ensemble combina i mercati gol compatibili prima della calibrazione.
 

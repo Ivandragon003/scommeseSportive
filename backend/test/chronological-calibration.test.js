@@ -4,6 +4,7 @@ const { performance } = require('node:perf_hooks');
 const { buildChronologicalForecasts, buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } = require('../dist/services/ChronologicalForecastService.js');
 const { PredictionService } = require('../dist/services/PredictionService.js');
 const { DixonColesModel } = require('../dist/models/core/DixonColesModel.js');
+const { PoissonXgModel } = require('../dist/models/core/PoissonXgModel.js');
 const blendLearning = require('../dist/services/MarketBlendLearningService.js');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -46,9 +47,12 @@ function stubHistoricalModels(t) {
     assert.ok(past.every((fixture) => fixture.date.getTime() + HISTORICAL_RESULT_DELAY_MS <= options.referenceDate.getTime()));
     return structuredClone(params);
   });
-  t.mock.method(DixonColesModel.prototype, 'computeFullProbabilities', (_home, _away, homeXG) => ({
-    flatProbabilities: { homeWin: 0.3 + homeXG / 10, draw: 0.25, awayWin: 0.45 - homeXG / 10 },
+  t.mock.method(DixonColesModel.prototype, 'computeFullProbabilitiesWithMatrix', (_home, _away, homeXG) => ({
+    full: { flatProbabilities: { homeWin: 0.3 + homeXG / 10, draw: 0.25, awayWin: 0.45 - homeXG / 10 } },
+    matrix: { probabilities: [] },
   }));
+  // Isolate chronology and calibration from the independently tested ensemble.
+  t.mock.method(PoissonXgModel.prototype, 'fit', () => null);
   return fitted;
 }
 
@@ -61,8 +65,6 @@ function isolatedService(db) {
     targets.push(target);
     return { homeXG: past.reduce((sum, fixture) => sum + fixture.homeXG, 0) / past.length, awayXG: 1, supplementaryData: {} };
   };
-  // Isolate chronology and calibration from the independently tested ensemble.
-  service.applyEnsembleBlend = (flat) => ({ ...flat });
   service.enrichFlatProbabilities = () => {};
   return { service, targets };
 }

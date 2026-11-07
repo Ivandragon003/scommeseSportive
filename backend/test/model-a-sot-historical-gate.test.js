@@ -39,9 +39,10 @@ test('chronological backtest requires total-shot and SOT samples; complete zero 
 
 test('chronological calibration receives no SOT samples without total-shot coverage', async (t) => {
   stubFits(t);
-  t.mock.method(DixonColesModel.prototype, 'computeFullProbabilities', () => ({ flatProbabilities: {
-    homeWin: .51, draw: .25, awayWin: .24, shotsOTOver55: .37,
-  } }));
+  t.mock.method(DixonColesModel.prototype, 'computeFullProbabilitiesWithMatrix', () => ({
+    full: { flatProbabilities: { homeWin: .51, draw: .25, awayWin: .24, shotsOTOver55: .37 } },
+    matrix: { probabilities: [] },
+  }));
   const run = async (shots) => {
     const input = fixtures(shots).map((m) => ({ match_id: m.matchId, home_team_id: m.homeTeamId, away_team_id: m.awayTeamId,
       date: m.date.toISOString(), competition: m.competition, season: m.season, home_goals: m.homeGoals, away_goals: m.awayGoals,

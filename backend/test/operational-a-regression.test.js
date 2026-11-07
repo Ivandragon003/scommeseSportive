@@ -26,7 +26,22 @@ function assertOperationalSource(file, source) {
     `Operational A baseline changed: ${file}. Do not silently change A or refresh its golden.`);
 }
 
-test('operational A retains the pre-C snapshot plus only exact reviewed missing-data and observer deviations', () => {
+function assertAddedSources(changes, root, readSource = (file) => readFileSync(resolve(root, file), 'utf8')) {
+  const seen = new Set();
+  for (const change of changes) {
+    for (const added of change.addedFiles ?? []) {
+      assert.ok(!Object.hasOwn(manifest.files, added.file), `Added source already in baseline: ${added.file}`);
+      assert.ok(!seen.has(added.file), `Duplicate added source: ${added.file}`);
+      seen.add(added.file);
+      assert.match(added.sha256, /^[a-f0-9]{64}$/);
+      const source = readSource(added.file).replace(/\r\n/g, '\n');
+      assert.equal(createHash('sha256').update(source).digest('hex'), added.sha256,
+        `Reviewed added source changed: ${added.file}`);
+    }
+  }
+}
+
+test('operational A retains the pre-C snapshot plus only exact reviewed source deviations', () => {
   assert.equal(manifest.baselineCommit, BASELINE);
   assert.equal(expected.baselineCommit, BASELINE);
   assert.equal(deviations.baselineCommit, BASELINE);
@@ -39,11 +54,29 @@ test('operational A retains the pre-C snapshot plus only exact reviewed missing-
     }
   }
   const root = resolve(__dirname, '../..');
+  assertAddedSources(deviations.changes, root);
   for (const file of Object.keys(manifest.files)) {
     const source = readFileSync(resolve(root, file), 'utf8').replace(/\r\n/g, '\n');
     assertOperationalSource(file, source);
   }
   assert.deepEqual(expected.scenarios.map((scenario) => scenario.scenario), scenarios.map((scenario) => scenario.id));
+});
+
+test('shared forecast review rejects patch reversal, duplication and new source mutation', () => {
+  const change = deviations.changes.find((entry) => entry.review === 'shared-forecast-calculator-v1');
+  assert.ok(change?.edits.length > 0);
+  assert.equal(change.addedFiles?.length, 1);
+  assert.equal(change.addedFiles[0].file, 'backend/src/services/SharedForecastCalculator.ts');
+  const root = resolve(__dirname, '../..');
+  for (const edit of change.edits) {
+    const source = readFileSync(resolve(root, edit.file), 'utf8').replace(/\r\n/g, '\n');
+    assert.throws(() => assertOperationalSource(edit.file, source.replace(edit.after, edit.before)), /exactly once/);
+    assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`), /exactly once/);
+  }
+  const added = change.addedFiles[0];
+  const source = readFileSync(resolve(root, added.file), 'utf8');
+  assert.throws(() => assertAddedSources([change], root, () => `${source}\n// unreviewed change`), /added source changed/);
+  assert.throws(() => assertAddedSources([change, change], root), /Duplicate added source/);
 });
 
 test('source guard rejects unrelated edits, a reverted authorized correction and duplicated patch context', () => {

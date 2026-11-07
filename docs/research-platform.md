@@ -219,6 +219,37 @@ Il [README ML](../backend/ml/README.md) indica i test. Le fixture
 e output A. Conservare schema libSQL, payload e identità; non aggiornare policy,
 golden o calibrazioni per rendere ammissibile un candidato.
 
+### Modifiche al nucleo condiviso A/C
+
+Il calcolo di base passa da `SharedForecastCalculator`: la previsione A, la sua
+calibrazione storica, il backtest e `ForecastCore` usano gli stessi stadi. Il
+manifest della baseline include questo servizio e le sue dipendenze matematiche.
+La condivisione del codice non autorizza a usare pesi CatBoost incompatibili.
+
+Prima del refactor conservare sorgente, build, manifest e artefatto precedenti.
+Ricostruire le due baseline sullo stesso file di partite, con cutoff, policy di
+qualità, holdout e piano temporale identici. Confrontare tutte le righe e gli
+input consumati: identità, tempi, feature, intensità, probabilità e matrici,
+anche nei periodi di training e calibrazione. I test del calcolatore coprono
+anche contesto, dipendenza dei punteggi, partner assente e ordine degli stadi.
+La parità A grezza non dimostra parità dell'intera selezione con stato e quote.
+
+Se gli input C cambiano o manca il dataset originale per provarne l'identità,
+`prepare_current_challenger.py` esegue un nuovo fit con ricetta e partizioni
+fisse; `finalize-coherent` produce separatamente la nuova calibrazione e
+identità. Conservare i file di input, i loro hash, il manifest completo, il piano
+e gli output di training. Non modificare in posto un vecchio artefatto.
+Un test storico già consultato resta diagnostico e non può produrre un GO
+prospettico, ROI senza quote reali o adozione automatica.
+
+La registrazione del nuovo pacchetto e il suo deploy richiedono le operazioni
+esplicite previste, con backup verificato. Il registro di adozione conserva
+precedenza sul fallback; gli eventi e le evidenze precedenti non vengono
+riscritti. Dopo il deploy controllare anche la cache di calibrazione A: il suo
+hash comprende il codice compilato e può cambiare pur con output numerici
+identici. Usare preflight e preparazione cache separata descritti nelle guide
+operative, senza disabilitare la verifica di compatibilità.
+
 ## Confrontare i kernel correnti con A80
 
 Gli strumenti in `backend/experiments/c-current-baseline/` confrontano la

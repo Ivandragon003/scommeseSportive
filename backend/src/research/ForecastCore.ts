@@ -5,7 +5,7 @@ import { DixonColesModel, MatchData } from '../models/core/DixonColesModel';
 import { PoissonXgModel } from '../models/core/PoissonXgModel';
 import { BacktestingEngine } from '../models/backtesting/BacktestingEngine';
 import { HISTORICAL_RESULT_DELAY_MS } from '../services/ChronologicalForecastService';
-import { blendGoalProbabilities } from '../services/ProbabilityEnsembleService';
+import { prepareSharedForecast, finishSharedForecast } from '../services/SharedForecastCalculator';
 import { predictionConfig } from '../config/predictionConfig';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import { ALGORITHM_VERSION, BACKTEST_ENGINE_VERSION, RANKING_VERSION } from '../config/algorithmVersions';
@@ -96,7 +96,7 @@ function sourceHashes(): Record<string, string> {
   };
   // Include transitive mathematical dependencies, not only the public DC wrapper.
   collect(join(root, 'models')); collect(join(root, 'config'));
-  for (const name of ['../services/PredictionContextBuilder', '../services/ProbabilityEnsembleService',
+  for (const name of ['../services/PredictionContextBuilder', '../services/ProbabilityEnsembleService', '../services/SharedForecastCalculator',
     '../services/ChronologicalForecastService', '../services/MarketBlendLearningService',
     '../utils/dataHelpers', '../utils/historicalTime', './ForecastCore']) files.push(require.resolve(name));
   return Object.fromEntries([...new Set(files)].sort().map((file) => [relative(root, file).replace(/\\/g, '/'),
@@ -130,16 +130,6 @@ function fitBaseline(past: ResearchMatch[], forecastAt: number): FittedBaseline 
   model.setParams({ ...params, homeAdvantage: Math.max(-0.8, Math.min(1.2, params.homeAdvantage * predictionConfig.model.homeAdvantageScale)) });
   const poisson = new PoissonXgModel(); poisson.fit(matches);
   return { model, poisson, fittedAt: forecastAt, count: past.length };
-}
-
-function poissonMatrix(home: number, away: number, size: number): number[][] {
-  const pmf = (lambda: number): number[] => {
-    const values = [Math.exp(-lambda)]; for (let i = 1; i < size; i++) values.push(values[i - 1] * lambda / i); return values;
-  };
-  const ph = pmf(home), pa = pmf(away);
-  const matrix = ph.map((h) => pa.map((a) => h * a));
-  const total = matrix.flat().reduce((a, b) => a + b, 0);
-  return matrix.map((row) => row.map((p) => p / total));
 }
 
 function eloRatings(history: ResearchMatch[]): Map<string, number> {
@@ -185,22 +175,14 @@ function forecastWithFit(history: ResearchMatch[], target: ResearchMatch, foreca
   const targetData: MatchData = { matchId: target.matchId, homeTeamId: target.homeTeamId, awayTeamId: target.awayTeamId,
     date: new Date(kickoff), competition, season: target.season };
   const context = new BacktestingEngine().buildAsOfPredictionContext(targetData, past.map(toMatchData));
-  const full = fit.model.computeFullProbabilities(target.homeTeamId, target.awayTeamId, context.homeXG, context.awayXG, context.supplementaryData);
-  const baselineProbabilities = blendGoalProbabilities(full.flatProbabilities,
-    fit.poisson.computeGoalProbabilities(target.homeTeamId, target.awayTeamId), predictionEngineConfig.ensemble);
+  const prepared = prepareSharedForecast(fit.model, target.homeTeamId, target.awayTeamId,
+    context.homeXG, context.awayXG, context.supplementaryData);
+  const { full, flatProbabilities: baselineProbabilities, jointProxy } =
+    finishSharedForecast(prepared, fit.poisson, predictionEngineConfig.ensemble, true);
+  const baselineMatrix = jointProxy!;
   const h = baselineProbabilities.homeWin, d = baselineProbabilities.draw, a = baselineProbabilities.awayWin;
   Object.assign(baselineProbabilities, { double_chance_1x: h + d, double_chance_x2: a + d, double_chance_12: h + a,
     dnb_home: h / Math.max(1e-12, h + a), dnb_away: a / Math.max(1e-12, h + a) });
-  // Reconstruct the same DC matrix with context-adjusted intensities and fitted dependence.
-  const dcMatrixModel = new DixonColesModel({ rho: fit.model.getParams().rho,
-    attackParams: { home: Math.log(full.lambdaHome), away: Math.log(full.lambdaAway) },
-    defenceParams: { home: 0, away: 0 }, homeAdvantage: 0, homeAdvantagePerTeam: {}, levelCorrection: undefined });
-  const dependence = dcMatrixModel.buildScoreMatrix('home', 'away').probabilities;
-  const poissonLambdas = fit.poisson.expectedGoals(target.homeTeamId, target.awayTeamId);
-  const weight = predictionEngineConfig.ensemble.enabled && poissonLambdas
-    ? Math.max(0, Math.min(1, predictionEngineConfig.ensemble.weights.default)) : 0;
-  const partner = poissonLambdas ? poissonMatrix(poissonLambdas.lambdaHome, poissonLambdas.lambdaAway, dependence.length) : dependence;
-  const baselineMatrix = dependence.map((row, i) => row.map((p, j) => (1 - weight) * p + weight * partner[i][j]));
   const allPast = eligibleHistory(history, target.matchId, cutoff);
   const ratings = eloRatings(allPast);
   const homeFeatures = teamFeatures(allPast, target.homeTeamId, true, target.season, cutoff, ratings);
