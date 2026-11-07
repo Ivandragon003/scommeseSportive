@@ -6,7 +6,7 @@ import BudgetManager from '../../pages/BudgetManager';
 import * as legacyApi from '../../utils/api';
 import { getAppWallets, getWalletArchive } from '../../utils/walletApi';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';
-import { WalletBetTable, walletBetReturn, walletMoney } from './AppWallets';
+import { WalletBetTable, walletBetReturn } from './AppWallets';
 import { WalletPeriodPicker, walletToday } from './WalletPages';
 
 jest.mock('../../utils/walletApi');
