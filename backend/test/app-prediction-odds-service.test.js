@@ -26,7 +26,7 @@ test('A loads the existing app market policy including real cards, goal derivati
   const f = fixture([event([bookmaker([
     market('h2h', [{ name: 'Inter', price: 2 }, { name: 'Draw', price: 3.5 }, { name: 'Milan', price: 4 }]),
     market('alternate_totals_cards', pair(4.5)),
-    market('totals', pair(24.5, 'Total Shots')),
+    market('shots', pair(24.5, 'Total Shots')),
     market('btts', [{ name: 'Yes', price: 1.8 }, { name: 'No', price: 2.1 }]),
     market('double_chance', [{ name: '1X', price: 1.3 }, { name: 'X2', price: 1.7 }, { name: '12', price: 1.5 }]),
     market('draw_no_bet', [{ name: 'Inter', price: 1.6 }, { name: 'Milan', price: 2.3 }]),

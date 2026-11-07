@@ -473,7 +473,8 @@ export class OddsApiService {
     const hasHomeContext = isHome || /\b(home|casa)\b/.test(contextProbe);
     const hasAwayContext = isAway || /\b(away|ospite|trasferta)\b/.test(contextProbe);
 
-    const lineRaw = this.formatLineKey(outcome.point ?? 2.5);
+    const hasLine = outcome.point !== undefined && outcome.point !== null && Number.isFinite(Number(outcome.point));
+    const lineRaw = this.formatLineKey(outcome.point);
     const compactLine = lineRaw.replace('.', '');
 
     const domainFromContext = (): 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'yellow' | 'cards_total' | null => {
@@ -535,36 +536,36 @@ export class OddsApiService {
       return `player_goals_${playerKey}_${side}_0.5`;
     }
 
-    if (market.startsWith('player_') && (nameLower === 'over' || nameLower === 'under')) {
-      const playerKey = slug(desc || outcome.description || name);
+    if ((market === 'player_shots' || market === 'player_shots_on_target') && (nameLower === 'over' || nameLower === 'under')) {
+      if (!hasLine) return null;
+      const playerKey = slug(desc);
       if (!playerKey) return null;
       const domain = market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
         ? 'player_sot'
         : 'player_shots';
       return `${domain}_${playerKey}_${nameLower}_${lineRaw}`;
     }
+    if (market.startsWith('player_')) return null;
 
     if (market === 'totals' || market === 'alternate_totals') {
-      if (nameLower !== 'over' && nameLower !== 'under') return null;
-      const contextualDomain = domainFromContext();
-      if (contextualDomain) return `${scopeStatDomain(contextualDomain)}_${nameLower}_${lineRaw}`;
-      const numericLine = Number(outcome.point);
-      // Guardrail: linee alte (es. 27.5) non sono goal totals.
-      if (Number.isFinite(numericLine) && numericLine >= 8) {
-        return `${scopeStatDomain('shots_total')}_${nameLower}_${lineRaw}`;
-      }
+      if ((nameLower !== 'over' && nameLower !== 'under') || !hasLine) return null;
+      // These provider keys denote goals. A contradictory description is not
+      // enough to reclassify the price as a different statistical market.
+      if (domainFromContext()) return null;
       return `${nameLower}${compactLine}`;
     }
 
     if (market === 'team_totals' || market === 'alternate_team_totals') {
-      if (nameLower !== 'over' && nameLower !== 'under') return null;
+      if ((nameLower !== 'over' && nameLower !== 'under') || !hasLine) return null;
+      if (isHome && isAway) return null;
       if (isHome || descNorm.includes(homeNorm)) return `team_home_${nameLower}_${compactLine}`;
       if (isAway || descNorm.includes(awayNorm)) return `team_away_${nameLower}_${compactLine}`;
       return null;
     }
 
     if (market === 'spreads' || market === 'alternate_spreads') {
-      const point = Number(outcome.point ?? 0);
+      if (!hasLine) return null;
+      const point = Number(outcome.point);
       if (!Number.isFinite(point)) return null;
 
       const homeLine = isHome ? -point : isAway ? point : NaN;
@@ -586,20 +587,17 @@ export class OddsApiService {
       return null;
     }
 
-    if ((market.includes('shots') || market.includes('corners') || market.includes('cards') || market.includes('fouls')) && (nameLower === 'over' || nameLower === 'under')) {
-      const contextualDomain = domainFromContext();
-      const domain = contextualDomain
-        ?? (market.includes('shots_on_target') || market.includes('shot_on_target') || market.includes('sot')
-        ? 'sot_total'
-        : market.includes('corners')
-          ? 'corners'
-        : market.includes('shots')
-          ? 'shots_total'
-          : market.includes('cards')
-            ? 'cards_total'
-          : market.includes('yellow')
-            ? 'yellow'
-            : 'fouls');
+    const statMarkets: Record<string, 'shots_total' | 'sot_total' | 'corners' | 'fouls' | 'cards_total'> = {
+      shots: 'shots_total', shots_on_target: 'sot_total', corners: 'corners', fouls: 'fouls', cards: 'cards_total',
+      alternate_totals_corners: 'corners', alternate_team_totals_corners: 'corners', alternate_totals_cards: 'cards_total',
+    };
+    if (statMarkets[market] && (nameLower === 'over' || nameLower === 'under')) {
+      if (!hasLine) return null;
+      const domain = statMarkets[market];
+      const descriptionDomain = domainFromContext();
+      if (descriptionDomain && descriptionDomain !== domain) return null;
+      if (market === 'alternate_team_totals_corners' && !hasHomeContext && !hasAwayContext) return null;
+      if ((hasHomeContext && hasAwayContext) || (domain === 'cards_total' && (hasHomeContext || hasAwayContext))) return null;
       return `${scopeStatDomain(domain)}_${nameLower}_${lineRaw}`;
     }
 

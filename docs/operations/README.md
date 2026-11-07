@@ -1,5 +1,34 @@
 # Operazioni dell'applicazione
 
+## Reset esplicito del modello C
+
+`backend/scripts/reset-challenger-production.js` è una manutenzione distruttiva,
+separata dall'avvio e dal normale rilascio. Richiede il mandato al reset, un
+backup completo con restore verificato e un piano privato associato al target.
+Il piano predefinito esegue soltanto letture; `--apply` richiede il suo hash,
+il manifest del backup e una nuova ricevuta. L'host di produzione è vincolato.
+
+Il reset elimina decisioni, giocate, liquidazioni, cancellazioni e osservazioni C,
+comprese le previsioni C degli input condivisi e quelle accoppiate di valutazione.
+Le righe A operative restano conservate; negli archivi condivisi si aggiornano
+soltanto i riferimenti agli input migrati. Gli hash originari restano come
+metadati di migrazione, senza conservare il contenuto C rimosso. I vecchi input
+non sono più replayabili e non costituiscono una coppia A/C immutata.
+
+Il nuovo movimento di apertura C è 100.000 centesimi, con zero impegnato. Il
+cutoff persistito nella stessa transazione impedisce claim, commit, recovery e
+nuove raccolte basati su job o previsioni precedenti. Un vecchio job pendente
+non viene riattivato dal reset. Modello corrente, parametri e configurazione
+restano distinti dallo storico; dipendenze di adozione o recensione inattese
+bloccano l'operazione. Trigger e chiavi esterne vengono verificati prima del commit.
+
+Per la protezione dei dati osservati e la quarantena delle quote legacy vedere
+il [contratto delle osservazioni](../data-observation-contract.md). La migrazione
+mirata si esegue con `backend/scripts/prepare-data-integrity.js`, con gli stessi
+vincoli di piano, backup e target; non avvia il bootstrap generale.
+
+## Uso ordinario
+
 Questa guida descrive i comportamenti correnti e rimanda alle procedure
 specialistiche. Codice e configurazione del repository descrivono ciò che
 può essere eseguito; stato remoto, saldi, quote residue e release installate

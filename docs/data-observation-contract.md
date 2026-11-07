@@ -39,6 +39,38 @@ rettifica della fonte. Non si deduplicano eventi per somiglianza inventando
 quelli mancanti. Roster con identità duplicate ed eventi con lo stesso ID
 esplicito vengono trattati come evidenza non affidabile nei percorsi corretti.
 
+## Conservare le osservazioni documentate
+
+La migrazione `034_final_observations.sql` conserva valore, fonte e impronta
+della prova per singolo campo. Goal e xG richiedono un risultato Understat
+con identità, squadre e istante coerenti; i conteggi e l'arbitro richiedono
+una riga CSV conservata, abbinata univocamente per data, squadre e risultato,
+con lo stesso valore presente nel database. Una differenza non autorizza a
+sovrascrivere Understat: resta distinta e non entra nel blocco CSV.
+
+Gli upsert Understat e l'import CSV registrano automaticamente le nuove prove
+idonee nella stessa transazione. I valori protetti non vengono sovrascritti:
+l'upsert conserva il valore e registra il conflitto; SQL diretto incompatibile
+viene rifiutato dai trigger. I campi NULL restano completabili e le stagioni
+contenenti osservazioni protette sono escluse dalla cancellazione automatica.
+La prova originale resta conservata anche se il payload operativo viene
+aggiornato. Revisioni dei valori protetti richiedono una manutenzione esplicita;
+la normale sincronizzazione non le esegue.
+
+Il possesso e gli altri campi senza prova sufficiente non diventano verificati
+perché valorizzati. Il blocco attesta la prova acquisita e la sua conservazione,
+non l'infallibilità del provider. Il piano di
+`backend/scripts/final-observations.js` descrive coperture e differenze;
+`prepare-data-integrity.js` applica esclusivamente le migrazioni 034/035 e le
+osservazioni revisionate, dopo backup verificato e controllo del piano.
+
+La migrazione `035_odds_market_mapping.sql` distingue gli snapshot normalizzati
+con il mapping corrente dai legacy. I totali goal non diventano tiri in base
+alla linea. Le quote legacy `shots_total_*` con linea almeno 8 prive di prova
+del mercato originario sono escluse dalle letture operative e storiche, con
+motivo esplicito; non vengono trasformate arbitrariamente in quote goal. I
+payload originali restano conservati come evidenza, non come prezzi convalidati.
+
 ## Aggregazioni e campioni
 
 Le medie pesate squadra hanno un denominatore per campo: una partita con

@@ -10,6 +10,8 @@
 // (UPDATE ... = COALESCE(col, :nuovo)), quindi non sovrascrive mai i valori Understat.
 
 import { loadFootballDataCsv, type FootballDataHistoryStore } from './FootballDataHistoryCache';
+import { createHash } from 'node:crypto';
+import { assessCsvObservations, CSV_FIELDS } from './FinalObservationCsv';
 
 // Only cache a complete regular season, never a truncated CSV that happens to
 // match the subset currently in our database.
@@ -383,6 +385,8 @@ export interface FootballDataDbMatch {
   away_team_name: string | null;
   home_team_id?: string | null;
   away_team_id?: string | null;
+  home_goals?: number | null;
+  away_goals?: number | null;
   supplementalStats?: Pick<FootballDataRow,
     'homeShots' | 'awayShots' | 'homeShotsOnTarget' | 'awayShotsOnTarget' | 'homeFouls' | 'awayFouls'
     | 'homeCorners' | 'awayCorners' | 'homeYellow' | 'awayYellow' | 'homeRed' | 'awayRed' | 'referee'>;
@@ -394,6 +398,7 @@ export interface FootballDataDbUpdate {
   row: FootballDataRow;
   fillStats?: boolean;
   saveOdds?: boolean;
+  csvProof?: { csv:string; sha256:string; code:string; acquiredAt:string; match:FootballDataDbMatch };
 }
 
 export interface FootballDataDb {
@@ -945,10 +950,13 @@ export async function syncFootballData(
 
     const dbMatches = await db.getMatchesForCompetition(competition, seasons);
     const index = new Map<string, FootballDataDbMatch>();
+    const localKeyCounts = new Map<string, number>();
     const byTeamPair = new Map<string, FootballDataDbMatch[]>();
     const dbTeams = new Set<string>();
     for (const m of dbMatches) {
-      index.set(matchKey(String(m.date).slice(0, 10), m.home_team_name ?? '', m.away_team_name ?? ''), m);
+      const localKey = matchKey(String(m.date).slice(0, 10), m.home_team_name ?? '', m.away_team_name ?? '');
+      index.set(localKey, m);
+      localKeyCounts.set(localKey, (localKeyCounts.get(localKey) ?? 0) + 1);
       const pairKey = `${canonicalTeamName(m.home_team_name ?? '')}|${canonicalTeamName(m.away_team_name ?? '')}`;
       byTeamPair.set(pairKey, [...(byTeamPair.get(pairKey) ?? []), m]);
       dbTeams.add(canonicalTeamName(m.home_team_name ?? ''));
@@ -978,6 +986,12 @@ export async function syncFootballData(
         if (!csv) throw new Error('CSV non disponibile');
         rows = parseFootballDataCsv(csv);
         if (rows.length === 0) throw new Error('CSV vuoto o senza righe valide');
+        const sourceKeyCounts = new Map<string, number>();
+        for (const sourceRow of rows) {
+          const key = matchKey(sourceRow.date, sourceRow.homeTeam, sourceRow.awayTeam);
+          sourceKeyCounts.set(key, (sourceKeyCounts.get(key) ?? 0) + 1);
+        }
+        const csvSha256 = createHash('sha256').update(csv).digest('hex');
         perComp.csvRows += rows.length;
         const matchedRows: Array<FootballDataDbUpdate & { match: FootballDataDbMatch }> = [];
         for (const row of rows) {
@@ -1031,7 +1045,13 @@ export async function syncFootballData(
           matchedLatestDate = !matchedLatestDate || row.date > matchedLatestDate ? row.date : matchedLatestDate;
           const fillStats = needsSupplementalStats(hit, mappedRow);
           const saveOdds = needsMarketOdds(hit, mappedRow);
-          if (fillStats || saveOdds) matchedRows.push({ matchId: hit.match_id, row: mappedRow, match: hit, fillStats, saveOdds });
+          const key = matchKey(row.date, row.homeTeam, row.awayTeam);
+          const exactUnique = mappedRow === row && localKeyCounts.get(key) === 1 && sourceKeyCounts.get(key) === 1
+            && matchKey(hit.date, hit.home_team_name ?? '', hit.away_team_name ?? '') === key
+            && row.homeGoals != null && row.awayGoals != null
+            && row.homeGoals === hit.home_goals && row.awayGoals === hit.away_goals;
+          if (fillStats || saveOdds) matchedRows.push({ matchId: hit.match_id, row: mappedRow, match: hit, fillStats, saveOdds,
+            ...(exactUnique ? {csvProof:{csv,sha256:csvSha256,code:leagueCode,acquiredAt:now.toISOString(),match:hit}} : {}) });
         }
         if (db.applySupplementalStatsAndOdds) {
           // Keep requests bounded: libSQL limits statement payloads and a
@@ -1190,7 +1210,7 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
         }).join(' OR ');
       }
       const res = await client.execute({
-        sql: `SELECT match_id, date, home_team_name, away_team_name, home_team_id, away_team_id,
+        sql: `SELECT match_id, date, home_team_name, away_team_name, home_team_id, away_team_id, home_goals, away_goals,
               ${Object.keys(SUPPLEMENTAL_PARAMS).join(', ')}, referee, fd_odds_json FROM matches
               WHERE competition = ? AND (${dateCondition}) AND home_goals IS NOT NULL`,
         args,
@@ -1202,6 +1222,8 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
         away_team_name: r.away_team_name ?? null,
         home_team_id: r.home_team_id == null ? null : String(r.home_team_id),
         away_team_id: r.away_team_id == null ? null : String(r.away_team_id),
+        home_goals: r.home_goals ?? null,
+        away_goals: r.away_goals ?? null,
         supplementalStats: {
           homeShots: r.home_shots ?? null, awayShots: r.away_shots ?? null,
           homeShotsOnTarget: r.home_shots_on_target ?? null, awayShotsOnTarget: r.away_shots_on_target ?? null,
@@ -1231,12 +1253,37 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
       for (let offset = 0; offset < updates.length; offset += 50) {
         const chunk = updates.slice(offset, offset + 50);
         const statements: Array<{ sql: string; args?: any }> = [];
-        const resultMap: Array<{ updateIndex: number; kind: 'stats' | 'odds' }> = [];
+        const resultMap: Array<{ updateIndex: number; kind: 'stats' | 'odds' | 'proof' }> = [];
+        const writtenSources = new Set<string>();
         for (let updateIndex = 0; updateIndex < chunk.length; updateIndex += 1) {
-          const { matchId, row, fillStats, saveOdds } = chunk[updateIndex];
+          const { matchId, row, fillStats, saveOdds, csvProof } = chunk[updateIndex];
           if (fillStats !== false) {
             statements.push(supplementalStatsStatement(matchId, row));
             resultMap.push({ updateIndex, kind: 'stats' });
+          }
+          if (csvProof && fillStats !== false && createHash('sha256').update(csvProof.csv).digest('hex') === csvProof.sha256) {
+            if (!writtenSources.has(csvProof.sha256)) {
+              statements.push({sql:`INSERT INTO final_observation_sources(sha256,csv,source,acquired_at)
+                VALUES(?,?,'football_data_csv',?) ON CONFLICT(sha256) DO NOTHING`,args:[csvProof.sha256,csvProof.csv,csvProof.acquiredAt]});
+              resultMap.push({updateIndex,kind:'proof'});
+              writtenSources.add(csvProof.sha256);
+            }
+            const target: Record<string, any> = { ...csvProof.match, match_id:matchId };
+            for (const [field, key] of Object.entries(CSV_FIELDS)) {
+              const previous = csvProof.match.supplementalStats?.[key];
+              target[field] = previous == null || (field === 'referee' && !String(previous).trim()) ? row[key] : previous;
+            }
+            for (const observation of assessCsvObservations(target,row,csvProof)) {
+              statements.push({sql:`INSERT INTO final_observations(match_id,field,value,source,evidence_json,evidence_sha256)
+                SELECT :id,:field,:value,:source,:evidence,:hash FROM matches
+                WHERE match_id=:id AND date=:date AND home_goals=:homeGoals AND away_goals=:awayGoals
+                  AND home_team_id=:homeId AND away_team_id=:awayId AND ${observation.field}=:value
+                  AND NOT EXISTS(SELECT 1 FROM final_observations WHERE match_id=:id AND field=:field)`,
+              args:{id:matchId,field:observation.field,value:observation.value,source:observation.source,
+                evidence:observation.evidenceJson,hash:observation.evidenceSha256,date:csvProof.match.date,
+                homeGoals:row.homeGoals,awayGoals:row.awayGoals,homeId:csvProof.match.home_team_id,awayId:csvProof.match.away_team_id}});
+              resultMap.push({updateIndex,kind:'proof'});
+            }
           }
           const oddsStatement = saveOdds === false ? null : marketOddsStatement(matchId, row);
           if (oddsStatement) {
@@ -1250,7 +1297,7 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
         resultMap.forEach(({ updateIndex, kind }, resultIndex) => {
           const changed = Number(results[resultIndex]?.rowsAffected ?? 0) > 0;
           if (kind === 'stats') output[offset + updateIndex].statsChanged = changed;
-          else output[offset + updateIndex].oddsWritten = changed;
+          else if (kind === 'odds') output[offset + updateIndex].oddsWritten = changed;
         });
       }
       return output;
@@ -1265,6 +1312,7 @@ export function createLibsqlFootballDataDb(client: LibsqlLike): FootballDataDb {
 export interface PruneSummary {
   seasonsKept: string[];
   seasonsDeleted: string[];
+  seasonsProtected: string[];
   matchesDeleted: number;
   oddsDeleted: number;
   linkedRowsDeleted: number;
@@ -1311,14 +1359,22 @@ export async function pruneOldSeasons(
   const currentStart = currentSeasonStartYear(now);
   const oldestStart = currentStart - Math.max(1, Math.trunc(keepCount)) + 1;
   const keep = seasons.filter((season) => season.start >= oldestStart && season.start <= currentStart);
-  const drop = seasons.filter((season) => season.start < oldestStart || season.start > currentStart);
+  const outsideWindow = seasons.filter((season) => season.start < oldestStart || season.start > currentStart);
+  const protectedSeasons = outsideWindow.length ? await client.execute({
+    sql: `SELECT DISTINCT m.season AS protected_season FROM matches m
+          JOIN final_observations o ON o.match_id=m.match_id`, args: [],
+  }) : { rows: [] };
+  const protectedLabels = new Set(protectedSeasons.rows.map((row) => String(row.protected_season)));
+  const protectedOutsideWindow = outsideWindow.filter((season) => protectedLabels.has(season.label));
+  const drop = outsideWindow.filter((season) => !protectedLabels.has(season.label));
   if (drop.length === 0) {
     // La pulizia dei contenitori snapshot vuoti e housekeeping indipendente:
     // deve avvenire anche quando la finestra stagionale e gia corretta.
     const orphanCleanup = await client.execute({ sql: DELETE_ORPHAN_LINEUP_BATCHES_SQL, args: [] });
     return {
-      seasonsKept: keep.map((season) => season.label),
+      seasonsKept: [...keep, ...protectedOutsideWindow].map((season) => season.label),
       seasonsDeleted: [],
+      seasonsProtected: protectedOutsideWindow.map((season) => season.label),
       matchesDeleted: 0,
       oddsDeleted: 0,
       linkedRowsDeleted: Number(orphanCleanup.rowsAffected ?? 0),
@@ -1367,8 +1423,9 @@ export async function pruneOldSeasons(
     else linkedRowsDeleted += affected;
   });
   return {
-    seasonsKept: keep.map((season) => season.label),
+    seasonsKept: [...keep, ...protectedOutsideWindow].map((season) => season.label),
     seasonsDeleted: drop.map((season) => season.label),
+    seasonsProtected: protectedOutsideWindow.map((season) => season.label),
     matchesDeleted,
     oddsDeleted,
     linkedRowsDeleted,

@@ -4,7 +4,7 @@ import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
 import { OddsApiProvider } from '../services/odds-provider/OddsApiProvider';
 import { PredictionService } from '../services/PredictionService';
 import { pickCanonicalBetRecommendation, rankCanonicalOpportunity } from '../services/CanonicalBetRecommendation';
-import { CHALLENGER_TEAM_MARKET_POLICY, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
+import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
 import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } from './ChallengerTeamRecommendation';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
 import { previewInterruptedReadCode, ResearchRuntime } from './ResearchRuntime';
@@ -230,8 +230,8 @@ export class ChallengerPreviewService {
     }
     const technical = challengerTechnicalReason(decision, forecastAt, state.deployment);
     if (technical) return this.response(matchId, 'UNAVAILABLE', safeReason(decision.reason, technical), row, state);
-    const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: state.deployment.modelVersion });
-    const allowedMarkets = markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market);
+    const markets = teamMarkets ? [] : await this.db.research.listMarkets({ family: 'C', modelVersion: state.deployment.modelVersion });
+    const allowedMarkets = challengerAllowedMarkets(state.deployment, markets);
     let packet: ReturnType<typeof buildChallengerRecommendation> | ReturnType<typeof buildChallengerTeamRecommendation>;
     if (teamMarkets) {
       let appInput: Awaited<ReturnType<AppPredictionOddsService['load']>> | undefined;

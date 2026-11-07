@@ -24,11 +24,13 @@ async function fixture(work) {
 
 test('identical match upserts perform no UPDATE and retain batch committed-count semantics', () => fixture(async (db) => {
   const writes = [];
-  const execute = db.execute.bind(db);
-  db.execute = async (sql, args, skipInit) => {
-    const result = await execute(sql, args, skipInit);
-    if (sql.includes('ON CONFLICT(match_id) DO UPDATE')) writes.push(Number(result.rowsAffected));
-    return result;
+  const batch = db.db.batch.bind(db.db);
+  db.db.batch = async (statements, mode) => {
+    const results = await batch(statements, mode);
+    statements.forEach((statement, index) => {
+      if (statement.sql.includes('ON CONFLICT(match_id) DO UPDATE')) writes.push(Number(results[index].rowsAffected));
+    });
+    return results;
   };
   await db.upsertMatch(match);
   const before = await db.getMatchById(match.matchId);
@@ -39,15 +41,8 @@ test('identical match upserts perform no UPDATE and retain batch committed-count
   assert.deepEqual(writes, [1, 0, 0]);
   assert.deepEqual(await db.getMatchById(match.matchId), before);
 
-  const batch = db.db.batch.bind(db.db);
-  const batchWrites = [];
-  db.db.batch = async (statements, mode) => {
-    const results = await batch(statements, mode);
-    batchWrites.push(...results.map((result) => Number(result.rowsAffected)));
-    return results;
-  };
   assert.deepEqual(await db.upsertMatches([match, match]), { committedCount: 2 });
-  assert.deepEqual(batchWrites, [0, 0]);
+  assert.deepEqual(writes, [1, 0, 0, 0, 0]);
   assert.deepEqual(await db.getMatchById(match.matchId), before);
 }));
 
@@ -58,14 +53,16 @@ test('every non-null match field still updates independently, including zero and
     const value = typeof original === 'number' ? original === 0 ? 1 : 0
       : key === 'date' ? '2026-10-02T18:00:00.000Z' : `${original}-changed`;
     const writes = [];
-    const execute = db.execute.bind(db);
-    db.execute = async (sql, args, skipInit) => {
-      const result = await execute(sql, args, skipInit);
-      if (sql.includes('ON CONFLICT(match_id) DO UPDATE')) writes.push(Number(result.rowsAffected));
-      return result;
+    const batch = db.db.batch.bind(db.db);
+    db.db.batch = async (statements, mode) => {
+      const results = await batch(statements, mode);
+      statements.forEach((statement, index) => {
+        if (statement.sql.includes('ON CONFLICT(match_id) DO UPDATE')) writes.push(Number(results[index].rowsAffected));
+      });
+      return results;
     };
     await db.upsertMatch({ ...match, [key]: value });
-    db.execute = execute;
+    db.db.batch = batch;
     assert.deepEqual(writes, [1], key);
     const actual = await db.getMatchById(match.matchId);
     // Compare against the same input written to a previously absent row, where

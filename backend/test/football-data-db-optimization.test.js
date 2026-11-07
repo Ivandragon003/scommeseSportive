@@ -19,12 +19,14 @@ async function memoryDb() {
   const client = createClient({ url: 'file::memory:' });
   await client.execute(`CREATE TABLE matches (
     match_id TEXT PRIMARY KEY, date TEXT, competition TEXT, home_team_name TEXT, away_team_name TEXT,
-    home_team_id TEXT, away_team_id TEXT, home_goals INTEGER,
+    home_team_id TEXT, away_team_id TEXT, home_goals INTEGER, away_goals INTEGER,
     home_shots INTEGER, away_shots INTEGER, home_shots_on_target INTEGER, away_shots_on_target INTEGER,
     home_fouls INTEGER, away_fouls INTEGER, home_corners INTEGER, away_corners INTEGER,
     home_yellow_cards INTEGER, away_yellow_cards INTEGER, home_red_cards INTEGER, away_red_cards INTEGER,
     referee TEXT, fd_odds_json TEXT
   )`);
+  await client.execute('CREATE TABLE final_observations (match_id TEXT,field TEXT,value,source TEXT,evidence_json TEXT,evidence_sha256 TEXT,PRIMARY KEY(match_id,field))');
+  await client.execute('CREATE TABLE final_observation_sources (sha256 TEXT PRIMARY KEY,csv TEXT,source TEXT,acquired_at TEXT)');
   await client.execute('CREATE TABLE writes (match_id TEXT)');
   await client.execute('CREATE TRIGGER record_write AFTER UPDATE ON matches BEGIN INSERT INTO writes VALUES (NEW.match_id); END');
   return client;
@@ -32,9 +34,9 @@ async function memoryDb() {
 
 async function insertMatch(client, id = 'match', date = '2026-08-01', competition = 'Serie A', goals = 1) {
   await client.execute({
-    sql: `INSERT INTO matches (match_id,date,competition,home_team_name,away_team_name,home_team_id,away_team_id,home_goals)
-      VALUES (?,?,?,'Alpha','Beta','alpha','beta',?)`,
-    args: [id, date, competition, goals],
+    sql: `INSERT INTO matches (match_id,date,competition,home_team_name,away_team_name,home_team_id,away_team_id,home_goals,away_goals)
+      VALUES (?,?,?,'Alpha','Beta','alpha','beta',?,?)`,
+    args: [id, date, competition, goals, goals == null ? null : 0],
   });
 }
 
@@ -111,7 +113,8 @@ test('football-data identical sync sends no write statements; later stats and od
     let source = csv;
     const options = { competitions: ['Serie A'], seasonStartYears: [2026], fetcher: async () => source };
     assert.equal((await syncFootballData(db, options)).updated, 1);
-    assert.equal(statements.length, 2);
+    assert.equal(statements.filter(sql => sql.startsWith('UPDATE matches SET')).length, 2);
+    assert.ok(statements.some(sql => sql.includes('INSERT INTO final_observations')));
     statements.length = 0;
     const repeat = await syncFootballData(db, options);
     assert.equal(repeat.matched, 1);
@@ -121,8 +124,8 @@ test('football-data identical sync sends no write statements; later stats and od
     const statsOnly = await syncFootballData(db, options);
     assert.equal(statsOnly.updated, 1);
     assert.equal(statsOnly.oddsWritten, 0);
-    assert.equal(statements.length, 1);
-    assert.ok(!statements[0].includes('SET fd_odds_json'));
+    assert.equal(statements.filter(sql => sql.startsWith('UPDATE matches SET')).length, 1);
+    assert.ok(!statements.some(sql => sql.includes('SET fd_odds_json')));
     statements.length = 0;
     source = source.replace(',2.1,', ',2.2,');
     const oddsOnly = await syncFootballData(db, options);
@@ -220,7 +223,7 @@ test('football-data verified inverted fixture maps stats and real odds by team, 
   const client = await memoryDb();
   try {
     await insertMatch(client, 'psg-rennes', '2026-08-23', 'Ligue 1', 2);
-    await client.execute("UPDATE matches SET home_team_name='Paris Saint Germain',away_team_name='Rennes',home_team_id='psg',away_team_id='rennes' WHERE match_id='psg-rennes'");
+    await client.execute("UPDATE matches SET home_team_name='Paris Saint Germain',away_team_name='Rennes',home_team_id='psg',away_team_id='rennes',away_goals=2 WHERE match_id='psg-rennes'");
     const statements = [];
     const db = createLibsqlFootballDataDb({
       execute: (query) => client.execute(query),

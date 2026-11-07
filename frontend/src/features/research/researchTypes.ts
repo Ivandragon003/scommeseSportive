@@ -36,7 +36,7 @@ export interface ResearchBet {
 export interface ResearchModel {
   family: ModelFamily;
   version: string;
-  status: string;
+  status?: string;
   createdAt: string;
   trainedThrough?: string;
   metrics?: Record<string, unknown>;
@@ -46,7 +46,7 @@ export interface ResearchMarket {
   family: ModelFamily;
   modelVersion: string;
   market: string;
-  state: MarketState;
+  state?: MarketState;
   evidence?: Record<string, unknown>;
   reason?: string;
 }

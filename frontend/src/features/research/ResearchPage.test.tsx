@@ -45,7 +45,7 @@ test('stato vuoto esplicito e navigazione accessibile nei cinque pannelli', asyn
   fireEvent.click(screen.getByRole('tab', { name: 'Storico' }));
   expect(screen.getByText('Nessun benchmark eseguito.')).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
-  expect(screen.getByText(/Nessuna validazione di mercato registrata/)).toBeTruthy();
+  expect(screen.getByText(/Nessuna misura di mercato registrata/)).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Esperimenti' }));
   expect(screen.getByText('Nessun esperimento di sviluppo registrato.')).toBeTruthy();
   expect(mockedOddsStatus).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ test('errore backend non diventa un risultato vuoto o una falsa disponibilità',
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
-test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i motivi', async () => {
+test('mercati e versioni mostrano le misure senza etichette di qualità del modello', async () => {
   const overview = emptyOverview();
   overview.markets = [
     { family: 'A', modelVersion: 'A-frozen', market: '1x2', state: 'ACTIVE', evidence: { n: 240, ece: 0.03, roi: 0.01, dataCoverage: 0.99, realQuoteCoverage: 0.9 }, reason: 'Validazione registrata A.' },
@@ -96,10 +96,12 @@ test('mercati e versioni distinguono A attivo da C sperimentale e mantengono i m
   fireEvent.click(screen.getByRole('tab', { name: 'Mercati' }));
   const marketA = screen.getByRole('region', { name: 'Esito finale 1X2 modello A' });
   const marketC = screen.getByRole('region', { name: 'Esito finale 1X2 modello C' });
-  expect(within(marketA).getByText('Attivo')).toBeTruthy();
+  expect(within(marketA).queryByText('Attivo')).toBeNull();
   expect(within(marketA).getByText('240')).toBeTruthy();
-  expect(within(marketC).getByText('Sperimentale')).toBeTruthy();
-  expect(within(marketC).getByText('Campione prospettico insufficiente.')).toBeTruthy();
+  expect(within(marketC).queryByText('Sperimentale')).toBeNull();
+  expect(within(marketC).getByText('40')).toBeTruthy();
+  expect(within(marketC).queryByText('Campione prospettico insufficiente.')).toBeNull();
+  expect(screen.getByText(/Corner e falli restano esclusi/)).toBeTruthy();
   expect(within(marketC).queryByText('Attivo')).toBeNull();
 });
 
@@ -138,8 +140,8 @@ test('mostra tutte le configurazioni di un mercato senza nascondere le versioni 
   expect(within(market).getByText('A-reference')).toBeTruthy();
   expect(within(market).getByText('A-retrained')).toBeTruthy();
   expect(within(market).getByText('280')).toBeTruthy();
-  expect(within(market).getByText('Sperimentale storico')).toBeTruthy();
-  expect(within(market).getByText('Sperimentale')).toBeTruthy();
+  expect(within(market).queryByText('Sperimentale storico')).toBeNull();
+  expect(within(market).queryByText('Sperimentale')).toBeNull();
 });
 
 test('calibrazione e intervalli temporali compaiono solo quando presenti nel report', async () => {

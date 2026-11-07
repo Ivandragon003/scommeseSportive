@@ -1,3 +1,4 @@
+import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
 import type { Client, Transaction } from '@libsql/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { settleGoalQuote } from './GoalSettlement';
@@ -671,6 +672,7 @@ export class ResearchStore {
         (id,started_at,window_end_at,status,lease_token,lease_expires_at,quote_max_age_ms,min_ev,min_prudential_ev,updated_at)
         VALUES (?,?,?,'RUNNING',?,?,?,?,?,?)`, args: [runId, effectiveStart, windowEndAt, token, expires, quoteMaxAgeMs, minEv, minPrudentialEv, timestamp] });
       const claimed: any[] = []; const skipped: any[] = [];
+      const cutoff = await challengerHistoryCutoff(tx);
       const seen = new Set<string>();
       for (const fixture of input.fixtures) {
         if (!fixture.matchId?.trim() || seen.has(fixture.matchId)) throw new Error('Unique nightly fixture identity required');
@@ -681,6 +683,7 @@ export class ResearchStore {
           continue;
         }
         let job = await first(tx, 'SELECT * FROM research_jobs WHERE match_id=?', [fixture.matchId]);
+        if (job && predatesChallengerReset(job.createdAt, cutoff)) { skipped.push({ matchId: fixture.matchId, reason: 'challenger_history_reset' }); continue; }
         if (job && await first(tx, 'SELECT id FROM research_inputs WHERE job_id=?', [job.id])) {
           skipped.push({ matchId: fixture.matchId, reason: 'decision_already_recorded' });
           continue;
@@ -825,7 +828,9 @@ export class ResearchStore {
         ${this.nightlySchema ? 'AND id NOT IN (SELECT job_id FROM research_nightly_jobs)' : ''}
         AND (status='PENDING' OR (status='CLAIMED' AND lease_expires_at<=?)) ORDER BY target_at,score DESC,match_id`, [timestamp, timestamp]);
       const claimed = [];
+      const cutoff = await challengerHistoryCutoff(tx);
       for (const job of due) {
+        if (predatesChallengerReset(job.createdAt, cutoff)) continue;
         const missed = Date.parse(timestamp) > Date.parse(job.targetAt) + TOLERANCE_MS || Date.parse(timestamp) >= Date.parse(job.kickoffAt);
         const token = randomUUID();
         // A crashed worker must release its cohort while the 60-second admission window is still open.
@@ -894,6 +899,7 @@ export class ResearchStore {
       const committedDecisions: any[] = []; const bets: any[] = []; const completedJobs: any[] = []; const observations: any[] = [];
       const plans: Array<{ input: ResearchCommit; job: any; inputId: string; decision: ResearchDecision }> = [];
       const hasFixtures = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
+      const cutoff = await challengerHistoryCutoff(tx);
       for (const input of preparedJobs) {
         if (input.observations !== undefined && (!Array.isArray(input.observations)
           || researchHash(input.observations) !== researchHash(input.inputSnapshot.prospectiveObservations))) {
@@ -902,6 +908,7 @@ export class ResearchStore {
         if (input.observations?.length && !this.prospectiveSchema) throw new Error('Research prospective migration 021 is required');
         const job = await this.attachNightlyJob(tx, await first(tx, 'SELECT * FROM research_jobs WHERE id=?', [input.jobId]));
         if (!job) throw new Error('Research job not found');
+        if (predatesChallengerReset(job.createdAt, cutoff)) throw new Error('Research job predates challenger history reset');
         if (job.status === 'COMPLETED') {
           const storedInput = await first(tx, 'SELECT * FROM research_inputs WHERE job_id=?', [job.id]);
           if (!storedInput || storedInput.inputHash !== researchHash(input.inputSnapshot)) throw new Error('Completed job input is immutable');

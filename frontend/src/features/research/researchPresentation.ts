@@ -30,8 +30,6 @@ export const marketLabel = (market: string): string => ({
 }[market] || market);
 
 export const stateLabel = (state: string): string => ({
-  EXPERIMENTAL: 'Sperimentale', SHADOW: 'Sperimentale storico', ACTIVE: 'Attivo', SUSPENDED: 'Sospeso',
-  CHAMPION: 'Champion', CANDIDATE: 'Candidato', VALIDATED: 'Validato', REJECTED: 'Non promosso',
   RETIRED: 'Archiviato', PENDING: 'Aperta', OPEN: 'Aperta', WON: 'Vinta', LOST: 'Persa',
   VOID: 'Rimborsata', HALF_WON: 'Mezza vincita', HALF_LOST: 'Mezza perdita', SETTLED: 'Liquidata',
   scheduled: 'Programmato', claimed: 'In esecuzione', completed: 'Completato', missed: 'Mancato',

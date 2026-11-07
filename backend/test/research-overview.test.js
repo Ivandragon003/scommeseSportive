@@ -17,6 +17,16 @@ function overviewDb(worker, runs = []) {
   return db;
 }
 
+test('overview exposes model identities and measurements without quality flags', async () => {
+  const db = overviewDb();
+  db.research.getModels = async () => [{ family: 'C', version: 'C-fixture', isChampion: false }];
+  db.research.listMarkets = async () => [{ family: 'C', modelVersion: 'C-fixture', market: '1x2',
+    state: 'EXPERIMENTAL', evidence: { n: 40 }, reason: 'promotion_pending' }];
+  const overview = await buildResearchOverview(db);
+  assert.equal(Object.hasOwn(overview.models[0], 'status'), false);
+  assert.deepEqual(overview.markets, [{ family: 'C', modelVersion: 'C-fixture', market: '1x2', evidence: { n: 40 } }]);
+});
+
 test('a probability-only benchmark never presents an unmeasured zero-bet simulation as economic evidence', () => {
   const output = benchmarkOverview({ id: 'fixture', report: {
     type: 'historical_probability_walk_forward_after_shared_isotonic',

@@ -63,7 +63,9 @@ test('upsertMatches usa un batch write e non emette scritture per un array vuoto
 
   assert.equal(batches.length, 1);
   assert.equal(batches[0].mode, 'write');
-  assert.equal(batches[0].statements.length, 1);
+  assert.equal(batches[0].statements.length, 2);
+  assert.match(batches[0].statements[0].sql, /INSERT INTO final_observation_conflicts/);
+  assert.match(batches[0].statements[1].sql, /ON CONFLICT\(match_id\) DO UPDATE/);
 });
 
 test('upsertMatches rende osservabile il prefisso committato se un chunk successivo fallisce', async () => {

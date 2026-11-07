@@ -63,6 +63,9 @@ function prepared(job, count = 1) {
 test('paper batches sixteen matches under a simulated remote round-trip budget', async () => {
   const f = await setup({ matches: 16 });
   try {
+    await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/019_research_worker.sql'), 'utf8'));
+    await f.client.execute({ sql: 'INSERT INTO research_worker_state(scheduler,last_tick_json,updated_at) VALUES(?,?,?)',
+      args: ['challenger_history_reset', JSON.stringify({ cutoff: '2026-11-06T09:59:59.999Z' }), START] });
     const commits = (await f.claim()).jobs.map(job => prepared(job, 7));
     const transaction = f.client.transaction.bind(f.client); let simulatedMs = 0, calls = 0;
     f.client.transaction = async (...args) => {
@@ -177,5 +180,20 @@ test('mixed completed and new paper jobs replay only their own recorded bets', a
     assert.equal(result.bets.length, 8);
     assert.equal(new Set(result.bets.map(bet => bet.id)).size, 8);
     assert.equal((await f.recommendations.listPaperBets()).length, 8);
+  } finally { await f.close(); }
+});
+
+test('paper batch reads the current reset cutoff and does not recreate old decisions', async () => {
+  const f = await setup({ matches: 1 });
+  try {
+    const commit = prepared((await f.claim()).jobs[0], 1);
+    await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/019_research_worker.sql'), 'utf8'));
+    await f.client.execute({ sql: `INSERT INTO research_worker_state(scheduler,last_tick_json,updated_at) VALUES(?,?,?)`,
+      args: ['challenger_history_reset', JSON.stringify({ cutoff: START }), START] });
+    await assert.rejects(f.recommendations.commitBatch([commit]), /predates challenger history reset/);
+    assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS count FROM paper_model_bets')).rows[0].count), 0);
+    await f.client.execute({ sql: 'UPDATE research_worker_state SET last_tick_json=? WHERE scheduler=?',
+      args: [JSON.stringify({ cutoff: '2026-11-06T09:59:59.999Z' }), 'challenger_history_reset'] });
+    assert.equal((await f.recommendations.commitBatch([commit])).bets.length, 2);
   } finally { await f.close(); }
 });

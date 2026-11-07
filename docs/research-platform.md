@@ -26,15 +26,20 @@ Le scritture non sono passaggi impliciti di un benchmark locale. Il workflow
 separati, subordinati a `RESEARCH_REGISTRY_WRITES_ENABLED`. La configurazione non
 dimostra che l'ultimo training o l'adozione siano riusciti.
 
-## Registrare la copertura squadra C
+## Copertura squadra C e registro di ricerca
 
 La composizione `c-team-markets-v1` riguarda la release corrente con selettore
 canonico e mantiene distinta la configurazione gol C dallo specialista A per
-le statistiche. La copertura nel codice non abilita da sola un mercato nel
-database: il registro deve contenere la versione e lo stato ammissibile.
-L'iscrizione `EXPERIMENTAL` è un'abilitazione tecnica, non una promozione
-scientifica o economica. Quote reali, campioni e calibrazione restano necessari;
-le categorie bloccate rimangono tali. Vedi [Modello C](models/MODEL-C.md).
+le statistiche. Per le nuove policy della release corrente i mercati supportati
+sono definiti dal codice, con `marketEligibilityVersion=code-supported-markets-v1`.
+Il registro qualitativo non determina più l'operatività C corrente e l'interfaccia
+mostra il modello e le misure disponibili, senza badge di certificazione.
+Quote reali, campioni e calibrazione restano necessari; le categorie bloccate
+rimangono tali. Vedi [Modello C](models/MODEL-C.md).
+
+I comandi seguenti restano per compatibilità degli studi e delle policy precedenti;
+non servono ad abilitare i mercati delle nuove policy C correnti e non promuovono
+automaticamente la release.
 
 Compilare il backend, configurare nell'ambiente privato l'URL canonico e il
 solo `TURSO_WATCHDOG_READONLY_TOKEN`, quindi eseguire da `backend`:
@@ -130,6 +135,33 @@ ricetta, condizioni, campione e calibrazione comparabili. Cambiare insieme
 feature, modello, peso e temperatura non isola l'effetto della feature.
 `--include-c906-recipe`, disponibile con piano congelato, è un rifit diagnostico:
 non retrodata C906, non partecipa alla selezione e non è registrabile per l'adozione.
+
+## Verificare gli archivi operativi prima di un backtest
+
+L'[audit degli archivi A/C](../backend/experiments/c-team-markets/README.md)
+esporta soltanto evidenze calcistiche da un backup locale verificato, aperto in
+sola lettura. Controlla identità delle release, tempi delle previsioni, quote
+reali complete e coerenti, disponibilità delle statistiche e liquidazione.
+Non addestra modelli e non scrive sul database o sul registro.
+
+Questo strumento misura la possibilità di riprodurre gli archivi, non esegue un
+backtest completo del modello corrente su tutte le partite storiche. Una
+previsione di una vecchia versione non diventa della versione corrente cambiando
+identificativo. La sola cache delle quote non ricostruisce gli input storici di
+A e C. Il packet A conserva solo le prime opportunità ordinate: non dimostra
+la completezza delle opportunità statistiche per ogni scheda bookmaker.
+
+Le eventuali coppie di giocate riproducibili sono diagnostiche: non includono
+l'intera coorte e le astensioni. Non producono un ROI comparativo delle strategie.
+Con nessuna coppia valida il risultato è dati insufficienti, non rendimento zero.
+Per un confronto economico servono una coorte fissata prima della selezione,
+input cronologici ricostruibili per entrambi i modelli, tutte le astensioni e
+le stesse quote realmente disponibili all'istante scelto.
+
+Le quote normalizzate come tiri senza una prova indipendente del mercato
+originario del provider sono escluse. Una linea elevata di `totals` o
+`alternate_totals` non dimostra che il prezzo riguardi i tiri. L'audit non
+corregge il mapping operativo né convalida automaticamente gli archivi legacy.
 
 ## Metriche e decisione
 

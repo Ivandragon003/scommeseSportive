@@ -1,4 +1,5 @@
-import { CHALLENGER_TEAM_MARKET_POLICY, isChallengerStatMarket } from './ChallengerMarketCoverage';
+import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
+import { CHALLENGER_TEAM_MARKET_POLICY, challengerMarketAllowed, isChallengerStatMarket, usesCodeMarketEligibility } from './ChallengerMarketCoverage';
 import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import { ResearchStore, researchHash, researchJson, ResearchFamily } from './ResearchStore';
@@ -221,6 +222,11 @@ export class ResearchRecommendationStore {
   }, excludedJobId: string, now: number): Promise<string | null> {
     if (!recovery) return null;
     const source = recovery.sources.find((entry: any) => entry.matchId === fixture.matchId);
+    const cutoff = await challengerHistoryCutoff(tx);
+    if (source && cutoff !== null) {
+      const oldJob = await first(tx, 'SELECT created_at FROM research_execution_jobs WHERE id=?', [source.sourceJobId]);
+      if (!oldJob || predatesChallengerReset(oldJob.createdAt, cutoff)) return 'challenger_history_reset';
+    }
     if (!source || iso(source.kickoffAt) !== iso(fixture.kickoffAt) || iso(source.windowEndAt) !== iso(fixture.windowEndAt)
       || fixture.originInputId !== undefined && source.originInputId !== fixture.originInputId
       || fixture.originDecisionIds !== undefined && researchHash(source.originDecisionIds) !== researchHash(fixture.originDecisionIds)) {
@@ -300,20 +306,23 @@ export class ResearchRecommendationStore {
       if (!isPaperPolicy(policy.descriptor) && input.fixtures.length > 10000) throw new Error('Invalid execution claim');
       const recovery = await this.recoveryContext(tx, policy);
       const jobs: RecommendationJob[] = [], skipped: any[] = [];
+      const cutoff = await challengerHistoryCutoff(tx);
       let active = false;
       for (const fixture of input.fixtures) {
         const kickoff = iso(fixture.kickoffAt), at = iso(this.clock());
         const skip = (reason: string) => { skipped.push({ matchId: fixture.matchId, reason }); };
         if (Date.parse(kickoff) <= Date.parse(at) || Date.parse(kickoff) > Date.parse(end)) { skip('outside_execution_window'); continue; }
         const previous = await first(tx, 'SELECT * FROM research_execution_jobs WHERE match_id=? AND policy_hash=?', [fixture.matchId, input.policyHash]);
+        if (previous && predatesChallengerReset(previous.createdAt, cutoff)) { skip('challenger_history_reset'); continue; }
         if (previous && (['COMPLETED', 'SKIPPED'].includes(previous.status)
           || await first(tx, 'SELECT id FROM research_execution_inputs WHERE job_id=?', [previous.id]))) { skip('policy_decision_already_recorded'); continue; }
         if (previous?.status === 'CLAIMED' && Date.parse(previous.leaseExpiresAt) > Date.parse(at)) { active = true; skip('execution_lease_active'); continue; }
         const recoveryReason = await this.recoveryAdmissionReason(tx, recovery,
           { ...fixture, windowEndAt: end }, previous?.id ?? '', Date.parse(at));
         if (recoveryReason) { if (recoveryReason === 'prior_recovery_in_progress') active = true; skip(recoveryReason); continue; }
-        const origin = await first(tx, `SELECT i.id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE j.match_id=?`, [fixture.matchId]);
+        const origin = await first(tx, `SELECT i.id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE j.match_id=?`, [fixture.matchId]);
         if (!origin) { skip('origin_input_missing'); continue; }
+        if (predatesChallengerReset(origin.createdAt, cutoff)) { skip('challenger_history_reset'); continue; }
         const origins = await rows(tx, "SELECT id,family FROM research_decisions WHERE input_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [origin.id]);
         const originIds = Object.fromEntries(origins.map((decision) => [decision.family, decision.id]));
         if (!originIds.A || !originIds.C || origins.length !== 2) { skip('paired_origin_decisions_required'); continue; }
@@ -426,8 +435,8 @@ export class ResearchRecommendationStore {
           || !validCStatEvidence(configuration, child.qualificationEvidence)
           || configuration.goalConfigurationHash !== policy.descriptor.familyC?.probabilityConfigurationHash)) reject('probability_configuration_identity_required');
       if (decision.family === 'C') {
-        const market = await first(tx, 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', [decision.family, decision.modelVersion, child.market]);
-        if (!market || !['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)) reject('market_not_allowed_for_virtual_execution');
+        const market = usesCodeMarketEligibility(policy.descriptor.familyC) ? undefined : await first(tx, 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', [decision.family, decision.modelVersion, child.market]);
+        if (!challengerMarketAllowed(policy.descriptor.familyC, child.market, market?.state)) reject('market_not_allowed_for_virtual_execution');
       }
       if (invalid) rejected.push({ selection: child.selection ?? null, reason: invalid });
       else candidates.push({ ...child, confidence: funded ? child.confidence : child.confidence ?? decision.confidence,
@@ -560,7 +569,7 @@ export class ResearchRecommendationStore {
     prepared.forEach((item, index) => {
       const job = jobs[index];
       const dynamic = isDynamicFundedPolicy(policies[index].descriptor), funded = isFundedPolicy(policies[index].descriptor) || dynamic;
-      statements.push({ sql: 'SELECT i.id,j.match_id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?', args: [item.originInputId] });
+      statements.push({ sql: 'SELECT i.id,j.match_id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?', args: [item.originInputId] });
       if (hasFixtures) statements.push({ sql: 'SELECT date,home_goals,away_goals FROM matches WHERE match_id=?', args: [job.matchId] });
       for (const decision of item.decisions) {
         if (funded) statements.push({ sql: `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
@@ -619,6 +628,8 @@ export class ResearchRecommendationStore {
     await this.ensureGuards();
     const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily; marketPolicy?: string }> = [];
     return this.research.runResearchTransaction(async (transaction) => {
+      // Read the reset marker from this same transaction before the batch proxy is built.
+      const cutoff = await challengerHistoryCutoff(transaction);
       const bulk = await this.preparePaperBatch(transaction, prepared);
       const tx: Executor = bulk?.executor ?? transaction;
       const decisions: any[] = [], bets: any[] = [], completedJobs: any[] = [];
@@ -628,6 +639,7 @@ export class ResearchRecommendationStore {
       for (const item of prepared) {
         const job = await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [item.jobId]);
         if (!job) throw new Error('Execution job not found');
+        if (predatesChallengerReset(job.createdAt, cutoff)) throw new Error('Execution job predates challenger history reset');
         const ordered = [...item.decisions].sort((a, b) => a.family.localeCompare(b.family));
         const decisionsHash = researchHash(ordered), inputHash = researchHash(item.inputSnapshot);
         if (job.status === 'COMPLETED') {
@@ -649,8 +661,9 @@ export class ResearchRecommendationStore {
           { ...job, originInputId: item.originInputId,
             originDecisionIds: Object.fromEntries(ordered.map((decision) => [decision.family, decision.originDecisionId])) }, job.id, at);
         if (recoveryReason) throw new Error(`Technical recovery commit rejected: ${recoveryReason}`);
-        const origin = await first(tx, `SELECT i.id,j.match_id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?`, [item.originInputId]);
+        const origin = await first(tx, `SELECT i.id,j.match_id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?`, [item.originInputId]);
         if (!origin || origin.matchId !== job.matchId) throw new Error('Execution origin input mismatch');
+        if (predatesChallengerReset(origin.createdAt, cutoff)) throw new Error('Execution origin predates challenger history reset');
         if (hasFixtures) {
           const fixture = await first(tx, 'SELECT date,home_goals,away_goals FROM matches WHERE match_id=?', [job.matchId]);
           if (!fixture || Date.parse(fixture.date) !== Date.parse(job.kickoffAt) || fixture.homeGoals != null || fixture.awayGoals != null) throw new Error('Execution fixture changed before commit');
@@ -731,7 +744,7 @@ export class ResearchRecommendationStore {
         else if (!Number.isFinite(Date.parse(model.createdAt)) || Date.parse(model.createdAt) > Date.parse(item.inputSnapshot.observedAt)) abstain('model_not_available_at_forecast');
         if (decision.family === 'C' && plan.policy.descriptor.familyC?.modelVersion
           && decision.modelVersion !== plan.policy.descriptor.familyC.modelVersion) abstain('policy_model_version_mismatch');
-        if (decision.family === 'C' && (!market || !['EXPERIMENTAL','SHADOW','ACTIVE'].includes(market.state))) abstain('market_not_allowed_for_virtual_execution');
+        if (decision.family === 'C' && !challengerMarketAllowed(plan.policy.descriptor.familyC, decision.market ?? '', market?.state)) abstain('market_not_allowed_for_virtual_execution');
         if (decision.recommended !== true || decision.validated !== true || decision.action !== 'BET') abstain('positive_valid_recommendation_required');
         if (decision.family === 'A' && !['HIGH', 'MEDIUM', 'LOW'].includes(decision.confidence ?? '')) abstain('recommendation_confidence_required');
         if (!Number.isFinite(decision.probability) || decision.probability <= 0 || decision.probability >= 1
@@ -765,7 +778,7 @@ export class ResearchRecommendationStore {
           inputId: plan.inputId, inputHash: researchHash(item.inputSnapshot), quote: quote ?? null,
           equityBasisCents: equityBasis.get(portfolioId), stakeMode: decision.family === 'A' ? 'RECOMMENDED_PERCENT' : 'FIXED_ONE_PERCENT',
           stakePercent: percent ?? null, stakeCents: action === 'BET' ? stakeCents : 0,
-          experimental: market?.state === 'EXPERIMENTAL' };
+          ...(!usesCodeMarketEligibility(plan.policy.descriptor.familyC) ? { experimental: market?.state === 'EXPERIMENTAL' } : {}) };
         await tx.execute({ sql: `INSERT INTO research_execution_decisions(id,input_id,origin_decision_id,family,model_version,portfolio_id,action,market,selection,reason,snapshot_json,created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, args: [id, plan.inputId, decision.originDecisionId, decision.family, decision.modelVersion, portfolioId,
           action, decision.market ?? '', decision.selection ?? null, reason, researchJson(evidence), createdAt] });

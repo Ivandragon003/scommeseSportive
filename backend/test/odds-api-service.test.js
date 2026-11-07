@@ -193,6 +193,22 @@ test('compareBookmakers keeps non-h2h soccer markets such as corners and cards',
   assert.equal(comparison.Eurobet['cards_total_over_4.5'], 1.83);
 });
 
+test('goal totals never become shots based on line; incomplete and conflicting quotes are rejected', () => {
+  const service = new OddsApiService('test-key');
+  const match = { matchId: 'odds_fixture', homeTeam: 'Manchester City', awayTeam: 'Brighton',
+    commenceTime: '2026-10-31T15:00:00Z', bookmakers: [{ bookmakerKey: '1xbet', bookmakerName: '1xBet', markets: [
+      { marketKey: 'alternate_totals', outcomes: [{ name: 'Over', point: 8.5, price: 1.22 },
+        { name: 'Under', price: 1.8 }, { name: 'Over', point: 24.5, price: 2, description: 'Total Shots' }] },
+      { marketKey: 'shots', outcomes: [{ name: 'Over', point: 24.5, price: 1.9 }] },
+      { marketKey: 'player_assists', outcomes: [{ name: 'Over', point: 0.5, price: 2, description: 'A Player' }] },
+      { marketKey: 'player_shots', outcomes: [{ name: 'Over', point: 1.5, price: 2 }] },
+      { marketKey: 'alternate_totals_cards', outcomes: [{ name: 'Over', point: 4.5, price: 1.8, description: 'Manchester City' }] },
+    ] }] };
+  const odds = service.extractBestOdds(match);
+  assert.deepEqual(odds, { over85: 1.22, 'shots_total_over_24.5': 1.9 });
+  assert.deepEqual(service.compareBookmakers(match)['1xBet'], odds);
+});
+
 test('extractBestOdds maps extended statistical and player markets without collapsing selections', () => {
   const service = new OddsApiService('test-key');
   const match = {

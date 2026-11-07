@@ -6,7 +6,7 @@ import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
 import { normalizeScoreMatrix, scoreMatrixMarkets, settleGoalQuote } from './GoalSettlement';
-import { CHALLENGER_TEAM_MARKET_POLICY } from './ChallengerMarketCoverage';
+import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
 import { settleAppRecommendationQuote } from './AppRecommendationQuotes';
 import { CoherentCalibrationMode, CoherentCalibrationProfile, COHERENT_PROBABILITY_PROTOCOL, applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash } from './CoherentProbabilityPipeline';
 import { researchHash } from './ResearchStore';
@@ -508,7 +508,8 @@ export class ResearchRuntime {
       const stages: { raw: Record<string, number>; calibrated: Record<string, number> | null; decision: Record<string, number> | null } = {
         raw: rawProbabilities, calibrated: null, decision: null,
       };
-      const markets = await this.db.research.listMarkets({ family, modelVersion });
+      const currentCoverageC = family === 'C' && usesChallengerTeamMarkets(this.deploymentC);
+      const markets = currentCoverageC ? [] : await this.db.research.listMarkets({ family, modelVersion });
       const evidence = context.benchmarks ? context.benchmarks[family] : await this.db.research.getLatestBenchmark(family, modelVersion);
       const calibrationEvidence = family === 'C' && this.deploymentC?.probabilityConfigurationHash ? artifact
         : evidence?.report?.probabilityProtocol === COHERENT_PROBABILITY_PROTOCOL
@@ -588,8 +589,9 @@ export class ResearchRuntime {
         probabilityConfiguration !== null && market.evidence?.approvedProbabilityConfigurationHash === probabilityConfiguration.hash;
       // Economic validation remains unchanged in the registry. The nightly virtual
       // comparison needs technical calibration coherence, not a prior ROI result.
-      const allowed = advertisedMarkets.filter((market) => this.nightly ? probabilityConfiguration !== null
-        : matchingConfiguration(market)).map((market) => market.market);
+      const allowed = currentCoverageC ? probabilityConfiguration ? challengerAllowedMarkets(this.deploymentC) : []
+        : advertisedMarkets.filter((market) => this.nightly ? probabilityConfiguration !== null
+          : matchingConfiguration(market)).map((market) => market.market);
       if (this.nightly && !failure && probabilityConfiguration) {
         if (!coherentMatrixProbabilities(matrix, probabilities)) failure = 'incoherent_probability_distribution';
         else {
@@ -626,7 +628,7 @@ export class ResearchRuntime {
         } } : {}),
         market: selected?.quote.market ?? '', selection: selected?.quote.selection,
         quote: selected?.quote, quoteIndex: selected ? quotes.findIndex((quote) => quote === selected.quote) : undefined,
-        marketState: selected ? markets.find((market) => market.market === selected.quote.market)?.state : undefined,
+        ...(!currentCoverageC ? { marketState: selected ? markets.find((market) => market.market === selected.quote.market)?.state : undefined } : {}),
         probability: selected?.probability, ev: selected?.ev, prudentialEv: selected?.prudentialEv,
         probabilityProtocol: calibrationEvidence?.probabilityProtocol ?? null,
         probabilityConfiguration: probabilityConfiguration?.descriptor ?? null,

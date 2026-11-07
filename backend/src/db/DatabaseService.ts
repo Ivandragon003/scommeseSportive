@@ -15,6 +15,8 @@ import { ResearchWorkerCoordinator } from '../research/ResearchWorkerCoordinator
 import { ResearchExperimentStore } from '../research/ResearchExperimentStore';
 import { ChallengerAdoptionStore } from '../research/ChallengerAdoption';
 import { SmartOddsRequestStore } from '../services/odds-provider/SmartOddsRequestStore';
+import { assessFinalObservations } from '../services/FinalObservationLock';
+import { CURRENT_ODDS_MAPPING, LEGACY_ODDS_MAPPING, quarantineLegacyShotTotals } from '../services/OddsSnapshotQuarantine';
 
 type SqlArgs = Record<string, any> | any[];
 const MATCH_UPSERT_CHUNK_SIZE = 100;
@@ -40,6 +42,21 @@ const MATCH_UPDATE_COLUMNS = [
   'home_corners', 'away_corners', 'referee', 'competition', 'season',
   'source', 'source_match_id', 'raw_json',
 ];
+const LOCKED_MATCH_FIELDS = [
+  ['home_goals', 'homeGoals'], ['away_goals', 'awayGoals'],
+  ['home_xg', 'homeXG'], ['away_xg', 'awayXG'],
+  ['home_shots', 'homeShots'], ['away_shots', 'awayShots'],
+  ['home_shots_on_target', 'homeShotsOT'], ['away_shots_on_target', 'awayShotsOT'],
+  ['home_fouls', 'homeFouls'], ['away_fouls', 'awayFouls'],
+  ['home_corners', 'homeCorners'], ['away_corners', 'awayCorners'],
+  ['home_yellow_cards', 'homeYellow'], ['away_yellow_cards', 'awayYellow'],
+  ['home_red_cards', 'homeRed'], ['away_red_cards', 'awayRed'], ['referee', 'referee'],
+] as const;
+const MATCH_CONFLICT_SQL = `INSERT INTO final_observation_conflicts(match_id, field, existing_value, attempted_value)
+  ${LOCKED_MATCH_FIELDS.map(([column, parameter]) => `SELECT :matchId, '${column}', matches.${column}, :${parameter}
+    FROM matches JOIN final_observations ON final_observations.match_id=matches.match_id
+      AND final_observations.field='${column}'
+    WHERE matches.match_id=:matchId AND :${parameter} IS NOT NULL AND :${parameter} IS NOT matches.${column}`).join(' UNION ALL ')}`;
 const MATCH_UPSERT_SQL = `
       INSERT INTO matches (
         match_id, home_team_id, away_team_id, home_team_name, away_team_name,
@@ -59,7 +76,9 @@ const MATCH_UPSERT_SQL = `
         :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
       ON CONFLICT(match_id) DO UPDATE SET
-        ${MATCH_UPDATE_COLUMNS.map((column) => `${column} = COALESCE(excluded.${column}, matches.${column})`).join(',\n        ')}
+        ${MATCH_UPDATE_COLUMNS.map((column) => LOCKED_MATCH_FIELDS.some(([field]) => field === column)
+    ? `${column} = CASE WHEN EXISTS (SELECT 1 FROM final_observations WHERE match_id=matches.match_id AND field='${column}') THEN matches.${column} ELSE COALESCE(excluded.${column}, matches.${column}) END`
+    : `${column} = COALESCE(excluded.${column}, matches.${column})`).join(',\n        ')}
       WHERE ${MATCH_UPDATE_COLUMNS.map((column) => `(excluded.${column} IS NOT NULL AND excluded.${column} IS NOT matches.${column})`).join('\n         OR ')}
     `;
 // Listing endpoints never consume the potentially large raw provider payload. Keeping
@@ -1016,8 +1035,7 @@ export class DatabaseService {
   // ==================== MATCHES ====================
 
   async upsertMatch(match: any): Promise<void> {
-    await this.run(MATCH_UPSERT_SQL, this.getMatchUpsertArgs(match));
-    this.markTeamAveragesDirty([match.homeTeamId, match.awayTeamId]);
+    await this.upsertMatches([match]);
   }
 
   async updateMatchRawJson(matchId: string, rawJson: string): Promise<boolean> {
@@ -1039,14 +1057,34 @@ export class DatabaseService {
     const safeChunkSize = Math.max(1, Math.min(Math.trunc(chunkSize) || MATCH_UPSERT_CHUNK_SIZE, MATCH_UPSERT_CHUNK_SIZE));
     let committedCount = 0;
     for (let start = 0; start < matches.length; start += safeChunkSize) {
-      const statements: InStatement[] = matches
-        .slice(start, start + safeChunkSize)
-        .map((match) => ({ sql: MATCH_UPSERT_SQL, args: this.getMatchUpsertArgs(match) }));
+      const chunk = matches.slice(start, start + safeChunkSize);
+      const statements: InStatement[] = chunk.flatMap((match) => {
+        const args = this.getMatchUpsertArgs(match) as Record<string, any>;
+        const conflictArgs = Object.fromEntries(['matchId', ...LOCKED_MATCH_FIELDS.map(([, parameter]) => parameter)]
+          .map((key) => [key, args[key]]));
+        const assessment = assessFinalObservations({ match_id: args.matchId, source: args.source,
+          source_match_id: args.sourceMatchId, raw_json: args.rawJson,
+          date: args.date, home_team_name: args.homeTeamName, away_team_name: args.awayTeamName,
+          home_goals: args.homeGoals, away_goals: args.awayGoals, home_xg: args.homeXG, away_xg: args.awayXG });
+        const locks: InStatement[] = assessment.observations.map((item) => ({
+          // The evidence and the stored value must still match in the same transaction.
+          sql: `INSERT INTO final_observations(match_id,field,value,source,evidence_json,evidence_sha256)
+            SELECT :matchId,:field,:value,:source,:evidence,:hash FROM matches
+            WHERE match_id=:matchId AND ${item.field}=:value AND raw_json=:rawJson
+              AND EXISTS (SELECT 1 FROM teams WHERE team_id=matches.home_team_id AND CAST(source_team_id AS TEXT)=:homeSourceId)
+              AND EXISTS (SELECT 1 FROM teams WHERE team_id=matches.away_team_id AND CAST(source_team_id AS TEXT)=:awaySourceId)
+              AND NOT EXISTS (SELECT 1 FROM final_observations WHERE match_id=:matchId AND field=:field)`,
+          args: { matchId: item.matchId, field: item.field, value: item.value, source: item.source,
+            evidence: item.evidenceJson, hash: item.evidenceSha256, rawJson: args.rawJson,
+            homeSourceId:String(JSON.parse(item.evidenceJson).match.h.id), awaySourceId:String(JSON.parse(item.evidenceJson).match.a.id) },
+        }));
+        return [{ sql: MATCH_CONFLICT_SQL, args: conflictArgs }, { sql: MATCH_UPSERT_SQL, args }, ...locks];
+      });
       try {
         await this.db.batch(statements, 'write');
         this.markTeamAveragesDirty(matches.slice(start, start + safeChunkSize)
           .flatMap((match) => [match.homeTeamId, match.awayTeamId]));
-        committedCount += statements.length;
+        committedCount += chunk.length;
       } catch (error) {
         throw new MatchBatchCommitError(committedCount, error);
       }
@@ -2366,14 +2404,28 @@ export class DatabaseService {
       }
     };
 
+    const version = typeof row.market_mapping_version === 'string' ? row.market_mapping_version : LEGACY_ODDS_MAPPING;
+    const fields = ['selected_odds_json', 'live_selected_odds_json', 'eurobet_odds_json',
+      'estimated_odds_json', 'fallback_odds_json', 'all_bookmaker_odds_json'] as const;
+    const cleaned: Record<string, any> = {};
+    const quarantinedSelections: string[] = [];
+    const safeRow = { ...row };
+    for (const field of fields) {
+      const result = quarantineLegacyShotTotals(parseJson(row[field]), version);
+      cleaned[field] = result.value;
+      quarantinedSelections.push(...result.selections.map((selection) => `${field}/${selection}`));
+      if (typeof row[field] === 'string') safeRow[field] = JSON.stringify(result.value);
+    }
     return {
-      ...row,
-      selectedOdds: parseJson(row.selected_odds_json),
-      liveSelectedOdds: parseJson(row.live_selected_odds_json),
-      eurobetOdds: parseJson(row.eurobet_odds_json),
-      estimatedOdds: parseJson(row.estimated_odds_json),
-      fallbackOdds: parseJson(row.fallback_odds_json),
-      allBookmakerOdds: parseJson(row.all_bookmaker_odds_json),
+      ...safeRow,
+      selectedOdds: cleaned.selected_odds_json,
+      liveSelectedOdds: cleaned.live_selected_odds_json,
+      eurobetOdds: cleaned.eurobet_odds_json,
+      estimatedOdds: cleaned.estimated_odds_json,
+      fallbackOdds: cleaned.fallback_odds_json,
+      allBookmakerOdds: cleaned.all_bookmaker_odds_json,
+      marketMappingVersion: version,
+      oddsQuarantine: quarantinedSelections.length ? { reason: 'legacy_shots_total_unverified', selections: quarantinedSelections } : null,
       selectedBookmakerKey: typeof row.selected_bookmaker_key === 'string' ? row.selected_bookmaker_key : null,
       selectedBookmakerName: typeof row.selected_bookmaker_name === 'string' ? row.selected_bookmaker_name : null,
       marketsRequested: Array.isArray(parseJson(row.markets_requested_json)) ? parseJson(row.markets_requested_json) : [],
@@ -2475,13 +2527,13 @@ export class DatabaseService {
         commence_time, source, selected_odds_json, live_selected_odds_json, eurobet_odds_json,
         estimated_odds_json, fallback_odds_json, all_bookmaker_odds_json, selected_bookmaker_key,
         selected_bookmaker_name, markets_requested_json,
-        used_fallback_bookmaker, used_synthetic_odds, confidence_score, captured_at
+        used_fallback_bookmaker, used_synthetic_odds, confidence_score, captured_at, market_mapping_version
       ) VALUES (
         :snapshotId, :matchId, :oddsProviderMatchId, :competition, :homeTeamName, :awayTeamName,
         :commenceTime, :source, :selectedOddsJson, :liveSelectedOddsJson, :eurobetOddsJson,
         :estimatedOddsJson, :fallbackOddsJson, :allBookmakerOddsJson, :selectedBookmakerKey,
         :selectedBookmakerName, :marketsRequestedJson,
-        :usedFallbackBookmaker, :usedSyntheticOdds, :confidenceScore, :capturedAt
+        :usedFallbackBookmaker, :usedSyntheticOdds, :confidenceScore, :capturedAt, :marketMappingVersion
       )`,
       {
         snapshotId: snapshot.snapshotId,
@@ -2503,6 +2555,7 @@ export class DatabaseService {
         marketsRequestedJson: JSON.stringify(snapshot.marketsRequested ?? []),
         usedFallbackBookmaker: snapshot.usedFallbackBookmaker ? 1 : 0,
         usedSyntheticOdds: snapshot.usedSyntheticOdds ? 1 : 0,
+        marketMappingVersion: CURRENT_ODDS_MAPPING,
         confidenceScore: Number.isFinite(Number(snapshot.confidenceScore)) ? Number(snapshot.confidenceScore) : null,
         capturedAt: snapshot.capturedAt
           ? (snapshot.capturedAt instanceof Date ? snapshot.capturedAt.toISOString() : snapshot.capturedAt)
@@ -2625,7 +2678,7 @@ export class DatabaseService {
     let q = `
       SELECT os.match_id, os.source, os.selected_odds_json, os.live_selected_odds_json,
         os.eurobet_odds_json, os.selected_bookmaker_key, os.selected_bookmaker_name,
-        os.used_fallback_bookmaker, os.used_synthetic_odds, os.captured_at,
+        os.used_fallback_bookmaker, os.used_synthetic_odds, os.captured_at, os.market_mapping_version,
         m.date AS match_date
       FROM odds_snapshots os
       INNER JOIN matches m ON m.match_id = os.match_id

@@ -1,3 +1,4 @@
+import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
 import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import { buildForecastInput, ForecastInput, ResearchMatch, TOP5_COMPETITIONS } from './ForecastCore';
@@ -265,6 +266,8 @@ export class ChallengerAdoptionStore {
       if (dossier.candidateArtifact.dataQualityPolicyHash !== CHALLENGER_DATA_QUALITY_POLICY_HASH
         || dossier.candidateArtifact.dataQualityBaselineClean !== true) return { recorded: false, reason: 'candidate_data_quality_policy_unverified' };
       const row = input.input, current = await this.state(tx);
+      const cutoff = await challengerHistoryCutoff(tx);
+      if (predatesChallengerReset(row.forecastAt, cutoff)) return { recorded: false, reason: 'challenger_history_reset' };
       if (!same(await this.currentDeployment(tx, current), dossier.reference)) {
         return { recorded: false, reason: 'incumbent_changed' };
       }

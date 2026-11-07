@@ -135,7 +135,10 @@ test('match upsert retains observed values when new values are missing and accep
       away_fouls INTEGER, home_yellow_cards INTEGER, away_yellow_cards INTEGER, home_red_cards INTEGER, away_red_cards INTEGER,
       home_corners INTEGER, away_corners INTEGER, referee TEXT, competition TEXT, season TEXT, source TEXT, source_match_id TEXT, raw_json TEXT)`);
     const service = Object.create(DatabaseService.prototype);
-    service.run = async (sql, args) => { await client.execute({ sql, args }); };
+    await client.execute('CREATE TABLE final_observations (match_id TEXT, field TEXT, value, PRIMARY KEY(match_id,field))');
+    await client.execute('CREATE TABLE final_observation_conflicts (match_id TEXT, field TEXT, existing_value, attempted_value)');
+    service.db = client;
+    service.initPromise = Promise.resolve();
     service.markTeamAveragesDirty = () => {};
     const base = { matchId: 'm', homeTeamId: 'h', awayTeamId: 'a', date: '2025-01-01' };
     await service.upsertMatch({ ...base, homeTotalShots: 5, homeYellowCards: 2, homeRedCards: 1 });

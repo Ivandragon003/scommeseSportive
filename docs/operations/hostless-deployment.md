@@ -37,6 +37,12 @@ Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_E
 
 Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
+La build con protezione delle osservazioni e versionamento del mapping quote
+richiede prima le migrazioni additive 034/035. Con bootstrap disabilitato non
+vengono applicate dal deploy: usare il piano mirato descritto nelle
+[operazioni](README.md), verificato su copia del backup. Il reset dello storico C
+è una manutenzione distinta ed esplicita, non un effetto dell'aggiornamento.
+
 Per la transizione ai portafogli in euro, tenere le nuove recommendation
 spente e usare la [procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
 Le migrazioni additive 030/031 conservano schema e dati precedenti: aggiungono

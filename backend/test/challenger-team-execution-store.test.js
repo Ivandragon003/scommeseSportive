@@ -34,7 +34,7 @@ async function scenario(kind) {
     await research.initializePortfolios();
     for (const [family, version] of [['A', 'A-fixture'], ['C', release.modelVersion]])
       await research.saveModel({ family, version, artifact: { family, version, fixtureOnly: true } });
-    await research.setMarketState({ family: 'C', modelVersion: release.modelVersion, market: 'cards_total', state: kind === 'suspended' ? 'SUSPENDED' : 'EXPERIMENTAL' });
+    if (kind !== 'missing_registry') await research.setMarketState({ family: 'C', modelVersion: release.modelVersion, market: 'cards_total', state: kind === 'suspended' ? 'SUSPENDED' : 'EXPERIMENTAL' });
     await client.execute({ sql: 'INSERT INTO matches VALUES(?,?,NULL,NULL)', args: ['match', KICKOFF] });
     await client.execute({ sql: "INSERT INTO research_jobs(id,match_id,kickoff_at,target_at,status,created_at,updated_at) VALUES('job','match',?,?,'COMPLETED',?,?)", args: [KICKOFF, START, START, START] });
     await client.execute({ sql: "INSERT INTO research_inputs VALUES('input','job',?,?,?,?)", args: [researchHash({ matchId: 'match' }), json({ matchId: 'match' }), START, KICKOFF] });
@@ -60,12 +60,13 @@ async function scenario(kind) {
     return { result, bets: await store.listPaperBets() };
   } finally { client.close(); cleanup(path); }
 }
-test('C statistical execution requires current policy, specialist evidence and permitted registry state', async () => {
+test('current C execution uses code coverage and preserves policy, specialist and quote checks', async () => {
   assert.equal(goal.hash, release.probabilityConfigurationHash);
-  for (const kind of ['valid', 'no_policy', 'no_evidence', 'bad_state', 'bad_config', 'suspended', 'unshared_quote']) {
+  for (const kind of ['valid', 'no_policy', 'no_evidence', 'bad_state', 'bad_config', 'suspended', 'missing_registry', 'unshared_quote']) {
     const { result, bets } = await scenario(kind), c = result.decisions.find(d => d.family === 'C');
-    assert.equal(bets.length, kind === 'valid' ? 1 : 0, `${kind}: ${JSON.stringify(c)}`);
-    assert.equal(c.action, kind === 'valid' ? 'BET' : 'ABSTAIN', kind);
+    const allowed = ['valid', 'suspended', 'missing_registry'].includes(kind);
+    assert.equal(bets.length, allowed ? 1 : 0, `${kind}: ${JSON.stringify(c)}`);
+    assert.equal(c.action, allowed ? 'BET' : 'ABSTAIN', kind);
     if (kind === 'valid') assert.equal(bets[0].market, 'cards_total');
   }
 });

@@ -3,7 +3,7 @@ import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported, RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { quoteFreshnessReason } from './T15Scheduler';
-import { CHALLENGER_TEAM_MARKET_POLICY, usesChallengerTeamMarkets, isChallengerStatMarket } from './ChallengerMarketCoverage';
+import { CHALLENGER_TEAM_MARKET_POLICY, CHALLENGER_MARKET_ELIGIBILITY, usesChallengerTeamMarkets, isChallengerStatMarket } from './ChallengerMarketCoverage';
 import { researchHash } from './ResearchStore';
 import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
@@ -49,7 +49,7 @@ export function challengerExecutionPolicy(state: ChallengerExecutionState) {
   return { ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v3',
     familyC: { ...VIRTUAL_RECOMMENDATION_POLICY.familyC, ...state.deployment,
       deploymentRevision: state.revision, deploymentSource: state.source,
-      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY } : {}),
+      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY, marketEligibilityVersion: CHALLENGER_MARKET_ELIGIBILITY } : {}),
       ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 
@@ -66,7 +66,7 @@ export function paperExecutionPolicy(state: ChallengerExecutionState) {
   const base = PAPER_RECOMMENDATION_POLICY;
   return { ...base, familyC: { ...base.familyC, ...state.deployment,
     deploymentRevision: state.revision, deploymentSource: state.source,
-      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY } : {}),
+      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY, marketEligibilityVersion: CHALLENGER_MARKET_ELIGIBILITY } : {}),
     ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 

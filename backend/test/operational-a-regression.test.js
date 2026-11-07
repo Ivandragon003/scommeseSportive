@@ -72,6 +72,16 @@ test('source guard preserves only the exact reviewed identity-only input eligibi
   assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`), /exactly once/);
 });
 
+test('source guard rejects reverting or duplicating each provider market semantics correction', () => {
+  const change = deviations.changes.find((entry) => entry.review === 'provider-market-semantics-v1');
+  assert.ok(change?.edits.length > 0);
+  for (const edit of change.edits) {
+    const source = readFileSync(resolve(__dirname, '../..', edit.file), 'utf8').replace(/\r\n/g, '\n');
+    assert.throws(() => assertOperationalSource(edit.file, source.replace(edit.after, edit.before)), /exactly once/);
+    assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`), /exactly once/);
+  }
+});
+
 test('authorized xG deviation falls back on either missing side and preserves genuine numeric zero', () => {
   const matches = Array.from({ length: 30 }, (_, index) => ({
     matchId: `authorized-xg-${index}`, homeTeamId: index % 2 ? 'B' : 'A',

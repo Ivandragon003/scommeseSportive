@@ -1,14 +1,7 @@
 import React, { useId } from 'react';
-import { stateLabel } from './researchPresentation';
 
 export const Empty = ({ children }: { children: React.ReactNode }) => (
   <p className="research-empty">{children}</p>
-);
-
-export const Badge = ({ state }: { state: string }) => (
-  <span className={`research-badge research-badge--${String(state).toLowerCase()}`}>
-    {stateLabel(state)}
-  </span>
 );
 
 export const Metric = ({ label, value, help }: {

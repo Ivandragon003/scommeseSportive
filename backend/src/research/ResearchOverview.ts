@@ -131,12 +131,13 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
         baselineSource: 'Current shared A statistical core', baselineVersion: baselineManifest().version, metrics: null },
     },
     models: models.map((model) => ({ family: model.family, version: model.version,
-      status: model.isChampion ? 'CHAMPION' : 'CANDIDATE', createdAt: model.createdAt,
+      createdAt: model.createdAt,
       trainedThrough: model.artifact?.trainedThrough, metrics: model.artifact?.metrics })),
     portfolios, bets: bets.map((bet) => ({ ...bet, createdAt: bet.placedAt, quote: bet.snapshot?.quote,
       status: bet.status !== 'SETTLED' ? 'PENDING' : bet.multiplier === 0 ? 'LOST' : bet.multiplier === 1 ? 'VOID'
         : bet.multiplier === .5 ? 'HALF_LOST' : bet.multiplier === bet.odds ? 'WON' : 'HALF_WON' })),
-    markets, jobs, latestBenchmark: benchmarkOverview(latestBenchmark), experiments, latestDiagnostics: latestDiagnostics ?? null, modelEvents,
+    markets: markets.map(market => ({ family: market.family, modelVersion: market.modelVersion, market: market.market, evidence: market.evidence })),
+    jobs, latestBenchmark: benchmarkOverview(latestBenchmark), experiments, latestDiagnostics: latestDiagnostics ?? null, modelEvents,
     decisions: effectiveDecisions.slice(-50).reverse().map((decision) => ({
       id: decision.id, matchId: decision.matchId ?? jobs.find((job) => job.id === decision.jobId)?.matchId,
       family: decision.family, modelVersion: decision.modelVersion, action: decision.action,

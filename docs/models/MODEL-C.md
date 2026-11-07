@@ -80,13 +80,15 @@ non cambia l'artefatto, le feature o la calibrazione gol di C e non dimostra che
 le statistiche siano state apprese da C.
 
 Servono quote prepartita reali, fresche al massimo cinque minuti, e un mercato
-consentito per la versione nel registro. Per i mercati gol il confronto usa
+supportato dalla release corrente nel codice. Le nuove policy identificano
+questa regola con `code-supported-markets-v1`: l'operatività C corrente non
+dipende da etichette qualitative nel registro. Per i mercati gol il confronto usa
 una scheda completa e coerente dello stesso bookmaker e snapshot; non si
-inventano quote mancanti. Gli stati `EXPERIMENTAL`, `SHADOW` e `ACTIVE`
-consentono l'esecuzione, mentre un mercato assente o `SUSPENDED` la blocca.
+inventano quote mancanti. Restano necessari identità del modello, calibrazione,
+campioni e dati adeguati: togliere le etichette non elimina questi controlli.
 Per i cartellini totali il settlement usa gialli + 2 × rossi; se mancano le
-osservazioni necessarie resta irrisolto. La sola iscrizione `EXPERIMENTAL` non
-prova validazione o redditività. Corner e
+osservazioni necessarie resta irrisolto. La copertura di un mercato non prova
+redditività. Corner e
 falli restano bloccati; correct score non entra nella selezione operativa e i
 player props seguono il percorso distinto già previsto per l'app.
 

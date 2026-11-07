@@ -15,7 +15,7 @@ import { recommendationQuoteReason,
 import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
-import { CHALLENGER_TEAM_MARKET_POLICY, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
+import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
 import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } from './ChallengerTeamRecommendation';
 import type { AdmissionMarket, FixtureAdmissionResult } from './FixtureAdmission';
 
@@ -213,8 +213,8 @@ export class ResearchRecommendationRuntime {
       policyHash: string; baselineClean: true; evidence: unknown;
     } }) | null = null;
     if (!failureC && decisionC) {
-      const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
-      const allowedMarkets = markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market);
+      const markets = teamMarketsC ? [] : await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
+      const allowedMarkets = challengerAllowedMarkets(this.deploymentC.deployment, markets);
       if (teamMarketsC && !this.paperMode) {
         const recommendations: ReturnType<typeof buildChallengerTeamRecommendation>[] = [];
         for (const sheet of cSheets) {
@@ -343,8 +343,8 @@ export class ResearchRecommendationRuntime {
       }
       const challengerCandidates: PaperCandidate[] = [];
       if (!failureC && decisionC) {
-        const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
-        const allowedMarkets = markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market);
+        const markets = teamMarketsC ? [] : await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
+        const allowedMarkets = challengerAllowedMarkets(this.deploymentC.deployment, markets);
         const groups = new Map<string, RecommendationQuote[]>();
         const paritySheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
         const allCQuotes = teamMarketsC ? paritySheets.flatMap(sheet => sheet.quotes).filter(quote =>
