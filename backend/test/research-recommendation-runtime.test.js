@@ -117,7 +117,8 @@ test('runtime preserves the ordinary A predictor advice and stake with its full 
   assert.deepEqual(packet.selected, ordinary.canonicalRecommendation.selected);
   assert.deepEqual(packet.ranked, ordinary.canonicalRecommendation.ranked);
   assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'cardsTotalOver45'));
-  assert.ok(!result.inputSnapshot.quoteSnapshots.C.some((value) => value.market === 'cards_total'));
+  assert.ok(result.inputSnapshot.quoteSnapshots.C.some((value) => value.market === 'cards_total'));
+  assert.equal(result.decisions[1].action, 'ABSTAIN', 'a catalog price cannot replace a valid C forecast');
   assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'homewin'));
   assert.ok(Object.hasOwn(packet.odds.bookmakerBySelection, 'awaywin'));
   assert.equal(packet.selected.selection, 'homeWin');
@@ -494,5 +495,85 @@ test('incompatible or unclean quality-tagged C fails closed while A retains its 
     assert.equal(result.inputSnapshot.forecasts.A, f.packet); assert.equal(JSON.stringify(f.packet), before);
     assert.equal(result.decisions[0].action, 'BET'); assert.equal(result.decisions[1].action, 'ABSTAIN');
     assert.equal(result.decisions[1].reason, reason); assert.equal(result.inputSnapshot.forecasts.C.recommendation, null);
+  }
+});
+
+function parityFixture(paperMode = false) {
+  const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
+  const artifact = require('../current-models/challenger.json');
+  const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+    pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C });
+  const count = ['over', 'under'].map(side => quote(`cards_total_${side}_4.5`, side, side === 'over' ? 2.5 : 1.8,
+    { market: 'cards_total', line: 4.5 }));
+  const selected = opportunity({ selection: count[0].selection, marketCategory: 'yellow_cards', bookmakerOdds: 2.5,
+    expectedValue: 50, evReason: 'computed', suggestedStakePercent: 2 });
+  const f = fixture({ appQuotes: [...quotes(), ...count], selected, challenger: challenger({
+    probabilityConfiguration: configuration.descriptor, probabilityConfigurationHash: configuration.hash }) });
+  f.packet.probabilities.decision[selected.selection] = .6;
+  const predict = f.predictionService.predict;
+  f.predictionService.predict = async (...args) => ({ ...await predict(...args), valueOpportunities: [selected] });
+  f.db.research.setMarketState({ family: 'C', market: 'cards_total', state: 'EXPERIMENTAL' });
+  f.setTime(at);
+  const deploymentC = { source: 'fallback', revision: 'current-release-fixture', deployment: { ...CURRENT_CHALLENGER_RELEASE } };
+  f.runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, researchRuntime: f.researchRuntime,
+    predictionService: f.predictionService, appOdds: f.appOdds, deploymentC, paperMode });
+  return f;
+}
+
+test('current C admits qualified statistical markets with original specialist evidence and composite identity', async () => {
+  for (const paper of [false, true]) {
+    const f = parityFixture(paper), result = await f.runtime.prepare(f.job);
+    const decision = result.decisions[1];
+    const c = paper ? decision.selections.find(item => item.market === 'cards_total') : decision;
+    assert.ok(c);
+    assert.equal(decision.action, 'BET'); assert.equal(c.market, 'cards_total');
+    assert.equal(c.qualificationEvidence.source, 'shared_A_specialist');
+    assert.equal(c.qualificationEvidence.model.stateHash, f.packet.model.stateHash);
+    assert.equal(c.probabilityConfigurationHash, researchHash(c.probabilityConfiguration));
+    assert.equal(c.probabilityConfigurationHash, decision.probabilityConfigurationHash);
+    assert.equal(c.probabilityConfiguration.goalConfigurationHash, f.prepared.decisions[1].probabilityConfigurationHash);
+    assert.equal(result.inputSnapshot.forecasts.A, f.packet);
+    assert.ok(result.inputSnapshot.quotes.some(q => q.market === 'cards_total' && q.bookmaker === c.quote.bookmaker));
+  }
+});
+
+test('current C still requires its own valid forecast and registered statistical markets', async () => {
+  const invalid = parityFixture(); invalid.prepared.decisions[1].validated = false;
+  const a = await invalid.runtime.prepare(invalid.job);
+  assert.equal(a.decisions[0].action, 'BET'); assert.equal(a.decisions[1].action, 'ABSTAIN');
+  const unregistered = parityFixture();
+  await unregistered.db.research.setMarketState({ family: 'C', market: 'cards_total', state: 'SUSPENDED' });
+  const list = unregistered.db.research.listMarkets;
+  unregistered.db.research.listMarkets = async options => (await list(options)).filter(m => m.market !== 'cards_total');
+  const b = await unregistered.runtime.prepare(unregistered.job);
+  assert.notEqual(b.decisions[1].market, 'cards_total');
+});
+
+test('current C uses each complete bookmaker sheet and preserves the specialist state for each sheet', async () => {
+  for (const paper of [false, true]) for (const sameBook of [false, true]) {
+  const f = parityFixture(paper), original = await f.appOdds.load(f.row);
+  const sheets = ['First Book', sameBook ? 'First Book' : 'Second Book'].map((book, i) => {
+    const qs = original.quotes.filter(q => q.market === 'cards_total').map(q => ({ ...q, bookmaker: book, odds: q.side === 'over' ? 2.5 + i * .1 : 1.8 }));
+    return { quotes: qs, sharedOdds: { odds: Object.fromEntries(qs.map(q => [q.selection, q.odds])),
+      bookmakerBySelection: Object.fromEntries(qs.map(q => [q.selection, book])), source: 'odds_api', capturedAt: at } };
+  });
+  f.appOdds.load = async () => ({ ...original, sheets });
+  const states = new Map();
+  f.predictionService.predict = async (_request, settings) => {
+    const book = settings.sharedOdds.bookmakerBySelection.cards_total_over_4_5
+      ?? settings.sharedOdds.bookmakerBySelection['cards_total_over_4.5'];
+    const price = settings.sharedOdds.odds['cards_total_over_4.5'];
+    const stateHash = price === 2.6 ? '8'.repeat(64) : '7'.repeat(64);
+    states.set(`${book}:${price}`, stateHash);
+    const op = { ...f.packet.selected, bookmakerOdds: price, expectedValue: (.6 * price - 1) * 100 };
+    const packet = { ...f.packet, selected: op, ranked: [op], model: { ...f.packet.model, stateHash },
+      odds: { ...f.packet.odds, bookmakerBySelection: settings.sharedOdds.bookmakerBySelection } };
+    return { canonicalRecommendation: packet, valueOpportunities: [op] };
+  };
+  const result = await f.runtime.prepare(f.job), c = result.decisions[1];
+  assert.equal(c.action, 'BET'); assert.equal(c.quote.bookmaker, sameBook ? 'First Book' : 'Second Book');
+  assert.equal(c.quote.odds, 2.6);
+  assert.equal(c.qualificationEvidence.model.stateHash, states.get(`${c.quote.bookmaker}:2.6`));
+  if (paper) assert.equal(c.selections.filter(s => s.market === 'cards_total').length, 1);
   }
 });

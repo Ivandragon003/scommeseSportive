@@ -1,5 +1,11 @@
 import type { DatabaseService } from '../db/DatabaseService';
 import { OddsApiService } from '../services/OddsApiService';
+import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
+import { OddsApiProvider } from '../services/odds-provider/OddsApiProvider';
+import { PredictionService } from '../services/PredictionService';
+import { pickCanonicalBetRecommendation, rankCanonicalOpportunity } from '../services/CanonicalBetRecommendation';
+import { CHALLENGER_TEAM_MARKET_POLICY, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
+import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } from './ChallengerTeamRecommendation';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
 import { previewInterruptedReadCode, ResearchRuntime } from './ResearchRuntime';
 import { TOP5_COMPETITIONS } from './ForecastCore';
@@ -22,6 +28,8 @@ type PreviewOptions = {
   clock?: () => Date;
   odds?: Pick<OddsApiService, 'getOdds' | 'getQuotaStatus'>;
   runtimeFactory?: (db: DatabaseService, options: RuntimeOptions) => PreviewRuntime;
+  appOdds?: Pick<AppPredictionOddsService, 'load'>;
+  predictionService?: Pick<PredictionService, 'predict'>;
 };
 type PreviewSelection = {
   selection: string; selectionLabel?: string; bookmakerOdds: number; bookmakerName: string;
@@ -34,7 +42,7 @@ export type ChallengerPreview = {
   status: 'RECOMMENDED' | 'NO_BET' | 'UNAVAILABLE' | 'NOT_ELIGIBLE' | 'ARCHIVED';
   reason: string | null;
   recommendationPacket: { selected: PreviewSelection | null; decisionStatus: 'RECOMMENDED' | 'NO_BET' } | null;
-  quote: RecommendationQuote | null; suggestedStakePercent: 1; registered: false;
+  quote: (RecommendationQuote & { marketPolicyVersion?: string; probabilityConfiguration?: unknown; probabilityConfigurationHash?: string; qualificationEvidence?: Record<string, unknown> }) | null; suggestedStakePercent: 1; registered: false;
 };
 
 const timestamp = (value: unknown): number => typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value)
@@ -54,6 +62,8 @@ export class ChallengerPreviewService {
   private readonly clock: () => Date;
   private readonly odds: Pick<OddsApiService, 'getOdds' | 'getQuotaStatus'>;
   private readonly runtimeFactory: NonNullable<PreviewOptions['runtimeFactory']>;
+  private readonly appOdds: Pick<AppPredictionOddsService, 'load'>;
+  private readonly predictionService: Pick<PredictionService, 'predict'>;
   private readonly cache = new Map<string, { result: ChallengerPreview; cachedAt: number }>();
   private readonly pending = new Map<string, Promise<ChallengerPreview>>();
 
@@ -65,6 +75,10 @@ export class ChallengerPreviewService {
       // Opening the match is a read operation, never permission to spend provider credits.
       allowNetwork: false,
     });
+    this.appOdds = options.appOdds ?? new AppPredictionOddsService(db, { clock: this.clock,
+      provider: new OddsApiProvider(getConfiguredOddsApiKey('default'), { store: db.oddsRequests,
+        operation: 'challenger_preview', priority: 'informational', allowNetwork: false, cacheMaxAgeMs: QUOTE_MAX_AGE_MS }) });
+    this.predictionService = options.predictionService ?? new PredictionService(db, undefined, { allowCalibrationRebuild: false });
     this.runtimeFactory = options.runtimeFactory ?? ((database, runtimeOptions) => new ResearchRuntime(database, runtimeOptions));
   }
 
@@ -131,7 +145,7 @@ export class ChallengerPreviewService {
           || !Number.isFinite(timestamp(result.asOf)) || timestamp(result.asOf) > now) {
           return this.response(result.matchId, 'UNAVAILABLE', 'challenger_preview_expired', row, state);
         }
-        if (result.status === 'RECOMMENDED' && (!result.quote || recommendationQuoteReason(result.quote, new Date(now), 'C'))) {
+        if (result.status === 'RECOMMENDED' && (!result.quote || recommendationQuoteReason(result.quote, new Date(now), 'C', usesChallengerTeamMarkets(initialState.deployment) ? CHALLENGER_TEAM_MARKET_POLICY : undefined))) {
           return this.response(result.matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
         }
       }
@@ -204,8 +218,9 @@ export class ChallengerPreviewService {
     }
     if (prepared.status !== 'upcoming') return this.response(matchId, 'UNAVAILABLE', 'challenger_fixture_unavailable', row, state);
     const observedAt = this.clock().toISOString();
-    const quotes = (prepared.quotes as ResearchQuote[]).filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'C'));
-    if (!quotes.length) return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
+    let quotes: RecommendationQuote[] = (prepared.quotes as ResearchQuote[]).filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'C'));
+    const teamMarkets = usesChallengerTeamMarkets(state.deployment);
+    if (!teamMarkets && !quotes.length) return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
     const decisions = prepared.decisions.filter((decision) => decision.family === 'C');
     if (decisions.length !== 1) return this.response(matchId, 'UNAVAILABLE', 'challenger_technical_validation_failed', row, state);
     const decision = decisions[0];
@@ -216,13 +231,59 @@ export class ChallengerPreviewService {
     const technical = challengerTechnicalReason(decision, forecastAt, state.deployment);
     if (technical) return this.response(matchId, 'UNAVAILABLE', safeReason(decision.reason, technical), row, state);
     const markets = await this.db.research.listMarkets({ family: 'C', modelVersion: state.deployment.modelVersion });
-    const packet = buildChallengerRecommendation({ decision, quotes, observedAt, competition: row!.competition,
-      expectedIdentity: state.deployment,
-      ...(state.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}),
-      allowedMarkets: markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market) });
+    const allowedMarkets = markets.filter((market) => ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)).map((market) => market.market);
+    let packet: ReturnType<typeof buildChallengerRecommendation> | ReturnType<typeof buildChallengerTeamRecommendation>;
+    if (teamMarkets) {
+      let appInput: Awaited<ReturnType<AppPredictionOddsService['load']>> | undefined;
+      try { appInput = await this.appOdds.load(row as Parameters<AppPredictionOddsService['load']>[0]); }
+      catch { /* Cached app prices may be absent; C goal prices remain independently usable. */ }
+      const sheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
+      const validSheets = sheets.map(sheet => ({ ...sheet, quotes: sheet.quotes.filter(quote =>
+        !recommendationQuoteReason(quote, new Date(observedAt), 'C', CHALLENGER_TEAM_MARKET_POLICY)) }));
+      const allQuotes = validSheets.flatMap(sheet => sheet.quotes);
+      if (allQuotes.length) quotes = allQuotes;
+      if (!quotes.length) return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
+      const recommendations: ReturnType<typeof buildChallengerTeamRecommendation>[] = [];
+      let sharedPacket: Awaited<ReturnType<PredictionService['predict']>>['canonicalRecommendation'] | undefined;
+      for (const sheet of validSheets) {
+        if (!sheet.quotes.length) continue;
+        let specialist: Parameters<typeof buildChallengerTeamRecommendation>[0]['specialist'];
+        if (sheet.quotes.some(quote => isChallengerStatMarket(quote.market))) try {
+          const prediction = await this.predictionService.predict({ homeTeamId: row.home_team_id, awayTeamId: row.away_team_id,
+            matchId, competition: row.competition, season: row.season },
+          { asOf: observedAt, recordAudit: false, sharedOdds: sheet.sharedOdds, prospectiveOrigin: 'shared_ac', suppressProspective: true });
+          const candidate = prediction.canonicalRecommendation;
+          if (candidate?.policyVersion === 'match-page-recommendation-v1' && candidate.asOf === observedAt
+            && candidate.model?.source === 'PredictionService' && /^APP-A-[a-f0-9]+$/.test(candidate.model.version)
+            && [candidate.model.codeHash, candidate.model.configHash, candidate.model.stateHash].every(value => /^[a-f0-9]{64}$/i.test(value))
+            && candidate.odds?.source === 'odds_api' && candidate.odds.capturedAt === sheet.sharedOdds.capturedAt
+            && (!sharedPacket || candidate.model.version === sharedPacket.model.version
+            && candidate.model.codeHash === sharedPacket.model.codeHash && candidate.model.configHash === sharedPacket.model.configHash)) {
+            sharedPacket ??= candidate;
+            specialist = { packet: candidate, opportunities: prediction.valueOpportunities ?? [], matchId };
+          }
+        } catch { /* The shared specialist is optional; it cannot replace a failed C forecast. */ }
+        recommendations.push(buildChallengerTeamRecommendation({ decision, quotes: sheet.quotes, observedAt,
+          competition: row.competition, expectedIdentity: state.deployment, allowedMarkets, specialist }));
+      }
+      if (!recommendations.length) recommendations.push(buildChallengerTeamRecommendation({ decision, quotes, observedAt,
+        competition: row.competition, expectedIdentity: state.deployment, allowedMarkets }));
+      const opportunities = recommendations.flatMap(value => value.opportunities);
+      const ordered = [...opportunities].sort((a, b) => Number(['HIGH', 'MEDIUM'].includes(b.confidence))
+        - Number(['HIGH', 'MEDIUM'].includes(a.confidence)) || rankCanonicalOpportunity(b) - rankCanonicalOpportunity(a));
+      const selected = pickCanonicalBetRecommendation({ valueOpportunities: ordered });
+      const probabilityConfiguration = buildChallengerTeamConfiguration(decision, sharedPacket);
+      packet = { ...selected, opportunities, exclusions: Object.assign({}, ...recommendations.map(value => value.exclusions)),
+        marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY, probabilityConfiguration,
+        probabilityConfigurationHash: researchHash(probabilityConfiguration) };
+    } else {
+      packet = buildChallengerRecommendation({ decision, quotes: quotes as ResearchQuote[], observedAt, competition: row.competition,
+        expectedIdentity: state.deployment,
+        ...(state.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}), allowedMarkets });
+    }
     const finalAt = this.clock().getTime();
     if (finalAt >= timestamp(row!.date)) return this.response(matchId, 'NOT_ELIGIBLE', 'match_started', row, state);
-    if (quotes.some((quote) => recommendationQuoteReason(quote, new Date(finalAt), 'C'))) {
+    if (quotes.some((quote) => recommendationQuoteReason(quote, new Date(finalAt), 'C', teamMarkets ? CHALLENGER_TEAM_MARKET_POLICY : undefined))) {
       return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
     }
     const expiresAt = Math.min(timestamp(forecastAt) + QUOTE_MAX_AGE_MS, timestamp(row!.date),
@@ -239,11 +300,13 @@ export class ChallengerPreviewService {
     const selected = packet.selected;
     const bookmakerName = 'bookmakerName' in selected && typeof selected.bookmakerName === 'string' ? selected.bookmakerName : null;
     const selectionLabel = 'selectionLabel' in selected && typeof selected.selectionLabel === 'string' ? selected.selectionLabel : null;
-    const quote = quotes.find((entry) => entry.selection === selected.selection && entry.odds === selected.bookmakerOdds
+    const quote = 'quote' in selected ? selected.quote as RecommendationQuote : quotes.find((entry) => entry.selection === selected.selection && entry.odds === selected.bookmakerOdds
       && (!bookmakerName || entry.bookmaker === bookmakerName));
     if (!quote) return this.response(matchId, 'UNAVAILABLE', 'challenger_recommendation_quote_mismatch', row, state);
     const diagnostics = selected as unknown as Record<string, unknown>;
-    result.quote = clone(quote);
+    result.quote = clone({ ...quote, ...('marketPolicyVersion' in packet ? { marketPolicyVersion: packet.marketPolicyVersion,
+      probabilityConfiguration: packet.probabilityConfiguration, probabilityConfigurationHash: packet.probabilityConfigurationHash,
+      ...('qualificationEvidence' in selected ? { qualificationEvidence: selected.qualificationEvidence as Record<string, unknown> } : {}) } : {}) });
     result.recommendationPacket = { decisionStatus: 'RECOMMENDED', selected: { selection: selected.selection,
       ...(typeof diagnostics.confidence === 'string' && ['HIGH', 'MEDIUM', 'LOW'].includes(diagnostics.confidence) ? { confidence: diagnostics.confidence } : {}),
       ...(typeof diagnostics.expectedValue === 'number' && Number.isFinite(diagnostics.expectedValue) ? { expectedValue: diagnostics.expectedValue } : {}),

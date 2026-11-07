@@ -57,3 +57,17 @@ test('future checks cannot attest evidence at forecast time', () => {
   const input = fixture(); input.modelC.artifact.checkedAt = '2026-11-06T12:01:00Z';
   assert.ok(evaluateFixtureAdmission(input).families.C.reasons.includes('c_artifact_unverified'));
 });
+
+test('C team parity requires A evidence and each statistical sample without enabling player props', () => {
+  const input = fixture(); input.modelC.teamMarketParity = true;
+  let result = evaluateFixtureAdmission(input);
+  assert.equal(result.markets.shots.C.eligible, true);
+  assert.equal(result.markets.player_props.C.eligible, false);
+  input.samples.red_cards.home = 0;
+  result = evaluateFixtureAdmission(input);
+  assert.equal(result.markets.booking_points.C.eligible, false);
+  assert.equal(result.markets.shots.C.eligible, true);
+  input.modelA.fittedState.verified = false;
+  assert.equal(evaluateFixtureAdmission(input).markets.shots.C.eligible, false);
+  assert.equal(evaluateFixtureAdmission(input).markets.goal.C.eligible, true);
+});

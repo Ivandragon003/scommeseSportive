@@ -57,23 +57,52 @@ Il selettore finale non applica una seconda calibrazione o un secondo blending. 
 
 Fonti: [CatBoost](../../backend/src/research/CatBoostModel.ts), [pipeline coerente](../../backend/src/research/CoherentProbabilityPipeline.ts), [configurazione](../../backend/src/research/ProbabilityConfiguration.ts). Le formule complete restano nel [formulario](../FORMULARIO-sistema-scommesse.md).
 
-## Mercati e due selettori
+## Mercati squadra e selettori
 
-Il feed corrente di C richiede `h2h`, `totals`, `spreads`: 1X2, over/under gol e handicap asiatico. Servono una quota reale ammissibile e uno stato consentito per mercato/versione nel registry. Calcolare BTTS, DNB o doppia chance non rende disponibili le quote mancanti. Gli altri mercati di A non vengono trasferiti automaticamente a C.
+Per la release corrente con selettore `canonical-binary-v1`, la composizione
+`c-team-markets-v1` estende i mercati squadra a 1X2, doppia chance, DNB,
+BTTS, totali gol, totali squadra, handicap europeo e asiatico, tiri, tiri in
+porta, gialli e cartellini totali. Questa copertura dipende dal deployment
+risolto e non modifica i deployment precedenti né le decisioni salvate.
 
-Il default `canonical-binary-v1`, chiamato `legacy-c906` nel builder, esclude quote con possibile rimborso o mezzo esito. Passa le probabilità C al `ValueBettingEngine` e al picker canonico, con seconda calibrazione e blending disabilitati. Confidenza e percentuale suggerita provengono dallo stesso motore di A, applicato alle probabilità proprie di C. La nuova Nightly dinamica conserva tale percentuale prima dell'override storico all'1%: non usa probabilità o stake di A per C. EV positivo da solo non supera necessariamente i filtri legacy.
+Per i mercati gol C usa la propria matrice finale coerente. Il rendimento è
+calcolato sui possibili risultati, inclusi rimborso, mezza vittoria e mezza
+perdita degli handicap: non si approssimano questi esiti come binari. La
+valutazione usa i filtri e il picker canonico; EV positivo da solo non basta.
 
-La causale globale `non_binary_payout_not_supported_by_canonical_engine` può comparire quando alcune quote sono state escluse e non emerge un consiglio: non prova che una giocata valida sia stata bloccata dalla Nightly.
+Per tiri, tiri in porta e cartellini la composizione usa invece le opportunità
+dello specialista A, qualificate con le stesse regole operative A, compresi
+campioni, calibrazione, qualità e quote. L'identità della configurazione
+`c-team-probability-configuration-v1` lega l'hash della configurazione gol C
+alla versione e agli hash di codice e configurazione dello specialista; la
+singola opportunità conserva anche l'hash del suo stato. Questa composizione
+non cambia l'artefatto, le feature o la calibrazione gol di C e non dimostra che
+le statistiche siano state apprese da C.
 
-Il candidato `payout-aware-v1` valuta direttamente la distribuzione dei ritorni, compresi rimborsi, mezze vittorie e mezze perdite. Il percorso ordinario richiede EV e crescita logaritmica positivi e ordina secondo crescita, EV, rischio e parità deterministica. La raccolta delle opportunità con stake di esecuzione separato non usa il veto sulla crescita logaritmica del precedente stake fisso; mantiene EV e gli altri criteri. Non usa il motore value o il picker di A. La varianza dei ritorni secondo il modello non è una stima dell'incertezza parametrica: confidenza e incertezza non disponibili restano esplicite, senza valori inventati. La percentuale candidata resta distinta dallo stake del percorso legacy e deve rispettare i controlli della policy di esecuzione.
+Servono quote prepartita reali, fresche al massimo cinque minuti, e un mercato
+consentito per la versione nel registro. Per i mercati gol il confronto usa
+una scheda completa e coerente dello stesso bookmaker e snapshot; non si
+inventano quote mancanti. Gli stati `EXPERIMENTAL`, `SHADOW` e `ACTIVE`
+consentono l'esecuzione, mentre un mercato assente o `SUSPENDED` la blocca.
+Per i cartellini totali il settlement usa gialli + 2 × rossi; se mancano le
+osservazioni necessarie resta irrisolto. La sola iscrizione `EXPERIMENTAL` non
+prova validazione o redditività. Corner e
+falli restano bloccati; correct score non entra nella selezione operativa e i
+player props seguono il percorso distinto già previsto per l'app.
 
-Il selettore candidato è operativo solo quando è quello del deployment risolto dal registro. Esclusioni e pacchetto congelato servono a distinguere assenza di consiglio, quote inadeguate e fallimenti tecnici.
+Il selettore `payout-aware-v1` resta disponibile solo quando il deployment lo
+richiede, con le proprie regole di ordinamento e liquidazione. I deployment
+precedenti mantengono il loro percorso e i rispettivi limiti; la nuova
+composizione non cambia retroattivamente le loro evidenze.
 
-Fonti: [raccomandazione](../../backend/src/research/ChallengerRecommendation.ts), [selettore candidato](../../backend/src/research/ChallengerSelection.ts), [liquidazione gol](../../backend/src/research/GoalSettlement.ts).
+Fonti: [composizione](../../backend/src/research/ChallengerTeamRecommendation.ts),
+[copertura](../../backend/src/research/ChallengerMarketCoverage.ts),
+[selettori](../../backend/src/research/ChallengerSelection.ts),
+[liquidazione](../../backend/src/research/AppRecommendationQuotes.ts).
 
 ## Esecuzione, anteprima e importo
 
-La Nightly considera tutte le selezioni C qualificate, senza limite di una giocata per partita o top N. La policy `funded-dynamic-stake-v1` applica la percentuale suggerita dal motore di C al patrimonio C iniziale del gruppo, disponibile più impegnato. Il saldo disponibile deve coprire gli importi completi, con priorità HIGH, MEDIUM, LOW, poi EV decrescente e chiave, senza tetto cumulativo del 5%. Una percentuale mancante o invalida non finanzia una giocata. Quote reali entro cinque minuti, kickoff, saldo, mercati liquidabili e duplicati vengono ricontrollati. Non invia puntate a bookmaker e non registra dopo il kickoff. Il vecchio percorso automatico C usava l'1% fisso: la percentuale dinamica C è un nuovo uso dell'output già calcolato dal motore, non il ripristino di un precedente comportamento operativo C.
+La Nightly considera tutte le selezioni C qualificate, senza limite di una giocata per partita o top N. La policy `funded-dynamic-stake-v1` applica la percentuale dell'opportunità qualificata al patrimonio C iniziale del gruppo, disponibile più impegnato. Il saldo disponibile deve coprire gli importi completi, con priorità HIGH, MEDIUM, LOW, poi EV decrescente e chiave, senza tetto cumulativo del 5%. Una percentuale mancante o invalida non finanzia una giocata. Quote reali entro cinque minuti, kickoff, saldo, mercati liquidabili e duplicati vengono ricontrollati. Non invia puntate a bookmaker e non registra dopo il kickoff. Il vecchio percorso automatico C usava l'1% fisso: per i mercati statistici la percentuale proviene dallo specialista condiviso; per i mercati gol dal motore applicato alla distribuzione C.
 
 L'anteprima su richiesta usa lo stesso deployment e selettore C con orario corrente, ma il suo servizio usa solo quote in cache. Non registra puntate o evidenze prospettiche e cede precedenza all'archivio Nightly anche quando questo compare durante il calcolo. La scheda Giocate può acquisire quote tramite una richiesta distinta dell'app.
 

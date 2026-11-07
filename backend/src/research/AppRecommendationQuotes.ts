@@ -2,7 +2,8 @@ import { PredictionService } from '../services/PredictionService';
 import { GoalSettlement, settleGoalQuote } from './GoalSettlement';
 import type { ResearchQuote } from './ResearchEvaluation';
 
-export type RecommendationQuote = Omit<ResearchQuote, 'market'> & { market: string };
+export type RecommendationQuote = Omit<ResearchQuote, 'market'> & { market: string; marketPolicyVersion?: string; probabilityConfiguration?: Record<string, any>;
+  probabilityConfigurationHash?: string; qualificationEvidence?: Record<string, any> };
 type QuoteEvidence = Omit<RecommendationQuote, 'selection' | 'market' | 'side' | 'line' | 'team'>;
 const unresolved = (): GoalSettlement => ({ status: 'UNRESOLVED', returnMultiplier: null });
 const compactLine = (raw: string): number => raw.includes('.') || raw.length === 1 ? Number(raw)

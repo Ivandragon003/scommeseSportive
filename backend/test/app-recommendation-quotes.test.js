@@ -69,3 +69,19 @@ test('missing, invalid and synthetic statistic evidence stays unresolved rather 
     assert.equal(settleAppRecommendationQuote({ ...quote, source: 'model_completion' }, match).status, 'UNRESOLVED');
   }
 });
+
+test('C statistical quotes require the new policy or complete manual evidence', () => {
+  const { researchHash } = require('../dist/research/ResearchStore');
+  const quote = appRecommendationQuote('shotsOver195', evidence), marker = 'c-team-markets-v1';
+  assert.equal(recommendationQuoteReason(quote, now, 'C'), 'unsupported_quote_settlement');
+  assert.equal(recommendationQuoteReason(quote, now, 'C', marker), null);
+  const model = { source: 'PredictionService', version: 'APP-A-test', codeHash: 'a'.repeat(64), configHash: 'b'.repeat(64), stateHash: 'c'.repeat(64) };
+  const goalConfiguration = { family: 'C' };
+  const config = { version: 'c-team-probability-configuration-v1', family: 'C', marketPolicyVersion: marker,
+    goalConfiguration, goalConfigurationHash: researchHash(goalConfiguration), sharedSpecialistModel: { ...model } };
+  const manual = { ...quote, marketPolicyVersion: marker, probabilityConfiguration: config,
+    probabilityConfigurationHash: researchHash(config), qualificationEvidence: { source: 'shared_A_specialist', model } };
+  assert.equal(require('../dist/research/ResearchRecommendationPolicy').validCStatEvidence(config, manual.qualificationEvidence), true);
+  assert.equal(recommendationQuoteReason(manual, now, 'C'), 'unsupported_quote_settlement');
+  assert.equal(recommendationQuoteReason({ ...manual, probabilityConfigurationHash: 'invalid' }, now, 'C'), 'unsupported_quote_settlement');
+});

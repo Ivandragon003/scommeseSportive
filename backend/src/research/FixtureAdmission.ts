@@ -17,7 +17,7 @@ export type FixtureAdmissionInput = {
   /** Actual, as-of input validation and fit/configuration checks, not source availability. */
   modelA: { inputs: AdmissionEvidence; fittedState: AdmissionEvidence; calibration: AdmissionEvidence };
   modelC: { inputs: AdmissionEvidence; fittedBaseline: AdmissionEvidence; artifact: AdmissionEvidence;
-    calibration: AdmissionEvidence; cleanBaseline: AdmissionEvidence };
+    calibration: AdmissionEvidence; cleanBaseline: AdmissionEvidence; teamMarketParity?: boolean };
   samples: Partial<Record<'general' | 'shots' | 'shots_on_target' | 'yellow_cards' | 'red_cards', AdmissionSamples>>;
   playerProps: AdmissionEvidence;
   marketCalibration: Partial<Record<AdmissionMarket, AdmissionEvidence>>;
@@ -79,7 +79,8 @@ export function evaluateFixtureAdmission(input: FixtureAdmissionInput): FixtureA
     const failures = fields[market].filter(field => !validSample(input.samples?.[field])).map(field => `market_sample_insufficient:${field}`);
     if (market === 'player_props') failures.push(...evidence(input.playerProps, 'player_props_unverified'));
     failures.push(...evidence(input.marketCalibration?.[market], 'market_calibration_sample_unverified'));
-    markets[market] = { A: result([...a, ...failures]), C: result([...c, ...(market === 'goal' ? [] : ['c_market_unsupported'])]),
+    const parity = input.modelC?.teamMarketParity === true && market !== 'goal' && market !== 'player_props';
+    markets[market] = { A: result([...a, ...failures]), C: result([...c, ...(market === 'goal' ? [] : parity ? [...a, ...failures] : ['c_market_unsupported'])]),
       quote: result(evidence(input.quotes?.[market], 'real_fresh_quote_unavailable')) };
   }
   return { asOf: input.asOf, matchId: fixture.matchId, common: result(common), families: { A: result(a), C: result(c) }, markets };

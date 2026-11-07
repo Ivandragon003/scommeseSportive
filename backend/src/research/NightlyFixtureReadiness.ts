@@ -13,6 +13,7 @@ import { applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash, COHE
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
 import { researchHash } from './ResearchStore';
 import { evaluateFixtureAdmission, FixtureAdmissionInput, AdmissionEvidence, AdmissionMarket } from './FixtureAdmission';
+import { usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
 import type { ChallengerExecutionState } from './ResearchRecommendationPolicy';
 
 type CalendarEntry = { providerMatchId: string; localMatchId: string | null; relatedLocalMatchIds?: string[]; action: string; reason: string | null;
@@ -157,7 +158,8 @@ export async function loadNightlyFixtureReadiness(db: Db, manifest: NightlySourc
     modelA: { inputs: ev(aInputs, 'a_team_xg_or_stats_missing'), fittedState: ev(fitted, 'a_fitted_state_missing_or_incompatible'),
       calibration: ev(calibrationGood, `a_calibration_${String(calibration?.status ?? 'error').toLowerCase()}`) },
     modelC: { inputs: ev(cInputs, 'c_team_history_xg_or_shots_missing'), fittedBaseline: ev(cReady, cReason), artifact: ev(cReady, cReason),
-      calibration: ev(cReady, cReason), cleanBaseline: ev(cReady, cReason) },
+      calibration: ev(cReady, cReason), cleanBaseline: ev(cReady, cReason),
+      teamMarketParity: usesChallengerTeamMarkets(deployment?.deployment) },
     samples, playerProps: ev(false, 'player_props_require_selection_specific_evidence'), marketCalibration, quotes: {} };
   return { admission: evaluateFixtureAdmission(input), evidence: { calendar: { attempt: feed?.attemptedAt, acquisition: feed?.acquiredAt,
     payloadSha256: feed?.payloadSha256, mappingSha256: feed?.mappingSha256, action: entry?.action, reason: entry?.reason },

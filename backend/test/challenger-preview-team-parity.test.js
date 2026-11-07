@@ -1,0 +1,70 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+const { ChallengerPreviewService } = require('../dist/research/ChallengerPreviewService');
+const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
+const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
+const { coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } = require('../dist/research/CoherentProbabilityPipeline');
+const { scoreMatrixMarkets } = require('../dist/research/GoalSettlement');
+const { researchHash } = require('../dist/research/ResearchStore');
+const at = '2026-10-31T12:00:00.000Z', matrix = [[.2,.2,0],[.6,0,0],[0,0,0]];
+const model = { source: 'PredictionService', version: `APP-A-${'a'.repeat(20)}`, codeHash: '1'.repeat(64), configHash: '2'.repeat(64), stateHash: '3'.repeat(64) };
+function fixture() {
+  const artifact = require('../current-models/challenger.json');
+  const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion, pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C });
+  const state = { deployment: { ...CURRENT_CHALLENGER_RELEASE }, revision: 'test', source: 'fallback' };
+  const row = { match_id: 'm1', date: '2026-10-31T20:00:00Z', competition: 'Serie A', season: '2026/2027', home_team_id: 'home', away_team_id: 'away', home_goals: null, away_goals: null };
+  const decision = { family: 'C', modelVersion: state.deployment.modelVersion, validated: true, forecastAt: at,
+    probabilityProtocol: COHERENT_PROBABILITY_PROTOCOL, calibrationPipelineHash: coherentProbabilityPipelineHash(), calibrationAvailableAt: at,
+    probabilityConfiguration: configuration.descriptor, probabilityConfigurationHash: configuration.hash,
+    prospectiveMatrix: matrix, probabilityStages: { decision: scoreMatrixMarkets(matrix) } };
+  const quotes = ['over', 'under'].map((side, i) => ({ selection: `cards_total_${side}_4.5`, market: 'cards_total', side, line: 4.5,
+    bookmaker: 'Book', source: 'odds_api', priceType: 'prematch', capturedAt: at, updatedAt: at, odds: i ? 1.8 : 2.5 }));
+  const sharedOdds = { odds: Object.fromEntries(quotes.map(q => [q.selection,q.odds])), bookmakerBySelection: Object.fromEntries(quotes.map(q => [q.selection,q.bookmaker])), source: 'odds_api', capturedAt: at };
+  const op = { selection: quotes[0].selection, marketName: 'Cards', marketCategory: 'yellow_cards', marketTier: 'CORE', confidence: 'MEDIUM', bookmakerOdds: 2.5, ourProbability: 60, expectedValue: 50, edge: 20, edgeNoVig: 10, kellyFraction: 3, suggestedStakePercent: 2, isValueBet: true, evReason: 'computed' };
+  const packet = { policyVersion: 'match-page-recommendation-v1', asOf: at, model, odds: { source: 'odds_api', capturedAt: at, bookmakerBySelection: sharedOdds.bookmakerBySelection }, probabilities: { raw: {}, decision: { [op.selection]: .6 } } };
+  const calls = { app: 0, predict: [] };
+  const db = { getMatchById: async () => row, research: { listLegacyDecisionViews: async () => [], listMarkets: async () => [{ market: 'cards_total', state: 'ACTIVE' }] },
+    recommendations: { listDecisionViews: async () => [] }, challengerAdoption: { getState: async () => state } };
+  const options = { clock: () => new Date(at), odds: { getOdds: async () => assert.fail('network'), getQuotaStatus: () => null },
+    runtimeFactory: () => ({ preparePreviewC: async job => ({ job, status: 'upcoming', kickoffAt: row.date, quotes: [], decisions: [decision] }) }),
+    appOdds: { load: async () => { calls.app++; return { quotes, sharedOdds, sheets: [{ quotes, sharedOdds }], metadata: {} }; } },
+    predictionService: { predict: async (request, options) => { calls.predict.push({ request, options }); return { canonicalRecommendation: packet, valueOpportunities: [op] }; } } };
+  return { service: new ChallengerPreviewService(db, options), calls, options, decision, quotes, packet, state, op, db };
+}
+test('current C preview uses qualified shared booking points and persists its exact provenance', async () => {
+  const f = fixture(), result = await f.service.preview('m1');
+  assert.equal(result.status, 'RECOMMENDED', JSON.stringify(result)); assert.equal(result.quote.market, 'cards_total');
+  assert.equal(result.quote.marketPolicyVersion, 'c-team-markets-v1');
+  assert.equal(result.quote.qualificationEvidence.source, 'shared_A_specialist');
+  assert.equal(result.quote.qualificationEvidence.model.stateHash, model.stateHash);
+  assert.equal(result.quote.probabilityConfigurationHash, researchHash(result.quote.probabilityConfiguration));
+  assert.equal(f.calls.predict[0].options.recordAudit, false); assert.equal(f.calls.predict[0].options.suppressProspective, true);
+  assert.equal(f.calls.predict[0].options.sharedOdds.source, 'odds_api');
+});
+test('failed C never loads specialist data; missing real quotes never fabricate advice', async () => {
+  const bad = fixture(); bad.decision.validated = false;
+  assert.equal((await bad.service.preview('m1')).status, 'UNAVAILABLE'); assert.equal(bad.calls.app, 0); assert.equal(bad.calls.predict.length, 0);
+  const absent = fixture(); absent.quotes.splice(0);
+  const result = await absent.service.preview('m1'); assert.equal(result.status, 'UNAVAILABLE'); assert.equal(result.quote, null);
+});
+test('stale and synthetic specialist quotes do not enter preview', async () => {
+  for (const change of [{ source: 'odds_api_plus_model_completion' }, { updatedAt: '2026-10-31T11:54:00Z' }]) {
+    const f = fixture(); f.quotes.forEach(q => Object.assign(q, change));
+    const result = await f.service.preview('m1'); assert.equal(result.status, 'UNAVAILABLE'); assert.equal(result.quote, null);
+  }
+});
+
+
+
+test('the full app quote provider is configured cache-only by default', () => {
+  const providerModule = require('../dist/services/odds-provider/OddsApiProvider');
+  const original = providerModule.OddsApiProvider, captured = [];
+  try {
+    providerModule.OddsApiProvider = class { constructor(_key, options) { captured.push(options); } };
+    const f = fixture();
+    new ChallengerPreviewService(f.db, { clock: f.options.clock, odds: f.options.odds, runtimeFactory: f.options.runtimeFactory,
+      predictionService: f.options.predictionService });
+    assert.equal(captured.length, 1); assert.equal(captured[0].allowNetwork, false);
+    assert.equal(captured[0].cacheMaxAgeMs, 300000);
+  } finally { providerModule.OddsApiProvider = original; }
+});

@@ -19,11 +19,45 @@ operazioni diverse.
 | `research-experiments.js` | Registro diagnostico su SQLite locale esplicito; rifiuta URL remoti |
 | `research-lifecycle.js register/register-candidate/review-challenger/rollback-health` | Accede al database e può modificare registro o deployment C |
 | `research.js register-market` | Registra benchmark e stato del mercato sul database |
+| `enable-challenger-team-markets.js` | Piano in sola lettura; applicazione esplicita e separata per registrare i mercati C mancanti come sperimentali |
 
 Le scritture non sono passaggi impliciti di un benchmark locale. Il workflow
 [research-training.yml](../.github/workflows/research-training.yml) contiene passi
 separati, subordinati a `RESEARCH_REGISTRY_WRITES_ENABLED`. La configurazione non
 dimostra che l'ultimo training o l'adozione siano riusciti.
+
+## Registrare la copertura squadra C
+
+La composizione `c-team-markets-v1` riguarda la release corrente con selettore
+canonico e mantiene distinta la configurazione gol C dallo specialista A per
+le statistiche. La copertura nel codice non abilita da sola un mercato nel
+database: il registro deve contenere la versione e lo stato ammissibile.
+L'iscrizione `EXPERIMENTAL` è un'abilitazione tecnica, non una promozione
+scientifica o economica. Quote reali, campioni e calibrazione restano necessari;
+le categorie bloccate rimangono tali. Vedi [Modello C](models/MODEL-C.md).
+
+Compilare il backend, configurare nell'ambiente privato l'URL canonico e il
+solo `TURSO_WATCHDOG_READONLY_TOKEN`, quindi eseguire da `backend`:
+
+```powershell
+node scripts/enable-challenger-team-markets.js
+```
+
+Il piano mostra versione, hash modello e schema, stati correnti, mercati mancanti
+e hash del piano. Non avvia l'applicazione né scrive sul database. Per applicare
+serve una **autorizzazione distinta**, dopo aver verificato il piano e creato un
+[backup completo con restore verificato](operations/turso-backup.md). Con il
+token di scrittura nell'ambiente privato, il comando esplicito è:
+
+```powershell
+node scripts/enable-challenger-team-markets.js --apply --expected-plan-hash <hash-del-piano> --backup-manifest <percorso-manifest.json>
+```
+
+Il comando verifica host, hash di dump e restore, schema, modello e snapshot del
+registro; ricalcola il piano in transazione e si arresta se è cambiato. Inserisce
+solo i mercati mancanti come `EXPERIMENTAL` e aggiunge gli eventi corrispondenti;
+non sovrascrive stati esistenti né riattiva `SUSPENDED`. Nessun backup o comando
+di applicazione è implicito nel piano o nella presenza dello script.
 
 ## Dati ammessi e cronologia
 

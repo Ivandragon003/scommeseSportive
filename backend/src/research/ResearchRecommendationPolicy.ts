@@ -3,6 +3,8 @@ import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported, RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { quoteFreshnessReason } from './T15Scheduler';
+import { CHALLENGER_TEAM_MARKET_POLICY, usesChallengerTeamMarkets, isChallengerStatMarket } from './ChallengerMarketCoverage';
+import { researchHash } from './ResearchStore';
 import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
 export const RECOMMENDATION_MODEL_C = CURRENT_CHALLENGER_RELEASE.modelVersion;
@@ -47,6 +49,7 @@ export function challengerExecutionPolicy(state: ChallengerExecutionState) {
   return { ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v3',
     familyC: { ...VIRTUAL_RECOMMENDATION_POLICY.familyC, ...state.deployment,
       deploymentRevision: state.revision, deploymentSource: state.source,
+      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY } : {}),
       ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 
@@ -63,6 +66,7 @@ export function paperExecutionPolicy(state: ChallengerExecutionState) {
   const base = PAPER_RECOMMENDATION_POLICY;
   return { ...base, familyC: { ...base.familyC, ...state.deployment,
     deploymentRevision: state.revision, deploymentSource: state.source,
+      ...(usesChallengerTeamMarkets(state.deployment) && !state.resolutionUnavailable ? { marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY } : {}),
     ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 
@@ -115,12 +119,30 @@ export function isDynamicFundedPolicy(policy: any): boolean {
     && !!policy.familyC.modelVersion.trim();
 }
 
-export function recommendationQuoteReason(quote: RecommendationQuote, now: Date, family: 'A' | 'C' = 'C'): string | null {
+export function validCStatEvidence(configuration: any, qualification: any): boolean {
+  const specialist = configuration?.sharedSpecialistModel, model = qualification?.model;
+  const hash = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
+  return configuration?.version === 'c-team-probability-configuration-v1' && configuration.family === 'C'
+    && configuration.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
+    && configuration.goalConfiguration?.family === 'C' && hash(configuration.goalConfigurationHash)
+    && researchHash(configuration.goalConfiguration) === configuration.goalConfigurationHash
+    && specialist?.source === 'PredictionService' && typeof specialist.version === 'string' && !!specialist.version.trim()
+    && hash(specialist.codeHash) && hash(specialist.configHash) && qualification?.source === 'shared_A_specialist'
+    && model?.source === specialist.source && model.version === specialist.version && model.codeHash === specialist.codeHash
+    && model.configHash === specialist.configHash && hash(model.stateHash);
+}
+
+export function recommendationQuoteReason(quote: RecommendationQuote, now: Date, family: 'A' | 'C' = 'C', marketPolicy?: string): string | null {
   if (!quote || quote.source !== 'odds_api' || quote.priceType !== 'prematch'
     || quote.timestampEvidence === 'observed_snapshot') return 'real_prematch_quote_required';
   const freshness = quoteFreshnessReason({ ...quote, updatedAt: quote.updatedAt ?? '' }, now.getTime());
   if (freshness) return freshness;
-  if (family === 'A' ? !appQuoteSettlementSupported(quote)
+  const quotePolicy = quote.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
+    && isChallengerStatMarket(quote.market)
+    && quote.probabilityConfiguration?.goalConfigurationHash === CURRENT_CHALLENGER_RELEASE.probabilityConfigurationHash
+    && validCStatEvidence(quote.probabilityConfiguration, quote.qualificationEvidence)
+    && quote.probabilityConfigurationHash === researchHash(quote.probabilityConfiguration);
+  if (family === 'A' || marketPolicy === CHALLENGER_TEAM_MARKET_POLICY || quotePolicy ? !appQuoteSettlementSupported(quote)
     : settleGoalQuote(quote as ResearchQuote, 0, 0).status === 'UNRESOLVED') return 'unsupported_quote_settlement';
   return null;
 }

@@ -1,3 +1,4 @@
+import { CHALLENGER_TEAM_MARKET_POLICY, isChallengerStatMarket } from './ChallengerMarketCoverage';
 import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import { ResearchStore, researchHash, researchJson, ResearchFamily } from './ResearchStore';
@@ -6,7 +7,7 @@ import { appQuoteSettlementSupported } from './AppRecommendationQuotes';
 import { isPaperPolicy, listPaperBetViews, PaperReadOptions, PaperSelection, PAPER_ACCOUNTING_MODE, PAPER_POLICY_VERSION } from './PaperModelBetLedger';
 import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
 import { FUNDED_ACCOUNTING_MODE, FUNDED_POLICY_VERSION, isFundedPolicy, DYNAMIC_FUNDED_POLICY_VERSION,
-  DYNAMIC_STAKE_MODE, isDynamicFundedPolicy } from './ResearchRecommendationPolicy';
+  DYNAMIC_STAKE_MODE, isDynamicFundedPolicy, validCStatEvidence } from './ResearchRecommendationPolicy';
 import { listFundedBetViews } from './FundedModelBetLedger';
 import { allocateConfidenceStakes } from './ConfidenceStake';
 import { allocateDynamicStakes } from './DynamicModelStake';
@@ -339,10 +340,10 @@ export class ResearchRecommendationStore {
     if (now < Date.parse(job.windowStartAt) || now >= Date.parse(job.windowEndAt) || now >= Date.parse(job.kickoffAt)) throw new Error('Execution commit window closed');
   }
 
-  private quoteReason(quote: any, observed: number, now: number, kickoff: number, family: ResearchFamily = 'C'): string | null {
+  private quoteReason(quote: any, observed: number, now: number, kickoff: number, family: ResearchFamily = 'C', marketPolicy?: string): string | null {
     if (!quote || quote.source !== 'odds_api' || quote.usedSyntheticOdds === true || quote.timestampEvidence === 'observed_snapshot'
       || quote.priceType !== 'prematch' || !String(quote.bookmaker ?? '').trim() || !Number.isFinite(quote.odds) || quote.odds <= 1) return 'real_fresh_quote_required';
-    if (family === 'A' ? !appQuoteSettlementSupported(quote)
+    if (family === 'A' || marketPolicy === CHALLENGER_TEAM_MARKET_POLICY ? !appQuoteSettlementSupported(quote)
       : settleGoalQuote(quote, 0, 0).status === 'UNRESOLVED') return 'market_settlement_not_supported';
     for (const value of [quote.capturedAt, quote.updatedAt]) {
       const time = typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
@@ -405,7 +406,7 @@ export class ResearchRecommendationStore {
       if (!child || typeof child !== 'object' || !child.quote) {
         rejected.push({ selection: child?.selection ?? null, reason: 'selection_quote_mismatch' }); continue;
       }
-      const quote = child.quote, quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family);
+      const quote = child.quote, quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family, policy.descriptor.familyC?.marketPolicyVersion);
       if (quoteReason) reject(quoteReason);
       if (!Number.isSafeInteger(Math.round(100 * quote.odds))) reject('invalid_paper_return');
       if (child.modelVersion !== undefined && child.modelVersion !== decision.modelVersion) reject('policy_model_version_mismatch');
@@ -420,6 +421,10 @@ export class ResearchRecommendationStore {
       // The disabled market categories remain excluded, even if a caller fabricates a candidate.
       if (typeof child.market !== 'string' || ['corners', 'fouls', 'correct_score', 'exact_score'].includes(child.market)
         || child.market.startsWith('player_')) reject('market_not_allowed_for_virtual_execution');
+      if (decision.family === 'C' && isChallengerStatMarket(child.market)
+        && (policy.descriptor.familyC?.marketPolicyVersion !== CHALLENGER_TEAM_MARKET_POLICY
+          || !validCStatEvidence(configuration, child.qualificationEvidence)
+          || configuration.goalConfigurationHash !== policy.descriptor.familyC?.probabilityConfigurationHash)) reject('probability_configuration_identity_required');
       if (decision.family === 'C') {
         const market = await first(tx, 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', [decision.family, decision.modelVersion, child.market]);
         if (!market || !['EXPERIMENTAL', 'SHADOW', 'ACTIVE'].includes(market.state)) reject('market_not_allowed_for_virtual_execution');
@@ -612,7 +617,7 @@ export class ResearchRecommendationStore {
     iso(now); if (!prepared.length) return { decisions: [], bets: [], jobs: [] };
     if (new Set(prepared.map((item) => item.jobId)).size !== prepared.length) throw new Error('Duplicate execution job in batch');
     await this.ensureGuards();
-    const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily }> = [];
+    const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily; marketPolicy?: string }> = [];
     return this.research.runResearchTransaction(async (transaction) => {
       const bulk = await this.preparePaperBatch(transaction, prepared);
       const tx: Executor = bulk?.executor ?? transaction;
@@ -709,7 +714,7 @@ export class ResearchRecommendationStore {
           }
           const paper = await this.commitPaperDecision(tx, plan, paperQuoteChecks.get(item)!, { fundedAllocations });
           decisions.push(paper.decision); bets.push(...paper.bets);
-          for (const quote of paper.quotes) finalChecks.push({ job, token: item.leaseToken, quote, observed: Date.parse(item.inputSnapshot.observedAt), family: decision.family });
+          for (const quote of paper.quotes) finalChecks.push({ job, token: item.leaseToken, quote, observed: Date.parse(item.inputSnapshot.observedAt), family: decision.family, marketPolicy: plan.policy.descriptor.familyC?.marketPolicyVersion });
           continue;
         }
         const portfolio = await first(tx, `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
@@ -737,7 +742,11 @@ export class ResearchRecommendationStore {
           abstain('probability_configuration_identity_required');
         }
         const observed = Date.parse(item.inputSnapshot.observedAt), quote = decision.quote;
-        const quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family); if (quoteReason) abstain(quoteReason);
+        const quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family, plan.policy.descriptor.familyC?.marketPolicyVersion); if (quoteReason) abstain(quoteReason);
+        if (decision.family === 'C' && isChallengerStatMarket(decision.market ?? '')
+          && (plan.policy.descriptor.familyC?.marketPolicyVersion !== CHALLENGER_TEAM_MARKET_POLICY
+            || !validCStatEvidence(configuration, decision.qualificationEvidence)
+            || configuration.goalConfigurationHash !== plan.policy.descriptor.familyC?.probabilityConfigurationHash)) abstain('probability_configuration_identity_required');
         if (quote && !item.inputSnapshot.quotes.some((shared: any) => researchHash(shared) === researchHash(quote))) abstain('quote_not_in_shared_snapshot');
         if (!decision.selection?.trim() || quote?.selection !== decision.selection || quote?.market !== decision.market) abstain('selection_quote_mismatch');
         const percent = decision.family === 'C' ? 1 : decision.suggestedStakePercent;
@@ -771,7 +780,7 @@ export class ResearchRecommendationStore {
           bets.push({ id: betId, decisionId: decision.originDecisionId, originDecisionId: decision.originDecisionId, executionDecisionId: id,
             effectiveExecutionDecisionId: id, portfolioId, matchId: job.matchId, family: decision.family, modelVersion: decision.modelVersion,
             market: decision.market, selection: decision.selection, odds: quote.odds, stakeCents, snapshot: evidence, placedAt: createdAt, status: 'PENDING' });
-          finalChecks.push({ job, token: item.leaseToken, quote, observed, family: decision.family });
+          finalChecks.push({ job, token: item.leaseToken, quote, observed, family: decision.family, marketPolicy: plan.policy.descriptor.familyC?.marketPolicyVersion });
         }
       }
       for (const entry of finalChecks) this.assertLease(entry.job, entry.token, this.clock().getTime());
@@ -784,7 +793,7 @@ export class ResearchRecommendationStore {
     }, () => {
       for (const entry of finalChecks) {
         const at = this.clock().getTime(); this.assertLease(entry.job, entry.token, at);
-        if (entry.quote && this.quoteReason(entry.quote, entry.observed, at, Date.parse(entry.job.kickoffAt), entry.family)) throw new Error('Execution quote expired before commit');
+        if (entry.quote && this.quoteReason(entry.quote, entry.observed, at, Date.parse(entry.job.kickoffAt), entry.family, entry.marketPolicy)) throw new Error('Execution quote expired before commit');
       }
     });
   }

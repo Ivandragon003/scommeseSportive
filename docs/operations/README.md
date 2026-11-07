@@ -44,9 +44,9 @@ si conserva il migliore prezzo già qualificato. A e C restano separati.
 Le quote dei bookmaker già acquisite sono qualificate prima di scegliere il
 migliore prezzo ammissibile; non si aumenta il numero di chiamate per selezione.
 
-Ogni modello fornisce la propria percentuale dinamica suggerita: A usa i
-controlli Kelly/rischio esistenti; C conserva la percentuale calcolata dal
-motore sulle probabilità proprie prima dell'override storico all'1%. Non è
+Ogni opportunità fornisce la propria percentuale dinamica suggerita: A usa i
+controlli Kelly/rischio esistenti; per i mercati gol C usa il motore sulle
+proprie probabilità, mentre per le statistiche usa lo specialista A condiviso. Non è
 la mappa fissa LOW 1% / MEDIUM 3% / HIGH 5%. La percentuale valida, espressa
 con due decimali, si applica al **patrimonio della famiglia a inizio gruppo**,
 cioè saldo disponibile più importo già impegnato, letto nella transazione.
@@ -89,6 +89,9 @@ Nessun percorso trasmette puntate a un bookmaker.
 Restano obbligatori dati affidabili, quota reale recente, identità, timing
 prepartita, configurazione/versione del modello, idempotenza e budget API.
 I mercati disabilitati e i player props non diventano automaticamente ammessi.
+Per la copertura squadra della release corrente C e la registrazione esplicita
+dei mercati vedi [Modello C](../models/MODEL-C.md) e
+[Research](../research-platform.md#registrare-la-copertura-squadra-c).
 La modalità finanziata sopprime la registrazione prospettica opzionale delle sue
 inferenze aggiuntive: non avvia né modifica il pilot scientifico.
 

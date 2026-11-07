@@ -6,6 +6,7 @@ import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
 import { normalizeScoreMatrix, scoreMatrixMarkets, settleGoalQuote } from './GoalSettlement';
+import { CHALLENGER_TEAM_MARKET_POLICY } from './ChallengerMarketCoverage';
 import { settleAppRecommendationQuote } from './AppRecommendationQuotes';
 import { CoherentCalibrationMode, CoherentCalibrationProfile, COHERENT_PROBABILITY_PROTOCOL, applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash } from './CoherentProbabilityPipeline';
 import { researchHash } from './ResearchStore';
@@ -149,7 +150,10 @@ export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: numb
     const homeGoals = observedGoals(match.home_goals), awayGoals = observedGoals(match.away_goals);
     if (homeGoals === null || awayGoals === null) { summary.unresolved++; continue; }
     const quote = bet.snapshot?.quote;
-    const appExecution = bet.family === 'A' && (!!bet.executionDecisionId || bet.snapshot?.decisionMode === 'MANUAL');
+    const appExecution = (!!bet.executionDecisionId || bet.snapshot?.decisionMode === 'MANUAL')
+      && (bet.family === 'A' || bet.family === 'C' && (bet.snapshot?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
+        || bet.snapshot?.probabilityConfiguration?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
+        || bet.snapshot?.quote?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY));
     const outcome = appExecution ? settleAppRecommendationQuote(quote, { ...match, home_goals: homeGoals, away_goals: awayGoals })
       : settleGoalQuote(quote, homeGoals, awayGoals);
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }
