@@ -28,7 +28,7 @@ numerici non lo sono. Le medie possono invece essere frazionarie.
 |---|---|
 | `UnderstatScraper` | Roster assente, vuoto o incompleto non prova zero cartellini. Ogni campo ha disponibilità indipendente. Le righe giocatore conservano le altre metriche utilizzabili anche quando un campo è assente. |
 | Shotmap | I tiri in porta richiedono roster e shotmap coerenti, risultati riconosciuti e nessun ID evento esplicitamente duplicato. Il conteggio eventi esclusi gli autogol deve corrispondere ai tiri dichiarati dal roster. Zero tiri dichiarati e shotmap vuota sono evidenza di zero; shotmap assente non lo è. |
-| Autogol | `OwnGoal` non è tiro in porta né tiro del giocatore. Il totale squadra conserva la precedente semantica della lunghezza della shotmap, comprensiva degli autogol; non si riscrive lo storico con una nuova definizione. |
+| Autogol | `OwnGoal` non è un tiro squadra, un tiro in porta o un tiro del giocatore. Il totale squadra esclude questi eventi, come il conteggio del roster. La correzione dell'import non riscrive automaticamente lo storico: i valori precedenti richiedono una revisione con referti ufficiali. |
 | CSV supplementare | I conteggi non validi diventano mancanti. Matching, quote e priorità delle fonti restano separati. |
 | `DatabaseService.upsertMatch` | Il `COALESCE` che conserva una misura già nota è intenzionale: il supplemento non sovrascrive Understat, incluso uno zero vero. Nessuna sostituzione generale di tutti i `COALESCE`. |
 | Profili giocatore | Import stagione e ricostruzione derivata registrano contatori per campo in `stats_json.coverage`. Le medie usano solo le osservazioni valide; i campi mai osservati restano null. Non si riusa un vecchio totale cartellini come se appartenesse al nuovo aggregato. |
@@ -57,6 +57,22 @@ La prova originale resta conservata anche se il payload operativo viene
 aggiornato. Revisioni dei valori protetti richiedono una manutenzione esplicita;
 la normale sincronizzazione non le esegue.
 
+Una manutenzione esplicitamente richiesta può completare campi NULL e
+correggere discrepanze non protette dimostrate da un referto ufficiale del
+campionato, senza attivarlo come nuovo feed.
+Richiede identità, data e definizioni concordanti, copia originale con hash,
+piano revisionato, backup e prova locale di rollback. Valori e provenienza
+sono scritti insieme e i campi supportati vengono protetti nella stessa
+transazione. Un risultato assegnato a tavolino resta distinto dal punteggio
+giocato: non si sostituiscono automaticamente gol, xG o vecchi esiti.
+Differenze di sola punteggiatura nel nome dell'arbitro possono essere
+riconciliate nell'audit, preservando il nome originale.
+
+Il contratto di protezione corrente non include il possesso. Eventuali
+percentuali trovate in un referto restano nella prova acquisita finché
+provenienza e protezione non sono supportate nel percorso di persistenza;
+la loro presenza non autorizza un import generale da un altro fornitore.
+
 Il possesso e gli altri campi senza prova sufficiente non diventano verificati
 perché valorizzati. Il blocco attesta la prova acquisita e la sua conservazione,
 non l'infallibilità del provider. Il piano di
@@ -70,6 +86,64 @@ alla linea. Le quote legacy `shots_total_*` con linea almeno 8 prive di prova
 del mercato originario sono escluse dalle letture operative e storiche, con
 motivo esplicito; non vengono trasformate arbitrariamente in quote goal. I
 payload originali restano conservati come evidenza, non come prezzi convalidati.
+
+## Revisione puntuale di discrepanze con referti ufficiali
+
+`backend/scripts/reconcile-official-observations.js` è uno strumento di
+manutenzione esplicita: non scarica referti, non avvia l'app e non rende una
+fonte ufficiale un feed. La revisione umana deve accertare identità, risultato,
+definizione della statistica e contenuto dei documenti originali; un hash prova
+l'integrità del file acquisito, non l'esattezza della sua interpretazione.
+Il perimetro è vincolato alle 224 discrepanze numeriche dello snapshot revisionato;
+sono ammessi solo tiri, tiri in porta, gialli e rossi. Un valore già protetto
+diverso dal referto blocca l'operazione e non viene sbloccato automaticamente.
+
+Il manifest privato `official-observation-review-v1` contiene `reviewedAt`,
+`scope` con tutti i 224 elementi originali nell'ordine originale (`matchId`,
+`field`, `database`, `csv`) e `decisions` per i soli casi accertati. Ogni
+decisione contiene `matchId`, `field`, `expectedValue`, `officialValue`,
+`decision` (`correct` oppure `confirm`), `documents` con `url`, `file`,
+`sha256`, `acquiredAt`, e `evidence` con `identity` (data, competizione,
+stagione, squadre e goal come nella riga DB), `definition`, `label`, `jsonPath`
+e `snippet`. Per una prova HTML, `jsonPath` contiene un riferimento esplicito
+alla sezione e all'etichetta visibile, senza inventare un percorso JSON.
+Le prove complete conservano anche le trasformazioni documentate, per esempio
+l'esclusione del giallo precedente all'espulsione dello stesso giocatore.
+I nomi delle proprietà di `identity` sono `date`, `competition`,
+`season`, `home`, `away`, `homeGoals`, `awayGoals`. I percorsi locali dei
+documenti sono risolti rispetto alla directory corrente. Il file separato
+`approved-hosts` è un array JSON di hostname HTTPS esatti, selezionati dopo
+verifica della fonte ufficiale. Manifest, documenti, elenco host, piano e
+ricevute sono artefatti privati e non vanno inclusi in Git.
+
+Da root, creare prima un piano su una copia locale esistente:
+
+```powershell
+node backend/scripts/reconcile-official-observations.js --plan <piano.json> --manifest <manifest.json> --approved-hosts <hosts.json> --database <copia.db>
+```
+
+Per una lettura remota usare `--expected-host` con l'host canonico e
+`TURSO_WATCHDOG_READONLY_TOKEN`. Verificare separatamente il piano, le prove e il
+backup ripristinabile prima di un'eventuale applicazione autorizzata:
+
+```powershell
+node backend/scripts/reconcile-official-observations.js --apply <piano.json> --manifest <manifest.json> --approved-hosts <hosts.json> --database <copia.db> --expected-plan-hash <sha256> --backup-manifest <backup-manifest.json> --before <prima.json> --receipt <ricevuta.json>
+```
+
+Per il target remoto sostituire `--database` con `--expected-host` e usare la
+configurazione Turso prevista. I file di piano, prima e ricevuta devono essere
+nuovi. Il piano lega hash dei documenti, manifest, host, righe, osservazioni e
+trigger; applicazione e nuove protezioni sono in un'unica transazione, con
+controllo della coerenza tiri/tiri in porta e delle chiavi esterne. La copia
+`prima` conserva le righe originali anche in caso di rollback. La verifica
+locale non dimostra che una modifica remota sia stata eseguita.
+
+Non si sceglie automaticamente tra Understat e CSV: il referto può confermare
+uno dei due o dimostrare un terzo valore. Se il totale ufficiale non chiarisce
+l'inclusione dei tiri bloccati, oppure i cartellini comprendono persone dalla
+panchina senza una distinzione compatibile, il campo resta invariato e fuori
+dalle nuove protezioni. Non si ricostruisce il totale sommando categorie
+parziali. Una conferma documentata conserva il valore e aggiunge la protezione.
 
 ## Aggregazioni e campioni
 

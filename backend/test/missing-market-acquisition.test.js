@@ -168,20 +168,22 @@ test('Understat duplicate explicit shot identities cannot establish total or SOT
   assert.deepEqual([legacy.homeTotalShots, legacy.homeShotsOnTarget], [2, 1]);
 });
 
-test('Understat own-goal events do not create false roster shot-count mismatches', async () => {
+test('Understat own goals do not count as team shots or create roster mismatches', async () => {
   const detail = details();
   detail.shots.h = [{ player_id: '1', result: 'OwnGoal', xG: '0.1' }];
   const ownGoalOnly = await scrape(detail);
   const player = ownGoalOnly.playerStats.find(entry => entry.sourcePlayerId === 1);
   assert.deepEqual([player.shots, player.shotsOnTarget, player.xgot], [0, 0, 0]);
-  // Keep the existing team total's event-count semantics, including own goals.
-  assert.deepEqual([ownGoalOnly.homeTotalShots, ownGoalOnly.homeShotsOnTarget], [1, 0]);
+  assert.deepEqual([ownGoalOnly.homeTotalShots, ownGoalOnly.homeShotsOnTarget], [0, 0]);
   detail.rosters.h['1'].shots = '1';
   detail.shots.h.push({ player_id: '1', result: 'SavedShot', xG: '0.3' });
   const withSavedShot = await scrape(detail);
   const withShot = withSavedShot.playerStats.find(entry => entry.sourcePlayerId === 1);
   assert.deepEqual([withShot.shots, withShot.shotsOnTarget, withShot.xgot], [1, 1, 0.3]);
-  assert.deepEqual([withSavedShot.homeTotalShots, withSavedShot.homeShotsOnTarget], [2, 1]);
+  assert.deepEqual([withSavedShot.homeTotalShots, withSavedShot.homeShotsOnTarget], [1, 1]);
+  detail.shots.a = [{ player_id: '101', result: 'OwnGoal', xG: '0.1' }];
+  const bothSides = await scrape(detail);
+  assert.deepEqual([bothSides.homeTotalShots, bothSides.awayTotalShots], [1, 0]);
   detail.rosters.h['1'].shots = '2';
   const unexplained = await scrape(detail);
   assert.equal(unexplained.playerStats.find(entry => entry.sourcePlayerId === 1).shotsOnTarget, null);

@@ -22,6 +22,16 @@ non modifica matches/teams, non attiva il collector scientifico e non promuove
 snapshot a input predittivi. Nessun risultato alternativo sostituisce
 silenziosamente un valore primario.
 
+Il payload originale delle partite football-data.org può includere anche
+`referees`; il formato normalizzato del collector di calendario non conserva
+questo campo. Una manutenzione esplicita può recuperarne il solo arbitro
+principale (`type=REFEREE`) quando è univoco e il campo operativo è NULL.
+Richiede partita conclusa, punteggio, data e mapping revisionato concordanti,
+prova originale conservata, cache ancora valida e protezione del valore
+nella stessa transazione. Nomi esistenti e identità in quarantena restano
+preservati. Questo riuso non attiva un nuovo import automatico né attesta
+la disponibilità delle statistiche comprese negli add-on del provider.
+
 ## Alternative esaminate
 
 Il percorso operativo opt-in è ora collegato alla Nightly tramite

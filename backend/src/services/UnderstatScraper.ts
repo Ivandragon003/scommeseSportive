@@ -382,7 +382,7 @@ export class UnderstatScraper {
         && Boolean(String(shot.player_id ?? '').trim()))
         && rosterTotal !== null && rosterTotal === countedShots;
       return {
-        total: complete ? shots.length : null,
+        total: complete ? countedShots : null,
         onTarget: complete && shots.every((shot) => SHOT_RESULTS.has(String(shot?.result ?? '').trim()))
           ? shots.filter((shot) => ON_TARGET_RESULTS.has(String(shot?.result ?? '').trim())).length
           : null,
