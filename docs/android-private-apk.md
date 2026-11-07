@@ -1,8 +1,8 @@
 # FootPredictor Android: APK privato
 
 L'app include gli asset React compilati e usa le API condivise. Il sorgente
-[Gradle](../frontend/android/app/build.gradle) dichiara versione **1.1.11**,
-`versionCode=13`, package `it.footpredictor.personal`, release non debuggabile.
+[Gradle](../frontend/android/app/build.gradle) dichiara versione **1.1.12**,
+`versionCode=14`, package `it.footpredictor.personal`, release non debuggabile.
 Questo numero non attesta un APK generato, distribuito o installato: tali
 stati richiedono il controllo dell'artefatto e del dispositivo effettivi.
 Una modifica web non autorizza automaticamente la build o distribuzione APK.
