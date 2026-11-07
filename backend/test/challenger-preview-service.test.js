@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { ChallengerPreviewService } = require('../dist/research/ChallengerPreviewService');
-const { fallbackChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
+const { baselineManifest } = require('../dist/research/ForecastCore');
 const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
 const { COHERENT_PROBABILITY_PROTOCOL, coherentProbabilityPipelineHash } = require('../dist/research/CoherentProbabilityPipeline');
 const { scoreMatrixMarkets } = require('../dist/research/GoalSettlement');
@@ -10,9 +10,16 @@ const at = '2026-10-31T12:00:00.000Z';
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const matrix = [[.2, .2, 0], [.6, 0, 0], [0, 0, 0]];
 function fixture() {
+  const baselineVersion = baselineManifest().version;
+  const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion,
+    pipelineHashV2: coherentProbabilityPipelineHash(), mode: 'identity' });
   const f = { now: Date.parse(at), row: { match_id: 'm1', date: '2026-10-31T20:00:00Z', competition: 'Serie A',
     season: '2026/2027', home_team_id: 'home', away_team_id: 'away', home_goals: null, away_goals: null },
-  state: fallbackChallengerState(), archived: false, legacy: false, beforePrepare: null, preparedOverride: null,
+  // This injected runtime returns synthetic identity-calibrated decisions, not the current release artifact.
+  state: { deployment: { modelVersion: 'C-preview-service-fixture', baselineVersion,
+    selectorPolicy: 'canonical-binary-v1', probabilityConfigurationHash: configuration.hash, artifactHash: null },
+    revision: 'fixture', source: 'fallback' },
+  archived: false, legacy: false, beforePrepare: null, preparedOverride: null,
   marketOverride: null, failPrepare: null, stateFailure: false, archiveFailure: false,
   calls: { prepared: [], factories: [], archive: 0, deployment: 0, writes: [] } };
   const noWrite = (name) => async () => { f.calls.writes.push(name); assert.fail(`Forbidden business mutation: ${name}`); };
@@ -125,7 +132,7 @@ test('NO_BET is a valid calibrated result with a current expiry, distinct from t
   assert.equal(failed.recommendationPacket, null);
 });
 
-test('the operational C906 split-stake exclusion stays a named no-bet instead of a technical model failure', async () => {
+test('the canonical binary split-stake exclusion stays a named no-bet instead of a technical model failure', async () => {
   const f = fixture();
   f.db.research.listMarkets = async () => [{ family: 'C', market: 'asian_handicap', state: 'EXPERIMENTAL' }];
   f.preparedOverride = (prepared) => ({ ...prepared, quotes: [

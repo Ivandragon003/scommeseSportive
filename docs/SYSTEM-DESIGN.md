@@ -64,9 +64,9 @@ Fonti: [supplemento](../backend/src/services/FootballDataService.ts), [configura
 
 ## Modelli, registrazioni e contabilità
 
-A operativo è `PredictionService`, identificato come `APP-A-…` con hash di codice, configurazione e stato. La baseline research A80 usata da C è un'altra identità. Le metriche A80 non descrivono l'intero A operativo.
+A operativo è `PredictionService`, identificato come `APP-A-…` con hash di codice, configurazione e stato. C usa gli stessi componenti matematici correnti attraverso `ForecastCore`, che ricostruisce gli input disponibili al forecast. Non conserva una copia eseguibile di A80; questa ricostruzione statistica non replica tutto lo stato operativo di A.
 
-Il default C è C906 con baseline A80 e selettore legacy. Il registro persistente di adozione può indicare un altro deployment: registrare un candidato o cambiare il champion research non basta a cambiare C nell'esecuzione. Lo stato effettivo del registro non si deduce dai default del repository.
+La release C corrente è dichiarata in `CurrentChallengerRelease.ts`, con un solo artefatto in `backend/current-models/challenger.json`. Il registro persistente di adozione può indicare un altro deployment: registrare un candidato o cambiare il champion research non basta a cambiare C nell'esecuzione. La nuova release richiede registrazione e deploy espliciti; lo stato effettivo del registro non si deduce dai default del repository. Un vecchio artefatto incompatibile produce astensione, senza sostituzioni silenziose.
 
 La Nightly automatica e le azioni manuali usano importi in euro nei portafogli virtuali esistenti `shadow_A` e `shadow_C`, con saldi e ledger conservati e separati. Non inviano puntate ai bookmaker.
 

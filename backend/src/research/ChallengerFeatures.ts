@@ -84,7 +84,7 @@ export type ChallengerForecastInput = ForecastInput & {
     dataQualityPolicyHash: string; quarantinedHistoryRows: number };
 };
 
-/** Extend a clone of the frozen baseline. No A probability, feature or parameter is changed in place. */
+/** Extend a clone of the shared statistical baseline without mutating its probabilities or parameters. */
 export function withChallengerFeatures(input: ForecastInput, history: ResearchMatch[],
   blocks: readonly ChallengerFeatureBlock[] = DEFAULT_CHALLENGER_BLOCKS): ChallengerForecastInput {
   const featureNames = challengerFeatureNames(blocks), cutoff = Date.parse(input.forecastAt), kickoff = Date.parse(input.kickoffAt);

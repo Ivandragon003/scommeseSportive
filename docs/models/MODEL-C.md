@@ -4,21 +4,21 @@ Questa guida descrive il meccanismo implementato e i suoi default. Il modello re
 
 ## Identità e scelta del deployment
 
-C è un ibrido fra baseline research A80 e modelli CatBoost. A80 è una ricostruzione statistica fissata, distinta da `PredictionService` e dall'identità `APP-A-…` dell'A operativo. Il confronto con A80 non misura tutto A operativo.
+C è un ibrido fra una baseline statistica cronologica costruita con i componenti correnti di A e modelli CatBoost. La ricostruzione non replica l’intero `PredictionService`, il suo stato o la sua calibrazione: il confronto non misura tutto A operativo.
 
-Il fallback dichiarato è:
+La release locale dichiarata in [CurrentChallengerRelease](../../backend/src/research/CurrentChallengerRelease.ts) e nel relativo [artefatto](../../backend/current-models/challenger.json) è:
 
 | Campo | Default |
 |---|---|
-| Modello | `C-906371b0b3a1e2c8` |
-| Baseline | `A-80cb25df5552621e` |
+| Modello | `C-99ec096b068bb360` |
+| Baseline | `A-c6c759d111a7734a` |
 | Selettore | `canonical-binary-v1` |
 
-Il registro di adozione può scegliere un altro deployment con artefatto, configurazione probabilistica e selettore espliciti. Nightly e anteprima risolvono questa identità; la Nightly la congela per l'esecuzione. Una nuova candidata, un champion research o il successo del training non sostituiscono da soli C.
+La release è stata addestrata localmente; non risulta registrata, distribuita o attiva per questo solo fatto. Il registro di adozione può scegliere un altro deployment con artefatto, configurazione probabilistica e selettore espliciti. Nightly e anteprima risolvono questa identità; la Nightly la congela per l'esecuzione. Una nuova candidata, un champion research o il successo del training non sostituiscono da soli C.
 
 Se il registro non è leggibile il percorso C viene sospeso; un modello mancante o incompatibile produce indisponibilità/astensione, senza usare A al suo posto. L'assenza dello schema di adozione conserva il fallback, non prova che l'artefatto sia presente o valido.
 
-La policy fallback mantiene l'identità v2; un deployment adottato ha un proprio descrittore v3. Identità e pacchetti già salvati non vengono aggiornati retroattivamente quando cambia il modello.
+La nuova release usa il descrittore v3 anche nel fallback. Il descrittore v2 rimane soltanto per interpretare le registrazioni storiche del vecchio deployment. Identità e pacchetti già salvati non vengono aggiornati retroattivamente quando cambia il modello.
 
 Fonti: [policy](../../backend/src/research/ResearchRecommendationPolicy.ts), [registro](../../backend/src/research/ChallengerAdoption.ts), [runtime](../../backend/src/research/ResearchRuntime.ts), [Nightly](../../backend/src/research/ResearchRecommendationNightly.ts).
 
@@ -28,9 +28,9 @@ Fonti: [policy](../../backend/src/research/ResearchRecommendationPolicy.ts), [re
 
 Lo schema candidato aggiunge blocchi versionati di xG recenti corretti per avversario e calendario osservato. Training e inferenza devono concordare schema, nomi, ordine e disponibilità delle feature. Valori di fallback e indicatori di copertura non diventano osservazioni reali.
 
-Le candidature soggette alla policy di qualità escludono gli ID in quarantena da target e storia, e richiedono una baseline ricostruita e marcata pulita. Il contratto viene verificato nel training, nella registrazione e nel runtime dei modelli interessati. C906 legacy conserva il proprio percorso: questa policy non riscrive silenziosamente baseline o matematica di A.
+Le candidature soggette alla policy di qualità escludono gli ID in quarantena da target e storia e richiedono una baseline ricostruita e marcata pulita. Il contratto viene verificato nel training, nella registrazione e nel runtime dei modelli interessati.
 
-Gli ID del vecchio holdout protetto restano esclusi dai target di ottimizzazione e dalla storia delle feature aggiuntive. La baseline legacy può usare normale passato ammissibile secondo il suo protocollo: ricostruire le feature non rende nuovo e indipendente un holdout già consultato.
+Gli ID del vecchio holdout protetto restano esclusi dai target di ottimizzazione e dalla storia delle feature aggiuntive. La baseline può usare normale passato ammissibile secondo il suo protocollo: ricostruire le feature non rende nuovo e indipendente un holdout già consultato.
 
 Il confronto allineato alla Nightly usa l'orario effettivo registrato quando presente; altrimenti dichiara la boundary nominale precedente in Europe/Rome. La disponibilità di risultati e dati deve precedere il forecast. Un ritardo conservativo dopo il kickoff è un proxy storico, non la prova dell'istante di pubblicazione o dell'assenza di revisioni del provider.
 
@@ -49,7 +49,7 @@ Gli alberi numerici sono esportati in JSON e valutati in TypeScript: durante la 
 
 Peso ML e temperatura appartengono all'artefatto, non si deducono dal nome della versione. Le matrici vengono combinate e normalizzate. Il protocollo `joint-goal-coherent-v2` applica poi la configurazione compatibile: identità, calibrazione isotonica 1X2 con riproiezione, oppure temperatura sulla matrice.
 
-Nel default legacy la configurazione può provenire dal benchmark compatibile registrato o dall'artefatto. Per un deployment adottato con hash esplicito si usa la configurazione approvata nell'artefatto: un benchmark successivo non la sostituisce. La modalità richiesta in assenza di un'altra dichiarazione è `isotonic_1x2`; senza il profilo compatibile C non è disponibile.
+In assenza di un hash esplicito la configurazione può provenire dal benchmark compatibile registrato o dall'artefatto. Per un deployment adottato con hash esplicito si usa la configurazione approvata nell'artefatto: un benchmark successivo non la sostituisce. La modalità richiesta in assenza di un'altra dichiarazione è `isotonic_1x2`; senza il profilo compatibile C non è disponibile.
 
 Con una terna 1X2 reale completa e valida dello stesso bookmaker/snapshot, la pipeline può applicare market blending e riproiettare la distribuzione. In assenza della terna conserva quella calibrata. Dalla stessa matrice finale derivano le probabilità dei mercati gol; gli stadi raw, calibrated e decision rimangono distinti.
 
@@ -84,6 +84,8 @@ Fonti: [anteprima](../../backend/src/research/ChallengerPreviewService.ts), [ese
 ## Valutazione, adozione e limiti
 
 Il trainer controllato distingue varianti fisse e quattro fasi cronologiche: training, selezione, calibrazione e test. Le etichette di una fase devono essere disponibili prima della successiva. Repliche riaddestrate e controlli di ricetta sono diagnostici: non sono l'artefatto C906 retrodatato e non diventano candidati operativi grazie alle sole metriche storiche.
+
+La release locale usa 6.573 righe pulite, escludendo 745 target protetti e la quarantena. La ricetta fissa usa 120 iterazioni, profondità 5, learning rate 0,05 e seed 20261027; le fasi contano 5.293 training, 317 selezione, 358 calibrazione e 595 test, con calibrazione isotonica coerente. Sul test, il controllo diagnostico contro il fold 5 della precedente ricetta pulita ha scarto massimo 0, Log Loss 0,9956929835 e Brier 0,59412743: non è una conferma indipendente.
 
 Una candidatura valida congela artefatto, incumbent, configurazione, selettore e manifesto del training. Il gate di adozione usa le prime 500 previsioni ammissibili FUTURE_TEST congelate prima degli esiti, in ordine cronologico. Attende tutti i risultati e registra un solo giudizio. Richiede almeno quattro leghe, quattro mesi, quattro periodi, intervalli appaiati settimanali favorevoli su Log Loss e Brier, ECE non peggiore e stabilità della Log Loss in almeno quattro leghe. Non si sostituisce un test negativo con nuove partite nello stesso dossier.
 

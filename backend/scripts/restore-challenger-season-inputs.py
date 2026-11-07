@@ -1,7 +1,8 @@
-"""Restore the frozen C seasonal replay inputs from the public, hash-checked bundle.
+"""Restore historical C data and saved predictions from the hash-checked bundle.
 
-Local files and Python's standard library only. This is an integrity check and
-byte-exact restoration, not model validation, adoption, training or a database write.
+Local files and Python's standard library only. Historical model weights were
+removed by request: this tool cannot regenerate forecasts or restore old models.
+It preserves data bytes for integrity checks and saved-prediction metric audits.
 """
 from __future__ import annotations
 
@@ -14,29 +15,25 @@ from pathlib import Path
 import re
 import shutil
 import sys
-import tarfile
 
 
-SCHEMA = "challenger-season-evidence-bundle-v1"
+SCHEMA = "challenger-season-data-bundle-v2"
 CHUNK = 1024 * 1024
-ARMS = ("no_ml", "development_current_replica", "intensity_legacy", "intensity_recent_xg",
-        "intensity_schedule", "intensity_full", "c906_recipe_retrained")
 GZIP_OUTPUTS = {
     "nightly-extended-canonical.json.gz": "nightly-extended-canonical.json",
     "season-plan.json.gz": "season-plan.json",
     "comparison-plan.json.gz": "comparison-plan.json",
     "matches-frozen.json.gz": "matches.json",
-    "actual-c906-artifact.json.gz": "comparison-canonical-inputs/incumbent.json",
 }
-PRIOR_FILES = {"matches-frozen.json.gz", "actual-c906-artifact.json.gz"}
+COPY_OUTPUTS = {
+    "predictions/bundle.json": "predictions/bundle.json",
+    "predictions/audit.json": "predictions/audit.json",
+    "predictions/predictions.jsonl.gz": "predictions/predictions.jsonl.gz",
+}
+PREDICTIONS = "predictions/predictions.jsonl.gz"
+PRIOR_FILES = {"matches-frozen.json.gz"}
 PRIOR_FOLDER = "c-data-audit-2026-10-31"
-ARCHIVES = tuple(f"evaluation-fold-{fold}.tar.gz" for fold in range(6))
-VARIANTS = "evaluation-variants.json"
 DEFAULT_EVIDENCE = Path(__file__).resolve().parents[2] / "docs/performance/evidence/c-three-season-backtest-2026-10-31"
-
-
-def expected_members(fold):
-    return {f"comparison-canonical-inputs/fold-{fold}-{arm}.json" for arm in ARMS}
 
 
 def checked_digest(info, label, decoded=False):
@@ -71,60 +68,27 @@ def source_path(evidence, name):
     return evidence.parent / PRIOR_FOLDER / name if name in PRIOR_FILES else evidence / name
 
 
-def check_variants(payload):
-    value = json.loads(payload)
-    variants = value.get("variants") if isinstance(value, dict) else None
-    if not isinstance(variants, list) or not variants:
-        raise ValueError("invalid_bundle_variants")
-    allowed = {Path(name).name for fold in range(6) for name in expected_members(fold)} | {"incumbent.json"}
-    for variant in variants:
-        if not isinstance(variant, dict):
-            raise ValueError("invalid_bundle_variant")
-        references = []
-        if "artifactPath" in variant:
-            references.append(variant["artifactPath"])
-        if "folds" in variant:
-            if not isinstance(variant["folds"], list):
-                raise ValueError("invalid_bundle_variant_folds")
-            for fold in variant["folds"]:
-                if not isinstance(fold, dict) or "artifact" in fold or "artifactPath" not in fold:
-                    raise ValueError("invalid_bundle_variant_fold")
-                references.append(fold["artifactPath"])
-        if "artifact" in variant or not references or any(not isinstance(name, str) or name not in allowed for name in references):
-            raise ValueError("unsafe_bundle_variant_reference")
+def checked_source_path(evidence, name):
+    # Names come only from fixed allowlists, never from manifest-selected paths.
+    path = source_path(evidence, name)
+    root = evidence.parent / PRIOR_FOLDER if name in PRIOR_FILES else evidence
+    try:
+        path.resolve(strict=True).relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as error:
+        raise ValueError(f"unsafe_or_missing_bundle_source: {name}") from error
+    if not path.is_file():
+        raise ValueError(f"invalid_bundle_source: {name}")
+    return path
 
 
-def archive_members(path, expected, output=None):
-    seen, restored = set(), {}
-    # ignore_zeros scans concatenated tar records too: hidden entries after an end
-    # marker cannot bypass the same allowlist, duplicate and regular-file checks.
-    with gzip.open(path, "rb") as decoded:
-        with tarfile.open(fileobj=decoded, mode="r|", ignore_zeros=True) as archive:
-            for member in archive:
-                name = member.name
-                if name not in expected or not member.isfile() or name in seen:
-                    raise ValueError(f"unsafe_or_duplicate_bundle_member: {name}")
-                wanted = checked_digest(expected[name], name)
-                if member.size != wanted["bytes"]:
-                    raise ValueError(f"bundle_member_size_mismatch: {name}")
-                seen.add(name)
-                payload = archive.extractfile(member)
-                if payload is None:
-                    raise ValueError(f"unreadable_bundle_member: {name}")
-                with payload:
-                    if output is None:
-                        restored[name] = check_stream(payload, wanted, name)
-                    else:
-                        target = output / name
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with target.open("xb") as sink:
-                            restored[name] = check_stream(payload, wanted, name, sink)
-        # Exhaust gzip so CRC/truncation errors cannot hide behind tar end markers.
-        while decoded.read(CHUNK):
-            pass
-    if seen != set(expected):
-        raise ValueError(f"missing_bundle_members: {path.name}")
-    return restored
+def check_gzip(path, info, label, sink=None):
+    # Read the validated compressed bytes and decoded data through the same
+    # descriptor, including during restore after the preflight integrity check.
+    with path.open("rb") as raw:
+        check_stream(raw, checked_digest(info, label), label)
+        raw.seek(0)
+        with gzip.GzipFile(fileobj=raw, mode="rb") as decoded:
+            return check_stream(decoded, checked_digest(info, label, decoded=True), f"decoded:{label}", sink)
 
 
 def validate_bundle(evidence):
@@ -133,31 +97,31 @@ def validate_bundle(evidence):
     manifest = json.loads(manifest_bytes)
     files = manifest.get("files") if isinstance(manifest, dict) else None
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != SCHEMA or not isinstance(files, dict):
-        raise ValueError("invalid_season_bundle_manifest")
-    required = set(GZIP_OUTPUTS) | set(ARCHIVES) | {VARIANTS}
-    if not required <= set(files):
-        raise ValueError("missing_season_bundle_file_metadata")
+        raise ValueError("invalid_season_data_bundle_manifest")
+    required = set(GZIP_OUTPUTS) | set(COPY_OUTPUTS)
+    if set(files) != required:
+        raise ValueError("unexpected_or_missing_season_data_bundle_file_metadata")
     for name in sorted(required):
-        expected = checked_digest(files[name], name)
-        with source_path(evidence, name).open("rb") as stream:
-            check_stream(stream, expected, name)
-    for name in GZIP_OUTPUTS:
-        expected = checked_digest(files[name], name, decoded=True)
-        with gzip.open(source_path(evidence, name), "rb") as stream:
-            check_stream(stream, expected, f"decoded:{name}")
-    check_variants((evidence / VARIANTS).read_bytes())
-    for fold, name in enumerate(ARCHIVES):
-        members = files[name].get("members")
-        if not isinstance(members, dict) or set(members) != expected_members(fold):
-            raise ValueError(f"invalid_season_bundle_member_manifest: {name}")
-        archive_members(evidence / name, members)
+        source = checked_source_path(evidence, name)
+        if name in GZIP_OUTPUTS or name == PREDICTIONS:
+            check_gzip(source, files[name], name)
+        else:
+            with source.open("rb") as stream:
+                check_stream(stream, checked_digest(files[name], name), name)
+    prediction_manifest = json.loads(checked_source_path(evidence, "predictions/bundle.json").read_bytes())
+    wanted = checked_digest(files[PREDICTIONS], PREDICTIONS, decoded=True)
+    if (not isinstance(prediction_manifest, dict)
+            or prediction_manifest.get("schemaVersion") != "independent-challenger-metrics-audit-v1"
+            or prediction_manifest.get("predictionsFile") != "predictions.jsonl.gz"
+            or prediction_manifest.get("predictionsSha256") != wanted["sha256"]
+            or prediction_manifest.get("predictionsBytes") != wanted["bytes"]):
+        raise ValueError("invalid_saved_prediction_bundle_reference")
     return files, {"sha256": hashlib.sha256(manifest_bytes).hexdigest(), "bytes": len(manifest_bytes)}
 
 
 def restore(evidence, output):
     evidence, output = Path(evidence).resolve(), Path(output).absolute()
-    # lexists also refuses a dangling symlink; even an empty existing directory is
-    # outside this invocation's ownership and must never receive writes or cleanup.
+    # lexists also refuses a dangling symlink; existing paths are never owned.
     if os.path.lexists(output):
         raise FileExistsError(f"restore_output_already_exists: {output}")
     files, manifest_digest = validate_bundle(evidence)
@@ -170,22 +134,27 @@ def restore(evidence, output):
         for name, relative in GZIP_OUTPUTS.items():
             target = output / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(source_path(evidence, name), "rb") as source, target.open("xb") as sink:
-                restored[relative] = check_stream(source, checked_digest(files[name], name, decoded=True), relative, sink)
-        variants_path = "comparison-canonical-inputs/variants.json"
-        with (evidence / VARIANTS).open("rb") as source, (output / variants_path).open("xb") as sink:
-            restored[variants_path] = check_stream(source, checked_digest(files[VARIANTS], VARIANTS), variants_path, sink)
-        for name in ARCHIVES:
-            restored.update(archive_members(evidence / name, files[name]["members"], output))
-        receipt = {"schemaVersion": "restored-challenger-season-inputs-v1", "bundleManifest": manifest_digest,
-            "files": dict(sorted(restored.items())), "restoredFoldArtifacts": 42, "incumbentArtifacts": 1,
-            "semantics": "exact_frozen_input_bytes_hash_verified_no_training_adoption_or_source_timestamp_claim"}
+            with target.open("xb") as sink:
+                restored[relative] = check_gzip(checked_source_path(evidence, name), files[name], name, sink)
+        for name, relative in COPY_OUTPUTS.items():
+            target = output / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with checked_source_path(evidence, name).open("rb") as source, target.open("xb") as sink:
+                restored[relative] = check_stream(source, checked_digest(files[name], name), name, sink)
+        # Verify the copied compressed predictions too; the receipt hashes their
+        # encoded bytes, while bundle.json pins the decoded JSONL used by audits.
+        check_gzip(output / PREDICTIONS, files[PREDICTIONS], PREDICTIONS)
+        receipt = {"schemaVersion": "restored-challenger-season-data-v2", "bundleManifest": manifest_digest,
+            "files": dict(sorted(restored.items())), "modelWeightsRestored": 0,
+            "modelReconstructionAvailable": False, "savedPredictionMetricsAvailable": True,
+            "limitation": "Historical model weights were removed by request; forecasts cannot be regenerated.",
+            "semantics": "exact_data_and_saved_prediction_bytes_hash_verified_no_training_adoption_or_source_timestamp_claim"}
         with (output / "restore-manifest.json").open("x", encoding="utf-8", newline="\n") as stream:
-            json.dump(receipt, stream, indent=2, ensure_ascii=False); stream.write("\n")
+            json.dump(receipt, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
         return receipt
     except BaseException:
-        # Cleanup only the exact new directory created by this invocation. A path
-        # replacement or symlink never authorizes deleting another user's target.
+        # Cleanup only the exact new directory created by this invocation.
         if created and not output.is_symlink() and output.resolve(strict=False) == owned_root:
             shutil.rmtree(output)
         raise
@@ -194,17 +163,18 @@ def restore(evidence, output):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", type=Path, default=DEFAULT_EVIDENCE)
-    parser.add_argument("--out", type=Path, required=True, help="New restore directory; existing paths are refused")
+    parser.add_argument("--out", type=Path, required=True, help="New data restore directory; existing paths are refused")
     options = parser.parse_args(argv)
     receipt = restore(options.evidence, options.out)
     print(json.dumps({"restoredTo": str(options.out), "restoredFiles": len(receipt["files"]),
-                      "foldArtifacts": receipt["restoredFoldArtifacts"], "bundleManifestSha256": receipt["bundleManifest"]["sha256"]}))
+        "modelWeightsRestored": 0, "modelReconstructionAvailable": False,
+        "bundleManifestSha256": receipt["bundleManifest"]["sha256"]}))
     return receipt
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, EOFError, tarfile.TarError) as error:
-        print(f"season_input_restore_failed: {error}", file=sys.stderr)
+    except (OSError, ValueError, EOFError) as error:
+        print(f"season_data_restore_failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error

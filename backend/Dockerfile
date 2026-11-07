@@ -10,6 +10,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY current-models ./current-models
 COPY scripts/clean-build.js ./scripts/clean-build.js
 RUN npm run build
 
@@ -36,6 +37,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/current-models ./current-models
 COPY migrations ./migrations
 COPY scripts ./scripts
 

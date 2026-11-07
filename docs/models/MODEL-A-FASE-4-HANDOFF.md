@@ -198,11 +198,16 @@ Per un pilot durante il disservizio occorre accettare esplicitamente input tecni
 
 ## Compatibilità della baseline congelata C
 
+Questa sezione conserva le verifiche del precedente rilascio. La successiva
+unificazione richiesta dall'utente usa invece il nucleo corrente di A e un
+nuovo C locale: vedere [Modello C](MODEL-C.md). La copia eseguibile A80 e i
+vecchi pesi sono stati rimossi, senza modificare il protocollo prospettico A.
+
 Il controllo sul vero artefatto C registrato ha individuato un requisito non coperto dalla sola suite: C-906371b0b3a1e2c8 richiede `A-80cb25df5552621e`. Le dipendenze condivise aggiornate identificavano invece `A-38538d45825fba24`, rifiutata dalla guardia `hybrid_baseline_mismatch`. Anche l'identità della pipeline di calibrazione deve coincidere. Fornire arbitrariamente la versione dell'artefatto non dimostra compatibilità.
 
 L’archivio del precedente commit web 6ed36d4 compilato con le dipendenze previste riproduce esattamente A-80cb25df5552621e. Quattro file inclusi nell’identità sono cambiati nel lavoro precedente: correzioni xG mancanti in DC/Poisson e osservatori nei moduli value/analisi. Questa verifica non riapre quelle correzioni né autorizza a rietichettare la nuova baseline come vecchia, riaddestrare C o allentare i controlli.
 
-La correzione su main isola il solo nucleo numerico research della release, in [frozen/a-80cb25df](../../backend/src/research/frozen/a-80cb25df/README.md). Le facciate ForecastCore e delle due pipeline caricano quei byte JavaScript effettivi, anche in sviluppo TypeScript. Il prebuild controlla SHA-256 e inventario prima della copia; i fingerprint sono calcolati dagli stessi moduli storici, senza costanti sostitutive o eccezioni nelle guardie. L'hash legacy lifecycle legge il modulo eseguito. I modelli correnti di PredictionService, inclusa la correzione xG della Fase 1 e gli osservatori del recorder, restano separati e invariati. Non è un nuovo modello C, né un nuovo training.
+La correzione allora pubblicata isolava il solo nucleo numerico research della release nel percorso `frozen/a-80cb25df`, ora rimosso. Le facciate ForecastCore e delle due pipeline caricavano quei byte JavaScript effettivi, anche in sviluppo TypeScript. Il prebuild controllava SHA-256 e inventario prima della copia; i fingerprint erano calcolati dagli stessi moduli storici, senza costanti sostitutive o eccezioni nelle guardie. L'hash legacy lifecycle leggeva il modulo eseguito. I modelli correnti di PredictionService, inclusa la correzione xG della Fase 1 e gli osservatori del recorder, restavano separati e invariati. Quella correzione non era un nuovo modello C né un nuovo training.
 
 La fixture immutabile è prodotta dalla release precedente, con xG mancanti/null/vuoti/zero, calibrazione e quote simulate dichiarate: input, matrici e decisioni devono coincidere. Le mutazioni cambiano i fingerprint e la build rifiuta file alterati o aggiunti. La prova privata sul vero artefatto registrato confronta cinque casi xG con la release: input, feature, inferenza C e pipeline coincidono; nessuna scrittura DB. Non sostituisce una previsione reale. Pesi C, schema feature, selettori e guardie non sono modificati.
 

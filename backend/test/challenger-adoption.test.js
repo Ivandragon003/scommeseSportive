@@ -50,7 +50,9 @@ async function setup() {
   await client.execute('CREATE TABLE matches(match_id TEXT PRIMARY KEY,date TEXT,competition TEXT,home_goals INTEGER,away_goals INTEGER,source TEXT)');
   await client.execute('CREATE TABLE scheduler_runs(scheduler_name TEXT,started_at TEXT,success INTEGER,summary_json TEXT)');
   let now = new Date('2026-11-01T02:07:00.000Z');
-  const initial = { ...INITIAL_CHALLENGER_DEPLOYMENT, modelVersion: 'C-reference', baselineVersion: baselineManifest().version };
+  // The synthetic incumbent has its own artifact and configuration, independent of the current release.
+  const initial = { modelVersion: 'C-reference', baselineVersion: baselineManifest().version,
+    selectorPolicy: 'canonical-binary-v1', probabilityConfigurationHash: null, artifactHash: null };
   const store = new ChallengerAdoptionStore(client, async () => {}, { clock: () => now, fallback: initial });
   for (const version of ['C-reference', 'C-candidate']) {
     const value = artifact(version);
@@ -92,7 +94,7 @@ if (process.platform === 'win32' && !process.env.CHALLENGER_ADOPTION_TEST_DIRECT
     }
   });
 } else {
-test('old schemas keep C906 binary fallback and cannot collect or adopt', async () => {
+test('old schemas keep the current release fallback and cannot collect or adopt', async () => {
   const { client, close } = temporaryClient();
   try {
     const store = new ChallengerAdoptionStore(client);

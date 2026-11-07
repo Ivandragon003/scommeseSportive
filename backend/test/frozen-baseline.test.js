@@ -2,14 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync, mkdtempSync, cpSync, appendFileSync, rmSync } = require('node:fs');
 const { createHash } = require('node:crypto');
-const { join, resolve } = require('node:path');
+const { join, resolve, dirname } = require('node:path');
 const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
+// Immutable numeric observations remain useful after removing the old executable copy.
+// Its release manifest and hashes identify that observation, not the current model.
 const fixture = require('./fixtures/frozen-baseline-6ed36d44.json');
-const hashes = require('../src/research/frozen/a-80cb25df/integrity.json');
 const input = require('./frozen-baseline-input');
-// The immutable reference was generated with release defaults, independently
-// of any legitimate model overrides in the developer's shell.
 const modelEnvNames = Object.keys(process.env).filter(name => name.startsWith('MODEL_') || name === 'PLAYER_GOALS_XG_SHRINK');
 const modelEnv = Object.fromEntries(modelEnvNames.map(name => [name, process.env[name]]));
 let core, pipeline;
@@ -20,70 +19,69 @@ try {
 } finally {
   Object.assign(process.env, modelEnv);
 }
-const frozen = resolve(__dirname, '../dist/research/frozen/a-80cb25df');
 
 // libm/V8 can differ in the last floating-point bits across Windows/Linux.
-// Keep the release fixture unchanged; identities and JSON structure stay exact.
-function assertReleaseOutput(actual, expected, path = 'output') {
+function assertNumericOutput(actual, expected, path = 'output') {
   if (typeof expected === 'number') {
     assert.ok(typeof actual === 'number' && Number.isFinite(actual)
       && Math.abs(actual - expected) <= 1e-12 * Math.max(1, Math.abs(expected)), path);
   } else if (expected !== null && typeof expected === 'object') {
     assert.equal(Array.isArray(actual), Array.isArray(expected), path);
     assert.deepEqual(Object.keys(actual), Object.keys(expected), path);
-    for (const key of Object.keys(expected)) assertReleaseOutput(actual[key], expected[key], `${path}.${key}`);
+    for (const key of Object.keys(expected)) assertNumericOutput(actual[key], expected[key], `${path}.${key}`);
   } else {
     assert.equal(actual, expected, path);
   }
 }
 
-test('historical numerical baseline and calibrated decisions match the deployed release fixture', () => {
-  assert.deepEqual(core.baselineManifest(), fixture.manifest);
-  assert.equal(pipeline.coherentProbabilityPipelineHash(), fixture.pipelineHash);
+test('current shared model preserves the established forecast and calibrated numeric observations', () => {
   const forecast = core.buildForecastInput(input.history, input.target, input.AT);
-  assertReleaseOutput(JSON.parse(JSON.stringify(forecast)), fixture.forecast);
-  const calibrated = pipeline.applyCoherentProbabilityPipeline({matrix:forecast.baselineMatrix,
-    rawProbabilities:forecast.baselineProbabilities,forecastAt:input.AT,quotes:input.quotes,profile:input.profile});
-  assertReleaseOutput(JSON.parse(JSON.stringify(calibrated)), fixture.calibrated);
+  const actualForecast = JSON.parse(JSON.stringify(forecast));
+  const expectedForecast = structuredClone(fixture.forecast);
+  assert.equal(actualForecast.baselineVersion, core.baselineManifest().version);
+  delete actualForecast.baselineVersion;
+  delete expectedForecast.baselineVersion;
+  assertNumericOutput(actualForecast, expectedForecast);
+  const calibrated = pipeline.applyCoherentProbabilityPipeline({ matrix: forecast.baselineMatrix,
+    rawProbabilities: forecast.baselineProbabilities, forecastAt: input.AT, quotes: input.quotes, profile: input.profile });
+  assertNumericOutput(JSON.parse(JSON.stringify(calibrated)), fixture.calibrated);
   assert.equal(calibrated.marketBlendingApplied, true);
 });
 
-test('every frozen JS file has the recorded release bytes', () => {
-  for (const [file, expected] of Object.entries(hashes)) {
-    assert.equal(createHash('sha256').update(readFileSync(join(frozen, file))).digest('hex'), expected, file);
+test('current baseline identifies the shared operational math sources', () => {
+  const manifest = core.baselineManifest();
+  for (const file of ['models/core/DixonColesModel.js', 'models/core/PoissonXgModel.js',
+    'models/value/ValueBettingEngine.js', 'services/ProbabilityEnsembleService.js', 'research/ForecastCore.js']) {
+    const hash = createHash('sha256').update(readFileSync(join(__dirname, '../dist', file), 'utf8').replace(/\r\n/g, '\n')).digest('hex');
+    assert.equal(manifest.codeHashes[file], hash, file);
   }
+  assert.ok(Object.keys(manifest.codeHashes).every(file => !file.includes('/frozen/')));
+  assert.match(manifest.fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(manifest.version, `A-${manifest.fingerprint.slice(0, 16)}`);
 });
 
-test('mutating frozen model bytes changes the computed identities', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'frozen-baseline-'));
+test('changing shared math invalidates the current baseline and coherent pipeline identities', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'current-model-'));
   try {
-    cpSync(frozen, dir, {recursive:true});
-    appendFileSync(join(dir, 'models/value/ValueBettingEngine.js'), '\n// altered\n');
-    const code = `const c=require(${JSON.stringify(join(dir, 'research/ForecastCore.js'))});const p=require(${JSON.stringify(join(dir, 'research/CoherentProbabilityPipeline.js'))});console.log(JSON.stringify([c.baselineManifest().version,p.coherentProbabilityPipelineHash()]));`;
-    const child = spawnSync(process.execPath, ['-e', code], {encoding:'utf8'});
-    assert.equal(child.status, 0, child.stderr);
-    const [version, hash] = JSON.parse(child.stdout);
-    assert.notEqual(version, fixture.manifest.version);
-    assert.notEqual(hash, fixture.pipelineHash);
-  } finally { rmSync(dir, {recursive:true,force:true}); }
-});
-
-
-
-test('build rejects a changed or unexpected frozen JavaScript file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'frozen-build-'));
-  try {
-    const source = resolve(__dirname, '../src/research/frozen/a-80cb25df');
-    const copy = join(dir, 'src/research/frozen/a-80cb25df');
-    const script = join(dir, 'scripts/clean-build.js');
-    cpSync(source, copy, {recursive:true});
-    cpSync(resolve(__dirname, '../scripts'), join(dir, 'scripts'), {recursive:true});
-    const run = () => spawnSync(process.execPath, [script], {encoding:'utf8'});
-    assert.equal(run().status, 0);
-    appendFileSync(join(copy, 'models/core/PoissonXgModel.js'), '\n// changed\n');
-    assert.match(run().stderr, /Frozen baseline integrity failure/);
-    cpSync(join(source, 'models/core/PoissonXgModel.js'), join(copy, 'models/core/PoissonXgModel.js'));
-    appendFileSync(join(copy, 'models/extra.js'), '// extra\n');
-    assert.match(run().stderr, /Frozen baseline file list changed/);
-  } finally { rmSync(dir, {recursive:true,force:true}); }
+    const compiled = resolve(__dirname, '../dist');
+    for (const folder of ['models', 'config', 'research', 'services', 'utils']) {
+      cpSync(join(compiled, folder), join(dir, folder), { recursive: true,
+        filter: file => !file.split(/[\\/]/).includes('frozen') });
+    }
+    const code = `const c=require(${JSON.stringify(join(dir, 'research/ForecastCore.js'))});const p=require(${JSON.stringify(join(dir, 'research/CoherentProbabilityPipeline.js'))});process.stdout.write(JSON.stringify([c.baselineManifest().version,p.coherentProbabilityPipelineHash()]));`;
+    const identity = () => {
+      const child = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8' });
+      assert.equal(child.status, 0, child.stderr);
+      return JSON.parse(child.stdout);
+    };
+    const original = identity();
+    appendFileSync(join(dir, 'models/value/ValueBettingEngine.js'), '\n// changed shared implementation\n');
+    const changed = identity();
+    assert.notEqual(changed[0], original[0]);
+    assert.notEqual(changed[1], original[1]);
+  } finally {
+    const target = resolve(dir);
+    assert.equal(dirname(target), resolve(tmpdir()));
+    rmSync(target, { recursive: true, force: true });
+  }
 });

@@ -6,9 +6,7 @@ Questa guida descrive il percorso di `PredictionService`. I valori predefiniti s
 
 A produce l'analisi dell'app, le opportunità squadra, un consiglio principale e la percentuale di puntata. Il pacchetto canonico è identificato come `APP-A-…`, con hash distinti di codice, configurazione e stato.
 
-Il nucleo numerico research è conservato nello [snapshot della release](../../backend/src/research/frozen/a-80cb25df/README.md), con hash calcolati dai byte effettivi e controllo d’integrità in build; non modifica i modelli correnti di PredictionService.
-
-La baseline research `A-80cb25df5552621e` di C è un'altra identità: non rappresenta ogni configurazione, dato, calibrazione o correzione dell'A operativo. Le sue metriche non devono essere attribuite a `PredictionService`.
+Il [nucleo research](../../backend/src/research/ForecastCore.ts) usa import statici dei componenti matematici correnti di A e il protocollo cronologico `current-a-statistical-asof-v2`. La baseline C `A-c6c759d111a7734a` ricostruisce il fit e il contesto disponibili nel passato: non rappresenta ogni configurazione, dato, stato o calibrazione di `PredictionService`. Le sue metriche non devono essere attribuite all’intero percorso operativo.
 
 La Nightly considera le opportunità A senza restringerne il catalogo a quello di C. Le procedure candidate di C non sostituiscono matematica o ranking A. La policy `funded-dynamic-stake-v1` usa la percentuale dinamica suggerita da A per assegnare importi in euro dal suo portafoglio; non cambia parametri o probabilità del modello.
 
@@ -122,7 +120,7 @@ Per completare la validazione occorre ricostruire le previsioni dei periodi prec
 
 ### Confini delle dipendenze research
 
-Il percorso research usa `ForecastCore` per costruire `baselineProbabilities` e una matrice proxy con Dixon–Coles e Poisson-xG; il manifest include hash dei componenti matematici, di `PredictionContextBuilder` e dell’ensemble. `ResearchRecommendationRuntime` usa `PredictionService` per il pacchetto A; la calibrazione research riutilizza l’implementazione isotonica e le soglie condivise. Cambiare queste interfacce o funzioni può cambiare identità o input delle procedure che consumano la baseline; gli script di questo replay non sono collegati a tali percorsi e non modificano C. Fonti: `research/ForecastCore.ts`, `research/ResearchRecommendationRuntime.ts`, `research/ResearchProbabilityPipeline.ts`.
+Il percorso research usa `ForecastCore` per costruire `baselineProbabilities` e una matrice proxy con Dixon–Coles e Poisson-xG; il manifest include hash dei componenti matematici, di `PredictionContextBuilder` e dell’ensemble. `ResearchRecommendationRuntime` usa `PredictionService` per il pacchetto A; la calibrazione research riutilizza l’implementazione isotonica e le soglie condivise. Cambiare questi componenti può cambiare identità o input della baseline e richiede un artefatto C compatibile; le ricostruzioni storiche non dimostrano equivalenza con lo stato completo di A operativo. Fonti: `research/ForecastCore.ts`, `research/ResearchRecommendationRuntime.ts`, `research/ResearchProbabilityPipeline.ts`.
 
 ### Esperimento cronologico sulla calibrazione Over 2,5
 

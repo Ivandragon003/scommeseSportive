@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createClient } = require('@libsql/client');
-const { readFileSync, mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync } = require('node:fs');
-const { join } = require('node:path');
+const { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = require('node:fs');
+const { join, resolve, dirname } = require('node:path');
 const { tmpdir } = require('node:os');
 const { execFileSync } = require('node:child_process');
 const express = require('express');
@@ -204,28 +204,36 @@ test('deployment verification includes every prepared replay profile', async (t)
   assert.equal(logs.at(-1).profiles, 4);
 });
 
-test('separate processes reject changed implementation code while sharing identical LF/CRLF deployments', () => {
+test('separate processes invalidate current forecast and shared math changes while sharing LF/CRLF deployments', () => {
   const root = mkdtempSync(join(tmpdir(), 'calibration-code-'));
   const directory = join(root, 'services');
   const cacheModule = join(directory, 'CalibrationProfileCache.js');
-  const modelModule = join(root, 'model.js');
   mkdirSync(directory);
   try {
     writeFileSync(cacheModule, readFileSync(join(__dirname, '../dist/services/CalibrationProfileCache.js')));
-    writeFileSync(modelModule, 'module.exports = 1;\n');
+    const modules = ['research/ForecastCore.js', 'models/core/DixonColesModel.js'];
+    for (const module of modules) {
+      mkdirSync(dirname(join(root, module)), { recursive: true });
+      writeFileSync(join(root, module), readFileSync(join(__dirname, '../dist', module), 'utf8').replace(/\r\n/g, '\n'));
+    }
     const fingerprint = () => execFileSync(process.execPath, ['-e',
       'process.stdout.write(require(process.argv[1]).calibrationProfileFingerprint([], {}));', cacheModule,
     ], { encoding: 'utf8' });
     const original = fingerprint();
-    writeFileSync(modelModule, 'module.exports = 1;\r\n');
-    assert.equal(fingerprint(), original, 'checkout line endings must not prevent sharing identical deployed code');
-    writeFileSync(modelModule, 'module.exports = 2;\n');
-    assert.notEqual(fingerprint(), original, 'changed implementation must invalidate without a manual version bump');
+    for (const module of modules) {
+      const file = join(root, module);
+      const source = readFileSync(file, 'utf8');
+      writeFileSync(file, source.replace(/\n/g, '\r\n'));
+      assert.equal(fingerprint(), original, `${module}: line endings must preserve identical deployed code`);
+      writeFileSync(file, `${source}\n// changed current implementation\n`);
+      assert.notEqual(fingerprint(), original, `${module}: changed implementation must invalidate without a manual version bump`);
+      writeFileSync(file, source);
+      assert.equal(fingerprint(), original);
+    }
   } finally {
-    unlinkSync(modelModule);
-    unlinkSync(cacheModule);
-    rmdirSync(directory);
-    rmdirSync(root);
+    const target = resolve(root);
+    assert.equal(dirname(target), resolve(tmpdir()));
+    rmSync(target, { recursive: true, force: true });
   }
 });
 

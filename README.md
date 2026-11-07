@@ -15,7 +15,7 @@ rilascio, roadmap e snapshot operativi non fanno parte della guida corrente.
 | Argomento | Riferimento per il tema |
 |---|---|
 | Componenti, flussi, fonti e mercati | [Architettura](docs/SYSTEM-DESIGN.md) |
-| Identità e confini A, A80 e C | [Indice dei modelli](docs/models/README.md) |
+| Identità e confini A e C | [Indice dei modelli](docs/models/README.md) |
 | Algoritmo A operativo | [Modello A](docs/models/MODEL-A.md) |
 | Raccolta e validazione prospettica A | [Protocollo](docs/models/MODEL-A-VALIDAZIONE-PROSPETTICA.md) e [preparazione e attivazione controllata](docs/models/MODEL-A-FASE-4-HANDOFF.md) |
 | Algoritmo C, registro e adozione | [Modello C](docs/models/MODEL-C.md) |

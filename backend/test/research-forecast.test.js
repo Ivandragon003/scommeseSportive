@@ -24,7 +24,7 @@ test('A is reproducible and target/future outcomes cannot affect an earlier inpu
   assert.ok(Math.abs(first.baselineProbabilities.homeWin + first.baselineProbabilities.draw + first.baselineProbabilities.awayWin - 1) < 1e-10);
 });
 
-test('frozen A regression fixture retains the reference intensities and goal probabilities', () => {
+test('current A raw forecast retains the established numeric intensities and goal probabilities', () => {
   const matches = history(), target = matches[40];
   const input = buildForecastInput(matches, target, new Date(Date.parse(target.date) - 900000).toISOString());
   const expected = { homeWin: .22869701458825487, draw: .3280167255091808,
@@ -46,7 +46,7 @@ test('result availability delay excludes same-time and not-yet-observed results'
   assert.throws(() => buildForecastInput(matches, target, '2023-03-01T20:01:00Z'), /before kickoff/);
 });
 
-test('training export covers all eligible targets, freezes the baseline and avoids recommendation filters', () => {
+test('training export covers all eligible targets, records the current baseline and avoids recommendation filters', () => {
   const dataset = buildTrainingDataset(history(), '2023-04-01T00:00:00Z');
   assert.equal(dataset.rows.length, 15);
   assert.equal(dataset.exclusions.insufficientHistory, 30);

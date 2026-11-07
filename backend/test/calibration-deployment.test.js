@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, cpSync } = require('node:fs');
+const { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } = require('node:fs');
 const { join, resolve, dirname } = require('node:path');
 const { tmpdir } = require('node:os');
 const { execFileSync } = require('node:child_process');
@@ -13,12 +13,12 @@ test('clean build removes obsolete compiled modules while preserving sources', (
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'dist/obsolete.js'), 'obsolete');
     writeFileSync(join(root, 'src/keep.ts'), 'source');
-    cpSync(join(__dirname, '../src/research/frozen'), join(root, 'src/research/frozen'), { recursive: true });
     writeFileSync(join(root, 'scripts/clean-build.js'), readFileSync(join(__dirname, '../scripts/clean-build.js')));
     execFileSync(process.execPath, [join(root, 'scripts/clean-build.js')]);
     assert.equal(existsSync(join(root, 'dist/obsolete.js')), false);
-    const baseline = 'research/frozen/a-80cb25df/research/ForecastCore.js';
-    assert.deepEqual(readFileSync(join(root, 'dist', baseline)), readFileSync(join(root, 'src', baseline)));
+    assert.equal(existsSync(join(root, 'dist')), false);
+    assert.equal(readFileSync(join(root, 'src/keep.ts'), 'utf8'), 'source');
+    execFileSync(process.execPath, [join(root, 'scripts/clean-build.js')]);
     assert.equal(readFileSync(join(root, 'src/keep.ts'), 'utf8'), 'source');
   } finally {
     const target = resolve(root);

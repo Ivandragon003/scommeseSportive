@@ -22,6 +22,11 @@ npm --prefix backend run build
 node --test backend/test/research-catboost.test.js backend/test/research-forecast.test.js backend/test/research-coherent-pipeline.test.js backend/test/operational-a-regression.test.js
 ```
 
+La release locale [C-99ec096b068bb360](../current-models/challenger.json) usa
+la baseline `A-c6c759d111a7734a`, con ricetta fissa e calibrazione coerente
+descritte nella guida del modello. La sua presenza non costituisce registrazione
+o adozione.
+
 Il trainer usa CatBoost 1.2.8; i requisiti includono il database di fusi orari
 necessario su Windows. `npm test` backend comprende già la build. Il test
 CatBoost nativo può essere opzionale dove Python non è configurato: uno skip non

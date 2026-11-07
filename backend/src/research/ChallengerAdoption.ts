@@ -10,6 +10,7 @@ import { evaluateResearchBenchmark, EvaluationRow, ResearchQuote } from './Resea
 import { ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
 import { prospectivePartition } from './ResearchProspectiveEvidence';
 import { researchHash, researchJson } from './ResearchStore';
+import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
 export type ChallengerSelectorPolicy = 'canonical-binary-v1' | 'payout-aware-v1';
 export type ChallengerDeployment = { modelVersion: string; baselineVersion: string; selectorPolicy: ChallengerSelectorPolicy;
@@ -25,8 +26,7 @@ export const CHALLENGER_ADOPTION_RULE = 'prospective-challenger-adoption-v1';
 export const CHALLENGER_ADOPTION_TEST_POLICY = { partition: 'FUTURE_TEST', matchCount: 500,
   minimumMonths: 4, minimumLeagues: 4, minimumPeriods: 4, selection: 'first-frozen-chronological', singleAssessment: true } as const;
 export const INITIAL_CHALLENGER_DEPLOYMENT: ChallengerDeployment = {
-  modelVersion: 'C-906371b0b3a1e2c8', baselineVersion: 'A-80cb25df5552621e', selectorPolicy: 'canonical-binary-v1',
-  probabilityConfigurationHash: null, artifactHash: null,
+  ...CURRENT_CHALLENGER_RELEASE,
 };
 const RESULT_DELAY = 2 * 3600000;
 const WEEK = 7 * 86400000;

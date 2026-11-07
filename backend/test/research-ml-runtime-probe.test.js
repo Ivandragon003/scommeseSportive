@@ -50,6 +50,19 @@ test('probe executes one SELECT and real Node inference with only synthetic RAM 
   assert.doesNotMatch(JSON.stringify(report), /synthetic-readonly-token-never-log|artifact_json|oblivious_trees|features_info|libsql:\/\//);
 });
 
+test('probe infers the packaged current challenger with its required data-quality contract', async () => {
+  const model = JSON.parse(readFileSync(join(__dirname, '../current-models/challenger.json'), 'utf8'));
+  const selected = { ...row(model), created_at: model.createdAt };
+  const f = fakeReadClient(selected);
+  const report = await probeRuntime({ env: env(),
+    clock: () => new Date(Date.parse(model.createdAt) + 60000), createClient: f.createClient });
+  assert.equal(report.model.version, model.version);
+  assert.equal(report.checks.finiteProbabilities, true);
+  assert.equal(report.databaseSelects, 1);
+  assert.equal(report.databaseWrites, 0);
+  assert.equal(report.syntheticInput, true);
+});
+
 test('actual SELECT gives the champion precedence and otherwise selects the latest candidate with version tie-break', async () => {
   const sqlite = createClient({ url: 'file::memory:' });
   await sqlite.executeMultiple(`CREATE TABLE research_models(family TEXT,version TEXT,artifact_json TEXT,artifact_hash TEXT,created_at TEXT);

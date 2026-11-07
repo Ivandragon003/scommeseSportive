@@ -58,9 +58,14 @@ e liquidazioni finché esistono pending; non cancellare le tabelle per tornare i
 
 ## Compatibilità del modello registrato prima del rilascio
 
-Prima di distribuire main confrontare anche il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. Per il C congelato registrato la baseline richiesta è A-80cb25df5552621e. Main conserva il nucleo numerico research effettivo della release 6ed36d4 in uno snapshot immutabile, con pipeline e dipendenze isolate dai modelli operativi correnti di A. Non correggere la dichiarazione dell’artefatto o disabilitare la guardia per ottenere un esito positivo.
+Il probe `backend/scripts/probe-research-ml-runtime.js` verifica con una sola
+SELECT il modello registrato e ne prova l'inferenza con input sintetici in
+memoria, inclusi i campi del contratto di qualità richiesti dalla release C.
+Non registra il modello nel pacchetto e non certifica la qualità dei dati reali.
 
-Il ramo `ops/model-a-web-compat` è stato usato per il ripristino sicuro e va conservato finché associato a un deploy attivo. Per tornare a main verificare SHA-256 dello snapshot in build, CI e prova read-only con il vero artefatto C: baseline, hash pipeline, input e inferenza devono coincidere con la release ripristinata. Attendere LIVE e ripetere identità, health e flag false nel container. Solo dopo può essere eliminato il ramo temporaneo già incorporato. Nessuna nuova versione C, migrazione o accensione è implicita; mantenere `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`. Vedere l’handoff per prove e limiti.
+Prima di distribuire main confrontare il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. La release locale usa il nucleo statistico corrente di A e il solo artefatto `backend/current-models/challenger.json`, con identità e hash in `CurrentChallengerRelease.ts`. I vecchi pesi e la copia eseguibile A80 sono rimossi su richiesta: non sono una possibilità di rollback inclusa nel pacchetto. Non correggere la dichiarazione dell’artefatto o disabilitare le guardie per ottenere un esito positivo.
+
+Conservare branch e deploy esistenti finché necessari all'installazione. Prima della transizione verificare la release C con `current-challenger-release.test.js`, backup e stato di adozione; registrare esplicitamente l'artefatto compatibile con il comando lifecycle previsto, soltanto dopo autorizzazione. Il file nel pacchetto non viene importato automaticamente nel database e un deployment già adottato prevale sul fallback. Se resta selezionato un vecchio C incompatibile, il percorso C si astiene: non riattivare la Nightly. La transizione del deployment deve seguire i controlli di adozione, senza fabbricare evidenze prospettiche. Attendere LIVE e ripetere identità, health e flag false nel container. Nessuna registrazione, migrazione o accensione è implicita; mantenere `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`.
 
 ## Persistenza per il recorder prospettico A
 

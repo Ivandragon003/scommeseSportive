@@ -128,7 +128,7 @@ export async function buildResearchOverview(db: DatabaseService, options: { now?
       A: { source: 'PredictionService', version: latestA?.modelVersion ?? [...models].reverse().find((model) => model.family === 'A' && model.version?.startsWith('APP-A-'))?.version ?? null, role: 'REFERENCE',
         historicalResearchBaseline: baselineManifest().version, metrics: null },
       C: { source: 'CatBoost hybrid research pipeline', version: latestC?.modelVersion ?? [...models].reverse().find((model) => model.family === 'C')?.version ?? null, role: 'CHALLENGER',
-        baselineSource: 'Historical research baseline', baselineVersion: baselineManifest().version, metrics: null },
+        baselineSource: 'Current shared A statistical core', baselineVersion: baselineManifest().version, metrics: null },
     },
     models: models.map((model) => ({ family: model.family, version: model.version,
       status: model.isChampion ? 'CHAMPION' : 'CANDIDATE', createdAt: model.createdAt,

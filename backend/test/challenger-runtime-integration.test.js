@@ -9,6 +9,7 @@ const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityC
 const { researchHash } = require('../dist/research/ResearchStore');
 const { scoreMatrixMarkets } = require('../dist/research/GoalSettlement');
 const { VIRTUAL_RECOMMENDATION_POLICY, challengerExecutionPolicy, fallbackChallengerState, unavailableChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
+const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
 
 const AT = '2026-10-31T12:00:00.000Z', KICKOFF = '2026-10-31T19:00:00.000Z';
 const policy = { quoteMaxAgeMs: 300000, minEv: .04, minPrudentialEv: .01 };
@@ -58,14 +59,24 @@ function harness(model, options = {}) {
   return { runtime, job, row, db, calls };
 }
 
-test('fallback keeps the original immutable execution policy; adoption changes only C and policy identity', () => {
-  assert.equal(challengerExecutionPolicy(fallbackChallengerState()), VIRTUAL_RECOMMENDATION_POLICY);
+test('historical fallback keeps its immutable policy while the current release and adoption bind a new C identity', () => {
+  const originalPolicy = JSON.stringify(VIRTUAL_RECOMMENDATION_POLICY);
+  const historicalState = { deployment: { modelVersion: VIRTUAL_RECOMMENDATION_POLICY.familyC.modelVersion,
+    baselineVersion: VIRTUAL_RECOMMENDATION_POLICY.familyC.baselineVersion, selectorPolicy: 'canonical-binary-v1',
+    probabilityConfigurationHash: null, artifactHash: null }, source: 'fallback', revision: 'historical' };
+  assert.equal(challengerExecutionPolicy(historicalState), VIRTUAL_RECOMMENDATION_POLICY);
+  const currentState = fallbackChallengerState(), currentPolicy = challengerExecutionPolicy(currentState);
+  assert.deepEqual(currentState.deployment, CURRENT_CHALLENGER_RELEASE);
+  assert.equal(currentPolicy.version, 'virtual-recommendation-v3');
+  assert.equal(currentPolicy.familyA, VIRTUAL_RECOMMENDATION_POLICY.familyA);
+  for (const [key, value] of Object.entries(CURRENT_CHALLENGER_RELEASE)) assert.equal(currentPolicy.familyC[key], value);
   const state = { deployment: deployment(artifact(true)), source: 'adopted', revision: 'revision-1' };
   const policy = challengerExecutionPolicy(state);
   assert.equal(policy.familyA, VIRTUAL_RECOMMENDATION_POLICY.familyA);
   assert.equal(policy.version, 'virtual-recommendation-v3'); assert.equal(policy.familyC.modelVersion, state.deployment.modelVersion);
   assert.notEqual(researchHash(policy), researchHash(VIRTUAL_RECOMMENDATION_POLICY));
   assert.notEqual(researchHash(policy), researchHash(challengerExecutionPolicy({ ...state, revision: 'revision-2' })));
+  assert.equal(JSON.stringify(VIRTUAL_RECOMMENDATION_POLICY), originalPolicy);
 });
 
 test('extended C features leave the entire baseline input and diagnostic A probabilities unchanged', async () => {

@@ -15,7 +15,7 @@ const { baselineManifest } = require('../dist/research/ForecastCore');
 const { coherentProbabilityPipelineHash } = require('../dist/research/CoherentProbabilityPipeline');
 const { runNightly, recommendationEnabled } = require('../scripts/research-nightly');
 const { buildRecoveryPlan } = require('../dist/research/ResearchRecommendationRecovery');
-const { VIRTUAL_RECOMMENDATION_POLICY } = require('../dist/research/ResearchRecommendationPolicy');
+const { challengerExecutionPolicy, fallbackChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
 const { nextNightlyBoundary } = require('../dist/research/ResearchNightly');
 
 const START = '2026-10-30T12:30:00.000Z', KICKOFF = '2026-10-30T18:00:00.000Z';
@@ -131,7 +131,8 @@ async function historicalRecoveryFixture(t) {
   const f = await fixture(t, { matches: 4 });
   await runResearchNightly(f.db, { policy: policy(), clock: f.clock, runId: 'original-diagnostics',
     preparer: f.diagnosticPreparer, diagnosticOnly: true });
-  const parent = await f.recommendations.registerPolicy(VIRTUAL_RECOMMENDATION_POLICY);
+  const executionPolicy = challengerExecutionPolicy(fallbackChallengerState());
+  const parent = await f.recommendations.registerPolicy(executionPolicy);
   const end = nextNightlyBoundary(f.clock(), 3, 7).toISOString();
   const claimed = await f.recommendations.claimBatch({ policyHash: parent.hash, runId: 'original-execution',
     windowStartAt: START, windowEndAt: end, fixtures: f.matches.map((row) => ({ matchId: row.match_id, kickoffAt: row.date })) });
@@ -139,7 +140,7 @@ async function historicalRecoveryFixture(t) {
   for (const [index, job] of claimed.jobs.entries()) {
     const item = await f.runtime.prepare(job);
     item.inputSnapshot.match.kickoffAt = job.kickoffAt;
-    item.inputSnapshot.metadata = { originInputId: item.originInputId, policy: VIRTUAL_RECOMMENDATION_POLICY };
+    item.inputSnapshot.metadata = { originInputId: item.originInputId, policy: executionPolicy };
     if (index !== 2) item.decisions = item.decisions.map((decision) => ({ ...decision, action: 'ABSTAIN',
       reason: index < 2 ? 'odds_credit_budget_exhausted' : 'app_no_recommendation', recommended: false, validated: false }));
     inputs.push(item);
@@ -153,7 +154,7 @@ async function historicalRecoveryFixture(t) {
   const origins = await raw('SELECT * FROM research_decisions WHERE input_id=? ORDER BY family', [originInput.id]);
   const decisions = await raw('SELECT * FROM research_execution_decisions WHERE input_id=? ORDER BY family', [input.id]);
   const record = { match: { matchId: 'fixture-0', kickoffAt: KICKOFF, homeGoals: null, awayGoals: null },
-    policy: { hash: parent.hash, descriptor: VIRTUAL_RECOMMENDATION_POLICY },
+    policy: { hash: parent.hash, descriptor: executionPolicy },
     job: { id: job.id, matchId: job.match_id, policyHash: job.policy_hash, runId: job.run_id, status: job.status,
       kickoffAt: job.kickoff_at, windowStartAt: job.window_start_at, windowEndAt: job.window_end_at, claimedAt: job.claimed_at },
     input: { id: input.id, jobId: input.job_id, originInputId: input.origin_input_id, inputHash: input.input_hash,
@@ -165,7 +166,7 @@ async function historicalRecoveryFixture(t) {
       action: row.action, reason: row.reason, snapshot: JSON.parse(row.snapshot_json) })), existingBets: [], existingRecoveries: [] };
   assert.equal(Number((await raw('SELECT COUNT(*) AS n FROM research_execution_jobs WHERE match_id=? AND policy_hash<>?',
     ['fixture-0', parent.hash]))[0].n), 0);
-  const plan = buildRecoveryPlan([record], VIRTUAL_RECOMMENDATION_POLICY, f.clock());
+  const plan = buildRecoveryPlan([record], executionPolicy, f.clock());
   assert.equal(plan.sources.length, 1); assert.equal(plan.excluded.length, 0);
   const originalHistory = async () => ({
     jobs: await raw('SELECT * FROM research_execution_jobs WHERE policy_hash=? ORDER BY id', [parent.hash]),

@@ -3,9 +3,10 @@ import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported, RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { quoteFreshnessReason } from './T15Scheduler';
+import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
-export const RECOMMENDATION_MODEL_C = 'C-906371b0b3a1e2c8';
-export const RECOMMENDATION_BASELINE_C = 'A-80cb25df5552621e';
+export const RECOMMENDATION_MODEL_C = CURRENT_CHALLENGER_RELEASE.modelVersion;
+export const RECOMMENDATION_BASELINE_C = CURRENT_CHALLENGER_RELEASE.baselineVersion;
 
 export type ChallengerExecutionDeployment = {
   modelVersion: string; baselineVersion: string; selectorPolicy: 'canonical-binary-v1' | 'payout-aware-v1';
@@ -16,8 +17,7 @@ export type ChallengerExecutionState = {
   resolutionUnavailable?: boolean;
 };
 export const FALLBACK_CHALLENGER_DEPLOYMENT: ChallengerExecutionDeployment = {
-  modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C,
-  selectorPolicy: 'canonical-binary-v1', probabilityConfigurationHash: null, artifactHash: null,
+  ...CURRENT_CHALLENGER_RELEASE,
 };
 export const fallbackChallengerState = (): ChallengerExecutionState => ({
   deployment: { ...FALLBACK_CHALLENGER_DEPLOYMENT }, revision: 'fallback', source: 'fallback',
@@ -31,7 +31,8 @@ export const VIRTUAL_RECOMMENDATION_POLICY = {
   version: 'virtual-recommendation-v2', virtualOnly: true,
   familyA: { source: 'PredictionService', recommendationPolicy: CANONICAL_RECOMMENDATION_POLICY,
     stakeMode: 'RECOMMENDED_PERCENT', marketCoverage: 'existing-supported-team-markets', playerProps: false },
-  familyC: { source: 'ResearchRuntime', modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C,
+  // Historical policy bytes remain readable; current executions bind the release below.
+  familyC: { source: 'ResearchRuntime', modelVersion: 'C-906371b0b3a1e2c8', baselineVersion: 'A-80cb25df5552621e',
     stakeMode: 'FIXED_ONE_PERCENT', marketCalibration: false, marketBlending: false },
   stakeModeA: 'RECOMMENDED_PERCENT', stakeModeC: 'FIXED_ONE_PERCENT',
   maxExposureFraction: .05, maxBetsPerMatchPerFamily: 1, quoteMaxAgeMs: 300_000,
@@ -40,7 +41,9 @@ export const VIRTUAL_RECOMMENDATION_POLICY = {
 
 /** The original fallback descriptor must retain its immutable policy identity. */
 export function challengerExecutionPolicy(state: ChallengerExecutionState) {
-  if (state.source === 'fallback' && !state.resolutionUnavailable) return VIRTUAL_RECOMMENDATION_POLICY;
+  if (state.source === 'fallback' && !state.resolutionUnavailable
+    && state.deployment.modelVersion === VIRTUAL_RECOMMENDATION_POLICY.familyC.modelVersion
+    && state.deployment.baselineVersion === VIRTUAL_RECOMMENDATION_POLICY.familyC.baselineVersion) return VIRTUAL_RECOMMENDATION_POLICY;
   return { ...VIRTUAL_RECOMMENDATION_POLICY, version: 'virtual-recommendation-v3',
     familyC: { ...VIRTUAL_RECOMMENDATION_POLICY.familyC, ...state.deployment,
       deploymentRevision: state.revision, deploymentSource: state.source,

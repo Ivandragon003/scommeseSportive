@@ -75,7 +75,12 @@ function fixture(options = {}) {
       bookmakerBySelection: Object.fromEntries(sheet.map((value) => [value.selection, value.bookmaker])),
       source: 'odds_api', capturedAt: at }, metadata: { providerEventId: 'app-full-fixture' } };
   } };
-  const runtime = new ResearchRecommendationRuntime(db, { clock: () => new Date(now), researchRuntime, predictionService, odds, appOdds });
+  // The injected forecast uses identity calibration, independently of the real release configuration.
+  const deploymentC = { source: 'fallback', revision: 'synthetic-fixture', deployment: {
+    modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C, selectorPolicy: 'canonical-binary-v1',
+    probabilityConfigurationHash: challenger().probabilityConfigurationHash, artifactHash: null } };
+  const runtime = new ResearchRecommendationRuntime(db, { clock: () => new Date(now), researchRuntime, predictionService, odds, appOdds,
+    deploymentC });
   return { runtime, job, packet, prepared, row, calls, db, researchRuntime, predictionService, odds, appOdds, clock: () => new Date(now),
     setTime: (value) => { now = Date.parse(value); } };
 }
@@ -248,7 +253,7 @@ test('a changed C kickoff or known non-upcoming fixture still fails closed befor
   }
 });
 
-test('the actual recommendation preparer pins C906 and keeps app A available when only a newer candidate exists', async () => {
+test('the actual recommendation preparer pins the current C release and keeps app A available when only a newer candidate exists', async () => {
   const f = fixture(); const exactReads = [], registry = [{ family: 'C', version: 'C-weekly-next' }];
   f.db.getMatches = async () => Array.from({ length: 45 }, (_, index) => ({ ...f.row, match_id: `history-${index}`,
     date: new Date(Date.parse(at) - (index + 2) * 86400000).toISOString(), home_goals: index % 3, away_goals: index % 2,
@@ -389,7 +394,7 @@ test('C refuses app statistical markets even if accidentally supplied in its quo
   assert.equal(result.exclusions.unsupported_quote_settlement, 1);
 });
 
-test('C906 remains the unchanged default; the payout-aware selector requires an explicit opt-in', () => {
+test('the canonical binary selector remains the default; the payout-aware selector requires an explicit opt-in', () => {
   const input = { decision: challenger(), quotes: quotes(), observedAt: at, allowedMarkets: ['1x2'] };
   const previous = buildChallengerRecommendation(input);
   assert.deepEqual(buildChallengerRecommendation({ ...input, selectionPolicy: 'legacy-c906' }), previous);
@@ -430,7 +435,7 @@ test('the opt-in C policy preserves the precise technical failure instead of sub
   assert.deepEqual(result.exclusions, { challenger_technical_validation_failed: 1 });
 });
 
-test('an adopted C identity is exact and explicit while the default remains pinned to C906 and its original configuration', () => {
+test('an adopted C identity is exact and explicit while the default remains pinned to the current release', () => {
   const adopted = challenger({ modelVersion: 'C-approved-fixture' });
   const expectedIdentity = { modelVersion: adopted.modelVersion, baselineVersion: RECOMMENDATION_BASELINE_C,
     probabilityConfigurationHash: adopted.probabilityConfigurationHash };

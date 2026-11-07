@@ -41,6 +41,7 @@ async function probeRuntime(options = {}) {
     const { validateArtifact, predictHybrid, normalizeJoint } = require('../dist/research/CatBoostModel');
     const { baselineManifest, FEATURE_NAMES, FEATURE_SCHEMA_VERSION } = require('../dist/research/ForecastCore');
     const { coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } = require('../dist/research/CoherentProbabilityPipeline');
+    const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = require('../dist/research/ChallengerDataQuality');
     const artifact = JSON.parse(row.artifact_json);
     validateArtifact(artifact);
     stage = 'runtime_probe_identity_invalid';
@@ -62,7 +63,9 @@ async function probeRuntime(options = {}) {
     const home = marginal(1.5), away = marginal(1.1);
     const input = { featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION, features: FEATURE_NAMES.map(() => 0),
       baselineMatrix: normalizeJoint(home.map((h) => away.map((a) => h * a))), baselineVersion: baseline.version,
-      lambdaHome: 1.5, lambdaAway: 1.1, forecastAt: now.toISOString() };
+      lambdaHome: 1.5, lambdaAway: 1.1, forecastAt: now.toISOString(), matchId: 'runtime-probe-synthetic',
+      // This contract applies only to the generated fixture, never to real match data.
+      dataQualityPolicyHash: CHALLENGER_DATA_QUALITY_POLICY_HASH, dataQualityBaselineClean: true };
     stage = 'runtime_probe_inference_failed';
     const prediction = predictHybrid(input, artifact);
     const finiteProbabilities = Object.values(prediction.probabilities).every((p) => Number.isFinite(p) && p >= 0 && p <= 1);
