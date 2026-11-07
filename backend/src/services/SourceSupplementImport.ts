@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Client } from '@libsql/client';
-import { sourceIdentityQuarantined } from './SourceIdentityQuarantine';
+import { reviewedSourceIdentityConsistent } from './ReviewedSourceIdentity';
 import {
   canonicalTeamName, createLibsqlFootballDataDb, FOOTBALL_DATA_LEAGUE_CODES,
   matchKey, parseFootballDataCsv, seasonToFootballDataCode, syncFootballData,
@@ -96,8 +96,10 @@ export async function importCapturedSupplement(input: CapturedSupplementInput): 
     const blockedKeys = new Set<string>();
     for (const match of candidates) {
       const key = matchKey(match.date, match.home_team_name ?? '', match.away_team_name ?? '');
-      if (excluded.has(match.match_id) || (input.competition === 'Ligue 1' && sourceIdentityQuarantined('FL1', input.seasonStart,
-        match.home_team_id ?? undefined, match.away_team_id ?? undefined))) { blockedKeys.add(key); continue; }
+      const identityConsistent = input.competition !== 'Ligue 1'
+        || (reviewedSourceIdentityConsistent('FL1', input.seasonStart, match.home_team_id ?? undefined, [match.home_team_name])
+          && reviewedSourceIdentityConsistent('FL1', input.seasonStart, match.away_team_id ?? undefined, [match.away_team_name]));
+      if (excluded.has(match.match_id) || !identityConsistent) { blockedKeys.add(key); continue; }
       const row = byId.get(match.match_id);
       const providerId = count(row?.source_match_id);
       const allowedSource = row?.source === 'understat' || (row?.source === 'football_data_org'

@@ -380,7 +380,7 @@ async function identityFixture(t, options = {}) {
   const localId = options.localId ?? 'understat_team_172', localName = options.localName ?? 'Troyes';
   const f = await fixture(t, (payload) => {
     for (const match of payload.matches) for (const side of ['homeTeam', 'awayTeam']) {
-      if (match[side].id === 1) { match[side].id = 531; match[side].name = options.providerName ?? 'Le Havre'; }
+      if (match[side].id === 1) { match[side].id = options.providerId ?? 531; match[side].name = options.providerName ?? 'Troyes'; }
     }
     if (options.future) { payload.matches[0].status = 'TIMED'; payload.matches[0].utcDate = '2026-11-06T12:00:00Z'; }
   }, options.empty ? [] : undefined, { competition: options.competition ?? 'FL1', season: options.season ?? 2026 });
@@ -390,44 +390,78 @@ async function identityFixture(t, options = {}) {
     away_team_name=CASE WHEN away_team_id='home' THEN ? ELSE away_team_name END,
     home_team_id=CASE WHEN home_team_id='home' THEN ? ELSE home_team_id END,
     away_team_id=CASE WHEN away_team_id='home' THEN ? ELSE away_team_id END`, args: [localName, localName, localId, localId] });
-  f.mapping.teams = { 531: localId, 2: 'away' };
+  f.mapping.teams = { [options.providerId ?? 531]: localId, 2: 'away' };
   return f;
 }
 
-for (const localName of ['Troyes', 'Le Havre']) test(`FL1/2026 disputed ID is quarantined regardless of its cosmetic name (${localName})`, async (t) => {
-  const f = await identityFixture(t, { localName }), before = await f.rows(), plan = await f.plan({ allowCreateFixtures: true });
+for (const options of [
+  {}, { localName: 'Estac Troyes', providerName: 'Troyes' }, { localName: 'Troyes', providerName: 'Estac Troyes' },
+  { localName: 'Troyes', providerName: 'ES Troyes AC' },
+  { localId: 'le_havre', localName: 'Havre AC', providerId: 533, providerName: 'Le Havre' },
+  { localId: 'le_havre', localName: 'Le Havre', providerId: 533, providerName: 'Havre AC' },
+  { localId: 'le_havre', localName: 'Le Havre', providerId: 533, providerName: 'Le Havre AC' },
+  { localId: 'understat_team_295', localName: 'Le Mans', providerId: 535, providerName: 'Le Mans FC' },
+]) test(`resolved identities and reviewed aliases import without renaming: ${JSON.stringify(options)}`, async (t) => {
+  const f = await identityFixture(t, options), before = await f.rows(), plan = await f.plan();
+  assert.equal(plan.status, 'ready'); assert.equal(plan.updates.length, 2);
+  assert.equal((await applySourceFeedImport({ ...f, plan })).applied, 2);
+  for (const row of await f.rows()) {
+    const original = before.find((item) => item.match_id === row.match_id);
+    assert.equal(row.home_team_id, original.home_team_id); assert.equal(row.away_team_id, original.away_team_id);
+    assert.equal(row.home_team_name, original.home_team_name); assert.equal(row.away_team_name, original.away_team_name);
+  }
+});
+
+for (const options of [
+  { providerName: 'Le Havre' },
+  { localName: 'Le Havre', providerName: 'Le Havre' },
+  { localName: 'Le Havre', providerName: 'Troyes' },
+  { providerId: 533, providerName: 'Troyes' },
+  { localId: 'le_havre', localName: 'Havre AC', providerName: 'Le Havre' },
+  { localId: 'understat_team_295', localName: 'Le Mans', providerName: 'Le Mans FC' },
+]) test(`incorrect reviewed identity still blocks all affected fixtures: ${JSON.stringify(options)}`, async (t) => {
+  const f = await identityFixture(t, options), before = await f.rows(), plan = await f.plan({ allowCreateFixtures: true });
   assert.equal(plan.status, 'blocked'); assert.equal(plan.updates.length, 0); assert.equal(plan.creates.length, 0);
-  const involved = new Set(f.snapshot.fixtures.filter((row) => row.providerHomeTeamId === '531' || row.providerAwayTeamId === '531').map((row) => row.providerMatchId));
+  const providerId = String(options.providerId ?? 531);
+  const involved = new Set(f.snapshot.fixtures.filter((row) => row.providerHomeTeamId === providerId || row.providerAwayTeamId === providerId).map((row) => row.providerMatchId));
   assert.equal(involved.size, 34);
   for (const entry of plan.entries.filter((row) => involved.has(row.providerMatchId))) {
-    assert.equal(entry.action, 'BLOCK'); assert.equal(entry.reason, 'source_import_team_identity_quarantined'); assert.deepEqual(entry.fields, []);
+    assert.equal(entry.action, 'BLOCK'); assert.equal(entry.reason, 'source_import_team_identity_mismatch'); assert.deepEqual(entry.fields, []);
   }
   assert.deepEqual(plan.entries[0].relatedLocalMatchIds, ['understat_71']);
   assert.deepEqual(await f.rows(), before);
 });
 
-test('quarantined future fixtures cannot be created even with the explicit creation opt-in', async (t) => {
+test('a verified future Troyes fixture can be created with its existing identity and null statistics', async (t) => {
   const f = await identityFixture(t, { future: true, empty: true }), plan = await f.plan({ allowCreateFixtures: true });
-  assert.equal(plan.entries[0].action, 'BLOCK'); assert.equal(plan.entries[0].reason, 'source_import_team_identity_quarantined');
-  assert.equal(plan.creates.length, 0);
+  assert.equal(plan.status, 'ready'); assert.equal(plan.creates.length, 1);
+  const result = await applySourceFeedImport({ ...f, plan });
+  assert.equal(result.created, 1);
+  const [row] = await f.rows();
+  assert.equal(row.home_team_id, 'understat_team_172'); assert.equal(row.home_team_name, 'Troyes');
+  assert.equal(row.home_xg, null); assert.equal(row.home_shots, null);
+});
+
+test('a mismatched future association cannot create a fixture even with explicit opt-in', async (t) => {
+  const f = await identityFixture(t, { future: true, empty: true, providerName: 'Le Havre' }), plan = await f.plan({ allowCreateFixtures: true });
+  assert.equal(plan.entries[0].action, 'BLOCK'); assert.equal(plan.creates.length, 0);
   const result = await applySourceFeedImport({ ...f, plan, allowVerifiedSubset: true, expectedPlanHash: plan.planHash });
   assert.equal(result.applied, 0); assert.equal(result.partial, true); assert.equal(result.blockedSkipped, 34);
   assert.deepEqual(await f.rows(), []);
 });
 
 for (const options of [
-  { localId: 'le_havre', localName: 'Havre AC', providerName: 'Le Havre' },
-  { localId: 'understat_team_1720', localName: 'Troyes-like synthetic label' },
-  { competition: 'PL', localName: 'Troyes', providerName: 'Troyes' },
-  { season: 2025, localName: 'Troyes', providerName: 'Troyes' },
-]) test(`the incident does not turn lexical similarities or other scopes into a broad rejection: ${JSON.stringify(options)}`, async (t) => {
+  { localId: 'understat_team_1720', localName: 'Unreviewed alias', providerName: 'Unreviewed provider spelling' },
+  { competition: 'PL', localName: 'Le Havre', providerName: 'Troyes' },
+  { season: 2025, localName: 'Le Havre', providerName: 'Troyes' },
+]) test(`the bounded review leaves unrelated aliases and scopes unchanged: ${JSON.stringify(options)}`, async (t) => {
   const f = await identityFixture(t, options), plan = await f.plan();
   assert.equal(plan.status, 'ready'); assert.equal(plan.counts.blocked, 0); assert.equal(plan.updates.length, 2);
   assert.equal((await applySourceFeedImport({ ...f, plan })).applied, 2);
 });
 
-test('a reviewed subset can import an unrelated result while every disputed-ID fixture remains quarantined', async (t) => {
-  const f = await identityFixture(t);
+test('an approved subset imports unrelated results while mismatched identities remain blocked', async (t) => {
+  const f = await identityFixture(t, { providerName: 'Le Havre' });
   f.mapping.teams['3'] = 'third'; await f.client.execute("INSERT INTO teams VALUES ('third','Canonical Third')");
   await f.client.execute(`INSERT INTO matches(match_id,home_team_id,away_team_id,competition,season,date,source,raw_json)
     VALUES ('unrelated','away','third','Ligue 1','2026/2027','2026-08-02T18:00:00Z','manual','{"keep":true}')`);
@@ -439,22 +473,22 @@ test('a reviewed subset can import an unrelated result while every disputed-ID f
 });
 
 for (const create of [false, true]) for (const subset of [false, true]) {
-  test(`apply revalidates a prepared pre-quarantine ${create ? 'creation' : 'result'} plan, subset=${subset}`, async (t) => {
-    // Prepare the same operation with an undisputed local ID, then reproduce
-    // the legacy association coherently in both the target and approved plan.
-    const f = await identityFixture(t, { localId: 'le_havre', localName: 'Troyes', future: create, empty: create });
+  test(`apply revalidates a prepared incorrect ${create ? 'creation' : 'result'} plan, subset=${subset}`, async (t) => {
+    // An old plan with an unknown local ID did not have the bounded review.
+    // Rehashing it and changing the target coherently cannot authorize a bad association.
+    const f = await identityFixture(t, { localId: 'legacy_local', localName: 'Troyes', providerName: 'Le Havre', future: create, empty: create });
     const plan = await f.plan({ allowCreateFixtures: create });
     assert.equal(plan.status, 'ready');
     plan.mapping.teams['531'] = 'understat_team_172';
     plan.mappingSha256 = canonicalHash(plan.mapping);
     const replaceId = (row) => {
-      for (const side of ['home_team_id', 'away_team_id']) if (row[side] === 'le_havre') row[side] = 'understat_team_172';
+      for (const side of ['home_team_id', 'away_team_id']) if (row[side] === 'legacy_local') row[side] = 'understat_team_172';
     };
     for (const update of plan.updates) { replaceId(update.before); replaceId(update.after); }
     for (const entry of plan.creates) replaceId(entry.after);
-    await f.client.execute("UPDATE teams SET team_id='understat_team_172' WHERE team_id='le_havre'");
-    await f.client.execute(`UPDATE matches SET home_team_id=CASE WHEN home_team_id='le_havre' THEN 'understat_team_172' ELSE home_team_id END,
-      away_team_id=CASE WHEN away_team_id='le_havre' THEN 'understat_team_172' ELSE away_team_id END`);
+    await f.client.execute("UPDATE teams SET team_id='understat_team_172' WHERE team_id='legacy_local'");
+    await f.client.execute(`UPDATE matches SET home_team_id=CASE WHEN home_team_id='legacy_local' THEN 'understat_team_172' ELSE home_team_id END,
+      away_team_id=CASE WHEN away_team_id='legacy_local' THEN 'understat_team_172' ELSE away_team_id END`);
     if (subset) {
       const unrelated = plan.entries.find((entry) => entry.action === 'SKIP' && entry.providerMatchId !== '1');
       unrelated.action = 'BLOCK'; unrelated.reason = 'existing_result_conflict';
@@ -462,7 +496,16 @@ for (const create of [false, true]) for (const subset of [false, true]) {
     }
     rehash(plan); const before = await f.rows();
     await assert.rejects(applySourceFeedImport({ ...f, plan, allowVerifiedSubset: subset,
-      expectedPlanHash: subset ? plan.planHash : undefined }), { message: 'source_import_team_identity_quarantined' });
+      expectedPlanHash: subset ? plan.planHash : undefined }), { message: 'source_import_team_identity_mismatch' });
     assert.deepEqual(await f.rows(), before);
   });
 }
+
+for (const create of [false, true]) test(`a cosmetic rename after planning aborts ${create ? 'creation' : 'updates'}`, async (t) => {
+  const f = await identityFixture(t, { future: create, empty: create }), plan = await f.plan({ allowCreateFixtures: create });
+  assert.equal(plan.status, 'ready');
+  await f.client.execute("UPDATE teams SET name='Le Havre' WHERE team_id='understat_team_172'");
+  const before = await f.rows();
+  await assert.rejects(applySourceFeedImport({ ...f, plan }), { message: 'source_import_team_identity_mismatch' });
+  assert.deepEqual(await f.rows(), before);
+});

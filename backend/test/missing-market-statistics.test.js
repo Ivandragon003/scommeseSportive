@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const { createClient } = require('@libsql/client');
 const { DatabaseService } = require('../dist/db/DatabaseService');
 const { rebuildPlayerDerivedStats } = require('../dist/services/PlayerDerivedStatsService');
@@ -137,6 +139,7 @@ test('match upsert retains observed values when new values are missing and accep
     const service = Object.create(DatabaseService.prototype);
     await client.execute('CREATE TABLE final_observations (match_id TEXT, field TEXT, value, PRIMARY KEY(match_id,field))');
     await client.execute('CREATE TABLE final_observation_conflicts (match_id TEXT, field TEXT, existing_value, attempted_value)');
+    await client.executeMultiple(readFileSync(join(__dirname, '../migrations/036_match_kickoff_observations.sql'), 'utf8'));
     service.db = client;
     service.initPromise = Promise.resolve();
     service.markTeamAveragesDirty = () => {};

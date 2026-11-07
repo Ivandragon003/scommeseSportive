@@ -1362,7 +1362,9 @@ export async function pruneOldSeasons(
   const outsideWindow = seasons.filter((season) => season.start < oldestStart || season.start > currentStart);
   const protectedSeasons = outsideWindow.length ? await client.execute({
     sql: `SELECT DISTINCT m.season AS protected_season FROM matches m
-          JOIN final_observations o ON o.match_id=m.match_id`, args: [],
+          JOIN final_observations o ON o.match_id=m.match_id
+          UNION SELECT DISTINCT m.season AS protected_season FROM matches m
+          JOIN match_kickoff_observations k ON k.match_id=m.match_id`, args: [],
   }) : { rows: [] };
   const protectedLabels = new Set(protectedSeasons.rows.map((row) => String(row.protected_season)));
   const protectedOutsideWindow = outsideWindow.filter((season) => protectedLabels.has(season.label));

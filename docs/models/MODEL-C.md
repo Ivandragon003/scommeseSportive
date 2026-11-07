@@ -22,6 +22,31 @@ La nuova release usa il descrittore v3 anche nel fallback. Il descrittore v2 rim
 
 Fonti: [policy](../../backend/src/research/ResearchRecommendationPolicy.ts), [registro](../../backend/src/research/ChallengerAdoption.ts), [runtime](../../backend/src/research/ResearchRuntime.ts), [Nightly](../../backend/src/research/ResearchRecommendationNightly.ts).
 
+## Come C eredita le modifiche di A
+
+`ForecastCore` importa direttamente `DixonColesModel`, `PoissonXgModel` e
+`blendGoalProbabilities` usati anche da A: i componenti matematici sono chiamate
+al codice comune della stessa build, senza una seconda copia da aggiornare.
+L'adattatore ricostruisce però fit e contesto cronologico propri. Non richiama
+l'intero `PredictionService` con il suo stato operativo. La matrice congiunta
+usata da C è una ricostruzione dichiarata del nucleo statistico; con pesi
+diversi per famiglia non coincide necessariamente con ogni probabilità A.
+
+Il codice condiviso si aggiorna insieme ad A, mentre i pesi CatBoost restano
+appresi su uno specifico contratto di input. Cambiare le feature, le probabilità
+di base o la loro calibrazione può renderli incompatibili. Il fingerprint
+della baseline è conservativo e comprende anche file interi: una sua variazione
+blocca il riuso silenzioso dell'artefatto. Non si risolve sostituendo l'etichetta
+della versione o dichiarando il modello aggiornato.
+
+Un'ulteriore unificazione può estrarre un'unica funzione pura per matrice e
+output statistici, richiamata da A e dall'adattatore C. Il passaggio richiede
+parità numerica su tutti gli input consumati in training e calibrazione e
+verifiche sui replay; se tali input cambiano serve un nuovo addestramento e
+una nuova valutazione. Automatizzare la preparazione di una candidata è
+compatibile con questi vincoli; adottarne automaticamente i vecchi pesi su
+qualunque nuova A non è una garanzia di correttezza o di miglioramento.
+
 ## Input, cronologia e qualità dei dati
 
 `ForecastCore` prepara baseline e 40 feature numeriche legacy: forza delle squadre, Elo, campioni, xG, forma e contesto disponibile prima del forecast. Quote bookmaker e statistiche del singolo giocatore non sono feature CatBoost di questo schema. Le quote possono intervenire nel post-processing e nella scelta.

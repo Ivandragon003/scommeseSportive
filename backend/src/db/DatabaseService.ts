@@ -56,7 +56,10 @@ const MATCH_CONFLICT_SQL = `INSERT INTO final_observation_conflicts(match_id, fi
   ${LOCKED_MATCH_FIELDS.map(([column, parameter]) => `SELECT :matchId, '${column}', matches.${column}, :${parameter}
     FROM matches JOIN final_observations ON final_observations.match_id=matches.match_id
       AND final_observations.field='${column}'
-    WHERE matches.match_id=:matchId AND :${parameter} IS NOT NULL AND :${parameter} IS NOT matches.${column}`).join(' UNION ALL ')}`;
+    WHERE matches.match_id=:matchId AND :${parameter} IS NOT NULL AND :${parameter} IS NOT matches.${column}`).join(' UNION ALL ')}
+  UNION ALL SELECT :matchId, 'date', matches.date, :date
+    FROM matches JOIN match_kickoff_observations ON match_kickoff_observations.match_id=matches.match_id
+    WHERE matches.match_id=:matchId AND :date IS NOT NULL AND :date IS NOT matches.date`;
 const MATCH_UPSERT_SQL = `
       INSERT INTO matches (
         match_id, home_team_id, away_team_id, home_team_name, away_team_name,
@@ -76,7 +79,9 @@ const MATCH_UPSERT_SQL = `
         :referee, :competition, :season, :source, :sourceMatchId, :rawJson
       )
       ON CONFLICT(match_id) DO UPDATE SET
-        ${MATCH_UPDATE_COLUMNS.map((column) => LOCKED_MATCH_FIELDS.some(([field]) => field === column)
+        ${MATCH_UPDATE_COLUMNS.map((column) => column === 'date'
+    ? `date = CASE WHEN EXISTS (SELECT 1 FROM match_kickoff_observations WHERE match_id=matches.match_id) THEN matches.date ELSE COALESCE(excluded.date, matches.date) END`
+    : LOCKED_MATCH_FIELDS.some(([field]) => field === column)
     ? `${column} = CASE WHEN EXISTS (SELECT 1 FROM final_observations WHERE match_id=matches.match_id AND field='${column}') THEN matches.${column} ELSE COALESCE(excluded.${column}, matches.${column}) END`
     : `${column} = COALESCE(excluded.${column}, matches.${column})`).join(',\n        ')}
       WHERE ${MATCH_UPDATE_COLUMNS.map((column) => `(excluded.${column} IS NOT NULL AND excluded.${column} IS NOT matches.${column})`).join('\n         OR ')}
@@ -1060,7 +1065,7 @@ export class DatabaseService {
       const chunk = matches.slice(start, start + safeChunkSize);
       const statements: InStatement[] = chunk.flatMap((match) => {
         const args = this.getMatchUpsertArgs(match) as Record<string, any>;
-        const conflictArgs = Object.fromEntries(['matchId', ...LOCKED_MATCH_FIELDS.map(([, parameter]) => parameter)]
+        const conflictArgs = Object.fromEntries(['matchId', 'date', ...LOCKED_MATCH_FIELDS.map(([, parameter]) => parameter)]
           .map((key) => [key, args[key]]));
         const assessment = assessFinalObservations({ match_id: args.matchId, source: args.source,
           source_match_id: args.sourceMatchId, raw_json: args.rawJson,
@@ -1070,12 +1075,12 @@ export class DatabaseService {
           // The evidence and the stored value must still match in the same transaction.
           sql: `INSERT INTO final_observations(match_id,field,value,source,evidence_json,evidence_sha256)
             SELECT :matchId,:field,:value,:source,:evidence,:hash FROM matches
-            WHERE match_id=:matchId AND ${item.field}=:value AND raw_json=:rawJson
+            WHERE match_id=:matchId AND ${item.field}=:value AND raw_json=:rawJson AND date=:date
               AND EXISTS (SELECT 1 FROM teams WHERE team_id=matches.home_team_id AND CAST(source_team_id AS TEXT)=:homeSourceId)
               AND EXISTS (SELECT 1 FROM teams WHERE team_id=matches.away_team_id AND CAST(source_team_id AS TEXT)=:awaySourceId)
               AND NOT EXISTS (SELECT 1 FROM final_observations WHERE match_id=:matchId AND field=:field)`,
           args: { matchId: item.matchId, field: item.field, value: item.value, source: item.source,
-            evidence: item.evidenceJson, hash: item.evidenceSha256, rawJson: args.rawJson,
+            evidence: item.evidenceJson, hash: item.evidenceSha256, rawJson: args.rawJson, date: args.date,
             homeSourceId:String(JSON.parse(item.evidenceJson).match.h.id), awaySourceId:String(JSON.parse(item.evidenceJson).match.a.id) },
         }));
         return [{ sql: MATCH_CONFLICT_SQL, args: conflictArgs }, { sql: MATCH_UPSERT_SQL, args }, ...locks];

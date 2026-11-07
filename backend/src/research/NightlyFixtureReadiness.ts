@@ -1,6 +1,7 @@
 import { PredictionContextBuilder } from '../services/PredictionContextBuilder';
 import { predictionEngineConfig } from '../config/PredictionEngineConfig';
 import type { SourceFeedStore } from '../services/SourceFeedStore';
+import { reviewedSourceIdentityConsistent } from '../services/ReviewedSourceIdentity';
 import type { FootballDataCompetition } from '../services/modelAResearchCalendar';
 import { createHash } from 'node:crypto';
 import { HISTORICAL_RESULT_DELAY_MS } from '../services/ChronologicalForecastService';
@@ -70,6 +71,14 @@ export async function loadNightlyFixtureReadiness(db: Db, manifest: NightlySourc
     ?? (!currentSource ? 'calendar_current_source_mismatch' : !mappingGood ? 'calendar_mapping_mismatch' : 'calendar_unavailable');
   const teams = await db.getTeamsByIds([row.home_team_id, row.away_team_id]);
   const home = teams.find(team => team.team_id === row.home_team_id), away = teams.find(team => team.team_id === row.away_team_id);
+  // A fresh NO_CHANGE manifest can still contain an obsolete club association.
+  // Attest identity from the current provider IDs/names and persisted names,
+  // independently of the manifest's action and its valid mapping hash.
+  const identityGood = calendarGood && !!raw && !!section
+    && reviewedSourceIdentityConsistent(section.competition, season, row.home_team_id,
+      [raw.homeTeamName, row.home_team_name, home?.name], raw.providerHomeTeamId)
+    && reviewedSourceIdentityConsistent(section.competition, season, row.away_team_id,
+      [raw.awayTeamName, row.away_team_name, away?.name], raw.providerAwayTeamId);
   const saved = await db.getLatestModelParams(row.competition);
   const params = saved?.params;
   const poisson = params?.poissonXg;
@@ -154,7 +163,7 @@ export async function loadNightlyFixtureReadiness(db: Db, manifest: NightlySourc
     calendar: { ...ev(calendarGood, calendarReason), source: feed?.source ?? '',
       acquiredAt: feed?.acquiredAt ?? '', matchId: entry?.localMatchId ?? '', kickoffAt: entry?.kickoffUtc ?? '',
       homeTeamId: entry?.homeTeamId ?? '', awayTeamId: entry?.awayTeamId ?? '', mappingHash: feed?.mappingSha256 ?? '' },
-    identity: ev(calendarGood, calendarReason),
+    identity: ev(identityGood, calendarGood ? 'source_import_team_identity_mismatch' : calendarReason),
     modelA: { inputs: ev(aInputs, 'a_team_xg_or_stats_missing'), fittedState: ev(fitted, 'a_fitted_state_missing_or_incompatible'),
       calibration: ev(calibrationGood, `a_calibration_${String(calibration?.status ?? 'error').toLowerCase()}`) },
     modelC: { inputs: ev(cInputs, 'c_team_history_xg_or_shots_missing'), fittedBaseline: ev(cReady, cReason), artifact: ev(cReady, cReason),

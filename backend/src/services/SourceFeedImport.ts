@@ -5,7 +5,7 @@ import {
 } from './FootballDataOrgFeed';
 import type { SourceFeedState, SourceFeedStore } from './SourceFeedStore';
 import type { FootballDataCompetition } from './modelAResearchCalendar';
-import { sourceIdentityQuarantined } from './SourceIdentityQuarantine';
+import { reviewedSourceIdentityConsistent } from './ReviewedSourceIdentity';
 
 type Statement = { sql: string; args?: Array<string | number | null> };
 interface ReadClient { execute(statement: Statement | string): Promise<{ rows: any[]; rowsAffected?: number }> }
@@ -85,15 +85,12 @@ const localUtc = (value: string | null): string | null => value === null ? null
   : sourceFeedUtc(value) ?? (/^\d{4}-\d{2}-\d{2}$/.test(value) ? sourceFeedUtc(`${value}T00:00:00Z`) : null);
 const seasons = (season: number) => [`${season}/${season + 1}`, `${season}-${season + 1}`];
 
-export function quarantinedIdentity(mapping: Pick<ReviewedSourceTeamMapping, 'competition' | 'season'>, home: string | undefined, away: string | undefined): boolean {
-  // Incident FL1/2026: understat_team_172 is labelled Troyes, while the
-  // disputed external association was treated as Le Havre. Official Toulouse
-  // programme/results distinguish these clubs (archived in
-  // artifacts/nightly-alternative-readiness/conflicts). Names cannot clear the
-  // quarantine: remove it only after a separate review resolves the identity.
-  // Official programme published 23 October 2026:
-  // https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026
-  return sourceIdentityQuarantined(mapping.competition, mapping.season, home, away);
+function fixtureIdentityConsistent(mapping: ReviewedSourceTeamMapping, fixture: SourceFeedFixture,
+  localNames?: { home: unknown[]; away: unknown[] }): boolean {
+  return reviewedSourceIdentityConsistent(mapping.competition, mapping.season, mapping.teams[fixture.providerHomeTeamId],
+    [fixture.homeTeamName, ...(localNames?.home ?? [])], fixture.providerHomeTeamId)
+    && reviewedSourceIdentityConsistent(mapping.competition, mapping.season, mapping.teams[fixture.providerAwayTeamId],
+      [fixture.awayTeamName, ...(localNames?.away ?? [])], fixture.providerAwayTeamId);
 }
 
 function validateMapping(mapping: ReviewedSourceTeamMapping, asOf: string): void {
@@ -213,16 +210,19 @@ export async function planSourceFeedImport(options: {
       localMatchId: null, action: 'SKIP', reason: null, fields: [] };
     base.entries.push(entry);
     const home = mapping.teams[fixture.providerHomeTeamId], away = mapping.teams[fixture.providerAwayTeamId];
-    if (quarantinedIdentity(mapping, home, away)) {
-      const related = matches.filter((match) => match.home_team_id === home && match.away_team_id === away).map((match) => match.match_id).sort();
-      entry.action = 'BLOCK'; entry.reason = 'source_import_team_identity_quarantined';
+    const candidates = matches.filter((match) => match.home_team_id === home && match.away_team_id === away);
+    if (!fixtureIdentityConsistent(mapping, fixture, {
+      home: [knownTeams.get(home), ...candidates.map((match) => match.home_team_name)],
+      away: [knownTeams.get(away), ...candidates.map((match) => match.away_team_name)],
+    })) {
+      const related = candidates.map((match) => match.match_id).sort();
+      entry.action = 'BLOCK'; entry.reason = 'source_import_team_identity_mismatch';
       entry.localMatchId = related.length === 1 ? related[0] : null;
       entry.relatedLocalMatchIds = related;
       continue;
     }
     if (!home || !away) { entry.reason = 'unmapped_provider_team'; continue; }
     if (!knownTeams.has(home) || !knownTeams.has(away)) { entry.action = 'BLOCK'; entry.reason = 'mapped_local_team_missing'; continue; }
-    const candidates = matches.filter((match) => match.home_team_id === home && match.away_team_id === away);
     if (!candidates.length) {
       entry.reason = 'local_fixture_missing';
       if (!base.allowCreateFixtures) continue;
@@ -308,20 +308,21 @@ export async function applySourceFeedImport(options: {
   const unavailable = sourceReason(currentFeed, plan.mapping, asOf);
   if (unavailable) throw Error(unavailable);
   if (!equal(evidence(currentFeed), plan.source)) throw Error('source_import_source_changed');
-  // Old/prepared plans and subset approvals must not bypass a newly identified
-  // mapping incident. Replanning can retain BLOCK entries and import only
-  // unrelated verified fixtures; it cannot carry mutations for this identity.
+  // Recheck source identities even for previously prepared or subset plans.
+  // A mismatched association can remain blocked, but cannot carry mutations.
   for (const fixture of currentFeed.snapshot!.fixtures) {
-    if (!quarantinedIdentity(plan.mapping, plan.mapping.teams[fixture.providerHomeTeamId], plan.mapping.teams[fixture.providerAwayTeamId])) continue;
+    if (fixtureIdentityConsistent(plan.mapping, fixture)) continue;
     const entries = plan.entries.filter((entry) => entry.providerMatchId === fixture.providerMatchId);
-    if (entries.length !== 1 || entries[0].action !== 'BLOCK' || entries[0].reason !== 'source_import_team_identity_quarantined'
+    if (entries.length !== 1 || entries[0].action !== 'BLOCK' || entries[0].reason !== 'source_import_team_identity_mismatch'
       || entries[0].fields.length || plan.updates.some((update) => update.providerMatchId === fixture.providerMatchId)
-      || plan.creates.some((create) => create.providerMatchId === fixture.providerMatchId)) throw Error('source_import_team_identity_quarantined');
+      || plan.creates.some((create) => create.providerMatchId === fixture.providerMatchId)) throw Error('source_import_team_identity_mismatch');
   }
-  if (plan.updates.some((update) => quarantinedIdentity(plan.mapping, update.before.home_team_id, update.before.away_team_id))
-    || plan.creates.some((create) => quarantinedIdentity(plan.mapping, String(create.after.home_team_id), String(create.after.away_team_id)))) throw Error('source_import_team_identity_quarantined');
   for (const update of plan.updates) {
     const fixture = currentFeed.snapshot!.fixtures.find((row) => row.providerMatchId === update.providerMatchId);
+    if (fixture && !fixtureIdentityConsistent(plan.mapping, fixture, {
+      home: [update.before.home_team_name, update.after.home_team_name],
+      away: [update.before.away_team_name, update.after.away_team_name],
+    })) throw Error('source_import_team_identity_mismatch');
     if (!fixture || !update.fields.length || new Set(update.fields).size !== update.fields.length
       || update.fields.some((field) => !['home_goals', 'away_goals', 'date'].includes(field))
       || COLUMNS.some((column) => column !== 'raw_json' && !update.fields.includes(column as ImportField) && !equal(update.before[column], update.after[column]))
@@ -356,6 +357,11 @@ export async function applySourceFeedImport(options: {
       const candidates = currentMatches.filter((match) => match.home_team_id === update.before.home_team_id && match.away_team_id === update.before.away_team_id);
       if (candidates.length !== 1 || !teams.has(update.before.home_team_id) || !teams.has(update.before.away_team_id)) throw Error('source_import_target_changed');
       const current = candidates[0];
+      const fixture = currentFeed.snapshot!.fixtures.find((row) => row.providerMatchId === update.providerMatchId)!;
+      if (!fixtureIdentityConsistent(plan.mapping, fixture, {
+        home: [teams.get(update.before.home_team_id), current.home_team_name],
+        away: [teams.get(update.before.away_team_id), current.away_team_name],
+      })) throw Error('source_import_team_identity_mismatch');
       if (equal(current, update.after)) { result.alreadyApplied++; continue; }
       if (!equal(current, update.before)) throw Error('source_import_target_changed');
       pending.push(update);
@@ -366,6 +372,9 @@ export async function applySourceFeedImport(options: {
       const fixture = currentFeed.snapshot!.fixtures.find((row) => row.providerMatchId === create.providerMatchId);
       if (!fixture || !['TIMED', 'SCHEDULED'].includes(fixture.status) || !fixture.kickoffUtc || Date.parse(fixture.kickoffUtc) <= Date.parse(asOf)) throw Error('source_import_invalid_creation');
       const home = plan.mapping.teams[fixture.providerHomeTeamId], away = plan.mapping.teams[fixture.providerAwayTeamId];
+      if (!fixtureIdentityConsistent(plan.mapping, fixture, {
+        home: [teams.get(home), create.after.home_team_name], away: [teams.get(away), create.after.away_team_name],
+      })) throw Error('source_import_team_identity_mismatch');
       if (!home || !away || typeof teams.get(home) !== 'string' || !teams.get(home).trim()
         || typeof teams.get(away) !== 'string' || !teams.get(away).trim()) throw Error('source_import_target_changed');
       const expected = futureFixture(currentFeed.snapshot!, fixture, plan.mapping, teams.get(home), teams.get(away), plan.createNullColumns);

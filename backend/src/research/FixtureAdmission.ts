@@ -1,6 +1,5 @@
 import { predictionConfig } from '../config/predictionConfig';
 import { challengerDataQualityReason } from './ChallengerDataQuality';
-import { sourceIdentityQuarantined } from '../services/SourceIdentityQuarantine';
 import { SOURCE_FEED_COOLDOWN_MS } from '../services/FootballDataOrgFeed';
 
 /** A positive attestation must be produced by the component that actually checked the input. */
@@ -58,9 +57,6 @@ export function evaluateFixtureAdmission(input: FixtureAdmissionInput): FixtureA
     || time(calendar.kickoffAt) !== kickoff || !/^[a-f0-9]{64}$/i.test(calendar.mappingHash ?? '')) common.push('calendar_fixture_mismatch');
   // Reuse the collector's documented fifteen-minute freshness policy.
   if (!Number.isFinite(acquired) || !Number.isFinite(now) || acquired > now || now - acquired >= SOURCE_FEED_COOLDOWN_MS) common.push('calendar_stale_or_unavailable');
-  if (fixture.competition === 'Ligue 1' && sourceIdentityQuarantined('FL1', fixture.season, fixture.homeTeamId, fixture.awayTeamId)) {
-    common.push('source_import_team_identity_quarantined');
-  }
   const a = [...common, ...evidence(input.modelA?.inputs, 'a_inputs_unverified'),
     ...evidence(input.modelA?.fittedState, 'a_fitted_state_unverified'), ...evidence(input.modelA?.calibration, 'a_calibration_unverified')];
   const c = [...common, ...evidence(input.modelC?.inputs, 'c_inputs_unverified'),

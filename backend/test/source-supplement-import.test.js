@@ -40,7 +40,7 @@ async function add(client, { id='m1', date='2026-09-01T18:00:00Z', home='Home', 
 }
 const read = async (client, id='m1') => (await client.execute({ sql: 'SELECT * FROM matches WHERE match_id=?', args:[id] })).rows[0];
 
-test('CSV supplement preserves the disputed Ligue 1 identity while importing an unrelated fixture', async () => {
+test('CSV supplement rejects a wrong name for a reviewed identity while importing an unrelated fixture', async () => {
   const client = await fixture();
   try {
     await add(client, { id: 'disputed' });
@@ -53,6 +53,43 @@ test('CSV supplement preserves the disputed Ligue 1 identity while importing an 
     assert.deepEqual(result.updatedMatchIds, ['other']);
     assert.equal((await read(client, 'disputed')).away_shots, null);
     assert.equal((await read(client, 'other')).away_shots, 7);
+  } finally { client.close(); }
+});
+
+for (const [localId, localName, csvName] of [
+  ['understat_team_172', 'Troyes', 'Troyes'],
+  ['understat_team_172', 'Estac Troyes', 'Estac Troyes'],
+  ['le_havre', 'Havre AC', 'Le Havre'],
+  ['understat_team_295', 'Le Mans', 'Le Mans'],
+]) test(`CSV supplement admits reviewed ${localId} with exact date, identity and score`, async () => {
+  const client = await fixture();
+  try {
+    await add(client, { home: localName });
+    await client.execute({ sql: "UPDATE matches SET competition='Ligue 1',home_team_id=?", args: [localId] });
+    const csv = [header, line('01/09/26', csvName).replace(/^I1,/, 'F1,')].join('\n');
+    const result = await importCapturedSupplement({ ...input(client, csv), competition: 'Ligue 1',
+      sourceUrl: 'https://www.football-data.co.uk/mmz4281/2627/F1.csv' });
+    assert.deepEqual(result.updatedMatchIds, ['m1']);
+    const row = await read(client);
+    assert.equal(row.home_team_id, localId); assert.equal(row.home_team_name, localName);
+    assert.equal(row.home_shots, 0); assert.equal(row.away_shots, 7); assert.equal(row.home_xg, 1.25);
+  } finally { client.close(); }
+});
+
+for (const [csvName, date, goals] of [
+  ['Le Havre', '01/09/26', ['1', '0']],
+  ['Troyes', '02/09/26', ['1', '0']],
+  ['Troyes', '01/09/26', ['2', '0']],
+]) test(`resolved Troyes does not bypass CSV identity, date or score matching: ${csvName}/${date}/${goals}`, async () => {
+  const client = await fixture();
+  try {
+    await add(client, { home: 'Troyes' });
+    await client.execute("UPDATE matches SET competition='Ligue 1',home_team_id='understat_team_172'");
+    const csv = [header, line(date, csvName, 'Away', goals).replace(/^I1,/, 'F1,')].join('\n');
+    const result = await importCapturedSupplement({ ...input(client, csv), competition: 'Ligue 1',
+      sourceUrl: 'https://www.football-data.co.uk/mmz4281/2627/F1.csv' });
+    assert.deepEqual(result.updatedMatchIds, []);
+    assert.equal((await read(client)).away_shots, null);
   } finally { client.close(); }
 });
 

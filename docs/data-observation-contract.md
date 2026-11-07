@@ -145,6 +145,30 @@ panchina senza una distinzione compatibile, il campo resta invariato e fuori
 dalle nuove protezioni. Non si ricostruisce il totale sommando categorie
 parziali. Una conferma documentata conserva il valore e aggiunge la protezione.
 
+## Rettifiche del calcio d'inizio
+
+La migrazione additiva `036_match_kickoff_observations.sql` protegge le
+rettifiche ufficiali del calcio d'inizio separatamente dai risultati. Una
+prova può essere inserita solo se corrisponde alla data già presente nella
+partita; rettifica, prova e protezione devono quindi essere nella stessa
+transazione. Prove immutabili e trigger impediscono modifiche o cancellazioni
+della data protetta. Gli upsert ordinari conservano quel kickoff, registrano
+il conflitto e possono aggiornare gli altri campi ammessi. Una data Understat
+discordante non produce nuove attestazioni automatiche del risultato.
+La retention conserva anche le stagioni contenenti queste protezioni.
+
+`backend/scripts/reconcile-official-kickoff.js` applica soltanto la rettifica
+revisionata di Toulouse–Troyes, con manifest `official-kickoff-review-v1`,
+identità esatta, documenti della lega e dei due club, hash e tempi di acquisizione.
+Il piano usa il token Turso in sola lettura e lega anche schema, script e
+helper. Dopo il piano occorre un nuovo backup completo verificato. L'apply
+richiede hash del piano, manifest, host approvati e nuovi file prima/ricevuta,
+come il comando di revisione delle statistiche. Applica solo la 036 se
+completamente assente; uno schema parziale o differente blocca l'operazione.
+Conserva payload originale, osservazioni numeriche e provenienza precedente.
+Non rettifica altre partite o orari futuri provvisori, non modifica previsioni
+già emesse e non attiva un nuovo feed.
+
 ## Aggregazioni e campioni
 
 Le medie pesate squadra hanno un denominatore per campo: una partita con

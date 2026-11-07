@@ -47,11 +47,22 @@ test('stale or mismatched fixture evidence and postponed fixture fail closed', (
   const reasons = evaluateFixtureAdmission(input).common.reasons;
   assert.ok(reasons.includes('calendar_fixture_mismatch')); assert.ok(reasons.includes('fixture_status_not_upcoming'));
 });
-test('quarantined identity affects only its fixtures', () => {
+test('resolved Troyes still requires actual identity attestation and a confirmed date', () => {
   const input = fixture(); input.fixture.homeTeamId = input.calendar.homeTeamId = 'understat_team_172';
-  assert.ok(evaluateFixtureAdmission(input).common.reasons.includes('source_import_team_identity_quarantined'));
-  input.fixture.homeTeamId = input.calendar.homeTeamId = 'other';
   assert.equal(evaluateFixtureAdmission(input).common.eligible, true);
+  input.identity.verified = false;
+  assert.ok(evaluateFixtureAdmission(input).common.reasons.includes('fixture_identity_unverified'));
+  input.identity = ok(); input.fixture.status = 'SCHEDULED';
+  assert.ok(evaluateFixtureAdmission(input).common.reasons.includes('kickoff_not_confirmed'));
+});
+test('resolved source identity cannot remove the independent frozen C target quarantine', () => {
+  const input = fixture();
+  input.fixture.homeTeamId = input.calendar.homeTeamId = 'understat_team_172';
+  input.fixture.matchId = input.calendar.matchId = 'understat_32010';
+  const result = evaluateFixtureAdmission(input);
+  assert.equal(result.common.eligible, true); assert.equal(result.families.A.eligible, true);
+  assert.equal(result.families.C.eligible, false);
+  assert.ok(result.families.C.reasons.includes('challenger_target_data_quality_quarantined'));
 });
 test('future checks cannot attest evidence at forecast time', () => {
   const input = fixture(); input.modelC.artifact.checkedAt = '2026-11-06T12:01:00Z';

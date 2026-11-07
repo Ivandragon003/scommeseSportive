@@ -96,12 +96,22 @@ confrontare i modelli usare una copia di tutti gli input effettivamente letti;
 una proiezione più stretta va dichiarata come tale. Il seed non è un backup
 completo e non viene usato come attestazione di pubblicazione storica.
 
-Il mapping Ligue 1 della stagione 2026 richiede inoltre una revisione:
-`understat_team_172` è denominato Troyes nel locale, mentre il mapping esaminato
-lo associa a Le Havre. L'importatore mette in quarantena le fixture associate
-a quell'ID nello scope interessato, anche durante apply di piani precedenti.
-Non è una correzione dell'identità e non va rimossa cambiando soltanto il nome
-visualizzato. Le altre associazioni richiedono comunque la propria verifica.
+La revisione dei calendari e referti ufficiali distingue Troyes (Understat 172),
+Le Havre (282) e Le Mans (295), senza rinominare o fondere le squadre. Il
+[programma originale del Toulouse](https://www.toulousefc.com/play/blog/2026/10/le-programme-du-week-end-24-et-25-octobre-2026)
+documentava il rinvio di Toulouse–Troyes alla domenica, non un conflitto fra
+Troyes e Le Havre. La precedente quarantena indiscriminata dell'ID 172 è
+sostituita dal controllo circoscritto `ReviewedSourceIdentity`: nello scope
+FL1/2026 verifica ID football-data.org 531/533/535 e nomi attestati, anche in
+apply di piani precedenti e dentro la transazione. Un nome cosmetico non
+autorizza un'associazione errata; il supplemento conserva matching per data,
+squadre e risultato. Le altre identità mantengono i propri controlli.
+
+Le date provvisorie dei calendari non diventano orari confermati. Le rettifiche
+ufficiali del kickoff hanno una protezione separata, descritta nel
+[contratto delle osservazioni](data-observation-contract.md). La risoluzione
+dell'identità non riscrive previsioni passate né rimuove le esclusioni del
+protocollo di addestramento C o dell'holdout.
 
 ## Diritti e conservazione
 
