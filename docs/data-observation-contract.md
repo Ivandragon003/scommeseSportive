@@ -82,8 +82,9 @@ due volte i rossi casa/trasferta.
 
 `team_stats_json.computed.marketSampleSizes` conserva le coperture per campo;
 `venueMarketSampleSizes` distingue casa e trasferta per i tiri consumati dal
-contesto. Non ci sono nuove colonne o migrazioni. Questi metadata si producono
-nei normali percorsi di calcolo, non attestano un ricalcolo già eseguito sul DB.
+contesto. Questi metadata restano nel JSON esistente e si producono nei normali
+percorsi di calcolo; non attestano un ricalcolo già eseguito sul DB. La protezione
+delle osservazioni descritta sopra usa invece la migrazione 034.
 
 I profili giocatore hanno campioni indipendenti per tiri, SOT, cartellini e
 quota di tiri squadra. La quota richiede un totale squadra verificabile;

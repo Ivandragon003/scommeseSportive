@@ -92,7 +92,7 @@ const DevelopmentMetrics = ({ a, c }: { a?: ProbabilityMetrics; c?: ProbabilityM
   <div className="research-table-wrap">
     <table className="fp-table research-compare-table">
       <caption>Metriche sul campione di sviluppo; non costituiscono un nuovo test indipendente</caption>
-      <thead><tr><th>Misura</th><th>A</th><th>C sperimentale</th></tr></thead>
+      <thead><tr><th>Misura</th><th>A</th><th>C</th></tr></thead>
       <tbody>{[
         { label: 'Osservazioni', key: 'n' as const, format: count },
         { label: 'Log loss', key: 'logLoss' as const, format: metric },
